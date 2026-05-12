@@ -41,6 +41,22 @@ registration or release packaging.
 The .iss references `ChirpDir = RepoRoot + "\..\Chirp"`. This is a sibling repo
 at the same directory level as Rook.
 
+## Bundled FFmpeg Payload
+
+Installer Source paths must include `third_party\ffmpeg` and package the
+LGPL-only subprocess payload plus its compliance files:
+
+| File | Notes |
+|------|-------|
+| `third_party/ffmpeg/ffmpeg.exe` | Vetted bundled Windows FFmpeg binary |
+| `third_party/ffmpeg/ffmpeg-provenance.json` | Machine-readable provenance, checksum, version, and configure metadata |
+| `third_party/ffmpeg/ffmpeg-dependencies.json` | Machine-readable dependency manifest for the enabled static build flags |
+| `third_party/ffmpeg/LICENSE.FFmpeg.txt` | License file for the bundled payload |
+| `third_party/ffmpeg/NOTICE.FFmpeg.txt` | Attribution and notice text |
+| `third_party/ffmpeg/SOURCE.FFmpeg.txt` | Corresponding source-compliance information |
+| `third_party/ffmpeg/DEPENDENCIES.FFmpeg.txt` | External dependency source/build compliance notes |
+| `third_party/ffmpeg/README.md` | Installed payload summary |
+
 ## Knowledge Stores
 
 | Dir | Notes |
@@ -118,6 +134,14 @@ $files = @(
   "installer\CLAUDE.md",
   "installer\AGENTS.md",
   "mcp_server\README.md",
+  "third_party\ffmpeg\ffmpeg.exe",
+  "third_party\ffmpeg\ffmpeg-provenance.json",
+  "third_party\ffmpeg\ffmpeg-dependencies.json",
+  "third_party\ffmpeg\LICENSE.FFmpeg.txt",
+  "third_party\ffmpeg\NOTICE.FFmpeg.txt",
+  "third_party\ffmpeg\SOURCE.FFmpeg.txt",
+  "third_party\ffmpeg\DEPENDENCIES.FFmpeg.txt",
+  "third_party\ffmpeg\README.md",
   "docs\ONBOARDING_NEW_CLAUDE.md",
   "docs\CURRENT_ARCHITECTURE.md",
   "docs\AGENT_ARCHITECTURE.md",

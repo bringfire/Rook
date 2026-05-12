@@ -1,4 +1,4 @@
-name: Build and Release
+name: Legacy Build and Release Disabled
 
 permissions:
   contents: write
@@ -12,107 +12,14 @@ on:
         default: 'v1.1.0'
 
 jobs:
-  build:
+  disabled:
     runs-on: windows-latest
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v4
-      with:
-        dotnet-version: '8.0.x'
-
-    - name: Build Rhino Plugin
-      run: dotnet build src/Rook -c Release
-
-    - name: Create Release Package
-      run: |
-        # Create release directory structure
-        mkdir release
-        mkdir release\plugin
-        mkdir release\mcp_server
-        mkdir release\knowledge
-        mkdir release\knowledge\commands
-
-        # Copy plugin files (net48 for Rhino 8)
-        copy src\Rook\bin\Release\net48\*.rhp release\plugin\
-        copy src\Rook\bin\Release\net48\*.dll release\plugin\
-        copy src\Rook\bin\Release\net48\*.rui release\plugin\
-
-        # Copy MCP server source (not venv - installer creates that)
-        xcopy mcp_server\src release\mcp_server\src /E /I
-        copy mcp_server\pyproject.toml release\mcp_server\
-
-        # Copy knowledge directory (learned patterns - essential for operation)
-        copy knowledge\*.json release\knowledge\ 2>nul || echo "No root knowledge JSON"
-        copy knowledge\commands\*.json release\knowledge\commands\
-
-        # Copy GH knowledge (component catalog, sparse index, notes — required for Grasshopper tools)
-        mkdir release\knowledge\gh
-        copy knowledge\gh\*.json release\knowledge\gh\ 2>nul || echo "No GH root JSON"
-        if exist knowledge\gh\notes xcopy knowledge\gh\notes release\knowledge\gh\notes /E /I
-        if exist knowledge\gh\patterns xcopy knowledge\gh\patterns release\knowledge\gh\patterns /E /I
-        if exist knowledge\gh\scripts xcopy knowledge\gh\scripts release\knowledge\gh\scripts /E /I
-
-        # Copy .env.example for DSPy configuration
-        copy mcp_server\.env.example release\mcp_server\
-
-        # Copy skills (canonical location is .claude/skills/), hooks, and plugin config
-        if exist .claude\skills (
-            mkdir release\.claude
-            xcopy .claude\skills release\.claude\skills /E /I
-        )
-        if exist hooks (
-            mkdir release\hooks
-            copy hooks\hooks.json release\hooks\hooks.json
-        )
-        if exist .claude-plugin xcopy .claude-plugin release\.claude-plugin /E /I
-
-        # Copy scripts directory — install.ps1 dot-sources scripts\detect-vs.ps1
-        # at parse time and invokes register-rooknative-suite.ps1, register-companion.ps1,
-        # and write-chat-service-manifest.ps1 during install. Without these, install.ps1
-        # fails before any function executes.
-        if exist scripts xcopy scripts release\scripts /E /I
-
-        # Copy installer scripts + native build helper
-        copy install.ps1 release\
-        copy install.bat release\
-        copy install.sh release\
-        copy build_native.ps1 release\
-
-        # Copy user-facing docs
-        copy README.md release\
-        copy QUICK_START.md release\
-        copy CLAUDE.md release\
-        copy AGENTS.md release\
-        copy AGENT_SETUP.md release\
-        copy BUILDING.md release\
-        copy SECURITY.md release\
-        copy CONTRIBUTING.md release\
-        copy CODE_OF_CONDUCT.md release\
-        copy LICENSE release\ 2>nul || echo "No LICENSE file"
-      shell: cmd
-
-    - name: Create ZIP archive
-      run: |
-        Compress-Archive -Path release\* -DestinationPath Rook-${{ github.event.inputs.version || github.ref_name }}.zip
+    - name: Stop legacy release path
       shell: pwsh
-
-    - name: Upload artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: Rook-Release
-        path: Rook-*.zip
-
-    - name: Create GitHub Release
-      if: startsWith(github.ref, 'refs/tags/')
-      uses: softprops/action-gh-release@v1
-      with:
-        files: Rook-*.zip
-        draft: false
-        prerelease: false
-        generate_release_notes: true
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        throw "This ZIP-based release workflow is retired. Use the local build-release Inno Setup pipeline, which runs scripts\validate-ffmpeg-bundle.ps1 and packages the vetted LGPL FFmpeg payload."

@@ -1,0 +1,8 @@
+Rook includes FFmpeg for generated-video thumbnail and frame sidecar extraction.
+FFmpeg is third-party software. Rook invokes ffmpeg.exe as a subprocess and does
+not link FFmpeg libraries.
+
+Bundled FFmpeg version: n8.1.1-20260512
+Bundled binary provenance: https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-05-12-13-59/ffmpeg-n8.1.1-win64-lgpl-8.1.zip
+License policy for Rook release packaging: LGPL-only; release validation rejects
+GPL-enabled and nonfree FFmpeg builds.

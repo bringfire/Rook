@@ -1,0 +1,26 @@
+Exact corresponding FFmpeg source for the bundled Rook payload:
+
+Version: n8.1.1-20260512
+Binary provenance: https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-05-12-13-59/ffmpeg-n8.1.1-win64-lgpl-8.1.zip
+Build source: BtbN/FFmpeg-Builds autobuild-2026-05-12-13-59 win64 lgpl static release asset; local archive SHA-256 AA2C2A6754AB8AFDA3687839E68D864140D65F06C29F3431C4B4AF6860D96DEC
+Source URL: https://ffmpeg.org/releases/ffmpeg-8.1.1.tar.xz
+Source archive: ffmpeg-8.1.1.tar.xz
+Source SHA-256: B6863ADDE98898F42602017462871B5F6333E65AEC803FDD7A6308639C52EDF3
+
+Configure line:
+--prefix=/ffbuild/prefix --pkg-config-flags=--static --pkg-config=pkg-config --cross-prefix=x86_64-w64-mingw32- --arch=x86_64 --target-os=mingw32 --enable-version3 --disable-debug --disable-w32threads --enable-pthreads --enable-iconv --enable-zlib --enable-libxml2 --enable-libvmaf --enable-fontconfig --enable-libharfbuzz --enable-libfreetype --enable-libfribidi --enable-vulkan --enable-libshaderc --enable-libvorbis --disable-libxcb --disable-xlib --disable-libpulse --enable-opencl --enable-gmp --enable-lzma --enable-liblcevc-dec --enable-amf --enable-libaom --enable-libaribb24 --disable-avisynth --enable-chromaprint --enable-libdav1d --disable-libdavs2 --disable-libdvdread --disable-libdvdnav --disable-libfdk-aac --enable-ffnvcodec --enable-cuda-llvm --disable-frei0r --enable-libgme --enable-libkvazaar --enable-libaribcaption --enable-libass --enable-libbluray --enable-libjxl --enable-libmp3lame --enable-libopus --enable-libplacebo --enable-librist --enable-libssh --enable-libtheora --enable-libvpx --enable-libwebp --enable-libzmq --enable-lv2 --enable-libvpl --enable-openal --enable-liboapv --enable-libopencore-amrnb --enable-libopencore-amrwb --enable-libopenh264 --enable-libopenjpeg --enable-libopenmpt --enable-librav1e --disable-librubberband --enable-schannel --enable-sdl2 --enable-libsnappy --enable-libsoxr --enable-libsrt --enable-libsvtav1 --enable-libtwolame --enable-libuavs3d --disable-libdrm --enable-vaapi --disable-libvidstab --enable-libvvenc --enable-whisper --disable-libx264 --disable-libx265 --disable-libxavs2 --disable-libxvid --enable-libzimg --enable-libzvbi --extra-cflags=-DLIBTWOLAME_STATIC --extra-cxxflags= --extra-libs=-lgomp --extra-ldflags=-pthread --extra-ldexeflags= --cc=x86_64-w64-mingw32-gcc --cxx=x86_64-w64-mingw32-g++ --ar=x86_64-w64-mingw32-gcc-ar --ranlib=x86_64-w64-mingw32-gcc-ranlib --nm=x86_64-w64-mingw32-gcc-nm --extra-version=20260512
+
+Rook uses this payload only as an ffmpeg.exe subprocess for generated-video
+poster, start_frame, and end_frame sidecar extraction.
+
+External dependency source/build provenance:
+
+This is a static BtbN FFmpeg-Builds LGPL binary with external libraries enabled
+by the configure line above. Dependency source/build coverage is recorded in:
+
+ffmpeg-dependencies.json
+DEPENDENCIES.FFmpeg.txt
+
+Those files list the enabled configure flags and tie the dependency build
+scripts/source provenance to the exact BtbN FFmpeg-Builds release and commit
+used for this bundled payload.
