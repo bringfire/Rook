@@ -1,6 +1,6 @@
 # RookVision Video Thumbnail and Frame Sidecar Roadmap
 
-Last updated: 2026-05-11
+Last updated: 2026-05-12
 
 ## Purpose
 
@@ -33,7 +33,7 @@ Done:
 
 Current next slice:
 
-- Produce display-only `poster` sidecars from completed generated-video MP4 artifacts.
+- Produce frame-exact `start_frame` and `end_frame` sidecars from the local MP4 for completed generated videos.
 
 ## Slice Tracker
 
@@ -42,8 +42,8 @@ Current next slice:
 | 0. Sidecar contract substrate | Done | Lock role semantics and role-level picker consumption before producing sidecars. | `poster` stays display-only; `start_frame` / `end_frame` are the only generated-video picker roles; provider fields are not inferred. |
 | 1. Extraction tooling design + spike | Done | Decide whether Rook should use Windows Media Foundation, ffmpeg, or another local decoder path by proving one local MP4 poster extraction. | `ffmpeg.exe` external-process extraction produced a 1920x1080 poster candidate from a local generated-video MP4; no artifacts, providers, installer packaging, or production integrations were changed; findings recommend ffmpeg as the production extraction path candidate. |
 | 2. Sidecar publication semantics | Done | Define how sidecar files are published: append to an existing artifact, atomic multi-blob creation at initial publish, a reconcile/backfill service, or a combination. | Publication is atomic, manifest/index updates are recoverable, role collisions are deterministic, and both new-video production and existing-video backfill have a supported path. |
-| 3. Poster thumbnail producer | Next | Produce display-only `poster` from the local MP4 for completed generated videos. | New completed videos show Gallery thumbnails without eager MP4 preload; video generation still succeeds if poster extraction fails; `poster` remains picker-ineligible. |
-| 4. Frame-exact sidecar producer | Pending | Produce `start_frame` and `end_frame` from the local MP4 for completed generated videos. | Generated videos expose distinct role-level picker choices for frame sidecars; extracted frames are not confused with posters. |
+| 3. Poster thumbnail producer | Done | Produce display-only `poster` from the local MP4 for completed generated videos. | New completed videos show Gallery thumbnails without eager MP4 preload; video generation still succeeds if poster extraction fails; `poster` remains picker-ineligible. |
+| 4. Frame-exact sidecar producer | Next | Produce `start_frame` and `end_frame` from the local MP4 for completed generated videos. | Generated videos expose distinct role-level picker choices for frame sidecars; extracted frames are not confused with posters. |
 | 5. Existing-video reconcile/backfill | Pending | Populate missing sidecars for older video artifacts from local MP4 files when possible. | Reconcile is idempotent, bounded, observable, and does not rerun provider jobs. |
 | 6. Provider/model payload audit | Optional/Parallel | Audit provider/model-specific payloads only for opportunistic display-poster ingestion. | Findings are scoped only to the audited provider/model response shape; no provider payload is used for frame-exact chaining unless a future reviewed contract explicitly proves frame semantics. |
 | 7. Grasshopper NLE integration | Pending | Introduce `VideoClip` / `VideoFrame` token behavior and chaining workflows. | GH NLE components consume artifact ids and explicit roles; no whole-artifact default frame inference is introduced. |
