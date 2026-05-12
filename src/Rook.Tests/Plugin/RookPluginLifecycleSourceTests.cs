@@ -74,6 +74,39 @@ namespace Rook.Tests.Plugin
         }
 
         [Fact]
+        public void StartupVideoSidecarBackfill_IsScheduledAsSeparateNonFatalAsyncStep()
+        {
+            var source = ReadSourceFile("src", "Rook", "RookPlugin.cs");
+            var tryInitializeRuntime = ExtractMethod(source, "private void TryInitializeRuntime()");
+
+            var reconcileBlock = ExtractTryCatchContaining(
+                tryInitializeRuntime,
+                "RookSubsystemRoot.Instance.ReconcileVideoJobsOnce();");
+            Assert.DoesNotContain("BackfillVideoSidecarsOnce", reconcileBlock.TryBody);
+
+            var backfillBlock = ExtractTryCatchContaining(
+                tryInitializeRuntime,
+                "RookSubsystemRoot.Instance.BackfillVideoSidecarsOnce(");
+
+            Assert.Contains(
+                "RookSubsystemRoot.Instance.BackfillVideoSidecarsOnce(",
+                backfillBlock.TryBody);
+            Assert.Contains(
+                "VideoSidecarBackfillStartupOptions",
+                backfillBlock.TryBody);
+            Assert.Contains(
+                "TraceStartup($\"Video sidecar backfill completed:",
+                backfillBlock.TryBody);
+            Assert.Contains(
+                "TraceStartup($\"Video sidecar backfill failed (non-fatal):",
+                backfillBlock.TryBody);
+            Assert.Contains(
+                "TraceStartup($\"Video sidecar backfill scheduling failed (non-fatal):",
+                backfillBlock.CatchBody);
+            Assert.DoesNotContain("throw", backfillBlock.CatchBody);
+        }
+
+        [Fact]
         public void ShutdownBaseCall_RemainsAfterAndOutsideTeardownTryCatchWrappers()
         {
             var source = ReadSourceFile("src", "Rook", "RookPlugin.cs");

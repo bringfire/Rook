@@ -6,6 +6,7 @@ using Rhino;
 using Rhino.PlugIns;
 using Rhino.UI;
 using Rook.InternalBridge;
+using Rook.Services.Vision.Video;
 using Rook.UI.Chat;
 
 namespace Rook
@@ -237,6 +238,26 @@ namespace Rook
                         TraceStartup($"Image job reconcile failed (non-fatal): {ex.GetType().Name}: {ex.Message}");
                         RhinoApp.WriteLine(
                             "Rook: image job reconcile failed at startup; continuing without reconcile. " +
+                            $"Reason: {ex.GetType().Name}.");
+                    }
+
+                    try
+                    {
+                        RookSubsystemRoot.Instance.BackfillVideoSidecarsOnce(
+                            new VideoSidecarBackfillStartupOptions(
+                                Enabled: true,
+                                ServiceOptions: VideoSidecarBackfillOptions.StartupDefault,
+                                OnCompleted: result =>
+                                    TraceStartup($"Video sidecar backfill completed: {result.ToTraceSummary()}"),
+                                OnFailed: ex =>
+                                    TraceStartup($"Video sidecar backfill failed (non-fatal): {ex.GetType().Name}: {ex.Message}")));
+                        TraceStartup("Video sidecar backfill scheduled (or no-op if already scheduled)");
+                    }
+                    catch (Exception ex)
+                    {
+                        TraceStartup($"Video sidecar backfill scheduling failed (non-fatal): {ex.GetType().Name}: {ex.Message}");
+                        RhinoApp.WriteLine(
+                            "Rook: video sidecar backfill could not be scheduled at startup; continuing. " +
                             $"Reason: {ex.GetType().Name}.");
                     }
 
