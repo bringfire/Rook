@@ -35,10 +35,12 @@ Done:
 - `end_frame` is the final decodable primary-video-stream frame.
 - Frame sidecar extraction is best-effort and non-fatal; partial role publication is allowed.
 - Frame sidecars are produced separately from the display-only `poster` path.
+- Startup performs one bounded, asynchronous best-effort pass over older eligible generated-video artifacts to populate missing `poster`, `start_frame`, and `end_frame` sidecars from local MP4 files.
+- The startup backfill pass is capped, observable, non-fatal, guarded once per process once scheduling succeeds, and never reruns provider jobs or infers provider payloads.
 
 Current next slice:
 
-- Populate missing sidecars for older video artifacts from local MP4 files when possible.
+- Choose the next reviewed video-media slice. Open candidates are provider/model payload audit for optional display-poster ingestion, ffmpeg packaging/licensing, or Grasshopper NLE token behavior. Do not combine them.
 
 ## Slice Tracker
 
@@ -49,7 +51,7 @@ Current next slice:
 | 2. Sidecar publication semantics | Done | Define how sidecar files are published: append to an existing artifact, atomic multi-blob creation at initial publish, a reconcile/backfill service, or a combination. | Publication is atomic, manifest/index updates are recoverable, role collisions are deterministic, and both new-video production and existing-video backfill have a supported path. |
 | 3. Poster thumbnail producer | Done | Produce display-only `poster` from the local MP4 for completed generated videos. | New completed videos show Gallery thumbnails without eager MP4 preload; video generation still succeeds if poster extraction fails; `poster` remains picker-ineligible. |
 | 4. Frame-exact sidecar producer | Done | Produce `start_frame` and `end_frame` from the local MP4 for completed generated videos. | Newly completed generated videos attempt both boundary frame sidecars; `start_frame` is decoded frame index 0; `end_frame` is the final decodable frame; partial failure is non-fatal; extracted frames are not confused with posters. |
-| 5. Existing-video reconcile/backfill | Next | Populate missing sidecars for older video artifacts from local MP4 files when possible. | Reconcile is idempotent, bounded, observable, and does not rerun provider jobs. |
+| 5. Existing-video reconcile/backfill | Done | Populate missing sidecars for older video artifacts from local MP4 files when possible. | Startup schedules one bounded asynchronous best-effort pass over eligible generated-video artifacts; only missing roles are attempted; role failures are diagnostic-only; provider jobs are never rerun. |
 | 6. Provider/model payload audit | Optional/Parallel | Audit provider/model-specific payloads only for opportunistic display-poster ingestion. | Findings are scoped only to the audited provider/model response shape; no provider payload is used for frame-exact chaining unless a future reviewed contract explicitly proves frame semantics. |
 | 7. Grasshopper NLE integration | Pending | Introduce `VideoClip` / `VideoFrame` token behavior and chaining workflows. | GH NLE components consume artifact ids and explicit roles; no whole-artifact default frame inference is introduced. |
 
@@ -70,6 +72,8 @@ Current next slice:
 - `docs/superpowers/plans/2026-05-11-local-mp4-extraction-tooling-spike.md`
 - `docs/superpowers/specs/2026-05-12-video-frame-sidecar-producer-design.md`
 - `docs/superpowers/plans/2026-05-12-video-frame-sidecar-producer.md`
+- `docs/superpowers/specs/2026-05-12-video-sidecar-backfill-design.md`
+- `docs/superpowers/plans/2026-05-12-video-sidecar-backfill.md`
 - `docs/rook_docs/video-extraction-spike-findings.md`
 - `docs/rook_docs/video-provider-payload-audit.md`
 - `docs/rook_docs/2026-04-08-sa-banana-integration.md`
