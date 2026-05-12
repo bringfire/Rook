@@ -245,6 +245,67 @@ namespace Rook.Tests.Services.Vision.Video
         }
 
         [Fact]
+        public async Task TryPublishPosterAsync_PreCancelledTokenReturnsTypedResult()
+        {
+            var video = GeneratedVideo();
+            using var cts = new CancellationTokenSource();
+            cts.Cancel();
+            var producer = CreateProducer(ConfigureSuccessfulExtraction(Path.Combine(_root, "tmp", "poster.jpg")));
+
+            var result = await producer.TryPublishPosterAsync(video.Id, cts.Token);
+
+            Assert.Equal(VideoPosterSidecarResultCode.CancelledAfterArtifactCreated, result.Code);
+            Assert.False(result.Success);
+            Assert.DoesNotContain(_store.Get(video.Id)!.Files, f => f.Role == VideoMediaRoles.Poster);
+        }
+
+        [Fact]
+        public async Task TryPublishPosterAsync_PublishFailureReturnsTypedResult()
+        {
+            var video = GeneratedVideo();
+            var publisher = new FakeVideoPosterSidecarPublisher(new VideoSidecarPublishResult(
+                VideoSidecarPublishResultCode.StorageFailed,
+                video.Id,
+                VideoMediaRoles.Poster,
+                Message: "publish failed"));
+            var producer = CreateProducer(
+                ConfigureSuccessfulExtraction(Path.Combine(_root, "tmp", "poster.jpg")),
+                publisher: publisher);
+
+            var result = await producer.TryPublishPosterAsync(video.Id, CancellationToken.None);
+
+            Assert.Equal(VideoPosterSidecarResultCode.PublishFailed, result.Code);
+            Assert.False(result.Success);
+            Assert.Contains("publish failed", result.Message);
+            Assert.Equal(VideoMediaRoles.Poster, publisher.Roles[0]);
+            Assert.Equal("jpg", publisher.FileExtensions[0]);
+            Assert.DoesNotContain(_store.Get(video.Id)!.Files, f => f.Role == VideoMediaRoles.Poster);
+        }
+
+        [Fact]
+        public async Task TryPublishPosterAsync_PublisherExceptionReturnsFinalizerFailed()
+        {
+            var video = GeneratedVideo();
+            var publisher = new FakeVideoPosterSidecarPublisher(new VideoSidecarPublishResult(
+                VideoSidecarPublishResultCode.Succeeded,
+                video.Id,
+                VideoMediaRoles.Poster))
+            {
+                ThrowOnPublish = new InvalidOperationException("publisher broke")
+            };
+            var producer = CreateProducer(
+                ConfigureSuccessfulExtraction(Path.Combine(_root, "tmp", "poster.jpg")),
+                publisher: publisher);
+
+            var result = await producer.TryPublishPosterAsync(video.Id, CancellationToken.None);
+
+            Assert.Equal(VideoPosterSidecarResultCode.FinalizerFailed, result.Code);
+            Assert.False(result.Success);
+            Assert.Contains("publisher broke", result.Message);
+            Assert.DoesNotContain(_store.Get(video.Id)!.Files, f => f.Role == VideoMediaRoles.Poster);
+        }
+
+        [Fact]
         public async Task TryPublishPosterAsync_UnexpectedProducerExceptionReturnsFinalizerFailed()
         {
             var video = GeneratedVideo();
@@ -312,7 +373,8 @@ namespace Rook.Tests.Services.Vision.Video
             string? posterTempPath = null,
             FakeVideoPosterFfmpegResolver? resolver = null,
             FakeVideoPosterTempFiles? tempFiles = null,
-            FakeVideoPosterByteReader? byteReader = null)
+            FakeVideoPosterByteReader? byteReader = null,
+            IVideoPosterSidecarPublisher? publisher = null)
         {
             var ffmpeg = Path.Combine(_root, "tools", "ffmpeg.exe");
             posterTempPath ??= Path.Combine(_root, "tmp", "poster.jpg");
@@ -321,7 +383,8 @@ namespace Rook.Tests.Services.Vision.Video
                 resolver ?? FakeVideoPosterFfmpegResolver.Found(ffmpeg),
                 extractor,
                 tempFiles ?? new FakeVideoPosterTempFiles(posterTempPath),
-                byteReader ?? new FakeVideoPosterByteReader(Bytes("poster jpg bytes")));
+                byteReader ?? new FakeVideoPosterByteReader(Bytes("poster jpg bytes")),
+                publisher);
         }
 
         private FakeVideoPosterExtractor ConfigureSuccessfulExtraction(string outputPath)
@@ -454,6 +517,35 @@ namespace Rook.Tests.Services.Vision.Video
                     throw ThrowOnRead;
 
                 return _bytes;
+            }
+        }
+
+        private sealed class FakeVideoPosterSidecarPublisher : IVideoPosterSidecarPublisher
+        {
+            private readonly VideoSidecarPublishResult _result;
+
+            public FakeVideoPosterSidecarPublisher(VideoSidecarPublishResult result)
+            {
+                _result = result;
+            }
+
+            public List<string> Roles { get; } = new List<string>();
+            public List<string> FileExtensions { get; } = new List<string>();
+
+            public Exception? ThrowOnPublish { get; set; }
+
+            public VideoSidecarPublishResult Publish(
+                Guid artifactId,
+                string role,
+                byte[] content,
+                string fileExtension)
+            {
+                Roles.Add(role);
+                FileExtensions.Add(fileExtension);
+                if (ThrowOnPublish is not null)
+                    throw ThrowOnPublish;
+
+                return _result;
             }
         }
     }

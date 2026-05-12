@@ -97,13 +97,22 @@ namespace Rook.Services.Vision.Video
         byte[] ReadAllBytes(string path);
     }
 
+    internal interface IVideoPosterSidecarPublisher
+    {
+        VideoSidecarPublishResult Publish(
+            Guid artifactId,
+            string role,
+            byte[] content,
+            string fileExtension);
+    }
+
     internal sealed class VideoPosterSidecarProducer : IVideoPosterSidecarProducer
     {
         private static readonly TimeSpan DefaultExtractionTimeout = TimeSpan.FromSeconds(30);
         private const int MaxDiagnosticLength = 2048;
 
         private readonly ArtifactStore _store;
-        private readonly VideoSidecarPublisher _publisher;
+        private readonly IVideoPosterSidecarPublisher _publisher;
         private readonly IVideoPosterFfmpegResolver _ffmpegResolver;
         private readonly IVideoPosterExtractor _extractor;
         private readonly IVideoPosterTempFiles _tempFiles;
@@ -124,10 +133,11 @@ namespace Rook.Services.Vision.Video
             IVideoPosterFfmpegResolver ffmpegResolver,
             IVideoPosterExtractor extractor,
             IVideoPosterTempFiles tempFiles,
-            IVideoPosterByteReader byteReader)
+            IVideoPosterByteReader byteReader,
+            IVideoPosterSidecarPublisher? publisher = null)
         {
             _store = store ?? throw new ArgumentNullException(nameof(store));
-            _publisher = new VideoSidecarPublisher(_store);
+            _publisher = publisher ?? new DefaultVideoPosterSidecarPublisher(_store);
             _ffmpegResolver = ffmpegResolver ?? throw new ArgumentNullException(nameof(ffmpegResolver));
             _extractor = extractor ?? throw new ArgumentNullException(nameof(extractor));
             _tempFiles = tempFiles ?? throw new ArgumentNullException(nameof(tempFiles));
@@ -138,8 +148,6 @@ namespace Rook.Services.Vision.Video
             Guid artifactId,
             CancellationToken cancellationToken)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-
             string videoPath;
             try
             {
@@ -180,6 +188,8 @@ namespace Rook.Services.Vision.Video
                         ex.Message,
                         ex.ToString());
                 }
+
+                cancellationToken.ThrowIfCancellationRequested();
 
                 var extraction = await _extractor.ExtractPosterAsync(
                         ffmpegPath,
@@ -369,5 +379,22 @@ namespace Rook.Services.Vision.Video
     internal sealed class DefaultVideoPosterByteReader : IVideoPosterByteReader
     {
         public byte[] ReadAllBytes(string path) => File.ReadAllBytes(path);
+    }
+
+    internal sealed class DefaultVideoPosterSidecarPublisher : IVideoPosterSidecarPublisher
+    {
+        private readonly VideoSidecarPublisher _publisher;
+
+        public DefaultVideoPosterSidecarPublisher(ArtifactStore store)
+        {
+            _publisher = new VideoSidecarPublisher(store);
+        }
+
+        public VideoSidecarPublishResult Publish(
+            Guid artifactId,
+            string role,
+            byte[] content,
+            string fileExtension)
+            => _publisher.Publish(artifactId, role, content, fileExtension);
     }
 }
