@@ -86,6 +86,203 @@ namespace Rook.Tests.Services.Vision.Video
             Assert.DoesNotContain(_store.Get(video.Id)!.Files, f => f.Role == VideoMediaRoles.EndFrame);
         }
 
+        [Fact]
+        public async Task TryPublishFrameSidecarsAsync_StartSuccessEndExtractionFailurePublishesOnlyStart()
+        {
+            var video = GeneratedVideo();
+            var extractor = new FakeFrameExtractor();
+            extractor.ResultsByKind[VideoFrameSelectorKind.Last] = Failed(
+                VideoFrameSelector.Last,
+                FfmpegVideoFrameExtractionError.ProcessFailed,
+                "end frame failed");
+            var producer = CreateProducer(extractor: extractor);
+
+            var result = await producer.TryPublishFrameSidecarsAsync(video.Id, CancellationToken.None);
+
+            Assert.Equal(VideoFrameSidecarRoleResultCode.Published, result.RoleResults[0].Code);
+            Assert.Equal(VideoFrameSidecarRoleResultCode.ExtractionFailed, result.RoleResults[1].Code);
+            Assert.Equal(new[] { VideoFrameSelectorKind.First, VideoFrameSelectorKind.Last }, extractor.Selectors.Select(s => s.Kind));
+            Assert.Equal("start jpg", File.ReadAllText(_store.GetBlobAbsolutePath(video.Id, VideoMediaRoles.StartFrame)));
+            Assert.DoesNotContain(_store.Get(video.Id)!.Files, f => f.Role == VideoMediaRoles.EndFrame);
+        }
+
+        [Fact]
+        public async Task TryPublishFrameSidecarsAsync_StartFailureEndSuccessPublishesOnlyEnd()
+        {
+            var video = GeneratedVideo();
+            var extractor = new FakeFrameExtractor();
+            extractor.ResultsByKind[VideoFrameSelectorKind.First] = Failed(
+                VideoFrameSelector.First,
+                FfmpegVideoFrameExtractionError.ProcessFailed,
+                "start frame failed");
+            var producer = CreateProducer(extractor: extractor);
+
+            var result = await producer.TryPublishFrameSidecarsAsync(video.Id, CancellationToken.None);
+
+            Assert.Equal(VideoFrameSidecarRoleResultCode.ExtractionFailed, result.RoleResults[0].Code);
+            Assert.Equal(VideoFrameSidecarRoleResultCode.Published, result.RoleResults[1].Code);
+            Assert.DoesNotContain(_store.Get(video.Id)!.Files, f => f.Role == VideoMediaRoles.StartFrame);
+            Assert.Equal("end jpg", File.ReadAllText(_store.GetBlobAbsolutePath(video.Id, VideoMediaRoles.EndFrame)));
+        }
+
+        [Fact]
+        public async Task TryPublishFrameSidecarsAsync_DuplicateStartDoesNotPreventEnd()
+        {
+            var video = GeneratedVideo();
+            var publisher = new FakeFrameSidecarPublisher();
+            publisher.ResultsByRole[VideoMediaRoles.StartFrame] = new VideoSidecarPublishResult(
+                VideoSidecarPublishResultCode.SkippedAlreadyExists,
+                video.Id,
+                VideoMediaRoles.StartFrame,
+                Message: "duplicate");
+            var producer = CreateProducer(publisher: publisher);
+
+            var result = await producer.TryPublishFrameSidecarsAsync(video.Id, CancellationToken.None);
+
+            Assert.Equal(VideoFrameSidecarRoleResultCode.SkippedAlreadyExists, result.RoleResults[0].Code);
+            Assert.Equal(VideoFrameSidecarRoleResultCode.Published, result.RoleResults[1].Code);
+            Assert.Equal(new[] { VideoMediaRoles.StartFrame, VideoMediaRoles.EndFrame }, publisher.Roles);
+        }
+
+        [Fact]
+        public async Task TryPublishFrameSidecarsAsync_TempPathFailureForStartDoesNotPreventEnd()
+        {
+            var video = GeneratedVideo();
+            var tempFiles = new FakeFrameTempFiles(
+                Path.Combine(_root, "tmp", "start.jpg"),
+                Path.Combine(_root, "tmp", "end.jpg"))
+            {
+                ThrowOnCreateStart = new IOException("no start temp"),
+            };
+            var extractor = new FakeFrameExtractor();
+            var producer = CreateProducer(tempFiles: tempFiles, extractor: extractor);
+
+            var result = await producer.TryPublishFrameSidecarsAsync(video.Id, CancellationToken.None);
+
+            Assert.Equal(VideoFrameSidecarRoleResultCode.TempPathUnavailable, result.RoleResults[0].Code);
+            Assert.Equal(VideoFrameSidecarRoleResultCode.Published, result.RoleResults[1].Code);
+            Assert.Equal(new[] { VideoFrameSelectorKind.Last }, extractor.Selectors.Select(s => s.Kind));
+            Assert.Equal(new[] { tempFiles.EndPath }, tempFiles.DeletedPaths);
+            Assert.DoesNotContain(_store.Get(video.Id)!.Files, f => f.Role == VideoMediaRoles.StartFrame);
+            Assert.Equal("end jpg", File.ReadAllText(_store.GetBlobAbsolutePath(video.Id, VideoMediaRoles.EndFrame)));
+        }
+
+        [Fact]
+        public async Task TryPublishFrameSidecarsAsync_ReadFailureForEndDoesNotChangeStart()
+        {
+            var video = GeneratedVideo();
+            var byteReader = new FakeFrameByteReader(new Dictionary<string, byte[]>
+            {
+                [Path.Combine(_root, "tmp", "start.jpg")] = Bytes("start jpg"),
+                [Path.Combine(_root, "tmp", "end.jpg")] = Bytes("end jpg"),
+            })
+            {
+                ThrowOnEndRead = new IOException("end read failed"),
+            };
+            var producer = CreateProducer(byteReader: byteReader);
+
+            var result = await producer.TryPublishFrameSidecarsAsync(video.Id, CancellationToken.None);
+
+            Assert.Equal(VideoFrameSidecarRoleResultCode.Published, result.RoleResults[0].Code);
+            Assert.Equal(VideoFrameSidecarRoleResultCode.FrameReadFailed, result.RoleResults[1].Code);
+            Assert.Equal("start jpg", File.ReadAllText(_store.GetBlobAbsolutePath(video.Id, VideoMediaRoles.StartFrame)));
+            Assert.DoesNotContain(_store.Get(video.Id)!.Files, f => f.Role == VideoMediaRoles.EndFrame);
+        }
+
+        [Fact]
+        public async Task TryPublishFrameSidecarsAsync_StartPublishFailureDoesNotPreventEnd()
+        {
+            var video = GeneratedVideo();
+            var publisher = new FakeFrameSidecarPublisher();
+            publisher.ResultsByRole[VideoMediaRoles.StartFrame] = new VideoSidecarPublishResult(
+                VideoSidecarPublishResultCode.StorageFailed,
+                video.Id,
+                VideoMediaRoles.StartFrame,
+                Message: "start publish failed");
+            var producer = CreateProducer(publisher: publisher);
+
+            var result = await producer.TryPublishFrameSidecarsAsync(video.Id, CancellationToken.None);
+
+            Assert.Equal(VideoFrameSidecarRoleResultCode.PublishFailed, result.RoleResults[0].Code);
+            Assert.Equal(VideoFrameSidecarRoleResultCode.Published, result.RoleResults[1].Code);
+            Assert.Equal(new[] { VideoMediaRoles.StartFrame, VideoMediaRoles.EndFrame }, publisher.Roles);
+        }
+
+        [Fact]
+        public async Task TryPublishFrameSidecarsAsync_GenericExceptionDuringOneRoleBecomesFinalizerFailedAndOtherRoleIsAttempted()
+        {
+            var video = GeneratedVideo();
+            var extractor = new FakeFrameExtractor();
+            extractor.ExceptionsByKind[VideoFrameSelectorKind.First] = new InvalidOperationException("start blew up");
+            var publisher = new FakeFrameSidecarPublisher();
+            var producer = CreateProducer(extractor: extractor, publisher: publisher);
+
+            var result = await producer.TryPublishFrameSidecarsAsync(video.Id, CancellationToken.None);
+
+            Assert.Equal(VideoFrameSidecarRoleResultCode.FinalizerFailed, result.RoleResults[0].Code);
+            Assert.Equal(VideoFrameSidecarRoleResultCode.Published, result.RoleResults[1].Code);
+            Assert.Equal(new[] { VideoFrameSelectorKind.First, VideoFrameSelectorKind.Last }, extractor.Selectors.Select(s => s.Kind));
+            Assert.Equal(new[] { VideoMediaRoles.EndFrame }, publisher.Roles);
+        }
+
+        [Fact]
+        public async Task TryPublishFrameSidecarsAsync_CancellationDuringOneRoleIsPerRoleFailure()
+        {
+            var video = GeneratedVideo();
+            var extractor = new FakeFrameExtractor();
+            extractor.ExceptionsByKind[VideoFrameSelectorKind.First] = new OperationCanceledException("start cancelled");
+            var producer = CreateProducer(extractor: extractor);
+
+            var result = await producer.TryPublishFrameSidecarsAsync(video.Id, CancellationToken.None);
+
+            Assert.Equal(VideoFrameSidecarRoleResultCode.CancelledAfterArtifactCreated, result.RoleResults[0].Code);
+            Assert.Equal(VideoFrameSidecarRoleResultCode.Published, result.RoleResults[1].Code);
+            Assert.DoesNotContain(_store.Get(video.Id)!.Files, f => f.Role == VideoMediaRoles.StartFrame);
+            Assert.Equal("end jpg", File.ReadAllText(_store.GetBlobAbsolutePath(video.Id, VideoMediaRoles.EndFrame)));
+        }
+
+        [Fact]
+        public async Task TryPublishFrameSidecarsAsync_CleanupFailureIsDiagnosticOnly()
+        {
+            var video = GeneratedVideo();
+            var tempFiles = new FakeFrameTempFiles(
+                Path.Combine(_root, "tmp", "start.jpg"),
+                Path.Combine(_root, "tmp", "end.jpg"))
+            {
+                ThrowOnDelete = new IOException("delete failed"),
+            };
+            var producer = CreateProducer(tempFiles: tempFiles);
+
+            var result = await producer.TryPublishFrameSidecarsAsync(video.Id, CancellationToken.None);
+
+            Assert.All(result.RoleResults, r => Assert.Equal(VideoFrameSidecarRoleResultCode.Published, r.Code));
+            Assert.All(result.RoleResults, r => Assert.Contains("Cleanup failed", r.Diagnostic));
+        }
+
+        [Fact]
+        public async Task TryPublishFrameSidecarsAsync_OneFrameVideoStillPublishesDistinctRolesWhenBothExtractionsSucceed()
+        {
+            var video = GeneratedVideo();
+            var tempFiles = new FakeFrameTempFiles(
+                Path.Combine(_root, "tmp", "start.jpg"),
+                Path.Combine(_root, "tmp", "end.jpg"));
+            var byteReader = new FakeFrameByteReader(new Dictionary<string, byte[]>
+            {
+                [tempFiles.StartPath] = Bytes("same visual frame"),
+                [tempFiles.EndPath] = Bytes("same visual frame"),
+            });
+            var producer = CreateProducer(tempFiles: tempFiles, byteReader: byteReader);
+
+            var result = await producer.TryPublishFrameSidecarsAsync(video.Id, CancellationToken.None);
+
+            Assert.All(result.RoleResults, r => Assert.Equal(VideoFrameSidecarRoleResultCode.Published, r.Code));
+            Assert.Equal("same visual frame", File.ReadAllText(_store.GetBlobAbsolutePath(video.Id, VideoMediaRoles.StartFrame)));
+            Assert.Equal("same visual frame", File.ReadAllText(_store.GetBlobAbsolutePath(video.Id, VideoMediaRoles.EndFrame)));
+            Assert.NotEqual(
+                _store.GetBlobAbsolutePath(video.Id, VideoMediaRoles.StartFrame),
+                _store.GetBlobAbsolutePath(video.Id, VideoMediaRoles.EndFrame));
+        }
+
         private VideoFrameSidecarProducer CreateProducer(
             FakeFrameFfmpegResolver? resolver = null,
             FakeFrameExtractor? extractor = null,
@@ -115,6 +312,20 @@ namespace Rook.Tests.Services.Vision.Video
                 new[] { new BlobInput(VideoMediaRoles.Video, Bytes("mp4"), "mp4") });
 
         private static byte[] Bytes(string value) => Encoding.UTF8.GetBytes(value);
+
+        private static FfmpegVideoFrameExtractionResult Failed(
+            VideoFrameSelector selector,
+            FfmpegVideoFrameExtractionError error,
+            string message)
+            => FfmpegVideoFrameExtractionResult.Failed(
+                selector,
+                "ffmpeg command",
+                exitCode: 1,
+                stderr: message,
+                outputPath: "frame.jpg",
+                elapsed: TimeSpan.FromMilliseconds(1),
+                error,
+                message);
 
         private sealed class FakeFrameFfmpegResolver : IVideoFrameFfmpegResolver
         {
@@ -151,6 +362,8 @@ namespace Rook.Tests.Services.Vision.Video
             public List<string> OutputPaths { get; } = new List<string>();
             public Dictionary<VideoFrameSelectorKind, FfmpegVideoFrameExtractionResult> ResultsByKind { get; } =
                 new Dictionary<VideoFrameSelectorKind, FfmpegVideoFrameExtractionResult>();
+            public Dictionary<VideoFrameSelectorKind, Exception> ExceptionsByKind { get; } =
+                new Dictionary<VideoFrameSelectorKind, Exception>();
             public Exception? ThrowOnExtract { get; set; }
 
             public Task<FfmpegVideoFrameExtractionResult> ExtractFrameAsync(
@@ -167,6 +380,8 @@ namespace Rook.Tests.Services.Vision.Video
                 OutputPaths.Add(outputPath);
                 if (ThrowOnExtract is not null)
                     throw ThrowOnExtract;
+                if (ExceptionsByKind.TryGetValue(selector.Kind, out var exception))
+                    throw exception;
 
                 if (ResultsByKind.TryGetValue(selector.Kind, out var result))
                     return Task.FromResult(result);
