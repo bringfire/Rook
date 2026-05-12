@@ -656,7 +656,11 @@ Append these tests and helper members to `VideoPosterSidecarProducerTests`:
         }
 ```
 
-Extend fake classes in the same test file:
+Replace the existing fake members from Task 1 with these expanded versions.
+Do not add duplicate `Resolve`, `ExtractPosterAsync`, `CreatePosterPath`,
+`DeleteIfExists`, or `ReadAllBytes` methods.
+
+Replace `FakeFfmpegResolver.Resolve()` and add `ThrowOnResolve`:
 
 ```csharp
             public Exception? ThrowOnResolve { get; set; }
@@ -668,6 +672,8 @@ Extend fake classes in the same test file:
                 return Result;
             }
 ```
+
+Replace `FakePosterExtractor.ExtractPosterAsync(...)` and add `ThrowOnExtract`:
 
 ```csharp
             public Exception? ThrowOnExtract { get; set; }
@@ -688,6 +694,9 @@ Extend fake classes in the same test file:
                 return Task.FromResult(Result);
             }
 ```
+
+Replace `FakeTempFiles.CreatePosterPath(...)` / `DeleteIfExists(...)` and add
+`ThrowOnCreate` / `ThrowOnDelete`:
 
 ```csharp
             public Exception? ThrowOnCreate { get; set; }
@@ -711,6 +720,8 @@ Extend fake classes in the same test file:
                     File.Delete(path);
             }
 ```
+
+Replace `FakePosterBytes.ReadAllBytes(...)` and add `ThrowOnRead`:
 
 ```csharp
             public Exception? ThrowOnRead { get; set; }
@@ -1000,22 +1011,37 @@ Add these tests near `Queued_job_completes_and_materializes_artifact`:
             var jobId = Guid.NewGuid();
             _idGen.Sequence.Enqueue(jobId);
             ConfigureProviderHappyPath();
+            var posterStarted = new TaskCompletionSource<Guid>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var releasePoster = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var poster = new FakePosterProducer();
-            poster.OnPublishAsync = (artifact, _) =>
+            poster.OnPublishAsync = async (artifact, _) =>
             {
+                posterStarted.SetResult(artifact.Id);
+                await releasePoster.Task.ConfigureAwait(false);
                 new VideoSidecarPublisher(_artifactStore).Publish(
                     artifact.Id,
                     VideoMediaRoles.Poster,
                     new byte[] { 8, 8, 8 },
                     "jpg");
-                return Task.FromResult(VideoPosterSidecarResult.From(
+                return VideoPosterSidecarResult.From(
                     VideoPosterSidecarResultCode.Published,
                     artifact.Id,
-                    "published"));
+                    "published");
             };
 
             var mgr = Manager(posterProducer: poster);
             await mgr.SubmitAsync(T2vRequest(), CancellationToken.None);
+            await WaitForSignalAsync(
+                posterStarted.Task,
+                "Poster producer was not reached.");
+            var artifactId = await posterStarted.Task.ConfigureAwait(false);
+
+            var duringPoster = await mgr.GetStatusAsync(jobId, CancellationToken.None);
+            Assert.NotEqual(VideoJobState.Complete, duringPoster.State);
+            Assert.DoesNotContain(_ledger.AllRecords, r => r.JobId == jobId && r.State == VideoJobState.Complete);
+            Assert.Equal(VideoJobState.Saving, _ledger.AllRecords.Last(r => r.JobId == jobId).State);
+
+            releasePoster.SetResult(true);
             var final = await WaitForTerminalAsync(mgr, jobId);
 
             Assert.Equal(VideoJobState.Complete, final.State);
@@ -1023,6 +1049,7 @@ Add these tests near `Queued_job_completes_and_materializes_artifact`:
             Assert.NotNull(artifact);
             Assert.Contains(artifact!.Files, f => f.Role == VideoMediaRoles.Video);
             Assert.Contains(artifact.Files, f => f.Role == VideoMediaRoles.Poster);
+            Assert.Equal(artifactId, artifact.Id);
             Assert.Equal(new[] { artifact.Id }, poster.ArtifactIds);
             Assert.Equal(VideoJobState.Complete, _ledger.AllRecords.Last(r => r.JobId == jobId).State);
         }
@@ -1051,6 +1078,32 @@ Add these tests near `Queued_job_completes_and_materializes_artifact`:
             Assert.Contains(artifact!.Files, f => f.Role == VideoMediaRoles.Video);
             Assert.DoesNotContain(artifact.Files, f => f.Role == VideoMediaRoles.Poster);
             Assert.DoesNotContain(_ledger.AllRecords, r => r.JobId == jobId && r.State == VideoJobState.Error);
+        }
+
+        [Fact]
+        public async Task Complete_video_still_completes_when_poster_duplicate_is_skipped()
+        {
+            var jobId = Guid.NewGuid();
+            _idGen.Sequence.Enqueue(jobId);
+            ConfigureProviderHappyPath();
+            var poster = new FakePosterProducer
+            {
+                OnPublishAsync = (artifact, _) => Task.FromResult(VideoPosterSidecarResult.From(
+                    VideoPosterSidecarResultCode.SkippedAlreadyExists,
+                    artifact.Id,
+                    "poster already exists"))
+            };
+
+            var mgr = Manager(posterProducer: poster);
+            await mgr.SubmitAsync(T2vRequest(), CancellationToken.None);
+            var final = await WaitForTerminalAsync(mgr, jobId);
+
+            Assert.Equal(VideoJobState.Complete, final.State);
+            Assert.NotNull(final.ResultArtifactId);
+            Assert.Single(poster.ArtifactIds);
+            Assert.Equal(final.ResultArtifactId, poster.ArtifactIds[0]);
+            Assert.DoesNotContain(_ledger.AllRecords, r => r.JobId == jobId && r.State == VideoJobState.Error);
+            Assert.DoesNotContain(_ledger.AllRecords, r => r.JobId == jobId && r.State == VideoJobState.Cancelled);
         }
 
         [Fact]
