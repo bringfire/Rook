@@ -100,6 +100,217 @@ namespace Rook.Tests.Services.Vision.Video
             Assert.DoesNotContain(_store.Get(video.Id)!.Files, f => f.Role == VideoMediaRoles.Poster);
         }
 
+        [Fact]
+        public async Task TryPublishPosterAsync_DuplicatePosterIsIdempotentSkip()
+        {
+            var video = GeneratedVideo();
+            var publisher = new VideoSidecarPublisher(_store);
+            var prepublish = publisher.Publish(video.Id, VideoMediaRoles.Poster, Bytes("existing poster"), "jpg");
+            var posterTempPath = Path.Combine(_root, "tmp", "poster.jpg");
+            var producer = CreateProducer(ConfigureSuccessfulExtraction(posterTempPath));
+
+            var result = await producer.TryPublishPosterAsync(video.Id, CancellationToken.None);
+
+            Assert.Equal(VideoPosterSidecarResultCode.SkippedAlreadyExists, result.Code);
+            Assert.True(result.Success);
+            Assert.Equal(VideoSidecarPublishResultCode.Succeeded, prepublish.Code);
+            Assert.Single(_store.Get(video.Id)!.Files, f => f.Role == VideoMediaRoles.Poster);
+        }
+
+        public static IEnumerable<object[]> ExtractionFailures()
+        {
+            yield return new object[]
+            {
+                FfmpegPosterExtractionError.TimedOut,
+                VideoPosterSidecarResultCode.TimedOut
+            };
+            yield return new object[]
+            {
+                FfmpegPosterExtractionError.InvalidOutputImage,
+                VideoPosterSidecarResultCode.InvalidOutput
+            };
+            yield return new object[]
+            {
+                FfmpegPosterExtractionError.ProcessFailed,
+                VideoPosterSidecarResultCode.ExtractionFailed
+            };
+            yield return new object[]
+            {
+                FfmpegPosterExtractionError.OutputMissing,
+                VideoPosterSidecarResultCode.ExtractionFailed
+            };
+        }
+
+        [Theory]
+        [MemberData(nameof(ExtractionFailures))]
+        public async Task TryPublishPosterAsync_ExtractionFailureMapsToTypedResult(
+            object extractionErrorValue,
+            object expectedCodeValue)
+        {
+            var extractionError = (FfmpegPosterExtractionError)extractionErrorValue;
+            var expectedCode = (VideoPosterSidecarResultCode)expectedCodeValue;
+            var video = GeneratedVideo();
+            var posterTempPath = Path.Combine(_root, "tmp", "poster.jpg");
+            var stderr = new string('x', 2050);
+            var extractor = new FakeVideoPosterExtractor(FfmpegPosterExtractionResult.Failed(
+                "ffmpeg command",
+                exitCode: 1,
+                stderr: stderr,
+                outputPath: posterTempPath,
+                elapsed: TimeSpan.FromMilliseconds(10),
+                errorCode: extractionError,
+                message: "extraction failed"));
+            var producer = CreateProducer(extractor, posterTempPath: posterTempPath);
+
+            var result = await producer.TryPublishPosterAsync(video.Id, CancellationToken.None);
+
+            Assert.Equal(expectedCode, result.Code);
+            Assert.False(result.Success);
+            Assert.NotNull(result.Diagnostic);
+            Assert.True(result.Diagnostic!.Length <= 2048);
+            Assert.DoesNotContain(_store.Get(video.Id)!.Files, f => f.Role == VideoMediaRoles.Poster);
+        }
+
+        [Fact]
+        public async Task TryPublishPosterAsync_VideoBlobResolutionFailureReturnsTypedResult()
+        {
+            var artifact = _store.Create(
+                "generated_video",
+                new[] { new BlobInput("metadata", Bytes("not video"), "txt") });
+            var producer = CreateProducer(ConfigureSuccessfulExtraction(Path.Combine(_root, "tmp", "poster.jpg")));
+
+            var result = await producer.TryPublishPosterAsync(artifact.Id, CancellationToken.None);
+
+            Assert.Equal(VideoPosterSidecarResultCode.VideoBlobUnavailable, result.Code);
+            Assert.False(result.Success);
+            Assert.DoesNotContain(_store.Get(artifact.Id)!.Files, f => f.Role == VideoMediaRoles.Poster);
+        }
+
+        [Fact]
+        public async Task TryPublishPosterAsync_TempPathFailureReturnsTypedResult()
+        {
+            var video = GeneratedVideo();
+            var tempFiles = new FakeVideoPosterTempFiles(Path.Combine(_root, "tmp", "poster.jpg"))
+            {
+                ThrowOnCreate = new IOException("temp path unavailable")
+            };
+            var producer = CreateProducer(
+                ConfigureSuccessfulExtraction(Path.Combine(_root, "tmp", "poster.jpg")),
+                tempFiles: tempFiles);
+
+            var result = await producer.TryPublishPosterAsync(video.Id, CancellationToken.None);
+
+            Assert.Equal(VideoPosterSidecarResultCode.TempPathUnavailable, result.Code);
+            Assert.False(result.Success);
+            Assert.Contains("temp path unavailable", result.Message);
+            Assert.DoesNotContain(_store.Get(video.Id)!.Files, f => f.Role == VideoMediaRoles.Poster);
+        }
+
+        [Fact]
+        public async Task TryPublishPosterAsync_PosterReadFailureReturnsTypedResult()
+        {
+            var video = GeneratedVideo();
+            var posterTempPath = Path.Combine(_root, "tmp", "poster.jpg");
+            var byteReader = new FakeVideoPosterByteReader(Bytes("unused"))
+            {
+                ThrowOnRead = new IOException("poster read failed")
+            };
+            var producer = CreateProducer(
+                ConfigureSuccessfulExtraction(posterTempPath),
+                posterTempPath: posterTempPath,
+                byteReader: byteReader);
+
+            var result = await producer.TryPublishPosterAsync(video.Id, CancellationToken.None);
+
+            Assert.Equal(VideoPosterSidecarResultCode.PosterReadFailed, result.Code);
+            Assert.False(result.Success);
+            Assert.Contains("poster read failed", result.Message);
+            Assert.DoesNotContain(_store.Get(video.Id)!.Files, f => f.Role == VideoMediaRoles.Poster);
+        }
+
+        [Fact]
+        public async Task TryPublishPosterAsync_CancellationAfterArtifactCreatedReturnsTypedResult()
+        {
+            var video = GeneratedVideo();
+            var extractor = ConfigureSuccessfulExtraction(Path.Combine(_root, "tmp", "poster.jpg"));
+            extractor.ThrowOnExtract = new OperationCanceledException("cancel after artifact");
+            var producer = CreateProducer(extractor);
+
+            var result = await producer.TryPublishPosterAsync(video.Id, CancellationToken.None);
+
+            Assert.Equal(VideoPosterSidecarResultCode.CancelledAfterArtifactCreated, result.Code);
+            Assert.False(result.Success);
+            Assert.Contains("cancel after artifact", result.Message);
+            Assert.DoesNotContain(_store.Get(video.Id)!.Files, f => f.Role == VideoMediaRoles.Poster);
+        }
+
+        [Fact]
+        public async Task TryPublishPosterAsync_UnexpectedProducerExceptionReturnsFinalizerFailed()
+        {
+            var video = GeneratedVideo();
+            var resolver = FakeVideoPosterFfmpegResolver.Found(Path.Combine(_root, "tools", "ffmpeg.exe"));
+            resolver.ThrowOnResolve = new InvalidOperationException("resolver broke");
+            var producer = CreateProducer(
+                ConfigureSuccessfulExtraction(Path.Combine(_root, "tmp", "poster.jpg")),
+                resolver: resolver);
+
+            var result = await producer.TryPublishPosterAsync(video.Id, CancellationToken.None);
+
+            Assert.Equal(VideoPosterSidecarResultCode.FinalizerFailed, result.Code);
+            Assert.False(result.Success);
+            Assert.Contains("resolver broke", result.Message);
+            Assert.DoesNotContain(_store.Get(video.Id)!.Files, f => f.Role == VideoMediaRoles.Poster);
+        }
+
+        [Fact]
+        public async Task TryPublishPosterAsync_CleanupFailureDoesNotOverridePublishedResult()
+        {
+            var video = GeneratedVideo();
+            var posterTempPath = Path.Combine(_root, "tmp", "poster.jpg");
+            var tempFiles = new FakeVideoPosterTempFiles(posterTempPath)
+            {
+                ThrowOnDelete = new IOException("cleanup failed")
+            };
+            var producer = CreateProducer(
+                ConfigureSuccessfulExtraction(posterTempPath),
+                posterTempPath: posterTempPath,
+                tempFiles: tempFiles);
+
+            var result = await producer.TryPublishPosterAsync(video.Id, CancellationToken.None);
+
+            Assert.Equal(VideoPosterSidecarResultCode.Published, result.Code);
+            Assert.True(result.Success);
+            Assert.Contains("cleanup failed", result.Diagnostic);
+            Assert.Single(_store.Get(video.Id)!.Files, f => f.Role == VideoMediaRoles.Poster);
+        }
+
+        private VideoPosterSidecarProducer CreateProducer(
+            FakeVideoPosterExtractor extractor,
+            string? posterTempPath = null,
+            FakeVideoPosterFfmpegResolver? resolver = null,
+            FakeVideoPosterTempFiles? tempFiles = null,
+            FakeVideoPosterByteReader? byteReader = null)
+        {
+            var ffmpeg = Path.Combine(_root, "tools", "ffmpeg.exe");
+            posterTempPath ??= Path.Combine(_root, "tmp", "poster.jpg");
+            return new VideoPosterSidecarProducer(
+                _store,
+                resolver ?? FakeVideoPosterFfmpegResolver.Found(ffmpeg),
+                extractor,
+                tempFiles ?? new FakeVideoPosterTempFiles(posterTempPath),
+                byteReader ?? new FakeVideoPosterByteReader(Bytes("poster jpg bytes")));
+        }
+
+        private FakeVideoPosterExtractor ConfigureSuccessfulExtraction(string outputPath)
+            => new FakeVideoPosterExtractor(FfmpegPosterExtractionResult.Completed(
+                "ffmpeg command",
+                exitCode: 0,
+                stderr: string.Empty,
+                outputPath: outputPath,
+                width: 80,
+                height: 40,
+                elapsed: TimeSpan.FromMilliseconds(25)));
+
         private Artifact GeneratedVideo()
             => _store.Create(
                 "generated_video",
@@ -124,7 +335,15 @@ namespace Rook.Tests.Services.Vision.Video
                 => new FakeVideoPosterFfmpegResolver(
                     FfmpegBinaryResolution.Failed(FfmpegBinaryResolutionError.NotFound, message));
 
-            public FfmpegBinaryResolution Resolve() => _resolution;
+            public Exception? ThrowOnResolve { get; set; }
+
+            public FfmpegBinaryResolution Resolve()
+            {
+                if (ThrowOnResolve is not null)
+                    throw ThrowOnResolve;
+
+                return _resolution;
+            }
         }
 
         private sealed class FakeVideoPosterExtractor : IVideoPosterExtractor
@@ -140,6 +359,8 @@ namespace Rook.Tests.Services.Vision.Video
             public List<string> InputPaths { get; } = new List<string>();
             public List<string> OutputPaths { get; } = new List<string>();
 
+            public Exception? ThrowOnExtract { get; set; }
+
             public Task<FfmpegPosterExtractionResult> ExtractPosterAsync(
                 string ffmpegPath,
                 string inputPath,
@@ -150,6 +371,9 @@ namespace Rook.Tests.Services.Vision.Video
                 FfmpegPaths.Add(ffmpegPath);
                 InputPaths.Add(inputPath);
                 OutputPaths.Add(outputPath);
+                if (ThrowOnExtract is not null)
+                    throw ThrowOnExtract;
+
                 return Task.FromResult(_result);
             }
         }
@@ -165,9 +389,26 @@ namespace Rook.Tests.Services.Vision.Video
 
             public List<string> DeletedPaths { get; } = new List<string>();
 
-            public string CreatePosterTempPath(Guid artifactId) => _path;
+            public Exception? ThrowOnCreate { get; set; }
+            public Exception? ThrowOnDelete { get; set; }
 
-            public void TryDelete(string path) => DeletedPaths.Add(path);
+            public string CreatePosterTempPath(Guid artifactId)
+            {
+                if (ThrowOnCreate is not null)
+                    throw ThrowOnCreate;
+
+                return _path;
+            }
+
+            public void TryDelete(string path)
+            {
+                DeletedPaths.Add(path);
+                if (ThrowOnDelete is not null)
+                    throw ThrowOnDelete;
+
+                if (File.Exists(path))
+                    File.Delete(path);
+            }
         }
 
         private sealed class FakeVideoPosterByteReader : IVideoPosterByteReader
@@ -181,9 +422,14 @@ namespace Rook.Tests.Services.Vision.Video
 
             public List<string> Paths { get; } = new List<string>();
 
+            public Exception? ThrowOnRead { get; set; }
+
             public byte[] ReadAllBytes(string path)
             {
                 Paths.Add(path);
+                if (ThrowOnRead is not null)
+                    throw ThrowOnRead;
+
                 return _bytes;
             }
         }

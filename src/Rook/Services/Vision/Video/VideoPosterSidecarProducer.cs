@@ -100,6 +100,7 @@ namespace Rook.Services.Vision.Video
     internal sealed class VideoPosterSidecarProducer : IVideoPosterSidecarProducer
     {
         private static readonly TimeSpan DefaultExtractionTimeout = TimeSpan.FromSeconds(30);
+        private const int MaxDiagnosticLength = 2048;
 
         private readonly ArtifactStore _store;
         private readonly VideoSidecarPublisher _publisher;
@@ -153,33 +154,33 @@ namespace Rook.Services.Vision.Video
                     ex.ToString());
             }
 
-            var ffmpeg = _ffmpegResolver.Resolve();
-            if (!ffmpeg.Success || string.IsNullOrWhiteSpace(ffmpeg.Path))
-            {
-                return VideoPosterSidecarResult.From(
-                    VideoPosterSidecarResultCode.SkippedFfmpegMissing,
-                    artifactId,
-                    ffmpeg.Message,
-                    ffmpeg.ErrorCode?.ToString());
-            }
-
-            var ffmpegPath = ffmpeg.Path!;
-            string posterPath;
+            string? posterPath = null;
             try
             {
-                posterPath = _tempFiles.CreatePosterTempPath(artifactId);
-            }
-            catch (Exception ex)
-            {
-                return VideoPosterSidecarResult.From(
-                    VideoPosterSidecarResultCode.TempPathUnavailable,
-                    artifactId,
-                    ex.Message,
-                    ex.ToString());
-            }
+                var ffmpeg = _ffmpegResolver.Resolve();
+                if (!ffmpeg.Success || string.IsNullOrWhiteSpace(ffmpeg.Path))
+                {
+                    return VideoPosterSidecarResult.From(
+                        VideoPosterSidecarResultCode.SkippedFfmpegMissing,
+                        artifactId,
+                        ffmpeg.Message,
+                        ffmpeg.ErrorCode?.ToString());
+                }
 
-            try
-            {
+                var ffmpegPath = ffmpeg.Path!;
+                try
+                {
+                    posterPath = _tempFiles.CreatePosterTempPath(artifactId);
+                }
+                catch (Exception ex)
+                {
+                    return VideoPosterSidecarResult.From(
+                        VideoPosterSidecarResultCode.TempPathUnavailable,
+                        artifactId,
+                        ex.Message,
+                        ex.ToString());
+                }
+
                 var extraction = await _extractor.ExtractPosterAsync(
                         ffmpegPath,
                         videoPath,
@@ -190,15 +191,15 @@ namespace Rook.Services.Vision.Video
 
                 if (!extraction.Success)
                 {
-                    var code = extraction.ErrorCode == FfmpegPosterExtractionError.TimedOut
-                        ? VideoPosterSidecarResultCode.TimedOut
-                        : VideoPosterSidecarResultCode.ExtractionFailed;
+                    var code = MapExtractionFailure(extraction.ErrorCode);
 
-                    return VideoPosterSidecarResult.From(
-                        code,
-                        artifactId,
-                        extraction.Message,
-                        extraction.Stderr);
+                    return CleanupAndReturn(
+                        posterPath,
+                        VideoPosterSidecarResult.From(
+                            code,
+                            artifactId,
+                            extraction.Message,
+                            extraction.Stderr));
                 }
 
                 byte[] posterBytes;
@@ -206,13 +207,15 @@ namespace Rook.Services.Vision.Video
                 {
                     posterBytes = _byteReader.ReadAllBytes(posterPath);
                 }
-                catch (Exception ex)
+                catch (Exception ex) when (!(ex is OperationCanceledException))
                 {
-                    return VideoPosterSidecarResult.From(
-                        VideoPosterSidecarResultCode.PosterReadFailed,
-                        artifactId,
-                        ex.Message,
-                        ex.ToString());
+                    return CleanupAndReturn(
+                        posterPath,
+                        VideoPosterSidecarResult.From(
+                            VideoPosterSidecarResultCode.PosterReadFailed,
+                            artifactId,
+                            ex.Message,
+                            ex.ToString()));
                 }
 
                 var publish = _publisher.Publish(
@@ -221,7 +224,7 @@ namespace Rook.Services.Vision.Video
                     posterBytes,
                     "jpg");
 
-                return publish.Code switch
+                var result = publish.Code switch
                 {
                     VideoSidecarPublishResultCode.Succeeded =>
                         VideoPosterSidecarResult.From(
@@ -242,12 +245,86 @@ namespace Rook.Services.Vision.Video
                             publish.Message,
                             publish.Code.ToString()),
                 };
+
+                return CleanupAndReturn(posterPath, result);
             }
-            finally
+            catch (OperationCanceledException ex)
             {
-                _tempFiles.TryDelete(posterPath);
+                return CleanupAndReturn(
+                    posterPath,
+                    VideoPosterSidecarResult.From(
+                        VideoPosterSidecarResultCode.CancelledAfterArtifactCreated,
+                        artifactId,
+                        ex.Message,
+                        ex.ToString()));
+            }
+            catch (Exception ex)
+            {
+                return CleanupAndReturn(
+                    posterPath,
+                    VideoPosterSidecarResult.From(
+                        VideoPosterSidecarResultCode.FinalizerFailed,
+                        artifactId,
+                        ex.Message,
+                        ex.ToString()));
             }
         }
+
+        private VideoPosterSidecarResult CleanupAndReturn(
+            string? tempPath,
+            VideoPosterSidecarResult result)
+        {
+            if (tempPath is null || tempPath.Trim().Length == 0)
+                return result;
+
+            string path = tempPath;
+            try
+            {
+                _tempFiles.TryDelete(path);
+                return result;
+            }
+            catch (Exception ex)
+            {
+                return VideoPosterSidecarResult.From(
+                    result.Code,
+                    result.ArtifactId,
+                    result.Message,
+                    AppendDiagnostic(result.Diagnostic, $"Cleanup failed: {ex}"));
+            }
+        }
+
+        private static VideoPosterSidecarResultCode MapExtractionFailure(
+            FfmpegPosterExtractionError? error)
+            => error switch
+            {
+                FfmpegPosterExtractionError.TimedOut => VideoPosterSidecarResultCode.TimedOut,
+                FfmpegPosterExtractionError.InvalidOutputImage => VideoPosterSidecarResultCode.InvalidOutput,
+                _ => VideoPosterSidecarResultCode.ExtractionFailed,
+            };
+
+        private static string AppendDiagnostic(string? diagnostic, string cleanupDiagnostic)
+        {
+            if (diagnostic is null || diagnostic.Trim().Length == 0)
+                return Truncate(cleanupDiagnostic);
+
+            string primaryDiagnostic = diagnostic;
+            var separator = Environment.NewLine;
+            var combined = primaryDiagnostic + separator + cleanupDiagnostic;
+            if (combined.Length <= MaxDiagnosticLength)
+                return combined;
+
+            var cleanupSuffix = separator + cleanupDiagnostic;
+            if (cleanupSuffix.Length >= MaxDiagnosticLength)
+                return Truncate(cleanupSuffix);
+
+            var primaryLength = MaxDiagnosticLength - cleanupSuffix.Length;
+            return primaryDiagnostic.Substring(0, primaryLength) + cleanupSuffix;
+        }
+
+        private static string Truncate(string value)
+            => value.Length <= MaxDiagnosticLength
+                ? value
+                : value.Substring(0, MaxDiagnosticLength);
     }
 
     internal sealed class DefaultVideoPosterFfmpegResolver : IVideoPosterFfmpegResolver
