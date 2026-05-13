@@ -348,8 +348,8 @@ namespace Rook.Tests.Handlers
                   "aspect_ratio": "16:9",
                   "prompt": "x",
                   "reference_frames": [
-                    { "kind": "artifact_id", "artifact_id": "{{refA:D}}", "role": "reference" },
-                    { "kind": "artifact_id", "artifact_id": "{{refB:D}}", "role": "reference" }
+                    { "kind": "artifact_id", "artifact_id": "{{refA:D}}", "role": "image" },
+                    { "kind": "artifact_id", "artifact_id": "{{refB:D}}", "role": "start_frame" }
                   ],
                   "options": { "person_generation": "allow_all" },
                   "number_of_videos": 1
@@ -363,6 +363,42 @@ namespace Rook.Tests.Handlers
             Assert.Equal(2, captured!.ReferenceFrames!.Count);
             Assert.Equal(refA, captured.ReferenceFrames[0].ArtifactId);
             Assert.Equal(refB, captured.ReferenceFrames[1].ArtifactId);
+        }
+
+        [Fact]
+        public async Task Submit_StartFrameVideoRole_RejectedBeforeManager()
+        {
+            var stub = new StubManager
+            {
+                SubmitImpl = (_, _) =>
+                    throw new System.InvalidOperationException("Manager should not receive invalid frame role."),
+            };
+            var handler = NewHandler(stub);
+
+            var body = $$"""
+                {
+                  "op": "submit_video_job",
+                  "model": "veo-3.1-lite-generate-preview",
+                  "mode": "i2v",
+                  "duration_seconds": 8,
+                  "resolution": "720p",
+                  "aspect_ratio": "16:9",
+                  "prompt": "x",
+                  "start_frame": {
+                    "kind": "artifact_id",
+                    "artifact_id": "{{SampleArtifactId:D}}",
+                    "role": "video"
+                  },
+                  "options": { "person_generation": "allow_all" },
+                  "number_of_videos": 1
+                }
+                """;
+
+            var resp = await handler.DispatchAsync(body);
+
+            AssertFail(resp, VideoErrorCode.InvalidRequest, expectedHttp: 400);
+            AssertFieldEquals(resp, "start_frame.role");
+            AssertMessageContains(resp, "image, start_frame, end_frame");
         }
 
         [Fact]

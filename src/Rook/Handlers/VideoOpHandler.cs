@@ -651,15 +651,28 @@ namespace Rook.Handlers
 
             try
             {
+                var resolvedRole = role ?? VideoMediaRoles.Image;
+                if (!IsVideoFrameRole(resolvedRole))
+                {
+                    return (null, BadField(
+                        $"{fieldPath}.role",
+                        $"'{fieldPath}.role' must be one of: image, start_frame, end_frame."));
+                }
+
                 return (MediaRef.ForArtifact(
                     artifactId,
-                    role ?? VideoMediaRoles.Image), null);
+                    resolvedRole), null);
             }
             catch (ArgumentException ex)
             {
                 return (null, BadField($"{fieldPath}.role", ex.Message));
             }
         }
+
+        private static bool IsVideoFrameRole(string role)
+            => role == VideoMediaRoles.Image
+                || role == VideoMediaRoles.StartFrame
+                || role == VideoMediaRoles.EndFrame;
 
         private static bool TryParseMode(string s, out VideoMode mode)
         {
