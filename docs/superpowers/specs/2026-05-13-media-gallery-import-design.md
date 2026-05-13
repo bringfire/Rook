@@ -123,8 +123,10 @@ current artifact store guarantees:
 - remove the temp directory on failure;
 - never publish an incomplete import artifact.
 
-Large source media is copied or moved as files into the artifact temp directory.
-It is not read fully into managed memory.
+Large source media is copied as files into the artifact temp directory. It is
+not read fully into managed memory, and the user's original local file is never
+moved or deleted by import. Only Rook-controlled temporary sidecar files may be
+moved within Rook staging directories.
 
 Blob filenames remain role-derived:
 
@@ -272,6 +274,11 @@ Studio/image source behavior:
 - New UI source selection uses artifact refs.
 - A convenience `Load Image` flow may remain, but internally it imports first
   and then selects the resulting `imported_image`.
+- Image generation needs explicit artifact-ref request support, either through
+  new image-side source/reference fields or by extending its parser to accept
+  the same artifact-ref shape used by video. The UI migrates to those fields and
+  stops sending `input_image_path` / `reference_image_paths` for newly selected
+  Gallery media.
 - Direct local path generation, if still needed by backend compatibility code,
   is non-UI legacy. New RookVision UI paths must not form generation requests
   from arbitrary local paths.
