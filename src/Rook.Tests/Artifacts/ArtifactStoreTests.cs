@@ -214,6 +214,31 @@ namespace Rook.Tests.Artifacts
         }
 
         [Fact]
+        public void CreateFromFiles_RejectsCopiedBlobOverMaxBytes_AndPublishesNothing()
+        {
+            var sourceDir = Path.Combine(_root, "sources");
+            Directory.CreateDirectory(sourceDir);
+            var imageSource = Path.Combine(sourceDir, "large.png");
+            File.WriteAllText(imageSource, "too-large");
+
+            var ex = Assert.Throws<ArtifactBlobSizeException>(() => _store.CreateFromFiles(
+                "imported_image",
+                new[]
+                {
+                    new BlobFileInput(
+                        "image",
+                        imageSource,
+                        "png",
+                        MaxBytes: 4),
+                }));
+
+            Assert.Equal("image", ex.Role);
+            Assert.Equal(4, ex.MaxBytes);
+            Assert.True(ex.ActualBytes > ex.MaxBytes);
+            Assert.Empty(_store.List());
+        }
+
+        [Fact]
         public void Create_WithoutOptionals_WritesEmptyContainers()
         {
             var created = _store.Create("k", OneBlob());

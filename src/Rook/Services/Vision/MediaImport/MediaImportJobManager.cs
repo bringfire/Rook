@@ -9,9 +9,13 @@ namespace Rook.Services.Vision.MediaImport
 {
     public sealed class MediaImportJobManager : IDisposable
     {
+        private static readonly TimeSpan DefaultDisposeWaitTimeout =
+            TimeSpan.FromSeconds(2);
+
         private readonly object _gate = new();
         private readonly IMediaImportProcessor _processor;
         private readonly int _recentJobLimit;
+        private readonly TimeSpan _disposeWaitTimeout;
         private readonly List<ImportJob> _jobs = new();
         private readonly List<Task> _workers = new();
         private readonly CancellationTokenSource _shutdown = new();
@@ -21,10 +25,18 @@ namespace Rook.Services.Vision.MediaImport
 
         public MediaImportJobManager(
             IMediaImportProcessor processor,
-            int recentJobLimit = MediaImportConstants.RecentJobLimit)
+            int recentJobLimit = MediaImportConstants.RecentJobLimit,
+            TimeSpan? disposeWaitTimeout = null)
         {
             _processor = processor ?? throw new ArgumentNullException(nameof(processor));
             _recentJobLimit = Math.Max(0, recentJobLimit);
+            _disposeWaitTimeout = disposeWaitTimeout ?? DefaultDisposeWaitTimeout;
+            if (_disposeWaitTimeout <= TimeSpan.Zero)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(disposeWaitTimeout),
+                    "Dispose wait timeout must be positive.");
+            }
         }
 
         public Task<MediaImportStartResult> StartAsync(IEnumerable<string>? paths, CancellationToken ct)
@@ -100,16 +112,20 @@ namespace Rook.Services.Vision.MediaImport
                 workers = _workers.ToArray();
             }
 
+            var workersCompleted = true;
             try
             {
-                Task.WaitAll(workers);
+                workersCompleted = Task.WaitAll(workers, _disposeWaitTimeout);
             }
             catch (AggregateException)
             {
             }
 
-            _processingGate.Dispose();
-            _shutdown.Dispose();
+            if (workersCompleted)
+            {
+                _processingGate.Dispose();
+                _shutdown.Dispose();
+            }
         }
 
         public MediaImportJobListResult ListJobs()
@@ -159,7 +175,18 @@ namespace Rook.Services.Vision.MediaImport
                     MediaImportProcessResult result;
                     try
                     {
-                        result = await _processor.ProcessAsync(item.Path, _shutdown.Token).ConfigureAwait(false);
+                        result = await _processor.ProcessAsync(
+                                item.Path,
+                                _shutdown.Token,
+                                state => UpdateItem(jobId, item.ItemId, current =>
+                                {
+                                    current.State = state;
+                                }))
+                            .ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
+                    {
+                        throw;
                     }
                     catch (Exception ex)
                     {

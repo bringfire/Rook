@@ -75,5 +75,52 @@ namespace Rook.Tests.Services.Vision.Image
             Assert.Equal(jpgBytes, resolved.Bytes);
             Assert.Equal("image/jpeg", resolved.MimeType);
         }
+
+        [Fact]
+        public async Task ResolveAllAsync_rejects_artifact_image_over_single_limit()
+        {
+            var bytes = new byte[] { 0x89, 0x50, 0x4E, 0x47 };
+            var artifact = _store.Create(
+                kind: "imported_image",
+                blobs: new[] { new BlobInput(ImageMediaRoles.Image, bytes, "png") });
+            var media = MediaRef.ForArtifact(artifact.Id, ImageMediaRoles.InputImage);
+            var resolver = new ArtifactImageMediaResolver(
+                _store,
+                maxSingleImageBytes: bytes.Length - 1,
+                maxAggregateImageBytes: long.MaxValue);
+
+            var result = await resolver.ResolveAllAsync(
+                new[] { media },
+                CancellationToken.None);
+
+            Assert.False(result.Success);
+            Assert.Equal(GenerationErrorCode.InvalidRequest, result.Error?.Code);
+            Assert.Contains("size limit", result.Error?.Message);
+        }
+
+        [Fact]
+        public async Task ResolveAllAsync_rejects_artifact_images_over_aggregate_limit()
+        {
+            var first = _store.Create(
+                kind: "imported_image",
+                blobs: new[] { new BlobInput(ImageMediaRoles.Image, new byte[] { 1, 2, 3 }, "png") });
+            var second = _store.Create(
+                kind: "imported_image",
+                blobs: new[] { new BlobInput(ImageMediaRoles.Image, new byte[] { 4, 5, 6 }, "png") });
+            var firstMedia = MediaRef.ForArtifact(first.Id, ImageMediaRoles.InputImage);
+            var secondMedia = MediaRef.ForArtifact(second.Id, ImageMediaRoles.ReferenceImage);
+            var resolver = new ArtifactImageMediaResolver(
+                _store,
+                maxSingleImageBytes: 10,
+                maxAggregateImageBytes: 5);
+
+            var result = await resolver.ResolveAllAsync(
+                new[] { firstMedia, secondMedia },
+                CancellationToken.None);
+
+            Assert.False(result.Success);
+            Assert.Equal(GenerationErrorCode.InvalidRequest, result.Error?.Code);
+            Assert.Contains("Aggregate image payload", result.Error?.Message);
+        }
     }
 }

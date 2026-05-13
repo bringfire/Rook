@@ -59,7 +59,10 @@ namespace Rook.Services.Vision.MediaImport
             _sidecarExtractor = sidecarExtractor ?? throw new ArgumentNullException(nameof(sidecarExtractor));
         }
 
-        public async Task<MediaImportProcessResult> Import(string path, CancellationToken ct)
+        public async Task<MediaImportProcessResult> Import(
+            string path,
+            CancellationToken ct,
+            Action<MediaImportItemState>? reportState = null)
         {
             var validationFailure = ImageMediaImporter.ValidatePath(path, MediaImportConstants.MaxVideoBytes);
             if (validationFailure is not null)
@@ -76,6 +79,7 @@ namespace Rook.Services.Vision.MediaImport
             VideoImportProbeResult probe;
             try
             {
+                reportState?.Invoke(MediaImportItemState.Probing);
                 probe = await _probe.ProbeAsync(path, ct).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
@@ -96,9 +100,32 @@ namespace Rook.Services.Vision.MediaImport
                     "Could not probe video metadata.");
             }
 
+            long byteSize;
+            try
+            {
+                byteSize = new FileInfo(path).Length;
+            }
+            catch (Exception ex) when (
+                ex is FileNotFoundException ||
+                ex is DirectoryNotFoundException)
+            {
+                return MediaImportProcessResult.Failed(
+                    MediaImportFailureCode.FileNotFound,
+                    "Source file was not found during import.");
+            }
+            catch (Exception ex) when (
+                ex is UnauthorizedAccessException ||
+                ex is IOException)
+            {
+                return MediaImportProcessResult.Failed(
+                    MediaImportFailureCode.FileInaccessible,
+                    "Source file became inaccessible during import.");
+            }
+
             VideoImportSidecarResult sidecars;
             try
             {
+                reportState?.Invoke(MediaImportItemState.ExtractingSidecars);
                 sidecars = await _sidecarExtractor.ExtractAsync(path, probe, ct).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
@@ -130,12 +157,18 @@ namespace Rook.Services.Vision.MediaImport
                 var startFrameSourcePath = startFramePath!;
                 var endFrameSourcePath = endFramePath!;
 
-                var metadata = BuildMetadata(path, extension, probe);
+                var metadata = BuildMetadata(path, extension, probe, byteSize);
+                reportState?.Invoke(MediaImportItemState.Publishing);
                 var artifact = _store.CreateFromFiles(
                     MediaImportConstants.ImportedVideoKind,
                     new[]
                     {
-                        new BlobFileInput(VideoMediaRoles.Video, path, extension),
+                        new BlobFileInput(
+                            VideoMediaRoles.Video,
+                            path,
+                            extension,
+                            MaxBytes: MediaImportConstants.MaxVideoBytes,
+                            ExpectedBytes: byteSize),
                         new BlobFileInput(VideoMediaRoles.Poster, posterSourcePath, "jpg"),
                         new BlobFileInput(VideoMediaRoles.StartFrame, startFrameSourcePath, "jpg"),
                         new BlobFileInput(VideoMediaRoles.EndFrame, endFrameSourcePath, "jpg"),
@@ -168,7 +201,8 @@ namespace Rook.Services.Vision.MediaImport
         private static Dictionary<string, JsonNode?> BuildMetadata(
             string path,
             string extension,
-            VideoImportProbeResult probe)
+            VideoImportProbeResult probe,
+            long byteSize)
         {
             var metadata = new Dictionary<string, JsonNode?>
             {
@@ -177,7 +211,7 @@ namespace Rook.Services.Vision.MediaImport
                 ["original_filename"] = Path.GetFileName(path),
                 ["original_extension"] = extension,
                 ["mime_type"] = MimeTypeForExtension(extension),
-                ["byte_size"] = new FileInfo(path).Length,
+                ["byte_size"] = byteSize,
                 ["imported_at"] = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture),
                 ["duration_seconds"] = probe.DurationSeconds,
                 ["width"] = probe.Width,

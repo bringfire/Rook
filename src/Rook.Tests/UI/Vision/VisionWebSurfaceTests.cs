@@ -890,7 +890,8 @@ namespace Rook.Tests.UI.Vision
             Assert.True(pickerStart >= 0, "Reference picker helper must exist.");
             Assert.True(pickerEnd > pickerStart, "Reference picker helper body must be bounded.");
             var pickerBody = js.Substring(pickerStart, pickerEnd - pickerStart);
-            Assert.Contains("bridgeCall(\"start_media_import\", {})", pickerBody);
+            Assert.Contains("bridgeCall(\"start_media_import\", {", pickerBody);
+            Assert.Contains("picker_mode: multi ? \"image_multi\" : \"image_single\"", pickerBody);
             Assert.Contains("await awaitMediaImportJob(job.job_id)", pickerBody);
             Assert.Contains("file.artifact_kind === \"imported_image\" && file.artifact_id", pickerBody);
             Assert.Contains(".map(referenceFromImportedImage)", pickerBody);
@@ -931,7 +932,8 @@ namespace Rook.Tests.UI.Vision
             Assert.True(loadEnd > loadStart, "Studio Load Image handler body must be bounded.");
             var loadBody = js.Substring(loadStart, loadEnd - loadStart);
 
-            Assert.Contains("bridgeCall(\"start_media_import\", {})", loadBody);
+            Assert.Contains("bridgeCall(\"start_media_import\", {", loadBody);
+            Assert.Contains("picker_mode: \"image_single\"", loadBody);
             Assert.Contains("await awaitMediaImportJob(job.job_id)", loadBody);
             Assert.DoesNotContain("open_image_picker", loadBody);
             Assert.Contains("file.artifact_kind === \"imported_image\" && file.artifact_id", loadBody);
@@ -1197,9 +1199,11 @@ namespace Rook.Tests.UI.Vision
         // be served as application/octet-stream and <video> would refuse
         // to play them even with media-src 'self' in the CSP.
         [InlineData("/x/y/foo.mp4", "video/mp4")]
+        [InlineData("/x/y/foo.mov", "video/quicktime")]
         [InlineData("/x/y/foo.webm", "video/webm")]
         // Case-insensitive on the extension (the helper lowercases).
         [InlineData("/x/y/FOO.MP4", "video/mp4")]
+        [InlineData("/x/y/FOO.MOV", "video/quicktime")]
         [InlineData("/x/y/Foo.WebM", "video/webm")]
         [InlineData("/x/y/foo.json", "application/json; charset=utf-8")]
         [InlineData("/x/y/foo.txt", "text/plain; charset=utf-8")]
@@ -1333,6 +1337,8 @@ namespace Rook.Tests.UI.Vision
         [InlineData("foo.webp", "image/webp")]
         [InlineData("foo.gif", "image/gif")]
         [InlineData("foo.bmp", "image/bmp")]
+        [InlineData("foo.mov", "video/quicktime")]
+        [InlineData("foo.MOV", "video/quicktime")]
         [InlineData("foo.json", "application/json; charset=utf-8")]
         [InlineData("foo.txt", "text/plain; charset=utf-8")]
         [InlineData("foo.unknown", "application/octet-stream")]

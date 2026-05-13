@@ -32,13 +32,14 @@ namespace Rook.Tests.Handlers
         public void DispatchUi_Start_ReturnsBasenamesWithoutLocalPaths()
         {
             using var manager = NewManager();
+            var picker = new FakePicker(new[]
+            {
+                @"C:\secret\site-photo.png",
+                @"D:\private\clip.mp4",
+            });
             var handler = new MediaImportOpHandler(
                 manager,
-                new FakePicker(new[]
-                {
-                    @"C:\secret\site-photo.png",
-                    @"D:\private\clip.mp4",
-                }));
+                picker);
 
             var response = handler.DispatchUi("""{"op":"start_media_import"}""");
 
@@ -54,12 +55,55 @@ namespace Rook.Tests.Handlers
             var files = Assert.IsType<List<Dictionary<string, object?>>>(data["files"]);
             Assert.Equal(new[] { "site-photo.png", "clip.mp4" },
                 files.Select(row => Assert.IsType<string>(row["basename"])).ToArray());
+            Assert.NotNull(picker.LastOptions);
+            Assert.True(picker.LastOptions!.AllowImages);
+            Assert.True(picker.LastOptions.AllowVideos);
+            Assert.True(picker.LastOptions.MultiSelect);
+            Assert.Equal(MediaImportConstants.MaxBatchFiles, picker.LastOptions.MaxFiles);
             Assert.All(files, row =>
             {
                 Assert.True(row.ContainsKey("import_item_id"));
                 Assert.True(row.ContainsKey("status"));
                 Assert.False(row.ContainsKey("path"));
             });
+        }
+
+        [Fact]
+        public void DispatchUi_StartImageSingle_UsesImageOnlySingleSelectPicker()
+        {
+            using var manager = NewManager();
+            var picker = new FakePicker(new[] { @"C:\media\source.png" });
+            var handler = new MediaImportOpHandler(manager, picker);
+
+            var response = handler.DispatchUi(
+                """{"op":"start_media_import","picker_mode":"image_single"}""");
+
+            AssertOk(response);
+            Assert.NotNull(picker.LastOptions);
+            Assert.False(picker.LastOptions!.AllowVideos);
+            Assert.True(picker.LastOptions.AllowImages);
+            Assert.False(picker.LastOptions.MultiSelect);
+            Assert.Equal(1, picker.LastOptions.MaxFiles);
+        }
+
+        [Fact]
+        public void DispatchUi_StartImageSingle_RejectsVideoReturnedByPicker()
+        {
+            using var manager = NewManager();
+            var handler = new MediaImportOpHandler(
+                manager,
+                new FakePicker(new[] { @"C:\private\clip.mp4" }));
+
+            var response = handler.DispatchUi(
+                """{"op":"start_media_import","picker_mode":"image_single"}""");
+
+            Assert.False(response.Success);
+            Assert.Equal(400, response.HttpStatus);
+            var payload = JsonSerializer.Serialize(response.Data);
+            Assert.Contains("unsupported_media_type", payload);
+            Assert.Contains("clip.mp4", payload);
+            Assert.DoesNotContain(@"C:\private", payload);
+            Assert.Empty(manager.ListJobs().Jobs);
         }
 
         [Fact]
@@ -179,7 +223,13 @@ namespace Rook.Tests.Handlers
                 _paths = paths;
             }
 
-            public IReadOnlyList<string> PickFiles() => _paths;
+            public MediaImportPickerOptions? LastOptions { get; private set; }
+
+            public IReadOnlyList<string> PickFiles(MediaImportPickerOptions options)
+            {
+                LastOptions = options;
+                return _paths;
+            }
         }
 
         private sealed class FakeProcessor : IMediaImportProcessor
@@ -191,7 +241,8 @@ namespace Rook.Tests.Handlers
 
             public Task<MediaImportProcessResult> ProcessAsync(
                 string path,
-                CancellationToken ct) =>
+                CancellationToken ct,
+                Action<MediaImportItemState>? reportState = null) =>
                 Task.FromResult(Result);
         }
     }

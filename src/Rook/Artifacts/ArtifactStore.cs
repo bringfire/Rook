@@ -196,6 +196,11 @@ namespace Rook.Artifacts
                     try
                     {
                         File.Copy(file.SourcePath, blobPath, overwrite: false);
+                        ValidateCopiedBlobSize(file, blobPath);
+                    }
+                    catch (ArtifactBlobSizeException)
+                    {
+                        throw;
                     }
                     catch (Exception ex) when (
                         ex is IOException ||
@@ -878,6 +883,14 @@ namespace Rook.Artifacts
 
                 ValidateRoleArg(f.Role);
                 ValidateExtensionArg(f.FileExtension);
+                if (f.MaxBytes.HasValue && f.MaxBytes.Value < 0)
+                    throw new ArgumentException(
+                        $"files[{i}].MaxBytes must be non-negative.",
+                        nameof(files));
+                if (f.ExpectedBytes.HasValue && f.ExpectedBytes.Value < 0)
+                    throw new ArgumentException(
+                        $"files[{i}].ExpectedBytes must be non-negative.",
+                        nameof(files));
 
                 if (!seen.Add(f.Role))
                     throw new ArgumentException(
@@ -907,6 +920,35 @@ namespace Rook.Artifacts
                     throw new FileNotFoundException(
                         $"Source file '{f.SourcePath}' not found.",
                         f.SourcePath);
+            }
+        }
+
+        private static void ValidateCopiedBlobSize(
+            BlobFileInput file,
+            string blobPath)
+        {
+            if (!file.MaxBytes.HasValue && !file.ExpectedBytes.HasValue)
+                return;
+
+            var actualBytes = new FileInfo(blobPath).Length;
+            if (file.MaxBytes.HasValue && actualBytes > file.MaxBytes.Value)
+            {
+                throw new ArtifactBlobSizeException(
+                    file.Role,
+                    blobPath,
+                    actualBytes,
+                    file.MaxBytes,
+                    file.ExpectedBytes);
+            }
+
+            if (file.ExpectedBytes.HasValue && actualBytes != file.ExpectedBytes.Value)
+            {
+                throw new ArtifactBlobSizeException(
+                    file.Role,
+                    blobPath,
+                    actualBytes,
+                    file.MaxBytes,
+                    file.ExpectedBytes);
             }
         }
 

@@ -18,7 +18,10 @@ namespace Rook.Services.Vision.MediaImport
             _videoImporter = new VideoMediaImporter(store);
         }
 
-        public Task<MediaImportProcessResult> ProcessAsync(string path, CancellationToken ct)
+        public Task<MediaImportProcessResult> ProcessAsync(
+            string path,
+            CancellationToken ct,
+            Action<MediaImportItemState>? reportState = null)
         {
             ct.ThrowIfCancellationRequested();
 
@@ -31,10 +34,10 @@ namespace Rook.Services.Vision.MediaImport
 
             var extension = Path.GetExtension(path).TrimStart('.').ToLowerInvariant();
             if (IsImageExtension(extension))
-                return Task.FromResult(_imageImporter.Import(path));
+                return Task.FromResult(_imageImporter.Import(path, reportState));
 
             if (IsVideoExtension(extension))
-                return _videoImporter.Import(path, ct);
+                return _videoImporter.Import(path, ct, reportState);
 
             return Task.FromResult(MediaImportProcessResult.Failed(
                 MediaImportFailureCode.UnsupportedMediaType,

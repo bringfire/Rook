@@ -840,7 +840,10 @@ namespace Rook.Handlers
         }
 
         private MediaResolutionResult ResolveImageMediaRefs(IReadOnlyList<MediaRef> refs)
-            => new ArtifactImageMediaResolver(_artifactStore)
+            => new ArtifactImageMediaResolver(
+                    _artifactStore,
+                    MaxInputImageBytes,
+                    MaxAggregateImageBytes)
                 .ResolveAllAsync(refs, CancellationToken.None)
                 .GetAwaiter().GetResult();
 

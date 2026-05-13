@@ -17,7 +17,9 @@ namespace Rook.Services.Vision.MediaImport
             _store = store ?? throw new ArgumentNullException(nameof(store));
         }
 
-        public MediaImportProcessResult Import(string path)
+        public MediaImportProcessResult Import(
+            string path,
+            Action<MediaImportItemState>? reportState = null)
         {
             var validationFailure = ValidatePath(path, MediaImportConstants.MaxImageBytes);
             if (validationFailure is not null)
@@ -47,10 +49,12 @@ namespace Rook.Services.Vision.MediaImport
                     "Could not decode image dimensions.");
             }
 
+            long byteSize;
             Dictionary<string, JsonNode?> metadata;
             try
             {
-                metadata = BuildMetadata(path, extension, dimensions);
+                byteSize = GetFileLength(path);
+                metadata = BuildMetadata(path, extension, dimensions, byteSize);
             }
             catch (Exception ex) when (
                 ex is FileNotFoundException ||
@@ -71,9 +75,18 @@ namespace Rook.Services.Vision.MediaImport
 
             try
             {
+                reportState?.Invoke(MediaImportItemState.Publishing);
                 var artifact = _store.CreateFromFiles(
                     MediaImportConstants.ImportedImageKind,
-                    new[] { new BlobFileInput(ImageMediaRoles.Image, path, extension) },
+                    new[]
+                    {
+                        new BlobFileInput(
+                            ImageMediaRoles.Image,
+                            path,
+                            extension,
+                            MaxBytes: MediaImportConstants.MaxImageBytes,
+                            ExpectedBytes: byteSize),
+                    },
                     metadata: metadata);
 
                 return MediaImportProcessResult.Success(artifact.Id, artifact.Kind);
@@ -86,9 +99,16 @@ namespace Rook.Services.Vision.MediaImport
 
         internal static MediaImportProcessResult MapPublishException(string mediaKind, Exception ex)
         {
-            var code = ex is ArtifactBlobCopyException
-                ? MediaImportFailureCode.CopyFailed
-                : MediaImportFailureCode.PublishFailed;
+            var code = ex switch
+            {
+                ArtifactBlobCopyException => MediaImportFailureCode.CopyFailed,
+                ArtifactBlobSizeException sizeEx
+                    when sizeEx.MaxBytes.HasValue
+                        && sizeEx.ActualBytes > sizeEx.MaxBytes.Value =>
+                    MediaImportFailureCode.FileTooLarge,
+                ArtifactBlobSizeException => MediaImportFailureCode.CopyFailed,
+                _ => MediaImportFailureCode.PublishFailed,
+            };
 
             return new MediaImportProcessResult(
                 IsSuccess: false,
@@ -176,7 +196,8 @@ namespace Rook.Services.Vision.MediaImport
         private static Dictionary<string, JsonNode?> BuildMetadata(
             string path,
             string extension,
-            ImageDimensions dimensions)
+            ImageDimensions dimensions,
+            long byteSize)
         {
             return new Dictionary<string, JsonNode?>
             {
@@ -185,7 +206,7 @@ namespace Rook.Services.Vision.MediaImport
                 ["original_filename"] = Path.GetFileName(path),
                 ["original_extension"] = extension,
                 ["mime_type"] = MimeTypeForExtension(extension),
-                ["byte_size"] = GetFileLength(path),
+                ["byte_size"] = byteSize,
                 ["imported_at"] = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture),
                 ["width"] = dimensions.Width,
                 ["height"] = dimensions.Height,
@@ -235,6 +256,8 @@ namespace Rook.Services.Vision.MediaImport
             {
                 case MediaImportFailureCode.CopyFailed:
                     return "Artifact blob copy failed.";
+                case MediaImportFailureCode.FileTooLarge:
+                    return "Source file exceeded the size limit during import.";
                 default:
                     return "Artifact publish failed.";
             }

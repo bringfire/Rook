@@ -882,6 +882,7 @@ p { margin: 8px 0; line-height: 1.4; }
                 // blobs would be served as application/octet-stream and
                 // browser <video> would refuse to play them.
                 ".mp4" => "video/mp4",
+                ".mov" => "video/quicktime",
                 ".webm" => "video/webm",
                 ".json" => "application/json; charset=utf-8",
                 ".txt" => "text/plain; charset=utf-8",

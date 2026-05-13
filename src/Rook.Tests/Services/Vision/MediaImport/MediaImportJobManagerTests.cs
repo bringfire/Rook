@@ -110,6 +110,39 @@ namespace Rook.Tests.Services.Vision.MediaImport
         }
 
         [Fact]
+        public async Task ProcessorProgress_UpdatesImportItemStateBeforeCompletion()
+        {
+            var pause = new TaskCompletionSource<bool>();
+            var processor = new FakeProcessor
+            {
+                StatesToReport = new[]
+                {
+                    MediaImportItemState.Probing,
+                    MediaImportItemState.ExtractingSidecars,
+                    MediaImportItemState.Publishing,
+                },
+                PauseAfterReporting = pause,
+            };
+            var manager = new MediaImportJobManager(processor);
+
+            var start = await manager.StartAsync(
+                new[] { @"C:\media\clip.mp4" },
+                CancellationToken.None);
+
+            await WaitForItemState(
+                manager,
+                start.Job!.JobId,
+                MediaImportItemState.Publishing);
+
+            var runningJob = manager.GetJob(start.Job.JobId)!;
+            var runningItem = Assert.Single(runningJob.Items);
+            Assert.Equal(MediaImportItemState.Publishing, runningItem.State);
+
+            pause.SetResult(true);
+            await WaitForTerminal(manager, start.Job.JobId);
+        }
+
+        [Fact]
         public async Task Dispose_AfterCompletedJob_IsSafe()
         {
             var manager = new MediaImportJobManager(new FakeProcessor());
@@ -119,6 +152,36 @@ namespace Rook.Tests.Services.Vision.MediaImport
 
             manager.Dispose();
             manager.Dispose();
+        }
+
+        [Fact]
+        public async Task Dispose_IsBounded_WhenProcessorDoesNotObserveCancellation()
+        {
+            var processor = new HangingProcessor();
+            var manager = new MediaImportJobManager(
+                processor,
+                disposeWaitTimeout: TimeSpan.FromMilliseconds(50));
+            await manager.StartAsync(new[] { @"C:\media\a.png" }, CancellationToken.None);
+            await processor.Started.Task;
+
+            var disposeTask = Task.Run(() => manager.Dispose());
+
+            try
+            {
+                var completed = await Task.WhenAny(
+                    disposeTask,
+                    Task.Delay(TimeSpan.FromMilliseconds(250))) == disposeTask;
+                Assert.True(
+                    completed,
+                    "Dispose should not wait indefinitely for media import worker tasks.");
+            }
+            finally
+            {
+                processor.Release();
+                await Task.WhenAny(
+                    disposeTask,
+                    Task.Delay(TimeSpan.FromSeconds(2)));
+            }
         }
 
         [Fact]
@@ -151,14 +214,35 @@ namespace Rook.Tests.Services.Vision.MediaImport
             throw new TimeoutException("Import job did not finish.");
         }
 
+        private static async Task WaitForItemState(
+            MediaImportJobManager manager,
+            Guid jobId,
+            MediaImportItemState expectedState)
+        {
+            for (var i = 0; i < 100; i++)
+            {
+                var job = manager.GetJob(jobId);
+                if (job is not null && job.Items.Any(item => item.State == expectedState))
+                    return;
+                await Task.Delay(10);
+            }
+            throw new TimeoutException($"Import item did not reach {expectedState}.");
+        }
+
         private sealed class FakeProcessor : IMediaImportProcessor
         {
             private int _active;
             public int MaxConcurrentObserved { get; private set; }
             public TimeSpan Delay { get; set; }
+            public IReadOnlyList<MediaImportItemState> StatesToReport { get; set; } =
+                Array.Empty<MediaImportItemState>();
+            public TaskCompletionSource<bool>? PauseAfterReporting { get; set; }
             public Dictionary<string, MediaImportProcessResult> Results { get; } = new(StringComparer.OrdinalIgnoreCase);
 
-            public async Task<MediaImportProcessResult> ProcessAsync(string path, CancellationToken ct)
+            public async Task<MediaImportProcessResult> ProcessAsync(
+                string path,
+                CancellationToken ct,
+                Action<MediaImportItemState>? reportState = null)
             {
                 var active = Interlocked.Increment(ref _active);
                 MaxConcurrentObserved = Math.Max(MaxConcurrentObserved, active);
@@ -166,6 +250,10 @@ namespace Rook.Tests.Services.Vision.MediaImport
                 {
                     if (Delay > TimeSpan.Zero)
                         await Task.Delay(Delay, ct);
+                    foreach (var state in StatesToReport)
+                        reportState?.Invoke(state);
+                    if (PauseAfterReporting is not null)
+                        await PauseAfterReporting.Task.ConfigureAwait(false);
                     if (Results.TryGetValue(path, out var result))
                         return result;
                     return MediaImportProcessResult.Success(Guid.NewGuid(), "imported_image");
@@ -174,6 +262,25 @@ namespace Rook.Tests.Services.Vision.MediaImport
                 {
                     Interlocked.Decrement(ref _active);
                 }
+            }
+        }
+
+        private sealed class HangingProcessor : IMediaImportProcessor
+        {
+            private readonly TaskCompletionSource<bool> _release = new();
+
+            public TaskCompletionSource<bool> Started { get; } = new();
+
+            public void Release() => _release.TrySetResult(true);
+
+            public async Task<MediaImportProcessResult> ProcessAsync(
+                string path,
+                CancellationToken ct,
+                Action<MediaImportItemState>? reportState = null)
+            {
+                Started.TrySetResult(true);
+                await _release.Task.ConfigureAwait(false);
+                return MediaImportProcessResult.Success(Guid.NewGuid(), "imported_image");
             }
         }
     }

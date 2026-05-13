@@ -509,7 +509,9 @@ async function pickReferenceImages(intoList, previewEl, multi, statusHandler, hi
     if (button) button.disabled = true;
     show(multi ? "Importing reference images..." : "Importing reference image...", "info");
     try {
-        const job = await bridgeCall("start_media_import", {});
+        const job = await bridgeCall("start_media_import", {
+            picker_mode: multi ? "image_multi" : "image_single",
+        });
         if (job && job.created === false) {
             hide();
             return;
@@ -916,7 +918,9 @@ async function studioLoadImage() {
     showStudioStatus("Importing source image...", "info");
     el.studioUploadBtn.disabled = true;
     try {
-        const job = await bridgeCall("start_media_import", {});
+        const job = await bridgeCall("start_media_import", {
+            picker_mode: "image_single",
+        });
         if (job && job.created === false) {
             hideStudioStatus();
             return;

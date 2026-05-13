@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Threading;
@@ -11,27 +12,79 @@ namespace Rook.Handlers
 {
     public interface IMediaImportPicker
     {
-        IReadOnlyList<string> PickFiles();
+        IReadOnlyList<string> PickFiles(MediaImportPickerOptions options);
+    }
+
+    public sealed record MediaImportPickerOptions(
+        bool AllowImages,
+        bool AllowVideos,
+        bool MultiSelect,
+        int MaxFiles,
+        string Title)
+    {
+        public static MediaImportPickerOptions Gallery { get; } =
+            new(
+                AllowImages: true,
+                AllowVideos: true,
+                MultiSelect: true,
+                MaxFiles: MediaImportConstants.MaxBatchFiles,
+                Title: "Add Media to Gallery");
+
+        public static MediaImportPickerOptions ImageSingle { get; } =
+            new(
+                AllowImages: true,
+                AllowVideos: false,
+                MultiSelect: false,
+                MaxFiles: 1,
+                Title: "Add Source Image");
+
+        public static MediaImportPickerOptions ImageMulti { get; } =
+            new(
+                AllowImages: true,
+                AllowVideos: false,
+                MultiSelect: true,
+                MaxFiles: MediaImportConstants.MaxBatchFiles,
+                Title: "Add Reference Images");
     }
 
     public sealed class EtoMediaImportPicker : IMediaImportPicker
     {
-        public IReadOnlyList<string> PickFiles()
+        public IReadOnlyList<string> PickFiles(MediaImportPickerOptions options)
         {
             var dlg = new Eto.Forms.OpenFileDialog
             {
-                MultiSelect = true,
-                Title = "Add Media to Gallery",
+                MultiSelect = options.MultiSelect,
+                Title = options.Title,
             };
-            dlg.Filters.Add(new Eto.Forms.FileFilter(
-                "Media",
-                ".png",
-                ".jpg",
-                ".jpeg",
-                ".webp",
-                ".mp4",
-                ".mov",
-                ".webm"));
+            if (options.AllowImages && options.AllowVideos)
+            {
+                dlg.Filters.Add(new Eto.Forms.FileFilter(
+                    "Media",
+                    ".png",
+                    ".jpg",
+                    ".jpeg",
+                    ".webp",
+                    ".mp4",
+                    ".mov",
+                    ".webm"));
+            }
+            else if (options.AllowImages)
+            {
+                dlg.Filters.Add(new Eto.Forms.FileFilter(
+                    "Images",
+                    ".png",
+                    ".jpg",
+                    ".jpeg",
+                    ".webp"));
+            }
+            else if (options.AllowVideos)
+            {
+                dlg.Filters.Add(new Eto.Forms.FileFilter(
+                    "Videos",
+                    ".mp4",
+                    ".mov",
+                    ".webm"));
+            }
 
             var result = dlg.ShowDialog(null);
             if (result != Eto.Forms.DialogResult.Ok)
@@ -76,11 +129,15 @@ namespace Rook.Handlers
             {
                 return op switch
                 {
-                    OpStart => Start(),
+                    OpStart => Start(args),
                     OpStatus or OpList => FailInvalidRequest(
                         $"op '{op}' must be routed through the off-UI dispatcher, not the UI dispatcher."),
                     _ => FailInvalidRequest($"Unknown media import op '{op}'."),
                 };
+            }
+            catch (ArgumentException ex)
+            {
+                return FailInvalidRequest(ex.Message);
             }
             catch (Exception ex)
             {
@@ -125,9 +182,21 @@ namespace Rook.Handlers
             }
         }
 
-        private ApiResponse Start()
+        private ApiResponse Start(Dictionary<string, JsonElement> args)
         {
-            var paths = _picker.PickFiles();
+            var options = PickerOptionsFromArgs(args);
+            var paths = _picker.PickFiles(options);
+            if (paths.Count > options.MaxFiles)
+            {
+                return FailStart(
+                    MediaImportStartFailureCode.TooManyFiles,
+                    $"Select {options.MaxFiles} or fewer media files.");
+            }
+
+            var selectionError = ValidateSelectionForPickerOptions(paths, options);
+            if (selectionError is not null)
+                return Fail(selectionError);
+
             var result = _manager.StartAsync(paths, CancellationToken.None)
                 .GetAwaiter().GetResult();
 
@@ -148,6 +217,64 @@ namespace Rook.Handlers
 
             return Ok(StartResultToObj(result.Job!));
         }
+
+        private static MediaImportPickerOptions PickerOptionsFromArgs(
+            Dictionary<string, JsonElement> args)
+        {
+            var mode = GetStringArg(args, "picker_mode");
+            return mode switch
+            {
+                null or "" or "gallery" or "media_gallery" =>
+                    MediaImportPickerOptions.Gallery,
+                "image_single" => MediaImportPickerOptions.ImageSingle,
+                "image_multi" => MediaImportPickerOptions.ImageMulti,
+                _ => throw new ArgumentException(
+                    $"Unknown media import picker_mode '{mode}'."),
+            };
+        }
+
+        private static Dictionary<string, object?>? ValidateSelectionForPickerOptions(
+            IReadOnlyList<string> paths,
+            MediaImportPickerOptions options)
+        {
+            if (options.AllowImages && options.AllowVideos)
+                return null;
+
+            foreach (var path in paths)
+            {
+                var extension = Path.GetExtension(path)
+                    .TrimStart('.')
+                    .ToLowerInvariant();
+                var allowed = options.AllowImages && IsImageExtension(extension)
+                    || options.AllowVideos && IsVideoExtension(extension);
+                if (allowed)
+                    continue;
+
+                var basename = Path.GetFileName(path);
+                return new Dictionary<string, object?>
+                {
+                    ["code"] = "unsupported_media_type",
+                    ["message"] = string.IsNullOrWhiteSpace(basename)
+                        ? "Selected media type is not allowed for this import."
+                        : $"Selected file '{basename}' is not allowed for this import.",
+                    ["retryable"] = false,
+                    ["field"] = "files",
+                };
+            }
+
+            return null;
+        }
+
+        private static bool IsImageExtension(string extension)
+            => extension == "png" ||
+               extension == "jpg" ||
+               extension == "jpeg" ||
+               extension == "webp";
+
+        private static bool IsVideoExtension(string extension)
+            => extension == "mp4" ||
+               extension == "mov" ||
+               extension == "webm";
 
         private ApiResponse Status(Dictionary<string, JsonElement> args)
         {

@@ -39,7 +39,9 @@ namespace Rook.Artifacts
     public sealed record BlobFileInput(
         string Role,
         string SourcePath,
-        string FileExtension);
+        string FileExtension,
+        long? MaxBytes = null,
+        long? ExpectedBytes = null);
 
     public sealed class ArtifactBlobCopyException : IOException
     {
@@ -54,6 +56,30 @@ namespace Rook.Artifacts
         public string Role { get; }
         public string SourcePath { get; }
         public string DestinationPath { get; }
+    }
+
+    public sealed class ArtifactBlobSizeException : IOException
+    {
+        public ArtifactBlobSizeException(
+            string role,
+            string path,
+            long actualBytes,
+            long? maxBytes,
+            long? expectedBytes)
+            : base($"Artifact blob '{role}' failed staged size validation.")
+        {
+            Role = role;
+            Path = path;
+            ActualBytes = actualBytes;
+            MaxBytes = maxBytes;
+            ExpectedBytes = expectedBytes;
+        }
+
+        public string Role { get; }
+        public string Path { get; }
+        public long ActualBytes { get; }
+        public long? MaxBytes { get; }
+        public long? ExpectedBytes { get; }
     }
 
     public enum AppendBlobResultCode
