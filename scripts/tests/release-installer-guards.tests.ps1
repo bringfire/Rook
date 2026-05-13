@@ -11,6 +11,7 @@ $VersionLocations = Join-Path $RepoRoot '.agents\skills\build-release\references
 $BuildingDoc = Join-Path $RepoRoot 'BUILDING.md'
 $CompanionRuntimeConfig = Join-Path $RepoRoot 'src\Rook\bin\Release\net7.0\Rook.runtimeconfig.json'
 $FfmpegValidationScript = Join-Path $RepoRoot 'scripts\validate-ffmpeg-bundle.ps1'
+$FfmpegBuildScript = Join-Path $RepoRoot 'scripts\ffmpeg\build-rook-ffmpeg.ps1'
 $ReleaseWorkflow = Join-Path $RepoRoot '.github\workflows\release.yml'
 
 function Assert-True {
@@ -108,6 +109,15 @@ function Test-FfmpegValidatorRequiresReleaseSourceBundleArgument {
     $script = Get-Content -Path $FfmpegValidationScript -Raw
     Assert-Contains -Text $script -Expected 'SourceBundleManifestPath' -Message 'FFmpeg validator must require a release source-bundle manifest path.'
     Assert-Contains -Text $script -Expected 'Assert-SourceBundleManifest' -Message 'FFmpeg validator must verify the staged release source bundle.'
+}
+
+function Test-FfmpegBuildScriptUsesAgentlessSignatureVerification {
+    Assert-True -Condition (Test-Path $FfmpegBuildScript) -Message "FFmpeg build script is missing: $FfmpegBuildScript"
+
+    $script = Get-Content -Path $FfmpegBuildScript -Raw
+    Assert-Contains -Text $script -Expected 'gpg --batch --import-options show-only --import --with-colons' -Message 'FFmpeg build script must inspect the signing key fingerprint without importing it into a user keyring.'
+    Assert-Contains -Text $script -Expected 'gpgv --keyring' -Message 'FFmpeg build script must verify the source signature through gpgv and an explicit trusted keyring.'
+    Assert-NotContains -Text $script -Unexpected '--homedir' -Message 'FFmpeg build script must not depend on a private GPG homedir or gpg-agent startup.'
 }
 
 function Test-InstallerRequiresNativePluginBuildOutput {
@@ -218,6 +228,7 @@ Test-InstallerPackagesNet7CompanionRuntime
 Test-BuiltCompanionRuntimeConfigDeclaresNet7
 Test-InstallerPackagesBundledFfmpegPayload
 Test-FfmpegValidatorRequiresReleaseSourceBundleArgument
+Test-FfmpegBuildScriptUsesAgentlessSignatureVerification
 Test-InstallerRequiresNativePluginBuildOutput
 Test-InstallerRegistersRhinoPluginFileNamesUnderPluginSubkey
 Test-ReleaseWorkflowDocsUseNet7CompanionOutput

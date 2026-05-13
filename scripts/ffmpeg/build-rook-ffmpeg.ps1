@@ -97,21 +97,17 @@ Save-RemoteFile -Uri $SourceMetadata.source_signature_url -OutFile $SignaturePat
 Save-RemoteFile -Uri $SourceMetadata.signing_key_url -OutFile $SigningKeyPath
 Assert-Sha256 -Path $ArchivePath -Expected $SourceMetadata.source_sha256
 
-$gpgHome = Join-Path $StageRoot 'gnupg'
-New-Item -ItemType Directory -Force $gpgHome | Out-Null
-Invoke-Msys2 -Command "gpg --homedir '$(Convert-ToMsysPath $gpgHome)' --import '$(Convert-ToMsysPath $SigningKeyPath)'"
-$fingerprintOutput = & $Msys2Bash -lc "gpg --homedir '$(Convert-ToMsysPath $gpgHome)' --with-colons --fingerprint" 2>&1
-if ($LASTEXITCODE -ne 0) {
-    throw "Unable to inspect imported FFmpeg signing key fingerprint: $($fingerprintOutput -join "`n")"
-}
+$TrustedKeyringPath = Join-Path $StageRoot 'ffmpeg-release-keyring.gpg'
+$fingerprintOutput = Invoke-Msys2 -Command "gpg --batch --import-options show-only --import --with-colons '$(Convert-ToMsysPath $SigningKeyPath)'"
 
 $expectedFingerprint = ([string]$SourceMetadata.signing_key_fingerprint).ToUpperInvariant().Replace(' ', '')
 $actualFingerprints = @($fingerprintOutput | Where-Object { $_ -like 'fpr:*' } | ForEach-Object { ($_ -split ':')[9].ToUpperInvariant() })
 if ($actualFingerprints -notcontains $expectedFingerprint) {
-    throw "Imported FFmpeg signing key fingerprint did not match expected $expectedFingerprint"
+    throw "FFmpeg signing key fingerprint did not match expected $expectedFingerprint"
 }
 
-Invoke-Msys2 -Command "gpg --homedir '$(Convert-ToMsysPath $gpgHome)' --verify '$(Convert-ToMsysPath $SignaturePath)' '$(Convert-ToMsysPath $ArchivePath)'"
+Invoke-Msys2 -Command "gpg --batch --yes --dearmor --output '$(Convert-ToMsysPath $TrustedKeyringPath)' '$(Convert-ToMsysPath $SigningKeyPath)'"
+Invoke-Msys2 -Command "gpgv --keyring '$(Convert-ToMsysPath $TrustedKeyringPath)' '$(Convert-ToMsysPath $SignaturePath)' '$(Convert-ToMsysPath $ArchivePath)'"
 $SignatureStatus = 'verified'
 
 $configureForBash = ($ConfigureArgs | ForEach-Object { "'$($_.Replace("'", "'\''"))'" }) -join ' '
