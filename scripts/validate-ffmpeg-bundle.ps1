@@ -2,6 +2,9 @@ param(
     [string]$RepoRoot = (Split-Path -Parent $PSScriptRoot),
     [string]$PayloadDir = '',
     [string]$InstallerScriptPath = '',
+    [string]$AllowlistPath = '',
+    [string]$SourceMetadataPath = '',
+    [string]$SourceBundleManifestPath = '',
     [switch]$SkipFunctionalSmoke
 )
 
@@ -58,6 +61,215 @@ function Assert-NoForbiddenConfigureFlag {
     }
 }
 
+function Get-AllowedEnableFlags {
+    param([string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        Fail "FFmpeg enable allowlist is missing: $Path"
+    }
+
+    try {
+        $allowlist = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+    } catch {
+        Fail "FFmpeg enable allowlist is malformed: $($_.Exception.Message)"
+    }
+
+    $flags = @($allowlist.allowed_enable_flags | Sort-Object -Unique)
+    if ($flags.Count -eq 0) {
+        Fail "FFmpeg enable allowlist is empty"
+    }
+
+    return $flags
+}
+
+function Assert-ConfigureEnableAllowlist {
+    param(
+        [string]$ConfigureLine,
+        [string]$AllowlistPath
+    )
+
+    $actual = @(Get-ConfigureEnableFlags -ConfigureLine $ConfigureLine)
+    $allowed = @(Get-AllowedEnableFlags -Path $AllowlistPath)
+
+    foreach ($flag in $actual) {
+        if ($allowed -notcontains $flag) {
+            Fail "unexpected FFmpeg configure enable flag $flag"
+        }
+    }
+}
+
+function Get-CommittedSourceMetadata {
+    param([string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        Fail "committed FFmpeg source metadata is missing: $Path"
+    }
+
+    try {
+        return Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+    } catch {
+        Fail "committed FFmpeg source metadata is malformed: $($_.Exception.Message)"
+    }
+}
+
+function Assert-ProvenanceMatchesSourceMetadata {
+    param(
+        [object]$Provenance,
+        [object]$SourceMetadata
+    )
+
+    foreach ($field in @('source_url', 'source_archive', 'source_sha256', 'source_signature_url', 'signing_key_fingerprint')) {
+        Require-NonEmptyField -Provenance $SourceMetadata -Field $field
+        Require-NonEmptyField -Provenance $Provenance -Field $field
+        if ($Provenance.$field -ne $SourceMetadata.$field) {
+            Fail "provenance $field does not match committed FFmpeg source metadata"
+        }
+    }
+
+    Require-NonEmptyField -Provenance $SourceMetadata -Field 'source_signature_status_required'
+    if ($SourceMetadata.source_signature_status_required -ne 'verified') {
+        Fail "committed FFmpeg source metadata must require verified signatures"
+    }
+}
+
+function Assert-SourceSignatureVerified {
+    param([object]$Provenance)
+
+    Require-NonEmptyField -Provenance $Provenance -Field 'source_signature_url'
+    Require-NonEmptyField -Provenance $Provenance -Field 'source_signature_status'
+
+    if ($Provenance.source_signature_status -ne 'verified') {
+        Fail "source_signature_status must be verified for official FFmpeg release source"
+    }
+}
+
+function Assert-ValidatedFixtureCoverage {
+    param([object]$Provenance)
+
+    Require-NonEmptyField -Provenance $Provenance -Field 'validated_fixtures'
+    $fixtures = @($Provenance.validated_fixtures)
+    if ($fixtures.Count -eq 0) {
+        Fail "validated_fixtures is empty"
+    }
+
+    $hasH264Mp4 = $false
+    $hasVp9WebmOrAv1 = $false
+
+    foreach ($fixture in $fixtures) {
+        $container = [string]$fixture.container
+        $codec = [string]$fixture.video_codec
+
+        if ($container -eq 'mp4' -and $codec -eq 'h264') {
+            $hasH264Mp4 = $true
+        }
+
+        if (($container -eq 'webm' -and $codec -eq 'vp9') -or $codec -eq 'av1') {
+            $hasVp9WebmOrAv1 = $true
+        }
+    }
+
+    if (-not $hasH264Mp4) {
+        Fail "validated_fixtures must include h264 mp4 coverage"
+    }
+
+    if (-not $hasVp9WebmOrAv1) {
+        Fail "validated_fixtures must include vp9 webm or av1 coverage"
+    }
+}
+
+function Assert-ZipContainsEntry {
+    param(
+        [string]$ZipPath,
+        [string]$EntryName
+    )
+
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $zip = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
+    try {
+        $match = $zip.Entries | Where-Object { $_.FullName -eq $EntryName }
+        if ($null -eq $match) {
+            Fail "source bundle is missing required entry $EntryName"
+        }
+    } finally {
+        $zip.Dispose()
+    }
+}
+
+function Assert-SourceBundleManifest {
+    param(
+        [string]$Path,
+        [object]$Provenance,
+        [object]$SourceMetadata
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        Fail "source bundle manifest is missing"
+    }
+
+    try {
+        $manifest = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+    } catch {
+        Fail "source bundle manifest is malformed: $($_.Exception.Message)"
+    }
+
+    foreach ($field in @('bundle_path', 'bundle_sha256', 'ffmpeg_source_archive', 'ffmpeg_source_sha256', 'ffmpeg_source_signature_url', 'signing_key_fingerprint', 'configure_line', 'changes_diff_path', 'build_recipe_path', 'generated_at', 'generated_by')) {
+        Require-NonEmptyField -Provenance $manifest -Field $field
+    }
+
+    if ($manifest.ffmpeg_source_archive -ne $SourceMetadata.source_archive) {
+        Fail "source bundle manifest source archive does not match committed FFmpeg source metadata"
+    }
+
+    if ($manifest.ffmpeg_source_sha256 -ne $SourceMetadata.source_sha256) {
+        Fail "source bundle manifest source checksum does not match committed FFmpeg source metadata"
+    }
+
+    if ($manifest.ffmpeg_source_signature_url -ne $SourceMetadata.source_signature_url) {
+        Fail "source bundle manifest source signature URL does not match committed FFmpeg source metadata"
+    }
+
+    if ($manifest.signing_key_fingerprint -ne $SourceMetadata.signing_key_fingerprint) {
+        Fail "source bundle manifest signing key fingerprint does not match committed FFmpeg source metadata"
+    }
+
+    if ($manifest.ffmpeg_source_archive -ne $Provenance.source_archive) {
+        Fail "source bundle manifest source archive does not match provenance"
+    }
+
+    if ($manifest.ffmpeg_source_sha256 -ne $Provenance.source_sha256) {
+        Fail "source bundle manifest source checksum does not match provenance"
+    }
+
+    if ($manifest.ffmpeg_source_signature_url -ne $Provenance.source_signature_url) {
+        Fail "source bundle manifest source signature URL does not match provenance"
+    }
+
+    if ($manifest.signing_key_fingerprint -ne $Provenance.signing_key_fingerprint) {
+        Fail "source bundle manifest signing key fingerprint does not match provenance"
+    }
+
+    if ((Normalize-ConfigureLine $manifest.configure_line) -ne (Normalize-ConfigureLine $Provenance.configure_line)) {
+        Fail "source bundle manifest configure line does not match provenance"
+    }
+
+    if (-not (Test-Path -LiteralPath $manifest.bundle_path -PathType Leaf)) {
+        Fail "source bundle is missing: $($manifest.bundle_path)"
+    }
+
+    $actualHash = (Get-FileHash -LiteralPath $manifest.bundle_path -Algorithm SHA256).Hash
+    if ($actualHash -ne $manifest.bundle_sha256) {
+        Fail "source bundle checksum mismatch"
+    }
+
+    Assert-ZipContainsEntry -ZipPath $manifest.bundle_path -EntryName $Provenance.source_archive
+    Assert-ZipContainsEntry -ZipPath $manifest.bundle_path -EntryName "$($Provenance.source_archive).asc"
+    Assert-ZipContainsEntry -ZipPath $manifest.bundle_path -EntryName 'changes.diff'
+    Assert-ZipContainsEntry -ZipPath $manifest.bundle_path -EntryName 'rook-ffmpeg-configure.txt'
+    Assert-ZipContainsEntry -ZipPath $manifest.bundle_path -EntryName 'rook-ffmpeg-source.json'
+    Assert-ZipContainsEntry -ZipPath $manifest.bundle_path -EntryName 'rook-ffmpeg-enable-allowlist.json'
+    Assert-ZipContainsEntry -ZipPath $manifest.bundle_path -EntryName 'build-rook-ffmpeg.ps1'
+}
+
 function Invoke-FFmpegCommand {
     param(
         [string]$ExePath,
@@ -96,56 +308,6 @@ function Assert-ReleaseValidTextFile {
 
     if ($content -match '(?i)scaffold|not\s+release-valid|belongs here|replace it') {
         Fail "$Name contains scaffold text and is not release-valid"
-    }
-}
-
-function Assert-DependencyManifest {
-    param(
-        [string]$Path,
-        [object]$Provenance
-    )
-
-    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
-        Fail "ffmpeg-dependencies.json is missing"
-    }
-
-    try {
-        $manifest = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
-    } catch {
-        Fail "ffmpeg-dependencies.json is malformed: $($_.Exception.Message)"
-    }
-
-    foreach ($field in @('name', 'binary_url', 'binary_archive_sha256', 'dependency_source_basis', 'enabled_configure_flags', 'verified_at', 'verified_by')) {
-        Require-NonEmptyField -Provenance $manifest -Field $field
-    }
-
-    foreach ($field in @('name', 'release', 'commit', 'source_url', 'source_sha256')) {
-        Require-NonEmptyField -Provenance $manifest.build_system -Field $field
-    }
-
-    if ($manifest.binary_url -ne $Provenance.binary_url) {
-        Fail "ffmpeg-dependencies.json binary_url does not match ffmpeg-provenance.json"
-    }
-
-    $expectedFlags = @(Get-ConfigureEnableFlags -ConfigureLine $Provenance.configure_line)
-    $manifestFlags = @($manifest.enabled_configure_flags | Sort-Object -Unique)
-
-    if ($expectedFlags.Count -eq 0) {
-        Fail "provenance configure_line did not contain any --enable-* flags for dependency manifest validation"
-    }
-
-    $missing = @(Compare-Object -ReferenceObject $expectedFlags -DifferenceObject $manifestFlags |
-        Where-Object { $_.SideIndicator -eq '<=' } |
-        ForEach-Object { $_.InputObject })
-    if ($missing.Count -gt 0) {
-        Fail "ffmpeg-dependencies.json is missing enabled configure flags: $($missing -join ', ')"
-    }
-
-    $extra = @(Compare-Object -ReferenceObject $expectedFlags -DifferenceObject $manifestFlags |
-        Where-Object { $_.SideIndicator -eq '=>' } |
-        ForEach-Object { $_.InputObject })
-    if ($extra.Count -gt 0) {
-        Fail "ffmpeg-dependencies.json contains flags not present in configure_line: $($extra -join ', ')"
     }
 }
 
@@ -221,8 +383,6 @@ function Assert-ReadableJpeg {
 function Invoke-SmokeExtraction {
     param(
         [string]$ExePath,
-        [string]$FixturePath,
-        [string]$TempDir,
         [string]$Label,
         [string[]]$Arguments,
         [string]$OutputPath
@@ -236,6 +396,43 @@ function Invoke-SmokeExtraction {
     Assert-ReadableJpeg -Path $OutputPath -Label $Label
 }
 
+function Invoke-SmokeForFixture {
+    param(
+        [string]$FfmpegPath,
+        [string]$FixturePath
+    )
+
+    $smokeTempDir = Join-Path ([System.IO.Path]::GetTempPath()) "rook-ffmpeg-smoke-$([System.Guid]::NewGuid().ToString('N'))"
+    New-Item -ItemType Directory -Path $smokeTempDir | Out-Null
+
+    try {
+        $posterPath = Join-Path $smokeTempDir 'poster.jpg'
+        Invoke-SmokeExtraction `
+            -ExePath $FfmpegPath `
+            -Label 'poster' `
+            -OutputPath $posterPath `
+            -Arguments @('-hide_banner', '-y', '-ss', '00:00:00.100', '-i', $FixturePath, '-frames:v', '1', '-q:v', '2', $posterPath)
+
+        $firstPath = Join-Path $smokeTempDir 'first.jpg'
+        Invoke-SmokeExtraction `
+            -ExePath $FfmpegPath `
+            -Label 'first frame' `
+            -OutputPath $firstPath `
+            -Arguments @('-hide_banner', '-y', '-i', $FixturePath, '-map', '0:v:0', '-an', '-vf', 'select=eq(n\,0)', '-vsync', '0', '-frames:v', '1', '-q:v', '2', $firstPath)
+
+        $lastPath = Join-Path $smokeTempDir 'last.jpg'
+        Invoke-SmokeExtraction `
+            -ExePath $FfmpegPath `
+            -Label 'last frame' `
+            -OutputPath $lastPath `
+            -Arguments @('-hide_banner', '-y', '-i', $FixturePath, '-map', '0:v:0', '-an', '-vf', 'reverse,select=eq(n\,0)', '-vsync', '0', '-frames:v', '1', '-q:v', '2', $lastPath)
+    } finally {
+        if (Test-Path -LiteralPath $smokeTempDir) {
+            Remove-Item -LiteralPath $smokeTempDir -Recurse -Force
+        }
+    }
+}
+
 $RepoRoot = [System.IO.Path]::GetFullPath($RepoRoot)
 if ([string]::IsNullOrWhiteSpace($PayloadDir)) {
     $PayloadDir = Join-Path $RepoRoot 'third_party\ffmpeg'
@@ -245,8 +442,18 @@ if ([string]::IsNullOrWhiteSpace($InstallerScriptPath)) {
     $InstallerScriptPath = Join-Path $RepoRoot 'installer\RookSetup.iss'
 }
 
+if ([string]::IsNullOrWhiteSpace($AllowlistPath)) {
+    $AllowlistPath = Join-Path $RepoRoot 'scripts\ffmpeg\rook-ffmpeg-enable-allowlist.json'
+}
+
+if ([string]::IsNullOrWhiteSpace($SourceMetadataPath)) {
+    $SourceMetadataPath = Join-Path $RepoRoot 'scripts\ffmpeg\rook-ffmpeg-source.json'
+}
+
 $PayloadDir = [System.IO.Path]::GetFullPath($PayloadDir)
 $InstallerScriptPath = [System.IO.Path]::GetFullPath($InstallerScriptPath)
+$AllowlistPath = [System.IO.Path]::GetFullPath($AllowlistPath)
+$SourceMetadataPath = [System.IO.Path]::GetFullPath($SourceMetadataPath)
 $provenancePath = Join-Path $PayloadDir 'ffmpeg-provenance.json'
 
 if (-not (Test-Path -LiteralPath $provenancePath -PathType Leaf)) {
@@ -265,12 +472,17 @@ $requiredFields = @(
     'license',
     'binary_path',
     'binary_sha256',
-    'binary_url',
-    'build_source',
     'source_url',
     'source_archive',
     'source_sha256',
+    'source_signature_url',
+    'signing_key_fingerprint',
+    'source_signature_status',
+    'build_recipe_path',
+    'configure_recipe_path',
     'configure_line',
+    'changes_diff_path',
+    'source_bundle_manifest_name',
     'verified_at',
     'verified_by'
 )
@@ -295,6 +507,10 @@ foreach ($surface in @('poster', 'first_frame', 'last_frame')) {
     }
 }
 
+$sourceMetadata = Get-CommittedSourceMetadata -Path $SourceMetadataPath
+Assert-ProvenanceMatchesSourceMetadata -Provenance $provenance -SourceMetadata $sourceMetadata
+Assert-SourceSignatureVerified -Provenance $provenance
+Assert-ValidatedFixtureCoverage -Provenance $provenance
 Assert-NoForbiddenConfigureFlag -ConfigureLine $provenance.configure_line -Source 'provenance configure_line'
 
 $declaredBinaryPath = ([string]$provenance.binary_path).Replace('\', '/')
@@ -335,16 +551,18 @@ if ([string]::IsNullOrWhiteSpace($runtimeConfigurationLine)) {
 
 $runtimeConfigure = $runtimeConfigurationLine.Substring('configuration:'.Length).Trim()
 Assert-NoForbiddenConfigureFlag -ConfigureLine $runtimeConfigure -Source 'runtime configuration line'
+Assert-ConfigureEnableAllowlist -ConfigureLine $runtimeConfigure -AllowlistPath $AllowlistPath
+Assert-ConfigureEnableAllowlist -ConfigureLine $provenance.configure_line -AllowlistPath $AllowlistPath
 
 if ((Normalize-ConfigureLine $provenance.configure_line) -ne (Normalize-ConfigureLine $runtimeConfigure)) {
     Fail "provenance configure_line does not match runtime configuration line"
 }
 
+Assert-SourceBundleManifest -Path $SourceBundleManifestPath -Provenance $provenance -SourceMetadata $sourceMetadata
+
 Assert-ReleaseValidTextFile -Path (Join-Path $PayloadDir 'LICENSE.FFmpeg.txt') -Name 'LICENSE.FFmpeg.txt'
 Assert-ReleaseValidTextFile -Path (Join-Path $PayloadDir 'NOTICE.FFmpeg.txt') -Name 'NOTICE.FFmpeg.txt'
 Assert-ReleaseValidTextFile -Path (Join-Path $PayloadDir 'SOURCE.FFmpeg.txt') -Name 'SOURCE.FFmpeg.txt'
-Assert-ReleaseValidTextFile -Path (Join-Path $PayloadDir 'DEPENDENCIES.FFmpeg.txt') -Name 'DEPENDENCIES.FFmpeg.txt'
-Assert-DependencyManifest -Path (Join-Path $PayloadDir 'ffmpeg-dependencies.json') -Provenance $provenance
 
 if (-not (Test-Path -LiteralPath $InstallerScriptPath -PathType Leaf)) {
     Fail "installer script is missing: $InstallerScriptPath"
@@ -355,50 +573,22 @@ $installerSourceLines = $installerContent -split "`r?`n" |
     ForEach-Object { $_.Trim() } |
     Where-Object { $_ -match '(?i)^Source:\s*"' }
 
-foreach ($requiredInstallerFile in @('ffmpeg.exe', 'ffmpeg-provenance.json', 'ffmpeg-dependencies.json', 'LICENSE.FFmpeg.txt', 'NOTICE.FFmpeg.txt', 'SOURCE.FFmpeg.txt', 'DEPENDENCIES.FFmpeg.txt', 'README.md')) {
+foreach ($requiredInstallerFile in @('ffmpeg.exe', 'ffmpeg-provenance.json', 'LICENSE.FFmpeg.txt', 'NOTICE.FFmpeg.txt', 'SOURCE.FFmpeg.txt', 'README.md')) {
     Assert-InstallerSourceEntry -SourceLines $installerSourceLines -FileName $requiredInstallerFile
 }
 
 if (-not $SkipFunctionalSmoke) {
-    $fixturePath = Join-Path $PayloadDir 'fixtures\sidecar-smoke.mp4'
-    if (-not (Test-Path -LiteralPath $fixturePath -PathType Leaf)) {
-        Fail "functional smoke fixture is missing: $fixturePath"
-    }
+    foreach ($fixture in @($provenance.validated_fixtures)) {
+        Require-NonEmptyField -Provenance $fixture -Field 'path'
+        Require-NonEmptyField -Provenance $fixture -Field 'container'
+        Require-NonEmptyField -Provenance $fixture -Field 'video_codec'
 
-    $smokeTempDir = Join-Path ([System.IO.Path]::GetTempPath()) "rook-ffmpeg-smoke-$([System.Guid]::NewGuid().ToString('N'))"
-    New-Item -ItemType Directory -Path $smokeTempDir | Out-Null
-
-    try {
-        $posterPath = Join-Path $smokeTempDir 'poster.jpg'
-        Invoke-SmokeExtraction `
-            -ExePath $ffmpegPath `
-            -FixturePath $fixturePath `
-            -TempDir $smokeTempDir `
-            -Label 'poster' `
-            -OutputPath $posterPath `
-            -Arguments @('-hide_banner', '-y', '-ss', '00:00:00.100', '-i', $fixturePath, '-frames:v', '1', '-q:v', '2', $posterPath)
-
-        $firstPath = Join-Path $smokeTempDir 'first.jpg'
-        Invoke-SmokeExtraction `
-            -ExePath $ffmpegPath `
-            -FixturePath $fixturePath `
-            -TempDir $smokeTempDir `
-            -Label 'first frame' `
-            -OutputPath $firstPath `
-            -Arguments @('-hide_banner', '-y', '-i', $fixturePath, '-map', '0:v:0', '-an', '-vf', 'select=eq(n\,0)', '-vsync', '0', '-frames:v', '1', '-q:v', '2', $firstPath)
-
-        $lastPath = Join-Path $smokeTempDir 'last.jpg'
-        Invoke-SmokeExtraction `
-            -ExePath $ffmpegPath `
-            -FixturePath $fixturePath `
-            -TempDir $smokeTempDir `
-            -Label 'last frame' `
-            -OutputPath $lastPath `
-            -Arguments @('-hide_banner', '-y', '-i', $fixturePath, '-map', '0:v:0', '-an', '-vf', 'reverse,select=eq(n\,0)', '-vsync', '0', '-frames:v', '1', '-q:v', '2', $lastPath)
-    } finally {
-        if (Test-Path -LiteralPath $smokeTempDir) {
-            Remove-Item -LiteralPath $smokeTempDir -Recurse -Force
+        $fixturePath = Join-Path $RepoRoot ([string]$fixture.path)
+        if (-not (Test-Path -LiteralPath $fixturePath -PathType Leaf)) {
+            Fail "validated fixture is missing: $fixturePath"
         }
+
+        Invoke-SmokeForFixture -FfmpegPath $ffmpegPath -FixturePath $fixturePath
     }
 }
 

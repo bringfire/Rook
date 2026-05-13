@@ -32,7 +32,9 @@ function Assert-Contains {
         [string]$Message
     )
 
-    Assert-True -Condition $Text.Contains($Expected) -Message "$Message`nExpected to find: $Expected`nActual output:`n$Text"
+    $normalizedText = (($Text -replace '\s+', ' ').Trim())
+    $normalizedExpected = (($Expected -replace '\s+', ' ').Trim())
+    Assert-True -Condition $normalizedText.Contains($normalizedExpected) -Message "$Message`nExpected to find: $Expected`nActual output:`n$Text"
 }
 
 function New-FakeFFmpeg {
@@ -49,8 +51,8 @@ public static class Program
     {
         if (args.Length > 0 && args[0] == "-version")
         {
-            Console.WriteLine("ffmpeg version test-lgpl");
-            Console.WriteLine("configuration: --disable-gpl --disable-nonfree --enable-libopus");
+            Console.WriteLine("ffmpeg version n8.1.1-rook-minimal");
+            Console.WriteLine("configuration: --disable-everything --disable-autodetect --disable-network --disable-doc --disable-debug --enable-ffmpeg --enable-protocol=file --enable-demuxer=mov --enable-demuxer=matroska --enable-muxer=image2 --enable-decoder=h264 --enable-parser=h264 --enable-filter=select --enable-filter=reverse --enable-encoder=mjpeg");
             return 0;
         }
 
@@ -85,13 +87,30 @@ function Get-TestInstallerContent {
     return @'
 Source: "{#FfmpegDir}\ffmpeg.exe"; DestDir: "{app}\third_party\ffmpeg"
 Source: "{#FfmpegDir}\ffmpeg-provenance.json"; DestDir: "{app}\third_party\ffmpeg"
-Source: "{#FfmpegDir}\ffmpeg-dependencies.json"; DestDir: "{app}\third_party\ffmpeg"
 Source: "{#FfmpegDir}\LICENSE.FFmpeg.txt"; DestDir: "{app}\third_party\ffmpeg"
 Source: "{#FfmpegDir}\NOTICE.FFmpeg.txt"; DestDir: "{app}\third_party\ffmpeg"
 Source: "{#FfmpegDir}\SOURCE.FFmpeg.txt"; DestDir: "{app}\third_party\ffmpeg"
-Source: "{#FfmpegDir}\DEPENDENCIES.FFmpeg.txt"; DestDir: "{app}\third_party\ffmpeg"
 Source: "{#FfmpegDir}\README.md"; DestDir: "{app}\third_party\ffmpeg"
 '@
+}
+
+function Compress-TestSourceBundle {
+    param(
+        [object]$Payload,
+        [bool]$UpdateManifestHash = $true
+    )
+
+    if (Test-Path -LiteralPath $Payload.SourceBundleZip) {
+        Remove-Item -LiteralPath $Payload.SourceBundleZip -Force
+    }
+
+    Compress-Archive -Path (Join-Path $Payload.SourceBundleDir '*') -DestinationPath $Payload.SourceBundleZip
+
+    if ($UpdateManifestHash) {
+        $manifest = Get-Content -LiteralPath $Payload.SourceBundleManifestPath -Raw | ConvertFrom-Json
+        $manifest.bundle_sha256 = (Get-FileHash -LiteralPath $Payload.SourceBundleZip -Algorithm SHA256).Hash
+        $manifest | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $Payload.SourceBundleManifestPath -Encoding UTF8
+    }
 }
 
 function New-TestPayload {
@@ -101,80 +120,133 @@ function New-TestPayload {
     $installerDir = Join-Path $root 'installer'
     $installer = Join-Path $installerDir 'RookSetup.iss'
     $ffmpeg = Join-Path $payload 'ffmpeg.exe'
+    $scriptMetadataDir = Join-Path $root 'scripts\ffmpeg'
+    $releaseDir = Join-Path $root 'release'
+    $sourceBundleDir = Join-Path $releaseDir 'source-bundle'
+    $sourceBundleZip = Join-Path $releaseDir 'rook-ffmpeg-source-bundle.zip'
+    $sourceBundleManifest = Join-Path $releaseDir 'rook-ffmpeg-source-bundle-manifest.json'
 
     New-Item -ItemType Directory -Path $fixtures | Out-Null
     New-Item -ItemType Directory -Path $installerDir | Out-Null
+    New-Item -ItemType Directory -Path $scriptMetadataDir | Out-Null
+    New-Item -ItemType Directory -Path $sourceBundleDir | Out-Null
 
     New-FakeFFmpeg -OutputPath $ffmpeg
-    Set-Content -Path (Join-Path $fixtures 'sidecar-smoke.mp4') -Value 'fake fixture' -Encoding ASCII
+    Set-Content -Path (Join-Path $fixtures 'sidecar-smoke-h264.mp4') -Value 'fake h264 fixture' -Encoding ASCII
+    Set-Content -Path (Join-Path $fixtures 'sidecar-smoke-vp9.webm') -Value 'fake vp9 fixture' -Encoding ASCII
     Set-Content -Path (Join-Path $payload 'LICENSE.FFmpeg.txt') -Value 'LGPL license text for test payload.' -Encoding ASCII
     Set-Content -Path (Join-Path $payload 'NOTICE.FFmpeg.txt') -Value 'FFmpeg attribution notice for test payload.' -Encoding ASCII
     Set-Content -Path (Join-Path $payload 'SOURCE.FFmpeg.txt') -Value 'Corresponding source URL and checksum for test payload.' -Encoding ASCII
-    Set-Content -Path (Join-Path $payload 'DEPENDENCIES.FFmpeg.txt') -Value 'Dependency source and license manifest for test payload.' -Encoding ASCII
     Set-Content -Path (Join-Path $payload 'README.md') -Value 'Bundled FFmpeg test payload summary.' -Encoding ASCII
     Set-Content -Path $installer -Value (Get-TestInstallerContent) -Encoding ASCII
+
+    $allowlistPath = Join-Path $scriptMetadataDir 'rook-ffmpeg-enable-allowlist.json'
+    [ordered]@{
+        schema_version = 1
+        allowed_enable_flags = @(
+            '--enable-ffmpeg',
+            '--enable-protocol=file',
+            '--enable-demuxer=mov',
+            '--enable-demuxer=matroska',
+            '--enable-muxer=image2',
+            '--enable-decoder=h264',
+            '--enable-parser=h264',
+            '--enable-filter=select',
+            '--enable-filter=reverse',
+            '--enable-encoder=mjpeg'
+        )
+        external_provenance_overrides = @()
+    } | ConvertTo-Json -Depth 5 | Set-Content -Path $allowlistPath -Encoding UTF8
+
+    $sourceMetadataPath = Join-Path $scriptMetadataDir 'rook-ffmpeg-source.json'
+    [ordered]@{
+        schema_version = 1
+        name = 'FFmpeg'
+        version = '8.1.1'
+        source_url = 'https://ffmpeg.org/releases/ffmpeg-8.1.1.tar.xz'
+        source_archive = 'ffmpeg-8.1.1.tar.xz'
+        source_sha256 = 'B6863ADDE98898F42602017462871B5F6333E65AEC803FDD7A6308639C52EDF3'
+        source_signature_url = 'https://ffmpeg.org/releases/ffmpeg-8.1.1.tar.xz.asc'
+        signing_key_url = 'https://ffmpeg.org/ffmpeg-devel.asc'
+        signing_key_fingerprint = 'FCF986EA15E6E293A5644F10B4322F04D67658D8'
+        source_signature_status_required = 'verified'
+    } | ConvertTo-Json -Depth 5 | Set-Content -Path $sourceMetadataPath -Encoding UTF8
+
+    Set-Content -Path (Join-Path $sourceBundleDir 'ffmpeg-8.1.1.tar.xz') -Value 'fake source archive' -Encoding ASCII
+    Set-Content -Path (Join-Path $sourceBundleDir 'ffmpeg-8.1.1.tar.xz.asc') -Value 'fake source signature' -Encoding ASCII
+    Set-Content -Path (Join-Path $sourceBundleDir 'changes.diff') -Value '' -Encoding ASCII
+    Set-Content -Path (Join-Path $sourceBundleDir 'rook-ffmpeg-configure.txt') -Value '--disable-everything --enable-ffmpeg' -Encoding ASCII
+    Copy-Item -LiteralPath $sourceMetadataPath -Destination (Join-Path $sourceBundleDir 'rook-ffmpeg-source.json') -Force
+    Copy-Item -LiteralPath $allowlistPath -Destination (Join-Path $sourceBundleDir 'rook-ffmpeg-enable-allowlist.json') -Force
+    Set-Content -Path (Join-Path $sourceBundleDir 'build-rook-ffmpeg.ps1') -Value 'fake build script' -Encoding ASCII
+    Compress-Archive -Path (Join-Path $sourceBundleDir '*') -DestinationPath $sourceBundleZip
+    $sourceBundleHash = (Get-FileHash -LiteralPath $sourceBundleZip -Algorithm SHA256).Hash
+
+    $configureLine = '--disable-everything --disable-autodetect --disable-network --disable-doc --disable-debug --enable-ffmpeg --enable-protocol=file --enable-demuxer=mov --enable-demuxer=matroska --enable-muxer=image2 --enable-decoder=h264 --enable-parser=h264 --enable-filter=select --enable-filter=reverse --enable-encoder=mjpeg'
+    [ordered]@{
+        schema_version = 1
+        bundle_path = $sourceBundleZip
+        bundle_sha256 = $sourceBundleHash
+        ffmpeg_source_archive = 'ffmpeg-8.1.1.tar.xz'
+        ffmpeg_source_sha256 = 'B6863ADDE98898F42602017462871B5F6333E65AEC803FDD7A6308639C52EDF3'
+        ffmpeg_source_signature_url = 'https://ffmpeg.org/releases/ffmpeg-8.1.1.tar.xz.asc'
+        signing_key_fingerprint = 'FCF986EA15E6E293A5644F10B4322F04D67658D8'
+        configure_line = $configureLine
+        changes_diff_path = 'changes.diff'
+        build_recipe_path = 'scripts/ffmpeg/build-rook-ffmpeg.ps1'
+        generated_at = '2026-05-12T00:00:00Z'
+        generated_by = 'test'
+    } | ConvertTo-Json -Depth 5 | Set-Content -Path $sourceBundleManifest -Encoding UTF8
 
     $hash = (Get-FileHash -LiteralPath $ffmpeg -Algorithm SHA256).Hash
     $provenance = [ordered]@{
         name = 'FFmpeg'
-        version = 'test-lgpl'
+        version = 'n8.1.1-rook-minimal'
         license = 'LGPL-only'
         binary_path = 'third_party/ffmpeg/ffmpeg.exe'
         binary_sha256 = $hash
-        binary_url = 'https://example.test/ffmpeg/binary'
-        build_source = 'test build system'
-        source_url = 'https://example.test/ffmpeg/source'
-        source_archive = 'ffmpeg-test.tar.xz'
-        source_sha256 = ('a' * 64)
-        configure_line = '--disable-gpl --disable-nonfree --enable-libopus'
+        source_url = 'https://ffmpeg.org/releases/ffmpeg-8.1.1.tar.xz'
+        source_archive = 'ffmpeg-8.1.1.tar.xz'
+        source_sha256 = 'B6863ADDE98898F42602017462871B5F6333E65AEC803FDD7A6308639C52EDF3'
+        source_signature_url = 'https://ffmpeg.org/releases/ffmpeg-8.1.1.tar.xz.asc'
+        signing_key_fingerprint = 'FCF986EA15E6E293A5644F10B4322F04D67658D8'
+        source_signature_status = 'verified'
+        build_recipe_path = 'scripts/ffmpeg/build-rook-ffmpeg.ps1'
+        configure_recipe_path = 'scripts/ffmpeg/rook-ffmpeg-configure.txt'
+        configure_line = $configureLine
+        changes_diff_path = 'changes.diff'
+        source_bundle_manifest_name = 'rook-ffmpeg-source-bundle-manifest.json'
         validated_command_surfaces = @('poster', 'first_frame', 'last_frame')
+        validated_fixtures = @(
+            [ordered]@{
+                path = 'third_party/ffmpeg/fixtures/sidecar-smoke-h264.mp4'
+                container = 'mp4'
+                video_codec = 'h264'
+            },
+            [ordered]@{
+                path = 'third_party/ffmpeg/fixtures/sidecar-smoke-vp9.webm'
+                container = 'webm'
+                video_codec = 'vp9'
+            }
+        )
         verified_at = '2026-05-12T00:00:00Z'
         verified_by = 'policy-test'
     }
 
-    $provenance | ConvertTo-Json -Depth 4 | Set-Content -Path (Join-Path $payload 'ffmpeg-provenance.json') -Encoding UTF8
-
-    $dependencies = [ordered]@{
-        name = 'test dependency manifest'
-        binary_url = 'https://example.test/ffmpeg/binary'
-        binary_archive_sha256 = ('c' * 64)
-        build_system = [ordered]@{
-            name = 'test build system'
-            release = 'test-release'
-            commit = 'test-commit'
-            source_url = 'https://example.test/build-system/source.zip'
-            source_sha256 = ('b' * 64)
-        }
-        dependency_source_basis = 'test build scripts define dependencies'
-        enabled_configure_flags = @('--enable-libopus')
-        verified_at = '2026-05-12T00:00:00Z'
-        verified_by = 'policy-test'
-    }
-
-    $dependencies | ConvertTo-Json -Depth 5 | Set-Content -Path (Join-Path $payload 'ffmpeg-dependencies.json') -Encoding UTF8
+    $provenance | ConvertTo-Json -Depth 8 | Set-Content -Path (Join-Path $payload 'ffmpeg-provenance.json') -Encoding UTF8
 
     return [pscustomobject]@{
         Root = $root
         Payload = $payload
         Installer = $installer
         Provenance = Join-Path $payload 'ffmpeg-provenance.json'
-        Dependencies = Join-Path $payload 'ffmpeg-dependencies.json'
         Ffmpeg = $ffmpeg
+        AllowlistPath = $allowlistPath
+        SourceMetadataPath = $sourceMetadataPath
+        SourceBundleDir = $sourceBundleDir
+        SourceBundleZip = $sourceBundleZip
+        SourceBundleManifestPath = $sourceBundleManifest
     }
-}
-
-function Read-DependencyManifest {
-    param([object]$Payload)
-    return Get-Content -LiteralPath $Payload.Dependencies -Raw | ConvertFrom-Json
-}
-
-function Write-DependencyManifest {
-    param(
-        [object]$Payload,
-        [object]$Manifest
-    )
-
-    $Manifest | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $Payload.Dependencies -Encoding UTF8
 }
 
 function Read-Provenance {
@@ -188,7 +260,35 @@ function Write-Provenance {
         [object]$Provenance
     )
 
-    $Provenance | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $Payload.Provenance -Encoding UTF8
+    $Provenance | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $Payload.Provenance -Encoding UTF8
+}
+
+function Read-SourceMetadata {
+    param([object]$Payload)
+    return Get-Content -LiteralPath $Payload.SourceMetadataPath -Raw | ConvertFrom-Json
+}
+
+function Write-SourceMetadata {
+    param(
+        [object]$Payload,
+        [object]$SourceMetadata
+    )
+
+    $SourceMetadata | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $Payload.SourceMetadataPath -Encoding UTF8
+}
+
+function Read-SourceBundleManifest {
+    param([object]$Payload)
+    return Get-Content -LiteralPath $Payload.SourceBundleManifestPath -Raw | ConvertFrom-Json
+}
+
+function Write-SourceBundleManifest {
+    param(
+        [object]$Payload,
+        [object]$Manifest
+    )
+
+    $Manifest | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $Payload.SourceBundleManifestPath -Encoding UTF8
 }
 
 function Invoke-Validation {
@@ -197,7 +297,16 @@ function Invoke-Validation {
     $previousErrorActionPreference = $ErrorActionPreference
     try {
         $ErrorActionPreference = 'Continue'
-        $output = & powershell -ExecutionPolicy Bypass -File $ValidatorScript -RepoRoot $Payload.Root -PayloadDir $Payload.Payload -InstallerScriptPath $Payload.Installer 2>&1
+        $output = & powershell `
+            -NoProfile `
+            -ExecutionPolicy Bypass `
+            -File $ValidatorScript `
+            -RepoRoot $Payload.Root `
+            -PayloadDir $Payload.Payload `
+            -InstallerScriptPath $Payload.Installer `
+            -AllowlistPath $Payload.AllowlistPath `
+            -SourceMetadataPath $Payload.SourceMetadataPath `
+            -SourceBundleManifestPath $Payload.SourceBundleManifestPath 2>&1
         $exitCode = $LASTEXITCODE
     } finally {
         $ErrorActionPreference = $previousErrorActionPreference
@@ -217,7 +326,16 @@ function Invoke-ValidationExpectFailure {
     $previousErrorActionPreference = $ErrorActionPreference
     try {
         $ErrorActionPreference = 'Continue'
-        $output = & powershell -ExecutionPolicy Bypass -File $ValidatorScript -RepoRoot $Payload.Root -PayloadDir $Payload.Payload -InstallerScriptPath $Payload.Installer 2>&1
+        $output = & powershell `
+            -NoProfile `
+            -ExecutionPolicy Bypass `
+            -File $ValidatorScript `
+            -RepoRoot $Payload.Root `
+            -PayloadDir $Payload.Payload `
+            -InstallerScriptPath $Payload.Installer `
+            -AllowlistPath $Payload.AllowlistPath `
+            -SourceMetadataPath $Payload.SourceMetadataPath `
+            -SourceBundleManifestPath $Payload.SourceBundleManifestPath 2>&1
         $exitCode = $LASTEXITCODE
     } finally {
         $ErrorActionPreference = $previousErrorActionPreference
@@ -250,7 +368,7 @@ function Test-ValidPayloadPasses {
     Invoke-PayloadTest {
         param($payload)
         $output = Invoke-Validation -Payload $payload
-        Assert-Contains -Text $output -Expected 'FFmpeg bundle validation passed: test-lgpl' -Message 'Valid payload should pass.'
+        Assert-Contains -Text $output -Expected 'FFmpeg bundle validation passed: n8.1.1-rook-minimal' -Message 'Valid payload should pass.'
     }
 }
 
@@ -258,7 +376,7 @@ function Test-ProvenanceEnableGplFails {
     Invoke-PayloadTest {
         param($payload)
         $provenance = Read-Provenance -Payload $payload
-        $provenance.configure_line = '--disable-nonfree --enable-gpl'
+        $provenance.configure_line = "$($provenance.configure_line) --enable-gpl"
         Write-Provenance -Payload $payload -Provenance $provenance
 
         $output = Invoke-ValidationExpectFailure -Payload $payload
@@ -270,7 +388,7 @@ function Test-ProvenanceEnableNonfreeFails {
     Invoke-PayloadTest {
         param($payload)
         $provenance = Read-Provenance -Payload $payload
-        $provenance.configure_line = '--disable-gpl --enable-nonfree'
+        $provenance.configure_line = "$($provenance.configure_line) --enable-nonfree"
         Write-Provenance -Payload $payload -Provenance $provenance
 
         $output = Invoke-ValidationExpectFailure -Payload $payload
@@ -306,7 +424,7 @@ function Test-StaleConfigureLineFails {
     Invoke-PayloadTest {
         param($payload)
         $provenance = Read-Provenance -Payload $payload
-        $provenance.configure_line = '--disable-gpl --disable-nonfree --enable-small'
+        $provenance.configure_line = "$($provenance.configure_line) --enable-ffmpeg"
         Write-Provenance -Payload $payload -Provenance $provenance
 
         $output = Invoke-ValidationExpectFailure -Payload $payload
@@ -336,29 +454,152 @@ function Test-MissingNoticeFails {
     }
 }
 
-function Test-MissingDependencyManifestFails {
-    Invoke-PayloadTest {
-        param($payload)
-        Remove-Item -LiteralPath $payload.Dependencies -Force
-
-        $output = Invoke-ValidationExpectFailure -Payload $payload
-        Assert-Contains -Text $output -Expected 'ffmpeg-dependencies.json is missing' -Message 'Missing dependency manifest should be reported.'
-    }
-}
-
-function Test-StaleDependencyManifestFails {
+function Test-RejectsUnexpectedEnableZlib {
     Invoke-PayloadTest {
         param($payload)
         $provenance = Read-Provenance -Payload $payload
-        $provenance.configure_line = '--disable-gpl --disable-nonfree --enable-libopus'
+        $provenance.configure_line = "$($provenance.configure_line) --enable-zlib"
         Write-Provenance -Payload $payload -Provenance $provenance
 
-        $manifest = Read-DependencyManifest -Payload $payload
-        $manifest.enabled_configure_flags = @('--enable-libvpx')
-        Write-DependencyManifest -Payload $payload -Manifest $manifest
+        $output = Invoke-ValidationExpectFailure -Payload $payload
+        Assert-Contains -Text $output -Expected 'unexpected FFmpeg configure enable flag --enable-zlib' -Message 'Validator must reject broad non-allowlisted enable flags.'
+    }
+}
+
+function Test-RejectsMissingSourceSignatureVerification {
+    Invoke-PayloadTest {
+        param($payload)
+        $provenance = Read-Provenance -Payload $payload
+        $provenance.source_signature_status = 'not-checked'
+        Write-Provenance -Payload $payload -Provenance $provenance
 
         $output = Invoke-ValidationExpectFailure -Payload $payload
-        Assert-Contains -Text $output -Expected 'ffmpeg-dependencies.json is missing enabled configure flags: --enable-libopus' -Message 'Stale dependency manifest should be reported.'
+        Assert-Contains -Text $output -Expected 'source_signature_status must be verified' -Message 'Validator must require verified official FFmpeg source signatures.'
+    }
+}
+
+function Test-RejectsMissingSourceBundleManifest {
+    Invoke-PayloadTest {
+        param($payload)
+        Remove-Item -LiteralPath $payload.SourceBundleManifestPath -Force
+
+        $output = Invoke-ValidationExpectFailure -Payload $payload
+        Assert-Contains -Text $output -Expected 'source bundle manifest is missing' -Message 'Validator must require release source-bundle staging.'
+    }
+}
+
+function Test-RejectsSourceBundleHashMismatch {
+    Invoke-PayloadTest {
+        param($payload)
+        Add-Content -LiteralPath $payload.SourceBundleZip -Value 'tamper'
+
+        $output = Invoke-ValidationExpectFailure -Payload $payload
+        Assert-Contains -Text $output -Expected 'source bundle checksum mismatch' -Message 'Validator must verify the staged source bundle hash.'
+    }
+}
+
+function Test-RejectsMissingRequiredH264FixtureMetadata {
+    Invoke-PayloadTest {
+        param($payload)
+        $provenance = Read-Provenance -Payload $payload
+        $provenance.validated_fixtures = @($provenance.validated_fixtures | Where-Object { $_.video_codec -ne 'h264' })
+        Write-Provenance -Payload $payload -Provenance $provenance
+
+        $output = Invoke-ValidationExpectFailure -Payload $payload
+        Assert-Contains -Text $output -Expected 'validated_fixtures must include h264 mp4 coverage' -Message 'Validator must require H.264 MP4 fixture metadata.'
+    }
+}
+
+function Test-RejectsMissingRequiredVp9OrAv1FixtureMetadata {
+    Invoke-PayloadTest {
+        param($payload)
+        $provenance = Read-Provenance -Payload $payload
+        $provenance.validated_fixtures = @($provenance.validated_fixtures | Where-Object { $_.video_codec -ne 'vp9' -and $_.video_codec -ne 'av1' })
+        Write-Provenance -Payload $payload -Provenance $provenance
+
+        $output = Invoke-ValidationExpectFailure -Payload $payload
+        Assert-Contains -Text $output -Expected 'validated_fixtures must include vp9 webm or av1 coverage' -Message 'Validator must require WebM/VP9 or AV1 fixture metadata.'
+    }
+}
+
+function Test-RejectsMissingChangesDiffInsideSourceBundle {
+    Invoke-PayloadTest {
+        param($payload)
+        Remove-Item -LiteralPath (Join-Path $payload.SourceBundleDir 'changes.diff') -Force
+        Compress-TestSourceBundle -Payload $payload
+
+        $output = Invoke-ValidationExpectFailure -Payload $payload
+        Assert-Contains -Text $output -Expected 'source bundle is missing required entry changes.diff' -Message 'Validator must inspect source bundle contents.'
+    }
+}
+
+function Test-RejectsMissingSourceArchiveInsideSourceBundle {
+    Invoke-PayloadTest {
+        param($payload)
+        Remove-Item -LiteralPath (Join-Path $payload.SourceBundleDir 'ffmpeg-8.1.1.tar.xz') -Force
+        Compress-TestSourceBundle -Payload $payload
+
+        $output = Invoke-ValidationExpectFailure -Payload $payload
+        Assert-Contains -Text $output -Expected 'source bundle is missing required entry ffmpeg-8.1.1.tar.xz' -Message 'Validator must include the FFmpeg source archive in the bundle.'
+    }
+}
+
+function Test-RejectsMissingSourceSignatureInsideSourceBundle {
+    Invoke-PayloadTest {
+        param($payload)
+        Remove-Item -LiteralPath (Join-Path $payload.SourceBundleDir 'ffmpeg-8.1.1.tar.xz.asc') -Force
+        Compress-TestSourceBundle -Payload $payload
+
+        $output = Invoke-ValidationExpectFailure -Payload $payload
+        Assert-Contains -Text $output -Expected 'source bundle is missing required entry ffmpeg-8.1.1.tar.xz.asc' -Message 'Validator must include the FFmpeg source signature in the bundle.'
+    }
+}
+
+function Test-RejectsProvenanceSourceUrlMismatch {
+    Invoke-PayloadTest {
+        param($payload)
+        $provenance = Read-Provenance -Payload $payload
+        $provenance.source_url = 'https://example.test/stale-source.tar.xz'
+        Write-Provenance -Payload $payload -Provenance $provenance
+
+        $output = Invoke-ValidationExpectFailure -Payload $payload
+        Assert-Contains -Text $output -Expected 'provenance source_url does not match committed FFmpeg source metadata' -Message 'Validator must anchor provenance to committed source metadata.'
+    }
+}
+
+function Test-RejectsProvenanceSigningKeyFingerprintMismatch {
+    Invoke-PayloadTest {
+        param($payload)
+        $provenance = Read-Provenance -Payload $payload
+        $provenance.signing_key_fingerprint = '0000000000000000000000000000000000000000'
+        Write-Provenance -Payload $payload -Provenance $provenance
+
+        $output = Invoke-ValidationExpectFailure -Payload $payload
+        Assert-Contains -Text $output -Expected 'provenance signing_key_fingerprint does not match committed FFmpeg source metadata' -Message 'Validator must anchor signing key expectations to committed source metadata.'
+    }
+}
+
+function Test-RejectsSourceBundleSignatureUrlMismatch {
+    Invoke-PayloadTest {
+        param($payload)
+        $manifest = Read-SourceBundleManifest -Payload $payload
+        $manifest.ffmpeg_source_signature_url = 'https://example.test/stale.asc'
+        Write-SourceBundleManifest -Payload $payload -Manifest $manifest
+
+        $output = Invoke-ValidationExpectFailure -Payload $payload
+        Assert-Contains -Text $output -Expected 'source bundle manifest source signature URL does not match committed FFmpeg source metadata' -Message 'Validator must anchor source-bundle signature metadata to committed source metadata.'
+    }
+}
+
+function Test-RejectsSourceBundleSigningKeyFingerprintMismatch {
+    Invoke-PayloadTest {
+        param($payload)
+        $manifest = Read-SourceBundleManifest -Payload $payload
+        $manifest.signing_key_fingerprint = '0000000000000000000000000000000000000000'
+        Write-SourceBundleManifest -Payload $payload -Manifest $manifest
+
+        $output = Invoke-ValidationExpectFailure -Payload $payload
+        Assert-Contains -Text $output -Expected 'source bundle manifest signing key fingerprint does not match committed FFmpeg source metadata' -Message 'Validator must anchor source-bundle signing key metadata to committed source metadata.'
     }
 }
 
@@ -382,11 +623,12 @@ function Test-StagedPayloadMissingOwnFfmpegFails {
         $stagedPayload = Join-Path $payload.Root 'staged\third_party\ffmpeg'
         New-Item -ItemType Directory -Path (Join-Path $stagedPayload 'fixtures') | Out-Null
 
-        foreach ($fileName in @('ffmpeg-provenance.json', 'ffmpeg-dependencies.json', 'LICENSE.FFmpeg.txt', 'NOTICE.FFmpeg.txt', 'SOURCE.FFmpeg.txt', 'DEPENDENCIES.FFmpeg.txt', 'README.md')) {
+        foreach ($fileName in @('ffmpeg-provenance.json', 'LICENSE.FFmpeg.txt', 'NOTICE.FFmpeg.txt', 'SOURCE.FFmpeg.txt', 'README.md')) {
             Copy-Item -LiteralPath (Join-Path $payload.Payload $fileName) -Destination (Join-Path $stagedPayload $fileName)
         }
 
-        Copy-Item -LiteralPath (Join-Path $payload.Payload 'fixtures\sidecar-smoke.mp4') -Destination (Join-Path $stagedPayload 'fixtures\sidecar-smoke.mp4')
+        Copy-Item -LiteralPath (Join-Path $payload.Payload 'fixtures\sidecar-smoke-h264.mp4') -Destination (Join-Path $stagedPayload 'fixtures\sidecar-smoke-h264.mp4')
+        Copy-Item -LiteralPath (Join-Path $payload.Payload 'fixtures\sidecar-smoke-vp9.webm') -Destination (Join-Path $stagedPayload 'fixtures\sidecar-smoke-vp9.webm')
 
         $staged = [pscustomobject]@{
             Root = $payload.Root
@@ -394,6 +636,9 @@ function Test-StagedPayloadMissingOwnFfmpegFails {
             Installer = $payload.Installer
             Provenance = Join-Path $stagedPayload 'ffmpeg-provenance.json'
             Ffmpeg = Join-Path $stagedPayload 'ffmpeg.exe'
+            AllowlistPath = $payload.AllowlistPath
+            SourceMetadataPath = $payload.SourceMetadataPath
+            SourceBundleManifestPath = $payload.SourceBundleManifestPath
         }
 
         $output = Invoke-ValidationExpectFailure -Payload $staged
@@ -412,7 +657,6 @@ function Test-MissingInstallerSourceEntryFails {
 ; third_party\ffmpeg\SOURCE.FFmpeg.txt appears only in a comment and must not satisfy validation.
 Source: "{#FfmpegDir}\ffmpeg.exe"; DestDir: "{app}\third_party\ffmpeg"
 Source: "{#FfmpegDir}\ffmpeg-provenance.json"; DestDir: "{app}\third_party\ffmpeg"
-Source: "{#FfmpegDir}\ffmpeg-dependencies.json"; DestDir: "{app}\third_party\ffmpeg"
 Source: "{#FfmpegDir}\LICENSE.FFmpeg.txt"; DestDir: "{app}\third_party\ffmpeg"
 Source: "{#FfmpegDir}\NOTICE.FFmpeg.txt"; DestDir: "{app}\third_party\ffmpeg"
 '@
@@ -429,7 +673,6 @@ function Test-InstallerSourceEntryIgnoresPathOutsideSourceValue {
         $installerContent = @'
 Source: "{#FfmpegDir}\ffmpeg.exe"; DestDir: "{app}\third_party\ffmpeg"
 Source: "{#FfmpegDir}\ffmpeg-provenance.json"; DestDir: "{app}\third_party\ffmpeg"
-Source: "{#FfmpegDir}\ffmpeg-dependencies.json"; DestDir: "{app}\third_party\ffmpeg"
 Source: "{#FfmpegDir}\LICENSE.FFmpeg.txt"; DestDir: "{app}\third_party\ffmpeg"
 Source: "{#FfmpegDir}\NOTICE.FFmpeg.txt"; DestDir: "{app}\third_party\ffmpeg"
 Source: "{#RepoRoot}\README.md"; DestDir: "{app}"; Check: True or FileExists('third_party\ffmpeg\SOURCE.FFmpeg.txt')
@@ -463,8 +706,19 @@ Test-BinarySha256MismatchFails
 Test-StaleConfigureLineFails
 Test-StaleVersionFails
 Test-MissingNoticeFails
-Test-MissingDependencyManifestFails
-Test-StaleDependencyManifestFails
+Test-RejectsUnexpectedEnableZlib
+Test-RejectsMissingSourceSignatureVerification
+Test-RejectsMissingSourceBundleManifest
+Test-RejectsSourceBundleHashMismatch
+Test-RejectsMissingRequiredH264FixtureMetadata
+Test-RejectsMissingRequiredVp9OrAv1FixtureMetadata
+Test-RejectsMissingChangesDiffInsideSourceBundle
+Test-RejectsMissingSourceArchiveInsideSourceBundle
+Test-RejectsMissingSourceSignatureInsideSourceBundle
+Test-RejectsProvenanceSourceUrlMismatch
+Test-RejectsProvenanceSigningKeyFingerprintMismatch
+Test-RejectsSourceBundleSignatureUrlMismatch
+Test-RejectsSourceBundleSigningKeyFingerprintMismatch
 Test-SmokeFailureFails
 Test-StagedPayloadMissingOwnFfmpegFails
 Test-MissingInstallerSourceEntryFails
