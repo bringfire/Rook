@@ -151,6 +151,16 @@ namespace Rook.Tests.Services.Vision.MediaImport
             AssertProcessExited(processId);
         }
 
+        [Fact]
+        public void DefaultSidecarExtractor_UsesKillOnCancelRunnerForFfmpegExtraction()
+        {
+            var extractor = new DefaultVideoImportSidecarExtractor();
+
+            var runner = extractor.CreateProcessRunnerForTests();
+
+            Assert.IsType<KillOnCancelProcessRunner>(runner);
+        }
+
         public void Dispose()
         {
             try

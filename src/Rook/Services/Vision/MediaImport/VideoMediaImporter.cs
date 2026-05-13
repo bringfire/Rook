@@ -221,16 +221,29 @@ namespace Rook.Services.Vision.MediaImport
         private readonly Func<string?> _ffmpegPathProvider;
         private readonly Func<string, string, string, TimeSpan, CancellationToken, Task<FfmpegPosterExtractionResult>> _extractPosterAsync;
         private readonly Func<string, string, VideoFrameSelector, string, TimeSpan, CancellationToken, Task<FfmpegVideoFrameExtractionResult>> _extractFrameAsync;
+        private readonly Func<IProcessRunner> _processRunnerFactory;
         private readonly string _tempRoot;
 
         public DefaultVideoImportSidecarExtractor()
             : this(
                 FfmpegBundledBinaryLocator.GetInstalledFfmpegPath,
-                (ffmpegPath, inputPath, outputPath, timeout, ct) => new FfmpegPosterFrameExtractor()
-                    .ExtractPosterAsync(ffmpegPath, inputPath, outputPath, timeout, ct),
-                (ffmpegPath, inputPath, selector, outputPath, timeout, ct) => new FfmpegVideoFrameExtractor()
-                    .ExtractFrameAsync(ffmpegPath, inputPath, selector, outputPath, timeout, ct),
+                () => new KillOnCancelProcessRunner(),
                 Path.Combine(Path.GetTempPath(), "rook-media-import-sidecars"))
+        {
+        }
+
+        internal DefaultVideoImportSidecarExtractor(
+            Func<string?> ffmpegPathProvider,
+            Func<IProcessRunner> processRunnerFactory,
+            string tempRoot)
+            : this(
+                ffmpegPathProvider,
+                (ffmpegPath, inputPath, outputPath, timeout, ct) => new FfmpegPosterFrameExtractor(processRunnerFactory())
+                    .ExtractPosterAsync(ffmpegPath, inputPath, outputPath, timeout, ct),
+                (ffmpegPath, inputPath, selector, outputPath, timeout, ct) => new FfmpegVideoFrameExtractor(processRunnerFactory())
+                    .ExtractFrameAsync(ffmpegPath, inputPath, selector, outputPath, timeout, ct),
+                tempRoot,
+                processRunnerFactory)
         {
         }
 
@@ -238,15 +251,20 @@ namespace Rook.Services.Vision.MediaImport
             Func<string?> ffmpegPathProvider,
             Func<string, string, string, TimeSpan, CancellationToken, Task<FfmpegPosterExtractionResult>> extractPosterAsync,
             Func<string, string, VideoFrameSelector, string, TimeSpan, CancellationToken, Task<FfmpegVideoFrameExtractionResult>> extractFrameAsync,
-            string tempRoot)
+            string tempRoot,
+            Func<IProcessRunner>? processRunnerFactory = null)
         {
             _ffmpegPathProvider = ffmpegPathProvider ?? throw new ArgumentNullException(nameof(ffmpegPathProvider));
             _extractPosterAsync = extractPosterAsync ?? throw new ArgumentNullException(nameof(extractPosterAsync));
             _extractFrameAsync = extractFrameAsync ?? throw new ArgumentNullException(nameof(extractFrameAsync));
+            _processRunnerFactory = processRunnerFactory ?? (() => new KillOnCancelProcessRunner());
             _tempRoot = string.IsNullOrWhiteSpace(tempRoot)
                 ? throw new ArgumentException("Temp root must be non-empty.", nameof(tempRoot))
                 : tempRoot;
         }
+
+        internal IProcessRunner CreateProcessRunnerForTests()
+            => _processRunnerFactory();
 
         public async Task<VideoImportSidecarResult> ExtractAsync(
             string path,
