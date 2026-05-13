@@ -181,6 +181,21 @@ public sealed record BlobFileInput(
     string Role,
     string SourcePath,
     string FileExtension);
+
+public sealed class ArtifactBlobCopyException : IOException
+{
+    public ArtifactBlobCopyException(string role, string sourcePath, string destinationPath, Exception innerException)
+        : base($"Artifact blob '{role}' could not be copied.", innerException)
+    {
+        Role = role;
+        SourcePath = sourcePath;
+        DestinationPath = destinationPath;
+    }
+
+    public string Role { get; }
+    public string SourcePath { get; }
+    public string DestinationPath { get; }
+}
 ```
 
 - [ ] **Step 4: Implement `CreateFromFiles`**
@@ -226,7 +241,14 @@ public Artifact CreateFromFiles(
         foreach (var file in files)
         {
             var destination = Path.Combine(tmpDir, $"{file.Role}.{file.FileExtension}");
-            File.Copy(file.SourcePath, destination, overwrite: false);
+            try
+            {
+                File.Copy(file.SourcePath, destination, overwrite: false);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+            {
+                throw new ArtifactBlobCopyException(file.Role, file.SourcePath, destination, ex);
+            }
         }
 
         var manifestPath = Path.Combine(tmpDir, ManifestFileName);
@@ -898,6 +920,17 @@ namespace Rook.Tests.Services.Vision.MediaImport
         }
 
         [Fact]
+        public void MapPublishException_CopyException_ReturnsCopyFailed()
+        {
+            var ex = new ArtifactBlobCopyException("image", "source.png", "image.png", new IOException("copy denied"));
+
+            var result = ImageMediaImporter.MapPublishException("image", ex);
+
+            Assert.False(result.Success);
+            Assert.Equal(MediaImportFailureCode.CopyFailed, result.FailureCode);
+        }
+
+        [Fact]
         public void ImportGif_ReturnsUnsupportedMediaType_AndPublishesNothing()
         {
             var source = Path.Combine(_root, "source.gif");
@@ -1017,8 +1050,15 @@ namespace Rook.Services.Vision.MediaImport
             }
             catch (Exception ex)
             {
-                return MediaImportProcessResult.Failed(MediaImportFailureCode.PublishFailed, $"Imported image could not be published: {ex.Message}");
+                return MapPublishException("image", ex);
             }
+        }
+
+        internal static MediaImportProcessResult MapPublishException(string mediaKind, Exception ex)
+        {
+            if (ex is ArtifactBlobCopyException)
+                return MediaImportProcessResult.Failed(MediaImportFailureCode.CopyFailed, $"Imported {mediaKind} blob could not be copied: {ex.InnerException?.Message ?? ex.Message}");
+            return MediaImportProcessResult.Failed(MediaImportFailureCode.PublishFailed, $"Imported {mediaKind} could not be published: {ex.Message}");
         }
 
         internal static MediaImportProcessResult ValidatePath(string path, long maxBytes)
@@ -1533,7 +1573,7 @@ namespace Rook.Services.Vision.MediaImport
             }
             catch (Exception ex)
             {
-                return MediaImportProcessResult.Failed(MediaImportFailureCode.PublishFailed, $"Imported video could not be published: {ex.Message}");
+                return ImageMediaImporter.MapPublishException("video", ex);
             }
             finally
             {
@@ -1649,7 +1689,7 @@ public Task<MediaImportProcessResult> ProcessAsync(string path, CancellationToke
     var ext = Path.GetExtension(path).TrimStart('.').ToLowerInvariant();
     if (ext is "png" or "jpg" or "jpeg" or "webp" or "gif" or "tiff" or "heic" or "heif" or "svg")
         return Task.FromResult(_imageImporter.Import(path));
-    if (ext is "mp4" or "mov" or "webm" or "avi" or "mkv")
+    if (ext is "mp4" or "mov" or "webm")
         return _videoImporter.Import(path, ct);
     return Task.FromResult(MediaImportProcessResult.Failed(MediaImportFailureCode.UnsupportedMediaType, "Unsupported media type."));
 }
@@ -2552,6 +2592,8 @@ async function importSourceImageForStudio() {
 Add helper:
 
 ```javascript
+const sleep = ms => new Promise(resolve => window.setTimeout(resolve, ms));
+
 async function awaitMediaImportJob(jobId) {
     for (;;) {
         const job = await bridgeCall("get_media_import_job", { job_id: jobId });
