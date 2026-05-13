@@ -65,11 +65,11 @@ function errorToText(e) {
 
 let currentView = "generate";
 let generateReferences = [];          // [{ path, thumbnail_base64, thumbnail_mime_type }]
-// `studioSource` carries what Generate calls `input_image_path`.
-// Two entry paths produce it — the OS file picker (path + inline
-// thumbnail base64) and an in-process depth-map capture (path +
-// artifact id, preview served via /blob/{id}/image). Shape:
-//   { path, previewSrc, label, source: "picker" | "depth" }
+// `studioSource` carries Studio's source image. New selections are
+// durable artifact refs:
+//   { source: "artifact", artifact_id, role, previewSrc, label }
+// Legacy in-memory states may still carry `{ path, previewSrc, label }`
+// and are translated to `input_image_path` until those states disappear.
 let studioSource = null;
 let studioReferences = [];
 let latestArtifactId = null;          // id of the most-recently generated image (Generate view)
@@ -77,6 +77,7 @@ let latestStudioArtifactId = null;    // same, Studio view
 let galleryItems = [];                // cached list for modal lookup
 let mediaImportJobs = new Map();      // job_id -> latest media import job snapshot
 let mediaImportPollers = new Map();   // job_id -> timeout id
+let isStartingMediaImport = false;
 let modalArtifact = null;             // currently-open gallery item
 let modalDisplayRole = null;          // blob role currently rendered in the modal image
 let modelCatalog = [];                 // [{ short_name, supported_resolutions, ... }]
@@ -866,22 +867,44 @@ async function loadImageModels() {
 // ─── Studio View ──────────────────────────────────────────────────
 
 async function studioLoadImage() {
+    showStudioStatus("Importing source image...", "info");
+    el.studioUploadBtn.disabled = true;
     try {
-        const data = await bridgeCall("open_image_picker", { multi: false });
-        const picked = (data.paths || [])[0];
-        if (!picked || !picked.path) return;
-        const mime = picked.thumbnail_mime_type || picked.mime_type || "image/jpeg";
-        const previewSrc = picked.thumbnail_base64
-            ? `data:${mime};base64,${picked.thumbnail_base64}`
-            : "";
+        const job = await bridgeCall("start_media_import", {});
+        if (job && job.created === false) {
+            hideStudioStatus();
+            return;
+        }
+        if (!job || job.created !== true || !job.job_id) {
+            showStudioStatus("Media import did not create a job.", "error");
+            return;
+        }
+        rememberMediaImportJob(job);
+        renderMediaImportJobs();
+
+        const completed = job.state === "complete"
+            ? job
+            : await awaitMediaImportJob(job.job_id);
+        const imported = ((completed && completed.files) || [])
+            .find(file => file.artifact_kind === "imported_image" && file.artifact_id);
+
+        if (!imported) {
+            showStudioStatus("Import completed, but no image artifact was created.", "error");
+            return;
+        }
+
         applyStudioSource({
-            source: "picker",
-            path: picked.path,
-            previewSrc,
-            label: basename(picked.path),
+            source: "artifact",
+            artifact_id: imported.artifact_id,
+            role: "image",
+            previewSrc: `/blob/${encodeURIComponent(imported.artifact_id)}/image?ts=${Date.now()}`,
+            label: imported.basename || "imported image",
         });
+        hideStudioStatus();
     } catch (e) {
         showStudioStatus(e.message, "error");
+    } finally {
+        el.studioUploadBtn.disabled = false;
     }
 }
 
@@ -897,8 +920,9 @@ async function studioCaptureDepth() {
         const previewSrc = `/blob/${encodeURIComponent(artifact.artifact_id)}/image?ts=${Date.now()}`;
         const mode = artifact.metadata && artifact.metadata.resolved_mode;
         applyStudioSource({
-            source: "depth",
-            path: artifact.file_path,
+            source: "artifact",
+            artifact_id: artifact.artifact_id,
+            role: "image",
             previewSrc,
             label: mode ? `depth map (${mode})` : "depth map",
         });
@@ -986,7 +1010,7 @@ async function studioEnhancePrompt() {
 async function studioGenerate() {
     const prompt = el.studioPrompt.value.trim();
     if (!prompt) { showStudioStatus("Please enter a prompt.", "error"); return; }
-    if (!studioSource || !studioSource.path) {
+    if (!hasStudioSourceImage()) {
         showStudioStatus("Load a source image first.", "error");
         return;
     }
@@ -1002,14 +1026,14 @@ async function studioGenerate() {
     try {
         const args = {
             prompt,
-            input_image_path: studioSource.path,
             resolution: el.studioResolutionSelect.value,
         };
+        applyStudioSourceArgs(args);
         const aspectRatio = selectedAspectRatio(el.studioAspectSelect);
         if (aspectRatio) args.aspect_ratio = aspectRatio;
         if (el.studioModelSelect.value) args.model = el.studioModelSelect.value;
         if (modelMaxReferenceImages(model) > 0 && studioReferences.length > 0) {
-            args.reference_image_paths = studioReferences.map(r => r.path);
+            applyStudioReferenceArgs(args);
         }
 
         if (isAsyncImageJobModel(model)) {
@@ -1066,6 +1090,42 @@ async function studioGenerateImageJob(args, model) {
 
 function isVideoArtifactKind(kind) {
     return kind === "generated_video" || kind === "imported_video";
+}
+
+function hasStudioSourceImage() {
+    return !!(studioSource && (
+        (studioSource.source === "artifact" && studioSource.artifact_id) ||
+        studioSource.path));
+}
+
+function artifactImageRef(src) {
+    return {
+        kind: "artifact_id",
+        artifact_id: src.artifact_id,
+        role: src.role || "image",
+    };
+}
+
+function applyStudioSourceArgs(args) {
+    if (studioSource.source === "artifact" && studioSource.artifact_id) {
+        Object.assign(args, { input_image: artifactImageRef(studioSource) });
+    } else if (studioSource.path) {
+        args.input_image_path = studioSource.path;
+    }
+}
+
+function applyStudioReferenceArgs(args) {
+    const artifactRefs = studioReferences
+        .filter(r => r && r.artifact_id)
+        .map(artifactImageRef);
+    const pathRefs = studioReferences
+        .filter(r => r && r.path)
+        .map(r => r.path);
+    if (artifactRefs.length > 0 && pathRefs.length > 0) {
+        throw new Error("Reference images must come from the same source type. Clear references and add them again.");
+    }
+    if (artifactRefs.length > 0) args.reference_images = artifactRefs;
+    if (pathRefs.length > 0) args.reference_image_paths = pathRefs;
 }
 
 async function loadGallery() {
@@ -1172,6 +1232,9 @@ async function openArtifactsFolder() {
 }
 
 async function startMediaImport() {
+    if (isStartingMediaImport) return;
+    isStartingMediaImport = true;
+    if (el.addMediaGalleryBtn) el.addMediaGalleryBtn.disabled = true;
     try {
         const job = await bridgeCall("start_media_import", {});
         if (job && job.created === false && job.reason === "empty_selection") {
@@ -1190,6 +1253,9 @@ async function startMediaImport() {
         }
     } catch (e) {
         window.alert(`Could not start media import: ${errorToText(e)}`);
+    } finally {
+        isStartingMediaImport = false;
+        if (el.addMediaGalleryBtn) el.addMediaGalleryBtn.disabled = false;
     }
 }
 
@@ -1260,6 +1326,24 @@ function renderMediaImportJobs() {
             openArtifactModal(btn.dataset.id);
         });
     });
+}
+
+async function awaitMediaImportJob(jobId) {
+    const maxAttempts = 150;
+    const reservedPollerSlot = jobId && !mediaImportPollers.has(jobId);
+    if (reservedPollerSlot) mediaImportPollers.set(jobId, null);
+    try {
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            const job = await bridgeCall("get_media_import_job", { job_id: jobId });
+            rememberMediaImportJob(job);
+            renderMediaImportJobs();
+            if (job && job.state === "complete") return job;
+            await delay(1200);
+        }
+    } finally {
+        if (reservedPollerSlot) mediaImportPollers.delete(jobId);
+    }
+    throw new Error("Media import did not finish within 3 minutes.");
 }
 
 function pollMediaImportJob(jobId) {

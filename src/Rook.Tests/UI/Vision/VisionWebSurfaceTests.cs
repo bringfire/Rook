@@ -847,7 +847,81 @@ namespace Rook.Tests.UI.Vision
 
             Assert.Contains("const model = selectedImageModel(el.studioModelSelect);", js);
             Assert.Contains("if (modelMaxReferenceImages(model) > 0 && studioReferences.length > 0) {", js);
-            Assert.Contains("args.reference_image_paths = studioReferences.map(r => r.path);", js);
+            Assert.Contains("if (artifactRefs.length > 0 && pathRefs.length > 0) {", js);
+            Assert.Contains("Reference images must come from the same source type", js);
+            Assert.Contains("args.reference_images = artifactRefs;", js);
+            Assert.Contains("args.reference_image_paths = pathRefs;", js);
+        }
+
+        [Fact]
+        public void AppJs_MediaImportGuardsLaunchAndForegroundPolling()
+        {
+            var js = ReadVisionResource("app.js");
+
+            Assert.Contains("let isStartingMediaImport = false;", js);
+
+            var startBegin = js.IndexOf("async function startMediaImport()", StringComparison.Ordinal);
+            var startEnd = js.IndexOf("async function loadMediaImportJobs()", startBegin, StringComparison.Ordinal);
+            Assert.True(startBegin >= 0, "startMediaImport must exist.");
+            Assert.True(startEnd > startBegin, "startMediaImport body must be bounded.");
+            var startBody = js.Substring(startBegin, startEnd - startBegin);
+            Assert.Contains("if (isStartingMediaImport) return;", startBody);
+            Assert.Contains("isStartingMediaImport = true;", startBody);
+            Assert.Contains("el.addMediaGalleryBtn.disabled = true;", startBody);
+            Assert.Contains("isStartingMediaImport = false;", startBody);
+            Assert.Contains("el.addMediaGalleryBtn.disabled = false;", startBody);
+
+            var awaitBegin = js.IndexOf("async function awaitMediaImportJob(jobId)", StringComparison.Ordinal);
+            var awaitEnd = js.IndexOf("function pollMediaImportJob(jobId)", awaitBegin, StringComparison.Ordinal);
+            Assert.True(awaitBegin >= 0, "awaitMediaImportJob must exist.");
+            Assert.True(awaitEnd > awaitBegin, "awaitMediaImportJob body must be bounded.");
+            var awaitBody = js.Substring(awaitBegin, awaitEnd - awaitBegin);
+            Assert.Contains("const reservedPollerSlot = jobId && !mediaImportPollers.has(jobId);", awaitBody);
+            Assert.Contains("mediaImportPollers.set(jobId, null);", awaitBody);
+            Assert.Contains("mediaImportPollers.delete(jobId);", awaitBody);
+        }
+
+        [Fact]
+        public void AppJs_StudioUsesImageArtifactRefsForSelectedSource()
+        {
+            var js = ReadVisionResource("app.js");
+
+            var loadStart = js.IndexOf("async function studioLoadImage()", StringComparison.Ordinal);
+            var loadEnd = js.IndexOf("async function studioCaptureDepth()", loadStart, StringComparison.Ordinal);
+            Assert.True(loadStart >= 0, "Studio Load Image handler must exist.");
+            Assert.True(loadEnd > loadStart, "Studio Load Image handler body must be bounded.");
+            var loadBody = js.Substring(loadStart, loadEnd - loadStart);
+
+            Assert.Contains("bridgeCall(\"start_media_import\", {})", loadBody);
+            Assert.Contains("await awaitMediaImportJob(job.job_id)", loadBody);
+            Assert.DoesNotContain("open_image_picker", loadBody);
+            Assert.Contains("file.artifact_kind === \"imported_image\" && file.artifact_id", loadBody);
+            Assert.Contains("source: \"artifact\"", loadBody);
+            Assert.Contains("artifact_id: imported.artifact_id", loadBody);
+            Assert.Contains("role: \"image\"", loadBody);
+
+            var refStart = js.IndexOf("function artifactImageRef(src)", StringComparison.Ordinal);
+            var refEnd = js.IndexOf("function applyStudioSourceArgs(args)", refStart, StringComparison.Ordinal);
+            Assert.True(refStart >= 0, "Artifact image ref helper must exist.");
+            Assert.True(refEnd > refStart, "Artifact image ref helper body must be bounded.");
+            var refBody = js.Substring(refStart, refEnd - refStart);
+            Assert.Contains("kind: \"artifact_id\"", refBody);
+            Assert.Contains("artifact_id: src.artifact_id", refBody);
+            Assert.Contains("role: src.role || \"image\"", refBody);
+
+            var sourceStart = refEnd;
+            var sourceEnd = js.IndexOf("function applyStudioReferenceArgs(args)", sourceStart, StringComparison.Ordinal);
+            Assert.True(sourceEnd > sourceStart, "Studio source args helper body must be bounded.");
+            var sourceBody = js.Substring(sourceStart, sourceEnd - sourceStart);
+            Assert.Contains("if (studioSource.source === \"artifact\" && studioSource.artifact_id)", sourceBody);
+            Assert.Contains("Object.assign(args, { input_image: artifactImageRef(studioSource) });", sourceBody);
+            Assert.Contains("args.input_image_path = studioSource.path;", sourceBody);
+
+            var refsEnd = js.IndexOf("async function loadGallery()", sourceEnd, StringComparison.Ordinal);
+            Assert.True(refsEnd > sourceEnd, "Studio reference args helper body must be bounded.");
+            var refsBody = js.Substring(sourceEnd, refsEnd - sourceEnd);
+            Assert.Contains("args.reference_images = artifactRefs;", refsBody);
+            Assert.Contains("args.reference_image_paths = pathRefs;", refsBody);
         }
 
         [Fact]
