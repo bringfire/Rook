@@ -1,6 +1,6 @@
 # RookVision Video Thumbnail and Frame Sidecar Roadmap
 
-Last updated: 2026-05-12
+Last updated: 2026-05-13
 
 ## Purpose
 
@@ -37,10 +37,19 @@ Done:
 - Frame sidecars are produced separately from the display-only `poster` path.
 - Startup performs one bounded, asynchronous best-effort pass over older eligible generated-video artifacts to populate missing `poster`, `start_frame`, and `end_frame` sidecars from local MP4 files.
 - The startup backfill pass is capped, observable, non-fatal, guarded once per process once scheduling succeeds, and never reruns provider jobs or infers provider payloads.
+- FFmpeg bundling and release-policy hardening is complete. Rook bundles a
+  Rook-owned minimal LGPL-only Windows `ffmpeg.exe` for subprocess extraction
+  so users do not need to install anything extra. Release packaging fails
+  closed for missing metadata, checksum mismatch, unreadable configure output,
+  `--enable-gpl`, `--enable-nonfree`, unexpected `--enable-*` flags, unknown
+  provenance, unverified official source signatures, missing source-bundle
+  manifest/content, missing compliance files, or poster/first-frame/last-frame
+  smoke failure against the required H.264 MP4 and VP9 WebM fixtures.
 
 Current next slice:
 
-- Choose the next reviewed video-media slice. Open candidates are provider/model payload audit for optional display-poster ingestion, ffmpeg packaging/licensing, or Grasshopper NLE token behavior. Do not combine them.
+- Choose between provider/model payload audit and Grasshopper NLE token
+  behavior; do not combine them.
 
 ## Slice Tracker
 
@@ -52,8 +61,9 @@ Current next slice:
 | 3. Poster thumbnail producer | Done | Produce display-only `poster` from the local MP4 for completed generated videos. | New completed videos show Gallery thumbnails without eager MP4 preload; video generation still succeeds if poster extraction fails; `poster` remains picker-ineligible. |
 | 4. Frame-exact sidecar producer | Done | Produce `start_frame` and `end_frame` from the local MP4 for completed generated videos. | Newly completed generated videos attempt both boundary frame sidecars; `start_frame` is decoded frame index 0; `end_frame` is the final decodable frame; partial failure is non-fatal; extracted frames are not confused with posters. |
 | 5. Existing-video reconcile/backfill | Done | Populate missing sidecars for older video artifacts from local MP4 files when possible. | Startup schedules one bounded asynchronous best-effort pass over eligible generated-video artifacts; only missing roles are attempted; role failures are diagnostic-only; provider jobs are never rerun. |
-| 6. Provider/model payload audit | Optional/Parallel | Audit provider/model-specific payloads only for opportunistic display-poster ingestion. | Findings are scoped only to the audited provider/model response shape; no provider payload is used for frame-exact chaining unless a future reviewed contract explicitly proves frame semantics. |
-| 7. Grasshopper NLE integration | Pending | Introduce `VideoClip` / `VideoFrame` token behavior and chaining workflows. | GH NLE components consume artifact ids and explicit roles; no whole-artifact default frame inference is introduced. |
+| 6. FFmpeg bundling and release policy | Done | Bundle a Rook-owned minimal LGPL-only Windows `ffmpeg.exe` for subprocess sidecar extraction and make release packaging fail closed for GPL/nonfree/unknown or broad third-party payloads. | Users do not need to install FFmpeg; release validation proves bundled binary provenance, checksum, configure line, LGPL-only allowlisted `--enable-*` flags, verified official source signature, generated source-bundle manifest/content, compliance files, and H.264 MP4 plus VP9 WebM extraction smoke; runtime prefers bundled FFmpeg while dev PATH/config fallback remains non-shippable. |
+| 7. Provider/model payload audit | Optional/Parallel | Audit provider/model-specific payloads only for opportunistic display-poster ingestion. | Findings are scoped only to the audited provider/model response shape; no provider payload is used for frame-exact chaining unless a future reviewed contract explicitly proves frame semantics. |
+| 8. Grasshopper NLE integration | Pending | Introduce `VideoClip` / `VideoFrame` token behavior and chaining workflows. | GH NLE components consume artifact ids and explicit roles; no whole-artifact default frame inference is introduced. |
 
 ## Sequencing Rules
 
@@ -62,6 +72,8 @@ Current next slice:
 - Production sidecar writes must go through `VideoSidecarPublisher`; do not introduce a parallel storage path.
 - Do not implement provider-poster ingestion without provider/model-specific evidence and an approved exact mapping.
 - Do not treat `poster` as a frame source in any slice.
+- Do not ship video sidecar extraction as a PATH-only dependency; release builds
+  must package a vetted LGPL-only FFmpeg payload or fail.
 - Do not start GH NLE token work until generated-video `start_frame` and `end_frame` production exists or a deliberate fixture-only spike is approved.
 
 ## References
@@ -74,6 +86,7 @@ Current next slice:
 - `docs/superpowers/plans/2026-05-12-video-frame-sidecar-producer.md`
 - `docs/superpowers/specs/2026-05-12-video-sidecar-backfill-design.md`
 - `docs/superpowers/plans/2026-05-12-video-sidecar-backfill.md`
+- `docs/superpowers/specs/2026-05-12-ffmpeg-bundling-policy-design.md`
 - `docs/rook_docs/video-extraction-spike-findings.md`
 - `docs/rook_docs/video-provider-payload-audit.md`
 - `docs/rook_docs/2026-04-08-sa-banana-integration.md`

@@ -8,10 +8,24 @@ namespace Rook.Services.Vision.Video.Extraction
     {
         private const string BinaryName = "ffmpeg.exe";
 
+        public static FfmpegBinaryResolution Resolve(string configuredPath)
+            => Resolve(
+                bundledPath: null,
+                configuredPath: configuredPath,
+                pathEnvironment: null);
+
         public static FfmpegBinaryResolution Resolve(
+            string? bundledPath = null,
             string? configuredPath = null,
             string? pathEnvironment = null)
         {
+            if (!string.IsNullOrWhiteSpace(bundledPath))
+            {
+                var full = Path.GetFullPath(Environment.ExpandEnvironmentVariables(bundledPath));
+                if (File.Exists(full))
+                    return FfmpegBinaryResolution.Found(full, FfmpegBinaryResolutionSource.Bundled);
+            }
+
             if (!string.IsNullOrWhiteSpace(configuredPath))
             {
                 var full = Path.GetFullPath(Environment.ExpandEnvironmentVariables(configuredPath));
@@ -33,7 +47,7 @@ namespace Rook.Services.Vision.Video.Extraction
 
             return FfmpegBinaryResolution.Failed(
                 FfmpegBinaryResolutionError.NotFound,
-                "ffmpeg.exe was not found. Provide an explicit path or add ffmpeg.exe to PATH.");
+                "ffmpeg.exe was not found. Provide bundled ffmpeg.exe, an explicit path, or add ffmpeg.exe to PATH.");
         }
 
         private static string[] SplitPath(string? pathEnvironment)
@@ -46,6 +60,23 @@ namespace Rook.Services.Vision.Video.Extraction
                 .Select(p => p.Trim().Trim('"'))
                 .Where(p => p.Length > 0)
                 .ToArray();
+        }
+    }
+
+    internal static class FfmpegBundledBinaryLocator
+    {
+        public static string? GetInstalledFfmpegPath()
+            => GetInstalledFfmpegPath(typeof(global::Rook.RookPlugin).Assembly.Location);
+
+        internal static string? GetInstalledFfmpegPath(string? managedAssemblyLocation)
+        {
+            if (string.IsNullOrWhiteSpace(managedAssemblyLocation))
+                return null;
+
+            var pluginDirectory = Path.GetDirectoryName(managedAssemblyLocation);
+            return string.IsNullOrWhiteSpace(pluginDirectory)
+                ? null
+                : Path.Combine(pluginDirectory, "ffmpeg", "ffmpeg.exe");
         }
     }
 }

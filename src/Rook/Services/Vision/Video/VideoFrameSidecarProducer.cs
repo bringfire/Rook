@@ -530,7 +530,9 @@ namespace Rook.Services.Vision.Video
 
     internal sealed class DefaultVideoFrameFfmpegResolver : IVideoFrameFfmpegResolver
     {
-        public FfmpegBinaryResolution Resolve() => FfmpegBinaryResolver.Resolve();
+        public FfmpegBinaryResolution Resolve()
+            => FfmpegBinaryResolver.Resolve(
+                bundledPath: FfmpegBundledBinaryLocator.GetInstalledFfmpegPath());
     }
 
     internal sealed class DefaultVideoFrameExtractor : IVideoFrameExtractor

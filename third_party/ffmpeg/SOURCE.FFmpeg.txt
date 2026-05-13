@@ -1,0 +1,28 @@
+Exact corresponding FFmpeg source for the bundled Rook payload:
+
+Version: 8.1.1
+Source URL: https://ffmpeg.org/releases/ffmpeg-8.1.1.tar.xz
+Source archive: ffmpeg-8.1.1.tar.xz
+Source SHA-256: B6863ADDE98898F42602017462871B5F6333E65AEC803FDD7A6308639C52EDF3
+Source signature URL: https://ffmpeg.org/releases/ffmpeg-8.1.1.tar.xz.asc
+Signing key fingerprint: FCF986EA15E6E293A5644F10B4322F04D67658D8
+Signature status: verified by scripts\ffmpeg\build-rook-ffmpeg.ps1
+
+Build recipe: scripts\ffmpeg\build-rook-ffmpeg.ps1
+Source metadata: scripts\ffmpeg\rook-ffmpeg-source.json
+Configure recipe: scripts\ffmpeg\rook-ffmpeg-configure.txt
+Configure allowlist: scripts\ffmpeg\rook-ffmpeg-enable-allowlist.json
+Changes diff in source bundle: changes.diff
+
+Configure line:
+--disable-everything --disable-autodetect --disable-network --disable-doc --disable-debug --extra-ldflags=-static --enable-ffmpeg --enable-protocol=file --enable-demuxer=mov --enable-demuxer=matroska --enable-muxer=image2 --enable-decoder=h264 --enable-decoder=hevc --enable-decoder=mpeg4 --enable-decoder=vp8 --enable-decoder=vp9 --enable-decoder=av1 --enable-decoder=mjpeg --enable-parser=h264 --enable-parser=hevc --enable-parser=mpeg4video --enable-parser=vp8 --enable-parser=vp9 --enable-parser=av1 --enable-parser=mjpeg --enable-filter=select --enable-filter=reverse --enable-filter=scale --enable-encoder=mjpeg
+
+Rook uses this payload only as an ffmpeg.exe subprocess for generated-video
+poster, start_frame, and end_frame sidecar extraction.
+
+The release source bundle is generated during release prep by
+scripts\ffmpeg\build-rook-ffmpeg.ps1 and must be published beside the Rook
+installer. Release validation requires the generated
+rook-ffmpeg-source-bundle-manifest.json and verifies the source archive,
+signature metadata, configure allowlist, bundle SHA-256, required bundle
+contents, and extraction smoke fixtures.

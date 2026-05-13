@@ -26,6 +26,7 @@
 #define McpServerDir RepoRoot + "\mcp_server"
 #define KnowledgeDir RepoRoot + "\knowledge"
 #define ScriptsDir   RepoRoot + "\scripts"
+#define FfmpegDir   RepoRoot + "\third_party\ffmpeg"
 #define ClaudeSkillsDir RepoRoot + "\.claude\skills"
 #define CodexSkillsDir  RepoRoot + "\.agents\skills"
 #define ClaudeAgentsDir RepoRoot + "\.claude\agents"
@@ -93,6 +94,14 @@ Source: "{#CompanionDir}\Rook.deps.json"; DestDir: "{userappdata}\McNeel\Rhinoce
 Source: "{#CompanionDir}\Rook.runtimeconfig.json"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative"; Components: plugins; Flags: ignoreversion
 Source: "{#CompanionDir}\*.dll"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative"; Components: plugins; Flags: ignoreversion
 Source: "{#CompanionDir}\runtimes\*"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\runtimes"; Components: plugins; Flags: ignoreversion recursesubdirs createallsubdirs
+
+; Bundled LGPL-only FFmpeg for video sidecar extraction
+Source: "{#FfmpegDir}\ffmpeg.exe"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\ffmpeg"; Components: plugins; Flags: ignoreversion
+Source: "{#FfmpegDir}\ffmpeg-provenance.json"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\ffmpeg"; Components: plugins; Flags: ignoreversion
+Source: "{#FfmpegDir}\LICENSE.FFmpeg.txt"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\ffmpeg"; Components: plugins; Flags: ignoreversion
+Source: "{#FfmpegDir}\NOTICE.FFmpeg.txt"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\ffmpeg"; Components: plugins; Flags: ignoreversion
+Source: "{#FfmpegDir}\SOURCE.FFmpeg.txt"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\ffmpeg"; Components: plugins; Flags: ignoreversion
+Source: "{#FfmpegDir}\README.md"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\ffmpeg"; Components: plugins; Flags: ignoreversion
 
 ; --- Python MCP Server ---
 Source: "{#McpServerDir}\pyproject.toml"; DestDir: "{app}\mcp_server"; Components: mcp; Flags: ignoreversion

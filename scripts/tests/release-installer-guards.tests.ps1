@@ -5,9 +5,15 @@ $RepoRoot = Split-Path -Parent (Split-Path -Parent $TestRoot)
 $InstallerScript = Join-Path $RepoRoot 'installer\RookSetup.iss'
 $BuildReleaseSkill = Join-Path $RepoRoot '.agents\skills\build-release\SKILL.md'
 $IssSourcePaths = Join-Path $RepoRoot '.agents\skills\build-release\references\iss-source-paths.md'
+$ClaudeBuildReleaseSkill = Join-Path $RepoRoot '.claude\skills\build-release\SKILL.md'
+$ClaudeIssSourcePaths = Join-Path $RepoRoot '.claude\skills\build-release\references\iss-source-paths.md'
 $VersionLocations = Join-Path $RepoRoot '.agents\skills\build-release\references\version-locations.md'
 $BuildingDoc = Join-Path $RepoRoot 'BUILDING.md'
 $CompanionRuntimeConfig = Join-Path $RepoRoot 'src\Rook\bin\Release\net7.0\Rook.runtimeconfig.json'
+$FfmpegValidationScript = Join-Path $RepoRoot 'scripts\validate-ffmpeg-bundle.ps1'
+$FfmpegBuildScript = Join-Path $RepoRoot 'scripts\ffmpeg\build-rook-ffmpeg.ps1'
+$FfmpegConfigureRecipe = Join-Path $RepoRoot 'scripts\ffmpeg\rook-ffmpeg-configure.txt'
+$ReleaseWorkflow = Join-Path $RepoRoot '.github\workflows\release.yml'
 
 function Assert-True {
     param(
@@ -40,6 +46,24 @@ function Assert-NotContains {
     Assert-True -Condition (-not $Text.Contains($Unexpected)) -Message $Message
 }
 
+function Assert-FfmpegInstallerLine {
+    param(
+        [string]$FileName
+    )
+
+    $sourcePrefix = "Source: `"{#FfmpegDir}\$FileName`""
+    $matchingLines = @(Get-Content -Path $InstallerScript | Where-Object { $_ -like "$sourcePrefix*" })
+
+    Assert-True -Condition ($matchingLines.Count -eq 1) -Message "Installer must include exactly one bundled FFmpeg source line for $FileName; found $($matchingLines.Count)."
+
+    $line = $matchingLines[0]
+    Assert-Contains -Text $line -Expected $sourcePrefix -Message "Installer FFmpeg line must use the bundled source path for $FileName."
+    Assert-Contains -Text $line -Expected 'DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\ffmpeg"' -Message "Installer FFmpeg line must install $FileName under the RookNative ffmpeg directory."
+    Assert-Contains -Text $line -Expected 'Components: plugins' -Message "Installer FFmpeg line must be gated by the plugins component for $FileName."
+    Assert-Contains -Text $line -Expected 'Flags: ignoreversion' -Message "Installer FFmpeg line must use ignoreversion for $FileName."
+    Assert-NotContains -Text $line -Unexpected 'skipifsourcedoesntexist' -Message "Release installer must fail packaging when bundled FFmpeg payload file is missing: $FileName."
+}
+
 function Test-InstallerPackagesNet7CompanionRuntime {
     $content = Get-Content -Path $InstallerScript -Raw
 
@@ -62,6 +86,50 @@ function Test-BuiltCompanionRuntimeConfigDeclaresNet7 {
 
     $tfm = $runtimeConfig.runtimeOptions.tfm
     Assert-True -Condition ($tfm -eq 'net7.0') -Message "Built companion runtimeconfig must declare runtimeOptions.tfm == net7.0; actual value: $tfm"
+}
+
+function Test-InstallerPackagesBundledFfmpegPayload {
+    $content = Get-Content -Path $InstallerScript -Raw
+
+    Assert-Contains -Text $content -Expected '#define FfmpegDir   RepoRoot + "\third_party\ffmpeg"' -Message 'Installer must define the bundled FFmpeg payload directory.'
+    foreach ($fileName in @(
+        'ffmpeg.exe',
+        'ffmpeg-provenance.json',
+        'LICENSE.FFmpeg.txt',
+        'NOTICE.FFmpeg.txt',
+        'SOURCE.FFmpeg.txt',
+        'README.md'
+    )) {
+        Assert-FfmpegInstallerLine -FileName $fileName
+    }
+}
+
+function Test-FfmpegValidatorRequiresReleaseSourceBundleArgument {
+    Assert-True -Condition (Test-Path $FfmpegValidationScript) -Message "FFmpeg validation script is missing: $FfmpegValidationScript"
+
+    $script = Get-Content -Path $FfmpegValidationScript -Raw
+    Assert-Contains -Text $script -Expected 'SourceBundleManifestPath' -Message 'FFmpeg validator must require a release source-bundle manifest path.'
+    Assert-Contains -Text $script -Expected 'Assert-SourceBundleManifest' -Message 'FFmpeg validator must verify the staged release source bundle.'
+}
+
+function Test-FfmpegBuildScriptUsesAgentlessSignatureVerification {
+    Assert-True -Condition (Test-Path $FfmpegBuildScript) -Message "FFmpeg build script is missing: $FfmpegBuildScript"
+
+    $script = Get-Content -Path $FfmpegBuildScript -Raw
+    Assert-Contains -Text $script -Expected 'gpg --batch --import-options show-only --import --with-colons' -Message 'FFmpeg build script must inspect the signing key fingerprint without importing it into a user keyring.'
+    Assert-Contains -Text $script -Expected 'gpgv --keyring' -Message 'FFmpeg build script must verify the source signature through gpgv and an explicit trusted keyring.'
+    Assert-NotContains -Text $script -Unexpected '--homedir' -Message 'FFmpeg build script must not depend on a private GPG homedir or gpg-agent startup.'
+}
+
+function Test-FfmpegBuildRecipeTargetsOnlyFfmpegProgram {
+    Assert-True -Condition (Test-Path $FfmpegBuildScript) -Message "FFmpeg build script is missing: $FfmpegBuildScript"
+    Assert-True -Condition (Test-Path $FfmpegConfigureRecipe) -Message "FFmpeg configure recipe is missing: $FfmpegConfigureRecipe"
+
+    $script = Get-Content -Path $FfmpegBuildScript -Raw
+    $configureRecipe = Get-Content -Path $FfmpegConfigureRecipe -Raw
+    Assert-Contains -Text $configureRecipe -Expected '--disable-programs' -Message 'FFmpeg configure recipe must disable default programs before re-enabling ffmpeg.'
+    Assert-Contains -Text $configureRecipe -Expected '--enable-ffmpeg' -Message 'FFmpeg configure recipe must explicitly re-enable the ffmpeg executable.'
+    Assert-Contains -Text $script -Expected 'make -j`$(nproc) ffmpeg.exe' -Message 'FFmpeg build script must build the ffmpeg.exe target specifically.'
 }
 
 function Test-InstallerRequiresNativePluginBuildOutput {
@@ -87,6 +155,8 @@ function Test-ReleaseWorkflowDocsUseNet7CompanionOutput {
     $combined = @(
         Get-Content -Path $BuildReleaseSkill -Raw
         Get-Content -Path $IssSourcePaths -Raw
+        Get-Content -Path $ClaudeBuildReleaseSkill -Raw
+        Get-Content -Path $ClaudeIssSourcePaths -Raw
         Get-Content -Path $VersionLocations -Raw
         Get-Content -Path $BuildingDoc -Raw
     ) -join "`n"
@@ -113,6 +183,8 @@ function Test-BuildReleaseWorkflowUsesWindowsPowerShellCommands {
     $combined = @(
         Get-Content -Path $BuildReleaseSkill -Raw
         Get-Content -Path $IssSourcePaths -Raw
+        Get-Content -Path $ClaudeBuildReleaseSkill -Raw
+        Get-Content -Path $ClaudeIssSourcePaths -Raw
         Get-Content -Path $VersionLocations -Raw
         Get-Content -Path $BuildingDoc -Raw
     ) -join "`n"
@@ -135,11 +207,46 @@ function Test-BuildReleaseWorkflowUsesWindowsPowerShellCommands {
     Assert-Contains -Text $combined -Expected '$env:TEMP' -Message 'Release workflow docs must create temporary build scripts using Windows temp paths.'
 }
 
+function Test-BuildReleaseDocsRequireFfmpegValidation {
+    $combined = @(
+        Get-Content -Path $BuildReleaseSkill -Raw
+        Get-Content -Path $IssSourcePaths -Raw
+        Get-Content -Path $ClaudeBuildReleaseSkill -Raw
+        Get-Content -Path $ClaudeIssSourcePaths -Raw
+        Get-Content -Path $BuildingDoc -Raw
+    ) -join "`n"
+
+    Assert-Contains -Text $combined -Expected 'scripts\validate-ffmpeg-bundle.ps1' -Message 'Release docs must require the FFmpeg bundle validation guard.'
+    Assert-Contains -Text $combined -Expected 'scripts\ffmpeg\build-rook-ffmpeg.ps1' -Message 'Release docs must require the Rook-owned FFmpeg build script.'
+    Assert-Contains -Text $combined -Expected 'scripts\ffmpeg\rook-ffmpeg-enable-allowlist.json' -Message 'Release docs must reference the FFmpeg configure allowlist.'
+    Assert-Contains -Text $combined -Expected 'scripts\ffmpeg\rook-ffmpeg-source.json' -Message 'Release docs must reference the pinned FFmpeg source metadata.'
+    Assert-Contains -Text $combined -Expected 'SourceBundleManifestPath' -Message 'Release docs must pass the staged source-bundle manifest to FFmpeg validation.'
+    Assert-Contains -Text $combined -Expected 'third_party\ffmpeg\README.md' -Message 'Release docs must include the installed FFmpeg README in path checks.'
+}
+
+function Test-LegacyGitHubReleaseWorkflowIsDisabled {
+    Assert-True -Condition (Test-Path $ReleaseWorkflow) -Message "Release workflow file is missing: $ReleaseWorkflow"
+    $content = Get-Content -Path $ReleaseWorkflow -Raw
+
+    Assert-Contains -Text $content -Expected 'Legacy Build and Release Disabled' -Message 'Legacy GitHub release workflow must be explicitly disabled.'
+    Assert-Contains -Text $content -Expected 'scripts\validate-ffmpeg-bundle.ps1' -Message 'Disabled workflow must point release owners at the FFmpeg-validating release path.'
+    Assert-Contains -Text $content -Expected 'throw "This ZIP-based release workflow is retired.' -Message 'Legacy GitHub release workflow must fail before producing artifacts.'
+    Assert-NotContains -Text $content -Unexpected 'softprops/action-gh-release' -Message 'Legacy GitHub release workflow must not create releases.'
+    Assert-NotContains -Text $content -Unexpected 'actions/upload-artifact' -Message 'Legacy GitHub release workflow must not upload bypass artifacts.'
+    Assert-NotContains -Text $content -Unexpected 'Compress-Archive' -Message 'Legacy GitHub release workflow must not package the old ZIP release.'
+}
+
 Test-InstallerPackagesNet7CompanionRuntime
 Test-BuiltCompanionRuntimeConfigDeclaresNet7
+Test-InstallerPackagesBundledFfmpegPayload
+Test-FfmpegValidatorRequiresReleaseSourceBundleArgument
+Test-FfmpegBuildScriptUsesAgentlessSignatureVerification
+Test-FfmpegBuildRecipeTargetsOnlyFfmpegProgram
 Test-InstallerRequiresNativePluginBuildOutput
 Test-InstallerRegistersRhinoPluginFileNamesUnderPluginSubkey
 Test-ReleaseWorkflowDocsUseNet7CompanionOutput
 Test-BuildReleaseWorkflowUsesWindowsPowerShellCommands
+Test-BuildReleaseDocsRequireFfmpegValidation
+Test-LegacyGitHubReleaseWorkflowIsDisabled
 
 Write-Host 'Release installer guard tests passed.'

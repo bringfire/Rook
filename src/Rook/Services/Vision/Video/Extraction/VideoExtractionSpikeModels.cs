@@ -4,6 +4,7 @@ namespace Rook.Services.Vision.Video.Extraction
 {
     internal enum FfmpegBinaryResolutionSource
     {
+        Bundled,
         ConfiguredPath,
         PathLookup,
     }

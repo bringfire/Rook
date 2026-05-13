@@ -1,0 +1,38 @@
+﻿{
+    "name":  "FFmpeg",
+    "version":  "8.1.1",
+    "license":  "LGPL-only",
+    "binary_path":  "third_party/ffmpeg/ffmpeg.exe",
+    "binary_sha256":  "C0B2C4268618BA109E36A7303CD007BCD8D40488119B271816A9D4ED479E85FB",
+    "source_url":  "https://ffmpeg.org/releases/ffmpeg-8.1.1.tar.xz",
+    "source_archive":  "ffmpeg-8.1.1.tar.xz",
+    "source_sha256":  "B6863ADDE98898F42602017462871B5F6333E65AEC803FDD7A6308639C52EDF3",
+    "source_signature_url":  "https://ffmpeg.org/releases/ffmpeg-8.1.1.tar.xz.asc",
+    "signing_key_fingerprint":  "FCF986EA15E6E293A5644F10B4322F04D67658D8",
+    "source_signature_status":  "verified",
+    "build_recipe_path":  "scripts/ffmpeg/build-rook-ffmpeg.ps1",
+    "configure_recipe_path":  "scripts/ffmpeg/rook-ffmpeg-configure.txt",
+    "configure_line":  "--disable-everything --disable-autodetect --disable-network --disable-doc --disable-debug --disable-programs --extra-ldflags=-static --enable-ffmpeg --enable-protocol=file --enable-demuxer=mov --enable-demuxer=matroska --enable-muxer=image2 --enable-decoder=h264 --enable-decoder=hevc --enable-decoder=mpeg4 --enable-decoder=vp8 --enable-decoder=vp9 --enable-decoder=av1 --enable-decoder=mjpeg --enable-parser=h264 --enable-parser=hevc --enable-parser=mpeg4video --enable-parser=vp8 --enable-parser=vp9 --enable-parser=av1 --enable-parser=mjpeg --enable-filter=select --enable-filter=reverse --enable-filter=scale --enable-encoder=mjpeg",
+    "changes_diff_path":  "changes.diff",
+    "source_bundle_manifest_name":  "rook-ffmpeg-source-bundle-manifest.json",
+    "validated_command_surfaces":  [
+                                       "poster",
+                                       "first_frame",
+                                       "last_frame"
+                                   ],
+    "validated_fixtures":  [
+                               {
+                                   "path":  "third_party/ffmpeg/fixtures/sidecar-smoke-h264.mp4",
+                                   "container":  "mp4",
+                                   "video_codec":  "h264"
+                               },
+                               {
+                                   "path":  "third_party/ffmpeg/fixtures/sidecar-smoke-vp9.webm",
+                                   "container":  "webm",
+                                   "video_codec":  "vp9"
+                               }
+                           ],
+    "verified_at":  "2026-05-13T07:45:48.6569270+00:00",
+    "verified_by":  "Rook minimal FFmpeg build recipe",
+    "notes":  "Built by Rook from official FFmpeg source for video sidecar extraction via ffmpeg.exe subprocess only."
+}
