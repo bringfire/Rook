@@ -14,51 +14,51 @@
 
 Create these managed files:
 
-- `src/Rook/Services/Vision/MediaImport/MediaImportConstants.cs`  
+- `src/Rook/Services/Vision/MediaImport/MediaImportConstants.cs`
   Shared import kinds, role names, format lists, limits, and retention caps.
-- `src/Rook/Services/Vision/MediaImport/MediaImportModels.cs`  
+- `src/Rook/Services/Vision/MediaImport/MediaImportModels.cs`
   Job/item states, failure codes, job snapshots, item snapshots, start/list results, prepared artifact inputs.
-- `src/Rook/Services/Vision/MediaImport/IMediaImportProcessor.cs`  
+- `src/Rook/Services/Vision/MediaImport/IMediaImportProcessor.cs`
   Processor interface used by the job manager tests.
-- `src/Rook/Services/Vision/MediaImport/MediaImportJobManager.cs`  
+- `src/Rook/Services/Vision/MediaImport/MediaImportJobManager.cs`
   In-memory bounded async job manager. No UI and no Eto dependency.
-- `src/Rook/Services/Vision/MediaImport/MediaImportProcessor.cs`  
+- `src/Rook/Services/Vision/MediaImport/MediaImportProcessor.cs`
   Chooses image vs video importer and publishes one complete artifact.
-- `src/Rook/Services/Vision/MediaImport/ImageMediaImporter.cs`  
+- `src/Rook/Services/Vision/MediaImport/ImageMediaImporter.cs`
   Image validation, decode, metadata, and file-backed prepared artifact input.
-- `src/Rook/Services/Vision/MediaImport/VideoMediaImporter.cs`  
+- `src/Rook/Services/Vision/MediaImport/VideoMediaImporter.cs`
   Video validation, FFmpeg probe/extraction orchestration, metadata, and prepared sidecar files.
-- `src/Rook/Services/Vision/MediaImport/FfmpegVideoProbe.cs`  
+- `src/Rook/Services/Vision/MediaImport/FfmpegVideoProbe.cs`
   FFmpeg metadata probe using the existing FFmpeg binary resolver and process runner.
-- `src/Rook/Services/Vision/MediaImport/MediaImportSubsystemFactory.cs`  
+- `src/Rook/Services/Vision/MediaImport/MediaImportSubsystemFactory.cs`
   Composition helper for production `MediaImportJobManager`.
-- `src/Rook/Handlers/MediaImportOpHandler.cs`  
+- `src/Rook/Handlers/MediaImportOpHandler.cs`
   Bridge-only op handler for `start_media_import`, `get_media_import_job`, and `list_media_import_jobs`.
-- `src/Rook/Services/Vision/Image/ArtifactImageMediaResolver.cs`  
+- `src/Rook/Services/Vision/Image/ArtifactImageMediaResolver.cs`
   Artifact/path media resolver for image generation, preserving legacy path support but allowing UI artifact refs.
 
 Modify these managed files:
 
-- `src/Rook/Artifacts/Artifact.cs`  
+- `src/Rook/Artifacts/Artifact.cs`
   Add `BlobFileInput`.
-- `src/Rook/Artifacts/ArtifactStore.cs`  
+- `src/Rook/Artifacts/ArtifactStore.cs`
   Add staged file-backed `CreateFromFiles`.
-- `src/Rook/RookSubsystemRoot.cs`  
+- `src/Rook/RookSubsystemRoot.cs`
   Add lazy shared media import subsystem.
-- `src/Rook/UI/Vision/VisionWebSurface.cs`  
+- `src/Rook/UI/Vision/VisionWebSurface.cs`
   Route media import ops to `MediaImportOpHandler`.
-- `src/Rook/Handlers/VisionHandler.cs`  
+- `src/Rook/Handlers/VisionHandler.cs`
   Parse image artifact refs for sync image generation and record parent IDs.
-- `src/Rook/Handlers/ImageJobOpHandler.cs`  
+- `src/Rook/Handlers/ImageJobOpHandler.cs`
   Reuse the same image artifact-ref parsing through `VisionHandler.BuildImageGenerationWorkItem`.
 
 Modify these UI files:
 
-- `src/Rook/UI/Vision/Resources/index.html`  
+- `src/Rook/UI/Vision/Resources/index.html`
   Gallery toolbar import button and import status panel.
-- `src/Rook/UI/Vision/Resources/app.js`  
+- `src/Rook/UI/Vision/Resources/app.js`
   Import job UI, Gallery imported kinds, picker imported kinds, image source artifact refs.
-- `src/Rook/UI/Vision/Resources/styles.css`  
+- `src/Rook/UI/Vision/Resources/styles.css`
   Import status rows and toolbar layout.
 
 Create these tests:

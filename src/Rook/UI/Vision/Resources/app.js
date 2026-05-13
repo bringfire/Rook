@@ -440,6 +440,9 @@ async function generateImageJob(prompt, model, sourcePath) {
         if (el.modelSelect.value) args.model = el.modelSelect.value;
         if (sourcePath && isSourceImageAsyncImageModel(model)) args.input_image_path = sourcePath;
         if (sourcePath && isSourceImageAsyncImageModel(model)) args.aspect_ratio = "match_input_image";
+        if (generateReferences.length > 0) {
+            applyImageReferenceArgs(args, generateReferences);
+        }
 
         const result = await awaitImageJobResult(args, showImageJobStatus);
         renderGeneratedArtifact({ artifact_id: result.result_artifact_id }, "Image generated.");

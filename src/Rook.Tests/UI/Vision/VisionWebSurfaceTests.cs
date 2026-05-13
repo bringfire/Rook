@@ -919,6 +919,14 @@ namespace Rook.Tests.UI.Vision
             var syncBody = js.Substring(syncStart, syncEnd - syncStart);
             Assert.Contains("applyImageReferenceArgs(args, generateReferences);", syncBody);
             Assert.DoesNotContain("reference_image_paths = generateReferences.map", syncBody);
+
+            var asyncStart = js.IndexOf("async function generateImageJob", StringComparison.Ordinal);
+            var asyncEnd = js.IndexOf("async function awaitImageJobResult", asyncStart, StringComparison.Ordinal);
+            Assert.True(asyncStart >= 0, "Generate async job helper must exist.");
+            Assert.True(asyncEnd > asyncStart, "Generate async job helper body must be bounded.");
+            var asyncBody = js.Substring(asyncStart, asyncEnd - asyncStart);
+            Assert.Contains("applyImageReferenceArgs(args, generateReferences);", asyncBody);
+            Assert.DoesNotContain("reference_image_paths = generateReferences.map", asyncBody);
         }
 
         [Fact]
