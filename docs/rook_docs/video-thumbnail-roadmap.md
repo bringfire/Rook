@@ -1,6 +1,6 @@
 # RookVision Video Thumbnail and Frame Sidecar Roadmap
 
-Last updated: 2026-05-12
+Last updated: 2026-05-13
 
 ## Purpose
 
@@ -38,11 +38,13 @@ Done:
 - Startup performs one bounded, asynchronous best-effort pass over older eligible generated-video artifacts to populate missing `poster`, `start_frame`, and `end_frame` sidecars from local MP4 files.
 - The startup backfill pass is capped, observable, non-fatal, guarded once per process once scheduling succeeds, and never reruns provider jobs or infers provider payloads.
 - FFmpeg bundling and release-policy hardening is complete. Rook bundles a
-  vetted LGPL-only Windows `ffmpeg.exe` for subprocess extraction so users do
-  not need to install anything extra. Release packaging fails closed for
-  missing metadata, checksum mismatch, unreadable configure output,
-  `--enable-gpl`, `--enable-nonfree`, unknown provenance, missing compliance
-  files, or poster/first-frame/last-frame smoke failure.
+  Rook-owned minimal LGPL-only Windows `ffmpeg.exe` for subprocess extraction
+  so users do not need to install anything extra. Release packaging fails
+  closed for missing metadata, checksum mismatch, unreadable configure output,
+  `--enable-gpl`, `--enable-nonfree`, unexpected `--enable-*` flags, unknown
+  provenance, unverified official source signatures, missing source-bundle
+  manifest/content, missing compliance files, or poster/first-frame/last-frame
+  smoke failure against the required H.264 MP4 and VP9 WebM fixtures.
 
 Current next slice:
 
@@ -59,7 +61,7 @@ Current next slice:
 | 3. Poster thumbnail producer | Done | Produce display-only `poster` from the local MP4 for completed generated videos. | New completed videos show Gallery thumbnails without eager MP4 preload; video generation still succeeds if poster extraction fails; `poster` remains picker-ineligible. |
 | 4. Frame-exact sidecar producer | Done | Produce `start_frame` and `end_frame` from the local MP4 for completed generated videos. | Newly completed generated videos attempt both boundary frame sidecars; `start_frame` is decoded frame index 0; `end_frame` is the final decodable frame; partial failure is non-fatal; extracted frames are not confused with posters. |
 | 5. Existing-video reconcile/backfill | Done | Populate missing sidecars for older video artifacts from local MP4 files when possible. | Startup schedules one bounded asynchronous best-effort pass over eligible generated-video artifacts; only missing roles are attempted; role failures are diagnostic-only; provider jobs are never rerun. |
-| 6. FFmpeg bundling and release policy | Done | Bundle a vetted LGPL-only Windows `ffmpeg.exe` for subprocess sidecar extraction and make release packaging fail closed for GPL/nonfree/unknown payloads. | Users do not need to install FFmpeg; release validation proves bundled binary provenance, checksum, configure line, LGPL-only flags, dependency-manifest coverage, and compliance files; runtime prefers bundled FFmpeg while dev PATH/config fallback remains non-shippable. |
+| 6. FFmpeg bundling and release policy | Done | Bundle a Rook-owned minimal LGPL-only Windows `ffmpeg.exe` for subprocess sidecar extraction and make release packaging fail closed for GPL/nonfree/unknown or broad third-party payloads. | Users do not need to install FFmpeg; release validation proves bundled binary provenance, checksum, configure line, LGPL-only allowlisted `--enable-*` flags, verified official source signature, generated source-bundle manifest/content, compliance files, and H.264 MP4 plus VP9 WebM extraction smoke; runtime prefers bundled FFmpeg while dev PATH/config fallback remains non-shippable. |
 | 7. Provider/model payload audit | Optional/Parallel | Audit provider/model-specific payloads only for opportunistic display-poster ingestion. | Findings are scoped only to the audited provider/model response shape; no provider payload is used for frame-exact chaining unless a future reviewed contract explicitly proves frame semantics. |
 | 8. Grasshopper NLE integration | Pending | Introduce `VideoClip` / `VideoFrame` token behavior and chaining workflows. | GH NLE components consume artifact ids and explicit roles; no whole-artifact default frame inference is introduced. |
 
