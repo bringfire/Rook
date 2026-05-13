@@ -19,9 +19,14 @@ namespace Rook.Services.Vision.MediaImport
         {
             ct.ThrowIfCancellationRequested();
 
-            var extension = string.IsNullOrWhiteSpace(path)
-                ? string.Empty
-                : Path.GetExtension(path).TrimStart('.').ToLowerInvariant();
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return Task.FromResult(MediaImportProcessResult.Failed(
+                    MediaImportFailureCode.FileNotFound,
+                    "Source file was not found."));
+            }
+
+            var extension = Path.GetExtension(path).TrimStart('.').ToLowerInvariant();
             if (IsImageExtension(extension))
                 return Task.FromResult(_imageImporter.Import(path));
 

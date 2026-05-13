@@ -38,15 +38,36 @@ namespace Rook.Services.Vision.MediaImport
             }
             catch (Exception ex) when (
                 ex is ArgumentException ||
+                ex is InvalidDataException ||
                 ex is IOException ||
                 ex is OutOfMemoryException)
             {
                 return MediaImportProcessResult.Failed(
                     MediaImportFailureCode.DecodeFailed,
-                    $"Could not decode image dimensions: {ex.Message}");
+                    "Could not decode image dimensions.");
             }
 
-            var metadata = BuildMetadata(path, extension, dimensions);
+            Dictionary<string, JsonNode?> metadata;
+            try
+            {
+                metadata = BuildMetadata(path, extension, dimensions);
+            }
+            catch (Exception ex) when (
+                ex is FileNotFoundException ||
+                ex is DirectoryNotFoundException)
+            {
+                return MediaImportProcessResult.Failed(
+                    MediaImportFailureCode.FileNotFound,
+                    "Source file was not found during import.");
+            }
+            catch (Exception ex) when (
+                ex is UnauthorizedAccessException ||
+                ex is IOException)
+            {
+                return MediaImportProcessResult.Failed(
+                    MediaImportFailureCode.FileInaccessible,
+                    "Source file became inaccessible during import.");
+            }
 
             try
             {
@@ -74,7 +95,7 @@ namespace Rook.Services.Vision.MediaImport
                 ArtifactId: null,
                 ArtifactKind: mediaKind,
                 FailureCode: code,
-                Message: ex.Message);
+                Message: PublishFailureMessage(code));
         }
 
         internal static MediaImportProcessResult? ValidatePath(string path, long maxBytes)
@@ -105,7 +126,7 @@ namespace Rook.Services.Vision.MediaImport
             {
                 return MediaImportProcessResult.Failed(
                     MediaImportFailureCode.FileInaccessible,
-                    $"Source file could not be accessed: {ex.Message}");
+                    "Source file could not be accessed.");
             }
 
             if ((attributes & FileAttributes.Directory) == FileAttributes.Directory)
@@ -131,7 +152,7 @@ namespace Rook.Services.Vision.MediaImport
             {
                 return MediaImportProcessResult.Failed(
                     MediaImportFailureCode.FileInaccessible,
-                    $"Source file could not be accessed: {ex.Message}");
+                    "Source file could not be accessed.");
             }
 
             return null;
@@ -164,7 +185,7 @@ namespace Rook.Services.Vision.MediaImport
                 ["original_filename"] = Path.GetFileName(path),
                 ["original_extension"] = extension,
                 ["mime_type"] = MimeTypeForExtension(extension),
-                ["byte_size"] = new FileInfo(path).Length,
+                ["byte_size"] = GetFileLength(path),
                 ["imported_at"] = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture),
                 ["width"] = dimensions.Width,
                 ["height"] = dimensions.Height,
@@ -185,6 +206,37 @@ namespace Rook.Services.Vision.MediaImport
                     return "image/webp";
                 default:
                     return "application/octet-stream";
+            }
+        }
+
+        private static long GetFileLength(string path)
+        {
+            try
+            {
+                return new FileInfo(path).Length;
+            }
+            catch (Exception ex) when (
+                ex is FileNotFoundException ||
+                ex is DirectoryNotFoundException)
+            {
+                throw new FileNotFoundException("Source file was not found during import.", Path.GetFileName(path), ex);
+            }
+            catch (Exception ex) when (
+                ex is UnauthorizedAccessException ||
+                ex is IOException)
+            {
+                throw new IOException("Source file became inaccessible during import.", ex);
+            }
+        }
+
+        private static string PublishFailureMessage(MediaImportFailureCode code)
+        {
+            switch (code)
+            {
+                case MediaImportFailureCode.CopyFailed:
+                    return "Artifact blob copy failed.";
+                default:
+                    return "Artifact publish failed.";
             }
         }
 
