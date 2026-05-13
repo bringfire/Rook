@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "name": "FFmpeg",
+  "version": "8.1.1",
+  "release_name": "Hoare",
+  "source_url": "https://ffmpeg.org/releases/ffmpeg-8.1.1.tar.xz",
+  "source_archive": "ffmpeg-8.1.1.tar.xz",
+  "source_sha256": "B6863ADDE98898F42602017462871B5F6333E65AEC803FDD7A6308639C52EDF3",
+  "source_signature_url": "https://ffmpeg.org/releases/ffmpeg-8.1.1.tar.xz.asc",
+  "signing_key_url": "https://ffmpeg.org/ffmpeg-devel.asc",
+  "signing_key_fingerprint": "FCF986EA15E6E293A5644F10B4322F04D67658D8",
+  "source_signature_status_required": "verified"
+}
