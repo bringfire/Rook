@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Text.Json.Nodes;
 
 namespace Rook.Artifacts
@@ -29,6 +30,31 @@ namespace Rook.Artifacts
     /// The store builds the on-disk filename as <c>{Role}.{FileExtension}</c>.
     /// </summary>
     public sealed record BlobInput(string Role, byte[] Content, string FileExtension);
+
+    /// <summary>
+    /// Caller input for one file-backed blob during artifact creation.
+    /// <see cref="SourcePath"/> is copied into the staged artifact directory;
+    /// the original file is never moved or deleted.
+    /// </summary>
+    public sealed record BlobFileInput(
+        string Role,
+        string SourcePath,
+        string FileExtension);
+
+    public sealed class ArtifactBlobCopyException : IOException
+    {
+        public ArtifactBlobCopyException(string role, string sourcePath, string destinationPath, Exception innerException)
+            : base($"Artifact blob '{role}' could not be copied.", innerException)
+        {
+            Role = role;
+            SourcePath = sourcePath;
+            DestinationPath = destinationPath;
+        }
+
+        public string Role { get; }
+        public string SourcePath { get; }
+        public string DestinationPath { get; }
+    }
 
     public enum AppendBlobResultCode
     {

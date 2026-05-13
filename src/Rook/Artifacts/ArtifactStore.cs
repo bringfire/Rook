@@ -150,6 +150,85 @@ namespace Rook.Artifacts
             }
         }
 
+        public Artifact CreateFromFiles(
+            string kind,
+            IReadOnlyList<BlobFileInput> files,
+            IReadOnlyList<Guid>? parentIds = null,
+            IReadOnlyDictionary<string, JsonNode?>? metadata = null,
+            IReadOnlyDictionary<string, JsonNode?>? flags = null)
+        {
+            ValidateKindArg(kind);
+            ValidateFileInputsArg(files);
+
+            var id = Guid.NewGuid();
+            var now = DateTimeOffset.UtcNow;
+            var dayKey = now.ToString(DayKeyFormat, CultureInfo.InvariantCulture);
+
+            var dayDir = Path.Combine(_root, dayKey);
+            var idStr = id.ToString("D");
+            var finalDir = Path.Combine(dayDir, idStr);
+            var tmpDir = finalDir + TempDirSuffix;
+
+            var artifactFiles = files
+                .Select(f => new ArtifactFile(f.Role, $"{f.Role}.{f.FileExtension}"))
+                .ToList();
+
+            var artifact = new Artifact(
+                Id: id,
+                Kind: kind,
+                CreatedAt: now,
+                Files: artifactFiles,
+                ParentIds: parentIds is null
+                    ? Array.Empty<Guid>()
+                    : new List<Guid>(parentIds),
+                Metadata: CloneOrEmpty(metadata),
+                Flags: CloneOrEmpty(flags));
+
+            Directory.CreateDirectory(dayDir);
+
+            try
+            {
+                Directory.CreateDirectory(tmpDir);
+
+                foreach (var file in files)
+                {
+                    var blobPath = Path.Combine(tmpDir, $"{file.Role}.{file.FileExtension}");
+                    try
+                    {
+                        File.Copy(file.SourcePath, blobPath, overwrite: false);
+                    }
+                    catch (Exception ex) when (
+                        ex is IOException ||
+                        ex is UnauthorizedAccessException ||
+                        ex is NotSupportedException)
+                    {
+                        throw new ArtifactBlobCopyException(
+                            file.Role,
+                            file.SourcePath,
+                            blobPath,
+                            ex);
+                    }
+                }
+
+                var manifestPath = Path.Combine(tmpDir, ManifestFileName);
+                File.WriteAllText(manifestPath, SerializeManifest(artifact));
+
+                Directory.Move(tmpDir, finalDir);
+                return artifact;
+            }
+            catch
+            {
+                try
+                {
+                    if (Directory.Exists(tmpDir))
+                        Directory.Delete(tmpDir, recursive: true);
+                }
+                catch { /* swallow secondary failure */ }
+
+                throw;
+            }
+        }
+
         public Artifact? Get(Guid id)
         {
             var dirs = FindFinalizedDirs(id);
@@ -779,6 +858,55 @@ namespace Rook.Artifacts
                 if (!seen.Add(b.Role))
                     throw new ArgumentException(
                         $"duplicate blob role '{b.Role}'.", nameof(blobs));
+            }
+        }
+
+        private static void ValidateFileInputsArg(IReadOnlyList<BlobFileInput> files)
+        {
+            if (files is null) throw new ArgumentNullException(nameof(files));
+            if (files.Count == 0)
+                throw new ArgumentException("files must be non-empty.", nameof(files));
+
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < files.Count; i++)
+            {
+                var f = files[i];
+                if (f is null)
+                    throw new ArgumentException($"files[{i}] is null.", nameof(files));
+                if (f.SourcePath is null)
+                    throw new ArgumentException($"files[{i}].SourcePath is null.", nameof(files));
+
+                ValidateRoleArg(f.Role);
+                ValidateExtensionArg(f.FileExtension);
+
+                if (!seen.Add(f.Role))
+                    throw new ArgumentException(
+                        $"duplicate file role '{f.Role}'.", nameof(files));
+
+                FileAttributes attributes;
+                try
+                {
+                    attributes = File.GetAttributes(f.SourcePath);
+                }
+                catch (Exception ex) when (
+                    ex is FileNotFoundException ||
+                    ex is DirectoryNotFoundException)
+                {
+                    throw new FileNotFoundException(
+                        $"Source file '{f.SourcePath}' not found.",
+                        f.SourcePath,
+                        ex);
+                }
+
+                if ((attributes & FileAttributes.Directory) == FileAttributes.Directory)
+                    throw new ArgumentException(
+                        $"files[{i}].SourcePath must be a file, not a directory.",
+                        nameof(files));
+
+                if (!File.Exists(f.SourcePath))
+                    throw new FileNotFoundException(
+                        $"Source file '{f.SourcePath}' not found.",
+                        f.SourcePath);
             }
         }
 
