@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Text.Json.Nodes;
 using System.Threading;
@@ -6,6 +7,7 @@ using System.Threading.Tasks;
 using Rook.Artifacts;
 using Rook.Services.Vision.MediaImport;
 using Rook.Services.Vision.Video;
+using Rook.Services.Vision.Video.Extraction;
 using Xunit;
 
 namespace Rook.Tests.Services.Vision.MediaImport
@@ -86,6 +88,69 @@ namespace Rook.Tests.Services.Vision.MediaImport
             Assert.Equal(MediaImportFailureCode.UnsupportedMediaType, result.FailureCode);
         }
 
+        [Fact]
+        public async Task DefaultSidecarExtractor_WhenStartFrameReturnsCancelled_ThrowsOperationCanceled()
+        {
+            var source = Path.Combine(_root, "clip.mp4");
+            File.WriteAllText(source, "video bytes");
+            var ffmpeg = Path.Combine(_root, "ffmpeg.exe");
+            File.WriteAllText(ffmpeg, "fake");
+            var sidecarRoot = Path.Combine(_root, "sidecar-root");
+            var extractor = new DefaultVideoImportSidecarExtractor(
+                () => ffmpeg,
+                (_, _, outputPath, _, _) => Task.FromResult(
+                    FfmpegPosterExtractionResult.Completed(
+                        "ffmpeg poster",
+                        0,
+                        string.Empty,
+                        outputPath,
+                        1,
+                        1,
+                        TimeSpan.Zero)),
+                (_, _, selector, outputPath, _, _) => Task.FromResult(
+                    FfmpegVideoFrameExtractionResult.Failed(
+                        selector,
+                        "ffmpeg frame",
+                        null,
+                        string.Empty,
+                        outputPath,
+                        TimeSpan.Zero,
+                        FfmpegVideoFrameExtractionError.Cancelled,
+                        "Frame extraction was cancelled.")),
+                sidecarRoot);
+
+            await Assert.ThrowsAsync<OperationCanceledException>(
+                () => extractor.ExtractAsync(
+                    source,
+                    VideoImportProbeResult.Success(2.5, 1920, 1080, 30),
+                    CancellationToken.None));
+            Assert.False(Directory.Exists(sidecarRoot) && Directory.GetDirectories(sidecarRoot).Length > 0);
+        }
+
+        [Fact]
+        public async Task ProbeProcessRunner_WhenCancelled_KillsStartedProcess()
+        {
+            var started = new TaskCompletionSource<int>();
+            var runner = new KillOnCancelProcessRunner(processStartedForTests: process => started.SetResult(process.Id));
+            using var cts = new CancellationTokenSource();
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = "powershell.exe",
+                Arguments = "-NoProfile -Command \"Start-Sleep -Seconds 30\"",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardError = true,
+                RedirectStandardOutput = false,
+            };
+
+            var run = runner.RunAsync(startInfo, TimeSpan.FromSeconds(30), cts.Token);
+            var processId = await started.Task;
+            cts.Cancel();
+
+            await Assert.ThrowsAsync<OperationCanceledException>(() => run);
+            AssertProcessExited(processId);
+        }
+
         public void Dispose()
         {
             try
@@ -109,6 +174,18 @@ namespace Rook.Tests.Services.Vision.MediaImport
         private static double ReadDouble(
             System.Collections.Generic.IReadOnlyDictionary<string, JsonNode?> metadata,
             string key) => metadata[key]!.GetValue<double>();
+
+        private static void AssertProcessExited(int processId)
+        {
+            try
+            {
+                using var process = Process.GetProcessById(processId);
+                Assert.True(process.HasExited, $"Process {processId} was still running.");
+            }
+            catch (ArgumentException)
+            {
+            }
+        }
     }
 
     internal sealed class FakeVideoProbe : IVideoImportProbe

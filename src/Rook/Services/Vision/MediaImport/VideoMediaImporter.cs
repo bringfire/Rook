@@ -114,15 +114,21 @@ namespace Rook.Services.Vision.MediaImport
 
             try
             {
+                var posterPath = sidecars.PosterPath;
+                var startFramePath = sidecars.StartFramePath;
+                var endFramePath = sidecars.EndFramePath;
                 if (!sidecars.IsSuccess ||
-                    string.IsNullOrWhiteSpace(sidecars.PosterPath) ||
-                    string.IsNullOrWhiteSpace(sidecars.StartFramePath) ||
-                    string.IsNullOrWhiteSpace(sidecars.EndFramePath))
+                    string.IsNullOrWhiteSpace(posterPath) ||
+                    string.IsNullOrWhiteSpace(startFramePath) ||
+                    string.IsNullOrWhiteSpace(endFramePath))
                 {
                     return MediaImportProcessResult.Failed(
                         MediaImportFailureCode.SidecarExtractionFailed,
                         "Could not extract required video sidecars.");
                 }
+                var posterSourcePath = posterPath!;
+                var startFrameSourcePath = startFramePath!;
+                var endFrameSourcePath = endFramePath!;
 
                 var metadata = BuildMetadata(path, extension, probe);
                 var artifact = _store.CreateFromFiles(
@@ -130,9 +136,9 @@ namespace Rook.Services.Vision.MediaImport
                     new[]
                     {
                         new BlobFileInput(VideoMediaRoles.Video, path, extension),
-                        new BlobFileInput(VideoMediaRoles.Poster, sidecars.PosterPath, "jpg"),
-                        new BlobFileInput(VideoMediaRoles.StartFrame, sidecars.StartFramePath, "jpg"),
-                        new BlobFileInput(VideoMediaRoles.EndFrame, sidecars.EndFramePath, "jpg"),
+                        new BlobFileInput(VideoMediaRoles.Poster, posterSourcePath, "jpg"),
+                        new BlobFileInput(VideoMediaRoles.StartFrame, startFrameSourcePath, "jpg"),
+                        new BlobFileInput(VideoMediaRoles.EndFrame, endFrameSourcePath, "jpg"),
                     },
                     metadata: metadata);
 
@@ -148,8 +154,9 @@ namespace Rook.Services.Vision.MediaImport
             }
             finally
             {
-                if (!string.IsNullOrWhiteSpace(sidecars.TempDirectory))
-                    DefaultVideoImportSidecarExtractor.TryDeleteDirectory(sidecars.TempDirectory);
+                var tempDirectory = sidecars.TempDirectory;
+                if (!string.IsNullOrWhiteSpace(tempDirectory))
+                    DefaultVideoImportSidecarExtractor.TryDeleteDirectory(tempDirectory!);
             }
         }
 
@@ -211,19 +218,49 @@ namespace Rook.Services.Vision.MediaImport
     internal sealed class DefaultVideoImportSidecarExtractor : IVideoImportSidecarExtractor
     {
         private static readonly TimeSpan ExtractionTimeout = TimeSpan.FromSeconds(60);
+        private readonly Func<string?> _ffmpegPathProvider;
+        private readonly Func<string, string, string, TimeSpan, CancellationToken, Task<FfmpegPosterExtractionResult>> _extractPosterAsync;
+        private readonly Func<string, string, VideoFrameSelector, string, TimeSpan, CancellationToken, Task<FfmpegVideoFrameExtractionResult>> _extractFrameAsync;
+        private readonly string _tempRoot;
+
+        public DefaultVideoImportSidecarExtractor()
+            : this(
+                FfmpegBundledBinaryLocator.GetInstalledFfmpegPath,
+                (ffmpegPath, inputPath, outputPath, timeout, ct) => new FfmpegPosterFrameExtractor()
+                    .ExtractPosterAsync(ffmpegPath, inputPath, outputPath, timeout, ct),
+                (ffmpegPath, inputPath, selector, outputPath, timeout, ct) => new FfmpegVideoFrameExtractor()
+                    .ExtractFrameAsync(ffmpegPath, inputPath, selector, outputPath, timeout, ct),
+                Path.Combine(Path.GetTempPath(), "rook-media-import-sidecars"))
+        {
+        }
+
+        internal DefaultVideoImportSidecarExtractor(
+            Func<string?> ffmpegPathProvider,
+            Func<string, string, string, TimeSpan, CancellationToken, Task<FfmpegPosterExtractionResult>> extractPosterAsync,
+            Func<string, string, VideoFrameSelector, string, TimeSpan, CancellationToken, Task<FfmpegVideoFrameExtractionResult>> extractFrameAsync,
+            string tempRoot)
+        {
+            _ffmpegPathProvider = ffmpegPathProvider ?? throw new ArgumentNullException(nameof(ffmpegPathProvider));
+            _extractPosterAsync = extractPosterAsync ?? throw new ArgumentNullException(nameof(extractPosterAsync));
+            _extractFrameAsync = extractFrameAsync ?? throw new ArgumentNullException(nameof(extractFrameAsync));
+            _tempRoot = string.IsNullOrWhiteSpace(tempRoot)
+                ? throw new ArgumentException("Temp root must be non-empty.", nameof(tempRoot))
+                : tempRoot;
+        }
 
         public async Task<VideoImportSidecarResult> ExtractAsync(
             string path,
             VideoImportProbeResult probe,
             CancellationToken ct)
         {
-            var resolution = FfmpegBinaryResolver.Resolve(FfmpegBundledBinaryLocator.GetInstalledFfmpegPath());
-            if (!resolution.Success || string.IsNullOrWhiteSpace(resolution.Path))
+            var resolution = FfmpegBinaryResolver.Resolve(bundledPath: _ffmpegPathProvider());
+            var ffmpegPath = resolution.Path;
+            if (!resolution.Success || string.IsNullOrWhiteSpace(ffmpegPath))
                 return VideoImportSidecarResult.Failed("ffmpeg.exe was not available for sidecar extraction.");
+            var resolvedFfmpegPath = ffmpegPath!;
 
             var tempDir = Path.Combine(
-                Path.GetTempPath(),
-                "rook-media-import-sidecars",
+                _tempRoot,
                 Guid.NewGuid().ToString("N"));
             var poster = Path.Combine(tempDir, "poster.jpg");
             var start = Path.Combine(tempDir, "start_frame.jpg");
@@ -233,8 +270,7 @@ namespace Rook.Services.Vision.MediaImport
             {
                 Directory.CreateDirectory(tempDir);
 
-                var posterResult = await new FfmpegPosterFrameExtractor()
-                    .ExtractPosterAsync(resolution.Path, path, poster, ExtractionTimeout, ct)
+                var posterResult = await _extractPosterAsync(resolvedFfmpegPath, path, poster, ExtractionTimeout, ct)
                     .ConfigureAwait(false);
                 if (!posterResult.Success)
                 {
@@ -242,21 +278,22 @@ namespace Rook.Services.Vision.MediaImport
                     return VideoImportSidecarResult.Failed(posterResult.Message);
                 }
 
-                var frameExtractor = new FfmpegVideoFrameExtractor();
-                var startResult = await frameExtractor
-                    .ExtractFrameAsync(resolution.Path, path, VideoFrameSelector.First, start, ExtractionTimeout, ct)
+                var startResult = await _extractFrameAsync(resolvedFfmpegPath, path, VideoFrameSelector.First, start, ExtractionTimeout, ct)
                     .ConfigureAwait(false);
                 if (!startResult.Success)
                 {
+                    if (startResult.ErrorCode == FfmpegVideoFrameExtractionError.Cancelled)
+                        throw new OperationCanceledException(startResult.Message);
                     TryDeleteDirectory(tempDir);
                     return VideoImportSidecarResult.Failed(startResult.Message);
                 }
 
-                var endResult = await frameExtractor
-                    .ExtractFrameAsync(resolution.Path, path, VideoFrameSelector.Last, end, ExtractionTimeout, ct)
+                var endResult = await _extractFrameAsync(resolvedFfmpegPath, path, VideoFrameSelector.Last, end, ExtractionTimeout, ct)
                     .ConfigureAwait(false);
                 if (!endResult.Success)
                 {
+                    if (endResult.ErrorCode == FfmpegVideoFrameExtractionError.Cancelled)
+                        throw new OperationCanceledException(endResult.Message);
                     TryDeleteDirectory(tempDir);
                     return VideoImportSidecarResult.Failed(endResult.Message);
                 }

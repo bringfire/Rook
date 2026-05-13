@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -49,27 +50,39 @@ namespace Rook.Services.Vision.MediaImport
 
         private readonly IProcessRunner _runner;
         private readonly TimeSpan _timeout;
+        private readonly Func<string?> _ffmpegPathProvider;
 
         public FfmpegVideoProbe()
-            : this(new DefaultProcessRunner(), TimeSpan.FromSeconds(15))
+            : this(new KillOnCancelProcessRunner(), TimeSpan.FromSeconds(15))
         {
         }
 
         internal FfmpegVideoProbe(IProcessRunner runner, TimeSpan timeout)
+            : this(runner, timeout, FfmpegBundledBinaryLocator.GetInstalledFfmpegPath)
+        {
+        }
+
+        internal FfmpegVideoProbe(
+            IProcessRunner runner,
+            TimeSpan timeout,
+            Func<string?> ffmpegPathProvider)
         {
             _runner = runner ?? throw new ArgumentNullException(nameof(runner));
             _timeout = timeout;
+            _ffmpegPathProvider = ffmpegPathProvider ?? throw new ArgumentNullException(nameof(ffmpegPathProvider));
         }
 
         public async Task<VideoImportProbeResult> ProbeAsync(string path, CancellationToken ct)
         {
-            var resolution = FfmpegBinaryResolver.Resolve(FfmpegBundledBinaryLocator.GetInstalledFfmpegPath());
-            if (!resolution.Success || string.IsNullOrWhiteSpace(resolution.Path))
+            var resolution = FfmpegBinaryResolver.Resolve(bundledPath: _ffmpegPathProvider());
+            var ffmpegPath = resolution.Path;
+            if (!resolution.Success || string.IsNullOrWhiteSpace(ffmpegPath))
                 return VideoImportProbeResult.Failed("ffmpeg.exe was not available for video probing.");
+            var resolvedFfmpegPath = ffmpegPath!;
 
             var startInfo = new ProcessStartInfo
             {
-                FileName = resolution.Path,
+                FileName = resolvedFfmpegPath,
                 Arguments = $"-hide_banner -i {Quote(path)}",
                 UseShellExecute = false,
                 CreateNoWindow = true,
@@ -152,5 +165,82 @@ namespace Rook.Services.Vision.MediaImport
 
         private static string Quote(string value) =>
             "\"" + value.Replace("\"", "\\\"") + "\"";
+    }
+
+    internal sealed class KillOnCancelProcessRunner : IProcessRunner
+    {
+        private readonly Action<Process>? _processStartedForTests;
+
+        internal KillOnCancelProcessRunner(Action<Process>? processStartedForTests = null)
+        {
+            _processStartedForTests = processStartedForTests;
+        }
+
+        public Task<ProcessRunResult> RunAsync(
+            ProcessStartInfo startInfo,
+            TimeSpan timeout,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            return Task.Run(() =>
+            {
+                var stopwatch = Stopwatch.StartNew();
+                using var process = new Process { StartInfo = startInfo };
+                var stderr = new StringBuilder();
+                process.ErrorDataReceived += (_, e) =>
+                {
+                    if (e.Data != null)
+                        stderr.AppendLine(e.Data);
+                };
+
+                if (!process.Start())
+                    throw new InvalidOperationException("ffmpeg process did not start.");
+
+                _processStartedForTests?.Invoke(process);
+
+                using var cancelRegistration = cancellationToken.Register(() => TryKill(process));
+
+                if (startInfo.RedirectStandardError)
+                    process.BeginErrorReadLine();
+
+                var timeoutMs = timeout <= TimeSpan.Zero
+                    ? 30000
+                    : (int)Math.Min(timeout.TotalMilliseconds, int.MaxValue);
+
+                while (!process.WaitForExit(100))
+                {
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        TryKill(process);
+                        cancellationToken.ThrowIfCancellationRequested();
+                    }
+
+                    if (stopwatch.ElapsedMilliseconds > timeoutMs)
+                    {
+                        TryKill(process);
+                        stopwatch.Stop();
+                        return new ProcessRunResult(null, stderr.ToString().TrimEnd(), timedOut: true, stopwatch.Elapsed);
+                    }
+                }
+
+                process.WaitForExit();
+                stopwatch.Stop();
+                cancellationToken.ThrowIfCancellationRequested();
+                return new ProcessRunResult(process.ExitCode, stderr.ToString().TrimEnd(), timedOut: false, stopwatch.Elapsed);
+            });
+        }
+
+        private static void TryKill(Process process)
+        {
+            try
+            {
+                if (!process.HasExited)
+                    process.Kill();
+            }
+            catch
+            {
+            }
+        }
     }
 }
