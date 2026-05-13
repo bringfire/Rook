@@ -233,7 +233,7 @@ namespace Rook.Tests.UI.Vision
                 // Image (PR-5a/5b)
                 "generate", "enhance_prompt", "test_api_key",
                 "capture_depth", "capture_viewport", "preview_viewport",
-                "list_views", "open_image_picker",
+                "list_views",
                 "list_artifacts", "get_artifact", "approve_artifact",
                 "delete_artifact", "consume_approved",
                 "set_api_key", "get_settings_overview",
@@ -275,7 +275,6 @@ namespace Rook.Tests.UI.Vision
         [InlineData("capture_viewport", "Ui")]
         [InlineData("preview_viewport", "Ui")]
         [InlineData("list_views", "Ui")]
-        [InlineData("open_image_picker", "Ui")]
         [InlineData("list_artifacts", "OffUi")]
         [InlineData("get_artifact", "OffUi")]
         [InlineData("approve_artifact", "OffUi")]
@@ -879,6 +878,46 @@ namespace Rook.Tests.UI.Vision
             Assert.Contains("const reservedPollerSlot = jobId && !mediaImportPollers.has(jobId);", awaitBody);
             Assert.Contains("mediaImportPollers.set(jobId, null);", awaitBody);
             Assert.Contains("mediaImportPollers.delete(jobId);", awaitBody);
+        }
+
+        [Fact]
+        public void AppJs_ReferencePickerImportsArtifactRefsAndDoesNotExposePaths()
+        {
+            var js = ReadVisionResource("app.js");
+
+            var pickerStart = js.IndexOf("async function pickReferenceImages(", StringComparison.Ordinal);
+            var pickerEnd = js.IndexOf("function referenceFromImportedImage(file)", pickerStart, StringComparison.Ordinal);
+            Assert.True(pickerStart >= 0, "Reference picker helper must exist.");
+            Assert.True(pickerEnd > pickerStart, "Reference picker helper body must be bounded.");
+            var pickerBody = js.Substring(pickerStart, pickerEnd - pickerStart);
+            Assert.Contains("bridgeCall(\"start_media_import\", {})", pickerBody);
+            Assert.Contains("await awaitMediaImportJob(job.job_id)", pickerBody);
+            Assert.Contains("file.artifact_kind === \"imported_image\" && file.artifact_id", pickerBody);
+            Assert.Contains(".map(referenceFromImportedImage)", pickerBody);
+            Assert.DoesNotContain("open_image_picker", pickerBody);
+
+            var refStart = pickerEnd;
+            var refEnd = js.IndexOf("function renderReferencePreview", refStart, StringComparison.Ordinal);
+            Assert.True(refEnd > refStart, "Imported reference helper body must be bounded.");
+            var refBody = js.Substring(refStart, refEnd - refStart);
+            Assert.Contains("source: \"artifact\"", refBody);
+            Assert.Contains("artifact_id: file.artifact_id", refBody);
+            Assert.Contains("role: \"image\"", refBody);
+
+            var renderEnd = js.IndexOf("// \u2500\u2500\u2500 Framing helpers", refEnd, StringComparison.Ordinal);
+            Assert.True(renderEnd > refEnd, "Reference preview body must be bounded.");
+            var renderBody = js.Substring(refEnd, renderEnd - refEnd);
+            Assert.Contains("const label = ref.label || basename(ref.path) || \"reference image\";", renderBody);
+            Assert.Contains("title=\"${escapeAttr(label)}\"", renderBody);
+            Assert.DoesNotContain("title=\"${escapeAttr(ref.path", renderBody);
+
+            var syncStart = js.IndexOf("async function generateSyncImage", StringComparison.Ordinal);
+            var syncEnd = js.IndexOf("function renderGeneratedArtifact", syncStart, StringComparison.Ordinal);
+            Assert.True(syncStart >= 0, "Generate sync helper must exist.");
+            Assert.True(syncEnd > syncStart, "Generate sync helper body must be bounded.");
+            var syncBody = js.Substring(syncStart, syncEnd - syncStart);
+            Assert.Contains("applyImageReferenceArgs(args, generateReferences);", syncBody);
+            Assert.DoesNotContain("reference_image_paths = generateReferences.map", syncBody);
         }
 
         [Fact]

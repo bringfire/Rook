@@ -33,8 +33,7 @@ namespace Rook.UI.Vision
     ///         → <see cref="VisionHandler.DispatchAsync"/> (network,
     ///         cancellable).</item>
     ///   <item><c>capture_depth</c>, <c>capture_viewport</c>,
-    ///         <c>preview_viewport</c>, <c>list_views</c>,
-    ///         <c>open_image_picker</c>
+    ///         <c>preview_viewport</c>, <c>list_views</c>
     ///         → <see cref="VisionHandler.Dispatch"/> on the Rhino UI
     ///         thread (viewport state / modal dialog).</item>
     ///   <item><c>list_artifacts</c>, <c>get_artifact</c>,
@@ -165,7 +164,6 @@ p { margin: 8px 0; line-height: 1.4; }
                 ["capture_viewport"] = VisionOpRoute.Ui,
                 ["preview_viewport"] = VisionOpRoute.Ui,
                 ["list_views"] = VisionOpRoute.Ui,
-                ["open_image_picker"] = VisionOpRoute.Ui,
 
                 ["list_artifacts"] = VisionOpRoute.OffUi,
                 ["get_artifact"] = VisionOpRoute.OffUi,

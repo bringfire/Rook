@@ -64,7 +64,7 @@ function errorToText(e) {
 // ─── State ────────────────────────────────────────────────────────
 
 let currentView = "generate";
-let generateReferences = [];          // [{ path, thumbnail_base64, thumbnail_mime_type }]
+let generateReferences = [];          // [{ source: "artifact", artifact_id, role, previewSrc, label }]
 // `studioSource` carries Studio's source image. New selections are
 // durable artifact refs:
 //   { source: "artifact", artifact_id, role, previewSrc, label }
@@ -399,7 +399,7 @@ async function generateSyncImage(prompt, model) {
         if (aspectRatio) args.aspect_ratio = aspectRatio;
         if (el.modelSelect.value) args.model = el.modelSelect.value;
         if (generateReferences.length > 0) {
-            args.reference_image_paths = generateReferences.map(r => r.path);
+            applyImageReferenceArgs(args, generateReferences);
         }
 
         const artifact = await bridgeCall("generate", args);
@@ -500,25 +500,71 @@ function delay(ms) {
     return new Promise(resolve => window.setTimeout(resolve, ms));
 }
 
-async function pickReferenceImages(intoList, previewEl, multi) {
+async function pickReferenceImages(intoList, previewEl, multi, statusHandler, hideHandler) {
+    const isStudio = previewEl === el.studioReferencePreview;
+    const button = isStudio ? el.studioAddReferenceBtn : el.addReferenceBtn;
+    const show = statusHandler || showStatus;
+    const hide = hideHandler || hideStatus;
+    if (button && button.disabled) return;
+    if (button) button.disabled = true;
+    show(multi ? "Importing reference images..." : "Importing reference image...", "info");
     try {
-        const data = await bridgeCall("open_image_picker", { multi });
-        const paths = data.paths || [];
-        paths.forEach(p => intoList.push(p));
+        const job = await bridgeCall("start_media_import", {});
+        if (job && job.created === false) {
+            hide();
+            return;
+        }
+        if (!job || job.created !== true || !job.job_id) {
+            show("Media import did not create a job.", "error");
+            return;
+        }
+        rememberMediaImportJob(job);
+        renderMediaImportJobs();
+
+        const completed = job.state === "complete"
+            ? job
+            : await awaitMediaImportJob(job.job_id);
+        const importedImages = ((completed && completed.files) || [])
+            .filter(file => file.artifact_kind === "imported_image" && file.artifact_id)
+            .map(referenceFromImportedImage);
+
+        if (importedImages.length === 0) {
+            show("Import completed, but no image references were created.", "error");
+            return;
+        }
+        importedImages.forEach(ref => intoList.push(ref));
         renderReferencePreview(intoList, previewEl);
+        show(importedImages.length === 1
+            ? "Reference image imported."
+            : `${importedImages.length} reference images imported.`, "success");
     } catch (e) {
-        showStatus(e.message, "error");
+        show(errorToText(e), "error");
+    } finally {
+        if (button) button.disabled = false;
+        if (isStudio) updateStudioInputMode();
+        else updateGenerateInputMode();
     }
+}
+
+function referenceFromImportedImage(file) {
+    return {
+        source: "artifact",
+        artifact_id: file.artifact_id,
+        role: "image",
+        previewSrc: `/blob/${encodeURIComponent(file.artifact_id)}/image?ts=${Date.now()}`,
+        label: file.basename || "reference image",
+    };
 }
 
 function renderReferencePreview(list, container) {
     container.innerHTML = list.map((ref, index) => {
         const mime = ref.thumbnail_mime_type || ref.mime_type || "image/jpeg";
-        const src = ref.thumbnail_base64
+        const src = ref.previewSrc || (ref.thumbnail_base64
             ? `data:${mime};base64,${ref.thumbnail_base64}`
-            : "";
+            : "");
+        const label = ref.label || basename(ref.path) || "reference image";
         return `
-            <div class="reference-thumb" title="${escapeAttr(ref.path || "")}">
+            <div class="reference-thumb" title="${escapeAttr(label)}">
                 ${src ? `<img src="${src}" alt="reference">` : '<div class="reference-thumb-stub">no preview</div>'}
                 <button class="remove-ref" data-index="${index}" title="Remove">&times;</button>
             </div>
@@ -1115,10 +1161,14 @@ function applyStudioSourceArgs(args) {
 }
 
 function applyStudioReferenceArgs(args) {
-    const artifactRefs = studioReferences
+    applyImageReferenceArgs(args, studioReferences);
+}
+
+function applyImageReferenceArgs(args, references) {
+    const artifactRefs = references
         .filter(r => r && r.artifact_id)
         .map(artifactImageRef);
-    const pathRefs = studioReferences
+    const pathRefs = references
         .filter(r => r && r.path)
         .map(r => r.path);
     if (artifactRefs.length > 0 && pathRefs.length > 0) {
@@ -2036,7 +2086,7 @@ function init() {
     });
     el.approveBtn.addEventListener("click", () => approveCurrentArtifact(latestArtifactId));
     el.addReferenceBtn.addEventListener("click", () =>
-        pickReferenceImages(generateReferences, el.referencePreview, true));
+        pickReferenceImages(generateReferences, el.referencePreview, true, showStatus, hideStatus));
     el.clearReferencesBtn.addEventListener("click", () => {
         generateReferences = [];
         renderReferencePreview(generateReferences, el.referencePreview);
@@ -2065,7 +2115,7 @@ function init() {
         hideStudioStatus();
     });
     el.studioAddReferenceBtn.addEventListener("click", () =>
-        pickReferenceImages(studioReferences, el.studioReferencePreview, true));
+        pickReferenceImages(studioReferences, el.studioReferencePreview, true, showStudioStatus, hideStudioStatus));
     el.studioClearReferencesBtn.addEventListener("click", () => {
         studioReferences = [];
         renderReferencePreview(studioReferences, el.studioReferencePreview);
