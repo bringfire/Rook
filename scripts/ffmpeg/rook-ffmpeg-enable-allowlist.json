@@ -23,6 +23,7 @@
     "--enable-parser=mjpeg",
     "--enable-filter=select",
     "--enable-filter=reverse",
+    "--enable-filter=scale",
     "--enable-encoder=mjpeg"
   ],
   "external_provenance_overrides": []

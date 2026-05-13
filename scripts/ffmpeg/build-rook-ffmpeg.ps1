@@ -33,9 +33,17 @@ function Invoke-Checked {
         [string[]]$Arguments
     )
 
-    $output = & $FilePath @Arguments 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        throw "$FilePath $($Arguments -join ' ') failed with exit code $LASTEXITCODE`n$($output -join "`n")"
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $output = @(& $FilePath @Arguments 2>&1 | ForEach-Object { $_.ToString() })
+        $exitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+
+    if ($exitCode -ne 0) {
+        throw "$FilePath $($Arguments -join ' ') failed with exit code $exitCode`n$($output -join "`n")"
     }
 
     return $output
@@ -116,11 +124,11 @@ mkdir -p '$buildForBash/src'
 tar -xf '$archiveForBash' -C '$buildForBash/src' --strip-components=1
 cd '$buildForBash/src'
 ./configure $configureForBash
-make -j`$(nproc) ffmpeg
+make -j`$(nproc)
 "@
 
 $bashScriptPath = Join-Path $StageRoot 'build-ffmpeg.sh'
-Set-Content -LiteralPath $bashScriptPath -Value $bashScript -Encoding UTF8
+Set-Content -LiteralPath $bashScriptPath -Value $bashScript -Encoding ASCII
 
 Invoke-Msys2 -Command "bash '$(Convert-ToMsysPath $bashScriptPath)'"
 

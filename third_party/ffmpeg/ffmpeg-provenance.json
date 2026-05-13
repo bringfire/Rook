@@ -1,21 +1,38 @@
-{
-  "name": "FFmpeg",
-  "version": "n8.1.1-20260512",
-  "license": "LGPL-only",
-  "binary_path": "third_party/ffmpeg/ffmpeg.exe",
-  "binary_sha256": "F81C1A0A3781048CAA9E7D3DA6EFAD3369221CB795F2CCF75C369258996F0258",
-  "binary_url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-05-12-13-59/ffmpeg-n8.1.1-win64-lgpl-8.1.zip",
-  "build_source": "BtbN/FFmpeg-Builds autobuild-2026-05-12-13-59 win64 lgpl static release asset; local archive SHA-256 AA2C2A6754AB8AFDA3687839E68D864140D65F06C29F3431C4B4AF6860D96DEC",
-  "source_url": "https://ffmpeg.org/releases/ffmpeg-8.1.1.tar.xz",
-  "source_archive": "ffmpeg-8.1.1.tar.xz",
-  "source_sha256": "B6863ADDE98898F42602017462871B5F6333E65AEC803FDD7A6308639C52EDF3",
-  "configure_line": "--prefix=/ffbuild/prefix --pkg-config-flags=--static --pkg-config=pkg-config --cross-prefix=x86_64-w64-mingw32- --arch=x86_64 --target-os=mingw32 --enable-version3 --disable-debug --disable-w32threads --enable-pthreads --enable-iconv --enable-zlib --enable-libxml2 --enable-libvmaf --enable-fontconfig --enable-libharfbuzz --enable-libfreetype --enable-libfribidi --enable-vulkan --enable-libshaderc --enable-libvorbis --disable-libxcb --disable-xlib --disable-libpulse --enable-opencl --enable-gmp --enable-lzma --enable-liblcevc-dec --enable-amf --enable-libaom --enable-libaribb24 --disable-avisynth --enable-chromaprint --enable-libdav1d --disable-libdavs2 --disable-libdvdread --disable-libdvdnav --disable-libfdk-aac --enable-ffnvcodec --enable-cuda-llvm --disable-frei0r --enable-libgme --enable-libkvazaar --enable-libaribcaption --enable-libass --enable-libbluray --enable-libjxl --enable-libmp3lame --enable-libopus --enable-libplacebo --enable-librist --enable-libssh --enable-libtheora --enable-libvpx --enable-libwebp --enable-libzmq --enable-lv2 --enable-libvpl --enable-openal --enable-liboapv --enable-libopencore-amrnb --enable-libopencore-amrwb --enable-libopenh264 --enable-libopenjpeg --enable-libopenmpt --enable-librav1e --disable-librubberband --enable-schannel --enable-sdl2 --enable-libsnappy --enable-libsoxr --enable-libsrt --enable-libsvtav1 --enable-libtwolame --enable-libuavs3d --disable-libdrm --enable-vaapi --disable-libvidstab --enable-libvvenc --enable-whisper --disable-libx264 --disable-libx265 --disable-libxavs2 --disable-libxvid --enable-libzimg --enable-libzvbi --extra-cflags=-DLIBTWOLAME_STATIC --extra-cxxflags= --extra-libs=-lgomp --extra-ldflags=-pthread --extra-ldexeflags= --cc=x86_64-w64-mingw32-gcc --cxx=x86_64-w64-mingw32-g++ --ar=x86_64-w64-mingw32-gcc-ar --ranlib=x86_64-w64-mingw32-gcc-ranlib --nm=x86_64-w64-mingw32-gcc-nm --extra-version=20260512",
-  "validated_command_surfaces": [
-    "poster",
-    "first_frame",
-    "last_frame"
-  ],
-  "verified_at": "2026-05-12T21:38:16Z",
-  "verified_by": "Rook release validation",
-  "notes": "Bundled for Rook video sidecar extraction via ffmpeg.exe subprocess only."
+﻿{
+    "name":  "FFmpeg",
+    "version":  "8.1.1",
+    "license":  "LGPL-only",
+    "binary_path":  "third_party/ffmpeg/ffmpeg.exe",
+    "binary_sha256":  "D93745785AB439D6EFAA77C4753805617D9C2DD000CA3C544F075027C4E9CB6D",
+    "source_url":  "https://ffmpeg.org/releases/ffmpeg-8.1.1.tar.xz",
+    "source_archive":  "ffmpeg-8.1.1.tar.xz",
+    "source_sha256":  "B6863ADDE98898F42602017462871B5F6333E65AEC803FDD7A6308639C52EDF3",
+    "source_signature_url":  "https://ffmpeg.org/releases/ffmpeg-8.1.1.tar.xz.asc",
+    "signing_key_fingerprint":  "FCF986EA15E6E293A5644F10B4322F04D67658D8",
+    "source_signature_status":  "verified",
+    "build_recipe_path":  "scripts/ffmpeg/build-rook-ffmpeg.ps1",
+    "configure_recipe_path":  "scripts/ffmpeg/rook-ffmpeg-configure.txt",
+    "configure_line":  "--disable-everything --disable-autodetect --disable-network --disable-doc --disable-debug --extra-ldflags=-static --enable-ffmpeg --enable-protocol=file --enable-demuxer=mov --enable-demuxer=matroska --enable-muxer=image2 --enable-decoder=h264 --enable-decoder=hevc --enable-decoder=mpeg4 --enable-decoder=vp8 --enable-decoder=vp9 --enable-decoder=av1 --enable-decoder=mjpeg --enable-parser=h264 --enable-parser=hevc --enable-parser=mpeg4video --enable-parser=vp8 --enable-parser=vp9 --enable-parser=av1 --enable-parser=mjpeg --enable-filter=select --enable-filter=reverse --enable-filter=scale --enable-encoder=mjpeg",
+    "changes_diff_path":  "changes.diff",
+    "source_bundle_manifest_name":  "rook-ffmpeg-source-bundle-manifest.json",
+    "validated_command_surfaces":  [
+                                       "poster",
+                                       "first_frame",
+                                       "last_frame"
+                                   ],
+    "validated_fixtures":  [
+                               {
+                                   "path":  "third_party/ffmpeg/fixtures/sidecar-smoke-h264.mp4",
+                                   "container":  "mp4",
+                                   "video_codec":  "h264"
+                               },
+                               {
+                                   "path":  "third_party/ffmpeg/fixtures/sidecar-smoke-vp9.webm",
+                                   "container":  "webm",
+                                   "video_codec":  "vp9"
+                               }
+                           ],
+    "verified_at":  "2026-05-13T06:32:27.2012314+00:00",
+    "verified_by":  "Rook minimal FFmpeg build recipe",
+    "notes":  "Built by Rook from official FFmpeg source for video sidecar extraction via ffmpeg.exe subprocess only."
 }

@@ -1,25 +1,17 @@
-# Bundled FFmpeg Payload
+# Rook Minimal FFmpeg Payload
 
-Rook bundles a vetted LGPL-only Windows `ffmpeg.exe` so generated-video
-`poster`, `start_frame`, and `end_frame` sidecars work without user setup.
+This directory contains the validated Rook-owned minimal LGPL-only FFmpeg
+binary used for generated-video sidecar extraction.
 
-This payload is third-party software. Rook invokes `ffmpeg.exe` as a subprocess
-and does not link FFmpeg libraries.
+The binary is built from official FFmpeg source using:
 
-Release packaging must run `scripts\validate-ffmpeg-bundle.ps1` before building
-the installer. The release guard must fail closed if:
+- `scripts/ffmpeg/rook-ffmpeg-source.json`
+- `scripts/ffmpeg/rook-ffmpeg-configure.txt`
+- `scripts/ffmpeg/build-rook-ffmpeg.ps1`
 
-- `ffmpeg-provenance.json` is missing or malformed;
-- `ffmpeg.exe` is missing;
-- the binary checksum does not match metadata;
-- `ffmpeg.exe -version` cannot be read;
-- the configure line is missing;
-- the configure line contains `--enable-gpl`;
-- the configure line contains `--enable-nonfree`;
-- the dependency manifest does not cover the bundled binary's enabled
-  configure flags;
-- compliance files are missing;
-- the bundled binary cannot extract poster, first-frame, and last-frame JPEGs
-  from the smoke fixture.
+Rook invokes `ffmpeg.exe` only as a subprocess. It does not link FFmpeg
+libraries.
 
-Development builds may use PATH/configured FFmpeg. Release validation may not.
+The matching source bundle is generated during release prep and published
+beside the Rook installer. Release validation must be run with the generated
+`rook-ffmpeg-source-bundle-manifest.json`.

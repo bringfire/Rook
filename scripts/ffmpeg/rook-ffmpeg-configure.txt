@@ -3,6 +3,7 @@
 --disable-network
 --disable-doc
 --disable-debug
+--extra-ldflags=-static
 --enable-ffmpeg
 --enable-protocol=file
 --enable-demuxer=mov
@@ -24,4 +25,5 @@
 --enable-parser=mjpeg
 --enable-filter=select
 --enable-filter=reverse
+--enable-filter=scale
 --enable-encoder=mjpeg
