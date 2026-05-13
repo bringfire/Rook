@@ -9,10 +9,13 @@ namespace Rook.Services.Vision.MediaImport
     public sealed class MediaImportProcessor : IMediaImportProcessor
     {
         private readonly ImageMediaImporter _imageImporter;
+        private readonly VideoMediaImporter _videoImporter;
 
         public MediaImportProcessor(ArtifactStore store)
         {
-            _imageImporter = new ImageMediaImporter(store ?? throw new ArgumentNullException(nameof(store)));
+            store = store ?? throw new ArgumentNullException(nameof(store));
+            _imageImporter = new ImageMediaImporter(store);
+            _videoImporter = new VideoMediaImporter(store);
         }
 
         public Task<MediaImportProcessResult> ProcessAsync(string path, CancellationToken ct)
@@ -30,6 +33,9 @@ namespace Rook.Services.Vision.MediaImport
             if (IsImageExtension(extension))
                 return Task.FromResult(_imageImporter.Import(path));
 
+            if (IsVideoExtension(extension))
+                return _videoImporter.Import(path, ct);
+
             return Task.FromResult(MediaImportProcessResult.Failed(
                 MediaImportFailureCode.UnsupportedMediaType,
                 $"Media extension '.{extension}' is not supported."));
@@ -45,5 +51,10 @@ namespace Rook.Services.Vision.MediaImport
                extension == "heic" ||
                extension == "heif" ||
                extension == "svg";
+
+        private static bool IsVideoExtension(string extension)
+            => extension == "mp4" ||
+               extension == "mov" ||
+               extension == "webm";
     }
 }
