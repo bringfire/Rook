@@ -703,6 +703,122 @@ namespace Rook.Tests.Handlers
             }
         }
 
+        [Theory]
+        [InlineData("")]
+        [InlineData(@"""role"": ""thumbnail""")]
+        public void BuildImageGenerationWorkItem_rejects_input_artifact_ref_without_image_role(
+            string roleJson)
+        {
+            var root = CreateTempRoot("rook-vision-generate-artifact-input-role");
+            try
+            {
+                var artifactStore = new ArtifactStore(Path.Combine(root, "artifacts"));
+                var artifact = artifactStore.Create(
+                    VisionHandler.ArtifactKindCapturedViewport,
+                    new[]
+                    {
+                        new BlobInput(
+                            ImageMediaRoles.Image,
+                            new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00 },
+                            "png"),
+                    });
+                var handler = new VisionHandler(
+                    artifactStore,
+                    new InMemoryGenerationSecretStore(),
+                    new PromptEnhancer(),
+                    new ViewportHandler(),
+                    new DefaultImageProviderRegistry(new IImageProviderRegistration[]
+                    {
+                        new TestImageProviderRegistration(new FakeImageProvider()),
+                    }));
+                var roleLine = string.IsNullOrEmpty(roleJson)
+                    ? string.Empty
+                    : "," + Environment.NewLine + "                        " + roleJson;
+                var args = ParseArgs($$"""
+                    {
+                      "prompt": "make this rendering warmer",
+                      "input_image": {
+                        "kind": "artifact_id",
+                        "artifact_id": "{{artifact.Id:D}}"{{roleLine}}
+                      },
+                      "model": "nano-banana-2",
+                      "resolution": "1K",
+                      "aspect_ratio": "1:1"
+                    }
+                    """);
+
+                var ex = Assert.Throws<ArgumentException>(
+                    () => handler.BuildImageGenerationWorkItem(args));
+
+                Assert.Contains("input_image.role", ex.Message);
+            }
+            finally
+            {
+                try { Directory.Delete(root, recursive: true); } catch { }
+            }
+        }
+
+        [Theory]
+        [InlineData("")]
+        [InlineData(@"""role"": ""thumbnail""")]
+        public void BuildImageGenerationWorkItem_rejects_reference_artifact_ref_without_image_role(
+            string roleJson)
+        {
+            var root = CreateTempRoot("rook-vision-generate-artifact-reference-role");
+            try
+            {
+                var artifactStore = new ArtifactStore(Path.Combine(root, "artifacts"));
+                var pngBytes = new byte[]
+                    { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00 };
+                var input = artifactStore.Create(
+                    VisionHandler.ArtifactKindCapturedViewport,
+                    new[] { new BlobInput(ImageMediaRoles.Image, pngBytes, "png") });
+                var reference = artifactStore.Create(
+                    VisionHandler.ArtifactKindCapturedViewport,
+                    new[] { new BlobInput(ImageMediaRoles.Image, pngBytes, "png") });
+                var handler = new VisionHandler(
+                    artifactStore,
+                    new InMemoryGenerationSecretStore(),
+                    new PromptEnhancer(),
+                    new ViewportHandler(),
+                    new DefaultImageProviderRegistry(new IImageProviderRegistration[]
+                    {
+                        new TestImageProviderRegistration(new FakeImageProvider()),
+                    }));
+                var roleLine = string.IsNullOrEmpty(roleJson)
+                    ? string.Empty
+                    : "," + Environment.NewLine + "                          " + roleJson;
+                var args = ParseArgs($$"""
+                    {
+                      "prompt": "make this rendering warmer",
+                      "input_image": {
+                        "kind": "artifact_id",
+                        "artifact_id": "{{input.Id:D}}",
+                        "role": "image"
+                      },
+                      "reference_images": [
+                        {
+                          "kind": "artifact_id",
+                          "artifact_id": "{{reference.Id:D}}"{{roleLine}}
+                        }
+                      ],
+                      "model": "nano-banana-2",
+                      "resolution": "1K",
+                      "aspect_ratio": "1:1"
+                    }
+                    """);
+
+                var ex = Assert.Throws<ArgumentException>(
+                    () => handler.BuildImageGenerationWorkItem(args));
+
+                Assert.Contains("reference_images[0].role", ex.Message);
+            }
+            finally
+            {
+                try { Directory.Delete(root, recursive: true); } catch { }
+            }
+        }
+
         [Fact]
         public async Task GenerateAsync_StillRequiresInputImagePath()
         {

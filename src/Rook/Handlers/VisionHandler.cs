@@ -892,6 +892,19 @@ namespace Rook.Handlers
                     $"'{fieldPath}.artifact_id' must be a non-empty GUID in 'D' format.");
             }
 
+            string? role = null;
+            if (el.TryGetProperty("role", out var roleEl)
+                && roleEl.ValueKind == JsonValueKind.String)
+            {
+                role = roleEl.GetString();
+            }
+
+            if (!string.Equals(role, ImageMediaRoles.Image, StringComparison.Ordinal))
+            {
+                throw new ArgumentException(
+                    $"'{fieldPath}.role' is required and must be 'image'.");
+            }
+
             return MediaRef.ForArtifact(artifactId, runtimeRole);
         }
 
