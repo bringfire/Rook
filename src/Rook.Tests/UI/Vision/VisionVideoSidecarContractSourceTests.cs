@@ -21,21 +21,21 @@ namespace Rook.Tests.UI.Vision
         }
 
         [Fact]
-        public void AppJs_FramePickerBuildsRoleLevelGeneratedVideoChoices()
+        public void AppJs_FramePickerBuildsRoleLevelVideoChoices()
         {
             var js = ReadVisionResource("app.js");
             Assert.Contains("function buildFramePickerChoices(artifact)", js);
 
             var helper = ExtractFunction(js, "function buildFramePickerChoices(artifact)");
 
-            Assert.Contains("artifact.kind === \"generated_video\"", helper);
+            Assert.Contains("isVideoArtifactKind(artifact.kind)", helper);
             Assert.Contains("isGeneratedVideoFramePickerRole(file.role)", helper);
             Assert.Contains("role: file.role", helper);
             Assert.Contains("thumbRole: file.role", helper);
         }
 
         [Fact]
-        public void AppJs_FramePickerRequestsGeneratedVideoArtifacts()
+        public void AppJs_FramePickerRequestsGeneratedAndImportedMediaArtifacts()
         {
             var js = ReadVisionResource("app.js");
             var openPicker = ExtractFunction(js, "async function openPicker(slot)");
@@ -43,7 +43,15 @@ namespace Rook.Tests.UI.Vision
             Assert.Contains(
                 "bridgeCall(\"list_artifacts\", { kind: \"generated_video\", limit: 100 })",
                 openPicker);
+            Assert.Contains(
+                "bridgeCall(\"list_artifacts\", { kind: \"imported_image\", limit: 100 })",
+                openPicker);
+            Assert.Contains(
+                "bridgeCall(\"list_artifacts\", { kind: \"imported_video\", limit: 100 })",
+                openPicker);
             Assert.Contains("...(vidData.artifacts || [])", openPicker);
+            Assert.Contains("...(importedImageData.artifacts || [])", openPicker);
+            Assert.Contains("...(importedVideoData.artifacts || [])", openPicker);
             Assert.Contains(".flatMap(buildFramePickerChoices)", openPicker);
             Assert.Contains("choice.artifact.artifact_id", openPicker);
             Assert.Contains("choice.role", openPicker);
@@ -58,12 +66,23 @@ namespace Rook.Tests.UI.Vision
             var choicesBuilder = ExtractFunction(js, "function buildFramePickerChoices(artifact)");
             var generatedVideoBranch = ExtractBlock(
                 choicesBuilder,
-                "if (artifact.kind === \"generated_video\")");
+                "if (isVideoArtifactKind(artifact.kind))");
 
             Assert.Contains("isGeneratedVideoFramePickerRole(file.role)", choicesBuilder);
             Assert.Contains("pickDisplayRole(artifact) || \"image\"", choicesBuilder);
             Assert.DoesNotContain("pickDisplayRole", generatedVideoBranch);
             Assert.DoesNotContain("\"poster\"", generatedVideoBranch);
+        }
+
+        [Fact]
+        public void AppJs_VideoArtifactKindIncludesGeneratedAndImportedVideos()
+        {
+            var js = ReadVisionResource("app.js");
+
+            Assert.Contains("function isVideoArtifactKind(kind)", js);
+            var helper = ExtractFunction(js, "function isVideoArtifactKind(kind)");
+
+            Assert.Contains("kind === \"generated_video\" || kind === \"imported_video\"", helper);
         }
 
         [Fact]

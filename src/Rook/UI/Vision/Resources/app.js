@@ -75,6 +75,8 @@ let studioReferences = [];
 let latestArtifactId = null;          // id of the most-recently generated image (Generate view)
 let latestStudioArtifactId = null;    // same, Studio view
 let galleryItems = [];                // cached list for modal lookup
+let mediaImportJobs = new Map();      // job_id -> latest media import job snapshot
+let mediaImportPollers = new Map();   // job_id -> timeout id
 let modalArtifact = null;             // currently-open gallery item
 let modalDisplayRole = null;          // blob role currently rendered in the modal image
 let modelCatalog = [];                 // [{ short_name, supported_resolutions, ... }]
@@ -106,7 +108,10 @@ function switchView(view) {
         v.classList.toggle("active", v.id === `${view}-view`);
     });
 
-    if (view === "gallery") loadGallery();
+    if (view === "gallery") {
+        loadGallery();
+        loadMediaImportJobs();
+    }
     if (view === "settings") loadSettingsOverview();
     if (view === "video") loadVideoView();
 }
@@ -1059,22 +1064,30 @@ async function studioGenerateImageJob(args, model) {
 
 // ─── Gallery View ─────────────────────────────────────────────────
 
+function isVideoArtifactKind(kind) {
+    return kind === "generated_video" || kind === "imported_video";
+}
+
 async function loadGallery() {
     el.galleryGrid.innerHTML = '<div class="gallery-empty"><span>Loading…</span></div>';
     try {
-        // PR-V3: gallery shows both generated_image AND generated_video.
-        // list_artifacts takes a single `kind` filter, so we issue both
+        // Gallery shows generated and imported media together. The
+        // list_artifacts takes a single `kind` filter, so we issue the
         // calls in parallel and merge on the client. Sort: created_at
         // desc with artifact_id desc as the deterministic tie-breaker
         // (Codex sign-off note — equal-timestamp items must not jitter
         // between reloads).
-        const [imgData, vidData] = await Promise.all([
+        const [imgData, vidData, importedImageData, importedVideoData] = await Promise.all([
             bridgeCall("list_artifacts", { kind: "generated_image", limit: 100 }),
             bridgeCall("list_artifacts", { kind: "generated_video", limit: 100 }),
+            bridgeCall("list_artifacts", { kind: "imported_image", limit: 100 }),
+            bridgeCall("list_artifacts", { kind: "imported_video", limit: 100 }),
         ]);
         galleryItems = [
             ...(imgData.artifacts || []),
             ...(vidData.artifacts || []),
+            ...(importedImageData.artifacts || []),
+            ...(importedVideoData.artifacts || []),
         ].sort((a, b) => {
             const tA = a.created_at || "";
             const tB = b.created_at || "";
@@ -1088,8 +1101,8 @@ async function loadGallery() {
         if (galleryItems.length === 0) {
             el.galleryGrid.innerHTML = `
                 <div class="gallery-empty">
-                    <span>No images yet</span>
-                    <p>Generate your first creation to see it here</p>
+                    <span>No media yet</span>
+                    <p>Generate or import media to see it here</p>
                 </div>`;
             return;
         }
@@ -1097,7 +1110,7 @@ async function loadGallery() {
         el.galleryGrid.innerHTML = galleryItems.map(item => {
             const id = item.artifact_id;
             const approved = item.flags && item.flags.approved;
-            const isVideo = item.kind === "generated_video";
+            const isVideo = isVideoArtifactKind(item.kind);
             const role = pickDisplayRole(item);
             const thumbUrl = role
                 ? `/blob/${encodeURIComponent(id)}/${encodeURIComponent(role)}`
@@ -1158,11 +1171,149 @@ async function openArtifactsFolder() {
     }
 }
 
+async function startMediaImport() {
+    try {
+        const job = await bridgeCall("start_media_import", {});
+        if (job && job.created === false && job.reason === "empty_selection") {
+            return;
+        }
+        if (!job || job.created !== true || !job.job_id) {
+            window.alert("Media import did not create a job.");
+            return;
+        }
+        rememberMediaImportJob(job);
+        renderMediaImportJobs();
+        if (job.state === "complete") {
+            if (currentView === "gallery") loadGallery();
+        } else {
+            pollMediaImportJob(job.job_id);
+        }
+    } catch (e) {
+        window.alert(`Could not start media import: ${errorToText(e)}`);
+    }
+}
+
+async function loadMediaImportJobs() {
+    if (!el.mediaImportList) return;
+    try {
+        const data = await bridgeCall("list_media_import_jobs", {});
+        mediaImportJobs = new Map();
+        for (const job of (data.jobs || [])) {
+            rememberMediaImportJob(job);
+        }
+        renderMediaImportJobs();
+        for (const job of mediaImportJobs.values()) {
+            if (job.state !== "complete") pollMediaImportJob(job.job_id);
+        }
+    } catch (e) {
+        el.mediaImportPanel?.classList.remove("hidden");
+        el.mediaImportList.innerHTML =
+            `<div class="media-import-empty">Could not load media imports: ${escapeHtml(errorToText(e))}</div>`;
+    }
+}
+
+function rememberMediaImportJob(job) {
+    if (!job || !job.job_id) return null;
+    mediaImportJobs.set(job.job_id, job);
+    return job;
+}
+
+function renderMediaImportJobs() {
+    if (!el.mediaImportPanel || !el.mediaImportList) return;
+    const jobs = [...mediaImportJobs.values()]
+        .sort((a, b) => (b.updated_at || b.created_at || "").localeCompare(a.updated_at || a.created_at || ""));
+
+    if (jobs.length === 0) {
+        el.mediaImportPanel.classList.add("hidden");
+        el.mediaImportList.innerHTML = "";
+        return;
+    }
+
+    el.mediaImportPanel.classList.remove("hidden");
+    const rows = [];
+    for (const job of jobs) {
+        for (const file of (job.files || [])) {
+            const message = file.message || file.failure_code || "";
+            const openButton = file.artifact_id
+                ? `<button class="btn btn-secondary media-import-open" data-id="${escapeAttr(file.artifact_id)}">Open</button>`
+                : "";
+            rows.push(`
+                <div class="media-import-row state-${escapeAttr(file.status || job.state || "")}">
+                    <div class="media-import-main">
+                        <span class="media-import-name">${escapeHtml(file.basename || "media")}</span>
+                        <span class="media-import-status">${escapeHtml(file.status || job.state || "")}</span>
+                        ${message ? `<span class="media-import-message" title="${escapeAttr(message)}">${escapeHtml(message)}</span>` : ""}
+                    </div>
+                    <div class="media-import-actions">${openButton}</div>
+                </div>`);
+        }
+    }
+
+    el.mediaImportList.innerHTML = rows.length
+        ? rows.join("")
+        : '<div class="media-import-empty">No files in recent import jobs.</div>';
+
+    el.mediaImportList.querySelectorAll(".media-import-open").forEach(btn => {
+        btn.addEventListener("click", async () => {
+            switchView("gallery");
+            await loadGallery();
+            openArtifactModal(btn.dataset.id);
+        });
+    });
+}
+
+function pollMediaImportJob(jobId) {
+    if (!jobId || mediaImportPollers.has(jobId)) return;
+    const current = mediaImportJobs.get(jobId);
+    if (current && current.state === "complete") return;
+    const tick = async () => {
+        try {
+            const previous = mediaImportJobs.get(jobId);
+            const previousArtifacts = new Set(
+                ((previous && previous.files) || [])
+                    .map(file => file.artifact_id)
+                    .filter(Boolean));
+            const job = await bridgeCall("get_media_import_job", { job_id: jobId });
+            rememberMediaImportJob(job);
+            renderMediaImportJobs();
+
+            const currentArtifacts = ((job && job.files) || [])
+                .map(file => file.artifact_id)
+                .filter(Boolean);
+            const hasNewArtifact = currentArtifacts.some(id => !previousArtifacts.has(id));
+            if (hasNewArtifact && currentView === "gallery") {
+                loadGallery();
+            }
+
+            if (job && job.state === "complete") {
+                mediaImportPollers.delete(jobId);
+                if (currentView === "gallery") loadGallery();
+                return;
+            }
+        } catch (e) {
+            mediaImportPollers.delete(jobId);
+            if (el.mediaImportPanel && el.mediaImportList) {
+                el.mediaImportPanel.classList.remove("hidden");
+                el.mediaImportList.insertAdjacentHTML(
+                    "afterbegin",
+                    `<div class="media-import-empty">Import poll failed: ${escapeHtml(errorToText(e))}</div>`);
+            }
+            return;
+        }
+
+        const timeoutId = setTimeout(tick, 1200);
+        mediaImportPollers.set(jobId, timeoutId);
+    };
+
+    const timeoutId = setTimeout(tick, 0);
+    mediaImportPollers.set(jobId, timeoutId);
+}
+
 function pickDisplayRole(summary) {
     // Gallery summary embeds the `files[]` list. PR-V3: pick the
     // playback-or-image role appropriate to the artifact kind.
     if (!summary || !Array.isArray(summary.files)) return null;
-    const isVideo = summary.kind === "generated_video";
+    const isVideo = isVideoArtifactKind(summary.kind);
     const preferred = isVideo
         ? ["video", "primary", "media"]
         : ["image", "thumbnail", "preview"];
@@ -1194,7 +1345,7 @@ async function openArtifactModal(id) {
     // PR-V3: kind-aware render. Image artifacts use <img>; video
     // artifacts use <video controls>. Both elements live in the modal
     // markup; we toggle the inactive one.
-    const isVideo = modalArtifact.kind === "generated_video";
+    const isVideo = isVideoArtifactKind(modalArtifact.kind);
     if (isVideo) {
         el.modalImage.classList.add("hidden");
         el.modalImage.src = "";
@@ -1720,6 +1871,10 @@ function init() {
     // Gallery
     el.galleryGrid = $("gallery-grid");
     el.refreshGalleryBtn = $("refresh-gallery");
+    el.addMediaGalleryBtn = $("add-media-gallery");
+    el.mediaImportPanel = $("media-import-panel");
+    el.mediaImportList = $("media-import-list");
+    el.refreshMediaImportsBtn = $("refresh-media-imports");
     el.openArtifactsFolderBtn = $("open-artifacts-folder");
 
     // Settings
@@ -1832,8 +1987,10 @@ function init() {
         renderReferencePreview(studioReferences, el.studioReferencePreview);
     });
 
-    el.refreshGalleryBtn.addEventListener("click", loadGallery);
-    el.openArtifactsFolderBtn.addEventListener("click", openArtifactsFolder);
+    if (el.refreshGalleryBtn) el.refreshGalleryBtn.addEventListener("click", loadGallery);
+    if (el.addMediaGalleryBtn) el.addMediaGalleryBtn.addEventListener("click", startMediaImport);
+    if (el.refreshMediaImportsBtn) el.refreshMediaImportsBtn.addEventListener("click", loadMediaImportJobs);
+    if (el.openArtifactsFolderBtn) el.openArtifactsFolderBtn.addEventListener("click", openArtifactsFolder);
 
     if (el.providerCredentials) {
         el.providerCredentials.addEventListener("click", handleProviderCredentialClick);
@@ -2296,7 +2453,7 @@ const Video = (() => {
             return [];
         }
 
-        if (artifact.kind === "generated_video") {
+        if (isVideoArtifactKind(artifact.kind)) {
             return artifact.files
                 .filter(file => file && isGeneratedVideoFramePickerRole(file.role))
                 .map(file => ({
@@ -2336,21 +2493,25 @@ const Video = (() => {
         ve.pickerModal.classList.remove("hidden");
 
         try {
-            // Image artifacts are direct frame inputs. Generated-video
-            // artifacts are role-level candidates only when they already
-            // carry frame-exact sidecars. `poster` stays display-only and
+            // Image artifacts are direct frame inputs. Video artifacts
+            // are role-level candidates only when they already carry
+            // frame-exact sidecars. `poster` stays display-only and
             // `video` stays playback-only.
-            const [genData, capData, depthData, vidData] = await Promise.all([
+            const [genData, capData, depthData, vidData, importedImageData, importedVideoData] = await Promise.all([
                 bridgeCall("list_artifacts", { kind: "generated_image", limit: 100 }),
                 bridgeCall("list_artifacts", { kind: "captured_viewport", limit: 100 }),
                 bridgeCall("list_artifacts", { kind: "depth_map", limit: 100 }),
                 bridgeCall("list_artifacts", { kind: "generated_video", limit: 100 }),
+                bridgeCall("list_artifacts", { kind: "imported_image", limit: 100 }),
+                bridgeCall("list_artifacts", { kind: "imported_video", limit: 100 }),
             ]);
             const items = [
                 ...(genData.artifacts || []),
                 ...(capData.artifacts || []),
                 ...(depthData.artifacts || []),
                 ...(vidData.artifacts || []),
+                ...(importedImageData.artifacts || []),
+                ...(importedVideoData.artifacts || []),
             ]
                 .flatMap(buildFramePickerChoices)
                 .sort((a, b) => {
@@ -2364,7 +2525,7 @@ const Video = (() => {
                 ve.pickerGrid.innerHTML = `
                     <div class="gallery-empty">
                         <span>No image artifacts</span>
-                        <p>Generate an image, capture a viewport, capture depth, or use a generated video with frame sidecars.</p>
+                        <p>Generate, capture, or import media. Videos need start/end frame sidecars.</p>
                     </div>`;
                 return;
             }

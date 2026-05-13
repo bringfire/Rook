@@ -593,6 +593,15 @@ namespace Rook.Tests.UI.Vision
         }
 
         [Fact]
+        public void IndexHtml_GalleryToolbar_ExposesAddMediaButton()
+        {
+            var html = ReadVisionResource("index.html");
+            Assert.Contains("id=\"add-media-gallery\"", html);
+            Assert.Contains("title=\"Add media to Gallery\"", html);
+            Assert.Contains("Add Media to Gallery", html);
+        }
+
+        [Fact]
         public void IndexHtml_Modal_ExposesRevealButtonBetweenApproveAndDelete()
         {
             var html = ReadVisionResource("index.html");
