@@ -203,6 +203,12 @@ p { margin: 8px 0; line-height: 1.4; }
                 [ImageJobOpHandler.OpStatus] = VisionOpRoute.OffUi,
                 [ImageJobOpHandler.OpResult] = VisionOpRoute.OffUi,
                 [ImageJobOpHandler.OpList] = VisionOpRoute.OffUi,
+
+                // Media gallery import ops — bridge-only v1. The picker
+                // is UI-thread work; job status/list reads are off-UI.
+                [MediaImportOpHandler.OpStart] = VisionOpRoute.Ui,
+                [MediaImportOpHandler.OpStatus] = VisionOpRoute.OffUi,
+                [MediaImportOpHandler.OpList] = VisionOpRoute.OffUi,
             };
 
         /// <summary>
@@ -234,6 +240,14 @@ p { margin: 8px 0; line-height: 1.4; }
                 ImageJobOpHandler.OpList,
             };
 
+        internal static readonly HashSet<string> MediaImportOps =
+            new(StringComparer.Ordinal)
+            {
+                MediaImportOpHandler.OpStart,
+                MediaImportOpHandler.OpStatus,
+                MediaImportOpHandler.OpList,
+            };
+
         // ─── Timeouts ─────────────────────────────────────────────────
 
         /// <summary>
@@ -252,6 +266,7 @@ p { margin: 8px 0; line-height: 1.4; }
         private readonly VisionHandler _handler;
         private readonly VideoOpHandler? _videoHandler;
         private readonly ImageJobOpHandler? _imageJobHandler;
+        private readonly MediaImportOpHandler? _mediaImportHandler;
         private readonly ArtifactStore _artifactStore;
 
         /// <summary>
@@ -283,6 +298,7 @@ p { margin: 8px 0; line-height: 1.4; }
             BuildSharedVisionHandler(),
             BuildSharedVideoHandler(),
             BuildSharedImageJobHandler(),
+            BuildSharedMediaImportHandler(),
             RookSubsystemRoot.Instance.SharedArtifactStore)
         { }
 
@@ -295,17 +311,24 @@ p { margin: 8px 0; line-height: 1.4; }
         /// arg ctor with an explicit (possibly stub) video handler.
         /// </summary>
         internal VisionWebSurface(VisionHandler handler, ArtifactStore artifactStore)
-            : this(handler, videoHandler: null, imageJobHandler: null, artifactStore) { }
+            : this(
+                handler,
+                videoHandler: null,
+                imageJobHandler: null,
+                mediaImportHandler: null,
+                artifactStore) { }
 
         internal VisionWebSurface(
             VisionHandler handler,
             VideoOpHandler? videoHandler,
             ImageJobOpHandler? imageJobHandler,
+            MediaImportOpHandler? mediaImportHandler,
             ArtifactStore artifactStore)
         {
             _handler = handler ?? throw new ArgumentNullException(nameof(handler));
             _videoHandler = videoHandler;
             _imageJobHandler = imageJobHandler;
+            _mediaImportHandler = mediaImportHandler;
             _artifactStore = artifactStore ?? throw new ArgumentNullException(nameof(artifactStore));
 
             // Register the single op-discriminated bridge method. Must
@@ -314,6 +337,19 @@ p { margin: 8px 0; line-height: 1.4; }
             // lifecycle fires.
             RegisterBridgeHandler("vision", HandleVisionBridgeCallAsync);
         }
+
+        internal VisionWebSurface(
+            VisionHandler handler,
+            VideoOpHandler? videoHandler,
+            ImageJobOpHandler? imageJobHandler,
+            ArtifactStore artifactStore)
+            : this(
+                handler,
+                videoHandler,
+                imageJobHandler,
+                mediaImportHandler: null,
+                artifactStore)
+        { }
 
         private static VideoOpHandler BuildSharedVideoHandler()
         {
@@ -327,6 +363,11 @@ p { margin: 8px 0; line-height: 1.4; }
             var bundle = RookSubsystemRoot.Instance.ImageJobs;
             return new ImageJobOpHandler(bundle.Manager, handler);
         }
+
+        private static MediaImportOpHandler BuildSharedMediaImportHandler() =>
+            new MediaImportOpHandler(
+                RookSubsystemRoot.Instance.MediaImports,
+                new EtoMediaImportPicker());
 
         private static VisionHandler BuildSharedVisionHandler()
         {
@@ -370,6 +411,7 @@ p { margin: 8px 0; line-height: 1.4; }
             // belong to VideoOps (video has no Rhino-touching ops in V2).
             var isImageJobOp = ImageJobOps.Contains(op!);
             var isVideoOp = VideoOps.Contains(op!);
+            var isMediaImportOp = MediaImportOps.Contains(op!);
 
             if (isVideoOp && _videoHandler is null)
             {
@@ -382,6 +424,10 @@ p { margin: 8px 0; line-height: 1.4; }
             if (isImageJobOp && _imageJobHandler is null)
             {
                 return BuildFailure("Image job subsystem unavailable in this surface.");
+            }
+            if (isMediaImportOp && _mediaImportHandler is null)
+            {
+                return BuildFailure("Media import subsystem unavailable in this surface.");
             }
 
             ApiResponse response;
@@ -406,7 +452,9 @@ p { margin: 8px 0; line-height: 1.4; }
                         // failure — a misconfigured route should NOT
                         // silently land in the wrong handler.
                         response = await InvokeOnUiAsync(
-                            () => _handler.Dispatch(body)).ConfigureAwait(false);
+                            () => isMediaImportOp
+                                ? _mediaImportHandler!.DispatchUi(body)
+                                : _handler.Dispatch(body)).ConfigureAwait(false);
                         break;
                     case VisionOpRoute.OffUi:
                         // Off-UI ops are disk-only (artifact store) or
@@ -420,6 +468,9 @@ p { margin: 8px 0; line-height: 1.4; }
                         response = isImageJobOp
                             ? await Task.Run(
                                 () => _imageJobHandler!.DispatchOffUi(body)).ConfigureAwait(false)
+                            : isMediaImportOp
+                                ? await Task.Run(
+                                    () => _mediaImportHandler!.DispatchOffUi(body)).ConfigureAwait(false)
                             : isVideoOp
                                 ? await Task.Run(
                                     () => _videoHandler!.DispatchOffUi(body)).ConfigureAwait(false)

@@ -243,6 +243,9 @@ namespace Rook.Tests.UI.Vision
                 // Hidden image job ops — bridge-only, not native HTTP.
                 "image_generate_start", "image_job_cancel",
                 "image_job_status", "image_job_result", "image_jobs",
+                // Media gallery import ops — bridge-only, not native HTTP.
+                "start_media_import", "get_media_import_job",
+                "list_media_import_jobs",
                 // V2 video — bridge mirrors of the native HTTP routes.
                 "submit_video_job", "cancel_video_job",
                 "get_video_job", "get_video_job_result",
@@ -291,6 +294,10 @@ namespace Rook.Tests.UI.Vision
         [InlineData("image_job_status", "OffUi")]
         [InlineData("image_job_result", "OffUi")]
         [InlineData("image_jobs", "OffUi")]
+        // Media gallery import — picker on UI; job reads off-UI.
+        [InlineData("start_media_import", "Ui")]
+        [InlineData("get_media_import_job", "OffUi")]
+        [InlineData("list_media_import_jobs", "OffUi")]
         // V2 video ops — submit/cancel are async (provider HTTP via
         // manager); status/result/estimate are off-UI sync.
         [InlineData("submit_video_job", "Async")]
@@ -351,9 +358,47 @@ namespace Rook.Tests.UI.Vision
         [InlineData("image_job_status")]
         [InlineData("image_job_result")]
         [InlineData("image_jobs")]
+        [InlineData("start_media_import")]
+        [InlineData("get_media_import_job")]
+        [InlineData("list_media_import_jobs")]
         public void ImageJobOps_AreNotVideoOps(string op)
         {
             Assert.DoesNotContain(op, VisionWebSurface.VideoOps);
+        }
+
+        [Theory]
+        [InlineData("start_media_import")]
+        [InlineData("get_media_import_job")]
+        [InlineData("list_media_import_jobs")]
+        public void MediaImportOps_Set_Tracks_MediaImportOpHandler_Constants(string op)
+        {
+            Assert.Contains(op, VisionWebSurface.MediaImportOps);
+        }
+
+        [Fact]
+        public void MediaImportOps_Set_HasExactly3Entries()
+        {
+            Assert.Equal(3, VisionWebSurface.MediaImportOps.Count);
+        }
+
+        [Fact]
+        public async Task MediaImportOp_WithNullMediaImportHandler_ReturnsStructuredFailure()
+        {
+            var surface = NewSurface();
+            var response = await InvokeVisionBridgeAsync(
+                surface,
+                new JsonObject
+                {
+                    ["op"] = "get_media_import_job",
+                    ["job_id"] = Guid.NewGuid().ToString("D"),
+                });
+
+            Assert.NotNull(response);
+            Assert.False(response!["success"]!.GetValue<bool>());
+            var message = response["data"]!.GetValue<string>();
+            Assert.Contains(
+                "Media import subsystem unavailable in this surface.",
+                message);
         }
 
         [Fact]

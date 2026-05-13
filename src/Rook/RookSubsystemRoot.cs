@@ -7,6 +7,7 @@ using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Image;
 using Rook.Services.Vision.Image.Jobs;
 using Rook.Services.Vision.Image.Replicate;
+using Rook.Services.Vision.MediaImport;
 using Rook.Services.Vision.Video;
 
 namespace Rook
@@ -84,6 +85,7 @@ namespace Rook
 
         private readonly Lazy<VideoSubsystemBundle> _video;
         private readonly Lazy<ImageJobSubsystemBundle> _imageJobs;
+        private readonly Lazy<MediaImportJobManager> _mediaImports;
         private readonly IVideoSidecarBackfillTaskScheduler _backfillScheduler;
 
         /// <summary>
@@ -117,6 +119,18 @@ namespace Rook
                         nameof(RookSubsystemRoot),
                         "Image job subsystem accessed after shutdown.");
                 return _imageJobs.Value;
+            }
+        }
+
+        public MediaImportJobManager MediaImports
+        {
+            get
+            {
+                if (Volatile.Read(ref _disposed) != 0)
+                    throw new ObjectDisposedException(
+                        nameof(RookSubsystemRoot),
+                        "Media import subsystem accessed after shutdown.");
+                return _mediaImports.Value;
             }
         }
 
@@ -160,6 +174,9 @@ namespace Rook
                 LazyThreadSafetyMode.ExecutionAndPublication);
             _backfillScheduler = backfillScheduler
                 ?? new ThreadPoolVideoSidecarBackfillTaskScheduler();
+            _mediaImports = new Lazy<MediaImportJobManager>(
+                () => MediaImportSubsystemFactory.Build(SharedArtifactStore),
+                LazyThreadSafetyMode.ExecutionAndPublication);
             _imageJobs = new Lazy<ImageJobSubsystemBundle>(
                 () =>
                 {
@@ -332,6 +349,11 @@ namespace Rook
                 && _imageJobs.Value.Manager is IDisposable imageJobManager)
             {
                 imageJobManager.Dispose();
+            }
+
+            if (_mediaImports.IsValueCreated)
+            {
+                _mediaImports.Value.Dispose();
             }
 
             if (_video.IsValueCreated)
