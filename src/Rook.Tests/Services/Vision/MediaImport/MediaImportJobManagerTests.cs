@@ -85,6 +85,43 @@ namespace Rook.Tests.Services.Vision.MediaImport
         }
 
         [Fact]
+        public async Task StartAsync_CallerCancellationAfterJobCreation_DoesNotCancelImport()
+        {
+            var processor = new FakeProcessor
+            {
+                Delay = TimeSpan.FromMilliseconds(20),
+                Results =
+                {
+                    [@"C:\media\a.png"] = MediaImportProcessResult.Success(Guid.Parse("22222222-2222-2222-2222-222222222222"), "imported_image"),
+                },
+            };
+            var manager = new MediaImportJobManager(processor);
+            using var cts = new CancellationTokenSource();
+
+            var start = await manager.StartAsync(new[] { @"C:\media\a.png" }, cts.Token);
+            cts.Cancel();
+
+            await WaitForTerminal(manager, start.Job!.JobId);
+
+            var job = manager.GetJob(start.Job.JobId)!;
+            var item = Assert.Single(job.Items);
+            Assert.Equal(MediaImportItemState.Imported, item.State);
+            Assert.Equal(Guid.Parse("22222222-2222-2222-2222-222222222222"), item.ArtifactId);
+        }
+
+        [Fact]
+        public async Task Dispose_AfterCompletedJob_IsSafe()
+        {
+            var manager = new MediaImportJobManager(new FakeProcessor());
+            var start = await manager.StartAsync(new[] { @"C:\media\a.png" }, CancellationToken.None);
+
+            await WaitForTerminal(manager, start.Job!.JobId);
+
+            manager.Dispose();
+            manager.Dispose();
+        }
+
+        [Fact]
         public async Task ListJobs_DropsOldTerminalJobsBeyondRetentionLimit()
         {
             var manager = new MediaImportJobManager(new FakeProcessor(), recentJobLimit: 2);

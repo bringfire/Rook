@@ -7,14 +7,17 @@ using System.Threading.Tasks;
 
 namespace Rook.Services.Vision.MediaImport
 {
-    public sealed class MediaImportJobManager
+    public sealed class MediaImportJobManager : IDisposable
     {
         private readonly object _gate = new();
         private readonly IMediaImportProcessor _processor;
         private readonly int _recentJobLimit;
         private readonly List<ImportJob> _jobs = new();
+        private readonly List<Task> _workers = new();
+        private readonly CancellationTokenSource _shutdown = new();
         private readonly SemaphoreSlim _processingGate = new(1, 1);
         private long _nextSequence;
+        private bool _disposed;
 
         public MediaImportJobManager(
             IMediaImportProcessor processor,
@@ -26,6 +29,8 @@ namespace Rook.Services.Vision.MediaImport
 
         public Task<MediaImportStartResult> StartAsync(IEnumerable<string>? paths, CancellationToken ct)
         {
+            ct.ThrowIfCancellationRequested();
+
             var selectedPaths = paths?.ToArray() ?? Array.Empty<string>();
             if (selectedPaths.Length == 0)
             {
@@ -63,12 +68,12 @@ namespace Rook.Services.Vision.MediaImport
             MediaImportJobSnapshot snapshot;
             lock (_gate)
             {
+                ThrowIfDisposedLocked();
                 _jobs.Add(job);
                 PruneTerminalJobsLocked();
                 snapshot = CreateSnapshot(job);
+                _workers.Add(Task.Run(() => ProcessJobAsync(job.JobId), CancellationToken.None));
             }
-
-            _ = Task.Run(() => ProcessJobAsync(job.JobId, ct), CancellationToken.None);
 
             return Task.FromResult(new MediaImportStartResult(true, snapshot, null, null));
         }
@@ -80,6 +85,31 @@ namespace Rook.Services.Vision.MediaImport
                 var job = _jobs.FirstOrDefault(candidate => candidate.JobId == jobId);
                 return job is null ? null : CreateSnapshot(job);
             }
+        }
+
+        public void Dispose()
+        {
+            Task[] workers;
+            lock (_gate)
+            {
+                if (_disposed)
+                    return;
+
+                _disposed = true;
+                _shutdown.Cancel();
+                workers = _workers.ToArray();
+            }
+
+            try
+            {
+                Task.WaitAll(workers);
+            }
+            catch (AggregateException)
+            {
+            }
+
+            _processingGate.Dispose();
+            _shutdown.Dispose();
         }
 
         public MediaImportJobListResult ListJobs()
@@ -95,11 +125,13 @@ namespace Rook.Services.Vision.MediaImport
             }
         }
 
-        private async Task ProcessJobAsync(Guid jobId, CancellationToken ct)
+        private async Task ProcessJobAsync(Guid jobId)
         {
-            await _processingGate.WaitAsync().ConfigureAwait(false);
+            var acquired = false;
             try
             {
+                await _processingGate.WaitAsync(_shutdown.Token).ConfigureAwait(false);
+                acquired = true;
                 MarkJobRunning(jobId);
 
                 List<(Guid ItemId, string Path)> items;
@@ -127,7 +159,7 @@ namespace Rook.Services.Vision.MediaImport
                     MediaImportProcessResult result;
                     try
                     {
-                        result = await _processor.ProcessAsync(item.Path, ct).ConfigureAwait(false);
+                        result = await _processor.ProcessAsync(item.Path, _shutdown.Token).ConfigureAwait(false);
                     }
                     catch (Exception ex)
                     {
@@ -168,9 +200,18 @@ namespace Rook.Services.Vision.MediaImport
                     PruneTerminalJobsLocked();
                 }
             }
+            catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
+            {
+            }
             finally
             {
-                _processingGate.Release();
+                if (acquired)
+                    _processingGate.Release();
+
+                lock (_gate)
+                {
+                    _workers.RemoveAll(worker => worker.IsCompleted);
+                }
             }
         }
 
@@ -199,6 +240,12 @@ namespace Rook.Services.Vision.MediaImport
                 update(item);
                 job.UpdatedAt = DateTimeOffset.UtcNow;
             }
+        }
+
+        private void ThrowIfDisposedLocked()
+        {
+            if (_disposed)
+                throw new ObjectDisposedException(nameof(MediaImportJobManager));
         }
 
         private void PruneTerminalJobsLocked()
