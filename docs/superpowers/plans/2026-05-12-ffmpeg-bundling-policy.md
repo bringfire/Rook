@@ -322,6 +322,15 @@ Assert-Sha256 -Path $ArchivePath -Expected $SourceMetadata.source_sha256
 $gpgHome = Join-Path $StageRoot 'gnupg'
 New-Item -ItemType Directory -Force $gpgHome | Out-Null
 Invoke-Msys2 -Command "gpg --homedir '$(Convert-ToMsysPath $gpgHome)' --import '$(Convert-ToMsysPath $SigningKeyPath)'"
+$fingerprintOutput = & $Msys2Bash -lc "gpg --homedir '$(Convert-ToMsysPath $gpgHome)' --with-colons --fingerprint" 2>&1
+if ($LASTEXITCODE -ne 0) {
+    throw "Unable to inspect imported FFmpeg signing key fingerprint: $($fingerprintOutput -join "`n")"
+}
+$expectedFingerprint = ([string]$SourceMetadata.signing_key_fingerprint).ToUpperInvariant().Replace(' ', '')
+$actualFingerprints = @($fingerprintOutput | Where-Object { $_ -like 'fpr:*' } | ForEach-Object { ($_ -split ':')[9].ToUpperInvariant() })
+if ($actualFingerprints -notcontains $expectedFingerprint) {
+    throw "Imported FFmpeg signing key fingerprint did not match expected $expectedFingerprint"
+}
 Invoke-Msys2 -Command "gpg --homedir '$(Convert-ToMsysPath $gpgHome)' --verify '$(Convert-ToMsysPath $SignaturePath)' '$(Convert-ToMsysPath $ArchivePath)'"
 $SignatureStatus = 'verified'
 ```
@@ -348,7 +357,7 @@ make -j`$(nproc) ffmpeg
 $bashScriptPath = Join-Path $StageRoot 'build-ffmpeg.sh'
 Set-Content -LiteralPath $bashScriptPath -Value $bashScript -Encoding UTF8
 
-Invoke-Msys2 -Command (Convert-ToMsysPath $bashScriptPath)
+Invoke-Msys2 -Command "bash '$(Convert-ToMsysPath $bashScriptPath)'"
 ```
 
 - [ ] **Step 5: Generate payload metadata and source bundle**
@@ -396,6 +405,8 @@ $BundleManifestPath = Join-Path $StageRoot 'rook-ffmpeg-source-bundle-manifest.j
     bundle_sha256 = $SourceBundleHash
     ffmpeg_source_archive = $SourceMetadata.source_archive
     ffmpeg_source_sha256 = $SourceMetadata.source_sha256
+    ffmpeg_source_signature_url = $SourceMetadata.source_signature_url
+    signing_key_fingerprint = $SourceMetadata.signing_key_fingerprint
     configure_line = ($ConfigureArgs -join ' ')
     changes_diff_path = 'changes.diff'
     build_recipe_path = 'scripts/ffmpeg/build-rook-ffmpeg.ps1'
@@ -424,6 +435,7 @@ if ($InstallPayload) {
         source_archive = $SourceMetadata.source_archive
         source_sha256 = $SourceMetadata.source_sha256
         source_signature_url = $SourceMetadata.source_signature_url
+        signing_key_fingerprint = $SourceMetadata.signing_key_fingerprint
         source_signature_status = $SignatureStatus
         build_recipe_path = 'scripts/ffmpeg/build-rook-ffmpeg.ps1'
         configure_recipe_path = 'scripts/ffmpeg/rook-ffmpeg-configure.txt'
@@ -502,9 +514,33 @@ $allowlistPath = Join-Path $root 'scripts\ffmpeg\rook-ffmpeg-enable-allowlist.js
 New-Item -ItemType Directory -Force (Split-Path -Parent $allowlistPath) | Out-Null
 $allowlist | ConvertTo-Json -Depth 5 | Set-Content -Path $allowlistPath -Encoding UTF8
 
+$sourceMetadataPath = Join-Path $root 'scripts\ffmpeg\rook-ffmpeg-source.json'
+[ordered]@{
+    schema_version = 1
+    name = 'FFmpeg'
+    version = '8.1.1'
+    source_url = 'https://ffmpeg.org/releases/ffmpeg-8.1.1.tar.xz'
+    source_archive = 'ffmpeg-8.1.1.tar.xz'
+    source_sha256 = 'B6863ADDE98898F42602017462871B5F6333E65AEC803FDD7A6308639C52EDF3'
+    source_signature_url = 'https://ffmpeg.org/releases/ffmpeg-8.1.1.tar.xz.asc'
+    signing_key_url = 'https://ffmpeg.org/ffmpeg-devel.asc'
+    signing_key_fingerprint = 'FCF986EA15E6E293A5644F10B4322F04D67658D8'
+    source_signature_status_required = 'verified'
+} | ConvertTo-Json -Depth 5 | Set-Content -Path $sourceMetadataPath -Encoding UTF8
+
+$sourceBundleDir = Join-Path $root 'release\source-bundle'
+New-Item -ItemType Directory -Force $sourceBundleDir | Out-Null
+Set-Content -Path (Join-Path $sourceBundleDir 'ffmpeg-8.1.1.tar.xz') -Value 'fake source archive' -Encoding ASCII
+Set-Content -Path (Join-Path $sourceBundleDir 'ffmpeg-8.1.1.tar.xz.asc') -Value 'fake source signature' -Encoding ASCII
+Set-Content -Path (Join-Path $sourceBundleDir 'changes.diff') -Value '' -Encoding ASCII
+Set-Content -Path (Join-Path $sourceBundleDir 'rook-ffmpeg-configure.txt') -Value '--disable-everything --enable-ffmpeg' -Encoding ASCII
+Copy-Item -LiteralPath $sourceMetadataPath -Destination (Join-Path $sourceBundleDir 'rook-ffmpeg-source.json') -Force
+Copy-Item -LiteralPath $allowlistPath -Destination (Join-Path $sourceBundleDir 'rook-ffmpeg-enable-allowlist.json') -Force
+Set-Content -Path (Join-Path $sourceBundleDir 'build-rook-ffmpeg.ps1') -Value 'fake build script' -Encoding ASCII
+
 $sourceBundle = Join-Path $root 'release\rook-ffmpeg-source-bundle.zip'
 New-Item -ItemType Directory -Force (Split-Path -Parent $sourceBundle) | Out-Null
-Set-Content -Path $sourceBundle -Value 'fake source bundle' -Encoding ASCII
+Compress-Archive -Path (Join-Path $sourceBundleDir '*') -DestinationPath $sourceBundle
 $sourceBundleHash = (Get-FileHash -LiteralPath $sourceBundle -Algorithm SHA256).Hash
 $sourceBundleManifest = Join-Path $root 'release\rook-ffmpeg-source-bundle-manifest.json'
 [ordered]@{
@@ -513,6 +549,8 @@ $sourceBundleManifest = Join-Path $root 'release\rook-ffmpeg-source-bundle-manif
     bundle_sha256 = $sourceBundleHash
     ffmpeg_source_archive = 'ffmpeg-8.1.1.tar.xz'
     ffmpeg_source_sha256 = 'B6863ADDE98898F42602017462871B5F6333E65AEC803FDD7A6308639C52EDF3'
+    ffmpeg_source_signature_url = 'https://ffmpeg.org/releases/ffmpeg-8.1.1.tar.xz.asc'
+    signing_key_fingerprint = 'FCF986EA15E6E293A5644F10B4322F04D67658D8'
     configure_line = '--disable-everything --disable-autodetect --disable-network --disable-doc --disable-debug --enable-ffmpeg --enable-protocol=file --enable-demuxer=mov --enable-demuxer=matroska --enable-muxer=image2 --enable-decoder=h264 --enable-parser=h264 --enable-filter=select --enable-filter=reverse --enable-encoder=mjpeg'
     changes_diff_path = 'changes.diff'
     build_recipe_path = 'scripts/ffmpeg/build-rook-ffmpeg.ps1'
@@ -521,7 +559,18 @@ $sourceBundleManifest = Join-Path $root 'release\rook-ffmpeg-source-bundle-manif
 } | ConvertTo-Json -Depth 5 | Set-Content -Path $sourceBundleManifest -Encoding UTF8
 ```
 
-Return `AllowlistPath` and `SourceBundleManifestPath` from `New-TestPayload`.
+Return `AllowlistPath`, `SourceMetadataPath`, and `SourceBundleManifestPath` from `New-TestPayload`.
+
+Set the test provenance source fields to match the committed source metadata:
+
+```powershell
+source_url = 'https://ffmpeg.org/releases/ffmpeg-8.1.1.tar.xz'
+source_archive = 'ffmpeg-8.1.1.tar.xz'
+source_sha256 = 'B6863ADDE98898F42602017462871B5F6333E65AEC803FDD7A6308639C52EDF3'
+source_signature_url = 'https://ffmpeg.org/releases/ffmpeg-8.1.1.tar.xz.asc'
+signing_key_fingerprint = 'FCF986EA15E6E293A5644F10B4322F04D67658D8'
+source_signature_status = 'verified'
+```
 
 Set the test provenance `validated_fixtures` to:
 
@@ -559,6 +608,7 @@ function Invoke-Validator {
         '-PayloadDir', $Payload.PayloadDir,
         '-InstallerScriptPath', $Payload.InstallerScriptPath,
         '-AllowlistPath', $Payload.AllowlistPath,
+        '-SourceMetadataPath', $Payload.SourceMetadataPath,
         '-SourceBundleManifestPath', $Payload.SourceBundleManifestPath
     ) + $ExtraArgs
 
@@ -580,6 +630,10 @@ Test-RejectsMissingRequiredVp9OrAv1FixtureMetadata
 Test-RejectsMissingChangesDiffInsideSourceBundle
 Test-RejectsMissingSourceArchiveInsideSourceBundle
 Test-RejectsMissingSourceSignatureInsideSourceBundle
+Test-RejectsProvenanceSourceUrlMismatch
+Test-RejectsProvenanceSigningKeyFingerprintMismatch
+Test-RejectsSourceBundleSignatureUrlMismatch
+Test-RejectsSourceBundleSigningKeyFingerprintMismatch
 ```
 
 Each test should mutate one temp payload and assert the error text:
@@ -594,6 +648,10 @@ Assert-Contains -Text $output -Expected 'validated_fixtures must include vp9 web
 Assert-Contains -Text $output -Expected 'source bundle is missing required entry changes.diff' -Message 'Validator must inspect source bundle contents.'
 Assert-Contains -Text $output -Expected 'source bundle is missing required entry ffmpeg-8.1.1.tar.xz' -Message 'Validator must include the FFmpeg source archive in the bundle.'
 Assert-Contains -Text $output -Expected 'source bundle is missing required entry ffmpeg-8.1.1.tar.xz.asc' -Message 'Validator must include the FFmpeg source signature in the bundle.'
+Assert-Contains -Text $output -Expected 'provenance source_url does not match committed FFmpeg source metadata' -Message 'Validator must anchor provenance to committed source metadata.'
+Assert-Contains -Text $output -Expected 'provenance signing key fingerprint does not match committed FFmpeg source metadata' -Message 'Validator must anchor signing key expectations to committed source metadata.'
+Assert-Contains -Text $output -Expected 'source bundle manifest source signature URL does not match committed FFmpeg source metadata' -Message 'Validator must anchor source-bundle signature metadata to committed source metadata.'
+Assert-Contains -Text $output -Expected 'source bundle manifest signing key fingerprint does not match committed FFmpeg source metadata' -Message 'Validator must anchor source-bundle signing key metadata to committed source metadata.'
 ```
 
 - [ ] **Step 5: Run the policy tests and confirm they fail**
@@ -633,6 +691,7 @@ param(
     [string]$InstallerScriptPath = '',
     [string]$AllowlistPath = '',
     [string]$SourceBundleManifestPath = '',
+    [string]$SourceMetadataPath = '',
     [switch]$SkipFunctionalSmoke
 )
 ```
@@ -648,6 +707,9 @@ if ([string]::IsNullOrWhiteSpace($InstallerScriptPath)) {
 }
 if ([string]::IsNullOrWhiteSpace($AllowlistPath)) {
     $AllowlistPath = Join-Path $RepoRoot 'scripts\ffmpeg\rook-ffmpeg-enable-allowlist.json'
+}
+if ([string]::IsNullOrWhiteSpace($SourceMetadataPath)) {
+    $SourceMetadataPath = Join-Path $RepoRoot 'scripts\ffmpeg\rook-ffmpeg-source.json'
 }
 ```
 
@@ -694,7 +756,47 @@ function Assert-ConfigureEnableAllowlist {
 }
 ```
 
-- [ ] **Step 3: Require verified official source signatures**
+- [ ] **Step 3: Load committed source metadata and require provenance to match it**
+
+Add:
+
+```powershell
+function Get-CommittedSourceMetadata {
+    param([string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        Fail "committed FFmpeg source metadata is missing: $Path"
+    }
+
+    try {
+        return Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+    } catch {
+        Fail "committed FFmpeg source metadata is malformed: $($_.Exception.Message)"
+    }
+}
+
+function Assert-ProvenanceMatchesSourceMetadata {
+    param(
+        [object]$Provenance,
+        [object]$SourceMetadata
+    )
+
+    foreach ($field in @('source_url', 'source_archive', 'source_sha256', 'source_signature_url', 'signing_key_fingerprint')) {
+        Require-NonEmptyField -Provenance $SourceMetadata -Field $field
+        Require-NonEmptyField -Provenance $Provenance -Field $field
+        if ($Provenance.$field -ne $SourceMetadata.$field) {
+            Fail "provenance $field does not match committed FFmpeg source metadata"
+        }
+    }
+
+    Require-NonEmptyField -Provenance $SourceMetadata -Field 'source_signature_status_required'
+    if ($SourceMetadata.source_signature_status_required -ne 'verified') {
+        Fail "committed FFmpeg source metadata must require verified signatures"
+    }
+}
+```
+
+- [ ] **Step 4: Require verified official source signatures**
 
 Add:
 
@@ -711,7 +813,7 @@ function Assert-SourceSignatureVerified {
 }
 ```
 
-- [ ] **Step 4: Require fixture metadata coverage**
+- [ ] **Step 5: Require fixture metadata coverage**
 
 Add:
 
@@ -751,7 +853,7 @@ function Assert-ValidatedFixtureCoverage {
 }
 ```
 
-- [ ] **Step 5: Validate the staged source bundle manifest and contents**
+- [ ] **Step 6: Validate the staged source bundle manifest and contents**
 
 Add:
 
@@ -777,7 +879,8 @@ function Assert-ZipContainsEntry {
 function Assert-SourceBundleManifest {
     param(
         [string]$Path,
-        [object]$Provenance
+        [object]$Provenance,
+        [object]$SourceMetadata
     )
 
     if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path -PathType Leaf)) {
@@ -790,7 +893,7 @@ function Assert-SourceBundleManifest {
         Fail "source bundle manifest is malformed: $($_.Exception.Message)"
     }
 
-    foreach ($field in @('bundle_path', 'bundle_sha256', 'ffmpeg_source_archive', 'ffmpeg_source_sha256', 'configure_line', 'changes_diff_path', 'build_recipe_path', 'generated_at', 'generated_by')) {
+    foreach ($field in @('bundle_path', 'bundle_sha256', 'ffmpeg_source_archive', 'ffmpeg_source_sha256', 'ffmpeg_source_signature_url', 'signing_key_fingerprint', 'configure_line', 'changes_diff_path', 'build_recipe_path', 'generated_at', 'generated_by')) {
         Require-NonEmptyField -Provenance $manifest -Field $field
     }
 
@@ -800,6 +903,30 @@ function Assert-SourceBundleManifest {
 
     if ($manifest.ffmpeg_source_sha256 -ne $Provenance.source_sha256) {
         Fail "source bundle manifest source checksum does not match provenance"
+    }
+
+    if ($manifest.ffmpeg_source_signature_url -ne $Provenance.source_signature_url) {
+        Fail "source bundle manifest source signature URL does not match provenance"
+    }
+
+    if ($manifest.signing_key_fingerprint -ne $Provenance.signing_key_fingerprint) {
+        Fail "source bundle manifest signing key fingerprint does not match provenance"
+    }
+
+    if ($manifest.ffmpeg_source_archive -ne $SourceMetadata.source_archive) {
+        Fail "source bundle manifest source archive does not match committed FFmpeg source metadata"
+    }
+
+    if ($manifest.ffmpeg_source_sha256 -ne $SourceMetadata.source_sha256) {
+        Fail "source bundle manifest source checksum does not match committed FFmpeg source metadata"
+    }
+
+    if ($manifest.ffmpeg_source_signature_url -ne $SourceMetadata.source_signature_url) {
+        Fail "source bundle manifest source signature URL does not match committed FFmpeg source metadata"
+    }
+
+    if ($manifest.signing_key_fingerprint -ne $SourceMetadata.signing_key_fingerprint) {
+        Fail "source bundle manifest signing key fingerprint does not match committed FFmpeg source metadata"
     }
 
     if ((Normalize-ConfigureLine $manifest.configure_line) -ne (Normalize-ConfigureLine $Provenance.configure_line)) {
@@ -825,21 +952,23 @@ function Assert-SourceBundleManifest {
 }
 ```
 
-- [ ] **Step 6: Wire the new checks into the main validation flow**
+- [ ] **Step 7: Wire the new checks into the main validation flow**
 
 In the main flow, after parsing provenance and runtime configure output, call:
 
 ```powershell
+$sourceMetadata = Get-CommittedSourceMetadata -Path $SourceMetadataPath
+Assert-ProvenanceMatchesSourceMetadata -Provenance $provenance -SourceMetadata $sourceMetadata
 Assert-SourceSignatureVerified -Provenance $provenance
 Assert-ValidatedFixtureCoverage -Provenance $provenance
 Assert-ConfigureEnableAllowlist -ConfigureLine $runtimeConfigurationLine -AllowlistPath $AllowlistPath
 Assert-ConfigureEnableAllowlist -ConfigureLine $provenance.configure_line -AllowlistPath $AllowlistPath
-Assert-SourceBundleManifest -Path $SourceBundleManifestPath -Provenance $provenance
+Assert-SourceBundleManifest -Path $SourceBundleManifestPath -Provenance $provenance -SourceMetadata $sourceMetadata
 ```
 
 Delete any requirement for `ffmpeg-dependencies.json` or `DEPENDENCIES.FFmpeg.txt`.
 
-- [ ] **Step 7: Update functional smoke to iterate over the required fixture set**
+- [ ] **Step 8: Update functional smoke to iterate over the required fixture set**
 
 Change the smoke flow so it runs poster, first-frame, and last-frame extraction against every entry in `validated_fixtures`, resolving each `path` relative to `$RepoRoot`.
 
@@ -858,7 +987,7 @@ foreach ($fixture in @($provenance.validated_fixtures)) {
 
 If the current validator has inline smoke commands, extract them into `Invoke-SmokeForFixture` without changing the command shapes.
 
-- [ ] **Step 8: Run the policy tests and confirm they pass**
+- [ ] **Step 9: Run the policy tests and confirm they pass**
 
 Run:
 
@@ -868,7 +997,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\tests\ffmpeg-bundle-
 
 Expected: `FFmpeg bundle validation policy tests passed.`
 
-- [ ] **Step 9: Commit Task 4**
+- [ ] **Step 10: Commit Task 4**
 
 Run:
 
