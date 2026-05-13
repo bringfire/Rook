@@ -12,6 +12,7 @@ $BuildingDoc = Join-Path $RepoRoot 'BUILDING.md'
 $CompanionRuntimeConfig = Join-Path $RepoRoot 'src\Rook\bin\Release\net7.0\Rook.runtimeconfig.json'
 $FfmpegValidationScript = Join-Path $RepoRoot 'scripts\validate-ffmpeg-bundle.ps1'
 $FfmpegBuildScript = Join-Path $RepoRoot 'scripts\ffmpeg\build-rook-ffmpeg.ps1'
+$FfmpegConfigureRecipe = Join-Path $RepoRoot 'scripts\ffmpeg\rook-ffmpeg-configure.txt'
 $ReleaseWorkflow = Join-Path $RepoRoot '.github\workflows\release.yml'
 
 function Assert-True {
@@ -118,6 +119,17 @@ function Test-FfmpegBuildScriptUsesAgentlessSignatureVerification {
     Assert-Contains -Text $script -Expected 'gpg --batch --import-options show-only --import --with-colons' -Message 'FFmpeg build script must inspect the signing key fingerprint without importing it into a user keyring.'
     Assert-Contains -Text $script -Expected 'gpgv --keyring' -Message 'FFmpeg build script must verify the source signature through gpgv and an explicit trusted keyring.'
     Assert-NotContains -Text $script -Unexpected '--homedir' -Message 'FFmpeg build script must not depend on a private GPG homedir or gpg-agent startup.'
+}
+
+function Test-FfmpegBuildRecipeTargetsOnlyFfmpegProgram {
+    Assert-True -Condition (Test-Path $FfmpegBuildScript) -Message "FFmpeg build script is missing: $FfmpegBuildScript"
+    Assert-True -Condition (Test-Path $FfmpegConfigureRecipe) -Message "FFmpeg configure recipe is missing: $FfmpegConfigureRecipe"
+
+    $script = Get-Content -Path $FfmpegBuildScript -Raw
+    $configureRecipe = Get-Content -Path $FfmpegConfigureRecipe -Raw
+    Assert-Contains -Text $configureRecipe -Expected '--disable-programs' -Message 'FFmpeg configure recipe must disable default programs before re-enabling ffmpeg.'
+    Assert-Contains -Text $configureRecipe -Expected '--enable-ffmpeg' -Message 'FFmpeg configure recipe must explicitly re-enable the ffmpeg executable.'
+    Assert-Contains -Text $script -Expected 'make -j`$(nproc) ffmpeg.exe' -Message 'FFmpeg build script must build the ffmpeg.exe target specifically.'
 }
 
 function Test-InstallerRequiresNativePluginBuildOutput {
@@ -229,6 +241,7 @@ Test-BuiltCompanionRuntimeConfigDeclaresNet7
 Test-InstallerPackagesBundledFfmpegPayload
 Test-FfmpegValidatorRequiresReleaseSourceBundleArgument
 Test-FfmpegBuildScriptUsesAgentlessSignatureVerification
+Test-FfmpegBuildRecipeTargetsOnlyFfmpegProgram
 Test-InstallerRequiresNativePluginBuildOutput
 Test-InstallerRegistersRhinoPluginFileNamesUnderPluginSubkey
 Test-ReleaseWorkflowDocsUseNet7CompanionOutput

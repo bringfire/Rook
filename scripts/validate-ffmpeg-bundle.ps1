@@ -35,9 +35,33 @@ function Require-NonEmptyField {
     }
 }
 
+function Require-NonEmptyManifestField {
+    param(
+        [object]$Manifest,
+        [string]$Field
+    )
+
+    $property = $Manifest.PSObject.Properties[$Field]
+    if ($null -eq $property -or $null -eq $property.Value) {
+        Fail "source bundle manifest field '$Field' is missing"
+    }
+
+    if ($property.Value -is [string] -and [string]::IsNullOrWhiteSpace($property.Value)) {
+        Fail "source bundle manifest field '$Field' is empty"
+    }
+}
+
 function Normalize-ConfigureLine {
     param([string]$Value)
     return (($Value -replace '\s+', ' ').Trim())
+}
+
+function Get-ConfigureLineFromRecipeText {
+    param([string]$Value)
+
+    return Normalize-ConfigureLine ((@($Value -split "`r?`n" | Where-Object {
+        -not [string]::IsNullOrWhiteSpace($_) -and -not $_.TrimStart().StartsWith('#')
+    }) | ForEach-Object { $_.Trim() }) -join ' ')
 }
 
 function Get-ConfigureEnableFlags {
@@ -177,7 +201,7 @@ function Assert-ValidatedFixtureCoverage {
     }
 }
 
-function Assert-ZipContainsEntry {
+function Read-ZipEntryBytes {
     param(
         [string]$ZipPath,
         [string]$EntryName
@@ -186,12 +210,83 @@ function Assert-ZipContainsEntry {
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $zip = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
     try {
-        $match = $zip.Entries | Where-Object { $_.FullName -eq $EntryName }
-        if ($null -eq $match) {
+        $match = @($zip.Entries | Where-Object { $_.FullName.Replace('\', '/') -eq $EntryName })
+        if ($match.Count -eq 0) {
             Fail "source bundle is missing required entry $EntryName"
+        }
+
+        if ($match.Count -ne 1) {
+            Fail "source bundle has duplicate required entry $EntryName"
+        }
+
+        $stream = $match[0].Open()
+        try {
+            $memory = New-Object System.IO.MemoryStream
+            try {
+                $stream.CopyTo($memory)
+                return ,$memory.ToArray()
+            } finally {
+                $memory.Dispose()
+            }
+        } finally {
+            $stream.Dispose()
         }
     } finally {
         $zip.Dispose()
+    }
+}
+
+function Read-ZipEntryText {
+    param(
+        [string]$ZipPath,
+        [string]$EntryName
+    )
+
+    $bytes = Read-ZipEntryBytes -ZipPath $ZipPath -EntryName $EntryName
+    return [System.Text.Encoding]::UTF8.GetString($bytes)
+}
+
+function Get-Sha256Hex {
+    param([byte[]]$Bytes)
+
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        return [System.BitConverter]::ToString($sha.ComputeHash($Bytes)).Replace('-', '').ToUpperInvariant()
+    } finally {
+        $sha.Dispose()
+    }
+}
+
+function Assert-ZipEntrySha256 {
+    param(
+        [string]$ZipPath,
+        [string]$EntryName,
+        [string]$Expected,
+        [string]$Message
+    )
+
+    $actual = Get-Sha256Hex -Bytes (Read-ZipEntryBytes -ZipPath $ZipPath -EntryName $EntryName)
+    if ($actual -ne $Expected.ToUpperInvariant()) {
+        Fail $Message
+    }
+}
+
+function Assert-ZipEntryMatchesFile {
+    param(
+        [string]$ZipPath,
+        [string]$EntryName,
+        [string]$ExpectedPath,
+        [string]$Message
+    )
+
+    if (-not (Test-Path -LiteralPath $ExpectedPath -PathType Leaf)) {
+        Fail "committed release input is missing: $ExpectedPath"
+    }
+
+    $actual = Get-Sha256Hex -Bytes (Read-ZipEntryBytes -ZipPath $ZipPath -EntryName $EntryName)
+    $expected = (Get-FileHash -LiteralPath $ExpectedPath -Algorithm SHA256).Hash.ToUpperInvariant()
+    if ($actual -ne $expected) {
+        Fail $Message
     }
 }
 
@@ -199,7 +294,12 @@ function Assert-SourceBundleManifest {
     param(
         [string]$Path,
         [object]$Provenance,
-        [object]$SourceMetadata
+        [object]$SourceMetadata,
+        [string]$RuntimeConfigureLine,
+        [string]$SourceMetadataPath,
+        [string]$AllowlistPath,
+        [string]$ConfigureRecipePath,
+        [string]$BuildScriptPath
     )
 
     if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path -PathType Leaf)) {
@@ -223,6 +323,8 @@ function Assert-SourceBundleManifest {
     if ($manifest.ffmpeg_source_sha256 -ne $SourceMetadata.source_sha256) {
         Fail "source bundle manifest source checksum does not match committed FFmpeg source metadata"
     }
+
+    Require-NonEmptyManifestField -Manifest $manifest -Field 'ffmpeg_source_signature_sha256'
 
     if ($manifest.ffmpeg_source_signature_url -ne $SourceMetadata.source_signature_url) {
         Fail "source bundle manifest source signature URL does not match committed FFmpeg source metadata"
@@ -261,13 +363,57 @@ function Assert-SourceBundleManifest {
         Fail "source bundle checksum mismatch"
     }
 
-    Assert-ZipContainsEntry -ZipPath $manifest.bundle_path -EntryName $Provenance.source_archive
-    Assert-ZipContainsEntry -ZipPath $manifest.bundle_path -EntryName "$($Provenance.source_archive).asc"
-    Assert-ZipContainsEntry -ZipPath $manifest.bundle_path -EntryName 'changes.diff'
-    Assert-ZipContainsEntry -ZipPath $manifest.bundle_path -EntryName 'rook-ffmpeg-configure.txt'
-    Assert-ZipContainsEntry -ZipPath $manifest.bundle_path -EntryName 'rook-ffmpeg-source.json'
-    Assert-ZipContainsEntry -ZipPath $manifest.bundle_path -EntryName 'rook-ffmpeg-enable-allowlist.json'
-    Assert-ZipContainsEntry -ZipPath $manifest.bundle_path -EntryName 'build-rook-ffmpeg.ps1'
+    Assert-ZipEntrySha256 `
+        -ZipPath $manifest.bundle_path `
+        -EntryName $Provenance.source_archive `
+        -Expected $SourceMetadata.source_sha256 `
+        -Message 'source bundle source archive checksum mismatch'
+
+    Assert-ZipEntrySha256 `
+        -ZipPath $manifest.bundle_path `
+        -EntryName "$($Provenance.source_archive).asc" `
+        -Expected $manifest.ffmpeg_source_signature_sha256 `
+        -Message 'source bundle source signature checksum mismatch'
+
+    $null = Read-ZipEntryBytes -ZipPath $manifest.bundle_path -EntryName 'changes.diff'
+
+    Assert-ZipEntryMatchesFile `
+        -ZipPath $manifest.bundle_path `
+        -EntryName 'rook-ffmpeg-source.json' `
+        -ExpectedPath $SourceMetadataPath `
+        -Message 'source bundle source metadata does not match committed FFmpeg source metadata'
+
+    Assert-ZipEntryMatchesFile `
+        -ZipPath $manifest.bundle_path `
+        -EntryName 'rook-ffmpeg-enable-allowlist.json' `
+        -ExpectedPath $AllowlistPath `
+        -Message 'source bundle enable allowlist does not match committed FFmpeg allowlist'
+
+    Assert-ZipEntryMatchesFile `
+        -ZipPath $manifest.bundle_path `
+        -EntryName 'build-rook-ffmpeg.ps1' `
+        -ExpectedPath $BuildScriptPath `
+        -Message 'source bundle build script does not match committed FFmpeg build recipe'
+
+    Assert-ZipEntryMatchesFile `
+        -ZipPath $manifest.bundle_path `
+        -EntryName 'rook-ffmpeg-configure.txt' `
+        -ExpectedPath $ConfigureRecipePath `
+        -Message 'source bundle configure recipe does not match committed FFmpeg configure recipe'
+
+    $embeddedConfigureLine = Get-ConfigureLineFromRecipeText (
+        Read-ZipEntryText -ZipPath $manifest.bundle_path -EntryName 'rook-ffmpeg-configure.txt')
+    if ($embeddedConfigureLine -ne (Normalize-ConfigureLine $manifest.configure_line)) {
+        Fail "source bundle configure recipe does not match source bundle manifest configure line"
+    }
+
+    if ($embeddedConfigureLine -ne (Normalize-ConfigureLine $Provenance.configure_line)) {
+        Fail "source bundle configure recipe does not match provenance configure line"
+    }
+
+    if ($embeddedConfigureLine -ne (Normalize-ConfigureLine $RuntimeConfigureLine)) {
+        Fail "source bundle configure recipe does not match runtime configuration line"
+    }
 }
 
 function Invoke-FFmpegCommand {
@@ -454,6 +600,9 @@ $PayloadDir = [System.IO.Path]::GetFullPath($PayloadDir)
 $InstallerScriptPath = [System.IO.Path]::GetFullPath($InstallerScriptPath)
 $AllowlistPath = [System.IO.Path]::GetFullPath($AllowlistPath)
 $SourceMetadataPath = [System.IO.Path]::GetFullPath($SourceMetadataPath)
+$FfmpegScriptMetadataDir = Split-Path -Parent $SourceMetadataPath
+$ConfigureRecipePath = Join-Path $FfmpegScriptMetadataDir 'rook-ffmpeg-configure.txt'
+$BuildScriptPath = Join-Path $FfmpegScriptMetadataDir 'build-rook-ffmpeg.ps1'
 $provenancePath = Join-Path $PayloadDir 'ffmpeg-provenance.json'
 
 if (-not (Test-Path -LiteralPath $provenancePath -PathType Leaf)) {
@@ -558,7 +707,15 @@ if ((Normalize-ConfigureLine $provenance.configure_line) -ne (Normalize-Configur
     Fail "provenance configure_line does not match runtime configuration line"
 }
 
-Assert-SourceBundleManifest -Path $SourceBundleManifestPath -Provenance $provenance -SourceMetadata $sourceMetadata
+Assert-SourceBundleManifest `
+    -Path $SourceBundleManifestPath `
+    -Provenance $provenance `
+    -SourceMetadata $sourceMetadata `
+    -RuntimeConfigureLine $runtimeConfigure `
+    -SourceMetadataPath $SourceMetadataPath `
+    -AllowlistPath $AllowlistPath `
+    -ConfigureRecipePath $ConfigureRecipePath `
+    -BuildScriptPath $BuildScriptPath
 
 Assert-ReleaseValidTextFile -Path (Join-Path $PayloadDir 'LICENSE.FFmpeg.txt') -Name 'LICENSE.FFmpeg.txt'
 Assert-ReleaseValidTextFile -Path (Join-Path $PayloadDir 'NOTICE.FFmpeg.txt') -Name 'NOTICE.FFmpeg.txt'

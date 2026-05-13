@@ -3,7 +3,7 @@
     "version":  "8.1.1",
     "license":  "LGPL-only",
     "binary_path":  "third_party/ffmpeg/ffmpeg.exe",
-    "binary_sha256":  "D93745785AB439D6EFAA77C4753805617D9C2DD000CA3C544F075027C4E9CB6D",
+    "binary_sha256":  "C0B2C4268618BA109E36A7303CD007BCD8D40488119B271816A9D4ED479E85FB",
     "source_url":  "https://ffmpeg.org/releases/ffmpeg-8.1.1.tar.xz",
     "source_archive":  "ffmpeg-8.1.1.tar.xz",
     "source_sha256":  "B6863ADDE98898F42602017462871B5F6333E65AEC803FDD7A6308639C52EDF3",
@@ -12,7 +12,7 @@
     "source_signature_status":  "verified",
     "build_recipe_path":  "scripts/ffmpeg/build-rook-ffmpeg.ps1",
     "configure_recipe_path":  "scripts/ffmpeg/rook-ffmpeg-configure.txt",
-    "configure_line":  "--disable-everything --disable-autodetect --disable-network --disable-doc --disable-debug --extra-ldflags=-static --enable-ffmpeg --enable-protocol=file --enable-demuxer=mov --enable-demuxer=matroska --enable-muxer=image2 --enable-decoder=h264 --enable-decoder=hevc --enable-decoder=mpeg4 --enable-decoder=vp8 --enable-decoder=vp9 --enable-decoder=av1 --enable-decoder=mjpeg --enable-parser=h264 --enable-parser=hevc --enable-parser=mpeg4video --enable-parser=vp8 --enable-parser=vp9 --enable-parser=av1 --enable-parser=mjpeg --enable-filter=select --enable-filter=reverse --enable-filter=scale --enable-encoder=mjpeg",
+    "configure_line":  "--disable-everything --disable-autodetect --disable-network --disable-doc --disable-debug --disable-programs --extra-ldflags=-static --enable-ffmpeg --enable-protocol=file --enable-demuxer=mov --enable-demuxer=matroska --enable-muxer=image2 --enable-decoder=h264 --enable-decoder=hevc --enable-decoder=mpeg4 --enable-decoder=vp8 --enable-decoder=vp9 --enable-decoder=av1 --enable-decoder=mjpeg --enable-parser=h264 --enable-parser=hevc --enable-parser=mpeg4video --enable-parser=vp8 --enable-parser=vp9 --enable-parser=av1 --enable-parser=mjpeg --enable-filter=select --enable-filter=reverse --enable-filter=scale --enable-encoder=mjpeg",
     "changes_diff_path":  "changes.diff",
     "source_bundle_manifest_name":  "rook-ffmpeg-source-bundle-manifest.json",
     "validated_command_surfaces":  [
@@ -32,7 +32,7 @@
                                    "video_codec":  "vp9"
                                }
                            ],
-    "verified_at":  "2026-05-13T06:32:27.2012314+00:00",
+    "verified_at":  "2026-05-13T07:45:48.6569270+00:00",
     "verified_by":  "Rook minimal FFmpeg build recipe",
     "notes":  "Built by Rook from official FFmpeg source for video sidecar extraction via ffmpeg.exe subprocess only."
 }

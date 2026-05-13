@@ -52,7 +52,7 @@ public static class Program
         if (args.Length > 0 && args[0] == "-version")
         {
             Console.WriteLine("ffmpeg version n8.1.1-rook-minimal");
-            Console.WriteLine("configuration: --disable-everything --disable-autodetect --disable-network --disable-doc --disable-debug --enable-ffmpeg --enable-protocol=file --enable-demuxer=mov --enable-demuxer=matroska --enable-muxer=image2 --enable-decoder=h264 --enable-parser=h264 --enable-filter=select --enable-filter=reverse --enable-encoder=mjpeg");
+            Console.WriteLine("configuration: --disable-everything --disable-autodetect --disable-network --disable-doc --disable-debug --disable-programs --enable-ffmpeg --enable-protocol=file --enable-demuxer=mov --enable-demuxer=matroska --enable-muxer=image2 --enable-decoder=h264 --enable-parser=h264 --enable-filter=select --enable-filter=reverse --enable-encoder=mjpeg");
             return 0;
         }
 
@@ -140,6 +140,18 @@ function New-TestPayload {
     Set-Content -Path (Join-Path $payload 'README.md') -Value 'Bundled FFmpeg test payload summary.' -Encoding ASCII
     Set-Content -Path $installer -Value (Get-TestInstallerContent) -Encoding ASCII
 
+    $configureLine = '--disable-everything --disable-autodetect --disable-network --disable-doc --disable-debug --disable-programs --enable-ffmpeg --enable-protocol=file --enable-demuxer=mov --enable-demuxer=matroska --enable-muxer=image2 --enable-decoder=h264 --enable-parser=h264 --enable-filter=select --enable-filter=reverse --enable-encoder=mjpeg'
+    $configureRecipePath = Join-Path $scriptMetadataDir 'rook-ffmpeg-configure.txt'
+    ($configureLine -split ' ') | Set-Content -Path $configureRecipePath -Encoding ASCII
+
+    $buildScriptPath = Join-Path $scriptMetadataDir 'build-rook-ffmpeg.ps1'
+    Set-Content -Path $buildScriptPath -Value 'fake build script' -Encoding ASCII
+
+    Set-Content -Path (Join-Path $sourceBundleDir 'ffmpeg-8.1.1.tar.xz') -Value 'fake source archive' -Encoding ASCII
+    Set-Content -Path (Join-Path $sourceBundleDir 'ffmpeg-8.1.1.tar.xz.asc') -Value 'fake source signature' -Encoding ASCII
+    $sourceArchiveHash = (Get-FileHash -LiteralPath (Join-Path $sourceBundleDir 'ffmpeg-8.1.1.tar.xz') -Algorithm SHA256).Hash
+    $sourceSignatureHash = (Get-FileHash -LiteralPath (Join-Path $sourceBundleDir 'ffmpeg-8.1.1.tar.xz.asc') -Algorithm SHA256).Hash
+
     $allowlistPath = Join-Path $scriptMetadataDir 'rook-ffmpeg-enable-allowlist.json'
     [ordered]@{
         schema_version = 1
@@ -165,31 +177,29 @@ function New-TestPayload {
         version = '8.1.1'
         source_url = 'https://ffmpeg.org/releases/ffmpeg-8.1.1.tar.xz'
         source_archive = 'ffmpeg-8.1.1.tar.xz'
-        source_sha256 = 'B6863ADDE98898F42602017462871B5F6333E65AEC803FDD7A6308639C52EDF3'
+        source_sha256 = $sourceArchiveHash
         source_signature_url = 'https://ffmpeg.org/releases/ffmpeg-8.1.1.tar.xz.asc'
         signing_key_url = 'https://ffmpeg.org/ffmpeg-devel.asc'
         signing_key_fingerprint = 'FCF986EA15E6E293A5644F10B4322F04D67658D8'
         source_signature_status_required = 'verified'
     } | ConvertTo-Json -Depth 5 | Set-Content -Path $sourceMetadataPath -Encoding UTF8
 
-    Set-Content -Path (Join-Path $sourceBundleDir 'ffmpeg-8.1.1.tar.xz') -Value 'fake source archive' -Encoding ASCII
-    Set-Content -Path (Join-Path $sourceBundleDir 'ffmpeg-8.1.1.tar.xz.asc') -Value 'fake source signature' -Encoding ASCII
     Set-Content -Path (Join-Path $sourceBundleDir 'changes.diff') -Value '' -Encoding ASCII
-    Set-Content -Path (Join-Path $sourceBundleDir 'rook-ffmpeg-configure.txt') -Value '--disable-everything --enable-ffmpeg' -Encoding ASCII
+    Copy-Item -LiteralPath $configureRecipePath -Destination (Join-Path $sourceBundleDir 'rook-ffmpeg-configure.txt') -Force
     Copy-Item -LiteralPath $sourceMetadataPath -Destination (Join-Path $sourceBundleDir 'rook-ffmpeg-source.json') -Force
     Copy-Item -LiteralPath $allowlistPath -Destination (Join-Path $sourceBundleDir 'rook-ffmpeg-enable-allowlist.json') -Force
-    Set-Content -Path (Join-Path $sourceBundleDir 'build-rook-ffmpeg.ps1') -Value 'fake build script' -Encoding ASCII
+    Copy-Item -LiteralPath $buildScriptPath -Destination (Join-Path $sourceBundleDir 'build-rook-ffmpeg.ps1') -Force
     Compress-Archive -Path (Join-Path $sourceBundleDir '*') -DestinationPath $sourceBundleZip
     $sourceBundleHash = (Get-FileHash -LiteralPath $sourceBundleZip -Algorithm SHA256).Hash
 
-    $configureLine = '--disable-everything --disable-autodetect --disable-network --disable-doc --disable-debug --enable-ffmpeg --enable-protocol=file --enable-demuxer=mov --enable-demuxer=matroska --enable-muxer=image2 --enable-decoder=h264 --enable-parser=h264 --enable-filter=select --enable-filter=reverse --enable-encoder=mjpeg'
     [ordered]@{
         schema_version = 1
         bundle_path = $sourceBundleZip
         bundle_sha256 = $sourceBundleHash
         ffmpeg_source_archive = 'ffmpeg-8.1.1.tar.xz'
-        ffmpeg_source_sha256 = 'B6863ADDE98898F42602017462871B5F6333E65AEC803FDD7A6308639C52EDF3'
+        ffmpeg_source_sha256 = $sourceArchiveHash
         ffmpeg_source_signature_url = 'https://ffmpeg.org/releases/ffmpeg-8.1.1.tar.xz.asc'
+        ffmpeg_source_signature_sha256 = $sourceSignatureHash
         signing_key_fingerprint = 'FCF986EA15E6E293A5644F10B4322F04D67658D8'
         configure_line = $configureLine
         changes_diff_path = 'changes.diff'
@@ -207,7 +217,7 @@ function New-TestPayload {
         binary_sha256 = $hash
         source_url = 'https://ffmpeg.org/releases/ffmpeg-8.1.1.tar.xz'
         source_archive = 'ffmpeg-8.1.1.tar.xz'
-        source_sha256 = 'B6863ADDE98898F42602017462871B5F6333E65AEC803FDD7A6308639C52EDF3'
+        source_sha256 = $sourceArchiveHash
         source_signature_url = 'https://ffmpeg.org/releases/ffmpeg-8.1.1.tar.xz.asc'
         signing_key_fingerprint = 'FCF986EA15E6E293A5644F10B4322F04D67658D8'
         source_signature_status = 'verified'
@@ -555,6 +565,74 @@ function Test-RejectsMissingSourceSignatureInsideSourceBundle {
     }
 }
 
+function Test-RejectsTamperedSourceArchiveInsideSourceBundle {
+    Invoke-PayloadTest {
+        param($payload)
+        Set-Content -LiteralPath (Join-Path $payload.SourceBundleDir 'ffmpeg-8.1.1.tar.xz') -Value 'tampered source archive' -Encoding ASCII
+        Compress-TestSourceBundle -Payload $payload
+
+        $output = Invoke-ValidationExpectFailure -Payload $payload
+        Assert-Contains -Text $output -Expected 'source bundle source archive checksum mismatch' -Message 'Validator must hash the source archive inside the staged source bundle.'
+    }
+}
+
+function Test-RejectsTamperedSourceSignatureInsideSourceBundle {
+    Invoke-PayloadTest {
+        param($payload)
+        Set-Content -LiteralPath (Join-Path $payload.SourceBundleDir 'ffmpeg-8.1.1.tar.xz.asc') -Value 'tampered source signature' -Encoding ASCII
+        Compress-TestSourceBundle -Payload $payload
+
+        $output = Invoke-ValidationExpectFailure -Payload $payload
+        Assert-Contains -Text $output -Expected 'source bundle source signature checksum mismatch' -Message 'Validator must hash the source signature inside the staged source bundle.'
+    }
+}
+
+function Test-RejectsMismatchedConfigureRecipeInsideSourceBundle {
+    Invoke-PayloadTest {
+        param($payload)
+        Set-Content -LiteralPath (Join-Path $payload.SourceBundleDir 'rook-ffmpeg-configure.txt') -Value '--disable-everything --enable-ffmpeg' -Encoding ASCII
+        Compress-TestSourceBundle -Payload $payload
+
+        $output = Invoke-ValidationExpectFailure -Payload $payload
+        Assert-Contains -Text $output -Expected 'source bundle configure recipe does not match committed FFmpeg configure recipe' -Message 'Validator must compare the embedded configure recipe to the committed recipe.'
+    }
+}
+
+function Test-RejectsMismatchedSourceMetadataInsideSourceBundle {
+    Invoke-PayloadTest {
+        param($payload)
+        $metadata = Get-Content -LiteralPath (Join-Path $payload.SourceBundleDir 'rook-ffmpeg-source.json') -Raw | ConvertFrom-Json
+        $metadata.source_url = 'https://example.test/tampered-source.tar.xz'
+        $metadata | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $payload.SourceBundleDir 'rook-ffmpeg-source.json') -Encoding UTF8
+        Compress-TestSourceBundle -Payload $payload
+
+        $output = Invoke-ValidationExpectFailure -Payload $payload
+        Assert-Contains -Text $output -Expected 'source bundle source metadata does not match committed FFmpeg source metadata' -Message 'Validator must compare the embedded source metadata to the committed metadata.'
+    }
+}
+
+function Test-RejectsMismatchedAllowlistInsideSourceBundle {
+    Invoke-PayloadTest {
+        param($payload)
+        Add-Content -LiteralPath (Join-Path $payload.SourceBundleDir 'rook-ffmpeg-enable-allowlist.json') -Value ' '
+        Compress-TestSourceBundle -Payload $payload
+
+        $output = Invoke-ValidationExpectFailure -Payload $payload
+        Assert-Contains -Text $output -Expected 'source bundle enable allowlist does not match committed FFmpeg allowlist' -Message 'Validator must compare the embedded allowlist to the committed allowlist.'
+    }
+}
+
+function Test-RejectsMismatchedBuildScriptInsideSourceBundle {
+    Invoke-PayloadTest {
+        param($payload)
+        Add-Content -LiteralPath (Join-Path $payload.SourceBundleDir 'build-rook-ffmpeg.ps1') -Value 'tampered build script'
+        Compress-TestSourceBundle -Payload $payload
+
+        $output = Invoke-ValidationExpectFailure -Payload $payload
+        Assert-Contains -Text $output -Expected 'source bundle build script does not match committed FFmpeg build recipe' -Message 'Validator must compare the embedded build script to the committed build recipe.'
+    }
+}
+
 function Test-RejectsProvenanceSourceUrlMismatch {
     Invoke-PayloadTest {
         param($payload)
@@ -715,6 +793,12 @@ Test-RejectsMissingRequiredVp9OrAv1FixtureMetadata
 Test-RejectsMissingChangesDiffInsideSourceBundle
 Test-RejectsMissingSourceArchiveInsideSourceBundle
 Test-RejectsMissingSourceSignatureInsideSourceBundle
+Test-RejectsTamperedSourceArchiveInsideSourceBundle
+Test-RejectsTamperedSourceSignatureInsideSourceBundle
+Test-RejectsMismatchedConfigureRecipeInsideSourceBundle
+Test-RejectsMismatchedSourceMetadataInsideSourceBundle
+Test-RejectsMismatchedAllowlistInsideSourceBundle
+Test-RejectsMismatchedBuildScriptInsideSourceBundle
 Test-RejectsProvenanceSourceUrlMismatch
 Test-RejectsProvenanceSigningKeyFingerprintMismatch
 Test-RejectsSourceBundleSignatureUrlMismatch

@@ -120,7 +120,7 @@ mkdir -p '$buildForBash/src'
 tar -xf '$archiveForBash' -C '$buildForBash/src' --strip-components=1
 cd '$buildForBash/src'
 ./configure $configureForBash
-make -j`$(nproc)
+make -j`$(nproc) ffmpeg.exe
 "@
 
 $bashScriptPath = Join-Path $StageRoot 'build-ffmpeg.sh'
@@ -164,6 +164,7 @@ if (Test-Path -LiteralPath $SourceBundleZip) {
 Compress-Archive -Path (Join-Path $BundleRoot '*') -DestinationPath $SourceBundleZip
 
 $SourceBundleHash = (Get-FileHash -LiteralPath $SourceBundleZip -Algorithm SHA256).Hash
+$SourceSignatureHash = (Get-FileHash -LiteralPath $SignaturePath -Algorithm SHA256).Hash
 $BundleManifestPath = Join-Path $StageRoot 'rook-ffmpeg-source-bundle-manifest.json'
 [ordered]@{
     schema_version = 1
@@ -172,6 +173,7 @@ $BundleManifestPath = Join-Path $StageRoot 'rook-ffmpeg-source-bundle-manifest.j
     ffmpeg_source_archive = $SourceMetadata.source_archive
     ffmpeg_source_sha256 = $SourceMetadata.source_sha256
     ffmpeg_source_signature_url = $SourceMetadata.source_signature_url
+    ffmpeg_source_signature_sha256 = $SourceSignatureHash
     signing_key_fingerprint = $SourceMetadata.signing_key_fingerprint
     configure_line = ($ConfigureArgs -join ' ')
     changes_diff_path = 'changes.diff'
