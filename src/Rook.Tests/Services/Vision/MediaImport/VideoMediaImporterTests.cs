@@ -47,6 +47,10 @@ namespace Rook.Tests.Services.Vision.MediaImport
             Assert.Equal(2.5, ReadDouble(artifact.Metadata, "duration_seconds"));
             Assert.Equal(1920, ReadInt(artifact.Metadata, "width"));
             Assert.Equal(1080, ReadInt(artifact.Metadata, "height"));
+            var sidecars = artifact.Metadata["sidecars"]!.AsObject();
+            Assert.Equal("ok", sidecars["poster"]!.GetValue<string>());
+            Assert.Equal("ok", sidecars["start_frame"]!.GetValue<string>());
+            Assert.Equal("ok", sidecars["end_frame"]!.GetValue<string>());
         }
 
         [Fact]

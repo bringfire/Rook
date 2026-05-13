@@ -180,9 +180,9 @@ namespace Rook.Services.Vision.MediaImport
                 ["end_frame_timestamp_seconds"] = probe.DurationSeconds,
                 ["sidecars"] = new JsonObject
                 {
-                    ["poster"] = true,
-                    ["start_frame"] = true,
-                    ["end_frame"] = true,
+                    ["poster"] = "ok",
+                    ["start_frame"] = "ok",
+                    ["end_frame"] = "ok",
                 },
             };
 
