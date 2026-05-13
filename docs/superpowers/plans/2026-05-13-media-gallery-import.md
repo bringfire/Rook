@@ -266,11 +266,23 @@ private static void ValidateFileInputsArg(IReadOnlyList<BlobFileInput> files)
             throw new ArgumentException($"Duplicate blob role '{file.Role}'.", nameof(files));
         if (string.IsNullOrWhiteSpace(file.SourcePath))
             throw new ArgumentException("SourcePath must be non-empty.", nameof(files));
-        if (!File.Exists(file.SourcePath))
+        FileAttributes attrs;
+        try
+        {
+            attrs = File.GetAttributes(file.SourcePath);
+        }
+        catch (FileNotFoundException)
+        {
             throw new FileNotFoundException($"Source file not found: {file.SourcePath}", file.SourcePath);
-        var attrs = File.GetAttributes(file.SourcePath);
+        }
+        catch (DirectoryNotFoundException)
+        {
+            throw new FileNotFoundException($"Source file not found: {file.SourcePath}", file.SourcePath);
+        }
         if ((attrs & FileAttributes.Directory) != 0)
             throw new ArgumentException($"Source path is not a regular file: {file.SourcePath}", nameof(files));
+        if (!File.Exists(file.SourcePath))
+            throw new FileNotFoundException($"Source file not found: {file.SourcePath}", file.SourcePath);
     }
 }
 ```
@@ -870,6 +882,22 @@ namespace Rook.Tests.Services.Vision.MediaImport
         }
 
         [Fact]
+        public void ImportWebp_ReadsDimensionsFromHeader_AndPublishesImportedImage()
+        {
+            var source = Path.Combine(_root, "source.webp");
+            WriteTinyWebp(source);
+            var importer = new ImageMediaImporter(_store);
+
+            var result = importer.Import(source);
+
+            Assert.True(result.Success, result.Message);
+            var artifact = _store.Get(result.ArtifactId!.Value)!;
+            Assert.Equal("image/webp", artifact.Metadata["mime_type"]!.GetValue<string>());
+            Assert.Equal(1, artifact.Metadata["width"]!.GetValue<int>());
+            Assert.Equal(1, artifact.Metadata["height"]!.GetValue<int>());
+        }
+
+        [Fact]
         public void ImportGif_ReturnsUnsupportedMediaType_AndPublishesNothing()
         {
             var source = Path.Combine(_root, "source.gif");
@@ -901,6 +929,19 @@ namespace Rook.Tests.Services.Vision.MediaImport
             var bytes = Convert.FromBase64String(
                 "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=");
             File.WriteAllBytes(path, bytes);
+        }
+
+        private static void WriteTinyWebp(string path)
+        {
+            File.WriteAllBytes(path, new byte[]
+            {
+                0x52, 0x49, 0x46, 0x46, 0x18, 0x00, 0x00, 0x00,
+                0x57, 0x45, 0x42, 0x50, 0x56, 0x50, 0x38, 0x58,
+                0x0A, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00,
+                0x00, 0x00
+            });
         }
     }
 }
@@ -947,18 +988,8 @@ namespace Rook.Services.Vision.MediaImport
             if (extension is not ("png" or "jpg" or "jpeg" or "webp"))
                 return MediaImportProcessResult.Failed(MediaImportFailureCode.UnsupportedMediaType, "Unsupported image type.");
 
-            int width;
-            int height;
-            try
-            {
-                using var image = System.Drawing.Image.FromFile(path);
-                width = image.Width;
-                height = image.Height;
-            }
-            catch (Exception ex)
-            {
-                return MediaImportProcessResult.Failed(MediaImportFailureCode.DecodeFailed, $"Image could not be decoded: {ex.Message}");
-            }
+            if (!TryReadDimensions(path, extension, out var width, out var height, out var decodeError))
+                return MediaImportProcessResult.Failed(MediaImportFailureCode.DecodeFailed, decodeError);
 
             try
             {
@@ -992,16 +1023,26 @@ namespace Rook.Services.Vision.MediaImport
 
         internal static MediaImportProcessResult ValidatePath(string path, long maxBytes)
         {
-            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            if (string.IsNullOrWhiteSpace(path))
                 return MediaImportProcessResult.Failed(MediaImportFailureCode.FileNotFound, "File not found.");
             try
             {
                 var attrs = File.GetAttributes(path);
                 if ((attrs & FileAttributes.Directory) != 0)
                     return MediaImportProcessResult.Failed(MediaImportFailureCode.NotRegularFile, "Selected item is not a regular file.");
+                if (!File.Exists(path))
+                    return MediaImportProcessResult.Failed(MediaImportFailureCode.FileNotFound, "File not found.");
                 var info = new FileInfo(path);
                 if (info.Length > maxBytes)
                     return MediaImportProcessResult.Failed(MediaImportFailureCode.FileTooLarge, "File exceeds the import size limit.");
+            }
+            catch (FileNotFoundException)
+            {
+                return MediaImportProcessResult.Failed(MediaImportFailureCode.FileNotFound, "File not found.");
+            }
+            catch (DirectoryNotFoundException)
+            {
+                return MediaImportProcessResult.Failed(MediaImportFailureCode.FileNotFound, "File not found.");
             }
             catch (UnauthorizedAccessException ex)
             {
@@ -1012,6 +1053,81 @@ namespace Rook.Services.Vision.MediaImport
                 return MediaImportProcessResult.Failed(MediaImportFailureCode.FileInaccessible, $"File is inaccessible: {ex.Message}");
             }
             return MediaImportProcessResult.Success(Guid.Empty, string.Empty);
+        }
+
+        private static bool TryReadDimensions(
+            string path,
+            string extension,
+            out int width,
+            out int height,
+            out string error)
+        {
+            width = 0;
+            height = 0;
+            error = "";
+
+            if (extension == "webp")
+                return TryReadWebpDimensions(path, out width, out height, out error);
+
+            try
+            {
+                using var image = System.Drawing.Image.FromFile(path);
+                width = image.Width;
+                height = image.Height;
+                if (width > 0 && height > 0)
+                    return true;
+                error = "Image dimensions could not be read.";
+                return false;
+            }
+            catch (Exception ex)
+            {
+                error = $"Image could not be decoded: {ex.Message}";
+                return false;
+            }
+        }
+
+        private static bool TryReadWebpDimensions(
+            string path,
+            out int width,
+            out int height,
+            out string error)
+        {
+            width = 0;
+            height = 0;
+            error = "WebP dimensions could not be read.";
+            var bytes = File.ReadAllBytes(path);
+            if (bytes.Length < 30
+                || bytes[0] != 'R' || bytes[1] != 'I' || bytes[2] != 'F' || bytes[3] != 'F'
+                || bytes[8] != 'W' || bytes[9] != 'E' || bytes[10] != 'B' || bytes[11] != 'P')
+                return false;
+
+            if (bytes[12] == 'V' && bytes[13] == 'P' && bytes[14] == '8' && bytes[15] == 'X')
+            {
+                width = 1 + bytes[24] + (bytes[25] << 8) + (bytes[26] << 16);
+                height = 1 + bytes[27] + (bytes[28] << 8) + (bytes[29] << 16);
+                return width > 0 && height > 0;
+            }
+
+            if (bytes[12] == 'V' && bytes[13] == 'P' && bytes[14] == '8' && bytes[15] == 'L')
+            {
+                if (bytes.Length < 25 || bytes[20] != 0x2f)
+                    return false;
+                width = 1 + bytes[21] + ((bytes[22] & 0x3F) << 8);
+                height = 1 + ((bytes[22] & 0xC0) >> 6) + (bytes[23] << 2) + ((bytes[24] & 0x0F) << 10);
+                return width > 0 && height > 0;
+            }
+
+            if (bytes[12] == 'V' && bytes[13] == 'P' && bytes[14] == '8' && bytes[15] == ' ')
+            {
+                if (bytes.Length < 30 || bytes[23] != 0x9d || bytes[24] != 0x01 || bytes[25] != 0x2a)
+                    return false;
+                width = (bytes[26] | (bytes[27] << 8)) & 0x3FFF;
+                height = (bytes[28] | (bytes[29] << 8)) & 0x3FFF;
+                return width > 0 && height > 0;
+            }
+
+            error = "WebP variant is not supported by v1 import dimension probing.";
+            return false;
         }
     }
 }
@@ -1333,12 +1449,14 @@ namespace Rook.Services.Vision.MediaImport
         Task<VideoImportSidecarResult> ExtractAsync(string sourcePath, CancellationToken ct);
     }
 
-    public sealed record VideoImportSidecarResult(bool Success, string? PosterPath, string? StartFramePath, string? EndFramePath, string? Message)
+    public sealed record VideoImportSidecarResult(bool Success, string? PosterPath, string? StartFramePath, string? EndFramePath, string? TempDirectory, string? Message)
     {
         public static VideoImportSidecarResult Success(string posterPath, string startFramePath, string endFramePath) =>
-            new(true, posterPath, startFramePath, endFramePath, null);
+            new(true, posterPath, startFramePath, endFramePath, null, null);
+        public static VideoImportSidecarResult Success(string posterPath, string startFramePath, string endFramePath, string tempDirectory) =>
+            new(true, posterPath, startFramePath, endFramePath, tempDirectory, null);
         public static VideoImportSidecarResult Failed(string message) =>
-            new(false, null, null, null, message);
+            new(false, null, null, null, null, message);
     }
 
     public sealed class VideoMediaImporter
@@ -1369,12 +1487,13 @@ namespace Rook.Services.Vision.MediaImport
             if (!probe.Success)
                 return MediaImportProcessResult.Failed(MediaImportFailureCode.VideoProbeFailed, probe.Message ?? "Video probe failed.");
 
-            var sidecars = await _sidecars.ExtractAsync(path, ct).ConfigureAwait(false);
-            if (!sidecars.Success || sidecars.PosterPath is null || sidecars.StartFramePath is null || sidecars.EndFramePath is null)
-                return MediaImportProcessResult.Failed(MediaImportFailureCode.SidecarExtractionFailed, sidecars.Message ?? "Video sidecar extraction failed.");
-
+            VideoImportSidecarResult? sidecars = null;
             try
             {
+                sidecars = await _sidecars.ExtractAsync(path, ct).ConfigureAwait(false);
+                if (!sidecars.Success || sidecars.PosterPath is null || sidecars.StartFramePath is null || sidecars.EndFramePath is null)
+                    return MediaImportProcessResult.Failed(MediaImportFailureCode.SidecarExtractionFailed, sidecars.Message ?? "Video sidecar extraction failed.");
+
                 var info = new FileInfo(path);
                 var metadata = new Dictionary<string, JsonNode?>
                 {
@@ -1415,6 +1534,10 @@ namespace Rook.Services.Vision.MediaImport
             catch (Exception ex)
             {
                 return MediaImportProcessResult.Failed(MediaImportFailureCode.PublishFailed, $"Imported video could not be published: {ex.Message}");
+            }
+            finally
+            {
+                DefaultVideoImportSidecarExtractor.TryDeleteDirectory(sidecars?.TempDirectory);
             }
         }
 
@@ -1457,26 +1580,51 @@ internal sealed class DefaultVideoImportSidecarExtractor : IVideoImportSidecarEx
         var start = Path.Combine(dir, "start_frame.jpg");
         var end = Path.Combine(dir, "end_frame.jpg");
 
-        var posterResult = await new FfmpegPosterFrameExtractor()
-            .ExtractPosterAsync(resolved.Path!, sourcePath, poster, TimeSpan.FromSeconds(30), ct)
-            .ConfigureAwait(false);
-        if (!posterResult.Success)
-            return VideoImportSidecarResult.Failed(posterResult.Message ?? "Poster extraction failed.");
+        try
+        {
+            var posterResult = await new FfmpegPosterFrameExtractor()
+                .ExtractPosterAsync(resolved.Path!, sourcePath, poster, TimeSpan.FromSeconds(30), ct)
+                .ConfigureAwait(false);
+            if (!posterResult.Success)
+                return CleanupAndFail(dir, posterResult.Message ?? "Poster extraction failed.");
 
-        var frameExtractor = new FfmpegVideoFrameExtractor();
-        var startResult = await frameExtractor
-            .ExtractFrameAsync(resolved.Path!, sourcePath, VideoFrameSelector.First, start, TimeSpan.FromSeconds(30), ct)
-            .ConfigureAwait(false);
-        if (!startResult.Success)
-            return VideoImportSidecarResult.Failed(startResult.Message ?? "Start frame extraction failed.");
+            var frameExtractor = new FfmpegVideoFrameExtractor();
+            var startResult = await frameExtractor
+                .ExtractFrameAsync(resolved.Path!, sourcePath, VideoFrameSelector.First, start, TimeSpan.FromSeconds(30), ct)
+                .ConfigureAwait(false);
+            if (!startResult.Success)
+                return CleanupAndFail(dir, startResult.Message ?? "Start frame extraction failed.");
 
-        var endResult = await frameExtractor
-            .ExtractFrameAsync(resolved.Path!, sourcePath, VideoFrameSelector.Last, end, TimeSpan.FromSeconds(30), ct)
-            .ConfigureAwait(false);
-        if (!endResult.Success)
-            return VideoImportSidecarResult.Failed(endResult.Message ?? "End frame extraction failed.");
+            var endResult = await frameExtractor
+                .ExtractFrameAsync(resolved.Path!, sourcePath, VideoFrameSelector.Last, end, TimeSpan.FromSeconds(30), ct)
+                .ConfigureAwait(false);
+            if (!endResult.Success)
+                return CleanupAndFail(dir, endResult.Message ?? "End frame extraction failed.");
 
-        return VideoImportSidecarResult.Success(poster, start, end);
+            return VideoImportSidecarResult.Success(poster, start, end, dir);
+        }
+        catch
+        {
+            TryDeleteDirectory(dir);
+            throw;
+        }
+    }
+
+    private static VideoImportSidecarResult CleanupAndFail(string dir, string message)
+    {
+        TryDeleteDirectory(dir);
+        return VideoImportSidecarResult.Failed(message);
+    }
+
+    internal static void TryDeleteDirectory(string? dir)
+    {
+        if (string.IsNullOrWhiteSpace(dir)) return;
+        try
+        {
+            if (Directory.Exists(dir))
+                Directory.Delete(dir, recursive: true);
+        }
+        catch { }
     }
 }
 ```
@@ -1909,6 +2057,19 @@ namespace Rook.Tests.Services.Vision.Image
             Assert.Equal(TinyPng(), media.Bytes);
         }
 
+        [Fact]
+        public async Task ResolveAllAsync_ImageGenerationRoles_FallBackToArtifactImageBlob()
+        {
+            var artifact = _store.Create("imported_image", new[] { new BlobInput("image", TinyPng(), "png") });
+            var mediaRef = MediaRef.ForArtifact(artifact.Id, ImageMediaRoles.InputImage);
+            var resolver = new ArtifactImageMediaResolver(_store);
+
+            var result = await resolver.ResolveAllAsync(new[] { mediaRef }, CancellationToken.None);
+
+            Assert.True(result.Success);
+            Assert.Equal(TinyPng(), result.Resolved![mediaRef].Bytes);
+        }
+
         private static byte[] TinyPng() => Convert.FromBase64String(
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=");
     }
@@ -1951,7 +2112,7 @@ namespace Rook.Services.Vision.Image
                     string path = mediaRef.Kind switch
                     {
                         MediaRefKind.Artifact when mediaRef.ArtifactId.HasValue =>
-                            _store.GetBlobAbsolutePath(mediaRef.ArtifactId.Value, mediaRef.Role),
+                            _store.GetBlobAbsolutePath(mediaRef.ArtifactId.Value, ResolveArtifactRole(mediaRef.Role)),
                         MediaRefKind.Path when !string.IsNullOrWhiteSpace(mediaRef.Path) =>
                             mediaRef.Path!,
                         _ => throw new InvalidOperationException("Invalid image media ref."),
@@ -1970,6 +2131,11 @@ namespace Rook.Services.Vision.Image
             }
             return Task.FromResult(MediaResolutionResult.Ok(resolved));
         }
+
+        private static string ResolveArtifactRole(string role) =>
+            role == ImageMediaRoles.InputImage || role == ImageMediaRoles.ReferenceImage
+                ? ImageMediaRoles.Image
+                : role;
     }
 }
 ```
@@ -1998,6 +2164,8 @@ Assert.Contains(work.ResolvedMedia.Keys, r => r.Kind == MediaRefKind.Artifact &&
 
 In `ImageJobOpHandlerTests`, add the same request to `image_generate_start` and assert the fake manager receives artifact refs.
 
+Add a sync `GenerateAsync` lineage test in `VisionHandlerTests` with a fake sync image provider. Submit an `input_image` artifact ref, generate an output, then assert the returned artifact's `parent_ids` contains the imported source artifact id.
+
 - [ ] **Step 4: Update `BuildImageGenerationWorkItem`**
 
 In `VisionHandler`, parse new fields before legacy path fields:
@@ -2012,18 +2180,17 @@ Rules:
 - If `input_image` is present, use it instead of `input_image_path`.
 - If `reference_images` is present, use it instead of `reference_image_paths`.
 - Artifact refs use the existing wire shape `{ "kind": "artifact_id", "artifact_id": "...", "role": "image" }`.
-- When a parsed ref has role `image` for image input, convert it to `MediaRef.ForArtifact(id, ImageMediaRoles.InputImage)` for the primary source and `ImageMediaRoles.ReferenceImage` for references. The resolver still reads the original artifact role by needing role `image`, so implement this by preserving wire role in the ref and changing provider role classification through a wrapper is too invasive. The simpler v1 rule is: UI sends role `input_image` for image source artifacts and imported images publish an alias role is not present. Use parser mapping:
-  - Store a local `Dictionary<MediaRef, string> artifactReadRoles` is not supported by current domain.
-  - Therefore implement parser with `MediaRef.ForArtifact(id, roleFromWire)` and update provider role checks to treat `ImageMediaRoles.Image` as input when the ref came from `input_image`.
-
-Implement the last bullet by adding a private `HashSet<MediaRef> primaryInputRefs` inside `BuildImageGenerationWorkItem` and adding any primary ref's resolved media to `resolvedMedia`; providers already treat non-reference resolved media as source input. For Replicate source payload, update `ReplicateImageSourcePayload.FromResolvedMedia` to treat roles `input_image` or `image` as source roles.
+- Parse `input_image` into `MediaRef.ForArtifact(id, ImageMediaRoles.InputImage)`.
+- Parse each `reference_images[]` entry into `MediaRef.ForArtifact(id, ImageMediaRoles.ReferenceImage)`.
+- `ArtifactImageMediaResolver` maps image-generation roles `input_image` and `reference_image` back to artifact blob role `image` when reading from `ArtifactStore`.
+- Provider code continues to classify media by `ImageMediaRoles.InputImage` and `ImageMediaRoles.ReferenceImage`; providers do not need to know the stored blob role fallback.
 
 - [ ] **Step 5: Resolve artifact media and parent IDs**
 
-After building all media refs, call:
+After building all media refs, call the sync helper directly:
 
 ```csharp
-var mediaResolution = awaitOrSyncResolver.ResolveAllAsync(mediaRefs, CancellationToken.None);
+var mediaResolution = ResolveImageMediaRefs(mediaRefs);
 ```
 
 `BuildImageGenerationWorkItem` is sync, so add an internal sync helper:
@@ -2038,6 +2205,16 @@ private MediaResolutionResult ResolveImageMediaRefs(IReadOnlyList<MediaRef> refs
 
 Set `ParentArtifactIds` to distinct artifact IDs from artifact-kind input and reference refs. Keep legacy path behavior returning `Array.Empty<Guid>()`.
 
+Also update `GenerateAsync` so sync image artifacts preserve lineage:
+
+```csharp
+var artifact = _artifactStore.Create(
+    kind: ArtifactKindGeneratedImage,
+    blobs: new[] { blob },
+    parentIds: work.ParentArtifactIds,
+    metadata: metadata);
+```
+
 - [ ] **Step 6: Run image generation tests**
 
 ```powershell
@@ -2049,7 +2226,7 @@ Expected: pass.
 - [ ] **Step 7: Commit artifact-ref image generation**
 
 ```powershell
-git add src\Rook\Services\Vision\Image\ArtifactImageMediaResolver.cs src\Rook\Handlers\VisionHandler.cs src\Rook\Services\Vision\Image\Replicate\ReplicateImageSourcePayload.cs src\Rook.Tests\Services\Vision\Image\ArtifactImageMediaResolverTests.cs src\Rook.Tests\Handlers\VisionHandlerTests.cs src\Rook.Tests\Handlers\ImageJobOpHandlerTests.cs
+git add src\Rook\Services\Vision\Image\ArtifactImageMediaResolver.cs src\Rook\Handlers\VisionHandler.cs src\Rook.Tests\Services\Vision\Image\ArtifactImageMediaResolverTests.cs src\Rook.Tests\Handlers\VisionHandlerTests.cs src\Rook.Tests\Handlers\ImageJobOpHandlerTests.cs
 git commit -m "feat(vision): resolve image generation artifact refs"
 ```
 
