@@ -233,7 +233,7 @@ namespace Rook.Tests.UI.Vision
                 // Image (PR-5a/5b)
                 "generate", "enhance_prompt", "test_api_key",
                 "capture_depth", "capture_viewport", "preview_viewport",
-                "list_views", "open_image_picker",
+                "list_views",
                 "list_artifacts", "get_artifact", "approve_artifact",
                 "delete_artifact", "consume_approved",
                 "set_api_key", "get_settings_overview",
@@ -243,6 +243,9 @@ namespace Rook.Tests.UI.Vision
                 // Hidden image job ops — bridge-only, not native HTTP.
                 "image_generate_start", "image_job_cancel",
                 "image_job_status", "image_job_result", "image_jobs",
+                // Media gallery import ops — bridge-only, not native HTTP.
+                "start_media_import", "get_media_import_job",
+                "list_media_import_jobs",
                 // V2 video — bridge mirrors of the native HTTP routes.
                 "submit_video_job", "cancel_video_job",
                 "get_video_job", "get_video_job_result",
@@ -272,7 +275,6 @@ namespace Rook.Tests.UI.Vision
         [InlineData("capture_viewport", "Ui")]
         [InlineData("preview_viewport", "Ui")]
         [InlineData("list_views", "Ui")]
-        [InlineData("open_image_picker", "Ui")]
         [InlineData("list_artifacts", "OffUi")]
         [InlineData("get_artifact", "OffUi")]
         [InlineData("approve_artifact", "OffUi")]
@@ -291,6 +293,10 @@ namespace Rook.Tests.UI.Vision
         [InlineData("image_job_status", "OffUi")]
         [InlineData("image_job_result", "OffUi")]
         [InlineData("image_jobs", "OffUi")]
+        // Media gallery import — picker on UI; job reads off-UI.
+        [InlineData("start_media_import", "Ui")]
+        [InlineData("get_media_import_job", "OffUi")]
+        [InlineData("list_media_import_jobs", "OffUi")]
         // V2 video ops — submit/cancel are async (provider HTTP via
         // manager); status/result/estimate are off-UI sync.
         [InlineData("submit_video_job", "Async")]
@@ -351,9 +357,47 @@ namespace Rook.Tests.UI.Vision
         [InlineData("image_job_status")]
         [InlineData("image_job_result")]
         [InlineData("image_jobs")]
+        [InlineData("start_media_import")]
+        [InlineData("get_media_import_job")]
+        [InlineData("list_media_import_jobs")]
         public void ImageJobOps_AreNotVideoOps(string op)
         {
             Assert.DoesNotContain(op, VisionWebSurface.VideoOps);
+        }
+
+        [Theory]
+        [InlineData("start_media_import")]
+        [InlineData("get_media_import_job")]
+        [InlineData("list_media_import_jobs")]
+        public void MediaImportOps_Set_Tracks_MediaImportOpHandler_Constants(string op)
+        {
+            Assert.Contains(op, VisionWebSurface.MediaImportOps);
+        }
+
+        [Fact]
+        public void MediaImportOps_Set_HasExactly3Entries()
+        {
+            Assert.Equal(3, VisionWebSurface.MediaImportOps.Count);
+        }
+
+        [Fact]
+        public async Task MediaImportOp_WithNullMediaImportHandler_ReturnsStructuredFailure()
+        {
+            var surface = NewSurface();
+            var response = await InvokeVisionBridgeAsync(
+                surface,
+                new JsonObject
+                {
+                    ["op"] = "get_media_import_job",
+                    ["job_id"] = Guid.NewGuid().ToString("D"),
+                });
+
+            Assert.NotNull(response);
+            Assert.False(response!["success"]!.GetValue<bool>());
+            var message = response["data"]!.GetValue<string>();
+            Assert.Contains(
+                "Media import subsystem unavailable in this surface.",
+                message);
         }
 
         [Fact]
@@ -545,6 +589,15 @@ namespace Rook.Tests.UI.Vision
             Assert.Contains("id=\"open-artifacts-folder\"", html);
             Assert.Contains("title=\"Open artifacts folder\"", html);
             Assert.Contains("aria-label=\"Open artifacts folder\"", html);
+        }
+
+        [Fact]
+        public void IndexHtml_GalleryToolbar_ExposesAddMediaButton()
+        {
+            var html = ReadVisionResource("index.html");
+            Assert.Contains("id=\"add-media-gallery\"", html);
+            Assert.Contains("title=\"Add media to Gallery\"", html);
+            Assert.Contains("Add Media to Gallery", html);
         }
 
         [Fact]
@@ -793,7 +846,131 @@ namespace Rook.Tests.UI.Vision
 
             Assert.Contains("const model = selectedImageModel(el.studioModelSelect);", js);
             Assert.Contains("if (modelMaxReferenceImages(model) > 0 && studioReferences.length > 0) {", js);
-            Assert.Contains("args.reference_image_paths = studioReferences.map(r => r.path);", js);
+            Assert.Contains("if (artifactRefs.length > 0 && pathRefs.length > 0) {", js);
+            Assert.Contains("Reference images must come from the same source type", js);
+            Assert.Contains("args.reference_images = artifactRefs;", js);
+            Assert.Contains("args.reference_image_paths = pathRefs;", js);
+        }
+
+        [Fact]
+        public void AppJs_MediaImportGuardsLaunchAndForegroundPolling()
+        {
+            var js = ReadVisionResource("app.js");
+
+            Assert.Contains("let isStartingMediaImport = false;", js);
+
+            var startBegin = js.IndexOf("async function startMediaImport()", StringComparison.Ordinal);
+            var startEnd = js.IndexOf("async function loadMediaImportJobs()", startBegin, StringComparison.Ordinal);
+            Assert.True(startBegin >= 0, "startMediaImport must exist.");
+            Assert.True(startEnd > startBegin, "startMediaImport body must be bounded.");
+            var startBody = js.Substring(startBegin, startEnd - startBegin);
+            Assert.Contains("if (isStartingMediaImport) return;", startBody);
+            Assert.Contains("isStartingMediaImport = true;", startBody);
+            Assert.Contains("el.addMediaGalleryBtn.disabled = true;", startBody);
+            Assert.Contains("isStartingMediaImport = false;", startBody);
+            Assert.Contains("el.addMediaGalleryBtn.disabled = false;", startBody);
+
+            var awaitBegin = js.IndexOf("async function awaitMediaImportJob(jobId)", StringComparison.Ordinal);
+            var awaitEnd = js.IndexOf("function pollMediaImportJob(jobId)", awaitBegin, StringComparison.Ordinal);
+            Assert.True(awaitBegin >= 0, "awaitMediaImportJob must exist.");
+            Assert.True(awaitEnd > awaitBegin, "awaitMediaImportJob body must be bounded.");
+            var awaitBody = js.Substring(awaitBegin, awaitEnd - awaitBegin);
+            Assert.Contains("const reservedPollerSlot = jobId && !mediaImportPollers.has(jobId);", awaitBody);
+            Assert.Contains("mediaImportPollers.set(jobId, null);", awaitBody);
+            Assert.Contains("mediaImportPollers.delete(jobId);", awaitBody);
+        }
+
+        [Fact]
+        public void AppJs_ReferencePickerImportsArtifactRefsAndDoesNotExposePaths()
+        {
+            var js = ReadVisionResource("app.js");
+
+            var pickerStart = js.IndexOf("async function pickReferenceImages(", StringComparison.Ordinal);
+            var pickerEnd = js.IndexOf("function referenceFromImportedImage(file)", pickerStart, StringComparison.Ordinal);
+            Assert.True(pickerStart >= 0, "Reference picker helper must exist.");
+            Assert.True(pickerEnd > pickerStart, "Reference picker helper body must be bounded.");
+            var pickerBody = js.Substring(pickerStart, pickerEnd - pickerStart);
+            Assert.Contains("bridgeCall(\"start_media_import\", {", pickerBody);
+            Assert.Contains("picker_mode: multi ? \"image_multi\" : \"image_single\"", pickerBody);
+            Assert.Contains("await awaitMediaImportJob(job.job_id)", pickerBody);
+            Assert.Contains("file.artifact_kind === \"imported_image\" && file.artifact_id", pickerBody);
+            Assert.Contains(".map(referenceFromImportedImage)", pickerBody);
+            Assert.DoesNotContain("open_image_picker", pickerBody);
+
+            var refStart = pickerEnd;
+            var refEnd = js.IndexOf("function renderReferencePreview", refStart, StringComparison.Ordinal);
+            Assert.True(refEnd > refStart, "Imported reference helper body must be bounded.");
+            var refBody = js.Substring(refStart, refEnd - refStart);
+            Assert.Contains("source: \"artifact\"", refBody);
+            Assert.Contains("artifact_id: file.artifact_id", refBody);
+            Assert.Contains("role: \"image\"", refBody);
+
+            var renderEnd = js.IndexOf("// \u2500\u2500\u2500 Framing helpers", refEnd, StringComparison.Ordinal);
+            Assert.True(renderEnd > refEnd, "Reference preview body must be bounded.");
+            var renderBody = js.Substring(refEnd, renderEnd - refEnd);
+            Assert.Contains("const label = ref.label || basename(ref.path) || \"reference image\";", renderBody);
+            Assert.Contains("title=\"${escapeAttr(label)}\"", renderBody);
+            Assert.DoesNotContain("title=\"${escapeAttr(ref.path", renderBody);
+
+            var syncStart = js.IndexOf("async function generateSyncImage", StringComparison.Ordinal);
+            var syncEnd = js.IndexOf("function renderGeneratedArtifact", syncStart, StringComparison.Ordinal);
+            Assert.True(syncStart >= 0, "Generate sync helper must exist.");
+            Assert.True(syncEnd > syncStart, "Generate sync helper body must be bounded.");
+            var syncBody = js.Substring(syncStart, syncEnd - syncStart);
+            Assert.Contains("applyImageReferenceArgs(args, generateReferences);", syncBody);
+            Assert.DoesNotContain("reference_image_paths = generateReferences.map", syncBody);
+
+            var asyncStart = js.IndexOf("async function generateImageJob", StringComparison.Ordinal);
+            var asyncEnd = js.IndexOf("async function awaitImageJobResult", asyncStart, StringComparison.Ordinal);
+            Assert.True(asyncStart >= 0, "Generate async job helper must exist.");
+            Assert.True(asyncEnd > asyncStart, "Generate async job helper body must be bounded.");
+            var asyncBody = js.Substring(asyncStart, asyncEnd - asyncStart);
+            Assert.Contains("applyImageReferenceArgs(args, generateReferences);", asyncBody);
+            Assert.DoesNotContain("reference_image_paths = generateReferences.map", asyncBody);
+        }
+
+        [Fact]
+        public void AppJs_StudioUsesImageArtifactRefsForSelectedSource()
+        {
+            var js = ReadVisionResource("app.js");
+
+            var loadStart = js.IndexOf("async function studioLoadImage()", StringComparison.Ordinal);
+            var loadEnd = js.IndexOf("async function studioCaptureDepth()", loadStart, StringComparison.Ordinal);
+            Assert.True(loadStart >= 0, "Studio Load Image handler must exist.");
+            Assert.True(loadEnd > loadStart, "Studio Load Image handler body must be bounded.");
+            var loadBody = js.Substring(loadStart, loadEnd - loadStart);
+
+            Assert.Contains("bridgeCall(\"start_media_import\", {", loadBody);
+            Assert.Contains("picker_mode: \"image_single\"", loadBody);
+            Assert.Contains("await awaitMediaImportJob(job.job_id)", loadBody);
+            Assert.DoesNotContain("open_image_picker", loadBody);
+            Assert.Contains("file.artifact_kind === \"imported_image\" && file.artifact_id", loadBody);
+            Assert.Contains("source: \"artifact\"", loadBody);
+            Assert.Contains("artifact_id: imported.artifact_id", loadBody);
+            Assert.Contains("role: \"image\"", loadBody);
+
+            var refStart = js.IndexOf("function artifactImageRef(src)", StringComparison.Ordinal);
+            var refEnd = js.IndexOf("function applyStudioSourceArgs(args)", refStart, StringComparison.Ordinal);
+            Assert.True(refStart >= 0, "Artifact image ref helper must exist.");
+            Assert.True(refEnd > refStart, "Artifact image ref helper body must be bounded.");
+            var refBody = js.Substring(refStart, refEnd - refStart);
+            Assert.Contains("kind: \"artifact_id\"", refBody);
+            Assert.Contains("artifact_id: src.artifact_id", refBody);
+            Assert.Contains("role: src.role || \"image\"", refBody);
+
+            var sourceStart = refEnd;
+            var sourceEnd = js.IndexOf("function applyStudioReferenceArgs(args)", sourceStart, StringComparison.Ordinal);
+            Assert.True(sourceEnd > sourceStart, "Studio source args helper body must be bounded.");
+            var sourceBody = js.Substring(sourceStart, sourceEnd - sourceStart);
+            Assert.Contains("if (studioSource.source === \"artifact\" && studioSource.artifact_id)", sourceBody);
+            Assert.Contains("Object.assign(args, { input_image: artifactImageRef(studioSource) });", sourceBody);
+            Assert.Contains("args.input_image_path = studioSource.path;", sourceBody);
+
+            var refsEnd = js.IndexOf("async function loadGallery()", sourceEnd, StringComparison.Ordinal);
+            Assert.True(refsEnd > sourceEnd, "Studio reference args helper body must be bounded.");
+            var refsBody = js.Substring(sourceEnd, refsEnd - sourceEnd);
+            Assert.Contains("args.reference_images = artifactRefs;", refsBody);
+            Assert.Contains("args.reference_image_paths = pathRefs;", refsBody);
         }
 
         [Fact]
@@ -1030,9 +1207,11 @@ namespace Rook.Tests.UI.Vision
         // be served as application/octet-stream and <video> would refuse
         // to play them even with media-src 'self' in the CSP.
         [InlineData("/x/y/foo.mp4", "video/mp4")]
+        [InlineData("/x/y/foo.mov", "video/quicktime")]
         [InlineData("/x/y/foo.webm", "video/webm")]
         // Case-insensitive on the extension (the helper lowercases).
         [InlineData("/x/y/FOO.MP4", "video/mp4")]
+        [InlineData("/x/y/FOO.MOV", "video/quicktime")]
         [InlineData("/x/y/Foo.WebM", "video/webm")]
         [InlineData("/x/y/foo.json", "application/json; charset=utf-8")]
         [InlineData("/x/y/foo.txt", "text/plain; charset=utf-8")]
@@ -1166,6 +1345,8 @@ namespace Rook.Tests.UI.Vision
         [InlineData("foo.webp", "image/webp")]
         [InlineData("foo.gif", "image/gif")]
         [InlineData("foo.bmp", "image/bmp")]
+        [InlineData("foo.mov", "video/quicktime")]
+        [InlineData("foo.MOV", "video/quicktime")]
         [InlineData("foo.json", "application/json; charset=utf-8")]
         [InlineData("foo.txt", "text/plain; charset=utf-8")]
         [InlineData("foo.unknown", "application/octet-stream")]

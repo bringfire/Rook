@@ -586,6 +586,7 @@ namespace Rook.Handlers
             var artifact = _artifactStore.Create(
                 kind: ArtifactKindGeneratedImage,
                 blobs: new[] { blob },
+                parentIds: work.ParentArtifactIds,
                 metadata: metadata);
 
             return Ok(ArtifactEnvelope(artifact));
@@ -648,15 +649,34 @@ namespace Rook.Handlers
                 }
             }
 
-            var hasInputImageField = args.TryGetValue("input_image_path", out var inputImageEl);
-            var hasInputImage = hasInputImageField
-                && inputImageEl.ValueKind == JsonValueKind.String
-                && !string.IsNullOrWhiteSpace(inputImageEl.GetString());
+            var hasInputArtifactField =
+                args.TryGetValue("input_image", out var inputArtifactEl);
+            JsonElement inputImageEl = default;
+            var hasLegacyInputImageField =
+                !hasInputArtifactField
+                && args.TryGetValue("input_image_path", out inputImageEl);
+            var hasInputImage = false;
             var allowPromptOnly = options.AllowPromptOnlyAsyncTextToImage
                 && resolvedModel.SubmissionMode == ImageSubmissionMode.AsyncImageJob
                 && resolvedModel.Capability.SupportsTextToImage;
 
-            if (hasInputImageField && !hasInputImage)
+            long aggregateBytes = 0;
+            MediaRef? inputRef = null;
+            if (hasInputArtifactField)
+            {
+                inputRef = ParseImageArtifactMediaRef(
+                    inputArtifactEl,
+                    "input_image",
+                    ImageMediaRoles.InputImage);
+                hasInputImage = true;
+            }
+            else if (hasLegacyInputImageField)
+            {
+                hasInputImage = inputImageEl.ValueKind == JsonValueKind.String
+                    && !string.IsNullOrWhiteSpace(inputImageEl.GetString());
+            }
+
+            if (hasLegacyInputImageField && !hasInputImage)
             {
                 return ImageGenerationWorkItemResult.Fail(
                     Fail("Missing or non-string field 'input_image_path'."));
@@ -674,7 +694,21 @@ namespace Rook.Handlers
                     Fail("Selected image model does not support source image input."));
             }
 
-            if (args.TryGetValue("reference_image_paths", out var refsEl)
+            var hasArtifactReferencesField =
+                args.TryGetValue("reference_images", out var artifactRefsEl);
+            JsonElement refsEl = default;
+            var hasLegacyReferencesField =
+                !hasArtifactReferencesField
+                && args.TryGetValue("reference_image_paths", out refsEl);
+
+            if (hasArtifactReferencesField
+                && resolvedModel.Capability.MaxReferenceImages == 0)
+            {
+                return ImageGenerationWorkItemResult.Fail(
+                    Fail("Selected image model does not support reference_images."));
+            }
+
+            if (hasLegacyReferencesField
                 && resolvedModel.Capability.MaxReferenceImages == 0)
             {
                 return ImageGenerationWorkItemResult.Fail(
@@ -685,13 +719,9 @@ namespace Rook.Handlers
             // to enforce MaxAggregateImageBytes. Base64 expansion happens
             // downstream — we cap BEFORE encoding to avoid exceeding
             // Gemini's practical inline-payload limit.
-            long aggregateBytes = 0;
-            var resolvedMedia = new Dictionary<MediaRef, ResolvedMedia>();
-            string? inputImagePath = null;
-            MediaRef? inputRef = null;
-            if (hasInputImage)
+            if (hasLegacyInputImageField && hasInputImage)
             {
-                inputImagePath = inputImageEl.GetString()!;
+                var inputImagePath = inputImageEl.GetString()!;
                 if (!File.Exists(inputImagePath))
                 {
                     throw new ArgumentException(
@@ -709,13 +739,36 @@ namespace Rook.Handlers
             }
 
             IReadOnlyList<MediaRef>? referenceRefs = null;
-            if (args.TryGetValue("reference_image_paths", out refsEl)
-                && refsEl.ValueKind == JsonValueKind.Array)
+            if (hasArtifactReferencesField)
             {
-                if (refsEl.GetArrayLength() > MaxReferenceImages)
+                if (artifactRefsEl.ValueKind != JsonValueKind.Array)
+                    throw new ArgumentException("'reference_images' must be an array.");
+
+                if (artifactRefsEl.GetArrayLength() > resolvedModel.Capability.MaxReferenceImages)
                 {
                     throw new ArgumentException(
-                        $"reference_image_paths exceeds the limit of {MaxReferenceImages}.");
+                        $"reference_images exceeds the limit of {resolvedModel.Capability.MaxReferenceImages}.");
+                }
+
+                var list = new List<MediaRef>();
+                var idx = 0;
+                foreach (var el in artifactRefsEl.EnumerateArray())
+                {
+                    list.Add(ParseImageArtifactMediaRef(
+                        el,
+                        $"reference_images[{idx}]",
+                        ImageMediaRoles.ReferenceImage));
+                    idx++;
+                }
+                referenceRefs = list;
+            }
+            else if (hasLegacyReferencesField
+                && refsEl.ValueKind == JsonValueKind.Array)
+            {
+                if (refsEl.GetArrayLength() > resolvedModel.Capability.MaxReferenceImages)
+                {
+                    throw new ArgumentException(
+                        $"reference_image_paths exceeds the limit of {resolvedModel.Capability.MaxReferenceImages}.");
                 }
                 var list = new List<MediaRef>();
                 foreach (var el in refsEl.EnumerateArray())
@@ -738,10 +791,6 @@ namespace Rook.Handlers
                     }
                     var mediaRef = MediaRef.ForPath(path, ImageMediaRoles.ReferenceImage);
                     list.Add(mediaRef);
-                    var bytes = File.ReadAllBytes(path);
-                    resolvedMedia[mediaRef] = new ResolvedMedia(
-                        bytes,
-                        ImageMimeDetector.Detect(bytes, path));
                 }
                 referenceRefs = list;
             }
@@ -754,12 +803,15 @@ namespace Rook.Handlers
                         ?? "Image provider options could not be decoded."));
             }
 
-            if (inputImagePath is not null && inputRef is not null)
+            var mediaRefs = new List<MediaRef>();
+            if (inputRef is not null) mediaRefs.Add(inputRef);
+            if (referenceRefs is not null) mediaRefs.AddRange(referenceRefs);
+            var mediaResolution = ResolveImageMediaRefs(mediaRefs);
+            if (!mediaResolution.Success)
             {
-                var inputBytes = File.ReadAllBytes(inputImagePath);
-                resolvedMedia[inputRef] = new ResolvedMedia(
-                    inputBytes,
-                    ImageMimeDetector.Detect(inputBytes, inputImagePath));
+                return ImageGenerationWorkItemResult.Fail(
+                    Fail(mediaResolution.Error?.Message
+                        ?? "Image media resolution failed."));
             }
 
             var imageRequest = new ImageGenerationRequest(
@@ -783,8 +835,80 @@ namespace Rook.Handlers
                 new ImageGenerationWorkItem(
                     imageRequest,
                     resolvedModel,
-                    resolvedMedia,
-                    Array.Empty<Guid>()));
+                    mediaResolution.Resolved!,
+                    CollectParentArtifactIds(mediaRefs)));
+        }
+
+        private MediaResolutionResult ResolveImageMediaRefs(IReadOnlyList<MediaRef> refs)
+            => new ArtifactImageMediaResolver(
+                    _artifactStore,
+                    MaxInputImageBytes,
+                    MaxAggregateImageBytes)
+                .ResolveAllAsync(refs, CancellationToken.None)
+                .GetAwaiter().GetResult();
+
+        private static IReadOnlyList<Guid> CollectParentArtifactIds(
+            IEnumerable<MediaRef> refs)
+            => refs
+                .Where(r => r.Kind == MediaRefKind.Artifact
+                    && r.ArtifactId is { } id
+                    && id != Guid.Empty)
+                .Select(r => r.ArtifactId!.Value)
+                .Distinct()
+                .ToList();
+
+        private static MediaRef ParseImageArtifactMediaRef(
+            JsonElement el,
+            string fieldPath,
+            string runtimeRole)
+        {
+            if (el.ValueKind != JsonValueKind.Object)
+                throw new ArgumentException($"'{fieldPath}' must be a JSON object.");
+
+            string? kind = null;
+            if (el.TryGetProperty("kind", out var kindEl)
+                && kindEl.ValueKind == JsonValueKind.String)
+            {
+                kind = kindEl.GetString();
+            }
+
+            if (string.IsNullOrEmpty(kind))
+                throw new ArgumentException(
+                    $"'{fieldPath}.kind' is required and must be a string.");
+
+            if (!string.Equals(kind, "artifact_id", StringComparison.Ordinal))
+                throw new ArgumentException(
+                    $"'{fieldPath}.kind' must be 'artifact_id', got '{kind}'.");
+
+            string? rawId = null;
+            if (el.TryGetProperty("artifact_id", out var idEl)
+                && idEl.ValueKind == JsonValueKind.String)
+            {
+                rawId = idEl.GetString();
+            }
+
+            if (string.IsNullOrEmpty(rawId)
+                || !Guid.TryParseExact(rawId, "D", out var artifactId)
+                || artifactId == Guid.Empty)
+            {
+                throw new ArgumentException(
+                    $"'{fieldPath}.artifact_id' must be a non-empty GUID in 'D' format.");
+            }
+
+            string? role = null;
+            if (el.TryGetProperty("role", out var roleEl)
+                && roleEl.ValueKind == JsonValueKind.String)
+            {
+                role = roleEl.GetString();
+            }
+
+            if (!string.Equals(role, ImageMediaRoles.Image, StringComparison.Ordinal))
+            {
+                throw new ArgumentException(
+                    $"'{fieldPath}.role' is required and must be 'image'.");
+            }
+
+            return MediaRef.ForArtifact(artifactId, runtimeRole);
         }
 
         // ─── op: enhance_prompt (async) ─────────────────────────────────

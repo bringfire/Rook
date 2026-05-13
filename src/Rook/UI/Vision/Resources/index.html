@@ -663,11 +663,19 @@
                             <path d="M4 4V9H9M20 20V15H15M20.49 9A9 9 0 005.64 5.64L4 9M3.51 15A9 9 0 0018.36 18.36L20 15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                         </svg>
                     </button>
+                    <button id="add-media-gallery" class="btn btn-secondary" title="Add media to Gallery">Add Media to Gallery</button>
                     <button id="open-artifacts-folder" class="btn btn-icon" title="Open artifacts folder" aria-label="Open artifacts folder">
                         <svg viewBox="0 0 24 24" fill="none">
                             <path d="M3 7.5A2.5 2.5 0 015.5 5H9L11 7H18.5A2.5 2.5 0 0121 9.5V17A2.5 2.5 0 0118.5 19H5.5A2.5 2.5 0 013 16.5V7.5Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
                         </svg>
                     </button>
+                </div>
+                <div id="media-import-panel" class="media-import-panel hidden">
+                    <div class="media-import-panel-header">
+                        <span>Media Imports</span>
+                        <button id="refresh-media-imports" class="btn btn-secondary" title="Refresh media imports">Refresh</button>
+                    </div>
+                    <div id="media-import-list" class="media-import-list"></div>
                 </div>
                 <div id="gallery-grid" class="gallery-grid">
                     <div class="gallery-empty">
@@ -676,8 +684,8 @@
                             <circle cx="22" cy="30" r="6" stroke="currentColor" stroke-width="2"/>
                             <path d="M8 44L22 32L34 42L48 30L56 38" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
                         </svg>
-                        <span>No images yet</span>
-                        <p>Generate your first creation to see it here</p>
+                        <span>No media yet</span>
+                        <p>Generate or import media to see it here</p>
                     </div>
                 </div>
             </section>

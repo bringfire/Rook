@@ -159,6 +159,86 @@ namespace Rook.Tests.Artifacts
         }
 
         [Fact]
+        public void CreateFromFiles_CopiesRoleNamedFiles_AndPreservesSource()
+        {
+            var sourceDir = Path.Combine(_root, "sources");
+            Directory.CreateDirectory(sourceDir);
+            var imageSource = Path.Combine(sourceDir, "Original Name.PNG");
+            File.WriteAllText(imageSource, "image-bytes");
+
+            var artifact = _store.CreateFromFiles(
+                "imported_image",
+                new[] { new BlobFileInput("image", imageSource, "png") },
+                metadata: new Dictionary<string, JsonNode?>
+                {
+                    ["original_filename"] = JsonValue.Create("Original Name.PNG"),
+                });
+
+            Assert.Equal("imported_image", artifact.Kind);
+            Assert.Contains(artifact.Files, f => f.Role == "image" && f.Path == "image.png");
+            Assert.Equal("image-bytes", File.ReadAllText(BlobPath(artifact.Id, "image.png")));
+            Assert.Equal("image-bytes", File.ReadAllText(imageSource));
+            Assert.Equal(
+                "Original Name.PNG",
+                artifact.Metadata["original_filename"]!.GetValue<string>());
+        }
+
+        [Fact]
+        public void CreateFromFiles_RejectsDirectorySource_AndPublishesNothing()
+        {
+            var sourceDir = Path.Combine(_root, "source-directory");
+            Directory.CreateDirectory(sourceDir);
+
+            Assert.Throws<ArgumentException>(() => _store.CreateFromFiles(
+                "imported_image",
+                new[] { new BlobFileInput("image", sourceDir, "png") }));
+
+            Assert.Empty(_store.List());
+        }
+
+        [Fact]
+        public void CreateFromFiles_UsesFlatRoleFilenames_NotOriginalNames()
+        {
+            var sourceDir = Path.Combine(_root, "sources");
+            Directory.CreateDirectory(sourceDir);
+            var videoSource = Path.Combine(sourceDir, "phone clip.mov");
+            File.WriteAllText(videoSource, "movie");
+
+            var artifact = _store.CreateFromFiles(
+                "imported_video",
+                new[] { new BlobFileInput("video", videoSource, "mov") });
+
+            Assert.Contains(artifact.Files, f => f.Role == "video" && f.Path == "video.mov");
+            Assert.DoesNotContain(artifact.Files, f => f.Path == "phone clip.mov");
+            Assert.Equal("movie", File.ReadAllText(BlobPath(artifact.Id, "video.mov")));
+        }
+
+        [Fact]
+        public void CreateFromFiles_RejectsCopiedBlobOverMaxBytes_AndPublishesNothing()
+        {
+            var sourceDir = Path.Combine(_root, "sources");
+            Directory.CreateDirectory(sourceDir);
+            var imageSource = Path.Combine(sourceDir, "large.png");
+            File.WriteAllText(imageSource, "too-large");
+
+            var ex = Assert.Throws<ArtifactBlobSizeException>(() => _store.CreateFromFiles(
+                "imported_image",
+                new[]
+                {
+                    new BlobFileInput(
+                        "image",
+                        imageSource,
+                        "png",
+                        MaxBytes: 4),
+                }));
+
+            Assert.Equal("image", ex.Role);
+            Assert.Equal(4, ex.MaxBytes);
+            Assert.True(ex.ActualBytes > ex.MaxBytes);
+            Assert.Empty(_store.List());
+        }
+
+        [Fact]
         public void Create_WithoutOptionals_WritesEmptyContainers()
         {
             var created = _store.Create("k", OneBlob());

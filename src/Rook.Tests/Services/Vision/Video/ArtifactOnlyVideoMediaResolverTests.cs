@@ -69,6 +69,38 @@ namespace Rook.Tests.Services.Vision.Video
             Assert.Equal("image/jpeg", resolved.MimeType);
         }
 
+        [Fact]
+        public async Task Video_role_returns_typed_failure_without_reading_blob()
+        {
+            var artifact = _store.Create(
+                kind: "imported_video",
+                blobs: new[] { new BlobInput(VideoMediaRoles.Video, Encoding.UTF8.GetBytes("mp4"), "mp4") });
+            var media = MediaRef.ForArtifact(artifact.Id, VideoMediaRoles.Video);
+
+            var result = await _resolver.ResolveAllAsync(
+                new[] { media }, CancellationToken.None);
+
+            Assert.False(result.Success);
+            Assert.Equal(GenerationErrorCode.InvalidRequest, result.Error!.Code);
+            Assert.Contains("image sidecar role", result.Error.Message);
+        }
+
+        [Fact]
+        public async Task Image_role_with_video_blob_returns_typed_failure_without_reading_blob()
+        {
+            var artifact = _store.Create(
+                kind: "malformed_fixture",
+                blobs: new[] { new BlobInput(VideoMediaRoles.Image, Encoding.UTF8.GetBytes("mp4"), "mp4") });
+            var media = MediaRef.ForArtifact(artifact.Id, VideoMediaRoles.Image);
+
+            var result = await _resolver.ResolveAllAsync(
+                new[] { media }, CancellationToken.None);
+
+            Assert.False(result.Success);
+            Assert.Equal(GenerationErrorCode.InvalidRequest, result.Error!.Code);
+            Assert.Contains("non-image media", result.Error.Message);
+        }
+
         // ─── Path kind explicitly unsupported ─────────────────────────
 
         [Fact]

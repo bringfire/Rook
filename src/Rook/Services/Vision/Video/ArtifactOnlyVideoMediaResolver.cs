@@ -100,12 +100,27 @@ namespace Rook.Services.Vision.Video
                 throw new InvalidOperationException(
                     "Artifact-kind MediaRef has null or empty ArtifactId.");
 
+            if (!IsFrameRole(mediaRef.Role))
+                throw new NotSupportedException(
+                    $"Artifact role '{mediaRef.Role}' is not supported as video source material. " +
+                    "Use an image sidecar role: image, start_frame, or end_frame.");
+
             var blobPath = _store.GetBlobAbsolutePath(id, mediaRef.Role);
-            var bytes = File.ReadAllBytes(blobPath);
             var mimeType = MimeTypeFromExtension(blobPath);
+            if (!mimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+                throw new NotSupportedException(
+                    $"Artifact role '{mediaRef.Role}' resolved to non-image media '{mimeType}'. " +
+                    "Video generation frame refs must resolve to image blobs.");
+
+            var bytes = File.ReadAllBytes(blobPath);
 
             return new ResolvedMedia(bytes, mimeType);
         }
+
+        private static bool IsFrameRole(string role)
+            => role == VideoMediaRoles.Image
+                || role == VideoMediaRoles.StartFrame
+                || role == VideoMediaRoles.EndFrame;
 
         // Map common image extensions to MIME types Veo (and other
         // providers) accept. ArtifactStore enforces a small lowercase

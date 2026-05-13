@@ -64,17 +64,20 @@ function errorToText(e) {
 // ─── State ────────────────────────────────────────────────────────
 
 let currentView = "generate";
-let generateReferences = [];          // [{ path, thumbnail_base64, thumbnail_mime_type }]
-// `studioSource` carries what Generate calls `input_image_path`.
-// Two entry paths produce it — the OS file picker (path + inline
-// thumbnail base64) and an in-process depth-map capture (path +
-// artifact id, preview served via /blob/{id}/image). Shape:
-//   { path, previewSrc, label, source: "picker" | "depth" }
+let generateReferences = [];          // [{ source: "artifact", artifact_id, role, previewSrc, label }]
+// `studioSource` carries Studio's source image. New selections are
+// durable artifact refs:
+//   { source: "artifact", artifact_id, role, previewSrc, label }
+// Legacy in-memory states may still carry `{ path, previewSrc, label }`
+// and are translated to `input_image_path` until those states disappear.
 let studioSource = null;
 let studioReferences = [];
 let latestArtifactId = null;          // id of the most-recently generated image (Generate view)
 let latestStudioArtifactId = null;    // same, Studio view
 let galleryItems = [];                // cached list for modal lookup
+let mediaImportJobs = new Map();      // job_id -> latest media import job snapshot
+let mediaImportPollers = new Map();   // job_id -> timeout id
+let isStartingMediaImport = false;
 let modalArtifact = null;             // currently-open gallery item
 let modalDisplayRole = null;          // blob role currently rendered in the modal image
 let modelCatalog = [];                 // [{ short_name, supported_resolutions, ... }]
@@ -106,7 +109,10 @@ function switchView(view) {
         v.classList.toggle("active", v.id === `${view}-view`);
     });
 
-    if (view === "gallery") loadGallery();
+    if (view === "gallery") {
+        loadGallery();
+        loadMediaImportJobs();
+    }
     if (view === "settings") loadSettingsOverview();
     if (view === "video") loadVideoView();
 }
@@ -393,7 +399,7 @@ async function generateSyncImage(prompt, model) {
         if (aspectRatio) args.aspect_ratio = aspectRatio;
         if (el.modelSelect.value) args.model = el.modelSelect.value;
         if (generateReferences.length > 0) {
-            args.reference_image_paths = generateReferences.map(r => r.path);
+            applyImageReferenceArgs(args, generateReferences);
         }
 
         const artifact = await bridgeCall("generate", args);
@@ -434,6 +440,9 @@ async function generateImageJob(prompt, model, sourcePath) {
         if (el.modelSelect.value) args.model = el.modelSelect.value;
         if (sourcePath && isSourceImageAsyncImageModel(model)) args.input_image_path = sourcePath;
         if (sourcePath && isSourceImageAsyncImageModel(model)) args.aspect_ratio = "match_input_image";
+        if (generateReferences.length > 0) {
+            applyImageReferenceArgs(args, generateReferences);
+        }
 
         const result = await awaitImageJobResult(args, showImageJobStatus);
         renderGeneratedArtifact({ artifact_id: result.result_artifact_id }, "Image generated.");
@@ -494,25 +503,73 @@ function delay(ms) {
     return new Promise(resolve => window.setTimeout(resolve, ms));
 }
 
-async function pickReferenceImages(intoList, previewEl, multi) {
+async function pickReferenceImages(intoList, previewEl, multi, statusHandler, hideHandler) {
+    const isStudio = previewEl === el.studioReferencePreview;
+    const button = isStudio ? el.studioAddReferenceBtn : el.addReferenceBtn;
+    const show = statusHandler || showStatus;
+    const hide = hideHandler || hideStatus;
+    if (button && button.disabled) return;
+    if (button) button.disabled = true;
+    show(multi ? "Importing reference images..." : "Importing reference image...", "info");
     try {
-        const data = await bridgeCall("open_image_picker", { multi });
-        const paths = data.paths || [];
-        paths.forEach(p => intoList.push(p));
+        const job = await bridgeCall("start_media_import", {
+            picker_mode: multi ? "image_multi" : "image_single",
+        });
+        if (job && job.created === false) {
+            hide();
+            return;
+        }
+        if (!job || job.created !== true || !job.job_id) {
+            show("Media import did not create a job.", "error");
+            return;
+        }
+        rememberMediaImportJob(job);
+        renderMediaImportJobs();
+
+        const completed = job.state === "complete"
+            ? job
+            : await awaitMediaImportJob(job.job_id);
+        const importedImages = ((completed && completed.files) || [])
+            .filter(file => file.artifact_kind === "imported_image" && file.artifact_id)
+            .map(referenceFromImportedImage);
+
+        if (importedImages.length === 0) {
+            show("Import completed, but no image references were created.", "error");
+            return;
+        }
+        importedImages.forEach(ref => intoList.push(ref));
         renderReferencePreview(intoList, previewEl);
+        show(importedImages.length === 1
+            ? "Reference image imported."
+            : `${importedImages.length} reference images imported.`, "success");
     } catch (e) {
-        showStatus(e.message, "error");
+        show(errorToText(e), "error");
+    } finally {
+        if (button) button.disabled = false;
+        if (isStudio) updateStudioInputMode();
+        else updateGenerateInputMode();
     }
+}
+
+function referenceFromImportedImage(file) {
+    return {
+        source: "artifact",
+        artifact_id: file.artifact_id,
+        role: "image",
+        previewSrc: `/blob/${encodeURIComponent(file.artifact_id)}/image?ts=${Date.now()}`,
+        label: file.basename || "reference image",
+    };
 }
 
 function renderReferencePreview(list, container) {
     container.innerHTML = list.map((ref, index) => {
         const mime = ref.thumbnail_mime_type || ref.mime_type || "image/jpeg";
-        const src = ref.thumbnail_base64
+        const src = ref.previewSrc || (ref.thumbnail_base64
             ? `data:${mime};base64,${ref.thumbnail_base64}`
-            : "";
+            : "");
+        const label = ref.label || basename(ref.path) || "reference image";
         return `
-            <div class="reference-thumb" title="${escapeAttr(ref.path || "")}">
+            <div class="reference-thumb" title="${escapeAttr(label)}">
                 ${src ? `<img src="${src}" alt="reference">` : '<div class="reference-thumb-stub">no preview</div>'}
                 <button class="remove-ref" data-index="${index}" title="Remove">&times;</button>
             </div>
@@ -861,22 +918,46 @@ async function loadImageModels() {
 // ─── Studio View ──────────────────────────────────────────────────
 
 async function studioLoadImage() {
+    showStudioStatus("Importing source image...", "info");
+    el.studioUploadBtn.disabled = true;
     try {
-        const data = await bridgeCall("open_image_picker", { multi: false });
-        const picked = (data.paths || [])[0];
-        if (!picked || !picked.path) return;
-        const mime = picked.thumbnail_mime_type || picked.mime_type || "image/jpeg";
-        const previewSrc = picked.thumbnail_base64
-            ? `data:${mime};base64,${picked.thumbnail_base64}`
-            : "";
-        applyStudioSource({
-            source: "picker",
-            path: picked.path,
-            previewSrc,
-            label: basename(picked.path),
+        const job = await bridgeCall("start_media_import", {
+            picker_mode: "image_single",
         });
+        if (job && job.created === false) {
+            hideStudioStatus();
+            return;
+        }
+        if (!job || job.created !== true || !job.job_id) {
+            showStudioStatus("Media import did not create a job.", "error");
+            return;
+        }
+        rememberMediaImportJob(job);
+        renderMediaImportJobs();
+
+        const completed = job.state === "complete"
+            ? job
+            : await awaitMediaImportJob(job.job_id);
+        const imported = ((completed && completed.files) || [])
+            .find(file => file.artifact_kind === "imported_image" && file.artifact_id);
+
+        if (!imported) {
+            showStudioStatus("Import completed, but no image artifact was created.", "error");
+            return;
+        }
+
+        applyStudioSource({
+            source: "artifact",
+            artifact_id: imported.artifact_id,
+            role: "image",
+            previewSrc: `/blob/${encodeURIComponent(imported.artifact_id)}/image?ts=${Date.now()}`,
+            label: imported.basename || "imported image",
+        });
+        hideStudioStatus();
     } catch (e) {
         showStudioStatus(e.message, "error");
+    } finally {
+        el.studioUploadBtn.disabled = false;
     }
 }
 
@@ -892,8 +973,9 @@ async function studioCaptureDepth() {
         const previewSrc = `/blob/${encodeURIComponent(artifact.artifact_id)}/image?ts=${Date.now()}`;
         const mode = artifact.metadata && artifact.metadata.resolved_mode;
         applyStudioSource({
-            source: "depth",
-            path: artifact.file_path,
+            source: "artifact",
+            artifact_id: artifact.artifact_id,
+            role: "image",
             previewSrc,
             label: mode ? `depth map (${mode})` : "depth map",
         });
@@ -981,7 +1063,7 @@ async function studioEnhancePrompt() {
 async function studioGenerate() {
     const prompt = el.studioPrompt.value.trim();
     if (!prompt) { showStudioStatus("Please enter a prompt.", "error"); return; }
-    if (!studioSource || !studioSource.path) {
+    if (!hasStudioSourceImage()) {
         showStudioStatus("Load a source image first.", "error");
         return;
     }
@@ -997,14 +1079,14 @@ async function studioGenerate() {
     try {
         const args = {
             prompt,
-            input_image_path: studioSource.path,
             resolution: el.studioResolutionSelect.value,
         };
+        applyStudioSourceArgs(args);
         const aspectRatio = selectedAspectRatio(el.studioAspectSelect);
         if (aspectRatio) args.aspect_ratio = aspectRatio;
         if (el.studioModelSelect.value) args.model = el.studioModelSelect.value;
         if (modelMaxReferenceImages(model) > 0 && studioReferences.length > 0) {
-            args.reference_image_paths = studioReferences.map(r => r.path);
+            applyStudioReferenceArgs(args);
         }
 
         if (isAsyncImageJobModel(model)) {
@@ -1059,22 +1141,70 @@ async function studioGenerateImageJob(args, model) {
 
 // ─── Gallery View ─────────────────────────────────────────────────
 
+function isVideoArtifactKind(kind) {
+    return kind === "generated_video" || kind === "imported_video";
+}
+
+function hasStudioSourceImage() {
+    return !!(studioSource && (
+        (studioSource.source === "artifact" && studioSource.artifact_id) ||
+        studioSource.path));
+}
+
+function artifactImageRef(src) {
+    return {
+        kind: "artifact_id",
+        artifact_id: src.artifact_id,
+        role: src.role || "image",
+    };
+}
+
+function applyStudioSourceArgs(args) {
+    if (studioSource.source === "artifact" && studioSource.artifact_id) {
+        Object.assign(args, { input_image: artifactImageRef(studioSource) });
+    } else if (studioSource.path) {
+        args.input_image_path = studioSource.path;
+    }
+}
+
+function applyStudioReferenceArgs(args) {
+    applyImageReferenceArgs(args, studioReferences);
+}
+
+function applyImageReferenceArgs(args, references) {
+    const artifactRefs = references
+        .filter(r => r && r.artifact_id)
+        .map(artifactImageRef);
+    const pathRefs = references
+        .filter(r => r && r.path)
+        .map(r => r.path);
+    if (artifactRefs.length > 0 && pathRefs.length > 0) {
+        throw new Error("Reference images must come from the same source type. Clear references and add them again.");
+    }
+    if (artifactRefs.length > 0) args.reference_images = artifactRefs;
+    if (pathRefs.length > 0) args.reference_image_paths = pathRefs;
+}
+
 async function loadGallery() {
     el.galleryGrid.innerHTML = '<div class="gallery-empty"><span>Loading…</span></div>';
     try {
-        // PR-V3: gallery shows both generated_image AND generated_video.
-        // list_artifacts takes a single `kind` filter, so we issue both
+        // Gallery shows generated and imported media together. The
+        // list_artifacts takes a single `kind` filter, so we issue the
         // calls in parallel and merge on the client. Sort: created_at
         // desc with artifact_id desc as the deterministic tie-breaker
         // (Codex sign-off note — equal-timestamp items must not jitter
         // between reloads).
-        const [imgData, vidData] = await Promise.all([
+        const [imgData, vidData, importedImageData, importedVideoData] = await Promise.all([
             bridgeCall("list_artifacts", { kind: "generated_image", limit: 100 }),
             bridgeCall("list_artifacts", { kind: "generated_video", limit: 100 }),
+            bridgeCall("list_artifacts", { kind: "imported_image", limit: 100 }),
+            bridgeCall("list_artifacts", { kind: "imported_video", limit: 100 }),
         ]);
         galleryItems = [
             ...(imgData.artifacts || []),
             ...(vidData.artifacts || []),
+            ...(importedImageData.artifacts || []),
+            ...(importedVideoData.artifacts || []),
         ].sort((a, b) => {
             const tA = a.created_at || "";
             const tB = b.created_at || "";
@@ -1088,8 +1218,8 @@ async function loadGallery() {
         if (galleryItems.length === 0) {
             el.galleryGrid.innerHTML = `
                 <div class="gallery-empty">
-                    <span>No images yet</span>
-                    <p>Generate your first creation to see it here</p>
+                    <span>No media yet</span>
+                    <p>Generate or import media to see it here</p>
                 </div>`;
             return;
         }
@@ -1097,7 +1227,7 @@ async function loadGallery() {
         el.galleryGrid.innerHTML = galleryItems.map(item => {
             const id = item.artifact_id;
             const approved = item.flags && item.flags.approved;
-            const isVideo = item.kind === "generated_video";
+            const isVideo = isVideoArtifactKind(item.kind);
             const role = pickDisplayRole(item);
             const thumbUrl = role
                 ? `/blob/${encodeURIComponent(id)}/${encodeURIComponent(role)}`
@@ -1158,11 +1288,173 @@ async function openArtifactsFolder() {
     }
 }
 
+async function startMediaImport() {
+    if (isStartingMediaImport) return;
+    isStartingMediaImport = true;
+    if (el.addMediaGalleryBtn) el.addMediaGalleryBtn.disabled = true;
+    try {
+        const job = await bridgeCall("start_media_import", {});
+        if (job && job.created === false && job.reason === "empty_selection") {
+            return;
+        }
+        if (!job || job.created !== true || !job.job_id) {
+            window.alert("Media import did not create a job.");
+            return;
+        }
+        rememberMediaImportJob(job);
+        renderMediaImportJobs();
+        if (job.state === "complete") {
+            if (currentView === "gallery") loadGallery();
+        } else {
+            pollMediaImportJob(job.job_id);
+        }
+    } catch (e) {
+        window.alert(`Could not start media import: ${errorToText(e)}`);
+    } finally {
+        isStartingMediaImport = false;
+        if (el.addMediaGalleryBtn) el.addMediaGalleryBtn.disabled = false;
+    }
+}
+
+async function loadMediaImportJobs() {
+    if (!el.mediaImportList) return;
+    try {
+        const data = await bridgeCall("list_media_import_jobs", {});
+        mediaImportJobs = new Map();
+        for (const job of (data.jobs || [])) {
+            rememberMediaImportJob(job);
+        }
+        renderMediaImportJobs();
+        for (const job of mediaImportJobs.values()) {
+            if (job.state !== "complete") pollMediaImportJob(job.job_id);
+        }
+    } catch (e) {
+        el.mediaImportPanel?.classList.remove("hidden");
+        el.mediaImportList.innerHTML =
+            `<div class="media-import-empty">Could not load media imports: ${escapeHtml(errorToText(e))}</div>`;
+    }
+}
+
+function rememberMediaImportJob(job) {
+    if (!job || !job.job_id) return null;
+    mediaImportJobs.set(job.job_id, job);
+    return job;
+}
+
+function renderMediaImportJobs() {
+    if (!el.mediaImportPanel || !el.mediaImportList) return;
+    const jobs = [...mediaImportJobs.values()]
+        .sort((a, b) => (b.updated_at || b.created_at || "").localeCompare(a.updated_at || a.created_at || ""));
+
+    if (jobs.length === 0) {
+        el.mediaImportPanel.classList.add("hidden");
+        el.mediaImportList.innerHTML = "";
+        return;
+    }
+
+    el.mediaImportPanel.classList.remove("hidden");
+    const rows = [];
+    for (const job of jobs) {
+        for (const file of (job.files || [])) {
+            const message = file.message || file.failure_code || "";
+            const openButton = file.artifact_id
+                ? `<button class="btn btn-secondary media-import-open" data-id="${escapeAttr(file.artifact_id)}">Open</button>`
+                : "";
+            rows.push(`
+                <div class="media-import-row state-${escapeAttr(file.status || job.state || "")}">
+                    <div class="media-import-main">
+                        <span class="media-import-name">${escapeHtml(file.basename || "media")}</span>
+                        <span class="media-import-status">${escapeHtml(file.status || job.state || "")}</span>
+                        ${message ? `<span class="media-import-message" title="${escapeAttr(message)}">${escapeHtml(message)}</span>` : ""}
+                    </div>
+                    <div class="media-import-actions">${openButton}</div>
+                </div>`);
+        }
+    }
+
+    el.mediaImportList.innerHTML = rows.length
+        ? rows.join("")
+        : '<div class="media-import-empty">No files in recent import jobs.</div>';
+
+    el.mediaImportList.querySelectorAll(".media-import-open").forEach(btn => {
+        btn.addEventListener("click", async () => {
+            switchView("gallery");
+            await loadGallery();
+            openArtifactModal(btn.dataset.id);
+        });
+    });
+}
+
+async function awaitMediaImportJob(jobId) {
+    const maxAttempts = 150;
+    const reservedPollerSlot = jobId && !mediaImportPollers.has(jobId);
+    if (reservedPollerSlot) mediaImportPollers.set(jobId, null);
+    try {
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            const job = await bridgeCall("get_media_import_job", { job_id: jobId });
+            rememberMediaImportJob(job);
+            renderMediaImportJobs();
+            if (job && job.state === "complete") return job;
+            await delay(1200);
+        }
+    } finally {
+        if (reservedPollerSlot) mediaImportPollers.delete(jobId);
+    }
+    throw new Error("Media import did not finish within 3 minutes.");
+}
+
+function pollMediaImportJob(jobId) {
+    if (!jobId || mediaImportPollers.has(jobId)) return;
+    const current = mediaImportJobs.get(jobId);
+    if (current && current.state === "complete") return;
+    const tick = async () => {
+        try {
+            const previous = mediaImportJobs.get(jobId);
+            const previousArtifacts = new Set(
+                ((previous && previous.files) || [])
+                    .map(file => file.artifact_id)
+                    .filter(Boolean));
+            const job = await bridgeCall("get_media_import_job", { job_id: jobId });
+            rememberMediaImportJob(job);
+            renderMediaImportJobs();
+
+            const currentArtifacts = ((job && job.files) || [])
+                .map(file => file.artifact_id)
+                .filter(Boolean);
+            const hasNewArtifact = currentArtifacts.some(id => !previousArtifacts.has(id));
+            if (hasNewArtifact && currentView === "gallery") {
+                loadGallery();
+            }
+
+            if (job && job.state === "complete") {
+                mediaImportPollers.delete(jobId);
+                if (currentView === "gallery") loadGallery();
+                return;
+            }
+        } catch (e) {
+            mediaImportPollers.delete(jobId);
+            if (el.mediaImportPanel && el.mediaImportList) {
+                el.mediaImportPanel.classList.remove("hidden");
+                el.mediaImportList.insertAdjacentHTML(
+                    "afterbegin",
+                    `<div class="media-import-empty">Import poll failed: ${escapeHtml(errorToText(e))}</div>`);
+            }
+            return;
+        }
+
+        const timeoutId = setTimeout(tick, 1200);
+        mediaImportPollers.set(jobId, timeoutId);
+    };
+
+    const timeoutId = setTimeout(tick, 0);
+    mediaImportPollers.set(jobId, timeoutId);
+}
+
 function pickDisplayRole(summary) {
     // Gallery summary embeds the `files[]` list. PR-V3: pick the
     // playback-or-image role appropriate to the artifact kind.
     if (!summary || !Array.isArray(summary.files)) return null;
-    const isVideo = summary.kind === "generated_video";
+    const isVideo = isVideoArtifactKind(summary.kind);
     const preferred = isVideo
         ? ["video", "primary", "media"]
         : ["image", "thumbnail", "preview"];
@@ -1194,7 +1486,7 @@ async function openArtifactModal(id) {
     // PR-V3: kind-aware render. Image artifacts use <img>; video
     // artifacts use <video controls>. Both elements live in the modal
     // markup; we toggle the inactive one.
-    const isVideo = modalArtifact.kind === "generated_video";
+    const isVideo = isVideoArtifactKind(modalArtifact.kind);
     if (isVideo) {
         el.modalImage.classList.add("hidden");
         el.modalImage.src = "";
@@ -1720,6 +2012,10 @@ function init() {
     // Gallery
     el.galleryGrid = $("gallery-grid");
     el.refreshGalleryBtn = $("refresh-gallery");
+    el.addMediaGalleryBtn = $("add-media-gallery");
+    el.mediaImportPanel = $("media-import-panel");
+    el.mediaImportList = $("media-import-list");
+    el.refreshMediaImportsBtn = $("refresh-media-imports");
     el.openArtifactsFolderBtn = $("open-artifacts-folder");
 
     // Settings
@@ -1797,7 +2093,7 @@ function init() {
     });
     el.approveBtn.addEventListener("click", () => approveCurrentArtifact(latestArtifactId));
     el.addReferenceBtn.addEventListener("click", () =>
-        pickReferenceImages(generateReferences, el.referencePreview, true));
+        pickReferenceImages(generateReferences, el.referencePreview, true, showStatus, hideStatus));
     el.clearReferencesBtn.addEventListener("click", () => {
         generateReferences = [];
         renderReferencePreview(generateReferences, el.referencePreview);
@@ -1826,14 +2122,16 @@ function init() {
         hideStudioStatus();
     });
     el.studioAddReferenceBtn.addEventListener("click", () =>
-        pickReferenceImages(studioReferences, el.studioReferencePreview, true));
+        pickReferenceImages(studioReferences, el.studioReferencePreview, true, showStudioStatus, hideStudioStatus));
     el.studioClearReferencesBtn.addEventListener("click", () => {
         studioReferences = [];
         renderReferencePreview(studioReferences, el.studioReferencePreview);
     });
 
-    el.refreshGalleryBtn.addEventListener("click", loadGallery);
-    el.openArtifactsFolderBtn.addEventListener("click", openArtifactsFolder);
+    if (el.refreshGalleryBtn) el.refreshGalleryBtn.addEventListener("click", loadGallery);
+    if (el.addMediaGalleryBtn) el.addMediaGalleryBtn.addEventListener("click", startMediaImport);
+    if (el.refreshMediaImportsBtn) el.refreshMediaImportsBtn.addEventListener("click", loadMediaImportJobs);
+    if (el.openArtifactsFolderBtn) el.openArtifactsFolderBtn.addEventListener("click", openArtifactsFolder);
 
     if (el.providerCredentials) {
         el.providerCredentials.addEventListener("click", handleProviderCredentialClick);
@@ -2296,7 +2594,7 @@ const Video = (() => {
             return [];
         }
 
-        if (artifact.kind === "generated_video") {
+        if (isVideoArtifactKind(artifact.kind)) {
             return artifact.files
                 .filter(file => file && isGeneratedVideoFramePickerRole(file.role))
                 .map(file => ({
@@ -2336,21 +2634,25 @@ const Video = (() => {
         ve.pickerModal.classList.remove("hidden");
 
         try {
-            // Image artifacts are direct frame inputs. Generated-video
-            // artifacts are role-level candidates only when they already
-            // carry frame-exact sidecars. `poster` stays display-only and
+            // Image artifacts are direct frame inputs. Video artifacts
+            // are role-level candidates only when they already carry
+            // frame-exact sidecars. `poster` stays display-only and
             // `video` stays playback-only.
-            const [genData, capData, depthData, vidData] = await Promise.all([
+            const [genData, capData, depthData, vidData, importedImageData, importedVideoData] = await Promise.all([
                 bridgeCall("list_artifacts", { kind: "generated_image", limit: 100 }),
                 bridgeCall("list_artifacts", { kind: "captured_viewport", limit: 100 }),
                 bridgeCall("list_artifacts", { kind: "depth_map", limit: 100 }),
                 bridgeCall("list_artifacts", { kind: "generated_video", limit: 100 }),
+                bridgeCall("list_artifacts", { kind: "imported_image", limit: 100 }),
+                bridgeCall("list_artifacts", { kind: "imported_video", limit: 100 }),
             ]);
             const items = [
                 ...(genData.artifacts || []),
                 ...(capData.artifacts || []),
                 ...(depthData.artifacts || []),
                 ...(vidData.artifacts || []),
+                ...(importedImageData.artifacts || []),
+                ...(importedVideoData.artifacts || []),
             ]
                 .flatMap(buildFramePickerChoices)
                 .sort((a, b) => {
@@ -2364,7 +2666,7 @@ const Video = (() => {
                 ve.pickerGrid.innerHTML = `
                     <div class="gallery-empty">
                         <span>No image artifacts</span>
-                        <p>Generate an image, capture a viewport, capture depth, or use a generated video with frame sidecars.</p>
+                        <p>Generate, capture, or import media. Videos need start/end frame sidecars.</p>
                     </div>`;
                 return;
             }
