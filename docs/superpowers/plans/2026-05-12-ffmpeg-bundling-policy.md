@@ -361,6 +361,17 @@ if (-not (Test-Path -LiteralPath $BuiltExe -PathType Leaf)) {
     throw "Built ffmpeg.exe was not found: $BuiltExe"
 }
 
+$versionOutput = & $BuiltExe -version 2>&1
+if ($LASTEXITCODE -ne 0) {
+    throw "Built ffmpeg.exe -version failed with exit code $LASTEXITCODE"
+}
+$versionFirstLine = @($versionOutput)[0]
+$runtimeVersionMatch = [regex]::Match($versionFirstLine, '^ffmpeg version\s+(\S+)')
+if (-not $runtimeVersionMatch.Success) {
+    throw "Unable to parse built ffmpeg version from: $versionFirstLine"
+}
+$RuntimeVersion = $runtimeVersionMatch.Groups[1].Value
+
 $changesDiff = Join-Path $BundleRoot 'changes.diff'
 Set-Content -LiteralPath $changesDiff -Value '' -Encoding ASCII
 
@@ -405,7 +416,7 @@ if ($InstallPayload) {
     $BinaryHash = (Get-FileHash -LiteralPath (Join-Path $PayloadDir 'ffmpeg.exe') -Algorithm SHA256).Hash
     [ordered]@{
         name = 'FFmpeg'
-        version = "n$($SourceMetadata.version)-rook-minimal"
+        version = $RuntimeVersion
         license = 'LGPL-only'
         binary_path = 'third_party/ffmpeg/ffmpeg.exe'
         binary_sha256 = $BinaryHash
@@ -420,7 +431,18 @@ if ($InstallPayload) {
         changes_diff_path = 'changes.diff'
         source_bundle_manifest_name = 'rook-ffmpeg-source-bundle-manifest.json'
         validated_command_surfaces = @('poster', 'first_frame', 'last_frame')
-        validated_fixtures = @()
+        validated_fixtures = @(
+            [ordered]@{
+                path = 'third_party/ffmpeg/fixtures/sidecar-smoke-h264.mp4'
+                container = 'mp4'
+                video_codec = 'h264'
+            },
+            [ordered]@{
+                path = 'third_party/ffmpeg/fixtures/sidecar-smoke-vp9.webm'
+                container = 'webm'
+                video_codec = 'vp9'
+            }
+        )
         verified_at = [DateTimeOffset]::UtcNow.ToString('o')
         verified_by = 'Rook minimal FFmpeg build recipe'
         notes = 'Built by Rook from official FFmpeg source for video sidecar extraction via ffmpeg.exe subprocess only.'
@@ -501,6 +523,23 @@ $sourceBundleManifest = Join-Path $root 'release\rook-ffmpeg-source-bundle-manif
 
 Return `AllowlistPath` and `SourceBundleManifestPath` from `New-TestPayload`.
 
+Set the test provenance `validated_fixtures` to:
+
+```powershell
+validated_fixtures = @(
+    [ordered]@{
+        path = 'third_party/ffmpeg/fixtures/sidecar-smoke-h264.mp4'
+        container = 'mp4'
+        video_codec = 'h264'
+    },
+    [ordered]@{
+        path = 'third_party/ffmpeg/fixtures/sidecar-smoke-vp9.webm'
+        container = 'webm'
+        video_codec = 'vp9'
+    }
+)
+```
+
 - [ ] **Step 3: Make every validator invocation pass allowlist and source-bundle manifest paths**
 
 Use this helper:
@@ -536,6 +575,11 @@ Test-RejectsUnexpectedEnableZlib
 Test-RejectsMissingSourceSignatureVerification
 Test-RejectsMissingSourceBundleManifest
 Test-RejectsSourceBundleHashMismatch
+Test-RejectsMissingRequiredH264FixtureMetadata
+Test-RejectsMissingRequiredVp9OrAv1FixtureMetadata
+Test-RejectsMissingChangesDiffInsideSourceBundle
+Test-RejectsMissingSourceArchiveInsideSourceBundle
+Test-RejectsMissingSourceSignatureInsideSourceBundle
 ```
 
 Each test should mutate one temp payload and assert the error text:
@@ -545,6 +589,11 @@ Assert-Contains -Text $output -Expected 'unexpected FFmpeg configure enable flag
 Assert-Contains -Text $output -Expected 'source_signature_status must be verified' -Message 'Validator must require verified official FFmpeg source signatures.'
 Assert-Contains -Text $output -Expected 'source bundle manifest is missing' -Message 'Validator must require release source-bundle staging.'
 Assert-Contains -Text $output -Expected 'source bundle checksum mismatch' -Message 'Validator must verify the staged source bundle hash.'
+Assert-Contains -Text $output -Expected 'validated_fixtures must include h264 mp4 coverage' -Message 'Validator must require H.264 MP4 fixture metadata.'
+Assert-Contains -Text $output -Expected 'validated_fixtures must include vp9 webm or av1 coverage' -Message 'Validator must require WebM/VP9 or AV1 fixture metadata.'
+Assert-Contains -Text $output -Expected 'source bundle is missing required entry changes.diff' -Message 'Validator must inspect source bundle contents.'
+Assert-Contains -Text $output -Expected 'source bundle is missing required entry ffmpeg-8.1.1.tar.xz' -Message 'Validator must include the FFmpeg source archive in the bundle.'
+Assert-Contains -Text $output -Expected 'source bundle is missing required entry ffmpeg-8.1.1.tar.xz.asc' -Message 'Validator must include the FFmpeg source signature in the bundle.'
 ```
 
 - [ ] **Step 5: Run the policy tests and confirm they fail**
@@ -662,11 +711,69 @@ function Assert-SourceSignatureVerified {
 }
 ```
 
-- [ ] **Step 4: Validate the staged source bundle manifest**
+- [ ] **Step 4: Require fixture metadata coverage**
 
 Add:
 
 ```powershell
+function Assert-ValidatedFixtureCoverage {
+    param([object]$Provenance)
+
+    Require-NonEmptyField -Provenance $Provenance -Field 'validated_fixtures'
+    $fixtures = @($Provenance.validated_fixtures)
+    if ($fixtures.Count -eq 0) {
+        Fail "validated_fixtures is empty"
+    }
+
+    $hasH264Mp4 = $false
+    $hasVp9WebmOrAv1 = $false
+
+    foreach ($fixture in $fixtures) {
+        $container = [string]$fixture.container
+        $codec = [string]$fixture.video_codec
+
+        if ($container -eq 'mp4' -and $codec -eq 'h264') {
+            $hasH264Mp4 = $true
+        }
+
+        if (($container -eq 'webm' -and $codec -eq 'vp9') -or $codec -eq 'av1') {
+            $hasVp9WebmOrAv1 = $true
+        }
+    }
+
+    if (-not $hasH264Mp4) {
+        Fail "validated_fixtures must include h264 mp4 coverage"
+    }
+
+    if (-not $hasVp9WebmOrAv1) {
+        Fail "validated_fixtures must include vp9 webm or av1 coverage"
+    }
+}
+```
+
+- [ ] **Step 5: Validate the staged source bundle manifest and contents**
+
+Add:
+
+```powershell
+function Assert-ZipContainsEntry {
+    param(
+        [string]$ZipPath,
+        [string]$EntryName
+    )
+
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $zip = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
+    try {
+        $match = $zip.Entries | Where-Object { $_.FullName -eq $EntryName }
+        if ($null -eq $match) {
+            Fail "source bundle is missing required entry $EntryName"
+        }
+    } finally {
+        $zip.Dispose()
+    }
+}
+
 function Assert-SourceBundleManifest {
     param(
         [string]$Path,
@@ -707,23 +814,51 @@ function Assert-SourceBundleManifest {
     if ($actualHash -ne $manifest.bundle_sha256) {
         Fail "source bundle checksum mismatch"
     }
+
+    Assert-ZipContainsEntry -ZipPath $manifest.bundle_path -EntryName $Provenance.source_archive
+    Assert-ZipContainsEntry -ZipPath $manifest.bundle_path -EntryName "$($Provenance.source_archive).asc"
+    Assert-ZipContainsEntry -ZipPath $manifest.bundle_path -EntryName 'changes.diff'
+    Assert-ZipContainsEntry -ZipPath $manifest.bundle_path -EntryName 'rook-ffmpeg-configure.txt'
+    Assert-ZipContainsEntry -ZipPath $manifest.bundle_path -EntryName 'rook-ffmpeg-source.json'
+    Assert-ZipContainsEntry -ZipPath $manifest.bundle_path -EntryName 'rook-ffmpeg-enable-allowlist.json'
+    Assert-ZipContainsEntry -ZipPath $manifest.bundle_path -EntryName 'build-rook-ffmpeg.ps1'
 }
 ```
 
-- [ ] **Step 5: Wire the new checks into the main validation flow**
+- [ ] **Step 6: Wire the new checks into the main validation flow**
 
 In the main flow, after parsing provenance and runtime configure output, call:
 
 ```powershell
 Assert-SourceSignatureVerified -Provenance $provenance
-Assert-ConfigureEnableAllowlist -ConfigureLine $runtimeConfigureLine -AllowlistPath $AllowlistPath
+Assert-ValidatedFixtureCoverage -Provenance $provenance
+Assert-ConfigureEnableAllowlist -ConfigureLine $runtimeConfigurationLine -AllowlistPath $AllowlistPath
 Assert-ConfigureEnableAllowlist -ConfigureLine $provenance.configure_line -AllowlistPath $AllowlistPath
 Assert-SourceBundleManifest -Path $SourceBundleManifestPath -Provenance $provenance
 ```
 
 Delete any requirement for `ffmpeg-dependencies.json` or `DEPENDENCIES.FFmpeg.txt`.
 
-- [ ] **Step 6: Run the policy tests and confirm they pass**
+- [ ] **Step 7: Update functional smoke to iterate over the required fixture set**
+
+Change the smoke flow so it runs poster, first-frame, and last-frame extraction against every entry in `validated_fixtures`, resolving each `path` relative to `$RepoRoot`.
+
+Use this pattern:
+
+```powershell
+foreach ($fixture in @($provenance.validated_fixtures)) {
+    $fixturePath = Join-Path $RepoRoot ([string]$fixture.path)
+    if (-not (Test-Path -LiteralPath $fixturePath -PathType Leaf)) {
+        Fail "validated fixture is missing: $fixturePath"
+    }
+
+    Invoke-SmokeForFixture -FfmpegPath $ffmpegPath -FixturePath $fixturePath
+}
+```
+
+If the current validator has inline smoke commands, extract them into `Invoke-SmokeForFixture` without changing the command shapes.
+
+- [ ] **Step 8: Run the policy tests and confirm they pass**
 
 Run:
 
@@ -733,7 +868,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\tests\ffmpeg-bundle-
 
 Expected: `FFmpeg bundle validation policy tests passed.`
 
-- [ ] **Step 7: Commit Task 4**
+- [ ] **Step 9: Commit Task 4**
 
 Run:
 
