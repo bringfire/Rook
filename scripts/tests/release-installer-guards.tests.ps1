@@ -93,23 +93,21 @@ function Test-InstallerPackagesBundledFfmpegPayload {
     foreach ($fileName in @(
         'ffmpeg.exe',
         'ffmpeg-provenance.json',
-        'ffmpeg-dependencies.json',
         'LICENSE.FFmpeg.txt',
         'NOTICE.FFmpeg.txt',
         'SOURCE.FFmpeg.txt',
-        'DEPENDENCIES.FFmpeg.txt',
         'README.md'
     )) {
         Assert-FfmpegInstallerLine -FileName $fileName
     }
 }
 
-function Test-FfmpegBundleValidationPasses {
+function Test-FfmpegValidatorRequiresReleaseSourceBundleArgument {
     Assert-True -Condition (Test-Path $FfmpegValidationScript) -Message "FFmpeg validation script is missing: $FfmpegValidationScript"
-    & powershell -NoProfile -ExecutionPolicy Bypass -File $FfmpegValidationScript
-    if ($LASTEXITCODE -ne 0) {
-        throw "FFmpeg bundle validation failed with exit code $LASTEXITCODE"
-    }
+
+    $script = Get-Content -Path $FfmpegValidationScript -Raw
+    Assert-Contains -Text $script -Expected 'SourceBundleManifestPath' -Message 'FFmpeg validator must require a release source-bundle manifest path.'
+    Assert-Contains -Text $script -Expected 'Assert-SourceBundleManifest' -Message 'FFmpeg validator must verify the staged release source bundle.'
 }
 
 function Test-InstallerRequiresNativePluginBuildOutput {
@@ -197,7 +195,10 @@ function Test-BuildReleaseDocsRequireFfmpegValidation {
     ) -join "`n"
 
     Assert-Contains -Text $combined -Expected 'scripts\validate-ffmpeg-bundle.ps1' -Message 'Release docs must require the FFmpeg bundle validation guard.'
-    Assert-Contains -Text $combined -Expected 'third_party\ffmpeg\ffmpeg-dependencies.json' -Message 'Release docs must include the FFmpeg dependency manifest in path checks.'
+    Assert-Contains -Text $combined -Expected 'scripts\ffmpeg\build-rook-ffmpeg.ps1' -Message 'Release docs must require the Rook-owned FFmpeg build script.'
+    Assert-Contains -Text $combined -Expected 'scripts\ffmpeg\rook-ffmpeg-enable-allowlist.json' -Message 'Release docs must reference the FFmpeg configure allowlist.'
+    Assert-Contains -Text $combined -Expected 'scripts\ffmpeg\rook-ffmpeg-source.json' -Message 'Release docs must reference the pinned FFmpeg source metadata.'
+    Assert-Contains -Text $combined -Expected 'SourceBundleManifestPath' -Message 'Release docs must pass the staged source-bundle manifest to FFmpeg validation.'
     Assert-Contains -Text $combined -Expected 'third_party\ffmpeg\README.md' -Message 'Release docs must include the installed FFmpeg README in path checks.'
 }
 
@@ -216,7 +217,7 @@ function Test-LegacyGitHubReleaseWorkflowIsDisabled {
 Test-InstallerPackagesNet7CompanionRuntime
 Test-BuiltCompanionRuntimeConfigDeclaresNet7
 Test-InstallerPackagesBundledFfmpegPayload
-Test-FfmpegBundleValidationPasses
+Test-FfmpegValidatorRequiresReleaseSourceBundleArgument
 Test-InstallerRequiresNativePluginBuildOutput
 Test-InstallerRegistersRhinoPluginFileNamesUnderPluginSubkey
 Test-ReleaseWorkflowDocsUseNet7CompanionOutput

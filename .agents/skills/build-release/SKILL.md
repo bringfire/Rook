@@ -71,17 +71,25 @@ If git is dirty, tell the user to commit or stash first.
 ### Bundled FFmpeg
 
 Rook release installers bundle an LGPL-only `ffmpeg.exe` for generated-video
-thumbnail and frame sidecar extraction. Before building an installer, run:
+thumbnail and frame sidecar extraction. The bundled binary must be produced from
+the committed Rook minimal build recipe, and the release source bundle generated
+by that recipe must be staged and published beside the installer.
+
+Before building an installer, run:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\validate-ffmpeg-bundle.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\ffmpeg\build-rook-ffmpeg.ps1 -InstallPayload
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\validate-ffmpeg-bundle.ps1 -SourceBundleManifestPath artifacts\ffmpeg\ffmpeg-8.1.1-rook-minimal\rook-ffmpeg-source-bundle-manifest.json
 ```
 
 The guard fails closed for missing metadata, checksum mismatch, GPL/nonfree
-configure flags, stale dependency-manifest coverage, missing compliance files,
-or failure to extract poster, first-frame, and last-frame JPEGs from the smoke
-fixture. PATH-discovered FFmpeg is allowed for development smoke only and cannot
-satisfy release validation.
+configure flags, unexpected `--enable-*` flags outside
+`scripts\ffmpeg\rook-ffmpeg-enable-allowlist.json`, unverified official source
+signatures from `scripts\ffmpeg\rook-ffmpeg-source.json`, missing compliance
+files, missing source-bundle manifest/content, or failure to extract poster,
+first-frame, and last-frame JPEGs from the required smoke fixtures.
+PATH-discovered FFmpeg is allowed for development smoke only and cannot satisfy
+release validation.
 
 ## Step 1: Version Bump
 
