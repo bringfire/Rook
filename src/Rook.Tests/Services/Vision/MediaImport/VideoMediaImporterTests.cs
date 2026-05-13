@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Reflection;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
@@ -152,13 +153,23 @@ namespace Rook.Tests.Services.Vision.MediaImport
         }
 
         [Fact]
-        public void DefaultSidecarExtractor_UsesKillOnCancelRunnerForFfmpegExtraction()
+        public void DefaultSidecarExtractor_ProductionDelegatesCaptureKillOnCancelRunnerFactory()
         {
             var extractor = new DefaultVideoImportSidecarExtractor();
 
-            var runner = extractor.CreateProcessRunnerForTests();
+            var runnerFactory = ReadPrivateField<Func<IProcessRunner>>(extractor, "_processRunnerFactory");
+            var posterDelegate = ReadPrivateField<
+                Func<string, string, string, TimeSpan, CancellationToken, Task<FfmpegPosterExtractionResult>>>(
+                    extractor,
+                    "_extractPosterAsync");
+            var frameDelegate = ReadPrivateField<
+                Func<string, string, VideoFrameSelector, string, TimeSpan, CancellationToken, Task<FfmpegVideoFrameExtractionResult>>>(
+                    extractor,
+                    "_extractFrameAsync");
 
-            Assert.IsType<KillOnCancelProcessRunner>(runner);
+            Assert.IsType<KillOnCancelProcessRunner>(runnerFactory());
+            AssertDelegateCaptures(posterDelegate, runnerFactory);
+            AssertDelegateCaptures(frameDelegate, runnerFactory);
         }
 
         public void Dispose()
@@ -195,6 +206,52 @@ namespace Rook.Tests.Services.Vision.MediaImport
             catch (ArgumentException)
             {
             }
+        }
+
+        private static T ReadPrivateField<T>(object instance, string fieldName)
+        {
+            var field = instance.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(field);
+            return Assert.IsType<T>(field!.GetValue(instance));
+        }
+
+        private static void AssertDelegateCaptures(Delegate candidate, object expected)
+        {
+            Assert.NotNull(candidate.Target);
+            Assert.True(
+                ObjectGraphContainsReference(candidate.Target!, expected),
+                $"Delegate '{candidate.Method.Name}' does not capture the expected runner factory.");
+        }
+
+        private static bool ObjectGraphContainsReference(object current, object expected)
+            => ObjectGraphContainsReference(current, expected, depthRemaining: 4);
+
+        private static bool ObjectGraphContainsReference(object current, object expected, int depthRemaining)
+        {
+            if (ReferenceEquals(current, expected))
+                return true;
+
+            if (depthRemaining <= 0)
+                return false;
+
+            foreach (var field in current.GetType().GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                var value = field.GetValue(current);
+                if (value is null)
+                    continue;
+
+                if (ReferenceEquals(value, expected))
+                    return true;
+
+                var type = value.GetType();
+                if (type.IsPrimitive || value is string)
+                    continue;
+
+                if (ObjectGraphContainsReference(value, expected, depthRemaining - 1))
+                    return true;
+            }
+
+            return false;
         }
     }
 
