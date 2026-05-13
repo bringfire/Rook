@@ -69,6 +69,89 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
+        public async Task DispatchAsync_Start_SubmitsArtifactRefsAndParentIds()
+        {
+            using var temp = TempDir.Create();
+            var artifactStore = new ArtifactStore(Path.Combine(temp.Path, "artifacts"));
+            var pngBytes = new byte[]
+                { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00 };
+            var input = artifactStore.Create(
+                VisionHandler.ArtifactKindCapturedViewport,
+                new[] { new BlobInput(ImageMediaRoles.Image, pngBytes, "png") });
+            var reference = artifactStore.Create(
+                VisionHandler.ArtifactKindCapturedViewport,
+                new[] { new BlobInput(ImageMediaRoles.Image, pngBytes, "png") });
+
+            ImageJobStartRequest? captured = null;
+            var manager = new StubImageJobManager
+            {
+                SubmitImpl = (request, _) =>
+                {
+                    captured = request;
+                    return ImageJobSubmitResult.Ok(
+                        SampleJobId,
+                        ImageJobState.Queued);
+                },
+            };
+            var visionHandler = new VisionHandler(
+                artifactStore,
+                new InMemoryGenerationSecretStore(),
+                new PromptEnhancer(),
+                new ViewportHandler(),
+                new DefaultImageProviderRegistry(new IImageProviderRegistration[]
+                {
+                    new SingleImageProviderRegistration(
+                        new FakeAsyncTextToImageProvider(),
+                        "replicate",
+                        "black-forest-labs/flux-2-pro",
+                        ImageSubmissionMode.AsyncImageJob,
+                        supportsImageToImage: true,
+                        supportsTextToImage: false,
+                        maxReferenceImages: 2,
+                        resolutions: new[] { "1MP" },
+                        aspectRatios: new[] { "match_input_image" }),
+                }));
+            var handler = new ImageJobOpHandler(manager, visionHandler);
+
+            var response = await handler.DispatchAsync($$"""
+                {
+                  "op": "image_generate_start",
+                  "prompt": "enhance this viewport",
+                  "input_image": {
+                    "kind": "artifact_id",
+                    "artifact_id": "{{input.Id:D}}",
+                    "role": "image"
+                  },
+                  "reference_images": [
+                    {
+                      "kind": "artifact_id",
+                      "artifact_id": "{{reference.Id:D}}",
+                      "role": "image"
+                    }
+                  ],
+                  "model": "black-forest-labs/flux-2-pro",
+                  "resolution": "1MP",
+                  "aspect_ratio": "match_input_image"
+                }
+                """);
+
+            AssertOk(response);
+            Assert.NotNull(captured);
+            Assert.Contains(input.Id, captured!.ParentArtifactIds);
+            Assert.Contains(reference.Id, captured.ParentArtifactIds);
+            Assert.Equal(2, captured.ParentArtifactIds.Distinct().Count());
+            Assert.Contains(
+                captured.ResolvedMedia,
+                kvp => kvp.Key.Kind == MediaRefKind.Artifact
+                    && kvp.Key.ArtifactId == input.Id
+                    && kvp.Key.Role == ImageMediaRoles.InputImage);
+            var refMedia = Assert.Single(captured.Request.ReferenceImages!);
+            Assert.Equal(MediaRefKind.Artifact, refMedia.Kind);
+            Assert.Equal(reference.Id, refMedia.ArtifactId);
+            Assert.Equal(ImageMediaRoles.ReferenceImage, refMedia.Role);
+        }
+
+        [Fact]
         public async Task DispatchAsync_Start_AllowsPromptOnlyForAsyncTextToImageModel()
         {
             ImageJobStartRequest? captured = null;

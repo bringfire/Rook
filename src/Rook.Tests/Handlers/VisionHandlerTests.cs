@@ -575,6 +575,135 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
+        public void BuildImageGenerationWorkItem_resolves_artifact_input_and_reference_refs()
+        {
+            var root = CreateTempRoot("rook-vision-generate-artifact-refs");
+            try
+            {
+                var artifactStore = new ArtifactStore(Path.Combine(root, "artifacts"));
+                var pngBytes = new byte[]
+                    { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00 };
+                var input = artifactStore.Create(
+                    VisionHandler.ArtifactKindCapturedViewport,
+                    new[] { new BlobInput(ImageMediaRoles.Image, pngBytes, "png") });
+                var reference = artifactStore.Create(
+                    VisionHandler.ArtifactKindCapturedViewport,
+                    new[] { new BlobInput(ImageMediaRoles.Image, pngBytes, "png") });
+                var handler = new VisionHandler(
+                    artifactStore,
+                    new InMemoryGenerationSecretStore(),
+                    new PromptEnhancer(),
+                    new ViewportHandler(),
+                    new DefaultImageProviderRegistry(new IImageProviderRegistration[]
+                    {
+                        new TestImageProviderRegistration(new FakeImageProvider()),
+                    }));
+                var args = ParseArgs($$"""
+                    {
+                      "prompt": "make this rendering warmer",
+                      "input_image": {
+                        "kind": "artifact_id",
+                        "artifact_id": "{{input.Id:D}}",
+                        "role": "image"
+                      },
+                      "reference_images": [
+                        {
+                          "kind": "artifact_id",
+                          "artifact_id": "{{reference.Id:D}}",
+                          "role": "image"
+                        }
+                      ],
+                      "model": "nano-banana-2",
+                      "resolution": "1K",
+                      "aspect_ratio": "16:9"
+                    }
+                    """);
+
+                var result = handler.BuildImageGenerationWorkItem(args);
+
+                Assert.True(result.Success);
+                var work = result.WorkItem!;
+                Assert.Contains(input.Id, work.ParentArtifactIds);
+                Assert.Contains(reference.Id, work.ParentArtifactIds);
+                Assert.Equal(2, work.ParentArtifactIds.Distinct().Count());
+                Assert.Contains(
+                    work.ResolvedMedia,
+                    kvp => kvp.Key.Kind == MediaRefKind.Artifact
+                        && kvp.Key.ArtifactId == input.Id
+                        && kvp.Key.Role == ImageMediaRoles.InputImage
+                        && kvp.Value.MimeType == "image/png");
+                var refMedia = Assert.Single(work.Request.ReferenceImages!);
+                Assert.Equal(MediaRefKind.Artifact, refMedia.Kind);
+                Assert.Equal(reference.Id, refMedia.ArtifactId);
+                Assert.Equal(ImageMediaRoles.ReferenceImage, refMedia.Role);
+                Assert.Contains(
+                    work.ResolvedMedia,
+                    kvp => kvp.Key.Equals(refMedia)
+                        && kvp.Value.MimeType == "image/png");
+            }
+            finally
+            {
+                try { Directory.Delete(root, recursive: true); } catch { }
+            }
+        }
+
+        [Fact]
+        public async Task GenerateAsync_artifact_input_persists_source_lineage()
+        {
+            var root = CreateTempRoot("rook-vision-generate-artifact-lineage");
+            try
+            {
+                var artifactStore = new ArtifactStore(Path.Combine(root, "artifacts"));
+                var pngBytes = new byte[]
+                    { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00 };
+                var input = artifactStore.Create(
+                    VisionHandler.ArtifactKindCapturedViewport,
+                    new[] { new BlobInput(ImageMediaRoles.Image, pngBytes, "png") });
+                var provider = new FakeImageProvider();
+                var handler = new VisionHandler(
+                    artifactStore,
+                    new InMemoryGenerationSecretStore(),
+                    new PromptEnhancer(),
+                    new ViewportHandler(),
+                    new DefaultImageProviderRegistry(new IImageProviderRegistration[]
+                    {
+                        new TestImageProviderRegistration(provider),
+                    }));
+                var args = ParseArgs($$"""
+                    {
+                      "prompt": "make this rendering warmer",
+                      "input_image": {
+                        "kind": "artifact_id",
+                        "artifact_id": "{{input.Id:D}}",
+                        "role": "image"
+                      },
+                      "model": "nano-banana-2",
+                      "resolution": "1K",
+                      "aspect_ratio": "1:1"
+                    }
+                    """);
+
+                var response = await handler.GenerateAsync(args, CancellationToken.None);
+
+                Assert.True(response.Success);
+                var generated = Assert.Single(
+                    artifactStore.List(),
+                    a => a.Kind == VisionHandler.ArtifactKindGeneratedImage);
+                Assert.Equal(new[] { input.Id }, generated.ParentIds);
+                Assert.NotNull(provider.CapturedMedia);
+                Assert.Contains(
+                    provider.CapturedMedia!,
+                    kvp => kvp.Key.Kind == MediaRefKind.Artifact
+                        && kvp.Key.ArtifactId == input.Id
+                        && kvp.Key.Role == ImageMediaRoles.InputImage);
+            }
+            finally
+            {
+                try { Directory.Delete(root, recursive: true); } catch { }
+            }
+        }
+
+        [Fact]
         public async Task GenerateAsync_StillRequiresInputImagePath()
         {
             var handler = NewHandlerWithSecrets(new InMemoryGenerationSecretStore());
