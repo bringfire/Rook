@@ -85,7 +85,7 @@ result describes canvas state. If `ready_for_edit` is false, they fail closed:
   "verified": false,
   "error": "Grasshopper is not ready for gh_query: no active document.",
   "data": {
-    "code": "grasshopper_not_ready",
+    "error": "grasshopper_not_ready",
     "ready_for_edit": false
   }
 }
@@ -93,8 +93,8 @@ result describes canvas state. If `ready_for_edit` is false, they fail closed:
 
 Examples include `/gh/query`, `/gh/snapshot`, `/gh/connections`,
 `/gh/component`, `/gh/errors`, `/gh/selection`, `/gh/groups`,
-`/gh/inspect-output`, `/gh/value`, and `/gh/canvas/image` if it captures the
-real canvas.
+`/gh/inspect-output`, `/gh/value` `GET`, and `/gh/canvas/image` if it captures
+the real canvas.
 
 ### Mutation
 
@@ -102,7 +102,7 @@ These routes mutate the active Grasshopper document, canvas object state,
 connections, persistent references, preview flags, script state, solution state,
 or bake output. If `ready_for_edit` is false, they fail closed with
 `success: false`, `verified: false`, actionable `error` or `errors`, and a
-structured `data.code` such as `grasshopper_not_ready`.
+structured `data.error` machine value such as `grasshopper_not_ready`.
 
 Examples include `/gh/create-slider`, `/gh/create-panel`,
 `/gh/create-component`, `/gh/connect`, `/gh/disconnect`, `/gh/value` with
@@ -161,7 +161,7 @@ The not-ready response is part of the agent-visible and direct HTTP contract:
   "errors": ["Grasshopper is not ready for gh_create_slider: no active canvas."],
   "verification_note": "Call gh_status to inspect readiness. Use an explicit lifecycle tool only if Grasshopper is the intended substrate.",
   "data": {
-    "code": "grasshopper_not_ready",
+    "error": "grasshopper_not_ready",
     "operation": "gh_create_slider",
     "ready_for_edit": false,
     "available": true,
@@ -172,6 +172,12 @@ The not-ready response is part of the agent-visible and direct HTTP contract:
   }
 }
 ```
+
+`data.error` is the compatibility machine-code field established by the
+current `gh_edit` readiness branch. A future implementation may also add
+`data.code` as a duplicate machine-code alias, but the follow-up plan must not
+replace `data.error` or require callers to migrate to `data.code` unless that
+contract change is explicitly reviewed.
 
 Direct MCP and chat/agent dispatcher paths must preserve top-level
 `verified: false`, `error`/`errors`, and `verification_note` when wrapping or
@@ -221,12 +227,12 @@ adds Python exposure as a secondary column.
 | Route | Native handler | Managed callback / handler | Category | Requires `ready_for_edit` | Side effects allowed | Python tool exposure | Expected not-ready response | Test coverage |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `/gh/status` | `RookServer.cpp` -> `HandleGrasshopperStatus` | `NativeGhBridgeRegistrar.HandleStatus` -> `Core.GetStatus` | Read-only status/library | No | Status query only; no document/canvas creation | `gh_status` | `success: true` means endpoint executed; `data.ready_for_edit: false` allowed | Unit test for no document creation; live GH-closed harness |
-| `/gh/query` | `RookServer.cpp` -> `HandleGrasshopperQuery` | `NativeGhBridgeRegistrar.HandleQuery` -> query document method | Read-only canvas inspection | Yes | None | No Python agent tool | `success: false`, `verified: false`, `code: grasshopper_not_ready` | Managed callback test; live GH-closed harness |
-| `/gh/snapshot` | `RookServer.cpp` -> `HandleGrasshopperSnapshot` | `NativeGhBridgeRegistrar.HandleSnapshot` -> `Handler.TakeSnapshot` | Read-only canvas inspection | Yes | None | `gh_snapshot` | `success: false`, `verified: false`, `code: grasshopper_not_ready` | Dispatcher/MCP unit tests; live GH-closed harness |
-| `/gh/edit` | `RookServer.cpp` -> `HandleGrasshopperEdit` | `NativeGhBridgeRegistrar.HandleEdit` -> `Handler.ApplyEdit` | Mutation | Yes | Batch canvas mutation only after readiness | `gh_edit` | `success: false`, `verified: false`, `code: grasshopper_not_ready` | Contract tests; live GH-closed harness |
-| `/gh/create-slider` | `RookServer.cpp` -> `HandleGrasshopperCreateSlider` | `NativeGhBridgeRegistrar.HandleCreateSlider` -> `Handler.CreateSlider` | Mutation | Yes | Create slider only after readiness | Legacy direct MCP/internal callers if present | `success: false`, `verified: false`, `code: grasshopper_not_ready` | New managed guard test; live representative mutation harness |
-| `/gh/connect` | `RookServer.cpp` -> `HandleGrasshopperConnect` | `NativeGhBridgeRegistrar.HandleConnect` -> `Handler.ConnectComponents` | Mutation | Yes | Add wire only after readiness | Legacy direct MCP/internal callers if present | `success: false`, `verified: false`, `code: grasshopper_not_ready` | New managed guard test; live representative mutation harness |
-| `/gh/value` `POST` | `RookServer.cpp` -> `HandleGrasshopperSetValue` | `NativeGhBridgeRegistrar.HandleSetValue` -> `Handler.SetValue` | Mutation | Yes | Set slider/panel/toggle value only after readiness | `gh_set_value` or internal callers if present | `success: false`, `verified: false`, `code: grasshopper_not_ready` | New managed guard test; live representative mutation harness |
+| `/gh/query` | `RookServer.cpp` -> `HandleGrasshopperQuery` | `NativeGhBridgeRegistrar.HandleQuery` -> query document method | Read-only canvas inspection | Yes | None | No Python agent tool | `success: false`, `verified: false`, `data.error: grasshopper_not_ready` | Managed callback test; live GH-closed harness |
+| `/gh/snapshot` | `RookServer.cpp` -> `HandleGrasshopperSnapshot` | `NativeGhBridgeRegistrar.HandleSnapshot` -> `Handler.TakeSnapshot` | Read-only canvas inspection | Yes | None | `gh_snapshot` | `success: false`, `verified: false`, `data.error: grasshopper_not_ready` | Dispatcher/MCP unit tests; live GH-closed harness |
+| `/gh/edit` | `RookServer.cpp` -> `HandleGrasshopperEdit` | `NativeGhBridgeRegistrar.HandleEdit` -> `Handler.ApplyEdit` | Mutation | Yes | Batch canvas mutation only after readiness | `gh_edit` | `success: false`, `verified: false`, `data.error: grasshopper_not_ready` | Contract tests; live GH-closed harness |
+| `/gh/create-slider` | `RookServer.cpp` -> `HandleGrasshopperCreateSlider` | `NativeGhBridgeRegistrar.HandleCreateSlider` -> `Handler.CreateSlider` | Mutation | Yes | Create slider only after readiness | Legacy direct MCP/internal callers if present | `success: false`, `verified: false`, `data.error: grasshopper_not_ready` | New managed guard test; live representative mutation harness |
+| `/gh/connect` | `RookServer.cpp` -> `HandleGrasshopperConnect` | `NativeGhBridgeRegistrar.HandleConnect` -> `Handler.ConnectComponents` | Mutation | Yes | Add wire only after readiness | Legacy direct MCP/internal callers if present | `success: false`, `verified: false`, `data.error: grasshopper_not_ready` | New managed guard test; live representative mutation harness |
+| `/gh/value` `POST` | `RookServer.cpp` -> `HandleGrasshopperSetValue` | `NativeGhBridgeRegistrar.HandleSetValue` -> `Handler.SetValue` | Mutation | Yes | Set slider/panel/toggle value only after readiness | `gh_set_value` or internal callers if present | `success: false`, `verified: false`, `data.error: grasshopper_not_ready` | New managed guard test; live representative mutation harness |
 | `/gh/document/new` | `RookServer.cpp` -> `HandleGrasshopperNewDocument` | `NativeGhBridgeRegistrar.HandleNewDocument` -> `Handler.NewDocument` | Imperative lifecycle | Requires lifecycle review | May create active document if retained as lifecycle | `gh_document_new` if exposed | Lifecycle-specific response with postcondition status | Lifecycle review test before behavior change |
 | `/gh/document/open` | `RookServer.cpp` -> `HandleGrasshopperOpenDocument` | `NativeGhBridgeRegistrar.HandleOpenDocument` -> `Handler.OpenDocument` | Imperative lifecycle | Requires lifecycle review | May open active document if retained as lifecycle | `gh_document_open` if exposed | Lifecycle-specific response with postcondition status | Lifecycle review test before behavior change |
 | `/gh/clear` | `RookServer.cpp` -> `HandleGrasshopperClear` | `NativeGhBridgeRegistrar.HandleClear` -> `Handler.ClearCanvas` | Imperative lifecycle or mutation after review | Requires lifecycle review | Clear active document only after classification | `gh_clear` if exposed | Classification-specific response; must be explicit | Lifecycle review test before behavior change |
@@ -251,6 +257,8 @@ Unit and integration-style tests must cover:
 - `/gh/query` remains guarded but is not exposed as a Python agent tool.
 - Dispatcher no longer includes stale `gh_query` hoist metadata when no
   dispatcher route exists.
+- `gh_query` is absent from Python agent-facing route/tool registries,
+  including `BRIDGE_ROUTES` and `TOOL_GROUPS`.
 - Representative legacy mutation routes fail closed when not ready:
   `/gh/create-slider`, `/gh/connect`, and `/gh/value` `POST`.
 - `gh_status` remains read-only and does not create a document/canvas.
