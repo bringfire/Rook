@@ -460,3 +460,21 @@ class TestVerificationCoverage:
         """rhino_execute must go through transform (for compile + try/except), not bridge."""
         assert "rhino_execute" in TRANSFORM_FUNCTIONS
         assert "rhino_execute" not in BRIDGE_ROUTES
+
+
+def test_gh_query_not_exposed_to_agent_dispatch_surfaces():
+    """Legacy /gh/query remains native HTTP compatibility only."""
+    from rook.agent import tool_dispatcher
+    from rook.agent.tool_groups import TOOL_GROUPS
+
+    assert "gh_query" not in tool_dispatcher.BRIDGE_ROUTES
+    assert "gh_query" not in tool_dispatcher.TRANSFORM_FUNCTIONS
+    assert hasattr(tool_dispatcher, "GH_READINESS_HOIST_TOOLS")
+    assert "gh_query" not in tool_dispatcher.GH_READINESS_HOIST_TOOLS
+
+    exposed_groups = [
+        group_name
+        for group_name, tools in TOOL_GROUPS.items()
+        if "gh_query" in tools
+    ]
+    assert exposed_groups == []

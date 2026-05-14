@@ -46,6 +46,12 @@ def _hoist_nested_verification_fields(result: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+GH_READINESS_HOIST_TOOLS: frozenset[str] = frozenset({
+    "gh_snapshot",
+    "gh_edit",
+})
+
+
 _RHINOSCRIPTSYNTAX_INTERACTIVE_CALLS: frozenset[str] = frozenset({
     "GetBoolean",
     "GetBox",
@@ -1571,7 +1577,7 @@ class ToolDispatcher:
                 result = normalize_gh_status_result(result)
             if name == "gh_edit":
                 result = apply_gh_edit_contract(result, strict_partial_success=True)
-            if name in {"gh_snapshot", "gh_edit", "gh_query"}:
+            if name in GH_READINESS_HOIST_TOOLS:
                 result = _hoist_nested_verification_fields(result)
             if not result.get("success"):
                 logger.warning(f"Bridge call failed for {name} -> {endpoint}: {result}")
