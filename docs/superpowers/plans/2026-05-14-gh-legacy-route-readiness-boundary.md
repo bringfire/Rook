@@ -40,7 +40,7 @@ Do not implement from this docs-only branch unless it has first been rebased ont
 - Modify: `mcp_server/tests/test_chat_runner.py`
   - Pins nested `data.verified` and `data.verification_note` fallback for legacy route not-ready shapes.
 - Create: `docs/superpowers/audits/2026-05-14-gh-route-readiness-inventory.md`
-  - Completed registered-route inventory with route categories and implementation status.
+  - Completed registered-route inventory keyed by HTTP method + path, with route categories and implementation status.
 - Create: `mcp_server/tools/gh_readiness_live_harness.py`
   - Optional live Rhino validation harness for closed/open GH scenarios.
 
@@ -88,62 +88,62 @@ Source spec: `docs/superpowers/specs/2026-05-14-gh-legacy-route-readiness-bounda
 
 ## Inventory
 
-| Route | Native handler | Managed callback / handler | Category | Requires `ready_for_edit` | Side effects allowed | Python tool exposure | Expected not-ready response | Test coverage |
+| HTTP method + path | Native handler | Managed callback / handler | Category | Requires `ready_for_edit` | Side effects allowed | Python tool exposure | Expected not-ready response | Test coverage |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `/gh/status` | `HandleGrasshopperStatus` | `HandleStatus` -> `Core.GetStatus` | Read-only status/library | No | Status query only | `gh_status` | `success: true`; `data.ready_for_edit: false` allowed | Existing `gh_status` tests; live harness |
-| `/gh/document` | `HandleGrasshopperDocument` | `HandleDocument` -> document info | Read-only status/library or inspection after review | No unless it reads canvas internals | Document metadata only | No direct agent bridge expected | Must not create document/canvas | Inventory review |
-| `/gh/query` | `HandleGrasshopperQuery` | `HandleQuery` -> query document method | Read-only canvas inspection | Yes | None | No Python agent tool | `success: false`; `data.error: grasshopper_not_ready`; `verified: false` in agent path | Existing query not-ready test |
-| `/gh/selection` | `HandleGrasshopperSelection` | `HandleSelection` -> selection method | Read-only canvas inspection | Yes | None | `gh_selection` | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard or document existing guard |
-| `/gh/categories` | `HandleGrasshopperCategories` | `HandleCategories` -> categories method | Read-only status/library | No | Component catalog query only | `gh_categories` | No readiness failure required unless implementation touches canvas | Existing categories tests or inventory note |
-| `/gh/library` | `HandleGrasshopperLibrary` | `HandleLibrary` -> search library method | Read-only status/library | No | Component catalog search only | `gh_library` if exposed | No readiness failure required unless implementation touches canvas | Existing library tests or inventory note |
-| `/gh/value` `GET` | `HandleGrasshopperGetValue` | `HandleGetValue` -> value method | Read-only canvas inspection | Yes | None | `gh_get_value` if exposed | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard or document existing guard |
-| `/gh/value` `POST` | `HandleGrasshopperSetValue` | `HandleSetValue` -> `Handler.SetValue` | Mutation | Yes | Set value only after readiness | `gh_set_value` or internal caller | `success: false`; `data.error: grasshopper_not_ready` | New representative guard test |
-| `/gh/script` | `HandleGrasshopperSetScript` | `HandleSetScript` -> script method | Mutation | Yes | Script source mutation only after readiness | `gh_set_script` | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard |
-| `/gh/script-params` | `HandleGrasshopperScriptParams` | `HandleScriptParams` -> script params method | Mutation | Yes | Script pin mutation only after readiness | `gh_set_script_pins` | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard |
-| `/gh/connections` | `HandleGrasshopperConnections` | `HandleConnections` -> connection info method | Read-only canvas inspection | Yes | None | internal/readonly callers | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard |
-| `/gh/delete` | `HandleGrasshopperDelete` | `HandleDelete` -> delete method | Mutation | Yes | Delete canvas objects only after readiness | legacy/internal | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard |
-| `/gh/preview` | `HandleGrasshopperPreview` | `HandlePreview` -> preview method | Mutation | Yes | Preview flag mutation only after readiness | `gh_preview` | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard |
-| `/gh/clear` | `HandleGrasshopperClear` | `HandleClear` -> `Handler.ClearCanvas` | Lifecycle review item; recommended mutation | Requires review | Clear active document only if classified as mutation | `gh_clear` | Classification-specific | Review checkpoint before behavior change |
-| `/gh/document/open` | `HandleGrasshopperOpenDocument` | `HandleOpenDocument` -> `Handler.OpenDocument` | Imperative lifecycle | No `ready_for_edit` precondition | May open active document | `gh_document_open` | Lifecycle response with postcondition status | Review checkpoint before behavior change |
-| `/gh/document/new` | `HandleGrasshopperNewDocument` | `HandleNewDocument` -> `Handler.NewDocument` | Imperative lifecycle | No `ready_for_edit` precondition | May create active document | `gh_document_new` | Lifecycle response with postcondition status | Review checkpoint before behavior change |
-| `/gh/move` | `HandleGrasshopperMove` | `HandleMove` -> move method | Mutation | Yes | Move canvas objects only after readiness | `gh_move` | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard |
-| `/gh/group` | `HandleGrasshopperGroup` | `HandleGroup` -> group method | Mutation | Yes | Create/update group only after readiness | legacy/internal | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard |
-| `/gh/groups` | `HandleGrasshopperGroups` | `HandleGroups` -> groups method | Read-only canvas inspection | Yes | None | `gh_groups` if exposed | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard |
-| `/gh/group-resize` | `HandleGrasshopperGroupResize` | `HandleGroupResize` -> group resize method | Mutation | Yes | Resize group only after readiness | `gh_group_resize` | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard |
-| `/gh/cluster` | `HandleGrasshopperCluster` | `HandleCluster` -> cluster method | Mutation | Yes | Cluster creation only after readiness | `gh_cluster` | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard |
-| `/gh/explore-selection` | `HandleGrasshopperExploreSelection` | `HandleExploreSelection` -> exploration method | Read-only canvas inspection | Yes | Selection probing only | internal | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard or document internal-only |
-| `/gh/explore-cluster` | `HandleGrasshopperExploreCluster` | `HandleExploreCluster` -> exploration method | Read-only canvas inspection | Yes | Cluster probing only | internal | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard or document internal-only |
-| `/gh/batch-component-info` | `HandleGrasshopperBatchComponentInfo` | `HandleBatchComponentInfo` -> batch info method | Read-only status/library | No | Component type metadata lookup only | `gh_batch_component_info` | No readiness failure required unless implementation touches canvas | Inventory review |
-| `/gh/create-component` | `HandleGrasshopperCreateComponent` | `HandleCreateComponent` -> create component method | Mutation | Yes | Create component only after readiness | legacy/internal | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard |
-| `/gh/create-slider` | `HandleGrasshopperCreateSlider` | `HandleCreateSlider` -> `Handler.CreateSlider` | Mutation | Yes | Create slider only after readiness | legacy/internal | `success: false`; `data.error: grasshopper_not_ready` | New representative guard test |
-| `/gh/create-panel` | `HandleGrasshopperCreatePanel` | `HandleCreatePanel` -> `Handler.CreatePanel` | Mutation | Yes | Create panel only after readiness | legacy/internal | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard |
-| `/gh/component` | `HandleGrasshopperComponent` | `HandleComponent` -> component info method | Read-only canvas inspection | Yes | None | `gh_component` if exposed | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard |
-| `/gh/inspect-output` | `HandleGrasshopperInspectOutput` | `HandleInspectOutput` -> inspect output method | Read-only canvas inspection | Yes | None | `gh_inspect_output` | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard |
-| `/gh/errors` | `HandleGrasshopperErrors` | `HandleErrors` -> errors method | Read-only canvas inspection | Yes | None | `gh_errors` | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard |
-| `/gh/connect` | `HandleGrasshopperConnect` | `HandleConnect` -> `Handler.ConnectComponents` | Mutation | Yes | Add wire only after readiness | legacy/internal | `success: false`; `data.error: grasshopper_not_ready` | New representative guard test |
-| `/gh/disconnect` | `HandleGrasshopperDisconnect` | `HandleDisconnect` -> disconnect method | Mutation | Yes | Remove wire only after readiness | legacy/internal | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard |
-| `/gh/set-reference` | `HandleGrasshopperSetReference` | `HandleSetReference` -> reference method | Mutation | Yes | Set persistent reference only after readiness | `gh_set_reference` | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard |
-| `/gh/get-reference` | `HandleGrasshopperGetReference` | `HandleGetReference` -> reference read method | Read-only canvas inspection | Yes | None | `gh_get_reference` | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard |
-| `/gh/clear-reference` | `HandleGrasshopperClearReference` | `HandleClearReference` -> clear reference method | Mutation | Yes | Clear persistent references only after readiness | `gh_clear_reference` | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard |
-| `/gh/solve` | `HandleGrasshopperSolve` | `HandleSolve` -> solve method | Mutation | Yes | Recompute only after readiness | legacy/internal | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard |
-| `/gh/bake` | `HandleGrasshopperBakeOutput` | `HandleBakeOutput` -> bake method | Mutation | Yes | Bake geometry only after readiness | `gh_bake_output` | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard |
-| `/gh/snapshot` | `HandleGrasshopperSnapshot` | `HandleSnapshot` -> `Handler.TakeSnapshot` | Read-only canvas inspection | Yes | None | `gh_snapshot` | `success: false`; `data.error: grasshopper_not_ready` | Existing readiness tests |
-| `/gh/edit` | `HandleGrasshopperEdit` | `HandleEdit` -> `Handler.ApplyEdit` | Mutation | Yes | Batch mutation only after readiness | `gh_edit` | `success: false`; `data.error: grasshopper_not_ready` | Existing contract tests |
-| `/gh/undo` | `HandleGrasshopperUndo` | `HandleUndo` -> undo method | Mutation | Yes | Undo only after readiness | `gh_undo` | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard |
-| `/gh/canvas/focus` | `HandleGrasshopperCanvasFocus` | `HandleCanvasFocus` -> `Handler.FocusCanvas` | Lifecycle/navigation review item | Requires review | UI navigation only; no document creation unless approved | `gh_canvas_focus` | Classification-specific | Review checkpoint before behavior change |
-| `/gh/canvas/zoom` | `HandleGrasshopperCanvasZoom` | `HandleCanvasZoom` -> `Handler.ZoomCanvas` | Lifecycle/navigation review item | Requires review | UI navigation only; no document creation unless approved | `gh_canvas_zoom` | Classification-specific | Review checkpoint before behavior change |
-| `/gh/canvas/image` | `HandleGrasshopperCanvasImage` | `HandleCanvasImage` -> `Handler.CaptureCanvasImage` | Inspection/navigation review item | Requires review | Capture only; no document creation unless approved | `gh_canvas_image` | Classification-specific | Review checkpoint before behavior change |
+| `GET /gh/status` | `HandleGrasshopperStatus` | `HandleStatus` -> `Core.GetStatus` | Read-only status/library | No | Status query only | `gh_status` | `success: true`; `data.ready_for_edit: false` allowed | Existing `gh_status` tests; live harness |
+| `GET /gh/document` | `HandleGrasshopperDocument` | `HandleDocument` -> document info | Read-only document metadata | No, but must not create document/canvas | Document metadata only from existing active document/status | No direct agent bridge expected | `success: false`; `data.error: grasshopper_not_ready` if no active document, or `success: true` metadata for existing document | Add no-create managed test |
+| `GET /gh/query` | `HandleGrasshopperQuery` | `HandleQuery` -> query document method | Read-only canvas inspection | Yes | None | No Python agent tool | `success: false`; `data.error: grasshopper_not_ready`; `verified: false` in agent path | Existing query not-ready test |
+| `GET /gh/selection` | `HandleGrasshopperSelection` | `HandleSelection` -> selection method | Read-only canvas inspection | Yes | None | `gh_selection` | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard or document existing guard |
+| `GET /gh/categories` | `HandleGrasshopperCategories` | `HandleCategories` -> categories method | Read-only status/library | No | Component catalog query only | `gh_categories` | No readiness failure required unless implementation touches canvas | Existing categories tests or inventory note |
+| `GET /gh/library` | `HandleGrasshopperLibrary` | `HandleLibrary` -> search library method | Read-only status/library | No | Component catalog search only | `gh_library` if exposed | No readiness failure required unless implementation touches canvas | Existing library tests or inventory note |
+| `GET /gh/value` | `HandleGrasshopperGetValue` | `HandleGetValue` -> value method | Read-only canvas inspection | Yes | None | `gh_get_value` if exposed | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard or document existing guard |
+| `POST /gh/value` | `HandleGrasshopperSetValue` | `HandleSetValue` -> `Handler.SetValue` | Mutation | Yes | Set value only after readiness | `gh_set_value` or internal caller | `success: false`; `data.error: grasshopper_not_ready` | New representative guard test |
+| `POST /gh/script` | `HandleGrasshopperSetScript` | `HandleSetScript` -> script method | Mutation | Yes | Script source mutation only after readiness | `gh_set_script` | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard |
+| `POST /gh/script-params` | `HandleGrasshopperScriptParams` | `HandleScriptParams` -> `Handler.ScriptParams` | Mutation | Yes | Script pin mutation only after readiness | `gh_set_script_pins` | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard |
+| `GET /gh/connections` | `HandleGrasshopperConnections` | `HandleConnections` -> connection info method | Read-only canvas inspection | Yes | None | internal/readonly callers | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard |
+| `POST /gh/delete` | `HandleGrasshopperDelete` | `HandleDelete` -> delete method | Mutation | Yes | Delete canvas objects only after readiness | legacy/internal | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard |
+| `POST /gh/preview` | `HandleGrasshopperPreview` | `HandlePreview` -> preview method | Mutation | Yes | Preview flag mutation only after readiness | `gh_preview` | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard |
+| `POST /gh/clear` | `HandleGrasshopperClear` | `HandleClear` -> `Handler.ClearCanvas` | Lifecycle review item; recommended mutation | Requires review | Clear active document only if classified as mutation | `gh_clear` | Classification-specific | Review checkpoint before behavior change |
+| `POST /gh/document/open` | `HandleGrasshopperOpenDocument` | `HandleOpenDocument` -> `Handler.OpenDocument` | Imperative lifecycle | No `ready_for_edit` precondition | May open active document | `gh_document_open` | Lifecycle response with postcondition status | Review checkpoint before behavior change |
+| `POST /gh/document/new` | `HandleGrasshopperNewDocument` | `HandleNewDocument` -> `Handler.NewDocument` | Imperative lifecycle | No `ready_for_edit` precondition | May create active document | `gh_document_new` | Lifecycle response with postcondition status | Review checkpoint before behavior change |
+| `POST /gh/move` | `HandleGrasshopperMove` | `HandleMove` -> move method | Mutation | Yes | Move canvas objects only after readiness | `gh_move` | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard |
+| `POST /gh/group` | `HandleGrasshopperGroup` | `HandleGroup` -> group method | Mutation | Yes | Create/update group only after readiness | legacy/internal | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard |
+| `GET /gh/groups` | `HandleGrasshopperGroups` | `HandleGroups` -> groups method | Read-only canvas inspection | Yes | None | `gh_groups` if exposed | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard |
+| `POST /gh/group-resize` | `HandleGrasshopperGroupResize` | `HandleGroupResize` -> `Handler.ResizeGroupToFit` | Mutation | Yes | Resize group only after readiness | `gh_group_resize` | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard |
+| `POST /gh/cluster` | `HandleGrasshopperCluster` | `HandleCluster` -> cluster method | Mutation | Yes | Cluster creation only after readiness | `gh_cluster` | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard |
+| `POST /gh/explore-selection` | `HandleGrasshopperExploreSelection` | `HandleExploreSelection` -> exploration method | Read-only canvas inspection | Yes | Selection probing only | internal | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard or document internal-only |
+| `POST /gh/explore-cluster` | `HandleGrasshopperExploreCluster` | `HandleExploreCluster` -> exploration method | Read-only canvas inspection | Yes | Cluster probing only | internal | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard or document internal-only |
+| `POST /gh/batch-component-info` | `HandleGrasshopperBatchComponentInfo` | `HandleBatchComponentInfo` -> batch info method | Read-only status/library | No | Component type metadata lookup only | `gh_batch_component_info` | No readiness failure required unless implementation touches canvas | Inventory review |
+| `POST /gh/create-component` | `HandleGrasshopperCreateComponent` | `HandleCreateComponent` -> create component method | Mutation | Yes | Create component only after readiness | legacy/internal | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard |
+| `POST /gh/create-slider` | `HandleGrasshopperCreateSlider` | `HandleCreateSlider` -> `Handler.CreateSlider` | Mutation | Yes | Create slider only after readiness | legacy/internal | `success: false`; `data.error: grasshopper_not_ready` | New representative guard test |
+| `POST /gh/create-panel` | `HandleGrasshopperCreatePanel` | `HandleCreatePanel` -> `Handler.CreatePanel` | Mutation | Yes | Create panel only after readiness | legacy/internal | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard |
+| `GET /gh/component` | `HandleGrasshopperComponent` | `HandleComponent` -> `Handler.GetComponentInfo` | Read-only canvas inspection | Yes | None | `gh_component` if exposed | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard |
+| `GET /gh/inspect-output` | `HandleGrasshopperInspectOutput` | `HandleInspectOutput` -> inspect output method | Read-only canvas inspection | Yes | None | `gh_inspect_output` | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard |
+| `GET /gh/errors` | `HandleGrasshopperErrors` | `HandleErrors` -> `Handler.GetCanvasErrors` | Read-only canvas inspection | Yes | None | `gh_errors` | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard |
+| `POST /gh/connect` | `HandleGrasshopperConnect` | `HandleConnect` -> `Handler.ConnectComponents` | Mutation | Yes | Add wire only after readiness | legacy/internal | `success: false`; `data.error: grasshopper_not_ready` | New representative guard test |
+| `POST /gh/disconnect` | `HandleGrasshopperDisconnect` | `HandleDisconnect` -> disconnect method | Mutation | Yes | Remove wire only after readiness | legacy/internal | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard |
+| `POST /gh/set-reference` | `HandleGrasshopperSetReference` | `HandleSetReference` -> reference method | Mutation | Yes | Set persistent reference only after readiness | `gh_set_reference` | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard |
+| `GET /gh/get-reference` | `HandleGrasshopperGetReference` | `HandleGetReference` -> reference read method | Read-only canvas inspection | Yes | None | `gh_get_reference` | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard |
+| `POST /gh/clear-reference` | `HandleGrasshopperClearReference` | `HandleClearReference` -> clear reference method | Mutation | Yes | Clear persistent references only after readiness | `gh_clear_reference` | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard |
+| `POST /gh/solve` | `HandleGrasshopperSolve` | `HandleSolve` -> `Handler.TriggerSolve` | Mutation | Yes | Recompute only after readiness | legacy/internal | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard |
+| `POST /gh/bake` | `HandleGrasshopperBakeOutput` | `HandleBakeOutput` -> bake method | Mutation | Yes | Bake geometry only after readiness | `gh_bake_output` | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard |
+| `POST /gh/snapshot` | `HandleGrasshopperSnapshot` | `HandleSnapshot` -> `Handler.TakeSnapshot` | Read-only canvas inspection | Yes | None | `gh_snapshot` | `success: false`; `data.error: grasshopper_not_ready` | Existing readiness tests |
+| `POST /gh/edit` | `HandleGrasshopperEdit` | `HandleEdit` -> `Handler.ApplyEdit` | Mutation | Yes | Batch mutation only after readiness | `gh_edit` | `success: false`; `data.error: grasshopper_not_ready` | Existing contract tests |
+| `POST /gh/undo` | `HandleGrasshopperUndo` | `HandleUndo` -> `Handler.UndoCanvas` | Mutation | Yes | Undo only after readiness | `gh_undo` | `success: false`; `data.error: grasshopper_not_ready` | Add managed guard |
+| `POST /gh/canvas/focus` | `HandleGrasshopperCanvasFocus` | `HandleCanvasFocus` -> `Handler.FocusCanvas` | Lifecycle/navigation review item | Requires review | UI navigation only; no document creation unless approved | `gh_canvas_focus` | Classification-specific | Review checkpoint before behavior change |
+| `POST /gh/canvas/zoom` | `HandleGrasshopperCanvasZoom` | `HandleCanvasZoom` -> `Handler.ZoomCanvas` | Lifecycle/navigation review item | Requires review | UI navigation only; no document creation unless approved | `gh_canvas_zoom` | Classification-specific | Review checkpoint before behavior change |
+| `GET /gh/canvas/image` | `HandleGrasshopperCanvasImage` | `HandleCanvasImage` -> `Handler.CaptureCanvasImage` | Inspection/navigation review item | Requires review | Capture only; no document creation unless approved | `gh_canvas_image` | Classification-specific | Review checkpoint before behavior change |
 ```
 
-- [ ] **Step 3: Verify no registered route is missing**
+- [ ] **Step 3: Verify no registered method+path route is missing**
 
 Run:
 
 ```powershell
-rg -o '"/gh/[^"]+' src\RookNative\RookServer.cpp | Sort-Object -Unique
+rg -n '(ghGet|ghPost|cgpPost|navGet|navPost)\("/gh/' src\RookNative\RookServer.cpp
 ```
 
-Expected: every route in the command output appears exactly once in the inventory table.
+Expected: every registered HTTP method + path pair in the command output appears exactly once in the inventory table. Paths registered with multiple methods, such as `GET /gh/value` and `POST /gh/value`, must have separate rows.
 
 - [ ] **Step 4: Commit**
 
@@ -632,17 +632,23 @@ git commit -m "test: preserve gh readiness metadata in agent paths"
 
 **Files:**
 - Modify: `src/Rook/Handlers/GrasshopperHandler.cs`
+- Modify: `src/Rook/InternalBridge/GrasshopperCore.cs`
 - Modify: `docs/superpowers/audits/2026-05-14-gh-route-readiness-inventory.md`
 - Test: `src/Rook.Tests/InternalBridge/NativeGhBridgeRegistrarTests.cs`
 
-- [ ] **Step 1: Add guard tests for one read-only inspection and one additional mutation**
+- [ ] **Step 1: Add guard tests for document metadata, one read-only inspection, and one additional mutation**
 
 Add bridge wrapper methods only for routes being tested in this task. Use this pattern in `NativeGhBridgeRegistrar.cs`:
 
 ```csharp
+internal static ApiResponse DocumentForBridge(string requestJson)
+{
+    return Handler.GetDocumentInfo();
+}
+
 internal static ApiResponse ErrorsForBridge(string requestJson)
 {
-    return Handler.GetErrors();
+    return Handler.GetCanvasErrors();
 }
 
 internal static ApiResponse CreatePanelForBridge(string requestJson)
@@ -654,6 +660,14 @@ internal static ApiResponse CreatePanelForBridge(string requestJson)
 Then add tests:
 
 ```csharp
+[Fact]
+public void DocumentForBridge_NotReady_DoesNotCreateDocument()
+{
+    var result = NativeGhBridgeRegistrar.DocumentForBridge("{}");
+
+    AssertGrasshopperNotReady(result, "gh_document");
+}
+
 [Fact]
 public void ErrorsForBridge_NotReady_ReturnsStructuredFailure()
 {
@@ -679,9 +693,36 @@ Run:
 dotnet test src\Rook.Tests\Rook.Tests.csproj --filter "FullyQualifiedName~NativeGhBridgeRegistrarTests" --no-restore
 ```
 
-Expected before implementation: compile failure for missing wrappers or assertion failure because the handlers are not readiness guarded.
+Expected before implementation: compile failure for missing wrappers or assertion failure because `/gh/document` or the tested handlers are not readiness guarded.
 
-- [ ] **Step 3: Apply guards to read-only canvas inspection methods**
+- [ ] **Step 3: Make `/gh/document` non-creating**
+
+In `GrasshopperCore.GetDocumentInfo`, do not call `ResolveContext()` with its default document-creating behavior. Use a status/read-only check first, then resolve without creating:
+
+```csharp
+var status = ObserveStatus();
+if (!status.HasActiveDocument || !status.HasActiveCanvas || status.CanvasVisible == false)
+    return BridgeResult<GrasshopperDocumentInfoDto>.Fail(BuildNotReadyMessage(status));
+
+var gh = ResolveContext(createDocumentIfMissing: false);
+if (!gh.Success)
+    return BridgeResult<GrasshopperDocumentInfoDto>.Fail(gh.Error ?? "Grasshopper unavailable");
+```
+
+In `GrasshopperHandler.GetDocumentInfo`, preserve the managed not-ready shape by translating failed document metadata reads through `GrasshopperNotReadyResponse("gh_document", ...)` rather than returning a plain string failure:
+
+```csharp
+var statusResult = _bridgeCore.GetStatus();
+var status = statusResult.Data;
+if (!statusResult.Success || status?.HasActiveDocument != true || status.HasActiveCanvas != true || status.CanvasVisible == false)
+    return GrasshopperNotReadyResponse("gh_document", status, statusResult.Error);
+
+return ToApiResponse(_bridgeCore.GetDocumentInfo());
+```
+
+`/gh/document` is not a lifecycle route. It must never create a `GH_Document` as a side effect.
+
+- [ ] **Step 4: Apply guards to read-only canvas inspection methods**
 
 In `GrasshopperHandler.cs`, add this guard pattern at the start of each listed method:
 
@@ -702,16 +743,16 @@ Use these exact operation names:
 | `GetSelection` | `gh_selection` |
 | `GetValue` | `gh_get_value` |
 | `GetConnections` | `gh_connections` |
-| `GetComponent` | `gh_component` |
-| `GetErrors` | `gh_errors` |
+| `GetComponentInfo` | `gh_component` |
+| `GetCanvasErrors` | `gh_errors` |
 | `InspectOutput` | `gh_inspect_output` |
 | `GetGroups` | `gh_groups` |
 | `ExploreSelection` | `gh_explore_selection` |
 | `ExploreCluster` | `gh_explore_cluster` |
 
-Do not guard `GetStatus`, `GetDocumentInfo`, `GetCategories`, `SearchLibrary`, or `BatchComponentInfo` unless the implementation proves that a method touches the active canvas/document.
+Do not guard `GetStatus`, `GetCategories`, `SearchLibrary`, or `HandleBatchComponentInfo` unless the implementation proves that a method touches the active canvas/document. `GetDocumentInfo` is handled separately above because the current core path can create a document if left unchanged.
 
-- [ ] **Step 4: Apply guards to remaining non-lifecycle mutation methods**
+- [ ] **Step 5: Apply guards to remaining non-lifecycle mutation methods**
 
 Use the same guard pattern with these exact operation names:
 
@@ -720,23 +761,23 @@ Use the same guard pattern with these exact operation names:
 | `CreatePanel` | `gh_create_panel` |
 | `CreateComponent` | `gh_create_component` |
 | `SetScript` | `gh_set_script` |
-| `ConfigureScriptParams` or local script-param method name | `gh_set_script_pins` |
+| `ScriptParams` | `gh_set_script_pins` |
 | `DeleteObjects` | `gh_delete` |
 | `SetPreview` | `gh_preview` |
 | `MoveObjects` | `gh_move` |
 | `CreateGroup` | `gh_group` |
-| `ResizeGroup` | `gh_group_resize` |
+| `ResizeGroupToFit` | `gh_group_resize` |
 | `CreateCluster` | `gh_cluster` |
 | `DisconnectComponents` | `gh_disconnect` |
 | `SetReference` | `gh_set_reference` |
 | `ClearReference` | `gh_clear_reference` |
-| `Solve` | `gh_solve` |
+| `TriggerSolve` | `gh_solve` |
 | `BakeOutput` | `gh_bake_output` |
-| `Undo` | `gh_undo` |
+| `UndoCanvas` | `gh_undo` |
 
 Do not change `/gh/document/new`, `/gh/document/open`, `/gh/clear`, `/gh/canvas/focus`, `/gh/canvas/zoom`, or `/gh/canvas/image` in this task.
 
-- [ ] **Step 5: Update the inventory with implementation status**
+- [ ] **Step 6: Update the inventory with implementation status**
 
 In `docs/superpowers/audits/2026-05-14-gh-route-readiness-inventory.md`, update the `Test coverage` column for each guarded route with one of:
 
@@ -748,7 +789,7 @@ Lifecycle review pending
 Read-only no-ready-gate; no canvas side effects
 ```
 
-- [ ] **Step 6: Run managed tests**
+- [ ] **Step 7: Run managed tests**
 
 Run:
 
@@ -758,12 +799,12 @@ dotnet test src\Rook.Tests\Rook.Tests.csproj --filter "FullyQualifiedName~Native
 
 Expected: all `NativeGhBridgeRegistrarTests` pass.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 Run:
 
 ```powershell
-git add src\Rook\Handlers\GrasshopperHandler.cs src\Rook\InternalBridge\NativeGhBridgeRegistrar.cs src\Rook.Tests\InternalBridge\NativeGhBridgeRegistrarTests.cs docs\superpowers\audits\2026-05-14-gh-route-readiness-inventory.md
+git add src\Rook\Handlers\GrasshopperHandler.cs src\Rook\InternalBridge\GrasshopperCore.cs src\Rook\InternalBridge\NativeGhBridgeRegistrar.cs src\Rook.Tests\InternalBridge\NativeGhBridgeRegistrarTests.cs docs\superpowers\audits\2026-05-14-gh-route-readiness-inventory.md
 git commit -m "fix: guard gh canvas inspection and mutation routes"
 ```
 
@@ -902,6 +943,12 @@ def assert_not_ready(name: str, result: dict[str, Any]) -> None:
         raise AssertionError(f"{name}: expected success=false, got {result}")
     if data.get("error") != "grasshopper_not_ready":
         raise AssertionError(f"{name}: expected data.error=grasshopper_not_ready, got {result}")
+    verified = result.get("verified", data.get("verified"))
+    if verified is not False:
+        raise AssertionError(f"{name}: expected verified=false at top level or data level, got {result}")
+    note = result.get("verification_note") or data.get("verification_note") or data.get("message")
+    if not isinstance(note, str) or not note.strip():
+        raise AssertionError(f"{name}: expected actionable verification_note or message, got {result}")
 
 
 def main() -> int:
@@ -926,6 +973,7 @@ def main() -> int:
             raise AssertionError("Expected GH to be not ready for gh-closed mode")
 
         checks = [
+            ("gh_document", "GET", "/gh/document", None),
             ("gh_query", "GET", "/gh/query", None),
             ("gh_snapshot", "POST", "/gh/snapshot", {}),
             ("gh_edit", "POST", "/gh/edit", {"epoch": 0, "create": []}),
@@ -1053,7 +1101,7 @@ With Rhino/Rook running and GH closed:
 python mcp_server/tools/gh_readiness_live_harness.py --base-url http://localhost:9877 --mode gh-closed
 ```
 
-Expected: status executes, `/gh/query`, `gh_snapshot`, `gh_edit`, `/gh/create-slider`, `/gh/connect`, and `/gh/value` `POST` fail closed with `data.error: grasshopper_not_ready`.
+Expected: status executes, `/gh/document`, `/gh/query`, `gh_snapshot`, `gh_edit`, `/gh/create-slider`, `/gh/connect`, and `/gh/value` `POST` fail closed with `data.error: grasshopper_not_ready`, `verified: false`, and a useful note or message.
 
 With Rhino/Rook running, GH open, and a blank GH document active:
 
