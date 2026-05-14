@@ -2,6 +2,7 @@
 import pytest
 
 from rook.agent.chat.prompt_builder import PromptBuilder
+from rook.agent.tool_groups import TOOL_GROUPS
 
 
 def test_build_system_prompt_has_personality():
@@ -36,6 +37,27 @@ def test_resolve_model_for_planner():
     # (both should resolve, that's the important thing)
     assert isinstance(planner_model, str)
     assert len(planner_model) > 0
+
+
+def test_system_prompt_treats_in_chat_ui_as_ui_block_signal():
+    prompt = PromptBuilder().build_system("worker")
+
+    assert "here in chat" in prompt
+    assert "ui_block" in prompt
+    assert "Do not substitute Grasshopper sliders" in prompt
+
+
+def test_system_prompt_requires_remediation_for_unverified_tool_results():
+    prompt = PromptBuilder().build_system("worker")
+
+    assert "verified=false" in prompt
+    assert "partial_success" in prompt
+    assert "edit_summary.errors" in prompt
+    assert "not safe to build on" in prompt
+
+
+def test_gh_canvas_group_includes_status_health_check():
+    assert "gh_status" in TOOL_GROUPS["gh_canvas"]
 
 
 # ---------- GH script-component routing — persona-prompt regressions ----------

@@ -324,7 +324,7 @@ TOOL_GROUPS: Dict[str, List[str]] = {
 
     # --- GH Canvas Operations ---
     "gh_canvas": [
-        "gh_snapshot", "gh_edit", "gh_undo",
+        "gh_status", "gh_snapshot", "gh_edit", "gh_undo",
         "gh_errors", "gh_set_script", "gh_set_script_pins",
         "gh_create_script", "gh_create_python_script", "gh_create_csharp_script",
         "gh_move",
