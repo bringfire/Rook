@@ -58,10 +58,20 @@ namespace Rook.UI.Web
             return QueueLatest(visible, reason);
         }
 
-        public WebViewHostVisibilityDecision RecordVisibleRefresh(string reason)
+        public WebViewHostVisibilityDecision RecordVisibleRefresh(
+            string reason,
+            bool hostControlVisible)
         {
             if (!_desiredHostVisible)
             {
+                if (hostControlVisible && CanRecoverHiddenHostFromVisibleControl())
+                {
+                    var visibleReason = reason + ":HostControlVisible";
+                    _desiredHostVisible = true;
+                    _desiredHostVisibilityReason = visibleReason;
+                    return QueueLatest(true, visibleReason);
+                }
+
                 return new WebViewHostVisibilityDecision(
                     shouldSchedule: false,
                     visible: false,
@@ -71,6 +81,14 @@ namespace Rook.UI.Web
             }
 
             return QueueLatest(true, reason);
+        }
+
+        private bool CanRecoverHiddenHostFromVisibleControl()
+        {
+            return string.Equals(
+                _desiredHostVisibilityReason,
+                "PanelHidden:Hide",
+                StringComparison.Ordinal);
         }
 
         public WebViewHostVisibilityDecision RecordControllerAvailable(string reason)
@@ -401,7 +419,9 @@ namespace Rook.UI.Web
             TraceWebViewFocus("host-visibility-reconcile-request",
                 $"visible-refresh;{reason}");
             ScheduleHostVisibilityReconcile(
-                _hostVisibility.RecordVisibleRefresh(reason));
+                _hostVisibility.RecordVisibleRefresh(
+                    reason,
+                    _webView?.Visible == true));
 #else
             _ = reason;
 #endif

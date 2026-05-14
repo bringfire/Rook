@@ -327,7 +327,7 @@ namespace Rook.Tests.UI.Web
         }
 
         [Fact]
-        public void HostVisibilityCoordinator_HiddenHost_IgnoresActivationRefresh()
+        public void HostVisibilityCoordinator_HiddenHost_IgnoresActivationRefreshWhenControlIsNotVisible()
         {
             var coordinator = new WebViewHostVisibilityCoordinator();
 
@@ -336,7 +336,48 @@ namespace Rook.Tests.UI.Web
             Assert.False(hide.Visible);
             Assert.False(coordinator.DrainQueued()!.Value.Visible);
 
-            var activation = coordinator.RecordVisibleRefresh("ApplicationActivated");
+            var activation = coordinator.RecordVisibleRefresh(
+                "ApplicationActivated",
+                hostControlVisible: false);
+
+            Assert.False(activation.ShouldSchedule);
+            Assert.True(activation.Skipped);
+            Assert.Equal("host-hidden", activation.SkipReason);
+            Assert.False(coordinator.HasQueuedReconcile);
+        }
+
+        [Fact]
+        public void HostVisibilityCoordinator_HiddenHost_AllowsActivationRefreshWhenControlIsVisible()
+        {
+            var coordinator = new WebViewHostVisibilityCoordinator();
+
+            var hide = coordinator.RecordHostVisibility(false, "PanelHidden:Hide");
+            Assert.True(hide.ShouldSchedule);
+            Assert.False(coordinator.DrainQueued()!.Value.Visible);
+
+            var activation = coordinator.RecordVisibleRefresh(
+                "ApplicationActivated",
+                hostControlVisible: true);
+
+            Assert.True(activation.ShouldSchedule);
+            Assert.False(activation.Skipped);
+            Assert.True(activation.Visible);
+            Assert.Equal("ApplicationActivated:HostControlVisible", activation.Reason);
+            Assert.True(coordinator.DrainQueued()!.Value.Visible);
+        }
+
+        [Fact]
+        public void HostVisibilityCoordinator_UnselectedHiddenHost_IgnoresActivationRefreshWhenControlIsVisible()
+        {
+            var coordinator = new WebViewHostVisibilityCoordinator();
+
+            var hide = coordinator.RecordHostVisibility(false, "TabSelectionChanged:Unselected");
+            Assert.True(hide.ShouldSchedule);
+            Assert.False(coordinator.DrainQueued()!.Value.Visible);
+
+            var activation = coordinator.RecordVisibleRefresh(
+                "ApplicationActivated",
+                hostControlVisible: true);
 
             Assert.False(activation.ShouldSchedule);
             Assert.True(activation.Skipped);
