@@ -1550,14 +1550,6 @@ class ToolDispatcher:
             result = await call_rhino(endpoint, method, data, port)
             if name == "gh_edit":
                 result = apply_gh_edit_contract(result, strict_partial_success=False)
-                if result.get("partial_success"):
-                    note = result.get("verification_note")
-                    if isinstance(note, str) and "before continuing" not in note:
-                        note = f"{note} Inspect edit_summary.errors before continuing."
-                        result["verification_note"] = note
-                        result_data = result.get("data")
-                        if isinstance(result_data, dict):
-                            result_data["verification_note"] = note
             if not result.get("success"):
                 logger.warning(f"Bridge call failed for {name} -> {endpoint}: {result}")
             return result

@@ -246,7 +246,7 @@ class TestDispatcherVerification:
         assert result["partial_success"] is True
         assert result["verified"] is False
         assert result["errors"] == ["connect: param not found for 'T19.O0>T20.I2'"]
-        assert "before continuing" in result["verification_note"]
+        assert "verification_note" in result
 
     @pytest.mark.asyncio
     async def test_rhino_boolean_gets_verified(self, dispatcher):
