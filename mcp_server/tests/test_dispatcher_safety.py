@@ -229,6 +229,51 @@ class TestDispatcherVerification:
         assert "readyForEdit" not in result["data"]
 
     @pytest.mark.asyncio
+    async def test_gh_snapshot_not_ready_hoists_verification_for_chat(self, dispatcher):
+        mock_result = {
+            "success": False,
+            "data": {
+                "error": "grasshopper_not_ready",
+                "errors": ["No active Grasshopper canvas"],
+                "message": "No active Grasshopper canvas",
+                "ready_for_edit": False,
+                "verified": False,
+            },
+        }
+
+        with patch("rook.agent.tool_dispatcher.call_rhino", new_callable=AsyncMock) as mock_rhino:
+            mock_rhino.return_value = mock_result
+            result = await dispatcher.dispatch("gh_snapshot", {})
+
+        assert result["success"] is False
+        assert result["verified"] is False
+        assert result["verification_note"] == "No active Grasshopper canvas"
+        assert result["data"]["verified"] is False
+
+    @pytest.mark.asyncio
+    async def test_gh_edit_not_ready_hoists_verification_without_edit_summary(self, dispatcher):
+        mock_result = {
+            "success": False,
+            "data": {
+                "error": "grasshopper_not_ready",
+                "errors": ["No active Grasshopper document"],
+                "message": "No active Grasshopper document",
+                "ready_for_edit": False,
+                "verified": False,
+            },
+        }
+
+        with patch("rook.agent.tool_dispatcher.call_rhino", new_callable=AsyncMock) as mock_rhino:
+            mock_rhino.return_value = mock_result
+            result = await dispatcher.dispatch("gh_edit", {"epoch": 9})
+
+        assert result["success"] is False
+        assert result["verified"] is False
+        assert result["verification_note"] == "No active Grasshopper document"
+        assert result["data"]["verified"] is False
+        assert "partial_success" not in result
+
+    @pytest.mark.asyncio
     async def test_gh_edit_no_mutation_errors_are_not_success(self, dispatcher):
         mock_result = {
             "success": True,

@@ -29,6 +29,32 @@ def test_no_mutation_edit_errors_become_failure_without_partial_success():
     assert "failed before applying any mutations" in contracted["verification_note"]
 
 
+def test_no_mutation_edit_errors_clear_stale_partial_success_flags():
+    result = {
+        "success": True,
+        "partial_success": True,
+        "data": {
+            "partial_success": True,
+            "edit_summary": {
+                "created": 0,
+                "deleted": 0,
+                "values_set": 0,
+                "connected": 0,
+                "disconnected": 0,
+                "errors": ["Create failed before mutation"],
+            },
+        },
+    }
+
+    contracted = apply_gh_edit_contract(result)
+
+    assert contracted["success"] is False
+    assert "partial_success" not in contracted
+    assert "partial_success" not in contracted["data"]
+    assert contracted["verified"] is False
+    assert "failed before applying any mutations" in contracted["verification_note"]
+
+
 def test_partial_mutation_edit_errors_are_strict_failure_with_partial_metadata():
     result = {
         "success": True,

@@ -672,6 +672,14 @@ class ChatRunner:
                     if isinstance(result, dict):
                         _verified = result.get("verified")
                         _verification_note = result.get("verification_note")
+                        result_data = result.get("data")
+                        if isinstance(result_data, dict):
+                            if _verified is None:
+                                _verified = result_data.get("verified")
+                            if _verification_note is None:
+                                _verification_note = result_data.get("verification_note")
+                                if _verification_note is None and result_data.get("verified") is False:
+                                    _verification_note = result_data.get("message")
 
                     # Commit the completed result before yielding it. If the
                     # client disconnects while the event is being written, the

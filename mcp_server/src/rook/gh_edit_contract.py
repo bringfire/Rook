@@ -92,6 +92,8 @@ def apply_gh_edit_contract(result, strict_partial_success=True):
     else:
         note = "Grasshopper edit failed before applying any mutations."
         result["success"] = False
+        result.pop("partial_success", None)
+        data.pop("partial_success", None)
 
     result["verification_note"] = note
     data["verification_note"] = note
