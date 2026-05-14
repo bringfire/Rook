@@ -117,6 +117,39 @@ class TestSessionEntryWithPlan:
         entry = SessionEntry.from_dict(d)
         assert entry.plan is None
 
+    def test_partial_metadata_roundtrips_through_session_serialization(self):
+        """Session serialization preserves strict partial gh_edit metadata."""
+        session = Session(
+            session_id="test_session",
+            started=datetime.utcnow().isoformat() + "Z",
+            document="test.gh",
+            document_path="/test/test.gh",
+        )
+        result = GHToolResult(
+            success=False,
+            outcome="partial",
+            data={
+                "partial_success": True,
+                "verified": False,
+                "verification_note": "Grasshopper edit partially applied.",
+            },
+            errors=["connect failed"],
+        )
+
+        entry = session.add_entry("gh_edit", {"epoch": 7}, result)
+        serialized = session.to_dict()
+        restored = Session.from_dict(serialized)
+
+        assert entry.metadata == {
+            "partial_success": True,
+            "verified": False,
+            "verification_note": "Grasshopper edit partially applied.",
+        }
+        restored_entry = restored.entries[0]
+        assert restored_entry.metadata["partial_success"] is True
+        assert restored_entry.metadata["verified"] is False
+        assert restored_entry.metadata["verification_note"] == "Grasshopper edit partially applied."
+
 
 class TestSessionAddEntryWithPlan:
     """Test Session.add_entry extracts plan from params."""

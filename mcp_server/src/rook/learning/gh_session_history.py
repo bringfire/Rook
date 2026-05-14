@@ -98,6 +98,8 @@ class GHToolResult:
         """Convert to session entry data (what gets recorded)."""
         data = {"outcome": self.outcome}
 
+        if self.data:
+            data["metadata"] = self.data
         if self.components_created:
             data["components_created"] = self.components_created
         if self.components_affected:
@@ -144,6 +146,9 @@ class SessionEntry:
     errors: Optional[list[str]] = None
     warnings: Optional[list[str]] = None
 
+    metadata: Optional[dict[str, Any]] = None
+    """Small tool-specific metadata preserved for later session analysis."""
+
     # Explicit annotation
     notes: Optional[str] = None
     """Claude's observation about this action (via gh_session_note)."""
@@ -177,6 +182,8 @@ class SessionEntry:
             d["errors"] = self.errors
         if self.warnings:
             d["warnings"] = self.warnings
+        if self.metadata:
+            d["metadata"] = self.metadata
         if self.notes:
             d["notes"] = self.notes
         if self.plan:
@@ -200,6 +207,7 @@ class SessionEntry:
             connections_removed=d.get("connections_removed"),
             errors=d.get("errors"),
             warnings=d.get("warnings"),
+            metadata=d.get("metadata"),
             notes=d.get("notes"),
             plan=d.get("plan"),
         )
@@ -338,6 +346,7 @@ class Session:
             connections_removed=entry_data.get("connections_removed"),
             errors=entry_data.get("errors"),
             warnings=entry_data.get("warnings"),
+            metadata=entry_data.get("metadata"),
             plan=plan,
         )
 
