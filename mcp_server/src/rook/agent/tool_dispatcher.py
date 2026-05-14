@@ -21,6 +21,7 @@ import time
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from ..bridge import call_rhino
+from ..gh_edit_contract import apply_gh_edit_contract
 from .chat.execution_policy import annotate_result, needs_verification
 
 logger = logging.getLogger(__name__)
@@ -1547,6 +1548,16 @@ class ToolDispatcher:
             endpoint, method = BRIDGE_ROUTES[name]
             data = params if params else None
             result = await call_rhino(endpoint, method, data, port)
+            if name == "gh_edit":
+                result = apply_gh_edit_contract(result, strict_partial_success=False)
+                if result.get("partial_success"):
+                    note = result.get("verification_note")
+                    if isinstance(note, str) and "before continuing" not in note:
+                        note = f"{note} Inspect edit_summary.errors before continuing."
+                        result["verification_note"] = note
+                        result_data = result.get("data")
+                        if isinstance(result_data, dict):
+                            result_data["verification_note"] = note
             if not result.get("success"):
                 logger.warning(f"Bridge call failed for {name} -> {endpoint}: {result}")
             return result
