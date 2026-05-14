@@ -58,6 +58,8 @@ def test_no_mutation_edit_errors_become_failure_without_partial_success():
     assert "partial_success" not in contracted
     assert contracted["data"]["errors"] == ["Create failed: Centre Box not found"]
     assert contracted["data"]["warnings"] == ["Create failed: Centre Box not found"]
+    assert contracted["data"]["verified"] is False
+    assert "failed before applying any mutations" in contracted["data"]["verification_note"]
     assert "failed before applying any mutations" in contracted["verification_note"]
 
 
@@ -86,6 +88,8 @@ def test_partial_mutation_edit_errors_are_compat_success_but_unverified():
     assert contracted["errors"] == ["connect: param not found for 'T1.O0>T2.I3'"]
     assert contracted["data"]["partial_success"] is True
     assert contracted["data"]["errors"] == ["connect: param not found for 'T1.O0>T2.I3'"]
+    assert contracted["data"]["verified"] is False
+    assert "partially applied" in contracted["data"]["verification_note"]
     assert "partially applied" in contracted["verification_note"]
 
 
@@ -228,13 +232,14 @@ def apply_gh_edit_contract(
     data["warnings"] = _merge_unique(data.get("warnings"), errors)
     contracted["errors"] = _merge_unique(contracted.get("errors"), errors)
     contracted["verified"] = False
+    data["verified"] = False
 
     if mutation_applied:
         contracted["partial_success"] = True
         data["partial_success"] = True
         if strict_partial_success:
             contracted["success"] = False
-        contracted["verification_note"] = (
+        verification_note = (
             "gh_edit partially applied. Inspect edit_summary.errors and the "
             "returned snapshot before continuing; remediate incrementally, "
             "undo, or clean up before retrying."
@@ -243,11 +248,13 @@ def apply_gh_edit_contract(
         contracted["success"] = False
         contracted.pop("partial_success", None)
         data.pop("partial_success", None)
-        contracted["verification_note"] = (
+        verification_note = (
             "gh_edit failed before applying any mutations. Inspect "
             "edit_summary.errors, fix the request, then retry."
         )
 
+    contracted["verification_note"] = verification_note
+    data["verification_note"] = verification_note
     contracted["data"] = data
     return contracted
 ```
@@ -277,7 +284,23 @@ git commit -m "test: define gh_edit partial failure contract"
 
 - [ ] **Step 1: Extend MCP tests for no-mutation and partial-mutation behavior**
 
-In `mcp_server/tests/test_gh_edit_postmortem.py`, add:
+In `mcp_server/tests/test_gh_edit_postmortem.py`, update `_decode_response` so
+structured error payloads remain inspectable:
+
+```python
+def _decode_response(response):
+    text = response[0].text
+    if text.startswith("Error: "):
+        raw = text[len("Error: "):]
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            data = raw
+        return {"success": False, "data": data}
+    return {"success": True, "data": json.loads(text)}
+```
+
+Then add:
 
 ```python
 @pytest.mark.asyncio
@@ -310,7 +333,9 @@ async def test_gh_edit_no_mutation_errors_return_failure(monkeypatch, patched_se
     payload = _decode_response(response)
 
     assert payload["success"] is False
-    assert "Centre Box" in str(payload["data"])
+    assert payload["data"]["verified"] is False
+    assert payload["data"]["errors"] == ["Create failed: Centre Box not found"]
+    assert "failed before applying any mutations" in payload["data"]["verification_note"]
 
 
 @pytest.mark.asyncio
@@ -343,6 +368,8 @@ async def test_gh_edit_partial_mutation_response_contains_visible_contract(monke
     assert payload["data"]["partial_success"] is True
     assert payload["data"]["errors"] == ["connect: unknown target 'T2'"]
     assert payload["data"]["warnings"] == ["connect: unknown target 'T2'"]
+    assert payload["data"]["verified"] is False
+    assert "partially applied" in payload["data"]["verification_note"]
 ```
 
 Update the existing `test_gh_edit_surfaces_edit_summary_errors_as_warnings` fixture so its fake summary includes mutation evidence:
@@ -543,10 +570,11 @@ git add mcp_server/src/rook/agent/tool_dispatcher.py mcp_server/tests/test_dispa
 git commit -m "fix: surface gh_edit contract in agent dispatcher"
 ```
 
-## Task 4: Prompt Contract for Chat UI and Unverified Results
+## Task 4: Prompt Contract and GH Status Tool Discoverability
 
 **Files:**
 - Modify: `mcp_server/src/rook/agent/chat/prompt_builder.py`
+- Modify: `mcp_server/src/rook/agent/tool_groups.py`
 - Test: `mcp_server/tests/test_chat_prompt_builder.py`
 
 - [ ] **Step 1: Add failing prompt regression tests**
@@ -554,6 +582,9 @@ git commit -m "fix: surface gh_edit contract in agent dispatcher"
 In `mcp_server/tests/test_chat_prompt_builder.py`, add:
 
 ```python
+from rook.agent.tool_groups import TOOL_GROUPS
+
+
 def test_system_prompt_treats_in_chat_ui_as_ui_block_signal():
     prompt = PromptBuilder().build_system("worker")
 
@@ -569,6 +600,10 @@ def test_system_prompt_requires_remediation_for_unverified_tool_results():
     assert "partial_success" in prompt
     assert "edit_summary.errors" in prompt
     assert "not safe to build on" in prompt
+
+
+def test_gh_canvas_group_includes_status_health_check():
+    assert "gh_status" in TOOL_GROUPS["gh_canvas"]
 ```
 
 - [ ] **Step 2: Run prompt tests and verify failures**
@@ -579,7 +614,7 @@ Run:
 python -m pytest mcp_server/tests/test_chat_prompt_builder.py -q
 ```
 
-Expected: new prompt string assertions fail.
+Expected: new prompt string assertions and the `gh_status` group assertion fail.
 
 - [ ] **Step 3: Update base prompt guidance**
 
@@ -605,6 +640,16 @@ created components, so do not blindly retry the same batch; remediate
 incrementally, undo, or clean up before retrying.
 ```
 
+In `mcp_server/src/rook/agent/tool_groups.py`, add `gh_status` to the
+`gh_canvas` group next to `gh_snapshot`:
+
+```python
+"gh_canvas": [
+    "gh_status", "gh_snapshot", "gh_edit", "gh_undo",
+    ...
+],
+```
+
 - [ ] **Step 4: Run prompt tests**
 
 Run:
@@ -618,7 +663,7 @@ Expected: pass.
 - [ ] **Step 5: Commit Task 4**
 
 ```powershell
-git add mcp_server/src/rook/agent/chat/prompt_builder.py mcp_server/tests/test_chat_prompt_builder.py
+git add mcp_server/src/rook/agent/chat/prompt_builder.py mcp_server/src/rook/agent/tool_groups.py mcp_server/tests/test_chat_prompt_builder.py
 git commit -m "fix: guide chat agents toward ui blocks and partial remediation"
 ```
 
@@ -661,10 +706,10 @@ Spec: `docs/superpowers/specs/2026-05-14-gh-edit-partial-failure-contract-design
 | Area | File / Function | Current Behavior | Required Phase 1 Behavior | Required Phase 3 Behavior | Tests |
 | --- | --- | --- | --- | --- | --- |
 | Chat dispatcher/tool card | `mcp_server/src/rook/agent/tool_dispatcher.py::ToolDispatcher._dispatch_inner` | Bridge result passed through and chat sees top-level `success`. | Apply shared contract; no-mutation errors become failures; partial mutations are unverified with top-level errors. | Shared helper strict flag flips partial mutation `success` to false. | `mcp_server/tests/test_dispatcher_safety.py::TestDispatcherVerification` |
-| Session history recording | `mcp_server/src/rook/server.py::_record_gh_to_session` | Existing logic marks nested edit errors as partial. | Preserve top-level errors and partial outcome. | Continue recording partial outcome even when top-level success is false. | `mcp_server/tests/test_gh_edit_postmortem.py::test_record_gh_to_session_marks_edit_summary_errors_as_partial` plus Phase 3 update |
+| Session history recording | `mcp_server/src/rook/server.py::_record_gh_to_session` and the `case "gh_edit"` recording branch | Existing logic marks nested edit errors as partial, but the branch records only inside `if result.get("success")`. | Preserve top-level errors and partial outcome. | Continue recording partial outcome even when top-level success is false. | `mcp_server/tests/test_gh_edit_postmortem.py::test_record_gh_to_session_marks_edit_summary_errors_as_partial` plus Phase 3 branch test |
 | Batched GH intent fallback | `mcp_server/src/rook/server.py` lines matching `edit_result = await call_rhino("/gh/edit", ...)` and `if edit_result.get("success")` | Branches on `edit_result.get("success")`; failed batch falls back to sequential execution. | Branch on `partial_success` before fallback and avoid blind duplicate-producing retry. | Branch on strict failure plus retained partial metadata. | Add a regression in the existing GH intent batch/fallback test area or create `mcp_server/tests/test_gh_edit_contract.py` coverage for the branch helper extracted from this code. |
 | GH session learning/history | `mcp_server/src/rook/learning/gh_session_history.py` | Records result details from caller. | Store promoted errors and partial outcome. | Store promoted errors and partial outcome with strict failure. | Existing session history tests plus one promoted-error assertion |
-| Direct MCP tool response | `mcp_server/src/rook/server.py::call_tool` | Successful MCP responses serialize only `result.data`. | Duplicate `errors`, `warnings`, and `partial_success` under `data` so direct callers can see the contract. | Strict failure response must preserve parseable error details. | `mcp_server/tests/test_gh_edit_postmortem.py` |
+| Direct MCP tool response | `mcp_server/src/rook/server.py::call_tool` | Successful MCP responses serialize only `result.data`. | Duplicate `errors`, `warnings`, `partial_success`, `verified`, and `verification_note` under `data` so direct callers can see the contract. | Strict failure response must preserve parseable error details. | `mcp_server/tests/test_gh_edit_postmortem.py` |
 | Tests asserting `success` | `mcp_server/tests` grep results | Some tests may encode compatibility success. | Compatibility assertions allowed only for mutation-evidence partials. | Update to expect strict failure for all non-empty `edit_summary.errors`. | Tracked in Phase 3 task |
 ```
 
@@ -764,7 +809,60 @@ if not result.get("success"):
 
 Do not add automatic retry for partial mutations.
 
-- [ ] **Step 5: Run migration tests**
+- [ ] **Step 5: Add strict partial session-recording regression**
+
+In `mcp_server/tests/test_gh_edit_postmortem.py`, add:
+
+```python
+@pytest.mark.asyncio
+async def test_gh_edit_strict_partial_failure_still_records_session(monkeypatch, patched_server):
+    record_mock = AsyncMock()
+
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        assert route == "/gh/edit"
+        return {
+            "success": True,
+            "data": {
+                "edit_summary": {
+                    "created": 1,
+                    "errors": ["connect: unknown target 'T2'"],
+                    "instance_guids": {"T1": "guid-1"},
+                }
+            },
+        }
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+    monkeypatch.setattr(server, "_record_gh_to_session", record_mock)
+    monkeypatch.setattr(
+        server,
+        "get_unified_store",
+        lambda: SimpleNamespace(check_deprecation_warnings=lambda _create: []),
+    )
+
+    response = await server.call_tool("gh_edit", {"epoch": 3, "create": []})
+    payload = _decode_response(response)
+
+    assert payload["success"] is False
+    assert payload["data"]["partial_success"] is True
+    record_mock.assert_awaited_once()
+```
+
+Then update the `case "gh_edit"` recording branch in
+`mcp_server/src/rook/server.py` from:
+
+```python
+if result.get("success"):
+    ...
+```
+
+to:
+
+```python
+if result.get("success") or result.get("partial_success"):
+    ...
+```
+
+- [ ] **Step 6: Run migration tests**
 
 Run:
 
@@ -774,7 +872,7 @@ python -m pytest mcp_server/tests/test_gh_edit_contract.py mcp_server/tests/test
 
 Expected: pass. If a recipe replay or session-history test fails, update it to assert the three contract states explicitly.
 
-- [ ] **Step 6: Commit Task 6**
+- [ ] **Step 7: Commit Task 6**
 
 ```powershell
 git add mcp_server/src/rook/gh_edit_contract.py mcp_server/src/rook/server.py mcp_server/src/rook/agent/tool_dispatcher.py mcp_server/tests docs/superpowers/audits/2026-05-14-gh-edit-caller-audit.md
@@ -820,6 +918,51 @@ async def test_gh_status_success_means_endpoint_executed_not_ready(monkeypatch):
 
     assert payload["ready_for_edit"] is False
     assert payload["canvas_visible"] is False
+
+
+@pytest.mark.asyncio
+async def test_gh_snapshot_fails_closed_when_not_ready(monkeypatch):
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        assert route == "/gh/snapshot"
+        return {
+            "success": False,
+            "data": {
+                "error": "grasshopper_not_ready",
+                "ready_for_edit": False,
+            },
+        }
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+    response = await server.call_tool("gh_snapshot", {})
+    payload = response[0].text
+
+    assert payload.startswith("Error: ")
+    assert "grasshopper_not_ready" in payload
+
+
+@pytest.mark.asyncio
+async def test_gh_edit_fails_closed_when_not_ready(monkeypatch):
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        assert route == "/gh/edit"
+        return {
+            "success": False,
+            "data": {
+                "error": "grasshopper_not_ready",
+                "ready_for_edit": False,
+            },
+        }
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+    monkeypatch.setattr(
+        server,
+        "get_unified_store",
+        lambda: type("Store", (), {"check_deprecation_warnings": lambda self, _create: []})(),
+    )
+    response = await server.call_tool("gh_edit", {"epoch": 1})
+    payload = response[0].text
+
+    assert payload.startswith("Error: ")
+    assert "grasshopper_not_ready" in payload
 ```
 
 - [ ] **Step 2: Inspect existing managed status implementation**
@@ -884,7 +1027,19 @@ dotnet test src/Rook.Tests/Rook.Tests.csproj --filter Grasshopper
 python -m pytest mcp_server/tests/test_gh_status_contract.py -q
 ```
 
-Expected: pass. When no managed Grasshopper test seam exists for this reflection path, record that limitation in the commit message body and rely on Python contract tests plus a manual Rhino validation task in the release checklist.
+Expected: pass. When no managed Grasshopper test seam exists for this reflection
+path, record that limitation in the commit message body and rely on the Python
+contract tests plus this manual Rhino validation checkpoint:
+
+```text
+Manual Rhino checkpoint:
+1. Start Rhino with Grasshopper closed.
+2. Call gh_status and confirm success=true only means endpoint execution.
+3. Confirm ready_for_edit=false when the active canvas/document is absent or
+   canvas_visible is detectably false.
+4. Call gh_snapshot and gh_edit in the not-ready state and confirm both return
+   success=false with error/errors containing grasshopper_not_ready.
+```
 
 - [ ] **Step 6: Commit Task 7**
 
