@@ -199,6 +199,36 @@ class TestDispatcherVerification:
         assert "verified" not in result
 
     @pytest.mark.asyncio
+    async def test_gh_status_normalizes_managed_camel_case(self, dispatcher):
+        mock_result = {
+            "success": True,
+            "data": {
+                "available": True,
+                "assemblyVersion": "8.0.0.0",
+                "hasActiveCanvas": True,
+                "canvasVisible": False,
+                "visibilityUnknown": False,
+                "hasActiveDocument": True,
+                "documentId": "doc-1",
+                "documentName": "example.gh",
+                "documentPath": r"C:\tmp\example.gh",
+                "readyForEdit": False,
+                "objectCount": 4,
+                "warnings": [],
+            },
+        }
+
+        with patch("rook.agent.tool_dispatcher.call_rhino", new_callable=AsyncMock) as mock_rhino:
+            mock_rhino.return_value = mock_result
+            result = await dispatcher.dispatch("gh_status", {})
+
+        assert result["success"] is True
+        assert result["data"]["ready_for_edit"] is False
+        assert result["data"]["has_active_canvas"] is True
+        assert result["data"]["canvas_visible"] is False
+        assert "readyForEdit" not in result["data"]
+
+    @pytest.mark.asyncio
     async def test_gh_edit_no_mutation_errors_are_not_success(self, dispatcher):
         mock_result = {
             "success": True,

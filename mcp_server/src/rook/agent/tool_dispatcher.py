@@ -22,6 +22,7 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from ..bridge import call_rhino
 from ..gh_edit_contract import apply_gh_edit_contract
+from ..gh_status_contract import normalize_gh_status_result
 from .chat.execution_policy import annotate_result, needs_verification
 
 logger = logging.getLogger(__name__)
@@ -1548,6 +1549,8 @@ class ToolDispatcher:
             endpoint, method = BRIDGE_ROUTES[name]
             data = params if params else None
             result = await call_rhino(endpoint, method, data, port)
+            if name == "gh_status":
+                result = normalize_gh_status_result(result)
             if name == "gh_edit":
                 result = apply_gh_edit_contract(result, strict_partial_success=True)
             if not result.get("success"):
