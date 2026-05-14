@@ -395,6 +395,18 @@ namespace Rook.UI.Web
             }
         }
 
+        protected void RequestHostVisibleRefresh(string reason)
+        {
+#if NET7_0_OR_GREATER
+            TraceWebViewFocus("host-visibility-reconcile-request",
+                $"visible-refresh;{reason}");
+            ScheduleHostVisibilityReconcile(
+                _hostVisibility.RecordVisibleRefresh(reason));
+#else
+            _ = reason;
+#endif
+        }
+
 #if NET7_0_OR_GREATER
         private void ScheduleHostVisibilityReconcile(WebViewHostVisibilityDecision decision)
         {
@@ -499,14 +511,6 @@ namespace Rook.UI.Web
             SetControllerVisible(controller, true, reason);
             NotifyParentWindowPositionChanged(controller, reason);
             TraceWebViewFocus("host-visibility-reconciled", reason);
-        }
-
-        private void RequestHostVisibleRefresh(string reason)
-        {
-            TraceWebViewFocus("host-visibility-reconcile-request",
-                $"visible-refresh;{reason}");
-            ScheduleHostVisibilityReconcile(
-                _hostVisibility.RecordVisibleRefresh(reason));
         }
 
         private bool SetControllerVisible(object controller, bool visible, string reason)

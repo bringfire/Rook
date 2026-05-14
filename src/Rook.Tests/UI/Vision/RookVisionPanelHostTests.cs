@@ -64,6 +64,14 @@ namespace Rook.Tests.UI.Vision
             Assert.Contains("PanelHidden", source);
         }
 
+        [Fact]
+        public void VisionWebSurface_UiBridgeOps_RequestHostRefreshAfterModalReturn()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Vision", "VisionWebSurface.cs");
+
+            Assert.Contains("RequestHostVisibleRefresh(\"VisionUiOpCompleted:\" + op)", source);
+        }
+
         private static string ReadSourceFile(params string[] pathParts)
         {
             var dir = new DirectoryInfo(AppContext.BaseDirectory);
