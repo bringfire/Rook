@@ -39,10 +39,17 @@ async def test_gh_status_success_means_endpoint_executed_not_ready(monkeypatch, 
             "success": True,
             "data": {
                 "available": True,
-                "has_active_canvas": True,
-                "canvas_visible": False,
-                "has_active_document": True,
-                "ready_for_edit": False,
+                "assemblyVersion": "8.0.0.0",
+                "hasActiveCanvas": True,
+                "canvasVisible": False,
+                "visibilityUnknown": False,
+                "hasActiveDocument": True,
+                "documentId": "doc-1",
+                "documentName": "example.gh",
+                "documentPath": r"C:\tmp\example.gh",
+                "readyForEdit": False,
+                "objectCount": 4,
+                "warnings": [],
             },
         }
 
@@ -53,10 +60,18 @@ async def test_gh_status_success_means_endpoint_executed_not_ready(monkeypatch, 
 
     assert payload["success"] is True
     assert payload["data"]["available"] is True
+    assert payload["data"]["assembly_version"] == "8.0.0.0"
     assert payload["data"]["has_active_canvas"] is True
     assert payload["data"]["canvas_visible"] is False
+    assert payload["data"]["visibility_unknown"] is False
     assert payload["data"]["has_active_document"] is True
+    assert payload["data"]["document_id"] == "doc-1"
+    assert payload["data"]["document_name"] == "example.gh"
+    assert payload["data"]["document_path"] == r"C:\tmp\example.gh"
     assert payload["data"]["ready_for_edit"] is False
+    assert payload["data"]["object_count"] == 4
+    assert payload["data"]["warnings"] == []
+    assert "readyForEdit" not in payload["data"]
 
 
 @pytest.mark.asyncio
