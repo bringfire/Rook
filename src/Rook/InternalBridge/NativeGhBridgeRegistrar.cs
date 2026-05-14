@@ -517,14 +517,19 @@ namespace Rook.InternalBridge
             IntPtr responseJsonLength,
             IntPtr httpStatusCode)
         {
-            return ExecuteReadOnlyCallback(
+            return ExecuteApiResponseCallback(
                 requestJsonUtf8,
                 requestJsonLength,
                 responseJsonUtf8,
                 responseJsonCapacity,
                 responseJsonLength,
                 httpStatusCode,
-                () => Core.QueryDocument());
+                QueryDocumentForBridge);
+        }
+
+        internal static ApiResponse QueryDocumentForBridge(string requestJson)
+        {
+            return Handler.QueryDocument();
         }
 
         private static int HandleSelection(
