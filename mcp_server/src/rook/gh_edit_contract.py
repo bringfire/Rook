@@ -16,13 +16,19 @@ def _merge_unique(*issue_lists):
     issues = []
     seen = set()
     for issue_list in issue_lists:
-        if not issue_list:
-            continue
-        for issue in issue_list:
-            if isinstance(issue, str) and issue not in seen:
+        for issue in _normalize_issues(issue_list):
+            if issue not in seen:
                 seen.add(issue)
                 issues.append(issue)
     return issues
+
+
+def _normalize_issues(issue_list):
+    if isinstance(issue_list, str):
+        return [issue_list]
+    if not isinstance(issue_list, (list, tuple)):
+        return []
+    return [issue for issue in issue_list if isinstance(issue, str)]
 
 
 def extract_edit_summary(result):
@@ -42,10 +48,6 @@ def extract_edit_errors(result):
     if edit_summary is None:
         return []
     errors = edit_summary.get("errors")
-    if isinstance(errors, str):
-        return _merge_unique([errors])
-    if not isinstance(errors, list):
-        return []
     return _merge_unique(errors)
 
 
@@ -56,12 +58,12 @@ def has_mutation_evidence(result):
 
     for key in MUTATION_COUNT_KEYS:
         value = edit_summary.get(key)
-        if isinstance(value, (int, float)) and value > 0:
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0:
             return True
 
     for key in ("temp_id_map", "instance_guids"):
         value = edit_summary.get(key)
-        if hasattr(value, "__len__") and len(value) > 0:
+        if isinstance(value, dict) and len(value) > 0:
             return True
 
     return edit_summary.get("mutation_applied") is True

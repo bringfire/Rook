@@ -81,3 +81,72 @@ def test_clean_edit_result_is_returned_unchanged():
     result = {"success": True, "data": {"edit_summary": {"created": 1}}}
 
     assert apply_gh_edit_contract(result) is result
+
+
+def test_malformed_instance_guid_string_is_not_mutation_evidence():
+    result = {
+        "success": True,
+        "data": {
+            "edit_summary": {
+                "created": 0,
+                "errors": ["connect failed"],
+                "instance_guids": "unavailable",
+            }
+        },
+    }
+
+    contracted = apply_gh_edit_contract(result)
+
+    assert contracted["success"] is False
+    assert "partial_success" not in contracted
+
+
+def test_boolean_mutation_count_is_not_mutation_evidence():
+    result = {
+        "success": True,
+        "data": {
+            "edit_summary": {
+                "created": True,
+                "errors": ["create failed"],
+            }
+        },
+    }
+
+    contracted = apply_gh_edit_contract(result)
+
+    assert contracted["success"] is False
+    assert "partial_success" not in contracted
+
+
+def test_existing_warning_string_is_preserved_as_single_warning():
+    result = {
+        "success": True,
+        "data": {
+            "warnings": "legacy warning",
+            "edit_summary": {
+                "created": 0,
+                "errors": ["create failed"],
+            },
+        },
+    }
+
+    contracted = apply_gh_edit_contract(result)
+
+    assert contracted["data"]["warnings"] == ["legacy warning", "create failed"]
+
+
+def test_existing_warning_dict_is_ignored_not_split_into_keys():
+    result = {
+        "success": True,
+        "data": {
+            "warnings": {"bad": "shape"},
+            "edit_summary": {
+                "created": 0,
+                "errors": ["create failed"],
+            },
+        },
+    }
+
+    contracted = apply_gh_edit_contract(result)
+
+    assert contracted["data"]["warnings"] == ["create failed"]
