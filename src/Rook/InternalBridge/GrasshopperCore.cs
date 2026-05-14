@@ -26,31 +26,110 @@ namespace Rook.InternalBridge
 
         public BridgeResult<GrasshopperStatusDto> GetStatus()
         {
-            var gh = ResolveContext();
-            if (!gh.Success)
-                return BridgeResult<GrasshopperStatusDto>.Fail(gh.Error ?? "Grasshopper unavailable");
+            try
+            {
+                return BridgeResult<GrasshopperStatusDto>.Ok(ObserveStatus());
+            }
+            catch (Exception ex)
+            {
+                return BridgeResult<GrasshopperStatusDto>.Ok(new GrasshopperStatusDto
+                {
+                    Available = false,
+                    HasActiveCanvas = false,
+                    HasActiveDocument = false,
+                    VisibilityUnknown = true,
+                    ReadyForEdit = false,
+                    Warnings = new[] { $"Grasshopper status inspection failed: {ex.Message}" },
+                });
+            }
+        }
+
+        private GrasshopperStatusDto ObserveStatus()
+        {
+            lock (_lock)
+            {
+                _ghAssembly ??= AppDomain.CurrentDomain.GetAssemblies()
+                    .FirstOrDefault(a => a.GetName().Name == "Grasshopper");
+            }
+
+            if (_ghAssembly == null)
+            {
+                return new GrasshopperStatusDto
+                {
+                    Available = false,
+                    HasActiveCanvas = false,
+                    HasActiveDocument = false,
+                    VisibilityUnknown = true,
+                    ReadyForEdit = false,
+                    Warnings = new[] { "Grasshopper assembly is not loaded. Open Grasshopper before using GH canvas tools." },
+                };
+            }
+
+            var warnings = new List<string>();
+            var instancesType = _ghAssembly.GetType("Grasshopper.Instances");
+            var available = instancesType != null;
+            object? canvas = null;
+            object? document = null;
+            bool? canvasVisible = null;
+            var visibilityUnknown = true;
+
+            if (instancesType == null)
+            {
+                warnings.Add("Grasshopper.Instances type was not found in the loaded Grasshopper assembly.");
+            }
+            else
+            {
+                var canvasProp = instancesType.GetProperty("ActiveCanvas", BindingFlags.Public | BindingFlags.Static);
+                canvas = canvasProp?.GetValue(null);
+                if (canvas != null)
+                {
+                    var docProp = canvas.GetType().GetProperty("Document");
+                    document = docProp?.GetValue(canvas);
+                    canvasVisible = DetectCanvasVisible(canvas, out visibilityUnknown);
+                    if (visibilityUnknown)
+                        warnings.Add("Grasshopper canvas visibility could not be detected.");
+                }
+            }
 
             var objectCount = 0;
             try
             {
-                var objectsProp = gh.Document!.GetType().GetProperty("Objects");
-                var objects = objectsProp?.GetValue(gh.Document) as IEnumerable;
-                if (objects != null)
-                    objectCount = objects.Cast<object>().Count();
+                if (document != null)
+                {
+                    var objectsProp = document.GetType().GetProperty("Objects");
+                    var objects = objectsProp?.GetValue(document) as IEnumerable;
+                    if (objects != null)
+                        objectCount = objects.Cast<object>().Count();
+                }
             }
             catch
             {
                 // Keep status non-fatal if object enumeration fails.
             }
 
-            return BridgeResult<GrasshopperStatusDto>.Ok(new GrasshopperStatusDto
+            var documentPath = GetStringProperty(document, "FilePath") ?? "";
+            var documentName = GetStringProperty(document, "DisplayName");
+            if (string.IsNullOrEmpty(documentName) && !string.IsNullOrEmpty(documentPath))
+                documentName = System.IO.Path.GetFileName(documentPath);
+
+            return new GrasshopperStatusDto
             {
-                Available = true,
-                AssemblyVersion = gh.Assembly!.GetName().Version?.ToString() ?? "",
-                HasActiveCanvas = gh.Canvas != null,
-                HasActiveDocument = gh.Document != null,
+                Available = available,
+                AssemblyVersion = _ghAssembly.GetName().Version?.ToString() ?? "",
+                HasActiveCanvas = canvas != null,
+                CanvasVisible = canvasVisible,
+                VisibilityUnknown = visibilityUnknown,
+                HasActiveDocument = document != null,
+                DocumentId = GetStringProperty(document, "DocumentID")
+                    ?? GetStringProperty(document, "DocumentGuid")
+                    ?? GetStringProperty(document, "InstanceGuid")
+                    ?? GetStringProperty(document, "Guid"),
+                DocumentName = documentName,
+                DocumentPath = documentPath,
+                ReadyForEdit = available && canvas != null && document != null && canvasVisible != false,
                 ObjectCount = objectCount,
-            });
+                Warnings = warnings,
+            };
         }
 
         public BridgeResult<GrasshopperDocumentInfoDto> GetDocumentInfo()
@@ -93,7 +172,11 @@ namespace Rook.InternalBridge
 
         public BridgeResult<GrasshopperQueryDto> QueryDocument()
         {
-            var gh = ResolveContext();
+            var status = ObserveStatus();
+            if (!status.ReadyForEdit)
+                return BridgeResult<GrasshopperQueryDto>.Fail(BuildNotReadyMessage(status));
+
+            var gh = ResolveContext(createDocumentIfMissing: false);
             if (!gh.Success)
                 return BridgeResult<GrasshopperQueryDto>.Fail(gh.Error ?? "Grasshopper unavailable");
 
@@ -155,7 +238,7 @@ namespace Rook.InternalBridge
             }
         }
 
-        private ResolvedGrasshopperContext ResolveContext()
+        private ResolvedGrasshopperContext ResolveContext(bool createDocumentIfMissing = true)
         {
             lock (_lock)
             {
@@ -183,7 +266,7 @@ namespace Rook.InternalBridge
 
             var docProp = canvas.GetType().GetProperty("Document");
             var document = docProp?.GetValue(canvas);
-            if (document == null)
+            if (document == null && createDocumentIfMissing)
             {
                 var docType = _ghAssembly.GetType("Grasshopper.Kernel.GH_Document");
                 if (docType != null)
@@ -201,7 +284,85 @@ namespace Rook.InternalBridge
                 }
             }
 
+            if (document == null)
+            {
+                return ResolvedGrasshopperContext.Fail(
+                    createDocumentIfMissing
+                        ? "No active GH document and failed to create one"
+                        : "No active Grasshopper document",
+                    _ghAssembly,
+                    canvas);
+            }
+
             return ResolvedGrasshopperContext.Ok(_ghAssembly, canvas, document);
+        }
+
+        private static string BuildNotReadyMessage(GrasshopperStatusDto status)
+        {
+            if (!status.Available)
+                return "Grasshopper is not available. Open Grasshopper before using GH canvas tools.";
+            if (!status.HasActiveCanvas)
+                return "No active Grasshopper canvas. Open the Grasshopper editor before using GH canvas tools.";
+            if (!status.HasActiveDocument)
+                return "No active Grasshopper document. Open or create a Grasshopper document before using GH canvas tools.";
+            if (status.CanvasVisible == false)
+                return "Grasshopper canvas is not visible. Show the Grasshopper editor before using GH canvas tools.";
+            return "Grasshopper is not ready for canvas tools.";
+        }
+
+        private static bool? DetectCanvasVisible(object canvas, out bool visibilityUnknown)
+        {
+            visibilityUnknown = true;
+            bool? visible = TryGetBooleanProperty(canvas, "Visible")
+                ?? TryGetBooleanProperty(canvas, "IsVisible");
+
+            var findForm = canvas.GetType().GetMethod("FindForm", Type.EmptyTypes);
+            var form = findForm?.Invoke(canvas, null);
+            var formVisible = form != null
+                ? TryGetBooleanProperty(form, "Visible") ?? TryGetBooleanProperty(form, "IsVisible")
+                : null;
+
+            if (visible == false || formVisible == false)
+            {
+                visibilityUnknown = false;
+                return false;
+            }
+
+            if (visible.HasValue || formVisible.HasValue)
+            {
+                visibilityUnknown = false;
+                return (visible ?? true) && (formVisible ?? true);
+            }
+
+            return null;
+        }
+
+        private static bool? TryGetBooleanProperty(object obj, string propertyName)
+        {
+            try
+            {
+                var prop = obj.GetType().GetProperty(propertyName);
+                var value = prop?.GetValue(obj);
+                return value is bool flag ? flag : null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static string? GetStringProperty(object? obj, string propertyName)
+        {
+            if (obj == null)
+                return null;
+            try
+            {
+                return obj.GetType().GetProperty(propertyName)?.GetValue(obj)?.ToString();
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         private static GrasshopperCanvasObjectDto ProjectCanvasObject(object obj)
@@ -287,8 +448,15 @@ namespace Rook.InternalBridge
         public bool Available { get; set; }
         public string AssemblyVersion { get; set; } = "";
         public bool HasActiveCanvas { get; set; }
+        public bool? CanvasVisible { get; set; }
+        public bool VisibilityUnknown { get; set; }
         public bool HasActiveDocument { get; set; }
+        public string? DocumentId { get; set; }
+        public string? DocumentName { get; set; }
+        public string? DocumentPath { get; set; }
+        public bool ReadyForEdit { get; set; }
         public int ObjectCount { get; set; }
+        public IReadOnlyList<string> Warnings { get; set; } = Array.Empty<string>();
     }
 
     public sealed class GrasshopperDocumentInfoDto

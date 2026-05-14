@@ -34,6 +34,32 @@ namespace Rook.Tests.InternalBridge
             Assert.Equal(400, NativeGhBridgeRegistrar.MapBridgeStatus(new ApiResponse()));
         }
 
+        [Fact]
+        public void QueryDocumentForBridge_NotReady_ReturnsStructuredFailure()
+        {
+            var result = NativeGhBridgeRegistrar.QueryDocumentForBridge("{}");
+
+            Assert.False(result.Success);
+            Assert.NotNull(result.Data);
+
+            var dataType = result.Data!.GetType();
+            Assert.Equal(
+                "grasshopper_not_ready",
+                dataType.GetProperty("error")?.GetValue(result.Data));
+            Assert.Equal(
+                false,
+                dataType.GetProperty("ready_for_edit")?.GetValue(result.Data));
+            Assert.Equal(
+                false,
+                dataType.GetProperty("verified")?.GetValue(result.Data));
+            Assert.NotNull(dataType.GetProperty("errors")?.GetValue(result.Data));
+            Assert.NotNull(dataType.GetProperty("message")?.GetValue(result.Data));
+            Assert.Equal(
+                "gh_query",
+                dataType.GetProperty("operation")?.GetValue(result.Data));
+            Assert.NotNull(dataType.GetProperty("status")?.GetValue(result.Data));
+        }
+
         [Theory]
         [InlineData(415)]
         [InlineData(500)]

@@ -19,6 +19,8 @@ from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
 
+from .gh_edit_contract import apply_gh_edit_contract
+from .gh_status_contract import normalize_gh_status_result
 from .runtime_paths import (
     load_runtime_dotenv,
     resolve_readable_knowledge_path,
@@ -136,23 +138,59 @@ def _extract_gh_edit_partial_issues(result: dict[str, Any]) -> tuple[list[str], 
     return (errors, warnings)
 
 
-def _attach_gh_edit_partial_warnings(result: dict[str, Any]) -> dict[str, Any]:
-    """Surface edit_summary issues so callers can see partial gh_edit failures easily."""
-    edit_errors, edit_warnings = _extract_gh_edit_partial_issues(result)
-    if not edit_errors and not edit_warnings:
-        return result
+def _has_partial_or_unverified_result(result: dict[str, Any]) -> bool:
+    """Return true when a result is not a clean knowledge-learning success."""
+    data = result.get("data")
+    data_partial = isinstance(data, dict) and data.get("partial_success") is True
+    data_unverified = isinstance(data, dict) and data.get("verified") is False
+    return (
+        result.get("partial_success") is True
+        or data_partial
+        or result.get("verified") is False
+        or data_unverified
+    )
 
-    merged = dict(result)
-    data = merged.get("data")
-    if isinstance(data, dict):
-        data = dict(data)
-    else:
-        data = {"result": data}
 
-    existing_warnings = data.get("warnings")
-    data["warnings"] = _merge_issue_lists(existing_warnings, edit_warnings, edit_errors)
-    merged["data"] = data
-    return merged
+def _prepare_batch_gh_edit_result(
+    edit_result: dict[str, Any],
+    temp_id_map: list[tuple[dict[str, Any], str, float, float]],
+) -> tuple[dict[str, Any], bool, list[dict[str, Any]], list[str]]:
+    """Apply the gh_edit contract and decide whether sequential fallback is safe."""
+    contracted = apply_gh_edit_contract(edit_result, strict_partial_success=True)
+    data = contracted.get("data")
+    edit_summary = data.get("edit_summary", {}) if isinstance(data, dict) else {}
+    edit_summary = edit_summary if isinstance(edit_summary, dict) else {}
+
+    partial_success = contracted.get("partial_success") is True or (
+        isinstance(data, dict) and data.get("partial_success") is True
+    )
+    if not contracted.get("success") and not partial_success:
+        return contracted, True, [], []
+
+    guid_map = edit_summary.get("instance_guids", {}) or {}
+    if not isinstance(guid_map, dict):
+        guid_map = {}
+
+    created = []
+    use_guid_map = len(guid_map) > 0
+    for i, (comp, name, x, y) in enumerate(temp_id_map):
+        tid = f"T{i + 1}"
+        if use_guid_map and tid not in guid_map:
+            continue
+        created.append({
+            "name": name,
+            "component_guid": comp.get("guid", ""),
+            "instance_guid": guid_map.get(tid),
+            "x": x,
+            "y": y,
+        })
+
+    errors = _merge_issue_lists(
+        contracted.get("errors"),
+        data.get("errors") if isinstance(data, dict) else None,
+        edit_summary.get("errors"),
+    )
+    return contracted, False, created, errors
 
 
 _RHINOSCRIPTSYNTAX_INTERACTIVE_CALLS: frozenset[str] = frozenset({
@@ -428,8 +466,20 @@ async def _record_gh_to_session(
             if error_msg:
                 errors = _merge_issue_lists(errors, [error_msg])
 
+        partial_success = result.get("partial_success") is True or (
+            isinstance(data, dict) and data.get("partial_success") is True
+        )
+        partial_metadata = {}
+        for key in ("partial_success", "verified", "verification_note"):
+            if key in result:
+                partial_metadata[key] = result[key]
+            elif isinstance(data, dict) and key in data:
+                partial_metadata[key] = data[key]
+
         # Determine outcome level
-        if success and not errors and not warnings:
+        if partial_success:
+            outcome = "partial"
+        elif success and not errors and not warnings:
             outcome = "success"
         elif success:
             outcome = "partial"
@@ -440,7 +490,7 @@ async def _record_gh_to_session(
         tool_result = GHToolResult(
             success=success,
             outcome=outcome,
-            data={},  # Don't duplicate the full data
+            data=partial_metadata,
             components_created=components_created or [],
             components_affected=components_affected or [],
             components_deleted=components_deleted or [],
@@ -12665,6 +12715,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         # Grasshopper handlers
         case "gh_status":
             result = await call_rhino("/gh/status", "GET", port=port)
+            result = normalize_gh_status_result(result)
 
         case "gh_snapshot":
             result = await call_rhino("/gh/snapshot", "POST", arguments, port=port)
@@ -12678,9 +12729,9 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                 )
                 result = await call_rhino("/gh/edit", "POST", arguments, port=port)
                 result = _attach_deprecation_warnings(result, deprecation_warnings)
-                result = _attach_gh_edit_partial_warnings(result)
+                result = apply_gh_edit_contract(result, strict_partial_success=True)
                 # Record to session history
-                if result.get("success"):
+                if result.get("success") or result.get("partial_success"):
                     try:
                         await _record_gh_to_session(
                             action="gh_edit",
@@ -14144,9 +14195,10 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
                             # Submit to gh_edit
                             result = await call_rhino("/gh/edit", "POST", edit_doc, port=port)
+                            result = apply_gh_edit_contract(result, strict_partial_success=True)
 
                             # Record to session history
-                            if result.get("success"):
+                            if result.get("success") or result.get("partial_success"):
                                 try:
                                     await _record_gh_to_session(
                                         action="gh_replay_recipe",
@@ -15719,6 +15771,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                         components = knowledge.get("components", [])
                         created = []
                         errors = []
+                        batch_partial_success = False
+                        batch_verification_note = None
                         spacing = 200
                         wiring_plan = None
                         values_to_set = None
@@ -16048,36 +16102,29 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
                             edit_result = await call_rhino("/gh/edit", "POST", edit_doc, port=port)
 
-                            if edit_result.get("success"):
+                            edit_result, should_fallback, batch_created, edit_errors = _prepare_batch_gh_edit_result(
+                                edit_result,
+                                temp_id_map,
+                            )
+
+                            if not should_fallback:
+                                created.extend(batch_created)
+                                if edit_errors:
+                                    errors.extend(edit_errors)
+
                                 edit_data = edit_result.get("data", {})
-                                edit_summary = edit_data.get("edit_summary", {})
-
-                                # gh_edit returns instance_guids: {T1: "guid", T2: "guid"}
-                                # in the edit_summary (added in this refactor). Use these
-                                # to populate instance_guid with real GH instance GUIDs,
-                                # preserving the contract for session history and downstream.
-                                guid_map = {}
-                                if isinstance(edit_summary, dict):
-                                    guid_map = edit_summary.get("instance_guids", {}) or {}
-
-                                for i, (comp, name, x, y) in enumerate(temp_id_map):
-                                    tid = f"T{i + 1}"
-                                    instance_guid = guid_map.get(tid)
-                                    created.append({
-                                        "name": name,
-                                        "component_guid": comp.get("guid", ""),
-                                        "instance_guid": instance_guid,
-                                        "x": x,
-                                        "y": y,
-                                    })
-
+                                batch_partial_success = edit_result.get("partial_success") is True or (
+                                    isinstance(edit_data, dict) and edit_data.get("partial_success") is True
+                                )
+                                if batch_partial_success:
+                                    batch_verification_note = (
+                                        edit_result.get("verification_note")
+                                        or (edit_data.get("verification_note") if isinstance(edit_data, dict) else None)
+                                    )
+                                edit_summary = edit_data.get("edit_summary", {}) if isinstance(edit_data, dict) else {}
                                 created_count = edit_summary.get("created", 0) if isinstance(edit_summary, dict) else len(temp_id_map)
                                 wire_count = edit_summary.get("connected", 0) if isinstance(edit_summary, dict) else len(edit_connect)
                                 logger.info(f"Batch gh_edit: created {created_count}, connected {wire_count}")
-
-                                edit_errors = edit_summary.get("errors", []) if isinstance(edit_summary, dict) else []
-                                if edit_errors:
-                                    errors.extend(edit_errors)
                             else:
                                 batch_ok = False
                                 logger.warning(f"Batch gh_edit failed: {edit_result.get('data')}, falling back to sequential")
@@ -16238,6 +16285,11 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                             "knowledge_used": True,
                             "hint": "Components created and wired using type-based auto-wiring. Use gh_errors to check for issues." if wiring_results else "Components created. Auto-wiring matched what it could; manual wiring may be needed for complex setups.",
                         }
+                        if batch_partial_success:
+                            response_data["partial_success"] = True
+                            response_data["verified"] = False
+                            if batch_verification_note:
+                                response_data["verification_note"] = batch_verification_note
 
                         # Add pattern info if patterns were matched (Phase 2 + Phase 3)
                         if patterns_applied:
@@ -16298,7 +16350,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                             # Override with clear rejection message (result was set in the confidence check)
                             _track_intent_failure(intent, components, f"Low confidence: {dspy_confidence}")
                         else:
-                            intent_success = len(created) > 0
+                            intent_success = len(created) > 0 and not batch_partial_success
                             result = {
                                 "success": intent_success,
                                 "data": response_data
@@ -17719,12 +17771,14 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
     # Universal knowledge injection (post-call)
     get_phase_tracker().record_call(name)
-    if should_inject(name, result):
+    clean_knowledge_success = not _has_partial_or_unverified_result(result)
+    if clean_knowledge_success and should_inject(name, result):
         result = await inject_knowledge(name, arguments, result)
+        clean_knowledge_success = not _has_partial_or_unverified_result(result)
 
     # P2: Staleness feedback — update source knowledge on successful injection
     injection_meta = result.pop("_injection_meta", None)
-    if injection_meta and result.get("success"):
+    if injection_meta and result.get("success") and clean_knowledge_success:
         record_injection_success(injection_meta)
 
     # Metrics capture — after injection so we know if knowledge was injected

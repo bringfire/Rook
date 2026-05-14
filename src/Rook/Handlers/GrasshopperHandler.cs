@@ -44,6 +44,10 @@ namespace Rook.Handlers
         /// </summary>
         internal ApiResponse QueryDocument()
         {
+            var notReady = EnsureGrasshopperReadyForEdit("gh_query");
+            if (notReady != null)
+                return notReady;
+
             return ToApiResponse(_bridgeCore.QueryDocument());
         }
 
@@ -62,6 +66,55 @@ namespace Rook.Handlers
                 Success = result.Success,
                 Data = result.Success ? result.Data : result.Error
             };
+        }
+
+        private ApiResponse? EnsureGrasshopperReadyForEdit(string operation)
+        {
+            var statusResult = _bridgeCore.GetStatus();
+            var status = statusResult.Data;
+            if (statusResult.Success && status?.ReadyForEdit == true)
+                return null;
+
+            return GrasshopperNotReadyResponse(operation, status, statusResult.Error);
+        }
+
+        private static ApiResponse GrasshopperNotReadyResponse(
+            string operation,
+            GrasshopperStatusDto? status,
+            string? fallbackReason = null)
+        {
+            var reason = BuildGrasshopperNotReadyReason(status, fallbackReason);
+            return new ApiResponse
+            {
+                Success = false,
+                Data = new
+                {
+                    error = "grasshopper_not_ready",
+                    errors = new[] { reason },
+                    message = reason,
+                    operation,
+                    ready_for_edit = false,
+                    verified = false,
+                    status,
+                }
+            };
+        }
+
+        private static string BuildGrasshopperNotReadyReason(
+            GrasshopperStatusDto? status,
+            string? fallbackReason = null)
+        {
+            if (status == null)
+                return fallbackReason ?? "Grasshopper readiness could not be inspected.";
+            if (!status.Available)
+                return "Grasshopper is not available. Open Grasshopper before using GH canvas tools.";
+            if (!status.HasActiveCanvas)
+                return "No active Grasshopper canvas. Open the Grasshopper editor before using GH canvas tools.";
+            if (!status.HasActiveDocument)
+                return "No active Grasshopper document. Open or create a Grasshopper document before using GH canvas tools.";
+            if (status.CanvasVisible == false)
+                return "Grasshopper canvas is not visible. Show the Grasshopper editor before using GH canvas tools.";
+            return fallbackReason ?? "Grasshopper is not ready for GH canvas tools.";
         }
 
         /// <summary>
@@ -5493,7 +5546,7 @@ namespace Rook.Handlers
             }
         }
 
-        private GrasshopperContext GetGrasshopper()
+        private GrasshopperContext GetGrasshopper(bool createDocumentIfMissing = true)
         {
             lock (_lock)
             {
@@ -5516,8 +5569,8 @@ namespace Rook.Handlers
             var documentProp = canvas.GetType().GetProperty("Document");
             var document = documentProp?.GetValue(canvas);
 
-            // Auto-create document if canvas exists but no document
-            if (document == null)
+            // Auto-create document if canvas exists but no document.
+            if (document == null && createDocumentIfMissing)
             {
                 var docType = _ghAssembly.GetType("Grasshopper.Kernel.GH_Document");
                 if (docType != null)
@@ -5532,6 +5585,9 @@ namespace Rook.Handlers
                 if (document == null)
                     return new GrasshopperContext(false, "No active GH document and failed to create one", _ghAssembly, canvas, null);
             }
+
+            if (document == null && !createDocumentIfMissing)
+                return new GrasshopperContext(false, "No active Grasshopper document", _ghAssembly, canvas, null);
 
             return new GrasshopperContext(true, null, _ghAssembly, canvas, document);
         }
@@ -6058,9 +6114,13 @@ namespace Rook.Handlers
         /// </summary>
         public ApiResponse TakeSnapshot(string? body)
         {
-            var gh = GetGrasshopper();
+            var notReady = EnsureGrasshopperReadyForEdit("gh_snapshot");
+            if (notReady != null)
+                return notReady;
+
+            var gh = GetGrasshopper(createDocumentIfMissing: false);
             if (!gh.Success)
-                return new ApiResponse { Success = false, Data = gh.Error };
+                return GrasshopperNotReadyResponse("gh_snapshot", null, gh.Error);
 
             // Parse options
             bool includeData = true;
@@ -6787,9 +6847,13 @@ namespace Rook.Handlers
             if (string.IsNullOrEmpty(body))
                 return new ApiResponse { Success = false, Data = "Missing body" };
 
-            var gh = GetGrasshopper();
+            var notReady = EnsureGrasshopperReadyForEdit("gh_edit");
+            if (notReady != null)
+                return notReady;
+
+            var gh = GetGrasshopper(createDocumentIfMissing: false);
             if (!gh.Success)
-                return new ApiResponse { Success = false, Data = gh.Error };
+                return GrasshopperNotReadyResponse("gh_edit", null, gh.Error);
 
             Dictionary<string, JsonElement>? args;
             try

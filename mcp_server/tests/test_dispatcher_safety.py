@@ -199,6 +199,135 @@ class TestDispatcherVerification:
         assert "verified" not in result
 
     @pytest.mark.asyncio
+    async def test_gh_status_normalizes_managed_camel_case(self, dispatcher):
+        mock_result = {
+            "success": True,
+            "data": {
+                "available": True,
+                "assemblyVersion": "8.0.0.0",
+                "hasActiveCanvas": True,
+                "canvasVisible": False,
+                "visibilityUnknown": False,
+                "hasActiveDocument": True,
+                "documentId": "doc-1",
+                "documentName": "example.gh",
+                "documentPath": r"C:\tmp\example.gh",
+                "readyForEdit": False,
+                "objectCount": 4,
+                "warnings": [],
+            },
+        }
+
+        with patch("rook.agent.tool_dispatcher.call_rhino", new_callable=AsyncMock) as mock_rhino:
+            mock_rhino.return_value = mock_result
+            result = await dispatcher.dispatch("gh_status", {})
+
+        assert result["success"] is True
+        assert result["data"]["ready_for_edit"] is False
+        assert result["data"]["has_active_canvas"] is True
+        assert result["data"]["canvas_visible"] is False
+        assert "readyForEdit" not in result["data"]
+
+    @pytest.mark.asyncio
+    async def test_gh_snapshot_not_ready_hoists_verification_for_chat(self, dispatcher):
+        mock_result = {
+            "success": False,
+            "data": {
+                "error": "grasshopper_not_ready",
+                "errors": ["No active Grasshopper canvas"],
+                "message": "No active Grasshopper canvas",
+                "ready_for_edit": False,
+                "verified": False,
+            },
+        }
+
+        with patch("rook.agent.tool_dispatcher.call_rhino", new_callable=AsyncMock) as mock_rhino:
+            mock_rhino.return_value = mock_result
+            result = await dispatcher.dispatch("gh_snapshot", {})
+
+        assert result["success"] is False
+        assert result["verified"] is False
+        assert result["verification_note"] == "No active Grasshopper canvas"
+        assert result["data"]["verified"] is False
+
+    @pytest.mark.asyncio
+    async def test_gh_edit_not_ready_hoists_verification_without_edit_summary(self, dispatcher):
+        mock_result = {
+            "success": False,
+            "data": {
+                "error": "grasshopper_not_ready",
+                "errors": ["No active Grasshopper document"],
+                "message": "No active Grasshopper document",
+                "ready_for_edit": False,
+                "verified": False,
+            },
+        }
+
+        with patch("rook.agent.tool_dispatcher.call_rhino", new_callable=AsyncMock) as mock_rhino:
+            mock_rhino.return_value = mock_result
+            result = await dispatcher.dispatch("gh_edit", {"epoch": 9})
+
+        assert result["success"] is False
+        assert result["verified"] is False
+        assert result["verification_note"] == "No active Grasshopper document"
+        assert result["data"]["verified"] is False
+        assert "partial_success" not in result
+
+    @pytest.mark.asyncio
+    async def test_gh_edit_no_mutation_errors_are_not_success(self, dispatcher):
+        mock_result = {
+            "success": True,
+            "data": {
+                "edit_summary": {
+                    "created": 0,
+                    "deleted": 0,
+                    "values_set": 0,
+                    "connected": 0,
+                    "disconnected": 0,
+                    "errors": ["Create failed: Centre Box not found"],
+                }
+            },
+        }
+
+        with patch("rook.agent.tool_dispatcher.call_rhino", new_callable=AsyncMock) as mock_rhino:
+            mock_rhino.return_value = mock_result
+            result = await dispatcher.dispatch("gh_edit", {"epoch": 9, "create": []})
+
+        assert mock_rhino.call_count == 1
+        assert result["success"] is False
+        assert result["verified"] is False
+        assert result["errors"] == ["Create failed: Centre Box not found"]
+        assert "partial_success" not in result
+
+    @pytest.mark.asyncio
+    async def test_gh_edit_partial_errors_are_strict_failures_for_chat_agents(self, dispatcher):
+        mock_result = {
+            "success": True,
+            "data": {
+                "edit_summary": {
+                    "created": 1,
+                    "errors": ["connect: param not found for 'T19.O0>T20.I2'"],
+                    "instance_guids": {"T19": "guid-19"},
+                }
+            },
+        }
+
+        with patch("rook.agent.tool_dispatcher.call_rhino", new_callable=AsyncMock) as mock_rhino:
+            mock_rhino.return_value = mock_result
+            result = await dispatcher.dispatch("gh_edit", {"epoch": 9, "connect": []})
+
+        assert mock_rhino.call_count == 1
+        assert result["success"] is False
+        assert result["partial_success"] is True
+        assert result["verified"] is False
+        assert result["errors"] == ["connect: param not found for 'T19.O0>T20.I2'"]
+        assert result["data"]["partial_success"] is True
+        assert result["data"]["errors"] == ["connect: param not found for 'T19.O0>T20.I2'"]
+        assert result["data"]["warnings"] == ["connect: param not found for 'T19.O0>T20.I2'"]
+        assert result["data"]["verified"] is False
+        assert "verification_note" in result
+
+    @pytest.mark.asyncio
     async def test_rhino_boolean_gets_verified(self, dispatcher):
         """rhino_boolean (transform tier + CREATION_TOOLS) should be verified."""
         mock_result = {"success": True, "data": {"id": "xyz", "objectsCreated": 1}}
@@ -214,13 +343,13 @@ class TestDispatcherVerification:
 
     @pytest.mark.asyncio
     async def test_rhino_command_gets_verified(self, dispatcher):
-        """rhino_command (bridge tier + MODAL_RISK_TOOLS) should be verified."""
+        """rhino_command (transform tier + MODAL_RISK_TOOLS) should be verified."""
         mock_result = {"success": True, "data": {"output": "ok", "objectsCreated": 0}}
         prompt_idle = {"success": True, "data": {"is_active": False, "prompt": ""}}
 
         with patch("rook.agent.tool_dispatcher.call_rhino", new_callable=AsyncMock) as mock_rhino:
             mock_rhino.side_effect = [mock_result, prompt_idle]
-            result = await dispatcher.dispatch("rhino_command", {"command": "_Line"})
+            result = await dispatcher.dispatch("rhino_command", {"command": "_Line 0,0,0 1,1,1"})
 
         assert "verified" in result
 
