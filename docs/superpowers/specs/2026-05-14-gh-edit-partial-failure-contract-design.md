@@ -34,6 +34,12 @@ The final contract is:
 - Total failure before mutation: `success: false`, no `partial_success` unless
   mutation evidence exists.
 
+Mutation evidence means one or more edit-summary mutation counts are non-zero
+(`created`, `deleted`, `values_set`, `connected`, `disconnected`, or group
+mutation counts when available), temp/instance GUID maps contain created
+objects, or another explicit mutation marker is present. Non-empty
+`edit_summary.errors` alone is not mutation evidence.
+
 Phase 1 preserves raw transport compatibility by allowing top-level
 `success: true` for partial edits, but it must be behaviorally impossible to
 confuse with a successful edit in the chat and agent paths.
@@ -42,10 +48,14 @@ Invariant:
 
 ```text
 If data.edit_summary.errors is non-empty:
-- Phase 1: success may remain true for compatibility, but partial_success=true,
-  verified=false, and top-level errors are mandatory.
-- Phase 3: success=false, partial_success=true, verified=false, and top-level
-  errors remain mandatory.
+- With mutation evidence:
+  - Phase 1: success may remain true for compatibility, but
+    partial_success=true, verified=false, and top-level errors are mandatory.
+  - Phase 3: success=false, partial_success=true, verified=false, and
+    top-level errors remain mandatory.
+- Without mutation evidence:
+  - Phase 1 and Phase 3: success=false, verified=false, top-level errors are
+    mandatory, and partial_success must be absent or false.
 ```
 
 `verified` is part of the agent-visible tool result contract, not chat
@@ -98,14 +108,14 @@ Phase 3 changes only the top-level success semantics for this shape:
 ### Phase 1: Compatibility Patch
 
 Promote nested `data.edit_summary.errors` to top-level `errors`, set
-`partial_success: true`, set `verified: false`, and include a
-`verification_note` that tells agents to inspect and remediate before
-continuing.
+`verified: false`, and include a `verification_note` that tells agents to
+inspect and remediate before continuing. Set `partial_success: true` only when
+there is mutation evidence.
 
-Duplicate `partial_success` under `data` for payload locality. Preserve existing
-snapshot data, edit summary counts, temp maps, and instance GUIDs. Existing
-`data.warnings` may also include the promoted errors for legacy UI surfaces that
-already render warning lists.
+When `partial_success` is true, duplicate it under `data` for payload locality.
+Preserve existing snapshot data, edit summary counts, temp maps, and instance
+GUIDs. Existing `data.warnings` may also include the promoted errors for legacy
+UI surfaces that already render warning lists.
 
 Tests must prove that partial `gh_edit` results are visible in:
 
@@ -138,9 +148,11 @@ The audit is part of the contract migration, not optional follow-up work.
 
 ### Phase 3: Strict Contract Flip
 
-When `data.edit_summary.errors` is non-empty, set top-level `success: false`
-while retaining `partial_success: true`, `verified: false`, top-level `errors`,
-`verification_note`, and all partial mutation metadata.
+When `data.edit_summary.errors` is non-empty, set top-level `success: false`.
+If mutation evidence is present, retain `partial_success: true`,
+`verified: false`, top-level `errors`, `verification_note`, and all partial
+mutation metadata. If mutation evidence is absent, return `success: false`,
+`verified: false`, top-level `errors`, and no `partial_success`.
 
 Migration tests must prove audited callers still behave correctly:
 
@@ -167,9 +179,12 @@ gh_status:
 - data.available: Grasshopper assembly/runtime is loaded
 - data.has_active_canvas: active canvas exists
 - data.canvas_visible: canvas/window visibility if detectable
+- data.visibility_unknown: true when canvas/window visibility cannot be
+  detected
 - data.has_active_document: active document exists
 - data.document_id/name/path: when available
-- data.ready_for_edit: true only when canvas + document are present
+- data.ready_for_edit: true only when available, active canvas, and active
+  document are present, and canvas_visible is not false
 ```
 
 `gh_status` must be read-only. It must not create a Grasshopper document or
@@ -180,9 +195,19 @@ tool allowed to move from `ready_for_edit: false` to `true` by side effect. It
 should explicitly report what it did, then verify postconditions with
 `ready_for_edit` semantics.
 
+`ready_for_edit` is computed as:
+
+```text
+available && has_active_canvas && has_active_document && (canvas_visible != false)
+```
+
+If visibility cannot be detected, `visibility_unknown: true` must be returned
+instead of silently treating visibility as confirmed.
+
 `gh_snapshot` and `gh_edit` must require `ready_for_edit: true` semantics. If
-Grasshopper is unavailable, headless, missing a real active canvas, or missing
-an active document, query and mutation tools must fail closed:
+Grasshopper is unavailable, headless, visibility is detectably false, missing a
+real active canvas, or missing an active document, query and mutation tools must
+fail closed:
 
 ```text
 success: false
@@ -209,7 +234,8 @@ remediation, not continued construction.
 
 Phase 1 tests:
 
-- Unit test partial `gh_edit` result promotion from `data.edit_summary.errors`.
+- Unit test `gh_edit` error promotion from `data.edit_summary.errors`, including
+  separate no-mutation and partial-mutation cases.
 - Chat dispatcher test proving partial edits produce top-level `errors`,
   `partial_success: true`, `verified: false`, and `verification_note`.
 - MCP response test proving direct callers can see partial failure details.
@@ -225,6 +251,8 @@ Phase 3 tests:
 
 - Strict `success: false` for non-empty `edit_summary.errors`.
 - No-mutation failures remain distinguishable from partial-mutation failures.
+- Non-empty `edit_summary.errors` without mutation evidence does not set
+  `partial_success`.
 - Recipe replay/fallback does not blindly retry a partially applied batch.
 - Session learning/history records partial trace data.
 
@@ -232,7 +260,9 @@ GH health tests:
 
 - `gh_status` is read-only and does not create a document.
 - `gh_status.success` only indicates endpoint execution.
-- `ready_for_edit` is false without both active canvas and active document.
+- `ready_for_edit` is false without available runtime, active canvas, active
+  document, or when `canvas_visible` is detectably false.
+- Unknown visibility is represented by `visibility_unknown`, not hidden.
 - `gh_snapshot` and `gh_edit` fail closed when `ready_for_edit` is false.
 - `gh_ensure_open` is the only readiness-changing tool.
 
