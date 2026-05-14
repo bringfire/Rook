@@ -16,7 +16,7 @@ def test_no_mutation_edit_errors_become_failure_without_partial_success():
         },
     }
 
-    contracted = apply_gh_edit_contract(result, strict_partial_success=False)
+    contracted = apply_gh_edit_contract(result)
 
     assert contracted["success"] is False
     assert contracted["verified"] is False
@@ -29,7 +29,7 @@ def test_no_mutation_edit_errors_become_failure_without_partial_success():
     assert "failed before applying any mutations" in contracted["verification_note"]
 
 
-def test_partial_mutation_edit_errors_are_compat_success_but_unverified():
+def test_partial_mutation_edit_errors_are_strict_failure_with_partial_metadata():
     result = {
         "success": True,
         "data": {
@@ -46,20 +46,21 @@ def test_partial_mutation_edit_errors_are_compat_success_but_unverified():
         },
     }
 
-    contracted = apply_gh_edit_contract(result, strict_partial_success=False)
+    contracted = apply_gh_edit_contract(result)
 
-    assert contracted["success"] is True
+    assert contracted["success"] is False
     assert contracted["partial_success"] is True
     assert contracted["verified"] is False
     assert contracted["errors"] == ["connect: param not found for 'T1.O0>T2.I3'"]
     assert contracted["data"]["partial_success"] is True
     assert contracted["data"]["errors"] == ["connect: param not found for 'T1.O0>T2.I3'"]
+    assert contracted["data"]["warnings"] == ["connect: param not found for 'T1.O0>T2.I3'"]
     assert contracted["data"]["verified"] is False
     assert "partially applied" in contracted["data"]["verification_note"]
     assert "partially applied" in contracted["verification_note"]
 
 
-def test_partial_mutation_edit_errors_flip_to_strict_failure_when_enabled():
+def test_phase1_compatibility_can_preserve_partial_success_transport_success():
     result = {
         "success": True,
         "data": {
@@ -70,9 +71,9 @@ def test_partial_mutation_edit_errors_flip_to_strict_failure_when_enabled():
         },
     }
 
-    contracted = apply_gh_edit_contract(result, strict_partial_success=True)
+    contracted = apply_gh_edit_contract(result, strict_partial_success=False)
 
-    assert contracted["success"] is False
+    assert contracted["success"] is True
     assert contracted["partial_success"] is True
     assert contracted["verified"] is False
 

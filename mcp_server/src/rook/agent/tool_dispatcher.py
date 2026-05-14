@@ -1549,7 +1549,7 @@ class ToolDispatcher:
             data = params if params else None
             result = await call_rhino(endpoint, method, data, port)
             if name == "gh_edit":
-                result = apply_gh_edit_contract(result, strict_partial_success=False)
+                result = apply_gh_edit_contract(result, strict_partial_success=True)
             if not result.get("success"):
                 logger.warning(f"Bridge call failed for {name} -> {endpoint}: {result}")
             return result

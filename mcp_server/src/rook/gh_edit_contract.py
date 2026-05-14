@@ -69,7 +69,7 @@ def has_mutation_evidence(result):
     return edit_summary.get("mutation_applied") is True
 
 
-def apply_gh_edit_contract(result, strict_partial_success=False):
+def apply_gh_edit_contract(result, strict_partial_success=True):
     edit_errors = extract_edit_errors(result)
     if not edit_errors:
         return result

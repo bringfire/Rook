@@ -225,7 +225,7 @@ class TestDispatcherVerification:
         assert "partial_success" not in result
 
     @pytest.mark.asyncio
-    async def test_gh_edit_partial_errors_are_promoted_for_chat_agents(self, dispatcher):
+    async def test_gh_edit_partial_errors_are_strict_failures_for_chat_agents(self, dispatcher):
         mock_result = {
             "success": True,
             "data": {
@@ -242,10 +242,14 @@ class TestDispatcherVerification:
             result = await dispatcher.dispatch("gh_edit", {"epoch": 9, "connect": []})
 
         assert mock_rhino.call_count == 1
-        assert result["success"] is True
+        assert result["success"] is False
         assert result["partial_success"] is True
         assert result["verified"] is False
         assert result["errors"] == ["connect: param not found for 'T19.O0>T20.I2'"]
+        assert result["data"]["partial_success"] is True
+        assert result["data"]["errors"] == ["connect: param not found for 'T19.O0>T20.I2'"]
+        assert result["data"]["warnings"] == ["connect: param not found for 'T19.O0>T20.I2'"]
+        assert result["data"]["verified"] is False
         assert "verification_note" in result
 
     @pytest.mark.asyncio
