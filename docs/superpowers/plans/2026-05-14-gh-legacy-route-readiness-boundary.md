@@ -750,7 +750,7 @@ Use these exact operation names:
 | `ExploreSelection` | `gh_explore_selection` |
 | `ExploreCluster` | `gh_explore_cluster` |
 
-Do not guard `GetStatus`, `GetCategories`, `SearchLibrary`, or `HandleBatchComponentInfo` unless the implementation proves that a method touches the active canvas/document. `GetDocumentInfo` is handled separately above because the current core path can create a document if left unchanged.
+Do not guard `GetStatus`, `GetCategories`, or `SearchLibrary` unless the implementation proves that a method touches the active canvas/document. `HandleBatchComponentInfo` should remain a component metadata/catalog lookup without a `ready_for_edit` gate only if it is changed to avoid document/canvas creation; the current default `GetGrasshopper()` path must be replaced with a no-create component-server/catalog path. If a no-create metadata path is not feasible, guard `HandleBatchComponentInfo` as a canvas/document-dependent route instead of leaving default document creation in place. `GetDocumentInfo` is handled separately above because the current core path can create a document if left unchanged.
 
 - [ ] **Step 5: Apply guards to remaining non-lifecycle mutation methods**
 
