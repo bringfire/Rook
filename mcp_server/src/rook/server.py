@@ -19,6 +19,7 @@ from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
 
+from .gh_edit_contract import apply_gh_edit_contract
 from .runtime_paths import (
     load_runtime_dotenv,
     resolve_readable_knowledge_path,
@@ -134,25 +135,6 @@ def _extract_gh_edit_partial_issues(result: dict[str, Any]) -> tuple[list[str], 
     errors = _merge_issue_lists(edit_summary.get("errors"))
     warnings = _merge_issue_lists(edit_summary.get("warnings"))
     return (errors, warnings)
-
-
-def _attach_gh_edit_partial_warnings(result: dict[str, Any]) -> dict[str, Any]:
-    """Surface edit_summary issues so callers can see partial gh_edit failures easily."""
-    edit_errors, edit_warnings = _extract_gh_edit_partial_issues(result)
-    if not edit_errors and not edit_warnings:
-        return result
-
-    merged = dict(result)
-    data = merged.get("data")
-    if isinstance(data, dict):
-        data = dict(data)
-    else:
-        data = {"result": data}
-
-    existing_warnings = data.get("warnings")
-    data["warnings"] = _merge_issue_lists(existing_warnings, edit_warnings, edit_errors)
-    merged["data"] = data
-    return merged
 
 
 _RHINOSCRIPTSYNTAX_INTERACTIVE_CALLS: frozenset[str] = frozenset({
@@ -12678,7 +12660,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                 )
                 result = await call_rhino("/gh/edit", "POST", arguments, port=port)
                 result = _attach_deprecation_warnings(result, deprecation_warnings)
-                result = _attach_gh_edit_partial_warnings(result)
+                result = apply_gh_edit_contract(result, strict_partial_success=False)
                 # Record to session history
                 if result.get("success"):
                     try:

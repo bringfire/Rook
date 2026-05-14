@@ -16,7 +16,12 @@ class _DummyPhaseTracker:
 def _decode_response(response):
     text = response[0].text
     if text.startswith("Error: "):
-        return {"success": False, "data": text[len("Error: "):]}
+        raw = text[len("Error: "):]
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            data = raw
+        return {"success": False, "data": data}
     return {"success": True, "data": json.loads(text)}
 
 
@@ -57,8 +62,80 @@ async def test_gh_edit_surfaces_edit_summary_errors_as_warnings(monkeypatch, pat
     payload = _decode_response(response)
 
     assert payload["success"] is True
+    assert payload["data"]["partial_success"] is True
+    assert payload["data"]["errors"] == ["set_values exception: value must be numeric"]
     assert payload["data"]["warnings"] == ["set_values exception: value must be numeric"]
+    assert payload["data"]["verified"] is False
     record_mock.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_gh_edit_no_mutation_errors_return_failure(monkeypatch, patched_server):
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        assert route == "/gh/edit"
+        return {
+            "success": True,
+            "data": {
+                "edit_summary": {
+                    "created": 0,
+                    "deleted": 0,
+                    "values_set": 0,
+                    "connected": 0,
+                    "disconnected": 0,
+                    "errors": ["Create failed: Centre Box not found"],
+                }
+            },
+        }
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+    monkeypatch.setattr(server, "_record_gh_to_session", AsyncMock())
+    monkeypatch.setattr(
+        server,
+        "get_unified_store",
+        lambda: SimpleNamespace(check_deprecation_warnings=lambda _create: []),
+    )
+
+    response = await server.call_tool("gh_edit", {"epoch": 3, "create": []})
+    payload = _decode_response(response)
+
+    assert payload["success"] is False
+    assert payload["data"]["verified"] is False
+    assert payload["data"]["errors"] == ["Create failed: Centre Box not found"]
+    assert "failed before applying any mutations" in payload["data"]["verification_note"]
+
+
+@pytest.mark.asyncio
+async def test_gh_edit_partial_mutation_response_contains_visible_contract(monkeypatch, patched_server):
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        assert route == "/gh/edit"
+        return {
+            "success": True,
+            "data": {
+                "edit_summary": {
+                    "created": 1,
+                    "errors": ["connect: unknown target 'T2'"],
+                    "temp_id_map": {"T1": "R1"},
+                }
+            },
+        }
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+    monkeypatch.setattr(server, "_record_gh_to_session", AsyncMock())
+    monkeypatch.setattr(
+        server,
+        "get_unified_store",
+        lambda: SimpleNamespace(check_deprecation_warnings=lambda _create: []),
+    )
+
+    response = await server.call_tool("gh_edit", {"epoch": 3, "create": []})
+    payload = _decode_response(response)
+
+    assert payload["success"] is True
+    assert payload["data"]["partial_success"] is True
+    assert payload["data"]["errors"] == ["connect: unknown target 'T2'"]
+    assert payload["data"]["warnings"] == ["connect: unknown target 'T2'"]
+    assert payload["data"]["verified"] is False
+    assert "partially applied" in payload["data"]["verification_note"]
 
 
 @pytest.mark.asyncio
