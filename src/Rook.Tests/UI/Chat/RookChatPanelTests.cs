@@ -85,6 +85,35 @@ namespace Rook.Tests.UI.Chat
             Assert.Contains("_webSurface.ReconcileHostVisibility", source);
         }
 
+        [Fact]
+        public void ClaudeCodeWrapper_UsesStrictPanelMcpConfig()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Chat", "ClaudeCodeWrapper.cs");
+
+            Assert.Contains("ClaudePanelMcpConfigBuilder.WriteTempConfig", source);
+            Assert.Contains("--strict-mcp-config", source);
+            Assert.DoesNotContain("--mcp-config \\\"{userMcpConfig}\\\"", source);
+        }
+
+        [Fact]
+        public void ClaudeCodeWrapper_PromptExplainsPanelLockedRookOnlyMode()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Chat", "ClaudeCodeWrapper.cs");
+
+            Assert.Contains("inside the Rook Rhino panel", source);
+            Assert.Contains("panel-locked Rook MCP server", source);
+        }
+
+        [Fact]
+        public void ClaudeCodeWrapper_DisposeCleansTemporaryPanelConfigBestEffort()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Chat", "ClaudeCodeWrapper.cs");
+
+            Assert.Contains("_panelMcpConfigPath", source);
+            Assert.Contains("DeletePanelMcpConfig", source);
+            Assert.Contains("File.Delete", source);
+        }
+
         private static string ReadSourceFile(params string[] pathParts)
         {
             var dir = new DirectoryInfo(AppContext.BaseDirectory);

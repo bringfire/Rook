@@ -35,6 +35,7 @@ namespace Rook.UI.Chat
 
         // ─── Configuration ─────────────────────────────────────────────────
         private string? _customWorkingDirectory;
+        private string? _panelMcpConfigPath;
         private readonly uint _documentSerialNumber;
 
         /// <summary>
@@ -156,7 +157,18 @@ namespace Rook.UI.Chat
                 _parser.Reset();
                 _streamingContent.Clear();
 
-                var args = BuildLaunchArguments();
+                string args;
+                try
+                {
+                    args = BuildLaunchArguments();
+                }
+                catch (InvalidOperationException ex)
+                {
+                    OnError?.Invoke(ex.Message);
+                    RhinoApp.WriteLine($"[ClaudeCodeWrapper] {ex}");
+                    return;
+                }
+
                 var workDir = GetWorkingDirectory();
 
                 RhinoApp.WriteLine($"[ClaudeCodeWrapper] Starting persistent process: claude {args}");
@@ -436,20 +448,36 @@ namespace Rook.UI.Chat
             // Skip all permission checks (required for non-interactive use)
             sb.Append("--dangerously-skip-permissions ");
 
-            // Explicitly load user-level MCP config
+            // Create a strict, panel-locked MCP config containing only Rook.
             var userMcpConfig = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
                 ".claude.json");
-            if (File.Exists(userMcpConfig))
+            try
             {
-                sb.Append($"--mcp-config \"{userMcpConfig}\" ");
+                DeletePanelMcpConfig();
+                _panelMcpConfigPath = ClaudePanelMcpConfigBuilder.WriteTempConfig(
+                    userMcpConfig,
+                    Process.GetCurrentProcess().Id,
+                    _documentSerialNumber);
+                sb.Append($"--mcp-config \"{_panelMcpConfigPath}\" ");
+                sb.Append("--strict-mcp-config ");
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException(
+                    "Unable to create panel-locked Rook MCP config for Claude Code. Run Rook doctor to configure the rook MCP server for Claude Code.",
+                    ex);
             }
 
-            // Add system prompt context with document pinning if applicable
+            var prompt = "You are a Rhino 3D assistant running inside the Rook Rhino panel. "
+                + "You only have access to the panel-locked Rook MCP server. "
+                + "Use knowledge_query before operations to learn patterns. "
+                + "Use knowledge_record after operations to record outcomes.";
+
             var docContext = _documentSerialNumber != 0
-                ? $" CRITICAL: Include \\\"documentSerialNumber\\\": {_documentSerialNumber} in ALL rhino_* tool arguments."
+                ? $" The panel lock enforces documentSerialNumber {_documentSerialNumber}; do not target another Rhino document."
                 : "";
-            sb.Append($"--append-system-prompt \"{EscapeForCommandLine("You are a Rhino 3D assistant with access to all rhino_* MCP tools. Use knowledge_query before operations to learn patterns. Use knowledge_record after operations to record outcomes.")}{docContext}\" ");
+            sb.Append($"--append-system-prompt \"{EscapeForCommandLine(prompt + docContext)}\" ");
 
             return sb.ToString().Trim();
         }
@@ -469,6 +497,24 @@ namespace Rook.UI.Chat
         }
 
         // ─── Process management ────────────────────────────────────────────
+
+        private void DeletePanelMcpConfig()
+        {
+            var path = _panelMcpConfigPath;
+            _panelMcpConfigPath = null;
+            if (string.IsNullOrWhiteSpace(path))
+                return;
+
+            try
+            {
+                if (File.Exists(path))
+                    File.Delete(path);
+            }
+            catch (Exception ex)
+            {
+                RhinoApp.WriteLine($"[ClaudeCodeWrapper] Failed to delete panel MCP config: {ex.Message}");
+            }
+        }
 
         /// <summary>
         /// Kill the current process if running.
@@ -512,7 +558,12 @@ namespace Rook.UI.Chat
                     {
                         _currentProcess = null;
                         _ready = false;
+                        DeletePanelMcpConfig();
                     }
+                }
+                else
+                {
+                    DeletePanelMcpConfig();
                 }
             }
         }
@@ -532,6 +583,7 @@ namespace Rook.UI.Chat
             _parser.OnMessageComplete -= HandleMessageComplete;
 
             KillProcess();
+            DeletePanelMcpConfig();
         }
     }
 }
