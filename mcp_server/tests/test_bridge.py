@@ -61,6 +61,44 @@ def test_resolve_active_target_rejects_pid_mismatch(discovery_dir: Path) -> None
         targeting.clear_active_target()
 
 
+class _FakeHttpResponse:
+    def __init__(self, payload: dict):
+        self._payload = payload
+
+    def json(self) -> dict:
+        return self._payload
+
+
+class _CapturingHttpClient:
+    def __init__(self, captured: dict, payload: dict | None = None):
+        self._captured = captured
+        self._payload = payload or {"success": True, "data": {"ok": True}}
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return None
+
+    async def get(self, url, params=None):
+        self._captured["method"] = "GET"
+        self._captured["url"] = str(url)
+        self._captured["params"] = params
+        return _FakeHttpResponse(self._payload)
+
+    async def post(self, url, json=None):
+        self._captured["method"] = "POST"
+        self._captured["url"] = str(url)
+        self._captured["json"] = json
+        return _FakeHttpResponse(self._payload)
+
+    async def request(self, method, url, **kwargs):
+        self._captured["method"] = method
+        self._captured["url"] = str(url)
+        self._captured.update(kwargs)
+        return _FakeHttpResponse(self._payload)
+
+
 @pytest.mark.asyncio
 async def test_call_tool_installs_locked_document_context(monkeypatch):
     from rook import server, targeting
@@ -180,6 +218,140 @@ async def test_panel_lock_launch_live_owner_does_not_auto_bind(monkeypatch):
 
     assert '"status": "launched"' in result[0].text
     assert called["bind"] is False
+
+
+@pytest.mark.asyncio
+async def test_call_rhino_defaults_to_panel_locked_process(discovery_dir: Path, monkeypatch):
+    from rook import targeting
+
+    targeting.reset_targeting_state_for_tests()
+    targeting.initialize_from_environment({
+        "ROOK_MCP_TARGET_MODE": "panel_locked",
+        "ROOK_MCP_TARGET_PROCESS_ID": "7102",
+        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
+    })
+    _write_instance(discovery_dir / "instance-7101-native.json", {
+        "host": "127.0.0.1", "port": 9950, "processId": 7101, "pluginType": "native",
+    })
+    _write_instance(discovery_dir / "instance-7102-native.json", {
+        "host": "127.0.0.1", "port": 9951, "processId": 7102, "pluginType": "native",
+    })
+    captured = {}
+    monkeypatch.setattr(
+        bridge.httpx,
+        "AsyncClient",
+        lambda timeout=None: _CapturingHttpClient(captured),
+    )
+
+    result = await bridge.call_rhino("/document", "GET", {})
+
+    assert result["success"] is True
+    assert ":9951" in captured["url"]
+    assert captured["params"]["documentSerialNumber"] == "42"
+
+
+@pytest.mark.asyncio
+async def test_call_rhino_rejects_conflicting_panel_port(discovery_dir: Path):
+    from rook import targeting
+
+    targeting.reset_targeting_state_for_tests()
+    targeting.initialize_from_environment({
+        "ROOK_MCP_TARGET_MODE": "panel_locked",
+        "ROOK_MCP_TARGET_PROCESS_ID": "7102",
+        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
+    })
+    _write_instance(discovery_dir / "instance-7101-native.json", {
+        "host": "127.0.0.1", "port": 9950, "processId": 7101, "pluginType": "native",
+    })
+    _write_instance(discovery_dir / "instance-7102-native.json", {
+        "host": "127.0.0.1", "port": 9951, "processId": 7102, "pluginType": "native",
+    })
+
+    result = await bridge.call_rhino("/document", "GET", {}, port=9950)
+
+    assert result["success"] is False
+    assert result["data"]["error"] == "panel_target_locked"
+
+
+@pytest.mark.asyncio
+async def test_call_rhino_rejects_conflicting_panel_document(discovery_dir: Path):
+    from rook import targeting
+
+    targeting.reset_targeting_state_for_tests()
+    targeting.initialize_from_environment({
+        "ROOK_MCP_TARGET_MODE": "panel_locked",
+        "ROOK_MCP_TARGET_PROCESS_ID": "7102",
+        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
+    })
+    _write_instance(discovery_dir / "instance-7102-native.json", {
+        "host": "127.0.0.1", "port": 9951, "processId": 7102, "pluginType": "native",
+    })
+
+    result = await bridge.call_rhino("/document", "GET", {"documentSerialNumber": 99})
+
+    assert result["success"] is False
+    assert result["data"]["error"] == "panel_document_locked"
+
+
+@pytest.mark.asyncio
+async def test_call_rhino_panel_lock_routes_rc_to_same_process_peer(discovery_dir: Path, monkeypatch):
+    from rook import targeting
+
+    targeting.reset_targeting_state_for_tests()
+    targeting.initialize_from_environment({
+        "ROOK_MCP_TARGET_MODE": "panel_locked",
+        "ROOK_MCP_TARGET_PROCESS_ID": "7101",
+        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
+    })
+    _write_instance(discovery_dir / "instance-7101-native.json", {
+        "host": "127.0.0.1", "port": 9950, "processId": 7101, "pluginType": "native",
+    })
+    _write_instance(discovery_dir / "instance-7101-roadcreator.json", {
+        "host": "127.0.0.1", "port": 9960, "processId": 7101, "pluginType": "roadcreator",
+    })
+    _write_instance(discovery_dir / "instance-7102-roadcreator.json", {
+        "host": "127.0.0.1", "port": 9961, "processId": 7102, "pluginType": "roadcreator",
+    })
+    captured = {}
+    monkeypatch.setattr(
+        bridge.httpx,
+        "AsyncClient",
+        lambda timeout=None: _CapturingHttpClient(captured, {"success": True, "data": {"roads": []}}),
+    )
+
+    result = await bridge.call_rhino("/rc/roads")
+
+    assert result["success"] is True
+    assert ":9960" in captured["url"]
+
+
+@pytest.mark.asyncio
+async def test_call_rhino_panel_lock_canonicalizes_same_process_extension_port_for_native_endpoint(discovery_dir: Path, monkeypatch):
+    from rook import targeting
+
+    targeting.reset_targeting_state_for_tests()
+    targeting.initialize_from_environment({
+        "ROOK_MCP_TARGET_MODE": "panel_locked",
+        "ROOK_MCP_TARGET_PROCESS_ID": "7101",
+        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
+    })
+    _write_instance(discovery_dir / "instance-7101-native.json", {
+        "host": "127.0.0.1", "port": 9950, "processId": 7101, "pluginType": "native",
+    })
+    _write_instance(discovery_dir / "instance-7101-roadcreator.json", {
+        "host": "127.0.0.1", "port": 9960, "processId": 7101, "pluginType": "roadcreator",
+    })
+    captured = {}
+    monkeypatch.setattr(
+        bridge.httpx,
+        "AsyncClient",
+        lambda timeout=None: _CapturingHttpClient(captured, {"success": True, "data": {"name": "A.3dm"}}),
+    )
+
+    result = await bridge.call_rhino("/document", port=9960)
+
+    assert result["success"] is True
+    assert ":9950" in captured["url"]
 
 
 def test_discover_instances_ignores_legacy_public_csharp_records(discovery_dir: Path) -> None:

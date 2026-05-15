@@ -431,6 +431,64 @@ def _apply_document_context(data: dict | None) -> dict | None:
     return scoped
 
 
+def _targeting_module():
+    from . import targeting
+
+    return targeting
+
+
+def _panel_lock_state():
+    targeting = _targeting_module()
+    return targeting.get_panel_target_lock(), targeting.get_panel_target_config_error()
+
+
+def _apply_panel_lock_to_request(
+    endpoint: str,
+    data: dict | None,
+    port: int | None,
+    process_id: int | None,
+) -> tuple[dict | None, int | None, int | None, dict[str, Any] | None]:
+    targeting = _targeting_module()
+    lock, config_error = _panel_lock_state()
+    if config_error is not None:
+        return data, port, process_id, {"success": False, "data": config_error}
+    if lock is None:
+        return data, port, process_id, None
+
+    instances = discover_instances()
+    locked_instances = [
+        instance
+        for instance in instances
+        if instance.get("processId") == lock.process_id
+    ]
+    if not locked_instances:
+        return data, port, process_id, targeting.route_error_result(
+            targeting.ToolRoute(
+                success=False,
+                error="panel_target_stale",
+                instances=instances,
+            )
+        )
+
+    if process_id is not None and process_id > 0 and process_id != lock.process_id:
+        return data, port, process_id, targeting.panel_target_locked_result()
+
+    if port is not None and port > 0:
+        explicit = next(
+            (instance for instance in instances if instance.get("port") == port),
+            None,
+        )
+        if explicit is None or explicit.get("processId") != lock.process_id:
+            return data, port, process_id, targeting.panel_target_locked_result()
+        port = None
+
+    applied = targeting.apply_locked_document_context(data)
+    if isinstance(applied, dict) and applied.get("success") is False:
+        return data, port, process_id, applied
+
+    return applied, port, lock.process_id, None
+
+
 async def call_rhino(
     endpoint: str,
     method: str = "GET",
@@ -455,6 +513,14 @@ async def call_rhino(
         resolved_port = None
     if resolved_process_id is not None and resolved_process_id <= 0:
         resolved_process_id = None
+    data, resolved_port, resolved_process_id, panel_error = _apply_panel_lock_to_request(
+        endpoint,
+        data,
+        resolved_port,
+        resolved_process_id,
+    )
+    if panel_error is not None:
+        return panel_error
     data = _apply_document_context(data)
     normalized_endpoint = _normalize_endpoint(endpoint)
     selected_instance = select_rhino_instance(
