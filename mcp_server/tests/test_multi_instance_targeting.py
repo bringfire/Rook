@@ -680,6 +680,53 @@ async def test_meta_tools_work_with_stale_active_binding(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_stale_active_route_error_reports_canonical_native_instances(monkeypatch):
+    monkeypatch.setattr(targeting, "discover_instances", lambda: [
+        _inst(9951, 7102, "Replacement.3dm"),
+        {
+            "host": "127.0.0.1",
+            "port": 9961,
+            "processId": 7102,
+            "pluginType": "roadcreator",
+            "documentName": "Replacement.3dm",
+        },
+    ])
+    targeting.set_active_target(targeting.InstanceRef(9950, 7101))
+    try:
+        route = targeting.resolve_tool_route("rhino_document")
+        result = targeting.route_error_result(route)
+
+        assert result["data"]["error"] == "active_rhino_instance_unavailable"
+        assert result["data"]["stale_target"] == {"port": 9950, "processId": 7101}
+        assert result["data"]["instances"] == [_inst(9951, 7102, "Replacement.3dm")]
+    finally:
+        targeting.clear_active_target()
+
+
+@pytest.mark.asyncio
+async def test_get_active_instance_stale_error_reports_canonical_native_instances(monkeypatch):
+    monkeypatch.setattr(targeting, "discover_instances", lambda: [
+        _inst(9951, 7102, "Replacement.3dm"),
+        {
+            "host": "127.0.0.1",
+            "port": 9961,
+            "processId": 7102,
+            "pluginType": "roadcreator",
+            "documentName": "Replacement.3dm",
+        },
+    ])
+    targeting.set_active_target(targeting.InstanceRef(9950, 7101))
+    try:
+        result = await targeting.get_active_instance_result()
+
+        assert result["data"]["error"] == "active_rhino_instance_unavailable"
+        assert result["data"]["stale_target"] == {"port": 9950, "processId": 7101}
+        assert result["data"]["instances"] == [_inst(9951, 7102, "Replacement.3dm")]
+    finally:
+        targeting.clear_active_target()
+
+
+@pytest.mark.asyncio
 async def test_panel_lock_get_active_instance_reports_lock_when_active_binding_stale(monkeypatch):
     targeting.initialize_from_environment({
         "ROOK_MCP_TARGET_MODE": "panel_locked",

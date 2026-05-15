@@ -715,6 +715,12 @@ def _process_targets(instances: list[dict[str, Any]]) -> list[tuple[InstanceRef,
     return targets
 
 
+def _canonical_process_instances(instances: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    if not instances:
+        return []
+    return [instance for _, instance in _process_targets(instances)]
+
+
 def _lock_payload(lock: PanelTargetLock | None = None) -> dict[str, Any]:
     current = lock or _PANEL_TARGET_LOCK
     payload: dict[str, Any] = {
@@ -1041,7 +1047,7 @@ async def get_active_instance_result() -> dict[str, Any]:
                 "port": active.stale_target.port,
                 "processId": active.stale_target.process_id,
             },
-            "instances": active.instances or [],
+            "instances": _canonical_process_instances(active.instances),
         }
         if _PANEL_TARGET_LOCK is not None or _PANEL_TARGET_CONFIG_ERROR is not None:
             data["lock"] = get_lock_state_result()["data"]["lock"]
@@ -1170,7 +1176,7 @@ def route_error_result(route: ToolRoute) -> dict[str, Any]:
             "active_rhino_instance_unavailable",
             message="The active Rhino binding is no longer available. Choose a live instance with rhino_set_active_instance.",
             stale_target=None if stale is None else {"port": stale.port, "processId": stale.process_id},
-            instances=route.instances or [],
+            instances=_canonical_process_instances(route.instances),
         )
     if route.error == "multiple_rhino_instances":
         return _error_result(
