@@ -478,3 +478,22 @@ def test_gh_query_not_exposed_to_agent_dispatch_surfaces():
         if "gh_query" in tools
     ]
     assert exposed_groups == []
+
+
+def test_gh_legacy_not_ready_result_hoists_nested_verification_fields():
+    from rook.agent.tool_dispatcher import _hoist_nested_verification_fields
+
+    result = {
+        "success": False,
+        "data": {
+            "error": "grasshopper_not_ready",
+            "verified": False,
+            "message": "No active Grasshopper document.",
+            "verification_note": "Call gh_status to inspect readiness.",
+        },
+    }
+
+    hoisted = _hoist_nested_verification_fields(result)
+
+    assert hoisted["verified"] is False
+    assert hoisted["verification_note"] == "Call gh_status to inspect readiness."
