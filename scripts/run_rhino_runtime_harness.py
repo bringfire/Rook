@@ -39,6 +39,17 @@ def _smoke_command(name: str, repo_root: Path) -> tuple[list[str], Path]:
             [sys.executable, "scripts/validate_rhino_operational_suite.py"],
             repo_root,
         )
+    if name == "gh-readiness":
+        return (
+            [
+                sys.executable,
+                "mcp_server/tools/gh_readiness_live_harness.py",
+                "--mode",
+                "full",
+                "--allow-mutation",
+            ],
+            repo_root,
+        )
     raise ValueError(f"unknown smoke command: {name}")
 
 
@@ -48,9 +59,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--rhino-exe", type=Path, default=DEFAULT_RHINO_EXE)
     parser.add_argument("--artifact-root", type=Path, default=DEFAULT_ARTIFACT_ROOT)
+    parser.add_argument("--readiness-timeout", type=float, default=30.0)
+    parser.add_argument("--cleanup-timeout", type=float, default=10.0)
     parser.add_argument(
         "--smoke",
-        choices=["ping-only", "pytest-select", "rhino-operational"],
+        choices=["ping-only", "pytest-select", "rhino-operational", "gh-readiness"],
         default="pytest-select",
     )
     return parser
@@ -74,6 +87,8 @@ def main(argv: list[str] | None = None) -> int:
         smoke_command=command,
         smoke_kind=args.smoke,
         smoke_cwd=cwd,
+        readiness_timeout_seconds=args.readiness_timeout,
+        cleanup_timeout_seconds=args.cleanup_timeout,
     )
     print(f"Artifact directory: {result.artifact_dir}")
     return 0 if result.success else 1

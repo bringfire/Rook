@@ -1807,5 +1807,7 @@ def test_runtime_harness_cli_help_works():
     assert result.returncode == 0
     assert "--rhino-exe" in result.stdout
     assert "--artifact-root" in result.stdout
+    assert "--readiness-timeout" in result.stdout
     assert "--smoke" in result.stdout
     assert "ping-only" in result.stdout
+    assert "gh-readiness" in result.stdout
