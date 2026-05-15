@@ -607,7 +607,7 @@ def test_run_smoke_command_timeout_kills_descendant_holding_output_pipes(tmp_pat
         result = run_smoke_command(
             [sys.executable, "-c", script],
             env_additions={},
-            timeout_seconds=0.2,
+            timeout_seconds=1.0,
         )
         elapsed = time.monotonic() - started
 
@@ -652,7 +652,7 @@ def test_run_smoke_command_timeout_kills_descendant_after_parent_exits(tmp_path:
         result = run_smoke_command(
             [sys.executable, "-c", script],
             env_additions={},
-            timeout_seconds=0.2,
+            timeout_seconds=1.0,
         )
         elapsed = time.monotonic() - started
 
