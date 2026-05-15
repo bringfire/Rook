@@ -776,6 +776,22 @@ def _resolve_locked_target(instances: list[dict[str, Any]]) -> tuple[InstanceRef
     return targets[0] if targets else None
 
 
+def apply_locked_document_context(arguments: dict[str, Any] | None) -> dict[str, Any]:
+    args = dict(arguments) if arguments else {}
+    lock = _PANEL_TARGET_LOCK
+    if lock is None or not lock.document_serial_number:
+        return args
+    requested = _parse_positive_int(args.get("documentSerialNumber"))
+    if requested is not None and requested != lock.document_serial_number:
+        return _panel_error(
+            "panel_document_locked",
+            "This Claude Code tab is locked to the Rhino document that owns the panel.",
+            requested={"requestedDocumentSerialNumber": requested},
+        )
+    args["documentSerialNumber"] = lock.document_serial_number
+    return args
+
+
 def resolve_active_target() -> ActiveTargetResolution:
     target = get_active_target()
     instances = discover_instances()

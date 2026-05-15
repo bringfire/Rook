@@ -10,6 +10,15 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from rook import bridge
 
 
+@pytest.fixture(autouse=True)
+def reset_targeting_state():
+    from rook import targeting
+
+    targeting.reset_targeting_state_for_tests()
+    yield
+    targeting.reset_targeting_state_for_tests()
+
+
 def _write_instance(path: Path, data: dict) -> None:
     path.write_text(json.dumps(data), encoding="utf-8")
 
@@ -19,6 +28,158 @@ def discovery_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setattr(bridge, "DISCOVERY_FOLDER", tmp_path)
     monkeypatch.setattr(bridge, "_is_pid_alive", lambda pid: True)
     return tmp_path
+
+
+def test_process_local_active_target_round_trip() -> None:
+    from rook import targeting
+
+    targeting.clear_active_target()
+    try:
+        targeting.set_active_target(targeting.InstanceRef(port=9950, process_id=7101))
+        assert targeting.get_active_target() == targeting.InstanceRef(port=9950, process_id=7101)
+    finally:
+        targeting.clear_active_target()
+
+
+def test_resolve_active_target_rejects_pid_mismatch(discovery_dir: Path) -> None:
+    from rook import targeting
+
+    _write_instance(
+        discovery_dir / "instance-7102-native.json",
+        {"port": 9951, "processId": 9999, "pluginType": "native"},
+    )
+
+    targeting.clear_active_target()
+    try:
+        targeting.set_active_target(targeting.InstanceRef(port=9951, process_id=7102))
+        resolved = targeting.resolve_active_target()
+        assert resolved.success is False
+        assert resolved.error == "active_rhino_instance_unavailable"
+        assert resolved.target is None
+        assert resolved.stale_target == targeting.InstanceRef(port=9951, process_id=7102)
+    finally:
+        targeting.clear_active_target()
+
+
+@pytest.mark.asyncio
+async def test_call_tool_installs_locked_document_context(monkeypatch):
+    from rook import server, targeting
+    from rook.bridge import get_rhino_request_context
+
+    targeting.reset_targeting_state_for_tests()
+    targeting.initialize_from_environment({
+        "ROOK_MCP_TARGET_MODE": "panel_locked",
+        "ROOK_MCP_TARGET_PROCESS_ID": "7101",
+        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
+    })
+    monkeypatch.setattr(targeting, "discover_instances", lambda: [
+        {"host": "127.0.0.1", "port": 9950, "processId": 7101, "pluginType": "native"},
+    ])
+
+    captured = {}
+
+    async def fake_dispatch(name, arguments):
+        captured["context"] = get_rhino_request_context()
+        captured["arguments"] = dict(arguments)
+        return {"success": True, "data": {"ok": True}}
+
+    monkeypatch.setattr(server, "_call_tool_dispatch", fake_dispatch)
+
+    await server.call_tool("rhino_document", {})
+
+    assert captured["context"]["process_id"] == 7101
+    assert captured["context"]["document_serial_number"] == 42
+    assert captured["arguments"]["documentSerialNumber"] == 42
+
+
+@pytest.mark.asyncio
+async def test_call_tool_rejects_conflicting_document_serial(monkeypatch):
+    from rook import server, targeting
+
+    targeting.reset_targeting_state_for_tests()
+    targeting.initialize_from_environment({
+        "ROOK_MCP_TARGET_MODE": "panel_locked",
+        "ROOK_MCP_TARGET_PROCESS_ID": "7101",
+        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
+    })
+    monkeypatch.setattr(targeting, "discover_instances", lambda: [
+        {"host": "127.0.0.1", "port": 9950, "processId": 7101, "pluginType": "native"},
+    ])
+
+    result = await server.call_tool("rhino_document", {"documentSerialNumber": 99})
+    text = result[0].text
+
+    assert "panel_document_locked" in text
+    assert "requestedDocumentSerialNumber" in text
+
+
+@pytest.mark.asyncio
+async def test_panel_lock_blocks_spawn_agent_before_background_task(monkeypatch):
+    from rook import server, targeting
+
+    targeting.reset_targeting_state_for_tests()
+    targeting.initialize_from_environment({
+        "ROOK_MCP_TARGET_MODE": "panel_locked",
+        "ROOK_MCP_TARGET_PROCESS_ID": "7101",
+        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
+    })
+    monkeypatch.setattr(targeting, "discover_instances", lambda: [
+        {"host": "127.0.0.1", "port": 9950, "processId": 7101, "pluginType": "native"},
+    ])
+
+    result = await server.call_tool("spawn_agent", {"prompt": "create a box"})
+
+    assert "panel_target_locked" in result[0].text
+
+
+@pytest.mark.asyncio
+async def test_panel_lock_launch_stale_owner_returns_stale(monkeypatch):
+    from rook import server, targeting
+
+    targeting.reset_targeting_state_for_tests()
+    targeting.initialize_from_environment({
+        "ROOK_MCP_TARGET_MODE": "panel_locked",
+        "ROOK_MCP_TARGET_PROCESS_ID": "7109",
+        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
+    })
+    monkeypatch.setattr(targeting, "discover_instances", lambda: [
+        {"host": "127.0.0.1", "port": 9950, "processId": 7101, "pluginType": "native"},
+    ])
+
+    result = await server.call_tool("rhino_launch", {})
+
+    assert "panel_target_stale" in result[0].text
+
+
+@pytest.mark.asyncio
+async def test_panel_lock_launch_live_owner_does_not_auto_bind(monkeypatch):
+    from rook import server, targeting
+
+    targeting.reset_targeting_state_for_tests()
+    targeting.initialize_from_environment({
+        "ROOK_MCP_TARGET_MODE": "panel_locked",
+        "ROOK_MCP_TARGET_PROCESS_ID": "7101",
+        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
+    })
+    monkeypatch.setattr(targeting, "discover_instances", lambda: [
+        {"host": "127.0.0.1", "port": 9950, "processId": 7101, "pluginType": "native"},
+    ])
+    called = {"bind": False}
+    monkeypatch.setattr(
+        targeting,
+        "bind_single_available_instance",
+        lambda: called.__setitem__("bind", True),
+    )
+
+    async def fake_dispatch(name, arguments):
+        return {"success": True, "data": {"status": "launched"}}
+
+    monkeypatch.setattr(server, "_call_tool_dispatch", fake_dispatch)
+
+    result = await server.call_tool("rhino_launch", {})
+
+    assert '"status": "launched"' in result[0].text
+    assert called["bind"] is False
 
 
 def test_discover_instances_ignores_legacy_public_csharp_records(discovery_dir: Path) -> None:

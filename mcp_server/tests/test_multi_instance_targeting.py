@@ -392,6 +392,34 @@ async def test_panel_lock_instances_result_reports_lock(monkeypatch):
     assert result["data"]["lock"]["target"]["documentSerialNumber"] == 42
 
 
+def test_panel_document_allows_missing_or_matching_serial():
+    targeting.reset_targeting_state_for_tests()
+    targeting.initialize_from_environment({
+        "ROOK_MCP_TARGET_MODE": "panel_locked",
+        "ROOK_MCP_TARGET_PROCESS_ID": "7101",
+        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
+    })
+
+    assert targeting.apply_locked_document_context({}) == {"documentSerialNumber": 42}
+    assert targeting.apply_locked_document_context({"documentSerialNumber": 42}) == {"documentSerialNumber": 42}
+    assert targeting.apply_locked_document_context({"documentSerialNumber": 0}) == {"documentSerialNumber": 42}
+
+
+def test_panel_document_rejects_conflicting_positive_serial():
+    targeting.reset_targeting_state_for_tests()
+    targeting.initialize_from_environment({
+        "ROOK_MCP_TARGET_MODE": "panel_locked",
+        "ROOK_MCP_TARGET_PROCESS_ID": "7101",
+        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
+    })
+
+    result = targeting.apply_locked_document_context({"documentSerialNumber": 99})
+
+    assert result["success"] is False
+    assert result["data"]["error"] == "panel_document_locked"
+    assert result["data"]["requestedDocumentSerialNumber"] == 99
+
+
 @pytest.mark.asyncio
 async def test_bind_by_port_sets_process_identity(monkeypatch):
     monkeypatch.setattr(targeting, "discover_instances", lambda: [
