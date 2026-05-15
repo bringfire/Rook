@@ -1020,22 +1020,23 @@ namespace Rook.UI.Panels
 
             _schedule(surfaceId, () =>
             {
-                if (!_surfaces.ContainsKey(surfaceId))
+                if (!_surfaces.TryGetValue(surfaceId, out var currentState) ||
+                    !ReferenceEquals(currentState, state))
                     return;
 
-                state.PendingRetry = false;
-                if (state.TransitionVersion != transitionVersion)
+                currentState.PendingRetry = false;
+                if (currentState.TransitionVersion != transitionVersion)
                     return;
 
-                state.DeferAttempt++;
-                if (state.LastApply == null)
+                currentState.DeferAttempt++;
+                if (currentState.LastApply == null)
                     return;
 
                 ReconcileCore(
                     surfaceId,
-                    state.LastSelectedTab,
-                    state.LastReadinessProvider,
-                    state.LastApply,
+                    currentState.LastSelectedTab,
+                    currentState.LastReadinessProvider,
+                    currentState.LastApply,
                     "DeferredRetry");
             });
         }
