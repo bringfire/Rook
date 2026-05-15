@@ -679,6 +679,27 @@ async def test_meta_tools_work_with_stale_active_binding(monkeypatch):
         targeting.clear_active_target()
 
 
+@pytest.mark.asyncio
+async def test_panel_lock_get_active_instance_reports_lock_when_active_binding_stale(monkeypatch):
+    targeting.initialize_from_environment({
+        "ROOK_MCP_TARGET_MODE": "panel_locked",
+        "ROOK_MCP_TARGET_PROCESS_ID": "7102",
+        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
+    })
+    monkeypatch.setattr(targeting, "discover_instances", lambda: [
+        _inst(9951, 7102, "Panel.3dm"),
+    ])
+    targeting.set_active_target(targeting.InstanceRef(9950, 7101))
+
+    result = await targeting.get_active_instance_result()
+
+    assert result["success"] is False
+    assert result["data"]["error"] == "active_rhino_instance_unavailable"
+    assert result["data"]["lock"]["locked"] is True
+    assert result["data"]["lock"]["target"]["processId"] == 7102
+    assert result["data"]["lock"]["target"]["documentSerialNumber"] == 42
+
+
 def test_launch_auto_binds_only_without_valid_active_target(monkeypatch):
     monkeypatch.setattr(targeting, "discover_instances", lambda: [
         _inst(9950, 7101, "A.3dm"),

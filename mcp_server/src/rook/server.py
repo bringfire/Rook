@@ -11440,37 +11440,46 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                 else:
                     raise Exception("ping failed")
             except Exception:
-                # Not running — launch it
-                rhino_exe = "C:/Program Files/Rhino 8/System/Rhino.exe"
-                if not _os.path.exists(rhino_exe):
-                    result = {"success": False, "data": f"Rhino not found at {rhino_exe}"}
+                if targeting.get_panel_target_lock() is not None:
+                    result = targeting.route_error_result(
+                        targeting.ToolRoute(
+                            success=False,
+                            error="panel_target_stale",
+                            instances=targeting.discover_instances(),
+                        )
+                    )
                 else:
-                    _sp.Popen([rhino_exe], creationflags=_sp.DETACHED_PROCESS)
-                    # Poll until native plugin responds
-                    elapsed = 0
-                    started = False
-                    while elapsed < timeout:
-                        await asyncio.sleep(2)
-                        elapsed += 2
-                        try:
-                            ping_result = await call_rhino("/ping")
-                            if ping_result.get("success"):
-                                started = True
-                                break
-                        except Exception:
-                            continue
-                    if started:
-                        result = {"success": True, "data": {"status": "launched", "message": f"Rhino started in {elapsed}s"}}
-                        if targeting.should_auto_bind_launched_instance():
-                            target = targeting.bind_single_available_instance()
-                            if target is not None and isinstance(result.get("data"), dict):
-                                result["data"]["auto_bound"] = True
-                                result["data"]["active"] = {
-                                    "port": target.port,
-                                    "processId": target.process_id,
-                                }
+                    # Not running — launch it
+                    rhino_exe = "C:/Program Files/Rhino 8/System/Rhino.exe"
+                    if not _os.path.exists(rhino_exe):
+                        result = {"success": False, "data": f"Rhino not found at {rhino_exe}"}
                     else:
-                        result = {"success": False, "data": f"Rhino failed to start within {timeout}s"}
+                        _sp.Popen([rhino_exe], creationflags=_sp.DETACHED_PROCESS)
+                        # Poll until native plugin responds
+                        elapsed = 0
+                        started = False
+                        while elapsed < timeout:
+                            await asyncio.sleep(2)
+                            elapsed += 2
+                            try:
+                                ping_result = await call_rhino("/ping")
+                                if ping_result.get("success"):
+                                    started = True
+                                    break
+                            except Exception:
+                                continue
+                        if started:
+                            result = {"success": True, "data": {"status": "launched", "message": f"Rhino started in {elapsed}s"}}
+                            if targeting.should_auto_bind_launched_instance():
+                                target = targeting.bind_single_available_instance()
+                                if target is not None and isinstance(result.get("data"), dict):
+                                    result["data"]["auto_bound"] = True
+                                    result["data"]["active"] = {
+                                        "port": target.port,
+                                        "processId": target.process_id,
+                                    }
+                        else:
+                            result = {"success": False, "data": f"Rhino failed to start within {timeout}s"}
 
         case "rhino_ping":
             result = await call_rhino("/ping", port=port)

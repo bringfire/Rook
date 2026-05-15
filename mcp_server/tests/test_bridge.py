@@ -221,6 +221,38 @@ async def test_panel_lock_launch_live_owner_does_not_auto_bind(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_panel_lock_launch_ping_failure_does_not_spawn_rhino(monkeypatch):
+    import os
+    import subprocess
+
+    from rook import server, targeting
+
+    targeting.reset_targeting_state_for_tests()
+    targeting.initialize_from_environment({
+        "ROOK_MCP_TARGET_MODE": "panel_locked",
+        "ROOK_MCP_TARGET_PROCESS_ID": "7101",
+        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
+    })
+    monkeypatch.setattr(targeting, "discover_instances", lambda: [
+        {"host": "127.0.0.1", "port": 9950, "processId": 7101, "pluginType": "native"},
+    ])
+
+    async def failed_ping(endpoint, *args, **kwargs):
+        assert endpoint == "/ping"
+        return {"success": False, "data": "ping failed"}
+
+    popen_calls = []
+    monkeypatch.setattr(server, "call_rhino", failed_ping)
+    monkeypatch.setattr(os.path, "exists", lambda path: True)
+    monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: popen_calls.append((args, kwargs)))
+
+    result = await server.call_tool("rhino_launch", {"timeout": 0})
+
+    assert "panel_target_stale" in result[0].text
+    assert popen_calls == []
+
+
+@pytest.mark.asyncio
 async def test_call_rhino_defaults_to_panel_locked_process(discovery_dir: Path, monkeypatch):
     from rook import targeting
 

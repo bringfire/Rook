@@ -1035,14 +1035,17 @@ async def bind_active_instance(
 async def get_active_instance_result() -> dict[str, Any]:
     active = resolve_active_target()
     if active.stale_target is not None:
-        return _error_result(
-            "active_rhino_instance_unavailable",
-            stale_target={
+        data: dict[str, Any] = {
+            "error": "active_rhino_instance_unavailable",
+            "stale_target": {
                 "port": active.stale_target.port,
                 "processId": active.stale_target.process_id,
             },
-            instances=active.instances or [],
-        )
+            "instances": active.instances or [],
+        }
+        if _PANEL_TARGET_LOCK is not None or _PANEL_TARGET_CONFIG_ERROR is not None:
+            data["lock"] = get_lock_state_result()["data"]["lock"]
+        return {"success": False, "data": data}
     if active.target is None or active.instance is None:
         data: dict[str, Any] = {"active": None}
         if _PANEL_TARGET_LOCK is not None or _PANEL_TARGET_CONFIG_ERROR is not None:
