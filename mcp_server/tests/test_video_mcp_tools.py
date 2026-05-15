@@ -39,7 +39,7 @@ import pytest
 # resolve against the checked-out source tree.
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from rook import server
+from rook import server, targeting
 from rook.agent import tool_dispatcher, tool_groups
 
 
@@ -74,6 +74,13 @@ VIDEO_TRANSFORM_TOOLS = {
     "rhino_video_result",
     "rhino_video_jobs",
 }
+
+
+@pytest.fixture(autouse=True)
+def fake_rhino_discovery(monkeypatch):
+    monkeypatch.setattr(targeting, "discover_instances", lambda: [
+        {"host": "127.0.0.1", "port": 9950, "processId": 7101, "pluginType": "native"},
+    ])
 
 
 # ─── list_tools() registration ────────────────────────────────────────

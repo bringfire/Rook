@@ -33,7 +33,7 @@ import pytest
 # against the checked-out source tree.
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from rook import server
+from rook import server, targeting
 from rook.agent import tool_groups
 
 
@@ -54,6 +54,13 @@ VISION_READONLY_TOOL_NAMES = [
     "rhino_vision_get_artifact",
     "rhino_vision_consume_approved",
 ]
+
+
+@pytest.fixture(autouse=True)
+def fake_rhino_discovery(monkeypatch):
+    monkeypatch.setattr(targeting, "discover_instances", lambda: [
+        {"host": "127.0.0.1", "port": 9950, "processId": 7101, "pluginType": "native"},
+    ])
 
 
 # ─── list_tools() discovery ───────────────────────────────────────────
