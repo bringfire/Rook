@@ -148,13 +148,13 @@ async def test_dispatcher_direct():
     results["rhino_layers"] = r.get("success", False)
     print(f"  rhino_layers:  {'PASS' if results['rhino_layers'] else 'FAIL'}")
 
-    # GH query
-    r = await dispatcher.dispatch("gh_query", {})
-    results["gh_query"] = r.get("success", False)
+    # GH snapshot
+    r = await dispatcher.dispatch("gh_snapshot", {})
+    results["gh_snapshot"] = r.get("success", False)
     gh_count = 0
     if isinstance(r.get("data"), dict):
-        gh_count = len(r["data"].get("objects", []))
-    print(f"  gh_query:      {'PASS' if results['gh_query'] else 'FAIL'} ({gh_count} components)")
+        gh_count = len(r["data"].get("components", r["data"].get("objects", [])))
+    print(f"  gh_snapshot:   {'PASS' if results['gh_snapshot'] else 'FAIL'} ({gh_count} components)")
 
     # GH errors
     r = await dispatcher.dispatch("gh_errors", {})
@@ -218,8 +218,8 @@ async def test_worker_gh_canvas():
     result = await run_task(
         "In Grasshopper, create a Number Slider component and a Panel component. "
         "Wire the slider output to the panel input. "
-        "Then verify the connection exists using gh_connections. "
-        "Use gh_component, gh_connect, and gh_query tools — NOT gh_execute_intent.",
+        "Then verify the connection exists using gh_snapshot. "
+        "Use gh_component, gh_connect, and gh_snapshot tools — NOT gh_execute_intent.",
         agent_type="worker",
         max_turns=15,
         catalog=catalog,
