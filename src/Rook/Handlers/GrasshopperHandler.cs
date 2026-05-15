@@ -94,6 +94,7 @@ namespace Rook.Handlers
                     message = reason,
                     operation,
                     ready_for_edit = false,
+                    verification_note = "Call gh_status to inspect readiness. Use an explicit lifecycle tool only if Grasshopper is the intended substrate.",
                     verified = false,
                     status,
                 }
@@ -123,9 +124,13 @@ namespace Rook.Handlers
         /// </summary>
         internal ApiResponse CreateSlider(string? body)
         {
-            var gh = GetGrasshopper();
+            var notReady = EnsureGrasshopperReadyForEdit("gh_create_slider");
+            if (notReady != null)
+                return notReady;
+
+            var gh = GetGrasshopper(createDocumentIfMissing: false);
             if (!gh.Success)
-                return new ApiResponse { Success = false, Data = gh.Error };
+                return GrasshopperNotReadyResponse("gh_create_slider", null, gh.Error);
 
             // Parse parameters
             string nickname = "Slider";
@@ -451,12 +456,16 @@ namespace Rook.Handlers
         /// </summary>
         internal ApiResponse SetValue(string? body)
         {
+            var notReady = EnsureGrasshopperReadyForEdit("gh_set_value");
+            if (notReady != null)
+                return notReady;
+
+            var gh = GetGrasshopper(createDocumentIfMissing: false);
+            if (!gh.Success)
+                return GrasshopperNotReadyResponse("gh_set_value", null, gh.Error);
+
             if (string.IsNullOrEmpty(body))
                 return new ApiResponse { Success = false, Data = "Missing body" };
-
-            var gh = GetGrasshopper();
-            if (!gh.Success)
-                return new ApiResponse { Success = false, Data = gh.Error };
 
             string? guid = null;
             JsonElement valueEl = default;
@@ -5248,9 +5257,13 @@ namespace Rook.Handlers
         /// </summary>
         internal ApiResponse ConnectComponents(string? body)
         {
-            var gh = GetGrasshopper();
+            var notReady = EnsureGrasshopperReadyForEdit("gh_connect");
+            if (notReady != null)
+                return notReady;
+
+            var gh = GetGrasshopper(createDocumentIfMissing: false);
             if (!gh.Success)
-                return new ApiResponse { Success = false, Data = gh.Error };
+                return GrasshopperNotReadyResponse("gh_connect", null, gh.Error);
 
             if (string.IsNullOrEmpty(body))
                 return new ApiResponse { Success = false, Data = "Missing body" };

@@ -39,6 +39,35 @@ namespace Rook.Tests.InternalBridge
         {
             var result = NativeGhBridgeRegistrar.QueryDocumentForBridge("{}");
 
+            AssertGrasshopperNotReady(result, "gh_query");
+        }
+
+        [Fact]
+        public void CreateSliderForBridge_NotReady_ReturnsStructuredFailure()
+        {
+            var result = NativeGhBridgeRegistrar.CreateSliderForBridge("{}");
+
+            AssertGrasshopperNotReady(result, "gh_create_slider");
+        }
+
+        [Fact]
+        public void ConnectForBridge_NotReady_ReturnsStructuredFailure()
+        {
+            var result = NativeGhBridgeRegistrar.ConnectForBridge("{}");
+
+            AssertGrasshopperNotReady(result, "gh_connect");
+        }
+
+        [Fact]
+        public void SetValueForBridge_NotReady_ReturnsStructuredFailure()
+        {
+            var result = NativeGhBridgeRegistrar.SetValueForBridge("{}");
+
+            AssertGrasshopperNotReady(result, "gh_set_value");
+        }
+
+        private static void AssertGrasshopperNotReady(ApiResponse result, string operation)
+        {
             Assert.False(result.Success);
             Assert.NotNull(result.Data);
 
@@ -52,11 +81,12 @@ namespace Rook.Tests.InternalBridge
             Assert.Equal(
                 false,
                 dataType.GetProperty("verified")?.GetValue(result.Data));
+            Assert.Equal(
+                operation,
+                dataType.GetProperty("operation")?.GetValue(result.Data));
             Assert.NotNull(dataType.GetProperty("errors")?.GetValue(result.Data));
             Assert.NotNull(dataType.GetProperty("message")?.GetValue(result.Data));
-            Assert.Equal(
-                "gh_query",
-                dataType.GetProperty("operation")?.GetValue(result.Data));
+            Assert.NotNull(dataType.GetProperty("verification_note")?.GetValue(result.Data));
             Assert.NotNull(dataType.GetProperty("status")?.GetValue(result.Data));
         }
 

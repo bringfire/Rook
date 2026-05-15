@@ -532,6 +532,21 @@ namespace Rook.InternalBridge
             return Handler.QueryDocument();
         }
 
+        internal static ApiResponse ConnectForBridge(string requestJson)
+        {
+            return Handler.ConnectComponents(requestJson);
+        }
+
+        internal static ApiResponse CreateSliderForBridge(string requestJson)
+        {
+            return Handler.CreateSlider(requestJson);
+        }
+
+        internal static ApiResponse SetValueForBridge(string requestJson)
+        {
+            return Handler.SetValue(requestJson);
+        }
+
         private static int HandleSelection(
             IntPtr requestJsonUtf8,
             int requestJsonLength,
@@ -1048,7 +1063,7 @@ namespace Rook.InternalBridge
                 responseJsonCapacity,
                 responseJsonLength,
                 httpStatusCode,
-                requestJson => Handler.ConnectComponents(requestJson));
+                ConnectForBridge);
         }
 
         private static int HandleCreateSlider(
@@ -1066,7 +1081,7 @@ namespace Rook.InternalBridge
                 responseJsonCapacity,
                 responseJsonLength,
                 httpStatusCode,
-                requestJson => Handler.CreateSlider(requestJson));
+                CreateSliderForBridge);
         }
 
         private static int HandleCreatePanel(
@@ -1120,7 +1135,7 @@ namespace Rook.InternalBridge
                 responseJsonCapacity,
                 responseJsonLength,
                 httpStatusCode,
-                requestJson => Handler.SetValue(requestJson));
+                SetValueForBridge);
         }
 
         private static int HandleDelete(
