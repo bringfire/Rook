@@ -46,7 +46,7 @@ class TestReadonlyConstants(unittest.TestCase):
         self.assertNotIn("gh_execute_intent", READONLY_TIER_0)
 
     def test_readonly_tier0_has_inspection_tools(self):
-        for tool in ("rhino_ping", "rhino_objects", "gh_query",
+        for tool in ("rhino_ping", "rhino_objects", "gh_snapshot",
                       "gh_errors", "knowledge_query"):
             self.assertIn(tool, READONLY_TIER_0, f"Missing: {tool}")
 
@@ -58,8 +58,9 @@ class TestReadonlyConstants(unittest.TestCase):
         """READONLY_TIER_0 should only contain known read-safe tools."""
         known_safe = {
             "rhino_ping", "rhino_objects", "rhino_geometry",
-            "gh_query", "gh_errors",
-            "knowledge_query", "gh_knowledge_query",
+            "gh_snapshot", "gh_errors",
+            "knowledge_query", "rhino_knowledge_query", "gh_knowledge_query",
+            "scene_graph", "scene_context", "scene_stats",
             "request_tools", "search_tools",
         }
         extra = READONLY_TIER_0 - known_safe
@@ -235,7 +236,7 @@ class TestGhCanvasReadonlyGroup(unittest.TestCase):
 
     def test_has_inspection_tools(self):
         readonly_tools = set(TOOL_GROUPS["gh_canvas_readonly"])
-        for tool in ("gh_get_value", "gh_inspect_output", "gh_connections"):
+        for tool in ("gh_snapshot", "gh_inspect_output", "gh_canvas_image"):
             self.assertIn(tool, readonly_tools, f"Missing: {tool}")
 
 

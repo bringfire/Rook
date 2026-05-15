@@ -1,6 +1,8 @@
 using System;
+using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using Rook;
 using Rook.Handlers;
 using Rook.InternalBridge;
@@ -39,6 +41,92 @@ namespace Rook.Tests.InternalBridge
         {
             var result = NativeGhBridgeRegistrar.QueryDocumentForBridge("{}");
 
+            AssertGrasshopperNotReady(result, "gh_query");
+        }
+
+        [Fact]
+        public void DocumentForBridge_NotReady_DoesNotCreateDocument()
+        {
+            var result = NativeGhBridgeRegistrar.DocumentForBridge("{}");
+
+            AssertGrasshopperNotReady(result, "gh_document");
+        }
+
+        [Fact]
+        public void ErrorsForBridge_NotReady_ReturnsStructuredFailure()
+        {
+            var result = NativeGhBridgeRegistrar.ErrorsForBridge("{}");
+
+            AssertGrasshopperNotReady(result, "gh_errors");
+        }
+
+        [Fact]
+        public void CreatePanelForBridge_NotReady_ReturnsStructuredFailure()
+        {
+            var result = NativeGhBridgeRegistrar.CreatePanelForBridge("{}");
+
+            AssertGrasshopperNotReady(result, "gh_create_panel");
+        }
+
+        [Fact]
+        public void CreateSliderForBridge_NotReady_ReturnsStructuredFailure()
+        {
+            var result = NativeGhBridgeRegistrar.CreateSliderForBridge("{}");
+
+            AssertGrasshopperNotReady(result, "gh_create_slider");
+        }
+
+        [Fact]
+        public void ConnectForBridge_NotReady_ReturnsStructuredFailure()
+        {
+            var result = NativeGhBridgeRegistrar.ConnectForBridge("{}");
+
+            AssertGrasshopperNotReady(result, "gh_connect");
+        }
+
+        [Fact]
+        public void SetValueForBridge_NotReady_ReturnsStructuredFailure()
+        {
+            var result = NativeGhBridgeRegistrar.SetValueForBridge("{}");
+
+            AssertGrasshopperNotReady(result, "gh_set_value");
+        }
+
+        [Fact]
+        public void GrasshopperHandler_BareGetGrasshopperCalls_AreLimitedToLifecycleRoutes()
+        {
+            var sourcePath = Path.GetFullPath(Path.Combine(
+                AppContext.BaseDirectory,
+                "..",
+                "..",
+                "..",
+                "..",
+                "Rook",
+                "Handlers",
+                "GrasshopperHandler.cs"));
+            var source = File.ReadAllText(sourcePath);
+            var bareCalls = Regex.Matches(source, @"GetGrasshopper\(\)")
+                .Cast<Match>()
+                .Select(match => new
+                {
+                    Method = FindContainingMethodName(source, match.Index),
+                    Line = source.Take(match.Index).Count(ch => ch == '\n') + 1,
+                })
+                .ToArray();
+
+            var actualMethods = bareCalls.Select(call => call.Method).ToHashSet();
+            var expectedMethods = new[] { "OpenDocument", "NewDocument" }.ToHashSet();
+            var callSummary = string.Join(
+                ", ",
+                bareCalls.Select(call => $"{call.Method}:L{call.Line}"));
+
+            Assert.True(
+                expectedMethods.SetEquals(actualMethods),
+                $"Bare GetGrasshopper() calls must stay limited to lifecycle routes. Found: {callSummary}");
+        }
+
+        private static void AssertGrasshopperNotReady(ApiResponse result, string operation)
+        {
             Assert.False(result.Success);
             Assert.NotNull(result.Data);
 
@@ -52,12 +140,26 @@ namespace Rook.Tests.InternalBridge
             Assert.Equal(
                 false,
                 dataType.GetProperty("verified")?.GetValue(result.Data));
+            Assert.Equal(
+                operation,
+                dataType.GetProperty("operation")?.GetValue(result.Data));
             Assert.NotNull(dataType.GetProperty("errors")?.GetValue(result.Data));
             Assert.NotNull(dataType.GetProperty("message")?.GetValue(result.Data));
-            Assert.Equal(
-                "gh_query",
-                dataType.GetProperty("operation")?.GetValue(result.Data));
+            Assert.NotNull(dataType.GetProperty("verification_note")?.GetValue(result.Data));
             Assert.NotNull(dataType.GetProperty("status")?.GetValue(result.Data));
+        }
+
+        private static string FindContainingMethodName(string source, int index)
+        {
+            var beforeCall = source.Substring(0, index);
+            var matches = Regex.Matches(
+                beforeCall,
+                @"(?:public|private|internal)\s+[^\r\n{;=]+?\s+(?<name>[A-Za-z_][A-Za-z0-9_]*)\s*\([^;{}]*\)\s*\{",
+                RegexOptions.Singleline);
+
+            return matches.Count == 0
+                ? "<unknown>"
+                : matches[matches.Count - 1].Groups["name"].Value;
         }
 
         [Theory]

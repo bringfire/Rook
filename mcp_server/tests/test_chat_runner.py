@@ -531,6 +531,48 @@ async def test_run_turn_verification_hoisting_from_nested_data(conversation):
 
 
 @pytest.mark.asyncio
+async def test_run_turn_uses_nested_legacy_readiness_verification_note(conversation):
+    """Legacy GH route readiness failures preserve explicit nested notes."""
+    mock_executor = AsyncMock(return_value={
+        "success": False,
+        "data": {
+            "error": "grasshopper_not_ready",
+            "message": "No active Grasshopper canvas",
+            "verified": False,
+            "verification_note": "Call gh_status to inspect readiness.",
+        },
+    })
+    runner = ChatRunner(
+        tool_executor=mock_executor,
+        registry=_make_minimal_registry(),
+    )
+
+    tool_response = _make_tool_response(
+        "gh_create_slider", {}, tool_call_id="call_gh_legacy_not_ready"
+    )
+    text_response = _make_text_response("Grasshopper is not ready.")
+
+    call_count = 0
+
+    async def mock_acompletion(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return tool_response
+        return text_response
+
+    events = []
+    with patch("litellm.acompletion", side_effect=mock_acompletion), _runtime_facts_patch():
+        async for event in runner.run_turn(conversation, "create slider", system_prompt="test"):
+            events.append(event)
+
+    result_events = [e for e in events if e.type == "tool_result"]
+    assert len(result_events) == 1
+    assert result_events[0].verified is False
+    assert result_events[0].verification_note == "Call gh_status to inspect readiness."
+
+
+@pytest.mark.asyncio
 async def test_run_turn_verification_hoisting_on_error(conversation):
     """Verify verification hoisting handles exception path (result=None)."""
     mock_executor = AsyncMock(side_effect=RuntimeError("Bridge timeout"))
