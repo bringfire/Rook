@@ -16,7 +16,7 @@ The design follows the official Rhino/Eto guidance:
 
 - Rhino tabbed panels reuse the same panel instance and reparent it as the host changes.
 - Eto `Control.Visible = false` can remove controls from layout calculation and event processing.
-- `Control.Parent` and `Control.ParentWindow` are only reliable after the control is hosted.
+- Generic Eto `Control` exposes `Loaded`, `Parent`, `ParentWindow`, `VisualParent`, `Size`, and `Bounds`. It does not expose `ClientSize` as the generic hosted-control readiness primitive.
 - `ShowPanelReason.HideOnDeactivate` and `ShowPanelReason.ShowOnDeactivate` represent temporary deactivate/reactivate transitions.
 - `Panels.IsPanelVisible(panelType, isSelectedTab: true)` exists to distinguish "panel exists in a visible dock group" from "this panel tab is selected and actually visible."
 - Async UI work must be exception-contained and must not block Rhino with `.Result`, `.Wait()`, or `.GetAwaiter().GetResult()`.
@@ -62,7 +62,7 @@ RookWebSurface.ReconcileHostVisibility(...)
 
 `HostedPanelLifecycleCoordinator` is pure decision logic. It must be unit-testable without Rhino loaded. The pure types and coordinator must not reference `Rhino.*`, `Eto.*`, or WebView2 types.
 
-`HostedPanelLifecycleAdapter` is the Rhino/Eto boundary. It gathers facts from panel events, tab selection, `Panels.IsPanelVisible`, parent/window attachment, and control size, then passes those facts into the coordinator. It owns bounded deferred scheduling and diagnostics.
+`HostedPanelLifecycleAdapter` is the Rhino/Eto boundary. It gathers facts from panel events, tab selection, `Panels.IsPanelVisible`, and Eto host readiness components, then passes those facts into the coordinator. It owns bounded deferred scheduling and diagnostics.
 
 `RookWebSurface.ReconcileHostVisibility(bool visible, string reason)` remains a low-level sink. It applies final visibility/positioning decisions. It is not the lifecycle authority.
 
@@ -103,8 +103,7 @@ internal sealed class PanelLifecycleFacts
     public HostedPanelLifecycleReason LastReason { get; init; }
     public bool IsSelectedTab { get; init; }
     public bool IsRhinoSelectedPanelVisible { get; init; }
-    public bool IsAttachedToParentWindow { get; init; }
-    public bool HasNonZeroClientSize { get; init; }
+    public bool IsHostReady { get; init; }
     public bool IsClosing { get; init; }
     public int DeferAttempt { get; init; }
 }
@@ -177,7 +176,7 @@ Chat tab IDs must not depend only on tab labels. Labels can repeat or change. Ea
 
 ### 8.1 Show
 
-If the panel is reported visible, the surface is selected, Rhino reports the panel selected-tab visible, the control is attached to a parent window, and the control has nonzero client size, the coordinator returns `Show`.
+If the panel is reported visible, the surface is selected, Rhino reports the panel selected-tab visible, and the adapter reports the host ready, the coordinator returns `Show`.
 
 ### 8.2 Real Hide
 
@@ -219,9 +218,17 @@ Dedicated Vision and Knowledge Graph panels pass `IsSelectedTab = true` unless t
 
 ### 8.7 Docking, Reparenting, And Zero-Size Layout
 
-If the panel is reported visible and selected but the hosted control is not attached to a parent window or has zero client size, the coordinator returns `Defer`.
+If the panel is reported visible and selected but the hosted control is not host-ready, the coordinator returns `Defer`.
 
-The adapter schedules a bounded UI-thread retry and captures fresh facts on that retry. It must not block Rhino.
+The adapter computes host readiness from Eto `Control` facts. It captures and traces these readiness components separately:
+
+- `control.Loaded`
+- `control.Parent != null`
+- `control.VisualParent != null`
+- `control.ParentWindow != null`
+- nonzero host size from `control.Size` or `control.Bounds.Size`
+
+The coordinator consumes only the single pure `IsHostReady` fact. The adapter schedules a bounded UI-thread retry and captures fresh facts on that retry. It must not block Rhino.
 
 ### 8.8 Bounded Defer Policy
 
@@ -239,7 +246,7 @@ Policy:
 
 ### 8.9 Surface Resurrection After Exhausted Defer
 
-Exhausted defer is not permanent. If a surface exhausts retries while visible but zero-size, a later layout, selection, or show event with nonzero size can return `Show`.
+Exhausted defer is not permanent. If a surface exhausts retries while visible but not host-ready, a later layout, selection, or show event with loaded/attached/nonzero-size facts can return `Show`.
 
 This prevents "gave up forever" behavior after slow docking/reparenting.
 
@@ -252,8 +259,8 @@ When facts conflict, the coordinator applies this priority:
 3. `!IsSelectedTab` => `Hide`
 4. `!IsRhinoSelectedPanelVisible` => `Hide` or `None`, never `Show`
 5. `!PanelReportedVisible` => `Hide`
-6. visible/selected but unattached or zero-size => `Defer`
-7. visible/selected/attached/nonzero => `Show`
+6. visible/selected but host not ready => `Defer`
+7. visible/selected/host-ready => `Show`
 8. otherwise => `None`
 
 `ShowOnDeactivate` clears temporary state before applying the normal rules.
@@ -269,9 +276,11 @@ It owns:
 - storing latest document serial number
 - storing closing state
 - calling `Panels.IsPanelVisible(panelType, isSelectedTab: true)`
+- inspecting `Control.Loaded`
 - inspecting `Control.Parent`
+- inspecting `Control.VisualParent`
 - inspecting `Control.ParentWindow`
-- inspecting `Control.ClientSize`
+- inspecting host size via `Control.Size` or `Control.Bounds.Size`
 - tracking defer attempts per `surfaceId`
 - coalescing pending retries per `surfaceId`
 - scheduling UI-thread retries with exception handling
@@ -355,8 +364,12 @@ Log metadata only:
 - panel reported visible
 - selected tab state
 - Rhino selected-panel-visible state
-- parent/window attached state
-- client size
+- loaded state
+- parent state
+- visual parent state
+- parent window state
+- host size from `Size`/`Bounds`
+- computed host readiness
 - defer attempt
 - pending retry/coalescing state
 - action
@@ -382,19 +395,18 @@ The coordinator tests must not require Rhino, Eto, or WebView2.
 
 Required cases:
 
-- visible + selected + Rhino selected-panel visible + attached + nonzero size => `Show`
+- visible + selected + Rhino selected-panel visible + host ready => `Show`
 - `HideOnDeactivate` never returns `Hide`
-- `ShowOnDeactivate` can return `Show` when attached and sized
-- `ShowOnDeactivate` can return `Defer` when unattached or zero-size
+- `ShowOnDeactivate` can return `Show` when host ready
+- `ShowOnDeactivate` can return `Defer` when host not ready
 - real hide returns `Hide`
 - a real hide after temporary deactivate returns `Hide`
 - unselected tab returns `Hide`
 - Rhino dock group visible but selected-panel visibility false does not return `Show`
 - closing returns `Close`
-- visible but no parent/window returns `Defer`
-- visible but zero-size returns `Defer`
+- visible but host not ready returns `Defer`
 - exhausted defer returns `None`
-- later nonzero-size event after exhausted defer can return `Show`
+- later host-ready event after exhausted defer can return `Show`
 - conflicting facts follow the priority order
 
 ### 13.2 Adapter Tests
@@ -410,6 +422,7 @@ Required cases:
 - keeps one pending retry per `surfaceId`
 - increments retry budget per executed retry, not per noisy event
 - resets defer budget on a later lifecycle/selection/layout transition
+- captures and traces `Loaded`, `Parent`, `VisualParent`, `ParentWindow`, `Size`/`Bounds`, and computed `IsHostReady`
 - records trace only when enabled
 - trace excludes user content
 
@@ -428,18 +441,20 @@ Required source-level or integration-style checks:
 
 With a build deployed into Rhino:
 
-1. Set `ROOK_PANEL_LIFECYCLE_TRACE=1`.
-2. Open Rook Chat.
-3. Open an Agent Chat tab.
-4. Open a Claude Code tab.
-5. Open dedicated Rook Vision panel.
-6. Open Knowledge Graph panel.
-7. Float, dock, undock, resize, and switch Rhino dock tabs.
-8. Deactivate and reactivate Rhino.
-9. Switch Chat tabs repeatedly.
-10. Confirm surfaces do not blank.
-11. Confirm the trace shows `HideOnDeactivate` did not produce `Hide`.
-12. Confirm docking/reparenting shows bounded `Defer -> Show` instead of reload/teardown.
+1. Close Rhino.
+2. Enable `ROOK_PANEL_LIFECYCLE_TRACE=1` in the environment that will launch Rhino, or set it temporarily at user scope and unset it after the smoke.
+3. Launch Rhino.
+4. Open Rook Chat.
+5. Open an Agent Chat tab.
+6. Open a Claude Code tab.
+7. Open dedicated Rook Vision panel.
+8. Open Knowledge Graph panel.
+9. Float, dock, undock, resize, and switch Rhino dock tabs.
+10. Deactivate and reactivate Rhino.
+11. Switch Chat tabs repeatedly.
+12. Confirm surfaces do not blank.
+13. Confirm the trace shows `HideOnDeactivate` did not produce `Hide`.
+14. Confirm docking/reparenting shows bounded `Defer -> Show` instead of reload/teardown.
 
 ## 14. Rollout
 

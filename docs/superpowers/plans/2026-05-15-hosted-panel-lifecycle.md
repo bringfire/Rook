@@ -91,8 +91,7 @@ namespace Rook.Tests.UI.Panels
             bool panelReportedVisible = true,
             bool isSelectedTab = true,
             bool isRhinoSelectedPanelVisible = true,
-            bool isAttachedToParentWindow = true,
-            bool hasNonZeroClientSize = true,
+            bool isHostReady = true,
             bool isClosing = false)
         {
             return new PanelLifecycleFacts
@@ -101,15 +100,14 @@ namespace Rook.Tests.UI.Panels
                 LastReason = reason,
                 IsSelectedTab = isSelectedTab,
                 IsRhinoSelectedPanelVisible = isRhinoSelectedPanelVisible,
-                IsAttachedToParentWindow = isAttachedToParentWindow,
-                HasNonZeroClientSize = hasNonZeroClientSize,
+                IsHostReady = isHostReady,
                 IsClosing = isClosing,
                 DeferAttempt = deferAttempt
             };
         }
 
         [Fact]
-        public void Decide_VisibleSelectedAttachedAndSized_Shows()
+        public void Decide_VisibleSelectedHostReady_Shows()
         {
             var decision = Coordinator.Decide(VisibleReady());
 
@@ -138,11 +136,11 @@ namespace Rook.Tests.UI.Panels
         }
 
         [Fact]
-        public void Decide_ShowOnDeactivate_DefersWhenZeroSize()
+        public void Decide_ShowOnDeactivate_DefersWhenHostNotReady()
         {
             var facts = VisibleReady(
                 HostedPanelLifecycleReason.ShowOnDeactivate,
-                hasNonZeroClientSize: false);
+                isHostReady: false);
 
             var decision = Coordinator.Decide(facts);
 
@@ -167,8 +165,7 @@ namespace Rook.Tests.UI.Panels
             var facts = VisibleReady(
                 HostedPanelLifecycleReason.Hide,
                 panelReportedVisible: false,
-                isAttachedToParentWindow: true,
-                hasNonZeroClientSize: true);
+                isHostReady: true);
 
             var decision = Coordinator.Decide(facts);
 
@@ -201,19 +198,10 @@ namespace Rook.Tests.UI.Panels
         }
 
         [Fact]
-        public void Decide_VisibleButNoParentWindow_Defers()
+        public void Decide_VisibleButHostNotReady_Defers()
         {
             var decision = Coordinator.Decide(VisibleReady(
-                isAttachedToParentWindow: false));
-
-            Assert.Equal(HostedSurfaceAction.Defer, decision.Action);
-        }
-
-        [Fact]
-        public void Decide_VisibleButZeroSize_Defers()
-        {
-            var decision = Coordinator.Decide(VisibleReady(
-                hasNonZeroClientSize: false));
+                isHostReady: false));
 
             Assert.Equal(HostedSurfaceAction.Defer, decision.Action);
         }
@@ -223,7 +211,7 @@ namespace Rook.Tests.UI.Panels
         {
             var decision = Coordinator.Decide(VisibleReady(
                 deferAttempt: HostedPanelLifecycleCoordinator.MaxDeferAttempts,
-                hasNonZeroClientSize: false));
+                isHostReady: false));
 
             Assert.Equal(HostedSurfaceAction.None, decision.Action);
         }
@@ -233,7 +221,7 @@ namespace Rook.Tests.UI.Panels
         {
             var decision = Coordinator.Decide(VisibleReady(
                 deferAttempt: HostedPanelLifecycleCoordinator.MaxDeferAttempts,
-                hasNonZeroClientSize: true));
+                isHostReady: true));
 
             Assert.Equal(HostedSurfaceAction.Show, decision.Action);
         }
@@ -293,8 +281,7 @@ namespace Rook.UI.Panels
         public HostedPanelLifecycleReason LastReason { get; init; }
         public bool IsSelectedTab { get; init; }
         public bool IsRhinoSelectedPanelVisible { get; init; }
-        public bool IsAttachedToParentWindow { get; init; }
-        public bool HasNonZeroClientSize { get; init; }
+        public bool IsHostReady { get; init; }
         public bool IsClosing { get; init; }
         public int DeferAttempt { get; init; }
     }
@@ -328,7 +315,7 @@ namespace Rook.UI.Panels
 
             if (facts.LastReason == HostedPanelLifecycleReason.HideOnDeactivate)
             {
-                if (!facts.IsAttachedToParentWindow || !facts.HasNonZeroClientSize)
+                if (!facts.IsHostReady)
                     return DeferOrNone("temporary-deactivate-waiting-for-layout", facts);
 
                 return Decision(HostedSurfaceAction.None, "temporary-deactivate", facts);
@@ -349,14 +336,9 @@ namespace Rook.UI.Panels
                 return Decision(HostedSurfaceAction.Hide, "panel-hidden", facts);
             }
 
-            if (!facts.IsAttachedToParentWindow)
+            if (!facts.IsHostReady)
             {
-                return DeferOrNone("parent-window-not-attached", facts);
-            }
-
-            if (!facts.HasNonZeroClientSize)
-            {
-                return DeferOrNone("zero-client-size", facts);
+                return DeferOrNone("host-not-ready", facts);
             }
 
             return Decision(HostedSurfaceAction.Show, "show-ready", facts);
@@ -496,8 +478,7 @@ namespace Rook.Tests.UI.Panels
             adapter.ReconcileForTest(
                 "10:test:1",
                 isSelectedTab: true,
-                isAttachedToParentWindow: true,
-                hasNonZeroClientSize: true,
+                isHostReady: true,
                 decisions.Add);
 
             Assert.Equal(typeof(Form), visibility.LastPanelType);
@@ -515,8 +496,7 @@ namespace Rook.Tests.UI.Panels
             adapter.ReconcileForTest(
                 "10:test:1",
                 isSelectedTab: true,
-                isAttachedToParentWindow: true,
-                hasNonZeroClientSize: true,
+                isHostReady: true,
                 decisions.Add);
 
             Assert.Single(decisions);
@@ -536,8 +516,7 @@ namespace Rook.Tests.UI.Panels
             adapter.ReconcileForTest(
                 "10:test:1",
                 isSelectedTab: true,
-                isAttachedToParentWindow: true,
-                hasNonZeroClientSize: true,
+                isHostReady: true,
                 decisions.Add);
 
             Assert.Single(decisions);
@@ -558,14 +537,12 @@ namespace Rook.Tests.UI.Panels
             adapter.ReconcileForTest(
                 "10:test:1",
                 isSelectedTab: true,
-                isAttachedToParentWindow: false,
-                hasNonZeroClientSize: false,
+                isHostReady: false,
                 decisions.Add);
             adapter.ReconcileForTest(
                 "10:test:1",
                 isSelectedTab: true,
-                isAttachedToParentWindow: true,
-                hasNonZeroClientSize: false,
+                isHostReady: false,
                 decisions.Add);
 
             Assert.Equal(1, scheduler.PendingCount);
@@ -586,8 +563,7 @@ namespace Rook.Tests.UI.Panels
             adapter.ReconcileForTest(
                 "10:test:1",
                 isSelectedTab: true,
-                isAttachedToParentWindow: false,
-                hasNonZeroClientSize: false,
+                isHostReady: false,
                 decisions.Add);
             scheduler.Run("10:test:1");
 
@@ -611,8 +587,7 @@ namespace Rook.Tests.UI.Panels
             adapter.ReconcileForTest(
                 "10:test:1",
                 isSelectedTab: true,
-                isAttachedToParentWindow: false,
-                hasNonZeroClientSize: false,
+                isHostReady: false,
                 decisions.Add);
 
             var last = decisions[decisions.Count - 1];
@@ -725,8 +700,7 @@ namespace Rook.UI.Panels
                     "\treportedVisible=" + facts.PanelReportedVisible +
                     "\tselectedTab=" + facts.IsSelectedTab +
                     "\trhinoSelectedVisible=" + facts.IsRhinoSelectedPanelVisible +
-                    "\tattached=" + facts.IsAttachedToParentWindow +
-                    "\tnonzeroSize=" + facts.HasNonZeroClientSize +
+                    "\thostReady=" + facts.IsHostReady +
                     "\tclosing=" + facts.IsClosing +
                     "\tdeferAttempt=" + facts.DeferAttempt.ToString(CultureInfo.InvariantCulture) +
                     "\taction=" + decision.Action +
@@ -859,11 +833,11 @@ namespace Rook.UI.Panels
             if (hostControl == null)
                 throw new ArgumentNullException(nameof(hostControl));
 
+            var readiness = CaptureHostReadiness(hostControl);
             ReconcileCore(
                 surfaceId,
                 isSelectedTab,
-                IsAttached(hostControl),
-                HasNonZeroClientSize(hostControl),
+                readiness,
                 apply,
                 eventName: "Reconcile");
         }
@@ -871,15 +845,13 @@ namespace Rook.UI.Panels
         internal void ReconcileForTest(
             string surfaceId,
             bool isSelectedTab,
-            bool isAttachedToParentWindow,
-            bool hasNonZeroClientSize,
+            bool isHostReady,
             Action<HostedSurfaceDecision> apply)
         {
             ReconcileCore(
                 surfaceId,
                 isSelectedTab,
-                isAttachedToParentWindow,
-                hasNonZeroClientSize,
+                HostReadiness.ForTest(isHostReady),
                 apply,
                 eventName: "ReconcileForTest");
         }
@@ -897,8 +869,7 @@ namespace Rook.UI.Panels
         private void ReconcileCore(
             string surfaceId,
             bool isSelectedTab,
-            bool isAttachedToParentWindow,
-            bool hasNonZeroClientSize,
+            HostReadiness readiness,
             Action<HostedSurfaceDecision> apply,
             string eventName)
         {
@@ -909,8 +880,7 @@ namespace Rook.UI.Panels
 
             var state = GetState(surfaceId);
             state.LastSelectedTab = isSelectedTab;
-            state.LastAttached = isAttachedToParentWindow;
-            state.LastNonZeroSize = hasNonZeroClientSize;
+            state.LastReadiness = readiness;
             state.LastApply = apply;
             state.LastEventName = eventName;
             state.TransitionVersion = _transitionVersion;
@@ -923,7 +893,8 @@ namespace Rook.UI.Panels
                 surfaceId,
                 eventName,
                 facts,
-                decision);
+                decision,
+                readiness.ToTraceDetail());
 
             if (decision.Action == HostedSurfaceAction.Defer)
             {
@@ -944,8 +915,7 @@ namespace Rook.UI.Panels
                 LastReason = _lastReason,
                 IsSelectedTab = state.LastSelectedTab,
                 IsRhinoSelectedPanelVisible = _visibilityQuery.IsSelectedPanelVisible(_panelType),
-                IsAttachedToParentWindow = state.LastAttached,
-                HasNonZeroClientSize = state.LastNonZeroSize,
+                IsHostReady = state.LastReadiness.IsReady,
                 IsClosing = _closing,
                 DeferAttempt = state.DeferAttempt
             };
@@ -972,8 +942,7 @@ namespace Rook.UI.Panels
                 ReconcileCore(
                     surfaceId,
                     state.LastSelectedTab,
-                    state.LastAttached,
-                    state.LastNonZeroSize,
+                    state.LastReadiness,
                     state.LastApply,
                     "DeferredRetry");
             });
@@ -1004,14 +973,24 @@ namespace Rook.UI.Panels
             return state;
         }
 
-        private static bool IsAttached(Control control)
+        private static HostReadiness CaptureHostReadiness(Control control)
         {
-            return control.ParentWindow != null || control.Parent != null;
-        }
+            var size = control.Size;
+            var bounds = control.Bounds.Size;
+            var sizeReady =
+                (size.Width > 0 && size.Height > 0) ||
+                (bounds.Width > 0 && bounds.Height > 0);
 
-        private static bool HasNonZeroClientSize(Control control)
-        {
-            return control.ClientSize.Width > 0 && control.ClientSize.Height > 0;
+            return new HostReadiness(
+                loaded: control.Loaded,
+                hasParent: control.Parent != null,
+                hasVisualParent: control.VisualParent != null,
+                hasParentWindow: control.ParentWindow != null,
+                hasNonZeroHostSize: sizeReady,
+                sizeWidth: size.Width,
+                sizeHeight: size.Height,
+                boundsWidth: bounds.Width,
+                boundsHeight: bounds.Height);
         }
 
         private static HostedPanelLifecycleReason MapReason(ShowPanelReason reason)
@@ -1042,13 +1021,78 @@ namespace Rook.UI.Panels
         private sealed class SurfaceState
         {
             public bool LastSelectedTab { get; set; }
-            public bool LastAttached { get; set; }
-            public bool LastNonZeroSize { get; set; }
+            public HostReadiness LastReadiness { get; set; } = HostReadiness.ForTest(false);
             public Action<HostedSurfaceDecision>? LastApply { get; set; }
             public string LastEventName { get; set; } = "";
             public int DeferAttempt { get; set; }
             public bool PendingRetry { get; set; }
             public int TransitionVersion { get; set; }
+        }
+
+        private readonly struct HostReadiness
+        {
+            public HostReadiness(
+                bool loaded,
+                bool hasParent,
+                bool hasVisualParent,
+                bool hasParentWindow,
+                bool hasNonZeroHostSize,
+                int sizeWidth,
+                int sizeHeight,
+                int boundsWidth,
+                int boundsHeight)
+            {
+                Loaded = loaded;
+                HasParent = hasParent;
+                HasVisualParent = hasVisualParent;
+                HasParentWindow = hasParentWindow;
+                HasNonZeroHostSize = hasNonZeroHostSize;
+                SizeWidth = sizeWidth;
+                SizeHeight = sizeHeight;
+                BoundsWidth = boundsWidth;
+                BoundsHeight = boundsHeight;
+            }
+
+            public bool Loaded { get; }
+            public bool HasParent { get; }
+            public bool HasVisualParent { get; }
+            public bool HasParentWindow { get; }
+            public bool HasNonZeroHostSize { get; }
+            public int SizeWidth { get; }
+            public int SizeHeight { get; }
+            public int BoundsWidth { get; }
+            public int BoundsHeight { get; }
+
+            public bool IsReady =>
+                Loaded &&
+                (HasParent || HasVisualParent || HasParentWindow) &&
+                HasNonZeroHostSize;
+
+            public static HostReadiness ForTest(bool ready)
+            {
+                return new HostReadiness(
+                    loaded: ready,
+                    hasParent: ready,
+                    hasVisualParent: ready,
+                    hasParentWindow: ready,
+                    hasNonZeroHostSize: ready,
+                    sizeWidth: ready ? 100 : 0,
+                    sizeHeight: ready ? 100 : 0,
+                    boundsWidth: ready ? 100 : 0,
+                    boundsHeight: ready ? 100 : 0);
+            }
+
+            public string ToTraceDetail()
+            {
+                return
+                    "loaded=" + Loaded +
+                    ";parent=" + HasParent +
+                    ";visualParent=" + HasVisualParent +
+                    ";parentWindow=" + HasParentWindow +
+                    ";hostSize=" + HasNonZeroHostSize +
+                    ";size=" + SizeWidth + "x" + SizeHeight +
+                    ";bounds=" + BoundsWidth + "x" + BoundsHeight;
+            }
         }
     }
 }
@@ -1089,6 +1133,8 @@ git commit -m "feat: add hosted panel lifecycle adapter"
 
 **Files:**
 - Modify: `src/Rook/UI/Chat/ChatTab.cs`
+- Modify: `src/Rook/UI/Chat/AgentChatTab.cs`
+- Modify: `src/Rook/UI/Chat/ClaudeCodeTab.cs`
 - Modify: `src/Rook/UI/Vision/VisionTab.cs`
 - Modify: `src/Rook/UI/Chat/RookChatPanel.cs`
 - Modify: `src/Rook.Tests/UI/Chat/RookChatPanelTests.cs`
@@ -1152,12 +1198,17 @@ public void RookChatPanel_ReconcilesClosingPerHostedSurface()
 public void ChatTabs_ExposeStableHostedSurfaceIds()
 {
     var chatTabSource = ReadSourceFile("src", "Rook", "UI", "Chat", "ChatTab.cs");
+    var agentTabSource = ReadSourceFile("src", "Rook", "UI", "Chat", "AgentChatTab.cs");
+    var claudeTabSource = ReadSourceFile("src", "Rook", "UI", "Chat", "ClaudeCodeTab.cs");
     var visionTabSource = ReadSourceFile("src", "Rook", "UI", "Vision", "VisionTab.cs");
 
     Assert.Contains("HostedSurfaceId", chatTabSource);
     Assert.Contains("Interlocked.Increment", chatTabSource);
+    Assert.Contains("\"agent-chat\"", agentTabSource);
+    Assert.Contains("\"claude-code\"", claudeTabSource);
     Assert.Contains("HostedSurfaceId", visionTabSource);
     Assert.Contains("Interlocked.Increment", visionTabSource);
+    Assert.Contains("vision-tab", visionTabSource);
 }
 ```
 
@@ -1186,8 +1237,31 @@ Inside `public abstract class ChatTab : Panel`, add:
 ```csharp
 private static int s_nextHostedSurfaceId;
 
-internal string HostedSurfaceId { get; } =
-    "chat-tab:" + Interlocked.Increment(ref s_nextHostedSurfaceId).ToString();
+internal string HostedSurfaceId { get; }
+```
+
+Change the constructor signature:
+
+```csharp
+protected ChatTab(string tabLabel, Color tabColor, string hostedSurfaceType)
+```
+
+Inside that constructor, after `TabColor = tabColor;`, add:
+
+```csharp
+HostedSurfaceId =
+    hostedSurfaceType + ":" +
+    Interlocked.Increment(ref s_nextHostedSurfaceId).ToString();
+```
+
+Update subclasses:
+
+```csharp
+// AgentChatTab
+: base(label, color, "agent-chat")
+
+// ClaudeCodeTab
+: base("Claude Code", Color.FromArgb(0x0e, 0x63, 0x9c), "claude-code")
 ```
 
 Leave existing `ReconcileHostVisibility(bool visible, string reason)` intact.
@@ -1390,7 +1464,7 @@ Expected: PASS.
 Run:
 
 ```powershell
-git add src\Rook\UI\Chat\ChatTab.cs src\Rook\UI\Vision\VisionTab.cs src\Rook\UI\Chat\RookChatPanel.cs src\Rook.Tests\UI\Chat\RookChatPanelTests.cs
+git add src\Rook\UI\Chat\ChatTab.cs src\Rook\UI\Chat\AgentChatTab.cs src\Rook\UI\Chat\ClaudeCodeTab.cs src\Rook\UI\Vision\VisionTab.cs src\Rook\UI\Chat\RookChatPanel.cs src\Rook.Tests\UI\Chat\RookChatPanelTests.cs
 git commit -m "feat: route chat hosted surfaces through lifecycle adapter"
 ```
 
@@ -1757,13 +1831,29 @@ Expected: all three files exist, have nonzero length, and `LastWriteTime` matche
 
 - [ ] **Step 5: Run manual smoke with lifecycle trace enabled**
 
-Set:
+The trace environment variable must be visible to Rhino itself. Use one of these two options.
+
+Option A, launch Rhino from the same PowerShell session:
 
 ```powershell
+Get-Process -Name "Rhino","Rhinoceros" -ErrorAction SilentlyContinue
 $env:ROOK_PANEL_LIFECYCLE_TRACE = "1"
+& "C:\Program Files\Rhino 8\System\Rhino.exe"
 ```
 
-Then launch Rhino and test:
+Option B, set a temporary user-level environment variable, then start Rhino normally:
+
+```powershell
+[Environment]::SetEnvironmentVariable("ROOK_PANEL_LIFECYCLE_TRACE", "1", "User")
+```
+
+After smoke testing with Option B, unset it:
+
+```powershell
+[Environment]::SetEnvironmentVariable("ROOK_PANEL_LIFECYCLE_TRACE", $null, "User")
+```
+
+Then test:
 
 1. Open Rook Chat.
 2. Open an Agent Chat tab.
@@ -1800,3 +1890,4 @@ git status --short
 Expected: clean.
 
 If manual-smoke notes need to be captured, add them to the PR description instead of committing temporary logs.
+
