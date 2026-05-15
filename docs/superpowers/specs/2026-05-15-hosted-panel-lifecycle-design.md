@@ -283,6 +283,8 @@ It owns:
 - inspecting host size via `Control.Size` or `Control.Bounds.Size`
 - tracking defer attempts per `surfaceId`
 - coalescing pending retries per `surfaceId`
+- retaining a host-readiness provider per active `surfaceId` so deferred retries capture fresh Eto facts
+- removing surface state through `ForgetSurface(surfaceId)` when a tab/panel surface is explicitly closed
 - scheduling UI-thread retries with exception handling
 - diagnostics
 
@@ -421,7 +423,9 @@ Required cases:
 - coalesces repeated layout/selection events while a retry is pending
 - keeps one pending retry per `surfaceId`
 - increments retry budget per executed retry, not per noisy event
+- recaptures host readiness on each deferred retry so a newly loaded/attached/sized control can transition from `Defer` to `Show`
 - resets defer budget on a later lifecycle/selection/layout transition
+- `ForgetSurface(surfaceId)` invalidates pending retry state and prevents later callbacks into removed tabs
 - captures and traces `Loaded`, `Parent`, `VisualParent`, `ParentWindow`, `Size`/`Bounds`, and computed `IsHostReady`
 - records trace only when enabled
 - trace excludes user content

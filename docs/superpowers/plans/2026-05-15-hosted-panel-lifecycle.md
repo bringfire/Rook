@@ -451,6 +451,22 @@ namespace Rook.Tests.UI.Panels
             }
         }
 
+        private sealed class SequenceReadinessProvider
+        {
+            private readonly Queue<bool> _values = new();
+
+            public SequenceReadinessProvider(params bool[] values)
+            {
+                foreach (var value in values)
+                    _values.Enqueue(value);
+            }
+
+            public bool Next()
+            {
+                return _values.Count == 0 ? true : _values.Dequeue();
+            }
+        }
+
         [Fact]
         public void MapReason_HideOnDeactivate_MapsToHostedReason()
         {
@@ -537,12 +553,12 @@ namespace Rook.Tests.UI.Panels
             adapter.ReconcileForTest(
                 "10:test:1",
                 isSelectedTab: true,
-                isHostReady: false,
+                readinessProvider: () => false,
                 decisions.Add);
             adapter.ReconcileForTest(
                 "10:test:1",
                 isSelectedTab: true,
-                isHostReady: false,
+                readinessProvider: () => false,
                 decisions.Add);
 
             Assert.Equal(1, scheduler.PendingCount);
@@ -553,6 +569,7 @@ namespace Rook.Tests.UI.Panels
         public void Reconcile_DeferAttemptIncrementsWhenRetryExecutes()
         {
             var scheduler = new TestScheduler();
+            var readiness = new SequenceReadinessProvider(false, false);
             var adapter = new HostedPanelLifecycleAdapter(
                 typeof(Form),
                 new FakeVisibilityQuery(),
@@ -563,12 +580,59 @@ namespace Rook.Tests.UI.Panels
             adapter.ReconcileForTest(
                 "10:test:1",
                 isSelectedTab: true,
-                isHostReady: false,
+                readinessProvider: readiness.Next,
                 decisions.Add);
             scheduler.Run("10:test:1");
 
             Assert.Contains(decisions, d =>
                 d.Action == HostedSurfaceAction.Defer && d.DeferAttempt == 1);
+        }
+
+        [Fact]
+        public void Reconcile_DeferredRetryRecapturesReadinessAndCanShow()
+        {
+            var scheduler = new TestScheduler();
+            var readiness = new SequenceReadinessProvider(false, true);
+            var adapter = new HostedPanelLifecycleAdapter(
+                typeof(Form),
+                new FakeVisibilityQuery(),
+                scheduler.Schedule);
+            var decisions = new List<HostedSurfaceDecision>();
+
+            adapter.PanelShown(10, ShowPanelReason.Show);
+            adapter.ReconcileForTest(
+                "10:test:1",
+                isSelectedTab: true,
+                readinessProvider: readiness.Next,
+                decisions.Add);
+            scheduler.Run("10:test:1");
+
+            Assert.Equal(HostedSurfaceAction.Defer, decisions[0].Action);
+            Assert.Equal(HostedSurfaceAction.Show, decisions[1].Action);
+        }
+
+        [Fact]
+        public void ForgetSurface_RemovesPendingRetryAndPreventsLaterApply()
+        {
+            var scheduler = new TestScheduler();
+            var readiness = new SequenceReadinessProvider(false, true);
+            var adapter = new HostedPanelLifecycleAdapter(
+                typeof(Form),
+                new FakeVisibilityQuery(),
+                scheduler.Schedule);
+            var decisions = new List<HostedSurfaceDecision>();
+
+            adapter.PanelShown(10, ShowPanelReason.Show);
+            adapter.ReconcileForTest(
+                "10:test:1",
+                isSelectedTab: true,
+                readinessProvider: readiness.Next,
+                decisions.Add);
+            adapter.ForgetSurface("10:test:1");
+            scheduler.Run("10:test:1");
+
+            Assert.Single(decisions);
+            Assert.Equal(HostedSurfaceAction.Defer, decisions[0].Action);
         }
 
         [Fact]
@@ -587,7 +651,7 @@ namespace Rook.Tests.UI.Panels
             adapter.ReconcileForTest(
                 "10:test:1",
                 isSelectedTab: true,
-                isHostReady: false,
+                readinessProvider: () => false,
                 decisions.Add);
 
             var last = decisions[decisions.Count - 1];
@@ -833,11 +897,10 @@ namespace Rook.UI.Panels
             if (hostControl == null)
                 throw new ArgumentNullException(nameof(hostControl));
 
-            var readiness = CaptureHostReadiness(hostControl);
             ReconcileCore(
                 surfaceId,
                 isSelectedTab,
-                readiness,
+                () => CaptureHostReadiness(hostControl),
                 apply,
                 eventName: "Reconcile");
         }
@@ -848,12 +911,33 @@ namespace Rook.UI.Panels
             bool isHostReady,
             Action<HostedSurfaceDecision> apply)
         {
+            ReconcileForTest(
+                surfaceId,
+                isSelectedTab,
+                () => isHostReady,
+                apply);
+        }
+
+        internal void ReconcileForTest(
+            string surfaceId,
+            bool isSelectedTab,
+            Func<bool> readinessProvider,
+            Action<HostedSurfaceDecision> apply)
+        {
             ReconcileCore(
                 surfaceId,
                 isSelectedTab,
-                HostReadiness.ForTest(isHostReady),
+                () => HostReadiness.ForTest(readinessProvider()),
                 apply,
                 eventName: "ReconcileForTest");
+        }
+
+        public void ForgetSurface(string surfaceId)
+        {
+            if (string.IsNullOrWhiteSpace(surfaceId))
+                return;
+
+            _surfaces.Remove(surfaceId);
         }
 
         internal void SetDeferAttemptForTest(string surfaceId, int deferAttempt)
@@ -869,7 +953,7 @@ namespace Rook.UI.Panels
         private void ReconcileCore(
             string surfaceId,
             bool isSelectedTab,
-            HostReadiness readiness,
+            Func<HostReadiness> readinessProvider,
             Action<HostedSurfaceDecision> apply,
             string eventName)
         {
@@ -877,15 +961,18 @@ namespace Rook.UI.Panels
                 throw new ArgumentException("Surface id is required.", nameof(surfaceId));
             if (apply == null)
                 throw new ArgumentNullException(nameof(apply));
+            if (readinessProvider == null)
+                throw new ArgumentNullException(nameof(readinessProvider));
 
             var state = GetState(surfaceId);
             state.LastSelectedTab = isSelectedTab;
-            state.LastReadiness = readiness;
+            state.LastReadinessProvider = readinessProvider;
             state.LastApply = apply;
             state.LastEventName = eventName;
             state.TransitionVersion = _transitionVersion;
 
-            var facts = CaptureFacts(state);
+            var readiness = state.LastReadinessProvider();
+            var facts = CaptureFacts(state, readiness);
             var decision = _coordinator.Decide(facts);
             HostedPanelLifecycleTrace.Record(
                 _panelType.Name,
@@ -907,7 +994,9 @@ namespace Rook.UI.Panels
             apply(decision);
         }
 
-        private PanelLifecycleFacts CaptureFacts(SurfaceState state)
+        private PanelLifecycleFacts CaptureFacts(
+            SurfaceState state,
+            HostReadiness readiness)
         {
             return new PanelLifecycleFacts
             {
@@ -915,7 +1004,7 @@ namespace Rook.UI.Panels
                 LastReason = _lastReason,
                 IsSelectedTab = state.LastSelectedTab,
                 IsRhinoSelectedPanelVisible = _visibilityQuery.IsSelectedPanelVisible(_panelType),
-                IsHostReady = state.LastReadiness.IsReady,
+                IsHostReady = readiness.IsReady,
                 IsClosing = _closing,
                 DeferAttempt = state.DeferAttempt
             };
@@ -931,6 +1020,9 @@ namespace Rook.UI.Panels
 
             _schedule(surfaceId, () =>
             {
+                if (!_surfaces.ContainsKey(surfaceId))
+                    return;
+
                 state.PendingRetry = false;
                 if (state.TransitionVersion != transitionVersion)
                     return;
@@ -942,7 +1034,7 @@ namespace Rook.UI.Panels
                 ReconcileCore(
                     surfaceId,
                     state.LastSelectedTab,
-                    state.LastReadiness,
+                    state.LastReadinessProvider,
                     state.LastApply,
                     "DeferredRetry");
             });
@@ -1021,7 +1113,8 @@ namespace Rook.UI.Panels
         private sealed class SurfaceState
         {
             public bool LastSelectedTab { get; set; }
-            public HostReadiness LastReadiness { get; set; } = HostReadiness.ForTest(false);
+            public Func<HostReadiness> LastReadinessProvider { get; set; } =
+                () => HostReadiness.ForTest(false);
             public Action<HostedSurfaceDecision>? LastApply { get; set; }
             public string LastEventName { get; set; } = "";
             public int DeferAttempt { get; set; }
@@ -1357,6 +1450,7 @@ private void ApplyHostedSurfaceDecision(
             break;
         case HostedSurfaceAction.Close:
             tab.OnTabClosed();
+            _lifecycle.ForgetSurface(BuildSurfaceId(tab.HostedSurfaceId));
             break;
     }
 }
@@ -1376,6 +1470,7 @@ private void ApplyHostedSurfaceDecision(
             break;
         case HostedSurfaceAction.Close:
             tab.OnTabClosed();
+            _lifecycle.ForgetSurface(BuildSurfaceId(tab.HostedSurfaceId));
             break;
     }
 }
@@ -1433,6 +1528,19 @@ Replace other call sites:
 ```csharp
 ReconcileHostedWebSurfaces(owner, "TabRemoved");
 ReconcileHostedWebSurfaces(tabControl, "TabSelectionChanged");
+```
+
+In `RemoveTab(...)`, call `ForgetSurface(...)` before removing the page so pending retries cannot call back into the closed tab:
+
+```csharp
+if (page.Content is ChatTab chatTab)
+{
+    _lifecycle.ForgetSurface(BuildSurfaceId(chatTab.HostedSurfaceId));
+}
+else if (page.Content is VisionTab visionTab)
+{
+    _lifecycle.ForgetSurface(BuildSurfaceId(visionTab.HostedSurfaceId));
+}
 ```
 
 Remove `_panelHostVisible` if it is no longer used.
@@ -1890,4 +1998,5 @@ git status --short
 Expected: clean.
 
 If manual-smoke notes need to be captured, add them to the PR description instead of committing temporary logs.
+
 
