@@ -43,6 +43,30 @@ namespace Rook.Tests.InternalBridge
         }
 
         [Fact]
+        public void DocumentForBridge_NotReady_DoesNotCreateDocument()
+        {
+            var result = NativeGhBridgeRegistrar.DocumentForBridge("{}");
+
+            AssertGrasshopperNotReady(result, "gh_document");
+        }
+
+        [Fact]
+        public void ErrorsForBridge_NotReady_ReturnsStructuredFailure()
+        {
+            var result = NativeGhBridgeRegistrar.ErrorsForBridge("{}");
+
+            AssertGrasshopperNotReady(result, "gh_errors");
+        }
+
+        [Fact]
+        public void CreatePanelForBridge_NotReady_ReturnsStructuredFailure()
+        {
+            var result = NativeGhBridgeRegistrar.CreatePanelForBridge("{}");
+
+            AssertGrasshopperNotReady(result, "gh_create_panel");
+        }
+
+        [Fact]
         public void CreateSliderForBridge_NotReady_ReturnsStructuredFailure()
         {
             var result = NativeGhBridgeRegistrar.CreateSliderForBridge("{}");

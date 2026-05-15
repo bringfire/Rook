@@ -134,7 +134,11 @@ namespace Rook.InternalBridge
 
         public BridgeResult<GrasshopperDocumentInfoDto> GetDocumentInfo()
         {
-            var gh = ResolveContext();
+            var status = ObserveStatus();
+            if (!status.HasActiveDocument || !status.HasActiveCanvas || status.CanvasVisible == false)
+                return BridgeResult<GrasshopperDocumentInfoDto>.Fail(BuildNotReadyMessage(status));
+
+            var gh = ResolveContext(createDocumentIfMissing: false);
             if (!gh.Success)
                 return BridgeResult<GrasshopperDocumentInfoDto>.Fail(gh.Error ?? "Grasshopper unavailable");
 
@@ -208,7 +212,7 @@ namespace Rook.InternalBridge
 
         public BridgeResult<GrasshopperSelectionDto> GetSelection()
         {
-            var gh = ResolveContext();
+            var gh = ResolveContext(createDocumentIfMissing: false);
             if (!gh.Success)
                 return BridgeResult<GrasshopperSelectionDto>.Fail(gh.Error ?? "Grasshopper unavailable");
 

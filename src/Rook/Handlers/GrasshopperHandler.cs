@@ -36,6 +36,11 @@ namespace Rook.Handlers
         /// </summary>
         public ApiResponse GetDocumentInfo()
         {
+            var statusResult = _bridgeCore.GetStatus();
+            var status = statusResult.Data;
+            if (!statusResult.Success || status?.HasActiveDocument != true || status.HasActiveCanvas != true || status.CanvasVisible == false)
+                return GrasshopperNotReadyResponse("gh_document", status, statusResult.Error);
+
             return ToApiResponse(_bridgeCore.GetDocumentInfo());
         }
 
@@ -56,6 +61,14 @@ namespace Rook.Handlers
         /// </summary>
         public ApiResponse GetSelection()
         {
+            var notReady = EnsureGrasshopperReadyForEdit("gh_selection");
+            if (notReady != null)
+                return notReady;
+
+            var gh = GetGrasshopper(createDocumentIfMissing: false);
+            if (!gh.Success)
+                return GrasshopperNotReadyResponse("gh_selection", null, gh.Error);
+
             return ToApiResponse(_bridgeCore.GetSelection());
         }
 
@@ -241,9 +254,13 @@ namespace Rook.Handlers
         /// </summary>
         internal ApiResponse CreatePanel(string? body)
         {
-            var gh = GetGrasshopper();
+            var notReady = EnsureGrasshopperReadyForEdit("gh_create_panel");
+            if (notReady != null)
+                return notReady;
+
+            var gh = GetGrasshopper(createDocumentIfMissing: false);
             if (!gh.Success)
-                return new ApiResponse { Success = false, Data = gh.Error };
+                return GrasshopperNotReadyResponse("gh_create_panel", null, gh.Error);
 
             string content = "Panel";
             float x = 100, y = 100;
@@ -330,12 +347,16 @@ namespace Rook.Handlers
         /// </summary>
         internal ApiResponse GetValue(string? guid)
         {
+            var notReady = EnsureGrasshopperReadyForEdit("gh_get_value");
+            if (notReady != null)
+                return notReady;
+
+            var gh = GetGrasshopper(createDocumentIfMissing: false);
+            if (!gh.Success)
+                return GrasshopperNotReadyResponse("gh_get_value", null, gh.Error);
+
             if (string.IsNullOrEmpty(guid))
                 return new ApiResponse { Success = false, Data = "Missing guid parameter" };
-
-            var gh = GetGrasshopper();
-            if (!gh.Success)
-                return new ApiResponse { Success = false, Data = gh.Error };
 
             try
             {
@@ -631,12 +652,16 @@ namespace Rook.Handlers
         /// </summary>
         public ApiResponse SetScript(string? body)
         {
+            var notReady = EnsureGrasshopperReadyForEdit("gh_set_script");
+            if (notReady != null)
+                return notReady;
+
+            var gh = GetGrasshopper(createDocumentIfMissing: false);
+            if (!gh.Success)
+                return GrasshopperNotReadyResponse("gh_set_script", null, gh.Error);
+
             if (string.IsNullOrEmpty(body))
                 return new ApiResponse { Success = false, Data = "Missing body" };
-
-            var gh = GetGrasshopper();
-            if (!gh.Success)
-                return new ApiResponse { Success = false, Data = gh.Error };
 
             string? guid = null;
             string? script = null;
@@ -1225,11 +1250,15 @@ namespace Rook.Handlers
         /// </summary>
         internal ApiResponse ScriptParams(string? body)
         {
+            var notReady = EnsureGrasshopperReadyForEdit("gh_set_script_pins");
+            if (notReady != null)
+                return notReady;
+
             try
             {
-                var gh = GetGrasshopper();
+                var gh = GetGrasshopper(createDocumentIfMissing: false);
                 if (!gh.Success)
-                    return new ApiResponse { Success = false, Data = gh.Error };
+                    return GrasshopperNotReadyResponse("gh_set_script_pins", null, gh.Error);
 
                 if (string.IsNullOrWhiteSpace(body))
                     return new ApiResponse { Success = false, Data = "Missing request body" };
@@ -1615,12 +1644,16 @@ namespace Rook.Handlers
         /// </summary>
         public ApiResponse SetReference(string? body)
         {
+            var notReady = EnsureGrasshopperReadyForEdit("gh_set_reference");
+            if (notReady != null)
+                return notReady;
+
+            var gh = GetGrasshopper(createDocumentIfMissing: false);
+            if (!gh.Success)
+                return GrasshopperNotReadyResponse("gh_set_reference", null, gh.Error);
+
             if (string.IsNullOrEmpty(body))
                 return new ApiResponse { Success = false, Data = "Missing body" };
-
-            var gh = GetGrasshopper();
-            if (!gh.Success)
-                return new ApiResponse { Success = false, Data = gh.Error };
 
             string? guid = null;
             string? rhinoId = null;
@@ -1864,12 +1897,16 @@ namespace Rook.Handlers
         /// </summary>
         public ApiResponse GetReference(string? guid)
         {
+            var notReady = EnsureGrasshopperReadyForEdit("gh_get_reference");
+            if (notReady != null)
+                return notReady;
+
+            var gh = GetGrasshopper(createDocumentIfMissing: false);
+            if (!gh.Success)
+                return GrasshopperNotReadyResponse("gh_get_reference", null, gh.Error);
+
             if (string.IsNullOrEmpty(guid))
                 return new ApiResponse { Success = false, Data = "Missing guid parameter" };
-
-            var gh = GetGrasshopper();
-            if (!gh.Success)
-                return new ApiResponse { Success = false, Data = gh.Error };
 
             try
             {
@@ -1953,12 +1990,16 @@ namespace Rook.Handlers
         /// </summary>
         public ApiResponse ClearReference(string? body)
         {
+            var notReady = EnsureGrasshopperReadyForEdit("gh_clear_reference");
+            if (notReady != null)
+                return notReady;
+
+            var gh = GetGrasshopper(createDocumentIfMissing: false);
+            if (!gh.Success)
+                return GrasshopperNotReadyResponse("gh_clear_reference", null, gh.Error);
+
             if (string.IsNullOrEmpty(body))
                 return new ApiResponse { Success = false, Data = "Missing body" };
-
-            var gh = GetGrasshopper();
-            if (!gh.Success)
-                return new ApiResponse { Success = false, Data = gh.Error };
 
             string? guid = null;
 
@@ -2076,12 +2117,16 @@ namespace Rook.Handlers
         /// </summary>
         internal ApiResponse GetConnections(string? guid)
         {
+            var notReady = EnsureGrasshopperReadyForEdit("gh_connections");
+            if (notReady != null)
+                return notReady;
+
+            var gh = GetGrasshopper(createDocumentIfMissing: false);
+            if (!gh.Success)
+                return GrasshopperNotReadyResponse("gh_connections", null, gh.Error);
+
             if (string.IsNullOrEmpty(guid))
                 return new ApiResponse { Success = false, Data = "Missing guid parameter" };
-
-            var gh = GetGrasshopper();
-            if (!gh.Success)
-                return new ApiResponse { Success = false, Data = gh.Error };
 
             try
             {
@@ -2299,9 +2344,13 @@ namespace Rook.Handlers
         /// </summary>
         internal ApiResponse DeleteObjects(string? body)
         {
-            var gh = GetGrasshopper();
+            var notReady = EnsureGrasshopperReadyForEdit("gh_delete");
+            if (notReady != null)
+                return notReady;
+
+            var gh = GetGrasshopper(createDocumentIfMissing: false);
             if (!gh.Success)
-                return new ApiResponse { Success = false, Data = gh.Error };
+                return GrasshopperNotReadyResponse("gh_delete", null, gh.Error);
 
             if (string.IsNullOrEmpty(body))
                 return new ApiResponse { Success = false, Data = "Missing guids in body" };
@@ -2411,9 +2460,13 @@ namespace Rook.Handlers
         /// </summary>
         public ApiResponse SetPreview(string? body)
         {
-            var gh = GetGrasshopper();
+            var notReady = EnsureGrasshopperReadyForEdit("gh_preview");
+            if (notReady != null)
+                return notReady;
+
+            var gh = GetGrasshopper(createDocumentIfMissing: false);
             if (!gh.Success)
-                return new ApiResponse { Success = false, Data = gh.Error };
+                return GrasshopperNotReadyResponse("gh_preview", null, gh.Error);
 
             if (string.IsNullOrEmpty(body))
                 return new ApiResponse { Success = false, Data = "Missing body" };
@@ -2514,9 +2567,13 @@ namespace Rook.Handlers
         /// </summary>
         public ApiResponse MoveObjects(string? body)
         {
-            var gh = GetGrasshopper();
+            var notReady = EnsureGrasshopperReadyForEdit("gh_move");
+            if (notReady != null)
+                return notReady;
+
+            var gh = GetGrasshopper(createDocumentIfMissing: false);
             if (!gh.Success)
-                return new ApiResponse { Success = false, Data = gh.Error };
+                return GrasshopperNotReadyResponse("gh_move", null, gh.Error);
 
             if (string.IsNullOrEmpty(body))
                 return new ApiResponse { Success = false, Data = "Missing positions in body" };
@@ -2641,9 +2698,13 @@ namespace Rook.Handlers
         /// </summary>
         internal ApiResponse CreateGroup(string? body)
         {
-            var gh = GetGrasshopper();
+            var notReady = EnsureGrasshopperReadyForEdit("gh_group");
+            if (notReady != null)
+                return notReady;
+
+            var gh = GetGrasshopper(createDocumentIfMissing: false);
             if (!gh.Success)
-                return new ApiResponse { Success = false, Data = gh.Error };
+                return GrasshopperNotReadyResponse("gh_group", null, gh.Error);
 
             if (string.IsNullOrEmpty(body))
                 return new ApiResponse { Success = false, Data = "Missing body" };
@@ -2760,9 +2821,13 @@ namespace Rook.Handlers
         /// </summary>
         public ApiResponse CreateCluster(string? body)
         {
-            var gh = GetGrasshopper();
+            var notReady = EnsureGrasshopperReadyForEdit("gh_cluster");
+            if (notReady != null)
+                return notReady;
+
+            var gh = GetGrasshopper(createDocumentIfMissing: false);
             if (!gh.Success)
-                return new ApiResponse { Success = false, Data = gh.Error };
+                return GrasshopperNotReadyResponse("gh_cluster", null, gh.Error);
 
             if (string.IsNullOrEmpty(body))
                 return new ApiResponse { Success = false, Data = "Missing body" };
@@ -2975,9 +3040,13 @@ namespace Rook.Handlers
         /// </summary>
         public ApiResponse UndoCanvas()
         {
-            var gh = GetGrasshopper();
+            var notReady = EnsureGrasshopperReadyForEdit("gh_undo");
+            if (notReady != null)
+                return notReady;
+
+            var gh = GetGrasshopper(createDocumentIfMissing: false);
             if (!gh.Success)
-                return new ApiResponse { Success = false, Data = gh.Error };
+                return GrasshopperNotReadyResponse("gh_undo", null, gh.Error);
 
             try
             {
@@ -3362,9 +3431,13 @@ namespace Rook.Handlers
         /// </summary>
         public ApiResponse ExploreSelection(string? body)
         {
-            var gh = GetGrasshopper();
+            var notReady = EnsureGrasshopperReadyForEdit("gh_explore_selection");
+            if (notReady != null)
+                return notReady;
+
+            var gh = GetGrasshopper(createDocumentIfMissing: false);
             if (!gh.Success)
-                return new ApiResponse { Success = false, Data = gh.Error };
+                return GrasshopperNotReadyResponse("gh_explore_selection", null, gh.Error);
 
             List<string> guids = new List<string>();
             if (!string.IsNullOrEmpty(body))
@@ -3615,9 +3688,13 @@ namespace Rook.Handlers
         /// </summary>
         public ApiResponse ExploreCluster(string? body)
         {
-            var gh = GetGrasshopper();
+            var notReady = EnsureGrasshopperReadyForEdit("gh_explore_cluster");
+            if (notReady != null)
+                return notReady;
+
+            var gh = GetGrasshopper(createDocumentIfMissing: false);
             if (!gh.Success)
-                return new ApiResponse { Success = false, Data = gh.Error };
+                return GrasshopperNotReadyResponse("gh_explore_cluster", null, gh.Error);
 
             var exploration = new Dictionary<string, object>();
 
@@ -3704,9 +3781,13 @@ namespace Rook.Handlers
         /// </summary>
         public ApiResponse GetGroups()
         {
-            var gh = GetGrasshopper();
+            var notReady = EnsureGrasshopperReadyForEdit("gh_groups");
+            if (notReady != null)
+                return notReady;
+
+            var gh = GetGrasshopper(createDocumentIfMissing: false);
             if (!gh.Success)
-                return new ApiResponse { Success = false, Data = gh.Error };
+                return GrasshopperNotReadyResponse("gh_groups", null, gh.Error);
 
             try
             {
@@ -3825,9 +3906,13 @@ namespace Rook.Handlers
         /// </summary>
         public ApiResponse ResizeGroupToFit(string? body)
         {
-            var gh = GetGrasshopper();
+            var notReady = EnsureGrasshopperReadyForEdit("gh_group_resize");
+            if (notReady != null)
+                return notReady;
+
+            var gh = GetGrasshopper(createDocumentIfMissing: false);
             if (!gh.Success)
-                return new ApiResponse { Success = false, Data = gh.Error };
+                return GrasshopperNotReadyResponse("gh_group_resize", null, gh.Error);
 
             if (string.IsNullOrEmpty(body))
                 return new ApiResponse { Success = false, Data = "Missing body" };
@@ -3988,18 +4073,13 @@ namespace Rook.Handlers
         /// </summary>
         public ApiResponse SearchLibrary(string? search, string? category, int limit = 50, bool audit = false, bool exact = false)
         {
-            var gh = GetGrasshopper();
-            if (!gh.Success)
-                return new ApiResponse { Success = false, Data = gh.Error };
+            var componentServer = GetGrasshopperComponentServerNoCanvas();
+            if (!componentServer.Success)
+                return new ApiResponse { Success = false, Data = componentServer.Error };
 
             try
             {
-                var instancesType = gh.Assembly!.GetType("Grasshopper.Instances");
-                var serverProp = instancesType?.GetProperty("ComponentServer", BindingFlags.Public | BindingFlags.Static);
-                var server = serverProp?.GetValue(null);
-
-                if (server == null)
-                    return new ApiResponse { Success = false, Data = "ComponentServer not available" };
+                var server = componentServer.Server!;
 
                 var proxiesProp = server.GetType().GetProperty("ObjectProxies");
                 var proxies = proxiesProp?.GetValue(server) as System.Collections.IEnumerable;
@@ -4178,18 +4258,13 @@ namespace Rook.Handlers
         /// </summary>
         public ApiResponse GetCategories()
         {
-            var gh = GetGrasshopper();
-            if (!gh.Success)
-                return new ApiResponse { Success = false, Data = gh.Error };
+            var componentServer = GetGrasshopperComponentServerNoCanvas();
+            if (!componentServer.Success)
+                return new ApiResponse { Success = false, Data = componentServer.Error };
 
             try
             {
-                var instancesType = gh.Assembly!.GetType("Grasshopper.Instances");
-                var serverProp = instancesType?.GetProperty("ComponentServer", BindingFlags.Public | BindingFlags.Static);
-                var server = serverProp?.GetValue(null);
-
-                if (server == null)
-                    return new ApiResponse { Success = false, Data = "ComponentServer not available" };
+                var server = componentServer.Server!;
 
                 var proxiesProp = server.GetType().GetProperty("ObjectProxies");
                 var proxies = proxiesProp?.GetValue(server) as System.Collections.IEnumerable;
@@ -4351,9 +4426,13 @@ namespace Rook.Handlers
         /// </summary>
         internal ApiResponse CreateComponent(string? body)
         {
-            var gh = GetGrasshopper();
+            var notReady = EnsureGrasshopperReadyForEdit("gh_create_component");
+            if (notReady != null)
+                return notReady;
+
+            var gh = GetGrasshopper(createDocumentIfMissing: false);
             if (!gh.Success)
-                return new ApiResponse { Success = false, Data = gh.Error };
+                return GrasshopperNotReadyResponse("gh_create_component", null, gh.Error);
 
             if (string.IsNullOrEmpty(body))
                 return new ApiResponse { Success = false, Data = "Missing body" };
@@ -4513,12 +4592,16 @@ namespace Rook.Handlers
         /// </summary>
         internal ApiResponse GetComponentInfo(string? guid)
         {
+            var notReady = EnsureGrasshopperReadyForEdit("gh_component");
+            if (notReady != null)
+                return notReady;
+
+            var gh = GetGrasshopper(createDocumentIfMissing: false);
+            if (!gh.Success)
+                return GrasshopperNotReadyResponse("gh_component", null, gh.Error);
+
             if (string.IsNullOrEmpty(guid))
                 return new ApiResponse { Success = false, Data = "Missing guid parameter" };
-
-            var gh = GetGrasshopper();
-            if (!gh.Success)
-                return new ApiResponse { Success = false, Data = gh.Error };
 
             try
             {
@@ -4564,9 +4647,13 @@ namespace Rook.Handlers
         /// </summary>
         public ApiResponse GetCanvasErrors(bool debug = false)
         {
-            var gh = GetGrasshopper();
+            var notReady = EnsureGrasshopperReadyForEdit("gh_errors");
+            if (notReady != null)
+                return notReady;
+
+            var gh = GetGrasshopper(createDocumentIfMissing: false);
             if (!gh.Success)
-                return new ApiResponse { Success = false, Data = gh.Error };
+                return GrasshopperNotReadyResponse("gh_errors", null, gh.Error);
 
             try
             {
@@ -4709,12 +4796,16 @@ namespace Rook.Handlers
         /// </summary>
         public ApiResponse InspectOutput(string? guid, string? param)
         {
+            var notReady = EnsureGrasshopperReadyForEdit("gh_inspect_output");
+            if (notReady != null)
+                return notReady;
+
+            var gh = GetGrasshopper(createDocumentIfMissing: false);
+            if (!gh.Success)
+                return GrasshopperNotReadyResponse("gh_inspect_output", null, gh.Error);
+
             if (string.IsNullOrEmpty(guid))
                 return new ApiResponse { Success = false, Data = "Missing guid parameter" };
-
-            var gh = GetGrasshopper();
-            if (!gh.Success)
-                return new ApiResponse { Success = false, Data = gh.Error };
 
             try
             {
@@ -4899,12 +4990,16 @@ namespace Rook.Handlers
         /// </summary>
         public ApiResponse BakeOutput(string? body)
         {
+            var notReady = EnsureGrasshopperReadyForEdit("gh_bake_output");
+            if (notReady != null)
+                return notReady;
+
+            var gh = GetGrasshopper(createDocumentIfMissing: false);
+            if (!gh.Success)
+                return GrasshopperNotReadyResponse("gh_bake_output", null, gh.Error);
+
             if (string.IsNullOrEmpty(body))
                 return new ApiResponse { Success = false, Data = "Missing body" };
-
-            var gh = GetGrasshopper();
-            if (!gh.Success)
-                return new ApiResponse { Success = false, Data = gh.Error };
 
             // Parse request
             Dictionary<string, JsonElement>? args;
@@ -5382,9 +5477,13 @@ namespace Rook.Handlers
         /// </summary>
         internal ApiResponse DisconnectComponents(string? body)
         {
-            var gh = GetGrasshopper();
+            var notReady = EnsureGrasshopperReadyForEdit("gh_disconnect");
+            if (notReady != null)
+                return notReady;
+
+            var gh = GetGrasshopper(createDocumentIfMissing: false);
             if (!gh.Success)
-                return new ApiResponse { Success = false, Data = gh.Error };
+                return GrasshopperNotReadyResponse("gh_disconnect", null, gh.Error);
 
             if (string.IsNullOrEmpty(body))
                 return new ApiResponse { Success = false, Data = "Missing body" };
@@ -5495,9 +5594,13 @@ namespace Rook.Handlers
         /// </summary>
         internal ApiResponse TriggerSolve(string? body)
         {
-            var gh = GetGrasshopper();
+            var notReady = EnsureGrasshopperReadyForEdit("gh_solve");
+            if (notReady != null)
+                return notReady;
+
+            var gh = GetGrasshopper(createDocumentIfMissing: false);
             if (!gh.Success)
-                return new ApiResponse { Success = false, Data = gh.Error };
+                return GrasshopperNotReadyResponse("gh_solve", null, gh.Error);
 
             int delay = 50;
             if (!string.IsNullOrEmpty(body))
@@ -5603,6 +5706,31 @@ namespace Rook.Handlers
                 return new GrasshopperContext(false, "No active Grasshopper document", _ghAssembly, canvas, null);
 
             return new GrasshopperContext(true, null, _ghAssembly, canvas, document);
+        }
+
+        private (bool Success, string? Error, object? Server) GetGrasshopperComponentServerNoCanvas()
+        {
+            Assembly? ghAssembly;
+            lock (_lock)
+            {
+                _ghAssembly ??= AppDomain.CurrentDomain.GetAssemblies()
+                    .FirstOrDefault(a => a.GetName().Name == "Grasshopper");
+                ghAssembly = _ghAssembly;
+            }
+
+            if (ghAssembly == null)
+                return (false, "Grasshopper assembly not found. Is Grasshopper open?", null);
+
+            var instancesType = ghAssembly.GetType("Grasshopper.Instances");
+            if (instancesType == null)
+                return (false, "Grasshopper.Instances type not found", null);
+
+            var serverProp = instancesType.GetProperty("ComponentServer", BindingFlags.Public | BindingFlags.Static);
+            var server = serverProp?.GetValue(null);
+            if (server == null)
+                return (false, "ComponentServer not available", null);
+
+            return (true, null, server);
         }
 
         private string? AddObjectToDocument(object document, object component)
@@ -5967,9 +6095,9 @@ namespace Rook.Handlers
         /// </summary>
         public ApiResponse HandleBatchComponentInfo(string? body)
         {
-            var gh = GetGrasshopper();
-            if (!gh.Success)
-                return new ApiResponse { Success = false, Data = gh.Error };
+            var componentServer = GetGrasshopperComponentServerNoCanvas();
+            if (!componentServer.Success)
+                return new ApiResponse { Success = false, Data = componentServer.Error };
 
             if (string.IsNullOrEmpty(body))
                 return new ApiResponse { Success = false, Data = "Missing body" };
@@ -5998,12 +6126,7 @@ namespace Rook.Handlers
 
             try
             {
-                var instancesType = gh.Assembly!.GetType("Grasshopper.Instances");
-                var serverProp = instancesType?.GetProperty("ComponentServer", BindingFlags.Public | BindingFlags.Static);
-                var server = serverProp?.GetValue(null);
-
-                if (server == null)
-                    return new ApiResponse { Success = false, Data = "ComponentServer not available" };
+                var server = componentServer.Server!;
 
                 // Get proxies for metadata lookup
                 var proxiesProp = server.GetType().GetProperty("ObjectProxies");
