@@ -118,6 +118,8 @@ internal sealed class HostedSurfaceDecision
 
 internal sealed class HostedPanelLifecycleCoordinator
 {
+    public const int MaxDeferAttempts = 3;
+
     public HostedSurfaceDecision Decide(PanelLifecycleFacts facts);
 }
 ```
@@ -128,6 +130,9 @@ The Rhino/Eto adapter should be constructed with the panel type so it can query 
 internal sealed class HostedPanelLifecycleAdapter
 {
     public HostedPanelLifecycleAdapter(Type panelType);
+    internal HostedPanelLifecycleAdapter(
+        Type panelType,
+        IRhinoPanelVisibilityQuery visibilityQuery);
 
     public void PanelShown(uint documentSerialNumber, ShowPanelReason reason);
     public void PanelHidden(uint documentSerialNumber, ShowPanelReason reason);
@@ -140,6 +145,17 @@ internal sealed class HostedPanelLifecycleAdapter
         Action<HostedSurfaceDecision> apply);
 }
 ```
+
+The visibility query is the explicit test seam for Rhino panel selected-tab visibility:
+
+```csharp
+internal interface IRhinoPanelVisibilityQuery
+{
+    bool IsSelectedPanelVisible(Type panelType);
+}
+```
+
+The production implementation calls `Panels.IsPanelVisible(panelType, isSelectedTab: true)`. Tests inject synthetic visibility facts through the internal adapter constructor and must not require Rhino to be loaded.
 
 The adapter may reference `Rhino.UI.Panels`, `ShowPanelReason`, and Eto `Control`. The coordinator may not.
 
@@ -209,14 +225,14 @@ The adapter schedules a bounded UI-thread retry and captures fresh facts on that
 
 ### 8.8 Bounded Defer Policy
 
-The adapter owns scheduling. The coordinator only reports `Defer` from the facts it receives.
+The adapter owns scheduling and coalescing. The coordinator owns the numeric retry threshold through `HostedPanelLifecycleCoordinator.MaxDeferAttempts`, so exhausted-defer behavior is deterministic and directly unit-testable from `PanelLifecycleFacts.DeferAttempt`.
 
 Policy:
 
 - At most one pending retry per `surfaceId`.
 - Newer events update pending facts; newest facts win.
 - Defer budget increments per executed retry, not per noisy event.
-- Maximum of 3 executed UI retries per lifecycle transition.
+- Maximum of `HostedPanelLifecycleCoordinator.MaxDeferAttempts` executed UI retries per lifecycle transition.
 - After retry exhaustion, return/log `None`, keep the surface alive, and stop retrying for that transition.
 - Do not reload, dispose, recreate, or force hidden after defer exhaustion.
 - The next lifecycle, selection, or layout event resets the defer budget for that surface.
@@ -388,7 +404,8 @@ Required cases:
 - maps `ShowPanelReason.HideOnDeactivate` to `HostedPanelLifecycleReason.HideOnDeactivate`
 - maps `ShowPanelReason.ShowOnDeactivate` to `HostedPanelLifecycleReason.ShowOnDeactivate`
 - does not call cleanup from `PanelHidden`
-- uses `Panels.IsPanelVisible(panelType, isSelectedTab: true)` through an injectable/queryable boundary so adapter tests can supply synthetic Rhino visibility facts
+- uses `IRhinoPanelVisibilityQuery` so adapter tests can supply synthetic Rhino visibility facts
+- production `IRhinoPanelVisibilityQuery` calls `Panels.IsPanelVisible(panelType, isSelectedTab: true)`
 - coalesces repeated layout/selection events while a retry is pending
 - keeps one pending retry per `surfaceId`
 - increments retry budget per executed retry, not per noisy event
