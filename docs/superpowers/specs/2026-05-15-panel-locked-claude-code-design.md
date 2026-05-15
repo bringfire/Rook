@@ -31,7 +31,7 @@ Because the Claude Code tab is visually embedded in a specific Rhino panel, user
 
 ## Safety Model
 
-The embedded Claude Code tab runs in `panel_locked` mode. The lock is process-based and uses the owning Rhino process id as the authoritative identity. The panel's current `documentSerialNumber` is included for context and reporting, but process identity is the routing boundary.
+The embedded Claude Code tab runs in `panel_locked` mode. The lock uses the owning Rhino process id as the authoritative process identity and the panel's `documentSerialNumber` as the authoritative document context. Process identity prevents cross-Rhino routing. Document serial context prevents same-process tool calls from falling back to whatever document Rhino considers active.
 
 The lock applies to all Rhino-dependent tools before active binding and before read-only auto-pick. Read-only auto-pick is not allowed under `panel_locked`, because reading another Rhino from a visually embedded panel is still misleading.
 
@@ -110,6 +110,7 @@ Startup behavior:
 - no `ROOK_MCP_TARGET_MODE`: no lock, external behavior unchanged;
 - `ROOK_MCP_TARGET_MODE=panel_locked` with valid integer `ROOK_MCP_TARGET_PROCESS_ID`: install panel lock;
 - `ROOK_MCP_TARGET_MODE=panel_locked` with missing or non-integer process id: install a fail-closed configuration-error state.
+- unknown `ROOK_MCP_TARGET_MODE`: install a fail-closed configuration-error state.
 
 Invalid lock configuration must not silently behave like external Claude. Rhino-dependent tools should fail with `panel_target_config_error`.
 
@@ -129,6 +130,8 @@ Under a valid live lock:
 - active binding to different process: ignored for routing because the lock has higher precedence; it may be reported by introspection, but it must not route outside the locked process;
 - read-only tools do not auto-pick another process;
 - mutating tools do not auto-pick another process.
+
+Every successful locked route must install both `process_id` and `document_serial_number` into `rhino_request_context` for the duration of the tool call. If the lock has no positive document serial number, process locking still applies, but there is no document context to install.
 
 Under a stale lock:
 
@@ -159,6 +162,7 @@ Lock-related meta behavior should be explicit.
 `rhino_set_active_instance` under a live lock:
 
 - same process: succeeds and updates `_ACTIVE_TARGET` to the canonical same-process target;
+- `match`: enrich and search same-process instances first; if same-process matches collapse to one canonical target, succeed; if no same-process match exists but another process matches, fail with `panel_target_locked`; if no process matches, fail with the normal not-found error;
 - different process: fails with `panel_target_locked`;
 - stale lock: fails with `panel_target_stale`;
 - invalid lock config: fails with `panel_target_config_error`.
@@ -188,7 +192,7 @@ Expected clear failure:
 
 `agent_status`, `agent_abort`, and `agent_answer` may remain resolver-exempt; they do not start new Rhino work.
 
-`rhino_launch` under `panel_locked` must not be an escape hatch. It must not auto-bind, clear the lock, or replace the lock with a newly launched process. If the owner is stale, it should report `panel_target_stale` or otherwise fail without routing to another process.
+`rhino_launch` under `panel_locked` must not be an escape hatch. It must not auto-bind, clear the lock, or replace the lock with a newly launched process. If the lock is live, return the normal launcher result without modifying lock or active binding state. If the owner is stale, return structured `panel_target_stale`. If the lock configuration is invalid, return structured `panel_target_config_error`.
 
 ## Direct Bridge Enforcement
 
@@ -198,9 +202,10 @@ The MCP dispatcher is not the only execution path. Background agents and chat ag
 
 Under a live lock:
 
-- if no explicit port/process is supplied, default selection is scoped to the locked process id;
+- if no explicit port/process is supplied, default selection is scoped to the locked process id and locked document serial number;
 - if an explicit port belongs to another process, reject before HTTP dispatch with `panel_target_locked`;
 - if an explicit process id conflicts with the lock, reject before HTTP dispatch with `panel_target_locked`;
+- if no explicit document serial number is supplied, install the locked document serial number into bridge request context;
 - same-process endpoint routing remains allowed and should select the capable peer for the endpoint.
 
 Endpoint examples:
@@ -278,22 +283,26 @@ Python targeting and bridge tests:
 - valid env initializes a panel lock once;
 - tests can reset and reinitialize lock state without process env leakage;
 - invalid env values fail closed with `panel_target_config_error`;
+- unknown `ROOK_MCP_TARGET_MODE` fails closed with `panel_target_config_error`;
 - locked resolver refuses read-only auto-pick to another process;
 - locked resolver refuses mutating route to another process;
+- locked MCP routes install both locked process id and locked document serial number in `rhino_request_context`;
 - explicit same-process native port routes successfully;
 - explicit same-process RoadCreator peer port canonicalizes correctly;
 - explicit different-process port returns `panel_target_locked`;
 - stale owning process returns `panel_target_stale` with live instances;
 - stale lock wins over conflicting explicit target;
 - `rhino_set_active_instance` same process updates only `_ACTIVE_TARGET`, not the lock;
+- `rhino_set_active_instance(match=...)` searches same-process matches first and fails with `panel_target_locked` when only other-process matches exist;
 - `rhino_set_active_instance` different process fails;
 - `rhino_clear_active_instance` fails under lock;
 - `rhino_get_active_instance` reports lock state;
 - `rhino_instances` reports lock state;
 - `spawn_agent` and `plan_and_execute` fail under lock before starting background work;
 - `rhino_launch` under lock does not auto-bind, clear, or replace the lock;
-- direct `ToolDispatcher` / `call_rhino()` path defaults to locked process when no explicit target is supplied;
+- direct `ToolDispatcher` / `call_rhino()` path defaults to locked process and locked document serial number when no explicit target is supplied;
 - direct path rejects conflicting explicit port/process;
+- direct path installs locked document serial number into bridge request context;
 - direct path routes `/rc/*` to the same-process RoadCreator peer;
 - direct path routes native/GH endpoints to the correct same-process peer.
 
