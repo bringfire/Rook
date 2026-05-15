@@ -30,12 +30,13 @@ class ToolRoute:
     success: bool
     target: InstanceRef | None = None
     instance: dict[str, Any] | None = None
-    selection: Literal["explicit", "active", "auto", "none"] = "none"
+    selection: Literal["explicit", "active", "auto", "panel_locked", "none"] = "none"
     warning: str | None = None
     error: str | None = None
     stale_target: InstanceRef | None = None
     instances: list[dict[str, Any]] | None = None
     alternatives: list[dict[str, Any]] | None = None
+    document_serial_number: int | None = None
 
 
 Risk = Literal["read", "mutate", "meta"]
@@ -714,6 +715,67 @@ def _process_targets(instances: list[dict[str, Any]]) -> list[tuple[InstanceRef,
     return targets
 
 
+def _lock_payload(lock: PanelTargetLock | None = None) -> dict[str, Any]:
+    current = lock or _PANEL_TARGET_LOCK
+    payload: dict[str, Any] = {
+        "locked": current is not None or _PANEL_TARGET_CONFIG_ERROR is not None,
+        "lockMode": "panel_locked",
+        "lockReason": "rook_chat_panel",
+    }
+    if current is not None:
+        payload["target"] = {
+            "processId": current.process_id,
+            "documentSerialNumber": current.document_serial_number,
+        }
+    return payload
+
+
+def _panel_error(
+    error: str,
+    message: str,
+    *,
+    instances: list[dict[str, Any]] | None = None,
+    requested: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    data = {
+        "error": error,
+        "message": message,
+        **_lock_payload(),
+    }
+    if instances is not None:
+        data["instances"] = instances
+    if requested:
+        data.update(requested)
+    return {"success": False, "data": data}
+
+
+def panel_target_locked_result(message: str | None = None) -> dict[str, Any]:
+    return _panel_error(
+        "panel_target_locked",
+        message or "This Claude Code tab is locked to the Rhino document that owns the panel.",
+        instances=discover_instances(),
+    )
+
+
+def _locked_process_instances(instances: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    lock = _PANEL_TARGET_LOCK
+    if lock is None:
+        return []
+    return [
+        instance
+        for instance in instances
+        if instance.get("processId") == lock.process_id
+    ]
+
+
+def _resolve_locked_target(instances: list[dict[str, Any]]) -> tuple[InstanceRef, dict[str, Any]] | None:
+    locked = _locked_process_instances(instances)
+    if not locked:
+        return None
+    targets = _process_targets(locked)
+    return targets[0] if targets else None
+
+
 def resolve_active_target() -> ActiveTargetResolution:
     target = get_active_target()
     instances = discover_instances()
@@ -744,6 +806,46 @@ def resolve_tool_route(name: str, *, explicit_port: int | None = None) -> ToolRo
         return ToolRoute(success=True, selection="none")
 
     instances = discover_instances()
+    if _PANEL_TARGET_CONFIG_ERROR is not None:
+        return ToolRoute(
+            success=False,
+            error="panel_target_config_error",
+            instances=instances,
+        )
+
+    lock = _PANEL_TARGET_LOCK
+    if lock is not None:
+        locked_target = _resolve_locked_target(instances)
+        if locked_target is None:
+            return ToolRoute(
+                success=False,
+                error="panel_target_stale",
+                instances=instances,
+            )
+        ref, canonical = locked_target
+        if explicit_port is not None:
+            explicit = next(
+                (instance for instance in instances if instance.get("port") == explicit_port),
+                None,
+            )
+            if explicit is None or explicit.get("processId") != lock.process_id:
+                return ToolRoute(
+                    success=False,
+                    error="panel_target_locked",
+                    instances=instances,
+                )
+            target = _target_from_instance(explicit, instances)
+            if target is not None:
+                ref, canonical = target
+        return ToolRoute(
+            success=True,
+            target=ref,
+            instance=canonical,
+            selection="panel_locked",
+            instances=instances,
+            document_serial_number=lock.document_serial_number,
+        )
+
     targets = _process_targets(instances)
 
     if explicit_port is not None:
@@ -852,8 +954,12 @@ async def bind_active_instance(
     process_id: int | None = None,
     match: str | None = None,
 ) -> dict[str, Any]:
+    if _PANEL_TARGET_CONFIG_ERROR is not None:
+        return {"success": False, "data": get_panel_target_config_error()}
+
     instances = discover_instances()
     matched: list[dict[str, Any]] = []
+    lock = _PANEL_TARGET_LOCK
 
     if port is not None:
         matched = [instance for instance in instances if instance.get("port") == port]
@@ -870,6 +976,20 @@ async def bind_active_instance(
 
     if not matched:
         return _error_result(error, instances=instances)
+
+    if lock is not None:
+        locked_matches = [
+            instance
+            for instance in matched
+            if instance.get("processId") == lock.process_id
+        ]
+        if not locked_matches:
+            return _panel_error(
+                "panel_target_locked",
+                "This Claude Code tab is locked to the Rhino document that owns the panel.",
+                instances=instances,
+            )
+        matched = locked_matches
 
     matched_targets: list[tuple[InstanceRef, dict[str, Any]]] = []
     seen: set[InstanceRef] = set()
@@ -890,7 +1010,10 @@ async def bind_active_instance(
     set_active_target(ref)
     active_payload = _target_payload(instance, ref)
     active_payload.update(await fetch_document_metadata(instance))
-    return {"success": True, "data": {"active": active_payload}}
+    response_data: dict[str, Any] = {"active": active_payload}
+    if _PANEL_TARGET_LOCK is not None:
+        response_data.update(_lock_payload())
+    return {"success": True, "data": response_data}
 
 
 async def get_active_instance_result() -> dict[str, Any]:
@@ -905,13 +1028,26 @@ async def get_active_instance_result() -> dict[str, Any]:
             instances=active.instances or [],
         )
     if active.target is None or active.instance is None:
-        return {"success": True, "data": {"active": None}}
+        data: dict[str, Any] = {"active": None}
+        if _PANEL_TARGET_LOCK is not None or _PANEL_TARGET_CONFIG_ERROR is not None:
+            data["lock"] = get_lock_state_result()["data"]["lock"]
+        return {"success": True, "data": data}
     payload = _target_payload(active.instance, active.target)
     payload.update(await fetch_document_metadata(active.instance))
-    return {"success": True, "data": {"active": payload}}
+    data = {"active": payload}
+    if _PANEL_TARGET_LOCK is not None or _PANEL_TARGET_CONFIG_ERROR is not None:
+        data["lock"] = get_lock_state_result()["data"]["lock"]
+    return {"success": True, "data": data}
 
 
 def clear_active_instance_result() -> dict[str, Any]:
+    if _PANEL_TARGET_LOCK is not None:
+        return _panel_error(
+            "panel_target_locked",
+            "This Claude Code tab is locked to the Rhino document that owns the panel.",
+        )
+    if _PANEL_TARGET_CONFIG_ERROR is not None:
+        return {"success": False, "data": get_panel_target_config_error()}
     cleared = clear_active_target()
     if cleared is None:
         payload = None
@@ -926,9 +1062,25 @@ async def instances_result() -> dict[str, Any]:
     data: dict[str, Any] = {"count": len(instances), "instances": instances}
     if active.get("success"):
         data["active"] = active.get("data", {}).get("active")
+        if "lock" in active.get("data", {}):
+            data["lock"] = active["data"]["lock"]
     else:
         data["active"] = active.get("data")
+    if "lock" not in data and (
+        _PANEL_TARGET_LOCK is not None or _PANEL_TARGET_CONFIG_ERROR is not None
+    ):
+        data["lock"] = get_lock_state_result()["data"]["lock"]
     return {"success": True, "data": data}
+
+
+def get_lock_state_result() -> dict[str, Any]:
+    if _PANEL_TARGET_CONFIG_ERROR is not None:
+        return {"success": True, "data": {"lock": get_panel_target_config_error()}}
+    if _PANEL_TARGET_LOCK is None:
+        return {"success": True, "data": {"lock": {"locked": False}}}
+    payload = _lock_payload()
+    payload["live"] = _resolve_locked_target(discover_instances()) is not None
+    return {"success": True, "data": {"lock": payload}}
 
 
 async def _call_document_for_instance(instance: dict[str, Any]) -> dict[str, Any]:
@@ -979,6 +1131,20 @@ def attach_route_metadata(result: dict[str, Any], route: ToolRoute) -> dict[str,
 
 
 def route_error_result(route: ToolRoute) -> dict[str, Any]:
+    if route.error == "panel_target_config_error":
+        return {"success": False, "data": get_panel_target_config_error()}
+    if route.error == "panel_target_stale":
+        return _panel_error(
+            "panel_target_stale",
+            "The Rhino process that owns this Claude Code tab is no longer available.",
+            instances=route.instances or [],
+        )
+    if route.error == "panel_target_locked":
+        return _panel_error(
+            "panel_target_locked",
+            "This Claude Code tab is locked to the Rhino document that owns the panel.",
+            instances=route.instances or [],
+        )
     if route.error == "active_rhino_instance_unavailable":
         stale = route.stale_target
         return _error_result(
@@ -1003,6 +1169,8 @@ def route_error_result(route: ToolRoute) -> dict[str, Any]:
 
 
 def should_auto_bind_launched_instance() -> bool:
+    if _PANEL_TARGET_LOCK is not None or _PANEL_TARGET_CONFIG_ERROR is not None:
+        return False
     active = resolve_active_target()
     return active.target is None
 

@@ -9,6 +9,13 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from rook import targeting
 
 
+@pytest.fixture(autouse=True)
+def reset_targeting_state():
+    targeting.reset_targeting_state_for_tests()
+    yield
+    targeting.reset_targeting_state_for_tests()
+
+
 def _inst(port: int, pid: int, name: str) -> dict:
     return {
         "host": "127.0.0.1",
@@ -160,6 +167,89 @@ def test_gh_document_open_refuses_multiple_unbound_instances(monkeypatch):
     assert len(route.instances or []) == 2
 
 
+def test_panel_lock_routes_read_tool_to_locked_process_without_auto_pick(monkeypatch):
+    targeting.reset_targeting_state_for_tests()
+    targeting.initialize_from_environment({
+        "ROOK_MCP_TARGET_MODE": "panel_locked",
+        "ROOK_MCP_TARGET_PROCESS_ID": "7102",
+        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
+    })
+    monkeypatch.setattr(targeting, "discover_instances", lambda: [
+        _inst(9950, 7101, "A.3dm"),
+        _inst(9951, 7102, "B.3dm"),
+    ])
+
+    route = targeting.resolve_tool_route("rhino_document")
+
+    assert route.success is True
+    assert route.selection == "panel_locked"
+    assert route.target == targeting.InstanceRef(9951, 7102)
+    assert route.document_serial_number == 42
+    assert route.warning is None
+
+
+def test_panel_lock_rejects_explicit_different_process_port(monkeypatch):
+    targeting.reset_targeting_state_for_tests()
+    targeting.initialize_from_environment({
+        "ROOK_MCP_TARGET_MODE": "panel_locked",
+        "ROOK_MCP_TARGET_PROCESS_ID": "7102",
+        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
+    })
+    monkeypatch.setattr(targeting, "discover_instances", lambda: [
+        _inst(9950, 7101, "A.3dm"),
+        _inst(9951, 7102, "B.3dm"),
+    ])
+
+    route = targeting.resolve_tool_route("rhino_execute", explicit_port=9950)
+
+    assert route.success is False
+    assert route.error == "panel_target_locked"
+    assert route.target is None
+
+
+def test_panel_lock_stale_owner_wins_over_conflicting_explicit_port(monkeypatch):
+    targeting.reset_targeting_state_for_tests()
+    targeting.initialize_from_environment({
+        "ROOK_MCP_TARGET_MODE": "panel_locked",
+        "ROOK_MCP_TARGET_PROCESS_ID": "7109",
+        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
+    })
+    monkeypatch.setattr(targeting, "discover_instances", lambda: [
+        _inst(9950, 7101, "A.3dm"),
+    ])
+
+    route = targeting.resolve_tool_route("rhino_execute", explicit_port=9950)
+
+    assert route.success is False
+    assert route.error == "panel_target_stale"
+    assert route.instances == [_inst(9950, 7101, "A.3dm")]
+
+
+def test_panel_lock_allows_same_process_roadcreator_peer(monkeypatch):
+    targeting.reset_targeting_state_for_tests()
+    targeting.initialize_from_environment({
+        "ROOK_MCP_TARGET_MODE": "panel_locked",
+        "ROOK_MCP_TARGET_PROCESS_ID": "7101",
+        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
+    })
+    monkeypatch.setattr(targeting, "discover_instances", lambda: [
+        _inst(9950, 7101, "A.3dm"),
+        {
+            "host": "127.0.0.1",
+            "port": 9960,
+            "processId": 7101,
+            "pluginType": "roadcreator",
+            "documentName": "A.3dm",
+        },
+    ])
+
+    route = targeting.resolve_tool_route("rhino_document", explicit_port=9960)
+
+    assert route.success is True
+    assert route.target == targeting.InstanceRef(9950, 7101)
+    assert route.selection == "panel_locked"
+
+
 def test_explicit_port_wins_over_active_binding(monkeypatch):
     monkeypatch.setattr(targeting, "discover_instances", lambda: [
         _inst(9950, 7101, "A.3dm"),
@@ -224,6 +314,82 @@ async def test_bind_match_refuses_ambiguous_matches(monkeypatch):
     assert result["data"]["error"] == "multiple_rhino_instances"
     assert len(result["data"]["instances"]) == 2
     assert targeting.get_active_target() is None
+
+
+@pytest.mark.asyncio
+async def test_panel_lock_bind_match_prefers_same_process_match(monkeypatch):
+    targeting.reset_targeting_state_for_tests()
+    targeting.initialize_from_environment({
+        "ROOK_MCP_TARGET_MODE": "panel_locked",
+        "ROOK_MCP_TARGET_PROCESS_ID": "7102",
+        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
+    })
+    monkeypatch.setattr(targeting, "discover_instances", lambda: [
+        _inst(9950, 7101, "SK-101-other.3dm"),
+        _inst(9951, 7102, "SK-101-panel.3dm"),
+    ])
+
+    result = await targeting.bind_active_instance(match="SK-101")
+
+    assert result["success"] is True
+    assert targeting.get_active_target() == targeting.InstanceRef(9951, 7102)
+    assert result["data"]["locked"] is True
+
+
+@pytest.mark.asyncio
+async def test_panel_lock_bind_match_other_process_only_fails_locked(monkeypatch):
+    targeting.reset_targeting_state_for_tests()
+    targeting.initialize_from_environment({
+        "ROOK_MCP_TARGET_MODE": "panel_locked",
+        "ROOK_MCP_TARGET_PROCESS_ID": "7102",
+        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
+    })
+    monkeypatch.setattr(targeting, "discover_instances", lambda: [
+        _inst(9950, 7101, "SK-101-other.3dm"),
+        _inst(9951, 7102, "Panel.3dm"),
+    ])
+
+    result = await targeting.bind_active_instance(match="SK-101")
+
+    assert result["success"] is False
+    assert result["data"]["error"] == "panel_target_locked"
+    assert targeting.get_active_target() is None
+
+
+def test_panel_lock_clear_active_instance_fails():
+    targeting.reset_targeting_state_for_tests()
+    targeting.initialize_from_environment({
+        "ROOK_MCP_TARGET_MODE": "panel_locked",
+        "ROOK_MCP_TARGET_PROCESS_ID": "7102",
+        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
+    })
+    targeting.set_active_target(targeting.InstanceRef(9951, 7102))
+
+    result = targeting.clear_active_instance_result()
+
+    assert result["success"] is False
+    assert result["data"]["error"] == "panel_target_locked"
+    assert targeting.get_active_target() == targeting.InstanceRef(9951, 7102)
+
+
+@pytest.mark.asyncio
+async def test_panel_lock_instances_result_reports_lock(monkeypatch):
+    targeting.reset_targeting_state_for_tests()
+    targeting.initialize_from_environment({
+        "ROOK_MCP_TARGET_MODE": "panel_locked",
+        "ROOK_MCP_TARGET_PROCESS_ID": "7102",
+        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
+    })
+    monkeypatch.setattr(targeting, "discover_instances", lambda: [
+        _inst(9951, 7102, "B.3dm"),
+    ])
+
+    result = await targeting.instances_result()
+
+    assert result["success"] is True
+    assert result["data"]["lock"]["locked"] is True
+    assert result["data"]["lock"]["target"]["processId"] == 7102
+    assert result["data"]["lock"]["target"]["documentSerialNumber"] == 42
 
 
 @pytest.mark.asyncio
