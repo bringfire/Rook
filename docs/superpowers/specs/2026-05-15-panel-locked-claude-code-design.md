@@ -131,7 +131,14 @@ Under a valid live lock:
 - read-only tools do not auto-pick another process;
 - mutating tools do not auto-pick another process.
 
-Every successful locked route must install both `process_id` and `document_serial_number` into `rhino_request_context` for the duration of the tool call. If the lock has no positive document serial number, process locking still applies, but there is no document context to install.
+Every successful locked route must install both `process_id` and `document_serial_number` into `rhino_request_context` for the duration of the tool call. If the lock has no positive document serial number, process locking still applies, but there is no document context to install or validate.
+
+Payload document behavior under a positive locked document serial:
+
+- missing `documentSerialNumber`: inject or otherwise apply the locked document serial;
+- same `documentSerialNumber`: allow;
+- different positive `documentSerialNumber`: fail closed with `panel_document_locked`;
+- zero, null, or non-positive `documentSerialNumber`: treat as missing and apply the locked document serial.
 
 Under a stale lock:
 
@@ -206,6 +213,7 @@ Under a live lock:
 - if an explicit port belongs to another process, reject before HTTP dispatch with `panel_target_locked`;
 - if an explicit process id conflicts with the lock, reject before HTTP dispatch with `panel_target_locked`;
 - if no explicit document serial number is supplied, install the locked document serial number into bridge request context;
+- if an explicit positive document serial number conflicts with the locked document serial number, reject before HTTP dispatch with `panel_document_locked`;
 - same-process endpoint routing remains allowed and should select the capable peer for the endpoint.
 
 Endpoint examples:
@@ -275,6 +283,26 @@ Invalid lock config:
 }
 ```
 
+Conflicting document serial:
+
+```json
+{
+  "success": false,
+  "data": {
+    "error": "panel_document_locked",
+    "message": "This Claude Code tab is locked to the Rhino document that owns the panel.",
+    "locked": true,
+    "lockMode": "panel_locked",
+    "lockReason": "rook_chat_panel",
+    "target": {
+      "processId": 1234,
+      "documentSerialNumber": 42
+    },
+    "requestedDocumentSerialNumber": 99
+  }
+}
+```
+
 ## Test Surface
 
 Python targeting and bridge tests:
@@ -287,6 +315,9 @@ Python targeting and bridge tests:
 - locked resolver refuses read-only auto-pick to another process;
 - locked resolver refuses mutating route to another process;
 - locked MCP routes install both locked process id and locked document serial number in `rhino_request_context`;
+- locked MCP routes inject missing `documentSerialNumber`;
+- locked MCP routes allow matching `documentSerialNumber`;
+- locked MCP routes reject conflicting positive `documentSerialNumber` with `panel_document_locked`;
 - explicit same-process native port routes successfully;
 - explicit same-process RoadCreator peer port canonicalizes correctly;
 - explicit different-process port returns `panel_target_locked`;
@@ -303,6 +334,7 @@ Python targeting and bridge tests:
 - direct `ToolDispatcher` / `call_rhino()` path defaults to locked process and locked document serial number when no explicit target is supplied;
 - direct path rejects conflicting explicit port/process;
 - direct path installs locked document serial number into bridge request context;
+- direct path rejects conflicting positive payload `documentSerialNumber` with `panel_document_locked`;
 - direct path routes `/rc/*` to the same-process RoadCreator peer;
 - direct path routes native/GH endpoints to the correct same-process peer.
 
