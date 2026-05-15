@@ -2978,9 +2978,13 @@ namespace Rook.Handlers
         /// </summary>
         public ApiResponse ClearCanvas()
         {
-            var gh = GetGrasshopper();
+            var notReady = EnsureGrasshopperReadyForEdit("gh_clear");
+            if (notReady != null)
+                return notReady;
+
+            var gh = GetGrasshopper(createDocumentIfMissing: false);
             if (!gh.Success)
-                return new ApiResponse { Success = false, Data = gh.Error };
+                return GrasshopperNotReadyResponse("gh_clear", null, gh.Error);
 
             try
             {
@@ -7867,9 +7871,13 @@ namespace Rook.Handlers
         /// </summary>
         internal ApiResponse FocusCanvas(string? body)
         {
-            var gh = GetGrasshopper();
+            var notReady = EnsureGrasshopperReadyForEdit("gh_canvas_focus");
+            if (notReady != null)
+                return notReady;
+
+            var gh = GetGrasshopper(createDocumentIfMissing: false);
             if (!gh.Success)
-                return new ApiResponse { Success = false, Data = gh.Error };
+                return GrasshopperNotReadyResponse("gh_canvas_focus", null, gh.Error);
 
             try
             {
@@ -8012,9 +8020,13 @@ namespace Rook.Handlers
         /// </summary>
         internal ApiResponse ZoomCanvas(string? body)
         {
-            var gh = GetGrasshopper();
+            var notReady = EnsureGrasshopperReadyForEdit("gh_canvas_zoom");
+            if (notReady != null)
+                return notReady;
+
+            var gh = GetGrasshopper(createDocumentIfMissing: false);
             if (!gh.Success)
-                return new ApiResponse { Success = false, Data = gh.Error };
+                return GrasshopperNotReadyResponse("gh_canvas_zoom", null, gh.Error);
 
             if (string.IsNullOrEmpty(body))
                 return new ApiResponse { Success = false, Data = "Missing body parameters" };
@@ -8110,9 +8122,13 @@ namespace Rook.Handlers
         /// </summary>
         internal ApiResponse CaptureCanvasImage(string? body)
         {
-            var gh = GetGrasshopper();
+            var notReady = EnsureGrasshopperReadyForEdit("gh_canvas_image");
+            if (notReady != null)
+                return notReady;
+
+            var gh = GetGrasshopper(createDocumentIfMissing: false);
             if (!gh.Success)
-                return new ApiResponse { Success = false, Data = gh.Error };
+                return GrasshopperNotReadyResponse("gh_canvas_image", null, gh.Error);
 
             try
             {
