@@ -47,7 +47,9 @@ if logger.isEnabledFor(logging.DEBUG):
         LOADED_ENV_PATH or "<none>",
     )
 
-from .bridge import call_rhino, get_rhino_host, discover_instances, TIMEOUT, DISCOVERY_FOLDER
+from .bridge import call_rhino, get_rhino_host, discover_instances, TIMEOUT, DISCOVERY_FOLDER, rhino_request_context
+from . import targeting
+targeting.initialize_from_environment()
 from .knowledge import query_knowledge, query_knowledge_tiered, record_knowledge, invalidate_condensed_command_cache
 from .learning.command_observer import (
     CommandObserver, ObservationStore, DEFAULT_OBSERVATION_STORE_PATH
@@ -1864,6 +1866,29 @@ async def list_tools() -> list[Tool]:
             name="rhino_instances",
             description="List all active Rhino instances running the Rook plugin. Returns port, process ID, start time, and document name for each instance. Use this when working with multiple Rhino windows.",
             inputSchema={"type": "object", "properties": {}, "required": []}
+        ),
+        Tool(
+            name="rhino_set_active_instance",
+            description="Bind this MCP session to a specific Rhino instance by port, process ID, or document/window-title match. Use when multiple Rhino windows are open.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "port": {"type": "integer", "description": "Rook bridge port to bind."},
+                    "process_id": {"type": "integer", "description": "Rhino process ID to bind."},
+                    "match": {"type": "string", "description": "Substring to match against document name, path, or window title."},
+                },
+                "required": [],
+            },
+        ),
+        Tool(
+            name="rhino_get_active_instance",
+            description="Return the current active Rhino binding for this MCP server process, including stale-bind diagnostics.",
+            inputSchema={"type": "object", "properties": {}, "required": []},
+        ),
+        Tool(
+            name="rhino_clear_active_instance",
+            description="Clear the active Rhino binding and return to automatic target selection.",
+            inputSchema={"type": "object", "properties": {}, "required": []},
         ),
         Tool(
             name="rhino_launch",
@@ -9438,7 +9463,7 @@ Returns:
         # ---- Agent System ----
         Tool(
             name="spawn_agent",
-            description="Spawn a single worker agent to execute a task autonomously in the background. Returns agent_id immediately. Use agent_status to poll for completion. The agent uses Haiku by default and has access to Rhino/GH tools.",
+            description="Spawn a single worker agent to execute a task autonomously in the background. Returns agent_id immediately. Use agent_status to poll for completion. The agent uses Haiku by default and has access to Rhino/GH tools. In Phase 1 multi-instance routing, launch requires a resolved Rhino target, but later child tool calls follow the MCP server's process-local active binding at call time; snapshot-pinned child routing is deferred.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -9463,7 +9488,7 @@ Returns:
         ),
         Tool(
             name="plan_and_execute",
-            description="Decompose a complex task via Sonnet planner, then execute with Haiku workers in the background. Returns plan_id immediately. Use agent_status to poll for completion. Use for multi-step design tasks.",
+            description="Decompose a complex task via Sonnet planner, then execute with Haiku workers in the background. Returns plan_id immediately. Use agent_status to poll for completion. Use for multi-step design tasks. In Phase 1 multi-instance routing, launch requires a resolved Rhino target, but later child tool calls follow the MCP server's process-local active binding at call time; snapshot-pinned child routing is deferred.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -11372,8 +11397,7 @@ def _encode_video_job_id(jid: Any) -> tuple[str | None, dict | None]:
     return _quote(jid, safe=""), None
 
 
-@mcp.call_tool()
-async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
+async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     """Handle tool calls."""
     import time as _time
     _t0 = _time.perf_counter()
@@ -11388,22 +11412,20 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
     match name:
         case "rhino_instances":
-            instances = discover_instances()
-            if not instances:
-                result = {"success": True, "data": {"count": 0, "instances": [], "message": "No active Rhino instances found. Make sure Rhino is running with the RookNative or Rook plugin loaded."}}
-            else:
-                # Verify each instance is actually responding
-                verified = []
-                for inst in instances:
-                    try:
-                        async with httpx.AsyncClient(timeout=2.0) as client:
-                            inst_host = inst.get("host", "127.0.0.1")
-                            resp = await client.get(f"http://{inst_host}:{inst['port']}/ping")
-                            if resp.status_code == 200:
-                                verified.append(inst)
-                    except:
-                        pass
-                result = {"success": True, "data": {"count": len(verified), "instances": verified}}
+            result = await targeting.instances_result()
+
+        case "rhino_set_active_instance":
+            result = await targeting.bind_active_instance(
+                port=port,
+                process_id=arguments.get("process_id") or arguments.get("processId"),
+                match=arguments.get("match"),
+            )
+
+        case "rhino_get_active_instance":
+            result = await targeting.get_active_instance_result()
+
+        case "rhino_clear_active_instance":
+            result = targeting.clear_active_instance_result()
 
         case "rhino_launch":
             import subprocess as _sp
@@ -11418,29 +11440,46 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                 else:
                     raise Exception("ping failed")
             except Exception:
-                # Not running — launch it
-                rhino_exe = "C:/Program Files/Rhino 8/System/Rhino.exe"
-                if not _os.path.exists(rhino_exe):
-                    result = {"success": False, "data": f"Rhino not found at {rhino_exe}"}
+                if targeting.get_panel_target_lock() is not None:
+                    result = targeting.route_error_result(
+                        targeting.ToolRoute(
+                            success=False,
+                            error="panel_target_stale",
+                            instances=targeting.discover_instances(),
+                        )
+                    )
                 else:
-                    _sp.Popen([rhino_exe], creationflags=_sp.DETACHED_PROCESS)
-                    # Poll until native plugin responds
-                    elapsed = 0
-                    started = False
-                    while elapsed < timeout:
-                        await asyncio.sleep(2)
-                        elapsed += 2
-                        try:
-                            ping_result = await call_rhino("/ping")
-                            if ping_result.get("success"):
-                                started = True
-                                break
-                        except Exception:
-                            continue
-                    if started:
-                        result = {"success": True, "data": {"status": "launched", "message": f"Rhino started in {elapsed}s"}}
+                    # Not running — launch it
+                    rhino_exe = "C:/Program Files/Rhino 8/System/Rhino.exe"
+                    if not _os.path.exists(rhino_exe):
+                        result = {"success": False, "data": f"Rhino not found at {rhino_exe}"}
                     else:
-                        result = {"success": False, "data": f"Rhino failed to start within {timeout}s"}
+                        _sp.Popen([rhino_exe], creationflags=_sp.DETACHED_PROCESS)
+                        # Poll until native plugin responds
+                        elapsed = 0
+                        started = False
+                        while elapsed < timeout:
+                            await asyncio.sleep(2)
+                            elapsed += 2
+                            try:
+                                ping_result = await call_rhino("/ping")
+                                if ping_result.get("success"):
+                                    started = True
+                                    break
+                            except Exception:
+                                continue
+                        if started:
+                            result = {"success": True, "data": {"status": "launched", "message": f"Rhino started in {elapsed}s"}}
+                            if targeting.should_auto_bind_launched_instance():
+                                target = targeting.bind_single_available_instance()
+                                if target is not None and isinstance(result.get("data"), dict):
+                                    result["data"]["auto_bound"] = True
+                                    result["data"]["active"] = {
+                                        "port": target.port,
+                                        "processId": target.process_id,
+                                    }
+                        else:
+                            result = {"success": False, "data": f"Rhino failed to start within {timeout}s"}
 
         case "rhino_ping":
             result = await call_rhino("/ping", port=port)
@@ -17790,10 +17829,12 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     # already consumed its semantic meaning above.
     result.pop("_is_handoff", None)
 
-    # Format response. For failures, preserve structured dict payloads
-    # (e.g. PR-3's gh_execute_intent handoff response) as JSON instead of
-    # stringifying via Python's default `str(dict)` repr — keeps the
-    # structured fields parseable on the caller side.
+    return result
+
+
+def _format_tool_result(result: dict[str, Any]) -> list[TextContent]:
+    # For failures, preserve structured dict payloads as JSON instead of
+    # stringifying via Python's default `str(dict)` repr.
     if result.get("success"):
         text = json.dumps(result.get("data"), indent=2)
     else:
@@ -17804,6 +17845,68 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             text = f"Error: {_data_val}"
 
     return [TextContent(type="text", text=text)]
+
+
+@mcp.call_tool()
+async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
+    """Handle tool calls with centralized Rhino target routing."""
+    arguments = dict(arguments) if arguments else {}
+    policy = targeting.policy_for_tool(name)
+    explicit_port = arguments.get("port")
+
+    if targeting.get_panel_target_config_error() is not None and (
+        policy.requires_rhino or name == "rhino_launch"
+    ):
+        return _format_tool_result(
+            {"success": False, "data": targeting.get_panel_target_config_error()}
+        )
+
+    if targeting.get_panel_target_lock() is not None and name in {"spawn_agent", "plan_and_execute"}:
+        return _format_tool_result(
+            targeting.panel_target_locked_result(
+                message="Background agents are disabled in the embedded panel-locked Claude Code tab."
+            )
+        )
+
+    if name == "rhino_launch" and targeting.get_panel_target_lock() is not None:
+        lock_route = targeting.resolve_tool_route("rhino_ping")
+        if not lock_route.success:
+            return _format_tool_result(targeting.route_error_result(lock_route))
+
+    if not policy.requires_rhino:
+        raw_result = await _call_tool_dispatch(name, arguments)
+        return _format_tool_result(raw_result)
+
+    route = targeting.resolve_tool_route(name, explicit_port=explicit_port)
+    if not route.success:
+        return _format_tool_result(targeting.route_error_result(route))
+    if route.target is None:
+        return _format_tool_result(
+            {
+                "success": False,
+                "data": {
+                    "error": "rhino_target_unavailable",
+                    "instances": route.instances or [],
+                },
+            }
+        )
+
+    dispatch_arguments = dict(arguments)
+    doc_applied = targeting.apply_locked_document_context(dispatch_arguments)
+    if isinstance(doc_applied, dict) and doc_applied.get("success") is False:
+        return _format_tool_result(doc_applied)
+    dispatch_arguments = doc_applied
+    if explicit_port is not None:
+        dispatch_arguments["port"] = route.target.port
+
+    with rhino_request_context(
+        port=route.target.port,
+        process_id=route.target.process_id,
+        document_serial_number=route.document_serial_number,
+    ):
+        raw_result = await _call_tool_dispatch(name, dispatch_arguments)
+    raw_result = targeting.attach_route_metadata(raw_result, route)
+    return _format_tool_result(raw_result)
 
 
 def main():
