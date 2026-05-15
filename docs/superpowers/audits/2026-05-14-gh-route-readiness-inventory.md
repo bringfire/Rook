@@ -28,7 +28,7 @@ rg -n '(ghGet|ghPost|cgpPost|navGet|navPost)\("/gh/' src\RookNative\RookServer.c
 
 Note: `Expected not-ready response` entries describe the route contract. The `Implementation / test status` column distinguishes implemented guard/no-side-effect status from direct representative test coverage.
 
-Lifecycle behavior changes are pending review and are not implemented by this Task 7 Step 1 classification checkpoint. Lifecycle enhancement deferred: add postcondition status payload to `/gh/document/new` and `/gh/document/open`.
+Lifecycle-adjacent readiness guards are implemented where listed below. Deferred lifecycle enhancement: add postcondition status payload to `/gh/document/new` and `/gh/document/open`.
 
 | HTTP method + path | Native handler | Managed callback / handler | Category | Requires ready_for_edit | Side effects allowed | Python tool exposure | Expected not-ready response | Implementation / test status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
