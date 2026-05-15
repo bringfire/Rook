@@ -761,6 +761,37 @@ async def test_panel_lock_launch_stale_owner_returns_stale(monkeypatch):
     result = await server.call_tool("rhino_launch", {})
 
     assert "panel_target_stale" in result[0].text
+
+
+@pytest.mark.asyncio
+async def test_panel_lock_launch_live_owner_does_not_auto_bind(monkeypatch):
+    from rook import server, targeting
+
+    targeting.reset_targeting_state_for_tests()
+    targeting.initialize_from_environment({
+        "ROOK_MCP_TARGET_MODE": "panel_locked",
+        "ROOK_MCP_TARGET_PROCESS_ID": "7101",
+        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
+    })
+    monkeypatch.setattr(targeting, "discover_instances", lambda: [
+        {"host": "127.0.0.1", "port": 9950, "processId": 7101, "pluginType": "native"},
+    ])
+    called = {"bind": False}
+    monkeypatch.setattr(
+        targeting,
+        "bind_single_available_instance",
+        lambda: called.__setitem__("bind", True),
+    )
+
+    async def fake_dispatch(name, arguments):
+        return {"success": True, "data": {"status": "launched"}}
+
+    monkeypatch.setattr(server, "_call_tool_dispatch", fake_dispatch)
+
+    result = await server.call_tool("rhino_launch", {})
+
+    assert '"status": "launched"' in result[0].text
+    assert called["bind"] is False
 ```
 
 - [ ] **Step 3: Run tests and verify they fail**
@@ -773,7 +804,8 @@ pytest mcp_server/tests/test_multi_instance_targeting.py::test_panel_document_al
   mcp_server/tests/test_bridge.py::test_call_tool_installs_locked_document_context `
   mcp_server/tests/test_bridge.py::test_call_tool_rejects_conflicting_document_serial `
   mcp_server/tests/test_bridge.py::test_panel_lock_blocks_spawn_agent_before_background_task `
-  mcp_server/tests/test_bridge.py::test_panel_lock_launch_stale_owner_returns_stale -q
+  mcp_server/tests/test_bridge.py::test_panel_lock_launch_stale_owner_returns_stale `
+  mcp_server/tests/test_bridge.py::test_panel_lock_launch_live_owner_does_not_auto_bind -q
 ```
 
 Expected: FAIL because document helper and dispatcher lock branches do not exist.
@@ -869,6 +901,16 @@ Leave live-lock `rhino_launch` to `_call_tool_dispatch()` after the preflight bl
         return _format_tool_result(raw_result)
 ```
 
+Update `targeting.should_auto_bind_launched_instance()` so the launch handler cannot auto-bind under any panel lock state:
+
+```python
+def should_auto_bind_launched_instance() -> bool:
+    if _PANEL_TARGET_LOCK is not None or _PANEL_TARGET_CONFIG_ERROR is not None:
+        return False
+    active = resolve_active_target()
+    return active.target is None
+```
+
 - [ ] **Step 6: Run dispatcher tests**
 
 Run:
@@ -879,7 +921,8 @@ pytest mcp_server/tests/test_multi_instance_targeting.py::test_panel_document_al
   mcp_server/tests/test_bridge.py::test_call_tool_installs_locked_document_context `
   mcp_server/tests/test_bridge.py::test_call_tool_rejects_conflicting_document_serial `
   mcp_server/tests/test_bridge.py::test_panel_lock_blocks_spawn_agent_before_background_task `
-  mcp_server/tests/test_bridge.py::test_panel_lock_launch_stale_owner_returns_stale -q
+  mcp_server/tests/test_bridge.py::test_panel_lock_launch_stale_owner_returns_stale `
+  mcp_server/tests/test_bridge.py::test_panel_lock_launch_live_owner_does_not_auto_bind -q
 ```
 
 Expected: all targeted tests pass.
@@ -1029,6 +1072,43 @@ async def test_call_rhino_panel_lock_routes_rc_to_same_process_peer(discovery_di
 
     assert result["success"] is True
     assert ":9960" in captured["url"]
+
+
+@pytest.mark.asyncio
+async def test_call_rhino_panel_lock_canonicalizes_same_process_extension_port_for_native_endpoint(discovery_dir: Path, monkeypatch):
+    from rook import targeting
+
+    targeting.reset_targeting_state_for_tests()
+    targeting.initialize_from_environment({
+        "ROOK_MCP_TARGET_MODE": "panel_locked",
+        "ROOK_MCP_TARGET_PROCESS_ID": "7101",
+        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
+    })
+    _write_instance(discovery_dir / "instance-7101-native.json", {
+        "host": "127.0.0.1", "port": 9950, "processId": 7101, "pluginType": "native",
+    })
+    _write_instance(discovery_dir / "instance-7101-roadcreator.json", {
+        "host": "127.0.0.1", "port": 9960, "processId": 7101, "pluginType": "roadcreator",
+    })
+    captured = {}
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+        async def request(self, method, url, json=None):
+            captured["url"] = str(url)
+            class Response:
+                def raise_for_status(self): return None
+                def json(self): return {"success": True, "data": {"name": "A.3dm"}}
+            return Response()
+
+    monkeypatch.setattr(bridge.httpx, "AsyncClient", lambda timeout=None: FakeClient())
+    result = await bridge.call_rhino("/document", port=9960)
+
+    assert result["success"] is True
+    assert ":9950" in captured["url"]
 ```
 
 - [ ] **Step 2: Run tests and verify they fail**
@@ -1039,7 +1119,8 @@ Run:
 pytest mcp_server/tests/test_bridge.py::test_call_rhino_defaults_to_panel_locked_process `
   mcp_server/tests/test_bridge.py::test_call_rhino_rejects_conflicting_panel_port `
   mcp_server/tests/test_bridge.py::test_call_rhino_rejects_conflicting_panel_document `
-  mcp_server/tests/test_bridge.py::test_call_rhino_panel_lock_routes_rc_to_same_process_peer -q
+  mcp_server/tests/test_bridge.py::test_call_rhino_panel_lock_routes_rc_to_same_process_peer `
+  mcp_server/tests/test_bridge.py::test_call_rhino_panel_lock_canonicalizes_same_process_extension_port_for_native_endpoint -q
 ```
 
 Expected: FAIL because `bridge.py` does not consult panel lock state.
@@ -1099,6 +1180,11 @@ def _apply_panel_lock_to_request(
         explicit = next((instance for instance in instances if instance.get("port") == port), None)
         if explicit is None or explicit.get("processId") != lock.process_id:
             return data, port, process_id, targeting.panel_target_locked_result()
+        # The port is a valid same-process anchor, but preserving it can pin
+        # native/GH endpoints to an extension peer. Clear it and route by
+        # locked process id plus endpoint so select_rhino_instance chooses the
+        # correct same-process capable peer.
+        port = None
 
     applied = targeting.apply_locked_document_context(data)
     if isinstance(applied, dict) and applied.get("success") is False:
@@ -1130,7 +1216,8 @@ Run:
 pytest mcp_server/tests/test_bridge.py::test_call_rhino_defaults_to_panel_locked_process `
   mcp_server/tests/test_bridge.py::test_call_rhino_rejects_conflicting_panel_port `
   mcp_server/tests/test_bridge.py::test_call_rhino_rejects_conflicting_panel_document `
-  mcp_server/tests/test_bridge.py::test_call_rhino_panel_lock_routes_rc_to_same_process_peer -q
+  mcp_server/tests/test_bridge.py::test_call_rhino_panel_lock_routes_rc_to_same_process_peer `
+  mcp_server/tests/test_bridge.py::test_call_rhino_panel_lock_canonicalizes_same_process_extension_port_for_native_endpoint -q
 ```
 
 Expected: all targeted tests pass.
