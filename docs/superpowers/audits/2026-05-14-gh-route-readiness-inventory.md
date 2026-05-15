@@ -81,3 +81,19 @@ Lifecycle behavior changes are pending review and are not implemented by this Ta
 - The inventory starts from `src/RookNative/RookServer.cpp` route registration, not Python tool metadata.
 - `GET /gh/value` and `POST /gh/value` are listed as separate rows because they have different handlers and readiness categories.
 - `/gh/query` remains a guarded compatibility route in this inventory and is not listed as a Python agent-facing tool.
+
+## Live Harness Commands
+
+With Rhino/Rook running and Grasshopper closed:
+
+```powershell
+python mcp_server/tools/gh_readiness_live_harness.py --mode gh-closed
+```
+
+With Rhino/Rook running, Grasshopper open, and a blank GH document active:
+
+```powershell
+python mcp_server/tools/gh_readiness_live_harness.py --mode gh-open --allow-mutation
+```
+
+The harness discovers the OS-assigned native Rook URL from `%TEMP%/rook` by default. To bypass discovery for a known local endpoint, add `--base-url http://127.0.0.1:<PORT>`.
