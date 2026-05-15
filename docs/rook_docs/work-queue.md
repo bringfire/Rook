@@ -1,5 +1,7 @@
 # Work Queue
 
+**Last triaged:** 2026-05-15 (**PR #152 multi-instance Rhino targeting and panel-locked Claude Code routing shipped.** External MCP sessions now have explicit Rhino instance discovery/bind/get/clear behavior, process-scoped active targets, stale-target hard errors, mutating-tool ambiguity refusal, read-only auto-selection provenance, same-process native/RoadCreator canonicalization, and canonical native recovery menus. Embedded Claude Code tabs now launch with a strict Rook-only MCP config and a `panel_locked` target derived from the owning Rhino process/document; cross-process binding or explicit-port routing fails with `panel_target_locked`, same-process peer routing canonicalizes, `rhino_clear_active_instance` is blocked under lock, `rhino_launch` cannot escape the panel target, and direct bridge calls enforce the same process/document lock. Local validation covered Python route/bridge tests, C# chat startup/config tests, deployed two-Rhino smoke in RookChat, Claude Desktop external-session smoke, stale binding recovery, and squash merge as PR #152. **Promoted to Now:** hosted WebView/panel blanking investigation, because docking restored a blank Claude Code tab and the same failure class has appeared in RookVision, implying a shared visibility/lifecycle bug rather than a route-targeting issue. **Next after that:** return to the RookVision video-thumbnail post-FFmpeg lane decision unless user direction promotes another product item.)
+
 **Last triaged:** 2026-05-13 (**RookVision video thumbnail Slice 6 FFmpeg bundling implemented in draft PR #148.** Rook now packages a Rook-owned minimal LGPL-only `ffmpeg.exe` subprocess payload for video sidecar extraction instead of a broad third-party static build. Release validation fails closed for missing metadata, checksum mismatch, GPL/nonfree configure flags, unexpected `--enable-*` flags outside `scripts\ffmpeg\rook-ffmpeg-enable-allowlist.json`, unknown provenance, unverified official source signatures, missing source-bundle manifest/content, missing compliance files, and poster/first-frame/last-frame smoke failure against H.264 MP4 plus VP9 WebM fixtures. Installer packaging includes the binary plus provenance, license, notice, source-compliance, and README files; the generated source bundle is a release artifact published beside the installer, not committed to the repo. Runtime sidecar extraction prefers the installed bundled FFmpeg while development configured/PATH fallback remains non-shippable and cannot satisfy release validation. PR #148 remains draft until the minimal binary and generated source-bundle manifest validation pass in final review. **Next:** choose between provider/model payload audit and Grasshopper NLE token behavior; do not combine them.)
 
 **Last triaged:** 2026-05-12 (**RookVision video thumbnail Slice 5 merged as PR #147 and post-merge verified.** Startup now performs one bounded asynchronous best-effort pass over older generated-video artifacts with missing `poster`, `start_frame`, or `end_frame` sidecars. The pass is separate from video job reconciliation, is guarded once per process once scheduling succeeds, caps generated-video artifacts that actually need missing-sidecar work, checks elapsed budget between artifacts and role attempts, skips artifacts created after the sweep start to avoid racing active video finalization, targets only missing roles, calls frame sidecar production one role at a time, and treats expected role failures as diagnostic-only. It never reruns provider jobs, never infers provider payloads, does not expose a public route/MCP/GH surface, and does not create a generic repair framework. Verification covered the focused Slice 5 surface, full managed `net48` suite (`2065/2065` post-merge), managed `net7.0` build/deploy with existing warnings only, `git diff --check`, and live Rhino startup smoke that backfilled `f388afbb-450c-4652-9dce-d386d0c12b32` with `poster`, `start_frame`, and `end_frame`. **Promoted to Now:** ffmpeg packaging/licensing and production resolver policy for video sidecar extraction. Decide whether Rook ships a vetted ffmpeg build or requires user-installed/configured ffmpeg; pin acceptable license/build constraints; wire production resolution/diagnostics accordingly; and update installer/release docs if packaging is selected. **Do not combine** this slice with provider payload ingestion or Grasshopper NLE token behavior.)
@@ -172,20 +174,21 @@ Each item carries:
 
 ## Now
 
-**Active item: post-#114 product/polish lane selection.**
+**Active item: hosted WebView/panel blanking investigation.**
 
-- **Type:** triage / roadmap selection
-- **Stage:** queue selection / design-needed
-- **Risk:** Low-M (selection only; chosen lane may vary)
-- **Why_now:** #113 and #114 are both closed, so the explicit low-risk test-debt lane is done. The queue should return to one concrete product/polish item rather than continuing to mine parked helper extractions without a trigger.
-- **Source_doc:** Open issue #37; deferred RookVision video thumbnail tiers; PR-V4 video MCP parity notes; current RookVision focus-hotfix release context.
+- **Type:** bug / substrate
+- **Stage:** reproduce + diagnose
+- **Risk:** M-High (shared UI host/visibility behavior across RookChat, Claude Code tab, and RookVision)
+- **Why_now:** During PR #152 live smoke, an embedded Claude Code tab went blank and docking the panel restored the text. This matches the earlier RookVision blank/blackout failure class and suggests the issue is broader than the Vision-only hotfix path. Routes are now validated, so the next active risk is the shared panel/WebView visibility lifecycle.
+- **Source_doc:** `%TEMP%\rook\webview-focus.log`, `src\Rook\UI\Chat\RookChatPanel.cs`, `src\Rook\UI\Chat\ClaudeCodeTab.cs`, `src\Rook\UI\Vision\RookVisionPanel.cs`, `src\Rook\UI\Web\RookWebSurface.cs`, prior RookVision focus-hotfix context.
 
 **Expected scope:**
-- Re-read the remaining non-blocked product/polish candidates after #114 is resolved.
-- Leading candidates today: #37 block-link geometry coverage, RookVision video thumbnails Tier 1, PR-V4 video MCP parity, or a user-directed Vision follow-up if the affected customer reports on `v1.5.3`.
-- Do not promote #53 unless one of its documented triggers fires.
+- Reproduce or collect enough evidence from the blank Claude Code/RookVision panels to distinguish UI host visibility, Eto tab lifecycle, WebView2 controller visibility, and process/output failure modes.
+- Compare the working/docking recovery path against panel shown/hidden, tab selection, and hosted-surface reconciliation code.
+- Keep the route-targeting changes out of scope unless evidence shows the blanking is caused by MCP/Claude process lifecycle.
+- Preserve the PR #132 safety rule: do not reintroduce unconditional `CoreWebView2Controller.IsVisible` repaint toggles.
 
-**Acceptance direction:** Choose one concrete implementation/design item for `Now`, or explicitly keep product-lane selection open with the reason.
+**Acceptance direction:** Identify the shared root cause and land the smallest regression-tested fix, or write a focused diagnostic plan if the issue cannot yet be reproduced reliably.
 
 **Rhino runtime harness usage notes for future work:**
 
@@ -224,19 +227,19 @@ python scripts\run_rhino_runtime_harness.py --smoke pytest-select
 
 ## Next
 
-**Next: RookVision video thumbnails Tier 1 (tentative fast polish candidate).**
+**Next: RookVision video thumbnail post-FFmpeg lane decision.**
 
 - **Type:** product polish
-- **Stage:** scope-pass / implementation-ready if selection confirms
-- **Risk:** Low-M (managed Vision artifact path; no provider behavior change intended)
-- **Source_doc:** Deferred candidate "RookVision video thumbnails" below; current managed Vision video artifact pipeline.
+- **Stage:** triage / scope-pass
+- **Risk:** Low-M to M (depends whether the next slice is provider payload audit, GH NLE token behavior, or thumbnail UX polish)
+- **Source_doc:** `docs/rook_docs/video-thumbnail-roadmap.md`, PR #148 FFmpeg bundling review context, deferred RookVision video thumbnail candidate below.
 
 **Expected scope:**
-- During the product-lane selection pass, confirm whether this beats #37 and video MCP parity on value/time.
-- If selected, keep Tier 1 only: for I2V/interp jobs, copy the source start-frame artifact bytes as a `poster` blob on the generated video artifact during the manager's saving/materialization stage.
-- Do not introduce JS extraction, Media Foundation extraction, new public/native routes, or provider-specific thumbnail work in Tier 1.
+- After the hosted-panel blanking issue is either fixed or explicitly parked with diagnostics, re-read the post-PR #148 state and choose one narrow next slice.
+- Leading options from the latest video-thumbnail triage: provider/model payload audit or Grasshopper NLE token behavior. Do not combine them.
+- If user direction instead promotes a visible polish item, re-scope against the current sidecar/FFmpeg substrate before coding.
 
-**Acceptance direction:** Generated video artifacts from source-frame workflows get a poster blob without changing Gallery JavaScript or provider submission/result semantics.
+**Acceptance direction:** One concrete video-thumbnail follow-up is selected with a spec/plan, or the lane is explicitly parked with the reason and trigger.
 
 **Deferred candidates** (any can promote if analysis or user direction surfaces a reason to pivot):
 
@@ -303,6 +306,7 @@ has a documented re-entry condition.
 
 | PR | Item | Merged |
 |----|------|--------|
+| #152 | **Panel-locked Rhino targeting for Rook MCP.** Squash-merged as `6ce0e77` on 2026-05-15. Adds process-scoped Rhino instance targeting for external MCP sessions (`rhino_instances`, `rhino_set_active_instance`, `rhino_get_active_instance`, `rhino_clear_active_instance`), mutating-tool ambiguity refusal, read-only auto-selection provenance, stale active binding hard errors with canonical native recovery targets, and same-process native/RoadCreator canonicalization. Embedded Claude Code tabs now launch with a strict Rook-only MCP config and a panel lock from the owning Rhino process/document; conflicting process targets fail with `panel_target_locked`, document-serial conflicts fail closed, clear is blocked under lock, direct bridge calls enforce the same lock, and `rhino_launch` cannot escape a locked/stale owner. Verification covered `py_compile`, `81/81` Python targeting/bridge tests, `24/24` C# chat tests, deployed two-Rhino RookChat smoke, Claude Desktop external-session smoke, stale binding recovery, and RoadCreator/native peer routing. | 2026-05-15 |
 | #114 | **RookPlugin lifecycle wrapper source-level regression.** Closed with `RookPluginLifecycleSourceTests`, a managed source-level test class that pins the smallest safe lifecycle-wrapper slice without adding Rhino shutdown fault injection. The tests verify `OnLoad` schedules `TryInitializeRuntime`, video reconcile failure is caught/logged as non-fatal, each `OnShutdown` external teardown call has an independent `try/catch`, and `base.OnShutdown()` remains after/outside those wrappers. The source reader strips comments before matching; a mutation check commented out `ChatServiceManager.Instance.Shutdown()` and the focused class failed on the intended missing-wrapper assertion. | 2026-05-10 |
 | #113 | **Native Vision dispatch source-level regression.** Closed with `NativeVisionDispatchSourceTests`, a managed source-level test class that pins the C++ `DispatchVisionOpWithPathId` contract without adding native project-file churn. The tests verify the helper uses `body[path_id_field]`, artifact routes pass `artifact_id`, and video status/cancel/result routes pass `job_id`. A mutation check changed one video route to `artifact_id`; the focused test failed on that route, proving the regression catches the #113 failure mode. | 2026-05-10 |
 | release | **Rook v1.5.3 Vision-panel hotfix release.** Released from `main` on 2026-05-10 as tag `v1.5.3` with GitHub asset `Rook-Setup-1.5.3.exe` (~14.3 MB). Ships the RookVision dedicated native Rhino panel host and removes the legacy Vision activation reload path that was unique to the old chat-tab-hosted Vision panel. Native Release build used MSVC/MFC 14.44, managed companion packaged `net7.0`, full managed suite passed 1909/1909, installer source-path/guard checks passed, and local Rhino plugin deployment was refreshed with the release artifacts. | 2026-05-10 |
