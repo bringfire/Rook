@@ -313,6 +313,16 @@ namespace Rook.Tests.UI.Web
         }
 
         [Fact]
+        public void RookWebSurface_DoesNotOwnRhinoPanelLifecycleReasons()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+
+            Assert.DoesNotContain("ShowPanelReason", source);
+            Assert.DoesNotContain("HideOnDeactivate", source);
+            Assert.DoesNotContain("ShowOnDeactivate", source);
+        }
+
+        [Fact]
         public void WebViewHostVisibilitySynchronization_UsesLifecycleLogs()
         {
             var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");

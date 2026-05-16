@@ -43,25 +43,35 @@ namespace Rook.Tests.UI.Vision
         }
 
         [Fact]
-        public void RookVisionPanel_PanelLifecycle_ReconcilesHostVisibility()
+        public void RookVisionPanel_UsesHostedPanelLifecycleAdapter()
         {
             var source = ReadSourceFile("src", "Rook", "UI", "Vision", "RookVisionPanel.cs");
 
-            Assert.Contains("_surface.ReconcileHostVisibility(true", source);
-            Assert.Contains("PanelShown", source);
-            Assert.Contains("_surface.ReconcileHostVisibility(false", source);
-            Assert.Contains("PanelHidden", source);
+            Assert.Contains("HostedPanelLifecycleAdapter", source);
+            Assert.Contains("typeof(RookVisionPanel)", source);
+            Assert.DoesNotContain("_surface.ReconcileHostVisibility(false, \"PanelHidden:\" + reason)", source);
         }
 
         [Fact]
-        public void KnowledgeGraphPanel_PanelLifecycle_ReconcilesHostVisibility()
+        public void KnowledgeGraphPanel_UsesHostedPanelLifecycleAdapter()
         {
             var source = ReadSourceFile("src", "Rook", "UI", "Knowledge", "KnowledgeGraphPanel.cs");
 
-            Assert.Contains("_surface.ReconcileHostVisibility(true", source);
-            Assert.Contains("PanelShown", source);
-            Assert.Contains("_surface.ReconcileHostVisibility(false", source);
-            Assert.Contains("PanelHidden", source);
+            Assert.Contains("HostedPanelLifecycleAdapter", source);
+            Assert.Contains("typeof(KnowledgeGraphPanel)", source);
+            Assert.DoesNotContain("_surface.ReconcileHostVisibility(false, \"PanelHidden:\" + reason)", source);
+        }
+
+        [Fact]
+        public void DedicatedPanels_ReconcileClosingThroughLifecycleAdapter()
+        {
+            var visionSource = ReadSourceFile("src", "Rook", "UI", "Vision", "RookVisionPanel.cs");
+            var knowledgeSource = ReadSourceFile("src", "Rook", "UI", "Knowledge", "KnowledgeGraphPanel.cs");
+
+            Assert.Contains("_lifecycle.PanelClosing(documentSerialNumber, onCloseDocument)", visionSource);
+            Assert.Contains("HostedSurfaceAction.Close", visionSource);
+            Assert.Contains("_lifecycle.PanelClosing(documentSerialNumber, onCloseDocument)", knowledgeSource);
+            Assert.Contains("HostedSurfaceAction.Close", knowledgeSource);
         }
 
         [Fact]

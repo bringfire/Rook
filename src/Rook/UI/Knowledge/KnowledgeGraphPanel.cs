@@ -6,6 +6,7 @@ using Eto.Drawing;
 using Rhino;
 using Rhino.UI;
 using Rook.UI.Chat;
+using Rook.UI.Panels;
 using Rook.UI.Web;
 
 namespace Rook.UI.Knowledge
@@ -18,8 +19,13 @@ namespace Rook.UI.Knowledge
     [System.Runtime.InteropServices.Guid("B2C3D4E5-F6A7-8901-BCDE-F12345678901")]
     public class KnowledgeGraphPanel : Panel, IPanel
     {
+        private static int s_nextPanelInstanceId;
+
         private readonly KnowledgeGraphSurface _surface;
         private readonly KnowledgeGraphBootstrapCoordinator _bootstrap;
+        private readonly HostedPanelLifecycleAdapter _lifecycle =
+            new(typeof(KnowledgeGraphPanel));
+        private readonly string _surfaceId;
         private uint _documentSerialNumber;
         private bool _closed;
 
@@ -29,6 +35,9 @@ namespace Rook.UI.Knowledge
         {
             _documentSerialNumber = documentSerialNumber;
             _surface = new KnowledgeGraphSurface(OnWebViewReadyAsync);
+            _surfaceId = documentSerialNumber.ToString() +
+                ":knowledge-graph:" +
+                Interlocked.Increment(ref s_nextPanelInstanceId).ToString();
             _bootstrap = new KnowledgeGraphBootstrapCoordinator(
                 ct => ChatServiceManager.Instance.EnsureStartedAsync(ct),
                 () => ChatServiceManager.Instance.SessionNonce,
@@ -44,19 +53,24 @@ namespace Rook.UI.Knowledge
         public void PanelShown(uint documentSerialNumber, ShowPanelReason reason)
         {
             _documentSerialNumber = documentSerialNumber;
-            _surface.ReconcileHostVisibility(true, "PanelShown:" + reason);
+            _lifecycle.PanelShown(documentSerialNumber, reason);
+            ReconcileSurface("PanelShown:" + reason);
 
             _ = Task.Run(() => _bootstrap.RequestBootstrapAsync(default));
         }
 
         public void PanelHidden(uint documentSerialNumber, ShowPanelReason reason)
         {
-            _surface.ReconcileHostVisibility(false, "PanelHidden:" + reason);
+            _documentSerialNumber = documentSerialNumber;
+            _lifecycle.PanelHidden(documentSerialNumber, reason);
+            ReconcileSurface("PanelHidden:" + reason);
         }
 
         public void PanelClosing(uint documentSerialNumber, bool onCloseDocument)
         {
-            CloseSurface();
+            _documentSerialNumber = documentSerialNumber;
+            _lifecycle.PanelClosing(documentSerialNumber, onCloseDocument);
+            ReconcileSurface("PanelClosing");
         }
 
         protected override void Dispose(bool disposing)
@@ -74,6 +88,31 @@ namespace Rook.UI.Knowledge
             _closed = true;
             Content = null;
             _surface.Dispose();
+        }
+
+        private void ReconcileSurface(string reason)
+        {
+            _lifecycle.Reconcile(
+                _surfaceId,
+                isSelectedTab: true,
+                this,
+                decision => ApplyDecision(decision, reason));
+        }
+
+        private void ApplyDecision(HostedSurfaceDecision decision, string sourceReason)
+        {
+            switch (decision.Action)
+            {
+                case HostedSurfaceAction.Show:
+                    _surface.ReconcileHostVisibility(true, sourceReason + ":" + decision.Reason);
+                    break;
+                case HostedSurfaceAction.Hide:
+                    _surface.ReconcileHostVisibility(false, sourceReason + ":" + decision.Reason);
+                    break;
+                case HostedSurfaceAction.Close:
+                    CloseSurface();
+                    break;
+            }
         }
 
         private Task OnWebViewReadyAsync(CancellationToken ct)

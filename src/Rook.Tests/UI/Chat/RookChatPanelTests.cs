@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using Rook.UI.Chat;
 using Xunit;
 
 namespace Rook.Tests.UI.Chat
@@ -8,62 +7,51 @@ namespace Rook.Tests.UI.Chat
     public class RookChatPanelTests
     {
         [Fact]
-        public void HostedWebSurfaceVisibility_PanelShownWithMultipleTabs_OnlyShowsSelectedPage()
-        {
-            var visibility = HostedWebSurfaceVisibility.Resolve(
-                pageCount: 3,
-                selectedIndex: 1,
-                panelVisible: true);
-
-            Assert.Equal(new[] { false, true, false }, visibility);
-        }
-
-        [Fact]
-        public void HostedWebSurfaceVisibility_TabSwitch_HidesOldPageAndShowsNewPage()
-        {
-            var before = HostedWebSurfaceVisibility.Resolve(
-                pageCount: 2,
-                selectedIndex: 0,
-                panelVisible: true);
-            var after = HostedWebSurfaceVisibility.Resolve(
-                pageCount: 2,
-                selectedIndex: 1,
-                panelVisible: true);
-
-            Assert.Equal(new[] { true, false }, before);
-            Assert.Equal(new[] { false, true }, after);
-        }
-
-        [Fact]
-        public void HostedWebSurfaceVisibility_PanelHidden_HidesEveryPage()
-        {
-            var visibility = HostedWebSurfaceVisibility.Resolve(
-                pageCount: 3,
-                selectedIndex: 1,
-                panelVisible: false);
-
-            Assert.Equal(new[] { false, false, false }, visibility);
-        }
-
-        [Fact]
-        public void RookChatPanel_PanelLifecycle_ReconcilesHostedWebSurfaces()
+        public void RookChatPanel_UsesHostedPanelLifecycleAdapter()
         {
             var source = ReadSourceFile("src", "Rook", "UI", "Chat", "RookChatPanel.cs");
 
-            Assert.Contains("ReconcileHostedWebSurfaces(tabControl, true, \"PanelShown:\" + reason)", source);
-            Assert.Contains("ReconcileHostedWebSurfaces(tabControl, false, \"PanelHidden:\" + reason)", source);
-            Assert.Contains("ChatTab chatTab", source);
-            Assert.Contains("VisionTab visionTab", source);
+            Assert.Contains("HostedPanelLifecycleAdapter", source);
+            Assert.Contains("typeof(RookChatPanel)", source);
+            Assert.DoesNotContain("ReconcileHostedWebSurfaces(tabControl, false, \"PanelHidden:\" + reason)", source);
         }
 
         [Fact]
-        public void RookChatPanel_TabSelectionChanged_ReconcilesHostedWebSurfaces()
+        public void RookChatPanel_TabSelectionChanged_ReconcilesThroughLifecycleAdapter()
         {
             var source = ReadSourceFile("src", "Rook", "UI", "Chat", "RookChatPanel.cs");
 
             Assert.Contains("SelectedIndexChanged += OnTabSelectedIndexChanged", source);
             Assert.Contains("SelectedIndexChanged -= OnTabSelectedIndexChanged", source);
-            Assert.Contains("ReconcileHostedWebSurfaces(tabControl, _panelHostVisible, \"TabSelectionChanged\")", source);
+            Assert.Contains("ReconcileHostedWebSurfaces(tabControl, \"TabSelectionChanged\")", source);
+            Assert.DoesNotContain("_panelHostVisible", source);
+        }
+
+        [Fact]
+        public void RookChatPanel_ReconcilesClosingPerHostedSurface()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Chat", "RookChatPanel.cs");
+
+            Assert.Contains("_lifecycle.PanelClosing(documentSerialNumber, onCloseDocument)", source);
+            Assert.Contains("ReconcileHostedWebSurfaces", source);
+            Assert.Contains("HostedSurfaceAction.Close", source);
+        }
+
+        [Fact]
+        public void ChatTabs_ExposeStableHostedSurfaceIds()
+        {
+            var chatTabSource = ReadSourceFile("src", "Rook", "UI", "Chat", "ChatTab.cs");
+            var agentTabSource = ReadSourceFile("src", "Rook", "UI", "Chat", "AgentChatTab.cs");
+            var claudeTabSource = ReadSourceFile("src", "Rook", "UI", "Chat", "ClaudeCodeTab.cs");
+            var visionTabSource = ReadSourceFile("src", "Rook", "UI", "Vision", "VisionTab.cs");
+
+            Assert.Contains("HostedSurfaceId", chatTabSource);
+            Assert.Contains("Interlocked.Increment", chatTabSource);
+            Assert.Contains("\"agent-chat\"", agentTabSource);
+            Assert.Contains("\"claude-code\"", claudeTabSource);
+            Assert.Contains("HostedSurfaceId", visionTabSource);
+            Assert.Contains("Interlocked.Increment", visionTabSource);
+            Assert.Contains("vision-tab", visionTabSource);
         }
 
         [Fact]
@@ -102,6 +90,8 @@ namespace Rook.Tests.UI.Chat
 
             Assert.Contains("inside the Rook Rhino panel", source);
             Assert.Contains("panel-locked Rook MCP server", source);
+            Assert.Contains("Do not claim access to Engram", source);
+            Assert.Contains("Blueprints", source);
         }
 
         [Fact]

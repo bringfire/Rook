@@ -1,5 +1,6 @@
 using System;
 using System.Text.Json.Nodes;
+using System.Threading;
 using System.Threading.Tasks;
 using Eto.Forms;
 using Eto.Drawing;
@@ -18,6 +19,8 @@ namespace Rook.UI.Chat
     /// </summary>
     public abstract class ChatTab : Panel
     {
+        private static int s_nextHostedSurfaceId;
+
         // ─── Web surface (substrate) ──────────────────────────────────
         private readonly ChatWebSurface _webSurface;
 
@@ -46,6 +49,8 @@ namespace Rook.UI.Chat
         /// Persona color for this tab (used in tab strip rendering).
         /// </summary>
         public Color TabColor { get; }
+
+        internal string HostedSurfaceId { get; }
 
         // ─── Abstract / virtual hooks ─────────────────────────────────
 
@@ -97,10 +102,14 @@ namespace Rook.UI.Chat
         /// </summary>
         /// <param name="tabLabel">Display name for the tab header.</param>
         /// <param name="tabColor">Persona color for the tab.</param>
-        protected ChatTab(string tabLabel, Color tabColor)
+        /// <param name="hostedSurfaceType">Stable type prefix for panel lifecycle reconciliation.</param>
+        protected ChatTab(string tabLabel, Color tabColor, string hostedSurfaceType)
         {
             TabLabel = tabLabel;
             TabColor = tabColor;
+            HostedSurfaceId =
+                hostedSurfaceType + ":" +
+                Interlocked.Increment(ref s_nextHostedSurfaceId).ToString();
             _webSurface = new ChatWebSurface(this);
             InitializeComponents();
             LayoutControls();
