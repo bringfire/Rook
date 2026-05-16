@@ -169,6 +169,128 @@ async def test_gh_create_script_python_point_list_bakes_as_geometry():
     assert "Point3d" in geometry_types
 
 
+@pytest.mark.parametrize(
+    ("pin_type", "code", "output_name", "expected_type"),
+    [
+        (
+            "Line",
+            (
+                "import Rhino.Geometry as rg\n"
+                "Lines = [rg.Line(rg.Point3d(0, 0, 0), rg.Point3d(4, 0, 0))]"
+            ),
+            "Lines",
+            "LineCurve",
+        ),
+        (
+            "Circle",
+            (
+                "import Rhino.Geometry as rg\n"
+                "Circles = [rg.Circle(rg.Plane.WorldXY, 2.0)]"
+            ),
+            "Circles",
+            "ArcCurve",
+        ),
+        (
+            "Curve",
+            (
+                "import Rhino.Geometry as rg\n"
+                "Curves = [rg.LineCurve(rg.Point3d(0, 0, 0), rg.Point3d(0, 4, 0))]"
+            ),
+            "Curves",
+            "LineCurve",
+        ),
+        (
+            "Brep",
+            (
+                "import Rhino.Geometry as rg\n"
+                "Breps = [rg.Box(rg.Plane.WorldXY, "
+                "rg.Interval(0, 2), rg.Interval(0, 2), rg.Interval(0, 2)).ToBrep()]"
+            ),
+            "Breps",
+            "Brep",
+        ),
+        (
+            "Mesh",
+            (
+                "import Rhino.Geometry as rg\n"
+                "mesh = rg.Mesh()\n"
+                "mesh.Vertices.Add(0, 0, 0)\n"
+                "mesh.Vertices.Add(2, 0, 0)\n"
+                "mesh.Vertices.Add(0, 2, 0)\n"
+                "mesh.Faces.AddFace(0, 1, 2)\n"
+                "mesh.Normals.ComputeNormals()\n"
+                "mesh.Compact()\n"
+                "Meshes = [mesh]"
+            ),
+            "Meshes",
+            "Mesh",
+        ),
+    ],
+)
+async def test_gh_create_script_python_bakeable_geometry_lists_bake_downstream(
+    pin_type: str,
+    code: str,
+    output_name: str,
+    expected_type: str,
+):
+    """Bakeable declared geometry list outputs should survive RhinoCode as
+    downstream GH/Rhino geometry, not Python wrapper objects.
+    """
+    from rook.server import _mcp_tool_executor
+
+    result = await _mcp_tool_executor(
+        "gh_create_script",
+        {
+            "language": "python",
+            "code": code,
+            "pins_in": [],
+            "pins_out": [{"name": output_name, "type": pin_type, "access": "list"}],
+            "name": f"Usable{pin_type}ListPyLive",
+            "x": 300,
+            "y": 520,
+        },
+    )
+    assert not _is_error(result), (
+        f"gh_create_script {pin_type} list failed: {result!r}"
+    )
+
+    guid = _get_guid(result)
+    assert isinstance(guid, str) and guid, f"no component_guid in response: {result!r}"
+
+    bake = await _mcp_tool_executor(
+        "gh_bake_output",
+        {
+            "targets": [
+                {
+                    "instanceGuid": guid,
+                    "outputIndex": 1,
+                    "outputName": output_name,
+                }
+            ],
+            "layerName": f"RookTest_GhPython{pin_type}List",
+            "createSublayers": True,
+            "clearExisting": True,
+        },
+    )
+    assert not _is_error(bake), (
+        f"gh_bake_output failed for {pin_type} list: {bake!r}"
+    )
+
+    data = bake.get("data") if isinstance(bake, dict) and isinstance(bake.get("data"), dict) else bake
+    assert isinstance(data, dict), f"unexpected bake response: {bake!r}"
+    assert data.get("totalBaked") == 1
+
+    per_target = data.get("perTarget")
+    assert isinstance(per_target, list) and len(per_target) == 1
+    target = per_target[0]
+    assert target.get("bakedCount") == 1
+    assert len(target.get("bakedIds", [])) == 1
+
+    geometry_types = target.get("geometryTypes")
+    assert isinstance(geometry_types, list)
+    assert expected_type in geometry_types
+
+
 async def test_gh_create_script_omitted_language_fails_live():
     """End-to-end MCP dispatch for a caller that omits `language`. The
     handler-level redundant check returns a structured error naming both

@@ -21,9 +21,11 @@ if str(TOOLS_DIR) not in sys.path:
 from gh_readiness_live_harness import call, prepare_gh_open  # noqa: E402
 
 
-TARGET_TEST = (
+TARGET_TESTS = (
     "mcp_server/tests/test_gh_create_script_live.py::"
-    "test_gh_create_script_python_point_list_bakes_as_geometry"
+    "test_gh_create_script_python_point_list_bakes_as_geometry",
+    "mcp_server/tests/test_gh_create_script_live.py::"
+    "test_gh_create_script_python_bakeable_geometry_lists_bake_downstream",
 )
 
 
@@ -64,7 +66,7 @@ def run_selected_pytest(root: Path) -> int:
             sys.executable,
             "-m",
             "pytest",
-            TARGET_TEST,
+            *TARGET_TESTS,
             "-m",
             "requires_rhino",
             "-v",
