@@ -5,29 +5,11 @@ using Eto.Forms;
 using Eto.Drawing;
 using Rhino;
 using Rhino.UI;
+using Rook.UI.Panels;
 using Rook.UI.Vision;
 
 namespace Rook.UI.Chat
 {
-    internal static class HostedWebSurfaceVisibility
-    {
-        public static IReadOnlyList<bool> Resolve(
-            int pageCount,
-            int selectedIndex,
-            bool panelVisible)
-        {
-            var visibility = new bool[Math.Max(0, pageCount)];
-            if (!panelVisible)
-                return visibility;
-
-            if (selectedIndex < 0 || selectedIndex >= visibility.Length)
-                return visibility;
-
-            visibility[selectedIndex] = true;
-            return visibility;
-        }
-    }
-
     /// <summary>
     /// Eto panel hosting a tabbed collection of chat sessions. Each tab is either a
     /// <see cref="ClaudeCodeTab"/> (persistent CLI subprocess) or an
@@ -41,7 +23,8 @@ namespace Rook.UI.Chat
         private uint _documentSerialNumber;
         private readonly Panel _tabHost;
         private readonly Dictionary<uint, TabControl> _tabControlsByDocument = new();
-        private bool _panelHostVisible;
+        private readonly HostedPanelLifecycleAdapter _lifecycle =
+            new(typeof(RookChatPanel));
 
         /// <summary>
         /// Per-TabPage disposal callback registry. Lets the panel run
@@ -231,30 +214,78 @@ namespace Rook.UI.Chat
             AddPanelTab(VisionTabLabel, tab, tab.OnTabClosed);
         }
 
-        private static void ReconcileHostedWebSurfaces(
+        private void ReconcileHostedWebSurfaces(
             TabControl tabControl,
-            bool panelVisible,
             string reason)
         {
-            var visibility = HostedWebSurfaceVisibility.Resolve(
-                tabControl.Pages.Count,
-                tabControl.SelectedIndex,
-                panelVisible);
-
             for (var i = 0; i < tabControl.Pages.Count; i++)
             {
                 var page = tabControl.Pages[i];
-                var visible = visibility[i];
-                var reconcileReason = reason + (visible ? ":Selected" : ":Unselected");
+                var selected = i == tabControl.SelectedIndex;
 
                 if (page.Content is ChatTab chatTab)
                 {
-                    chatTab.ReconcileHostVisibility(visible, reconcileReason);
+                    var surfaceId = BuildSurfaceId(chatTab.HostedSurfaceId);
+                    _lifecycle.Reconcile(
+                        surfaceId,
+                        selected,
+                        chatTab,
+                        decision => ApplyHostedSurfaceDecision(chatTab, decision, reason));
                 }
                 else if (page.Content is VisionTab visionTab)
                 {
-                    visionTab.ReconcileHostVisibility(visible, reconcileReason);
+                    var surfaceId = BuildSurfaceId(visionTab.HostedSurfaceId);
+                    _lifecycle.Reconcile(
+                        surfaceId,
+                        selected,
+                        visionTab,
+                        decision => ApplyHostedSurfaceDecision(visionTab, decision, reason));
                 }
+            }
+        }
+
+        private string BuildSurfaceId(string tabSurfaceId)
+        {
+            return _documentSerialNumber.ToString() + ":" + tabSurfaceId;
+        }
+
+        private void ApplyHostedSurfaceDecision(
+            ChatTab tab,
+            HostedSurfaceDecision decision,
+            string sourceReason)
+        {
+            switch (decision.Action)
+            {
+                case HostedSurfaceAction.Show:
+                    tab.ReconcileHostVisibility(true, sourceReason + ":" + decision.Reason);
+                    break;
+                case HostedSurfaceAction.Hide:
+                    tab.ReconcileHostVisibility(false, sourceReason + ":" + decision.Reason);
+                    break;
+                case HostedSurfaceAction.Close:
+                    tab.OnTabClosed();
+                    _lifecycle.ForgetSurface(BuildSurfaceId(tab.HostedSurfaceId));
+                    break;
+            }
+        }
+
+        private void ApplyHostedSurfaceDecision(
+            VisionTab tab,
+            HostedSurfaceDecision decision,
+            string sourceReason)
+        {
+            switch (decision.Action)
+            {
+                case HostedSurfaceAction.Show:
+                    tab.ReconcileHostVisibility(true, sourceReason + ":" + decision.Reason);
+                    break;
+                case HostedSurfaceAction.Hide:
+                    tab.ReconcileHostVisibility(false, sourceReason + ":" + decision.Reason);
+                    break;
+                case HostedSurfaceAction.Close:
+                    tab.OnTabClosed();
+                    _lifecycle.ForgetSurface(BuildSurfaceId(tab.HostedSurfaceId));
+                    break;
             }
         }
 
@@ -304,9 +335,18 @@ namespace Rook.UI.Chat
         /// </summary>
         private void RemoveTab(TabControl owner, TabPage page)
         {
+            if (page.Content is ChatTab chatTab)
+            {
+                _lifecycle.ForgetSurface(BuildSurfaceId(chatTab.HostedSurfaceId));
+            }
+            else if (page.Content is VisionTab visionTab)
+            {
+                _lifecycle.ForgetSurface(BuildSurfaceId(visionTab.HostedSurfaceId));
+            }
+
             _cleanup.FireAndRemove(page);
             owner.Pages.Remove(page);
-            ReconcileHostedWebSurfaces(owner, _panelHostVisible, "TabRemoved");
+            ReconcileHostedWebSurfaces(owner, "TabRemoved");
         }
 
         // ─── "+" button handler ─────────────────────────────────────────
@@ -355,7 +395,7 @@ namespace Rook.UI.Chat
         {
             if (sender is TabControl tabControl)
             {
-                ReconcileHostedWebSurfaces(tabControl, _panelHostVisible, "TabSelectionChanged");
+                ReconcileHostedWebSurfaces(tabControl, "TabSelectionChanged");
             }
         }
 
@@ -367,7 +407,8 @@ namespace Rook.UI.Chat
         public void PanelShown(uint documentSerialNumber, ShowPanelReason reason)
         {
             documentSerialNumber = NormalizeDocumentSerialNumber(documentSerialNumber);
-            _panelHostVisible = true;
+            _documentSerialNumber = documentSerialNumber;
+            _lifecycle.PanelShown(documentSerialNumber, reason);
             ShowDocumentTabs(documentSerialNumber);
 
             // Auto-open Agent Chat on first show so the tab captures the active
@@ -378,7 +419,7 @@ namespace Rook.UI.Chat
                 AddAgentTab("architect", "Architect", Color.FromArgb(0xc0, 0x84, 0xfc));
             }
 
-            ReconcileHostedWebSurfaces(tabControl, true, "PanelShown:" + reason);
+            ReconcileHostedWebSurfaces(tabControl, "PanelShown:" + reason);
 
         }
 
@@ -387,11 +428,12 @@ namespace Rook.UI.Chat
         /// </summary>
         public void PanelHidden(uint documentSerialNumber, ShowPanelReason reason)
         {
-            _panelHostVisible = false;
             documentSerialNumber = NormalizeDocumentSerialNumber(documentSerialNumber);
+            _documentSerialNumber = documentSerialNumber;
+            _lifecycle.PanelHidden(documentSerialNumber, reason);
             if (_tabControlsByDocument.TryGetValue(documentSerialNumber, out var tabControl))
             {
-                ReconcileHostedWebSurfaces(tabControl, false, "PanelHidden:" + reason);
+                ReconcileHostedWebSurfaces(tabControl, "PanelHidden:" + reason);
             }
         }
 
@@ -400,7 +442,13 @@ namespace Rook.UI.Chat
         /// </summary>
         public void PanelClosing(uint documentSerialNumber, bool onCloseDocument)
         {
-            // Allow closing
+            documentSerialNumber = NormalizeDocumentSerialNumber(documentSerialNumber);
+            _documentSerialNumber = documentSerialNumber;
+            _lifecycle.PanelClosing(documentSerialNumber, onCloseDocument);
+            if (_tabControlsByDocument.TryGetValue(documentSerialNumber, out var tabControl))
+            {
+                ReconcileHostedWebSurfaces(tabControl, "PanelClosing");
+            }
         }
 
         #endregion

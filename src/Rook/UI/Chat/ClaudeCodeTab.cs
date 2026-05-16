@@ -16,7 +16,7 @@ namespace Rook.UI.Chat
         private readonly StringBuilder _streamingContent;
 
         public ClaudeCodeTab(uint documentSerialNumber = 0)
-            : base("Claude Code", Color.FromArgb(0x0e, 0x63, 0x9c))
+            : base("Claude Code", Color.FromArgb(0x0e, 0x63, 0x9c), "claude-code")
         {
             _streamingContent = new StringBuilder();
             _wrapper = new ClaudeCodeWrapper(documentSerialNumber);

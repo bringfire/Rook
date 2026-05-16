@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using Eto.Forms;
 using Rook.UI.Web;
 
@@ -21,8 +22,13 @@ namespace Rook.UI.Vision
     /// </summary>
     public sealed class VisionTab : Panel
     {
+        private static int s_nextHostedSurfaceId;
+
         private readonly VisionWebSurface _surface;
         private bool _closed;
+
+        internal string HostedSurfaceId { get; } =
+            "vision-tab:" + Interlocked.Increment(ref s_nextHostedSurfaceId).ToString();
 
         public VisionTab() : this(new VisionWebSurface()) { }
 

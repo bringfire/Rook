@@ -34,7 +34,7 @@ namespace Rook.UI.Chat
             Color color,
             Func<uint>? documentSerialNumberProvider = null,
             uint documentSerialNumber = 0)
-            : base(label, color)
+            : base(label, color, "agent-chat")
         {
             _persona = persona;
             _personaLabel = label;
