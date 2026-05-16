@@ -90,6 +90,8 @@ namespace Rook.Tests.UI.Chat
 
             Assert.Contains("inside the Rook Rhino panel", source);
             Assert.Contains("panel-locked Rook MCP server", source);
+            Assert.Contains("Do not claim access to Engram", source);
+            Assert.Contains("Blueprints", source);
         }
 
         [Fact]

@@ -112,6 +112,16 @@ namespace Rook.Tests.UI.Panels
         }
 
         [Fact]
+        public void Decide_ShowWithTransientRhinoVisibilityFalse_Defers()
+        {
+            var decision = Coordinator.Decide(VisibleReady(
+                HostedPanelLifecycleReason.Show,
+                isRhinoSelectedPanelVisible: false));
+
+            Assert.Equal(HostedSurfaceAction.Defer, decision.Action);
+        }
+
+        [Fact]
         public void Decide_Closing_Closes()
         {
             var decision = Coordinator.Decide(VisibleReady(isClosing: true));

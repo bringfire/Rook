@@ -205,6 +205,30 @@ namespace Rook.Tests.UI.Panels
         }
 
         [Fact]
+        public void Reconcile_DeferredRetryRecapturesRhinoVisibilityAndCanShow()
+        {
+            var scheduler = new TestScheduler();
+            var visibility = new FakeVisibilityQuery { Visible = false };
+            var adapter = new HostedPanelLifecycleAdapter(
+                typeof(Form),
+                visibility,
+                scheduler.Schedule);
+            var decisions = new List<HostedSurfaceDecision>();
+
+            adapter.PanelShown(10, ShowPanelReason.Show);
+            adapter.ReconcileForTest(
+                "10:test:1",
+                isSelectedTab: true,
+                isHostReady: true,
+                decisions.Add);
+            visibility.Visible = true;
+            scheduler.Run("10:test:1");
+
+            Assert.Equal(HostedSurfaceAction.Defer, decisions[0].Action);
+            Assert.Equal(HostedSurfaceAction.Show, decisions[1].Action);
+        }
+
+        [Fact]
         public void ForgetSurface_RemovesPendingRetryAndPreventsLaterApply()
         {
             var scheduler = new TestScheduler();

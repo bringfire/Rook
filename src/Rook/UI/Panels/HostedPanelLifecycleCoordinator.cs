@@ -2,7 +2,7 @@ namespace Rook.UI.Panels
 {
     internal sealed class HostedPanelLifecycleCoordinator
     {
-        public const int MaxDeferAttempts = 3;
+        public const int MaxDeferAttempts = 10;
 
         public HostedSurfaceDecision Decide(PanelLifecycleFacts facts)
         {
@@ -28,6 +28,13 @@ namespace Rook.UI.Panels
 
             if (!facts.IsRhinoSelectedPanelVisible)
             {
+                if (facts.PanelReportedVisible &&
+                    (facts.LastReason == HostedPanelLifecycleReason.Show ||
+                     facts.LastReason == HostedPanelLifecycleReason.ShowOnDeactivate))
+                {
+                    return DeferOrNone("rhino-panel-selected-visibility-pending", facts);
+                }
+
                 return Decision(HostedSurfaceAction.Hide, "rhino-panel-tab-unselected", facts);
             }
 

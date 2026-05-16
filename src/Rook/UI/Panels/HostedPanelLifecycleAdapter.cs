@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using Eto.Forms;
 using Rhino.UI;
 
@@ -302,14 +303,17 @@ namespace Rook.UI.Panels
         private static void ScheduleOnUiThread(string surfaceId, Action action)
         {
             _ = surfaceId;
-            try
+            Task.Delay(75).ContinueWith(_ =>
             {
-                Application.Instance.AsyncInvoke(action);
-            }
-            catch
-            {
-                action();
-            }
+                try
+                {
+                    Application.Instance.AsyncInvoke(action);
+                }
+                catch
+                {
+                    action();
+                }
+            }, TaskScheduler.Default);
         }
 
         private sealed class SurfaceState
