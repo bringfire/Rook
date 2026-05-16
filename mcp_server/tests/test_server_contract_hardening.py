@@ -1493,6 +1493,54 @@ async def test_gh_create_script_python_delegates_to_py3_guid(monkeypatch, patche
 
 
 @pytest.mark.asyncio
+async def test_gh_create_script_python_point_list_output_adds_typed_postamble(
+    monkeypatch, patched_server
+):
+    """Declared Point3d list outputs must be coerced before RhinoCode stores
+    them, so downstream GH/Rhino sees real geometry rather than PyObject blobs.
+    """
+    scripts: list[str] = []
+
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        if route == "/gh/create-component":
+            return {"success": True, "data": {"guid": "py-guid"}}
+        if route == "/gh/script-params":
+            return {"success": True, "data": {"Guid": "py-guid", "Inputs": 0, "Outputs": 1}}
+        if route == "/gh/script":
+            scripts.append(payload["script"])
+            return {"success": True, "data": {"Guid": "py-guid"}}
+        if route == "/gh/errors":
+            return {"success": True, "data": {"errors": []}}
+        raise AssertionError(f"Unexpected route: {route}")
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    payload = await server._execute_gh_create_script(
+        "python",
+        {
+            "code": (
+                "import Rhino.Geometry as rg\n"
+                "Points = [rg.Point3d(0, 0, 0), rg.Point3d(1, 0, 0)]"
+            ),
+            "pins_in": [],
+            "pins_out": [{"name": "Points", "type": "Point3d", "access": "list"}],
+            "name": "Typed Point Output",
+        },
+        port=1234,
+    )
+
+    assert payload["success"] is True
+    assert len(scripts) == 1
+    script = scripts[0]
+    assert "Points = [rg.Point3d" in script
+    assert "# ── Auto-generated GH output coercion" in script
+    assert script.index("Points = [rg.Point3d") < script.index(
+        "# ── Auto-generated GH output coercion"
+    )
+    assert "Points = _rook_gh_output_list(Points, _rook_rg.Point3d)" in script
+
+
+@pytest.mark.asyncio
 async def test_gh_create_script_csharp_delegates_to_cs3_guid(monkeypatch, patched_server):
     """Unified tool with language='csharp' must route through the same
     pipeline as the gh_create_csharp_script alias — fixed CS3 GUID and

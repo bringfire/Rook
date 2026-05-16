@@ -1002,6 +1002,77 @@ def _build_gh_python_preamble(pins_in: list[dict[str, Any]]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _build_gh_python_output_postamble(pins_out: list[dict[str, Any]]) -> str:
+    """Coerce declared Python geometry outputs before RhinoCode stores them.
+
+    RhinoCode can expose Python list items to downstream GH as Python.Runtime
+    PyObject wrappers even when the script assigned RhinoCommon values. For
+    declared list-access geometry outputs, rebuild the output as a typed .NET
+    List[T] while still inside the Python component solve.
+    """
+    geometry_types = {
+        "Point3d": "_rook_rg.Point3d",
+        "Vector3d": "_rook_rg.Vector3d",
+        "Plane": "_rook_rg.Plane",
+        "Line": "_rook_rg.Line",
+        "Circle": "_rook_rg.Circle",
+        "Arc": "_rook_rg.Arc",
+        "Box": "_rook_rg.Box",
+        "Polyline": "_rook_rg.Polyline",
+        "Point2d": "_rook_rg.Point2d",
+        "Interval": "_rook_rg.Interval",
+        "Rectangle3d": "_rook_rg.Rectangle3d",
+        "Transform": "_rook_rg.Transform",
+        "Curve": "_rook_rg.Curve",
+        "Surface": "_rook_rg.Surface",
+        "Brep": "_rook_rg.Brep",
+        "Mesh": "_rook_rg.Mesh",
+    }
+
+    output_plan: list[tuple[str, str]] = []
+    for pin in pins_out:
+        name = str(pin.get("name") or "").strip()
+        ptype = str(pin.get("type") or "").strip()
+        access = str(pin.get("access") or "item").strip().lower() or "item"
+        dotnet_type = geometry_types.get(ptype)
+        if name and dotnet_type and access == "list":
+            output_plan.append((name, dotnet_type))
+
+    if not output_plan:
+        return ""
+
+    lines = [
+        "",
+        "# ── Auto-generated GH output coercion (do not edit) ─────────",
+        "# Rebuild declared geometry list outputs as typed .NET lists so",
+        "# downstream GH/Rhino receives RhinoCommon geometry, not PyObject blobs.",
+        "import Rhino.Geometry as _rook_rg",
+        "from System.Collections.Generic import List as _rook_List",
+        "",
+        "def _rook_gh_output_list(_value, _type):",
+        "    if _value is None:",
+        "        return None",
+        "    _items = _rook_List[_type]()",
+        "    for _item in _value:",
+        "        _items.Add(_item)",
+        "    return _items",
+        "",
+    ]
+
+    for name, dotnet_type in output_plan:
+        lines.extend([
+            "try:",
+            f"    {name} = _rook_gh_output_list({name}, {dotnet_type})",
+            "except NameError:",
+            "    pass",
+        ])
+
+    lines.append("# ── End output coercion ─────────────────────────────────────")
+    lines.append("")
+
+    return "\n".join(lines) + "\n"
+
+
 def _build_gh_csharp_wrapper(
     code: str,
     pins_in: list[dict[str, Any]],
@@ -1299,7 +1370,8 @@ async def _execute_gh_create_script(
         # Language-specific code preparation
         if language == "python":
             preamble = _build_gh_python_preamble(pin_defs_in)
-            full_script = preamble + code
+            postamble = _build_gh_python_output_postamble(pin_defs_out)
+            full_script = preamble + code + postamble
         else:  # csharp
             full_script = _build_gh_csharp_wrapper(code, pin_defs_in, pin_defs_out)
 

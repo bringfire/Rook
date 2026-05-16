@@ -154,7 +154,7 @@ async def test_gh_create_script_python_point_list_bakes_as_geometry():
     )
     assert not _is_error(bake), f"gh_bake_output failed for Point3d list: {bake!r}"
 
-    data = bake.get("data") if isinstance(bake, dict) else None
+    data = bake.get("data") if isinstance(bake, dict) and isinstance(bake.get("data"), dict) else bake
     assert isinstance(data, dict), f"unexpected bake response: {bake!r}"
     assert data.get("totalBaked") == 3
 
