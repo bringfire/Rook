@@ -100,3 +100,31 @@ def test_persona_prompt_script_tool_language_is_capability_accurate(persona):
         f"{persona}: missing gh_create_script (unified tool, PR-2) — "
         "see rook_docs/2026-04-21-gh-script-component-routing-design-pass.md §PR-2"
     )
+
+
+@pytest.mark.parametrize("persona", ["worker", "architect", "scripter"])
+def test_persona_prompt_script_geometry_outputs_are_rhinocommon_values(persona):
+    prompt = PromptBuilder().build_system(persona)
+
+    assert "Geometry outputs" in prompt
+    assert '{"name": "Points", "type": "Point3d", "access": "list"}' in prompt
+    assert (
+        "Points = [rg.Point3d(0, 0, 0), rg.Point3d(1, 0, 0), "
+        "rg.Point3d(2, 0, 0)]"
+    ) in prompt
+    assert "Do not output coordinate dictionaries" in prompt
+    assert "Do not output JSON strings" in prompt
+    assert "Do not output wrapper/debug objects" in prompt
+    assert (
+        "Use DataTree[object] only when you intentionally need tree topology"
+        in prompt
+    )
+
+
+def test_scripter_prompt_no_longer_requires_datatree_for_all_python_lists():
+    prompt = PromptBuilder().build_system("scripter")
+
+    assert (
+        "Python lists must be wrapped in `DataTree[object]()` for GH to display "
+        "each item"
+    ) not in prompt
