@@ -109,6 +109,66 @@ async def test_gh_create_script_csharp_end_to_end():
     assert data.get("code_length", 0) > len(user_code) + 100
 
 
+async def test_gh_create_script_python_point_list_bakes_as_geometry():
+    """A declared Point3d list output must be usable by downstream GH/Rhino
+    geometry consumers. Baking is the anchor because it fails for dicts,
+    strings, wrapper/debug objects, or other non-geometry blobs.
+    """
+    from rook.server import _mcp_tool_executor
+
+    result = await _mcp_tool_executor(
+        "gh_create_script",
+        {
+            "language": "python",
+            "code": (
+                "import Rhino.Geometry as rg\n"
+                "Points = [rg.Point3d(0, 0, 0), rg.Point3d(1, 0, 0), "
+                "rg.Point3d(2, 0, 0)]"
+            ),
+            "pins_in": [],
+            "pins_out": [{"name": "Points", "type": "Point3d", "access": "list"}],
+            "name": "UsablePointListPyLive",
+            "x": 300,
+            "y": 420,
+        },
+    )
+    assert not _is_error(result), f"gh_create_script Point3d list failed: {result!r}"
+
+    guid = _get_guid(result)
+    assert isinstance(guid, str) and guid, f"no component_guid in response: {result!r}"
+
+    bake = await _mcp_tool_executor(
+        "gh_bake_output",
+        {
+            "targets": [
+                {
+                    "instanceGuid": guid,
+                    "outputIndex": 1,
+                    "outputName": "Points",
+                }
+            ],
+            "layerName": "RookTest_GhPythonPointList",
+            "createSublayers": True,
+            "clearExisting": True,
+        },
+    )
+    assert not _is_error(bake), f"gh_bake_output failed for Point3d list: {bake!r}"
+
+    data = bake.get("data") if isinstance(bake, dict) else None
+    assert isinstance(data, dict), f"unexpected bake response: {bake!r}"
+    assert data.get("totalBaked") == 3
+
+    per_target = data.get("perTarget")
+    assert isinstance(per_target, list) and len(per_target) == 1
+    target = per_target[0]
+    assert target.get("bakedCount") == 3
+    assert len(target.get("bakedIds", [])) == 3
+
+    geometry_types = target.get("geometryTypes")
+    assert isinstance(geometry_types, list)
+    assert "Point3d" in geometry_types
+
+
 async def test_gh_create_script_omitted_language_fails_live():
     """End-to-end MCP dispatch for a caller that omits `language`. The
     handler-level redundant check returns a structured error naming both
