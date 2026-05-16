@@ -6915,13 +6915,26 @@ Common types: string, int, float, double, bool, Point3d, Vector3d, Curve, Surfac
 The script receives inputs as variables matching pin names, and must assign outputs
 to variables matching output pin names. The 'out' print stream is always available.
 
-Example:
+For geometry outputs, declare rich output pins with a concrete GH/Rhino geometry
+type and the correct access mode, then assign RhinoCommon geometry values to the
+matching output variables. A list-access geometry output should be a plain Python
+list of RhinoCommon values:
+
 {
-  "code": "import Rhino.Geometry as rg\\na = rg.Point3d(x, y, 0)",
-  "pins_in": ["x:float", "y:float"],
-  "pins_out": ["a:Point3d"],
-  "name": "Grid Point"
-}""",
+  "code": "import Rhino.Geometry as rg\\nPoints = [rg.Point3d(0, 0, 0), rg.Point3d(1, 0, 0), rg.Point3d(2, 0, 0)]",
+  "pins_in": [],
+  "pins_out": [{"name": "Points", "type": "Point3d", "access": "list"}],
+  "name": "Point List"
+}
+
+Other geometry output pin examples:
+- {"name": "Curves", "type": "Curve", "access": "list"}
+- {"name": "Breps", "type": "Brep", "access": "list"}
+- {"name": "Meshes", "type": "Mesh", "access": "list"}
+
+Do not assign coordinate dictionaries. Do not assign JSON strings.
+Do not assign wrapper/debug objects. Do not assign arbitrary Python objects
+when the intended output is GH/Rhino geometry.""",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -6932,7 +6945,7 @@ Example:
                     },
                     "pins_out": {
                         **_GH_SCRIPT_PIN_ARRAY_SCHEMA,
-                        "description": 'Output pin definitions as "Name:Type" strings or pin objects, e.g. ["a:Point3d"]',
+                        "description": 'Output pin definitions as "Name:Type" strings or pin objects, e.g. [{"name": "Points", "type": "Point3d", "access": "list"}]. For geometry outputs, prefer pin objects with explicit type/access and assign RhinoCommon values to matching output variables.',
                     },
                     "name": {"type": "string", "description": "Display name for the component (default: 'Python 3 Script')"},
                     "x": {"type": "number", "description": "Canvas X position (default: 200)"},
@@ -7023,13 +7036,29 @@ Pins may be provided either as legacy "Name:Type" strings or rich pin objects
 with access/optional/description metadata.
 Common types: string, int, float, double, bool, Point3d, Vector3d, Curve, Surface, Brep, Mesh, Line, Plane, Circle, Box.
 
+Python geometry output rule:
+When the semantic output is geometry, declare rich output pins with concrete
+GH/Rhino geometry types and assign real RhinoCommon values. For example:
+
+{
+  "language": "python",
+  "code": "import Rhino.Geometry as rg\\nPoints = [rg.Point3d(0, 0, 0), rg.Point3d(1, 0, 0), rg.Point3d(2, 0, 0)]",
+  "pins_in": [],
+  "pins_out": [{"name": "Points", "type": "Point3d", "access": "list"}],
+  "name": "Point List"
+}
+
+Do not assign coordinate dictionaries. Do not assign JSON strings.
+Do not assign wrapper/debug objects. Do not assign arbitrary Python objects
+when the intended output is GH/Rhino geometry.
+
 Example (Python):
 {
   "language": "python",
-  "code": "import Rhino.Geometry as rg\\na = rg.Point3d(x, y, 0)",
-  "pins_in": ["x:float", "y:float"],
-  "pins_out": ["a:Point3d"],
-  "name": "Grid Point"
+  "code": "import Rhino.Geometry as rg\\nPoints = [rg.Point3d(0, 0, 0), rg.Point3d(1, 0, 0), rg.Point3d(2, 0, 0)]",
+  "pins_in": [],
+  "pins_out": [{"name": "Points", "type": "Point3d", "access": "list"}],
+  "name": "Point List"
 }
 
 Example (C#):
@@ -7055,7 +7084,7 @@ Example (C#):
                     },
                     "pins_out": {
                         **_GH_SCRIPT_PIN_ARRAY_SCHEMA,
-                        "description": 'Output pin definitions as "Name:Type" strings or pin objects, e.g. ["a:Point3d"]',
+                        "description": 'Output pin definitions as "Name:Type" strings or pin objects, e.g. [{"name": "Points", "type": "Point3d", "access": "list"}]. For Python geometry outputs, prefer pin objects with explicit type/access and assign RhinoCommon values to matching output variables.',
                     },
                     "name": {"type": "string", "description": "Display name for the component (default: language-appropriate — 'Python 3 Script' or 'C# Script')"},
                     "x": {"type": "number", "description": "Canvas X position (default: 200)"},
