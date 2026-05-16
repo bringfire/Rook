@@ -50,6 +50,14 @@ def _smoke_command(name: str, repo_root: Path) -> tuple[list[str], Path]:
             ],
             repo_root,
         )
+    if name == "gh-python-geometry-output":
+        return (
+            [
+                sys.executable,
+                "mcp_server/tools/gh_python_geometry_output_live_harness.py",
+            ],
+            repo_root,
+        )
     raise ValueError(f"unknown smoke command: {name}")
 
 
@@ -63,7 +71,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--cleanup-timeout", type=float, default=10.0)
     parser.add_argument(
         "--smoke",
-        choices=["ping-only", "pytest-select", "rhino-operational", "gh-readiness"],
+        choices=[
+            "ping-only",
+            "pytest-select",
+            "rhino-operational",
+            "gh-readiness",
+            "gh-python-geometry-output",
+        ],
         default="pytest-select",
     )
     return parser

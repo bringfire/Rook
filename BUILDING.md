@@ -377,6 +377,9 @@ python scripts\run_rhino_runtime_harness.py --smoke pytest-select
 
 # Non-mutating readiness/cleanup diagnostic
 python scripts\run_rhino_runtime_harness.py --smoke ping-only
+
+# Focused GH Python geometry-output proof
+python scripts\run_rhino_runtime_harness.py --smoke gh-python-geometry-output
 ```
 
 The harness starts one Rhino process, waits only for
@@ -393,6 +396,11 @@ harness saves the owned document into the run artifact folder before external
 close for smoke modes that may dirty the document, then closes only the Rhino
 process it started. `ping-only` skips the save step so it remains a pure
 readiness and cleanup diagnostic.
+
+`gh-python-geometry-output` prepares Grasshopper in the owned Rhino process
+using the existing GH readiness flow, creates a blank document, then runs the
+focused live regression that creates a Python component with a typed
+`Point3d` list output and proves `gh_bake_output` bakes three point geometries.
 
 Ambient pytest behavior is unchanged. Without harness environment variables,
 `pytest -m requires_rhino` continues to discover or skip live tests as before.
