@@ -8,7 +8,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from .runtime_paths import RuntimePaths, resolve_runtime_paths
 
@@ -528,4 +528,254 @@ def capture_script_artifact(
         },
         "executable": executable,
         "refusal_reason": refusal_reason,
+    }
+
+
+def resolve_artifact(
+    script_id: str,
+    source: str | None = None,
+    repo_library_root: Path | str | None = None,
+    project_scripts_root: Path | str | None = None,
+) -> tuple[ScriptArtifact | None, str | None]:
+    if repo_library_root is None:
+        repo_library_root = default_repo_library_root()
+
+    artifacts = discover_artifacts(repo_library_root=repo_library_root, project_scripts_root=project_scripts_root)
+    matches = [artifact for artifact in artifacts if artifact.script_id == script_id]
+    if source is not None:
+        matches = [artifact for artifact in matches if artifact.source == source]
+    if not matches:
+        return None, "not_found"
+
+    sources = {artifact.source for artifact in matches}
+    if source is None and len(sources) > 1:
+        return None, "ambiguous_id"
+    if len(matches) > 1:
+        return None, "ambiguous_id"
+    return matches[0], None
+
+
+def build_execution_code(artifact: ScriptArtifact, parameters: dict[str, Any]) -> str:
+    params_json = json.dumps(parameters, sort_keys=True)
+    context_json = json.dumps({"script_id": artifact.script_id, "version": artifact.version}, sort_keys=True)
+    script_body = artifact.entrypoint_path.read_text(encoding="utf-8")
+    return (
+        "# Rook durable script library execution wrapper\n"
+        "import json\n"
+        "\n"
+        f"ROOK_LIBRARY_PARAMETERS = json.loads({json.dumps(params_json)})\n"
+        f"ROOK_LIBRARY_CONTEXT = json.loads({json.dumps(context_json)})\n"
+        "\n"
+        f"{script_body}"
+    )
+
+
+def parse_library_stdout(output: str) -> tuple[Any | None, str | None]:
+    stripped = (output or "").strip()
+    if not stripped:
+        return None, "empty_output"
+    last_line = stripped.splitlines()[-1]
+    try:
+        return json.loads(last_line), None
+    except json.JSONDecodeError:
+        return None, "invalid_json_output"
+
+
+def validate_schema_subset(value: Any, schema: dict[str, Any]) -> tuple[bool, list[str]]:
+    if not schema:
+        return True, []
+
+    errors: list[str] = []
+    expected_type = schema.get("type")
+    if expected_type == "object" and not isinstance(value, dict):
+        errors.append("expected_object")
+        return False, errors
+    if expected_type == "array" and not isinstance(value, list):
+        errors.append("expected_array")
+        return False, errors
+
+    if isinstance(value, dict):
+        for field_name in schema.get("required", []):
+            if field_name not in value:
+                errors.append(f"missing_required_output:{field_name}")
+
+        properties = schema.get("properties", {})
+        if schema.get("additionalProperties") is False and isinstance(properties, dict):
+            for field_name in value:
+                if field_name not in properties:
+                    errors.append(f"unexpected_property:{field_name}")
+
+        if isinstance(properties, dict):
+            for field_name, field_schema in properties.items():
+                if field_name in value and isinstance(field_schema, dict):
+                    field_type = field_schema.get("type")
+                    if field_type == "array" and not isinstance(value[field_name], list):
+                        errors.append(f"invalid_output_type:{field_name}:array")
+                    if field_type == "object" and not isinstance(value[field_name], dict):
+                        errors.append(f"invalid_output_type:{field_name}:object")
+                    if field_type == "string" and not isinstance(value[field_name], str):
+                        errors.append(f"invalid_output_type:{field_name}:string")
+                    if field_type == "number" and not isinstance(value[field_name], (int, float)):
+                        errors.append(f"invalid_output_type:{field_name}:number")
+                    if field_type == "boolean" and not isinstance(value[field_name], bool):
+                        errors.append(f"invalid_output_type:{field_name}:boolean")
+
+    return not errors, errors
+
+
+async def run_library_script(
+    script_id: str,
+    source: str | None,
+    parameters: dict[str, Any] | None,
+    expected_mutation: str,
+    call_rhino_func: Callable[..., Awaitable[dict[str, Any]]],
+    repo_library_root: Path | str | None = None,
+    project_root: Path | str | None = None,
+    project_scripts_root: Path | str | None = None,
+) -> dict[str, Any]:
+    parameters = parameters or {}
+    expected_mutation = expected_mutation or "read_only"
+    if expected_mutation != "read_only":
+        return {
+            "success": False,
+            "verified": False,
+            "script_id": script_id,
+            "refusal_reason": "mutation_not_executable_in_v1",
+            "policy_decision": {"allowed": False, "reason": "mutation_not_executable_in_v1"},
+        }
+
+    artifact, resolution_error = resolve_artifact(
+        script_id=script_id,
+        source=source,
+        repo_library_root=repo_library_root,
+        project_scripts_root=project_scripts_root or default_project_scripts_root(project_root=project_root),
+    )
+    if artifact is None:
+        return {
+            "success": False,
+            "verified": False,
+            "script_id": script_id,
+            "refusal_reason": resolution_error,
+            "policy_decision": {"allowed": False, "reason": resolution_error},
+        }
+
+    executable, refusal_reason, details = evaluate_executability(artifact, repo_library_root)
+    if not executable:
+        return {
+            "success": False,
+            "verified": False,
+            "script_id": artifact.script_id,
+            "version": artifact.version,
+            "source": artifact.source,
+            "content_hash": details.get("content_hash") or artifact.manifest.get("content_hash"),
+            "static_scan_summary": details.get("static_scan_summary"),
+            "refusal_reason": refusal_reason,
+            "policy_decision": {"allowed": False, "reason": refusal_reason},
+        }
+
+    parameters_ok, parameter_errors = validate_schema_subset(parameters, artifact.manifest.get("parameters_schema", {}))
+    if not parameters_ok:
+        return {
+            "success": False,
+            "verified": False,
+            "script_id": artifact.script_id,
+            "version": artifact.version,
+            "source": artifact.source,
+            "content_hash": details.get("content_hash"),
+            "mutation": artifact.mutation,
+            "policy_decision": {"allowed": False, "reason": "parameters_schema_validation_failed"},
+            "static_scan_summary": details.get("static_scan_summary"),
+            "refusal_reason": "parameters_schema_validation_failed",
+            "schema_errors": parameter_errors,
+        }
+
+    execution_code = build_execution_code(artifact, parameters)
+    response = await call_rhino_func("/execute", "POST", {"code": execution_code})
+    rhino_data = response.get("data", {}) if isinstance(response, dict) else {}
+    rhino_success = bool(response.get("success")) if isinstance(response, dict) else False
+
+    output_value, output_error = parse_library_stdout(str(rhino_data.get("output", "")))
+    if not rhino_success:
+        return {
+            "success": False,
+            "verified": False,
+            "script_id": artifact.script_id,
+            "version": artifact.version,
+            "source": artifact.source,
+            "content_hash": details.get("content_hash"),
+            "mutation": artifact.mutation,
+            "execution_substrate": "rhino_execute",
+            "policy_decision": {"allowed": True, "reason": "repo_validated_read_only"},
+            "static_scan_summary": details.get("static_scan_summary"),
+            "verification_result": {"objectsCreated": rhino_data.get("objectsCreated")},
+            "refusal_reason": "rhino_execute_failed",
+            "error": rhino_data.get("error"),
+            "stderr": rhino_data.get("stderr"),
+        }
+    if output_error is not None:
+        return {
+            "success": False,
+            "verified": False,
+            "script_id": artifact.script_id,
+            "version": artifact.version,
+            "source": artifact.source,
+            "content_hash": details.get("content_hash"),
+            "mutation": artifact.mutation,
+            "execution_substrate": "rhino_execute",
+            "policy_decision": {"allowed": True, "reason": "repo_validated_read_only"},
+            "static_scan_summary": details.get("static_scan_summary"),
+            "verification_result": {"objectsCreated": rhino_data.get("objectsCreated")},
+            "refusal_reason": output_error,
+        }
+
+    schema_ok, schema_errors = validate_schema_subset(output_value, artifact.manifest.get("output_schema", {}))
+    objects_created = int(rhino_data.get("objectsCreated") or 0)
+    object_ids = rhino_data.get("objectIds") or []
+    undeclared_mutation = objects_created != 0 or bool(object_ids)
+    if undeclared_mutation:
+        return {
+            "success": False,
+            "verified": False,
+            "script_id": artifact.script_id,
+            "version": artifact.version,
+            "source": artifact.source,
+            "content_hash": details.get("content_hash"),
+            "mutation": artifact.mutation,
+            "execution_substrate": "rhino_execute",
+            "policy_decision": {"allowed": True, "reason": "repo_validated_read_only"},
+            "static_scan_summary": details.get("static_scan_summary"),
+            "verification_result": {"objectsCreated": objects_created, "objectIds": object_ids},
+            "refusal_reason": "undeclared_mutation_detected",
+        }
+    if not schema_ok:
+        return {
+            "success": False,
+            "verified": False,
+            "script_id": artifact.script_id,
+            "version": artifact.version,
+            "source": artifact.source,
+            "content_hash": details.get("content_hash"),
+            "mutation": artifact.mutation,
+            "execution_substrate": "rhino_execute",
+            "policy_decision": {"allowed": True, "reason": "repo_validated_read_only"},
+            "static_scan_summary": details.get("static_scan_summary"),
+            "verification_result": {"objectsCreated": objects_created, "objectIds": object_ids},
+            "refusal_reason": "output_schema_validation_failed",
+            "schema_errors": schema_errors,
+        }
+
+    return {
+        "success": True,
+        "verified": True,
+        "script_id": artifact.script_id,
+        "version": artifact.version,
+        "source": artifact.source,
+        "content_hash": details.get("content_hash"),
+        "policy_decision": {"allowed": True, "reason": "repo_validated_read_only"},
+        "static_scan_summary": details.get("static_scan_summary"),
+        "validated_output": output_value,
+        "mutation": artifact.mutation,
+        "execution_substrate": "rhino_execute",
+        "verification_result": {"objectsCreated": objects_created, "objectIds": object_ids},
+        "refusal_reason": None,
     }

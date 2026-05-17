@@ -11729,6 +11729,17 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
             )
             result = {"success": payload.get("success", False), "data": payload}
 
+        case "run_library_script":
+            payload = await script_library.run_library_script(
+                script_id=arguments.get("id", "") if arguments else "",
+                source=arguments.get("source") if arguments else None,
+                parameters=arguments.get("parameters", {}) if arguments else {},
+                expected_mutation=arguments.get("expected_mutation", "read_only") if arguments else "read_only",
+                call_rhino_func=call_rhino,
+                project_root=arguments.get("project_root") if arguments else None,
+            )
+            result = {"success": payload.get("success", False), "data": payload}
+
         case "rhino_command":
             preflight_error = _preflight_rhino_command(arguments.get("command") if arguments else None)
             if preflight_error is not None:
