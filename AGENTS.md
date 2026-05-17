@@ -21,6 +21,9 @@
 - Do not claim build verification unless you actually have the Rhino/MFC toolchain
 - If a change crosses the native/managed boundary, keep both sides consistent and state that dependency explicitly
 
+## Codex App Notes
+- When emitting Codex app directives in final responses, use forward-slash absolute Windows paths, for example `C:/Users/aryan/source/repos/Rook`. Do not use backslash paths like `C:\Users\...` inside directive attributes; they can be parsed as invalid escapes by the app after task completion.
+
 ## Project Structure
 - `src/RookNative/RookNativePlugin.cpp` — plugin entry point
 - `src/RookNative/RookServer.cpp` / `.h` — HTTP server and route registration
