@@ -22,6 +22,8 @@ The filesystem is the source of truth. Repo-shipped artifacts live under a domai
 
 Repo-shipped artifacts are eligible for trust, not inherently trusted forever. They still need a valid manifest, known hash or package provenance, and passing scan before execution.
 
+Executable trust must be anchored outside the artifact's mutable manifest. A script cannot certify itself by updating its own `content_hash`. For executable repo artifacts, `run_library_script` must verify the artifact against an external trust anchor such as a repo-level lock/index file, a release or package manifest, a git-tracked clean commit, or an equivalent signed/provenanced source. The artifact manifest can report its hash for audit and diagnostics, but the executable policy decision must compare the current bytes against the external trust anchor.
+
 The knowledge store is only an index. It can summarize, rank, and suggest script artifacts, but it cannot authorize execution. Skills reference scripts by stable id, such as `extract-layers`, and the MCP layer resolves that id to an artifact.
 
 Execution always goes through `run_library_script`. Skills and agents must call `run_library_script` for validated library use. Direct `rhino_execute` remains only for ad hoc fallback and capture workflows.
@@ -68,6 +70,7 @@ The manifest is enforcement-oriented. Minimal v1 fields:
 {
   "id": "extract-layers",
   "version": "0.1.0",
+  "description": "Extract the Rhino document layer tree as structured JSON.",
   "state": "validated",
   "source": "repo",
   "domain": "rhino",
@@ -75,6 +78,8 @@ The manifest is enforcement-oriented. Minimal v1 fields:
   "execution": "run_as_is",
   "mutation": "read_only",
   "content_hash": "sha256:<hash>",
+  "tags": ["layers", "extraction", "conventions"],
+  "trigger_phrases": ["extract layers", "layer tree", "capture layer convention"],
   "parameters_schema": {},
   "output_schema": {},
   "requires": {
@@ -101,7 +106,11 @@ The manifest is enforcement-oriented. Minimal v1 fields:
 
 `parameters_schema` and `output_schema` are required even when empty.
 
-For every executable artifact, `run_library_script` must verify matching hash or provenance before execution. For v1, that mostly applies to repo-shipped validated scripts. Project-local captured scripts may have best-effort content hashes for audit, but those hashes do not make them executable.
+`description` is required so filesystem artifacts contain their own discovery metadata. `tags` and `trigger_phrases` are optional but recommended. Search can enrich these fields from the knowledge index, but it must not depend on advisory knowledge data for the basic artifact description.
+
+For every executable artifact, `run_library_script` must verify matching hash or provenance against an external trust anchor before execution. For v1, that mostly applies to repo-shipped validated scripts. Project-local captured scripts may have best-effort content hashes for audit, but those hashes do not make them executable.
+
+The manifest's `content_hash` is not self-certifying. It is useful for display, audit, and diagnostics, but executable validation must compare current artifact bytes with an external trust anchor. Acceptable v1 trust anchors include a repo-level script lock/index checked into source control, a release/package manifest, a git-tracked clean commit, or an equivalent maintainer-controlled provenance record.
 
 ## MCP Surface
 
@@ -109,7 +118,7 @@ V1 exposes three MCP tools.
 
 ### `script_library_search`
 
-Permissive discovery across repo library and project-local intake. It returns matching artifacts with source, state, domain, execution mode, mutation level, description, validation summary, and whether the artifact is executable by policy.
+Permissive discovery across repo library and project-local intake. It returns matching artifacts with source, state, domain, execution mode, mutation level, manifest-owned description, validation summary, and whether the artifact is executable by policy.
 
 If `executable` is false, the tool also returns `refusal_reason`, such as:
 
@@ -142,7 +151,9 @@ Static checks during capture should record findings while still allowing capture
 
 ### `run_library_script`
 
-Strict execution gate. It resolves a stable script id, loads the artifact, validates the manifest schema, verifies `source` is an allowed enum value, verifies executable state and source policy, verifies content hash or provenance for every executable artifact, runs or checks static scan status, checks capability requirements, checks declared mutation level against call intent, applies parameters through `parameters_schema`, executes the entrypoint through the appropriate Rhino or Rook substrate, parses JSON output, validates it against `output_schema`, and records the outcome.
+Strict execution gate. It resolves a stable script id, loads the artifact, validates the manifest schema, verifies `source` is an allowed enum value, verifies executable state and source policy, verifies content hash or provenance against an external trust anchor for every executable artifact, verifies static scan freshness, checks capability requirements, checks declared mutation level against call intent, applies parameters through `parameters_schema`, executes the entrypoint through the appropriate Rhino or Rook substrate, parses JSON output, validates it against `output_schema`, and records the outcome.
+
+Static scan freshness must be tied to the verified content hash. `run_library_script` must either run the static scan at execution time or verify a scan attestation that names the current trusted `content_hash`. A stale `"static_scan": "passed"` field in the artifact manifest is not sufficient.
 
 For v1, `run_library_script` allows repo-sourced `validated` read-only run-as-is artifacts only.
 
@@ -234,6 +245,6 @@ Never: automatic trust promotion without validation evidence.
 
 - Exact repo library path: `scripts/rook-library/rhino/<script-id>/` versus `scripts/rhino/<script-id>/`.
 - Whether the first repo-shipped validated artifact should be `extract-layers`, `document-summary`, or another read-only extractor.
-- Whether content hashes are stored in each artifact manifest, a repo-level registry index, or both.
+- Which external trust anchor to use first for executable repo artifacts: repo-level script lock/index, release/package manifest, git clean-commit verification, or a combination.
 - How much document snapshotting is cheap enough for read-only verification in live Rhino.
 - Whether v1 should include a separate static scan CLI for maintainers before release packaging.
