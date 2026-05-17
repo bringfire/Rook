@@ -1,4 +1,4 @@
-"""Rook post-install setup — called by the Inno Setup installer.
+"""Rook post-install setup - called by the Inno Setup installer.
 
 This script runs after the installer copies files. It handles:
   1. Create a managed Rook runtime under %LOCALAPPDATA%\\Rook
@@ -214,7 +214,7 @@ def write_chat_service_manifest(mcp_server_dir: Path, python_path: str) -> bool:
     )
 
     if not plugin_dir.exists():
-        print(f"Plugin directory not found: {plugin_dir} — skipping chat manifest")
+        print(f"Plugin directory not found: {plugin_dir} - skipping chat manifest")
         return False
 
     src_dir = mcp_server_dir / "src"
@@ -247,7 +247,7 @@ def configure_claude_desktop(
     config_path = Path(os.environ.get("APPDATA", "")) / "Claude" / "claude_desktop_config.json"
 
     if not config_path.parent.exists():
-        print("Claude Desktop not detected — skipping Desktop config.")
+        print("Claude Desktop not detected - skipping Desktop config.")
         return True
 
     env_vars = _build_mcp_env(install_dir, data_dir, "release", chirp_dir)
@@ -266,11 +266,11 @@ def configure_claude_desktop(
         except (json.JSONDecodeError, OSError):
             existing = {"mcpServers": {}}
 
-        # Backup before modifying (remove stale backup first — rename fails on Windows if target exists)
+        # Backup before modifying (remove stale backup first - rename fails on Windows if target exists)
         backup_path = config_path.with_suffix(".json.bak")
         backup_path.unlink(missing_ok=True)
         config_path.rename(backup_path)
-        print(f"Backed up {config_path} → {backup_path}")
+        print(f"Backed up {config_path} -> {backup_path}")
     else:
         existing = {"mcpServers": {}}
 
@@ -331,7 +331,7 @@ def configure_codex(
     if user_config.exists():
         existing = user_config.read_text(encoding="utf-8")
         if "[mcp_servers.rook]" in existing:
-            # Already has rook — replace the rook block
+            # Already has rook - replace the rook block
             # Match from [mcp_servers.rook] to the next [section] or end of file
             pattern = r"\[mcp_servers\.rook\].*?(?=\n\[(?!mcp_servers\.rook[.\]])|$)"
             new_content = re.sub(pattern, toml_content.strip(), existing, flags=re.DOTALL)
@@ -374,7 +374,7 @@ def create_env_examples(install_dir: Path, chirp_dir: Path | None = None) -> Non
                 "# Copy this file to .env and fill in your values.\n"
                 "# (If you entered your API key during install, .env already exists.)\n"
                 "\n"
-                "# Required — powers LLM calls in Chirp components\n"
+                "# Required - powers LLM calls in Chirp components\n"
                 "ANTHROPIC_API_KEY=your-key-here\n"
                 "\n"
                 "# Optional overrides\n"
@@ -388,7 +388,7 @@ def create_env_examples(install_dir: Path, chirp_dir: Path | None = None) -> Non
 def _copy_children(source_root: Path, target_root: Path, label: str) -> bool:
     """Copy the direct children of a payload root into a target root."""
     if not source_root.exists():
-        print(f"{label} source not found: {source_root} — skipping")
+        print(f"{label} source not found: {source_root} - skipping")
         return False
 
     target_root.mkdir(parents=True, exist_ok=True)
@@ -426,7 +426,7 @@ def install_user_assets(install_dir: Path, install_claude: bool, install_codex: 
         )
 
     if not (install_claude or install_codex):
-        print("No user asset targets selected — skipping skills/agents install")
+        print("No user asset targets selected - skipping skills/agents install")
         return True
 
     return installed_any
@@ -531,7 +531,7 @@ def validate(
 
 def uninstall_cleanup() -> None:
     """Remove Rook entries from Claude configs during uninstall."""
-    # Remove user-level MCP registration — try CLI first, then manual cleanup
+    # Remove user-level MCP registration - try CLI first, then manual cleanup
     claude = shutil.which("claude")
     if claude:
         try:
@@ -631,6 +631,8 @@ def main() -> int:
     parser.add_argument("--codex", action="store_true", help="Configure OpenAI Codex CLI")
     parser.add_argument("--plugins", action="store_true", help="Validate Rhino plugin deployment")
     parser.add_argument("--uninstall", action="store_true", help="Run uninstall cleanup")
+    parser.add_argument("--skip-chirp-install", action="store_true", help="Skip Chirp venv refresh while still using the supplied Chirp directory in generated config")
+    parser.add_argument("--skip-validation", action="store_true", help="Skip post-install validation checks")
     args = parser.parse_args()
 
     if args.uninstall:
@@ -661,7 +663,9 @@ def main() -> int:
 
     # Step 2: Install Chirp (if selected)
     if chirp_dir and chirp_dir.exists():
-        if not install_chirp(chirp_dir):
+        if args.skip_chirp_install:
+            print("Skipping Chirp venv refresh.")
+        elif not install_chirp(chirp_dir):
             print("\nWARNING: Chirp installation failed.")
             print("You can install manually later:")
             print(f"  cd {chirp_dir}")
@@ -673,7 +677,7 @@ def main() -> int:
     if args.claude:
         configure_claude_code(install_dir, data_dir, managed_python_path, mcp_server_dir, chirp_dir)
     else:
-        print("Claude Code/Desktop not selected — skipping Claude config.")
+        print("Claude Code/Desktop not selected - skipping Claude config.")
 
     # Step 4: Configure Claude Desktop
     if args.claude:
@@ -683,7 +687,7 @@ def main() -> int:
     if args.codex:
         configure_codex(install_dir, data_dir, managed_python_path, mcp_server_dir, chirp_dir)
     else:
-        print("Codex not selected — skipping Codex config.")
+        print("Codex not selected - skipping Codex config.")
 
     # Step 6: Install user-level skills and agents
     install_user_assets(install_dir, install_claude=args.claude, install_codex=args.codex)
@@ -695,19 +699,22 @@ def main() -> int:
     create_env_examples(install_dir, chirp_dir)
 
     # Step 9: Validate
-    all_ok = validate(
-        install_dir,
-        runtime_root,
-        managed_python_path,
-        install_plugins=args.plugins,
-        install_claude=args.claude,
-        install_codex=args.codex,
-        chirp_dir=chirp_dir,
-    )
+    if args.skip_validation:
+        print("\nValidation skipped by request.")
+    else:
+        all_ok = validate(
+            install_dir,
+            runtime_root,
+            managed_python_path,
+            install_plugins=args.plugins,
+            install_claude=args.claude,
+            install_codex=args.codex,
+            chirp_dir=chirp_dir,
+        )
 
-    if not all_ok:
-        print("\nSetup failed validation.")
-        return 1
+        if not all_ok:
+            print("\nSetup failed validation.")
+            return 1
 
     print("\nSetup complete!")
     print("Next steps:")

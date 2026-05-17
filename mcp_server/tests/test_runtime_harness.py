@@ -688,6 +688,35 @@ def test_run_smoke_command_timeout_kills_descendant_after_parent_exits(tmp_path:
                 )
 
 
+def test_runtime_harness_keep_rhino_on_failure_skips_cleanup(monkeypatch, tmp_path: Path):
+    fake_process = FakeHarnessProcess(pid=4321, poll_results=[None, None])
+    fake_discovery = FakeHarnessDiscovery(pid=4321, port=9921)
+    cleanup_calls = []
+    (tmp_path / "Rhino.exe").write_text("fake", encoding="utf-8")
+
+    monkeypatch.setattr("rook.runtime_harness.subprocess.Popen", lambda *args, **kwargs: fake_process)
+    monkeypatch.setattr("rook.runtime_harness.run_smoke_command", lambda *args, **kwargs: _smoke_result(returncode=7))
+    monkeypatch.setattr(
+        "rook.runtime_harness.request_external_graceful_close",
+        lambda *args, **kwargs: cleanup_calls.append(args) or False,
+    )
+    monkeypatch.setattr("rook.runtime_harness.ping_native", lambda host, port: True)
+
+    result = run_rhino_runtime_harness(
+        rhino_exe=tmp_path / "Rhino.exe",
+        artifact_root=tmp_path / "artifacts",
+        smoke_command=["smoke"],
+        smoke_kind="installed-live-smoke",
+        discovery=fake_discovery,
+        keep_rhino_on_failure=True,
+    )
+
+    assert result.success is False
+    assert cleanup_calls == []
+    assert result.cleanup_status == CleanupStatus.NOT_ATTEMPTED
+    assert any("KeepRhinoOnFailure" in warning for warning in result.warnings)
+
+
 def test_run_smoke_command_timeout_recovery_never_uses_unbounded_final_drain(monkeypatch):
     class AlwaysTimingOutProcess:
         pid = 4242

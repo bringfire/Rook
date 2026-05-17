@@ -548,6 +548,7 @@ def run_rhino_runtime_harness(
     readiness_timeout_seconds: float = 30.0,
     readiness_poll_seconds: float = 0.25,
     cleanup_timeout_seconds: float = 10.0,
+    keep_rhino_on_failure: bool = False,
 ) -> RhinoHarnessResult:
     """Run one owned Rhino process through readiness, smoke, artifacts, and cleanup.
 
@@ -665,9 +666,19 @@ def run_rhino_runtime_harness(
         if not before_shutdown_copied:
             copy_temp_rook_artifacts(result, temp_rook_dir, "before-shutdown")
         already_exited_before_cleanup = process.poll() is not None
+        should_keep_on_failure = (
+            keep_rhino_on_failure
+            and not already_exited_before_cleanup
+            and result.smoke is not None
+            and not result.smoke.succeeded
+        )
         forced = False
         force_failed = False
-        if not already_exited_before_cleanup:
+        if should_keep_on_failure:
+            warnings.append(
+                f"KeepRhinoOnFailure requested; leaving owned Rhino pid {pid} running for diagnostics"
+            )
+        elif not already_exited_before_cleanup:
             try:
                 forced = request_external_graceful_close(
                     process,
@@ -678,14 +689,17 @@ def run_rhino_runtime_harness(
                 warnings.append(f"Rhino cleanup failed: {exc}")
                 force_failed = True
         process_exited_after_cleanup = process.poll() is not None
-        discovery_leftover = discovery.owned_path(pid).exists()
-        cleanup_status = classify_cleanup_status(
-            already_exited_before_cleanup=already_exited_before_cleanup,
-            process_exited_after_cleanup=process_exited_after_cleanup,
-            discovery_leftover=discovery_leftover,
-            forced=forced,
-            force_failed=force_failed,
-        )
+        if should_keep_on_failure:
+            cleanup_status = CleanupStatus.NOT_ATTEMPTED
+        else:
+            discovery_leftover = discovery.owned_path(pid).exists()
+            cleanup_status = classify_cleanup_status(
+                already_exited_before_cleanup=already_exited_before_cleanup,
+                process_exited_after_cleanup=process_exited_after_cleanup,
+                discovery_leftover=discovery_leftover,
+                forced=forced,
+                force_failed=force_failed,
+            )
         result = replace(result, cleanup_status=cleanup_status)
         copy_temp_rook_artifacts(result, temp_rook_dir, "after-shutdown")
         result.write_manifest()

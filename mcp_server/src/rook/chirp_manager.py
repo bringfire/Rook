@@ -24,7 +24,7 @@ DISCOVERY_FOLDER = Path(tempfile.gettempdir()) / "rook"
 DISCOVERY_PREFIX = "chirp-service-"
 HEALTH_TIMEOUT = httpx.Timeout(2.0)
 STARTUP_POLL_INTERVAL = 0.4
-STARTUP_MAX_WAIT = 15.0
+STARTUP_MAX_WAIT = float(os.environ.get("ROOK_CHIRP_STARTUP_MAX_WAIT", "45.0"))
 
 # Module-level state
 _chirp_process: subprocess.Popen | None = None
