@@ -86,13 +86,17 @@ def _config_targets() -> dict[str, Path]:
         "claude_desktop": Path(os.environ.get("APPDATA", "")) / "Claude" / "claude_desktop_config.json",
         "codex": Path.home() / ".codex" / "config.toml",
         "claude_skill_root": Path.home() / ".claude" / "skills",
-        "codex_skill_root": Path.home() / ".agents" / "skills",
+        "codex_skill_root": Path.home() / ".codex" / "skills",
         "legacy_claude": Path.home() / ".claude" / ".mcp.json",
     }
 
 
 def _skill_source_root(runtime_paths: RuntimePaths) -> Path:
     return runtime_paths.install_root / ".claude" / "skills"
+
+
+def _codex_skill_source_root(runtime_paths: RuntimePaths) -> Path:
+    return runtime_paths.install_root / ".agents" / "skills"
 
 
 def _should_check_claude(force: bool) -> bool:
@@ -318,14 +322,9 @@ async def _probe_mcp(runtime_paths: RuntimePaths, python_path: str) -> dict[str,
     expected_env = _build_expected_env(runtime_paths)
     env.update(expected_env)
 
-    server = StdioServerParameters(
-        command=python_path,
-        args=["-m", "rook"],
-        env=env,
-        cwd=str(runtime_paths.mcp_server_dir),
-    )
+    server = _build_probe_server_parameters(runtime_paths, python_path, env=env)
     t0 = time.perf_counter()
-    with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as stderr_buffer:
+    with _probe_stderr_buffer() as stderr_buffer:
         with anyio.fail_after(30):
             async with stdio_client(server, errlog=stderr_buffer) as (read_stream, write_stream):
                 async with ClientSession(read_stream, write_stream) as session:
@@ -340,6 +339,25 @@ async def _probe_mcp(runtime_paths: RuntimePaths, python_path: str) -> dict[str,
         "tool_count": len(tools_result.tools),
         "stderr": stderr_text,
     }
+
+
+def _build_probe_server_parameters(
+    runtime_paths: RuntimePaths,
+    python_path: str,
+    *,
+    env: dict[str, str] | None = None,
+) -> StdioServerParameters:
+    return StdioServerParameters(
+        command=python_path,
+        args=["-m", "rook"],
+        env=env,
+        cwd=str(runtime_paths.mcp_server_dir),
+        encoding_error_handler="replace",
+    )
+
+
+def _probe_stderr_buffer():
+    return tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace")
 
 
 def _run_handshake_checks(runtime_paths: RuntimePaths, python_path: str) -> list[DoctorCheck]:
@@ -401,7 +419,8 @@ def run_doctor(
     )
 
     if fix:
-        source_root = _skill_source_root(runtime_paths)
+        claude_source_root = _skill_source_root(runtime_paths)
+        codex_source_root = _codex_skill_source_root(runtime_paths)
         chirp_home = os.environ.get("CHIRP_HOME")
         if check_claude:
             try:
@@ -410,7 +429,7 @@ def run_doctor(
                 desktop_fixed = _write_claude_desktop_config(runtime_paths, python_path, chirp_home=chirp_home)
                 if desktop_fixed is not None:
                     result.fixes_applied.append(f"updated {desktop_fixed}")
-                if _copy_skill_tree(source_root, targets["claude_skill_root"]):
+                if _copy_skill_tree(claude_source_root, targets["claude_skill_root"]):
                     result.fixes_applied.append(f"synced {targets['claude_skill_root']}")
             except Exception as exc:
                 result.checks.append(
@@ -420,7 +439,7 @@ def run_doctor(
             try:
                 fixed_path = _write_codex_config(runtime_paths, python_path, chirp_home=chirp_home)
                 result.fixes_applied.append(f"updated {fixed_path}")
-                if _copy_skill_tree(source_root, targets["codex_skill_root"]):
+                if _copy_skill_tree(codex_source_root, targets["codex_skill_root"]):
                     result.fixes_applied.append(f"synced {targets['codex_skill_root']}")
             except Exception as exc:
                 result.checks.append(
