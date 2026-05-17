@@ -300,6 +300,28 @@ def _attribute_chain(node: ast.AST) -> list[str]:
     return []
 
 
+def _mutation_targets(node: ast.AST) -> list[ast.AST]:
+    if isinstance(node, ast.Assign):
+        return list(node.targets)
+    if isinstance(node, ast.AnnAssign):
+        return [node.target]
+    if isinstance(node, ast.AugAssign):
+        return [node.target]
+    if isinstance(node, ast.Delete):
+        return list(node.targets)
+    return []
+
+
+def _target_has_attribute_or_subscript(node: ast.AST) -> bool:
+    if isinstance(node, (ast.Attribute, ast.Subscript)):
+        return True
+    if isinstance(node, (ast.Tuple, ast.List)):
+        return any(_target_has_attribute_or_subscript(element) for element in node.elts)
+    if isinstance(node, ast.Starred):
+        return _target_has_attribute_or_subscript(node.value)
+    return False
+
+
 def _is_allowed_call(chain: list[str], module_aliases: dict[str, str]) -> bool:
     if not chain:
         return False
@@ -341,6 +363,14 @@ def _scan_ast_for_rejects(tree: ast.AST) -> list[dict[str, str]]:
                 imported_names[alias.asname or alias.name] = (module, alias.name)
 
     for node in ast.walk(tree):
+        for target in _mutation_targets(node):
+            if _target_has_attribute_or_subscript(target):
+                findings.append(_finding(
+                    "attribute_or_subscript_mutation",
+                    getattr(node, "lineno", 1),
+                    "Attribute and subscript assignment/delete targets are not allowed in v1 library scripts.",
+                ))
+
         if not isinstance(node, ast.Call):
             continue
         line_no = getattr(node, "lineno", 1)

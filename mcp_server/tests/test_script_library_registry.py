@@ -175,6 +175,30 @@ def test_static_scan_rejects_scriptcontext_object_mutation_call():
     assert scan["findings"][0]["severity"] == "reject"
 
 
+def test_static_scan_rejects_attribute_assignment_mutation():
+    scan = script_library.scan_script_text(
+        "import scriptcontext as sc\n"
+        "for layer in sc.doc.Layers:\n"
+        "    layer.Name = 'Renamed'\n"
+        "print('{\"layers\": []}')\n"
+    )
+
+    assert scan["status"] == "failed"
+    assert any(finding["code"] == "attribute_or_subscript_mutation" for finding in scan["findings"])
+
+
+def test_static_scan_rejects_subscript_assignment_and_delete_mutation():
+    cases = [
+        "values = [1]\nvalues[0] = 2\nprint('{\"layers\": []}')\n",
+        "values = [1]\ndel values[0]\nprint('{\"layers\": []}')\n",
+    ]
+
+    for code in cases:
+        scan = script_library.scan_script_text(code)
+        assert scan["status"] == "failed"
+        assert any(finding["code"] == "attribute_or_subscript_mutation" for finding in scan["findings"])
+
+
 def test_structural_scan_rejects_binary_script_bytes(tmp_path):
     script = tmp_path / "script.py"
     script.write_bytes(b"print('ok')\x00\n")
