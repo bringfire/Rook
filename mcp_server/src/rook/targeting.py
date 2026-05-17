@@ -138,6 +138,7 @@ _ALL_KNOWN_TOOLS = {
     "agent_abort",
     "agent_answer",
     "agent_status",
+    "capture_script_artifact",
     "chirp_create",
     "gh_add_pattern",
     "gh_align",
@@ -505,6 +506,8 @@ _ALL_KNOWN_TOOLS = {
     "session_history",
     "session_list",
     "spawn_agent",
+    "run_library_script",
+    "script_library_search",
 }
 
 _META_TOOLS = {
@@ -532,9 +535,11 @@ _RHINO_INDEPENDENT_READ_TOOLS = {
     "rhino_command_knowledge",
     "rhino_knowledge_query",
     "rhino_learning_progress",
+    "script_library_search",
 }
 
 _RHINO_INDEPENDENT_MUTATE_TOOLS = {
+    "capture_script_artifact",
     "gh_end_exploration",
     "gh_knowledge_reload",
     "gh_record_investigation",
@@ -616,6 +621,7 @@ _RHINO_READ_TOOLS = {
     "rhino_vision_artifacts",
     "rhino_vision_get_artifact",
     "rhino_views",
+    "run_library_script",
     "scene_context",
     "scene_graph",
     "scene_query",

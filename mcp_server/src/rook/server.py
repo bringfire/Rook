@@ -48,7 +48,7 @@ if logger.isEnabledFor(logging.DEBUG):
     )
 
 from .bridge import call_rhino, get_rhino_host, discover_instances, TIMEOUT, DISCOVERY_FOLDER, rhino_request_context
-from . import targeting
+from . import script_library, targeting
 targeting.initialize_from_environment()
 from .knowledge import query_knowledge, query_knowledge_tiered, record_knowledge, invalidate_condensed_command_cache
 from .learning.command_observer import (
@@ -2098,6 +2098,92 @@ Use this before any Rhino operations to ensure Rhino is available. Safe to call 
                 },
                 "required": ["code"]
             }
+        ),
+        Tool(
+            name="script_library_search",
+            description=(
+                "Search durable script artifacts across the repo library and project-local intake. "
+                "Discovery is broad; results include executable and refusal_reason fields."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Optional search text."},
+                    "project_root": {
+                        "type": "string",
+                        "description": "Optional user project root for .rook/scripts discovery. Defaults to the MCP process working directory.",
+                    },
+                    "source": {
+                        "type": "string",
+                        "enum": ["repo", "project"],
+                        "description": "Optional source filter.",
+                    },
+                },
+                "required": [],
+            },
+        ),
+        Tool(
+            name="capture_script_artifact",
+            description=(
+                "Capture a Rhino script as a project-local .rook/scripts artifact in captured state. "
+                "Captured artifacts are searchable references and are not executable by run_library_script in v1."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "Stable lowercase script id."},
+                    "script_source": {"type": "string", "description": "Python script body to capture."},
+                    "description": {"type": "string", "description": "Human-readable description."},
+                    "domain": {
+                        "type": "string",
+                        "enum": ["rhino", "grasshopper", "file", "mixed"],
+                        "description": "Artifact domain. Defaults to rhino.",
+                    },
+                    "project_root": {
+                        "type": "string",
+                        "description": "Optional user project root for .rook/scripts capture. Defaults to the MCP process working directory.",
+                    },
+                    "observed_inputs": {"type": "object", "description": "Observed inputs from the session."},
+                    "observed_output": {"description": "Observed script output from the session."},
+                    "session_id": {"type": "string", "description": "Source session identifier."},
+                    "notes": {"type": "string", "description": "Agent notes and adaptation points."},
+                    "mutation": {
+                        "type": "string",
+                        "enum": ["read_only", "mutation"],
+                        "description": "Observed mutation level. Defaults to read_only.",
+                    },
+                },
+                "required": ["id", "script_source", "description"],
+            },
+        ),
+        Tool(
+            name="run_library_script",
+            description=(
+                "Execute a validated repo-shipped durable script by stable id. "
+                "V1 executes read-only repo artifacts only and refuses project-local, candidate, captured, or mutation scripts."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "Stable script id."},
+                    "source": {
+                        "type": "string",
+                        "enum": ["repo", "project"],
+                        "description": "Source to resolve. Required when an id exists in multiple sources.",
+                    },
+                    "parameters": {"type": "object", "description": "Script parameters. Defaults to empty object."},
+                    "project_root": {
+                        "type": "string",
+                        "description": "Optional user project root used only for project-source ambiguity checks.",
+                    },
+                    "expected_mutation": {
+                        "type": "string",
+                        "enum": ["read_only", "mutation"],
+                        "description": "Caller mutation consent. Defaults to read_only. V1 refuses mutation.",
+                    },
+                },
+                "required": ["id"],
+            },
         ),
         Tool(
             name="rhino_command",
@@ -11619,6 +11705,29 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                 }
             else:
                 result = await call_rhino("/execute", "POST", arguments)
+
+        case "script_library_search":
+            payload = script_library.search_scripts(
+                query=arguments.get("query") if arguments else None,
+                source=arguments.get("source") if arguments else None,
+                project_root=arguments.get("project_root") if arguments else None,
+            )
+            result = {"success": payload.get("success", True), "data": payload}
+
+        case "capture_script_artifact":
+            payload = script_library.capture_script_artifact(
+                script_id=arguments.get("id", "") if arguments else "",
+                script_source=arguments.get("script_source", "") if arguments else "",
+                description=arguments.get("description", "") if arguments else "",
+                domain=arguments.get("domain", "rhino") if arguments else "rhino",
+                project_root=arguments.get("project_root") if arguments else None,
+                observed_inputs=arguments.get("observed_inputs") if arguments else None,
+                observed_output=arguments.get("observed_output") if arguments else None,
+                session_id=arguments.get("session_id") if arguments else None,
+                notes=arguments.get("notes") if arguments else None,
+                mutation=arguments.get("mutation", "read_only") if arguments else "read_only",
+            )
+            result = {"success": payload.get("success", False), "data": payload}
 
         case "rhino_command":
             preflight_error = _preflight_rhino_command(arguments.get("command") if arguments else None)
