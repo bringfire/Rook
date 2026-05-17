@@ -22,7 +22,39 @@ $ErrorActionPreference = 'Stop'
 
 $ScriptDir = Split-Path -Parent $PSCommandPath
 $RepoRoot = Split-Path -Parent $ScriptDir
-$ChirpSourceRoot = Join-Path (Split-Path -Parent $RepoRoot) 'Chirp'
+
+function Resolve-ChirpSourceRoot {
+    param([Parameter(Mandatory = $true)][string]$RepoRoot)
+
+    $directSibling = Join-Path (Split-Path -Parent $RepoRoot) 'Chirp'
+    if (Test-Path (Join-Path $directSibling 'pyproject.toml')) {
+        return $directSibling
+    }
+
+    try {
+        $commonDir = ((& git -C $RepoRoot rev-parse --git-common-dir 2>$null) -join '').Trim()
+        if ($LASTEXITCODE -eq 0 -and $commonDir) {
+            if (-not [System.IO.Path]::IsPathRooted($commonDir)) {
+                $commonDir = Join-Path $RepoRoot $commonDir
+            }
+            $resolvedCommon = (Resolve-Path $commonDir).Path
+            $commonLeaf = Split-Path -Leaf $resolvedCommon
+            $canonicalRepoRoot = if ($commonLeaf -eq '.git') {
+                Split-Path -Parent $resolvedCommon
+            } else {
+                Split-Path -Parent $resolvedCommon
+            }
+            $gitSibling = Join-Path (Split-Path -Parent $canonicalRepoRoot) 'Chirp'
+            if (Test-Path (Join-Path $gitSibling 'pyproject.toml')) {
+                return $gitSibling
+            }
+        }
+    } catch { }
+
+    return $directSibling
+}
+
+$ChirpSourceRoot = Resolve-ChirpSourceRoot -RepoRoot $RepoRoot
 $InstallRoot = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Rook\app'
 $RuntimeRoot = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Rook'
 $DataRoot = Join-Path $RuntimeRoot 'data'

@@ -47,7 +47,9 @@ function Test-DeployScriptSelectsExplicitMsvcToolset {
 function Test-DeployScriptSyncsChirpFromSiblingRepo {
     $content = Get-Content -Path $DeployScript -Raw
 
-    Assert-Contains -Text $content -Expected '$ChirpSourceRoot = Join-Path (Split-Path -Parent $RepoRoot) ''Chirp''' -Message 'Local deploy must use the sibling Chirp repo as the source payload.'
+    Assert-Contains -Text $content -Expected 'function Resolve-ChirpSourceRoot' -Message 'Local deploy must resolve Chirp source through an explicit helper.'
+    Assert-Contains -Text $content -Expected 'git -C $RepoRoot rev-parse --git-common-dir' -Message 'Local deploy must resolve the canonical repo root when running from a git worktree.'
+    Assert-Contains -Text $content -Expected '$ChirpSourceRoot = Resolve-ChirpSourceRoot -RepoRoot $RepoRoot' -Message 'Local deploy must use the resolved Chirp repo as the source payload.'
     Assert-Contains -Text $content -Expected '$ChirpInstallRoot = Join-Path $InstallRoot ''chirp''' -Message 'Local deploy must install Chirp under the AppData app payload.'
     Assert-Contains -Text $content -Expected 'function Sync-ChirpPayload' -Message 'Local deploy must have an explicit Chirp sync step.'
     Assert-Contains -Text $content -Expected 'Sync-Directory $ChirpSourceRoot $ChirpInstallRoot' -Message 'Local deploy must mirror sibling Chirp into AppData.'
