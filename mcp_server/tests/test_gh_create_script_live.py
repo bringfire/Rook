@@ -170,7 +170,7 @@ async def test_gh_create_script_python_point_list_bakes_as_geometry():
 
 
 @pytest.mark.parametrize(
-    ("pin_type", "code", "output_name", "expected_type"),
+    ("pin_type", "code", "output_name", "expected_bake_source_type"),
     [
         (
             "Line",
@@ -179,6 +179,8 @@ async def test_gh_create_script_python_point_list_bakes_as_geometry():
                 "Lines = [rg.Line(rg.Point3d(0, 0, 0), rg.Point3d(4, 0, 0))]"
             ),
             "Lines",
+            # GH exposes declared Line output data to BakeService as the
+            # bakeable curve value it stores downstream.
             "LineCurve",
         ),
         (
@@ -188,6 +190,7 @@ async def test_gh_create_script_python_point_list_bakes_as_geometry():
                 "Circles = [rg.Circle(rg.Plane.WorldXY, 2.0)]"
             ),
             "Circles",
+            # Same for Circle: the downstream volatile-data value is ArcCurve.
             "ArcCurve",
         ),
         (
@@ -231,7 +234,7 @@ async def test_gh_create_script_python_bakeable_geometry_lists_bake_downstream(
     pin_type: str,
     code: str,
     output_name: str,
-    expected_type: str,
+    expected_bake_source_type: str,
 ):
     """Bakeable declared geometry list outputs should survive RhinoCode as
     downstream GH/Rhino geometry, not Python wrapper objects.
@@ -288,7 +291,7 @@ async def test_gh_create_script_python_bakeable_geometry_lists_bake_downstream(
 
     geometry_types = target.get("geometryTypes")
     assert isinstance(geometry_types, list)
-    assert expected_type in geometry_types
+    assert expected_bake_source_type in geometry_types
 
 
 async def test_gh_create_script_omitted_language_fails_live():
