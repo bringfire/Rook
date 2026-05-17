@@ -118,6 +118,7 @@ function Test-DeployScriptLiveSmokeIsExplicit {
     Assert-Contains -Text $content -Expected '"rhino_ping"' -Message 'Live smoke must verify Rhino connectivity.'
     Assert-Contains -Text $content -Expected '"gh_status"' -Message 'Live smoke must verify Grasshopper connectivity.'
     Assert-Contains -Text $content -Expected '"chirp_create"' -Message 'Live smoke must exercise the Chirp creation path.'
+    Assert-Contains -Text $content -Expected '"deterministic_only": True' -Message 'Live smoke must exercise Chirp without external LLM/API-key dependency.'
     Assert-Contains -Text $content -Expected 'compilation_errors' -Message 'Live smoke must fail if chirp_create returns component compilation errors.'
     Assert-Contains -Text $content -Expected 'created Chirp component has Grasshopper errors' -Message 'Live smoke must check gh_errors for the created component.'
     Assert-Contains -Text $content -Expected 'gh_undo cleanup failed' -Message 'Live smoke must fail if cleanup undo fails.'

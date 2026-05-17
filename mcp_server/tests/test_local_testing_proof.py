@@ -83,6 +83,31 @@ def test_verify_chirp_runtime_uses_installed_chirp_venv(monkeypatch, tmp_path: P
     assert details["chirp_file"].replace("\\", "/").endswith("src/chirp/__init__.py")
 
 
+def test_load_codex_toml_fallback_parses_rook_entry(monkeypatch):
+    text = """
+[mcp_servers.rook]
+command = "C:/Users/aryan/AppData/Local/Rook/venv/Scripts/python.exe"
+args = ["-m", "rook"]
+cwd = "C:/Users/aryan/AppData/Local/Rook/app/mcp_server"
+
+[mcp_servers.rook.env]
+ROOK_INSTALL_ROOT = "C:/Users/aryan/AppData/Local/Rook/app"
+ROOK_DATA_DIR = "C:/Users/aryan/AppData/Local/Rook/data"
+ROOK_MODE = "release"
+CHIRP_HOME = "C:/Users/aryan/AppData/Local/Rook/app/chirp"
+"""
+    monkeypatch.setattr(proof, "tomllib", None)
+
+    payload = proof._load_codex_toml(text)
+    entry = payload["mcp_servers"]["rook"]
+
+    assert entry["command"].endswith("python.exe")
+    assert entry["args"] == ["-m", "rook"]
+    assert entry["cwd"].endswith("mcp_server")
+    assert entry["env"]["ROOK_MODE"] == "release"
+    assert entry["env"]["CHIRP_HOME"].endswith("/chirp")
+
+
 def test_verify_mcp_entry_rejects_repo_cwd(tmp_path: Path):
     entry = {
         "command": str(tmp_path / "Rook" / "venv" / "Scripts" / "python.exe"),

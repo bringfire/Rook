@@ -7,10 +7,14 @@ import os
 import subprocess
 import sys
 import time
-import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10 support floor.
+    tomllib = None  # type: ignore[assignment]
 
 from .bridge import rhino_request_context
 from .runtime_harness import CleanupStatus, run_rhino_runtime_harness
@@ -273,6 +277,70 @@ def verify_json_mcp_config(
     )
 
 
+def _parse_toml_value(value: str) -> Any:
+    value = value.strip()
+    if value.startswith('"') and value.endswith('"'):
+        return value[1:-1].replace('\\"', '"').replace("\\\\", "\\")
+    if value.startswith("[") and value.endswith("]"):
+        inner = value[1:-1].strip()
+        if not inner:
+            return []
+        parts: list[str] = []
+        current = []
+        in_string = False
+        escape = False
+        for char in inner:
+            if escape:
+                current.append(char)
+                escape = False
+                continue
+            if char == "\\" and in_string:
+                current.append(char)
+                escape = True
+                continue
+            if char == '"':
+                in_string = not in_string
+                current.append(char)
+                continue
+            if char == "," and not in_string:
+                parts.append("".join(current).strip())
+                current = []
+                continue
+            current.append(char)
+        parts.append("".join(current).strip())
+        return [_parse_toml_value(part) for part in parts if part]
+    if value.isdigit():
+        return int(value)
+    return value
+
+
+def _parse_codex_rook_toml_fallback(text: str) -> dict[str, Any]:
+    entry: dict[str, Any] = {}
+    env: dict[str, Any] = {}
+    section: str | None = None
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            section = line[1:-1].strip()
+            continue
+        if section not in {"mcp_servers.rook", "mcp_servers.rook.env"} or "=" not in line:
+            continue
+        key, raw_value = line.split("=", 1)
+        target = env if section == "mcp_servers.rook.env" else entry
+        target[key.strip()] = _parse_toml_value(raw_value)
+    if env:
+        entry["env"] = env
+    return {"mcp_servers": {"rook": entry}}
+
+
+def _load_codex_toml(text: str) -> dict[str, Any]:
+    if tomllib is not None:
+        return tomllib.loads(text)
+    return _parse_codex_rook_toml_fallback(text)
+
+
 def verify_codex_mcp_config(
     *,
     config_path: Path,
@@ -284,8 +352,8 @@ def verify_codex_mcp_config(
     if not config_path.exists():
         raise ProofFailure("mcp_config_missing", f"Codex MCP config not found: {config_path}")
     try:
-        data = tomllib.loads(config_path.read_text(encoding="utf-8"))
-    except tomllib.TOMLDecodeError as exc:
+        data = _load_codex_toml(config_path.read_text(encoding="utf-8"))
+    except Exception as exc:
         raise ProofFailure(
             "mcp_config_stale",
             f"Codex MCP config is malformed TOML: {config_path}",

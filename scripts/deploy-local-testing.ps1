@@ -623,6 +623,7 @@ async def main():
         "pins_out": [{"name": "Result", "type": "string"}],
         "signature": "input -> result",
         "deterministic_code": "Result = Input ?? string.Empty;",
+        "deterministic_only": True,
         "x": 40,
         "y": 40,
     })
