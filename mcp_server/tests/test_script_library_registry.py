@@ -207,7 +207,12 @@ def test_project_candidate_is_searchable_but_not_executable(tmp_path):
     (artifact_dir / "script.py").write_text("print('{\"layers\": []}')\n", encoding="utf-8")
     (artifact_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
 
-    search = script_library.search_scripts(query="audit", repo_library_root=None, project_scripts_root=project_root)
+    search = script_library.search_scripts(
+        query="audit",
+        source="project",
+        repo_library_root=None,
+        project_scripts_root=project_root,
+    )
 
     assert search["results"][0]["source"] == "project"
     assert search["results"][0]["executable"] is False
@@ -290,3 +295,17 @@ def test_capture_refuses_existing_artifact_id_without_overwrite(tmp_path):
     assert second["success"] is False
     assert second["refusal_reason"] == "artifact_already_exists"
     assert (project_scripts_root / "audit-layer-names" / "script.py").read_text(encoding="utf-8") == "print('{\"first\": true}')\n"
+
+
+def test_checked_in_extract_layers_artifact_is_executable():
+    repo_root = Path(__file__).resolve().parents[2] / "scripts" / "rook-library"
+
+    search = script_library.search_scripts(query="layers", repo_library_root=repo_root, project_scripts_root=None)
+    matching = [result for result in search["results"] if result["id"] == "extract-layers"]
+
+    assert len(matching) == 1
+    assert matching[0]["source"] == "repo"
+    assert matching[0]["state"] == "validated"
+    assert matching[0]["mutation"] == "read_only"
+    assert matching[0]["executable"] is True
+    assert matching[0]["refusal_reason"] is None

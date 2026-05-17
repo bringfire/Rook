@@ -1,0 +1,12 @@
+{
+  "artifacts": {
+    "repo:rhino:extract-layers:0.1.0": {
+      "content_hash": "sha256:0d6e1e695492a78f761709a709073786939a3b5e14b48e1a1114c3ece306d036",
+      "static_scan": {
+        "content_hash": "sha256:0d6e1e695492a78f761709a709073786939a3b5e14b48e1a1114c3ece306d036",
+        "status": "passed"
+      }
+    }
+  },
+  "version": 1
+}
