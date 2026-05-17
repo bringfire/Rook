@@ -476,6 +476,71 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
     return await dispatch(name, arguments)
 
 
+def _gh_ready(status: dict[str, Any]) -> bool:
+    if not status.get("success"):
+        return False
+    data = status.get("data")
+    if not isinstance(data, dict):
+        return False
+    return bool(
+        data.get("ready_for_edit")
+        or data.get("readyForEdit")
+        or data.get("ready")
+        or (data.get("available") and data.get("has_active_document"))
+    )
+
+
+async def _ensure_grasshopper_ready(args: dict[str, int]) -> dict[str, Any]:
+    status = await _call_tool_dispatch("gh_status", dict(args))
+    if _gh_ready(status):
+        return {"status": status, "opened": False}
+
+    open_result = await _call_tool_dispatch(
+        "rhino_command",
+        {**args, "command": "_Grasshopper", "echo": False},
+    )
+    if not open_result.get("success"):
+        raise ProofFailure(
+            "gh_not_ready",
+            "failed to launch Grasshopper",
+            {"gh_status": status, "rhino_command": open_result},
+        )
+
+    deadline = time.monotonic() + 45.0
+    last_status = status
+    last_new_doc: dict[str, Any] | None = None
+    while time.monotonic() < deadline:
+        await asyncio.sleep(1.0)
+        last_new_doc = await _call_tool_dispatch("gh_document_new", dict(args))
+        if last_new_doc.get("success"):
+            status = await _call_tool_dispatch("gh_status", dict(args))
+            return {
+                "status": status,
+                "opened": True,
+                "rhino_command": open_result,
+                "gh_document_new": last_new_doc,
+            }
+
+        last_status = await _call_tool_dispatch("gh_status", dict(args))
+        if _gh_ready(last_status):
+            return {
+                "status": last_status,
+                "opened": True,
+                "rhino_command": open_result,
+                "gh_document_new": last_new_doc,
+            }
+
+    raise ProofFailure(
+        "gh_not_ready",
+        "Grasshopper did not become ready",
+        {
+            "gh_status": last_status,
+            "rhino_command": open_result,
+            "gh_document_new": last_new_doc,
+        },
+    )
+
+
 async def run_live_smoke(
     *,
     port: int | None = None,
@@ -492,9 +557,8 @@ async def run_live_smoke(
         if not ping.get("success"):
             raise ProofFailure("rhino_ping_failed", "rhino_ping failed", {"rhino_ping": ping})
 
-        status = await _call_tool_dispatch("gh_status", dict(args))
-        if not status.get("success"):
-            raise ProofFailure("gh_not_ready", "gh_status failed", {"gh_status": status})
+        gh_ready = await _ensure_grasshopper_ready(args)
+        status = gh_ready["status"]
 
         chirp = await _call_tool_dispatch(
             "chirp_create",
@@ -506,6 +570,7 @@ async def run_live_smoke(
                 "pins_out": [{"name": "Result", "type": "string"}],
                 "signature": "input -> result",
                 "deterministic_code": "Result = Input ?? string.Empty;",
+                "deterministic_only": True,
                 "x": 40,
                 "y": 40,
             },
@@ -559,6 +624,7 @@ async def run_live_smoke(
 
     return {
         "rhino_ping": ping,
+        "grasshopper_ready": gh_ready,
         "gh_status": status,
         "chirp_create": chirp,
         "gh_errors": errors,
@@ -602,10 +668,28 @@ def _cleanup_payload(status_value: str) -> dict[str, Any]:
     }
 
 
+def _failure_label_from_smoke_output(output: str) -> str | None:
+    for line in output.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        label = payload.get("failure_label")
+        if isinstance(label, str) and label:
+            return label
+    return None
+
+
 def _harness_failure_label(harness_result: Any) -> str:
     if harness_result.cleanup_status != CleanupStatus.GRACEFUL_EXIT:
         return "cleanup_failed"
     if harness_result.smoke and harness_result.smoke.returncode != 0:
+        stdout_label = _failure_label_from_smoke_output(harness_result.smoke.stdout or "")
+        if stdout_label:
+            return stdout_label
         stderr = harness_result.smoke.stderr or ""
         for label in (
             "rhino_ping_failed",

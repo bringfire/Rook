@@ -241,6 +241,41 @@ async def test_live_smoke_requires_component_guid(monkeypatch):
     assert exc.value.failure_label == "chirp_create_failed"
 
 
+@pytest.mark.asyncio
+async def test_live_smoke_launches_grasshopper_when_not_ready(monkeypatch):
+    calls = []
+
+    async def fake_dispatch(name: str, args: dict):
+        calls.append((name, args))
+        if name == "rhino_ping":
+            return {"success": True, "data": {"processId": 42, "port": 9001}}
+        if name == "gh_status":
+            if any(call[0] == "gh_document_new" for call in calls):
+                return {"success": True, "data": {"ready_for_edit": True}}
+            return {"success": True, "data": {"available": False, "ready_for_edit": False}}
+        if name == "rhino_command":
+            return {"success": True, "data": {"command": args["command"]}}
+        if name == "gh_document_new":
+            return {"success": True, "data": {"documentName": "Untitled"}}
+        if name == "chirp_create":
+            return {"success": True, "data": {"component_guid": "abc", "compilation_errors": []}}
+        if name == "gh_errors":
+            return {"success": True, "data": {"errors": []}}
+        if name == "gh_undo":
+            return {"success": True, "data": {"undone": True}}
+        raise AssertionError(name)
+
+    monkeypatch.setattr(proof, "_call_tool_dispatch", fake_dispatch)
+
+    result = await proof.run_live_smoke(port=9001, process_id=42)
+
+    assert result["grasshopper_ready"]["opened"] is True
+    assert any(name == "rhino_command" and args["command"] == "_Grasshopper" for name, args in calls)
+    assert any(name == "gh_document_new" for name, _ in calls)
+    chirp_call = next(args for name, args in calls if name == "chirp_create")
+    assert chirp_call["deterministic_only"] is True
+
+
 def test_write_json_writes_gate_envelope(tmp_path: Path):
     path = tmp_path / "gate.json"
     result = proof.GateResult.passed(
@@ -291,3 +326,38 @@ def test_owned_release_readiness_uses_installed_python_for_smoke(monkeypatch, tm
     assert calls["smoke_command"] == [sys.executable, "-m", "rook.local_testing_proof", "live-smoke"]
     assert calls["smoke_kind"] == "installed-live-smoke"
     assert calls["keep_rhino_on_failure"] is False
+
+
+def test_owned_release_readiness_preserves_live_smoke_failure_label(monkeypatch, tmp_path: Path):
+    class FakeSmoke:
+        returncode = 1
+        stdout = json.dumps(
+            {
+                "gate": "live_smoke",
+                "success": False,
+                "failure_label": "chirp_create_failed",
+            }
+        )
+        stderr = ""
+
+    class FakeHarnessResult:
+        success = False
+        cleanup_status = proof.CleanupStatus.GRACEFUL_EXIT
+        smoke = FakeSmoke()
+
+        def to_manifest_dict(self):
+            return {"success": False, "smoke": {"stdout": self.smoke.stdout}}
+
+    monkeypatch.setattr(proof, "run_rhino_runtime_harness", lambda **_: FakeHarnessResult())
+
+    result = proof.owned_release_readiness_gate(
+        command=["python", "-m", "rook.local_testing_proof", "owned-release-readiness"],
+        rhino_exe=Path("C:/Program Files/Rhino 8/System/Rhino.exe"),
+        artifact_root=tmp_path,
+        keep_rhino_on_failure=False,
+        readiness_timeout_seconds=1.0,
+        cleanup_timeout_seconds=1.0,
+    )
+
+    assert result.success is False
+    assert result.failure_label == "chirp_create_failed"

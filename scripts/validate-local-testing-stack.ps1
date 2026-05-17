@@ -94,9 +94,19 @@ function Write-TopLevelManifest {
             chirp_home = $ChirpHome
             venv_python = $VenvPython
         }
-        gates = @($GateResults)
+        gates = @($GateResults.ToArray())
     }
     $manifest | ConvertTo-Json -Depth 14 | Set-Content -Path (Join-Path $ArtifactDir 'manifest.json') -Encoding UTF8
+}
+
+function ConvertTo-CommandParts {
+    param([Parameter(Mandatory = $true)]$Command)
+
+    $parts = $Command
+    while (($parts -is [array]) -and $parts.Count -eq 1 -and ($parts[0] -is [array])) {
+        $parts = $parts[0]
+    }
+    return [string[]]@($parts)
 }
 
 function Invoke-ExternalChecked {
@@ -130,7 +140,7 @@ function Invoke-GateCommand {
     $started = Get-Date
     try {
         foreach ($command in $Commands) {
-            Invoke-ExternalChecked -Command ([string[]]$command) -StdoutPath $stdout -StderrPath $stderr
+            Invoke-ExternalChecked -Command (ConvertTo-CommandParts -Command $command) -StdoutPath $stdout -StderrPath $stderr
         }
         $success = $true
         $label = $null
@@ -141,7 +151,7 @@ function Invoke-GateCommand {
         $details = @{ error = $_.Exception.Message }
     }
     $ended = Get-Date
-    $commandText = @($Commands | ForEach-Object { ([string[]]$_) -join ' ' })
+    $commandText = @($Commands | ForEach-Object { (ConvertTo-CommandParts -Command $_) -join ' ' })
     $payload = New-GateEnvelope -Gate $Gate -Success $success -FailureLabel $label -Command $commandText -Started $started -Ended $ended -StdoutPath $stdout -StderrPath $stderr -Details $details
     Save-GateEnvelope -ArtifactDir $ArtifactDir -Envelope $payload
     if (-not $success) {
@@ -164,6 +174,51 @@ function Assert-NoRhinoRunningForReleaseReadiness {
 
     $payload = New-GateEnvelope -Gate 'rhino_preflight' -Success $true -FailureLabel $null -Command @('Get-Process Rhino') -Started $started -Ended $ended -StdoutPath $null -StderrPath $null -Details @{}
     Save-GateEnvelope -ArtifactDir $ArtifactDir -Envelope $payload
+}
+
+function Reset-InstalledChirpForReleaseReadiness {
+    param([Parameter(Mandatory = $true)][string]$ArtifactDir)
+
+    $started = Get-Date
+    $chirpPython = Join-Path $ChirpHome '.venv\Scripts\python.exe'
+    $terminated = @()
+    $removedDiscovery = @()
+    try {
+        $escapedChirpPython = [regex]::Escape($chirpPython)
+        $processes = Get-CimInstance Win32_Process | Where-Object {
+            $_.CommandLine -and
+            $_.CommandLine -match $escapedChirpPython -and
+            $_.CommandLine -match '(^|\s|")-m\s+chirp(\s|$)'
+        }
+        foreach ($process in $processes) {
+            Stop-Process -Id $process.ProcessId -Force -ErrorAction Stop
+            $terminated += [int]$process.ProcessId
+        }
+
+        $discoveryRoot = Join-Path ([System.IO.Path]::GetTempPath()) 'rook'
+        if (Test-Path -LiteralPath $discoveryRoot) {
+            foreach ($file in Get-ChildItem -LiteralPath $discoveryRoot -Filter 'chirp-service-*.json' -ErrorAction SilentlyContinue) {
+                $removedDiscovery += $file.FullName
+                Remove-Item -LiteralPath $file.FullName -Force -ErrorAction Stop
+            }
+        }
+
+        $ended = Get-Date
+        $payload = New-GateEnvelope -Gate 'chirp_preflight' -Success $true -FailureLabel $null -Command @('Stop installed Chirp sidecars') -Started $started -Ended $ended -StdoutPath $null -StderrPath $null -Details @{
+            chirp_python = $chirpPython
+            terminated_pids = $terminated
+            removed_discovery_files = $removedDiscovery
+        }
+        Save-GateEnvelope -ArtifactDir $ArtifactDir -Envelope $payload
+    } catch {
+        $ended = Get-Date
+        $payload = New-GateEnvelope -Gate 'chirp_preflight' -Success $false -FailureLabel 'chirp_cleanup_failed' -Command @('Stop installed Chirp sidecars') -Started $started -Ended $ended -StdoutPath $null -StderrPath $null -Details @{
+            chirp_python = $chirpPython
+            error = $_.Exception.Message
+        }
+        Save-GateEnvelope -ArtifactDir $ArtifactDir -Envelope $payload
+        throw "chirp_cleanup_failed: $($_.Exception.Message)"
+    }
 }
 
 function Invoke-ProofModuleGate {
@@ -236,6 +291,8 @@ function Invoke-ReleaseReadiness {
         $installedRuntimeJson = Join-Path $artifactDir 'installed-runtime.json'
         Invoke-ProofModuleGate -ArtifactDir $artifactDir -Gate 'installed_runtime' -FailureLabel 'installed_runtime_failed' -Arguments @('-m', 'rook.local_testing_proof', 'installed-runtime', '--out', $installedRuntimeJson) -OutPath $installedRuntimeJson
 
+        Reset-InstalledChirpForReleaseReadiness -ArtifactDir $artifactDir
+
         Assert-NoRhinoRunningForReleaseReadiness -ArtifactDir $artifactDir
 
         $ownedJson = Join-Path $artifactDir 'owned-release-readiness.json'
@@ -254,7 +311,7 @@ function Invoke-ReleaseReadiness {
         Write-TopLevelManifest -ArtifactDir $artifactDir -Success $true -FailureLabel $null
         Write-Host 'release-readiness proven'
     } catch {
-        $finalFailureLabel = $_.Exception.Message.Split(':')[0]
+        $finalFailureLabel = [string](($_.Exception.Message -split ':', 2)[0])
         Write-TopLevelManifest -ArtifactDir $artifactDir -Success $false -FailureLabel $finalFailureLabel
         throw
     }

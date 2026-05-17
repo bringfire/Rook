@@ -7363,6 +7363,10 @@ Requires: Chirp adapter running (`python -m chirp` from the Chirp repo).""",
                         "type": "string",
                         "description": "Optional C# code to run after LLM outputs are assigned (post-processing)"
                     },
+                    "deterministic_only": {
+                        "type": "boolean",
+                        "description": "When true, deterministic_code runs without calling the Chirp LLM endpoint. Intended for deterministic validation paths."
+                    },
                     "x": {"type": "number", "description": "Canvas X position (default 200)"},
                     "y": {"type": "number", "description": "Canvas Y position (default 200)"},
                 },
@@ -13168,6 +13172,7 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
             category = arguments.get("category")
             chirp_name = arguments.get("name")
             deterministic_code = arguments.get("deterministic_code")
+            deterministic_only = bool(arguments.get("deterministic_only"))
             cx = arguments.get("x", 200)
             cy = arguments.get("y", 200)
 
@@ -13203,6 +13208,8 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                             chirp_payload["name"] = chirp_name
                         if deterministic_code:
                             chirp_payload["deterministic_code"] = deterministic_code
+                        if deterministic_only:
+                            chirp_payload["deterministic_only"] = True
 
                         async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as chirp_client:
                             chirp_resp = await chirp_client.post(
