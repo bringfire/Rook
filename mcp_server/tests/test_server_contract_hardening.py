@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from rook import server
+from rook import targeting
 
 
 class _DummyPhaseTracker:
@@ -22,9 +23,19 @@ def _decode_response(response):
 
 @pytest.fixture
 def patched_server(monkeypatch):
+    targeting.reset_targeting_state_for_tests()
+    monkeypatch.setattr(targeting, "discover_instances", lambda: [{
+        "host": "127.0.0.1",
+        "port": 9950,
+        "processId": 7101,
+        "pluginType": "native",
+        "documentName": "ContractFixture.3dm",
+    }])
     monkeypatch.setattr(server, "should_inject", lambda _name, _result: False)
     monkeypatch.setattr(server, "_record_observation", lambda *args, **kwargs: None)
     monkeypatch.setattr(server, "get_phase_tracker", lambda: _DummyPhaseTracker())
+    yield
+    targeting.reset_targeting_state_for_tests()
 
 
 @pytest.mark.asyncio
