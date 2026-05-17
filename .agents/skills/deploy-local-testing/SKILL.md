@@ -38,6 +38,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy-local-testing
 - Do not claim live plugin capability unless `-LiveSmoke` passes; normal deploy verifies install paths/imports only.
 - Full installer deploy is release validation, not the default local testing path.
 
+## Release-Readiness Proof
+
+For the stronger proof path, run:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\validate-local-testing-stack.ps1 -ReleaseReadiness
+```
+
+Only `scripts\validate-local-testing-stack.ps1 -ReleaseReadiness` may justify the phrase release-readiness proven. The ordinary deploy script can verify installed runtime and can run a developer-open live smoke, but it does not prove clean startup or owned-process routing.
+
+Use `-KeepRhinoOnFailure` only when the user explicitly wants to preserve the owned Rhino process for diagnostics.
+
 ## Reporting
 
 Report the script result, the installed runtime path, the installed Chirp path, whether native/managed builds ran, whether Chirp was installed, whether live smoke ran, and any blocked running processes.
