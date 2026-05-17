@@ -1,0 +1,54 @@
+{
+  "content_hash": "sha256:0d6e1e695492a78f761709a709073786939a3b5e14b48e1a1114c3ece306d036",
+  "description": "Extract layer names, ids, visibility, lock state, and display colors from the active Rhino document.",
+  "domain": "rhino",
+  "entrypoint": "script.py",
+  "evidence": {
+    "validated_at": "2026-05-17",
+    "validation_method": "bootstrap_unit_fixture"
+  },
+  "execution": "run_as_is",
+  "id": "extract-layers",
+  "mutation": "read_only",
+  "output_schema": {
+    "properties": {
+      "layers": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "layers"
+    ],
+    "type": "object"
+  },
+  "parameters_schema": {
+    "additionalProperties": false,
+    "properties": {},
+    "type": "object"
+  },
+  "requires": {
+    "rhino": "8",
+    "rook_capabilities": [
+      "rhino_execute"
+    ]
+  },
+  "safety": {
+    "blocking_ui": "none",
+    "filesystem": "none",
+    "network": "none",
+    "static_scan": "passed"
+  },
+  "source": "repo",
+  "state": "validated",
+  "tags": [
+    "layers",
+    "audit",
+    "extract"
+  ],
+  "trigger_phrases": [
+    "list layers",
+    "extract layers",
+    "audit layer names"
+  ],
+  "version": "0.1.0"
+}

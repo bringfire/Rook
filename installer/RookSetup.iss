@@ -116,6 +116,9 @@ Source: "{#ChirpDir}\src\chirp\*"; DestDir: "{app}\chirp\src\chirp"; Components:
 Source: "{#KnowledgeDir}\commands\*"; DestDir: "{app}\knowledge\commands"; Components: knowledge; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#KnowledgeDir}\gh\*"; DestDir: "{app}\knowledge\gh"; Components: knowledge; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "sessions"
 
+; --- Durable Script Library ---
+Source: "{#ScriptsDir}\rook-library\*"; DestDir: "{app}\scripts\rook-library"; Components: mcp; Flags: ignoreversion recursesubdirs createallsubdirs
+
 ; --- Optional Claude/Codex agent payloads ---
 Source: "{#PluginDir}\plugin.json"; DestDir: "{app}\.claude-plugin"; Components: claude; Flags: ignoreversion
 Source: "{#PluginDir}\marketplace.json"; DestDir: "{app}\.claude-plugin"; Components: claude; Flags: ignoreversion
