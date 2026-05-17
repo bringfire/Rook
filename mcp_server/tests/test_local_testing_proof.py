@@ -256,3 +256,38 @@ def test_write_json_writes_gate_envelope(tmp_path: Path):
     assert payload["gate"] == "static_guard"
     assert payload["success"] is True
     assert payload["failure_label"] is None
+
+
+def test_owned_release_readiness_uses_installed_python_for_smoke(monkeypatch, tmp_path: Path):
+    calls = {}
+
+    class FakeHarnessResult:
+        success = True
+        artifact_dir = tmp_path / "run"
+        cleanup_status = SimpleNamespace(value="graceful_exit")
+        pid = 1234
+        port = 9876
+        warnings = []
+
+        def to_manifest_dict(self):
+            return {"success": True, "pid": self.pid, "port": self.port}
+
+    def fake_run_harness(**kwargs):
+        calls.update(kwargs)
+        return FakeHarnessResult()
+
+    monkeypatch.setattr(proof, "run_rhino_runtime_harness", fake_run_harness)
+
+    result = proof.owned_release_readiness_gate(
+        command=["python", "-m", "rook.local_testing_proof", "owned-release-readiness"],
+        rhino_exe=Path("C:/Program Files/Rhino 8/System/Rhino.exe"),
+        artifact_root=tmp_path,
+        keep_rhino_on_failure=False,
+        readiness_timeout_seconds=1.0,
+        cleanup_timeout_seconds=1.0,
+    )
+
+    assert result.success is True
+    assert calls["smoke_command"] == [sys.executable, "-m", "rook.local_testing_proof", "live-smoke"]
+    assert calls["smoke_kind"] == "installed-live-smoke"
+    assert calls["keep_rhino_on_failure"] is False

@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from .bridge import rhino_request_context
+from .runtime_harness import CleanupStatus, run_rhino_runtime_harness
 from .runtime_paths import resolve_runtime_paths
 
 
@@ -592,6 +593,82 @@ def live_smoke_gate(
         )
 
 
+def _cleanup_payload(status_value: str) -> dict[str, Any]:
+    return {
+        "attempted": status_value != CleanupStatus.NOT_ATTEMPTED.value,
+        "success": status_value == CleanupStatus.GRACEFUL_EXIT.value,
+        "label": None if status_value == CleanupStatus.GRACEFUL_EXIT.value else "cleanup_failed",
+        "details": {"status": status_value},
+    }
+
+
+def _harness_failure_label(harness_result: Any) -> str:
+    if harness_result.cleanup_status != CleanupStatus.GRACEFUL_EXIT:
+        return "cleanup_failed"
+    if harness_result.smoke and harness_result.smoke.returncode != 0:
+        stderr = harness_result.smoke.stderr or ""
+        for label in (
+            "rhino_ping_failed",
+            "gh_not_ready",
+            "chirp_import_failed",
+            "chirp_create_failed",
+            "chirp_component_warning",
+            "chirp_component_compile_error",
+            "gh_component_error",
+            "cleanup_failed",
+        ):
+            if label in stderr:
+                return label
+        return "installed_runtime_failed"
+    if harness_result.pid <= 0:
+        return "rhino_launch_failed"
+    if harness_result.port <= 0:
+        return "owned_discovery_timeout"
+    return "installed_runtime_failed"
+
+
+def owned_release_readiness_gate(
+    *,
+    command: list[str],
+    rhino_exe: Path,
+    artifact_root: Path,
+    keep_rhino_on_failure: bool,
+    readiness_timeout_seconds: float,
+    cleanup_timeout_seconds: float,
+) -> GateResult:
+    started = time.monotonic()
+    harness = run_rhino_runtime_harness(
+        rhino_exe=rhino_exe,
+        artifact_root=artifact_root,
+        smoke_command=[sys.executable, "-m", "rook.local_testing_proof", "live-smoke"],
+        smoke_kind="installed-live-smoke",
+        smoke_cwd=None,
+        readiness_timeout_seconds=readiness_timeout_seconds,
+        cleanup_timeout_seconds=cleanup_timeout_seconds,
+        keep_rhino_on_failure=keep_rhino_on_failure,
+    )
+    cleanup = _cleanup_payload(harness.cleanup_status.value)
+    details = harness.to_manifest_dict()
+    if harness.success:
+        return GateResult.passed(
+            gate="owned_release_readiness",
+            command=command,
+            started_at=started,
+            ended_at=time.monotonic(),
+            details=details,
+            cleanup=cleanup,
+        )
+    return GateResult.failure(
+        gate="owned_release_readiness",
+        failure_label=_harness_failure_label(harness),
+        command=command,
+        started_at=started,
+        ended_at=time.monotonic(),
+        details=details,
+        cleanup=cleanup,
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Installed-runtime Rook local testing proof gates.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -608,6 +685,18 @@ def build_parser() -> argparse.ArgumentParser:
         default=int(os.environ.get("ROOK_RHINO_PROCESS_ID", "0") or "0"),
     )
 
+    owned = sub.add_parser("owned-release-readiness")
+    owned.add_argument("--out", type=Path)
+    owned.add_argument(
+        "--rhino-exe",
+        type=Path,
+        default=Path(r"C:\Program Files\Rhino 8\System\Rhino.exe"),
+    )
+    owned.add_argument("--artifact-root", type=Path, required=True)
+    owned.add_argument("--readiness-timeout", type=float, default=60.0)
+    owned.add_argument("--cleanup-timeout", type=float, default=15.0)
+    owned.add_argument("--keep-rhino-on-failure", action="store_true")
+
     return parser
 
 
@@ -619,6 +708,15 @@ def main(argv: list[str] | None = None) -> int:
         result = verify_installed_runtime(command)
     elif args.command == "live-smoke":
         result = live_smoke_gate(command, port=args.port or None, process_id=args.process_id or None)
+    elif args.command == "owned-release-readiness":
+        result = owned_release_readiness_gate(
+            command=command,
+            rhino_exe=args.rhino_exe,
+            artifact_root=args.artifact_root,
+            keep_rhino_on_failure=args.keep_rhino_on_failure,
+            readiness_timeout_seconds=args.readiness_timeout,
+            cleanup_timeout_seconds=args.cleanup_timeout,
+        )
     else:
         raise AssertionError(args.command)
 
