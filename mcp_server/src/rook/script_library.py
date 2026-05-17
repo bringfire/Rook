@@ -408,3 +408,124 @@ def search_scripts(
         "query": query,
         "results": [_artifact_summary(artifact, repo_library_root) for artifact in filtered],
     }
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = path.with_suffix(path.suffix + ".tmp")
+    temp_path.write_text(text, encoding="utf-8")
+    temp_path.replace(path)
+
+
+def capture_script_artifact(
+    script_id: str,
+    script_source: str,
+    description: str,
+    domain: str = "rhino",
+    observed_inputs: dict[str, Any] | None = None,
+    observed_output: Any | None = None,
+    session_id: str | None = None,
+    notes: str | None = None,
+    mutation: str = "read_only",
+    project_root: Path | str | None = None,
+    project_scripts_root: Path | str | None = None,
+) -> dict[str, Any]:
+    if not isinstance(script_id, str) or not SCRIPT_ID_RE.match(script_id):
+        return {"success": False, "refusal_reason": "invalid_id"}
+    if not isinstance(script_source, str) or not script_source.strip():
+        return {"success": False, "refusal_reason": "missing_script_source"}
+    if not isinstance(description, str) or not description.strip():
+        return {"success": False, "refusal_reason": "missing_description"}
+    if domain not in VALID_DOMAINS:
+        return {"success": False, "refusal_reason": "invalid_domain"}
+    if mutation not in VALID_MUTATION:
+        return {"success": False, "refusal_reason": "invalid_mutation"}
+
+    project_scripts_root = (
+        Path(project_scripts_root)
+        if project_scripts_root is not None
+        else default_project_scripts_root(project_root=project_root)
+    )
+    artifact_dir = project_scripts_root / script_id
+    script_path = artifact_dir / "script.py"
+    manifest_path = artifact_dir / "manifest.json"
+    evidence_path = artifact_dir / "evidence.json"
+    findings_path = artifact_dir / "findings.json"
+
+    if artifact_dir.exists():
+        return {
+            "success": False,
+            "id": script_id,
+            "artifact_dir": str(artifact_dir),
+            "refusal_reason": "artifact_already_exists",
+        }
+    try:
+        artifact_dir.mkdir(parents=True, exist_ok=False)
+    except FileExistsError:
+        return {
+            "success": False,
+            "id": script_id,
+            "artifact_dir": str(artifact_dir),
+            "refusal_reason": "artifact_already_exists",
+        }
+
+    _atomic_write_text(script_path, script_source)
+    script_hash = compute_file_sha256(script_path)
+    scan = scan_script_text(script_source)
+
+    manifest = {
+        "id": script_id,
+        "version": "0.1.0",
+        "description": description.strip(),
+        "tags": [],
+        "trigger_phrases": [],
+        "state": "captured",
+        "source": "project",
+        "domain": domain,
+        "entrypoint": "script.py",
+        "execution": "adapt_and_run",
+        "mutation": mutation,
+        "content_hash": script_hash,
+        "parameters_schema": {"type": "object", "properties": {}, "additionalProperties": False},
+        "output_schema": {},
+        "requires": {"rhino": "8", "rook_capabilities": ["rhino_execute"]},
+        "safety": {
+            "static_scan": scan["status"],
+            "blocking_ui": "present" if any(f["code"] == "blocking_ui" for f in scan["findings"]) else "none",
+            "network": "present" if any(f["code"] == "network_access" for f in scan["findings"]) else "none",
+            "filesystem": "present" if any(f["code"] == "filesystem_access" for f in scan["findings"]) else "none",
+        },
+        "evidence": {
+            "captured_at": _now_iso_date(),
+            "validation_method": "captured_session",
+        },
+    }
+    evidence = {
+        "session_id": session_id,
+        "observed_inputs": observed_inputs or {},
+        "observed_output": observed_output,
+        "notes": notes or "",
+        "captured_at": _now_iso_date(),
+    }
+    findings = {"static_scan": scan, "content_hash": script_hash}
+
+    _atomic_write_text(manifest_path, json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+    _atomic_write_text(evidence_path, json.dumps(evidence, indent=2, sort_keys=True) + "\n")
+    _atomic_write_text(findings_path, json.dumps(findings, indent=2, sort_keys=True) + "\n")
+
+    artifact = _artifact_from_dir(artifact_dir, "project")
+    executable, refusal_reason, _details = evaluate_executability(artifact)
+    return {
+        "success": True,
+        "id": script_id,
+        "artifact_dir": str(artifact_dir),
+        "state": "captured",
+        "source": "project",
+        "content_hash": script_hash,
+        "static_scan_summary": {
+            "status": scan["status"],
+            "findings_count": len(scan["findings"]),
+        },
+        "executable": executable,
+        "refusal_reason": refusal_reason,
+    }

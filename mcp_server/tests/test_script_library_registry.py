@@ -212,3 +212,81 @@ def test_project_candidate_is_searchable_but_not_executable(tmp_path):
     assert search["results"][0]["source"] == "project"
     assert search["results"][0]["executable"] is False
     assert search["results"][0]["refusal_reason"] == "project_source_not_executable_in_v1"
+
+
+def test_capture_script_artifact_writes_project_captured_manifest_and_evidence(tmp_path):
+    project_scripts_root = tmp_path / ".rook" / "scripts"
+    result = script_library.capture_script_artifact(
+        script_id="audit-layer-names",
+        script_source="print('{\"layers\": []}')\n",
+        description="Captured script that audited layer names.",
+        domain="rhino",
+        observed_inputs={"prompt": "audit layer names"},
+        observed_output={"layers": []},
+        session_id="session-123",
+        notes="Works on the reference project and should be parameterized before validation.",
+        mutation="read_only",
+        project_scripts_root=project_scripts_root,
+    )
+
+    assert result["success"] is True
+    artifact_dir = project_scripts_root / "audit-layer-names"
+    manifest = json.loads((artifact_dir / "manifest.json").read_text(encoding="utf-8"))
+    evidence = json.loads((artifact_dir / "evidence.json").read_text(encoding="utf-8"))
+    script_hash = script_library.compute_file_sha256(artifact_dir / "script.py")
+
+    assert manifest["state"] == "captured"
+    assert manifest["source"] == "project"
+    assert manifest["content_hash"] == script_hash
+    assert evidence["session_id"] == "session-123"
+    assert evidence["observed_output"] == {"layers": []}
+    assert result["executable"] is False
+    assert result["refusal_reason"] == "project_source_not_executable_in_v1"
+
+
+def test_capture_rejects_invalid_script_id(tmp_path):
+    result = script_library.capture_script_artifact(
+        script_id="../bad",
+        script_source="print('{}')\n",
+        description="Invalid id.",
+        project_scripts_root=tmp_path / ".rook" / "scripts",
+    )
+
+    assert result["success"] is False
+    assert result["refusal_reason"] == "invalid_id"
+
+
+def test_capture_records_static_scan_findings_without_blocking_capture(tmp_path):
+    project_scripts_root = tmp_path / ".rook" / "scripts"
+    result = script_library.capture_script_artifact(
+        script_id="interactive-candidate",
+        script_source="import rhinoscriptsyntax as rs\nrs.GetPoint('pick')\n",
+        description="Captured interactive script.",
+        project_scripts_root=project_scripts_root,
+    )
+
+    findings = json.loads((project_scripts_root / "interactive-candidate" / "findings.json").read_text(encoding="utf-8"))
+    assert result["success"] is True
+    assert findings["static_scan"]["status"] == "failed"
+    assert findings["static_scan"]["findings"][0]["code"] == "blocking_ui"
+
+
+def test_capture_refuses_existing_artifact_id_without_overwrite(tmp_path):
+    project_scripts_root = tmp_path / ".rook" / "scripts"
+    first = script_library.capture_script_artifact(
+        script_id="audit-layer-names",
+        script_source="print('{\"first\": true}')\n",
+        description="First capture.",
+        project_scripts_root=project_scripts_root,
+    )
+    second = script_library.capture_script_artifact(
+        script_id="audit-layer-names",
+        script_source="print('{\"second\": true}')\n",
+        description="Second capture should not overwrite.",
+        project_scripts_root=project_scripts_root,
+    )
+
+    assert first["success"] is True
+    assert second["success"] is False
+    assert second["refusal_reason"] == "artifact_already_exists"
+    assert (project_scripts_root / "audit-layer-names" / "script.py").read_text(encoding="utf-8") == "print('{\"first\": true}')\n"
