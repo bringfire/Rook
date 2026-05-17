@@ -108,14 +108,17 @@ function Test-ValidateLocalTestingStackScriptContract {
 
     Assert-Contains -Text $content -Expected '[switch]$ReleaseReadiness' -Message 'Release-readiness mode must be explicit.'
     Assert-Contains -Text $content -Expected '[switch]$KeepRhinoOnFailure' -Message 'Diagnostic keep-open mode must be explicit.'
-    Assert-Contains -Text $content -Expected '$FailureLabel = ''static_guard_failed''' -Message 'Static guard failures must have a stable label.'
-    Assert-Contains -Text $content -Expected '$FailureLabel = ''release_non_interference_failed''' -Message 'Release non-interference failures must have a stable label.'
-    Assert-Contains -Text $content -Expected '$FailureLabel = ''local_deploy_failed''' -Message 'Local deploy failures must have a stable label.'
-    Assert-Contains -Text $content -Expected '$FailureLabel = ''installed_runtime_failed''' -Message 'Installed runtime failures must have a stable label.'
-    Assert-Contains -Text $content -Expected '& powershell -NoProfile -ExecutionPolicy Bypass -File $DeployGuards' -Message 'Release-readiness must run deploy guards.'
-    Assert-Contains -Text $content -Expected '& powershell -NoProfile -ExecutionPolicy Bypass -File $ReleaseGuards' -Message 'Release-readiness must run release guards.'
-    Assert-Contains -Text $content -Expected '& powershell -NoProfile -ExecutionPolicy Bypass -File $DeployScript' -Message 'Release-readiness must perform a fresh local deploy.'
+    Assert-Contains -Text $content -Expected "FailureLabel 'static_guard_failed'" -Message 'Static guard failures must have a stable label.'
+    Assert-Contains -Text $content -Expected "FailureLabel 'release_non_interference_failed'" -Message 'Release non-interference failures must have a stable label.'
+    Assert-Contains -Text $content -Expected "FailureLabel 'local_deploy_failed'" -Message 'Local deploy failures must have a stable label.'
+    Assert-Contains -Text $content -Expected "FailureLabel 'installed_runtime_failed'" -Message 'Installed runtime failures must have a stable label.'
+    Assert-Contains -Text $content -Expected 'Invoke-ExternalChecked' -Message 'Every external guard command must be checked independently.'
+    Assert-Contains -Text $content -Expected '@(''powershell'', ''-NoProfile'', ''-ExecutionPolicy'', ''Bypass'', ''-File'', $DeployGuards)' -Message 'Release-readiness must run deploy guards.'
+    Assert-Contains -Text $content -Expected '@(''powershell'', ''-NoProfile'', ''-ExecutionPolicy'', ''Bypass'', ''-File'', $ReleaseGuards)' -Message 'Release-readiness must run release guards.'
+    Assert-Contains -Text $content -Expected '@(''powershell'', ''-NoProfile'', ''-ExecutionPolicy'', ''Bypass'', ''-File'', $DeployScript)' -Message 'Release-readiness must perform a fresh local deploy.'
     Assert-Contains -Text $content -Expected '-m rook.local_testing_proof owned-release-readiness' -Message 'Owned proof must run through installed rook module.'
+    Assert-Contains -Text $content -Expected 'Write-TopLevelManifest' -Message 'Release-readiness must always write a top-level manifest.'
+    Assert-Contains -Text $content -Expected 'manifest.json' -Message 'Release-readiness must aggregate gate results into manifest.json.'
     Assert-Contains -Text $content -Expected '$VenvPython = Join-Path $RuntimeRoot ''venv\Scripts\python.exe''' -Message 'Installed AppData venv must be the Python authority.'
     Assert-Contains -Text $content -Expected 'artifacts\local-testing' -Message 'Release-readiness must write deterministic artifacts.'
 }
@@ -128,7 +131,11 @@ function Test-ProofModuleDoesNotInjectRepoSource {
     Assert-NotContains -Text $content -Unexpected 'mcp_server/src' -Message 'Installed-runtime proof must not hard-code repo MCP source.'
     Assert-Contains -Text $content -Expected 'rook_import_leakage' -Message 'Installed-runtime proof must reject stale rook imports.'
     Assert-Contains -Text $content -Expected 'chirp_import_leakage' -Message 'Installed-runtime proof must reject stale chirp imports.'
+    Assert-Contains -Text $content -Expected 'mcp_config_stale' -Message 'Installed-runtime proof must reject stale MCP configs.'
+    Assert-Contains -Text $content -Expected 'verify_codex_mcp_config' -Message 'Installed-runtime proof must verify Codex TOML MCP config.'
+    Assert-Contains -Text $content -Expected 'chat_manifest_stale' -Message 'Installed-runtime proof must reject stale chat manifests.'
     Assert-Contains -Text $content -Expected 'chirp_component_compile_error' -Message 'Live proof must reject Chirp compile errors.'
+    Assert-Contains -Text $content -Expected 'component_guid' -Message 'Live proof must require Chirp component identity before checking gh_errors.'
     Assert-Contains -Text $content -Expected 'cleanup_failed' -Message 'Live proof must expose cleanup failures.'
     Assert-Contains -Text $content -Expected 'GateResult' -Message 'Proof module must emit machine-verifiable gate envelopes.'
 }
@@ -250,6 +257,91 @@ def test_verify_chirp_runtime_uses_installed_chirp_venv(monkeypatch, tmp_path: P
     assert details["chirp_file"].endswith("src\\chirp\\__init__.py") or details["chirp_file"].endswith("src/chirp/__init__.py")
 
 
+def test_verify_mcp_entry_rejects_repo_cwd(tmp_path: Path):
+    entry = {
+        "command": str(tmp_path / "Rook" / "venv" / "Scripts" / "python.exe"),
+        "args": ["-m", "rook"],
+        "cwd": str(tmp_path / "source" / "repos" / "Rook" / "mcp_server"),
+        "env": {
+            "ROOK_INSTALL_ROOT": str(tmp_path / "Rook" / "app"),
+            "ROOK_DATA_DIR": str(tmp_path / "Rook" / "data"),
+            "ROOK_MODE": "release",
+            "CHIRP_HOME": str(tmp_path / "Rook" / "app" / "chirp"),
+        },
+    }
+
+    with pytest.raises(proof.ProofFailure) as exc:
+        proof.verify_mcp_entry(
+            config_path=tmp_path / "config.json",
+            entry=entry,
+            venv_python=tmp_path / "Rook" / "venv" / "Scripts" / "python.exe",
+            install_root=tmp_path / "Rook" / "app",
+            data_root=tmp_path / "Rook" / "data",
+            chirp_home=tmp_path / "Rook" / "app" / "chirp",
+        )
+
+    assert exc.value.failure_label == "mcp_config_stale"
+
+
+def test_verify_codex_mcp_config_accepts_appdata_paths(tmp_path: Path):
+    runtime = tmp_path / "Rook"
+    install_root = runtime / "app"
+    data_root = runtime / "data"
+    chirp_home = install_root / "chirp"
+    venv_python = runtime / "venv" / "Scripts" / "python.exe"
+    config = tmp_path / ".codex" / "config.toml"
+    config.parent.mkdir()
+    def toml_path(path: Path) -> str:
+        return str(path).replace("\\", "\\\\")
+
+    config.write_text(
+        f'''
+[mcp_servers.rook]
+command = "{toml_path(venv_python)}"
+args = ["-m", "rook"]
+cwd = "{toml_path(install_root / "mcp_server")}"
+
+[mcp_servers.rook.env]
+ROOK_INSTALL_ROOT = "{toml_path(install_root)}"
+ROOK_DATA_DIR = "{toml_path(data_root)}"
+ROOK_MODE = "release"
+CHIRP_HOME = "{toml_path(chirp_home)}"
+''',
+        encoding="utf-8",
+    )
+
+    details = proof.verify_codex_mcp_config(
+        config_path=config,
+        venv_python=venv_python,
+        install_root=install_root,
+        data_root=data_root,
+        chirp_home=chirp_home,
+    )
+
+    assert details["config_path"] == str(config)
+
+
+def test_verify_chat_manifest_rejects_stale_python(tmp_path: Path):
+    plugin_dir = tmp_path / "RookNative"
+    plugin_dir.mkdir()
+    manifest = {
+        "pythonPath": str(tmp_path / "source" / "repos" / "Rook" / ".venv" / "Scripts" / "python.exe"),
+        "workingDirectory": str(tmp_path / "Rook" / "app" / "mcp_server"),
+        "module": "rook.agent.chat.service_main",
+        "pythonPathEntries": [str(tmp_path / "Rook" / "app" / "mcp_server" / "src")],
+    }
+    (plugin_dir / "RookChatService.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(proof.ProofFailure) as exc:
+        proof.verify_chat_manifest(
+            plugin_dir=plugin_dir,
+            venv_python=tmp_path / "Rook" / "venv" / "Scripts" / "python.exe",
+            install_root=tmp_path / "Rook" / "app",
+        )
+
+    assert exc.value.failure_label == "chat_manifest_stale"
+
+
 @pytest.mark.asyncio
 async def test_live_smoke_rejects_chirp_warning(monkeypatch):
     calls = []
@@ -305,7 +397,7 @@ async def test_live_smoke_requires_undo_success(monkeypatch):
 
 def test_write_json_writes_gate_envelope(tmp_path: Path):
     path = tmp_path / "gate.json"
-    result = proof.GateResult.success(
+    result = proof.GateResult.passed(
         gate="static_guard",
         command=["powershell", "-File", "scripts/tests/deploy-local-testing-guards.tests.ps1"],
         started_at=1.0,
@@ -344,6 +436,7 @@ import os
 import subprocess
 import sys
 import time
+import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -382,7 +475,7 @@ class GateResult:
     )
 
     @classmethod
-    def success_result(
+    def passed(
         cls,
         *,
         gate: str,
@@ -402,10 +495,6 @@ class GateResult:
             details=details or {},
             cleanup=cleanup or cls._default_cleanup(),
         )
-
-    @classmethod
-    def success(cls, **kwargs) -> "GateResult":
-        return cls.success_result(**kwargs)
 
     @classmethod
     def failure(
@@ -508,6 +597,158 @@ def verify_chirp_runtime(chirp_root: Path) -> dict[str, Any]:
     return {"chirp_file": str(chirp_file), "chirp_root": str(chirp_root), "chirp_python": str(chirp_python)}
 
 
+def _read_json(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        raise ProofFailure("mcp_config_missing", f"MCP config not found: {path}")
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ProofFailure("mcp_config_stale", f"MCP config is malformed JSON: {path}") from exc
+    if not isinstance(data, dict):
+        raise ProofFailure("mcp_config_stale", f"MCP config must be a JSON object: {path}")
+    return data
+
+
+def _path_equal(actual: Any, expected: Path) -> bool:
+    if actual is None:
+        return False
+    return _norm(str(actual)) == _norm(expected)
+
+
+def verify_mcp_entry(
+    *,
+    config_path: Path,
+    entry: dict[str, Any],
+    venv_python: Path,
+    install_root: Path,
+    data_root: Path,
+    chirp_home: Path,
+) -> dict[str, Any]:
+    expected_cwd = install_root / "mcp_server"
+    if not _path_equal(entry.get("command"), venv_python):
+        raise ProofFailure("mcp_config_stale", f"Rook MCP command mismatch in {config_path}", {"command": entry.get("command")})
+    if entry.get("args") != ["-m", "rook"]:
+        raise ProofFailure("mcp_config_stale", f"Rook MCP args mismatch in {config_path}", {"args": entry.get("args")})
+    if not _path_equal(entry.get("cwd"), expected_cwd):
+        raise ProofFailure("mcp_config_stale", f"Rook MCP cwd mismatch in {config_path}", {"cwd": entry.get("cwd")})
+    env = entry.get("env")
+    if not isinstance(env, dict):
+        raise ProofFailure("mcp_config_stale", f"Rook MCP env missing in {config_path}")
+    expected_env = {
+        "ROOK_INSTALL_ROOT": install_root,
+        "ROOK_DATA_DIR": data_root,
+        "CHIRP_HOME": chirp_home,
+    }
+    for key, expected in expected_env.items():
+        if not _path_equal(env.get(key), expected):
+            raise ProofFailure("mcp_config_stale", f"Rook MCP env {key} mismatch in {config_path}", {"actual": env.get(key)})
+    if env.get("ROOK_MODE") != "release":
+        raise ProofFailure("mcp_config_stale", f"Rook MCP env ROOK_MODE mismatch in {config_path}", {"actual": env.get("ROOK_MODE")})
+    return {"config_path": str(config_path), "cwd": str(expected_cwd)}
+
+
+def verify_json_mcp_config(
+    *,
+    config_path: Path,
+    venv_python: Path,
+    install_root: Path,
+    data_root: Path,
+    chirp_home: Path,
+) -> dict[str, Any]:
+    data = _read_json(config_path)
+    entry = (data.get("mcpServers") or {}).get("rook")
+    if not isinstance(entry, dict):
+        raise ProofFailure("mcp_config_missing", f"missing mcpServers.rook in {config_path}")
+    return verify_mcp_entry(
+        config_path=config_path,
+        entry=entry,
+        venv_python=venv_python,
+        install_root=install_root,
+        data_root=data_root,
+        chirp_home=chirp_home,
+    )
+
+
+def verify_codex_mcp_config(
+    *,
+    config_path: Path,
+    venv_python: Path,
+    install_root: Path,
+    data_root: Path,
+    chirp_home: Path,
+) -> dict[str, Any]:
+    if not config_path.exists():
+        raise ProofFailure("mcp_config_missing", f"Codex MCP config not found: {config_path}")
+    try:
+        data = tomllib.loads(config_path.read_text(encoding="utf-8"))
+    except tomllib.TOMLDecodeError as exc:
+        raise ProofFailure("mcp_config_stale", f"Codex MCP config is malformed TOML: {config_path}") from exc
+    entry = ((data.get("mcp_servers") or {}).get("rook"))
+    if not isinstance(entry, dict):
+        raise ProofFailure("mcp_config_missing", f"missing mcp_servers.rook in {config_path}")
+    return verify_mcp_entry(
+        config_path=config_path,
+        entry=entry,
+        venv_python=venv_python,
+        install_root=install_root,
+        data_root=data_root,
+        chirp_home=chirp_home,
+    )
+
+
+def verify_chat_manifest(*, plugin_dir: Path, venv_python: Path, install_root: Path) -> dict[str, Any]:
+    manifest_path = plugin_dir / "RookChatService.json"
+    if not manifest_path.exists():
+        raise ProofFailure("chat_manifest_missing", f"chat service manifest not found: {manifest_path}")
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ProofFailure("chat_manifest_stale", f"chat service manifest is malformed: {manifest_path}") from exc
+    expected_working_dir = install_root / "mcp_server"
+    expected_src = expected_working_dir / "src"
+    if not _path_equal(manifest.get("pythonPath"), venv_python):
+        raise ProofFailure("chat_manifest_stale", "chat service pythonPath mismatch", {"pythonPath": manifest.get("pythonPath")})
+    if not _path_equal(manifest.get("workingDirectory"), expected_working_dir):
+        raise ProofFailure("chat_manifest_stale", "chat service workingDirectory mismatch", {"workingDirectory": manifest.get("workingDirectory")})
+    if manifest.get("module") != "rook.agent.chat.service_main":
+        raise ProofFailure("chat_manifest_stale", "chat service module mismatch", {"module": manifest.get("module")})
+    entries = manifest.get("pythonPathEntries") or []
+    if not entries or not _path_equal(entries[0], expected_src):
+        raise ProofFailure("chat_manifest_stale", "chat service pythonPathEntries mismatch", {"pythonPathEntries": entries})
+    return {"manifest_path": str(manifest_path), "working_directory": str(expected_working_dir)}
+
+
+def verify_effective_configs(*, paths: Any, venv_python: Path, chirp_home: Path) -> dict[str, Any]:
+    appdata = Path(os.environ["APPDATA"])
+    home = Path.home()
+    plugin_dir = appdata / "McNeel" / "Rhinoceros" / "8.0" / "Plug-ins" / "RookNative"
+    checked: dict[str, Any] = {}
+    claude_user = home / ".claude.json"
+    claude_desktop = appdata / "Claude" / "claude_desktop_config.json"
+    codex_config = home / ".codex" / "config.toml"
+    for config_path in (claude_user, claude_desktop):
+        if config_path.exists():
+            checked[str(config_path)] = verify_json_mcp_config(
+                config_path=config_path,
+                venv_python=venv_python,
+                install_root=paths.install_root,
+                data_root=paths.data_root,
+                chirp_home=chirp_home,
+            )
+    if codex_config.exists():
+        checked[str(codex_config)] = verify_codex_mcp_config(
+            config_path=codex_config,
+            venv_python=venv_python,
+            install_root=paths.install_root,
+            data_root=paths.data_root,
+            chirp_home=chirp_home,
+        )
+    if not checked:
+        raise ProofFailure("mcp_config_missing", "no MCP config files were found to verify")
+    chat = verify_chat_manifest(plugin_dir=plugin_dir, venv_python=venv_python, install_root=paths.install_root)
+    return {"mcp_configs": checked, "chat_manifest": chat}
+
+
 def verify_installed_runtime(command: list[str]) -> GateResult:
     started = time.monotonic()
     try:
@@ -521,6 +762,11 @@ def verify_installed_runtime(command: list[str]) -> GateResult:
 
         assert_path_under(Path(rook.__file__).resolve(), expected_rook_root, "rook_import_leakage")
         chirp_details = verify_chirp_runtime(expected_chirp_root)
+        config_details = verify_effective_configs(
+            paths=paths,
+            venv_python=Path(sys.executable),
+            chirp_home=expected_chirp_root,
+        )
 
         if paths.mode != "release":
             raise ProofFailure("runtime_path_mismatch", "ROOK_MODE did not resolve to release", {"mode": paths.mode})
@@ -529,7 +775,7 @@ def verify_installed_runtime(command: list[str]) -> GateResult:
         if _norm(data_root) != _norm(Path(os.environ.get("ROOK_DATA_DIR", data_root))):
             raise ProofFailure("runtime_path_mismatch", "ROOK_DATA_DIR mismatch")
 
-        return GateResult.success(
+        return GateResult.passed(
             gate="installed_runtime",
             command=command,
             started_at=started,
@@ -539,6 +785,7 @@ def verify_installed_runtime(command: list[str]) -> GateResult:
                 "install_root": str(install_root),
                 "data_root": str(data_root),
                 **chirp_details,
+                **config_details,
             },
         )
     except ProofFailure as exc:
@@ -600,6 +847,8 @@ async def run_live_smoke(*, port: int | None = None, process_id: int | None = No
             raise ProofFailure("chirp_component_compile_error", "chirp_create compilation errors", {"chirp_create": chirp})
 
         component_guid = chirp_data.get("component_guid")
+        if not component_guid:
+            raise ProofFailure("chirp_create_failed", "chirp_create did not return component_guid", {"chirp_create": chirp})
         errors = await _call_tool_dispatch("gh_errors", dict(args))
         if not errors.get("success"):
             raise ProofFailure("gh_component_error", "gh_errors failed", {"gh_errors": errors})
@@ -618,7 +867,7 @@ def live_smoke_gate(command: list[str], *, port: int | None, process_id: int | N
     started = time.monotonic()
     try:
         details = asyncio.run(run_live_smoke(port=port, process_id=process_id))
-        return GateResult.success(gate="live_smoke", command=command, started_at=started, ended_at=time.monotonic(), details=details)
+        return GateResult.passed(gate="live_smoke", command=command, started_at=started, ended_at=time.monotonic(), details=details)
     except ProofFailure as exc:
         return GateResult.failure(gate="live_smoke", failure_label=exc.failure_label, command=command, started_at=started, ended_at=time.monotonic(), details=exc.details)
 
@@ -874,7 +1123,7 @@ def owned_release_readiness_gate(
     cleanup = _cleanup_payload(harness.cleanup_status.value)
     details = harness.to_manifest_dict()
     if harness.success:
-        return GateResult.success(
+        return GateResult.passed(
             gate="owned_release_readiness",
             command=command,
             started_at=started,
@@ -960,6 +1209,8 @@ $DataRoot = Join-Path $RuntimeRoot 'data'
 $ChirpHome = Join-Path $InstallRoot 'chirp'
 $VenvPython = Join-Path $RuntimeRoot 'venv\Scripts\python.exe'
 $ArtifactRoot = Join-Path $RepoRoot 'artifacts\local-testing'
+$GateResults = New-Object System.Collections.Generic.List[object]
+$FinalFailureLabel = $null
 
 function New-GateArtifactDir {
     $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
@@ -968,21 +1219,105 @@ function New-GateArtifactDir {
     return $path
 }
 
+function New-GateEnvelope {
+    param(
+        [Parameter(Mandatory = $true)][string]$Gate,
+        [bool]$Success,
+        [AllowNull()][string]$FailureLabel,
+        [Parameter(Mandatory = $true)][string[]]$Command,
+        [datetime]$Started,
+        [datetime]$Ended,
+        [AllowNull()][string]$StdoutPath,
+        [AllowNull()][string]$StderrPath,
+        [hashtable]$Details = @{},
+        [hashtable]$Cleanup = @{ attempted = $false; success = $null; label = $null; details = @{} }
+    )
+
+    return [ordered]@{
+        gate = $Gate
+        success = $Success
+        failure_label = $FailureLabel
+        command = $Command
+        duration_seconds = ($Ended - $Started).TotalSeconds
+        stdout_path = $StdoutPath
+        stderr_path = $StderrPath
+        details = $Details
+        cleanup = $Cleanup
+    }
+}
+
+function Save-GateEnvelope {
+    param(
+        [Parameter(Mandatory = $true)][string]$ArtifactDir,
+        [Parameter(Mandatory = $true)]$Envelope
+    )
+
+    $GateResults.Add($Envelope) | Out-Null
+    $Envelope | ConvertTo-Json -Depth 12 | Set-Content -Path (Join-Path $ArtifactDir "$($Envelope.gate).json") -Encoding UTF8
+}
+
+function Write-TopLevelManifest {
+    param(
+        [Parameter(Mandatory = $true)][string]$ArtifactDir,
+        [bool]$Success,
+        [AllowNull()][string]$FailureLabel
+    )
+
+    $branch = (& git -C $RepoRoot rev-parse --abbrev-ref HEAD 2>$null) -join ''
+    $commit = (& git -C $RepoRoot rev-parse HEAD 2>$null) -join ''
+    $dirty = -not [string]::IsNullOrWhiteSpace(((& git -C $RepoRoot status --short 2>$null) -join ''))
+    $manifest = [ordered]@{
+        source_repo = $RepoRoot
+        git_commit = $commit
+        git_branch = $branch
+        dirty_tree = $dirty
+        success = $Success
+        failure_label = $FailureLabel
+        keep_rhino_on_failure = [bool]$KeepRhinoOnFailure
+        appdata = @{
+            runtime_root = $RuntimeRoot
+            install_root = $InstallRoot
+            data_root = $DataRoot
+            chirp_home = $ChirpHome
+            venv_python = $VenvPython
+        }
+        gates = @($GateResults)
+    }
+    $manifest | ConvertTo-Json -Depth 14 | Set-Content -Path (Join-Path $ArtifactDir 'manifest.json') -Encoding UTF8
+}
+
+function Invoke-ExternalChecked {
+    param(
+        [Parameter(Mandatory = $true)][string[]]$Command,
+        [Parameter(Mandatory = $true)][string]$StdoutPath,
+        [Parameter(Mandatory = $true)][string]$StderrPath
+    )
+
+    $exe = $Command[0]
+    $args = @()
+    if ($Command.Count -gt 1) {
+        $args = @($Command[1..($Command.Count - 1)])
+    }
+    & $exe @args 1>> $StdoutPath 2>> $StderrPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "$($Command -join ' ') exited with code $LASTEXITCODE"
+    }
+}
+
 function Invoke-GateCommand {
     param(
         [Parameter(Mandatory = $true)][string]$Gate,
         [Parameter(Mandatory = $true)][string]$FailureLabel,
         [Parameter(Mandatory = $true)][string]$ArtifactDir,
-        [Parameter(Mandatory = $true)][scriptblock]$Command
+        [Parameter(Mandatory = $true)][string[][]]$Commands
     )
 
     $stdout = Join-Path $ArtifactDir "$Gate.stdout.log"
     $stderr = Join-Path $ArtifactDir "$Gate.stderr.log"
     $started = Get-Date
     try {
-        & $Command 1> $stdout 2> $stderr
-        if ($LASTEXITCODE -ne 0) {
-            throw "$Gate exited with code $LASTEXITCODE"
+        foreach ($command in $Commands) {
+            Invoke-ExternalChecked -Command $command -StdoutPath $stdout -StderrPath $stderr
         }
         $success = $true
         $label = $null
@@ -993,89 +1328,115 @@ function Invoke-GateCommand {
         $details = @{ error = $_.Exception.Message }
     }
     $ended = Get-Date
-    $payload = [ordered]@{
-        gate = $Gate
-        success = $success
-        failure_label = $label
-        command = "$Command"
-        duration_seconds = ($ended - $started).TotalSeconds
-        stdout_path = $stdout
-        stderr_path = $stderr
-        details = $details
-        cleanup = @{
-            attempted = $false
-            success = $null
-            label = $null
-            details = @{}
-        }
-    }
-    $payload | ConvertTo-Json -Depth 8 | Set-Content -Path (Join-Path $ArtifactDir "$Gate.json") -Encoding UTF8
+    $payload = New-GateEnvelope -Gate $Gate -Success $success -FailureLabel $label -Command @($Commands | ForEach-Object { $_ -join ' ' }) -Started $started -Ended $ended -StdoutPath $stdout -StderrPath $stderr -Details $details
+    Save-GateEnvelope -ArtifactDir $ArtifactDir -Envelope $payload
     if (-not $success) {
         throw "$FailureLabel`: $($details.error)"
     }
 }
 
 function Assert-NoRhinoRunningForReleaseReadiness {
+    param([Parameter(Mandatory = $true)][string]$ArtifactDir)
+
+    $started = Get-Date
     $rhino = Get-Process | Where-Object { $_.ProcessName -match '^(Rhino|Rhinoceros)$' }
+    $ended = Get-Date
     if ($rhino) {
-        $rhino | Select-Object ProcessName, Id, Path | Format-Table | Out-String | Write-Host
+        $details = @{ processes = @($rhino | Select-Object ProcessName, Id, Path) }
+        $payload = New-GateEnvelope -Gate 'rhino_preflight' -Success $false -FailureLabel 'rhino_already_running' -Command @('Get-Process Rhino') -Started $started -Ended $ended -StdoutPath $null -StderrPath $null -Details $details
+        Save-GateEnvelope -ArtifactDir $ArtifactDir -Envelope $payload
         throw 'rhino_already_running'
+    }
+    $okPayload = New-GateEnvelope -Gate 'rhino_preflight' -Success $true -FailureLabel $null -Command @('Get-Process Rhino') -Started $started -Ended $ended -StdoutPath $null -StderrPath $null -Details @{}
+    Save-GateEnvelope -ArtifactDir $ArtifactDir -Envelope $okPayload
+}
+
+function Invoke-ProofModuleGate {
+    param(
+        [Parameter(Mandatory = $true)][string]$ArtifactDir,
+        [Parameter(Mandatory = $true)][string]$Gate,
+        [Parameter(Mandatory = $true)][string]$FailureLabel,
+        [Parameter(Mandatory = $true)][string[]]$Arguments,
+        [Parameter(Mandatory = $true)][string]$OutPath
+    )
+
+    & $VenvPython @Arguments
+    if ($LASTEXITCODE -ne 0) {
+        if (Test-Path $OutPath) {
+            $payload = Get-Content -LiteralPath $OutPath -Raw | ConvertFrom-Json
+            $GateResults.Add($payload) | Out-Null
+        } else {
+            $started = Get-Date
+            $ended = Get-Date
+            $payload = New-GateEnvelope -Gate $Gate -Success $false -FailureLabel $FailureLabel -Command @($VenvPython + ' ' + ($Arguments -join ' ')) -Started $started -Ended $ended -StdoutPath $null -StderrPath $null -Details @{ error = "$Gate failed without writing $OutPath" }
+            Save-GateEnvelope -ArtifactDir $ArtifactDir -Envelope $payload
+        }
+        throw $FailureLabel
+    }
+    if (Test-Path $OutPath) {
+        $payload = Get-Content -LiteralPath $OutPath -Raw | ConvertFrom-Json
+        $GateResults.Add($payload) | Out-Null
     }
 }
 
 function Invoke-ReleaseReadiness {
     $artifactDir = New-GateArtifactDir
     Write-Host "Artifact directory: $artifactDir"
+    try {
 
-    Invoke-GateCommand -Gate 'static_guard' -FailureLabel 'static_guard_failed' -ArtifactDir $artifactDir -Command {
-        & powershell -NoProfile -ExecutionPolicy Bypass -File $DeployGuards
-        & powershell -NoProfile -ExecutionPolicy Bypass -File $StackGuards
+        Invoke-GateCommand -Gate 'static_guard' -FailureLabel 'static_guard_failed' -ArtifactDir $artifactDir -Commands @(
+            ,@('powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $DeployGuards),
+            ,@('powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $StackGuards)
+        )
+
+        Invoke-GateCommand -Gate 'release_non_interference' -FailureLabel 'release_non_interference_failed' -ArtifactDir $artifactDir -Commands @(
+            ,@('powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $ReleaseGuards)
+        )
+
+        Assert-NoRhinoRunningForReleaseReadiness -ArtifactDir $artifactDir
+
+        Invoke-GateCommand -Gate 'local_deploy' -FailureLabel 'local_deploy_failed' -ArtifactDir $artifactDir -Commands @(
+            ,@('powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $DeployScript)
+        )
+
+        if (-not (Test-Path $VenvPython)) {
+            $started = Get-Date
+            $ended = Get-Date
+            $payload = New-GateEnvelope -Gate 'installed_runtime' -Success $false -FailureLabel 'installed_runtime_failed' -Command @($VenvPython, '-m', 'rook.local_testing_proof', 'installed-runtime') -Started $started -Ended $ended -StdoutPath $null -StderrPath $null -Details @{ error = "Installed venv Python not found: $VenvPython" }
+            Save-GateEnvelope -ArtifactDir $artifactDir -Envelope $payload
+            throw 'installed_runtime_failed'
+        }
+
+        $env:ROOK_INSTALL_ROOT = $InstallRoot.Replace('\', '/')
+        $env:ROOK_DATA_DIR = $DataRoot.Replace('\', '/')
+        $env:ROOK_MODE = 'release'
+        $env:CHIRP_HOME = $ChirpHome.Replace('\', '/')
+
+        $installedRuntimeJson = Join-Path $artifactDir 'installed-runtime.json'
+        Invoke-ProofModuleGate -ArtifactDir $artifactDir -Gate 'installed_runtime' -FailureLabel 'installed_runtime_failed' -Arguments @('-m', 'rook.local_testing_proof', 'installed-runtime', '--out', $installedRuntimeJson) -OutPath $installedRuntimeJson
+
+        Assert-NoRhinoRunningForReleaseReadiness -ArtifactDir $artifactDir
+
+        $ownedJson = Join-Path $artifactDir 'owned-release-readiness.json'
+        $args = @(
+            '-m', 'rook.local_testing_proof',
+            'owned-release-readiness',
+            '--out', $ownedJson,
+            '--rhino-exe', $RhinoExe,
+            '--artifact-root', $artifactDir
+        )
+        if ($KeepRhinoOnFailure) {
+            $args += '--keep-rhino-on-failure'
+        }
+        Invoke-ProofModuleGate -ArtifactDir $artifactDir -Gate 'owned_release_readiness' -FailureLabel 'owned_release_readiness_failed' -Arguments $args -OutPath $ownedJson
+
+        Write-TopLevelManifest -ArtifactDir $artifactDir -Success $true -FailureLabel $null
+        Write-Host 'release-readiness proven'
+    } catch {
+        $FinalFailureLabel = $_.Exception.Message.Split(':')[0]
+        Write-TopLevelManifest -ArtifactDir $artifactDir -Success $false -FailureLabel $FinalFailureLabel
+        throw
     }
-
-    Invoke-GateCommand -Gate 'release_non_interference' -FailureLabel 'release_non_interference_failed' -ArtifactDir $artifactDir -Command {
-        & powershell -NoProfile -ExecutionPolicy Bypass -File $ReleaseGuards
-    }
-
-    Assert-NoRhinoRunningForReleaseReadiness
-
-    Invoke-GateCommand -Gate 'local_deploy' -FailureLabel 'local_deploy_failed' -ArtifactDir $artifactDir -Command {
-        & powershell -NoProfile -ExecutionPolicy Bypass -File $DeployScript
-    }
-
-    if (-not (Test-Path $VenvPython)) {
-        throw "installed_runtime_failed: Installed venv Python not found: $VenvPython"
-    }
-
-    $env:ROOK_INSTALL_ROOT = $InstallRoot.Replace('\', '/')
-    $env:ROOK_DATA_DIR = $DataRoot.Replace('\', '/')
-    $env:ROOK_MODE = 'release'
-    $env:CHIRP_HOME = $ChirpHome.Replace('\', '/')
-
-    $installedRuntimeJson = Join-Path $artifactDir 'installed-runtime.json'
-    & $VenvPython -m rook.local_testing_proof installed-runtime --out $installedRuntimeJson
-    if ($LASTEXITCODE -ne 0) {
-        throw 'installed_runtime_failed'
-    }
-
-    Assert-NoRhinoRunningForReleaseReadiness
-
-    $ownedJson = Join-Path $artifactDir 'owned-release-readiness.json'
-    $args = @(
-        '-m', 'rook.local_testing_proof',
-        'owned-release-readiness',
-        '--out', $ownedJson,
-        '--rhino-exe', $RhinoExe,
-        '--artifact-root', $artifactDir
-    )
-    if ($KeepRhinoOnFailure) {
-        $args += '--keep-rhino-on-failure'
-    }
-    & $VenvPython @args
-    if ($LASTEXITCODE -ne 0) {
-        throw "owned_release_readiness_failed; see $ownedJson"
-    }
-
-    Write-Host 'release-readiness proven'
 }
 
 if (-not $ReleaseReadiness) {
