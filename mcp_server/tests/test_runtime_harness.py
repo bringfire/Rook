@@ -1,4 +1,5 @@
 import json
+import importlib.util
 import os
 import subprocess
 import sys
@@ -25,6 +26,16 @@ from rook.runtime_harness import (
     ping_native,
     _scoped_env_subset,
 )
+
+
+def _load_harness_cli_module():
+    repo_root = Path(__file__).resolve().parents[2]
+    script = repo_root / "scripts" / "run_rhino_runtime_harness.py"
+    spec = importlib.util.spec_from_file_location("run_rhino_runtime_harness_cli", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 class FakeProcess:
@@ -1811,3 +1822,17 @@ def test_runtime_harness_cli_help_works():
     assert "--smoke" in result.stdout
     assert "ping-only" in result.stdout
     assert "gh-readiness" in result.stdout
+    assert "gh-python-geometry-output" in result.stdout
+
+
+def test_runtime_harness_maps_gh_python_geometry_output_smoke():
+    repo_root = Path(__file__).resolve().parents[2]
+    module = _load_harness_cli_module()
+
+    command, cwd = module._smoke_command("gh-python-geometry-output", repo_root)
+
+    assert command == [
+        sys.executable,
+        "mcp_server/tools/gh_python_geometry_output_live_harness.py",
+    ]
+    assert cwd == repo_root

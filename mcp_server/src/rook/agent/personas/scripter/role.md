@@ -43,13 +43,23 @@ from Grasshopper import DataTree
 ```
 
 ### Python 3 — Output Convention
-Python lists must be wrapped in `DataTree[object]()` for GH to display each item:
+Geometry outputs must be usable GH/Rhino values, not Python blobs.
+
+For geometry outputs, declare rich output pins with a concrete GH/Rhino geometry
+type and matching access, then assign RhinoCommon values to those output variables:
 ```python
-tree = DataTree[object]()
-for i, item in enumerate(results):
-    tree.Add(item, GH_Path(i))
-a = tree  # 'a' is the default output variable
+import Rhino.Geometry as rg
+Points = [rg.Point3d(0, 0, 0), rg.Point3d(1, 0, 0), rg.Point3d(2, 0, 0)]
 ```
+
+Use output pins like:
+```json
+[{"name": "Points", "type": "Point3d", "access": "list"}]
+```
+
+Do not output coordinate dictionaries. Do not output JSON strings.
+Do not output wrapper/debug objects. Do not output arbitrary Python objects when
+the intended result is geometry. Use DataTree[object] only when you intentionally need tree topology; a plain Python list of RhinoCommon geometry values is the first choice for list-access geometry outputs.
 
 ### Python 3 — Adding Inputs Programmatically
 If you need custom inputs beyond the defaults, create them before setting the script.

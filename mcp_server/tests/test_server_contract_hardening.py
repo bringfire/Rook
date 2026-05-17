@@ -1345,6 +1345,32 @@ async def test_gh_create_script_inputSchema_enforces_language():
 
 
 @pytest.mark.asyncio
+async def test_gh_script_tool_descriptions_teach_usable_geometry_outputs():
+    required = [
+        '{"name": "Points", "type": "Point3d", "access": "list"}',
+        "Points = [rg.Point3d(0, 0, 0), rg.Point3d(1, 0, 0), rg.Point3d(2, 0, 0)]",
+        "Do not assign coordinate dictionaries",
+        "Do not assign JSON strings",
+        "Do not assign wrapper/debug objects",
+    ]
+
+    tools = {tool.name: tool for tool in await server.list_tools()}
+    for tool_name in ("gh_create_script", "gh_create_python_script"):
+        tool = tools[tool_name]
+        description = tool.description
+        for phrase in required:
+            assert phrase in description, (
+                f"{tool_name} missing geometry output guidance: {phrase}"
+            )
+
+        pins_out_description = tool.inputSchema["properties"]["pins_out"]["description"]
+        assert (
+            '{"name": "Points", "type": "Point3d", "access": "list"}'
+            in pins_out_description
+        )
+
+
+@pytest.mark.asyncio
 async def test_gh_create_script_rejects_missing_language(monkeypatch, patched_server):
     """Handler-level defense-in-depth. Schema-level enum enforcement is the
     primary gate, but the handler also rejects at runtime so callers that
@@ -1464,6 +1490,54 @@ async def test_gh_create_script_python_delegates_to_py3_guid(monkeypatch, patche
     assert payload["data"]["component_guid"] == "py-guid"
     assert payload["data"]["name"] == "Unified Py"
     assert any(route == "/gh/create-component" for route, _, _ in recorded_calls)
+
+
+@pytest.mark.asyncio
+async def test_gh_create_script_python_point_list_output_adds_typed_postamble(
+    monkeypatch, patched_server
+):
+    """Declared Point3d list outputs must be coerced before RhinoCode stores
+    them, so downstream GH/Rhino sees real geometry rather than PyObject blobs.
+    """
+    scripts: list[str] = []
+
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        if route == "/gh/create-component":
+            return {"success": True, "data": {"guid": "py-guid"}}
+        if route == "/gh/script-params":
+            return {"success": True, "data": {"Guid": "py-guid", "Inputs": 0, "Outputs": 1}}
+        if route == "/gh/script":
+            scripts.append(payload["script"])
+            return {"success": True, "data": {"Guid": "py-guid"}}
+        if route == "/gh/errors":
+            return {"success": True, "data": {"errors": []}}
+        raise AssertionError(f"Unexpected route: {route}")
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    payload = await server._execute_gh_create_script(
+        "python",
+        {
+            "code": (
+                "import Rhino.Geometry as rg\n"
+                "Points = [rg.Point3d(0, 0, 0), rg.Point3d(1, 0, 0)]"
+            ),
+            "pins_in": [],
+            "pins_out": [{"name": "Points", "type": "Point3d", "access": "list"}],
+            "name": "Typed Point Output",
+        },
+        port=1234,
+    )
+
+    assert payload["success"] is True
+    assert len(scripts) == 1
+    script = scripts[0]
+    assert "Points = [rg.Point3d" in script
+    assert "# ── Auto-generated GH output coercion" in script
+    assert script.index("Points = [rg.Point3d") < script.index(
+        "# ── Auto-generated GH output coercion"
+    )
+    assert "Points = _rook_gh_output_list(Points, _rook_rg.Point3d)" in script
 
 
 @pytest.mark.asyncio

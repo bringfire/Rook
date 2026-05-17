@@ -90,6 +90,7 @@ Agents compose GH definitions using `gh_edit` for all mutations and `gh_snapshot
 - **Connection errors**: If `gh_edit` connect succeeds but `gh_errors` shows issues, check the flow indices via `gh_snapshot`
 - **Canvas position**: Components default to (0,0). For `gh_edit.create` entries use `"pos": [x, y]`. For `gh_move.positions` entries use flat `"x": N, "y": M` keys. (The two shapes differ — see the gh_move bullet above.)
 - **Script components**: Use `gh_set_script` to set/get source on any script-component type (Python 3, C#, GH1-legacy); use `gh_create_script(language=...)` (or its `gh_create_python_script` / `gh_create_csharp_script` aliases) for creation — NOT `gh_edit` with component-name strings
+- **Geometry outputs**: When a Python script component outputs geometry, declare rich `pins_out` entries such as `{"name": "Points", "type": "Point3d", "access": "list"}` and assign real RhinoCommon values, for example `Points = [rg.Point3d(0, 0, 0), rg.Point3d(1, 0, 0), rg.Point3d(2, 0, 0)]`. Do not output coordinate dictionaries. Do not output JSON strings. Do not output wrapper/debug objects. Do not output arbitrary Python objects for geometry. Use DataTree[object] only when you intentionally need tree topology.
 - **Do NOT use `rhino_execute` for GH operations** -- always use the gh_* tools
 - **Temp vs persistent IDs**: T-prefixed IDs are only valid within a single `gh_edit` call. After the edit, use `gh_snapshot` to get C-prefixed IDs for subsequent edits
 

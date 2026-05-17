@@ -1002,6 +1002,77 @@ def _build_gh_python_preamble(pins_in: list[dict[str, Any]]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _build_gh_python_output_postamble(pins_out: list[dict[str, Any]]) -> str:
+    """Coerce declared Python geometry outputs before RhinoCode stores them.
+
+    RhinoCode can expose Python list items to downstream GH as Python.Runtime
+    PyObject wrappers even when the script assigned RhinoCommon values. For
+    declared list-access geometry outputs, rebuild the output as a typed .NET
+    List[T] while still inside the Python component solve.
+    """
+    geometry_types = {
+        "Point3d": "_rook_rg.Point3d",
+        "Vector3d": "_rook_rg.Vector3d",
+        "Plane": "_rook_rg.Plane",
+        "Line": "_rook_rg.Line",
+        "Circle": "_rook_rg.Circle",
+        "Arc": "_rook_rg.Arc",
+        "Box": "_rook_rg.Box",
+        "Polyline": "_rook_rg.Polyline",
+        "Point2d": "_rook_rg.Point2d",
+        "Interval": "_rook_rg.Interval",
+        "Rectangle3d": "_rook_rg.Rectangle3d",
+        "Transform": "_rook_rg.Transform",
+        "Curve": "_rook_rg.Curve",
+        "Surface": "_rook_rg.Surface",
+        "Brep": "_rook_rg.Brep",
+        "Mesh": "_rook_rg.Mesh",
+    }
+
+    output_plan: list[tuple[str, str]] = []
+    for pin in pins_out:
+        name = str(pin.get("name") or "").strip()
+        ptype = str(pin.get("type") or "").strip()
+        access = str(pin.get("access") or "item").strip().lower() or "item"
+        dotnet_type = geometry_types.get(ptype)
+        if name and dotnet_type and access == "list":
+            output_plan.append((name, dotnet_type))
+
+    if not output_plan:
+        return ""
+
+    lines = [
+        "",
+        "# ── Auto-generated GH output coercion (do not edit) ─────────",
+        "# Rebuild declared geometry list outputs as typed .NET lists so",
+        "# downstream GH/Rhino receives RhinoCommon geometry, not PyObject blobs.",
+        "import Rhino.Geometry as _rook_rg",
+        "from System.Collections.Generic import List as _rook_List",
+        "",
+        "def _rook_gh_output_list(_value, _type):",
+        "    if _value is None:",
+        "        return None",
+        "    _items = _rook_List[_type]()",
+        "    for _item in _value:",
+        "        _items.Add(_item)",
+        "    return _items",
+        "",
+    ]
+
+    for name, dotnet_type in output_plan:
+        lines.extend([
+            "try:",
+            f"    {name} = _rook_gh_output_list({name}, {dotnet_type})",
+            "except NameError:",
+            "    pass",
+        ])
+
+    lines.append("# ── End output coercion ─────────────────────────────────────")
+    lines.append("")
+
+    return "\n".join(lines) + "\n"
+
+
 def _build_gh_csharp_wrapper(
     code: str,
     pins_in: list[dict[str, Any]],
@@ -1299,7 +1370,8 @@ async def _execute_gh_create_script(
         # Language-specific code preparation
         if language == "python":
             preamble = _build_gh_python_preamble(pin_defs_in)
-            full_script = preamble + code
+            postamble = _build_gh_python_output_postamble(pin_defs_out)
+            full_script = preamble + code + postamble
         else:  # csharp
             full_script = _build_gh_csharp_wrapper(code, pin_defs_in, pin_defs_out)
 
@@ -6915,13 +6987,26 @@ Common types: string, int, float, double, bool, Point3d, Vector3d, Curve, Surfac
 The script receives inputs as variables matching pin names, and must assign outputs
 to variables matching output pin names. The 'out' print stream is always available.
 
-Example:
+For geometry outputs, declare rich output pins with a concrete GH/Rhino geometry
+type and the correct access mode, then assign RhinoCommon geometry values to the
+matching output variables. A list-access geometry output should be a plain Python
+list of RhinoCommon values:
+
 {
-  "code": "import Rhino.Geometry as rg\\na = rg.Point3d(x, y, 0)",
-  "pins_in": ["x:float", "y:float"],
-  "pins_out": ["a:Point3d"],
-  "name": "Grid Point"
-}""",
+  "code": "import Rhino.Geometry as rg\\nPoints = [rg.Point3d(0, 0, 0), rg.Point3d(1, 0, 0), rg.Point3d(2, 0, 0)]",
+  "pins_in": [],
+  "pins_out": [{"name": "Points", "type": "Point3d", "access": "list"}],
+  "name": "Point List"
+}
+
+Other geometry output pin examples:
+- {"name": "Curves", "type": "Curve", "access": "list"}
+- {"name": "Breps", "type": "Brep", "access": "list"}
+- {"name": "Meshes", "type": "Mesh", "access": "list"}
+
+Do not assign coordinate dictionaries. Do not assign JSON strings.
+Do not assign wrapper/debug objects. Do not assign arbitrary Python objects
+when the intended output is GH/Rhino geometry.""",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -6932,7 +7017,7 @@ Example:
                     },
                     "pins_out": {
                         **_GH_SCRIPT_PIN_ARRAY_SCHEMA,
-                        "description": 'Output pin definitions as "Name:Type" strings or pin objects, e.g. ["a:Point3d"]',
+                        "description": 'Output pin definitions as "Name:Type" strings or pin objects, e.g. [{"name": "Points", "type": "Point3d", "access": "list"}]. For geometry outputs, prefer pin objects with explicit type/access and assign RhinoCommon values to matching output variables.',
                     },
                     "name": {"type": "string", "description": "Display name for the component (default: 'Python 3 Script')"},
                     "x": {"type": "number", "description": "Canvas X position (default: 200)"},
@@ -7023,13 +7108,29 @@ Pins may be provided either as legacy "Name:Type" strings or rich pin objects
 with access/optional/description metadata.
 Common types: string, int, float, double, bool, Point3d, Vector3d, Curve, Surface, Brep, Mesh, Line, Plane, Circle, Box.
 
+Python geometry output rule:
+When the semantic output is geometry, declare rich output pins with concrete
+GH/Rhino geometry types and assign real RhinoCommon values. For example:
+
+{
+  "language": "python",
+  "code": "import Rhino.Geometry as rg\\nPoints = [rg.Point3d(0, 0, 0), rg.Point3d(1, 0, 0), rg.Point3d(2, 0, 0)]",
+  "pins_in": [],
+  "pins_out": [{"name": "Points", "type": "Point3d", "access": "list"}],
+  "name": "Point List"
+}
+
+Do not assign coordinate dictionaries. Do not assign JSON strings.
+Do not assign wrapper/debug objects. Do not assign arbitrary Python objects
+when the intended output is GH/Rhino geometry.
+
 Example (Python):
 {
   "language": "python",
-  "code": "import Rhino.Geometry as rg\\na = rg.Point3d(x, y, 0)",
-  "pins_in": ["x:float", "y:float"],
-  "pins_out": ["a:Point3d"],
-  "name": "Grid Point"
+  "code": "import Rhino.Geometry as rg\\nPoints = [rg.Point3d(0, 0, 0), rg.Point3d(1, 0, 0), rg.Point3d(2, 0, 0)]",
+  "pins_in": [],
+  "pins_out": [{"name": "Points", "type": "Point3d", "access": "list"}],
+  "name": "Point List"
 }
 
 Example (C#):
@@ -7055,7 +7156,7 @@ Example (C#):
                     },
                     "pins_out": {
                         **_GH_SCRIPT_PIN_ARRAY_SCHEMA,
-                        "description": 'Output pin definitions as "Name:Type" strings or pin objects, e.g. ["a:Point3d"]',
+                        "description": 'Output pin definitions as "Name:Type" strings or pin objects, e.g. [{"name": "Points", "type": "Point3d", "access": "list"}]. For Python geometry outputs, prefer pin objects with explicit type/access and assign RhinoCommon values to matching output variables.',
                     },
                     "name": {"type": "string", "description": "Display name for the component (default: language-appropriate — 'Python 3 Script' or 'C# Script')"},
                     "x": {"type": "number", "description": "Canvas X position (default: 200)"},
