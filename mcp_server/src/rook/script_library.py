@@ -252,6 +252,13 @@ _SCRIPTCONTEXT_MUTATION_METHODS = {
     "Clear",
     "CommitChanges",
 }
+_ALLOWED_IMPORTS = {"json", "rhinoscriptsyntax", "scriptcontext"}
+_ALLOWED_BUILTIN_CALLS = {"bool", "dict", "int", "len", "list", "print", "str"}
+_ALLOWED_JSON_CALLS = {"dumps"}
+_ALLOWED_SCRIPTCONTEXT_CHAINS = {
+    ("scriptcontext", "doc", "Layers"),
+    ("scriptcontext", "doc", "Layers", "__iter__"),
+}
 
 
 def hash_text(text: str) -> str:
@@ -293,10 +300,28 @@ def _attribute_chain(node: ast.AST) -> list[str]:
     return []
 
 
+def _is_allowed_call(chain: list[str], module_aliases: dict[str, str]) -> bool:
+    if not chain:
+        return False
+    if len(chain) == 1 and chain[0] in _ALLOWED_BUILTIN_CALLS:
+        return True
+
+    root = chain[0]
+    module = module_aliases.get(root, root)
+    normalized = tuple([module, *chain[1:]])
+    if len(normalized) == 2 and normalized[0] == "json" and normalized[1] in _ALLOWED_JSON_CALLS:
+        return True
+    if normalized in _ALLOWED_SCRIPTCONTEXT_CHAINS:
+        return True
+    return False
+
+
 def _scan_ast_for_rejects(tree: ast.AST) -> list[dict[str, str]]:
     module_aliases: dict[str, str] = {}
     imported_names: dict[str, tuple[str, str]] = {}
-    rhinoscriptsyntax_star_import = False
+    local_functions: set[str] = {
+        node.name for node in ast.walk(tree) if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
     findings: list[dict[str, str]] = []
 
     for node in ast.walk(tree):
@@ -305,21 +330,14 @@ def _scan_ast_for_rejects(tree: ast.AST) -> list[dict[str, str]]:
                 root_module = alias.name.split(".", 1)[0]
                 local_name = alias.asname or root_module
                 module_aliases[local_name] = alias.name
-                if root_module in _NETWORK_MODULES:
-                    findings.append(_finding("network_access", getattr(node, "lineno", 1), "Network module imports are not allowed in library scripts."))
-                if root_module == "subprocess":
-                    findings.append(_finding("subprocess", getattr(node, "lineno", 1), "Subprocess imports are not allowed in library scripts."))
+                if root_module not in _ALLOWED_IMPORTS:
+                    findings.append(_finding("unsupported_import", getattr(node, "lineno", 1), f"Import '{alias.name}' is not allowed in v1 library scripts."))
         elif isinstance(node, ast.ImportFrom):
             module = node.module or ""
             root_module = module.split(".", 1)[0]
-            if root_module in _NETWORK_MODULES:
-                findings.append(_finding("network_access", getattr(node, "lineno", 1), "Network module imports are not allowed in library scripts."))
-            if root_module == "subprocess":
-                findings.append(_finding("subprocess", getattr(node, "lineno", 1), "Subprocess imports are not allowed in library scripts."))
+            if root_module not in _ALLOWED_IMPORTS:
+                findings.append(_finding("unsupported_import", getattr(node, "lineno", 1), f"Import from '{module}' is not allowed in v1 library scripts."))
             for alias in node.names:
-                if module == "rhinoscriptsyntax" and alias.name == "*":
-                    rhinoscriptsyntax_star_import = True
-                    continue
                 imported_names[alias.asname or alias.name] = (module, alias.name)
 
     for node in ast.walk(tree):
@@ -327,6 +345,8 @@ def _scan_ast_for_rejects(tree: ast.AST) -> list[dict[str, str]]:
             continue
         line_no = getattr(node, "lineno", 1)
         func = node.func
+        chain = _attribute_chain(func) if not isinstance(func, ast.Name) else [func.id]
+        is_allowed_call = _is_allowed_call(chain, module_aliases)
 
         if isinstance(func, ast.Name):
             name = func.id
@@ -334,8 +354,13 @@ def _scan_ast_for_rejects(tree: ast.AST) -> list[dict[str, str]]:
             if name in _DYNAMIC_EXECUTION_CALLS:
                 findings.append(_finding("dynamic_execution", line_no, "Dynamic Python execution is not allowed in library scripts."))
                 continue
+            if name == "getattr":
+                findings.append(_finding("unsupported_call", line_no, "Dynamic attribute calls are not allowed in v1 library scripts."))
+                continue
             if name in {"open", "file", "Path"}:
                 findings.append(_finding("filesystem_access", line_no, "Filesystem access is not allowed unless declared and approved."))
+                continue
+            if name in local_functions:
                 continue
             if imported:
                 module, original_name = imported
@@ -353,12 +378,9 @@ def _scan_ast_for_rejects(tree: ast.AST) -> list[dict[str, str]]:
                     findings.append(_finding("dynamic_execution", line_no, "Dynamic imports are not allowed in library scripts."))
                 elif module == "pathlib" and original_name == "Path":
                     findings.append(_finding("filesystem_access", line_no, "Filesystem access is not allowed unless declared and approved."))
-            elif rhinoscriptsyntax_star_import and name.startswith("Get"):
-                findings.append(_finding("blocking_ui", line_no, "Interactive Rhino input calls are not allowed in library execution."))
-            elif rhinoscriptsyntax_star_import and name.startswith(("Add", "Delete", "Move", "Copy", "Transform", "Rotate", "Scale", "Set")):
-                findings.append(_finding("rhino_mutation_or_unsupported", line_no, "rhinoscriptsyntax calls are not allowed in v1 read-only library scripts."))
+            elif not is_allowed_call:
+                findings.append(_finding("unsupported_call", line_no, f"Call '{name}()' is not allowed in v1 library scripts."))
 
-        chain = _attribute_chain(func)
         if not chain:
             continue
         root = chain[0]
@@ -384,6 +406,8 @@ def _scan_ast_for_rejects(tree: ast.AST) -> list[dict[str, str]]:
             findings.append(_finding("dynamic_execution", line_no, "Dynamic imports are not allowed in library scripts."))
         elif module.split(".", 1)[0] in _NETWORK_MODULES:
             findings.append(_finding("network_access", line_no, "Network access is not allowed in v1 library scripts."))
+        elif not is_allowed_call:
+            findings.append(_finding("unsupported_call", line_no, f"Call '{'.'.join(chain)}()' is not allowed in v1 library scripts."))
 
     return findings
 
@@ -421,9 +445,9 @@ def scan_script_file(path: Path) -> dict[str, Any]:
         }
 
     if path.is_symlink():
-        findings.append({"code": "symlink_entrypoint", "severity": "reject", "message": "Entrypoint symlinks are not allowed."})
+        return {"status": "failed", "findings": [{"code": "symlink_entrypoint", "severity": "reject", "message": "Entrypoint symlinks are not allowed."}]}
     if stat.st_size > MAX_SCRIPT_BYTES:
-        findings.append({"code": "oversized_script", "severity": "reject", "message": "Script exceeds the v1 size limit."})
+        return {"status": "failed", "findings": [{"code": "oversized_script", "severity": "reject", "message": "Script exceeds the v1 size limit."}]}
 
     data = path.read_bytes()
     if b"\x00" in data:
@@ -444,6 +468,20 @@ def scan_script_file(path: Path) -> dict[str, Any]:
 def _manifest_declared_hash(artifact: ScriptArtifact) -> str:
     value = artifact.manifest.get("content_hash")
     return value if isinstance(value, str) else ""
+
+
+def _executable_schema_error(artifact: ScriptArtifact) -> str | None:
+    parameters_schema = artifact.manifest.get("parameters_schema")
+    output_schema = artifact.manifest.get("output_schema")
+    if not isinstance(parameters_schema, dict) or not parameters_schema:
+        return "invalid_executable_schema"
+    if not isinstance(output_schema, dict) or not output_schema:
+        return "invalid_executable_schema"
+    if parameters_schema.get("type") != "object":
+        return "invalid_executable_schema"
+    if output_schema.get("type") != "object":
+        return "invalid_executable_schema"
+    return None
 
 
 def evaluate_executability(
@@ -467,6 +505,9 @@ def evaluate_executability(
         return False, "adapt_reference_not_executable", details
     if artifact.mutation != "read_only":
         return False, "mutation_not_executable_in_v1", details
+    schema_error = _executable_schema_error(artifact)
+    if schema_error is not None:
+        return False, schema_error, details
 
     scan = scan_script_file(artifact.entrypoint_path)
     details["static_scan_summary"] = {
@@ -794,7 +835,8 @@ async def run_library_script(
     project_root: Path | str | None = None,
     project_scripts_root: Path | str | None = None,
 ) -> dict[str, Any]:
-    parameters = parameters or {}
+    if parameters is None:
+        parameters = {}
     expected_mutation = expected_mutation or "read_only"
     if expected_mutation != "read_only":
         return {

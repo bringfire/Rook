@@ -247,6 +247,29 @@ async def test_run_library_script_validates_parameters_before_execution(tmp_path
 
 
 @pytest.mark.asyncio
+async def test_run_library_script_rejects_falsey_non_dict_parameters_before_execution(tmp_path):
+    repo_root = tmp_path / "scripts" / "rook-library"
+    _write_repo_executable(repo_root)
+
+    async def fail_call_rhino(*args, **kwargs):
+        raise AssertionError("run_library_script must validate non-dict parameters before calling Rhino")
+
+    payload = await script_library.run_library_script(
+        script_id="extract-layers",
+        source="repo",
+        parameters=[],
+        expected_mutation="read_only",
+        call_rhino_func=fail_call_rhino,
+        repo_library_root=repo_root,
+        project_scripts_root=None,
+    )
+
+    assert payload["success"] is False
+    assert payload["verified"] is False
+    assert payload["refusal_reason"] == "parameters_schema_validation_failed"
+
+
+@pytest.mark.asyncio
 async def test_run_library_script_rejects_mutation_before_execution(tmp_path):
     repo_root = tmp_path / "scripts" / "rook-library"
     code = "import rhinoscriptsyntax as rs\nrs.AddPoint(0, 0, 0)\nprint('{\"layers\": []}')\n"

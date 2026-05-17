@@ -144,6 +144,21 @@ def test_static_scan_rejects_imported_unsafe_calls():
         assert any(finding["code"] == finding_code for finding in scan["findings"])
 
 
+def test_static_scan_rejects_denylist_bypass_examples():
+    cases = [
+        ("import Rhino\nRhino.RhinoApp.RunScript('_Line', False)\n", "unsupported_call"),
+        ("import pathlib\npathlib.Path('model.3dm').unlink()\n", "unsupported_call"),
+        ("import shutil\nshutil.rmtree('folder')\n", "unsupported_import"),
+        ("import io\nio.open('file.txt')\n", "unsupported_import"),
+        ("import os\ngetattr(os, 'system')('echo unsafe')\n", "unsupported_call"),
+    ]
+
+    for code, finding_code in cases:
+        scan = script_library.scan_script_text(code)
+        assert scan["status"] == "failed"
+        assert any(finding["code"] == finding_code for finding in scan["findings"])
+
+
 def test_static_scan_rejects_obvious_rhino_mutation_call():
     scan = script_library.scan_script_text("import rhinoscriptsyntax as rs\nrs.AddPoint(0, 0, 0)\n")
 
@@ -200,6 +215,35 @@ def test_structural_scan_rejects_internal_symlink_entrypoint(tmp_path):
     assert scan["findings"][0]["severity"] == "reject"
 
 
+def test_structural_scan_does_not_read_rejected_symlink(tmp_path):
+    artifact_dir = tmp_path / "artifact"
+    artifact_dir.mkdir()
+    target = artifact_dir / "target.py"
+    target.write_bytes(b"print('target')\x00\n")
+    link = artifact_dir / "script.py"
+    try:
+        link.symlink_to(target)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unavailable on this filesystem: {exc}")
+
+    scan = script_library.scan_script_file(link)
+
+    assert scan["status"] == "failed"
+    assert scan["findings"][0]["code"] == "symlink_entrypoint"
+    assert all(finding["code"] != "binary_or_nul_bytes" for finding in scan["findings"])
+
+
+def test_structural_scan_does_not_read_oversized_script(tmp_path):
+    script = tmp_path / "script.py"
+    script.write_bytes(b"x" * (script_library.MAX_SCRIPT_BYTES + 1) + b"\x00")
+
+    scan = script_library.scan_script_file(script)
+
+    assert scan["status"] == "failed"
+    assert scan["findings"][0]["code"] == "oversized_script"
+    assert all(finding["code"] != "binary_or_nul_bytes" for finding in scan["findings"])
+
+
 def test_entrypoint_path_traversal_is_not_executable(tmp_path):
     repo_root = tmp_path / "scripts" / "rook-library"
     code = "print('{\"layers\": []}')\n"
@@ -249,6 +293,29 @@ def test_repo_validated_script_is_executable_when_manifest_lock_hash_and_scan_ma
     assert search["results"][0]["executable"] is True
     assert search["results"][0]["refusal_reason"] is None
     assert search["results"][0]["content_hash"] == script_hash
+
+
+def test_repo_validated_script_requires_structured_non_empty_schemas(tmp_path):
+    repo_root = tmp_path / "scripts" / "rook-library"
+    code = "print('{\"layers\": []}')\n"
+    script_hash = script_library.hash_text(code)
+    manifest = _manifest(content_hash=script_hash, parameters_schema={}, output_schema={})
+    _write_artifact(repo_root, "rhino", "extract-layers", manifest, code)
+    lock = {
+        "version": 1,
+        "artifacts": {
+            "repo:rhino:extract-layers:0.1.0": {
+                "content_hash": script_hash,
+                "static_scan": {"status": "passed", "content_hash": script_hash},
+            }
+        },
+    }
+    (repo_root / "rook-library.lock.json").write_text(json.dumps(lock), encoding="utf-8")
+
+    search = script_library.search_scripts(query="layers", repo_library_root=repo_root, project_scripts_root=None)
+
+    assert search["results"][0]["executable"] is False
+    assert search["results"][0]["refusal_reason"] == "invalid_executable_schema"
 
 
 def test_repo_validated_script_with_rhino_mutation_is_not_executable(tmp_path):
