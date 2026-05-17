@@ -247,6 +247,30 @@ async def test_run_library_script_validates_parameters_before_execution(tmp_path
 
 
 @pytest.mark.asyncio
+async def test_run_library_script_rejects_mutation_before_execution(tmp_path):
+    repo_root = tmp_path / "scripts" / "rook-library"
+    code = "import rhinoscriptsyntax as rs\nrs.AddPoint(0, 0, 0)\nprint('{\"layers\": []}')\n"
+    _write_repo_executable(repo_root, code=code)
+
+    async def fail_call_rhino(*args, **kwargs):
+        raise AssertionError("run_library_script must reject mutation scripts before calling Rhino")
+
+    payload = await script_library.run_library_script(
+        script_id="extract-layers",
+        source="repo",
+        parameters={},
+        expected_mutation="read_only",
+        call_rhino_func=fail_call_rhino,
+        repo_library_root=repo_root,
+        project_scripts_root=None,
+    )
+
+    assert payload["success"] is False
+    assert payload["verified"] is False
+    assert payload["refusal_reason"] == "failed_static_scan"
+
+
+@pytest.mark.asyncio
 async def test_run_library_script_treats_output_schema_failure_as_failed(tmp_path):
     repo_root = tmp_path / "scripts" / "rook-library"
     _write_repo_executable(repo_root)

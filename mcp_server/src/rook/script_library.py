@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
+import os
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -139,11 +141,14 @@ def _artifact_from_dir(artifact_dir: Path, expected_source: str) -> ScriptArtifa
     manifest = manifest or {}
     errors.extend(_validate_manifest(manifest, expected_source=expected_source))
 
+    artifact_root = Path(os.path.abspath(artifact_dir))
     entrypoint = manifest.get("entrypoint", "script.py")
     if isinstance(entrypoint, str):
-        entrypoint_path = (artifact_dir / entrypoint).resolve()
+        # Keep the lexical path for structural checks. Path.resolve() follows
+        # symlinks, which would hide an entrypoint symlink before scan time.
+        entrypoint_path = Path(os.path.abspath(artifact_dir / entrypoint))
         try:
-            entrypoint_path.relative_to(artifact_dir.resolve())
+            entrypoint_path.relative_to(artifact_root)
         except ValueError:
             errors.append("entrypoint_outside_artifact")
     else:
@@ -198,6 +203,56 @@ NETWORK_RE = re.compile(r"\b(requests|urllib|socket|httpx)\b")
 DANGEROUS_RE = re.compile(r"\b(exec|eval|compile|__import__)\s*\(")
 SUBPROCESS_RE = re.compile(r"\b(subprocess|os\.system|popen)\b")
 
+_RHINOSCRIPTSYNTAX_INTERACTIVE_CALLS: frozenset[str] = frozenset({
+    "GetBoolean",
+    "GetBox",
+    "GetColor",
+    "GetCurveObject",
+    "GetInteger",
+    "GetLayer",
+    "GetMeshObject",
+    "GetObject",
+    "GetObjects",
+    "GetPoint",
+    "GetPoints",
+    "GetReal",
+    "GetRectangle",
+    "GetString",
+    "GetSurfaceObject",
+})
+_NETWORK_MODULES = {"requests", "urllib", "socket", "httpx"}
+_OS_SUBPROCESS_CALLS = {"system", "popen", "spawnl", "spawnle", "spawnlp", "spawnlpe", "spawnv", "spawnve", "spawnvp", "spawnvpe"}
+_OS_FILESYSTEM_CALLS = {
+    "open",
+    "remove",
+    "unlink",
+    "rmdir",
+    "removedirs",
+    "rename",
+    "renames",
+    "replace",
+    "mkdir",
+    "makedirs",
+    "chmod",
+    "chown",
+    "utime",
+}
+_DYNAMIC_EXECUTION_CALLS = {"exec", "eval", "compile", "__import__"}
+_SCRIPTCONTEXT_MUTATION_METHODS = {
+    "Add",
+    "AddBrep",
+    "AddCurve",
+    "AddMesh",
+    "AddPoint",
+    "Delete",
+    "Modify",
+    "Replace",
+    "Transform",
+    "Purge",
+    "Clear",
+    "CommitChanges",
+}
+
 
 def hash_text(text: str) -> str:
     return f"sha256:{hashlib.sha256(text.encode('utf-8')).hexdigest()}"
@@ -217,36 +272,140 @@ def load_trust_lock(repo_library_root: Path | str) -> dict[str, Any]:
     return lock
 
 
+def _finding(code: str, line: int, message: str) -> dict[str, str]:
+    return {
+        "code": code,
+        "severity": "reject",
+        "line": str(line),
+        "message": message,
+    }
+
+
+def _attribute_chain(node: ast.AST) -> list[str]:
+    parts: list[str] = []
+    current = node
+    while isinstance(current, ast.Attribute):
+        parts.append(current.attr)
+        current = current.value
+    if isinstance(current, ast.Name):
+        parts.append(current.id)
+        return list(reversed(parts))
+    return []
+
+
+def _scan_ast_for_rejects(tree: ast.AST) -> list[dict[str, str]]:
+    module_aliases: dict[str, str] = {}
+    imported_names: dict[str, tuple[str, str]] = {}
+    rhinoscriptsyntax_star_import = False
+    findings: list[dict[str, str]] = []
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                root_module = alias.name.split(".", 1)[0]
+                local_name = alias.asname or root_module
+                module_aliases[local_name] = alias.name
+                if root_module in _NETWORK_MODULES:
+                    findings.append(_finding("network_access", getattr(node, "lineno", 1), "Network module imports are not allowed in library scripts."))
+                if root_module == "subprocess":
+                    findings.append(_finding("subprocess", getattr(node, "lineno", 1), "Subprocess imports are not allowed in library scripts."))
+        elif isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            root_module = module.split(".", 1)[0]
+            if root_module in _NETWORK_MODULES:
+                findings.append(_finding("network_access", getattr(node, "lineno", 1), "Network module imports are not allowed in library scripts."))
+            if root_module == "subprocess":
+                findings.append(_finding("subprocess", getattr(node, "lineno", 1), "Subprocess imports are not allowed in library scripts."))
+            for alias in node.names:
+                if module == "rhinoscriptsyntax" and alias.name == "*":
+                    rhinoscriptsyntax_star_import = True
+                    continue
+                imported_names[alias.asname or alias.name] = (module, alias.name)
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        line_no = getattr(node, "lineno", 1)
+        func = node.func
+
+        if isinstance(func, ast.Name):
+            name = func.id
+            imported = imported_names.get(name)
+            if name in _DYNAMIC_EXECUTION_CALLS:
+                findings.append(_finding("dynamic_execution", line_no, "Dynamic Python execution is not allowed in library scripts."))
+                continue
+            if name in {"open", "file", "Path"}:
+                findings.append(_finding("filesystem_access", line_no, "Filesystem access is not allowed unless declared and approved."))
+                continue
+            if imported:
+                module, original_name = imported
+                if module == "rhinoscriptsyntax":
+                    if original_name in _RHINOSCRIPTSYNTAX_INTERACTIVE_CALLS:
+                        findings.append(_finding("blocking_ui", line_no, "Interactive Rhino input calls are not allowed in library execution."))
+                    else:
+                        findings.append(_finding("rhino_mutation_or_unsupported", line_no, "rhinoscriptsyntax calls are not allowed in v1 read-only library scripts."))
+                elif module == "os":
+                    if original_name in _OS_SUBPROCESS_CALLS:
+                        findings.append(_finding("subprocess", line_no, "Subprocess execution is not allowed in library scripts."))
+                    elif original_name in _OS_FILESYSTEM_CALLS:
+                        findings.append(_finding("filesystem_access", line_no, "Filesystem access is not allowed unless declared and approved."))
+                elif module == "importlib" and original_name == "import_module":
+                    findings.append(_finding("dynamic_execution", line_no, "Dynamic imports are not allowed in library scripts."))
+                elif module == "pathlib" and original_name == "Path":
+                    findings.append(_finding("filesystem_access", line_no, "Filesystem access is not allowed unless declared and approved."))
+            elif rhinoscriptsyntax_star_import and name.startswith("Get"):
+                findings.append(_finding("blocking_ui", line_no, "Interactive Rhino input calls are not allowed in library execution."))
+            elif rhinoscriptsyntax_star_import and name.startswith(("Add", "Delete", "Move", "Copy", "Transform", "Rotate", "Scale", "Set")):
+                findings.append(_finding("rhino_mutation_or_unsupported", line_no, "rhinoscriptsyntax calls are not allowed in v1 read-only library scripts."))
+
+        chain = _attribute_chain(func)
+        if not chain:
+            continue
+        root = chain[0]
+        module = module_aliases.get(root, root)
+        leaf = chain[-1]
+
+        if module == "rhinoscriptsyntax":
+            if leaf in _RHINOSCRIPTSYNTAX_INTERACTIVE_CALLS:
+                findings.append(_finding("blocking_ui", line_no, "Interactive Rhino input calls are not allowed in library execution."))
+            else:
+                findings.append(_finding("rhino_mutation_or_unsupported", line_no, "rhinoscriptsyntax calls are not allowed in v1 read-only library scripts."))
+        elif module == "scriptcontext":
+            if len(chain) >= 4 and chain[1] == "doc" and chain[2] == "Objects":
+                findings.append(_finding("rhino_doc_object_mutation", line_no, "sc.doc.Objects calls are not allowed in v1 read-only library scripts."))
+            elif len(chain) >= 4 and chain[1] == "doc" and leaf in _SCRIPTCONTEXT_MUTATION_METHODS:
+                findings.append(_finding("rhino_doc_mutation", line_no, "Rhino document mutation calls are not allowed in v1 read-only library scripts."))
+        elif module == "os":
+            if leaf in _OS_SUBPROCESS_CALLS:
+                findings.append(_finding("subprocess", line_no, "Subprocess execution is not allowed in library scripts."))
+            elif leaf in _OS_FILESYSTEM_CALLS:
+                findings.append(_finding("filesystem_access", line_no, "Filesystem access is not allowed unless declared and approved."))
+        elif module == "importlib" and leaf == "import_module":
+            findings.append(_finding("dynamic_execution", line_no, "Dynamic imports are not allowed in library scripts."))
+        elif module.split(".", 1)[0] in _NETWORK_MODULES:
+            findings.append(_finding("network_access", line_no, "Network access is not allowed in v1 library scripts."))
+
+    return findings
+
+
 def scan_script_text(code: str) -> dict[str, Any]:
     findings: list[dict[str, str]] = []
 
     invisible_match = INVISIBLE_TEXT_RE.search(code)
     if invisible_match:
-        findings.append({
-            "code": "hidden_invisible_text",
-            "severity": "reject",
-            "line": str(code.count("\n", 0, invisible_match.start()) + 1),
-            "message": "Invisible Unicode control text is not allowed in library scripts.",
-        })
+        findings.append(_finding(
+            "hidden_invisible_text",
+            code.count("\n", 0, invisible_match.start()) + 1,
+            "Invisible Unicode control text is not allowed in library scripts.",
+        ))
 
-    checks = [
-        ("blocking_ui", BLOCKING_UI_RE, "Interactive Rhino input calls are not allowed in library execution."),
-        ("filesystem_access", FILE_ACCESS_RE, "Filesystem access is not allowed unless declared and approved."),
-        ("network_access", NETWORK_RE, "Network access is not allowed in v1 library scripts."),
-        ("dynamic_execution", DANGEROUS_RE, "Dynamic Python execution is not allowed in library scripts."),
-        ("subprocess", SUBPROCESS_RE, "Subprocess execution is not allowed in library scripts."),
-    ]
+    try:
+        tree = ast.parse(code, mode="exec")
+    except SyntaxError as exc:
+        findings.append(_finding("invalid_python_syntax", exc.lineno or 1, "Library scripts must parse as Python before execution."))
+        return {"status": "failed", "findings": findings}
 
-    for code_name, pattern, message in checks:
-        match = pattern.search(code)
-        if match:
-            line_no = code.count("\n", 0, match.start()) + 1
-            findings.append({
-                "code": code_name,
-                "severity": "reject",
-                "line": str(line_no),
-                "message": message,
-            })
+    findings.extend(_scan_ast_for_rejects(tree))
 
     return {"status": "failed" if findings else "passed", "findings": findings}
 
@@ -309,8 +468,19 @@ def evaluate_executability(
     if artifact.mutation != "read_only":
         return False, "mutation_not_executable_in_v1", details
 
+    scan = scan_script_file(artifact.entrypoint_path)
+    details["static_scan_summary"] = {
+        "status": scan["status"],
+        "content_hash": None,
+        "findings_count": len(scan["findings"]),
+    }
+    if scan["status"] != "passed":
+        details["static_scan_summary"]["findings"] = scan["findings"]
+        return False, "failed_static_scan", details
+
     actual_hash = compute_file_sha256(artifact.entrypoint_path)
     details["content_hash"] = actual_hash
+    details["static_scan_summary"]["content_hash"] = actual_hash
     declared_hash = _manifest_declared_hash(artifact)
     if declared_hash != actual_hash:
         return False, "content_hash_mismatch", details
@@ -329,18 +499,9 @@ def evaluate_executability(
     if lock_entry.get("content_hash") != actual_hash:
         return False, "trust_anchor_hash_mismatch", details
 
-    scan = scan_script_file(artifact.entrypoint_path)
-    details["static_scan_summary"] = {
-        "status": scan["status"],
-        "content_hash": actual_hash,
-        "findings_count": len(scan["findings"]),
-    }
     lock_scan = lock_entry.get("static_scan", {})
     if isinstance(lock_scan, dict) and lock_scan.get("content_hash") == actual_hash:
         details["static_scan_summary"]["trust_anchor_scan_status"] = lock_scan.get("status")
-    if scan["status"] != "passed":
-        details["static_scan_summary"]["findings"] = scan["findings"]
-        return False, "failed_static_scan", details
 
     return True, None, details
 

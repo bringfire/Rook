@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from rook import script_library
 
 
@@ -121,6 +123,43 @@ def test_static_scan_rejects_blocking_rhinoscriptsyntax_get_call():
     assert scan["findings"][0]["severity"] == "reject"
 
 
+def test_static_scan_rejects_imported_blocking_input_call():
+    scan = script_library.scan_script_text("from rhinoscriptsyntax import GetPoint\nGetPoint('pick')\n")
+
+    assert scan["status"] == "failed"
+    assert scan["findings"][0]["code"] == "blocking_ui"
+    assert scan["findings"][0]["severity"] == "reject"
+
+
+def test_static_scan_rejects_imported_unsafe_calls():
+    cases = [
+        ("from os import system\nsystem('echo unsafe')\n", "subprocess"),
+        ("from os import remove\nremove('model.3dm')\n", "filesystem_access"),
+        ("import importlib\nimportlib.import_module('os')\n", "dynamic_execution"),
+    ]
+
+    for code, finding_code in cases:
+        scan = script_library.scan_script_text(code)
+        assert scan["status"] == "failed"
+        assert any(finding["code"] == finding_code for finding in scan["findings"])
+
+
+def test_static_scan_rejects_obvious_rhino_mutation_call():
+    scan = script_library.scan_script_text("import rhinoscriptsyntax as rs\nrs.AddPoint(0, 0, 0)\n")
+
+    assert scan["status"] == "failed"
+    assert scan["findings"][0]["code"] == "rhino_mutation_or_unsupported"
+    assert scan["findings"][0]["severity"] == "reject"
+
+
+def test_static_scan_rejects_scriptcontext_object_mutation_call():
+    scan = script_library.scan_script_text("import scriptcontext as sc\nsc.doc.Objects.Delete(object_id, True)\n")
+
+    assert scan["status"] == "failed"
+    assert scan["findings"][0]["code"] == "rhino_doc_object_mutation"
+    assert scan["findings"][0]["severity"] == "reject"
+
+
 def test_structural_scan_rejects_binary_script_bytes(tmp_path):
     script = tmp_path / "script.py"
     script.write_bytes(b"print('ok')\x00\n")
@@ -140,6 +179,24 @@ def test_structural_scan_rejects_hidden_invisible_text(tmp_path):
 
     assert scan["status"] == "failed"
     assert scan["findings"][0]["code"] == "hidden_invisible_text"
+    assert scan["findings"][0]["severity"] == "reject"
+
+
+def test_structural_scan_rejects_internal_symlink_entrypoint(tmp_path):
+    artifact_dir = tmp_path / "artifact"
+    artifact_dir.mkdir()
+    target = artifact_dir / "target.py"
+    target.write_text("print('{\"layers\": []}')\n", encoding="utf-8")
+    link = artifact_dir / "script.py"
+    try:
+        link.symlink_to(target)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unavailable on this filesystem: {exc}")
+
+    scan = script_library.scan_script_file(link)
+
+    assert scan["status"] == "failed"
+    assert scan["findings"][0]["code"] == "symlink_entrypoint"
     assert scan["findings"][0]["severity"] == "reject"
 
 
@@ -192,6 +249,30 @@ def test_repo_validated_script_is_executable_when_manifest_lock_hash_and_scan_ma
     assert search["results"][0]["executable"] is True
     assert search["results"][0]["refusal_reason"] is None
     assert search["results"][0]["content_hash"] == script_hash
+
+
+def test_repo_validated_script_with_rhino_mutation_is_not_executable(tmp_path):
+    repo_root = tmp_path / "scripts" / "rook-library"
+    code = "import rhinoscriptsyntax as rs\nrs.AddPoint(0, 0, 0)\nprint('{\"layers\": []}')\n"
+    script_hash = script_library.hash_text(code)
+    manifest = _manifest(content_hash=script_hash)
+    _write_artifact(repo_root, "rhino", "extract-layers", manifest, code)
+    lock = {
+        "version": 1,
+        "artifacts": {
+            "repo:rhino:extract-layers:0.1.0": {
+                "content_hash": script_hash,
+                "static_scan": {"status": "passed", "content_hash": script_hash},
+            }
+        },
+    }
+    (repo_root / "rook-library.lock.json").write_text(json.dumps(lock), encoding="utf-8")
+
+    search = script_library.search_scripts(query="layers", repo_library_root=repo_root, project_scripts_root=None)
+
+    assert search["results"][0]["executable"] is False
+    assert search["results"][0]["refusal_reason"] == "failed_static_scan"
+    assert search["results"][0]["static_scan_summary"]["findings"][0]["code"] == "rhino_mutation_or_unsupported"
 
 
 def test_project_candidate_is_searchable_but_not_executable(tmp_path):
@@ -309,3 +390,11 @@ def test_checked_in_extract_layers_artifact_is_executable():
     assert matching[0]["mutation"] == "read_only"
     assert matching[0]["executable"] is True
     assert matching[0]["refusal_reason"] is None
+
+
+def test_installer_packages_repo_script_library():
+    installer_path = Path(__file__).resolve().parents[2] / "installer" / "RookSetup.iss"
+    installer_text = installer_path.read_text(encoding="utf-8")
+
+    assert 'Source: "{#ScriptsDir}\\rook-library\\*"' in installer_text
+    assert 'DestDir: "{app}\\scripts\\rook-library"' in installer_text
