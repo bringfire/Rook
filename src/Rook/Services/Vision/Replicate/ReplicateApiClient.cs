@@ -253,6 +253,9 @@ namespace Rook.Services.Vision.Replicate
             {
                 using var document = JsonDocument.Parse(body);
                 var root = document.RootElement;
+                if (root.ValueKind != JsonValueKind.Object)
+                    throw MissingUploadResponse();
+
                 var id = root.TryGetProperty("id", out var idElement)
                     ? idElement.GetString()
                     : null;

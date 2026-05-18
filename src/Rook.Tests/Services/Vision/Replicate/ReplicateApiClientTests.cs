@@ -183,6 +183,32 @@ namespace Rook.Tests.Services.Vision.Replicate
         }
 
         [Fact]
+        public async Task UploadFileAsync_rejects_non_object_response()
+        {
+            var handler = new TestHttpMessageHandler
+            {
+                OnSend = _ => new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("[]", Encoding.UTF8, "application/json"),
+                },
+            };
+            var client = new ReplicateApiClient(new HttpClient(handler));
+
+            var error = await Assert.ThrowsAsync<ArgumentException>(() =>
+                client.UploadFileAsync(
+                    "r8_token",
+                    "source.png",
+                    new byte[] { 1, 2, 3 },
+                    "image/png",
+                    "{}",
+                    CancellationToken.None));
+
+            Assert.Equal(
+                "Replicate file upload response was missing file id or urls.get.",
+                error.Message);
+        }
+
+        [Fact]
         public async Task SendApiAsync_rejects_non_api_replicate_hosts()
         {
             var handler = new TestHttpMessageHandler();
