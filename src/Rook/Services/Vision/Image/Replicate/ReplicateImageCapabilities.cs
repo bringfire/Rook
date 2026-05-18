@@ -49,7 +49,7 @@ namespace Rook.Services.Vision.Image.Replicate
                     Id: Flux2Pro,
                     Name: "FLUX.2 Pro",
                     Status: "available",
-                    Resolutions: new[] { "1MP" },
+                    Resolutions: new[] { "1 MP", "2 MP", "4 MP" },
                     AspectRatios: new[] { "1:1", "4:3", "3:4", "16:9", "9:16", "match_input_image" },
                     MaxReferenceImages: 0,
                     SupportsImageToImage: true,

@@ -11,6 +11,7 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
     {
         private readonly ReplicateImageOptionsCodec _codec = new();
         private readonly ImageCapability _cap = ReplicateImageCapabilities.Models[ReplicateImageCapabilities.FluxSchnell];
+        private readonly ImageCapability _flux2Cap = ReplicateImageCapabilities.Models[ReplicateImageCapabilities.Flux2Pro];
 
         [Fact]
         public void Validate_accepts_default_text_to_image_request()
@@ -89,6 +90,46 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
             Assert.Equal("resolution", result.Field);
         }
 
+        [Theory]
+        [InlineData("1 MP")]
+        [InlineData("2 MP")]
+        [InlineData("4 MP")]
+        public void Validate_flux2_accepts_provider_shaped_resolutions(string resolution)
+        {
+            var result = _codec.Validate(
+                Flux2Request(resolution: resolution),
+                new ReplicateImageOptions(),
+                _flux2Cap);
+
+            Assert.True(result.Success);
+        }
+
+        [Fact]
+        public void Validate_flux2_accepts_legacy_1mp_alias()
+        {
+            var result = _codec.Validate(
+                Flux2Request(resolution: "1MP"),
+                new ReplicateImageOptions(),
+                _flux2Cap);
+
+            Assert.True(result.Success);
+        }
+
+        [Theory]
+        [InlineData("2MP")]
+        [InlineData("4MP")]
+        public void Validate_flux2_rejects_compact_resolution_aliases_other_than_legacy_1mp(string resolution)
+        {
+            var result = _codec.Validate(
+                Flux2Request(resolution: resolution),
+                new ReplicateImageOptions(),
+                _flux2Cap);
+
+            Assert.False(result.Success);
+            Assert.Equal("resolution", result.Field);
+            Assert.Contains("1 MP, 2 MP, 4 MP", result.Message);
+        }
+
         [Fact]
         public void Serialize_returns_empty_object()
         {
@@ -126,6 +167,20 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
             System.Collections.Generic.IReadOnlyList<MediaRef>? referenceImages = null) =>
             new(
                 Model: ReplicateImageCapabilities.FluxSchnell,
+                Prompt: "sunlit massing study",
+                Resolution: resolution,
+                AspectRatio: aspectRatio,
+                NumberOfImages: numberOfImages,
+                ReferenceImages: referenceImages,
+                Options: new ReplicateImageOptions());
+
+        private static ImageGenerationRequest Flux2Request(
+            string resolution = "1 MP",
+            string aspectRatio = "1:1",
+            int numberOfImages = 1,
+            System.Collections.Generic.IReadOnlyList<MediaRef>? referenceImages = null) =>
+            new(
+                Model: ReplicateImageCapabilities.Flux2Pro,
                 Prompt: "sunlit massing study",
                 Resolution: resolution,
                 AspectRatio: aspectRatio,

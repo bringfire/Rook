@@ -27,9 +27,7 @@ namespace Rook.Services.Vision.Image.Replicate
                     "number_of_images must be 1 for Replicate image generation.",
                     "number_of_images");
 
-            var resolution = string.IsNullOrWhiteSpace(request.Resolution)
-                ? "1K"
-                : request.Resolution.ToUpperInvariant();
+            var resolution = NormalizeResolutionForValidation(request, capability);
             if (!capability.Resolutions.Contains(resolution, StringComparer.Ordinal))
             {
                 return ValidationResult.Fail(
@@ -64,6 +62,38 @@ namespace Rook.Services.Vision.Image.Replicate
             }
 
             return ValidationResult.Ok();
+        }
+
+        private static string NormalizeResolutionForValidation(
+            ImageGenerationRequest request,
+            ImageCapability capability)
+        {
+            if (string.IsNullOrWhiteSpace(request.Resolution))
+            {
+                return string.Equals(
+                    capability.Id,
+                    ReplicateImageCapabilities.Flux2Pro,
+                    StringComparison.Ordinal)
+                    ? "1 MP"
+                    : "1K";
+            }
+
+            var trimmed = request.Resolution.Trim();
+            if (string.Equals(
+                    capability.Id,
+                    ReplicateImageCapabilities.Flux2Pro,
+                    StringComparison.Ordinal)
+                && string.Equals(trimmed, "1MP", StringComparison.OrdinalIgnoreCase))
+            {
+                return "1 MP";
+            }
+
+            return string.Equals(
+                capability.Id,
+                ReplicateImageCapabilities.Flux2Pro,
+                StringComparison.Ordinal)
+                ? trimmed
+                : trimmed.ToUpperInvariant();
         }
 
         public JsonObject Serialize(ProviderOptions options)

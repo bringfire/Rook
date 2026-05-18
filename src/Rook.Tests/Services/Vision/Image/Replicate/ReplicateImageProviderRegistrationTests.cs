@@ -36,7 +36,7 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
             Assert.Equal(ReplicateImageCapabilities.Flux2Pro, flux2.Capability.Id);
             Assert.Equal("FLUX.2 Pro", flux2.Capability.Name);
             Assert.Equal("available", flux2.Capability.Status);
-            Assert.Equal(new[] { "1MP" }, flux2.Capability.Resolutions);
+            Assert.Equal(new[] { "1 MP", "2 MP", "4 MP" }, flux2.Capability.Resolutions);
             Assert.Equal(
                 new[] { "1:1", "4:3", "3:4", "16:9", "9:16", "match_input_image" },
                 flux2.Capability.AspectRatios);
