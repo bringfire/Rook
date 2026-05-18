@@ -17,6 +17,7 @@ using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Image;
 using Rook.Services.Vision.Image.Fal;
 using Rook.Services.Vision.Image.Gemini;
+using Rook.Services.Vision.Image.Replicate;
 
 namespace Rook.Handlers
 {
@@ -610,9 +611,6 @@ namespace Rook.Handlers
                 ? GeminiImageCapabilities.ResolveShortName(modelInput)
                 : modelInput!.Trim();
             var resolutionInput = GetStringArg(args, "resolution");
-            var resolution = string.IsNullOrWhiteSpace(resolutionInput)
-                ? "1K"
-                : resolutionInput!;
             var aspectRatio = NormalizeAspectRatioForProvider(
                 GetStringArg(args, "aspect_ratio"));
 
@@ -648,6 +646,7 @@ namespace Rook.Handlers
                         OptionsCodec: new GeminiImageOptionsCodec());
                 }
             }
+            var mediaLimits = MediaLimitsForModel(resolvedModel);
 
             var hasInputArtifactField =
                 args.TryGetValue("input_image", out var inputArtifactEl);
@@ -688,6 +687,15 @@ namespace Rook.Handlers
                     Fail("Missing or non-string field 'input_image_path'."));
             }
 
+            var resolution = string.IsNullOrWhiteSpace(resolutionInput)
+                ? DefaultResolutionForCapability(resolvedModel.Capability)
+                : resolutionInput!;
+            if (aspectRatio is null && !hasInputImage && allowPromptOnly)
+            {
+                aspectRatio = DefaultPromptOnlyAspectRatioForCapability(
+                    resolvedModel.Capability);
+            }
+
             if (hasInputImage && !resolvedModel.Capability.SupportsImageToImage)
             {
                 return ImageGenerationWorkItemResult.Fail(
@@ -716,7 +724,7 @@ namespace Rook.Handlers
             }
 
             // Track aggregate raw bytes across primary + all references
-            // to enforce MaxAggregateImageBytes. Base64 expansion happens
+            // to enforce the active model's aggregate byte cap. Base64 expansion happens
             // downstream — we cap BEFORE encoding to avoid exceeding
             // Gemini's practical inline-payload limit.
             if (hasLegacyInputImageField && hasInputImage)
@@ -728,10 +736,10 @@ namespace Rook.Handlers
                         $"input_image_path does not exist: '{inputImagePath}'.");
                 }
                 var info = new FileInfo(inputImagePath);
-                if (info.Length > MaxInputImageBytes)
+                if (info.Length > mediaLimits.SingleBytes)
                 {
                     throw new ArgumentException(
-                        $"input_image_path exceeds size limit of {MaxInputImageBytes} bytes " +
+                        $"input_image_path exceeds size limit of {mediaLimits.SingleBytes} bytes " +
                         $"({info.Length} bytes).");
                 }
                 aggregateBytes = info.Length;
@@ -779,13 +787,13 @@ namespace Rook.Handlers
                     if (!File.Exists(path))
                         throw new ArgumentException($"reference_image_paths entry not found: '{path}'.");
                     var refInfo = new FileInfo(path);
-                    if (refInfo.Length > MaxInputImageBytes)
+                    if (refInfo.Length > mediaLimits.SingleBytes)
                         throw new ArgumentException($"reference image exceeds size limit: '{path}'.");
                     aggregateBytes += refInfo.Length;
-                    if (aggregateBytes > MaxAggregateImageBytes)
+                    if (aggregateBytes > mediaLimits.AggregateBytes)
                     {
                         throw new ArgumentException(
-                            $"Aggregate image payload exceeds {MaxAggregateImageBytes} bytes " +
+                            $"Aggregate image payload exceeds {mediaLimits.AggregateBytes} bytes " +
                             $"({aggregateBytes} bytes so far). Reduce the number or size of " +
                             "reference images.");
                     }
@@ -806,7 +814,10 @@ namespace Rook.Handlers
             var mediaRefs = new List<MediaRef>();
             if (inputRef is not null) mediaRefs.Add(inputRef);
             if (referenceRefs is not null) mediaRefs.AddRange(referenceRefs);
-            var mediaResolution = ResolveImageMediaRefs(mediaRefs);
+            var mediaResolution = ResolveImageMediaRefs(
+                mediaRefs,
+                mediaLimits.SingleBytes,
+                mediaLimits.AggregateBytes);
             if (!mediaResolution.Success)
             {
                 return ImageGenerationWorkItemResult.Fail(
@@ -839,11 +850,38 @@ namespace Rook.Handlers
                     CollectParentArtifactIds(mediaRefs)));
         }
 
-        private MediaResolutionResult ResolveImageMediaRefs(IReadOnlyList<MediaRef> refs)
+        private static (long SingleBytes, long AggregateBytes) MediaLimitsForModel(
+            ResolvedImageModel resolvedModel)
+        {
+            if (resolvedModel is null)
+                throw new ArgumentNullException(nameof(resolvedModel));
+
+            if (string.Equals(
+                    resolvedModel.ProviderName,
+                    ReplicateImageCapabilities.ProviderName,
+                    StringComparison.Ordinal)
+                && string.Equals(
+                    resolvedModel.ModelId,
+                    ReplicateImageCapabilities.Flux2Pro,
+                    StringComparison.Ordinal))
+            {
+                var safety = ReplicateImageCapabilities.Flux2ProMediaPolicy.Safety;
+                return (
+                    safety.MaxSingleReadBytes,
+                    safety.MaxAggregateReadBytes);
+            }
+
+            return (MaxInputImageBytes, MaxAggregateImageBytes);
+        }
+
+        private MediaResolutionResult ResolveImageMediaRefs(
+            IReadOnlyList<MediaRef> refs,
+            long maxSingleImageBytes,
+            long maxAggregateImageBytes)
             => new ArtifactImageMediaResolver(
                     _artifactStore,
-                    MaxInputImageBytes,
-                    MaxAggregateImageBytes)
+                    maxSingleImageBytes,
+                    maxAggregateImageBytes)
                 .ResolveAllAsync(refs, CancellationToken.None)
                 .GetAwaiter().GetResult();
 
@@ -856,6 +894,26 @@ namespace Rook.Handlers
                 .Select(r => r.ArtifactId!.Value)
                 .Distinct()
                 .ToList();
+
+        private static string DefaultResolutionForCapability(ImageCapability capability)
+        {
+            if (string.Equals(capability.Id, GeminiImageCapabilities.NanoBanana2,
+                    StringComparison.Ordinal)
+                || string.Equals(capability.Id, GeminiImageCapabilities.DefaultShortName,
+                    StringComparison.Ordinal))
+            {
+                return "1K";
+            }
+
+            return capability.Resolutions.FirstOrDefault(r => !string.IsNullOrWhiteSpace(r))
+                ?? "1K";
+        }
+
+        private static string? DefaultPromptOnlyAspectRatioForCapability(
+            ImageCapability capability)
+            => capability.AspectRatios.FirstOrDefault(r =>
+                !string.IsNullOrWhiteSpace(r)
+                && !r.Equals("match_input_image", StringComparison.OrdinalIgnoreCase));
 
         private static MediaRef ParseImageArtifactMediaRef(
             JsonElement el,

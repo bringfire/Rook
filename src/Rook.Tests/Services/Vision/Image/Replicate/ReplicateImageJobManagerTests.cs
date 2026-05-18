@@ -135,16 +135,29 @@ namespace Rook.Services.Vision.Image.Replicate
         }
 
         [Fact]
-        public async Task Flux2_job_materializes_without_leaking_data_uri_to_ledger_or_artifact_metadata()
+        public async Task Flux2_job_materializes_with_uploaded_source_url_without_leaking_transport_payloads()
         {
-            string? submitBody = null;
+            string? predictionBody = null;
             var apiHandler = new TestHttpMessageHandler
             {
                 OnSend = request =>
                 {
+                    if (request.Method == HttpMethod.Post
+                        && request.RequestUri!.AbsolutePath == "/v1/files")
+                    {
+                        return Json(HttpStatusCode.Created, """
+                            {
+                              "id": "file-flux2-input",
+                              "urls": {
+                                "get": "https://api.replicate.com/v1/files/file-flux2-input"
+                              }
+                            }
+                            """);
+                    }
+
                     if (request.Method == HttpMethod.Post)
                     {
-                        submitBody = request.Content!
+                        predictionBody = request.Content!
                             .ReadAsStringAsync()
                             .GetAwaiter()
                             .GetResult();
@@ -178,7 +191,22 @@ namespace Rook.Services.Vision.Image.Replicate
                 submit.JobId.Value,
                 CancellationToken.None);
 
-            Assert.Contains("data:image/png;base64,", submitBody);
+            Assert.Equal(3, apiHandler.Requests.Count);
+            Assert.Equal(
+                "https://api.replicate.com/v1/files",
+                apiHandler.Requests[0].RequestUri!.ToString());
+            Assert.Equal(
+                "https://api.replicate.com/v1/models/black-forest-labs/flux-2-pro/predictions",
+                apiHandler.Requests[1].RequestUri!.ToString());
+            Assert.NotNull(predictionBody);
+            Assert.Contains(
+                "\"input_images\":[\"https://api.replicate.com/v1/files/file-flux2-input\"]",
+                predictionBody,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "data:image/",
+                predictionBody,
+                StringComparison.OrdinalIgnoreCase);
             Assert.Equal(ImageJobState.Complete, status.State);
             Assert.Equal(ImageJobState.Complete, fetch.State);
 
@@ -190,6 +218,10 @@ namespace Rook.Services.Vision.Image.Replicate
                 artifactMetadata,
                 StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain(
+                "/v1/files/file-flux2-input",
+                artifactMetadata,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain(
                 "input.png",
                 artifactMetadata,
                 StringComparison.OrdinalIgnoreCase);
@@ -197,6 +229,10 @@ namespace Rook.Services.Vision.Image.Replicate
             var ledgerJson = JsonSerializer.Serialize(_ledger.AllRecords);
             Assert.DoesNotContain(
                 "data:image/",
+                ledgerJson,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain(
+                "/v1/files/file-flux2-input",
                 ledgerJson,
                 StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain(
@@ -369,22 +405,29 @@ namespace Rook.Services.Vision.Image.Replicate
                     Options: new ReplicateImageOptions()),
                 new Dictionary<MediaRef, ResolvedMedia>
                 {
-                    [input] = new ResolvedMedia(
-                        new byte[]
-                        {
-                            0x89,
-                            0x50,
-                            0x4E,
-                            0x47,
-                            0x0D,
-                            0x0A,
-                            0x1A,
-                            0x0A,
-                            0x00,
-                        },
-                        "image/png"),
+                    [input] = PngMediaWithDimensions(512, 512),
                 },
                 Array.Empty<Guid>());
+        }
+
+        private static ResolvedMedia PngMediaWithDimensions(int width, int height)
+        {
+            var bytes = new byte[33];
+            bytes[0] = 0x89; bytes[1] = 0x50; bytes[2] = 0x4E; bytes[3] = 0x47;
+            bytes[4] = 0x0D; bytes[5] = 0x0A; bytes[6] = 0x1A; bytes[7] = 0x0A;
+            WriteBigEndian(bytes, 8, 13);
+            bytes[12] = 0x49; bytes[13] = 0x48; bytes[14] = 0x44; bytes[15] = 0x52;
+            WriteBigEndian(bytes, 16, width);
+            WriteBigEndian(bytes, 20, height);
+            return new ResolvedMedia(bytes, "image/png");
+        }
+
+        private static void WriteBigEndian(byte[] bytes, int offset, int value)
+        {
+            bytes[offset] = (byte)((value >> 24) & 0xFF);
+            bytes[offset + 1] = (byte)((value >> 16) & 0xFF);
+            bytes[offset + 2] = (byte)((value >> 8) & 0xFF);
+            bytes[offset + 3] = (byte)(value & 0xFF);
         }
 
         private static ResultArtifact RemoteArtifact(string url) =>

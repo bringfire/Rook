@@ -433,7 +433,7 @@ async function generateImageJob(prompt, model, sourcePath) {
             prompt,
             resolution: el.resolutionSelect.value,
         };
-        if (isPromptOnlyAsyncImageModel(model)) {
+        if (shouldSubmitPromptOnlyAsyncImageJob(model, sourcePath)) {
             const aspectRatio = selectedAspectRatio(el.aspectSelect);
             if (aspectRatio) args.aspect_ratio = aspectRatio;
         }
@@ -733,6 +733,16 @@ function isPromptOnlyAsyncImageModel(model) {
         && model.supports_image_to_image === false;
 }
 
+function canRunPromptOnlyAsyncImageJob(model) {
+    return isAsyncImageJobModel(model)
+        && model.supports_text_to_image !== false;
+}
+
+function shouldSubmitPromptOnlyAsyncImageJob(model, sourcePath) {
+    return canRunPromptOnlyAsyncImageJob(model)
+        && (!sourcePath || model.supports_image_to_image === false);
+}
+
 function isSourceImageAsyncImageModel(model) {
     return isAsyncImageJobModel(model)
         && model.supports_image_to_image !== false;
@@ -792,7 +802,8 @@ function validateGenerateModelForSubmit(selectEl) {
     if (availability === "missing_required_secret") {
         return `${providerDisplayName(model.provider_name)} key is required before using this model.`;
     }
-    if (!isPromptOnlyAsyncImageModel(model) && !(capturedViewport && capturedViewport.file_path)) {
+    if (!(capturedViewport && capturedViewport.file_path)
+        && !canRunPromptOnlyAsyncImageJob(model)) {
         return "Capture a viewport first.";
     }
     return null;

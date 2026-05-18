@@ -20,15 +20,25 @@ namespace Rook.Services.Vision.Image.Replicate
 
         private readonly Func<string?> _apiTokenProvider;
         private readonly ReplicateApiClient _client;
+        private readonly IReplicateFileTransport _fileTransport;
         private readonly ReplicateImageOptionsCodec _codec = new();
 
         public ReplicateImageProvider(
             Func<string?> apiTokenProvider,
             ReplicateApiClient? client = null)
+            : this(apiTokenProvider, client, fileTransport: null)
+        {
+        }
+
+        internal ReplicateImageProvider(
+            Func<string?> apiTokenProvider,
+            ReplicateApiClient? client,
+            IReplicateFileTransport? fileTransport)
         {
             _apiTokenProvider = apiTokenProvider
                 ?? throw new ArgumentNullException(nameof(apiTokenProvider));
             _client = client ?? new ReplicateApiClient();
+            _fileTransport = fileTransport ?? new ReplicateFileTransport(_client);
         }
 
         public string ProviderName => ReplicateImageCapabilities.ProviderName;
@@ -52,8 +62,9 @@ namespace Rook.Services.Vision.Image.Replicate
                     "model");
             }
 
+            var validationRequest = NormalizeFlux2ValidationRequest(request);
             var validation = _codec.Validate(
-                request,
+                validationRequest,
                 request.Options,
                 capability);
             if (!validation.Success)
@@ -67,7 +78,7 @@ namespace Rook.Services.Vision.Image.Replicate
             ReplicateImageSourcePayload? sourcePayload = null;
             if (string.Equals(request.Model, ReplicateImageCapabilities.Flux2Pro, StringComparison.Ordinal))
             {
-                var payload = ReplicateImageSourcePayload.FromResolvedMedia(resolvedMedia);
+                var payload = ReplicateImageSourcePayload.FromResolvedMedia(request, resolvedMedia);
                 if (payload.Error is not null)
                     return new FailedSubmitOutcome(payload.Error);
                 sourcePayload = payload.Payload;
@@ -77,13 +88,75 @@ namespace Rook.Services.Vision.Image.Replicate
             if (string.IsNullOrWhiteSpace(apiToken))
                 return new FailedSubmitOutcome(ReplicateErrorMapper.MissingToken());
 
+            IReadOnlyList<string>? flux2InputImages = null;
+            if (sourcePayload is not null && sourcePayload.InputImages.Count > 0)
+            {
+                var inputImages = new List<string>(sourcePayload.InputImages.Count);
+                foreach (var inputImage in sourcePayload.InputImages)
+                {
+                    ReplicateFileUploadResult upload;
+                    try
+                    {
+                        upload = await _fileTransport.UploadAsync(
+                                apiToken!,
+                                BuildFlux2InputFileName(inputImage.MimeType),
+                                inputImage.Bytes,
+                                inputImage.MimeType,
+                                ct)
+                            .ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                    {
+                        return FailedSubmit(
+                            GenerationErrorCode.Interrupted,
+                            "Request cancelled (bridge timeout).");
+                    }
+                    catch (TaskCanceledException)
+                    {
+                        return FailedSubmit(
+                            GenerationErrorCode.DependencyUnavailable,
+                            "Replicate file upload timed out. Try again.",
+                            retryable: true);
+                    }
+                    catch (HttpRequestException)
+                    {
+                        return FailedSubmit(
+                            GenerationErrorCode.DependencyUnavailable,
+                            "Replicate file upload failed due to a transport error.",
+                            retryable: true);
+                    }
+                    catch (ArgumentException)
+                    {
+                        return FailedSubmit(
+                            GenerationErrorCode.ExecutionFailed,
+                            "Replicate file upload failed before it could be sent.");
+                    }
+                    catch (Exception)
+                    {
+                        return FailedSubmit(
+                            GenerationErrorCode.ExecutionFailed,
+                            "Replicate file upload failed before the prediction could be created.");
+                    }
+
+                    if (!upload.Success || upload.Url is null)
+                    {
+                        return new FailedSubmitOutcome(
+                            upload.Error ?? Flux2UploadFailed());
+                    }
+
+                    inputImages.Add(upload.Url.ToString());
+                }
+
+                flux2InputImages = inputImages;
+            }
+
             ReplicateHttpResponse response;
             try
             {
                 response = await _client.CreatePredictionAsync(
                         apiToken!,
                         EndpointForModel(request.Model),
-                        BuildRequestJson(request, sourcePayload),
+                        BuildRequestJson(request, flux2InputImages),
                         ct)
                     .ConfigureAwait(false);
             }
@@ -317,12 +390,23 @@ namespace Rook.Services.Vision.Image.Replicate
                 ? Flux2ProEndpoint
                 : FluxSchnellEndpoint;
 
+        private static ImageGenerationRequest NormalizeFlux2ValidationRequest(ImageGenerationRequest request)
+        {
+            if (!string.Equals(request.Model, ReplicateImageCapabilities.Flux2Pro, StringComparison.Ordinal)
+                || !string.IsNullOrWhiteSpace(request.Resolution))
+            {
+                return request;
+            }
+
+            return request with { Resolution = "1 MP" };
+        }
+
         private static string BuildRequestJson(
             ImageGenerationRequest request,
-            ReplicateImageSourcePayload? sourcePayload)
+            IReadOnlyList<string>? flux2InputImages)
         {
             if (string.Equals(request.Model, ReplicateImageCapabilities.Flux2Pro, StringComparison.Ordinal))
-                return BuildFlux2ProRequestJson(request, sourcePayload);
+                return BuildFlux2ProRequestJson(request, flux2InputImages);
 
             return BuildFluxSchnellRequestJson(request);
         }
@@ -347,25 +431,59 @@ namespace Rook.Services.Vision.Image.Replicate
 
         private static string BuildFlux2ProRequestJson(
             ImageGenerationRequest request,
-            ReplicateImageSourcePayload? sourcePayload)
+            IReadOnlyList<string>? inputImageUrls)
         {
-            if (sourcePayload is null)
-                throw new InvalidOperationException("Flux 2 Pro source payload was not prepared.");
-
-            var inputImages = new JsonArray { sourcePayload.DataUri };
             var input = new JsonObject
             {
                 ["prompt"] = request.Prompt,
-                ["input_images"] = inputImages,
-                ["aspect_ratio"] = "match_input_image",
-                ["resolution"] = "match_input_image",
                 ["output_format"] = "png",
             };
+
+            if (inputImageUrls is not null && inputImageUrls.Count > 0)
+            {
+                var inputImages = new JsonArray();
+                foreach (var url in inputImageUrls)
+                    inputImages.Add(url);
+
+                input["input_images"] = inputImages;
+                input["aspect_ratio"] = "match_input_image";
+                input["resolution"] = "match_input_image";
+            }
+            else
+            {
+                input["aspect_ratio"] = ConcreteFlux2PromptOnlyAspectRatio(request.AspectRatio);
+                input["resolution"] = ConcreteFlux2PromptOnlyResolution(request.Resolution);
+            }
 
             return new JsonObject
             {
                 ["input"] = input,
             }.ToJsonString();
+        }
+
+        private static string ConcreteFlux2PromptOnlyAspectRatio(string? aspectRatio)
+        {
+            if (string.IsNullOrWhiteSpace(aspectRatio)
+                || string.Equals(aspectRatio, "match_input_image", StringComparison.Ordinal))
+            {
+                return "1:1";
+            }
+
+            return aspectRatio!.Trim();
+        }
+
+        private static string ConcreteFlux2PromptOnlyResolution(string? resolution)
+        {
+            if (string.IsNullOrWhiteSpace(resolution)
+                || string.Equals(resolution, "match_input_image", StringComparison.Ordinal))
+            {
+                return "1 MP";
+            }
+
+            var trimmed = resolution!.Trim();
+            return string.Equals(trimmed, "1MP", StringComparison.OrdinalIgnoreCase)
+                ? "1 MP"
+                : trimmed;
         }
 
         private static JsonNode ParseJson(string json)
@@ -462,6 +580,33 @@ namespace Rook.Services.Vision.Image.Replicate
 
             return copy;
         }
+
+        private static string BuildFlux2InputFileName(string mimeType) =>
+            "flux2-input-" + Guid.NewGuid().ToString("N") + ExtensionForMimeType(mimeType);
+
+        private static string ExtensionForMimeType(string mimeType)
+        {
+            switch (mimeType)
+            {
+                case "image/png":
+                    return ".png";
+                case "image/jpeg":
+                    return ".jpg";
+                case "image/gif":
+                    return ".gif";
+                case "image/webp":
+                    return ".webp";
+                default:
+                    return ".bin";
+            }
+        }
+
+        private static GenerationError Flux2UploadFailed() =>
+            new(
+                Code: GenerationErrorCode.DependencyUnavailable,
+                Message: "Replicate file upload failed for Flux 2 Pro source image.",
+                Retryable: true,
+                Field: "input_image_path");
 
         private static FailedSubmitOutcome FailedSubmit(
             GenerationErrorCode code,

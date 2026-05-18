@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -26,6 +27,24 @@ namespace Rook.Services.Vision.Replicate
             {
                 Timeout = TimeSpan.FromMinutes(5),
             };
+        }
+
+        public sealed class UploadedFile
+        {
+            public UploadedFile(string id, Uri fileUrl)
+            {
+                if (string.IsNullOrWhiteSpace(id))
+                    throw new ArgumentException(
+                        "Replicate file id must be non-empty.",
+                        nameof(id));
+                ValidateApiUrl(fileUrl);
+
+                Id = id;
+                FileUrl = fileUrl;
+            }
+
+            public string Id { get; }
+            public Uri FileUrl { get; }
         }
 
         public Task<ReplicateHttpResponse> CreatePredictionAsync(
@@ -70,6 +89,55 @@ namespace Rook.Services.Vision.Replicate
             Uri url,
             CancellationToken ct) =>
             SendApiAsync(apiToken, HttpMethod.Post, url, bodyJson: null, ct);
+
+        public async Task<UploadedFile> UploadFileAsync(
+            string apiToken,
+            string fileName,
+            byte[] bytes,
+            string mimeType,
+            string metadataJson,
+            CancellationToken ct)
+        {
+            ValidateToken(apiToken);
+            if (string.IsNullOrWhiteSpace(fileName))
+                throw new ArgumentException(
+                    "Replicate file name must be non-empty.",
+                    nameof(fileName));
+            if (bytes is null || bytes.Length == 0)
+                throw new ArgumentException(
+                    "Replicate file content must be non-empty.",
+                    nameof(bytes));
+            if (string.IsNullOrWhiteSpace(mimeType))
+                throw new ArgumentException(
+                    "Replicate file MIME type must be non-empty.",
+                    nameof(mimeType));
+
+            var metadata = string.IsNullOrWhiteSpace(metadataJson) ? "{}" : metadataJson;
+
+            using var request = new HttpRequestMessage(
+                HttpMethod.Post,
+                BuildApiUri("v1/files"));
+            request.Headers.Authorization = new AuthenticationHeaderValue("Token", apiToken);
+
+            using var form = new MultipartFormDataContent();
+            var fileContent = new ByteArrayContent(bytes);
+            fileContent.Headers.ContentType = new MediaTypeHeaderValue(mimeType);
+            form.Add(fileContent, "content", fileName);
+            form.Add(new StringContent(metadata, Encoding.UTF8, "application/json"), "metadata");
+            request.Content = form;
+
+            using var response = await _httpClient.SendAsync(request, ct)
+                .ConfigureAwait(false);
+            var body = response.Content is null
+                ? string.Empty
+                : await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+
+            if (!response.IsSuccessStatusCode)
+                throw new HttpRequestException(
+                    $"Replicate file upload failed with HTTP {(int)response.StatusCode} {response.ReasonPhrase}: {TrimUploadErrorBody(body)}");
+
+            return ParseUploadedFile(body);
+        }
 
         public async Task<ReplicateHttpResponse> SendApiAsync(
             string apiToken,
@@ -178,6 +246,55 @@ namespace Rook.Services.Vision.Replicate
                     paramName);
 
             return Uri.EscapeDataString(value);
+        }
+
+        private static UploadedFile ParseUploadedFile(string body)
+        {
+            try
+            {
+                using var document = JsonDocument.Parse(body);
+                var root = document.RootElement;
+                if (root.ValueKind != JsonValueKind.Object)
+                    throw MissingUploadResponse();
+
+                var id = root.TryGetProperty("id", out var idElement)
+                    && idElement.ValueKind == JsonValueKind.String
+                    ? idElement.GetString()
+                    : null;
+                var fileUrlText =
+                    root.TryGetProperty("urls", out var urlsElement)
+                    && urlsElement.ValueKind == JsonValueKind.Object
+                    && urlsElement.TryGetProperty("get", out var getElement)
+                    && getElement.ValueKind == JsonValueKind.String
+                        ? getElement.GetString()
+                        : null;
+
+                if (string.IsNullOrWhiteSpace(id)
+                    || string.IsNullOrWhiteSpace(fileUrlText)
+                    || !Uri.TryCreate(fileUrlText, UriKind.Absolute, out var fileUrl))
+                {
+                    throw MissingUploadResponse();
+                }
+
+                return new UploadedFile(id!, fileUrl);
+            }
+            catch (JsonException)
+            {
+                throw MissingUploadResponse();
+            }
+        }
+
+        private static ArgumentException MissingUploadResponse() =>
+            new ArgumentException(
+                "Replicate file upload response was missing file id or urls.get.");
+
+        private static string TrimUploadErrorBody(string body)
+        {
+            if (string.IsNullOrWhiteSpace(body))
+                return "<empty response body>";
+
+            body = body.Replace("\r", " ").Replace("\n", " ").Trim();
+            return body.Length <= 500 ? body : body.Substring(0, 500) + "...";
         }
 
         private static IReadOnlyDictionary<string, IReadOnlyList<string>> CopyHeaders(

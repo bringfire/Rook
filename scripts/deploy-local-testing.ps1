@@ -178,6 +178,18 @@ function Copy-OptionalFile {
     }
 }
 
+function Copy-EnvFileIfMissing {
+    param(
+        [Parameter(Mandatory = $true)][string]$Source,
+        [Parameter(Mandatory = $true)][string]$Destination
+    )
+    if ((Test-Path $Source) -and -not (Test-Path $Destination)) {
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Destination) | Out-Null
+        Copy-Item -LiteralPath $Source -Destination $Destination
+        Write-Host "Seeded local secret file: $Destination"
+    }
+}
+
 function Sync-Directory {
     param(
         [Parameter(Mandatory = $true)][string]$Source,
@@ -238,6 +250,7 @@ function Sync-AppPayload {
     New-Item -ItemType Directory -Force -Path $LogsRoot | Out-Null
 
     Sync-Directory (Join-Path $RepoRoot 'mcp_server') (Join-Path $InstallRoot 'mcp_server')
+    Copy-EnvFileIfMissing (Join-Path $RepoRoot 'mcp_server\.env') (Join-Path $InstallRoot 'mcp_server\.env')
     Sync-Directory (Join-Path $RepoRoot 'knowledge') (Join-Path $InstallRoot 'knowledge')
     Sync-Directory (Join-Path $RepoRoot 'scripts') (Join-Path $InstallRoot 'scripts')
 

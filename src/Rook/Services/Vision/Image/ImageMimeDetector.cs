@@ -31,6 +31,17 @@ namespace Rook.Services.Vision.Image
                 return "image/jpeg";
             }
 
+            if (bytes.Length >= 6
+                && bytes[0] == 0x47
+                && bytes[1] == 0x49
+                && bytes[2] == 0x46
+                && bytes[3] == 0x38
+                && (bytes[4] == 0x37 || bytes[4] == 0x39)
+                && bytes[5] == 0x61)
+            {
+                return "image/gif";
+            }
+
             if (bytes.Length >= 12
                 && bytes[0] == 0x52
                 && bytes[1] == 0x49
@@ -67,6 +78,7 @@ namespace Rook.Services.Vision.Image
             || string.Equals(mimeType, "image/webp", StringComparison.Ordinal);
 
         public static bool IsFlux2SupportedMime(string mimeType) =>
-            IsPngJpegOrWebp(mimeType);
+            IsPngJpegOrWebp(mimeType)
+            || string.Equals(mimeType, "image/gif", StringComparison.Ordinal);
     }
 }

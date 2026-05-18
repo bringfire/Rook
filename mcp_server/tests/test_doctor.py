@@ -1,6 +1,10 @@
 from pathlib import Path
 
 from rook.doctor import (
+    _build_probe_server_parameters,
+    _config_targets,
+    _probe_stderr_buffer,
+    _should_check_codex,
     _upsert_toml_section,
     _validate_codex_config,
     _validate_mcp_entry,
@@ -52,6 +56,35 @@ def test_validate_mcp_entry_checks_required_fields_but_ignores_optional_chirp_ho
 
     assert ok is True
     assert detail is None
+
+
+def test_config_targets_use_supported_codex_skill_root(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    targets = _config_targets()
+
+    assert targets["codex_skill_root"] == tmp_path / ".codex" / "skills"
+
+
+def test_should_check_codex_detects_supported_skill_root(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    (tmp_path / ".codex" / "skills").mkdir(parents=True)
+
+    assert _should_check_codex(force=False) is True
+
+
+def test_probe_stdio_uses_replacement_decoding_for_windows_encoded_output(tmp_path: Path):
+    runtime_paths = _runtime_paths(tmp_path)
+    python_path = tmp_path / "python.exe"
+    python_path.write_text("")
+
+    server = _build_probe_server_parameters(runtime_paths, str(python_path))
+
+    assert server.encoding_error_handler == "replace"
+    with _probe_stderr_buffer() as stderr_buffer:
+        stderr_buffer.buffer.write(b"cp1252 dash: \x97")
+        stderr_buffer.seek(0)
+        assert stderr_buffer.read() == "cp1252 dash: \ufffd"
 
 
 def test_validate_codex_config_parses_semantically(tmp_path: Path):
