@@ -602,10 +602,23 @@ namespace Rook.UI.Web
         {
             var active = Application.Instance.IsActive;
             TraceWebViewFocus("app-active-changed", active ? "active" : "inactive");
-            if (!active)
-                return;
 
-            RequestHostVisibleRefresh("ApplicationActivated");
+            if (active)
+            {
+                RequestHostVisibleRefresh("ApplicationActivated");
+                return;
+            }
+
+            try
+            {
+                Application.Instance.AsyncInvoke(() =>
+                    RequestHostVisibleRefresh("ApplicationDeactivated"));
+            }
+            catch (Exception ex)
+            {
+                TraceWebViewFocus("host-visibility-reconcile-failed",
+                    "ApplicationDeactivated;" + ex.Message);
+            }
         }
 
         private object? TryGetCoreWebView2Controller()
