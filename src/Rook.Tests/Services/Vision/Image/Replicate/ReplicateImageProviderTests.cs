@@ -323,6 +323,61 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
         }
 
         [Fact]
+        public async Task SubmitAsync_flux2_does_not_store_upload_url_in_handle()
+        {
+            var handler = new TestHttpMessageHandler
+            {
+                OnSend = req =>
+                {
+                    if (req.RequestUri!.AbsolutePath == "/v1/files")
+                    {
+                        return Json(HttpStatusCode.Created, """
+                            {
+                              "id": "file-secret",
+                              "urls": { "get": "https://api.replicate.com/v1/files/file-secret" }
+                            }
+                            """);
+                    }
+
+                    return Json(HttpStatusCode.Created, """
+                        {
+                          "id": "pred-flux2",
+                          "status": "starting",
+                          "urls": {
+                            "get": "https://api.replicate.com/v1/predictions/pred-flux2",
+                            "cancel": "https://api.replicate.com/v1/predictions/pred-flux2/cancel"
+                          }
+                        }
+                        """);
+                },
+            };
+            var provider = Provider("r8-test-token", handler);
+            var input = MediaRef.ForPath("C:/tmp/input.png", ImageMediaRoles.InputImage);
+            var media = new Dictionary<MediaRef, ResolvedMedia>
+            {
+                [input] = PngMediaWithDimensions(512, 512),
+            };
+
+            var outcome = await provider.SubmitAsync(
+                Request(
+                    model: ReplicateImageCapabilities.Flux2Pro,
+                    resolution: "1MP",
+                    aspectRatio: "match_input_image"),
+                media,
+                CancellationToken.None);
+
+            var queued = Assert.IsType<QueuedSubmitOutcome>(outcome);
+            Assert.Equal("pred-flux2", queued.Handle.ProviderJobId);
+            Assert.NotNull(queued.Handle.ProviderMetadata);
+            var urlsJson = queued.Handle.ProviderMetadata!["urls"]!.ToJsonString();
+            Assert.Contains("predictions/pred-flux2", urlsJson);
+            Assert.DoesNotContain("/v1/files/file-secret", urlsJson);
+            Assert.DoesNotContain("data:image/", urlsJson);
+            Assert.Null(queued.Handle.ProviderResultToken);
+            Assert.DoesNotContain("file-secret", queued.Handle.ProviderJobId);
+        }
+
+        [Fact]
         public async Task SubmitAsync_flux2_upload_http_exception_returns_retryable_dependency_failure()
         {
             var handler = new TestHttpMessageHandler();
