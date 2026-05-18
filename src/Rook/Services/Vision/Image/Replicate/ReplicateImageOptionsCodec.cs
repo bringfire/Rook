@@ -39,10 +39,18 @@ namespace Rook.Services.Vision.Image.Replicate
             }
 
             var refCount = request.ReferenceImages?.Count ?? 0;
-            if (refCount > 0)
+            if (refCount > capability.MaxReferenceImages)
             {
+                if (capability.MaxReferenceImages == 0)
+                {
+                    return ValidationResult.Fail(
+                        $"reference_image_paths are not supported for {capability.Name} in this milestone.",
+                        "reference_image_paths");
+                }
+
                 return ValidationResult.Fail(
-                    $"reference_image_paths are not supported for {capability.Name}.",
+                    $"reference_image_paths must include at most {capability.MaxReferenceImages} images " +
+                    $"for {capability.Name}.",
                     "reference_image_paths");
             }
 

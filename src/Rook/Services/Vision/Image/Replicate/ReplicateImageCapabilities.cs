@@ -50,10 +50,10 @@ namespace Rook.Services.Vision.Image.Replicate
                     Name: "FLUX.2 Pro",
                     Status: "available",
                     Resolutions: new[] { "1MP" },
-                    AspectRatios: new[] { "match_input_image" },
+                    AspectRatios: new[] { "1:1", "4:3", "3:4", "16:9", "9:16", "match_input_image" },
                     MaxReferenceImages: 0,
                     SupportsImageToImage: true,
-                    SupportsTextToImage: false),
+                    SupportsTextToImage: true),
             };
     }
 }

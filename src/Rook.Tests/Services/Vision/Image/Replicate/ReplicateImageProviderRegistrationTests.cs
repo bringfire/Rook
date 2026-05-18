@@ -37,10 +37,13 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
             Assert.Equal("FLUX.2 Pro", flux2.Capability.Name);
             Assert.Equal("available", flux2.Capability.Status);
             Assert.Equal(new[] { "1MP" }, flux2.Capability.Resolutions);
-            Assert.Equal(new[] { "match_input_image" }, flux2.Capability.AspectRatios);
+            Assert.Equal(
+                new[] { "1:1", "4:3", "3:4", "16:9", "9:16", "match_input_image" },
+                flux2.Capability.AspectRatios);
             Assert.Equal(0, flux2.Capability.MaxReferenceImages);
-            Assert.False(flux2.Capability.SupportsTextToImage);
+            Assert.True(flux2.Capability.SupportsTextToImage);
             Assert.True(flux2.Capability.SupportsImageToImage);
+            Assert.Equal(8, ReplicateImageCapabilities.Flux2ProMediaPolicy.Model.MaxInputImages);
             Assert.IsType<ReplicateImagePricingModel>(flux2.PricingModel);
         }
 
@@ -82,7 +85,7 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
             Assert.Equal(ReplicateImageCapabilities.Flux2Pro, flux2.ModelId);
             Assert.Equal("replicate", flux2.ProviderName);
             Assert.True(flux2.Capability.SupportsImageToImage);
-            Assert.False(flux2.Capability.SupportsTextToImage);
+            Assert.True(flux2.Capability.SupportsTextToImage);
 
             Assert.False(registry.TryResolve("replicate/other-model", out _));
 
