@@ -465,6 +465,8 @@ In the command-learning group, remove interactive learning tools from normal gro
 
 so those names are absent. Keep non-interactive knowledge tools such as `rhino_command_knowledge`, `rhino_knowledge_query`, `rhino_command_knowledge_reload`, `rhino_command_observations`, `rhino_command_consolidate`, `rhino_learning_progress`, `rhino_command_select`, and `rhino_command_queue`.
 
+This plan intentionally does not add conditional listing for dev/learning mode. Dev-gated interactive learning remains direct-call-only in this slice so normal tool discovery cannot accidentally reintroduce it.
+
 - [ ] **Step 6: Update phase dispatcher tests**
 
 In `mcp_server/tests/test_phase2_dispatcher.py`, update the assertion that expects start/send inside `TOOL_GROUPS["rhino_commands"]`. The group should now assert prompt/cancel remain and start/send are absent:
@@ -490,6 +492,7 @@ In `mcp_server/tests/test_server_contract_hardening.py`, add:
         ("rhino_command_interactive_start", {"command": "_-Box"}),
         ("rhino_command_interactive_send", {"input": "0,0,0"}),
         ("rhino_learn_interactive", {"command": "_-Box", "inputs": ["0,0,0"]}),
+        ("rhino_learn_variations_interactive", {"command": "_-Box", "variations": [["0,0,0"]]}),
     ],
 )
 async def test_interactive_start_send_are_deprecated_in_normal_mode(monkeypatch, patched_server, tool_name, args):
@@ -507,21 +510,25 @@ async def test_interactive_start_send_are_deprecated_in_normal_mode(monkeypatch,
 
 
 @pytest.mark.asyncio
-async def test_interactive_learning_stays_disabled_in_panel_locked_mode(monkeypatch, patched_server):
+@pytest.mark.parametrize(
+    "tool_name,args",
+    [
+        ("rhino_learn_interactive", {"command": "_-Box", "inputs": ["0,0,0"]}),
+        ("rhino_learn_variations_interactive", {"command": "_-Box", "variations": [["0,0,0"]]}),
+    ],
+)
+async def test_interactive_learning_stays_disabled_in_panel_locked_mode(monkeypatch, patched_server, tool_name, args):
     monkeypatch.setenv("ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING", "1")
     monkeypatch.setenv("ROOK_MCP_TARGET_MODE", "panel_locked")
     call_rhino_mock = AsyncMock()
     monkeypatch.setattr(server, "call_rhino", call_rhino_mock)
 
-    response = await server.call_tool(
-        "rhino_learn_interactive",
-        {"command": "_-Box", "inputs": ["0,0,0"]},
-    )
+    response = await server.call_tool(tool_name, args)
     payload = _decode_response(response)
 
     assert payload["success"] is False
     assert payload["data"]["error"] == "interactive_command_deprecated"
-    assert payload["data"]["tool"] == "rhino_learn_interactive"
+    assert payload["data"]["tool"] == tool_name
     call_rhino_mock.assert_not_called()
 
 
@@ -996,9 +1003,19 @@ Still in the `try` block of `HandleCommand`, immediately after `auto result = fu
 ```cpp
         if (result.success)
         {
-            ::Sleep(100);
-            const std::string promptStr = ReadCommandPromptOnMain();
-            if (IsInteractivePrompt(promptStr))
+            std::string activePrompt;
+            for (int attempt = 0; attempt < 10; ++attempt)
+            {
+                ::Sleep(100);
+                const std::string promptStr = ReadCommandPromptOnMain();
+                if (IsInteractivePrompt(promptStr))
+                {
+                    activePrompt = promptStr;
+                    break;
+                }
+            }
+
+            if (!activePrompt.empty())
             {
                 CancelCommandOnMain(docSn);
 
@@ -1009,7 +1026,7 @@ Still in the `try` block of `HandleCommand`, immediately after `auto result = fu
                 result.data["error"] =
                     "Command went interactive after RunScript returned. "
                     "Use typed Rook tools or provide a complete known-safe scripted command.";
-                result.data["waitingFor"] = promptStr;
+                result.data["waitingFor"] = activePrompt;
                 result.data["verified"] = false;
                 result.data["objectsCreated"] = 0;
                 result.data["objectIds"] = nlohmann::json::array();
@@ -1017,7 +1034,7 @@ Still in the `try` block of `HandleCommand`, immediately after `auto result = fu
         }
 ```
 
-This is deliberately outside the original dispatch lambda. Sleeping inside the main-thread lambda would block Rhino's message pump and can miss the prompt transition. Sleeping on the worker, then dispatching a prompt read, lets Rhino process the queued command before the second prompt check.
+This is deliberately outside the original dispatch lambda. Sleeping inside the main-thread lambda would block Rhino's message pump and can miss the prompt transition. Polling on the worker, then dispatching prompt reads, gives Rhino up to 1 second to expose delayed modal prompts before `/command` reports success. If any poll observes an active prompt, the command is treated as failed and cancelled.
 
 - [ ] **Step 5: Build native project if the Rhino/MFC toolchain is available**
 
