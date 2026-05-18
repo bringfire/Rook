@@ -18,10 +18,6 @@ namespace Rook.Services.Vision.Image.Replicate
         private static readonly ReplicatePredictionEndpoint Flux2ProEndpoint =
             ReplicatePredictionEndpoint.OfficialModel("black-forest-labs", "flux-2-pro");
 
-        // Replicate HTTP API docs, retrieved 2026-05-18: use data URLs for
-        // small files <= 256 KB; larger files should use hosted HTTP URLs.
-        private const int MaxReplicateDataUriInputBytes = 256 * 1024;
-
         private readonly Func<string?> _apiTokenProvider;
         private readonly ReplicateApiClient _client;
         private readonly IReplicateFileTransport _fileTransport;
@@ -144,12 +140,6 @@ namespace Rook.Services.Vision.Image.Replicate
 
                     if (!upload.Success || upload.Url is null)
                     {
-                        if (inputImage.Bytes.Length <= MaxReplicateDataUriInputBytes)
-                        {
-                            inputImages.Add(BuildDataUri(inputImage));
-                            continue;
-                        }
-
                         return new FailedSubmitOutcome(
                             upload.Error ?? Flux2UploadFailed());
                     }
@@ -479,7 +469,7 @@ namespace Rook.Services.Vision.Image.Replicate
                 return "1:1";
             }
 
-            return aspectRatio.Trim();
+            return aspectRatio!.Trim();
         }
 
         private static string ConcreteFlux2PromptOnlyResolution(string? resolution)
@@ -490,7 +480,7 @@ namespace Rook.Services.Vision.Image.Replicate
                 return "1 MP";
             }
 
-            var trimmed = resolution.Trim();
+            var trimmed = resolution!.Trim();
             return string.Equals(trimmed, "1MP", StringComparison.OrdinalIgnoreCase)
                 ? "1 MP"
                 : trimmed;
@@ -593,9 +583,6 @@ namespace Rook.Services.Vision.Image.Replicate
 
         private static string BuildFlux2InputFileName(string mimeType) =>
             "flux2-input-" + Guid.NewGuid().ToString("N") + ExtensionForMimeType(mimeType);
-
-        private static string BuildDataUri(ResolvedFlux2InputImage image) =>
-            $"data:{image.MimeType};base64,{Convert.ToBase64String(image.Bytes)}";
 
         private static string ExtensionForMimeType(string mimeType)
         {

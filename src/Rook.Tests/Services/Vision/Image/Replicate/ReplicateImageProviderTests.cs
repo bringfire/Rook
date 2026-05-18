@@ -454,26 +454,9 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
         }
 
         [Fact]
-        public async Task SubmitAsync_flux2_small_upload_failure_falls_back_to_data_uri()
+        public async Task SubmitAsync_flux2_small_upload_failure_fails_closed_without_prediction_post()
         {
-            string? predictionBody = null;
-            var handler = new TestHttpMessageHandler
-            {
-                OnSend = req =>
-                {
-                    predictionBody = req.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
-                    return Json(HttpStatusCode.Created, """
-                        {
-                          "id": "pred-flux2",
-                          "status": "starting",
-                          "urls": {
-                            "get": "https://api.replicate.com/v1/predictions/pred-flux2",
-                            "cancel": "https://api.replicate.com/v1/predictions/pred-flux2/cancel"
-                          }
-                        }
-                        """);
-                },
-            };
+            var handler = new TestHttpMessageHandler();
             var provider = Provider(
                 "r8-test-token",
                 handler,
@@ -488,11 +471,10 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
                 media,
                 CancellationToken.None);
 
-            var queued = Assert.IsType<QueuedSubmitOutcome>(outcome);
-            Assert.Equal("pred-flux2", queued.Handle.ProviderJobId);
-            Assert.Single(handler.Requests);
-            Assert.DoesNotContain("api.replicate.com/v1/files", predictionBody);
-            Assert.Contains("data:image/png;base64,", predictionBody);
+            var failed = Assert.IsType<FailedSubmitOutcome>(outcome);
+            Assert.Equal(GenerationErrorCode.DependencyUnavailable, failed.Error.Code);
+            Assert.Contains("HTTP 500", failed.Error.Message);
+            Assert.Empty(handler.Requests);
         }
 
         [Fact]
