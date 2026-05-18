@@ -132,12 +132,63 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
                 new[] { "aspect_ratio", "output_format", "prompt", "resolution" },
                 inputJson.Select(kvp => kvp.Key).OrderBy(k => k));
             Assert.Equal("1:1", inputJson["aspect_ratio"]!.GetValue<string>());
-            Assert.Equal("1MP", inputJson["resolution"]!.GetValue<string>());
+            Assert.Equal("1 MP", inputJson["resolution"]!.GetValue<string>());
             Assert.DoesNotContain("input_images", requestBody);
             Assert.DoesNotContain("data:image/", requestBody);
 
             var queued = Assert.IsType<QueuedSubmitOutcome>(outcome);
             Assert.Equal("pred-flux2-prompt", queued.Handle.ProviderJobId);
+        }
+
+        [Theory]
+        [InlineData("2 MP", "2 MP")]
+        [InlineData("4 MP", "4 MP")]
+        [InlineData("1MP", "1 MP")]
+        public async Task SubmitAsync_flux2_prompt_only_serializes_provider_resolution_values(
+            string requestedResolution,
+            string expectedProviderResolution)
+        {
+            string? requestBody = null;
+            var handler = new TestHttpMessageHandler
+            {
+                OnSend = req =>
+                {
+                    requestBody = req.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+                    return Json(HttpStatusCode.Created, """
+                        {
+                          "id": "pred-flux2-resolution",
+                          "status": "starting",
+                          "urls": {
+                            "get": "https://api.replicate.com/v1/predictions/pred-flux2-resolution",
+                            "cancel": "https://api.replicate.com/v1/predictions/pred-flux2-resolution/cancel"
+                          }
+                        }
+                        """);
+                },
+            };
+            var provider = Provider("r8-test-token", handler);
+
+            var outcome = await provider.SubmitAsync(
+                Request(
+                    model: ReplicateImageCapabilities.Flux2Pro,
+                    resolution: requestedResolution,
+                    aspectRatio: "1:1"),
+                EmptyMedia(),
+                CancellationToken.None);
+
+            var queued = Assert.IsType<QueuedSubmitOutcome>(outcome);
+            Assert.Equal("pred-flux2-resolution", queued.Handle.ProviderJobId);
+
+            var request = Assert.Single(handler.Requests);
+            Assert.Equal(
+                "https://api.replicate.com/v1/models/black-forest-labs/flux-2-pro/predictions",
+                request.RequestUri!.ToString());
+
+            var root = Assert.IsType<JsonObject>(JsonNode.Parse(requestBody!));
+            var inputJson = Assert.IsType<JsonObject>(root["input"]);
+            Assert.Equal(expectedProviderResolution, inputJson["resolution"]!.GetValue<string>());
+            Assert.Equal("1:1", inputJson["aspect_ratio"]!.GetValue<string>());
+            Assert.DoesNotContain("input_images", requestBody);
         }
 
         [Fact]
@@ -361,7 +412,7 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
             var outcome = await provider.SubmitAsync(
                 Request(
                     model: ReplicateImageCapabilities.Flux2Pro,
-                    resolution: "1MP",
+                    resolution: "4 MP",
                     aspectRatio: "match_input_image"),
                 media,
                 CancellationToken.None);
