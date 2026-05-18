@@ -109,6 +109,15 @@ function Test-DeployScriptVerifiesChatManifest {
     Assert-Contains -Text $content -Expected 'pythonPathEntries' -Message 'Local deploy must verify the chat service source path entry.'
 }
 
+function Test-DeployScriptSeedsChatEnvWithoutOverwriting {
+    $content = Get-Content -Path $DeployScript -Raw
+
+    Assert-Contains -Text $content -Expected 'function Copy-EnvFileIfMissing' -Message 'Local deploy must have an explicit helper for seeding local secret files without overwriting them.'
+    Assert-Contains -Text $content -Expected 'Join-Path $RepoRoot ''mcp_server\.env''' -Message 'Local deploy must use the repo mcp_server .env as the source for the installed chat service.'
+    Assert-Contains -Text $content -Expected 'Join-Path $InstallRoot ''mcp_server\.env''' -Message 'Local deploy must seed the installed chat service mcp_server .env path.'
+    Assert-Contains -Text $content -Expected '-not (Test-Path $Destination)' -Message 'Local deploy must preserve an existing installed .env file.'
+}
+
 function Test-DeployScriptLiveSmokeIsExplicit {
     $content = Get-Content -Path $DeployScript -Raw
 
@@ -143,6 +152,7 @@ Test-DeployScriptVerifiesChirpRuntimeAndConfig
 Test-DeployScriptVerifiesRookImportOrigin
 Test-DeployScriptParsesMcpConfigs
 Test-DeployScriptVerifiesChatManifest
+Test-DeployScriptSeedsChatEnvWithoutOverwriting
 Test-DeployScriptLiveSmokeIsExplicit
 Test-DeploySkillPointsToAuthoritativeScriptAndChirpChecks
 
