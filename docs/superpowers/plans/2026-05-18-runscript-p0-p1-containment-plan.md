@@ -4,7 +4,7 @@
 
 **Goal:** Make normal RunScript-backed command execution fail closed by default and remove autonomous Rhino prompt driving from normal execution paths.
 
-**Architecture:** This first implementation slice covers P0 `rhino_command` containment and P1 interactive start/send deprecation from the approved design. Python preflight becomes the first fail-closed gate, MCP and chat tool surfaces stop advertising start/send, SmartExecutor stops planning or falling back to interactive execution, and native `/command/start` plus `/command/send` refuse normal calls unless explicit dev learning mode is enabled. Full dispatcher modal allowlisting and shared native quarantine are preserved as the next RunScript safety slice.
+**Architecture:** This first implementation slice covers P0 `rhino_command` containment and P1 interactive start/send deprecation from the approved design. Python preflight becomes the first fail-closed gate, native `/command` gets delayed post-dispatch prompt verification plus bounded worker waits, MCP and chat tool surfaces stop advertising start/send and learning tools, SmartExecutor stops planning or falling back to interactive execution, and native `/command/start` plus `/command/send` refuse normal calls unless explicit dev learning mode is enabled. Full dispatcher modal allowlisting and shared native quarantine are preserved as the next RunScript safety slice.
 
 **Tech Stack:** Python MCP server and tests (`pytest`), C++ RookNative handlers, nlohmann/json, httplib, Rhino 8 C++ SDK.
 
@@ -16,6 +16,8 @@
 - P0 production safe set is empty unless command knowledge explicitly carries `safe_non_interactive` metadata.
 - Tests may create fake command knowledge with safe metadata to prove the allow path.
 - Remove start/send from normal tool listings and also return route-level structured refusals if those names or native endpoints remain reachable.
+- Remove interactive command-learning tools from normal listings and route them through the same dev/learning refusal gate.
+- Dev/learning mode must stay disabled inside the panel-locked Claude Code path even if `ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING=1` is present.
 - Do not clear any native quarantine from prompt idle alone in this slice. The stronger native-state quarantine work is a separate P2 implementation plan.
 - Do not recommend `rhino_command_interactive_send` in any normal recovery guidance.
 
@@ -23,11 +25,12 @@
 
 - Modify `mcp_server/src/rook/preflight.py`: add structured RunScript safety refusals and explicit safe command/mode classification.
 - Create `mcp_server/tests/test_preflight_rhino_command_safety.py`: focused unit tests for fail-closed command preflight.
-- Modify `mcp_server/src/rook/server.py`: update `rhino_command` description, remove start/send from normal listings, add direct-call refusal for start/send outside dev learning mode.
-- Modify `mcp_server/src/rook/agent/tool_groups.py`: remove start/send from `rhino_commands`.
+- Modify `mcp_server/src/rook/server.py`: update `rhino_command` description, remove start/send and interactive learning tools from normal listings, add direct-call refusal for start/send and interactive learning outside dev learning mode.
+- Modify `mcp_server/src/rook/agent/tool_groups.py`: remove start/send from `rhino_commands` and remove interactive learning tools from normal command-learning groups.
 - Modify `mcp_server/src/rook/agent/chat/execution_policy.py`: replace send-based recovery guidance with inspect/cancel/retry-safe-path guidance.
 - Modify `mcp_server/src/rook/learning/intent_planner.py`: stop emitting `fallbacks=["interactive"]`.
 - Modify `mcp_server/src/rook/learning/smart_executor.py`: stop executing or falling back to `execution_route="interactive"`.
+- Modify `src/RookNative/Handlers/CommandHandler.cpp`: add delayed prompt verification for `/command` and bounded worker wait with structured blocked response.
 - Modify `src/RookNative/Handlers/CommandInteractiveHandler.cpp`: refuse `/command/start` and `/command/send` outside `ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING=1`.
 - Modify existing tests in `mcp_server/tests/test_server_contract_hardening.py`, `mcp_server/tests/test_execution_policy.py`, `mcp_server/tests/test_intent_planner.py`, `mcp_server/tests/test_smart_executor.py`, and `mcp_server/tests/test_phase2_dispatcher.py` where they assert the old interactive execution behavior.
 
@@ -330,6 +333,8 @@ In `mcp_server/src/rook/server.py`, near `_preflight_rhino_command`, add:
 
 ```python
 def _interactive_command_learning_enabled() -> bool:
+    if os.getenv("ROOK_MCP_TARGET_MODE") == "panel_locked":
+        return False
     return os.getenv("ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING") == "1"
 
 
@@ -351,6 +356,8 @@ def _interactive_command_deprecated_result(tool_name: str) -> dict[str, Any]:
 
 `server.py` already imports `os` and `Any`; if either import is missing in the current branch, add it to the existing import section instead of adding a duplicate import lower in the file.
 
+The explicit `ROOK_MCP_TARGET_MODE == "panel_locked"` check is load-bearing: the embedded Claude Code panel must not be able to re-enable interactive prompt driving by inheriting a developer shell environment.
+
 - [ ] **Step 2: Update `rhino_command` tool description**
 
 In the `Tool(name="rhino_command", ...)` block, replace the description string with:
@@ -364,7 +371,7 @@ description=(
 ),
 ```
 
-- [ ] **Step 3: Remove start/send Tool entries from normal listing**
+- [ ] **Step 3: Remove start/send and interactive learning Tool entries from normal listing**
 
 In `server.py`, remove the two `Tool(...)` blocks whose names are:
 
@@ -375,22 +382,58 @@ name="rhino_command_interactive_send"
 
 Leave `rhino_command_interactive_prompt` and `rhino_command_interactive_cancel` listed.
 
-- [ ] **Step 4: Add direct-call refusal in `call_tool` dispatch**
-
-In the `case "rhino_command_interactive_start":` block, add this at the top of the case before any call to Rhino:
+Also remove the `Tool(...)` block whose name is:
 
 ```python
-            if not _interactive_command_learning_enabled():
-                result = _interactive_command_deprecated_result("rhino_command_interactive_start")
-                break
+name="rhino_learn_interactive"
 ```
 
-In the `case "rhino_command_interactive_send":` block, add:
+If `rhino_learn_variations_interactive` is still listed next to it, remove that `Tool(...)` block from normal listings too because it drives the same interactive command protocol.
+
+- [ ] **Step 4: Add direct-call refusal in `call_tool` dispatch**
+
+In the `case "rhino_command_interactive_start":` block, wrap the existing case body in an `else`. Do not use `break`; Python `match` cases are not loops. The shape should be:
 
 ```python
+        case "rhino_command_interactive_start":
+            if not _interactive_command_learning_enabled():
+                result = _interactive_command_deprecated_result("rhino_command_interactive_start")
+            else:
+                command = arguments.get("command")
+                # Existing start implementation remains indented under this else.
+```
+
+In the `case "rhino_command_interactive_send":` block, use the same `if/else` shape:
+
+```python
+        case "rhino_command_interactive_send":
             if not _interactive_command_learning_enabled():
                 result = _interactive_command_deprecated_result("rhino_command_interactive_send")
-                break
+            else:
+                input_text = arguments.get("input", "")
+                # Existing send implementation remains indented under this else.
+```
+
+In the `case "rhino_learn_interactive":` block, add:
+
+```python
+        case "rhino_learn_interactive":
+            if not _interactive_command_learning_enabled():
+                result = _interactive_command_deprecated_result("rhino_learn_interactive")
+            else:
+                command = arguments.get("command")
+                # Existing learn implementation remains indented under this else.
+```
+
+If `case "rhino_learn_variations_interactive":` exists, gate it the same way:
+
+```python
+        case "rhino_learn_variations_interactive":
+            if not _interactive_command_learning_enabled():
+                result = _interactive_command_deprecated_result("rhino_learn_variations_interactive")
+            else:
+                command = arguments.get("command")
+                # Existing variations implementation remains indented under this else.
 ```
 
 - [ ] **Step 5: Remove start/send from normal agent command group**
@@ -414,6 +457,14 @@ to:
     ],
 ```
 
+In the command-learning group, remove interactive learning tools from normal group loading. Change any list containing:
+
+```python
+"rhino_learn_interactive", "rhino_learn_variations_interactive"
+```
+
+so those names are absent. Keep non-interactive knowledge tools such as `rhino_command_knowledge`, `rhino_knowledge_query`, `rhino_command_knowledge_reload`, `rhino_command_observations`, `rhino_command_consolidate`, `rhino_learning_progress`, `rhino_command_select`, and `rhino_command_queue`.
+
 - [ ] **Step 6: Update phase dispatcher tests**
 
 In `mcp_server/tests/test_phase2_dispatcher.py`, update the assertion that expects start/send inside `TOOL_GROUPS["rhino_commands"]`. The group should now assert prompt/cancel remain and start/send are absent:
@@ -423,6 +474,8 @@ assert "rhino_command_interactive_prompt" in TOOL_GROUPS["rhino_commands"]
 assert "rhino_command_interactive_cancel" in TOOL_GROUPS["rhino_commands"]
 assert "rhino_command_interactive_start" not in TOOL_GROUPS["rhino_commands"]
 assert "rhino_command_interactive_send" not in TOOL_GROUPS["rhino_commands"]
+assert "rhino_learn_interactive" not in TOOL_GROUPS["command_learning"]
+assert "rhino_learn_variations_interactive" not in TOOL_GROUPS["command_learning"]
 ```
 
 - [ ] **Step 7: Add direct-call deprecation tests**
@@ -436,6 +489,7 @@ In `mcp_server/tests/test_server_contract_hardening.py`, add:
     [
         ("rhino_command_interactive_start", {"command": "_-Box"}),
         ("rhino_command_interactive_send", {"input": "0,0,0"}),
+        ("rhino_learn_interactive", {"command": "_-Box", "inputs": ["0,0,0"]}),
     ],
 )
 async def test_interactive_start_send_are_deprecated_in_normal_mode(monkeypatch, patched_server, tool_name, args):
@@ -449,6 +503,40 @@ async def test_interactive_start_send_are_deprecated_in_normal_mode(monkeypatch,
     assert payload["success"] is False
     assert payload["data"]["error"] == "interactive_command_deprecated"
     assert payload["data"]["tool"] == tool_name
+    call_rhino_mock.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_interactive_learning_stays_disabled_in_panel_locked_mode(monkeypatch, patched_server):
+    monkeypatch.setenv("ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING", "1")
+    monkeypatch.setenv("ROOK_MCP_TARGET_MODE", "panel_locked")
+    call_rhino_mock = AsyncMock()
+    monkeypatch.setattr(server, "call_rhino", call_rhino_mock)
+
+    response = await server.call_tool(
+        "rhino_learn_interactive",
+        {"command": "_-Box", "inputs": ["0,0,0"]},
+    )
+    payload = _decode_response(response)
+
+    assert payload["success"] is False
+    assert payload["data"]["error"] == "interactive_command_deprecated"
+    assert payload["data"]["tool"] == "rhino_learn_interactive"
+    call_rhino_mock.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_rhino_command_rejects_when_command_safety_store_unavailable(monkeypatch, patched_server):
+    monkeypatch.setattr(server, "command_learner", SimpleNamespace(knowledge_store=None))
+    call_rhino_mock = AsyncMock()
+    monkeypatch.setattr(server, "call_rhino", call_rhino_mock)
+
+    response = await server.call_tool("rhino_command", {"command": "_-Box 0,0,0 1,1,0"})
+    payload = _decode_response(response)
+
+    assert payload["success"] is False
+    assert payload["data"]["error"] == "run_script_safety_refusal"
+    assert payload["data"]["reason"] == "command_safety_unavailable"
     call_rhino_mock.assert_not_called()
 ```
 
@@ -800,7 +888,159 @@ git commit -m "fix: stop planning interactive command fallback"
 
 ---
 
-### Task 7: Refuse Native `/command/start` and `/command/send` Outside Dev Learning Mode
+### Task 7: Add Native `/command` Delayed Prompt Check and Bounded Wait
+
+**Files:**
+- Modify: `src/RookNative/Handlers/CommandHandler.cpp`
+
+- [ ] **Step 1: Add chrono include**
+
+In `CommandHandler.cpp`, add:
+
+```cpp
+#include <chrono>
+```
+
+near the existing standard library includes.
+
+- [ ] **Step 2: Tighten prompt idle helpers**
+
+In the anonymous namespace, replace:
+
+```cpp
+    bool IsInteractivePrompt(const std::string& prompt)
+    {
+        return !prompt.empty() && prompt.find("Command") == std::string::npos;
+    }
+```
+
+with:
+
+```cpp
+    bool IsIdleCommandPrompt(const std::string& prompt)
+    {
+        return prompt.empty()
+            || prompt == "Command"
+            || prompt.rfind("Command:", 0) == 0;
+    }
+
+    bool IsInteractivePrompt(const std::string& prompt)
+    {
+        return !IsIdleCommandPrompt(prompt);
+    }
+
+    std::string ReadCommandPromptOnMain()
+    {
+        auto future = CMainThreadDispatcher::Instance().Dispatch([]() -> std::string
+        {
+            ON_wString prompt;
+            RhinoApp().GetCommandPrompt(prompt);
+            return WideToUtf8(prompt);
+        });
+
+        return future.get();
+    }
+
+    void CancelCommandOnMain(unsigned int docSn)
+    {
+        auto future = CMainThreadDispatcher::Instance().Dispatch([docSn]()
+        {
+            CRhinoDoc* pDoc = ResolveDoc(docSn);
+            const unsigned int docRuntimeSn = pDoc->RuntimeSerialNumber();
+            RhinoApp().RunScript(docRuntimeSn, L"_Cancel\n", 0);
+        });
+
+        future.get();
+    }
+```
+
+This aligns `/command` prompt interpretation with `/command/prompt` prefix matching and gives the worker thread a way to re-check prompt state after Rhino's message loop has a chance to process the command.
+
+- [ ] **Step 3: Add bounded wait for the `/command` dispatch future**
+
+In `HandleCommand`, replace:
+
+```cpp
+        auto result = future.get();
+```
+
+with:
+
+```cpp
+        const auto status = future.wait_for(std::chrono::seconds(30));
+        if (status == std::future_status::timeout)
+        {
+            nlohmann::json data;
+            data["error"] = "rhino_execution_blocked";
+            data["reason"] = "rhino_command_timeout";
+            data["command"] = command;
+            data["verified"] = false;
+            data["timeout_seconds"] = 30;
+            data["recovery"] =
+                "Rhino did not finish the command in time. Inspect state with "
+                "rhino_command_prompt or cancel with rhino_command_interactive_cancel "
+                "before sending further mutating calls.";
+            CRookServer::SendErrorData(res, data);
+            return;
+        }
+
+        auto result = future.get();
+```
+
+Do not claim this unwinds the UI-thread command. It only stops the HTTP worker from blocking forever and returns a structured blocked-state response.
+
+- [ ] **Step 4: Add delayed post-dispatch prompt verification**
+
+Still in the `try` block of `HandleCommand`, immediately after `auto result = future.get();`, add:
+
+```cpp
+        if (result.success)
+        {
+            ::Sleep(100);
+            const std::string promptStr = ReadCommandPromptOnMain();
+            if (IsInteractivePrompt(promptStr))
+            {
+                CancelCommandOnMain(docSn);
+
+                result.success = false;
+                result.data = nlohmann::json::object();
+                result.data["command"] = command;
+                result.data["executed"] = false;
+                result.data["error"] =
+                    "Command went interactive after RunScript returned. "
+                    "Use typed Rook tools or provide a complete known-safe scripted command.";
+                result.data["waitingFor"] = promptStr;
+                result.data["verified"] = false;
+                result.data["objectsCreated"] = 0;
+                result.data["objectIds"] = nlohmann::json::array();
+            }
+        }
+```
+
+This is deliberately outside the original dispatch lambda. Sleeping inside the main-thread lambda would block Rhino's message pump and can miss the prompt transition. Sleeping on the worker, then dispatching a prompt read, lets Rhino process the queued command before the second prompt check.
+
+- [ ] **Step 5: Build native project if the Rhino/MFC toolchain is available**
+
+Run:
+
+```powershell
+cmd /c "call \"C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat\" x64 -vcvars_ver=14.44 && msbuild src\RookNative\RookNative.vcxproj /t:Build /p:Configuration=Debug /p:Platform=x64 /p:VCToolsVersion=14.44.35207"
+```
+
+Expected: build succeeds. If the Rhino SDK or MFC toolchain is unavailable, record that native build verification could not be run.
+
+- [ ] **Step 6: Commit Task 7**
+
+Run:
+
+```powershell
+git add src/RookNative/Handlers/CommandHandler.cpp
+git commit -m "fix: bound native rhino command execution"
+```
+
+---
+
+### Task 8: Refuse Native `/command/start` and `/command/send` Outside Dev Learning Mode
 
 **Files:**
 - Modify: `src/RookNative/Handlers/CommandInteractiveHandler.cpp`
@@ -893,7 +1133,7 @@ cmd /c "call \"C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxili
 
 Expected: build succeeds. If the Rhino SDK or MFC toolchain is unavailable, record that native build verification could not be run and keep the code review focused on compile-visible API usage from neighboring code.
 
-- [ ] **Step 6: Commit Task 7**
+- [ ] **Step 6: Commit Task 8**
 
 Run:
 
@@ -904,10 +1144,10 @@ git commit -m "fix: gate native interactive command routes"
 
 ---
 
-### Task 8: Run Integrated Verification
+### Task 9: Run Integrated Verification
 
 **Files:**
-- Verify all files changed by Tasks 1-7.
+- Verify all files changed by Tasks 1-8.
 
 - [ ] **Step 1: Run targeted Python tests**
 
@@ -949,7 +1189,7 @@ Expected: `git diff --check` exits 0. `git status --short` shows only intentiona
 
 - [ ] **Step 4: Final commit if integration cleanup changed files**
 
-If Task 8 required cleanup edits, commit them:
+If Task 9 required cleanup edits, commit them:
 
 ```powershell
 git add <changed-files>
