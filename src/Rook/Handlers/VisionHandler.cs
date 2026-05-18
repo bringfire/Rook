@@ -610,9 +610,6 @@ namespace Rook.Handlers
                 ? GeminiImageCapabilities.ResolveShortName(modelInput)
                 : modelInput!.Trim();
             var resolutionInput = GetStringArg(args, "resolution");
-            var resolution = string.IsNullOrWhiteSpace(resolutionInput)
-                ? "1K"
-                : resolutionInput!;
             var aspectRatio = NormalizeAspectRatioForProvider(
                 GetStringArg(args, "aspect_ratio"));
 
@@ -686,6 +683,15 @@ namespace Rook.Handlers
             {
                 return ImageGenerationWorkItemResult.Fail(
                     Fail("Missing or non-string field 'input_image_path'."));
+            }
+
+            var resolution = string.IsNullOrWhiteSpace(resolutionInput)
+                ? DefaultResolutionForCapability(resolvedModel.Capability)
+                : resolutionInput!;
+            if (aspectRatio is null && !hasInputImage && allowPromptOnly)
+            {
+                aspectRatio = DefaultPromptOnlyAspectRatioForCapability(
+                    resolvedModel.Capability);
             }
 
             if (hasInputImage && !resolvedModel.Capability.SupportsImageToImage)
@@ -856,6 +862,26 @@ namespace Rook.Handlers
                 .Select(r => r.ArtifactId!.Value)
                 .Distinct()
                 .ToList();
+
+        private static string DefaultResolutionForCapability(ImageCapability capability)
+        {
+            if (string.Equals(capability.Id, GeminiImageCapabilities.NanoBanana2,
+                    StringComparison.Ordinal)
+                || string.Equals(capability.Id, GeminiImageCapabilities.DefaultShortName,
+                    StringComparison.Ordinal))
+            {
+                return "1K";
+            }
+
+            return capability.Resolutions.FirstOrDefault(r => !string.IsNullOrWhiteSpace(r))
+                ?? "1K";
+        }
+
+        private static string? DefaultPromptOnlyAspectRatioForCapability(
+            ImageCapability capability)
+            => capability.AspectRatios.FirstOrDefault(r =>
+                !string.IsNullOrWhiteSpace(r)
+                && !r.Equals("match_input_image", StringComparison.OrdinalIgnoreCase));
 
         private static MediaRef ParseImageArtifactMediaRef(
             JsonElement el,

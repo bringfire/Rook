@@ -649,6 +649,46 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
+        public void BuildImageGenerationWorkItem_defaults_flux2_prompt_only_async_request_to_model_resolution()
+        {
+            var root = CreateTempRoot("rook-vision-flux2-prompt-only");
+            try
+            {
+                var handler = new VisionHandler(
+                    new ArtifactStore(Path.Combine(root, "artifacts")),
+                    new InMemoryGenerationSecretStore(),
+                    new PromptEnhancer(),
+                    new ViewportHandler(),
+                    new DefaultImageProviderRegistry(new IImageProviderRegistration[]
+                    {
+                        new ReplicateImageProviderRegistration(
+                            new FakeImageProvider(ReplicateImageCapabilities.ProviderName)),
+                    }));
+                var args = ParseArgs($$"""
+                    {
+                      "prompt": "a clean studio render of a walnut chair",
+                      "model": "{{ReplicateImageCapabilities.Flux2Pro}}"
+                    }
+                    """);
+
+                var result = handler.BuildImageGenerationWorkItem(
+                    args,
+                    VisionHandler.ImageGenerationWorkItemOptions.AsyncImageJob);
+
+                Assert.True(result.Success);
+                var work = result.WorkItem!;
+                Assert.Equal(ReplicateImageCapabilities.Flux2Pro, work.Request.Model);
+                Assert.Equal("1MP", work.Request.Resolution);
+                Assert.Equal("1:1", work.Request.AspectRatio);
+                Assert.Null(work.Request.ReferenceImages);
+            }
+            finally
+            {
+                try { Directory.Delete(root, recursive: true); } catch { }
+            }
+        }
+
+        [Fact]
         public void BuildImageGenerationWorkItem_rejects_artifact_input_over_image_limit()
         {
             var root = CreateTempRoot("rook-vision-generate-artifact-size-limit");
