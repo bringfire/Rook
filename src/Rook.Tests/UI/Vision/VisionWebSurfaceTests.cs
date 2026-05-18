@@ -743,11 +743,12 @@ namespace Rook.Tests.UI.Vision
             var js = ReadVisionResource("app.js");
 
             Assert.Contains("function isSourceImageAsyncImageModel", js);
+            Assert.Contains("function shouldSubmitPromptOnlyAsyncImageJob", js);
             Assert.Contains("const sourcePath = capturedViewport && capturedViewport.file_path;", js);
             Assert.Contains("await generateImageJob(prompt, model, sourcePath);", js);
             Assert.Contains("if (sourcePath && isSourceImageAsyncImageModel(model)) args.input_image_path = sourcePath;", js);
             Assert.Contains("if (sourcePath && isSourceImageAsyncImageModel(model)) args.aspect_ratio = \"match_input_image\";", js);
-            Assert.Contains("if (isPromptOnlyAsyncImageModel(model))", js);
+            Assert.Contains("if (shouldSubmitPromptOnlyAsyncImageJob(model, sourcePath))", js);
 
             var jobStart = js.IndexOf("async function generateImageJob", StringComparison.Ordinal);
             var jobEnd = js.IndexOf("function showImageJobStatus", StringComparison.Ordinal);
@@ -755,6 +756,25 @@ namespace Rook.Tests.UI.Vision
             Assert.True(jobEnd > jobStart);
             var jobBody = js.Substring(jobStart, jobEnd - jobStart);
             Assert.DoesNotContain("reference_image_paths", jobBody);
+        }
+
+        [Fact]
+        public void AppJs_GenerateAllowsPromptOnlyForDualCapabilityAsyncModelsWithoutSource()
+        {
+            var js = ReadVisionResource("app.js");
+
+            Assert.Contains("function canRunPromptOnlyAsyncImageJob", js);
+            Assert.Contains("model.supports_text_to_image !== false", js);
+            Assert.Contains("function shouldSubmitPromptOnlyAsyncImageJob", js);
+            Assert.Contains("&& (!sourcePath || model.supports_image_to_image === false);", js);
+
+            var validateStart = js.IndexOf("function validateGenerateModelForSubmit", StringComparison.Ordinal);
+            var validateEnd = js.IndexOf("function validateStudioModelForSubmit", validateStart, StringComparison.Ordinal);
+            Assert.True(validateStart >= 0, "Generate validation helper must exist.");
+            Assert.True(validateEnd > validateStart, "Generate validation helper body must be bounded.");
+            var validateBody = js.Substring(validateStart, validateEnd - validateStart);
+            Assert.Contains("!canRunPromptOnlyAsyncImageJob(model)", validateBody);
+            Assert.DoesNotContain("!isPromptOnlyAsyncImageModel(model)", validateBody);
         }
 
         [Fact]
