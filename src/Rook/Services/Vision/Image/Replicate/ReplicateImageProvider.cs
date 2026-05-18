@@ -451,12 +451,8 @@ namespace Rook.Services.Vision.Image.Replicate
             }
             else
             {
-                input["aspect_ratio"] = string.IsNullOrWhiteSpace(request.AspectRatio)
-                    ? "1:1"
-                    : request.AspectRatio;
-                input["resolution"] = string.IsNullOrWhiteSpace(request.Resolution)
-                    ? "1MP"
-                    : request.Resolution;
+                input["aspect_ratio"] = ConcreteFlux2PromptOnlyAspectRatio(request.AspectRatio);
+                input["resolution"] = ConcreteFlux2PromptOnlyResolution(request.Resolution);
             }
 
             return new JsonObject
@@ -464,6 +460,18 @@ namespace Rook.Services.Vision.Image.Replicate
                 ["input"] = input,
             }.ToJsonString();
         }
+
+        private static string ConcreteFlux2PromptOnlyAspectRatio(string? aspectRatio) =>
+            string.IsNullOrWhiteSpace(aspectRatio)
+            || string.Equals(aspectRatio, "match_input_image", StringComparison.Ordinal)
+                ? "1:1"
+                : aspectRatio;
+
+        private static string ConcreteFlux2PromptOnlyResolution(string? resolution) =>
+            string.IsNullOrWhiteSpace(resolution)
+            || string.Equals(resolution, "match_input_image", StringComparison.Ordinal)
+                ? "1MP"
+                : resolution;
 
         private static JsonNode ParseJson(string json)
         {

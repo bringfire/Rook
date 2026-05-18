@@ -93,7 +93,7 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
         }
 
         [Fact]
-        public async Task SubmitAsync_flux2_prompt_only_posts_prediction_without_input_images()
+        public async Task SubmitAsync_flux2_prompt_only_posts_prediction_without_input_images_or_match_input_defaults()
         {
             string? requestBody = null;
             var handler = new TestHttpMessageHandler
@@ -116,7 +116,7 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
             var provider = Provider("r8-test-token", handler);
 
             var outcome = await provider.SubmitAsync(
-                Request(model: ReplicateImageCapabilities.Flux2Pro, resolution: "", aspectRatio: ""),
+                Request(model: ReplicateImageCapabilities.Flux2Pro, resolution: "", aspectRatio: "match_input_image"),
                 EmptyMedia(),
                 CancellationToken.None);
 
