@@ -59,6 +59,15 @@ namespace Rook.Services.Vision.Image
             dimensions = default;
 
             if (bytes.Length < 24
+                || bytes[0] != 0x89
+                || bytes[1] != 0x50
+                || bytes[2] != 0x4E
+                || bytes[3] != 0x47
+                || bytes[4] != 0x0D
+                || bytes[5] != 0x0A
+                || bytes[6] != 0x1A
+                || bytes[7] != 0x0A
+                || ReadInt32BigEndian(bytes, 8) != 13
                 || bytes[12] != 0x49
                 || bytes[13] != 0x48
                 || bytes[14] != 0x44
@@ -99,10 +108,7 @@ namespace Rook.Services.Vision.Image
             while (offset < bytes.Length)
             {
                 if (bytes[offset] != 0xFF)
-                {
-                    offset++;
-                    continue;
-                }
+                    return false;
 
                 while (offset < bytes.Length && bytes[offset] == 0xFF)
                     offset++;
@@ -111,7 +117,11 @@ namespace Rook.Services.Vision.Image
                     return false;
 
                 var marker = bytes[offset++];
-                if (marker == 0x00 || IsStandaloneJpegMarker(marker))
+                if (marker == 0x00 || marker == 0xD8)
+                    return false;
+                if (marker == 0xD9 || marker == 0xDA)
+                    return false;
+                if (IsStandaloneJpegMarker(marker))
                     continue;
 
                 if (offset + 2 > bytes.Length)
@@ -122,7 +132,7 @@ namespace Rook.Services.Vision.Image
                     return false;
 
                 var segmentStart = offset + 2;
-                var segmentEnd = offset + segmentLength;
+                var segmentEnd = (long)offset + segmentLength;
                 if (segmentEnd > bytes.Length)
                     return false;
 
@@ -137,7 +147,7 @@ namespace Rook.Services.Vision.Image
                         out dimensions);
                 }
 
-                offset = segmentEnd;
+                offset = (int)segmentEnd;
             }
 
             return false;
@@ -204,8 +214,6 @@ namespace Rook.Services.Vision.Image
 
         private static bool IsStandaloneJpegMarker(byte marker) =>
             marker == 0x01
-            || marker == 0xD8
-            || marker == 0xD9
             || (marker >= 0xD0 && marker <= 0xD7);
 
         private static bool IsStartOfFrameMarker(byte marker) =>

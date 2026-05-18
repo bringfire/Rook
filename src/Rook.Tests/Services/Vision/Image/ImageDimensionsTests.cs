@@ -35,9 +35,121 @@ namespace Rook.Tests.Services.Vision.Image
         }
 
         [Fact]
+        public void TryRead_reads_jpeg_sof_dimensions()
+        {
+            Assert.True(ImageDimensions.TryRead(JpegBytes(800, 600), "image/jpeg", out var dimensions));
+            Assert.Equal(800, dimensions.Width);
+            Assert.Equal(600, dimensions.Height);
+        }
+
+        [Fact]
+        public void TryRead_reads_webp_vp8x_dimensions()
+        {
+            Assert.True(ImageDimensions.TryRead(WebpVp8xBytes(123, 456), "image/webp", out var dimensions));
+            Assert.Equal(123, dimensions.Width);
+            Assert.Equal(456, dimensions.Height);
+        }
+
+        [Fact]
         public void TryRead_returns_false_for_truncated_image()
         {
             Assert.False(ImageDimensions.TryRead(new byte[] { 0x47, 0x49 }, "image/gif", out _));
+        }
+
+        [Fact]
+        public void TryRead_returns_false_for_invalid_png_signature_with_ihdr_at_offset_12()
+        {
+            var bytes = PngBytes(1024, 768);
+            bytes[0] = 0x00;
+
+            Assert.False(ImageDimensions.TryRead(bytes, "image/png", out _));
+        }
+
+        [Fact]
+        public void TryRead_returns_false_for_png_ihdr_length_not_13()
+        {
+            var bytes = PngBytes(1024, 768);
+            WriteBigEndian(bytes, 8, 12);
+
+            Assert.False(ImageDimensions.TryRead(bytes, "image/png", out _));
+        }
+
+        [Theory]
+        [InlineData("image/gif")]
+        [InlineData("image/png")]
+        public void TryRead_returns_false_for_zero_dimensions(string mimeType)
+        {
+            var bytes = mimeType == "image/gif"
+                ? GifBytes(0, 240)
+                : PngBytes(1024, 0);
+
+            Assert.False(ImageDimensions.TryRead(bytes, mimeType, out _));
+        }
+
+        [Fact]
+        public void TryRead_returns_false_for_truncated_webp_vp8x()
+        {
+            var bytes = WebpVp8xBytes(123, 456);
+            System.Array.Resize(ref bytes, 28);
+
+            Assert.False(ImageDimensions.TryRead(bytes, "image/webp", out _));
+        }
+
+        [Fact]
+        public void TryRead_returns_false_for_jpeg_malformed_segment_boundary()
+        {
+            var bytes = new byte[]
+            {
+                0xFF, 0xD8,
+                0xFF, 0xE0,
+                0x00, 0x10,
+                0x01, 0x02,
+            };
+
+            Assert.False(ImageDimensions.TryRead(bytes, "image/jpeg", out _));
+        }
+
+        [Fact]
+        public void TryRead_returns_false_for_jpeg_non_marker_garbage_after_soi()
+        {
+            var bytes = new byte[]
+            {
+                0xFF, 0xD8,
+                0x00,
+                0xFF, 0xC0,
+                0x00, 0x0B,
+                0x08,
+                0x02, 0x58,
+                0x03, 0x20,
+                0x03, 0x01, 0x11, 0x00,
+                0x02, 0x11, 0x00,
+                0x03, 0x11, 0x00,
+            };
+
+            Assert.False(ImageDimensions.TryRead(bytes, "image/jpeg", out _));
+        }
+
+        [Theory]
+        [InlineData(0xD9)]
+        [InlineData(0xDA)]
+        public void TryRead_returns_false_for_jpeg_terminal_marker_before_sof(byte marker)
+        {
+            var bytes = new byte[]
+            {
+                0xFF, 0xD8,
+                0xFF, marker,
+                0x00, 0x02,
+                0xFF, 0xC0,
+                0x00, 0x0B,
+                0x08,
+                0x02, 0x58,
+                0x03, 0x20,
+                0x03, 0x01, 0x11, 0x00,
+                0x02, 0x11, 0x00,
+                0x03, 0x11, 0x00,
+            };
+
+            Assert.False(ImageDimensions.TryRead(bytes, "image/jpeg", out _));
         }
 
         private static byte[] GifBytes(int width, int height) =>
@@ -54,9 +166,40 @@ namespace Rook.Tests.Services.Vision.Image
             var bytes = new byte[33];
             bytes[0] = 0x89; bytes[1] = 0x50; bytes[2] = 0x4E; bytes[3] = 0x47;
             bytes[4] = 0x0D; bytes[5] = 0x0A; bytes[6] = 0x1A; bytes[7] = 0x0A;
+            WriteBigEndian(bytes, 8, 13);
             bytes[12] = 0x49; bytes[13] = 0x48; bytes[14] = 0x44; bytes[15] = 0x52;
             WriteBigEndian(bytes, 16, width);
             WriteBigEndian(bytes, 20, height);
+            return bytes;
+        }
+
+        private static byte[] JpegBytes(int width, int height) =>
+            new byte[]
+            {
+                0xFF, 0xD8,
+                0xFF, 0xE0,
+                0x00, 0x04,
+                0x00, 0x00,
+                0xFF, 0xFF, 0xC0,
+                0x00, 0x0B,
+                0x08,
+                (byte)((height >> 8) & 0xFF), (byte)(height & 0xFF),
+                (byte)((width >> 8) & 0xFF), (byte)(width & 0xFF),
+                0x03, 0x01, 0x11, 0x00,
+                0x02, 0x11, 0x00,
+                0x03, 0x11, 0x00,
+            };
+
+        private static byte[] WebpVp8xBytes(int width, int height)
+        {
+            var bytes = new byte[30];
+            bytes[0] = 0x52; bytes[1] = 0x49; bytes[2] = 0x46; bytes[3] = 0x46;
+            WriteLittleEndian(bytes, 4, 22);
+            bytes[8] = 0x57; bytes[9] = 0x45; bytes[10] = 0x42; bytes[11] = 0x50;
+            bytes[12] = 0x56; bytes[13] = 0x50; bytes[14] = 0x38; bytes[15] = 0x58;
+            WriteLittleEndian(bytes, 16, 10);
+            WriteUInt24LittleEndian(bytes, 24, width - 1);
+            WriteUInt24LittleEndian(bytes, 27, height - 1);
             return bytes;
         }
 
@@ -66,6 +209,21 @@ namespace Rook.Tests.Services.Vision.Image
             bytes[offset + 1] = (byte)((value >> 16) & 0xFF);
             bytes[offset + 2] = (byte)((value >> 8) & 0xFF);
             bytes[offset + 3] = (byte)(value & 0xFF);
+        }
+
+        private static void WriteLittleEndian(byte[] bytes, int offset, int value)
+        {
+            bytes[offset] = (byte)(value & 0xFF);
+            bytes[offset + 1] = (byte)((value >> 8) & 0xFF);
+            bytes[offset + 2] = (byte)((value >> 16) & 0xFF);
+            bytes[offset + 3] = (byte)((value >> 24) & 0xFF);
+        }
+
+        private static void WriteUInt24LittleEndian(byte[] bytes, int offset, int value)
+        {
+            bytes[offset] = (byte)(value & 0xFF);
+            bytes[offset + 1] = (byte)((value >> 8) & 0xFF);
+            bytes[offset + 2] = (byte)((value >> 16) & 0xFF);
         }
     }
 }
