@@ -689,6 +689,86 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
+        public void BuildImageGenerationWorkItem_allows_flux2_local_source_over_gemini_inline_cap()
+        {
+            var root = CreateTempRoot("rook-vision-flux2-local-source-size-policy");
+            try
+            {
+                var inputPath = Path.Combine(root, "source.png");
+                File.WriteAllBytes(inputPath, CreatePngBytes(12 * 1024 * 1024, 1024, 768));
+                var handler = new VisionHandler(
+                    new ArtifactStore(Path.Combine(root, "artifacts")),
+                    new InMemoryGenerationSecretStore(),
+                    new PromptEnhancer(),
+                    new ViewportHandler(),
+                    new DefaultImageProviderRegistry(new IImageProviderRegistration[]
+                    {
+                        new ReplicateImageProviderRegistration(
+                            new FakeImageProvider(ReplicateImageCapabilities.ProviderName)),
+                    }));
+                var args = ParseArgs($$"""
+                    {
+                      "prompt": "make this rendering warmer",
+                      "input_image_path": "{{JsonEncodedText.Encode(inputPath)}}",
+                      "model": "{{ReplicateImageCapabilities.Flux2Pro}}",
+                      "resolution": "1MP",
+                      "aspect_ratio": "match_input_image"
+                    }
+                    """);
+
+                var result = handler.BuildImageGenerationWorkItem(
+                    args,
+                    VisionHandler.ImageGenerationWorkItemOptions.AsyncImageJob);
+
+                Assert.True(result.Success);
+                var work = result.WorkItem!;
+                Assert.Equal(ReplicateImageCapabilities.Flux2Pro, work.Request.Model);
+                Assert.Single(work.ResolvedMedia);
+            }
+            finally
+            {
+                try { Directory.Delete(root, recursive: true); } catch { }
+            }
+        }
+
+        [Fact]
+        public void BuildImageGenerationWorkItem_keeps_gemini_local_source_inline_cap()
+        {
+            var root = CreateTempRoot("rook-vision-gemini-local-source-size-policy");
+            try
+            {
+                var inputPath = Path.Combine(root, "source.png");
+                File.WriteAllBytes(inputPath, CreatePngBytes(12 * 1024 * 1024, 1024, 768));
+                var handler = new VisionHandler(
+                    new ArtifactStore(Path.Combine(root, "artifacts")),
+                    new InMemoryGenerationSecretStore(),
+                    new PromptEnhancer(),
+                    new ViewportHandler(),
+                    new DefaultImageProviderRegistry(new IImageProviderRegistration[]
+                    {
+                        new TestImageProviderRegistration(new FakeImageProvider()),
+                    }));
+                var args = ParseArgs($$"""
+                    {
+                      "prompt": "make this rendering warmer",
+                      "input_image_path": "{{JsonEncodedText.Encode(inputPath)}}",
+                      "model": "{{GeminiImageCapabilities.DefaultModel}}",
+                      "resolution": "1K",
+                      "aspect_ratio": "1:1"
+                    }
+                    """);
+
+                var ex = Assert.Throws<ArgumentException>(
+                    () => handler.BuildImageGenerationWorkItem(args));
+                Assert.Contains("size limit", ex.Message);
+            }
+            finally
+            {
+                try { Directory.Delete(root, recursive: true); } catch { }
+            }
+        }
+
+        [Fact]
         public void BuildImageGenerationWorkItem_rejects_artifact_input_over_image_limit()
         {
             var root = CreateTempRoot("rook-vision-generate-artifact-size-limit");
@@ -1211,6 +1291,40 @@ namespace Rook.Tests.Handlers
             var root = Path.Combine(Path.GetTempPath(), name + "-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(root);
             return root;
+        }
+
+        private static byte[] CreatePngBytes(int byteCount, int width, int height)
+        {
+            if (byteCount < 33)
+                throw new ArgumentOutOfRangeException(nameof(byteCount));
+
+            var bytes = new byte[byteCount];
+            bytes[0] = 0x89;
+            bytes[1] = 0x50;
+            bytes[2] = 0x4E;
+            bytes[3] = 0x47;
+            bytes[4] = 0x0D;
+            bytes[5] = 0x0A;
+            bytes[6] = 0x1A;
+            bytes[7] = 0x0A;
+            bytes[11] = 13;
+            bytes[12] = 0x49;
+            bytes[13] = 0x48;
+            bytes[14] = 0x44;
+            bytes[15] = 0x52;
+            WriteInt32BigEndian(bytes, 16, width);
+            WriteInt32BigEndian(bytes, 20, height);
+            bytes[24] = 8;
+            bytes[25] = 2;
+            return bytes;
+        }
+
+        private static void WriteInt32BigEndian(byte[] bytes, int offset, int value)
+        {
+            bytes[offset] = (byte)((value >> 24) & 0xFF);
+            bytes[offset + 1] = (byte)((value >> 16) & 0xFF);
+            bytes[offset + 2] = (byte)((value >> 8) & 0xFF);
+            bytes[offset + 3] = (byte)(value & 0xFF);
         }
 
         private static VisionHandler NewHandlerWithSecrets(IGenerationSecretStore secrets)
