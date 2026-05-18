@@ -209,6 +209,64 @@ namespace Rook.Tests.Services.Vision.Replicate
         }
 
         [Fact]
+        public async Task UploadFileAsync_rejects_non_string_file_id()
+        {
+            var handler = new TestHttpMessageHandler
+            {
+                OnSend = _ => new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        "{\"id\":123,\"urls\":{\"get\":\"https://api.replicate.com/v1/files/file-1/content\"}}",
+                        Encoding.UTF8,
+                        "application/json"),
+                },
+            };
+            var client = new ReplicateApiClient(new HttpClient(handler));
+
+            var error = await Assert.ThrowsAsync<ArgumentException>(() =>
+                client.UploadFileAsync(
+                    "r8_token",
+                    "source.png",
+                    new byte[] { 1, 2, 3 },
+                    "image/png",
+                    "{}",
+                    CancellationToken.None));
+
+            Assert.Equal(
+                "Replicate file upload response was missing file id or urls.get.",
+                error.Message);
+        }
+
+        [Fact]
+        public async Task UploadFileAsync_rejects_non_string_file_url()
+        {
+            var handler = new TestHttpMessageHandler
+            {
+                OnSend = _ => new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        "{\"id\":\"file-1\",\"urls\":{\"get\":123}}",
+                        Encoding.UTF8,
+                        "application/json"),
+                },
+            };
+            var client = new ReplicateApiClient(new HttpClient(handler));
+
+            var error = await Assert.ThrowsAsync<ArgumentException>(() =>
+                client.UploadFileAsync(
+                    "r8_token",
+                    "source.png",
+                    new byte[] { 1, 2, 3 },
+                    "image/png",
+                    "{}",
+                    CancellationToken.None));
+
+            Assert.Equal(
+                "Replicate file upload response was missing file id or urls.get.",
+                error.Message);
+        }
+
+        [Fact]
         public async Task SendApiAsync_rejects_non_api_replicate_hosts()
         {
             var handler = new TestHttpMessageHandler();

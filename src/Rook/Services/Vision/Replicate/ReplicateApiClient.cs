@@ -257,12 +257,14 @@ namespace Rook.Services.Vision.Replicate
                     throw MissingUploadResponse();
 
                 var id = root.TryGetProperty("id", out var idElement)
+                    && idElement.ValueKind == JsonValueKind.String
                     ? idElement.GetString()
                     : null;
                 var fileUrlText =
                     root.TryGetProperty("urls", out var urlsElement)
                     && urlsElement.ValueKind == JsonValueKind.Object
                     && urlsElement.TryGetProperty("get", out var getElement)
+                    && getElement.ValueKind == JsonValueKind.String
                         ? getElement.GetString()
                         : null;
 
