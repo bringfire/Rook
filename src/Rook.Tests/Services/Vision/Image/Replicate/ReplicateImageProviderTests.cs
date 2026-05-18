@@ -213,6 +213,30 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
         }
 
         [Fact]
+        public async Task SubmitAsync_flux2_rejects_source_over_upload_byte_policy_before_upload()
+        {
+            var handler = new TestHttpMessageHandler();
+            var provider = Provider("r8-test-token", handler);
+            var input = MediaRef.ForPath("C:/tmp/input.png", ImageMediaRoles.InputImage);
+            var maxBytes = ReplicateImageCapabilities.Flux2ProMediaPolicy.Transport.MaxSingleUploadBytes;
+            var media = new Dictionary<MediaRef, ResolvedMedia>
+            {
+                [input] = PngMediaWithDimensionsAndLength(512, 512, checked((int)maxBytes + 1)),
+            };
+
+            var outcome = await provider.SubmitAsync(
+                Request(model: ReplicateImageCapabilities.Flux2Pro, resolution: "1MP", aspectRatio: "match_input_image"),
+                media,
+                CancellationToken.None);
+
+            var failed = Assert.IsType<FailedSubmitOutcome>(outcome);
+            Assert.Equal(GenerationErrorCode.InvalidRequest, failed.Error.Code);
+            Assert.Equal("input_image_path", failed.Error.Field);
+            Assert.Contains("upload", failed.Error.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Empty(handler.Requests);
+        }
+
+        [Fact]
         public async Task SubmitAsync_flux2_uploads_source_and_posts_https_input_image_url()
         {
             string? predictionBody = null;
@@ -717,7 +741,21 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
 
         private static ResolvedMedia PngMediaWithDimensions(int width, int height)
         {
+            return PngMediaWithDimensionsAndLength(width, height, 33);
+        }
+
+        private static ResolvedMedia PngMediaWithDimensionsAndLength(
+            int width,
+            int height,
+            int totalBytes)
+        {
             var bytes = new byte[33];
+            if (totalBytes < bytes.Length)
+                throw new ArgumentOutOfRangeException(nameof(totalBytes));
+
+            if (totalBytes != bytes.Length)
+                bytes = new byte[totalBytes];
+
             bytes[0] = 0x89; bytes[1] = 0x50; bytes[2] = 0x4E; bytes[3] = 0x47;
             bytes[4] = 0x0D; bytes[5] = 0x0A; bytes[6] = 0x1A; bytes[7] = 0x0A;
             WriteBigEndian(bytes, 8, 13);

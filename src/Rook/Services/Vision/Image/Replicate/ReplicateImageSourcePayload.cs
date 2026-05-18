@@ -70,6 +70,14 @@ namespace Rook.Services.Vision.Image.Replicate
                     "input_image_path"));
             }
 
+            var maxUploadBytes = ReplicateImageCapabilities.Flux2ProMediaPolicy.Transport.MaxSingleUploadBytes;
+            if (resolved.Bytes.LongLength > maxUploadBytes)
+            {
+                return (null, InvalidSource(
+                    "Flux 2 Pro source image exceeds the Replicate upload size limit.",
+                    "input_image_path"));
+            }
+
             var detectedMime = ImageMimeDetector.Detect(resolved.Bytes);
             if (!ReplicateImageCapabilities.Flux2ProMediaPolicy.Model.AllowedMimeTypes.Contains(
                     detectedMime,
