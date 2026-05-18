@@ -92,7 +92,7 @@ While quarantined:
 - Mutating routes are rejected before dispatch.
 - Prompt/state inspection is allowed.
 - Cancel recovery is allowed.
-- A successful idle prompt/state check clears quarantine.
+- Quarantine clears only after the strongest available native state check says Rhino is safe for mutation. Prompt idle is necessary but not always sufficient; if native code can observe command activity, modal/dialog state, dispatcher drain state, or recent cancel completion, those signals must be included before clearing quarantine.
 - A failed prompt/state check preserves quarantine.
 
 This prevents a timeout from becoming a false "done" signal that lets the agent continue mutating the document.
@@ -119,6 +119,7 @@ Required behavior:
 
 - `preflight_rhino_command` rejects unknown commands.
 - `preflight_rhino_command` rejects known commands unless their command/mode metadata explicitly allows non-interactive scripted execution.
+- P0 ships with an empty production safe set unless explicit `safe_non_interactive` metadata is present. Tests may use fake stores with safe metadata to prove the allow path, but production must not infer safety from existing command knowledge that lacks the field. A curated seed allowlist can be added later as reviewed metadata, not as a hidden migration assumption.
 - Rejection messages say to use typed tools or provide a complete known-safe command string. They do not recommend interactive start/send.
 - Native `/command` performs delayed prompt verification after `RunScript` instead of relying only on an immediate prompt read.
 - Native `/command` uses bounded waits from worker threads.
@@ -134,9 +135,9 @@ P1 removes the architectural trap where agents can rebuild autonomous prompt dri
 
 Required behavior:
 
-- MCP `rhino_command_interactive_start` returns a structured deprecation error in normal mode, or is removed from normal tool listings.
-- MCP `rhino_command_interactive_send` returns a structured deprecation error in normal mode, or is removed from normal tool listings.
-- Native `/command/start` and `/command/send` are hard-disabled outside explicit dev/learning mode, or return the same structured deprecation error.
+- MCP `rhino_command_interactive_start` and `rhino_command_interactive_send` are removed from normal tool listings.
+- If still reachable by direct MCP name, `rhino_command_interactive_start` and `rhino_command_interactive_send` return a structured deprecation/refusal error unless explicit dev/learning mode is enabled.
+- Native `/command/start` and `/command/send` return the same structured deprecation/refusal error outside explicit dev/learning mode.
 - `rhino_command_interactive_prompt` remains exposed as a state query.
 - `rhino_command_interactive_cancel` remains exposed as emergency recovery.
 - `rhino_commands` tool group no longer contains start/send.
@@ -190,6 +191,7 @@ Responsibilities:
 - Run the script/command.
 - Allow Rhino's message loop enough time to expose prompt state.
 - Re-read prompt state using the same idle detection convention as `/command/prompt`.
+- Use the strongest native state signals available before declaring Rhino safe for mutation; prompt idle alone should not clear quarantine when a modal dialog, blocked UI state, or uncertain dispatcher state is still detectable.
 - Cancel if an active prompt is detected.
 - Return structured `waitingFor`, `verified=false`, or quarantine metadata instead of success.
 - Convert timeouts into global execution quarantine.
@@ -305,7 +307,6 @@ P2 can be split into smaller implementation PRs: native guard/quarantine, dispat
 
 - The exact metadata name for safe command/mode classification. Candidate: `safe_non_interactive`.
 - Whether `rhino_learn_interactive` is retained behind a dev gate or deprecated entirely.
-- Whether mutation work during quarantine is refused immediately or queued with a bounded wait. The safer default is immediate structured refusal.
 - The exact native storage point for quarantine state. It likely belongs near the dispatcher or a small shared RunScript state component, not in individual handlers.
 
 ## Approval Boundary
