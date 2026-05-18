@@ -279,7 +279,17 @@ namespace Rook.Tests.UI.Panels
         [Fact]
         public void Trace_IsDisabledByDefault()
         {
-            Assert.False(HostedPanelLifecycleTrace.IsEnabled());
+            var previous = Environment.GetEnvironmentVariable("ROOK_PANEL_LIFECYCLE_TRACE");
+            try
+            {
+                Environment.SetEnvironmentVariable("ROOK_PANEL_LIFECYCLE_TRACE", null);
+
+                Assert.False(HostedPanelLifecycleTrace.IsEnabled());
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable("ROOK_PANEL_LIFECYCLE_TRACE", previous);
+            }
         }
     }
 }

@@ -678,7 +678,7 @@ namespace Rook.Tests.Handlers
                 Assert.True(result.Success);
                 var work = result.WorkItem!;
                 Assert.Equal(ReplicateImageCapabilities.Flux2Pro, work.Request.Model);
-                Assert.Equal("1MP", work.Request.Resolution);
+                Assert.Equal("1 MP", work.Request.Resolution);
                 Assert.Equal("1:1", work.Request.AspectRatio);
                 Assert.Null(work.Request.ReferenceImages);
             }
