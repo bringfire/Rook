@@ -93,21 +93,51 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
         }
 
         [Fact]
-        public async Task SubmitAsync_flux2_prompt_only_fails_before_http_call()
+        public async Task SubmitAsync_flux2_prompt_only_posts_prediction_without_input_images()
         {
-            var handler = new TestHttpMessageHandler();
+            string? requestBody = null;
+            var handler = new TestHttpMessageHandler
+            {
+                OnSend = req =>
+                {
+                    requestBody = req.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+                    return Json(HttpStatusCode.Created, """
+                        {
+                          "id": "pred-flux2-prompt",
+                          "status": "starting",
+                          "urls": {
+                            "get": "https://api.replicate.com/v1/predictions/pred-flux2-prompt",
+                            "cancel": "https://api.replicate.com/v1/predictions/pred-flux2-prompt/cancel"
+                          }
+                        }
+                        """);
+                },
+            };
             var provider = Provider("r8-test-token", handler);
 
             var outcome = await provider.SubmitAsync(
-                Request(model: ReplicateImageCapabilities.Flux2Pro, resolution: "1MP", aspectRatio: "match_input_image"),
+                Request(model: ReplicateImageCapabilities.Flux2Pro, resolution: "", aspectRatio: ""),
                 EmptyMedia(),
                 CancellationToken.None);
 
-            var failed = Assert.IsType<FailedSubmitOutcome>(outcome);
-            Assert.Equal(GenerationErrorCode.InvalidRequest, failed.Error.Code);
-            Assert.Equal("input_image_path", failed.Error.Field);
-            Assert.Contains("requires exactly one source image", failed.Error.Message);
-            Assert.Empty(handler.Requests);
+            var request = Assert.Single(handler.Requests);
+            Assert.Equal(HttpMethod.Post, request.Method);
+            Assert.Equal(
+                "https://api.replicate.com/v1/models/black-forest-labs/flux-2-pro/predictions",
+                request.RequestUri!.ToString());
+
+            var root = Assert.IsType<JsonObject>(JsonNode.Parse(requestBody!));
+            var inputJson = Assert.IsType<JsonObject>(root["input"]);
+            Assert.Equal(
+                new[] { "aspect_ratio", "output_format", "prompt", "resolution" },
+                inputJson.Select(kvp => kvp.Key).OrderBy(k => k));
+            Assert.Equal("1:1", inputJson["aspect_ratio"]!.GetValue<string>());
+            Assert.Equal("1MP", inputJson["resolution"]!.GetValue<string>());
+            Assert.DoesNotContain("input_images", requestBody);
+            Assert.DoesNotContain("data:image/", requestBody);
+
+            var queued = Assert.IsType<QueuedSubmitOutcome>(outcome);
+            Assert.Equal("pred-flux2-prompt", queued.Handle.ProviderJobId);
         }
 
         [Fact]
@@ -160,23 +190,14 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
         }
 
         [Fact]
-        public async Task SubmitAsync_flux2_rejects_oversized_source_before_http_call()
+        public async Task SubmitAsync_flux2_rejects_source_over_pixel_policy_before_http_call()
         {
             var handler = new TestHttpMessageHandler();
             var provider = Provider("r8-test-token", handler);
             var input = MediaRef.ForPath("C:/tmp/input.png", ImageMediaRoles.InputImage);
-            var bytes = new byte[1024 * 1024 + 1];
-            bytes[0] = 0x89;
-            bytes[1] = 0x50;
-            bytes[2] = 0x4E;
-            bytes[3] = 0x47;
-            bytes[4] = 0x0D;
-            bytes[5] = 0x0A;
-            bytes[6] = 0x1A;
-            bytes[7] = 0x0A;
             var media = new Dictionary<MediaRef, ResolvedMedia>
             {
-                [input] = new ResolvedMedia(bytes, "image/png"),
+                [input] = PngMediaWithDimensions(3001, 3000),
             };
 
             var outcome = await provider.SubmitAsync(
@@ -187,19 +208,31 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
             var failed = Assert.IsType<FailedSubmitOutcome>(outcome);
             Assert.Equal(GenerationErrorCode.InvalidRequest, failed.Error.Code);
             Assert.Equal("input_image_path", failed.Error.Field);
-            Assert.Contains("too large", failed.Error.Message);
+            Assert.Contains("9 megapixels or less", failed.Error.Message);
             Assert.Empty(handler.Requests);
         }
 
         [Fact]
-        public async Task SubmitAsync_flux2_posts_source_image_schema_with_data_uri_only_in_request_body()
+        public async Task SubmitAsync_flux2_uploads_source_and_posts_https_input_image_url()
         {
-            string? requestBody = null;
+            string? predictionBody = null;
             var handler = new TestHttpMessageHandler
             {
                 OnSend = req =>
                 {
-                    requestBody = req.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+                    if (req.RequestUri!.AbsolutePath == "/v1/files")
+                    {
+                        return Json(HttpStatusCode.Created, """
+                            {
+                              "id": "file-flux2-source",
+                              "urls": {
+                                "get": "https://api.replicate.com/v1/files/file-flux2-source"
+                              }
+                            }
+                            """);
+                    }
+
+                    predictionBody = req.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
                     return Json(HttpStatusCode.Created, """
                         {
                           "id": "pred-flux2",
@@ -216,7 +249,7 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
             var input = MediaRef.ForPath("C:/tmp/input.png", ImageMediaRoles.InputImage);
             var media = new Dictionary<MediaRef, ResolvedMedia>
             {
-                [input] = PngMedia(),
+                [input] = PngMediaWithDimensions(512, 512),
             };
 
             var outcome = await provider.SubmitAsync(
@@ -227,13 +260,17 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
                 media,
                 CancellationToken.None);
 
-            var request = Assert.Single(handler.Requests);
+            Assert.Equal(2, handler.Requests.Count);
+            Assert.Equal(HttpMethod.Post, handler.Requests[0].Method);
+            Assert.Equal("https://api.replicate.com/v1/files", handler.Requests[0].RequestUri!.ToString());
+
+            var request = handler.Requests[1];
             Assert.Equal(HttpMethod.Post, request.Method);
             Assert.Equal(
                 "https://api.replicate.com/v1/models/black-forest-labs/flux-2-pro/predictions",
                 request.RequestUri!.ToString());
 
-            var root = Assert.IsType<JsonObject>(JsonNode.Parse(requestBody!));
+            var root = Assert.IsType<JsonObject>(JsonNode.Parse(predictionBody!));
             Assert.Equal(new[] { "input" }, root.Select(kvp => kvp.Key).OrderBy(k => k));
             var inputJson = Assert.IsType<JsonObject>(root["input"]);
             Assert.Equal(
@@ -246,14 +283,69 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
 
             var images = Assert.IsType<JsonArray>(inputJson["input_images"]);
             var image = Assert.Single(images);
-            var dataUri = image!.GetValue<string>();
-            Assert.StartsWith("data:image/png;base64,", dataUri, StringComparison.Ordinal);
-            Assert.DoesNotContain("num_outputs", requestBody);
-            Assert.DoesNotContain("reference", requestBody);
+            Assert.Equal("https://api.replicate.com/v1/files/file-flux2-source", image!.GetValue<string>());
+            Assert.DoesNotContain("data:image/", predictionBody);
+            Assert.DoesNotContain("num_outputs", predictionBody);
+            Assert.DoesNotContain("reference", predictionBody);
 
             var queued = Assert.IsType<QueuedSubmitOutcome>(outcome);
             Assert.Equal("pred-flux2", queued.Handle.ProviderJobId);
-            Assert.DoesNotContain("data:image/", JsonNode.Parse(requestBody!)!["input"]!.ToJsonString().Replace(dataUri, ""));
+            Assert.NotNull(queued.Handle.ProviderMetadata);
+            var urlsJson = queued.Handle.ProviderMetadata!["urls"]!.ToJsonString();
+            Assert.Contains("predictions/pred-flux2", urlsJson);
+            Assert.DoesNotContain("/v1/files/file-flux2-source", urlsJson);
+            Assert.DoesNotContain("data:image/", urlsJson);
+            Assert.Null(queued.Handle.ProviderResultToken);
+        }
+
+        [Fact]
+        public async Task SubmitAsync_flux2_accepts_gif_source_image()
+        {
+            var handler = new TestHttpMessageHandler
+            {
+                OnSend = req =>
+                {
+                    if (req.RequestUri!.AbsolutePath == "/v1/files")
+                    {
+                        return Json(HttpStatusCode.Created, """
+                            {
+                              "id": "file-flux2-gif",
+                              "urls": {
+                                "get": "https://api.replicate.com/v1/files/file-flux2-gif"
+                              }
+                            }
+                            """);
+                    }
+
+                    return Json(HttpStatusCode.Created, """
+                        {
+                          "id": "pred-flux2-gif",
+                          "status": "starting",
+                          "urls": {
+                            "get": "https://api.replicate.com/v1/predictions/pred-flux2-gif"
+                          }
+                        }
+                        """);
+                },
+            };
+            var provider = Provider("r8-test-token", handler);
+            var input = MediaRef.ForPath("C:/tmp/input.gif", ImageMediaRoles.InputImage);
+            var media = new Dictionary<MediaRef, ResolvedMedia>
+            {
+                [input] = GifMediaWithDimensions(320, 240),
+            };
+
+            var outcome = await provider.SubmitAsync(
+                Request(
+                    model: ReplicateImageCapabilities.Flux2Pro,
+                    resolution: "1MP",
+                    aspectRatio: "match_input_image"),
+                media,
+                CancellationToken.None);
+
+            var queued = Assert.IsType<QueuedSubmitOutcome>(outcome);
+            Assert.Equal("pred-flux2-gif", queued.Handle.ProviderJobId);
+            Assert.Equal(2, handler.Requests.Count);
         }
 
         [Fact]
@@ -622,6 +714,37 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
             new(
                 new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00 },
                 "image/png");
+
+        private static ResolvedMedia PngMediaWithDimensions(int width, int height)
+        {
+            var bytes = new byte[33];
+            bytes[0] = 0x89; bytes[1] = 0x50; bytes[2] = 0x4E; bytes[3] = 0x47;
+            bytes[4] = 0x0D; bytes[5] = 0x0A; bytes[6] = 0x1A; bytes[7] = 0x0A;
+            WriteBigEndian(bytes, 8, 13);
+            bytes[12] = 0x49; bytes[13] = 0x48; bytes[14] = 0x44; bytes[15] = 0x52;
+            WriteBigEndian(bytes, 16, width);
+            WriteBigEndian(bytes, 20, height);
+            return new ResolvedMedia(bytes, "image/png");
+        }
+
+        private static ResolvedMedia GifMediaWithDimensions(int width, int height) =>
+            new(
+                new byte[]
+                {
+                    0x47, 0x49, 0x46, 0x38, 0x39, 0x61,
+                    (byte)(width & 0xFF), (byte)((width >> 8) & 0xFF),
+                    (byte)(height & 0xFF), (byte)((height >> 8) & 0xFF),
+                    0x00, 0x00, 0x00,
+                },
+                "image/gif");
+
+        private static void WriteBigEndian(byte[] bytes, int offset, int value)
+        {
+            bytes[offset] = (byte)((value >> 24) & 0xFF);
+            bytes[offset + 1] = (byte)((value >> 16) & 0xFF);
+            bytes[offset + 2] = (byte)((value >> 8) & 0xFF);
+            bytes[offset + 3] = (byte)(value & 0xFF);
+        }
 
         private static HttpResponseMessage Json(HttpStatusCode status, string json) =>
             new(status)
