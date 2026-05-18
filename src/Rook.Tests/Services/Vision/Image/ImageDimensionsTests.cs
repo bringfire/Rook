@@ -51,6 +51,22 @@ namespace Rook.Tests.Services.Vision.Image
         }
 
         [Fact]
+        public void TryRead_reads_webp_vp8_lossy_dimensions()
+        {
+            Assert.True(ImageDimensions.TryRead(WebpVp8Bytes(321, 654), "image/webp", out var dimensions));
+            Assert.Equal(321, dimensions.Width);
+            Assert.Equal(654, dimensions.Height);
+        }
+
+        [Fact]
+        public void TryRead_reads_webp_vp8l_lossless_dimensions()
+        {
+            Assert.True(ImageDimensions.TryRead(WebpVp8lBytes(222, 333), "image/webp", out var dimensions));
+            Assert.Equal(222, dimensions.Width);
+            Assert.Equal(333, dimensions.Height);
+        }
+
+        [Fact]
         public void TryRead_returns_false_for_truncated_image()
         {
             Assert.False(ImageDimensions.TryRead(new byte[] { 0x47, 0x49 }, "image/gif", out _));
@@ -91,6 +107,42 @@ namespace Rook.Tests.Services.Vision.Image
         {
             var bytes = WebpVp8xBytes(123, 456);
             System.Array.Resize(ref bytes, 28);
+
+            Assert.False(ImageDimensions.TryRead(bytes, "image/webp", out _));
+        }
+
+        [Fact]
+        public void TryRead_returns_false_for_truncated_webp_vp8()
+        {
+            var bytes = WebpVp8Bytes(321, 654);
+            System.Array.Resize(ref bytes, 29);
+
+            Assert.False(ImageDimensions.TryRead(bytes, "image/webp", out _));
+        }
+
+        [Fact]
+        public void TryRead_returns_false_for_webp_vp8_missing_start_code()
+        {
+            var bytes = WebpVp8Bytes(321, 654);
+            bytes[23] = 0x00;
+
+            Assert.False(ImageDimensions.TryRead(bytes, "image/webp", out _));
+        }
+
+        [Fact]
+        public void TryRead_returns_false_for_truncated_webp_vp8l()
+        {
+            var bytes = WebpVp8lBytes(222, 333);
+            System.Array.Resize(ref bytes, 24);
+
+            Assert.False(ImageDimensions.TryRead(bytes, "image/webp", out _));
+        }
+
+        [Fact]
+        public void TryRead_returns_false_for_webp_vp8l_missing_signature()
+        {
+            var bytes = WebpVp8lBytes(222, 333);
+            bytes[20] = 0x00;
 
             Assert.False(ImageDimensions.TryRead(bytes, "image/webp", out _));
         }
@@ -203,6 +255,40 @@ namespace Rook.Tests.Services.Vision.Image
             return bytes;
         }
 
+        private static byte[] WebpVp8Bytes(int width, int height)
+        {
+            var bytes = new byte[30];
+            bytes[0] = 0x52; bytes[1] = 0x49; bytes[2] = 0x46; bytes[3] = 0x46;
+            WriteLittleEndian(bytes, 4, 22);
+            bytes[8] = 0x57; bytes[9] = 0x45; bytes[10] = 0x42; bytes[11] = 0x50;
+            bytes[12] = 0x56; bytes[13] = 0x50; bytes[14] = 0x38; bytes[15] = 0x20;
+            WriteLittleEndian(bytes, 16, 10);
+            bytes[20] = 0x00; bytes[21] = 0x00; bytes[22] = 0x00;
+            bytes[23] = 0x9D; bytes[24] = 0x01; bytes[25] = 0x2A;
+            WriteUInt16LittleEndian(bytes, 26, width);
+            WriteUInt16LittleEndian(bytes, 28, height);
+            return bytes;
+        }
+
+        private static byte[] WebpVp8lBytes(int width, int height)
+        {
+            var bytes = new byte[26];
+            var widthMinusOne = width - 1;
+            var heightMinusOne = height - 1;
+
+            bytes[0] = 0x52; bytes[1] = 0x49; bytes[2] = 0x46; bytes[3] = 0x46;
+            WriteLittleEndian(bytes, 4, 18);
+            bytes[8] = 0x57; bytes[9] = 0x45; bytes[10] = 0x42; bytes[11] = 0x50;
+            bytes[12] = 0x56; bytes[13] = 0x50; bytes[14] = 0x38; bytes[15] = 0x4C;
+            WriteLittleEndian(bytes, 16, 5);
+            bytes[20] = 0x2F;
+            bytes[21] = (byte)(widthMinusOne & 0xFF);
+            bytes[22] = (byte)(((widthMinusOne >> 8) & 0x3F) | ((heightMinusOne & 0x03) << 6));
+            bytes[23] = (byte)((heightMinusOne >> 2) & 0xFF);
+            bytes[24] = (byte)((heightMinusOne >> 10) & 0x0F);
+            return bytes;
+        }
+
         private static void WriteBigEndian(byte[] bytes, int offset, int value)
         {
             bytes[offset] = (byte)((value >> 24) & 0xFF);
@@ -224,6 +310,12 @@ namespace Rook.Tests.Services.Vision.Image
             bytes[offset] = (byte)(value & 0xFF);
             bytes[offset + 1] = (byte)((value >> 8) & 0xFF);
             bytes[offset + 2] = (byte)((value >> 16) & 0xFF);
+        }
+
+        private static void WriteUInt16LittleEndian(byte[] bytes, int offset, int value)
+        {
+            bytes[offset] = (byte)(value & 0xFF);
+            bytes[offset + 1] = (byte)((value >> 8) & 0xFF);
         }
     }
 }

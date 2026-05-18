@@ -157,7 +157,7 @@ namespace Rook.Services.Vision.Image
         {
             dimensions = default;
 
-            if (bytes.Length < 30
+            if (bytes.Length < 20
                 || bytes[0] != 0x52
                 || bytes[1] != 0x49
                 || bytes[2] != 0x46
@@ -182,23 +182,57 @@ namespace Rook.Services.Vision.Image
                 if (chunkDataEnd > bytes.Length)
                     return false;
 
-                if (bytes[offset] == 0x56
-                    && bytes[offset + 1] == 0x50
-                    && bytes[offset + 2] == 0x38
-                    && bytes[offset + 3] == 0x58)
-                {
-                    if (chunkSize < 10)
-                        return false;
-
-                    var width = 1 + ReadUInt24LittleEndian(bytes, chunkDataStart + 4);
-                    var height = 1 + ReadUInt24LittleEndian(bytes, chunkDataStart + 7);
-                    return TryCreate(width, height, out dimensions);
-                }
+                if (IsFourCc(bytes, offset, 0x56, 0x50, 0x38, 0x58))
+                    return TryReadWebpVp8x(bytes, chunkDataStart, chunkSize, out dimensions);
+                if (IsFourCc(bytes, offset, 0x56, 0x50, 0x38, 0x20))
+                    return TryReadWebpVp8(bytes, chunkDataStart, chunkSize, out dimensions);
+                if (IsFourCc(bytes, offset, 0x56, 0x50, 0x38, 0x4C))
+                    return TryReadWebpVp8l(bytes, chunkDataStart, chunkSize, out dimensions);
 
                 offset = (int)chunkDataEnd + (chunkSize % 2);
             }
 
             return false;
+        }
+
+        private static bool TryReadWebpVp8x(byte[] bytes, int offset, int chunkSize, out ImageDimensions dimensions)
+        {
+            dimensions = default;
+
+            if (chunkSize < 10)
+                return false;
+
+            var width = 1 + ReadUInt24LittleEndian(bytes, offset + 4);
+            var height = 1 + ReadUInt24LittleEndian(bytes, offset + 7);
+            return TryCreate(width, height, out dimensions);
+        }
+
+        private static bool TryReadWebpVp8(byte[] bytes, int offset, int chunkSize, out ImageDimensions dimensions)
+        {
+            dimensions = default;
+
+            if (chunkSize < 10)
+                return false;
+            if ((bytes[offset] & 0x01) != 0)
+                return false;
+            if (bytes[offset + 3] != 0x9D || bytes[offset + 4] != 0x01 || bytes[offset + 5] != 0x2A)
+                return false;
+
+            var width = ReadUInt16LittleEndian(bytes, offset + 6) & 0x3FFF;
+            var height = ReadUInt16LittleEndian(bytes, offset + 8) & 0x3FFF;
+            return TryCreate(width, height, out dimensions);
+        }
+
+        private static bool TryReadWebpVp8l(byte[] bytes, int offset, int chunkSize, out ImageDimensions dimensions)
+        {
+            dimensions = default;
+
+            if (chunkSize < 5 || bytes[offset] != 0x2F)
+                return false;
+
+            var width = 1 + (bytes[offset + 1] | ((bytes[offset + 2] & 0x3F) << 8));
+            var height = 1 + ((bytes[offset + 2] >> 6) | (bytes[offset + 3] << 2) | ((bytes[offset + 4] & 0x0F) << 10));
+            return TryCreate(width, height, out dimensions);
         }
 
         private static bool TryCreate(int width, int height, out ImageDimensions dimensions)
@@ -230,6 +264,12 @@ namespace Rook.Services.Vision.Image
             || marker == 0xCD
             || marker == 0xCE
             || marker == 0xCF;
+
+        private static bool IsFourCc(byte[] bytes, int offset, byte first, byte second, byte third, byte fourth) =>
+            bytes[offset] == first
+            && bytes[offset + 1] == second
+            && bytes[offset + 2] == third
+            && bytes[offset + 3] == fourth;
 
         private static int ReadInt32BigEndian(byte[] bytes, int offset) =>
             (bytes[offset] << 24)
