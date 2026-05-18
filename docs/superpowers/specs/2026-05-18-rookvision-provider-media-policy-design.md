@@ -13,6 +13,18 @@ media transport and explicit model/media policy. The policy scaffolding should
 be small and typed, with immediate consumers in image work-item validation,
 media resolution limits, and provider submit validation.
 
+Milestone 1 supports:
+
+- prompt-only Flux 2 Pro async image jobs;
+- the current single primary local source image workflow, transported as a
+  provider-accepted HTTPS URL instead of a data URI;
+- policy modeling for up to eight input images.
+
+Milestone 1 does not require reference-image UI or bridge payload expansion.
+Reference images are modeled in policy, but implementation remains gated unless
+the same slice explicitly includes bridge/UI request shape, ordering, and tests
+for references.
+
 This design intentionally separates:
 
 - model input policy: what a model accepts and how it constrains inputs;
@@ -78,8 +90,11 @@ reported as "Rook guard, provider limit unverified", not as provider max.
 - No automatic resize or compression in the first milestone.
 - No public temporary hosting service owned by Rook.
 - No durable image job ledger schema change.
-- No provider URL, source file URL, upload URL, request JSON, data URI, or token
-  leakage in bridge responses, artifact metadata, durable ledgers, or errors.
+- No source/upload/request transport URL, token-bearing URL, request JSON, data
+  URI, or provider upload detail leakage in bridge responses, artifact metadata,
+  durable ledgers, or errors. Existing provider output URL handling needed for
+  result materialization remains allowed at the in-memory provider/materializer
+  boundary and must continue to be sanitized before durable or public exposure.
 
 ## Policy Model
 
@@ -142,6 +157,17 @@ silently raising the data URI cap. The acceptable fallback is to keep Flux 2 Pro
 source-image submission blocked with a precise error that says the provider file
 upload transport is unavailable.
 
+Fallback behavior is request-shape dependent:
+
+- prompt-only Flux 2 Pro: may proceed without media transport;
+- local primary source image: fails closed if provider-accepted HTTPS upload
+  transport is unavailable;
+- local reference images: remain implementation-gated in milestone 1; if later
+  enabled, they follow the same upload-transport requirement as primary source;
+- caller-provided HTTPS URLs: allowed only if the implementation deliberately
+  supports and validates that transport mode. They must not be accepted by
+  accident through generic string passthrough.
+
 For fal GPT Image 2 Edit, fal CDN/storage upload remains the correct direction:
 source bytes are uploaded first and `image_urls` receives URLs.
 
@@ -173,13 +199,14 @@ says it is a Rook guard unless a provider source proves otherwise.
 The first implementation milestone should update only Replicate Flux 2 Pro.
 
 1. Resolve request model and load its image media policy.
-2. Validate prompt/source/reference shape against model input policy.
+2. Validate prompt/source/reference shape against model input policy and the
+   current milestone's narrower implementation gate.
 3. Resolve local media bytes using resolver limits derived from transport and
    Rook safety policy, not the old global Gemini-oriented caps.
 4. Decode image headers or dimensions before submit.
 5. Validate MIME from bytes and declared MIME consistency.
 6. Validate total megapixels across `input_images` before provider submit.
-7. Upload each local source/reference image to provider-accepted HTTPS file
+7. Upload each supported local media input to provider-accepted HTTPS file
    storage.
 8. Build the Replicate prediction input with `input_images` as HTTPS URLs.
 9. Submit, poll, fetch, and materialize through the existing image job flow.
@@ -188,9 +215,28 @@ Dimension validation is required. Byte size is not sufficient for Flux 2 Pro:
 a highly compressed 12 MP JPEG can be below a byte cap while violating the
 model's megapixel policy.
 
-The provider should not persist provider-upload URLs. They are request-time
-transport details and should be treated like existing provider URLs: usable in
-memory only, sanitized from bridge responses and durable records.
+The provider should not persist source/upload transport URLs. They are
+request-time transport details: usable in memory only for prediction creation,
+then sanitized from bridge responses and durable records.
+
+Milestone 1 maps media roles conservatively:
+
+- prompt-only requests omit `input_images`;
+- single-source requests map the primary `input_image` to `input_images[0]`;
+- reference images are rejected unless the implementation slice explicitly
+  includes reference payload support.
+
+When reference support is later enabled, ordering must be stable: primary source
+first, then reference images in user-specified order. This preserves
+`match_input_image` semantics and allows prompts to refer to images by index
+without Rook reordering them.
+
+GIF inputs are accepted as provider-supported image files, including animated
+GIFs, but Rook does not inspect or expand animation frames. Dimension validation
+must read container/header or metadata dimensions such as the GIF logical screen
+size or first-frame dimensions without decoding all frames. If dimensions cannot
+be read safely with existing .NET/Rook facilities and no new dependency, the
+request fails closed before provider submit.
 
 ## Capability And UI Impact
 
@@ -201,9 +247,10 @@ Tests must cover the routing consequences:
 
 - prompt-only `image_generate_start` works for async Flux 2 Pro if the UI and
   backend already support it for async image models;
-- source-image Flux 2 Pro works with one or more input images within policy;
-- references are allowed up to the model's policy count once the UI and bridge
-  can express them safely;
+- source-image Flux 2 Pro works with the current single primary input image
+  workflow in milestone 1;
+- reference images are policy-modeled but rejected or hidden unless the UI and
+  bridge can express them safely in the same implementation slice;
 - sync `generate` still fails closed for async image job providers;
 - Studio and Generate do not enable controls that the backend will reject.
 
@@ -232,7 +279,9 @@ Messages should be user-actionable without leaking internals. Example:
 - "Image exceeded Rook's local safety limit before provider upload."
 
 Provider upload URLs, data URIs, source paths, request bodies, and token-bearing
-details must not appear in persisted errors.
+details must not appear in persisted errors. This restriction applies to
+input/upload transport details, not to the private in-memory output URL handoff
+needed to fetch and materialize generated provider results.
 
 ## Tests
 
@@ -242,10 +291,13 @@ Provider and transport tests:
   images.
 - Flux 2 Pro uploads source bytes through the Replicate media transport seam.
 - Submit body contains HTTPS URLs returned by the transport seam.
-- Provider upload URLs are not persisted in job ledgers, bridge responses,
-  artifact metadata, provider handles, or sanitized errors.
-- If transport is unavailable, the provider fails closed before prediction
-  creation.
+- Source/upload transport URLs are not persisted in job ledgers, bridge
+  responses, artifact metadata, provider handles, or sanitized errors.
+- If transport is unavailable, local-media Flux 2 Pro requests fail closed
+  before prediction creation.
+- Prompt-only Flux 2 Pro requests do not require media transport.
+- Caller-provided HTTPS URL media is rejected unless an explicit URL transport
+  policy and validation path is implemented.
 
 Policy tests:
 
@@ -256,6 +308,8 @@ Policy tests:
 - more than 8 input images fails before provider submit;
 - total input megapixels over 9 MP fails before provider submit;
 - compressed high-pixel-count images fail based on dimensions, not bytes;
+- animated GIF dimensions are read without expanding all frames, or fail closed
+  if safe dimension reading is unavailable;
 - provider documentation provenance and retrieval date are present for
   provider-derived policy values;
 - unknown or unverified limits are labeled as Rook guards, not provider maxes.
@@ -265,7 +319,9 @@ Routing and UI-facing tests:
 - Flux 2 Pro descriptor correction is visible in `list_image_models`;
 - prompt-only async routing remains correct if `supports_text_to_image` is
   enabled;
-- source-image async routing remains correct;
+- single-source-image async routing remains correct;
+- reference-image requests remain rejected or hidden unless bridge/UI reference
+  support is implemented in the same slice;
 - sync `generate` rejects async Flux 2 Pro;
 - existing Gemini inline behavior and caps remain unchanged;
 - fal GPT Image 2 Edit still uses fal upload and URL input behavior;
@@ -277,17 +333,20 @@ Regression scans:
 
 - no new native route exposure;
 - no MCP exposure;
-- no provider URLs or data URIs in durable image job records;
+- no source/upload transport URLs or data URIs in durable image job records;
 - no hard-coded `1024 * 1024` Flux 2 Pro source cap remains.
 
 ## Acceptance Criteria
 
 - Replicate Flux 2 Pro local source media no longer uses data URI transport.
-- Replicate Flux 2 Pro source and reference images are transported through
-  provider-accepted HTTPS URLs.
+- Replicate Flux 2 Pro prompt-only submission works without media transport.
+- Replicate Flux 2 Pro single primary local source image is transported through
+  a provider-accepted HTTPS URL.
+- Replicate Flux 2 Pro reference images are policy-modeled but remain
+  implementation-gated unless bridge/UI reference payload support is included.
 - If Replicate file upload transport is not implementable from the current C#
-  layer, large local Flux 2 Pro image submission fails closed with a precise
-  transport-unavailable error.
+  layer, local-media Flux 2 Pro image submission fails closed with a precise
+  transport-unavailable error while prompt-only Flux 2 Pro may still proceed.
 - Flux 2 Pro policy models up to 8 input images, JPEG/PNG/GIF/WebP, and 9 MP
   total input limit.
 - Flux 2 Pro validates decoded dimensions before submit.
@@ -297,7 +356,8 @@ Regression scans:
 - fal GPT Image 2 Edit, Seedance, and Kling behavior is not regressed.
 - Provider-derived limits carry source URLs and retrieval dates.
 - Unknown provider limits are labeled as Rook guards.
-- No provider transport internals leak into persisted or bridge-visible data.
+- No source/upload/request transport internals leak into persisted or
+  bridge-visible data.
 - Normal tests use fake HTTP and fake transport seams only.
 
 ## Risks
@@ -326,3 +386,6 @@ policy until a later unification is justified.
 - Pixel/megapixel validation is required before submit.
 - Provider source freshness and unverified-limit labeling are explicit.
 - Gemini and existing fal paths are protected from accidental behavior changes.
+- Milestone 1 reference-image implementation is explicitly gated.
+- Provider output URL materialization is not banned by the transport-leakage
+  wording.
