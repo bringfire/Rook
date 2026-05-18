@@ -134,10 +134,8 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
             Assert.Empty(handler.Requests);
         }
 
-        [Theory]
-        [InlineData("image/gif")]
-        [InlineData("application/octet-stream")]
-        public async Task SubmitAsync_flux2_rejects_unsupported_mime_before_http_call(string mimeType)
+        [Fact]
+        public async Task SubmitAsync_flux2_rejects_unsupported_mime_before_http_call()
         {
             var handler = new TestHttpMessageHandler();
             var provider = Provider("r8-test-token", handler);
@@ -145,8 +143,8 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
             var media = new Dictionary<MediaRef, ResolvedMedia>
             {
                 [input] = new ResolvedMedia(
-                    new byte[] { 0x47, 0x49, 0x46, 0x38 },
-                    mimeType),
+                    new byte[] { 0x00, 0x01, 0x02, 0x03 },
+                    "application/octet-stream"),
             };
 
             var outcome = await provider.SubmitAsync(
@@ -157,7 +155,7 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
             var failed = Assert.IsType<FailedSubmitOutcome>(outcome);
             Assert.Equal(GenerationErrorCode.InvalidRequest, failed.Error.Code);
             Assert.Equal("input_image_path", failed.Error.Field);
-            Assert.Contains("PNG, JPEG, or WebP", failed.Error.Message);
+            Assert.Contains("PNG, JPEG, GIF, or WebP", failed.Error.Message);
             Assert.Empty(handler.Requests);
         }
 

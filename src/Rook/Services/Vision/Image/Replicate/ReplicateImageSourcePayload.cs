@@ -71,7 +71,7 @@ namespace Rook.Services.Vision.Image.Replicate
             if (!ImageMimeDetector.IsFlux2SupportedMime(detectedMime))
             {
                 return (null, InvalidSource(
-                    "Flux 2 Pro source image must be PNG, JPEG, or WebP.",
+                    "Flux 2 Pro source image must be PNG, JPEG, GIF, or WebP.",
                     "input_image_path"));
             }
 
