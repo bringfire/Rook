@@ -117,7 +117,7 @@ namespace Rook.Services.Vision.Replicate
             using var request = new HttpRequestMessage(
                 HttpMethod.Post,
                 BuildApiUri("v1/files"));
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiToken);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Token", apiToken);
 
             using var form = new MultipartFormDataContent();
             var fileContent = new ByteArrayContent(bytes);

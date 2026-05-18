@@ -121,7 +121,7 @@ namespace Rook.Tests.Services.Vision.Replicate
                     multipart = req.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
                     Assert.Equal(HttpMethod.Post, req.Method);
                     Assert.Equal("https://api.replicate.com/v1/files", req.RequestUri!.ToString());
-                    Assert.Equal("Bearer", req.Headers.Authorization!.Scheme);
+                    Assert.Equal("Token", req.Headers.Authorization!.Scheme);
                     Assert.Equal("r8_token", req.Headers.Authorization.Parameter);
                     Assert.Equal("multipart/form-data", req.Content.Headers.ContentType!.MediaType);
 
