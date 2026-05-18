@@ -111,6 +111,32 @@ namespace Rook.Services.Vision.Image.Replicate
                             GenerationErrorCode.Interrupted,
                             "Request cancelled (bridge timeout).");
                     }
+                    catch (TaskCanceledException)
+                    {
+                        return FailedSubmit(
+                            GenerationErrorCode.DependencyUnavailable,
+                            "Replicate file upload timed out. Try again.",
+                            retryable: true);
+                    }
+                    catch (HttpRequestException)
+                    {
+                        return FailedSubmit(
+                            GenerationErrorCode.DependencyUnavailable,
+                            "Replicate file upload failed due to a transport error.",
+                            retryable: true);
+                    }
+                    catch (ArgumentException)
+                    {
+                        return FailedSubmit(
+                            GenerationErrorCode.ExecutionFailed,
+                            "Replicate file upload failed before it could be sent.");
+                    }
+                    catch (Exception)
+                    {
+                        return FailedSubmit(
+                            GenerationErrorCode.ExecutionFailed,
+                            "Replicate file upload failed before the prediction could be created.");
+                    }
 
                     if (!upload.Success || upload.Url is null)
                     {

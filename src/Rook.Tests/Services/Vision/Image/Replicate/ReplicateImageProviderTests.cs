@@ -323,6 +323,81 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
         }
 
         [Fact]
+        public async Task SubmitAsync_flux2_upload_http_exception_returns_retryable_dependency_failure()
+        {
+            var handler = new TestHttpMessageHandler();
+            var provider = Provider(
+                "r8-test-token",
+                handler,
+                ThrowingFileTransport.HttpRequest());
+            var media = SinglePngInputMedia();
+
+            var outcome = await provider.SubmitAsync(
+                Request(
+                    model: ReplicateImageCapabilities.Flux2Pro,
+                    resolution: "1MP",
+                    aspectRatio: "match_input_image"),
+                media,
+                CancellationToken.None);
+
+            var failed = Assert.IsType<FailedSubmitOutcome>(outcome);
+            Assert.Equal(GenerationErrorCode.DependencyUnavailable, failed.Error.Code);
+            Assert.True(failed.Error.Retryable);
+            Assert.Contains("transport", failed.Error.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Empty(handler.Requests);
+        }
+
+        [Fact]
+        public async Task SubmitAsync_flux2_upload_task_canceled_exception_returns_retryable_timeout_failure()
+        {
+            var handler = new TestHttpMessageHandler();
+            var provider = Provider(
+                "r8-test-token",
+                handler,
+                ThrowingFileTransport.TaskCanceled());
+            var media = SinglePngInputMedia();
+
+            var outcome = await provider.SubmitAsync(
+                Request(
+                    model: ReplicateImageCapabilities.Flux2Pro,
+                    resolution: "1MP",
+                    aspectRatio: "match_input_image"),
+                media,
+                CancellationToken.None);
+
+            var failed = Assert.IsType<FailedSubmitOutcome>(outcome);
+            Assert.Equal(GenerationErrorCode.DependencyUnavailable, failed.Error.Code);
+            Assert.True(failed.Error.Retryable);
+            Assert.Contains("timed out", failed.Error.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Empty(handler.Requests);
+        }
+
+        [Fact]
+        public async Task SubmitAsync_flux2_upload_argument_exception_returns_failed_outcome()
+        {
+            var handler = new TestHttpMessageHandler();
+            var provider = Provider(
+                "r8-test-token",
+                handler,
+                ThrowingFileTransport.Argument());
+            var media = SinglePngInputMedia();
+
+            var outcome = await provider.SubmitAsync(
+                Request(
+                    model: ReplicateImageCapabilities.Flux2Pro,
+                    resolution: "1MP",
+                    aspectRatio: "match_input_image"),
+                media,
+                CancellationToken.None);
+
+            var failed = Assert.IsType<FailedSubmitOutcome>(outcome);
+            Assert.Equal(GenerationErrorCode.ExecutionFailed, failed.Error.Code);
+            Assert.False(failed.Error.Retryable);
+            Assert.Contains("before it could be sent", failed.Error.Message);
+            Assert.Empty(handler.Requests);
+        }
+
+        [Fact]
         public async Task SubmitAsync_flux2_accepts_gif_source_image()
         {
             var handler = new TestHttpMessageHandler
@@ -703,10 +778,12 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
 
         private static ReplicateImageProvider Provider(
             string? token,
-            TestHttpMessageHandler handler) =>
+            TestHttpMessageHandler handler,
+            IReplicateFileTransport? fileTransport = null) =>
             new(
                 () => token,
-                new ReplicateApiClient(new HttpClient(handler)));
+                new ReplicateApiClient(new HttpClient(handler)),
+                fileTransport);
 
         private static TestHttpMessageHandler StatusHandler(string status, string error) =>
             new()
@@ -733,6 +810,15 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
 
         private static System.Collections.Generic.IReadOnlyDictionary<MediaRef, ResolvedMedia> EmptyMedia() =>
             new System.Collections.Generic.Dictionary<MediaRef, ResolvedMedia>();
+
+        private static System.Collections.Generic.IReadOnlyDictionary<MediaRef, ResolvedMedia> SinglePngInputMedia()
+        {
+            var input = MediaRef.ForPath("C:/tmp/input.png", ImageMediaRoles.InputImage);
+            return new System.Collections.Generic.Dictionary<MediaRef, ResolvedMedia>
+            {
+                [input] = PngMediaWithDimensions(512, 512),
+            };
+        }
 
         private static ResolvedMedia PngMedia() =>
             new(
@@ -808,6 +894,35 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
             }
 
             return metadata;
+        }
+
+        private sealed class ThrowingFileTransport : IReplicateFileTransport
+        {
+            private readonly Exception _exception;
+
+            private ThrowingFileTransport(Exception exception)
+            {
+                _exception = exception;
+            }
+
+            public static ThrowingFileTransport HttpRequest() =>
+                new(new HttpRequestException("network unavailable"));
+
+            public static ThrowingFileTransport TaskCanceled() =>
+                new(new TaskCanceledException("upload timed out"));
+
+            public static ThrowingFileTransport Argument() =>
+                new(new ArgumentException("bad upload"));
+
+            public Task<ReplicateFileUploadResult> UploadAsync(
+                string apiToken,
+                string fileName,
+                byte[] bytes,
+                string mimeType,
+                CancellationToken ct)
+            {
+                throw _exception;
+            }
         }
     }
 }
