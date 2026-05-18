@@ -93,6 +93,7 @@ namespace Rook.Tests.Services.Vision.Image
             var policy = ReplicateImageCapabilities.Flux2ProMediaPolicy;
 
             Assert.Equal(ReplicateImageCapabilities.Flux2Pro, policy.ModelId);
+            Assert.Equal("Flux 2 Pro", policy.ModelLabel);
             Assert.Equal(ImageInputTransportKind.ReplicateHostedFileUrl, policy.Transport.Kind);
             Assert.Equal(8, policy.Model.MaxInputImages);
             Assert.Equal(9_000_000L, policy.Model.MaxAggregatePixels);
@@ -116,6 +117,21 @@ namespace Rook.Tests.Services.Vision.Image
                 hasPrompt: true);
 
             Assert.True(result.Success);
+        }
+
+        [Fact]
+        public void Flux2Pro_policy_rejects_missing_prompt()
+        {
+            var policy = ReplicateImageCapabilities.Flux2ProMediaPolicy;
+
+            var result = policy.ValidateInputSet(
+                mediaCount: 0,
+                aggregatePixels: 0,
+                hasPrompt: false);
+
+            Assert.False(result.Success);
+            Assert.Equal("prompt", result.Field);
+            Assert.Contains("requires prompt", result.Message);
         }
 
         [Fact]
@@ -193,19 +209,24 @@ namespace Rook.Services.Vision.Image
     {
         public ImageMediaPolicy(
             string modelId,
+            string modelLabel,
             ImageModelInputPolicy model,
             ImageTransportPolicy transport,
             ImageRookSafetyPolicy safety)
         {
             if (string.IsNullOrWhiteSpace(modelId))
                 throw new ArgumentException("Model id must be non-empty.", nameof(modelId));
+            if (string.IsNullOrWhiteSpace(modelLabel))
+                throw new ArgumentException("Model label must be non-empty.", nameof(modelLabel));
             ModelId = modelId;
+            ModelLabel = modelLabel;
             Model = model ?? throw new ArgumentNullException(nameof(model));
             Transport = transport ?? throw new ArgumentNullException(nameof(transport));
             Safety = safety ?? throw new ArgumentNullException(nameof(safety));
         }
 
         public string ModelId { get; }
+        public string ModelLabel { get; }
         public ImageModelInputPolicy Model { get; }
         public ImageTransportPolicy Transport { get; }
         public ImageRookSafetyPolicy Safety { get; }
@@ -217,7 +238,7 @@ namespace Rook.Services.Vision.Image
         {
             if (!hasPrompt)
                 return ImagePolicyValidationResult.Fail(
-                    "Flux 2 Pro requires prompt.",
+                    $"{ModelLabel} requires prompt.",
                     "prompt");
             if (mediaCount < 0)
                 return ImagePolicyValidationResult.Fail(
@@ -225,11 +246,11 @@ namespace Rook.Services.Vision.Image
                     "input_images");
             if (mediaCount > Model.MaxInputImages)
                 return ImagePolicyValidationResult.Fail(
-                    $"Flux 2 Pro accepts up to {Model.MaxInputImages} input images; got {mediaCount}.",
+                    $"{ModelLabel} accepts up to {Model.MaxInputImages} input images; got {mediaCount}.",
                     "input_images");
             if (aggregatePixels > Model.MaxAggregatePixels)
                 return ImagePolicyValidationResult.Fail(
-                    "Flux 2 Pro input images must total 9 megapixels or less.",
+                    $"{ModelLabel} input images must total {Model.MaxAggregatePixels / 1_000_000L} megapixels or less.",
                     "input_images");
             return ImagePolicyValidationResult.Ok();
         }
@@ -343,6 +364,7 @@ Modify `src/Rook/Services/Vision/Image/Replicate/ReplicateImageCapabilities.cs` 
         public static readonly ImageMediaPolicy Flux2ProMediaPolicy =
             new(
                 modelId: Flux2Pro,
+                modelLabel: "Flux 2 Pro",
                 model: new ImageModelInputPolicy(
                     allowedMimeTypes: new[] { "image/jpeg", "image/png", "image/gif", "image/webp" },
                     maxInputImages: 8,
@@ -1065,7 +1087,12 @@ Use this replacement test body:
 
             var queued = Assert.IsType<QueuedSubmitOutcome>(outcome);
             Assert.Equal("pred-flux2", queued.Handle.ProviderJobId);
-            Assert.Null(queued.Handle.ProviderMetadata);
+            Assert.NotNull(queued.Handle.ProviderMetadata);
+            var metadata = queued.Handle.ProviderMetadata!;
+            var urlsJson = metadata["urls"]!.ToJsonString();
+            Assert.Contains("predictions/pred-flux2", urlsJson);
+            Assert.DoesNotContain("/v1/files/file-flux2", urlsJson);
+            Assert.DoesNotContain("data:image/", urlsJson);
             Assert.Null(queued.Handle.ProviderResultToken);
         }
 ```
@@ -1131,10 +1158,26 @@ namespace Rook.Services.Vision.Image.Replicate
         public IReadOnlyList<ResolvedFlux2InputImage> LocalImages { get; }
 
         public static (ReplicateImageSourcePayload? Payload, GenerationError? Error) FromResolvedMedia(
+            ImageGenerationRequest request,
             IReadOnlyDictionary<MediaRef, ResolvedMedia> media)
         {
+            if (request is null) throw new ArgumentNullException(nameof(request));
+
+            var policy = ReplicateImageCapabilities.Flux2ProMediaPolicy;
+            var hasPrompt = !string.IsNullOrWhiteSpace(request.Prompt);
+
             if (media is null || media.Count == 0)
+            {
+                var promptOnlyPolicyResult = policy.ValidateInputSet(
+                    mediaCount: 0,
+                    aggregatePixels: 0,
+                    hasPrompt: hasPrompt);
+                if (!promptOnlyPolicyResult.Success)
+                    return (null, InvalidSource(
+                        promptOnlyPolicyResult.Message!,
+                        promptOnlyPolicyResult.Field!));
                 return (new ReplicateImageSourcePayload(Array.Empty<ResolvedFlux2InputImage>()), null);
+            }
 
             if (media.Keys.Any(r => string.Equals(
                     r.Role,
@@ -1186,11 +1229,10 @@ namespace Rook.Services.Vision.Image.Replicate
                     "input_image_path"));
             }
 
-            var policy = ReplicateImageCapabilities.Flux2ProMediaPolicy;
             var policyResult = policy.ValidateInputSet(
                 mediaCount: 1,
                 aggregatePixels: dimensions.PixelCount,
-                hasPrompt: true);
+                hasPrompt: hasPrompt);
             if (!policyResult.Success)
                 return (null, InvalidSource(policyResult.Message!, policyResult.Field!));
 
@@ -1262,7 +1304,7 @@ Replace Flux 2 Pro source handling in `SubmitAsync`:
             ReplicateImageSourcePayload? sourcePayload = null;
             if (string.Equals(request.Model, ReplicateImageCapabilities.Flux2Pro, StringComparison.Ordinal))
             {
-                var payload = ReplicateImageSourcePayload.FromResolvedMedia(resolvedMedia);
+                var payload = ReplicateImageSourcePayload.FromResolvedMedia(request, resolvedMedia);
                 if (payload.Error is not null)
                     return new FailedSubmitOutcome(payload.Error);
                 sourcePayload = payload.Payload;
@@ -1749,7 +1791,12 @@ In `ReplicateImageProviderTests`, add:
 
             var queued = Assert.IsType<QueuedSubmitOutcome>(outcome);
             Assert.Equal("pred-flux2", queued.Handle.ProviderJobId);
-            Assert.Null(queued.Handle.ProviderMetadata);
+            Assert.NotNull(queued.Handle.ProviderMetadata);
+            var metadata = queued.Handle.ProviderMetadata!;
+            var urlsJson = metadata["urls"]!.ToJsonString();
+            Assert.Contains("predictions/pred-flux2", urlsJson);
+            Assert.DoesNotContain("/v1/files/file-secret", urlsJson);
+            Assert.DoesNotContain("data:image/", urlsJson);
             Assert.Null(queued.Handle.ProviderResultToken);
             Assert.DoesNotContain("file-secret", queued.Handle.ProviderJobId);
         }
