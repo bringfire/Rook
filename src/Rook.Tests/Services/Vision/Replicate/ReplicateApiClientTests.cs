@@ -111,6 +111,78 @@ namespace Rook.Tests.Services.Vision.Replicate
         }
 
         [Fact]
+        public async Task UploadFileAsync_posts_multipart_to_files_endpoint()
+        {
+            string? multipart = null;
+            var handler = new TestHttpMessageHandler
+            {
+                OnSend = req =>
+                {
+                    multipart = req.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+                    Assert.Equal(HttpMethod.Post, req.Method);
+                    Assert.Equal("https://api.replicate.com/v1/files", req.RequestUri!.ToString());
+                    Assert.Equal("Bearer", req.Headers.Authorization!.Scheme);
+                    Assert.Equal("r8_token", req.Headers.Authorization.Parameter);
+                    Assert.Equal("multipart/form-data", req.Content.Headers.ContentType!.MediaType);
+
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(
+                            "{\"id\":\"file-1\",\"urls\":{\"get\":\"https://api.replicate.com/v1/files/file-1/content\"}}",
+                            Encoding.UTF8,
+                            "application/json"),
+                    };
+                },
+            };
+            var client = new ReplicateApiClient(new HttpClient(handler));
+
+            var uploaded = await client.UploadFileAsync(
+                "r8_token",
+                "source.png",
+                new byte[] { 1, 2, 3 },
+                "image/png",
+                "{\"rook_usage\":\"flux2_input\"}",
+                CancellationToken.None);
+
+            Assert.Equal("file-1", uploaded.Id);
+            Assert.Equal(
+                "https://api.replicate.com/v1/files/file-1/content",
+                uploaded.FileUrl.ToString());
+            Assert.Contains("name=content", multipart);
+            Assert.Contains("filename=source.png", multipart);
+            Assert.Contains("Content-Type: image/png", multipart);
+            Assert.Contains("name=metadata", multipart);
+            Assert.Contains("Content-Type: application/json", multipart);
+            Assert.Contains("{\"rook_usage\":\"flux2_input\"}", multipart);
+        }
+
+        [Fact]
+        public async Task UploadFileAsync_rejects_missing_file_url()
+        {
+            var handler = new TestHttpMessageHandler
+            {
+                OnSend = _ => new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("{\"id\":\"file-1\",\"urls\":{}}", Encoding.UTF8, "application/json"),
+                },
+            };
+            var client = new ReplicateApiClient(new HttpClient(handler));
+
+            var error = await Assert.ThrowsAsync<ArgumentException>(() =>
+                client.UploadFileAsync(
+                    "r8_token",
+                    "source.png",
+                    new byte[] { 1, 2, 3 },
+                    "image/png",
+                    "{}",
+                    CancellationToken.None));
+
+            Assert.Equal(
+                "Replicate file upload response was missing file id or urls.get.",
+                error.Message);
+        }
+
+        [Fact]
         public async Task SendApiAsync_rejects_non_api_replicate_hosts()
         {
             var handler = new TestHttpMessageHandler();
