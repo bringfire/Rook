@@ -133,7 +133,8 @@ namespace Rook.Services.Vision.Replicate
                 : await response.Content.ReadAsStringAsync().ConfigureAwait(false);
 
             if (!response.IsSuccessStatusCode)
-                throw new HttpRequestException("Replicate file upload failed.");
+                throw new HttpRequestException(
+                    $"Replicate file upload failed with HTTP {(int)response.StatusCode} {response.ReasonPhrase}: {TrimUploadErrorBody(body)}");
 
             return ParseUploadedFile(body);
         }
@@ -286,6 +287,15 @@ namespace Rook.Services.Vision.Replicate
         private static ArgumentException MissingUploadResponse() =>
             new ArgumentException(
                 "Replicate file upload response was missing file id or urls.get.");
+
+        private static string TrimUploadErrorBody(string body)
+        {
+            if (string.IsNullOrWhiteSpace(body))
+                return "<empty response body>";
+
+            body = body.Replace("\r", " ").Replace("\n", " ").Trim();
+            return body.Length <= 500 ? body : body.Substring(0, 500) + "...";
+        }
 
         private static IReadOnlyDictionary<string, IReadOnlyList<string>> CopyHeaders(
             HttpResponseMessage response)

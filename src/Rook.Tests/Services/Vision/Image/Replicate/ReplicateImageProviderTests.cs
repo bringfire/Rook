@@ -403,6 +403,76 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
         }
 
         [Fact]
+        public async Task SubmitAsync_flux2_small_upload_failure_falls_back_to_data_uri()
+        {
+            string? predictionBody = null;
+            var handler = new TestHttpMessageHandler
+            {
+                OnSend = req =>
+                {
+                    predictionBody = req.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+                    return Json(HttpStatusCode.Created, """
+                        {
+                          "id": "pred-flux2",
+                          "status": "starting",
+                          "urls": {
+                            "get": "https://api.replicate.com/v1/predictions/pred-flux2",
+                            "cancel": "https://api.replicate.com/v1/predictions/pred-flux2/cancel"
+                          }
+                        }
+                        """);
+                },
+            };
+            var provider = Provider(
+                "r8-test-token",
+                handler,
+                FailingFileTransport.DependencyUnavailable());
+            var media = SinglePngInputMedia();
+
+            var outcome = await provider.SubmitAsync(
+                Request(
+                    model: ReplicateImageCapabilities.Flux2Pro,
+                    resolution: "1MP",
+                    aspectRatio: "match_input_image"),
+                media,
+                CancellationToken.None);
+
+            var queued = Assert.IsType<QueuedSubmitOutcome>(outcome);
+            Assert.Equal("pred-flux2", queued.Handle.ProviderJobId);
+            Assert.Single(handler.Requests);
+            Assert.DoesNotContain("api.replicate.com/v1/files", predictionBody);
+            Assert.Contains("data:image/png;base64,", predictionBody);
+        }
+
+        [Fact]
+        public async Task SubmitAsync_flux2_large_upload_failure_fails_with_transport_detail()
+        {
+            var handler = new TestHttpMessageHandler();
+            var provider = Provider(
+                "r8-test-token",
+                handler,
+                FailingFileTransport.DependencyUnavailable());
+            var input = MediaRef.ForPath("C:/tmp/input.png", ImageMediaRoles.InputImage);
+            var media = new Dictionary<MediaRef, ResolvedMedia>
+            {
+                [input] = PngMediaWithDimensionsAndLength(512, 512, 262_145),
+            };
+
+            var outcome = await provider.SubmitAsync(
+                Request(
+                    model: ReplicateImageCapabilities.Flux2Pro,
+                    resolution: "1MP",
+                    aspectRatio: "match_input_image"),
+                media,
+                CancellationToken.None);
+
+            var failed = Assert.IsType<FailedSubmitOutcome>(outcome);
+            Assert.Equal(GenerationErrorCode.DependencyUnavailable, failed.Error.Code);
+            Assert.Contains("HTTP 500", failed.Error.Message);
+            Assert.Empty(handler.Requests);
+        }
+
+        [Fact]
         public async Task SubmitAsync_flux2_upload_task_canceled_exception_returns_retryable_timeout_failure()
         {
             var handler = new TestHttpMessageHandler();
@@ -977,6 +1047,25 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
                 CancellationToken ct)
             {
                 throw _exception;
+            }
+        }
+
+        private sealed class FailingFileTransport : IReplicateFileTransport
+        {
+            public static FailingFileTransport DependencyUnavailable() => new();
+
+            public Task<ReplicateFileUploadResult> UploadAsync(
+                string apiToken,
+                string fileName,
+                byte[] bytes,
+                string mimeType,
+                CancellationToken ct)
+            {
+                return Task.FromResult(ReplicateFileUploadResult.Failed(new GenerationError(
+                    GenerationErrorCode.DependencyUnavailable,
+                    "Replicate file upload transport is unavailable. Upload failure detail: HttpRequestException: Replicate file upload failed with HTTP 500 Internal Server Error: {\"detail\":\"Internal server error\"}",
+                    Retryable: true,
+                    Field: "input_image_path")));
             }
         }
     }

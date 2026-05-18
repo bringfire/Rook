@@ -40,16 +40,17 @@ namespace Rook.Services.Vision.Image.Replicate
             {
                 throw;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                return ReplicateFileUploadResult.Failed(UploadUnavailable());
+                return ReplicateFileUploadResult.Failed(UploadUnavailable(ex));
             }
         }
 
-        private static GenerationError UploadUnavailable() =>
+        private static GenerationError UploadUnavailable(Exception ex) =>
             new(
                 Code: GenerationErrorCode.DependencyUnavailable,
-                Message: "Replicate file upload transport is unavailable, so local Flux 2 Pro source images cannot be submitted.",
+                Message: "Replicate file upload transport is unavailable, so local Flux 2 Pro source images cannot be submitted. "
+                    + $"Upload failure detail: {ex.GetType().Name}: {ex.Message}",
                 Retryable: true,
                 Field: "input_image_path");
     }

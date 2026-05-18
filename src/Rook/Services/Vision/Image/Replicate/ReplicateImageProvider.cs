@@ -18,6 +18,10 @@ namespace Rook.Services.Vision.Image.Replicate
         private static readonly ReplicatePredictionEndpoint Flux2ProEndpoint =
             ReplicatePredictionEndpoint.OfficialModel("black-forest-labs", "flux-2-pro");
 
+        // Replicate HTTP API docs, retrieved 2026-05-18: use data URLs for
+        // small files <= 256 KB; larger files should use hosted HTTP URLs.
+        private const int MaxReplicateDataUriInputBytes = 256 * 1024;
+
         private readonly Func<string?> _apiTokenProvider;
         private readonly ReplicateApiClient _client;
         private readonly IReplicateFileTransport _fileTransport;
@@ -88,10 +92,10 @@ namespace Rook.Services.Vision.Image.Replicate
             if (string.IsNullOrWhiteSpace(apiToken))
                 return new FailedSubmitOutcome(ReplicateErrorMapper.MissingToken());
 
-            IReadOnlyList<Uri>? flux2InputUrls = null;
+            IReadOnlyList<string>? flux2InputImages = null;
             if (sourcePayload is not null && sourcePayload.InputImages.Count > 0)
             {
-                var uploadedUrls = new List<Uri>(sourcePayload.InputImages.Count);
+                var inputImages = new List<string>(sourcePayload.InputImages.Count);
                 foreach (var inputImage in sourcePayload.InputImages)
                 {
                     ReplicateFileUploadResult upload;
@@ -140,14 +144,20 @@ namespace Rook.Services.Vision.Image.Replicate
 
                     if (!upload.Success || upload.Url is null)
                     {
+                        if (inputImage.Bytes.Length <= MaxReplicateDataUriInputBytes)
+                        {
+                            inputImages.Add(BuildDataUri(inputImage));
+                            continue;
+                        }
+
                         return new FailedSubmitOutcome(
                             upload.Error ?? Flux2UploadFailed());
                     }
 
-                    uploadedUrls.Add(upload.Url);
+                    inputImages.Add(upload.Url.ToString());
                 }
 
-                flux2InputUrls = uploadedUrls;
+                flux2InputImages = inputImages;
             }
 
             ReplicateHttpResponse response;
@@ -156,7 +166,7 @@ namespace Rook.Services.Vision.Image.Replicate
                 response = await _client.CreatePredictionAsync(
                         apiToken!,
                         EndpointForModel(request.Model),
-                        BuildRequestJson(request, flux2InputUrls),
+                        BuildRequestJson(request, flux2InputImages),
                         ct)
                     .ConfigureAwait(false);
             }
@@ -403,10 +413,10 @@ namespace Rook.Services.Vision.Image.Replicate
 
         private static string BuildRequestJson(
             ImageGenerationRequest request,
-            IReadOnlyList<Uri>? flux2InputUrls)
+            IReadOnlyList<string>? flux2InputImages)
         {
             if (string.Equals(request.Model, ReplicateImageCapabilities.Flux2Pro, StringComparison.Ordinal))
-                return BuildFlux2ProRequestJson(request, flux2InputUrls);
+                return BuildFlux2ProRequestJson(request, flux2InputImages);
 
             return BuildFluxSchnellRequestJson(request);
         }
@@ -431,7 +441,7 @@ namespace Rook.Services.Vision.Image.Replicate
 
         private static string BuildFlux2ProRequestJson(
             ImageGenerationRequest request,
-            IReadOnlyList<Uri>? inputImageUrls)
+            IReadOnlyList<string>? inputImageUrls)
         {
             var input = new JsonObject
             {
@@ -443,7 +453,7 @@ namespace Rook.Services.Vision.Image.Replicate
             {
                 var inputImages = new JsonArray();
                 foreach (var url in inputImageUrls)
-                    inputImages.Add(url.ToString());
+                    inputImages.Add(url);
 
                 input["input_images"] = inputImages;
                 input["aspect_ratio"] = "match_input_image";
@@ -570,6 +580,9 @@ namespace Rook.Services.Vision.Image.Replicate
 
         private static string BuildFlux2InputFileName(string mimeType) =>
             "flux2-input-" + Guid.NewGuid().ToString("N") + ExtensionForMimeType(mimeType);
+
+        private static string BuildDataUri(ResolvedFlux2InputImage image) =>
+            $"data:{image.MimeType};base64,{Convert.ToBase64String(image.Bytes)}";
 
         private static string ExtensionForMimeType(string mimeType)
         {

@@ -44,6 +44,8 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
             Assert.False(result.Success);
             Assert.Null(result.Url);
             AssertTransportUnavailable(result.Error);
+            Assert.Contains("HTTP 500", result.Error!.Message);
+            Assert.Contains("unavailable", result.Error.Message);
         }
 
         [Fact]
