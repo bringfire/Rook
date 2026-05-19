@@ -206,7 +206,7 @@ class TestCommandPath:
         assert plan.execution_route == "known_command"
         assert plan.command == "_-Loft"
         assert plan.syntax is not None
-        assert "interactive" in plan.fallbacks
+        assert "interactive" not in plan.fallbacks
 
     def test_command_path_with_gotchas(self, mock_knowledge_store):
         planner = IntentPlanner(knowledge_store=mock_knowledge_store)

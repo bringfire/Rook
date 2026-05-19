@@ -1,26 +1,20 @@
-"""Smart Executor: ExecutionPlan -> ExecutionResult via cascading substrates.
+"""Smart Executor: ExecutionPlan -> ExecutionResult via safe substrates.
 
 The executor is the second stage of the intent runtime. It takes a typed
-ExecutionPlan (produced by IntentPlanner) and executes it through the most
-reliable path available:
+ExecutionPlan (produced by IntentPlanner) and executes it through safe
+normal execution substrates:
 
-  1. DIRECT API  — typed HTTP call to C++ plugin (fastest, most reliable)
-  2. KNOWN COMMAND — command string via /command endpoint
-  3. INTERACTIVE  — multi-step command via /command/start + /command/send
+  1. DIRECT API — typed HTTP call to C++ plugin
+  2. KNOWN COMMAND — known-safe fully scripted command string via /command
 
-If a known_command stalls (waitingFor prompt), the executor automatically
-escalates to interactive mode as a fallback.
+Autonomous interactive prompt driving is deprecated. The executor does not
+call /command/start or /command/send as fallback for normal execution.
 
 The executor never plans. It only executes plans.
 
-Interactive protocol (C++ CommandInteractiveHandler):
-  POST /command/start  -> {command, started, objects_before}
+Recovery helpers (C++ CommandInteractiveHandler):
   GET  /command/prompt  -> {prompt, is_active, options, default_value}
-  POST /command/send    -> {input_sent, sent, objects_before}
   POST /command/cancel  -> cancels active command
-
-The executor polls /command/prompt after start and after each send to
-read the current prompt and check is_active for completion.
 """
 
 from __future__ import annotations
@@ -99,7 +93,25 @@ class SmartExecutor:
         elif plan.execution_route == "known_command":
             result = await self._execute_command(plan, trace)
         elif plan.execution_route == "interactive":
-            result = await self._execute_interactive(plan, trace)
+            trace.append("Interactive execution route is deprecated")
+            result = ExecutionResult(
+                success=False,
+                intent=plan.intent,
+                route_taken="interactive",
+                failure=ExecutionFailure(
+                    layer=FailureLayer.ROUTING,
+                    operation=plan.operation,
+                    attempted_route="interactive",
+                    error_detail=(
+                        "Interactive Rhino command execution is disabled for normal execution."
+                    ),
+                    recovery_suggestion=(
+                        "Use typed Rook tools or a known-safe fully scripted command. "
+                        "Use rhino_command_prompt and rhino_command_interactive_cancel "
+                        "only for recovery."
+                    ),
+                ),
+            )
         else:
             result = ExecutionResult(
                 success=False,
@@ -164,13 +176,13 @@ class SmartExecutor:
         return self._parse_response(plan, "direct_api", response, trace)
 
     # ------------------------------------------------------------------
-    # Known command execution (with interactive fallback)
+    # Known command execution
     # ------------------------------------------------------------------
 
     async def _execute_command(
         self, plan: ExecutionPlan, trace: list[str],
     ) -> ExecutionResult:
-        """Execute via command string, with interactive fallback if stalled."""
+        """Execute via known-safe fully scripted command string."""
         if not plan.syntax:
             trace.append("No syntax in plan")
             return self._execution_failure(
@@ -197,11 +209,6 @@ class SmartExecutor:
             stalled_prompt = data["waitingFor"]
             trace.append(f"Command stalled at prompt: {stalled_prompt}")
 
-            # Attempt interactive fallback if available
-            if "interactive" in plan.fallbacks:
-                trace.append("Escalating to interactive mode")
-                return await self._interactive_fallback(plan, stalled_prompt, trace)
-
             return ExecutionResult(
                 success=False,
                 intent=plan.intent,
@@ -212,8 +219,10 @@ class SmartExecutor:
                     attempted_route="known_command",
                     error_detail=f"Command stalled at prompt: {stalled_prompt}",
                     recovery_suggestion=(
-                        "The command requires interactive input. "
-                        "Re-plan with execution_route='interactive' or provide missing parameters."
+                        "The command requires interactive input, but interactive prompt "
+                        "driving is disabled for normal execution. Provide complete "
+                        "parameters, use typed Rook tools, or use a known-safe fully "
+                        "scripted command."
                     ),
                 ),
             )
