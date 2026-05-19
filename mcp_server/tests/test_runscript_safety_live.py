@@ -264,6 +264,18 @@ def prompt_recovery_guard(
     _require_verified_cancel_or_abort(request)
 
 
+@pytest.fixture(autouse=True)
+def runscript_safety_hook_reset(
+    request: pytest.FixtureRequest,
+    prompt_recovery_guard: None,
+) -> None:
+    yield
+    if request.node.get_closest_marker("runscript_safety_hooks") is None:
+        return
+    reset = _native_post("/command/_test/runscript-safety-hook", {"hook": "reset"})
+    assert reset.get("success") is True, reset
+
+
 def _assert_deprecated_interactive_refusal(payload: dict[str, Any], route: str) -> None:
     data = payload.get("data")
     assert payload.get("success") is False
@@ -271,6 +283,23 @@ def _assert_deprecated_interactive_refusal(payload: dict[str, Any], route: str) 
     assert data.get("error") == "interactive_command_deprecated"
     assert data.get("route") == route
     assert data.get("verified") is False
+
+
+def _assert_command_uncertain_failure(payload: dict[str, Any]) -> None:
+    data = payload.get("data")
+    assert payload.get("success") is False
+    assert isinstance(data, dict)
+    assert data.get("verified") is False
+    assert data.get("executed") is not True
+    assert data.get("state_uncertain") is True
+    assert (
+        data.get("waitingFor")
+        or data.get("code") in {"native_command_prompt_unknown", "native_command_timeout"}
+    )
+
+
+def _set_hook(hook: str, enabled: bool = True) -> dict[str, Any]:
+    return _native_post("/command/_test/runscript-safety-hook", {"hook": hook, "enabled": enabled})
 
 
 def _mcp_success_data(payload: dict[str, Any]) -> dict[str, Any]:
@@ -324,6 +353,102 @@ def test_native_command_allows_harmless_complete_command() -> None:
     assert isinstance(data, dict)
     assert data.get("executed") is True
     assert data.get("command") == "_SelNone"
+
+
+def test_active_prompt_quarantines_command_until_cancel(prompt_recovery_guard: None) -> None:
+    first = _native_post("/command", {"command": "_-Line", "echo": False})
+    _assert_command_uncertain_failure(first)
+
+    quarantined = _native_post("/command", {"command": "_SelNone", "echo": False})
+    data = quarantined.get("data")
+    assert quarantined.get("success") is False
+    assert isinstance(data, dict)
+    assert data.get("code") == "native_command_state_uncertain"
+    assert data.get("verified") is False
+
+    cancel = _native_post("/command/cancel")
+    assert _is_verified_cancel_response(cancel)
+
+    prompt = _native_get("/command/prompt")
+    assert _is_idle_prompt_response(prompt)
+
+    final = _native_post("/command", {"command": "_SelNone", "echo": False})
+    final_data = final.get("data")
+    assert final.get("success") is True
+    assert isinstance(final_data, dict)
+    assert final_data.get("executed") is True
+
+
+def test_runscript_safety_hooks_disabled_by_default(owned_rhino_runtime: dict[str, Any]) -> None:
+    response = _set_hook("prompt_unknown")
+    data = response.get("data")
+    assert response.get("success") is False
+    assert isinstance(data, dict)
+    assert data.get("error") == "runscript_safety_test_hooks_disabled"
+
+
+@pytest.mark.runscript_safety_hooks
+def test_hook_prompt_unknown_sets_uncertain_state(prompt_recovery_guard: None) -> None:
+    hook = _set_hook("prompt_unknown")
+    assert hook.get("success") is True
+
+    response = _native_post("/command", {"command": "_SelNone", "echo": False})
+    data = response.get("data")
+    assert response.get("success") is False
+    assert isinstance(data, dict)
+    assert data.get("code") == "native_command_prompt_unknown"
+    assert data.get("verified") is False
+    assert data.get("state_uncertain") is True
+
+    quarantined = _native_post("/command", {"command": "_SelNone", "echo": False})
+    quarantined_data = quarantined.get("data")
+    assert quarantined.get("success") is False
+    assert isinstance(quarantined_data, dict)
+    assert quarantined_data.get("code") == "native_command_state_uncertain"
+
+
+@pytest.mark.runscript_safety_hooks
+def test_hook_command_timeout_sets_uncertain_state(prompt_recovery_guard: None) -> None:
+    hook = _set_hook("command_timeout")
+    assert hook.get("success") is True
+
+    response = _native_post("/command", {"command": "_SelNone", "echo": False})
+    data = response.get("data")
+    assert response.get("success") is False
+    assert isinstance(data, dict)
+    assert data.get("code") == "native_command_timeout"
+    assert data.get("verified") is False
+    assert data.get("state_uncertain") is True
+
+    quarantined = _native_post("/command", {"command": "_SelNone", "echo": False})
+    quarantined_data = quarantined.get("data")
+    assert quarantined.get("success") is False
+    assert isinstance(quarantined_data, dict)
+    assert quarantined_data.get("code") == "native_command_state_uncertain"
+
+
+@pytest.mark.runscript_safety_hooks
+def test_hook_cancel_active_prompt_preserves_uncertain_state(prompt_recovery_guard: None) -> None:
+    first = _native_post("/command", {"command": "_-Line", "echo": False})
+    _assert_command_uncertain_failure(first)
+
+    hook = _set_hook("cancel_prompt_active")
+    assert hook.get("success") is True
+
+    cancel = _native_post("/command/cancel")
+    data = cancel.get("data")
+    assert cancel.get("success") is False
+    assert isinstance(data, dict)
+    assert data.get("cancelled") is False
+    assert data.get("verified") is False
+    assert data.get("state_uncertain") is True
+    assert data.get("is_active") is True
+
+    quarantined = _native_post("/command", {"command": "_SelNone", "echo": False})
+    quarantined_data = quarantined.get("data")
+    assert quarantined.get("success") is False
+    assert isinstance(quarantined_data, dict)
+    assert quarantined_data.get("code") == "native_command_state_uncertain"
 
 
 @pytest.mark.asyncio
