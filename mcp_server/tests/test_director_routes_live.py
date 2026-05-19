@@ -37,7 +37,15 @@ async def test_director_view_state_active_view_contract():
     assert len(camera["location"]) == 3
     assert len(camera["target"]) == 3
     assert len(camera["up"]) == 3
-    assert "aspect" in camera
+    for key in (
+        "aspect",
+        "lens_length",
+        "fov_degrees",
+        "parallel_scale",
+        "near_clip",
+        "far_clip",
+    ):
+        assert key in camera
     assert envelope["data"]["provenance"]["source"] == "active_view"
 
 

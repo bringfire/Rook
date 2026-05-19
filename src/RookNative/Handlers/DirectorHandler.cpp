@@ -91,6 +91,14 @@ nlohmann::json SerializeViewportCamera(const ON_Viewport& vp)
     double lensLength = 0.0;
     const bool hasLensLength = vp.GetCamera35mmLensLength(&lensLength);
 
+    double halfDiagonalAngle = 0.0;
+    double halfVerticalAngle = 0.0;
+    double halfHorizontalAngle = 0.0;
+    const bool hasCameraAngle = vp.GetCameraAngle(
+        &halfDiagonalAngle,
+        &halfVerticalAngle,
+        &halfHorizontalAngle);
+
     nlohmann::json camera;
     if (vp.IsPerspectiveProjection())
         camera["projection"] = "perspective";
@@ -104,6 +112,14 @@ nlohmann::json SerializeViewportCamera(const ON_Viewport& vp)
     camera["up"] = VectorToJson(vp.CameraUp());
     camera["aspect"] = hasAspect ? nlohmann::json(RoundTo(aspect, 6)) : nlohmann::json(nullptr);
     camera["lens_length"] = hasLensLength ? nlohmann::json(RoundTo(lensLength, 6)) : nlohmann::json(nullptr);
+    camera["fov_degrees"] = (vp.IsPerspectiveProjection() && hasCameraAngle)
+        ? nlohmann::json(RoundTo(2.0 * halfVerticalAngle * (180.0 / ON_PI), 6))
+        : nlohmann::json(nullptr);
+    camera["parallel_scale"] = vp.IsParallelProjection()
+        ? nlohmann::json(RoundTo(vp.FrustumHeight(), 6))
+        : nlohmann::json(nullptr);
+    camera["near_clip"] = RoundTo(vp.FrustumNear(), 6);
+    camera["far_clip"] = RoundTo(vp.FrustumFar(), 6);
 
     nlohmann::json frustum;
     frustum["left"] = RoundTo(vp.FrustumLeft(), 6);
