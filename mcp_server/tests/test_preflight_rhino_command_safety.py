@@ -35,16 +35,55 @@ def assert_safety_refusal(result, reason, command=None, mode=None):
     assert result is not None
     assert result["success"] is False
     assert result["data"]["error"] == "run_script_safety_refusal"
+    assert result["data"]["error_code"] == "run_script_safety_refusal"
     assert result["data"]["reason"] == reason
     assert result["data"]["verified"] is False
-    assert (
-        result["data"]["recovery"]
-        == "Use a typed Rook tool or a known-safe fully scripted command."
-    )
+    assert result["data"]["retry_allowed"] is False
+    assert result["data"]["safety_class"] == "good_refusal"
     if command is not None:
         assert result["data"]["command"] == command
+        assert result["data"]["detected_command"] == command
     if mode is not None:
         assert result["data"]["mode"] == mode
+
+
+def test_line_refusal_advises_existing_rhino_create_tool():
+    result = preflight_rhino_command("_Line", None)
+
+    assert_safety_refusal(result, "command_safety_unavailable", command="_Line")
+    assert result["data"]["candidate_tools"] == [
+        {
+            "tool": "rhino_create",
+            "reason": "Create lines through the typed creation schema with explicit start and end points.",
+            "required_parameters": ["type", "start", "end"],
+        }
+    ]
+
+
+def test_circle_refusal_advises_existing_rhino_create_tool():
+    result = preflight_rhino_command("_Circle", None)
+
+    assert_safety_refusal(result, "command_safety_unavailable", command="_Circle")
+    assert result["data"]["candidate_tools"] == [
+        {
+            "tool": "rhino_create",
+            "reason": "Create circles through the typed creation schema with explicit center and radius.",
+            "required_parameters": ["type", "center", "radius"],
+        }
+    ]
+
+
+def test_selection_refusal_advises_existing_selection_tool():
+    result = preflight_rhino_command("_SelNone", None)
+
+    assert_safety_refusal(result, "command_safety_unavailable", command="_SelNone")
+    assert result["data"]["candidate_tools"] == [
+        {
+            "tool": "rhino_select_none",
+            "reason": "Clear selection through the typed selection tool instead of a raw command.",
+            "required_parameters": [],
+        }
+    ]
 
 
 def test_rejects_when_knowledge_store_unavailable():

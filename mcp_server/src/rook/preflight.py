@@ -12,20 +12,72 @@ from typing import Any
 RUNSCRIPT_REFUSAL_ERROR = "run_script_safety_refusal"
 
 
+def _normalized_command_token(command: Any) -> str:
+    if not isinstance(command, str):
+        return ""
+    token = command.strip().split(maxsplit=1)[0]
+    return token.lstrip("_-!").lower()
+
+
+def _candidate_tools_for_command(command: Any) -> list[dict[str, Any]]:
+    normalized = _normalized_command_token(command)
+    if normalized == "line":
+        return [
+            {
+                "tool": "rhino_create",
+                "reason": "Create lines through the typed creation schema with explicit start and end points.",
+                "required_parameters": ["type", "start", "end"],
+            }
+        ]
+    if normalized == "circle":
+        return [
+            {
+                "tool": "rhino_create",
+                "reason": "Create circles through the typed creation schema with explicit center and radius.",
+                "required_parameters": ["type", "center", "radius"],
+            }
+        ]
+    if normalized == "box":
+        return [
+            {
+                "tool": "rhino_create",
+                "reason": "Create boxes through the typed creation schema with explicit corners or dimensions.",
+                "required_parameters": ["type", "corner1", "corner2"],
+            }
+        ]
+    if normalized == "selnone":
+        return [
+            {
+                "tool": "rhino_select_none",
+                "reason": "Clear selection through the typed selection tool instead of a raw command.",
+                "required_parameters": [],
+            }
+        ]
+    return []
+
+
 def _runscript_safety_refusal(
     reason: str,
     command: Any = None,
     mode: Any = None,
     **extra_data: Any,
 ) -> dict[str, Any]:
+    candidate_tools = _candidate_tools_for_command(command)
     data = {
         "error": RUNSCRIPT_REFUSAL_ERROR,
+        "error_code": RUNSCRIPT_REFUSAL_ERROR,
         "reason": reason,
         "command": command,
+        "detected_command": command,
         "mode": mode,
         "verified": False,
-        "recovery": "Use a typed Rook tool or a known-safe fully scripted command.",
+        "safety_class": "good_refusal",
+        "retry_allowed": False,
+        "prompt_state": "not_checked",
+        "recovery": "Use a typed Rook tool with explicit parameters; do not retry the same raw command.",
     }
+    if candidate_tools:
+        data["candidate_tools"] = candidate_tools
     data.update(extra_data)
     return {
         "success": False,

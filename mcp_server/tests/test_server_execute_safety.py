@@ -1,5 +1,7 @@
 """Direct MCP-path safety tests for rhino_execute."""
 
+import json
+
 import pytest
 
 from rook import server
@@ -68,3 +70,22 @@ async def test_rhino_execute_allows_non_blocking_code_on_direct_mcp_path(monkeyp
         ("/execute", "POST", {"code": "import rhinoscriptsyntax as rs\nrs.AddPoint(0,0,0)"}, None)
     ]
     assert '"ok": true' in response[0].text.lower()
+
+
+@pytest.mark.asyncio
+async def test_rhino_command_refusal_advisory_survives_existing_error_text_transport(monkeypatch, patched_server):
+    from rook import server
+
+    async def fail_call_rhino(*args, **kwargs):
+        raise AssertionError("rhino_command refusal must happen before call_rhino")
+
+    monkeypatch.setattr(server, "call_rhino", fail_call_rhino)
+    monkeypatch.setattr(server.command_learner, "knowledge_store", None)
+
+    response = await server.call_tool("rhino_command", {"command": "_Line"})
+
+    assert response[0].text.startswith("Error: ")
+    data = json.loads(response[0].text.removeprefix("Error: "))
+    assert data["error_code"] == "run_script_safety_refusal"
+    assert data["retry_allowed"] is False
+    assert data["candidate_tools"][0]["tool"] == "rhino_create"
