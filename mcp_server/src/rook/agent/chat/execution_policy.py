@@ -155,9 +155,10 @@ def annotate_result(
             prompt_text = pdata.get("prompt", "")
             annotations.append(
                 f"Rhino is waiting for input (prompt: {prompt_text!r}). "
-                "The command did not complete. Cancel with "
-                "rhino_command_interactive_cancel, or supply the required "
-                "input via rhino_command_interactive_send."
+                "The command did not complete. Inspect state with "
+                "rhino_command_prompt, cancel with rhino_command_interactive_cancel, "
+                "then retry through typed Rook tools or a known-safe fully scripted "
+                "rhino_command."
             )
 
     # ── Creation check: objectsCreated=0 on a geometry tool is a silent failure ──

@@ -52,6 +52,32 @@ GH_READINESS_HOIST_TOOLS: frozenset[str] = frozenset({
 })
 
 
+_DEPRECATED_INTERACTIVE_COMMAND_TOOLS: frozenset[str] = frozenset({
+    "rhino_command_interactive_start",
+    "rhino_command_interactive_send",
+    "rhino_learn_interactive",
+    "rhino_learn_variations_interactive",
+})
+
+
+def _interactive_command_deprecated_result(tool_name: str) -> dict[str, Any]:
+    return {
+        "success": False,
+        "data": {
+            "error": "interactive_command_deprecated",
+            "tool": tool_name,
+            "verified": False,
+            "recovery": (
+                "Autonomous Rhino prompt driving is disabled. Use typed Rook tools, "
+                "a known-safe fully scripted rhino_command, "
+                "rhino_command_interactive_prompt to inspect state, or "
+                "rhino_command_interactive_cancel to recover."
+            ),
+        },
+        "_pre_dispatch_failure": True,
+    }
+
+
 _RHINOSCRIPTSYNTAX_INTERACTIVE_CALLS: frozenset[str] = frozenset({
     "GetBoolean",
     "GetBox",
@@ -333,9 +359,7 @@ BRIDGE_ROUTES: Dict[str, Tuple[str, str]] = {
     "session_list":             ("/session/list", "GET"),
     "session_export":           ("/session/export", "POST"),
 
-    # --- Rhino Interactive Commands ---
-    "rhino_command_interactive_start":  ("/command/start", "POST"),
-    "rhino_command_interactive_send":   ("/command/send", "POST"),
+    # --- Rhino Interactive Command Recovery/Observability ---
     "rhino_command_interactive_prompt": ("/command/prompt", "GET"),
     "rhino_command_interactive_cancel": ("/command/cancel", "POST"),
 
@@ -784,7 +808,8 @@ def _transform_execute(args: dict) -> Tuple[str, str, dict]:
                 "data": (
                     f"Interactive Rhino input call {call_name} detected on line {line_no}. "
                     "rhino_execute must not invoke blocking rhinoscriptsyntax Get* prompts. "
-                    "Use the prompt tools or rhino_command_interactive_* flow instead. "
+                    "Use typed Rook tools or a non-interactive script instead. "
+                    "Use rhino_command_interactive_prompt/cancel only for recovery. "
                     "The script was NOT sent to Rhino."
                 ),
                 "_pre_dispatch_failure": True,
@@ -1548,6 +1573,9 @@ class ToolDispatcher:
 
     async def _dispatch_inner(self, name: str, params: dict, port: int | None) -> dict:
         """Core dispatch logic — routes to the correct tier without verification."""
+        if name in _DEPRECATED_INTERACTIVE_COMMAND_TOOLS:
+            return _interactive_command_deprecated_result(name)
+
         # --- Tier 1: Local Python tools ---
         if name in self._local_tools:
             return await self._call_local(name, params, port)

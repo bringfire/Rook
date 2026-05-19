@@ -8,6 +8,7 @@ Covers:
 
 import asyncio
 import pytest
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch, MagicMock
 
 from rook.agent.tool_dispatcher import (
@@ -16,12 +17,30 @@ from rook.agent.tool_dispatcher import (
     BRIDGE_ROUTES,
     TRANSFORM_FUNCTIONS,
 )
+from rook.agent.chat.chat_runner import _build_fallback_catalog
 from rook.agent.chat.execution_policy import (
     CREATION_TOOLS,
     MODAL_RISK_TOOLS,
     needs_verification,
     annotate_result,
 )
+
+
+def _safe_line_knowledge_store():
+    return SimpleNamespace(
+        parse_command_string=lambda _cmd: {
+            "command": "-Line",
+            "mode": "default",
+            "syntax": "_Line <start> <end>",
+            "parameters": {"start": "0,0,0", "end": "1,1,1"},
+            "options_used": [],
+        },
+        get_command=lambda _cmd: SimpleNamespace(
+            options={},
+            modes={"default": SimpleNamespace(syntax="_Line <start> <end>")},
+            preconditions={"safe_non_interactive": True},
+        ),
+    )
 
 
 # =============================================================================
@@ -347,7 +366,11 @@ class TestDispatcherVerification:
         mock_result = {"success": True, "data": {"output": "ok", "objectsCreated": 0}}
         prompt_idle = {"success": True, "data": {"is_active": False, "prompt": ""}}
 
-        with patch("rook.agent.tool_dispatcher.call_rhino", new_callable=AsyncMock) as mock_rhino:
+        with (
+            patch("rook.server.command_learner") as command_learner,
+            patch("rook.agent.tool_dispatcher.call_rhino", new_callable=AsyncMock) as mock_rhino,
+        ):
+            command_learner.knowledge_store = _safe_line_knowledge_store()
             mock_rhino.side_effect = [mock_result, prompt_idle]
             result = await dispatcher.dispatch("rhino_command", {"command": "_Line 0,0,0 1,1,1"})
 
@@ -371,9 +394,13 @@ class TestDispatcherVerification:
         """If the tool itself returned success=False, skip the prompt poll entirely."""
         mock_result = {"success": False, "data": "Command failed"}
 
-        with patch("rook.agent.tool_dispatcher.call_rhino", new_callable=AsyncMock) as mock_rhino:
+        with (
+            patch("rook.server.command_learner") as command_learner,
+            patch("rook.agent.tool_dispatcher.call_rhino", new_callable=AsyncMock) as mock_rhino,
+        ):
+            command_learner.knowledge_store = _safe_line_knowledge_store()
             mock_rhino.return_value = mock_result
-            result = await dispatcher.dispatch("rhino_command", {"command": "_BadCmd"})
+            result = await dispatcher.dispatch("rhino_command", {"command": "_Line 0,0,0 1,1,1"})
 
         # Only 1 call (the tool itself), no prompt poll
         assert mock_rhino.call_count == 1
@@ -478,6 +505,43 @@ def test_gh_query_not_exposed_to_agent_dispatch_surfaces():
         if "gh_query" in tools
     ]
     assert exposed_groups == []
+
+
+def test_interactive_start_send_not_exposed_to_agent_bridge_or_fallback_catalog():
+    catalog = _build_fallback_catalog()
+
+    assert "rhino_command_interactive_start" not in BRIDGE_ROUTES
+    assert "rhino_command_interactive_send" not in BRIDGE_ROUTES
+    assert "rhino_command_interactive_start" not in catalog
+    assert "rhino_command_interactive_send" not in catalog
+    assert "rhino_command_interactive_prompt" in BRIDGE_ROUTES
+    assert "rhino_command_interactive_cancel" in BRIDGE_ROUTES
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("tool_name", "params"),
+    [
+        ("rhino_command_interactive_start", {"command": "_-Box"}),
+        ("rhino_command_interactive_send", {"input": "0,0,0"}),
+        ("rhino_learn_interactive", {"command": "_-Box", "inputs": ["0,0,0"]}),
+        (
+            "rhino_learn_variations_interactive",
+            {"command": "_-Box", "input_sequences": [["0,0,0"]]},
+        ),
+    ],
+)
+async def test_deprecated_interactive_tools_refuse_agent_dispatch(tool_name, params):
+    dispatcher = ToolDispatcher(port=9950)
+
+    with patch("rook.agent.tool_dispatcher.call_rhino", new_callable=AsyncMock) as mock_rhino:
+        result = await dispatcher.dispatch(tool_name, params)
+
+    assert result["success"] is False
+    assert result["data"]["error"] == "interactive_command_deprecated"
+    assert result["data"]["tool"] == tool_name
+    assert result["data"]["verified"] is False
+    mock_rhino.assert_not_called()
 
 
 def test_gh_legacy_not_ready_result_hoists_nested_verification_fields():

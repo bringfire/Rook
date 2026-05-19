@@ -124,7 +124,9 @@ def test_active_prompt_overrides_to_unverified():
     )
     assert result["verified"] is False
     assert "Select objects" in result["verification_note"]
+    assert "rhino_command_prompt" in result["verification_note"]
     assert "rhino_command_interactive_cancel" in result["verification_note"]
+    assert "rhino_command_interactive_send" not in result["verification_note"]
 
 
 def test_idle_prompt_does_not_override():
