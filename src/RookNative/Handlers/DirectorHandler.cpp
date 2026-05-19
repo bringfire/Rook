@@ -9,7 +9,14 @@
 #include "Threading/MainThreadDispatcher.h"
 #include "RookServer.h"
 
+#include <algorithm>
+#include <cmath>
+#include <cwctype>
+#include <filesystem>
 #include <stdexcept>
+#include <vector>
+
+namespace fs = std::filesystem;
 
 namespace Rook {
 namespace Handlers {
@@ -20,6 +27,60 @@ nlohmann::json MakeErrorData(const std::string& code, const std::string& message
     nlohmann::json data;
     data["code"] = code;
     data["message"] = message;
+    return data;
+}
+
+class DirectorFrameValidationError : public std::runtime_error
+{
+public:
+    DirectorFrameValidationError(std::string errorCode, const std::string& message)
+        : std::runtime_error(message), code(std::move(errorCode))
+    {
+    }
+
+    DirectorFrameValidationError(std::string errorCode, const std::string& message, std::vector<std::string> affectedIds)
+        : std::runtime_error(message), code(std::move(errorCode)), affectedObjectIds(std::move(affectedIds))
+    {
+    }
+
+    std::string code;
+    std::vector<std::string> affectedObjectIds;
+};
+
+struct FrameObjectTransform
+{
+    std::string objectId;
+    ON_UUID uuid = ON_nil_uuid;
+    ON_BoundingBox sourceBbox;
+};
+
+struct FrameInstruction
+{
+    std::string frameId;
+    int frameIndex = 0;
+    fs::path runRoot;
+    fs::path outputPath;
+    std::string displayMode;
+    std::vector<FrameObjectTransform> objectTransforms;
+};
+
+nlohmann::json MakeFrameErrorData(
+    const nlohmann::json& body,
+    const std::string& code,
+    const std::string& message,
+    const std::vector<std::string>& affectedObjectIds = {})
+{
+    nlohmann::json data;
+    data["frame_id"] = body.contains("frame_id") && body["frame_id"].is_string()
+        ? body["frame_id"].get<std::string>()
+        : "";
+    data["frame_index"] = body.contains("frame_index") && body["frame_index"].is_number_integer()
+        ? body["frame_index"].get<int>()
+        : 0;
+    data["success"] = false;
+    data["dirty_partial_state"] = false;
+    data["affected_object_ids"] = affectedObjectIds;
+    data["error"] = MakeErrorData(code, message);
     return data;
 }
 
@@ -48,6 +109,136 @@ nlohmann::json BoundingBoxToJson(const ON_BoundingBox& bbox)
     data["max"] = PointToJson(bbox.m_max);
     data["center"] = PointToJson(bbox.Center());
     return data;
+}
+
+ON_3dPoint ParsePointArray3(const nlohmann::json& value, const std::string& key)
+{
+    if (!value.is_array() || value.size() != 3)
+        throw DirectorFrameValidationError("invalid_input", key + " must be a 3-number array");
+
+    for (size_t i = 0; i < 3; ++i)
+    {
+        if (!value[i].is_number())
+            throw DirectorFrameValidationError("invalid_input", key + " must be a 3-number array");
+    }
+
+    return ON_3dPoint(value[0].get<double>(), value[1].get<double>(), value[2].get<double>());
+}
+
+bool IsFinitePoint(const ON_3dPoint& point)
+{
+    return std::isfinite(point.x) && std::isfinite(point.y) && std::isfinite(point.z);
+}
+
+bool IsFiniteVector(const ON_3dVector& vector)
+{
+    return std::isfinite(vector.x) && std::isfinite(vector.y) && std::isfinite(vector.z);
+}
+
+fs::path PathFromUtf8(const std::string& value)
+{
+    ON_wString wide = Utf8ToWide(value);
+    return fs::path(static_cast<const wchar_t*>(wide));
+}
+
+std::wstring GetEnvironmentVariableString(const wchar_t* name)
+{
+    DWORD required = ::GetEnvironmentVariableW(name, nullptr, 0);
+    if (required == 0)
+        return {};
+
+    std::wstring value(required, L'\0');
+    DWORD written = ::GetEnvironmentVariableW(name, value.data(), required);
+    if (written == 0)
+        return {};
+
+    value.resize(written);
+    return value;
+}
+
+fs::path NormalizePolicyPath(const fs::path& path)
+{
+    std::error_code ec;
+    fs::path absolute = fs::absolute(path, ec);
+    if (ec)
+        absolute = path;
+
+    fs::path weak = fs::weakly_canonical(absolute, ec);
+    if (!ec)
+        return weak.lexically_normal();
+
+    return absolute.lexically_normal();
+}
+
+fs::path GetAllowedDirectorRoot()
+{
+    std::wstring configured = GetEnvironmentVariableString(L"ROOK_DIRECTOR_OUTPUT_ROOT");
+    if (!configured.empty())
+        return NormalizePolicyPath(fs::path(configured));
+
+    std::wstring localAppData = GetEnvironmentVariableString(L"LOCALAPPDATA");
+    if (localAppData.empty())
+        throw DirectorFrameValidationError(
+            "output_policy_violation",
+            "LOCALAPPDATA is required when ROOK_DIRECTOR_OUTPUT_ROOT is not set");
+
+    return NormalizePolicyPath(fs::path(localAppData) / L"Rook" / L"rookvision_director");
+}
+
+std::wstring LowerPathPart(const fs::path& part)
+{
+    std::wstring text = part.native();
+    std::transform(text.begin(), text.end(), text.begin(), [](wchar_t ch) {
+        return static_cast<wchar_t>(std::towlower(ch));
+    });
+    return text;
+}
+
+bool IsSameOrDescendantPath(const fs::path& parent, const fs::path& candidate)
+{
+    std::vector<std::wstring> parentParts;
+    std::vector<std::wstring> candidateParts;
+
+    for (const fs::path& part : parent)
+        parentParts.push_back(LowerPathPart(part));
+    for (const fs::path& part : candidate)
+        candidateParts.push_back(LowerPathPart(part));
+
+    if (parentParts.size() > candidateParts.size())
+        return false;
+
+    for (size_t i = 0; i < parentParts.size(); ++i)
+    {
+        if (parentParts[i] != candidateParts[i])
+            return false;
+    }
+
+    return true;
+}
+
+bool IsSamePath(const fs::path& a, const fs::path& b)
+{
+    return IsSameOrDescendantPath(a, b) && IsSameOrDescendantPath(b, a);
+}
+
+void ValidateOutputPolicy(const fs::path& runRoot, const fs::path& outputPath)
+{
+    fs::path allowedRoot = GetAllowedDirectorRoot();
+
+    if (!IsSameOrDescendantPath(allowedRoot, runRoot))
+        throw DirectorFrameValidationError(
+            "output_policy_violation",
+            "run_root must be inside the native director output root");
+
+    if (!IsSameOrDescendantPath(runRoot, outputPath))
+        throw DirectorFrameValidationError(
+            "output_policy_violation",
+            "output_path must be a descendant of run_root");
+
+    if (IsSamePath(runRoot, outputPath))
+        throw DirectorFrameValidationError(
+            "output_policy_violation",
+            "output_path must be a file path below run_root");
 }
 
 std::vector<std::string> ParseObjectIds(const nlohmann::json& body)
@@ -163,6 +354,197 @@ nlohmann::json SerializeObjectState(CRhinoDoc* pDoc, const CRhinoObject* obj)
     }
 
     return state;
+}
+
+void ValidateCamera(const nlohmann::json& body)
+{
+    if (!body.contains("camera") || !body["camera"].is_object())
+        throw DirectorFrameValidationError("invalid_input", "camera must be an object");
+
+    const auto& camera = body["camera"];
+    if (!camera.contains("projection") || !camera["projection"].is_string())
+        throw DirectorFrameValidationError("invalid_input", "camera.projection is required");
+
+    std::string projection = camera["projection"].get<std::string>();
+    if (projection != "perspective")
+        throw DirectorFrameValidationError("unsupported_projection", "Slice 1 frame-capture supports perspective cameras only");
+
+    ON_3dPoint location = ParsePointArray3(camera.value("location", nlohmann::json()), "camera.location");
+    ON_3dPoint target = ParsePointArray3(camera.value("target", nlohmann::json()), "camera.target");
+    ON_3dPoint upPoint = ParsePointArray3(camera.value("up", nlohmann::json()), "camera.up");
+    ON_3dVector up(upPoint.x, upPoint.y, upPoint.z);
+    ON_3dVector direction = target - location;
+
+    if (!IsFinitePoint(location) || !IsFinitePoint(target) || !IsFiniteVector(up))
+        throw DirectorFrameValidationError("invalid_input", "camera vectors must be finite");
+    if (!direction.Unitize())
+        throw DirectorFrameValidationError("invalid_input", "camera location and target must differ");
+    if (!up.Unitize())
+        throw DirectorFrameValidationError("invalid_input", "camera.up must be nonzero");
+}
+
+void ValidateTransformMatrix(const nlohmann::json& transform, const std::string& objectId)
+{
+    if (!transform.is_array() || transform.size() != 4)
+        throw DirectorFrameValidationError("invalid_input", "transform must be a 4x4 numeric matrix", { objectId });
+
+    for (const auto& row : transform)
+    {
+        if (!row.is_array() || row.size() != 4)
+            throw DirectorFrameValidationError("invalid_input", "transform must be a 4x4 numeric matrix", { objectId });
+        for (const auto& value : row)
+        {
+            if (!value.is_number())
+                throw DirectorFrameValidationError("invalid_input", "transform must be a 4x4 numeric matrix", { objectId });
+            double numeric = value.get<double>();
+            if (!std::isfinite(numeric))
+                throw DirectorFrameValidationError("invalid_input", "transform matrix values must be finite", { objectId });
+        }
+    }
+}
+
+std::vector<FrameObjectTransform> ParseFrameObjectTransforms(const nlohmann::json& body)
+{
+    if (!body.contains("object_transforms") || !body["object_transforms"].is_array())
+        throw DirectorFrameValidationError("invalid_input", "object_transforms must be a non-empty array");
+
+    const auto& transforms = body["object_transforms"];
+    if (transforms.empty())
+        throw DirectorFrameValidationError("invalid_input", "object_transforms must be a non-empty array");
+
+    std::vector<FrameObjectTransform> parsed;
+    parsed.reserve(transforms.size());
+
+    for (const auto& item : transforms)
+    {
+        if (!item.is_object())
+            throw DirectorFrameValidationError("invalid_input", "object_transforms entries must be objects");
+        if (!item.contains("object_id") || !item["object_id"].is_string())
+            throw DirectorFrameValidationError("invalid_input", "object_transforms[].object_id is required");
+
+        FrameObjectTransform frameObject;
+        frameObject.objectId = item["object_id"].get<std::string>();
+        frameObject.uuid = ON_UuidFromString(frameObject.objectId.c_str());
+        if (ON_UuidIsNil(frameObject.uuid))
+            throw DirectorFrameValidationError("invalid_input", "Invalid object id: " + frameObject.objectId, { frameObject.objectId });
+
+        if (!item.contains("transform"))
+            throw DirectorFrameValidationError("invalid_input", "object_transforms[].transform is required", { frameObject.objectId });
+        ValidateTransformMatrix(item["transform"], frameObject.objectId);
+
+        if (!item.contains("source_state") || !item["source_state"].is_object())
+            throw DirectorFrameValidationError("invalid_input", "object_transforms[].source_state is required", { frameObject.objectId });
+
+        const auto& sourceState = item["source_state"];
+        ON_3dPoint bboxMin = ParsePointArray3(sourceState.value("bbox_min", nlohmann::json()), "source_state.bbox_min");
+        ON_3dPoint bboxMax = ParsePointArray3(sourceState.value("bbox_max", nlohmann::json()), "source_state.bbox_max");
+        frameObject.sourceBbox = ON_BoundingBox(bboxMin, bboxMax);
+        if (!frameObject.sourceBbox.IsValid())
+            throw DirectorFrameValidationError("invalid_input", "source_state bbox is invalid", { frameObject.objectId });
+
+        parsed.push_back(frameObject);
+    }
+
+    return parsed;
+}
+
+FrameInstruction ParseFrameInstruction(const nlohmann::json& body)
+{
+    if (!body.contains("schema_version") || !body["schema_version"].is_number_integer() ||
+        body["schema_version"].get<int>() != 1)
+    {
+        throw DirectorFrameValidationError("invalid_input", "schema_version must be 1");
+    }
+    if (!body.contains("director_version") || !body["director_version"].is_string() ||
+        body["director_version"].get<std::string>() != "slice1")
+    {
+        throw DirectorFrameValidationError("invalid_input", "director_version must be slice1");
+    }
+    if (!body.contains("frame_index") || !body["frame_index"].is_number_integer() || body["frame_index"].get<int>() < 1)
+        throw DirectorFrameValidationError("invalid_input", "frame_index must be a positive integer");
+    if (!body.contains("frame_id") || !body["frame_id"].is_string() || body["frame_id"].get<std::string>().empty())
+        throw DirectorFrameValidationError("invalid_input", "frame_id is required");
+
+    if (!body.contains("resolution") || !body["resolution"].is_object())
+        throw DirectorFrameValidationError("invalid_input", "resolution must be an object");
+    const auto& resolution = body["resolution"];
+    if (!resolution.contains("width") || !resolution.contains("height") ||
+        !resolution["width"].is_number_integer() || !resolution["height"].is_number_integer() ||
+        resolution["width"].get<int>() <= 0 || resolution["height"].get<int>() <= 0)
+    {
+        throw DirectorFrameValidationError("invalid_input", "resolution width and height must be positive");
+    }
+
+    if (!body.contains("run_root") || !body["run_root"].is_string() || body["run_root"].get<std::string>().empty())
+        throw DirectorFrameValidationError("invalid_input", "run_root is required");
+    if (!body.contains("output_path") || !body["output_path"].is_string() || body["output_path"].get<std::string>().empty())
+        throw DirectorFrameValidationError("invalid_input", "output_path is required");
+
+    ValidateCamera(body);
+
+    FrameInstruction instruction;
+    instruction.frameId = body["frame_id"].get<std::string>();
+    instruction.frameIndex = body["frame_index"].get<int>();
+    instruction.runRoot = NormalizePolicyPath(PathFromUtf8(body["run_root"].get<std::string>()));
+    instruction.outputPath = NormalizePolicyPath(PathFromUtf8(body["output_path"].get<std::string>()));
+    ValidateOutputPolicy(instruction.runRoot, instruction.outputPath);
+
+    if (body.contains("display") && body["display"].is_object() &&
+        body["display"].contains("mode") && body["display"]["mode"].is_string())
+    {
+        instruction.displayMode = body["display"]["mode"].get<std::string>();
+    }
+
+    instruction.objectTransforms = ParseFrameObjectTransforms(body);
+    return instruction;
+}
+
+bool BboxAlmostEqual(const ON_BoundingBox& a, const ON_BoundingBox& b, double tolerance)
+{
+    return std::fabs(a.m_min.x - b.m_min.x) <= tolerance &&
+        std::fabs(a.m_min.y - b.m_min.y) <= tolerance &&
+        std::fabs(a.m_min.z - b.m_min.z) <= tolerance &&
+        std::fabs(a.m_max.x - b.m_max.x) <= tolerance &&
+        std::fabs(a.m_max.y - b.m_max.y) <= tolerance &&
+        std::fabs(a.m_max.z - b.m_max.z) <= tolerance;
+}
+
+void ValidateDisplayMode(const std::string& displayMode)
+{
+    if (displayMode.empty() || IEquals(displayMode, "current"))
+        return;
+
+    ON_UUID modeId = ON_UuidFromString(displayMode.c_str());
+    if (!ON_UuidIsNil(modeId))
+    {
+        if (!CRhinoDisplayAttrsMgr::FindDisplayAttrs(modeId))
+            throw DirectorFrameValidationError("invalid_input", "Display mode UUID not found");
+        return;
+    }
+
+    ON_wString wName = Utf8ToWide(displayMode);
+    DisplayAttrsMgrListDesc* pDesc =
+        CRhinoDisplayAttrsMgr::FindDisplayAttrsDesc(static_cast<const wchar_t*>(wName));
+    if (!pDesc || !pDesc->m_pAttrs)
+        throw DirectorFrameValidationError("invalid_input", "Display mode '" + displayMode + "' not found");
+}
+
+void ValidateFrameObjects(CRhinoDoc* pDoc, const std::vector<FrameObjectTransform>& objects)
+{
+    constexpr double kBboxTolerance = 1.0e-4;
+    for (const FrameObjectTransform& frameObject : objects)
+    {
+        const CRhinoObject* obj = pDoc->LookupObject(frameObject.uuid);
+        if (!obj || obj->IsDeleted())
+            throw DirectorFrameValidationError("invalid_input", "Object not found: " + frameObject.objectId, { frameObject.objectId });
+
+        ON_BoundingBox currentBbox = obj->BoundingBox();
+        if (!currentBbox.IsValid())
+            throw DirectorFrameValidationError("invalid_input", "Object has invalid bounding box: " + frameObject.objectId, { frameObject.objectId });
+
+        if (!BboxAlmostEqual(currentBbox, frameObject.sourceBbox, kBboxTolerance))
+            throw DirectorFrameValidationError("invalid_input", "Object source_state bbox does not match current document state", { frameObject.objectId });
+    }
 }
 
 } // namespace
@@ -291,12 +673,45 @@ void HandleDirectorViewState(const httplib::Request& req, httplib::Response& res
 
 void HandleDirectorFrameCapture(const httplib::Request& req, httplib::Response& res)
 {
-    UNREFERENCED_PARAMETER(req);
-    CRookServer::SendErrorData(
-        res,
-        MakeErrorData(
-            "not_implemented",
-            "/director/frame-capture is reserved for the slice 1 guarded transaction task"));
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+
+    try
+    {
+        FrameInstruction instruction = ParseFrameInstruction(body);
+
+        auto future = CMainThreadDispatcher::Instance().Dispatch(
+            [docSn, instruction]() -> nlohmann::json
+        {
+            CRhinoDoc* pDoc = ResolveDoc(docSn);
+            ValidateDisplayMode(instruction.displayMode);
+            ValidateFrameObjects(pDoc, instruction.objectTransforms);
+
+            nlohmann::json data;
+            data["frame_id"] = instruction.frameId;
+            data["frame_index"] = instruction.frameIndex;
+            data["success"] = false;
+            data["dirty_partial_state"] = false;
+            data["affected_object_ids"] = nlohmann::json::array();
+            data["error"] = MakeErrorData(
+                "not_implemented",
+                "/director/frame-capture validation passed; guarded capture is implemented in the next task");
+            return data;
+        });
+
+        CRookServer::SendErrorData(res, future.get());
+    }
+    catch (const DirectorFrameValidationError& ex)
+    {
+        CRookServer::SendErrorData(res, MakeFrameErrorData(body, ex.code, ex.what(), ex.affectedObjectIds));
+    }
+    catch (const std::invalid_argument& ex)
+    {
+        CRookServer::SendErrorData(res, MakeFrameErrorData(body, "invalid_input", ex.what()));
+    }
+    catch (const std::exception& ex)
+    {
+        CRookServer::SendErrorData(res, MakeFrameErrorData(body, "native_frame_failed", ex.what()));
+    }
 }
 
 } // namespace Handlers

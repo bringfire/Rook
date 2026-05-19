@@ -1347,7 +1347,7 @@ Expected with Rhino/RookNative running: path-security test fails until native va
 **Files:**
 - Modify: `src/RookNative/Handlers/DirectorHandler.cpp`
 
-- [ ] **Step 1: Implement native-side output root policy**
+- [x] **Step 1: Implement native-side output root policy**
 
 In `DirectorHandler.cpp`, add a helper that resolves the allowed director root from native-side configuration only:
 
@@ -1367,7 +1367,7 @@ Required behavior:
 - reject path traversal after canonicalization;
 - create only directories below an allowed root.
 
-- [ ] **Step 2: Implement schema and pre-mutation validation**
+- [x] **Step 2: Implement schema and pre-mutation validation**
 
 Validation must reject before any document or viewport mutation when:
 
@@ -1399,7 +1399,7 @@ Evidence error shape:
 }
 ```
 
-- [ ] **Step 3: Run native build**
+- [x] **Step 3: Run native build**
 
 Run:
 
@@ -1409,7 +1409,7 @@ cmd /c "call \"C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxili
 
 Expected: build succeeds or records exact unavailable-toolchain error.
 
-- [ ] **Step 4: Run live route tests**
+- [x] **Step 4: Run live route tests**
 
 Run:
 
@@ -1419,7 +1419,7 @@ pytest mcp_server/tests/test_director_routes_live.py -q -m requires_rhino
 
 Expected: path-security and validation tests pass with Rhino/RookNative running.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Run:
 
