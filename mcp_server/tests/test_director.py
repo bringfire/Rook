@@ -100,9 +100,10 @@ def test_radial_bbox_center_records_fallback_direction_warning():
 
 
 class FakeNative:
-    def __init__(self, responses):
+    def __init__(self, responses, *, create_outputs=False):
         self.responses = list(responses)
         self.calls = []
+        self.create_outputs = create_outputs
 
     async def __call__(self, endpoint, method="POST", data=None, port=None):
         self.calls.append((endpoint, method, data, port))
@@ -142,7 +143,12 @@ class FakeNative:
                     "provenance": provenance,
                 },
             }
-        return self.responses.pop(0)
+        result = self.responses.pop(0)
+        if endpoint == "/director/frame-capture" and self.create_outputs and result.get("success"):
+            output_path = Path(data["output_path"])
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_bytes(b"not-a-real-png-yet")
+        return result
 
 
 def _run_request(tmp_path):
@@ -175,7 +181,8 @@ def test_two_camera_keyframes_interpolate_per_frame(tmp_path):
             {"success": True, "data": {"frame_id": "frame_0001", "dirty_partial_state": False}},
             {"success": True, "data": {"frame_id": "frame_0002", "dirty_partial_state": False}},
             {"success": True, "data": {"frame_id": "frame_0003", "dirty_partial_state": False}},
-        ]
+        ],
+        create_outputs=True,
     )
     result = asyncio.run(director.run_director(request, call_native=fake, runtime=_runtime(tmp_path)))
     manifest = json.loads((Path(result["run_root"]) / "manifest.json").read_text(encoding="utf-8"))
@@ -190,7 +197,8 @@ def test_run_complete_writes_manifest_status_and_evidence(tmp_path):
         [
             {"success": True, "data": {"frame_id": "frame_0001", "dirty_partial_state": False, "output_path": "x"}},
             {"success": True, "data": {"frame_id": "frame_0002", "dirty_partial_state": False, "output_path": "y"}},
-        ]
+        ],
+        create_outputs=True,
     )
     result = asyncio.run(director.run_director(_run_request(tmp_path), call_native=fake, runtime=_runtime(tmp_path)))
     run_root = Path(result["run_root"])
@@ -204,6 +212,21 @@ def test_run_complete_writes_manifest_status_and_evidence(tmp_path):
     assert manifest["frames"][0]["frame_index"] == 1
     evidence_lines = (run_root / "logs" / "frame_evidence.jsonl").read_text(encoding="utf-8").splitlines()
     assert len(evidence_lines) == 2
+    assert (run_root / "frames" / "frame_0001.png").exists()
+    assert (run_root / "frames" / "frame_0002.png").exists()
+
+
+def test_run_fails_when_native_success_does_not_create_frame_file(tmp_path):
+    fake = FakeNative(
+        [
+            {"success": True, "data": {"frame_id": "frame_0001", "dirty_partial_state": False}},
+            {"success": True, "data": {"frame_id": "frame_0002", "dirty_partial_state": False}},
+        ]
+    )
+    result = asyncio.run(director.run_director(_run_request(tmp_path), call_native=fake, runtime=_runtime(tmp_path)))
+    assert result["state"] == "failed"
+    status = json.loads((Path(result["run_root"]) / "status.json").read_text(encoding="utf-8"))
+    assert status["state"] == "failed"
 
 
 def test_run_marks_failed_when_native_frame_fails_safely(tmp_path):
@@ -241,3 +264,61 @@ def test_run_marks_unsafe_failed_and_stops(tmp_path):
     assert result["state"] == "unsafe_failed"
     frame_calls = [call for call in fake.calls if call[0] == "/director/frame-capture"]
     assert len(frame_calls) == 1
+
+
+def test_run_marks_cancelled_between_frames(tmp_path):
+    checks = iter([False, True])
+    fake = FakeNative(
+        [
+            {"success": True, "data": {"frame_id": "frame_0001", "dirty_partial_state": False}},
+            {"success": True, "data": {"frame_id": "frame_0002", "dirty_partial_state": False}},
+        ],
+        create_outputs=True,
+    )
+    result = asyncio.run(
+        director.run_director(
+            _run_request(tmp_path),
+            call_native=fake,
+            runtime=_runtime(tmp_path),
+            should_cancel=lambda: next(checks),
+        )
+    )
+    assert result["state"] == "cancelled"
+    frame_calls = [call for call in fake.calls if call[0] == "/director/frame-capture"]
+    assert len(frame_calls) == 1
+
+
+def test_run_marks_evidence_failed_and_stops(tmp_path, monkeypatch):
+    def fail_append(path, payload):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(director, "_append_evidence", fail_append)
+    fake = FakeNative(
+        [
+            {"success": True, "data": {"frame_id": "frame_0001", "dirty_partial_state": False}},
+            {"success": True, "data": {"frame_id": "frame_0002", "dirty_partial_state": False}},
+        ],
+        create_outputs=True,
+    )
+    result = asyncio.run(director.run_director(_run_request(tmp_path), call_native=fake, runtime=_runtime(tmp_path)))
+    assert result["state"] == "evidence_failed"
+    frame_calls = [call for call in fake.calls if call[0] == "/director/frame-capture"]
+    assert len(frame_calls) == 1
+
+
+def test_empty_object_ids_does_not_create_run_directory(tmp_path):
+    request = _run_request(tmp_path)
+    request["object_ids"] = []
+    request["run_id"] = "bad-empty-objects"
+    with pytest.raises(director.DirectorInputError, match="object_ids"):
+        asyncio.run(director.run_director(request, call_native=FakeNative([]), runtime=_runtime(tmp_path)))
+    assert not (tmp_path / "data" / "rookvision_director" / "bad-empty-objects").exists()
+
+
+def test_bad_camera_keyframe_does_not_create_run_directory(tmp_path):
+    request = _run_request(tmp_path)
+    request["run_id"] = "bad-camera"
+    request["camera_keyframes"] = [{"frame_index": 3, "source": {"kind": "active_view"}}]
+    with pytest.raises(director.DirectorInputError, match="camera keyframe"):
+        asyncio.run(director.run_director(request, call_native=FakeNative([]), runtime=_runtime(tmp_path)))
+    assert not (tmp_path / "data" / "rookvision_director" / "bad-camera").exists()

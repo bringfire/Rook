@@ -308,6 +308,7 @@ async def run_director(
     call_native=call_rhino,
     runtime: DirectorRuntimePaths | None = None,
     port: int | None = None,
+    should_cancel=None,
 ) -> dict[str, Any]:
     validate_authoring_request(request)
     runtime = runtime or _runtime_paths()
@@ -316,11 +317,6 @@ async def run_director(
         f"director_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_"
         f"{uuid.uuid4().hex[:8]}"
     )
-    run_root = (output_root / run_id).resolve()
-    frames_dir = run_root / "frames"
-    logs_dir = run_root / "logs"
-    frames_dir.mkdir(parents=True, exist_ok=False)
-    logs_dir.mkdir(parents=True, exist_ok=True)
 
     object_ids = list(request.get("object_ids") or [])
     if not object_ids:
@@ -343,6 +339,12 @@ async def run_director(
         distance=float(motion_params.get("distance", 10.0)),
         per_object_scale=dict(motion_params.get("per_object_scale") or {}),
     )
+
+    run_root = (output_root / run_id).resolve()
+    frames_dir = run_root / "frames"
+    logs_dir = run_root / "logs"
+    frames_dir.mkdir(parents=True, exist_ok=False)
+    logs_dir.mkdir(parents=True, exist_ok=True)
 
     manifest_frames = []
     for frame in motion_frames:
@@ -398,7 +400,11 @@ async def run_director(
 
     state = "complete"
     evidence_path = logs_dir / "frame_evidence.jsonl"
+    should_cancel = should_cancel or (lambda: False)
     for frame in manifest_frames:
+        if should_cancel():
+            state = "cancelled"
+            break
         instruction = {
             "schema_version": SCHEMA_VERSION,
             "director_version": DIRECTOR_VERSION,
@@ -417,6 +423,15 @@ async def run_director(
             result.get("data") if isinstance(result.get("data"), dict) else {"error": result.get("data")}
         )
         evidence["success"] = bool(result.get("success"))
+        output_path = Path(frame["output_path"])
+        if result.get("success") and (
+            not output_path.exists() or output_path.stat().st_size <= 0
+        ):
+            evidence["success"] = False
+            evidence["error"] = {
+                "code": "missing_output",
+                "message": f"Expected frame output was not created: {output_path}",
+            }
         try:
             _append_evidence(evidence_path, evidence)
         except OSError:
@@ -426,6 +441,9 @@ async def run_director(
             state = "unsafe_failed"
             break
         if not result.get("success"):
+            state = "failed"
+            break
+        if not evidence["success"]:
             state = "failed"
             break
 
