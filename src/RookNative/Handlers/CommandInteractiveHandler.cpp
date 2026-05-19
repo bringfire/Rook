@@ -144,6 +144,9 @@ PromptRead TryReadPromptOnMain(std::chrono::milliseconds timeout)
 
 PromptRead PollForIdlePromptAfterCancel()
 {
+    if (ConsumeRunScriptSafetyTestHook("cancel_prompt_active"))
+        return {PromptReadState::Active, "test_hook_cancel_prompt_active"};
+
     const auto deadline = std::chrono::steady_clock::now() + kPostCancelPollWindow;
     PromptRead lastProbe;
 

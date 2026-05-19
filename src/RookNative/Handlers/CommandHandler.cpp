@@ -15,6 +15,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <future>
 #include <fstream>
@@ -29,6 +30,13 @@ namespace fs = std::filesystem;
 static std::atomic<uint64_t> s_scriptCounter{0};
 static std::mutex s_commandRunMutex;
 static std::atomic<bool> s_commandStateUncertain{false};
+static std::atomic<bool> s_testHookPromptUnknown{false};
+static std::atomic<bool> s_testHookCommandTimeout{false};
+static std::atomic<bool> s_testHookCancelPromptActive{false};
+static const bool s_runScriptSafetyTestHooksEnabled = []() {
+    const char* env = std::getenv("ROOK_ENABLE_RUNSCRIPT_SAFETY_TEST_HOOKS");
+    return env != nullptr && std::string(env) == "1";
+}();
 
 namespace Rook {
 namespace Handlers {
@@ -165,6 +173,17 @@ namespace
         return !IsIdleCommandPrompt(prompt);
     }
 
+    std::atomic<bool>* GetRunScriptSafetyTestHookFlag(const std::string& hookName)
+    {
+        if (hookName == "prompt_unknown")
+            return &s_testHookPromptUnknown;
+        if (hookName == "command_timeout")
+            return &s_testHookCommandTimeout;
+        if (hookName == "cancel_prompt_active")
+            return &s_testHookCancelPromptActive;
+        return nullptr;
+    }
+
     nlohmann::json BuildCommandInteractiveError(
         const std::string& command,
         const std::string& prompt)
@@ -241,6 +260,9 @@ namespace
 
     CommandPromptProbe TryReadCommandPrompt()
     {
+        if (ConsumeRunScriptSafetyTestHook("prompt_unknown"))
+            return {CommandPromptState::Unknown, ""};
+
         try
         {
             auto promptFuture = CMainThreadDispatcher::Instance().Dispatch(
@@ -293,9 +315,87 @@ namespace
     }
 }
 
+bool RunScriptSafetyTestHooksEnabled()
+{
+    return s_runScriptSafetyTestHooksEnabled;
+}
+
+bool ConsumeRunScriptSafetyTestHook(const char* hookName)
+{
+    if (!RunScriptSafetyTestHooksEnabled() || hookName == nullptr)
+        return false;
+
+    std::atomic<bool>* flag = GetRunScriptSafetyTestHookFlag(hookName);
+    return flag != nullptr && flag->exchange(false, std::memory_order_acq_rel);
+}
+
 void ClearCommandStateUncertain()
 {
     s_commandStateUncertain.store(false, std::memory_order_release);
+}
+
+void HandleRunScriptSafetyTestHook(const httplib::Request& req, httplib::Response& res)
+{
+    if (!RunScriptSafetyTestHooksEnabled())
+    {
+        nlohmann::json data;
+        data["error"] = "runscript_safety_test_hooks_disabled";
+        data["verified"] = false;
+        CRookServer::SendErrorData(res, data);
+        return;
+    }
+
+    nlohmann::json body;
+    if (!req.body.empty())
+    {
+        body = nlohmann::json::parse(req.body, nullptr, false);
+        if (body.is_discarded() || !body.is_object())
+        {
+            CRookServer::SendError(res, "Invalid JSON body");
+            return;
+        }
+    }
+
+    if (!body.contains("hook") || !body["hook"].is_string())
+    {
+        CRookServer::SendError(res, "Missing required field: hook");
+        return;
+    }
+
+    const std::string hookName = body["hook"].get<std::string>();
+    if (hookName == "reset")
+    {
+        s_testHookPromptUnknown.store(false, std::memory_order_release);
+        s_testHookCommandTimeout.store(false, std::memory_order_release);
+        s_testHookCancelPromptActive.store(false, std::memory_order_release);
+
+        nlohmann::json data;
+        data["reset"] = true;
+        CRookServer::SendSuccess(res, data);
+        return;
+    }
+
+    std::atomic<bool>* flag = GetRunScriptSafetyTestHookFlag(hookName);
+    if (flag == nullptr)
+    {
+        CRookServer::SendError(res, "Unknown hook");
+        return;
+    }
+
+    if (!body.contains("enabled") || !body["enabled"].is_boolean())
+    {
+        CRookServer::SendError(res, "Missing required field: enabled");
+        return;
+    }
+
+    const bool enabled = body["enabled"].get<bool>();
+    flag->store(enabled, std::memory_order_release);
+
+    nlohmann::json data;
+    data["hook"] = hookName;
+    data["enabled"] = enabled;
+    data["one_shot"] = true;
+    CRookServer::SendSuccess(res, data);
 }
 
 // ─── POST /command ──────────────────────────────────────────────────
@@ -393,7 +493,8 @@ void HandleCommand(const httplib::Request& req, httplib::Response& res)
 
     try
     {
-        if (future.wait_for(kCommandRunTimeout) != std::future_status::ready)
+        if (ConsumeRunScriptSafetyTestHook("command_timeout")
+            || future.wait_for(kCommandRunTimeout) != std::future_status::ready)
         {
             s_commandStateUncertain.store(true, std::memory_order_release);
             CRookServer::SendErrorData(res, BuildCommandTimeoutError(command));

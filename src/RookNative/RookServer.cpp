@@ -713,6 +713,9 @@ void CRookServer::RegisterRoutes()
     m_server->Post("/command", [this](const httplib::Request& req, httplib::Response& res) {
         HandleCommand(req, res);
     });
+    m_server->Post("/command/_test/runscript-safety-hook", [](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleRunScriptSafetyTestHook(req, res);
+    });
     m_server->Post("/execute", [this](const httplib::Request& req, httplib::Response& res) {
         HandleExecute(req, res);
     });
