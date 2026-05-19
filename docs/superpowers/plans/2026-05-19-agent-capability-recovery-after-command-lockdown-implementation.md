@@ -1,12 +1,12 @@
-# Agent Capability Recovery After `/command` Lockdown Implementation Plan
+# Agent Capability Recovery After Command Lockdown Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Establish the near-term capability recovery foundation after `/command` lockdown: shared refusal envelope semantics, concrete recovery artifacts, initial audit generation, and a synthetic eval baseline.
+**Goal:** Produce a lean phase-one capability assessment after `/command` lockdown, plus minimal refusal guidance that points agents toward real existing typed tools.
 
-**Architecture:** Keep native `/command` fail-closed and keep orchestration out of native routes. Add a small Python refusal-envelope helper for MCP-facing RunScript safety refusals, align native `/command` refusal payloads with the shared semantic fields, and generate markdown recovery artifacts under `docs/superpowers/capability-recovery/`. Synthetic evals are static/catalog-level in this slice; missing typed tools become ranked queue rows rather than being built here.
+**Architecture:** Phase one is assessment plus minimal refusal guidance, not capability framework construction. Keep `/command` fail-closed, avoid new typed routes, avoid new artifact generators, and avoid broad formatter/native-envelope refactors. The primary outputs are hand-written recovery artifacts that identify what matters before building machinery.
 
-**Tech Stack:** Python 3.13, pytest, existing Rook MCP server module, existing native C++ command handlers, markdown documentation artifacts. No new external dependencies.
+**Tech Stack:** Markdown recovery docs, existing Python MCP preflight/server tests, existing Rook MCP tool catalog, pytest. No new dependencies.
 
 ---
 
@@ -16,71 +16,76 @@ Implement against:
 
 `docs/superpowers/specs/2026-05-19-agent-capability-recovery-after-command-lockdown-design.md`
 
-The spec status is now `Accepted`.
+The spec status must remain `Accepted`.
 
-## Scope Boundary
+## Phase-One Boundary
 
-This plan creates the recovery foundation and assessment artifacts. It does not add high-value typed tools, expand the command allowlist, or implement P2 dispatcher modal allowlisting.
+This plan intentionally replaces the earlier infrastructure-heavy plan. Treat that earlier material as design context only.
 
-Any discovered capability gap should land as a row in:
+Phase one includes:
 
-`docs/superpowers/capability-recovery/ranked-recovery-queue.md`
+- accepted spec status verification
+- five canonical recovery artifact paths
+- current model-facing tool/route audit
+- command fallback and known-command usage audit
+- 20-40 row intent matrix
+- 8-12 prompt synthetic eval baseline
+- ranked recovery queue with owners and verification targets
+- minimal refusal advisory cleanup using real existing tools only
+
+Phase one defers:
+
+- `mcp_server/src/rook/runscript_refusals.py`
+- artifact generator scripts
+- static validator test framework
+- broad MCP formatter contract changes
+- broad native envelope alignment beyond the existing safety branch
+- live smoke expansion for this workstream
+- new typed routes
+- broad command allowlist expansion
+
+Capture the MCP formatter/envelope consistency issue as a ranked follow-up row rather than phase-one infrastructure.
 
 ## File Structure
 
-- Modify: `docs/superpowers/specs/2026-05-19-agent-capability-recovery-after-command-lockdown-design.md`
-  - Set status to `Accepted`.
+- Verify: `docs/superpowers/specs/2026-05-19-agent-capability-recovery-after-command-lockdown-design.md`
+  - Ensure status is `Accepted`.
 
-- Create: `docs/superpowers/capability-recovery/agent-intent-map.md`
-  - Top-down intent taxonomy with route coverage, feedback, owners, and verification targets.
+- Create directory: `docs/superpowers/capability-recovery/`
 
 - Create: `docs/superpowers/capability-recovery/current-tool-route-map.md`
-  - Current model-facing tool catalog grouped by intent.
+  - Current model-facing Rhino/GH tool catalog grouped by intent and feedback signal.
 
 - Create: `docs/superpowers/capability-recovery/blocked-command-audit.md`
-  - Historical/log-derived and seed blocked command observations.
+  - Audit of command fallback surfaces and likely historical/raw-command pressure points.
+
+- Create: `docs/superpowers/capability-recovery/agent-intent-map.md`
+  - 20-40 row capability matrix using the accepted spec schema.
 
 - Create: `docs/superpowers/capability-recovery/synthetic-eval-baseline.md`
-  - Representative agent tasks, expected safe routes, and failure signals.
+  - 8-12 representative prompt tasks, expected safe route, disallowed route, and outcome fields.
 
 - Create: `docs/superpowers/capability-recovery/ranked-recovery-queue.md`
-  - Ranked, owned recovery rows.
-
-- Create: `mcp_server/src/rook/runscript_refusals.py`
-  - Shared MCP refusal envelope builder and validator for RunScript safety refusals.
+  - Ranked work queue with owner, action, verification target, and status.
 
 - Modify: `mcp_server/src/rook/preflight.py`
-  - Use the shared envelope for `rhino_command` safety refusals.
-
-- Modify: `mcp_server/src/rook/server.py`
-  - Preserve refusal envelope fields through MCP `rhino_command` responses and add candidate typed tool advisory data where available.
-
-- Modify: `src/RookNative/Handlers/CommandHandler.cpp`
-  - Add required shared refusal-envelope fields to native `/command` uncertainty and bare-no-effect refusals.
+  - Add minimal candidate-tool advisory fields to RunScript safety refusals for obvious commands only.
 
 - Modify: `mcp_server/tests/test_preflight_rhino_command_safety.py`
-  - Assert MCP preflight refusal envelope semantics.
+  - Assert refusal advisory fields for `_Line` and avoid fake/nonexistent tool names.
 
-- Modify: `mcp_server/tests/test_runscript_safety_live.py`
-  - Assert native live refusal envelope fields for prompt/quarantine/bare no-effect cases.
-
-- Create: `mcp_server/tools/capability_recovery_audit.py`
-  - Generates the five markdown artifacts from a curated intent seed, current tool catalog, and optional telemetry JSONL.
-
-- Create: `mcp_server/tests/test_capability_recovery_audit.py`
-  - Unit tests for artifact generation, schema completeness, and queue row validation.
-
-- Create: `mcp_server/tests/test_agent_capability_eval_baseline.py`
-  - Static eval baseline tests that verify common tasks have expected safe-route classifications or owned gap rows.
+- Modify: `mcp_server/tests/test_server_execute_safety.py`
+  - Add one MCP formatter-preservation test for the existing `Error: <json>` transport.
 
 ---
 
-### Task 1: Commit Accepted Spec Status
+### Task 1: Verify Accepted Spec and Workspace State
 
 **Files:**
-- Modify: `docs/superpowers/specs/2026-05-19-agent-capability-recovery-after-command-lockdown-design.md`
+- Verify: `docs/superpowers/specs/2026-05-19-agent-capability-recovery-after-command-lockdown-design.md`
+- Verify: git worktree state
 
-- [ ] **Step 1: Verify spec status is accepted**
+- [ ] **Step 1: Verify the spec status**
 
 Run:
 
@@ -90,224 +95,455 @@ Select-String -Path docs\superpowers\specs\2026-05-19-agent-capability-recovery-
 
 Expected: one match.
 
-- [ ] **Step 2: Commit the status update with the plan if not already committed**
+- [ ] **Step 2: Check worktree state**
 
-Do not stage unrelated files.
+Run:
 
 ```powershell
-git add docs/superpowers/specs/2026-05-19-agent-capability-recovery-after-command-lockdown-design.md
+git status --short
 ```
 
-Expected: staged spec file only.
+Expected: `knowledge/gh/component_observations.json` may be dirty and unrelated. Do not stage or edit it.
+
+- [ ] **Step 3: Commit nothing in this task**
+
+No file changes are required if the spec is already accepted.
 
 ---
 
-### Task 2: Shared MCP Refusal Envelope Helper
+### Task 2: Inventory Current Model-Facing Tool Routes
 
 **Files:**
-- Create: `mcp_server/src/rook/runscript_refusals.py`
-- Test: `mcp_server/tests/test_preflight_rhino_command_safety.py`
+- Create: `docs/superpowers/capability-recovery/current-tool-route-map.md`
 
-- [ ] **Step 1: Add failing tests for the shared envelope**
-
-Append to `mcp_server/tests/test_preflight_rhino_command_safety.py`:
-
-```python
-def test_runscript_refusal_envelope_required_fields():
-    from rook.runscript_refusals import build_runscript_refusal
-
-    response = build_runscript_refusal(
-        reason="command_safety_unavailable",
-        detected_command="_Line",
-        safety_class="good_refusal",
-        retry_allowed=False,
-    )
-
-    assert response["success"] is False
-    data = response["data"]
-    assert data["error"] == "run_script_safety_refusal"
-    assert data["error_code"] == "run_script_safety_refusal"
-    assert data["reason"] == "command_safety_unavailable"
-    assert data["safety_class"] == "good_refusal"
-    assert data["retry_allowed"] is False
-    assert data["detected_command"] == "_Line"
-    assert data["prompt_state"] == "not_checked"
-    assert data["verified"] is False
-
-
-def test_runscript_refusal_envelope_rejects_invalid_safety_class():
-    from rook.runscript_refusals import build_runscript_refusal
-
-    with pytest.raises(ValueError, match="invalid safety_class"):
-        build_runscript_refusal(
-            reason="bad",
-            detected_command="_Line",
-            safety_class="unsafeish",
-            retry_allowed=False,
-        )
-```
-
-- [ ] **Step 2: Run the failing tests**
+- [ ] **Step 1: Gather the current model-facing tool names**
 
 Run:
 
 ```powershell
-$env:PYTHONPATH='mcp_server/src'; python -m pytest mcp_server/tests/test_preflight_rhino_command_safety.py::test_runscript_refusal_envelope_required_fields mcp_server/tests/test_preflight_rhino_command_safety.py::test_runscript_refusal_envelope_rejects_invalid_safety_class -q
+Select-String -Path mcp_server\src\rook\server.py -Pattern 'name="(rhino_create|rhino_transform|rhino_delete|rhino_objects|rhino_geometry|rhino_select|rhino_select_by_type|rhino_select_none|rhino_measure_|rhino_layer_|rhino_material_ops|rhino_annotation_|rhino_viewport|rhino_views|rhino_import|rhino_export|rhino_block_|gh_status|gh_snapshot|gh_edit|gh_errors|gh_canvas_image|gh_bake_output)"'
 ```
 
-Expected: fail because `rook.runscript_refusals` does not exist.
+Expected: matches for real existing model-facing tools. Use this output to keep the route map honest.
 
-- [ ] **Step 3: Create the helper module**
+- [ ] **Step 2: Create the route map**
 
-Create `mcp_server/src/rook/runscript_refusals.py`:
+Use `apply_patch` to create `docs/superpowers/capability-recovery/current-tool-route-map.md` with this content:
 
-```python
-"""Shared RunScript safety refusal envelopes for MCP-facing code paths."""
+```markdown
+# Current Tool Route Map
 
-from __future__ import annotations
+Status: Phase-one assessment
 
-from typing import Any
+This document inventories real model-facing typed routes that can recover capability after `/command` lockdown. It intentionally names only tools present in `mcp_server/src/rook/server.py`.
 
-
-RUNSCRIPT_REFUSAL_ERROR = "run_script_safety_refusal"
-
-SAFETY_CLASSES = {
-    "good_refusal",
-    "bad_refusal",
-    "weak_refusal",
-    "dangerous_recovery_blocked",
-    "unknown",
-}
-
-PROMPT_STATES = {"idle", "active", "unknown", "not_checked"}
-
-
-def build_runscript_refusal(
-    *,
-    reason: str,
-    detected_command: Any = None,
-    detected_intent: str | None = None,
-    safety_class: str = "unknown",
-    retry_allowed: bool = False,
-    prompt_state: str = "not_checked",
-    candidate_tools: list[dict[str, Any]] | None = None,
-    missing_parameters: list[str] | None = None,
-    manual_boundary: str | None = None,
-    docs_hint: str | None = None,
-    postcondition_hint: str | None = None,
-    recovery: str | None = None,
-    **extra_data: Any,
-) -> dict[str, Any]:
-    if safety_class not in SAFETY_CLASSES:
-        raise ValueError(f"invalid safety_class: {safety_class}")
-    if prompt_state not in PROMPT_STATES:
-        raise ValueError(f"invalid prompt_state: {prompt_state}")
-    if not isinstance(retry_allowed, bool):
-        raise ValueError("retry_allowed must be a boolean")
-
-    data: dict[str, Any] = {
-        "error": RUNSCRIPT_REFUSAL_ERROR,
-        "error_code": RUNSCRIPT_REFUSAL_ERROR,
-        "reason": reason,
-        "safety_class": safety_class,
-        "retry_allowed": retry_allowed,
-        "prompt_state": prompt_state,
-        "verified": False,
-        "recovery": recovery or "Use a typed Rook tool or a known-safe fully scripted command.",
-    }
-    if detected_command is not None:
-        data["detected_command"] = detected_command
-        data["command"] = detected_command
-    if detected_intent is not None:
-        data["detected_intent"] = detected_intent
-    if candidate_tools is not None:
-        data["candidate_tools"] = candidate_tools
-    if missing_parameters is not None:
-        data["missing_parameters"] = missing_parameters
-        data["missing_required"] = missing_parameters
-    if manual_boundary is not None:
-        data["manual_boundary"] = manual_boundary
-    if docs_hint is not None:
-        data["docs_hint"] = docs_hint
-    if postcondition_hint is not None:
-        data["postcondition_hint"] = postcondition_hint
-    data.update(extra_data)
-    return {"success": False, "data": data}
+| Intent category | Existing model-facing tools | Route type | Feedback / postcondition signal | Notes |
+| --- | --- | --- | --- | --- |
+| Create basic geometry | `rhino_create` | typed MCP tool -> native `/create` | object ids / created object count | Supports `POINT`, `LINE`, `POLYLINE`, `CIRCLE`, `ARC`, `RECTANGLE`, `BOX`, `SPHERE`, `CYLINDER`, `CONE`. |
+| Transform geometry | `rhino_transform` | typed MCP tool -> native transform route | transformed ids / success payload | Covers move, rotate, scale, mirror. |
+| Delete geometry | `rhino_delete` | typed MCP tool -> native delete route | deleted ids / success payload | Requires explicit object ids. |
+| Query document objects | `rhino_objects`, `rhino_geometry` | typed MCP tool -> native query routes | object summaries / geometry detail | Useful recovery from vague command attempts that should inspect before mutating. |
+| Selection | `rhino_select`, `rhino_select_by_type`, `rhino_select_none` | typed MCP tools -> native selection routes | selection count / selected ids | Use instead of `_Sel*` raw commands. |
+| Measurement | `rhino_measure_distance`, `rhino_measure_area`, `rhino_measure_volume`, `rhino_measure_length`, `rhino_measure_bbox`, `rhino_measure_centroid` | typed MCP tools -> native measure routes | numeric measurement payloads | Use instead of raw `Distance`, `Area`, `BoundingBox`, or similar commands. |
+| Layer organization | `rhino_layers`, `rhino_layer_create`, `rhino_layer_move_objects`, `rhino_layer_set_properties`, `rhino_layer_current` | typed MCP tools -> native layer routes | layer metadata / moved object ids | Use for layer creation, movement, visibility, locking, renaming. |
+| Materials | `rhino_material_ops`, `rhino_materials` | typed MCP tools -> native material routes | material list / assigned ids | `rhino_material_ops` uses an explicit `action` parameter. |
+| Annotation | `rhino_annotation_text`, `rhino_annotation_dot`, `rhino_annotation_leader`, dimension tools | typed MCP tools -> native annotation routes | annotation object ids / measured value for dimensions | Use instead of raw text/dimension command prompts. |
+| View and capture | `rhino_viewport`, `rhino_views`, `rhino_views_save`, `rhino_views_restore`, `rhino_capture_depth` | typed MCP tools -> native view/capture routes | viewport state / capture path | `rhino_capture_depth` is specialized; broader screenshot routes should be confirmed before adding queue rows. |
+| Import/export | `rhino_import`, `rhino_export` | typed MCP tools -> native import/export routes | file path / import-export result | Requires explicit paths. |
+| Blocks | `rhino_blocks`, `rhino_block_create`, `rhino_block_insert`, `rhino_block_*` mutation and query tools | typed MCP tools -> native/managed routes | block name, instance ids, mutation summary | Some block-definition mutation routes are managed by design; preserve current ownership. |
+| Grasshopper | `gh_status`, `gh_snapshot`, `gh_edit`, `gh_errors`, `gh_canvas_image`, `gh_bake_output` | typed MCP tools -> managed/native bridge | solve status, errors, snapshot, image path, baked ids | Use GH tools for canvas/document workflows instead of Rhino command strings. |
+| Recovery/state | `rhino_command_interactive_prompt`, `rhino_command_interactive_cancel` | recovery-only MCP tools -> native `/command/prompt` and `/command/cancel` | prompt state / verified cancel result | Prompt/cancel are observability and recovery primitives, not execution tools. |
 ```
 
-- [ ] **Step 4: Run tests for the helper**
+- [ ] **Step 3: Commit the route map**
 
 Run:
 
 ```powershell
-$env:PYTHONPATH='mcp_server/src'; python -m pytest mcp_server/tests/test_preflight_rhino_command_safety.py::test_runscript_refusal_envelope_required_fields mcp_server/tests/test_preflight_rhino_command_safety.py::test_runscript_refusal_envelope_rejects_invalid_safety_class -q
+git add docs/superpowers/capability-recovery/current-tool-route-map.md
+git commit -m "docs: inventory typed capability routes"
 ```
 
-Expected: `2 passed`.
-
-- [ ] **Step 5: Commit**
-
-```powershell
-git add mcp_server/src/rook/runscript_refusals.py mcp_server/tests/test_preflight_rhino_command_safety.py
-git commit -m "feat: add runscript refusal envelope helper"
-```
+Expected: one doc file committed.
 
 ---
 
-### Task 3: MCP `rhino_command` Preflight Refusal Envelope
+### Task 3: Audit Command Fallback Usage
+
+**Files:**
+- Create: `docs/superpowers/capability-recovery/blocked-command-audit.md`
+
+- [ ] **Step 1: Gather command fallback references**
+
+Run:
+
+```powershell
+rg "rhino_command|known_command|RunScript|/command|interactive_start|interactive_send|command_learner" mcp_server/src mcp_server/tests src/RookNative/Handlers docs -g "!docs/superpowers/capability-recovery/**"
+```
+
+Expected: references in preflight/server, SmartExecutor/deprecated interactive paths, native command handlers, tests, and docs.
+
+- [ ] **Step 2: Create the blocked command audit**
+
+Use `apply_patch` to create `docs/superpowers/capability-recovery/blocked-command-audit.md`:
+
+```markdown
+# Blocked Command Audit
+
+Status: Phase-one assessment
+
+This audit records where raw command fallback pressure exists after `/command` lockdown. Historical frequency is a weighting signal, not the definition of capability coverage.
+
+| Source | Observed or likely command fallback | Current safety outcome | Typed recovery candidate | Risk class | Follow-up |
+| --- | --- | --- | --- | --- | --- |
+| MCP `rhino_command` | `_Line`, `_Circle`, `_Box`, other creation commands | rejected unless known safe metadata exists | `rhino_create` | good refusal if advisory names `rhino_create`; bad refusal if no route is discoverable | Add minimal candidate advisory for obvious create commands. |
+| MCP `rhino_command` | `_SelNone`, `_SelAll`, `_Sel*` | rejected unless explicitly safe | `rhino_select_none`, `rhino_select`, `rhino_select_by_type` | good refusal when selection route is obvious | Ensure docs/evals teach selection tools. |
+| SmartExecutor known-command fallback | stalled command fallback attempts | interactive execution is deprecated/refused | typed route or explicit manual boundary | good refusal | Keep deprecated prompt-driving path out of normal execution. |
+| Native `/command` | prompt-inducing commands such as `_Line` without points | fails closed and can quarantine | typed tool with explicit parameters | good refusal | Covered by live RunScript safety smoke. |
+| Native `/command` | bare no-effect commands | fail-closed unless explicitly allowlisted | typed route or manual boundary | intentional breaking behavior | Document as compatibility break. |
+| Agent behavior | future models reaching for raw commands despite typed tools | refusal expected | stronger tool descriptions and candidate advisories | weak refusal if typed route exists but is hard to discover | Synthetic evals should measure route choice. |
+| Formatter/envelope transport | MCP `call_tool` wraps failures as `Error: <json>` text | structured fields are available but not raw JSON transport | parse trailing JSON or future formatter contract | follow-up infrastructure | Queue as phase-two contract cleanup, not phase-one blocker. |
+```
+
+- [ ] **Step 3: Commit the audit**
+
+Run:
+
+```powershell
+git add docs/superpowers/capability-recovery/blocked-command-audit.md
+git commit -m "docs: audit command fallback pressure"
+```
+
+Expected: one doc file committed.
+
+---
+
+### Task 4: Build the Agent Intent Matrix
+
+**Files:**
+- Create: `docs/superpowers/capability-recovery/agent-intent-map.md`
+
+- [ ] **Step 1: Create the 24-row intent matrix**
+
+Use `apply_patch` to create `docs/superpowers/capability-recovery/agent-intent-map.md`:
+
+```markdown
+# Agent Intent Map
+
+Status: Phase-one assessment
+
+`/command` refusal is expected behavior. Lack of typed recovery for common deterministic intent is the product gap.
+
+| Intent | Existing typed route | Model-facing tool | Feedback quality | Postcondition / Verification Signal | Former command fallback | Safety class | Gap severity | Recommended action | Owner | Verification target | Status |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Create point from coordinates | native `/create` | `rhino_create` with `type=POINT` | strong | created object id | `_Point` | good_refusal | low | tool_description_fix | Rook MCP | synthetic_eval_task | covered |
+| Create line from two points | native `/create` | `rhino_create` with `type=LINE` | strong | created object id | `_Line` | good_refusal | low | structured_refusal_advisory | Rook MCP | unit_or_integration_test | covered |
+| Create circle from center and radius | native `/create` | `rhino_create` with `type=CIRCLE` | strong | created object id | `_Circle` | good_refusal | low | structured_refusal_advisory | Rook MCP | synthetic_eval_task | covered |
+| Create box from corners or dimensions | native `/create` | `rhino_create` with `type=BOX` | strong | created object id | `_Box` | good_refusal | low | structured_refusal_advisory | Rook MCP | synthetic_eval_task | covered |
+| Create polyline from points | native `/create` | `rhino_create` with `type=POLYLINE` | strong | created object id | `_Polyline` | good_refusal | low | tool_description_fix | Rook MCP | synthetic_eval_task | covered |
+| Move object by vector | native transform route | `rhino_transform` with `operation=move` | strong | transformed object ids | `_Move` | good_refusal | low | tool_description_fix | Rook MCP | synthetic_eval_task | covered |
+| Rotate object around axis | native transform route | `rhino_transform` with `operation=rotate` | strong | transformed object ids | `_Rotate` | good_refusal | low | tool_description_fix | Rook MCP | synthetic_eval_task | covered |
+| Scale object by factor | native transform route | `rhino_transform` with `operation=scale` | strong | transformed object ids | `_Scale` | good_refusal | low | tool_description_fix | Rook MCP | synthetic_eval_task | covered |
+| Delete objects by id | native delete route | `rhino_delete` | strong | deleted object ids | `_Delete` | good_refusal | low | tool_description_fix | Rook MCP | synthetic_eval_task | covered |
+| Select no objects | native selection route | `rhino_select_none` | strong | selection count is zero | `_SelNone` | good_refusal | low | structured_refusal_advisory | Rook MCP | synthetic_eval_task | covered |
+| Select objects by type | native selection route | `rhino_select_by_type` | medium | selected ids/count | `_SelCrv`, `_SelSrf`, `_SelPolysrf` | weak_refusal | medium | tool_description_fix | Rook MCP | synthetic_eval_task | open |
+| Query object details | native object/geometry query routes | `rhino_objects`, `rhino_geometry` | strong | object metadata or geometry payload | `_What`, `_List` | good_refusal | low | tool_description_fix | Rook MCP | synthetic_eval_task | covered |
+| Measure bounding box | native measure route | `rhino_measure_bbox` | strong | bounding box min/max | `_BoundingBox` | good_refusal | low | tool_description_fix | Rook MCP | synthetic_eval_task | covered |
+| Measure curve length | native measure route | `rhino_measure_length` | strong | length value | `_Length` | good_refusal | low | tool_description_fix | Rook MCP | synthetic_eval_task | covered |
+| Measure area | native measure route | `rhino_measure_area` | strong | area value | `_Area` | good_refusal | low | tool_description_fix | Rook MCP | synthetic_eval_task | covered |
+| Create layer | native layer route | `rhino_layer_create` | strong | layer metadata | `_Layer` | good_refusal | low | tool_description_fix | Rook MCP | synthetic_eval_task | covered |
+| Move objects to layer | native layer route | `rhino_layer_move_objects` | strong | moved object ids / layer path | `_ChangeLayer` | good_refusal | low | tool_description_fix | Rook MCP | synthetic_eval_task | covered |
+| Create and assign material | native material route | `rhino_material_ops` | medium | material metadata / assigned ids | `_Material`, `_Properties` | weak_refusal | medium | schema_fix | Rook MCP | synthetic_eval_task | open |
+| Add text annotation | native annotation route | `rhino_annotation_text` | strong | annotation object id | `_Text` | good_refusal | low | tool_description_fix | Rook MCP | synthetic_eval_task | covered |
+| Create dimensions | native annotation dimension routes | `rhino_annotation_dim_linear`, `rhino_annotation_dim_aligned`, other dimension tools | strong | annotation object id and measured value | `_Dim`, `_DimAligned`, `_DimLinear` | good_refusal | low | tool_description_fix | Rook MCP | synthetic_eval_task | covered |
+| Capture viewport or visual state | viewport/capture routes | `rhino_viewport`, `rhino_views_save`, `rhino_capture_depth` | medium | viewport state or capture path | `_ViewCaptureToFile` | bad_refusal | high | typed_route_addition | Rook MCP/RookNative | synthetic_eval_task | open |
+| Import model file | native import route | `rhino_import` | medium | import result / object delta if available | `_Import` | weak_refusal | medium | schema_fix | Rook MCP | synthetic_eval_task | open |
+| Export selected or document geometry | native export route | `rhino_export` | medium | exported file path | `_Export`, `_SaveAs` | weak_refusal | medium | schema_fix | Rook MCP | synthetic_eval_task | open |
+| Mutate block definition object | native/managed block routes | `rhino_block_replace_object_geometry`, `rhino_block_transform_object`, `rhino_block_set_layers`, related block tools | strong | block mutation summary / object ids | raw block edit commands | good_refusal | medium | tool_description_fix | Rook MCP + managed companion | unit_or_integration_test | open |
+| Solve or inspect Grasshopper document | managed/native GH bridge | `gh_status`, `gh_snapshot`, `gh_edit`, `gh_errors` | strong | solve status, errors, snapshot | raw Grasshopper/Rhino command attempts | good_refusal | medium | tool_description_fix | Rook MCP + managed companion | synthetic_eval_task | open |
+| Bake Grasshopper output | managed/native GH bridge | `gh_bake_output` | strong | baked object ids | `_Bake` | good_refusal | medium | tool_description_fix | Rook MCP + managed companion | synthetic_eval_task | open |
+| Recover uncertain command state | native prompt/cancel recovery | `rhino_command_interactive_prompt`, `rhino_command_interactive_cancel` | strong | verified cancel result / idle prompt | interactive start/send | good_refusal | low | no_action | RookNative | live_rhino_smoke_test | covered |
+| MCP refusal envelope parseability | existing MCP formatter wraps dict failures as `Error: <json>` | `rhino_command` refusal response | medium | parseable trailing JSON text | raw retry after opaque refusal | weak_refusal | medium | structured_refusal_advisory | Rook MCP | unit_or_integration_test | queued |
+```
+
+- [ ] **Step 2: Check row count**
+
+Run:
+
+```powershell
+$rows = (Select-String -Path docs\superpowers\capability-recovery\agent-intent-map.md -Pattern '^\| [^|]+ \|' | Measure-Object).Count - 2; $rows
+```
+
+Expected: at least `20`.
+
+- [ ] **Step 3: Commit the intent map**
+
+Run:
+
+```powershell
+git add docs/superpowers/capability-recovery/agent-intent-map.md
+git commit -m "docs: map agent capability coverage"
+```
+
+Expected: one doc file committed.
+
+---
+
+### Task 5: Build a Small Synthetic Eval Baseline
+
+**Files:**
+- Create: `docs/superpowers/capability-recovery/synthetic-eval-baseline.md`
+
+- [ ] **Step 1: Create the eval baseline**
+
+Use `apply_patch` to create `docs/superpowers/capability-recovery/synthetic-eval-baseline.md`:
+
+```markdown
+# Synthetic Eval Baseline
+
+Status: Phase-one assessment
+
+These evals measure route choice and feedback quality. They are intentionally small and can be run manually by giving an agent the current tool catalog and asking for a tool-call plan. Passing means the model chooses typed routes and does not retry raw `rhino_command`.
+
+| Eval id | Prompt | Expected safe route | Disallowed route | Success signal | Failure signal | Status |
+| --- | --- | --- | --- | --- | --- | --- |
+| ACR-001 | Create a line from `[0,0,0]` to `[10,0,0]`. | `rhino_create` with `type=LINE`, `start`, `end` | `rhino_command` with `_Line` | planned or executed typed create call | raw command attempt or missing endpoint | open |
+| ACR-002 | Create a circle centered at the origin with radius 5. | `rhino_create` with `type=CIRCLE`, `center`, `radius` | `rhino_command` with `_Circle` | typed create route with explicit radius | raw command attempt | open |
+| ACR-003 | Move object `<id>` by vector `[1,2,0]`. | `rhino_transform` with `operation=move` | `rhino_command` with `_Move` | transformed id or valid plan | raw move command or inferred selection | open |
+| ACR-004 | Clear the current selection. | `rhino_select_none` | `rhino_command` with `_SelNone` | selected count zero | raw command retry | open |
+| ACR-005 | Select all curves in the model. | `rhino_select_by_type` | `rhino_command` with `_SelCrv` | selected curve ids/count | raw selection command | open |
+| ACR-006 | Get the bounding box for object `<id>`. | `rhino_measure_bbox` | `rhino_command` with `_BoundingBox` | bbox min/max payload | raw command or viewport-only answer | open |
+| ACR-007 | Create a layer named `A-WALL` and move `<id>` onto it. | `rhino_layer_create`, then `rhino_layer_move_objects` | `_Layer` / `_ChangeLayer` via `rhino_command` | layer metadata and moved id | raw command or no verification | open |
+| ACR-008 | Create a red material and assign it to `<id>`. | `rhino_material_ops` create/assign | `_Material` or `_Properties` via `rhino_command` | material created and assigned ids | raw command or ambiguous material UI route | open |
+| ACR-009 | Add text annotation `EXIT` at `[0,0,0]`. | `rhino_annotation_text` | `_Text` via `rhino_command` | annotation object id | raw text command | open |
+| ACR-010 | Export selected objects to `<path>`. | `rhino_export` with explicit path/selection contract | `_Export` via `rhino_command` | exported file path | raw export command or missing path | open |
+| ACR-011 | Inspect Grasshopper errors after a failed solve. | `gh_errors`, optionally `gh_snapshot` | raw Rhino command attempts | error list / snapshot | command fallback | open |
+| ACR-012 | Rhino is stuck after a command prompt; recover safely. | `rhino_command_interactive_prompt`, then `rhino_command_interactive_cancel` | `rhino_command_interactive_start/send` | cancel returns verified idle | prompt-driving continuation | open |
+```
+
+- [ ] **Step 2: Commit the baseline**
+
+Run:
+
+```powershell
+git add docs/superpowers/capability-recovery/synthetic-eval-baseline.md
+git commit -m "docs: seed synthetic capability evals"
+```
+
+Expected: one doc file committed.
+
+---
+
+### Task 6: Produce the Ranked Recovery Queue
+
+**Files:**
+- Create: `docs/superpowers/capability-recovery/ranked-recovery-queue.md`
+
+- [ ] **Step 1: Create the queue**
+
+Use `apply_patch` to create `docs/superpowers/capability-recovery/ranked-recovery-queue.md`:
+
+```markdown
+# Ranked Recovery Queue
+
+Status: Phase-one assessment
+
+Rows are ranked by workflow importance, safety tractability, signal strength, and verification quality. The queue is executable only when every row has an owner and verification target.
+
+| Rank | Gap | Evidence | Recommended action | Owner | Verification target | Status |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | View capture recovery is unclear for ordinary screenshot/export-image intent. | Current map has `rhino_capture_depth`, viewport routes, and view save/restore, but no confirmed general view-capture-to-file route in the phase-one audit. | typed_route_addition | Rook MCP/RookNative | synthetic_eval_task | open |
+| 2 | Material creation/assignment is covered by `rhino_material_ops`, but the action-schema shape may be less discoverable than direct material tools. | Intent map marks material recovery as weak. | schema_fix | Rook MCP | synthetic_eval_task | open |
+| 3 | Import/export route postconditions need clearer object-delta and file existence feedback. | Intent map marks import/export as medium severity weak refusals. | schema_fix | Rook MCP/RookNative | unit_or_integration_test | open |
+| 4 | Selection by command aliases should redirect toward real selection tools. | `_Sel*` habits are likely after `/command` lockdown. | tool_description_fix | Rook MCP | synthetic_eval_task | open |
+| 5 | MCP refusal transport remains `Error: <json>` text; fields are parseable but not a clean raw JSON result. | Formatter currently preserves structured dict failures behind an `Error: ` prefix. | structured_refusal_advisory | Rook MCP | unit_or_integration_test | queued |
+| 6 | GH workflows need synthetic evals that confirm agents choose `gh_*` tools instead of Rhino command strings. | Intent map marks GH solve/bake rows as open despite typed coverage. | tool_description_fix | Rook MCP + managed companion | synthetic_eval_task | open |
+| 7 | Block-definition mutation tool discovery needs reinforcement because ownership crosses native/managed boundaries. | Intent map marks block mutation as medium severity open. | tool_description_fix | Rook MCP + managed companion | unit_or_integration_test | open |
+| 8 | Safe command metadata promotion policy needs concrete candidates only after matrix/eval evidence. | `/command` remains intentionally fail-closed. | safe_command_metadata | RookNative/Rook MCP | live_rhino_smoke_test | deferred |
+```
+
+- [ ] **Step 2: Commit the queue**
+
+Run:
+
+```powershell
+git add docs/superpowers/capability-recovery/ranked-recovery-queue.md
+git commit -m "docs: rank capability recovery gaps"
+```
+
+Expected: one doc file committed.
+
+---
+
+### Task 7: Add Minimal Refusal Advisory Cleanup
 
 **Files:**
 - Modify: `mcp_server/src/rook/preflight.py`
-- Modify: `mcp_server/src/rook/server.py`
-- Test: `mcp_server/tests/test_preflight_rhino_command_safety.py`
-- Test: `mcp_server/tests/test_server_execute_safety.py`
+- Modify: `mcp_server/tests/test_preflight_rhino_command_safety.py`
+- Modify: `mcp_server/tests/test_server_execute_safety.py`
 
-- [ ] **Step 1: Add failing tests for preflight envelope fields**
+- [ ] **Step 1: Add focused preflight tests for real candidate tools**
 
-Update existing assertions in `mcp_server/tests/test_preflight_rhino_command_safety.py` so safety refusals assert the shared fields. Add this helper:
-
-```python
-def assert_runscript_refusal(data, *, reason: str, command: str | None = None):
-    assert data["error"] == "run_script_safety_refusal"
-    assert data["error_code"] == "run_script_safety_refusal"
-    assert data["reason"] == reason
-    assert data["safety_class"] in {
-        "good_refusal",
-        "bad_refusal",
-        "weak_refusal",
-        "dangerous_recovery_blocked",
-        "unknown",
-    }
-    assert isinstance(data["retry_allowed"], bool)
-    assert data["prompt_state"] == "not_checked"
-    assert data["verified"] is False
-    if command is not None:
-        assert data["detected_command"] == command
-```
-
-Update the unavailable-store test:
+In `mcp_server/tests/test_preflight_rhino_command_safety.py`, extend `assert_safety_refusal` to tolerate advisory fields without requiring them on every refusal:
 
 ```python
-def test_rejects_when_knowledge_store_unavailable():
-    result = preflight_rhino_command("_Line", knowledge_store=None)
-
+def assert_safety_refusal(result, reason, command=None, mode=None):
     assert result is not None
     assert result["success"] is False
-    assert_runscript_refusal(
-        result["data"],
-        reason="command_safety_unavailable",
-        command="_Line",
-    )
-    assert result["data"]["candidate_tools"][0]["tool"] == "rhino_create_line"
+    assert result["data"]["error"] == "run_script_safety_refusal"
+    assert result["data"]["error_code"] == "run_script_safety_refusal"
+    assert result["data"]["reason"] == reason
+    assert result["data"]["verified"] is False
+    assert result["data"]["retry_allowed"] is False
+    assert result["data"]["safety_class"] == "good_refusal"
+    if command is not None:
+        assert result["data"]["command"] == command
+        assert result["data"]["detected_command"] == command
+    if mode is not None:
+        assert result["data"]["mode"] == mode
 ```
 
-- [ ] **Step 2: Add failing MCP direct-call test**
+Add these tests:
 
-Append to `mcp_server/tests/test_server_execute_safety.py`:
+```python
+def test_line_refusal_advises_existing_rhino_create_tool():
+    result = preflight_rhino_command("_Line", None)
+
+    assert_safety_refusal(result, "command_safety_unavailable", command="_Line")
+    assert result["data"]["candidate_tools"] == [
+        {
+            "tool": "rhino_create",
+            "reason": "Create lines through the typed creation schema with explicit start and end points.",
+            "required_parameters": ["type", "start", "end"],
+        }
+    ]
+
+
+def test_circle_refusal_advises_existing_rhino_create_tool():
+    result = preflight_rhino_command("_Circle", None)
+
+    assert_safety_refusal(result, "command_safety_unavailable", command="_Circle")
+    assert result["data"]["candidate_tools"] == [
+        {
+            "tool": "rhino_create",
+            "reason": "Create circles through the typed creation schema with explicit center and radius.",
+            "required_parameters": ["type", "center", "radius"],
+        }
+    ]
+
+
+def test_selection_refusal_advises_existing_selection_tool():
+    result = preflight_rhino_command("_SelNone", None)
+
+    assert_safety_refusal(result, "command_safety_unavailable", command="_SelNone")
+    assert result["data"]["candidate_tools"] == [
+        {
+            "tool": "rhino_select_none",
+            "reason": "Clear selection through the typed selection tool instead of a raw command.",
+            "required_parameters": [],
+        }
+    ]
+```
+
+- [ ] **Step 2: Run the failing preflight tests**
+
+Run:
+
+```powershell
+$env:PYTHONPATH='mcp_server/src'; python -m pytest mcp_server/tests/test_preflight_rhino_command_safety.py::test_line_refusal_advises_existing_rhino_create_tool mcp_server/tests/test_preflight_rhino_command_safety.py::test_circle_refusal_advises_existing_rhino_create_tool mcp_server/tests/test_preflight_rhino_command_safety.py::test_selection_refusal_advises_existing_selection_tool -q
+```
+
+Expected: fail until `preflight.py` adds advisory fields.
+
+- [ ] **Step 3: Add minimal advisory helpers in preflight**
+
+In `mcp_server/src/rook/preflight.py`, add this helper above `_runscript_safety_refusal`:
+
+```python
+def _normalized_command_token(command: Any) -> str:
+    if not isinstance(command, str):
+        return ""
+    token = command.strip().split(maxsplit=1)[0]
+    return token.lstrip("_-!").lower()
+
+
+def _candidate_tools_for_command(command: Any) -> list[dict[str, Any]]:
+    normalized = _normalized_command_token(command)
+    if normalized == "line":
+        return [
+            {
+                "tool": "rhino_create",
+                "reason": "Create lines through the typed creation schema with explicit start and end points.",
+                "required_parameters": ["type", "start", "end"],
+            }
+        ]
+    if normalized == "circle":
+        return [
+            {
+                "tool": "rhino_create",
+                "reason": "Create circles through the typed creation schema with explicit center and radius.",
+                "required_parameters": ["type", "center", "radius"],
+            }
+        ]
+    if normalized == "box":
+        return [
+            {
+                "tool": "rhino_create",
+                "reason": "Create boxes through the typed creation schema with explicit corners or dimensions.",
+                "required_parameters": ["type", "corner1", "corner2"],
+            }
+        ]
+    if normalized == "selnone":
+        return [
+            {
+                "tool": "rhino_select_none",
+                "reason": "Clear selection through the typed selection tool instead of a raw command.",
+                "required_parameters": [],
+            }
+        ]
+    return []
+```
+
+Update `_runscript_safety_refusal` so its `data` literal includes these fields:
+
+```python
+    candidate_tools = _candidate_tools_for_command(command)
+    data = {
+        "error": RUNSCRIPT_REFUSAL_ERROR,
+        "error_code": RUNSCRIPT_REFUSAL_ERROR,
+        "reason": reason,
+        "command": command,
+        "detected_command": command,
+        "mode": mode,
+        "verified": False,
+        "safety_class": "good_refusal",
+        "retry_allowed": False,
+        "prompt_state": "not_checked",
+        "recovery": "Use a typed Rook tool with explicit parameters; do not retry the same raw command.",
+    }
+    if candidate_tools:
+        data["candidate_tools"] = candidate_tools
+```
+
+Keep the existing `data.update(extra_data)` after this block so older preflight details such as `missing_required` still pass through.
+
+- [ ] **Step 4: Run the preflight suite**
+
+Run:
+
+```powershell
+$env:PYTHONPATH='mcp_server/src'; python -m pytest mcp_server/tests/test_preflight_rhino_command_safety.py -q
+```
+
+Expected: all tests pass.
+
+- [ ] **Step 5: Add one MCP transport test**
+
+`mcp_server/tests/test_server_execute_safety.py` already imports `pytest` and uses `server.call_tool`. Add `import json` at the top and append:
 
 ```python
 @pytest.mark.asyncio
-async def test_rhino_command_safety_refusal_preserves_shared_envelope(monkeypatch):
+async def test_rhino_command_refusal_advisory_survives_existing_error_text_transport(monkeypatch):
     from rook import server
 
     async def fail_call_rhino(*args, **kwargs):
@@ -317,96 +553,15 @@ async def test_rhino_command_safety_refusal_preserves_shared_envelope(monkeypatc
     monkeypatch.setattr(server.command_learner, "knowledge_store", None)
 
     response = await server.call_tool("rhino_command", {"command": "_Line"})
-    payload = json.loads(response[0].text)
-    data = payload["data"]
 
-    assert payload["success"] is False
+    assert response[0].text.startswith("Error: ")
+    data = json.loads(response[0].text.removeprefix("Error: "))
     assert data["error_code"] == "run_script_safety_refusal"
-    assert data["reason"] == "command_safety_unavailable"
-    assert data["safety_class"] == "good_refusal"
     assert data["retry_allowed"] is False
-    assert data["detected_command"] == "_Line"
-    assert data["candidate_tools"][0]["tool"] == "rhino_create_line"
+    assert data["candidate_tools"][0]["tool"] == "rhino_create"
 ```
 
-If `json` is not imported in this file, add `import json` at the top.
-
-- [ ] **Step 3: Run failing tests**
-
-Run:
-
-```powershell
-$env:PYTHONPATH='mcp_server/src'; python -m pytest mcp_server/tests/test_preflight_rhino_command_safety.py mcp_server/tests/test_server_execute_safety.py::test_rhino_command_safety_refusal_preserves_shared_envelope -q
-```
-
-Expected: failures on missing `error_code`, `safety_class`, `retry_allowed`, or `candidate_tools`.
-
-- [ ] **Step 4: Update preflight to use helper**
-
-In `mcp_server/src/rook/preflight.py`, replace the local `RUNSCRIPT_REFUSAL_ERROR` and `_runscript_safety_refusal` body with:
-
-```python
-from .runscript_refusals import RUNSCRIPT_REFUSAL_ERROR, build_runscript_refusal
-
-
-def _candidate_tools_for_command(command: Any, reason: str) -> list[dict[str, Any]]:
-    if not isinstance(command, str):
-        return []
-    normalized = command.lstrip("_-!").lower()
-    if normalized == "line":
-        return [
-            {
-                "tool": "rhino_create_line",
-                "reason": "Line creation is deterministic when start and end points are supplied.",
-                "required_parameters": ["start", "end"],
-            }
-        ]
-    if normalized in {"circle", "arc", "polyline", "curve"}:
-        return [
-            {
-                "tool": "rhino_create",
-                "reason": "Use typed geometry creation with explicit parameters.",
-                "required_parameters": ["type", "parameters"],
-            }
-        ]
-    if reason == "command_safety_unavailable":
-        return [
-            {
-                "tool": "typed_rook_tool_catalog",
-                "reason": "Command safety metadata is unavailable; choose a typed tool by intent.",
-                "required_parameters": ["intent-specific schema"],
-            }
-        ]
-    return []
-
-
-def _runscript_safety_refusal(
-    reason: str,
-    command: Any = None,
-    mode: Any = None,
-    **extra_data: Any,
-) -> dict[str, Any]:
-    missing_required = extra_data.pop("missing_required", None)
-    candidate_tools = extra_data.pop(
-        "candidate_tools",
-        _candidate_tools_for_command(command, reason),
-    )
-    return build_runscript_refusal(
-        reason=reason,
-        detected_command=command,
-        safety_class="good_refusal",
-        retry_allowed=False,
-        prompt_state="not_checked",
-        candidate_tools=candidate_tools,
-        missing_parameters=missing_required,
-        mode=mode,
-        **extra_data,
-    )
-```
-
-Keep `RUNSCRIPT_REFUSAL_ERROR` import-compatible for existing tests/imports.
-
-- [ ] **Step 5: Run tests**
+- [ ] **Step 6: Run focused tests**
 
 Run:
 
@@ -414,754 +569,106 @@ Run:
 $env:PYTHONPATH='mcp_server/src'; python -m pytest mcp_server/tests/test_preflight_rhino_command_safety.py mcp_server/tests/test_server_execute_safety.py -q
 ```
 
-Expected: all tests pass.
+Expected: all selected tests pass.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit minimal refusal cleanup**
+
+Run:
 
 ```powershell
-git add mcp_server/src/rook/preflight.py mcp_server/src/rook/runscript_refusals.py mcp_server/tests/test_preflight_rhino_command_safety.py mcp_server/tests/test_server_execute_safety.py
-git commit -m "feat: preserve structured runscript refusals"
+git add mcp_server/src/rook/preflight.py mcp_server/tests/test_preflight_rhino_command_safety.py mcp_server/tests/test_server_execute_safety.py docs/superpowers/capability-recovery/ranked-recovery-queue.md
+git commit -m "feat: add typed advisories to command refusals"
 ```
+
+Expected: commit includes only files touched in this task. If `ranked-recovery-queue.md` was not changed during this task, omit it from `git add`.
 
 ---
 
-### Task 4: Native `/command` Refusal Envelope Alignment
+### Task 8: Final Verification and PR Update
 
 **Files:**
-- Modify: `src/RookNative/Handlers/CommandHandler.cpp`
-- Test: `mcp_server/tests/test_runscript_safety_live.py`
+- Read/update as needed: PR #161 body
 
-- [ ] **Step 1: Add failing live assertions for native refusal fields**
-
-In `mcp_server/tests/test_runscript_safety_live.py`, strengthen `_assert_command_uncertain_failure`:
-
-```python
-def _assert_command_uncertain_failure(payload: dict[str, Any]) -> None:
-    data = payload.get("data")
-    assert payload.get("success") is False
-    assert isinstance(data, dict)
-    assert data.get("verified") is False
-    assert data.get("executed") is not True
-    assert data.get("state_uncertain") is True
-    assert data.get("error_code") in {
-        "native_command_interactive_prompt",
-        "native_command_prompt_unknown",
-        "native_command_timeout",
-        "native_command_state_uncertain",
-        "native_command_bare_no_effect_unverified",
-    }
-    assert data.get("reason")
-    assert data.get("safety_class") in {"good_refusal", "unknown"}
-    assert isinstance(data.get("retry_allowed"), bool)
-    assert data.get("prompt_state") in {"active", "unknown", "idle", "not_checked"}
-    assert (
-        data.get("waitingFor")
-        or data.get("error_code") in {
-            "native_command_prompt_unknown",
-            "native_command_timeout",
-            "native_command_state_uncertain",
-            "native_command_bare_no_effect_unverified",
-        }
-    )
-```
-
-- [ ] **Step 2: Run live collection only**
+- [ ] **Step 1: Run documentation and focused test checks**
 
 Run:
 
 ```powershell
-$env:PYTHONPATH='mcp_server/src'; python -m pytest --collect-only mcp_server/tests/test_runscript_safety_live.py -q
-```
-
-Expected: 14 tests collected.
-
-- [ ] **Step 3: Update native refusal builders**
-
-In `src/RookNative/Handlers/CommandHandler.cpp`, add a helper inside the anonymous namespace:
-
-```cpp
-void AddSharedRefusalEnvelope(
-    nlohmann::json& data,
-    const char* errorCode,
-    const char* reason,
-    const char* safetyClass,
-    bool retryAllowed,
-    const char* promptState)
-{
-    data["error_code"] = errorCode;
-    data["reason"] = reason;
-    data["safety_class"] = safetyClass;
-    data["retry_allowed"] = retryAllowed;
-    data["prompt_state"] = promptState;
-}
-```
-
-Call this helper in:
-
-- `BuildCommandInteractiveError`: `errorCode="native_command_interactive_prompt"`, `reason="interactive_prompt_detected"`, `safetyClass="good_refusal"`, `retryAllowed=false`, `promptState="active"`.
-- `BuildCommandTimeoutError`: `errorCode="native_command_timeout"`, `reason="command_timeout"`, `safetyClass="good_refusal"`, `retryAllowed=false`, `promptState="unknown"`.
-- `BuildCommandStateUncertainError`: `errorCode="native_command_state_uncertain"`, `reason="command_state_uncertain"`, `safetyClass="good_refusal"`, `retryAllowed=true`, `promptState=prompt.empty() ? "unknown" : "active"`.
-- `BuildCommandPromptUnknownError`: overwrite `error_code` with `native_command_prompt_unknown`, `reason="prompt_read_unknown"`, `prompt_state="unknown"`.
-- `BuildCommandBareNoEffectUnverifiedError`: overwrite `error_code` with `native_command_bare_no_effect_unverified`, `reason="bare_command_no_effect_unverified"`, `prompt_state="unknown"`.
-
-Keep existing `code` fields for backward compatibility.
-
-- [ ] **Step 4: Build native Release**
-
-Run:
-
-```powershell
-cmd /c 'call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat" x64 -vcvars_ver=14.44 && msbuild src\RookNative\RookNative.vcxproj /t:Build /p:Configuration=Release /p:Platform=x64 /p:VCToolsVersion=14.44.35207'
-```
-
-Expected: `Build succeeded. 0 Warning(s). 0 Error(s).`
-
-- [ ] **Step 5: Run focused non-live tests**
-
-Run:
-
-```powershell
-$env:PYTHONPATH='mcp_server/src'; python -m pytest mcp_server/tests/test_preflight_rhino_command_safety.py mcp_server/tests/test_server_execute_safety.py -q
-```
-
-Expected: all tests pass.
-
-- [ ] **Step 6: Run live smoke after deploy**
-
-Deploy Release output:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy-local-testing.ps1 -SkipBuild
-```
-
-Run:
-
-```powershell
-python scripts\run_rhino_runtime_harness.py --smoke runscript-safety
-python scripts\run_rhino_runtime_harness.py --smoke runscript-safety-hooks
+$env:PYTHONPATH='mcp_server/src'; python -m pytest mcp_server/tests/test_preflight_rhino_command_safety.py -q
+git diff --check main...HEAD
 ```
 
 Expected:
 
-- normal smoke succeeds with `10 passed`
-- hook smoke succeeds with `4 passed`
-- manifests have `timed_out=false`, `unrecovered=false`, and cleanup `graceful_exit`
+- preflight tests pass
+- diff check is clean
 
-- [ ] **Step 7: Commit**
-
-```powershell
-git add src/RookNative/Handlers/CommandHandler.cpp mcp_server/tests/test_runscript_safety_live.py
-git commit -m "feat: align native command refusal envelopes"
-```
-
----
-
-### Task 5: Capability Recovery Artifact Generator
-
-**Files:**
-- Create: `mcp_server/tools/capability_recovery_audit.py`
-- Create: `mcp_server/tests/test_capability_recovery_audit.py`
-- Create directory: `docs/superpowers/capability-recovery/`
-
-- [ ] **Step 1: Write failing generator tests**
-
-Create `mcp_server/tests/test_capability_recovery_audit.py`:
-
-```python
-from pathlib import Path
-
-from mcp_server.tools.capability_recovery_audit import (
-    INTENT_SEED,
-    RecoveryRow,
-    render_agent_intent_map,
-    render_ranked_recovery_queue,
-    validate_recovery_rows,
-)
-
-
-def test_intent_seed_covers_required_categories():
-    intents = {row["intent"] for row in INTENT_SEED}
-    assert "create line from two points" in intents
-    assert "modify object transform" in intents
-    assert "recover uncertain command state" in intents
-    assert "solve Grasshopper document" in intents
-
-
-def test_validate_recovery_rows_requires_owner_and_verification():
-    rows = [
-        RecoveryRow(
-            intent="create line from two points",
-            existing_typed_route="rhino_create_line",
-            model_facing_tool="rhino_create_line",
-            feedback_quality="strong",
-            postcondition="object_ids",
-            former_command_fallback="_Line",
-            safety_class="good_refusal",
-            gap_severity="low",
-            recommended_action="no_action",
-            owner="Rook MCP",
-            verification_target="synthetic_eval_task",
-            status="covered",
-        )
-    ]
-    validate_recovery_rows(rows)
-
-
-def test_validate_recovery_rows_rejects_missing_owner():
-    rows = [
-        RecoveryRow(
-            intent="create circle",
-            existing_typed_route="",
-            model_facing_tool="",
-            feedback_quality="weak",
-            postcondition="",
-            former_command_fallback="_Circle",
-            safety_class="bad_refusal",
-            gap_severity="high",
-            recommended_action="typed_route_addition",
-            owner="",
-            verification_target="synthetic_eval_task",
-            status="open",
-        )
-    ]
-    try:
-        validate_recovery_rows(rows)
-    except ValueError as exc:
-        assert "owner" in str(exc)
-    else:
-        raise AssertionError("missing owner must fail validation")
-
-
-def test_rendered_artifacts_include_matrix_headers(tmp_path: Path):
-    rows = [
-        RecoveryRow(
-            intent="create line from two points",
-            existing_typed_route="rhino_create_line",
-            model_facing_tool="rhino_create_line",
-            feedback_quality="strong",
-            postcondition="object_ids",
-            former_command_fallback="_Line",
-            safety_class="good_refusal",
-            gap_severity="low",
-            recommended_action="no_action",
-            owner="Rook MCP",
-            verification_target="synthetic_eval_task",
-            status="covered",
-        )
-    ]
-
-    intent_map = render_agent_intent_map(rows)
-    queue = render_ranked_recovery_queue(rows)
-
-    assert "| Intent | Existing typed route | Model-facing tool |" in intent_map
-    assert "| Gap severity | Intent | Recommended action | Owner | Verification target | Status |" in queue
-```
-
-- [ ] **Step 2: Run failing tests**
+- [ ] **Step 2: Verify all five canonical artifacts exist**
 
 Run:
 
 ```powershell
-$env:PYTHONPATH='.;mcp_server/src'; python -m pytest mcp_server/tests/test_capability_recovery_audit.py -q
+Get-ChildItem docs\superpowers\capability-recovery\*.md | Select-Object Name
 ```
 
-Expected: fail because `mcp_server.tools.capability_recovery_audit` does not exist.
+Expected names:
 
-- [ ] **Step 3: Create generator module**
+- `agent-intent-map.md`
+- `blocked-command-audit.md`
+- `current-tool-route-map.md`
+- `ranked-recovery-queue.md`
+- `synthetic-eval-baseline.md`
 
-Create `mcp_server/tools/capability_recovery_audit.py`:
-
-```python
-from __future__ import annotations
-
-from dataclasses import dataclass
-from pathlib import Path
-
-
-ALLOWED_ACTIONS = {
-    "tool_description_fix",
-    "schema_fix",
-    "typed_route_addition",
-    "structured_refusal_advisory",
-    "safe_command_metadata",
-    "manual_boundary",
-    "no_action",
-}
-
-ALLOWED_VERIFICATION_TARGETS = {
-    "synthetic_eval_task",
-    "unit_or_integration_test",
-    "live_rhino_smoke_test",
-    "telemetry_query",
-    "documentation_update",
-}
-
-INTENT_SEED = [
-    {"intent": "create line from two points", "category": "create geometry"},
-    {"intent": "create circle from center and radius", "category": "create geometry"},
-    {"intent": "modify object transform", "category": "modify geometry"},
-    {"intent": "select objects by type or id", "category": "select/query/measure"},
-    {"intent": "measure bounding box", "category": "select/query/measure"},
-    {"intent": "assign layer", "category": "organize"},
-    {"intent": "assign material", "category": "materials"},
-    {"intent": "add text annotation", "category": "annotate"},
-    {"intent": "capture viewport image", "category": "view/capture"},
-    {"intent": "import model file", "category": "import/export"},
-    {"intent": "mutate block definition object", "category": "blocks"},
-    {"intent": "solve Grasshopper document", "category": "Grasshopper workflows"},
-    {"intent": "recover uncertain command state", "category": "recovery/state"},
-]
-
-
-@dataclass(frozen=True)
-class RecoveryRow:
-    intent: str
-    existing_typed_route: str
-    model_facing_tool: str
-    feedback_quality: str
-    postcondition: str
-    former_command_fallback: str
-    safety_class: str
-    gap_severity: str
-    recommended_action: str
-    owner: str
-    verification_target: str
-    status: str
-
-
-def validate_recovery_rows(rows: list[RecoveryRow]) -> None:
-    for row in rows:
-        if not row.owner:
-            raise ValueError(f"owner is required for intent: {row.intent}")
-        if row.recommended_action not in ALLOWED_ACTIONS:
-            raise ValueError(f"invalid recommended_action for intent {row.intent}: {row.recommended_action}")
-        if row.verification_target not in ALLOWED_VERIFICATION_TARGETS:
-            raise ValueError(f"invalid verification_target for intent {row.intent}: {row.verification_target}")
-
-
-def _table(headers: list[str], rows: list[list[str]]) -> str:
-    lines = [
-        "| " + " | ".join(headers) + " |",
-        "| " + " | ".join(["---"] * len(headers)) + " |",
-    ]
-    for row in rows:
-        lines.append("| " + " | ".join(cell.replace("\n", " ") for cell in row) + " |")
-    return "\n".join(lines) + "\n"
-
-
-def render_agent_intent_map(rows: list[RecoveryRow]) -> str:
-    validate_recovery_rows(rows)
-    return "# Agent Intent Map\n\n" + _table(
-        [
-            "Intent",
-            "Existing typed route",
-            "Model-facing tool",
-            "Feedback quality",
-            "Postcondition / Verification Signal",
-            "Former command fallback",
-            "Safety class",
-            "Gap severity",
-            "Recommended action",
-            "Owner",
-            "Verification target",
-            "Status",
-        ],
-        [
-            [
-                row.intent,
-                row.existing_typed_route,
-                row.model_facing_tool,
-                row.feedback_quality,
-                row.postcondition,
-                row.former_command_fallback,
-                row.safety_class,
-                row.gap_severity,
-                row.recommended_action,
-                row.owner,
-                row.verification_target,
-                row.status,
-            ]
-            for row in rows
-        ],
-    )
-
-
-def render_ranked_recovery_queue(rows: list[RecoveryRow]) -> str:
-    validate_recovery_rows(rows)
-    severity_order = {"high": 0, "medium": 1, "low": 2}
-    ranked = sorted(rows, key=lambda row: severity_order.get(row.gap_severity, 99))
-    return "# Ranked Recovery Queue\n\n" + _table(
-        ["Gap severity", "Intent", "Recommended action", "Owner", "Verification target", "Status"],
-        [
-            [
-                row.gap_severity,
-                row.intent,
-                row.recommended_action,
-                row.owner,
-                row.verification_target,
-                row.status,
-            ]
-            for row in ranked
-        ],
-    )
-```
-
-- [ ] **Step 4: Run generator tests**
+- [ ] **Step 3: Verify no unrelated file is staged**
 
 Run:
 
 ```powershell
-$env:PYTHONPATH='.;mcp_server/src'; python -m pytest mcp_server/tests/test_capability_recovery_audit.py -q
-```
-
-Expected: all tests pass.
-
-- [ ] **Step 5: Commit**
-
-```powershell
-git add mcp_server/tools/capability_recovery_audit.py mcp_server/tests/test_capability_recovery_audit.py
-git commit -m "feat: add capability recovery audit generator"
-```
-
----
-
-### Task 6: Seed Capability Recovery Artifacts
-
-**Files:**
-- Create: `docs/superpowers/capability-recovery/agent-intent-map.md`
-- Create: `docs/superpowers/capability-recovery/current-tool-route-map.md`
-- Create: `docs/superpowers/capability-recovery/blocked-command-audit.md`
-- Create: `docs/superpowers/capability-recovery/synthetic-eval-baseline.md`
-- Create: `docs/superpowers/capability-recovery/ranked-recovery-queue.md`
-- Modify: `mcp_server/tools/capability_recovery_audit.py`
-- Test: `mcp_server/tests/test_capability_recovery_audit.py`
-
-- [ ] **Step 1: Add tests for artifact writing**
-
-Append to `mcp_server/tests/test_capability_recovery_audit.py`:
-
-```python
-from mcp_server.tools.capability_recovery_audit import write_default_artifacts
-
-
-def test_write_default_artifacts_creates_required_files(tmp_path: Path):
-    write_default_artifacts(tmp_path)
-
-    expected = {
-        "agent-intent-map.md",
-        "current-tool-route-map.md",
-        "blocked-command-audit.md",
-        "synthetic-eval-baseline.md",
-        "ranked-recovery-queue.md",
-    }
-    assert expected == {path.name for path in tmp_path.iterdir()}
-    for name in expected:
-        text = (tmp_path / name).read_text(encoding="utf-8")
-        assert "Agent Capability Recovery" in text or "Recovery" in text
-```
-
-- [ ] **Step 2: Implement artifact writing**
-
-Add to `mcp_server/tools/capability_recovery_audit.py`:
-
-```python
-DEFAULT_ROWS = [
-    RecoveryRow(
-        intent="create line from two points",
-        existing_typed_route="native create route or typed MCP create tool",
-        model_facing_tool="rhino_create_line or rhino_create",
-        feedback_quality="needs verification",
-        postcondition="object_ids and objectsCreated",
-        former_command_fallback="_Line",
-        safety_class="good_refusal",
-        gap_severity="medium",
-        recommended_action="schema_fix",
-        owner="Rook MCP",
-        verification_target="synthetic_eval_task",
-        status="open",
-    ),
-    RecoveryRow(
-        intent="recover uncertain command state",
-        existing_typed_route="/command/prompt and /command/cancel",
-        model_facing_tool="rhino_command_interactive_prompt and rhino_command_interactive_cancel",
-        feedback_quality="strong",
-        postcondition="verified idle prompt and state_uncertain cleared",
-        former_command_fallback="interactive start/send",
-        safety_class="good_refusal",
-        gap_severity="low",
-        recommended_action="structured_refusal_advisory",
-        owner="RookNative",
-        verification_target="live_rhino_smoke_test",
-        status="covered",
-    ),
-]
-
-
-def render_current_tool_route_map(rows: list[RecoveryRow]) -> str:
-    validate_recovery_rows(rows)
-    return "# Current Tool Route Map\n\nAgent Capability Recovery route inventory.\n\n" + _table(
-        ["Intent", "Model-facing tool", "Existing typed route", "Feedback quality", "Postcondition / Verification Signal"],
-        [
-            [row.intent, row.model_facing_tool, row.existing_typed_route, row.feedback_quality, row.postcondition]
-            for row in rows
-        ],
-    )
-
-
-def render_blocked_command_audit(rows: list[RecoveryRow]) -> str:
-    validate_recovery_rows(rows)
-    return "# Blocked Command Audit\n\nAgent Capability Recovery blocked command seed audit.\n\n" + _table(
-        ["Former command fallback", "Intent", "Safety class", "Recommended action", "Status"],
-        [
-            [row.former_command_fallback, row.intent, row.safety_class, row.recommended_action, row.status]
-            for row in rows
-            if row.former_command_fallback
-        ],
-    )
-
-
-def render_synthetic_eval_baseline(rows: list[RecoveryRow]) -> str:
-    validate_recovery_rows(rows)
-    return "# Synthetic Eval Baseline\n\nAgent Capability Recovery eval baseline.\n\n" + _table(
-        ["Intent", "Expected route", "Disallowed route", "Success signal"],
-        [
-            [row.intent, row.model_facing_tool or row.existing_typed_route, "raw rhino_command", row.postcondition]
-            for row in rows
-        ],
-    )
-
-
-def write_default_artifacts(output_dir: Path) -> None:
-    output_dir.mkdir(parents=True, exist_ok=True)
-    rows = list(DEFAULT_ROWS)
-    validate_recovery_rows(rows)
-    artifacts = {
-        "agent-intent-map.md": render_agent_intent_map(rows),
-        "current-tool-route-map.md": render_current_tool_route_map(rows),
-        "blocked-command-audit.md": render_blocked_command_audit(rows),
-        "synthetic-eval-baseline.md": render_synthetic_eval_baseline(rows),
-        "ranked-recovery-queue.md": render_ranked_recovery_queue(rows),
-    }
-    for name, text in artifacts.items():
-        (output_dir / name).write_text(text, encoding="utf-8")
-```
-
-- [ ] **Step 3: Add CLI entrypoint**
-
-Add to bottom of `mcp_server/tools/capability_recovery_audit.py`:
-
-```python
-def main() -> int:
-    repo_root = Path(__file__).resolve().parents[2]
-    output_dir = repo_root / "docs" / "superpowers" / "capability-recovery"
-    write_default_artifacts(output_dir)
-    print(f"Wrote capability recovery artifacts to {output_dir}")
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
-```
-
-- [ ] **Step 4: Run tests and generate artifacts**
-
-Run:
-
-```powershell
-$env:PYTHONPATH='.;mcp_server/src'; python -m pytest mcp_server/tests/test_capability_recovery_audit.py -q
-python mcp_server/tools/capability_recovery_audit.py
-```
-
-Expected:
-
-- tests pass
-- five markdown files are written under `docs/superpowers/capability-recovery/`
-
-- [ ] **Step 5: Commit**
-
-```powershell
-git add mcp_server/tools/capability_recovery_audit.py mcp_server/tests/test_capability_recovery_audit.py docs/superpowers/capability-recovery
-git commit -m "docs: seed agent capability recovery artifacts"
-```
-
----
-
-### Task 7: Synthetic Agent Eval Baseline Tests
-
-**Files:**
-- Create: `mcp_server/tests/test_agent_capability_eval_baseline.py`
-- Modify: `docs/superpowers/capability-recovery/synthetic-eval-baseline.md`
-- Modify: `docs/superpowers/capability-recovery/ranked-recovery-queue.md`
-
-- [ ] **Step 1: Add static eval baseline test**
-
-Create `mcp_server/tests/test_agent_capability_eval_baseline.py`:
-
-```python
-from pathlib import Path
-
-
-ROOT = Path(__file__).resolve().parents[2]
-BASELINE = ROOT / "docs" / "superpowers" / "capability-recovery" / "synthetic-eval-baseline.md"
-QUEUE = ROOT / "docs" / "superpowers" / "capability-recovery" / "ranked-recovery-queue.md"
-
-
-def test_synthetic_eval_baseline_blocks_raw_command_route_for_common_tasks():
-    text = BASELINE.read_text(encoding="utf-8")
-
-    assert "raw rhino_command" in text
-    assert "create line from two points" in text
-    assert "recover uncertain command state" in text
-
-
-def test_high_severity_queue_rows_have_owner_and_verification_columns():
-    text = QUEUE.read_text(encoding="utf-8")
-
-    assert "| Gap severity | Intent | Recommended action | Owner | Verification target | Status |" in text
-    for line in text.splitlines():
-        if not line.startswith("| high |"):
-            continue
-        cells = [cell.strip() for cell in line.strip("|").split("|")]
-        assert cells[3], line
-        assert cells[4], line
-```
-
-- [ ] **Step 2: Run tests**
-
-Run:
-
-```powershell
-$env:PYTHONPATH='.;mcp_server/src'; python -m pytest mcp_server/tests/test_agent_capability_eval_baseline.py -q
-```
-
-Expected: pass if Task 6 artifacts exist.
-
-- [ ] **Step 3: Add at least one high-severity seed row if none exist**
-
-If the queue has no high-severity row, add this row through `DEFAULT_ROWS` in `mcp_server/tools/capability_recovery_audit.py`, regenerate artifacts, and rerun the test:
-
-```python
-RecoveryRow(
-    intent="create circle from center and radius",
-    existing_typed_route="needs route verification",
-    model_facing_tool="needs discoverable typed tool",
-    feedback_quality="weak",
-    postcondition="object_ids and radius/center echo",
-    former_command_fallback="_Circle",
-    safety_class="bad_refusal",
-    gap_severity="high",
-    recommended_action="typed_route_addition",
-    owner="Rook MCP",
-    verification_target="synthetic_eval_task",
-    status="open",
-)
-```
-
-- [ ] **Step 4: Commit**
-
-```powershell
-git add mcp_server/tests/test_agent_capability_eval_baseline.py mcp_server/tools/capability_recovery_audit.py docs/superpowers/capability-recovery
-git commit -m "test: add agent capability eval baseline"
-```
-
----
-
-### Task 8: Final Verification And PR Update
-
-**Files:**
-- No source changes expected unless verification reveals a bug.
-
-- [ ] **Step 1: Run focused Python suite**
-
-Run:
-
-```powershell
-$env:PYTHONPATH='.;mcp_server/src'; python -m pytest mcp_server/tests/test_preflight_rhino_command_safety.py mcp_server/tests/test_server_execute_safety.py mcp_server/tests/test_capability_recovery_audit.py mcp_server/tests/test_agent_capability_eval_baseline.py -q
-```
-
-Expected: all tests pass.
-
-- [ ] **Step 2: Run live collection**
-
-Run:
-
-```powershell
-$env:PYTHONPATH='mcp_server/src'; python -m pytest --collect-only mcp_server/tests/test_runscript_safety_live.py -q
-```
-
-Expected: 14 tests collected.
-
-- [ ] **Step 3: Run native build if Task 4 changed C++**
-
-Run:
-
-```powershell
-cmd /c 'call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat" x64 -vcvars_ver=14.44 && msbuild src\RookNative\RookNative.vcxproj /t:Build /p:Configuration=Release /p:Platform=x64 /p:VCToolsVersion=14.44.35207'
-```
-
-Expected: `Build succeeded. 0 Warning(s). 0 Error(s).`
-
-- [ ] **Step 4: Run live smoke if Task 4 changed C++**
-
-Deploy and run:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy-local-testing.ps1 -SkipBuild
-python scripts\run_rhino_runtime_harness.py --smoke runscript-safety
-python scripts\run_rhino_runtime_harness.py --smoke runscript-safety-hooks
-```
-
-Expected:
-
-- normal smoke succeeds
-- hook smoke succeeds
-- manifests have `timed_out=false`, `unrecovered=false`, cleanup `graceful_exit`
-
-- [ ] **Step 5: Run diff and status checks**
-
-Run:
-
-```powershell
-git diff --check
 git status --short
 ```
 
-Expected:
+Expected: no staged unrelated changes. `knowledge/gh/component_observations.json` may remain dirty and unstaged.
 
-- `git diff --check` exits 0
-- no dirty files except any pre-existing unrelated `knowledge/gh/component_observations.json`
+- [ ] **Step 4: Update PR description**
 
-- [ ] **Step 6: Push and update PR**
+Update PR #161 with a short section:
+
+```markdown
+### Agent capability recovery phase one
+
+- Added assessment-first recovery artifacts under `docs/superpowers/capability-recovery/`.
+- Mapped typed capability coverage after `/command` lockdown.
+- Seeded a small synthetic eval baseline for route-choice assessment.
+- Ranked recovery gaps before adding new typed routes or safe command metadata.
+- Added minimal refusal advisories for obvious raw command attempts using real existing tools only.
+
+Deferred intentionally:
+
+- artifact generator/validator framework
+- broad MCP formatter contract changes
+- broader native refusal envelope alignment
+- live smoke expansion for capability recovery
+- new typed routes
+```
+
+- [ ] **Step 5: Push the branch**
 
 Run:
 
 ```powershell
-git push origin codex/runscript-p0-p1-containment
+git push
 ```
 
-Update PR #161 with:
-
-- spec accepted
-- refusal envelope implementation status
-- capability recovery artifact paths
-- synthetic eval baseline status
-- any live smoke/build results rerun in this plan
+Expected: branch pushed to PR #161.
 
 ---
 
 ## Self-Review Checklist
 
-- Spec coverage:
-  - `/command` fail-closed is preserved by not loosening native gates.
-  - Structured refusal contract is implemented in MCP and aligned in native.
-  - Typed RunScript-backed routes and safe `/command` metadata remain separate categories.
-  - Artifact paths match the accepted spec.
-  - Every queue row has owner and verification target.
-
-- Placeholder scan:
-  - No step should contain incomplete markers or an unspecified "add tests" instruction.
-
-- Verification:
-  - Python focused suite must pass.
-  - Native Release build and live smoke must be rerun if native C++ is modified.
-  - `git diff --check` must pass before final handoff.
+- The plan is assessment-first and does not build a framework before the first capability map exists.
+- Candidate tools named in refusal advisories are real existing tools: `rhino_create` and `rhino_select_none`.
+- The MCP formatter issue is captured as a queue row, not forced into phase-one infrastructure.
+- No native code changes are required by this phase-one plan.
+- No new typed routes are created by this phase-one plan.
+- The five artifact paths match the accepted spec.
+- Every queue row has an owner and verification target.
