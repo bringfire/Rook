@@ -69,7 +69,9 @@ between frames because no frame may leave the model posed.
 Native frame execution also validates that each referenced object still matches
 the source state recorded for the run before applying the frame delta. This
 prevents source-relative transforms from being applied to a model that changed
-between frames.
+between frames. If the available source-state fields are too weak to prove that
+the transform-relevant state is unchanged, native must record degraded
+validation in evidence.
 
 ## Current Architecture Fit
 
@@ -240,6 +242,11 @@ present, Python resolves it only through configured or registered director
 output roots. The resolved absolute run folder path is recorded in the
 manifest.
 
+Native does not trust `output_root`, `run_root`, `output_path`, or manifest
+metadata as an allowlist source of truth. The native route must check
+canonicalized paths against its own native-side configured or compiled
+director-output allowlist before creating, replacing, or moving any file.
+
 `manifest.json` is the source of resolved intent. It records:
 
 - schema and director version;
@@ -294,6 +301,7 @@ Native frame instruction shape:
       "source_state": {
         "bbox_min": [0.0, 0.0, 0.0],
         "bbox_max": [1.0, 1.0, 1.0],
+        "validation_strength": "bbox_only",
         "state_hash": null
       },
       "transform": [
@@ -315,13 +323,20 @@ current state, applies the delta, captures, and restores the snapshot. Because
 native restores after every frame, frame deltas are source-relative, not
 accumulated from prior frames.
 
+Source-state validation strength is explicit. A stronger transform-relevant
+state token or hash must be used if Phase 0 identifies a reliable one.
+`bbox_only` validation is allowed for slice 1 only as a degraded check: it can
+detect many stale-source cases but cannot prove all transform-relevant state is
+unchanged. Native evidence must record the validation strength used for each
+object and must not report bbox-only validation as full source-state proof.
+
 Native validates before mutation:
 
 - schema/version are supported;
 - frame fields are valid and one-based;
 - resolution is within supported bounds;
-- `run_root` and `output_path` canonicalize under a Rook-controlled or
-  configured director output root;
+- `run_root` and `output_path` canonicalize under a native-side
+  Rook-controlled or configured director output root;
 - `output_path` canonicalizes as a descendant of `run_root`;
 - output directory exists or can be created inside the allowed run root;
 - display mode is supported;
@@ -376,9 +391,9 @@ explicitly restores objects and viewport, verifies restoration within
 tolerance, and returns evidence.
 
 Output handling must canonicalize `run_root` and `output_path`, reject writes
-outside the allowed director output roots, write to a temp file in the target
-directory, verify it exists and has nonzero size, then replace or move it to
-`output_path`. Evidence records whether an existing output file was
+outside the native-side allowed director output roots, write to a temp file in
+the target directory, verify it exists and has nonzero size, then replace or
+move it to `output_path`. Evidence records whether an existing output file was
 overwritten.
 
 Slice 1 verifies transform/location and viewport camera/display restoration
