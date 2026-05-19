@@ -14,6 +14,7 @@
 #include "Handlers/ViewportHandler.h"
 #include "Handlers/VisionHandler.h"
 #include "Handlers/DisplayModeHandler.h"
+#include "Handlers/DirectorHandler.h"
 #include "Handlers/MeasureHandler.h"
 #include "Handlers/GroupsHandler.h"
 #include "Handlers/DocumentOpsHandler.h"
@@ -787,6 +788,17 @@ void CRookServer::RegisterRoutes()
     // Phase 4B: Viewport
     m_server->Post("/viewport", [this](const httplib::Request& req, httplib::Response& res) {
         HandleViewport(req, res);
+    });
+
+    // RookVisionDirector slice 1 read/query contracts and frame transaction.
+    m_server->Post("/director/object-states", [this](const httplib::Request& req, httplib::Response& res) {
+        HandleDirectorObjectStates(req, res);
+    });
+    m_server->Post("/director/view-state", [this](const httplib::Request& req, httplib::Response& res) {
+        HandleDirectorViewState(req, res);
+    });
+    m_server->Post("/director/frame-capture", [this](const httplib::Request& req, httplib::Response& res) {
+        HandleDirectorFrameCapture(req, res);
     });
 
     // Vision (PR-5a/5b): all routes proxy through a single managed
@@ -2112,6 +2124,21 @@ void CRookServer::HandleSelect(const httplib::Request& req, httplib::Response& r
 void CRookServer::HandleViewport(const httplib::Request& req, httplib::Response& res)
 {
     Rook::Handlers::HandleViewport(req, res);
+}
+
+void CRookServer::HandleDirectorObjectStates(const httplib::Request& req, httplib::Response& res)
+{
+    Rook::Handlers::HandleDirectorObjectStates(req, res);
+}
+
+void CRookServer::HandleDirectorViewState(const httplib::Request& req, httplib::Response& res)
+{
+    Rook::Handlers::HandleDirectorViewState(req, res);
+}
+
+void CRookServer::HandleDirectorFrameCapture(const httplib::Request& req, httplib::Response& res)
+{
+    Rook::Handlers::HandleDirectorFrameCapture(req, res);
 }
 
 void CRookServer::HandleGetDisplayModes(const httplib::Request& req, httplib::Response& res)

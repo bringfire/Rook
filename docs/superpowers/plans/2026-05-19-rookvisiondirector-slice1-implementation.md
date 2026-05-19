@@ -1127,7 +1127,7 @@ git commit -m "test: add director live route contracts"
 - Modify after explicit approval: `src/RookNative/RookNative.vcxproj`
 - Modify after explicit approval: `src/RookNative/RookNative.vcxproj.filters`
 
-- [ ] **Step 1: Get explicit project-file approval**
+- [x] **Step 1: Get explicit project-file approval**
 
 Ask the user:
 
@@ -1137,7 +1137,7 @@ New native handler files require updating src/RookNative/RookNative.vcxproj and 
 
 Proceed with the project-file steps only after approval. If approval is not granted, place the temporary implementation in an existing compiled handler file and record that compromise in the final summary.
 
-- [ ] **Step 2: Add handler declarations**
+- [x] **Step 2: Add handler declarations**
 
 Create `src/RookNative/Handlers/DirectorHandler.h`:
 
@@ -1154,7 +1154,7 @@ namespace Rook::Handlers
 }
 ```
 
-- [ ] **Step 3: Add read-only handler implementation**
+- [x] **Step 3: Add read-only handler implementation**
 
 Create `src/RookNative/Handlers/DirectorHandler.cpp` using existing server response helpers and main-thread dispatch patterns. The implementation must:
 
@@ -1207,7 +1207,7 @@ Minimum response shape for `/director/view-state`:
 }
 ```
 
-- [ ] **Step 4: Wire routes through `RookServer`**
+- [x] **Step 4: Wire routes through `RookServer`**
 
 Modify `src/RookNative/RookServer.h`:
 
@@ -1256,11 +1256,11 @@ void CRookServer::HandleDirectorFrameCapture(const httplib::Request& req, httpli
 }
 ```
 
-- [ ] **Step 5: Update native project files after approval**
+- [x] **Step 5: Update native project files after approval**
 
 Add the new handler files to `src/RookNative/RookNative.vcxproj` and `src/RookNative/RookNative.vcxproj.filters` following the neighboring `Handlers/*Handler.cpp` and `.h` entries exactly.
 
-- [ ] **Step 6: Build native**
+- [x] **Step 6: Build native**
 
 Run from a fresh developer shell:
 
@@ -1270,7 +1270,7 @@ cmd /c "call \"C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxili
 
 Expected: build succeeds. If the Rhino/MFC toolchain is unavailable, record the exact missing-toolchain error and do not claim native build verification.
 
-- [ ] **Step 7: Run live read-only tests**
+- [x] **Step 7: Run live read-only tests**
 
 Run:
 
@@ -1280,7 +1280,7 @@ pytest mcp_server/tests/test_director_routes_live.py -q -m requires_rhino
 
 Expected: read-only tests pass with Rhino/RookNative running, or skip without Rhino.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 Run:
 
