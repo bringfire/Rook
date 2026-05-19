@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -84,3 +85,83 @@ def validate_authoring_request(request: dict[str, Any]) -> None:
     distance = float(params.get("distance", 10.0))
     if distance < 0:
         raise DirectorInputError("motion distance must be nonnegative")
+
+
+def identity_matrix() -> list[list[float]]:
+    return [
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ]
+
+
+def translation_matrix(vector: list[float]) -> list[list[float]]:
+    matrix = identity_matrix()
+    matrix[0][3] = float(vector[0])
+    matrix[1][3] = float(vector[1])
+    matrix[2][3] = float(vector[2])
+    return matrix
+
+
+def _center(bbox_min: list[float], bbox_max: list[float]) -> list[float]:
+    return [(float(a) + float(b)) / 2.0 for a, b in zip(bbox_min, bbox_max)]
+
+
+def _normalize(vector: list[float]) -> list[float] | None:
+    length = math.sqrt(sum(float(v) * float(v) for v in vector))
+    if length < 1e-9:
+        return None
+    return [float(v) / length for v in vector]
+
+
+def expand_radial_bbox_center(
+    objects: list[dict[str, Any]],
+    *,
+    frame_count: int,
+    distance: float,
+    per_object_scale: dict[str, float],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    all_mins = [float(v) for obj in objects for v in obj["bbox_min"]]
+    all_maxs = [float(v) for obj in objects for v in obj["bbox_max"]]
+    selection_min = [min(all_mins[i::3]) for i in range(3)]
+    selection_max = [max(all_maxs[i::3]) for i in range(3)]
+    selection_center = _center(selection_min, selection_max)
+
+    directions: dict[str, list[float]] = {}
+    warnings: list[dict[str, Any]] = []
+    for obj in objects:
+        object_id = obj["object_id"]
+        object_center = _center(obj["bbox_min"], obj["bbox_max"])
+        raw = [object_center[i] - selection_center[i] for i in range(3)]
+        direction = _normalize(raw)
+        if direction is None:
+            direction = [1.0, 0.0, 0.0]
+            warnings.append({"code": "center_direction_fallback", "object_id": object_id})
+        directions[object_id] = direction
+
+    frames: list[dict[str, Any]] = []
+    for index in range(1, frame_count + 1):
+        t = 0.0 if frame_count == 1 else (index - 1) / (frame_count - 1)
+        object_transforms = []
+        for obj in objects:
+            object_id = obj["object_id"]
+            scale = float(per_object_scale.get(object_id, 1.0))
+            direction = directions[object_id]
+            vector = [component * float(distance) * scale * t for component in direction]
+            object_transforms.append(
+                {
+                    "object_id": object_id,
+                    "source_state": {
+                        "bbox_min": obj["bbox_min"],
+                        "bbox_max": obj["bbox_max"],
+                        "validation_strength": obj.get(
+                            "validation_strength", "bbox_only"
+                        ),
+                        "state_hash": obj.get("state_hash"),
+                    },
+                    "transform": translation_matrix(vector),
+                }
+            )
+        frames.append({"frame_index": index, "object_transforms": object_transforms})
+    return frames, warnings

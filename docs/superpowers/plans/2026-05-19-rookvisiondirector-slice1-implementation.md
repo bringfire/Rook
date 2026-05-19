@@ -309,7 +309,7 @@ pytest mcp_server/tests/test_director.py -q
 
 Expected: all tests in the file pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Run:
 
@@ -324,7 +324,7 @@ git commit -m "feat: add director Python contract helpers"
 - Modify: `mcp_server/tests/test_director.py`
 - Modify: `mcp_server/src/rook/director.py`
 
-- [ ] **Step 1: Add failing tests for radial source-relative frame deltas**
+- [x] **Step 1: Add failing tests for radial source-relative frame deltas**
 
 Append to `mcp_server/tests/test_director.py`:
 
@@ -343,7 +343,7 @@ def _obj(object_id, bbox_min, bbox_max, name=None):
 def test_radial_bbox_center_single_frame_has_identity_delta():
     objects = [_obj("a", [0, 0, 0], [2, 2, 2])]
     frames, warnings = director.expand_radial_bbox_center(objects, frame_count=1, distance=10.0, per_object_scale={})
-    assert warnings == []
+    assert warnings[0]["code"] == "center_direction_fallback"
     assert frames[0]["frame_index"] == 1
     assert frames[0]["object_transforms"][0]["transform"] == director.identity_matrix()
 
@@ -371,7 +371,7 @@ def test_radial_bbox_center_records_fallback_direction_warning():
     assert final["transform"][0][3] == pytest.approx(2.0)
 ```
 
-- [ ] **Step 2: Run tests and verify missing function failures**
+- [x] **Step 2: Run tests and verify missing function failures**
 
 Run:
 
@@ -381,7 +381,7 @@ pytest mcp_server/tests/test_director.py -q
 
 Expected: fails for `expand_radial_bbox_center` and `identity_matrix`.
 
-- [ ] **Step 3: Implement motion helpers**
+- [x] **Step 3: Implement motion helpers**
 
 Add to `mcp_server/src/rook/director.py`:
 
@@ -467,7 +467,7 @@ def expand_radial_bbox_center(
     return frames, warnings
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run:
 
