@@ -98,24 +98,7 @@ class SmartExecutor:
             result = await self._execute_command(plan, trace)
         elif plan.execution_route == "interactive":
             trace.append("Interactive execution route is deprecated")
-            result = ExecutionResult(
-                success=False,
-                intent=plan.intent,
-                route_taken="interactive",
-                failure=ExecutionFailure(
-                    layer=FailureLayer.ROUTING,
-                    operation=plan.operation,
-                    attempted_route="interactive",
-                    error_detail=(
-                        "Interactive Rhino command execution is disabled for normal execution."
-                    ),
-                    recovery_suggestion=(
-                        "Use typed Rook tools or a known-safe fully scripted command. "
-                        "Use rhino_command_prompt and rhino_command_interactive_cancel "
-                        "only for recovery."
-                    ),
-                ),
-            )
+            result = self._interactive_disabled_result(plan)
         else:
             result = ExecutionResult(
                 success=False,
@@ -264,120 +247,9 @@ class SmartExecutor:
     async def _execute_interactive(
         self, plan: ExecutionPlan, trace: list[str],
     ) -> ExecutionResult:
-        """Execute via interactive command session (multi-step prompts).
-
-        Protocol (matches C++ CommandInteractiveHandler):
-          1. POST /command/start  -> starts command
-          2. GET  /command/prompt  -> poll for current prompt + is_active
-          3. POST /command/send    -> send input token
-          4. Repeat 2-3 until is_active == false
-        """
-        command = plan.command or plan.syntax
-        if not command:
-            return self._execution_failure(
-                plan, "interactive",
-                "No command name for interactive execution",
-                FailureLayer.PARAMETER_SYNTHESIS,
-            )
-
-        # Strip syntax to just the command name for /command/start
-        tokens = _tokenize_syntax(command)
-        cmd_name = tokens[0] if tokens else command
-
-        trace.append(f"Interactive: starting {cmd_name}")
-
-        try:
-            # Start the interactive session
-            start_resp = await self._call(
-                "/command/start", "POST", {"command": cmd_name},
-            )
-
-            if not start_resp.get("success", False):
-                error = start_resp.get("data", "Failed to start command")
-                trace.append(f"Interactive start failed: {error}")
-                return self._execution_failure(
-                    plan, "interactive", str(error), FailureLayer.COMMAND_EXECUTION,
-                )
-
-            # Poll prompt state after start
-            prompt_state = await self._poll_prompt(trace)
-
-            # Feed inputs from the plan's syntax (skip the command name)
-            if not plan.syntax:
-                trace.append("No syntax for interactive inputs; will only send _Enter")
-            inputs = _tokenize_syntax(plan.syntax)[1:] if plan.syntax else []
-            max_rounds = len(inputs) + 5  # safety limit
-
-            for i in range(max_rounds):
-                # Check for poll error — don't treat network failure as success
-                if prompt_state.get("_poll_error"):
-                    trace.append(f"Poll error, aborting: {prompt_state['_poll_error']}")
-                    await self._safe_cancel(trace)
-                    return self._execution_failure(
-                        plan, "interactive",
-                        f"Prompt poll failed: {prompt_state['_poll_error']}",
-                        FailureLayer.COMMAND_EXECUTION,
-                    )
-
-                # Check if command has finished
-                if not prompt_state.get("is_active", True):
-                    trace.append("Interactive: command completed")
-                    break
-
-                prompt_text = prompt_state.get("prompt", "")
-
-                # Determine next input
-                if i < len(inputs):
-                    next_input = inputs[i]
-                else:
-                    next_input = "_Enter"
-
-                trace.append(f"Interactive [{i}]: sending '{next_input}' (prompt: {prompt_text})")
-
-                send_resp = await self._call(
-                    "/command/send", "POST", {"input": next_input},
-                )
-
-                if not send_resp.get("success", False):
-                    error = send_resp.get("data", "Send failed")
-                    trace.append(f"Interactive send failed: {error}")
-                    await self._safe_cancel(trace)
-                    return self._execution_failure(
-                        plan, "interactive",
-                        f"Interactive prompt failed: {error}",
-                        FailureLayer.INTERACTIVE_PROMPT,
-                        f"Stalled at prompt: {prompt_text}",
-                    )
-
-                # Poll prompt after each send
-                prompt_state = await self._poll_prompt(trace)
-            else:
-                trace.append(f"Interactive: exceeded {max_rounds} rounds, cancelling")
-                await self._safe_cancel(trace)
-                return self._execution_failure(
-                    plan, "interactive",
-                    f"Interactive session exceeded {max_rounds} rounds",
-                    FailureLayer.INTERACTIVE_PROMPT,
-                    "Command requires more inputs than planned",
-                )
-
-            # Success — note: interactive sessions do not populate created_ids
-            # or objects_created because the C++ prompt protocol does not
-            # return object metadata.  P3 TypedReflection can issue a
-            # follow-up query if object counts are needed.
-            return ExecutionResult(
-                success=True,
-                intent=plan.intent,
-                route_taken="interactive",
-                data=prompt_state if isinstance(prompt_state, dict) else {},
-            )
-
-        except Exception as e:
-            trace.append(f"Interactive execution error: {e}")
-            await self._safe_cancel(trace)
-            return self._execution_failure(
-                plan, "interactive", str(e), FailureLayer.COMMAND_EXECUTION,
-            )
+        """Refuse legacy interactive execution without driving prompts."""
+        trace.append("Interactive execution route is deprecated")
+        return self._interactive_disabled_result(plan)
 
     # ------------------------------------------------------------------
     # Interactive fallback (from stalled known_command)
@@ -389,25 +261,29 @@ class SmartExecutor:
         stalled_prompt: str,
         trace: list[str],
     ) -> ExecutionResult:
-        """Restart a stalled command via interactive mode.
+        """Refuse legacy fallback without driving prompts."""
+        trace.append(f"Interactive fallback is deprecated; stalled prompt was: {stalled_prompt}")
+        return self._interactive_disabled_result(plan)
 
-        Note: The stalled command was already cancelled by the C++ /command
-        handler.  /command/start will issue an additional _Cancel as a safety
-        measure (no-op when nothing is running).
-        """
-        # Create a modified plan for interactive execution
-        interactive_plan = ExecutionPlan(
+    def _interactive_disabled_result(self, plan: ExecutionPlan) -> ExecutionResult:
+        return ExecutionResult(
+            success=False,
             intent=plan.intent,
-            operation=plan.operation,
-            params=plan.params,
-            execution_route="interactive",
-            command=plan.command,
-            mode=plan.mode,
-            syntax=plan.syntax,
-            confidence=plan.confidence * 0.7,  # Reduced: fallback is less certain
-            knowledge_context=plan.knowledge_context,
+            route_taken="interactive",
+            failure=ExecutionFailure(
+                layer=FailureLayer.ROUTING,
+                operation=plan.operation,
+                attempted_route="interactive",
+                error_detail=(
+                    "Interactive Rhino command execution is disabled for normal execution."
+                ),
+                recovery_suggestion=(
+                    "Use typed Rook tools or a known-safe fully scripted command. "
+                    "Use rhino_command_prompt and rhino_command_interactive_cancel "
+                    "only for recovery."
+                ),
+            ),
         )
-        return await self._execute_interactive(interactive_plan, trace)
 
     # ------------------------------------------------------------------
     # Response parsing

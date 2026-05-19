@@ -9,6 +9,7 @@ namespace Handlers {
 
 void HandleCommand(const httplib::Request& req, httplib::Response& res);
 void HandleExecute(const httplib::Request& req, httplib::Response& res);
+void ClearCommandStateUncertain();
 
 } // namespace Handlers
 } // namespace Rook

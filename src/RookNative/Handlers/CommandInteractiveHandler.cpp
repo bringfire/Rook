@@ -23,6 +23,7 @@
 // (e.g., _Line, _Polyline) where the user or AI provides input iteratively.
 
 #include "stdafx.h"
+#include "Handlers/CommandHandler.h"
 #include "Handlers/CommandInteractiveHandler.h"
 #include "Models/DocumentHelpers.h"
 #include "Threading/MainThreadDispatcher.h"
@@ -41,6 +42,11 @@ bool InteractiveCommandLearningEnabled()
 {
     const char* env = std::getenv("ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING");
     return env != nullptr && std::string(env) == "1";
+}
+
+bool IsIdleCommandPrompt(const std::string& prompt)
+{
+    return prompt.empty() || prompt == "Command" || prompt.rfind("Command:", 0) == 0;
 }
 
 void SendInteractiveCommandDeprecated(httplib::Response& res, const char* route)
@@ -107,12 +113,7 @@ void HandleCommandPrompt(const httplib::Request& /*req*/, httplib::Response& res
     {
         std::string prompt = ReadPromptOnMain();
 
-        // C20 fix: Use prefix match against "Command:" (Rhino's idle prompt).
-        // The old code used prompt.find("Command") which is a substring search —
-        // it would false-negative on prompts containing "Command" as part of a
-        // command name (e.g., "ExtrudeSurface"). Rhino's idle state always
-        // starts with "Command:" (with colon), so rfind(x, 0) == prefix match.
-        bool isActive = !prompt.empty() && !(prompt.rfind("Command:", 0) == 0);
+        bool isActive = !IsIdleCommandPrompt(prompt);
 
         nlohmann::json result;
         result["prompt"]        = prompt;
@@ -295,6 +296,8 @@ void HandleCommandCancel(const httplib::Request& /*req*/, httplib::Response& res
         nlohmann::json result;
         result["cancelled"] = true;
         result["prompt"]    = prompt;
+
+        ClearCommandStateUncertain();
 
         CRookServer::SendSuccess(res, result);
     }

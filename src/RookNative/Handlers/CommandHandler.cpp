@@ -39,6 +39,19 @@ namespace
     constexpr auto kCommandPromptPollWindow = std::chrono::seconds(1);
     constexpr auto kCommandPromptDispatchTimeout = std::chrono::milliseconds(250);
 
+    enum class CommandPromptState
+    {
+        Idle,
+        Active,
+        Unknown
+    };
+
+    struct CommandPromptProbe
+    {
+        CommandPromptState state = CommandPromptState::Unknown;
+        std::string prompt;
+    };
+
     bool WriteUtf8File(const fs::path& path, const std::string& contents)
     {
         std::ofstream ofs(path, std::ios::binary);
@@ -142,9 +155,14 @@ namespace
         return script.str();
     }
 
+    bool IsIdleCommandPrompt(const std::string& prompt)
+    {
+        return prompt.empty() || prompt == "Command" || prompt.rfind("Command:", 0) == 0;
+    }
+
     bool IsInteractivePrompt(const std::string& prompt)
     {
-        return !prompt.empty() && prompt.rfind("Command:", 0) != 0;
+        return !IsIdleCommandPrompt(prompt);
     }
 
     nlohmann::json BuildCommandInteractiveError(
@@ -201,13 +219,27 @@ namespace
         data["error"] = "Native command execution is blocked because Rhino state is uncertain.";
         if (!prompt.empty())
             data["waitingFor"] = prompt;
-        data["recovery"] = "Inspect the Rhino command prompt and cancel any active command. "
-            "Rook will keep refusing /command until it can verify the prompt is idle; "
-            "then retry through typed Rook tools or a complete scripted command.";
+        data["recovery"] = "Inspect the Rhino command prompt and call /command/cancel "
+            "to complete explicit recovery. Rook will keep refusing /command while "
+            "state is uncertain; then retry through typed Rook tools or a complete "
+            "scripted command.";
         return data;
     }
 
-    bool TryReadCommandPrompt(std::string& prompt)
+    nlohmann::json BuildCommandPromptUnknownError(const std::string& command)
+    {
+        nlohmann::json data = BuildCommandStateUncertainError(command);
+        data["code"] = "native_command_prompt_unknown";
+        data["error"] = "Native command execution verification is blocked because "
+            "Rook could not read Rhino's command prompt after RunScript.";
+        data["recovery"] = "Prompt verification was inconclusive, so execution is "
+            "unverified and Rhino state is uncertain. Inspect Rhino, call "
+            "/command/cancel if needed, then retry through typed Rook tools or a "
+            "complete scripted command.";
+        return data;
+    }
+
+    CommandPromptProbe TryReadCommandPrompt()
     {
         try
         {
@@ -220,35 +252,50 @@ namespace
             });
 
             if (promptFuture.wait_for(kCommandPromptDispatchTimeout) != std::future_status::ready)
-                return false;
+                return {CommandPromptState::Unknown, ""};
 
-            prompt = promptFuture.get();
-            return true;
+            const std::string prompt = promptFuture.get();
+            return {
+                IsIdleCommandPrompt(prompt) ? CommandPromptState::Idle : CommandPromptState::Active,
+                prompt,
+            };
         }
         catch (...)
         {
-            return false;
+            return {CommandPromptState::Unknown, ""};
         }
     }
 
-    bool PollForInteractivePrompt(std::string& prompt)
+    CommandPromptProbe PollForCommandPromptState()
     {
         const auto deadline = std::chrono::steady_clock::now() + kCommandPromptPollWindow;
+        bool sawIdle = false;
+        bool sawUnknown = false;
 
         while (std::chrono::steady_clock::now() < deadline)
         {
             std::this_thread::sleep_for(kCommandPromptPollInterval);
 
-            std::string currentPrompt;
-            if (TryReadCommandPrompt(currentPrompt) && IsInteractivePrompt(currentPrompt))
-            {
-                prompt = currentPrompt;
-                return true;
-            }
+            CommandPromptProbe probe = TryReadCommandPrompt();
+            if (probe.state == CommandPromptState::Active)
+                return probe;
+            if (probe.state == CommandPromptState::Unknown)
+                sawUnknown = true;
+            else
+                sawIdle = true;
         }
 
-        return false;
+        if (sawUnknown)
+            return {CommandPromptState::Unknown, ""};
+        if (sawIdle)
+            return {CommandPromptState::Idle, ""};
+        return {CommandPromptState::Unknown, ""};
     }
+}
+
+void ClearCommandStateUncertain()
+{
+    s_commandStateUncertain.store(false, std::memory_order_release);
 }
 
 // ─── POST /command ──────────────────────────────────────────────────
@@ -299,13 +346,9 @@ void HandleCommand(const httplib::Request& req, httplib::Response& res)
 
     if (s_commandStateUncertain.load(std::memory_order_acquire))
     {
-        std::string prompt;
-        if (!TryReadCommandPrompt(prompt) || IsInteractivePrompt(prompt))
-        {
-            CRookServer::SendErrorData(res, BuildCommandStateUncertainError(command, prompt));
-            return;
-        }
-        s_commandStateUncertain.store(false, std::memory_order_release);
+        CommandPromptProbe probe = TryReadCommandPrompt();
+        CRookServer::SendErrorData(res, BuildCommandStateUncertainError(command, probe.prompt));
+        return;
     }
 
     // No UndoScope here: RunScript creates its own undo records per command.
@@ -359,11 +402,18 @@ void HandleCommand(const httplib::Request& req, httplib::Response& res)
 
         auto result = future.get();
 
-        std::string interactivePrompt;
-        if (PollForInteractivePrompt(interactivePrompt))
+        CommandPromptProbe promptProbe = PollForCommandPromptState();
+        if (promptProbe.state == CommandPromptState::Active)
         {
             s_commandStateUncertain.store(true, std::memory_order_release);
-            CRookServer::SendErrorData(res, BuildCommandInteractiveError(command, interactivePrompt));
+            CRookServer::SendErrorData(res, BuildCommandInteractiveError(command, promptProbe.prompt));
+            return;
+        }
+
+        if (promptProbe.state == CommandPromptState::Unknown)
+        {
+            s_commandStateUncertain.store(true, std::memory_order_release);
+            CRookServer::SendErrorData(res, BuildCommandPromptUnknownError(command));
             return;
         }
 

@@ -354,6 +354,56 @@ class TestInteractiveExecution:
         assert "/command/start" not in calls
         assert "/command/send" not in calls
 
+    def test_private_interactive_executor_refuses_without_prompt_driving(self):
+        calls = []
+
+        async def interactive_caller(endpoint, method="POST", data=None):
+            calls.append(endpoint)
+            return {"success": True, "data": {}}
+
+        executor = SmartExecutor(http_caller=interactive_caller)
+        plan = ExecutionPlan(
+            intent="loft curves",
+            operation="command:_-Loft",
+            execution_route="interactive",
+            command="_-Loft",
+            syntax="_-Loft _SelID a _SelID b _Enter",
+        )
+        result = run(executor._execute_interactive(plan, []))
+
+        assert result.success is False
+        assert result.failure.layer == FailureLayer.ROUTING
+        assert result.failure.error_detail == (
+            "Interactive Rhino command execution is disabled for normal execution."
+        )
+        assert "/command/start" not in calls
+        assert "/command/send" not in calls
+
+    def test_private_interactive_fallback_refuses_without_prompt_driving(self):
+        calls = []
+
+        async def interactive_caller(endpoint, method="POST", data=None):
+            calls.append(endpoint)
+            return {"success": True, "data": {}}
+
+        executor = SmartExecutor(http_caller=interactive_caller)
+        plan = ExecutionPlan(
+            intent="sweep curve",
+            operation="command:_-Sweep1",
+            execution_route="known_command",
+            command="_-Sweep1",
+            syntax="_-Sweep1 _SelID curve1 _Enter",
+        )
+        result = run(executor._interactive_fallback(plan, "Select rail", []))
+
+        assert result.success is False
+        assert result.failure.layer == FailureLayer.ROUTING
+        assert result.failure.error_detail == (
+            "Interactive Rhino command execution is disabled for normal execution."
+        )
+        assert "/command/start" not in calls
+        assert "/command/send" not in calls
+
     def test_prompt_poll_helper_reports_poll_error(self):
         async def failing_poll_caller(endpoint, method="POST", data=None):
             if endpoint == "/command/prompt":
