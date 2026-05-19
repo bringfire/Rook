@@ -29,7 +29,10 @@
 #include "Threading/MainThreadDispatcher.h"
 #include "RookServer.h"
 
+#include <chrono>
 #include <cstdlib>
+#include <future>
+#include <thread>
 
 namespace Rook {
 namespace Handlers {
@@ -37,6 +40,24 @@ namespace Handlers {
 // ─── Prompt Parsing Helpers ─────────────────────────────────────────
 
 namespace {
+
+constexpr auto kCancelDispatchTimeout = std::chrono::milliseconds(500);
+constexpr auto kPromptDispatchTimeout = std::chrono::milliseconds(250);
+constexpr auto kPostCancelPollInterval = std::chrono::milliseconds(100);
+constexpr auto kPostCancelPollWindow = std::chrono::seconds(1);
+
+enum class PromptReadState
+{
+    Idle,
+    Active,
+    Unknown
+};
+
+struct PromptRead
+{
+    PromptReadState state = PromptReadState::Unknown;
+    std::string prompt;
+};
 
 bool InteractiveCommandLearningEnabled()
 {
@@ -47,6 +68,14 @@ bool InteractiveCommandLearningEnabled()
 bool IsIdleCommandPrompt(const std::string& prompt)
 {
     return prompt.empty() || prompt == "Command" || prompt.rfind("Command:", 0) == 0;
+}
+
+PromptRead ClassifyPrompt(const std::string& prompt)
+{
+    return {
+        IsIdleCommandPrompt(prompt) ? PromptReadState::Idle : PromptReadState::Active,
+        prompt,
+    };
 }
 
 void SendInteractiveCommandDeprecated(httplib::Response& res, const char* route)
@@ -92,15 +121,61 @@ nlohmann::json ParseDefaultFromPrompt(const std::string& prompt)
     return prompt.substr(start + 1, end - start - 1);
 }
 
-// Read the command prompt on the main thread and return as UTF-8 string.
-std::string ReadPromptOnMain()
+PromptRead TryReadPromptOnMain(std::chrono::milliseconds timeout)
 {
-    auto future = CMainThreadDispatcher::Instance().Dispatch([&]() -> std::string {
-        ON_wString prompt;
-        RhinoApp().GetCommandPrompt(prompt);
-        return WideToUtf8(prompt);
-    });
-    return future.get();
+    try
+    {
+        auto future = CMainThreadDispatcher::Instance().Dispatch([&]() -> std::string {
+            ON_wString prompt;
+            RhinoApp().GetCommandPrompt(prompt);
+            return WideToUtf8(prompt);
+        });
+
+        if (future.wait_for(timeout) != std::future_status::ready)
+            return {PromptReadState::Unknown, ""};
+
+        return ClassifyPrompt(future.get());
+    }
+    catch (...)
+    {
+        return {PromptReadState::Unknown, ""};
+    }
+}
+
+PromptRead PollForIdlePromptAfterCancel()
+{
+    const auto deadline = std::chrono::steady_clock::now() + kPostCancelPollWindow;
+    PromptRead lastProbe;
+
+    while (std::chrono::steady_clock::now() < deadline)
+    {
+        std::this_thread::sleep_for(kPostCancelPollInterval);
+
+        PromptRead probe = TryReadPromptOnMain(kPromptDispatchTimeout);
+        if (probe.state == PromptReadState::Idle)
+            return probe;
+        if (probe.state == PromptReadState::Active || !probe.prompt.empty())
+            lastProbe = probe;
+    }
+
+    return lastProbe;
+}
+
+nlohmann::json BuildCancelUnverifiedResult(
+    const std::string& error,
+    const PromptRead& promptState)
+{
+    nlohmann::json data;
+    data["cancelled"] = false;
+    data["verified"] = false;
+    data["state_uncertain"] = true;
+    data["error"] = error;
+    data["prompt"] = promptState.prompt;
+    data["is_active"] = promptState.state == PromptReadState::Active;
+    data["recovery"] = "Rook could not verify an idle Rhino command prompt after "
+        "the cancel attempt. Inspect Rhino manually and retry /command/cancel; "
+        "/command remains blocked while state is uncertain.";
+    return data;
 }
 
 } // anonymous namespace
@@ -111,15 +186,22 @@ void HandleCommandPrompt(const httplib::Request& /*req*/, httplib::Response& res
 {
     try
     {
-        std::string prompt = ReadPromptOnMain();
-
-        bool isActive = !IsIdleCommandPrompt(prompt);
+        PromptRead promptState = TryReadPromptOnMain(kPromptDispatchTimeout);
+        if (promptState.state == PromptReadState::Unknown)
+        {
+            nlohmann::json data;
+            data["error"] = "Could not read Rhino command prompt";
+            data["verified"] = false;
+            data["state_uncertain"] = true;
+            CRookServer::SendErrorData(res, data);
+            return;
+        }
 
         nlohmann::json result;
-        result["prompt"]        = prompt;
-        result["is_active"]     = isActive;
-        result["options"]       = ParseOptionsFromPrompt(prompt);
-        result["default_value"] = ParseDefaultFromPrompt(prompt);
+        result["prompt"]        = promptState.prompt;
+        result["is_active"]     = promptState.state == PromptReadState::Active;
+        result["options"]       = ParseOptionsFromPrompt(promptState.prompt);
+        result["default_value"] = ParseDefaultFromPrompt(promptState.prompt);
 
         CRookServer::SendSuccess(res, result);
     }
@@ -286,16 +368,34 @@ void HandleCommandCancel(const httplib::Request& /*req*/, httplib::Response& res
             ON_wString cancelScript(L"_Cancel\n");
             RhinoApp().RunScript(docSn, static_cast<const wchar_t*>(cancelScript), 0);
         });
+
+        if (future.wait_for(kCancelDispatchTimeout) != std::future_status::ready)
+        {
+            CRookServer::SendErrorData(
+                res,
+                BuildCancelUnverifiedResult(
+                    "Cancel dispatch did not complete before timeout.",
+                    PromptRead{}));
+            return;
+        }
         future.get();
 
-        // Allow Rhino's message loop to process the cancel
-        ::Sleep(100);
-
-        std::string prompt = ReadPromptOnMain();
+        PromptRead promptState = PollForIdlePromptAfterCancel();
+        if (promptState.state != PromptReadState::Idle)
+        {
+            CRookServer::SendErrorData(
+                res,
+                BuildCancelUnverifiedResult(
+                    "Cancel did not verify an idle Rhino command prompt.",
+                    promptState));
+            return;
+        }
 
         nlohmann::json result;
         result["cancelled"] = true;
-        result["prompt"]    = prompt;
+        result["verified"]  = true;
+        result["is_active"] = false;
+        result["prompt"]    = promptState.prompt;
 
         ClearCommandStateUncertain();
 
