@@ -2139,3 +2139,49 @@ def test_runtime_harness_maps_gh_python_geometry_output_smoke():
         "mcp_server/tools/gh_python_geometry_output_live_harness.py",
     ]
     assert cwd == repo_root
+
+
+def test_runtime_harness_maps_runscript_safety_smoke():
+    repo_root = Path(__file__).resolve().parents[2]
+    module = _load_harness_cli_module()
+
+    command, cwd = module._smoke_command("runscript-safety", repo_root)
+
+    assert command == [
+        sys.executable,
+        "-m",
+        "pytest",
+        "tests/test_runscript_safety_live.py",
+        "-m",
+        "requires_rhino and runscript_safety_live and not runscript_safety_hooks",
+        "-v",
+    ]
+    assert cwd == repo_root / "mcp_server"
+    assert module._smoke_timeout_seconds("runscript-safety") == 120.0
+    assert module._launch_env_overrides("runscript-safety") == {
+        "ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING": None,
+        "ROOK_ENABLE_RUNSCRIPT_SAFETY_TEST_HOOKS": None,
+    }
+
+
+def test_runtime_harness_maps_runscript_safety_hooks_smoke():
+    repo_root = Path(__file__).resolve().parents[2]
+    module = _load_harness_cli_module()
+
+    command, cwd = module._smoke_command("runscript-safety-hooks", repo_root)
+
+    assert command == [
+        sys.executable,
+        "-m",
+        "pytest",
+        "tests/test_runscript_safety_live.py",
+        "-m",
+        "requires_rhino and runscript_safety_live and runscript_safety_hooks",
+        "-v",
+    ]
+    assert cwd == repo_root / "mcp_server"
+    assert module._smoke_timeout_seconds("runscript-safety-hooks") == 120.0
+    assert module._launch_env_overrides("runscript-safety-hooks") == {
+        "ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING": None,
+        "ROOK_ENABLE_RUNSCRIPT_SAFETY_TEST_HOOKS": "1",
+    }
