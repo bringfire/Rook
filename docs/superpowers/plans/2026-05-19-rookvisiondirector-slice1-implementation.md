@@ -68,7 +68,7 @@ This phase prevents guessed Rhino SDK usage from entering the implementation. It
 **Files:**
 - Create: `docs/superpowers/plans/2026-05-19-rookvisiondirector-slice1-phase0-inventory.md`
 
-- [ ] **Step 1: Run focused inventory searches**
+- [x] **Step 1: Run focused inventory searches**
 
 Run:
 
@@ -82,7 +82,7 @@ Expected:
 - Capture/camera/display patterns are found in `src/RookNative/Handlers/ViewportHandler.cpp`, `src/Rook/Handlers/ViewportHandler.cs`, `src/RookNative/Handlers/DisplayModeHandler.cpp`, and `src/RookNative/Handlers/DocumentOpsHandler.cpp`.
 - Object transform and bounding-box patterns are found in `src/RookNative/Handlers/GeometryOpsHandler.cpp`, `src/RookNative/Handlers/MeasureHandler.cpp`, and `src/RookNative/Models/DocumentHelpers.h`.
 
-- [ ] **Step 2: Write the inventory note**
+- [x] **Step 2: Write the inventory note**
 
 Create `docs/superpowers/plans/2026-05-19-rookvisiondirector-slice1-phase0-inventory.md` with this structure:
 
