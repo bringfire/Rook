@@ -17835,10 +17835,13 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
         # single-segment native matcher [^/]+ still admits any
         # non-slash string; encoding keeps the string intact end-to-end.
         case "rhino_director_run":
-            result = {
-                "success": True,
-                "data": await director.run_director(arguments, port=port),
-            }
+            try:
+                result = {
+                    "success": True,
+                    "data": await director.run_director(arguments, port=port),
+                }
+            except director.DirectorError as exc:
+                result = {"success": False, "data": str(exc)}
 
         case "rhino_render_view":
             result = await call_rhino("/vision/generate", "POST", arguments, port=port)

@@ -48,6 +48,22 @@ async def test_director_tool_dispatches_to_python_runner():
     assert "complete" in result[0].text
 
 
+@pytest.mark.asyncio
+async def test_director_tool_returns_error_envelope_for_authoring_error():
+    request = {
+        "object_ids": ["a"],
+        "frame_count": 1,
+        "resolution": {"width": 320, "height": 180},
+        "camera_keyframes": [{"frame_index": 1, "source": {"kind": "active_view"}}],
+    }
+    with patch.object(server.director, "run_director", new_callable=AsyncMock) as mock:
+        mock.side_effect = server.director.DirectorInputError("bad director request")
+        result = await server.call_tool("rhino_director_run", request)
+    mock.assert_awaited_once()
+    assert result[0].text.startswith("Error:")
+    assert "bad director request" in result[0].text
+
+
 def test_director_tool_groups_are_mcp_only():
     assert "director" in tool_groups.TOOL_GROUPS
     assert "rhino_director_run" in tool_groups.TOOL_GROUPS["director"]
