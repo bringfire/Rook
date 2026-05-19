@@ -28,12 +28,30 @@
 #include "Threading/MainThreadDispatcher.h"
 #include "RookServer.h"
 
+#include <cstdlib>
+
 namespace Rook {
 namespace Handlers {
 
 // ─── Prompt Parsing Helpers ─────────────────────────────────────────
 
 namespace {
+
+bool InteractiveCommandLearningEnabled()
+{
+    const char* env = std::getenv("ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING");
+    return env != nullptr && std::string(env) == "1";
+}
+
+void SendInteractiveCommandDeprecated(httplib::Response& res, const char* route)
+{
+    nlohmann::json data;
+    data["error"] = "interactive_command_deprecated";
+    data["route"] = route;
+    data["verified"] = false;
+    data["recovery"] = "Autonomous Rhino prompt driving is disabled. Use typed Rook tools, a known-safe fully scripted command, /command/prompt to inspect state, or /command/cancel to recover.";
+    CRookServer::SendErrorData(res, data);
+}
 
 // Extract options from parenthesized groups in the prompt.
 // e.g. "Center of circle ( Diameter Circumference )" → ["Diameter","Circumference"]
@@ -114,6 +132,12 @@ void HandleCommandPrompt(const httplib::Request& /*req*/, httplib::Response& res
 
 void HandleCommandStart(const httplib::Request& req, httplib::Response& res)
 {
+    if (!InteractiveCommandLearningEnabled())
+    {
+        SendInteractiveCommandDeprecated(res, "/command/start");
+        return;
+    }
+
     // Parse body on worker thread
     nlohmann::json body;
     if (!req.body.empty())
@@ -183,6 +207,12 @@ void HandleCommandStart(const httplib::Request& req, httplib::Response& res)
 
 void HandleCommandInput(const httplib::Request& req, httplib::Response& res)
 {
+    if (!InteractiveCommandLearningEnabled())
+    {
+        SendInteractiveCommandDeprecated(res, "/command/send");
+        return;
+    }
+
     nlohmann::json body;
     if (!req.body.empty())
     {
