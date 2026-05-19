@@ -63,6 +63,11 @@ def _runscript_safety_refusal(
     **extra_data: Any,
 ) -> dict[str, Any]:
     candidate_tools = _candidate_tools_for_command(command)
+    manual_boundary = extra_data.get("manual_boundary")
+    safety_class = extra_data.pop(
+        "safety_class",
+        "good_refusal" if candidate_tools or manual_boundary else "unknown",
+    )
     data = {
         "error": RUNSCRIPT_REFUSAL_ERROR,
         "error_code": RUNSCRIPT_REFUSAL_ERROR,
@@ -71,13 +76,15 @@ def _runscript_safety_refusal(
         "detected_command": command,
         "mode": mode,
         "verified": False,
-        "safety_class": "good_refusal",
+        "safety_class": safety_class,
         "retry_allowed": False,
         "prompt_state": "not_checked",
         "recovery": "Use a typed Rook tool with explicit parameters; do not retry the same raw command.",
     }
     if candidate_tools:
         data["candidate_tools"] = candidate_tools
+        if "missing_required" in extra_data and "missing_parameters" not in extra_data:
+            data["missing_parameters"] = extra_data["missing_required"]
     data.update(extra_data)
     return {
         "success": False,

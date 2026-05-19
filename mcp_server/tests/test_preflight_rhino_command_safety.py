@@ -31,7 +31,13 @@ def command_knowledge(*, preconditions=None, modes=None, options=None):
     )
 
 
-def assert_safety_refusal(result, reason, command=None, mode=None):
+def assert_safety_refusal(
+    result,
+    reason,
+    command=None,
+    mode=None,
+    safety_class="good_refusal",
+):
     assert result is not None
     assert result["success"] is False
     assert result["data"]["error"] == "run_script_safety_refusal"
@@ -39,7 +45,7 @@ def assert_safety_refusal(result, reason, command=None, mode=None):
     assert result["data"]["reason"] == reason
     assert result["data"]["verified"] is False
     assert result["data"]["retry_allowed"] is False
-    assert result["data"]["safety_class"] == "good_refusal"
+    assert result["data"]["safety_class"] == safety_class
     if command is not None:
         assert result["data"]["command"] == command
         assert result["data"]["detected_command"] == command
@@ -108,6 +114,30 @@ def test_rejects_unknown_command_from_store():
         command="-Box",
         mode="default",
     )
+
+
+def test_rejects_unknown_command_without_candidate_as_unknown_refusal():
+    parsed = {
+        "command": "-Bogus",
+        "mode": "default",
+        "syntax": "_-Bogus",
+        "parameters": {},
+        "options_used": [],
+    }
+
+    result = preflight_rhino_command(
+        "_-Bogus",
+        FakeKnowledgeStore(parsed=parsed, command_knowledge=None),
+    )
+
+    assert_safety_refusal(
+        result,
+        "unknown_command",
+        command="-Bogus",
+        mode="default",
+        safety_class="unknown",
+    )
+    assert "candidate_tools" not in result["data"]
 
 
 def test_rejects_known_command_without_explicit_safe_metadata():
@@ -192,6 +222,7 @@ def test_rejects_missing_required_values_with_safety_refusal():
         mode="default",
     )
     assert result["data"]["missing_required"] == ["corner2"]
+    assert result["data"]["missing_parameters"] == ["corner2"]
     assert result["data"]["expected_syntax"] == "_-Box <corner1> <corner2>"
 
 
