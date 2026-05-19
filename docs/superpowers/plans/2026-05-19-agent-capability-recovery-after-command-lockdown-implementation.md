@@ -121,7 +121,7 @@ No file changes are required if the spec is already accepted.
 Run:
 
 ```powershell
-Select-String -Path mcp_server\src\rook\server.py -Pattern 'name="(rhino_create|rhino_transform|rhino_delete|rhino_objects|rhino_geometry|rhino_select|rhino_select_by_type|rhino_select_none|rhino_measure_|rhino_layer_|rhino_material_ops|rhino_annotation_|rhino_viewport|rhino_views|rhino_import|rhino_export|rhino_block_|gh_status|gh_snapshot|gh_edit|gh_errors|gh_canvas_image|gh_bake_output)"'
+rg 'name="(rhino_create|rhino_transform|rhino_delete|rhino_objects|rhino_geometry|rhino_select|rhino_select_by_type|rhino_select_none|rhino_measure_[^"]+|rhino_layer_[^"]+|rhino_material_ops|rhino_annotation_[^"]+|rhino_viewport|rhino_views|rhino_import|rhino_export|rhino_block_[^"]+|gh_status|gh_snapshot|gh_edit|gh_errors|gh_canvas_image|gh_bake_output)"' mcp_server/src/rook/server.py
 ```
 
 Expected: matches for real existing model-facing tools. Use this output to keep the route map honest.
@@ -594,13 +594,13 @@ Expected: commit includes only files touched in this task. If `ranked-recovery-q
 Run:
 
 ```powershell
-$env:PYTHONPATH='mcp_server/src'; python -m pytest mcp_server/tests/test_preflight_rhino_command_safety.py -q
+$env:PYTHONPATH='mcp_server/src'; python -m pytest mcp_server/tests/test_preflight_rhino_command_safety.py mcp_server/tests/test_server_execute_safety.py -q
 git diff --check main...HEAD
 ```
 
 Expected:
 
-- preflight tests pass
+- preflight and server execute safety tests pass
 - diff check is clean
 
 - [ ] **Step 2: Verify all five canonical artifacts exist**
