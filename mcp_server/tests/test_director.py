@@ -69,6 +69,18 @@ def test_output_root_must_stay_under_shared_director_root(tmp_path, monkeypatch)
             "per_object_scale",
         ),
         (
+            {
+                "frame_count": 1,
+                "resolution": {"width": 1280, "height": 720},
+                "camera_keyframes": [{"frame_index": 1, "source": {"kind": "active_view"}}],
+                "motion": {
+                    "strategy": "radial_bbox_center",
+                    "parameters": {"distance": 1, "per_object_scale": []},
+                },
+            },
+            "per_object_scale",
+        ),
+        (
             {"frame_count": 1, "resolution": {"width": 1280, "height": 720}},
             "camera_keyframes",
         ),
@@ -87,6 +99,22 @@ def test_output_root_must_stay_under_shared_director_root(tmp_path, monkeypatch)
                 "camera_keyframes": [{"frame_index": 1}],
             },
             "camera keyframe",
+        ),
+        (
+            {
+                "frame_count": 2,
+                "resolution": {"width": 1280, "height": 720},
+                "camera_keyframes": [{"frame_index": 1, "source": {"kind": "saved_camera"}}],
+            },
+            "source.kind",
+        ),
+        (
+            {
+                "frame_count": 2,
+                "resolution": {"width": 1280, "height": 720},
+                "camera_keyframes": [{"frame_index": 1, "source": {"kind": "named_view"}}],
+            },
+            "named_view",
         ),
     ],
 )

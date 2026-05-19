@@ -90,7 +90,7 @@ def validate_authoring_request(request: dict[str, Any]) -> None:
     if distance < 0:
         raise DirectorInputError("motion distance must be nonnegative")
 
-    per_object_scale = params.get("per_object_scale") or {}
+    per_object_scale = params.get("per_object_scale", {})
     if not isinstance(per_object_scale, dict):
         raise DirectorInputError("per_object_scale must be an object")
     for object_id, scale in per_object_scale.items():
@@ -122,6 +122,13 @@ def validate_authoring_request(request: dict[str, Any]) -> None:
         source = keyframe.get("source")
         if not isinstance(source, dict) or not source.get("kind"):
             raise DirectorInputError("camera keyframe source.kind is required")
+        source_kind = source["kind"]
+        if source_kind not in {"active_view", "named_view"}:
+            raise DirectorInputError(
+                "camera keyframe source.kind must be active_view or named_view"
+            )
+        if source_kind == "named_view" and not source.get("name"):
+            raise DirectorInputError("named_view camera keyframes require source.name")
 
 
 def identity_matrix() -> list[list[float]]:
