@@ -8,6 +8,8 @@ from uuid import uuid4
 import httpx
 import pytest
 
+from .conftest import _create_brep
+
 
 pytestmark = [pytest.mark.requires_rhino, pytest.mark.asyncio]
 
@@ -49,6 +51,14 @@ def _identity_matrix() -> list[list[float]]:
         [0.0, 0.0, 1.0, 0.0],
         [0.0, 0.0, 0.0, 1.0],
     ]
+
+
+def _translation_matrix(x: float, y: float, z: float) -> list[list[float]]:
+    matrix = _identity_matrix()
+    matrix[0][3] = x
+    matrix[1][3] = y
+    matrix[2][3] = z
+    return matrix
 
 
 def _frame_instruction(
@@ -282,3 +292,60 @@ async def test_director_frame_capture_rejects_empty_object_transforms():
     )
     assert envelope["success"] is False
     assert _error_code(envelope) == "invalid_input"
+
+
+async def test_director_frame_capture_success_writes_png_and_restores_state():
+    _require_host()
+    object_id = await _create_brep(
+        [0.0, 0.0, 0.0],
+        [1.0, 1.0, 1.0],
+        f"director_task10_{uuid4().hex}",
+    )
+
+    _, state_envelope = await _post_director("object-states", {"object_ids": [object_id]})
+    assert state_envelope["success"] is True
+    source_state = state_envelope["data"]["objects"][0]
+
+    _, view_envelope = await _post_director("view-state", {"source": {"kind": "active_view"}})
+    assert view_envelope["success"] is True
+    camera = view_envelope["data"]["camera"]
+    if camera["projection"] != "perspective":
+        pytest.skip("Active Rhino view is not perspective; slice 1 frame capture rejects parallel cameras.")
+
+    run_root = _director_output_root() / f"task10_success_{uuid4().hex}"
+    output_path = run_root / "frames" / "frame_0001.png"
+    instruction = _frame_instruction(
+        run_root=run_root,
+        output_path=output_path,
+        camera_overrides=camera,
+        object_transforms=[
+            {
+                "object_id": object_id,
+                "transform": _translation_matrix(2.0, 0.0, 0.0),
+                "source_state": {
+                    "bbox_min": source_state["bbox_min"],
+                    "bbox_max": source_state["bbox_max"],
+                    "validation_strength": source_state["validation_strength"],
+                    "state_hash": source_state.get("state_hash"),
+                },
+            }
+        ],
+    )
+
+    _, capture_envelope = await _post_director("frame-capture", instruction)
+    assert capture_envelope["success"] is True
+    evidence = capture_envelope["data"]
+    assert evidence["success"] is True
+    assert evidence["dirty_partial_state"] is False
+    assert Path(instruction["output_path"]).is_file()
+    assert Path(instruction["output_path"]).stat().st_size > 0
+    assert evidence["objects"]["requested"] == 1
+    assert evidence["objects"]["restored"] == 1
+    assert evidence["objects"]["validation_strength"] == "bbox_only"
+    assert evidence["viewport"]["restored"] is True
+
+    _, restored_state_envelope = await _post_director("object-states", {"object_ids": [object_id]})
+    assert restored_state_envelope["success"] is True
+    restored_state = restored_state_envelope["data"]["objects"][0]
+    assert restored_state["bbox_min"] == source_state["bbox_min"]
+    assert restored_state["bbox_max"] == source_state["bbox_max"]

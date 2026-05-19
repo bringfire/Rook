@@ -55,17 +55,32 @@ struct FrameObjectTransform
     std::string objectId;
     ON_UUID uuid = ON_nil_uuid;
     ON_Xform delta = ON_Xform::IdentityTransformation;
+    ON_Xform inverseDelta = ON_Xform::IdentityTransformation;
     ON_BoundingBox sourceBbox;
     std::string validationStrength;
+};
+
+struct FrameCamera
+{
+    ON_3dPoint location = ON_3dPoint::Origin;
+    ON_3dPoint target = ON_3dPoint::Origin;
+    ON_3dVector up = ON_3dVector::ZAxis;
+    bool hasLensLength = false;
+    double lensLength = 0.0;
+    bool hasFovDegrees = false;
+    double fovDegrees = 0.0;
 };
 
 struct FrameInstruction
 {
     std::string frameId;
     int frameIndex = 0;
+    int width = 0;
+    int height = 0;
     fs::path runRoot;
     fs::path outputPath;
     std::string displayMode;
+    FrameCamera camera;
     std::vector<FrameObjectTransform> objectTransforms;
 };
 
@@ -155,6 +170,11 @@ bool HasPositiveOptionalNumber(const nlohmann::json& object, const std::string& 
     return true;
 }
 
+double GetPositiveOptionalNumber(const nlohmann::json& object, const std::string& key)
+{
+    return object[key].get<double>();
+}
+
 bool HasValidFovDegrees(const nlohmann::json& object)
 {
     if (!object.contains("fov_degrees") || object["fov_degrees"].is_null())
@@ -168,6 +188,11 @@ bool HasValidFovDegrees(const nlohmann::json& object)
         throw DirectorFrameValidationError("invalid_input", "fov_degrees must be finite and between 0 and 180");
 
     return true;
+}
+
+double GetFovDegrees(const nlohmann::json& object)
+{
+    return object["fov_degrees"].get<double>();
 }
 
 fs::path PathFromUtf8(const std::string& value)
@@ -391,7 +416,7 @@ nlohmann::json SerializeObjectState(CRhinoDoc* pDoc, const CRhinoObject* obj)
     return state;
 }
 
-void ValidateCamera(const nlohmann::json& body)
+FrameCamera ParseCamera(const nlohmann::json& body)
 {
     if (!body.contains("camera") || !body["camera"].is_object())
         throw DirectorFrameValidationError("invalid_input", "camera must be an object");
@@ -421,6 +446,16 @@ void ValidateCamera(const nlohmann::json& body)
     const bool hasFovDegrees = HasValidFovDegrees(camera);
     if (!hasLensLength && !hasFovDegrees)
         throw DirectorFrameValidationError("invalid_input", "perspective camera requires positive lens_length or fov_degrees");
+
+    FrameCamera parsed;
+    parsed.location = location;
+    parsed.target = target;
+    parsed.up = up;
+    parsed.hasLensLength = hasLensLength;
+    parsed.lensLength = hasLensLength ? GetPositiveOptionalNumber(camera, "lens_length") : 0.0;
+    parsed.hasFovDegrees = hasFovDegrees;
+    parsed.fovDegrees = hasFovDegrees ? GetFovDegrees(camera) : 0.0;
+    return parsed;
 }
 
 ON_Xform ParseTransformMatrix(const nlohmann::json& transform, const std::string& objectId)
@@ -477,6 +512,9 @@ std::vector<FrameObjectTransform> ParseFrameObjectTransforms(const nlohmann::jso
         if (!item.contains("transform"))
             throw DirectorFrameValidationError("invalid_input", "object_transforms[].transform is required", { frameObject.objectId });
         frameObject.delta = ParseTransformMatrix(item["transform"], frameObject.objectId);
+        frameObject.inverseDelta = frameObject.delta;
+        if (!frameObject.inverseDelta.Invert())
+            throw DirectorFrameValidationError("invalid_input", "object transform must be invertible", { frameObject.objectId });
 
         if (!item.contains("source_state") || !item["source_state"].is_object())
             throw DirectorFrameValidationError("invalid_input", "object_transforms[].source_state is required", { frameObject.objectId });
@@ -540,13 +578,16 @@ FrameInstruction ParseFrameInstruction(const nlohmann::json& body)
     if (!body.contains("output_path") || !body["output_path"].is_string() || body["output_path"].get<std::string>().empty())
         throw DirectorFrameValidationError("invalid_input", "output_path is required");
 
-    ValidateCamera(body);
+    FrameCamera camera = ParseCamera(body);
 
     FrameInstruction instruction;
     instruction.frameId = body["frame_id"].get<std::string>();
     instruction.frameIndex = body["frame_index"].get<int>();
+    instruction.width = width;
+    instruction.height = height;
     instruction.runRoot = NormalizePolicyPath(PathFromUtf8(body["run_root"].get<std::string>()));
     instruction.outputPath = NormalizePolicyPath(PathFromUtf8(body["output_path"].get<std::string>()));
+    instruction.camera = camera;
     ValidateOutputPolicy(instruction.runRoot, instruction.outputPath);
 
     if (body.contains("display") && body["display"].is_object() &&
@@ -569,26 +610,6 @@ bool BboxAlmostEqual(const ON_BoundingBox& a, const ON_BoundingBox& b, double to
         std::fabs(a.m_max.z - b.m_max.z) <= tolerance;
 }
 
-void ValidateDisplayMode(const std::string& displayMode)
-{
-    if (displayMode.empty() || IEquals(displayMode, "current"))
-        return;
-
-    ON_UUID modeId = ON_UuidFromString(displayMode.c_str());
-    if (!ON_UuidIsNil(modeId))
-    {
-        if (!CRhinoDisplayAttrsMgr::FindDisplayAttrs(modeId))
-            throw DirectorFrameValidationError("invalid_input", "Display mode UUID not found");
-        return;
-    }
-
-    ON_wString wName = Utf8ToWide(displayMode);
-    DisplayAttrsMgrListDesc* pDesc =
-        CRhinoDisplayAttrsMgr::FindDisplayAttrsDesc(static_cast<const wchar_t*>(wName));
-    if (!pDesc || !pDesc->m_pAttrs)
-        throw DirectorFrameValidationError("invalid_input", "Display mode '" + displayMode + "' not found");
-}
-
 void ValidateFrameObjects(CRhinoDoc* pDoc, const std::vector<FrameObjectTransform>& objects)
 {
     constexpr double kBboxTolerance = 1.0e-4;
@@ -604,6 +625,465 @@ void ValidateFrameObjects(CRhinoDoc* pDoc, const std::vector<FrameObjectTransfor
 
         if (!BboxAlmostEqual(currentBbox, frameObject.sourceBbox, kBboxTolerance))
             throw DirectorFrameValidationError("invalid_input", "Object source_state bbox does not match current document state", { frameObject.objectId });
+    }
+}
+
+std::string PathToUtf8(const fs::path& path)
+{
+    ON_wString wide(path.native().c_str());
+    return WideToUtf8(wide);
+}
+
+ON_UUID ResolveDisplayModeId(const std::string& displayMode)
+{
+    if (displayMode.empty() || IEquals(displayMode, "current"))
+        return ON_nil_uuid;
+
+    ON_UUID modeId = ON_UuidFromString(displayMode.c_str());
+    if (!ON_UuidIsNil(modeId))
+    {
+        if (!CRhinoDisplayAttrsMgr::FindDisplayAttrs(modeId))
+            throw DirectorFrameValidationError("invalid_input", "Display mode UUID not found");
+        return modeId;
+    }
+
+    ON_wString wName = Utf8ToWide(displayMode);
+    DisplayAttrsMgrListDesc* pDesc =
+        CRhinoDisplayAttrsMgr::FindDisplayAttrsDesc(static_cast<const wchar_t*>(wName));
+    if (!pDesc || !pDesc->m_pAttrs)
+        throw DirectorFrameValidationError("invalid_input", "Display mode '" + displayMode + "' not found");
+
+    return pDesc->m_pAttrs->Id();
+}
+
+bool TransformObjectInPlace(CRhinoDoc* pDoc, const FrameObjectTransform& frameObject, const ON_Xform& xform)
+{
+    const CRhinoObject* obj = pDoc->LookupObject(frameObject.uuid);
+    if (!obj || obj->IsDeleted())
+        return false;
+
+    CRhinoObjRef objRef(obj);
+    return pDoc->TransformObject(objRef, xform, true, false, true);
+}
+
+std::vector<std::string> FrameObjectIds(const std::vector<FrameObjectTransform>& objects)
+{
+    std::vector<std::string> ids;
+    ids.reserve(objects.size());
+    for (const FrameObjectTransform& object : objects)
+        ids.push_back(object.objectId);
+    return ids;
+}
+
+class DirectorObjectPoseGuard
+{
+public:
+    DirectorObjectPoseGuard(CRhinoDoc* pDoc, std::vector<FrameObjectTransform> objects)
+        : m_doc(pDoc), m_objects(std::move(objects))
+    {
+        m_applied.resize(m_objects.size(), false);
+        m_restored.resize(m_objects.size(), false);
+    }
+
+    ~DirectorObjectPoseGuard()
+    {
+        if (!m_restoreAttempted)
+            BestEffortRestore();
+    }
+
+    void Apply()
+    {
+        for (size_t i = 0; i < m_objects.size(); ++i)
+        {
+            if (!TransformObjectInPlace(m_doc, m_objects[i], m_objects[i].delta))
+                throw DirectorFrameValidationError(
+                    "native_frame_failed",
+                    "Failed to apply transform for object: " + m_objects[i].objectId,
+                    { m_objects[i].objectId });
+            m_applied[i] = true;
+        }
+        if (m_doc)
+            m_doc->Redraw();
+    }
+
+    bool Restore(nlohmann::json& evidence)
+    {
+        m_restoreAttempted = true;
+        int restoredCount = 0;
+        nlohmann::json details = nlohmann::json::array();
+
+        for (int i = static_cast<int>(m_objects.size()) - 1; i >= 0; --i)
+        {
+            const FrameObjectTransform& object = m_objects[static_cast<size_t>(i)];
+            nlohmann::json detail;
+            detail["object_id"] = object.objectId;
+            detail["applied"] = m_applied[static_cast<size_t>(i)];
+            detail["restored"] = false;
+            detail["validation_strength"] = object.validationStrength;
+
+            if (!m_applied[static_cast<size_t>(i)])
+            {
+                detail["restored"] = true;
+                m_restored[static_cast<size_t>(i)] = true;
+                details.push_back(std::move(detail));
+                ++restoredCount;
+                continue;
+            }
+
+            bool transformedBack = false;
+            try
+            {
+                transformedBack = TransformObjectInPlace(m_doc, object, object.inverseDelta);
+            }
+            catch (const std::exception& ex)
+            {
+                detail["restore_error"] = ex.what();
+            }
+
+            if (!transformedBack)
+            {
+                detail["restore_error"] = detail.value("restore_error", "restore transform failed");
+                details.push_back(std::move(detail));
+                continue;
+            }
+
+            const CRhinoObject* restoredObj = m_doc ? m_doc->LookupObject(object.uuid) : nullptr;
+            if (!restoredObj || restoredObj->IsDeleted())
+            {
+                detail["restore_error"] = "object not found after restore";
+                details.push_back(std::move(detail));
+                continue;
+            }
+
+            ON_BoundingBox restoredBbox = restoredObj->BoundingBox();
+            if (!restoredBbox.IsValid() || !BboxAlmostEqual(restoredBbox, object.sourceBbox, kBboxTolerance))
+            {
+                detail["restore_error"] = "restored bbox did not match source bbox";
+                details.push_back(std::move(detail));
+                continue;
+            }
+
+            detail["restored"] = true;
+            m_restored[static_cast<size_t>(i)] = true;
+            ++restoredCount;
+            details.push_back(std::move(detail));
+        }
+
+        if (m_doc)
+            m_doc->Redraw();
+
+        evidence["objects"]["requested"] = static_cast<int>(m_objects.size());
+        evidence["objects"]["applied"] = AppliedCount();
+        evidence["objects"]["restored"] = restoredCount;
+        evidence["objects"]["validation_strength"] = "bbox_only";
+        evidence["objects"]["details"] = std::move(details);
+        return restoredCount == static_cast<int>(m_objects.size());
+    }
+
+    bool HasDirtyPartialState() const
+    {
+        for (size_t i = 0; i < m_objects.size(); ++i)
+        {
+            if (m_applied[i] && !m_restored[i])
+                return true;
+        }
+        return false;
+    }
+
+    int AppliedCount() const
+    {
+        return static_cast<int>(std::count(m_applied.begin(), m_applied.end(), true));
+    }
+
+private:
+    static constexpr double kBboxTolerance = 1.0e-4;
+
+    void BestEffortRestore()
+    {
+        m_restoreAttempted = true;
+        for (int i = static_cast<int>(m_objects.size()) - 1; i >= 0; --i)
+        {
+            if (!m_applied[static_cast<size_t>(i)] || m_restored[static_cast<size_t>(i)])
+                continue;
+            try
+            {
+                if (TransformObjectInPlace(m_doc, m_objects[static_cast<size_t>(i)], m_objects[static_cast<size_t>(i)].inverseDelta))
+                    m_restored[static_cast<size_t>(i)] = true;
+            }
+            catch (...)
+            {
+            }
+        }
+        if (m_doc)
+            m_doc->Redraw();
+    }
+
+    CRhinoDoc* m_doc = nullptr;
+    std::vector<FrameObjectTransform> m_objects;
+    std::vector<bool> m_applied;
+    std::vector<bool> m_restored;
+    bool m_restoreAttempted = false;
+};
+
+class DirectorViewportGuard
+{
+public:
+    explicit DirectorViewportGuard(CRhinoDoc* pDoc)
+    {
+        if (!pDoc)
+            throw std::runtime_error("No active document");
+
+        m_view = pDoc->ActiveView();
+        if (!m_view)
+            throw std::runtime_error("No active view");
+
+        m_savedViewport = m_view->ActiveViewport().VP();
+        const CDisplayPipelineAttributes* pActive = m_view->DisplayAttributes();
+        if (pActive)
+            m_savedDisplayModeId = pActive->Id();
+    }
+
+    ~DirectorViewportGuard()
+    {
+        if (!m_restoreAttempted)
+            BestEffortRestore();
+    }
+
+    CRhinoView* View() const
+    {
+        return m_view;
+    }
+
+    bool Restore(nlohmann::json& evidence)
+    {
+        m_restoreAttempted = true;
+        bool restored = false;
+        std::string restoreError;
+        try
+        {
+            restored = RestoreNow();
+        }
+        catch (const std::exception& ex)
+        {
+            restoreError = ex.what();
+        }
+
+        evidence["viewport"]["restored"] = restored;
+        if (!restoreError.empty())
+            evidence["viewport"]["restore_error"] = restoreError;
+        m_restored = restored;
+        return restored;
+    }
+
+    bool IsRestored() const
+    {
+        return m_restored;
+    }
+
+private:
+    bool RestoreNow()
+    {
+        if (!m_view)
+            return false;
+
+        CRhinoViewport& vp = m_view->ActiveViewport();
+        vp.SetVP(m_savedViewport, true, false);
+        if (!ON_UuidIsNil(m_savedDisplayModeId))
+            vp.SetDisplayMode(m_savedDisplayModeId);
+        m_view->Redraw();
+        return true;
+    }
+
+    void BestEffortRestore()
+    {
+        m_restoreAttempted = true;
+        try
+        {
+            m_restored = RestoreNow();
+        }
+        catch (...)
+        {
+        }
+    }
+
+    CRhinoView* m_view = nullptr;
+    ON_Viewport m_savedViewport;
+    ON_UUID m_savedDisplayModeId = ON_nil_uuid;
+    bool m_restoreAttempted = false;
+    bool m_restored = false;
+};
+
+void ApplyViewportForFrame(CRhinoView* pView, const FrameInstruction& instruction, ON_UUID displayModeId)
+{
+    if (!pView)
+        throw std::runtime_error("No active view");
+
+    CRhinoViewport& rhinoViewport = pView->ActiveViewport();
+    ON_Viewport targetViewport = rhinoViewport.VP();
+
+    ON_3dVector direction = instruction.camera.target - instruction.camera.location;
+    if (!direction.Unitize())
+        throw DirectorFrameValidationError("invalid_input", "camera location and target must differ");
+
+    targetViewport.SetProjection(ON::perspective_view);
+    if (!targetViewport.SetCameraLocation(instruction.camera.location))
+        throw DirectorFrameValidationError("invalid_input", "Failed to set camera location");
+    if (!targetViewport.SetCameraDirection(direction))
+        throw DirectorFrameValidationError("invalid_input", "Failed to set camera direction");
+    if (!targetViewport.SetCameraUp(instruction.camera.up))
+        throw DirectorFrameValidationError("invalid_input", "Failed to set camera up vector");
+    targetViewport.SetTargetPoint(instruction.camera.target);
+
+    bool cameraOpticsApplied = false;
+    if (instruction.camera.hasLensLength)
+        cameraOpticsApplied = targetViewport.SetCamera35mmLensLength(instruction.camera.lensLength);
+    if (!cameraOpticsApplied && instruction.camera.hasFovDegrees)
+    {
+        const double halfAngleRadians = (instruction.camera.fovDegrees * ON_PI / 180.0) / 2.0;
+        cameraOpticsApplied = targetViewport.SetCameraAngle(halfAngleRadians);
+    }
+    if (!cameraOpticsApplied)
+        throw DirectorFrameValidationError("invalid_input", "Failed to apply perspective camera optics");
+
+    rhinoViewport.SetVP(targetViewport, true, false);
+    if (!ON_UuidIsNil(displayModeId))
+        rhinoViewport.SetDisplayMode(displayModeId);
+    pView->Redraw();
+}
+
+fs::path BuildTempCapturePath(const fs::path& outputPath)
+{
+    std::wstring tempName = outputPath.filename().native() + L".tmp.png";
+    return outputPath.parent_path() / tempName;
+}
+
+void CaptureViewportToFile(CRhinoDoc* pDoc, const FrameInstruction& instruction, const fs::path& tempPath)
+{
+    if (!pDoc)
+        throw std::runtime_error("No active document");
+
+    ON_wString wFilePath(tempPath.native().c_str());
+    std::wstring captureCmd = L"_-ViewCaptureToFile \"" +
+        std::wstring(static_cast<const wchar_t*>(wFilePath)) +
+        L"\" _Width=" + std::to_wstring(instruction.width) +
+        L" _Height=" + std::to_wstring(instruction.height) +
+        L" _Scale=1" +
+        L" _DrawGrid=No" +
+        L" _DrawWorldAxes=No" +
+        L" _DrawCPlaneAxes=No" +
+        L" _TransparentBackground=No" +
+        L" _Enter";
+
+    RhinoApp().RunScript(pDoc->RuntimeSerialNumber(), captureCmd.c_str(), 0);
+}
+
+void ReplaceOutputFromTemp(const fs::path& tempPath, const fs::path& outputPath, bool& overwroteExisting)
+{
+    std::error_code ec;
+    if (!fs::exists(tempPath, ec) || fs::file_size(tempPath, ec) == 0)
+        throw std::runtime_error("Viewport capture did not create a non-empty temp file");
+
+    overwroteExisting = fs::exists(outputPath, ec);
+    if (overwroteExisting)
+    {
+        fs::remove(outputPath, ec);
+        if (ec)
+            throw std::runtime_error("Failed to replace existing output file: " + ec.message());
+    }
+
+    fs::rename(tempPath, outputPath, ec);
+    if (ec)
+        throw std::runtime_error("Failed to move temp capture into output path: " + ec.message());
+
+    if (!fs::exists(outputPath, ec) || fs::file_size(outputPath, ec) == 0)
+        throw std::runtime_error("Output file is missing or empty after capture");
+}
+
+nlohmann::json BaseFrameEvidence(const FrameInstruction& instruction)
+{
+    nlohmann::json data;
+    data["frame_id"] = instruction.frameId;
+    data["frame_index"] = instruction.frameIndex;
+    data["success"] = false;
+    data["dirty_partial_state"] = false;
+    data["affected_object_ids"] = FrameObjectIds(instruction.objectTransforms);
+    data["output_path"] = PathToUtf8(instruction.outputPath);
+    data["run_root"] = PathToUtf8(instruction.runRoot);
+    data["validation_strength"] = "bbox_only";
+    data["objects"] = {
+        { "requested", static_cast<int>(instruction.objectTransforms.size()) },
+        { "applied", 0 },
+        { "restored", 0 },
+        { "validation_strength", "bbox_only" },
+        { "details", nlohmann::json::array() }
+    };
+    data["viewport"] = {
+        { "active_view_resolved", false },
+        { "restored", false }
+    };
+    return data;
+}
+
+nlohmann::json ExecuteFrameTransaction(CRhinoDoc* pDoc, const FrameInstruction& instruction)
+{
+    nlohmann::json data = BaseFrameEvidence(instruction);
+
+    ValidateFrameObjects(pDoc, instruction.objectTransforms);
+    ON_UUID displayModeId = ResolveDisplayModeId(instruction.displayMode);
+
+    std::error_code ec;
+    fs::create_directories(instruction.outputPath.parent_path(), ec);
+    if (ec)
+        throw DirectorFrameValidationError("output_policy_violation", "Failed to create output directory: " + ec.message());
+
+    const fs::path tempPath = BuildTempCapturePath(instruction.outputPath);
+    data["temp_output_path"] = PathToUtf8(tempPath);
+
+    fs::remove(tempPath, ec);
+    if (ec)
+        throw std::runtime_error("Failed to clear stale temp capture file: " + ec.message());
+
+    bool overwroteExisting = false;
+    DirectorObjectPoseGuard objectGuard(pDoc, instruction.objectTransforms);
+    DirectorViewportGuard viewportGuard(pDoc);
+    data["viewport"]["active_view_resolved"] = true;
+
+    try
+    {
+        objectGuard.Apply();
+        data["objects"]["applied"] = objectGuard.AppliedCount();
+
+        ApplyViewportForFrame(viewportGuard.View(), instruction, displayModeId);
+        CaptureViewportToFile(pDoc, instruction, tempPath);
+        ReplaceOutputFromTemp(tempPath, instruction.outputPath, overwroteExisting);
+        data["overwrote_existing"] = overwroteExisting;
+
+        const bool objectsRestored = objectGuard.Restore(data);
+        const bool viewportRestored = viewportGuard.Restore(data);
+        const bool clean = objectsRestored && viewportRestored;
+        data["dirty_partial_state"] = !clean;
+        data["success"] = clean;
+        if (!clean)
+            data["error"] = MakeErrorData("unsafe_failed", "Frame captured but restoration could not be verified");
+        return data;
+    }
+    catch (const DirectorFrameValidationError& ex)
+    {
+        objectGuard.Restore(data);
+        viewportGuard.Restore(data);
+        data["dirty_partial_state"] = objectGuard.HasDirtyPartialState() || !viewportGuard.IsRestored();
+        data["error"] = MakeErrorData(data["dirty_partial_state"].get<bool>() ? "unsafe_failed" : ex.code, ex.what());
+        data["success"] = false;
+        return data;
+    }
+    catch (const std::exception& ex)
+    {
+        objectGuard.Restore(data);
+        viewportGuard.Restore(data);
+        data["dirty_partial_state"] = objectGuard.HasDirtyPartialState() || !viewportGuard.IsRestored();
+        data["error"] = MakeErrorData(data["dirty_partial_state"].get<bool>() ? "unsafe_failed" : "native_frame_failed", ex.what());
+        data["success"] = false;
+        return data;
     }
 }
 
@@ -748,22 +1228,14 @@ void HandleDirectorFrameCapture(const httplib::Request& req, httplib::Response& 
             [docSn, instruction]() -> nlohmann::json
         {
             CRhinoDoc* pDoc = ResolveDoc(docSn);
-            ValidateDisplayMode(instruction.displayMode);
-            ValidateFrameObjects(pDoc, instruction.objectTransforms);
-
-            nlohmann::json data;
-            data["frame_id"] = instruction.frameId;
-            data["frame_index"] = instruction.frameIndex;
-            data["success"] = false;
-            data["dirty_partial_state"] = false;
-            data["affected_object_ids"] = nlohmann::json::array();
-            data["error"] = MakeErrorData(
-                "not_implemented",
-                "/director/frame-capture validation passed; guarded capture is implemented in the next task");
-            return data;
+            return ExecuteFrameTransaction(pDoc, instruction);
         });
 
-        CRookServer::SendErrorData(res, future.get());
+        nlohmann::json data = future.get();
+        if (data.value("success", false))
+            CRookServer::SendSuccess(res, data);
+        else
+            CRookServer::SendErrorData(res, data);
     }
     catch (const DirectorFrameValidationError& ex)
     {
