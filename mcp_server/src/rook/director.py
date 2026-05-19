@@ -90,6 +90,39 @@ def validate_authoring_request(request: dict[str, Any]) -> None:
     if distance < 0:
         raise DirectorInputError("motion distance must be nonnegative")
 
+    per_object_scale = params.get("per_object_scale") or {}
+    if not isinstance(per_object_scale, dict):
+        raise DirectorInputError("per_object_scale must be an object")
+    for object_id, scale in per_object_scale.items():
+        try:
+            numeric_scale = float(scale)
+        except (TypeError, ValueError) as ex:
+            raise DirectorInputError(
+                f"per_object_scale for {object_id} must be numeric"
+            ) from ex
+        if numeric_scale < 0:
+            raise DirectorInputError(
+                f"per_object_scale for {object_id} must be nonnegative"
+            )
+
+    camera_keyframes = request.get("camera_keyframes")
+    if not isinstance(camera_keyframes, list) or not camera_keyframes:
+        raise DirectorInputError("camera_keyframes must contain at least one keyframe")
+    for keyframe in camera_keyframes:
+        if not isinstance(keyframe, dict):
+            raise DirectorInputError("camera keyframe entries must be objects")
+        try:
+            frame_index = int(keyframe.get("frame_index"))
+        except (TypeError, ValueError) as ex:
+            raise DirectorInputError("camera keyframe frame_index must be an integer") from ex
+        if frame_index < 1 or frame_index > frame_count:
+            raise DirectorInputError(
+                "camera keyframe frame_index must be inside 1..frame_count"
+            )
+        source = keyframe.get("source")
+        if not isinstance(source, dict) or not source.get("kind"):
+            raise DirectorInputError("camera keyframe source.kind is required")
+
 
 def identity_matrix() -> list[list[float]]:
     return [
@@ -217,6 +250,15 @@ async def _resolve_camera_keyframes(
         if not result.get("success"):
             raise DirectorInputError(f"camera resolution failed: {result.get('data')}")
         data = result["data"]
+        projection = str(data["camera"].get("projection", "")).lower()
+        if projection == "parallel":
+            raise DirectorInputError(
+                "parallel cameras are not supported by RookVisionDirector slice1"
+            )
+        if projection != "perspective":
+            raise DirectorInputError(
+                f"camera projection is unsupported by RookVisionDirector slice1: {projection}"
+            )
         resolved.append(
             {
                 "frame_index": frame_index,

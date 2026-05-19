@@ -44,6 +44,50 @@ def test_output_root_must_stay_under_shared_director_root(tmp_path, monkeypatch)
             },
             "distance",
         ),
+        (
+            {
+                "frame_count": 1,
+                "resolution": {"width": 1280, "height": 720},
+                "camera_keyframes": [{"frame_index": 1, "source": {"kind": "active_view"}}],
+                "motion": {
+                    "strategy": "radial_bbox_center",
+                    "parameters": {"distance": 1, "per_object_scale": {"a": -1}},
+                },
+            },
+            "per_object_scale",
+        ),
+        (
+            {
+                "frame_count": 1,
+                "resolution": {"width": 1280, "height": 720},
+                "camera_keyframes": [{"frame_index": 1, "source": {"kind": "active_view"}}],
+                "motion": {
+                    "strategy": "radial_bbox_center",
+                    "parameters": {"distance": 1, "per_object_scale": {"a": "large"}},
+                },
+            },
+            "per_object_scale",
+        ),
+        (
+            {"frame_count": 1, "resolution": {"width": 1280, "height": 720}},
+            "camera_keyframes",
+        ),
+        (
+            {
+                "frame_count": 2,
+                "resolution": {"width": 1280, "height": 720},
+                "camera_keyframes": [{"frame_index": 3, "source": {"kind": "active_view"}}],
+            },
+            "camera keyframe",
+        ),
+        (
+            {
+                "frame_count": 2,
+                "resolution": {"width": 1280, "height": 720},
+                "camera_keyframes": [{"frame_index": 1}],
+            },
+            "camera keyframe",
+        ),
     ],
 )
 def test_validate_request_rejects_bad_authoring_inputs(payload, message):
@@ -100,10 +144,11 @@ def test_radial_bbox_center_records_fallback_direction_warning():
 
 
 class FakeNative:
-    def __init__(self, responses, *, create_outputs=False):
+    def __init__(self, responses, *, create_outputs=False, projection="perspective"):
         self.responses = list(responses)
         self.calls = []
         self.create_outputs = create_outputs
+        self.projection = projection
 
     async def __call__(self, endpoint, method="POST", data=None, port=None):
         self.calls.append((endpoint, method, data, port))
@@ -129,7 +174,7 @@ class FakeNative:
                 "success": True,
                 "data": {
                     "camera": {
-                        "projection": "perspective",
+                        "projection": self.projection,
                         "location": location,
                         "target": [0, 0, 0],
                         "up": [0, 0, 1],
@@ -322,3 +367,21 @@ def test_bad_camera_keyframe_does_not_create_run_directory(tmp_path):
     with pytest.raises(director.DirectorInputError, match="camera keyframe"):
         asyncio.run(director.run_director(request, call_native=FakeNative([]), runtime=_runtime(tmp_path)))
     assert not (tmp_path / "data" / "rookvision_director" / "bad-camera").exists()
+
+
+def test_missing_camera_keyframes_does_not_call_native(tmp_path):
+    request = _run_request(tmp_path)
+    request.pop("camera_keyframes")
+    fake = FakeNative([])
+    with pytest.raises(director.DirectorInputError, match="camera_keyframes"):
+        asyncio.run(director.run_director(request, call_native=fake, runtime=_runtime(tmp_path)))
+    assert fake.calls == []
+
+
+def test_parallel_camera_rejected_before_run_directory_creation(tmp_path):
+    request = _run_request(tmp_path)
+    request["run_id"] = "parallel-camera"
+    fake = FakeNative([], projection="parallel")
+    with pytest.raises(director.DirectorInputError, match="parallel"):
+        asyncio.run(director.run_director(request, call_native=fake, runtime=_runtime(tmp_path)))
+    assert not (tmp_path / "data" / "rookvision_director" / "parallel-camera").exists()
