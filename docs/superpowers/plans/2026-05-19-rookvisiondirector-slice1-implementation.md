@@ -883,7 +883,7 @@ pytest mcp_server/tests/test_director.py -q
 
 Expected: all tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Run:
 
@@ -899,7 +899,7 @@ git commit -m "feat: add director manifest runner"
 - Modify: `mcp_server/src/rook/server.py`
 - Modify: `mcp_server/src/rook/agent/tool_groups.py`
 
-- [ ] **Step 1: Write failing MCP registration and dispatch tests**
+- [x] **Step 1: Write failing MCP registration and dispatch tests**
 
 Create `mcp_server/tests/test_director_mcp_tools.py` with:
 
@@ -955,7 +955,7 @@ def test_director_tool_groups_are_mcp_only():
     assert "director" in tool_groups.MCP_ONLY_GROUPS
 ```
 
-- [ ] **Step 2: Run tests and verify failures**
+- [x] **Step 2: Run tests and verify failures**
 
 Run:
 
@@ -965,7 +965,7 @@ pytest mcp_server/tests/test_director_mcp_tools.py -q
 
 Expected: fails because `rhino_director_run` is not registered and no director group exists.
 
-- [ ] **Step 3: Register the MCP tool**
+- [x] **Step 3: Register the MCP tool**
 
 Modify `mcp_server/src/rook/server.py`:
 
@@ -1017,7 +1017,7 @@ Add the `call_tool` case:
             result = await director.run_director(arguments, port=port)
 ```
 
-- [ ] **Step 4: Add tool group catalog entries**
+- [x] **Step 4: Add tool group catalog entries**
 
 Modify `mcp_server/src/rook/agent/tool_groups.py`:
 
@@ -1036,7 +1036,7 @@ Add to `MCP_ONLY_GROUPS`:
     "director",
 ```
 
-- [ ] **Step 5: Run tests**
+- [x] **Step 5: Run tests**
 
 Run:
 

@@ -193,6 +193,17 @@ TOOL_GROUPS: Dict[str, List[str]] = {
         "rhino_document",
     ],
 
+    # --- RookVisionDirector ---
+    # Python-orchestrated director run. Native owns only per-frame
+    # transaction primitives, so rhino_director_run is MCP-only until the
+    # internal agent dispatcher can host Python-local tools directly.
+    "director": [
+        "rhino_director_run",
+    ],
+    "director_readonly": [
+        "rhino_objects", "rhino_views", "rhino_display_modes", "rhino_document",
+    ],
+
     # --- Vision (PR-6): Gemini generation + artifact management ---
     # MCP-only: internal agents do not have BRIDGE_ROUTES entries for
     # these, so the group is registered in MCP_ONLY_GROUPS below. When
@@ -442,6 +453,7 @@ MCP_ONLY_GROUPS: Set[str] = {
     # both entries below.
     "vision",
     "vision_readonly",
+    "director",
     # NOTE: "sessions" is intentionally excluded here — all four tools
     # (session_current/history/list/export) are in BRIDGE_ROUTES and work
     # through the C++ HTTP server, so agents can request them normally.
