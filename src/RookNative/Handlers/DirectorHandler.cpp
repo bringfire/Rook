@@ -22,6 +22,9 @@ namespace Rook {
 namespace Handlers {
 namespace {
 
+constexpr int kMaxDirectorCaptureWidth = 8192;
+constexpr int kMaxDirectorCaptureHeight = 8192;
+
 nlohmann::json MakeErrorData(const std::string& code, const std::string& message)
 {
     nlohmann::json data;
@@ -51,7 +54,9 @@ struct FrameObjectTransform
 {
     std::string objectId;
     ON_UUID uuid = ON_nil_uuid;
+    ON_Xform delta = ON_Xform::IdentityTransformation;
     ON_BoundingBox sourceBbox;
+    std::string validationStrength;
 };
 
 struct FrameInstruction
@@ -133,6 +138,21 @@ bool IsFinitePoint(const ON_3dPoint& point)
 bool IsFiniteVector(const ON_3dVector& vector)
 {
     return std::isfinite(vector.x) && std::isfinite(vector.y) && std::isfinite(vector.z);
+}
+
+bool HasPositiveOptionalNumber(const nlohmann::json& object, const std::string& key)
+{
+    if (!object.contains(key) || object[key].is_null())
+        return false;
+
+    if (!object[key].is_number())
+        throw DirectorFrameValidationError("invalid_input", key + " must be a positive number when provided");
+
+    double value = object[key].get<double>();
+    if (!std::isfinite(value) || value <= 0.0)
+        throw DirectorFrameValidationError("invalid_input", key + " must be a positive finite number");
+
+    return true;
 }
 
 fs::path PathFromUtf8(const std::string& value)
@@ -381,26 +401,37 @@ void ValidateCamera(const nlohmann::json& body)
         throw DirectorFrameValidationError("invalid_input", "camera location and target must differ");
     if (!up.Unitize())
         throw DirectorFrameValidationError("invalid_input", "camera.up must be nonzero");
+
+    const bool hasLensLength = HasPositiveOptionalNumber(camera, "lens_length");
+    const bool hasFovDegrees = HasPositiveOptionalNumber(camera, "fov_degrees");
+    if (!hasLensLength && !hasFovDegrees)
+        throw DirectorFrameValidationError("invalid_input", "perspective camera requires positive lens_length or fov_degrees");
 }
 
-void ValidateTransformMatrix(const nlohmann::json& transform, const std::string& objectId)
+ON_Xform ParseTransformMatrix(const nlohmann::json& transform, const std::string& objectId)
 {
     if (!transform.is_array() || transform.size() != 4)
         throw DirectorFrameValidationError("invalid_input", "transform must be a 4x4 numeric matrix", { objectId });
 
-    for (const auto& row : transform)
+    ON_Xform xform = ON_Xform::IdentityTransformation;
+    for (size_t rowIndex = 0; rowIndex < 4; ++rowIndex)
     {
+        const auto& row = transform[rowIndex];
         if (!row.is_array() || row.size() != 4)
             throw DirectorFrameValidationError("invalid_input", "transform must be a 4x4 numeric matrix", { objectId });
-        for (const auto& value : row)
+        for (size_t colIndex = 0; colIndex < 4; ++colIndex)
         {
+            const auto& value = row[colIndex];
             if (!value.is_number())
                 throw DirectorFrameValidationError("invalid_input", "transform must be a 4x4 numeric matrix", { objectId });
             double numeric = value.get<double>();
             if (!std::isfinite(numeric))
                 throw DirectorFrameValidationError("invalid_input", "transform matrix values must be finite", { objectId });
+            xform.m_xform[rowIndex][colIndex] = numeric;
         }
     }
+
+    return xform;
 }
 
 std::vector<FrameObjectTransform> ParseFrameObjectTransforms(const nlohmann::json& body)
@@ -430,12 +461,18 @@ std::vector<FrameObjectTransform> ParseFrameObjectTransforms(const nlohmann::jso
 
         if (!item.contains("transform"))
             throw DirectorFrameValidationError("invalid_input", "object_transforms[].transform is required", { frameObject.objectId });
-        ValidateTransformMatrix(item["transform"], frameObject.objectId);
+        frameObject.delta = ParseTransformMatrix(item["transform"], frameObject.objectId);
 
         if (!item.contains("source_state") || !item["source_state"].is_object())
             throw DirectorFrameValidationError("invalid_input", "object_transforms[].source_state is required", { frameObject.objectId });
 
         const auto& sourceState = item["source_state"];
+        if (!sourceState.contains("validation_strength") || !sourceState["validation_strength"].is_string())
+            throw DirectorFrameValidationError("invalid_input", "source_state.validation_strength is required", { frameObject.objectId });
+        frameObject.validationStrength = sourceState["validation_strength"].get<std::string>();
+        if (frameObject.validationStrength != "bbox_only")
+            throw DirectorFrameValidationError("invalid_input", "source_state.validation_strength must be bbox_only for slice1", { frameObject.objectId });
+
         ON_3dPoint bboxMin = ParsePointArray3(sourceState.value("bbox_min", nlohmann::json()), "source_state.bbox_min");
         ON_3dPoint bboxMax = ParsePointArray3(sourceState.value("bbox_max", nlohmann::json()), "source_state.bbox_max");
         frameObject.sourceBbox = ON_BoundingBox(bboxMin, bboxMax);
@@ -473,6 +510,14 @@ FrameInstruction ParseFrameInstruction(const nlohmann::json& body)
         resolution["width"].get<int>() <= 0 || resolution["height"].get<int>() <= 0)
     {
         throw DirectorFrameValidationError("invalid_input", "resolution width and height must be positive");
+    }
+    const int width = resolution["width"].get<int>();
+    const int height = resolution["height"].get<int>();
+    if (width > kMaxDirectorCaptureWidth || height > kMaxDirectorCaptureHeight)
+    {
+        throw DirectorFrameValidationError(
+            "invalid_input",
+            "resolution exceeds native director capture bounds");
     }
 
     if (!body.contains("run_root") || !body["run_root"].is_string() || body["run_root"].get<std::string>().empty())
@@ -673,10 +718,15 @@ void HandleDirectorViewState(const httplib::Request& req, httplib::Response& res
 
 void HandleDirectorFrameCapture(const httplib::Request& req, httplib::Response& res)
 {
-    auto [docSn, body] = ParseBodyAndDocSn(req);
+    unsigned int docSn = 0;
+    nlohmann::json body = nlohmann::json::object();
 
     try
     {
+        auto parsed = ParseBodyAndDocSn(req);
+        docSn = parsed.first;
+        body = std::move(parsed.second);
+
         FrameInstruction instruction = ParseFrameInstruction(body);
 
         auto future = CMainThreadDispatcher::Instance().Dispatch(
@@ -703,6 +753,10 @@ void HandleDirectorFrameCapture(const httplib::Request& req, httplib::Response& 
     catch (const DirectorFrameValidationError& ex)
     {
         CRookServer::SendErrorData(res, MakeFrameErrorData(body, ex.code, ex.what(), ex.affectedObjectIds));
+    }
+    catch (const nlohmann::json::exception& ex)
+    {
+        CRookServer::SendErrorData(res, MakeFrameErrorData(body, "invalid_input", ex.what()));
     }
     catch (const std::invalid_argument& ex)
     {

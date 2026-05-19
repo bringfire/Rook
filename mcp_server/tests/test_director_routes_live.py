@@ -58,6 +58,7 @@ def _frame_instruction(
     schema_version: int = 1,
     director_version: str = "slice1",
     projection: str = "perspective",
+    resolution: dict[str, int] | None = None,
     object_transforms: Any | None = None,
 ) -> dict[str, Any]:
     root = run_root or (_director_output_root() / "task8_contract")
@@ -83,7 +84,7 @@ def _frame_instruction(
         "frame_id": "frame_0001",
         "run_root": str(root),
         "output_path": str(output),
-        "resolution": {"width": 320, "height": 180},
+        "resolution": resolution or {"width": 320, "height": 180},
         "display": {"mode": "Rendered"},
         "camera": {
             "projection": projection,
@@ -176,6 +177,22 @@ async def test_director_frame_capture_rejects_invalid_director_version():
     _, envelope = await _post_director(
         "frame-capture",
         _frame_instruction(director_version="slice2"),
+    )
+    assert envelope["success"] is False
+    assert _error_code(envelope) == "invalid_input"
+
+
+async def test_director_frame_capture_rejects_over_limit_resolution():
+    _, envelope = await _post_director(
+        "frame-capture",
+        _frame_instruction(resolution={"width": 8193, "height": 180}),
+    )
+    assert envelope["success"] is False
+    assert _error_code(envelope) == "invalid_input"
+
+    _, envelope = await _post_director(
+        "frame-capture",
+        _frame_instruction(resolution={"width": 320, "height": 8193}),
     )
     assert envelope["success"] is False
     assert _error_code(envelope) == "invalid_input"
