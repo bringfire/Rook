@@ -38,7 +38,8 @@ Python owns run-level authoring and orchestration:
 - target object resolution;
 - explode motion strategy authoring;
 - camera keyframe resolution and interpolation;
-- output folder creation;
+- output folder creation under a Rook-controlled or configured director output
+  root;
 - `manifest.json`, `status.json`, and `logs/frame_evidence.jsonl`;
 - progress, cancellation, and status transitions;
 - future RookVision handoff.
@@ -64,6 +65,11 @@ infer creative intent.
 Every native frame call must leave the document and active viewport as it found
 them, regardless of success or failure. Python can stop, retry, or cancel
 between frames because no frame may leave the model posed.
+
+Native frame execution also validates that each referenced object still matches
+the source state recorded for the run before applying the frame delta. This
+prevents source-relative transforms from being applied to a model that changed
+between frames.
 
 ## Current Architecture Fit
 
@@ -181,12 +187,29 @@ Camera execution input uses `location + target + up` as the authoritative form:
   "target": [0.0, 0.0, 0.0],
   "up": [0.0, 0.0, 1.0],
   "lens_length": 35.0,
+  "fov_degrees": null,
+  "parallel_scale": null,
+  "near_clip": null,
+  "far_clip": null,
   "aspect": 1.7778
 }
 ```
 
 `direction` may appear in evidence as a derived value, but is not an
 independent execution input in slice 1.
+
+Projection-specific fields are required where applicable:
+
+- perspective cameras require a reliably resolved lens length or FOV;
+- parallel cameras require a reliably resolved parallel scale/frustum-height
+  value, plus aspect;
+- clipping fields are recorded when available and omitted or null only when the
+  inventory proves they are not needed for faithful slice 1 execution.
+
+If Phase 0 cannot verify the Rhino SDK calls needed to resolve and apply
+parallel camera scale/frustum data, slice 1 must explicitly restrict execution
+to perspective cameras until a later slice adds parallel support. It must not
+silently execute named parallel views with incomplete camera data.
 
 Python linearly interpolates per-frame `location`, `target`, and lens/FOV
 fields. `up` is interpolated only with normalization and degeneracy checks.
@@ -212,17 +235,21 @@ Frame indexes are one-based, matching filenames such as `frame_0001.png`.
 The Python authoring request may include explicit object IDs or current
 selection, frame count, resolution, display mode, camera keyframes, motion
 strategy parameters, and optional output root. If `output_root` is absent,
-Python resolves a Rook-controlled default output root and records the absolute
-run folder path.
+Python resolves a Rook-controlled default output root. If `output_root` is
+present, Python resolves it only through configured or registered director
+output roots. The resolved absolute run folder path is recorded in the
+manifest.
 
 `manifest.json` is the source of resolved intent. It records:
 
 - schema and director version;
 - run ID;
 - resolved absolute output folder;
+- resolved allowed output root;
 - document identity when available;
 - document units when available;
-- source object IDs and optional display-name/type/layer provenance;
+- source object IDs, transform-relevant source-state records, and optional
+  display-name/type/layer provenance;
 - motion strategy, parameters, and warnings;
 - camera keyframe provenance;
 - resolved per-frame camera states;
@@ -245,6 +272,7 @@ Native frame instruction shape:
   "run_id": "run-id",
   "frame_index": 1,
   "frame_id": "frame_0001",
+  "run_root": "C:/.../rookvision_director/run-id",
   "output_path": "C:/.../frames/frame_0001.png",
   "resolution": { "width": 1280, "height": 720 },
   "display": { "mode": "Rendered" },
@@ -254,11 +282,20 @@ Native frame instruction shape:
     "target": [0.0, 0.0, 0.0],
     "up": [0.0, 0.0, 1.0],
     "lens_length": 35.0,
+    "fov_degrees": null,
+    "parallel_scale": null,
+    "near_clip": null,
+    "far_clip": null,
     "aspect": 1.7778
   },
   "object_transforms": [
     {
       "object_id": "object-guid",
+      "source_state": {
+        "bbox_min": [0.0, 0.0, 0.0],
+        "bbox_max": [1.0, 1.0, 1.0],
+        "state_hash": null
+      },
       "transform": [
         [1, 0, 0, 2.5],
         [0, 1, 0, 0],
@@ -271,21 +308,27 @@ Native frame instruction shape:
 ```
 
 `object_transforms[].transform` is a delta from the object's pre-frame source
-state, computed by Python for that frame. Native snapshots current state,
-applies the delta, captures, and restores the snapshot. Because native restores
-after every frame, frame deltas are source-relative, not accumulated from prior
-frames.
+state, computed by Python for that frame. `source_state` carries the
+transform-relevant source pose observed when the manifest was resolved. Native
+checks the current object against this source state before mutation, snapshots
+current state, applies the delta, captures, and restores the snapshot. Because
+native restores after every frame, frame deltas are source-relative, not
+accumulated from prior frames.
 
 Native validates before mutation:
 
 - schema/version are supported;
 - frame fields are valid and one-based;
 - resolution is within supported bounds;
-- output directory exists or can be created;
+- `run_root` and `output_path` canonicalize under a Rook-controlled or
+  configured director output root;
+- `output_path` canonicalizes as a descendant of `run_root`;
+- output directory exists or can be created inside the allowed run root;
 - display mode is supported;
 - camera vectors and projection fields are valid and nondegenerate;
 - all object IDs resolve;
 - objects are eligible top-level document objects;
+- current object state matches the supplied source state within tolerance;
 - transform matrices parse as valid `ON_Xform` deltas.
 
 Validation failure must not mutate the document or viewport.
@@ -298,6 +341,7 @@ Native evidence includes:
 - display requested and resolved;
 - applied camera echo plus derived direction;
 - object counts requested/applied/restored;
+- source-state validation result;
 - affected object IDs on failure;
 - viewport restore status;
 - restoration verification status;
@@ -331,9 +375,11 @@ patterns, applies explicit camera and viewport display mode, captures a PNG,
 explicitly restores objects and viewport, verifies restoration within
 tolerance, and returns evidence.
 
-Output handling must write to a temp file in the target directory, verify it
-exists and has nonzero size, then replace or move it to `output_path`. Evidence
-records whether an existing output file was overwritten.
+Output handling must canonicalize `run_root` and `output_path`, reject writes
+outside the allowed director output roots, write to a temp file in the target
+directory, verify it exists and has nonzero size, then replace or move it to
+`output_path`. Evidence records whether an existing output file was
+overwritten.
 
 Slice 1 verifies transform/location and viewport camera/display restoration
 pragmatically. It does not claim full geometry, material, user-data, layer, or
@@ -365,12 +411,16 @@ Python validates before manifest creation:
 - per-object scales are valid;
 - camera keyframes are within `1..frame_count`;
 - keyframe sources resolve;
-- output root is usable;
+- output root is usable and resolves under a Rook-controlled or configured
+  director output root;
 - motion strategy is supported.
 
 Python creates the run folder, writes `manifest.json`, writes initial
 `status.json`, calls native once per frame, appends each evidence response to
 `logs/frame_evidence.jsonl`, and stops cleanly between frames on cancellation.
+The manifest stores source-state records for each target object, and Python
+passes those records to every native frame instruction so native can reject
+stale source poses before mutation.
 
 ## Run States And Recovery
 
@@ -417,7 +467,9 @@ Rhino.
 Test:
 
 - pre-mutation validation;
+- output-root allowlist and path traversal rejection;
 - temp/replace output behavior;
+- source-state mismatch rejection before mutation;
 - object restore on success;
 - object restore on induced capture failure;
 - viewport restore;
@@ -432,6 +484,8 @@ per-frame native calls.
 
 Test authoring failures before manifest creation and status transitions:
 `complete`, `failed`, `cancelled`, `evidence_failed`, and `unsafe_failed`.
+Also test output-root resolution, manifest source-state recording, stale-source
+native evidence handling, and projection-specific camera validation.
 
 ### Phase 3: End-To-End Slice Proof
 
@@ -443,8 +497,8 @@ Given a known Rhino fixture scene, produce a 3 to 5 frame sequence and verify:
 - object and viewport state are restored after success, failure, and
   cancellation;
 - manifest records units, object display names when available, camera
-  provenance, resolved per-frame cameras, and resolved per-frame transform
-  deltas.
+  provenance, resolved per-frame cameras, source-state records, and resolved
+  per-frame transform deltas.
 
 Visual checks in Phase 3 are smoke checks, not formal visual regression tests:
 
@@ -477,6 +531,10 @@ The reviewer evaluates:
 - Does native leave the document and active viewport as it found them after
   every frame call?
 - Are failed and unsafe runs clearly distinguished?
+- Does native reject frame output paths outside allowed director roots?
+- Does native reject source-state mismatches before applying source-relative
+  deltas?
+- Are parallel camera states either fully represented or explicitly rejected?
 - Does the manifest describe resolved intent while evidence describes observed
   execution?
 - Are slice 1 exclusions honest enough to keep the workflow testable?
@@ -488,6 +546,10 @@ The reviewer evaluates:
 - Radial motion is named as the first strategy, not the conceptual limit.
 - Transform delta semantics are explicit and source-relative.
 - Camera execution input has one authority: `location + target + up`.
+- Projection-specific camera fields now cover perspective and parallel
+  execution, with explicit restriction if parallel cannot be verified.
+- Native output paths are constrained to allowed director roots.
+- Source-state validation protects source-relative transform semantics.
 - Per-frame native transaction boundaries are explicit.
 - Failed and unsafe run states are distinct.
 - Replayability is conditional on a clean/restored source document.
