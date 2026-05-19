@@ -61,6 +61,12 @@ def _translation_matrix(x: float, y: float, z: float) -> list[list[float]]:
     return matrix
 
 
+def _assert_vector_close(actual: list[float], expected: list[float], tolerance: float = 1.0e-4) -> None:
+    assert len(actual) == len(expected)
+    for actual_value, expected_value in zip(actual, expected):
+        assert abs(actual_value - expected_value) <= tolerance
+
+
 def _frame_instruction(
     *,
     run_root: Path | None = None,
@@ -230,6 +236,24 @@ async def test_director_frame_capture_rejects_invalid_fov_degrees():
     assert _error_code(envelope) == "invalid_input"
 
 
+async def test_director_frame_capture_rejects_invalid_frustum_fields():
+    _, envelope = await _post_director(
+        "frame-capture",
+        _frame_instruction(camera_overrides={"aspect": 0.0}),
+    )
+    assert envelope["success"] is False
+    assert _error_code(envelope) == "invalid_input"
+    assert "aspect" in str(envelope["data"])
+
+    _, envelope = await _post_director(
+        "frame-capture",
+        _frame_instruction(camera_overrides={"near_clip": 10.0, "far_clip": 1.0}),
+    )
+    assert envelope["success"] is False
+    assert _error_code(envelope) == "invalid_input"
+    assert "near_clip" in str(envelope["data"])
+
+
 async def test_director_frame_capture_rejects_missing_validation_strength():
     transform = {
         "object_id": "00000000-0000-0000-0000-000000000001",
@@ -311,6 +335,7 @@ async def test_director_frame_capture_success_writes_png_and_restores_state():
     camera = view_envelope["data"]["camera"]
     if camera["projection"] != "perspective":
         pytest.skip("Active Rhino view is not perspective; slice 1 frame capture rejects parallel cameras.")
+    original_display_mode = "Rendered"
 
     run_root = _director_output_root() / f"task10_success_{uuid4().hex}"
     output_path = run_root / "frames" / "frame_0001.png"
@@ -343,9 +368,26 @@ async def test_director_frame_capture_success_writes_png_and_restores_state():
     assert evidence["objects"]["restored"] == 1
     assert evidence["objects"]["validation_strength"] == "bbox_only"
     assert evidence["viewport"]["restored"] is True
+    assert evidence["viewport"]["restore_verified"] is True
+    assert evidence["capture"]["width"] == instruction["resolution"]["width"]
+    assert evidence["capture"]["height"] == instruction["resolution"]["height"]
+    assert evidence["capture"]["output_path"] == instruction["output_path"]
+    assert evidence["camera"]["applied"]["projection"] == "perspective"
+    assert evidence["camera"]["applied"]["aspect"] == instruction["camera"]["aspect"]
+    assert evidence["camera"]["applied"]["near_clip"] == instruction["camera"]["near_clip"]
+    assert evidence["camera"]["applied"]["far_clip"] == instruction["camera"]["far_clip"]
+    assert evidence["display"]["requested_mode"] == original_display_mode
+    assert evidence["display"]["restored"] is True
 
     _, restored_state_envelope = await _post_director("object-states", {"object_ids": [object_id]})
     assert restored_state_envelope["success"] is True
     restored_state = restored_state_envelope["data"]["objects"][0]
     assert restored_state["bbox_min"] == source_state["bbox_min"]
     assert restored_state["bbox_max"] == source_state["bbox_max"]
+
+    _, restored_view_envelope = await _post_director("view-state", {"source": {"kind": "active_view"}})
+    assert restored_view_envelope["success"] is True
+    restored_camera = restored_view_envelope["data"]["camera"]
+    _assert_vector_close(restored_camera["location"], camera["location"])
+    _assert_vector_close(restored_camera["target"], camera["target"])
+    _assert_vector_close(restored_camera["up"], camera["up"])

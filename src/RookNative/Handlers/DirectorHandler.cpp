@@ -69,6 +69,11 @@ struct FrameCamera
     double lensLength = 0.0;
     bool hasFovDegrees = false;
     double fovDegrees = 0.0;
+    bool hasAspect = false;
+    double aspect = 0.0;
+    bool hasNearFar = false;
+    double nearClip = 0.0;
+    double farClip = 0.0;
 };
 
 struct FrameInstruction
@@ -193,6 +198,21 @@ bool HasValidFovDegrees(const nlohmann::json& object)
 double GetFovDegrees(const nlohmann::json& object)
 {
     return object["fov_degrees"].get<double>();
+}
+
+bool HasPositiveOptionalFiniteNumber(const nlohmann::json& object, const std::string& key)
+{
+    if (!object.contains(key) || object[key].is_null())
+        return false;
+
+    if (!object[key].is_number())
+        throw DirectorFrameValidationError("invalid_input", key + " must be a positive number when provided");
+
+    double value = object[key].get<double>();
+    if (!std::isfinite(value) || value <= 0.0)
+        throw DirectorFrameValidationError("invalid_input", key + " must be a positive finite number");
+
+    return true;
 }
 
 fs::path PathFromUtf8(const std::string& value)
@@ -447,6 +467,14 @@ FrameCamera ParseCamera(const nlohmann::json& body)
     if (!hasLensLength && !hasFovDegrees)
         throw DirectorFrameValidationError("invalid_input", "perspective camera requires positive lens_length or fov_degrees");
 
+    const bool hasAspect = HasPositiveOptionalFiniteNumber(camera, "aspect");
+    const bool hasNearClip = HasPositiveOptionalFiniteNumber(camera, "near_clip");
+    const bool hasFarClip = HasPositiveOptionalFiniteNumber(camera, "far_clip");
+    if (hasNearClip != hasFarClip)
+        throw DirectorFrameValidationError("invalid_input", "near_clip and far_clip must be provided together");
+    if (hasNearClip && camera["near_clip"].get<double>() >= camera["far_clip"].get<double>())
+        throw DirectorFrameValidationError("invalid_input", "near_clip must be less than far_clip");
+
     FrameCamera parsed;
     parsed.location = location;
     parsed.target = target;
@@ -455,6 +483,11 @@ FrameCamera ParseCamera(const nlohmann::json& body)
     parsed.lensLength = hasLensLength ? GetPositiveOptionalNumber(camera, "lens_length") : 0.0;
     parsed.hasFovDegrees = hasFovDegrees;
     parsed.fovDegrees = hasFovDegrees ? GetFovDegrees(camera) : 0.0;
+    parsed.hasAspect = hasAspect;
+    parsed.aspect = hasAspect ? camera["aspect"].get<double>() : 0.0;
+    parsed.hasNearFar = hasNearClip && hasFarClip;
+    parsed.nearClip = parsed.hasNearFar ? camera["near_clip"].get<double>() : 0.0;
+    parsed.farClip = parsed.hasNearFar ? camera["far_clip"].get<double>() : 0.0;
     return parsed;
 }
 
@@ -675,6 +708,74 @@ std::vector<std::string> FrameObjectIds(const std::vector<FrameObjectTransform>&
     return ids;
 }
 
+bool NearlyEqual(double a, double b, double tolerance)
+{
+    return std::fabs(a - b) <= tolerance;
+}
+
+bool PointAlmostEqual(const ON_3dPoint& a, const ON_3dPoint& b, double tolerance)
+{
+    return NearlyEqual(a.x, b.x, tolerance) &&
+        NearlyEqual(a.y, b.y, tolerance) &&
+        NearlyEqual(a.z, b.z, tolerance);
+}
+
+bool VectorAlmostEqual(const ON_3dVector& a, const ON_3dVector& b, double tolerance)
+{
+    return NearlyEqual(a.x, b.x, tolerance) &&
+        NearlyEqual(a.y, b.y, tolerance) &&
+        NearlyEqual(a.z, b.z, tolerance);
+}
+
+nlohmann::json FrameCameraToJson(const FrameCamera& camera)
+{
+    nlohmann::json data;
+    data["projection"] = "perspective";
+    data["location"] = PointToJson(camera.location);
+    data["target"] = PointToJson(camera.target);
+    data["up"] = VectorToJson(camera.up);
+    data["lens_length"] = camera.hasLensLength ? nlohmann::json(RoundTo(camera.lensLength, 6)) : nlohmann::json(nullptr);
+    data["fov_degrees"] = camera.hasFovDegrees ? nlohmann::json(RoundTo(camera.fovDegrees, 6)) : nlohmann::json(nullptr);
+    data["aspect"] = camera.hasAspect ? nlohmann::json(RoundTo(camera.aspect, 6)) : nlohmann::json(nullptr);
+    data["near_clip"] = camera.hasNearFar ? nlohmann::json(RoundTo(camera.nearClip, 6)) : nlohmann::json(nullptr);
+    data["far_clip"] = camera.hasNearFar ? nlohmann::json(RoundTo(camera.farClip, 6)) : nlohmann::json(nullptr);
+    return data;
+}
+
+ON_UUID CurrentDisplayModeId(CRhinoView* pView)
+{
+    if (!pView)
+        return ON_nil_uuid;
+    const CDisplayPipelineAttributes* pActive = pView->DisplayAttributes();
+    return pActive ? pActive->Id() : ON_nil_uuid;
+}
+
+bool ViewportAlmostEqual(const ON_Viewport& a, const ON_Viewport& b, double tolerance)
+{
+    if (a.IsPerspectiveProjection() != b.IsPerspectiveProjection())
+        return false;
+    if (a.IsParallelProjection() != b.IsParallelProjection())
+        return false;
+    if (!PointAlmostEqual(a.CameraLocation(), b.CameraLocation(), tolerance))
+        return false;
+    if (!PointAlmostEqual(a.TargetPoint(), b.TargetPoint(), tolerance))
+        return false;
+    if (!VectorAlmostEqual(a.CameraUp(), b.CameraUp(), tolerance))
+        return false;
+
+    double aAspect = 0.0;
+    double bAspect = 0.0;
+    if (a.GetFrustumAspect(aAspect) && b.GetFrustumAspect(bAspect) && !NearlyEqual(aAspect, bAspect, tolerance))
+        return false;
+
+    return NearlyEqual(a.FrustumLeft(), b.FrustumLeft(), tolerance) &&
+        NearlyEqual(a.FrustumRight(), b.FrustumRight(), tolerance) &&
+        NearlyEqual(a.FrustumBottom(), b.FrustumBottom(), tolerance) &&
+        NearlyEqual(a.FrustumTop(), b.FrustumTop(), tolerance) &&
+        NearlyEqual(a.FrustumNear(), b.FrustumNear(), tolerance) &&
+        NearlyEqual(a.FrustumFar(), b.FrustumFar(), tolerance);
+}
+
 class DirectorObjectPoseGuard
 {
 public:
@@ -838,9 +939,7 @@ public:
             throw std::runtime_error("No active view");
 
         m_savedViewport = m_view->ActiveViewport().VP();
-        const CDisplayPipelineAttributes* pActive = m_view->DisplayAttributes();
-        if (pActive)
-            m_savedDisplayModeId = pActive->Id();
+        m_savedDisplayModeId = CurrentDisplayModeId(m_view);
     }
 
     ~DirectorViewportGuard()
@@ -869,6 +968,8 @@ public:
         }
 
         evidence["viewport"]["restored"] = restored;
+        evidence["viewport"]["restore_verified"] = restored;
+        evidence["display"]["restored"] = m_displayRestored;
         if (!restoreError.empty())
             evidence["viewport"]["restore_error"] = restoreError;
         m_restored = restored;
@@ -891,7 +992,12 @@ private:
         if (!ON_UuidIsNil(m_savedDisplayModeId))
             vp.SetDisplayMode(m_savedDisplayModeId);
         m_view->Redraw();
-        return true;
+
+        const bool viewportRestored = ViewportAlmostEqual(vp.VP(), m_savedViewport, kViewportTolerance);
+        const ON_UUID currentDisplayModeId = CurrentDisplayModeId(m_view);
+        m_displayRestored = ON_UuidIsNil(m_savedDisplayModeId) ||
+            ON_UuidCompare(currentDisplayModeId, m_savedDisplayModeId) == 0;
+        return viewportRestored && m_displayRestored;
     }
 
     void BestEffortRestore()
@@ -911,6 +1017,9 @@ private:
     ON_UUID m_savedDisplayModeId = ON_nil_uuid;
     bool m_restoreAttempted = false;
     bool m_restored = false;
+    bool m_displayRestored = false;
+
+    static constexpr double kViewportTolerance = 1.0e-4;
 };
 
 void ApplyViewportForFrame(CRhinoView* pView, const FrameInstruction& instruction, ON_UUID displayModeId)
@@ -944,6 +1053,10 @@ void ApplyViewportForFrame(CRhinoView* pView, const FrameInstruction& instructio
     }
     if (!cameraOpticsApplied)
         throw DirectorFrameValidationError("invalid_input", "Failed to apply perspective camera optics");
+    if (instruction.camera.hasAspect && !targetViewport.SetFrustumAspect(instruction.camera.aspect))
+        throw DirectorFrameValidationError("invalid_input", "Failed to apply camera aspect");
+    if (instruction.camera.hasNearFar && !targetViewport.SetFrustumNearFar(instruction.camera.nearClip, instruction.camera.farClip))
+        throw DirectorFrameValidationError("invalid_input", "Failed to apply camera near/far clipping");
 
     rhinoViewport.SetVP(targetViewport, true, false);
     if (!ON_UuidIsNil(displayModeId))
@@ -1010,6 +1123,18 @@ nlohmann::json BaseFrameEvidence(const FrameInstruction& instruction)
     data["output_path"] = PathToUtf8(instruction.outputPath);
     data["run_root"] = PathToUtf8(instruction.runRoot);
     data["validation_strength"] = "bbox_only";
+    data["capture"] = {
+        { "width", instruction.width },
+        { "height", instruction.height },
+        { "output_path", PathToUtf8(instruction.outputPath) }
+    };
+    data["camera"] = {
+        { "applied", FrameCameraToJson(instruction.camera) }
+    };
+    data["display"] = {
+        { "requested_mode", instruction.displayMode.empty() ? "current" : instruction.displayMode },
+        { "restored", false }
+    };
     data["objects"] = {
         { "requested", static_cast<int>(instruction.objectTransforms.size()) },
         { "applied", 0 },
@@ -1019,7 +1144,8 @@ nlohmann::json BaseFrameEvidence(const FrameInstruction& instruction)
     };
     data["viewport"] = {
         { "active_view_resolved", false },
-        { "restored", false }
+        { "restored", false },
+        { "restore_verified", false }
     };
     return data;
 }
@@ -1038,6 +1164,7 @@ nlohmann::json ExecuteFrameTransaction(CRhinoDoc* pDoc, const FrameInstruction& 
 
     const fs::path tempPath = BuildTempCapturePath(instruction.outputPath);
     data["temp_output_path"] = PathToUtf8(tempPath);
+    data["capture"]["temp_output_path"] = PathToUtf8(tempPath);
 
     fs::remove(tempPath, ec);
     if (ec)
