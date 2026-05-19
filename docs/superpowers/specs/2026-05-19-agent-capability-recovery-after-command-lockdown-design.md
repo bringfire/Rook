@@ -1,7 +1,7 @@
 # Agent Capability Recovery After `/command` Lockdown
 
 Date: 2026-05-19
-Status: Draft for review
+Status: Accepted
 
 ## Decision
 
