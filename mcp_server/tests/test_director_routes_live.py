@@ -376,7 +376,13 @@ async def test_director_frame_capture_success_writes_png_and_restores_state():
     assert evidence["camera"]["applied"]["aspect"] == instruction["camera"]["aspect"]
     assert evidence["camera"]["applied"]["near_clip"] == instruction["camera"]["near_clip"]
     assert evidence["camera"]["applied"]["far_clip"] == instruction["camera"]["far_clip"]
+    assert len(evidence["camera"]["applied"]["direction"]) == 3
+    _assert_vector_close(evidence["camera"]["applied"]["location"], instruction["camera"]["location"])
+    _assert_vector_close(evidence["camera"]["applied"]["target"], instruction["camera"]["target"])
     assert evidence["display"]["requested_mode"] == original_display_mode
+    assert evidence["display"]["resolved_mode"]["id"]
+    assert evidence["display"]["applied_mode"]["id"] == evidence["display"]["resolved_mode"]["id"]
+    assert evidence["display"]["applied"] is True
     assert evidence["display"]["restored"] is True
 
     _, restored_state_envelope = await _post_director("object-states", {"object_ids": [object_id]})

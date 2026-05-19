@@ -742,12 +742,31 @@ nlohmann::json FrameCameraToJson(const FrameCamera& camera)
     return data;
 }
 
+nlohmann::json SerializeViewportCameraReadback(const ON_Viewport& vp)
+{
+    nlohmann::json camera = SerializeViewportCamera(vp);
+    camera["direction"] = VectorToJson(vp.CameraDirection());
+    return camera;
+}
+
 ON_UUID CurrentDisplayModeId(CRhinoView* pView)
 {
     if (!pView)
         return ON_nil_uuid;
     const CDisplayPipelineAttributes* pActive = pView->DisplayAttributes();
     return pActive ? pActive->Id() : ON_nil_uuid;
+}
+
+nlohmann::json DisplayModeToJson(const ON_UUID& modeId)
+{
+    nlohmann::json data;
+    data["id"] = ON_UuidIsNil(modeId) ? nlohmann::json(nullptr) : nlohmann::json(UuidToString(modeId));
+
+    const CDisplayPipelineAttributes* pAttrs = ON_UuidIsNil(modeId)
+        ? nullptr
+        : CRhinoDisplayAttrsMgr::FindDisplayAttrs(modeId);
+    data["name"] = pAttrs ? nlohmann::json(WideToUtf8(pAttrs->EnglishName())) : nlohmann::json(nullptr);
+    return data;
 }
 
 bool ViewportAlmostEqual(const ON_Viewport& a, const ON_Viewport& b, double tolerance)
@@ -1022,10 +1041,13 @@ private:
     static constexpr double kViewportTolerance = 1.0e-4;
 };
 
-void ApplyViewportForFrame(CRhinoView* pView, const FrameInstruction& instruction, ON_UUID displayModeId)
+nlohmann::json ApplyViewportForFrame(CRhinoView* pView, const FrameInstruction& instruction, ON_UUID displayModeId)
 {
     if (!pView)
         throw std::runtime_error("No active view");
+
+    nlohmann::json evidence;
+    evidence["display_resolved"] = DisplayModeToJson(displayModeId);
 
     CRhinoViewport& rhinoViewport = pView->ActiveViewport();
     ON_Viewport targetViewport = rhinoViewport.VP();
@@ -1060,8 +1082,21 @@ void ApplyViewportForFrame(CRhinoView* pView, const FrameInstruction& instructio
 
     rhinoViewport.SetVP(targetViewport, true, false);
     if (!ON_UuidIsNil(displayModeId))
-        rhinoViewport.SetDisplayMode(displayModeId);
+    {
+        if (!rhinoViewport.SetDisplayMode(displayModeId))
+            throw DirectorFrameValidationError("invalid_input", "Failed to apply display mode");
+    }
     pView->Redraw();
+
+    evidence["camera_applied"] = SerializeViewportCameraReadback(rhinoViewport.VP());
+    const ON_UUID appliedDisplayModeId = CurrentDisplayModeId(pView);
+    evidence["display_applied"] = DisplayModeToJson(appliedDisplayModeId);
+    evidence["display_applied_ok"] = ON_UuidIsNil(displayModeId) ||
+        ON_UuidCompare(appliedDisplayModeId, displayModeId) == 0;
+    if (!evidence["display_applied_ok"].get<bool>())
+        throw DirectorFrameValidationError("invalid_input", "Applied display mode did not match requested mode");
+
+    return evidence;
 }
 
 fs::path BuildTempCapturePath(const fs::path& outputPath)
@@ -1129,10 +1164,14 @@ nlohmann::json BaseFrameEvidence(const FrameInstruction& instruction)
         { "output_path", PathToUtf8(instruction.outputPath) }
     };
     data["camera"] = {
-        { "applied", FrameCameraToJson(instruction.camera) }
+        { "requested", FrameCameraToJson(instruction.camera) },
+        { "applied", nullptr }
     };
     data["display"] = {
         { "requested_mode", instruction.displayMode.empty() ? "current" : instruction.displayMode },
+        { "resolved_mode", nullptr },
+        { "applied_mode", nullptr },
+        { "applied", false },
         { "restored", false }
     };
     data["objects"] = {
@@ -1180,7 +1219,11 @@ nlohmann::json ExecuteFrameTransaction(CRhinoDoc* pDoc, const FrameInstruction& 
         objectGuard.Apply();
         data["objects"]["applied"] = objectGuard.AppliedCount();
 
-        ApplyViewportForFrame(viewportGuard.View(), instruction, displayModeId);
+        nlohmann::json viewportApplyEvidence = ApplyViewportForFrame(viewportGuard.View(), instruction, displayModeId);
+        data["camera"]["applied"] = std::move(viewportApplyEvidence["camera_applied"]);
+        data["display"]["resolved_mode"] = std::move(viewportApplyEvidence["display_resolved"]);
+        data["display"]["applied_mode"] = std::move(viewportApplyEvidence["display_applied"]);
+        data["display"]["applied"] = viewportApplyEvidence["display_applied_ok"];
         CaptureViewportToFile(pDoc, instruction, tempPath);
         ReplaceOutputFromTemp(tempPath, instruction.outputPath, overwroteExisting);
         data["overwrote_existing"] = overwroteExisting;
