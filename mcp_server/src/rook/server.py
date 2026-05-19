@@ -16902,32 +16902,7 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
 
         case "rhino_command_interactive_cancel":
             try:
-                # Send the cancel
-                await call_rhino("/command/cancel", "POST")
-
-                # Wait for Rhino to fully process the cancel
-                # Note: Rhino's CommandPrompt may not update immediately even after cancel
-                # The cancel IS effective, but the prompt text may be stale
-                await asyncio.sleep(0.5)  # 500ms single wait
-
-                # Get final state
-                prompt_response = await call_rhino("/command/prompt", "GET")
-                prompt_data = prompt_response.get("data", {})
-                prompt_text = prompt_data.get("prompt", "")
-
-                # Consider cancelled if prompt is "Command" or is_active is False
-                cancelled = (prompt_text == "Command" or
-                            prompt_text == "" or
-                            not prompt_data.get("is_active", True))
-
-                result = {
-                    "success": True,
-                    "data": {
-                        "cancelled": cancelled,
-                        "prompt": prompt_text if prompt_text else "Command",
-                        "is_active": prompt_data.get("is_active", False),
-                    }
-                }
+                result = await call_rhino("/command/cancel", "POST", None, port=port)
             except Exception as e:
                 result = {"success": False, "data": f"Failed to cancel: {str(e)}"}
 
