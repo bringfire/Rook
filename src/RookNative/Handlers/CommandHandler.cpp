@@ -14,20 +14,31 @@
 #include "RookServer.h"
 
 #include <atomic>
+#include <chrono>
 #include <filesystem>
+#include <future>
 #include <fstream>
+#include <mutex>
 #include <sstream>
+#include <thread>
 
 namespace fs = std::filesystem;
 
 // Atomic counter for unique temp file names, preventing collisions
 // when concurrent /execute requests arrive on different httplib threads.
 static std::atomic<uint64_t> s_scriptCounter{0};
+static std::mutex s_commandRunMutex;
+static std::atomic<bool> s_commandStateUncertain{false};
 
 namespace Rook {
 namespace Handlers {
 namespace
 {
+    constexpr auto kCommandRunTimeout = std::chrono::seconds(10);
+    constexpr auto kCommandPromptPollInterval = std::chrono::milliseconds(100);
+    constexpr auto kCommandPromptPollWindow = std::chrono::seconds(1);
+    constexpr auto kCommandPromptDispatchTimeout = std::chrono::milliseconds(250);
+
     bool WriteUtf8File(const fs::path& path, const std::string& contents)
     {
         std::ofstream ofs(path, std::ios::binary);
@@ -135,6 +146,109 @@ namespace
     {
         return !prompt.empty() && prompt.find("Command") == std::string::npos;
     }
+
+    nlohmann::json BuildCommandInteractiveError(
+        const std::string& command,
+        const std::string& prompt)
+    {
+        nlohmann::json data;
+        data["command"] = command;
+        data["executed"] = nullptr;
+        data["execution_status"] = "unknown";
+        data["execution_may_have_occurred"] = true;
+        data["error"] = "Command went interactive after RunScript returned. "
+            "Use typed Rook tools or complete a known-safe scripted command.";
+        data["waitingFor"] = prompt;
+        data["verified"] = false;
+        data["state_uncertain"] = true;
+        data["cancelled"] = false;
+        data["recovery"] = "Rook observed an active Rhino prompt after command execution. "
+            "It did not send an automatic cancel because prompt ownership is uncertain. "
+            "Inspect the prompt, cancel any active command, then retry with a safe typed "
+            "Rook tool or complete scripted command.";
+        return data;
+    }
+
+    nlohmann::json BuildCommandTimeoutError(const std::string& command)
+    {
+        nlohmann::json data;
+        data["code"] = "native_command_timeout";
+        data["command"] = command;
+        data["executed"] = nullptr;
+        data["execution_status"] = "unknown";
+        data["execution_may_have_occurred"] = true;
+        data["verified"] = false;
+        data["state_uncertain"] = true;
+        data["error"] = "Native command execution_blocked: Rhino state is uncertain.";
+        data["recovery"] = "This timeout did not unwind the UI-thread command. "
+            "Inspect the Rhino command prompt, cancel any active command, then retry "
+            "using a safe typed Rook tool or complete scripted command.";
+        return data;
+    }
+
+    nlohmann::json BuildCommandStateUncertainError(
+        const std::string& command,
+        const std::string& prompt = "")
+    {
+        nlohmann::json data;
+        data["code"] = "native_command_state_uncertain";
+        data["command"] = command;
+        data["executed"] = nullptr;
+        data["execution_status"] = "unknown";
+        data["execution_may_have_occurred"] = true;
+        data["verified"] = false;
+        data["state_uncertain"] = true;
+        data["error"] = "Native command execution is blocked because Rhino state is uncertain.";
+        if (!prompt.empty())
+            data["waitingFor"] = prompt;
+        data["recovery"] = "Inspect the Rhino command prompt and cancel any active command. "
+            "Rook will keep refusing /command until it can verify the prompt is idle; "
+            "then retry through typed Rook tools or a complete scripted command.";
+        return data;
+    }
+
+    bool TryReadCommandPrompt(std::string& prompt)
+    {
+        try
+        {
+            auto promptFuture = CMainThreadDispatcher::Instance().Dispatch(
+                []() -> std::string
+            {
+                ON_wString currentPrompt;
+                RhinoApp().GetCommandPrompt(currentPrompt);
+                return WideToUtf8(currentPrompt);
+            });
+
+            if (promptFuture.wait_for(kCommandPromptDispatchTimeout) != std::future_status::ready)
+                return false;
+
+            prompt = promptFuture.get();
+            return true;
+        }
+        catch (...)
+        {
+            return false;
+        }
+    }
+
+    bool PollForInteractivePrompt(std::string& prompt)
+    {
+        const auto deadline = std::chrono::steady_clock::now() + kCommandPromptPollWindow;
+
+        while (std::chrono::steady_clock::now() < deadline)
+        {
+            std::this_thread::sleep_for(kCommandPromptPollInterval);
+
+            std::string currentPrompt;
+            if (TryReadCommandPrompt(currentPrompt) && IsInteractivePrompt(currentPrompt))
+            {
+                prompt = currentPrompt;
+                return true;
+            }
+        }
+
+        return false;
+    }
 }
 
 // ─── POST /command ──────────────────────────────────────────────────
@@ -178,6 +292,22 @@ void HandleCommand(const httplib::Request& req, httplib::Response& res)
     if (body.contains("documentSerialNumber"))
         docSn = body.value("documentSerialNumber", 0u);
 
+    // Serialize /command lifecycles through the delayed prompt-verification
+    // window. Without this, request A could read request B's prompt
+    // after A's RunScript returns but before A's worker-side poll completes.
+    std::unique_lock<std::mutex> commandRunLock(s_commandRunMutex);
+
+    if (s_commandStateUncertain.load(std::memory_order_acquire))
+    {
+        std::string prompt;
+        if (!TryReadCommandPrompt(prompt) || IsInteractivePrompt(prompt))
+        {
+            CRookServer::SendErrorData(res, BuildCommandStateUncertainError(command, prompt));
+            return;
+        }
+        s_commandStateUncertain.store(false, std::memory_order_release);
+    }
+
     // No UndoScope here: RunScript creates its own undo records per command.
     // Wrapping in another UndoScope would create unnecessary double-nesting,
     // unlike /execute which runs a script via a command wrapper.
@@ -201,50 +331,18 @@ void HandleCommand(const httplib::Request& req, httplib::Response& res)
             static_cast<const wchar_t*>(wCommand),
             echo ? 1 : 0);
 
-        // Check if the command went interactive (waiting for user input).
-        // The Rhino command line returns to "Command" when idle.
-        // If it shows something else, the command is waiting for input.
-        ON_wString prompt;
-        RhinoApp().GetCommandPrompt(prompt);
-        std::string promptStr = WideToUtf8(prompt);
-
         WriteResult wr;
-
-        // Detect interactive mode: if prompt contains something other than
-        // the idle state (usually ends with "Command" or is empty after script)
-        bool isInteractive = false;
-        if (!promptStr.empty() && promptStr.find("Command") == std::string::npos)
-        {
-            // Command went interactive — cancel it
-            RhinoApp().RunScript(docRuntimeSn, L"_Cancel", 0);
-            isInteractive = true;
-        }
-
         auto newObjects = tracker.GetNewObjects();
 
-        if (isInteractive)
-        {
-            wr.success = false;
-            wr.data["command"] = command;
-            wr.data["executed"] = false;
-            wr.data["error"] = "Command went interactive — missing required input. "
-                                "Provide all parameters in the scripted command string.";
-            wr.data["waitingFor"] = promptStr;
-            wr.data["objectsCreated"] = 0;
-            wr.data["objectIds"] = nlohmann::json::array();
-        }
-        else
-        {
-            nlohmann::json objectIds = nlohmann::json::array();
-            for (const auto& uuid : newObjects)
-                objectIds.push_back(UuidToString(uuid));
+        nlohmann::json objectIds = nlohmann::json::array();
+        for (const auto& uuid : newObjects)
+            objectIds.push_back(UuidToString(uuid));
 
-            wr.success = true;
-            wr.data["command"] = command;
-            wr.data["executed"] = true;
-            wr.data["objectsCreated"] = static_cast<int>(newObjects.size());
-            wr.data["objectIds"] = std::move(objectIds);
-        }
+        wr.success = true;
+        wr.data["command"] = command;
+        wr.data["executed"] = true;
+        wr.data["objectsCreated"] = static_cast<int>(newObjects.size());
+        wr.data["objectIds"] = std::move(objectIds);
 
         pDoc->Redraw();
         return wr;
@@ -252,7 +350,23 @@ void HandleCommand(const httplib::Request& req, httplib::Response& res)
 
     try
     {
+        if (future.wait_for(kCommandRunTimeout) != std::future_status::ready)
+        {
+            s_commandStateUncertain.store(true, std::memory_order_release);
+            CRookServer::SendErrorData(res, BuildCommandTimeoutError(command));
+            return;
+        }
+
         auto result = future.get();
+
+        std::string interactivePrompt;
+        if (PollForInteractivePrompt(interactivePrompt))
+        {
+            s_commandStateUncertain.store(true, std::memory_order_release);
+            CRookServer::SendErrorData(res, BuildCommandInteractiveError(command, interactivePrompt));
+            return;
+        }
+
         if (result.success)
             CRookServer::SendSuccess(res, result.data);
         else
