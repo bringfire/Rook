@@ -2158,6 +2158,8 @@ def test_runtime_harness_maps_runscript_safety_smoke():
     ]
     assert cwd == repo_root / "mcp_server"
     assert module._smoke_timeout_seconds("runscript-safety") == 120.0
+    assert module._readiness_timeout_seconds("runscript-safety", None) == 90.0
+    assert module._readiness_timeout_seconds("runscript-safety", 45.0) == 45.0
     assert module._launch_env_overrides("runscript-safety") == {
         "ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING": None,
         "ROOK_ENABLE_RUNSCRIPT_SAFETY_TEST_HOOKS": None,
@@ -2181,7 +2183,15 @@ def test_runtime_harness_maps_runscript_safety_hooks_smoke():
     ]
     assert cwd == repo_root / "mcp_server"
     assert module._smoke_timeout_seconds("runscript-safety-hooks") == 120.0
+    assert module._readiness_timeout_seconds("runscript-safety-hooks", None) == 90.0
     assert module._launch_env_overrides("runscript-safety-hooks") == {
         "ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING": None,
         "ROOK_ENABLE_RUNSCRIPT_SAFETY_TEST_HOOKS": "1",
     }
+
+
+def test_runtime_harness_uses_legacy_default_readiness_for_other_smoke():
+    module = _load_harness_cli_module()
+
+    assert module._readiness_timeout_seconds("ping-only", None) == 30.0
+    assert module._readiness_timeout_seconds("ping-only", 12.5) == 12.5

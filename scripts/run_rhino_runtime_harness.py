@@ -8,6 +8,7 @@ from pathlib import Path
 DEFAULT_RHINO_EXE = Path(r"C:\Program Files\Rhino 8\System\Rhino.exe")
 DEFAULT_ARTIFACT_ROOT = Path(r".scratch\rhino-runtime-harness")
 RUNSCRIPT_SAFETY_TIMEOUT_SECONDS = 120.0
+RUNSCRIPT_SAFETY_READINESS_TIMEOUT_SECONDS = 90.0
 
 
 def _repo_root() -> Path:
@@ -94,6 +95,14 @@ def _smoke_timeout_seconds(name: str) -> float | None:
     return None
 
 
+def _readiness_timeout_seconds(name: str, requested: float | None) -> float:
+    if requested is not None:
+        return requested
+    if name in {"runscript-safety", "runscript-safety-hooks"}:
+        return RUNSCRIPT_SAFETY_READINESS_TIMEOUT_SECONDS
+    return 30.0
+
+
 def _launch_env_overrides(name: str) -> dict[str, str | None]:
     if name == "runscript-safety":
         return {
@@ -114,7 +123,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--rhino-exe", type=Path, default=DEFAULT_RHINO_EXE)
     parser.add_argument("--artifact-root", type=Path, default=DEFAULT_ARTIFACT_ROOT)
-    parser.add_argument("--readiness-timeout", type=float, default=30.0)
+    parser.add_argument("--readiness-timeout", type=float, default=None)
     parser.add_argument("--cleanup-timeout", type=float, default=10.0)
     parser.add_argument(
         "--smoke",
@@ -152,7 +161,7 @@ def main(argv: list[str] | None = None) -> int:
         smoke_cwd=cwd,
         smoke_timeout_seconds=_smoke_timeout_seconds(args.smoke),
         launch_env_overrides=_launch_env_overrides(args.smoke),
-        readiness_timeout_seconds=args.readiness_timeout,
+        readiness_timeout_seconds=_readiness_timeout_seconds(args.smoke, args.readiness_timeout),
         cleanup_timeout_seconds=args.cleanup_timeout,
     )
     print(f"Artifact directory: {result.artifact_dir}")
