@@ -477,7 +477,7 @@ pytest mcp_server/tests/test_director.py -q
 
 Expected: all tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Run:
 
@@ -492,7 +492,7 @@ git commit -m "feat: expand director radial motion frames"
 - Modify: `mcp_server/tests/test_director.py`
 - Modify: `mcp_server/src/rook/director.py`
 
-- [ ] **Step 1: Add fake-native run tests**
+- [x] **Step 1: Add fake-native run tests**
 
 Append to `mcp_server/tests/test_director.py`:
 
@@ -614,7 +614,7 @@ def test_run_marks_unsafe_failed_and_stops(tmp_path):
     assert len(frame_calls) == 1
 ```
 
-- [ ] **Step 2: Run tests and verify failures**
+- [x] **Step 2: Run tests and verify failures**
 
 Run:
 
@@ -624,7 +624,7 @@ pytest mcp_server/tests/test_director.py -q
 
 Expected: fails for missing `run_director`.
 
-- [ ] **Step 3: Implement run orchestration**
+- [x] **Step 3: Implement run orchestration**
 
 Add to `mcp_server/src/rook/director.py`:
 
@@ -873,7 +873,7 @@ async def run_director(
     return summary
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run:
 

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import json
 import os
 import math
+import uuid
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .bridge import call_rhino
 from .runtime_paths import resolve_runtime_paths
 
 SCHEMA_VERSION = 1
@@ -165,3 +169,271 @@ def expand_radial_bbox_center(
             )
         frames.append({"frame_index": index, "object_transforms": object_transforms})
     return frames, warnings
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
+
+def _append_evidence(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(payload, separators=(",", ":")) + "\n")
+
+
+async def _resolve_objects(call_native, object_ids: list[str], port: int | None):
+    result = await call_native(
+        "/director/object-states", "POST", {"object_ids": object_ids}, port=port
+    )
+    if not result.get("success"):
+        raise DirectorInputError(f"object state resolution failed: {result.get('data')}")
+    return result["data"]
+
+
+async def _resolve_camera_keyframes(
+    call_native,
+    keyframes: list[dict[str, Any]],
+    *,
+    frame_count: int,
+    port: int | None,
+) -> list[dict[str, Any]]:
+    resolved: list[dict[str, Any]] = []
+    for keyframe in sorted(keyframes, key=lambda item: int(item["frame_index"])):
+        frame_index = int(keyframe["frame_index"])
+        if frame_index < 1 or frame_index > frame_count:
+            raise DirectorInputError(
+                "camera keyframe frame_index must be inside 1..frame_count"
+            )
+        result = await call_native(
+            "/director/view-state", "POST", {"source": keyframe["source"]}, port=port
+        )
+        if not result.get("success"):
+            raise DirectorInputError(f"camera resolution failed: {result.get('data')}")
+        data = result["data"]
+        resolved.append(
+            {
+                "frame_index": frame_index,
+                "camera": data["camera"],
+                "provenance": data.get("provenance"),
+            }
+        )
+    if not resolved:
+        raise DirectorInputError("camera_keyframes must contain at least one keyframe")
+    return resolved
+
+
+def _lerp(a: float, b: float, t: float) -> float:
+    return float(a) + (float(b) - float(a)) * t
+
+
+def _lerp_vec(a: list[float], b: list[float], t: float) -> list[float]:
+    return [_lerp(a[i], b[i], t) for i in range(3)]
+
+
+def _normalized_required(vector: list[float], field: str) -> list[float]:
+    normalized = _normalize(vector)
+    if normalized is None:
+        raise DirectorInputError(
+            f"camera {field} vector became degenerate during interpolation"
+        )
+    return normalized
+
+
+def _interpolate_camera(a: dict[str, Any], b: dict[str, Any], t: float) -> dict[str, Any]:
+    if a["projection"] != b["projection"]:
+        raise DirectorInputError(
+            "camera projection cannot change during slice1 interpolation"
+        )
+    camera = dict(a)
+    camera["location"] = _lerp_vec(a["location"], b["location"], t)
+    camera["target"] = _lerp_vec(a["target"], b["target"], t)
+    camera["up"] = _normalized_required(_lerp_vec(a["up"], b["up"], t), "up")
+    for field in (
+        "lens_length",
+        "fov_degrees",
+        "parallel_scale",
+        "near_clip",
+        "far_clip",
+        "aspect",
+    ):
+        av = a.get(field)
+        bv = b.get(field)
+        if av is None or bv is None:
+            camera[field] = av if t < 0.5 else bv
+        else:
+            camera[field] = _lerp(float(av), float(bv), t)
+    return camera
+
+
+def interpolate_camera_frames(
+    resolved_keyframes: list[dict[str, Any]], frame_count: int
+) -> list[dict[str, Any]]:
+    keyframes = sorted(resolved_keyframes, key=lambda item: item["frame_index"])
+    if len(keyframes) == 1:
+        return [dict(keyframes[0]["camera"]) for _ in range(frame_count)]
+
+    cameras: list[dict[str, Any]] = []
+    for frame_index in range(1, frame_count + 1):
+        previous = keyframes[0]
+        next_key = keyframes[-1]
+        for candidate in keyframes:
+            if candidate["frame_index"] <= frame_index:
+                previous = candidate
+            if candidate["frame_index"] >= frame_index:
+                next_key = candidate
+                break
+        if previous["frame_index"] == next_key["frame_index"]:
+            cameras.append(dict(previous["camera"]))
+            continue
+        span = next_key["frame_index"] - previous["frame_index"]
+        t = (frame_index - previous["frame_index"]) / span
+        cameras.append(_interpolate_camera(previous["camera"], next_key["camera"], t))
+    return cameras
+
+
+def _frame_id(index: int) -> str:
+    return f"frame_{index:04d}"
+
+
+async def run_director(
+    request: dict[str, Any],
+    *,
+    call_native=call_rhino,
+    runtime: DirectorRuntimePaths | None = None,
+    port: int | None = None,
+) -> dict[str, Any]:
+    validate_authoring_request(request)
+    runtime = runtime or _runtime_paths()
+    output_root = resolve_output_root(request.get("output_root"), runtime)
+    run_id = request.get("run_id") or (
+        f"director_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_"
+        f"{uuid.uuid4().hex[:8]}"
+    )
+    run_root = (output_root / run_id).resolve()
+    frames_dir = run_root / "frames"
+    logs_dir = run_root / "logs"
+    frames_dir.mkdir(parents=True, exist_ok=False)
+    logs_dir.mkdir(parents=True, exist_ok=True)
+
+    object_ids = list(request.get("object_ids") or [])
+    if not object_ids:
+        raise DirectorInputError("object_ids must contain at least one object for slice1")
+
+    object_data = await _resolve_objects(call_native, object_ids, port)
+    objects = object_data["objects"]
+    frame_count = int(request["frame_count"])
+    resolved_camera_keyframes = await _resolve_camera_keyframes(
+        call_native,
+        request["camera_keyframes"],
+        frame_count=frame_count,
+        port=port,
+    )
+    frame_cameras = interpolate_camera_frames(resolved_camera_keyframes, frame_count)
+    motion_params = (request.get("motion") or {}).get("parameters") or {}
+    motion_frames, motion_warnings = expand_radial_bbox_center(
+        objects,
+        frame_count=frame_count,
+        distance=float(motion_params.get("distance", 10.0)),
+        per_object_scale=dict(motion_params.get("per_object_scale") or {}),
+    )
+
+    manifest_frames = []
+    for frame in motion_frames:
+        index = frame["frame_index"]
+        frame_name = _frame_id(index)
+        manifest_frames.append(
+            {
+                "frame_index": index,
+                "frame_id": frame_name,
+                "camera": frame_cameras[index - 1],
+                "object_transforms": frame["object_transforms"],
+                "output_path": str((frames_dir / f"{frame_name}.png").resolve()),
+            }
+        )
+
+    manifest = {
+        "schema_version": SCHEMA_VERSION,
+        "director_version": DIRECTOR_VERSION,
+        "run_id": run_id,
+        "run_root": str(run_root),
+        "output_root": str(output_root),
+        "created_at": _utc_now(),
+        "document_units": object_data.get("units"),
+        "source_objects": objects,
+        "motion": {
+            "strategy": "radial_bbox_center",
+            "parameters": motion_params,
+            "warnings": motion_warnings,
+        },
+        "camera_keyframes": request["camera_keyframes"],
+        "camera_keyframe_provenance": [
+            {
+                "frame_index": keyframe["frame_index"],
+                "provenance": keyframe.get("provenance"),
+            }
+            for keyframe in resolved_camera_keyframes
+        ],
+        "resolution": request["resolution"],
+        "display": request.get("display") or {"mode": "Rendered"},
+        "frames": manifest_frames,
+        "exclusions": [
+            "true_depth",
+            "edge_pass",
+            "rookvision_artifact_handoff",
+            "grasshopper_nle",
+        ],
+    }
+    _atomic_write_json(run_root / "manifest.json", manifest)
+    _atomic_write_json(
+        run_root / "status.json",
+        {"state": "running", "run_id": run_id, "updated_at": _utc_now()},
+    )
+
+    state = "complete"
+    evidence_path = logs_dir / "frame_evidence.jsonl"
+    for frame in manifest_frames:
+        instruction = {
+            "schema_version": SCHEMA_VERSION,
+            "director_version": DIRECTOR_VERSION,
+            "run_id": run_id,
+            "frame_index": frame["frame_index"],
+            "frame_id": frame["frame_id"],
+            "run_root": str(run_root),
+            "output_path": frame["output_path"],
+            "resolution": request["resolution"],
+            "display": request.get("display") or {"mode": "Rendered"},
+            "camera": frame["camera"],
+            "object_transforms": frame["object_transforms"],
+        }
+        result = await call_native("/director/frame-capture", "POST", instruction, port=port)
+        evidence = (
+            result.get("data") if isinstance(result.get("data"), dict) else {"error": result.get("data")}
+        )
+        evidence["success"] = bool(result.get("success"))
+        try:
+            _append_evidence(evidence_path, evidence)
+        except OSError:
+            state = "evidence_failed"
+            break
+        if evidence.get("dirty_partial_state"):
+            state = "unsafe_failed"
+            break
+        if not result.get("success"):
+            state = "failed"
+            break
+
+    summary = {
+        "state": state,
+        "run_id": run_id,
+        "run_root": str(run_root),
+        "updated_at": _utc_now(),
+    }
+    _atomic_write_json(run_root / "status.json", summary)
+    return summary
