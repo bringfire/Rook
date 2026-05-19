@@ -1046,7 +1046,7 @@ pytest mcp_server/tests/test_director_mcp_tools.py mcp_server/tests/test_directo
 
 Expected: all tests pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 Run:
 
@@ -1064,7 +1064,7 @@ These routes provide trustworthy Rhino state for Python authoring without mutati
 **Files:**
 - Create: `mcp_server/tests/test_director_routes_live.py`
 
-- [ ] **Step 1: Write failing live route tests**
+- [x] **Step 1: Write failing live route tests**
 
 Create `mcp_server/tests/test_director_routes_live.py` with:
 
@@ -1098,7 +1098,7 @@ async def test_director_object_states_rejects_empty_ids(requires_rhino):
     assert "object_ids" in str(result["data"])
 ```
 
-- [ ] **Step 2: Run live tests and verify route-not-found failures**
+- [x] **Step 2: Run live tests and verify route-not-found failures**
 
 Run:
 
