@@ -1296,7 +1296,7 @@ git commit -m "feat: add director native context routes"
 **Files:**
 - Modify: `mcp_server/tests/test_director_routes_live.py`
 
-- [ ] **Step 1: Add path security and validation tests**
+- [x] **Step 1: Add path security and validation tests**
 
 Append:
 
@@ -1332,7 +1332,7 @@ async def test_director_frame_capture_rejects_path_outside_allowed_root(requires
     assert "output" in str(result["data"]).lower()
 ```
 
-- [ ] **Step 2: Run live tests and verify failure**
+- [x] **Step 2: Run live tests and verify failure**
 
 Run:
 
