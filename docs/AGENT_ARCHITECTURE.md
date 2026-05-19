@@ -234,13 +234,16 @@ Example: `"create box"` → `POST /create` with `{type: "box", ...}` (direct API
 
 ### Execution Cascade
 
-The SmartExecutor tries three substrates in order:
+The SmartExecutor uses non-interactive substrates only:
 
 1. **Direct API** — Typed HTTP call to a specific endpoint (fastest, most reliable)
-2. **Known Command** — Command string via `/command` endpoint (Rhino command line)
-3. **Interactive** — Multi-step via `/command/start` + `/command/prompt` + `/command/send` polling (for commands that prompt for input)
+2. **Known Command** — Known-safe, fully scripted command string via `/command`
 
-Auto-escalates from known_command to interactive if the command stalls (prompt polling detects Rhino waiting for input).
+Interactive execution via `/command/start` + `/command/send` is deprecated for
+normal agent execution. `/command/prompt` and `/command/cancel` remain recovery
+and observability primitives only. If a known command stalls or prompt
+verification is inconclusive, execution fails closed instead of auto-driving the
+Rhino prompt.
 
 ### Failure Layers
 

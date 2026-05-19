@@ -2,6 +2,7 @@
 
 import asyncio
 import pytest
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from rook.learning.intent_runtime import (
@@ -40,6 +41,41 @@ def make_caller(responses: dict[str, dict] | None = None):
         return resp_map.get(endpoint, default)
 
     return caller
+
+
+class FakeCommandKnowledgeStore:
+    def __init__(self, *, safe=True):
+        self.safe = safe
+
+    def parse_command_string(self, _command_text):
+        return {
+            "command": "_-Loft",
+            "mode": "default",
+            "syntax": "_-Loft _SelID <curve1> _SelID <curve2> _Enter",
+            "parameters": {"curve1": "a", "curve2": "b"},
+            "options_used": ["_SelID", "_Enter"],
+            "raw_values": [],
+        }
+
+    def get_command(self, _command):
+        preconditions = {"safe_non_interactive": True} if self.safe else {}
+        return SimpleNamespace(
+            preconditions=preconditions,
+            options={
+                "_Radius": "Set radius",
+                "_SelID": "Select by id",
+                "_Enter": "Finish command",
+            },
+            modes={
+                "default": SimpleNamespace(
+                    syntax="_-Loft _SelID <curve1> _SelID <curve2> _Enter"
+                )
+            },
+        )
+
+
+def safe_command_store():
+    return FakeCommandKnowledgeStore(safe=True)
 
 
 # ---------------------------------------------------------------------------
@@ -166,14 +202,17 @@ class TestKnownCommandExecution:
                 "data": {"objectIds": ["guid-1"], "objectsCreated": 1},
             },
         })
-        executor = SmartExecutor(http_caller=caller)
+        executor = SmartExecutor(
+            http_caller=caller,
+            command_knowledge_store=safe_command_store(),
+        )
         plan = ExecutionPlan(
             intent="loft curves",
             operation="command:_-Loft",
             execution_route="known_command",
             command="_-Loft",
             syntax="_-Loft _SelID a _SelID b _Enter",
-            fallbacks=["interactive"],
+            fallbacks=[],
         )
         result = run(executor.execute(plan))
 
@@ -201,7 +240,10 @@ class TestKnownCommandExecution:
                 "data": {"waitingFor": "Select objects to fillet"},
             },
         })
-        executor = SmartExecutor(http_caller=caller)
+        executor = SmartExecutor(
+            http_caller=caller,
+            command_knowledge_store=safe_command_store(),
+        )
         plan = ExecutionPlan(
             intent="fillet edges",
             operation="command:_-FilletEdge",
@@ -216,27 +258,20 @@ class TestKnownCommandExecution:
         assert result.failure.layer == FailureLayer.INTERACTIVE_PROMPT
         assert "Select objects to fillet" in result.failure.error_detail
 
-    def test_stalled_command_escalates_to_interactive(self):
-        """Command stalls but has interactive fallback available."""
-        prompt_polls = {"n": 0}
+    def test_stalled_command_with_interactive_fallback_fails_without_prompt_driving(self):
+        """Interactive fallback is disabled even when listed in legacy plans."""
+        calls = []
 
         async def sequenced_caller(endpoint, method="POST", data=None):
+            calls.append(endpoint)
             if endpoint == "/command":
                 return {"success": False, "data": {"waitingFor": "Select rail"}}
-            elif endpoint == "/command/start":
-                return {"success": True, "data": {"command": "_-Sweep1", "started": True}}
-            elif endpoint == "/command/prompt":
-                prompt_polls["n"] += 1
-                if prompt_polls["n"] >= 2:
-                    return {"success": True, "data": {"is_active": False, "prompt": "Command"}}
-                return {"success": True, "data": {"is_active": True, "prompt": "Select rail"}}
-            elif endpoint == "/command/send":
-                return {"success": True, "data": {"input_sent": True}}
-            elif endpoint == "/command/cancel":
-                return {"success": True, "data": {}}
             return {"success": True, "data": {}}
 
-        executor = SmartExecutor(http_caller=sequenced_caller)
+        executor = SmartExecutor(
+            http_caller=sequenced_caller,
+            command_knowledge_store=safe_command_store(),
+        )
         plan = ExecutionPlan(
             intent="sweep curve",
             operation="command:_-Sweep1",
@@ -247,12 +282,38 @@ class TestKnownCommandExecution:
         )
         result = run(executor.execute(plan))
 
-        assert result.success is True
-        assert any("escalating" in t.lower() for t in result.reasoning_trace)
-        # I7: Verify confidence is reduced by 0.7x on fallback
-        assert result.plan_summary["confidence"] == pytest.approx(
-            plan.confidence * 0.7, rel=1e-3
+        assert result.success is False
+        assert result.route_taken == "known_command"
+        assert result.failure.layer == FailureLayer.INTERACTIVE_PROMPT
+        assert "Select rail" in result.failure.error_detail
+        assert "interactive prompt driving is disabled" in result.failure.recovery_suggestion
+        assert "/command/start" not in calls
+        assert "/command/send" not in calls
+
+    def test_known_command_rejects_without_safe_metadata_before_http_call(self):
+        calls = []
+
+        async def tracking_caller(endpoint, method="POST", data=None):
+            calls.append(endpoint)
+            return {"success": True, "data": {}}
+
+        executor = SmartExecutor(
+            http_caller=tracking_caller,
+            command_knowledge_store=FakeCommandKnowledgeStore(safe=False),
         )
+        plan = ExecutionPlan(
+            intent="loft curves",
+            operation="command:_-Loft",
+            execution_route="known_command",
+            command="_-Loft",
+            syntax="_-Loft _SelID a _SelID b _Enter",
+        )
+        result = run(executor.execute(plan))
+
+        assert result.success is False
+        assert result.failure.layer == FailureLayer.ROUTING
+        assert "run_script_safety_refusal" in result.failure.error_detail
+        assert calls == []
 
 
 # ---------------------------------------------------------------------------
@@ -261,22 +322,11 @@ class TestKnownCommandExecution:
 
 class TestInteractiveExecution:
 
-    def test_basic_interactive(self):
-        """Interactive session using actual C++ protocol: start -> poll -> send -> poll."""
-        prompt_polls = {"n": 0}
+    def test_interactive_route_is_disabled_for_normal_execution(self):
+        calls = []
 
         async def interactive_caller(endpoint, method="POST", data=None):
-            if endpoint == "/command/start":
-                return {"success": True, "data": {"command": "_-Loft", "started": True}}
-            elif endpoint == "/command/prompt":
-                prompt_polls["n"] += 1
-                if prompt_polls["n"] >= 4:
-                    return {"success": True, "data": {"is_active": False, "prompt": "Command"}}
-                return {"success": True, "data": {"is_active": True, "prompt": "Select curves"}}
-            elif endpoint == "/command/send":
-                return {"success": True, "data": {"input_sent": True}}
-            elif endpoint == "/command/cancel":
-                return {"success": True, "data": {}}
+            calls.append(endpoint)
             return {"success": True, "data": {}}
 
         executor = SmartExecutor(http_caller=interactive_caller)
@@ -288,125 +338,95 @@ class TestInteractiveExecution:
             syntax="_-Loft _SelID a _SelID b _Enter",
         )
         result = run(executor.execute(plan))
-        assert result.success is True
+        assert result.success is False
         assert result.route_taken == "interactive"
+        assert result.failure.layer == FailureLayer.ROUTING
+        assert result.failure.attempted_route == "interactive"
+        assert result.failure.operation == "command:_-Loft"
+        assert result.failure.error_detail == (
+            "Interactive Rhino command execution is disabled for normal execution."
+        )
+        assert "typed Rook tools" in result.failure.recovery_suggestion
+        assert "known-safe fully scripted command" in result.failure.recovery_suggestion
+        assert "rhino_command_interactive_prompt" in result.failure.recovery_suggestion
+        assert "rhino_command_prompt" not in result.failure.recovery_suggestion
+        assert "rhino_command_interactive_cancel" in result.failure.recovery_suggestion
+        assert "Interactive execution route is deprecated" in result.reasoning_trace
+        assert "/command/start" not in calls
+        assert "/command/send" not in calls
 
-    def test_interactive_start_failure(self):
-        async def failing_start(endpoint, method="POST", data=None):
-            if endpoint == "/command/start":
-                return {"success": False, "data": "Command not found"}
+    def test_private_interactive_executor_refuses_without_prompt_driving(self):
+        calls = []
+
+        async def interactive_caller(endpoint, method="POST", data=None):
+            calls.append(endpoint)
             return {"success": True, "data": {}}
 
-        executor = SmartExecutor(http_caller=failing_start)
-        plan = ExecutionPlan(
-            intent="loft",
-            operation="command:_-Loft",
-            execution_route="interactive",
-            command="_-Loft",
-            syntax="_-Loft",
-        )
-        result = run(executor.execute(plan))
-        assert result.success is False
-        assert result.failure.layer == FailureLayer.COMMAND_EXECUTION
-
-    def test_no_command_in_plan(self):
-        executor = SmartExecutor(http_caller=make_caller())
-        plan = ExecutionPlan(
-            intent="do something",
-            operation="unknown",
-            execution_route="interactive",
-        )
-        result = run(executor.execute(plan))
-        assert result.success is False
-        assert result.failure.layer == FailureLayer.PARAMETER_SYNTHESIS
-
-    def test_max_rounds_exhaustion(self):
-        """S2: Interactive session that never completes gets cancelled."""
-        async def forever_caller(endpoint, method="POST", data=None):
-            if endpoint == "/command/start":
-                return {"success": True, "data": {"command": "_-Loft", "started": True}}
-            elif endpoint == "/command/prompt":
-                return {"success": True, "data": {"is_active": True, "prompt": "Still waiting"}}
-            elif endpoint == "/command/send":
-                return {"success": True, "data": {"input_sent": True}}
-            elif endpoint == "/command/cancel":
-                return {"success": True, "data": {}}
-            return {"success": True, "data": {}}
-
-        executor = SmartExecutor(http_caller=forever_caller)
+        executor = SmartExecutor(http_caller=interactive_caller)
         plan = ExecutionPlan(
             intent="loft curves",
             operation="command:_-Loft",
             execution_route="interactive",
             command="_-Loft",
-            syntax="_-Loft _Enter",
+            syntax="_-Loft _SelID a _SelID b _Enter",
         )
-        result = run(executor.execute(plan))
+        result = run(executor._execute_interactive(plan, []))
+
         assert result.success is False
-        assert result.failure.layer == FailureLayer.INTERACTIVE_PROMPT
-        assert "exceeded" in result.failure.error_detail.lower()
+        assert result.failure.layer == FailureLayer.ROUTING
+        assert result.failure.error_detail == (
+            "Interactive Rhino command execution is disabled for normal execution."
+        )
+        assert "/command/start" not in calls
+        assert "/command/send" not in calls
 
-    def test_exception_triggers_cancel(self):
-        """S3: Exception during interactive session triggers safe cancel."""
-        cancel_called = {"called": False}
+    def test_private_interactive_fallback_refuses_without_prompt_driving(self):
+        calls = []
 
-        async def exploding_caller(endpoint, method="POST", data=None):
-            if endpoint == "/command/start":
-                return {"success": True, "data": {"command": "_-Loft", "started": True}}
-            elif endpoint == "/command/prompt":
-                return {"success": True, "data": {"is_active": True, "prompt": "Select"}}
-            elif endpoint == "/command/send":
-                raise RuntimeError("Connection lost")
-            elif endpoint == "/command/cancel":
-                cancel_called["called"] = True
-                return {"success": True, "data": {}}
+        async def interactive_caller(endpoint, method="POST", data=None):
+            calls.append(endpoint)
             return {"success": True, "data": {}}
 
-        executor = SmartExecutor(http_caller=exploding_caller)
+        executor = SmartExecutor(http_caller=interactive_caller)
         plan = ExecutionPlan(
-            intent="loft curves",
-            operation="command:_-Loft",
-            execution_route="interactive",
-            command="_-Loft",
-            syntax="_-Loft _SelID a _Enter",
+            intent="sweep curve",
+            operation="command:_-Sweep1",
+            execution_route="known_command",
+            command="_-Sweep1",
+            syntax="_-Sweep1 _SelID curve1 _Enter",
         )
-        result = run(executor.execute(plan))
+        result = run(executor._interactive_fallback(plan, "Select rail", []))
+
         assert result.success is False
-        assert result.failure.layer == FailureLayer.COMMAND_EXECUTION
-        assert "Connection lost" in result.failure.error_detail
-        assert cancel_called["called"], "Cancel should be called on exception"
+        assert result.failure.layer == FailureLayer.ROUTING
+        assert result.failure.error_detail == (
+            "Interactive Rhino command execution is disabled for normal execution."
+        )
+        assert "/command/start" not in calls
+        assert "/command/send" not in calls
 
-    def test_poll_error_does_not_produce_success(self):
-        """I1: Poll failure must not be treated as 'command completed'."""
-        poll_count = {"n": 0}
-
+    def test_prompt_poll_helper_reports_poll_error(self):
         async def failing_poll_caller(endpoint, method="POST", data=None):
-            if endpoint == "/command/start":
-                return {"success": True, "data": {"command": "_-Loft", "started": True}}
-            elif endpoint == "/command/prompt":
-                poll_count["n"] += 1
-                if poll_count["n"] == 1:
-                    # First poll OK
-                    return {"success": True, "data": {"is_active": True, "prompt": "Select"}}
-                # Second poll: network error
+            if endpoint == "/command/prompt":
                 raise ConnectionError("Connection reset")
-            elif endpoint == "/command/send":
-                return {"success": True, "data": {"input_sent": True}}
-            elif endpoint == "/command/cancel":
-                return {"success": True, "data": {}}
             return {"success": True, "data": {}}
 
         executor = SmartExecutor(http_caller=failing_poll_caller)
-        plan = ExecutionPlan(
-            intent="loft curves",
-            operation="command:_-Loft",
-            execution_route="interactive",
-            command="_-Loft",
-            syntax="_-Loft _SelID a _Enter",
-        )
-        result = run(executor.execute(plan))
-        assert result.success is False
-        assert "poll failed" in result.failure.error_detail.lower()
+        trace = []
+        result = run(executor._poll_prompt(trace))
+
+        assert result["_poll_error"] == "Connection reset"
+        assert any("Prompt poll failed" in item for item in trace)
+
+    def test_safe_cancel_helper_swallows_errors(self):
+        async def failing_cancel_caller(endpoint, method="POST", data=None):
+            raise RuntimeError("cancel failed")
+
+        executor = SmartExecutor(http_caller=failing_cancel_caller)
+        trace = []
+        run(executor._safe_cancel(trace))
+
+        assert trace == ["Cancel failed (non-critical): cancel failed"]
 
 
 # ---------------------------------------------------------------------------
@@ -526,31 +546,8 @@ class TestTokenizeSyntax:
     def test_single_command(self):
         assert _tokenize_syntax("_-Loft") == ["_-Loft"]
 
-    def test_interactive_sends_quoted_tokens_intact(self):
-        """H2: Verify interactive execution preserves quoted arguments."""
-        sent_inputs = []
+    def test_quoted_tokens_remain_intact_for_recovery_helpers(self):
+        """H2: Verify quoted command arguments are preserved by tokenizer."""
+        tokens = _tokenize_syntax('_-Import "C:/My Files/model.3dm" _Enter')
 
-        async def tracking_caller(endpoint, method="POST", data=None):
-            if endpoint == "/command/start":
-                return {"success": True, "data": {"command": "_-Import", "started": True}}
-            elif endpoint == "/command/prompt":
-                return {"success": True, "data": {"is_active": False, "prompt": "Command"}}
-            elif endpoint == "/command/send":
-                sent_inputs.append(data.get("input", ""))
-                return {"success": True, "data": {"input_sent": True}}
-            elif endpoint == "/command/cancel":
-                return {"success": True, "data": {}}
-            return {"success": True, "data": {}}
-
-        executor = SmartExecutor(http_caller=tracking_caller)
-        plan = ExecutionPlan(
-            intent="import file",
-            operation="command:_-Import",
-            execution_route="interactive",
-            command="_-Import",
-            syntax='_-Import "C:/My Files/model.3dm" _Enter',
-        )
-        run(executor.execute(plan))
-        # The first input after the command name should be the full path, not split
-        # (the command completes immediately in this mock so no sends happen,
-        # but the tokenizer should at least not crash)
+        assert tokens == ["_-Import", '"C:/My Files/model.3dm"', "_Enter"]

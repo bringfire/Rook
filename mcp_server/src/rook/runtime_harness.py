@@ -12,6 +12,7 @@ import subprocess
 import time
 import tempfile
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from enum import Enum
 from pathlib import Path
@@ -23,7 +24,13 @@ import httpx
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost"}
 DEFAULT_DISCOVERY_DIR = Path(tempfile.gettempdir()) / "rook"
 MIN_POLL_SECONDS = 0.001
-HARNESS_ENV_KEYS = ("ROOK_RHINO_PORT", "ROOK_RHINO_PROCESS_ID", "NATIVE_PORT")
+HARNESS_ENV_KEYS = (
+    "ROOK_RHINO_PORT",
+    "ROOK_RHINO_PROCESS_ID",
+    "NATIVE_PORT",
+    "ROOK_HARNESS_ARTIFACT_DIR",
+)
+RUNSCRIPT_SAFETY_UNRECOVERED_SENTINEL = "runscript_safety_unrecovered.json"
 FINAL_SMOKE_DRAIN_TIMEOUT_SECONDS = 1.0
 WM_CLOSE = 0x0010
 
@@ -64,6 +71,7 @@ class SmokeCommandResult:
     stderr: str
     duration_seconds: float
     timed_out: bool = False
+    timeout_seconds: float | None = None
 
     @property
     def succeeded(self) -> bool:
@@ -78,6 +86,7 @@ class SmokeCommandResult:
             "stderr": self.stderr,
             "duration_seconds": self.duration_seconds,
             "timed_out": self.timed_out,
+            "timeout_seconds": self.timeout_seconds,
         }
 
 
@@ -90,6 +99,7 @@ class RhinoHarnessResult:
     ready_record_path: Path | None = None
     smoke: SmokeCommandResult | None = None
     cleanup_status: CleanupStatus = CleanupStatus.NOT_ATTEMPTED
+    runscript_safety_unrecovered_path: Path | None = None
     run_started_at: float = field(default_factory=time.time)
     warnings: list[str] = field(default_factory=list)
 
@@ -99,6 +109,7 @@ class RhinoHarnessResult:
             self.smoke is not None
             and self.smoke.succeeded
             and self.cleanup_status == CleanupStatus.GRACEFUL_EXIT
+            and self.runscript_safety_unrecovered_path is None
         )
 
     @property
@@ -121,6 +132,14 @@ class RhinoHarnessResult:
             "cleanup": {
                 "status": self.cleanup_status.value,
                 "path": self.cleanup_status.value,
+            },
+            "runscript_safety": {
+                "unrecovered": self.runscript_safety_unrecovered_path is not None,
+                "sentinel_path": (
+                    str(self.runscript_safety_unrecovered_path)
+                    if self.runscript_safety_unrecovered_path
+                    else None
+                ),
             },
             "warnings": self.warnings,
             "status": self.status.value,
@@ -149,6 +168,28 @@ PingFunction = Callable[[str, int], bool | Awaitable[bool]]
 
 def _scoped_env_subset(env_additions: dict[str, str]) -> dict[str, str]:
     return {key: str(env_additions[key]) for key in HARNESS_ENV_KEYS if key in env_additions}
+
+
+def _apply_env_overrides(
+    base_env: Mapping[str, str],
+    overrides: dict[str, str | None] | None,
+) -> dict[str, str]:
+    env = {str(key): str(value) for key, value in base_env.items()}
+    if not overrides:
+        return env
+    for key, value in overrides.items():
+        if value is None:
+            env.pop(key, None)
+        else:
+            env[key] = str(value)
+    return env
+
+
+def _runscript_safety_unrecovered_path(artifact_dir: Path) -> Path | None:
+    sentinel_path = artifact_dir / RUNSCRIPT_SAFETY_UNRECOVERED_SENTINEL
+    if sentinel_path.exists():
+        return sentinel_path
+    return None
 
 
 def _decode_timeout_stream(value: str | bytes | None) -> str:
@@ -274,6 +315,56 @@ def request_external_graceful_close(
         return True
 
 
+def force_owned_process_cleanup(process, diagnostics: list[str]) -> bool:
+    if process.poll() is not None:
+        return True
+
+    if os.name == "nt":
+        try:
+            taskkill_result = subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/F"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            diagnostics.append(f"force cleanup taskkill failed for pid {process.pid}: {exc}")
+            try:
+                process.kill()
+            except Exception as kill_exc:
+                diagnostics.append(f"force cleanup process.kill failed for pid {process.pid}: {kill_exc}")
+                return False
+        else:
+            if taskkill_result.returncode != 0:
+                diagnostics.append(
+                    "force cleanup taskkill returned "
+                    f"{taskkill_result.returncode} for pid {process.pid}: "
+                    f"{taskkill_result.stderr or taskkill_result.stdout}"
+                )
+                try:
+                    process.kill()
+                except Exception as kill_exc:
+                    diagnostics.append(f"force cleanup process.kill failed for pid {process.pid}: {kill_exc}")
+                    return False
+    else:
+        try:
+            process.kill()
+        except Exception as exc:
+            diagnostics.append(f"force cleanup process.kill failed for pid {process.pid}: {exc}")
+            return False
+
+    try:
+        process.wait(timeout=1.0)
+    except Exception as exc:
+        diagnostics.append(f"force cleanup wait failed for pid {process.pid}: {exc}")
+        return False
+    if process.poll() is None:
+        diagnostics.append(f"force cleanup did not stop pid {process.pid}")
+        return False
+    return True
+
+
 def _windows_kernel32() -> ctypes.WinDLL:
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     kernel32.CreateJobObjectW.argtypes = [wintypes.LPVOID, wintypes.LPCWSTR]
@@ -394,6 +485,7 @@ def run_smoke_command(
                 stderr=stderr,
                 duration_seconds=duration_seconds,
                 timed_out=True,
+                timeout_seconds=timeout_seconds,
             )
     finally:
         _close_windows_job(job_handle)
@@ -406,6 +498,7 @@ def run_smoke_command(
         stdout=stdout,
         stderr=stderr,
         duration_seconds=duration_seconds,
+        timeout_seconds=timeout_seconds,
     )
 
 
@@ -549,6 +642,7 @@ def run_rhino_runtime_harness(
     readiness_poll_seconds: float = 0.25,
     cleanup_timeout_seconds: float = 10.0,
     keep_rhino_on_failure: bool = False,
+    launch_env_overrides: dict[str, str | None] | None = None,
 ) -> RhinoHarnessResult:
     """Run one owned Rhino process through readiness, smoke, artifacts, and cleanup.
 
@@ -576,7 +670,10 @@ def run_rhino_runtime_harness(
 
     discovery = discovery or OwnedRhinoDiscovery()
     try:
-        process = subprocess.Popen([str(rhino_exe)])
+        process = subprocess.Popen(
+            [str(rhino_exe)],
+            env=_apply_env_overrides(os.environ, launch_env_overrides),
+        )
     except OSError as exc:
         result = RhinoHarnessResult(
             run_id=run_id,
@@ -637,6 +734,7 @@ def run_rhino_runtime_harness(
                 smoke_env = {
                     "ROOK_RHINO_PORT": str(record.port),
                     "ROOK_RHINO_PROCESS_ID": str(record.pid),
+                    "ROOK_HARNESS_ARTIFACT_DIR": str(artifact_dir),
                 }
                 if smoke_kind == "rhino-operational":
                     smoke_env["NATIVE_PORT"] = str(record.port)
@@ -652,10 +750,28 @@ def run_rhino_runtime_harness(
                         )
                 except Exception as exc:
                     warnings.append(f"Rhino smoke command failed before result: {exc}")
+                    unrecovered_path = _runscript_safety_unrecovered_path(artifact_dir)
+                    if unrecovered_path is not None:
+                        warnings.append(
+                            f"RunScript safety unrecovered sentinel observed: {unrecovered_path}"
+                        )
+                        result = replace(
+                            result,
+                            runscript_safety_unrecovered_path=unrecovered_path,
+                        )
                     copy_temp_rook_artifacts(result, temp_rook_dir, "smoke-failure")
                 else:
                     result = replace(result, smoke=smoke)
-                    if smoke_kind != "ping-only":
+                    unrecovered_path = _runscript_safety_unrecovered_path(artifact_dir)
+                    if unrecovered_path is not None:
+                        warnings.append(
+                            f"RunScript safety unrecovered sentinel observed: {unrecovered_path}"
+                        )
+                        result = replace(
+                            result,
+                            runscript_safety_unrecovered_path=unrecovered_path,
+                        )
+                    elif smoke_kind != "ping-only":
                         save_owned_document_for_cleanup(record, artifact_dir, warnings)
                     copy_temp_rook_artifacts(result, temp_rook_dir, "before-shutdown")
                     before_shutdown_copied = True
@@ -671,6 +787,7 @@ def run_rhino_runtime_harness(
             and not already_exited_before_cleanup
             and result.smoke is not None
             and not result.smoke.succeeded
+            and result.runscript_safety_unrecovered_path is None
         )
         forced = False
         force_failed = False
@@ -679,15 +796,23 @@ def run_rhino_runtime_harness(
                 f"KeepRhinoOnFailure requested; leaving owned Rhino pid {pid} running for diagnostics"
             )
         elif not already_exited_before_cleanup:
-            try:
-                forced = request_external_graceful_close(
-                    process,
-                    cleanup_timeout_seconds,
-                    diagnostics=warnings,
-                )
-            except Exception as exc:
-                warnings.append(f"Rhino cleanup failed: {exc}")
-                force_failed = True
+            if result.runscript_safety_unrecovered_path is not None:
+                forced = True
+                try:
+                    force_failed = not force_owned_process_cleanup(process, warnings)
+                except Exception as exc:
+                    warnings.append(f"Rhino force cleanup failed: {exc}")
+                    force_failed = True
+            else:
+                try:
+                    forced = request_external_graceful_close(
+                        process,
+                        cleanup_timeout_seconds,
+                        diagnostics=warnings,
+                    )
+                except Exception as exc:
+                    warnings.append(f"Rhino cleanup failed: {exc}")
+                    force_failed = True
         process_exited_after_cleanup = process.poll() is not None
         if should_keep_on_failure:
             cleanup_status = CleanupStatus.NOT_ATTEMPTED

@@ -124,7 +124,10 @@ def test_active_prompt_overrides_to_unverified():
     )
     assert result["verified"] is False
     assert "Select objects" in result["verification_note"]
+    assert "rhino_command_interactive_prompt" in result["verification_note"]
+    assert "rhino_command_prompt" not in result["verification_note"]
     assert "rhino_command_interactive_cancel" in result["verification_note"]
+    assert "rhino_command_interactive_send" not in result["verification_note"]
 
 
 def test_idle_prompt_does_not_override():
@@ -154,7 +157,7 @@ def test_malformed_prompt_state_ignored():
 # ─── annotate_result — prompt poll failure ───────────────────────────────────
 
 def test_prompt_poll_failed_modal_risk_unverified():
-    # If rhino_command_prompt raised an exception, modal-risk tool is unverified.
+    # If rhino_command_interactive_prompt raised an exception, modal-risk tool is unverified.
     result = annotate_result(
         "rhino_execute",
         {"success": True, "data": {}},
@@ -163,6 +166,8 @@ def test_prompt_poll_failed_modal_risk_unverified():
     )
     assert result["verified"] is False
     assert "Could not verify" in result["verification_note"]
+    assert "rhino_command_interactive_prompt" in result["verification_note"]
+    assert "rhino_command_prompt" not in result["verification_note"]
 
 
 def test_prompt_poll_failed_creation_tool_not_affected():

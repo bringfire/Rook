@@ -260,6 +260,40 @@ def _preflight_rhino_command(command: Any) -> dict[str, Any] | None:
     return preflight_rhino_command(command, command_learner.knowledge_store)
 
 
+def _interactive_command_learning_enabled() -> bool:
+    if os.getenv("ROOK_MCP_TARGET_MODE") == "panel_locked":
+        return False
+    return os.getenv("ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING") == "1"
+
+
+def _interactive_command_deprecated_result(tool_name: str) -> dict[str, Any]:
+    return {
+        "success": False,
+        "data": {
+            "error": "interactive_command_deprecated",
+            "tool": tool_name,
+            "verified": False,
+            "recovery": (
+                "Autonomous Rhino prompt driving is disabled. Use typed Rook tools, "
+                "a known-safe fully scripted rhino_command, "
+                "rhino_command_interactive_prompt to inspect state, or "
+                "rhino_command_interactive_cancel to recover."
+            ),
+        },
+    }
+
+
+_DEPRECATED_INTERACTIVE_COMMAND_TOOLS = {
+    "rhino_command_experiment",
+    "rhino_command_interactive_start",
+    "rhino_command_interactive_send",
+    "rhino_learn_interactive",
+    "rhino_learn_next",
+    "rhino_learn_variations_interactive",
+    "rhino_prepare_geometry",
+}
+
+
 def _track_failure(command: str, inputs: list, error: str) -> None:
     """Track a command failure for potential correction detection."""
     _recent_failures[command] = {
@@ -2187,7 +2221,11 @@ Use this before any Rhino operations to ensure Rhino is available. Safe to call 
         ),
         Tool(
             name="rhino_command",
-            description="Run a Rhino command string. Use underscore prefix for language-independent commands (e.g., '_Line').",
+            description=(
+                "Run a known-safe, non-interactive, fully parameterized Rhino command string. "
+                "The command must start with '_'. Unknown/ambiguous/prompt-driven/unclassified "
+                "commands are rejected."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -5759,57 +5797,7 @@ Returns the number of command patterns loaded.""",
             }
         ),
 
-        # Interactive Command Learning tools
-        Tool(
-            name="rhino_command_interactive_start",
-            description="""Start a Rhino command interactively and get the first prompt.
-
-This is for LEARNING command syntax step-by-step:
-1. Starts the command (e.g., '_-Box')
-2. Returns what Rhino is prompting for
-3. You then use rhino_command_interactive_send to respond to each prompt
-
-Example:
-  Start: {"command": "_-Box"}
-  Returns: {"prompt": "First corner of base ( Diagonal  3Point  Vertical  Center )", ...}
-  Send: {"input": "0,0,0"}
-  Returns: {"prompt": "Other corner of base or length ( 3Point )", ...}
-  Continue until is_complete=true""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "command": {
-                        "type": "string",
-                        "description": "The command to start (e.g., '_-Box', '_-Sphere')"
-                    }
-                },
-                "required": ["command"]
-            }
-        ),
-        Tool(
-            name="rhino_command_interactive_send",
-            description="""Send input to an active Rhino command and get the next prompt.
-
-Use after rhino_command_interactive_start to respond to prompts.
-Returns the next prompt, or is_complete=true when command finishes.
-
-Input can be:
-- Coordinates: "0,0,0" or "10,5,0"
-- Numbers: "5" or "45"
-- Options: "_Center" or "_Diagonal"
-- Enter for default: "" (empty string)
-- Cancel: "_Cancel" """,
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "input": {
-                        "type": "string",
-                        "description": "The input to send (coordinates, numbers, options, or empty for Enter)"
-                    }
-                },
-                "required": ["input"]
-            }
-        ),
+        # Interactive command recovery/observability tools
         Tool(
             name="rhino_command_interactive_prompt",
             description="""Get the current command prompt without sending input.
@@ -5830,92 +5818,6 @@ Use if you need to abort a command in progress.""",
                 "type": "object",
                 "properties": {},
                 "required": []
-            }
-        ),
-        Tool(
-            name="rhino_learn_interactive",
-            description="""Learn a Rhino command using interactive mode with FULL DIALOGUE CAPTURE.
-
-This is the PREFERRED learning method. Unlike rhino_command_learn (fire-and-forget),
-this tool captures the actual prompts Rhino shows at each step.
-
-Example:
-{
-    "command": "_-Box",
-    "inputs": ["0,0,0", "10,10,0", "5"],
-    "intent": "create a box at origin"
-}
-
-Returns dialogue like:
-  Step 1: "First corner of base (Diagonal 3Point...)" -> 0,0,0
-  Step 2: "Other corner of base or length..." -> 10,10,0
-  Step 3: "Height. Press Enter to use width" -> 5
-
-This captures OPTIONS, DEFAULT VALUES, and actual PROMPTS for learning.""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "command": {
-                        "type": "string",
-                        "description": "The command to learn (e.g., '_-Box', '_-Sphere')"
-                    },
-                    "inputs": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "List of inputs to send (e.g., ['0,0,0', '10,10,0', '5'])"
-                    },
-                    "intent": {
-                        "type": "string",
-                        "description": "What you're trying to accomplish"
-                    },
-                    "use_preselection": {
-                        "type": "boolean",
-                        "description": "If true, use pre-selected geometry instead of auto-creating. Set this when you've already created and selected the prerequisite geometry."
-                    }
-                },
-                "required": ["command", "inputs"]
-            }
-        ),
-        Tool(
-            name="rhino_learn_variations_interactive",
-            description="""Learn multiple variations of a command using interactive mode.
-
-Executes multiple input sequences for the same command, capturing dialogue for each.
-Use this to systematically learn all modes of a command.
-
-Example:
-{
-    "command": "_-Box",
-    "input_sequences": [
-        ["0,0,0", "10,10,0", "5"],
-        ["_Center", "5,5,0", "10,10,0", ""],
-        ["_Diagonal", "0,0,0", "10,10,10"]
-    ],
-    "intent": "learn all Box command modes"
-}
-
-Returns results for each variation with full dialogue capture.""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "command": {
-                        "type": "string",
-                        "description": "The command to learn (e.g., '_-Box')"
-                    },
-                    "input_sequences": {
-                        "type": "array",
-                        "items": {
-                            "type": "array",
-                            "items": {"type": "string"}
-                        },
-                        "description": "List of input sequences to try"
-                    },
-                    "intent": {
-                        "type": "string",
-                        "description": "What you're trying to learn"
-                    }
-                },
-                "required": ["command", "input_sequences"]
             }
         ),
         Tool(
@@ -11088,6 +10990,12 @@ Returns the full profile JSON including features, surfaces, and elements.""",
         ),
     ]
 
+    if not _interactive_command_learning_enabled():
+        return [
+            tool for tool in all_tools
+            if tool.name not in _DEPRECATED_INTERACTIVE_COMMAND_TOOLS
+        ]
+
     return all_tools
 
 
@@ -12595,7 +12503,7 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                 "success": False,
                 "data": (
                     "rhino_command_learn is deprecated and disabled. "
-                    "Use rhino_learn_interactive instead."
+                    "Use typed Rook tools or a known-safe fully scripted rhino_command."
                 ),
             }
 
@@ -16987,39 +16895,13 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
 
         case "rhino_command_interactive_prompt":
             try:
-                response = await call_rhino("/command/prompt", "GET")
-                result = {"success": True, "data": response}
+                result = await call_rhino("/command/prompt", "GET", None, port=port)
             except Exception as e:
                 result = {"success": False, "data": f"Failed to get prompt: {str(e)}"}
 
         case "rhino_command_interactive_cancel":
             try:
-                # Send the cancel
-                await call_rhino("/command/cancel", "POST")
-
-                # Wait for Rhino to fully process the cancel
-                # Note: Rhino's CommandPrompt may not update immediately even after cancel
-                # The cancel IS effective, but the prompt text may be stale
-                await asyncio.sleep(0.5)  # 500ms single wait
-
-                # Get final state
-                prompt_response = await call_rhino("/command/prompt", "GET")
-                prompt_data = prompt_response.get("data", {})
-                prompt_text = prompt_data.get("prompt", "")
-
-                # Consider cancelled if prompt is "Command" or is_active is False
-                cancelled = (prompt_text == "Command" or
-                            prompt_text == "" or
-                            not prompt_data.get("is_active", True))
-
-                result = {
-                    "success": True,
-                    "data": {
-                        "cancelled": cancelled,
-                        "prompt": prompt_text if prompt_text else "Command",
-                        "is_active": prompt_data.get("is_active", False),
-                    }
-                }
+                result = await call_rhino("/command/cancel", "POST", None, port=port)
             except Exception as e:
                 result = {"success": False, "data": f"Failed to cancel: {str(e)}"}
 
@@ -18079,6 +17961,18 @@ def _format_tool_result(result: dict[str, Any]) -> list[TextContent]:
 async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     """Handle tool calls with centralized Rhino target routing."""
     arguments = dict(arguments) if arguments else {}
+    if (
+        name in _DEPRECATED_INTERACTIVE_COMMAND_TOOLS
+        and not _interactive_command_learning_enabled()
+    ):
+        import time as _time
+
+        _t0 = _time.perf_counter()
+        raw_result = _interactive_command_deprecated_result(name)
+        get_phase_tracker().record_call(name)
+        _record_observation(name, arguments, raw_result, (_time.perf_counter() - _t0) * 1000, None)
+        return _format_tool_result(raw_result)
+
     policy = targeting.policy_for_tool(name)
     explicit_port = arguments.get("port")
 

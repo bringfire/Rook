@@ -1,7 +1,7 @@
 import json
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -17,7 +17,11 @@ class _DummyPhaseTracker:
 def _decode_response(response):
     text = response[0].text
     if text.startswith("Error: "):
-        return {"success": False, "data": text[len("Error: "):]}
+        raw = text[len("Error: "):]
+        try:
+            return {"success": False, "data": json.loads(raw)}
+        except json.JSONDecodeError:
+            return {"success": False, "data": raw}
     return {"success": True, "data": json.loads(text)}
 
 
@@ -92,6 +96,197 @@ async def test_rhino_command_learn_is_rejected(monkeypatch, patched_server):
     assert payload["success"] is False
     assert "deprecated and disabled" in payload["data"]
     call_rhino_mock.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_rhino_command_tool_contract_only_lists_safe_scripted_command(monkeypatch):
+    monkeypatch.delenv("ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING", raising=False)
+    monkeypatch.delenv("ROOK_MCP_TARGET_MODE", raising=False)
+    tools = {tool.name: tool for tool in await server.list_tools()}
+
+    assert "rhino_command" in tools
+    desc = tools["rhino_command"].description
+    assert "known-safe" in desc
+    assert "non-interactive" in desc
+    assert "fully parameterized" in desc
+    assert "must start with '_'" in desc
+    assert "unknown/ambiguous/prompt-driven/unclassified commands are rejected" in desc.lower()
+
+    assert "rhino_command_interactive_start" not in tools
+    assert "rhino_command_interactive_send" not in tools
+    assert "rhino_command_experiment" not in tools
+    assert "rhino_learn_interactive" not in tools
+    assert "rhino_learn_next" not in tools
+    assert "rhino_learn_variations_interactive" not in tools
+    assert "rhino_prepare_geometry" not in tools
+    assert "rhino_command_interactive_prompt" in tools
+    assert "rhino_command_interactive_cancel" in tools
+
+
+@pytest.mark.asyncio
+async def test_interactive_learning_tools_list_only_in_dev_learning_mode(monkeypatch):
+    monkeypatch.setenv("ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING", "1")
+    monkeypatch.delenv("ROOK_MCP_TARGET_MODE", raising=False)
+    dev_tools = {tool.name for tool in await server.list_tools()}
+
+    assert "rhino_command_interactive_start" not in dev_tools
+    assert "rhino_command_interactive_send" not in dev_tools
+    assert "rhino_command_experiment" in dev_tools
+    assert "rhino_learn_next" in dev_tools
+    assert "rhino_prepare_geometry" in dev_tools
+
+    monkeypatch.setenv("ROOK_MCP_TARGET_MODE", "panel_locked")
+    panel_tools = {tool.name for tool in await server.list_tools()}
+
+    assert "rhino_command_interactive_start" not in panel_tools
+    assert "rhino_command_interactive_send" not in panel_tools
+    assert "rhino_command_experiment" not in panel_tools
+    assert "rhino_learn_next" not in panel_tools
+    assert "rhino_prepare_geometry" not in panel_tools
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("tool_name", "arguments"),
+    [
+        ("rhino_command_interactive_start", {"command": "_-Box"}),
+        ("rhino_command_interactive_send", {"input": "0,0,0"}),
+        ("rhino_command_experiment", {"command": "_-Box", "variations": ["_-Box 0,0,0 1,1,1"]}),
+        ("rhino_learn_interactive", {"command": "_-Box", "inputs": ["0,0,0"]}),
+        ("rhino_learn_next", {}),
+        ("rhino_learn_variations_interactive", {"command": "_-Box", "variations": [["0,0,0"]]}),
+        ("rhino_prepare_geometry", {"geometry_type": "curve"}),
+    ],
+)
+async def test_deprecated_interactive_command_tools_refuse_direct_calls_in_normal_mode(
+    monkeypatch, patched_server, tool_name, arguments
+):
+    monkeypatch.delenv("ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING", raising=False)
+    monkeypatch.delenv("ROOK_MCP_TARGET_MODE", raising=False)
+    call_rhino_mock = AsyncMock()
+    monkeypatch.setattr(server, "call_rhino", call_rhino_mock)
+
+    response = await server.call_tool(tool_name, arguments)
+    payload = _decode_response(response)
+
+    assert payload["success"] is False
+    assert payload["data"]["error"] == "interactive_command_deprecated"
+    assert payload["data"]["tool"] == tool_name
+    call_rhino_mock.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("tool_name", "arguments"),
+    [
+        ("rhino_command_interactive_start", {"command": "_-Box"}),
+        ("rhino_command_interactive_send", {"input": "0,0,0"}),
+        ("rhino_command_experiment", {"command": "_-Box", "variations": ["_-Box 0,0,0 1,1,1"]}),
+        ("rhino_learn_interactive", {"command": "_-Box", "inputs": ["0,0,0"]}),
+        ("rhino_learn_next", {}),
+        ("rhino_learn_variations_interactive", {"command": "_-Box", "variations": [["0,0,0"]]}),
+        ("rhino_prepare_geometry", {"geometry_type": "curve"}),
+    ],
+)
+async def test_deprecated_interactive_command_tools_refuse_direct_calls_in_panel_locked_mode(
+    monkeypatch, patched_server, tool_name, arguments
+):
+    monkeypatch.setenv("ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING", "1")
+    monkeypatch.setenv("ROOK_MCP_TARGET_MODE", "panel_locked")
+    call_rhino_mock = AsyncMock()
+    monkeypatch.setattr(server, "call_rhino", call_rhino_mock)
+
+    response = await server.call_tool(tool_name, arguments)
+    payload = _decode_response(response)
+
+    assert payload["success"] is False
+    assert payload["data"]["error"] == "interactive_command_deprecated"
+    assert payload["data"]["tool"] == tool_name
+    call_rhino_mock.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_rhino_command_rejects_when_command_safety_store_unavailable(monkeypatch, patched_server):
+    monkeypatch.setattr(server, "command_learner", SimpleNamespace(knowledge_store=None))
+    call_rhino_mock = AsyncMock()
+    monkeypatch.setattr(server, "call_rhino", call_rhino_mock)
+
+    response = await server.call_tool("rhino_command", {"command": "_-Box 0,0,0 1,1,1"})
+    payload = _decode_response(response)
+
+    assert payload["success"] is False
+    assert payload["data"]["error"] == "run_script_safety_refusal"
+    assert payload["data"]["reason"] == "command_safety_unavailable"
+    call_rhino_mock.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_deprecated_interactive_refusal_records_observation(monkeypatch, patched_server):
+    monkeypatch.delenv("ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING", raising=False)
+    monkeypatch.delenv("ROOK_MCP_TARGET_MODE", raising=False)
+    record_mock = MagicMock()
+    monkeypatch.setattr(server, "_record_observation", record_mock)
+    call_rhino_mock = AsyncMock()
+    monkeypatch.setattr(server, "call_rhino", call_rhino_mock)
+
+    response = await server.call_tool("rhino_command_interactive_start", {"command": "_-Box"})
+    payload = _decode_response(response)
+
+    assert payload["success"] is False
+    assert payload["data"]["error"] == "interactive_command_deprecated"
+    record_mock.assert_called_once()
+    call_rhino_mock.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_interactive_cancel_preserves_native_uncertain_failure(monkeypatch, patched_server):
+    native_failure = {
+        "success": False,
+        "data": {
+            "cancelled": False,
+            "verified": False,
+            "state_uncertain": True,
+            "prompt": "Select curves",
+            "is_active": True,
+        },
+    }
+    call_rhino_mock = AsyncMock(return_value=native_failure)
+    monkeypatch.setattr(server, "call_rhino", call_rhino_mock)
+
+    response = await server.call_tool("rhino_command_interactive_cancel", {})
+    payload = _decode_response(response)
+
+    assert payload["success"] is False
+    assert payload["data"] == native_failure["data"]
+    assert payload["data"]["cancelled"] is False
+    assert payload["data"]["verified"] is False
+    assert payload["data"]["state_uncertain"] is True
+    call_rhino_mock.assert_awaited_once()
+    assert call_rhino_mock.await_args.args == ("/command/cancel", "POST", None)
+
+
+@pytest.mark.asyncio
+async def test_interactive_prompt_preserves_native_uncertain_failure(monkeypatch, patched_server):
+    native_failure = {
+        "success": False,
+        "data": {
+            "error": "Could not read Rhino command prompt",
+            "verified": False,
+            "state_uncertain": True,
+        },
+    }
+    call_rhino_mock = AsyncMock(return_value=native_failure)
+    monkeypatch.setattr(server, "call_rhino", call_rhino_mock)
+
+    response = await server.call_tool("rhino_command_interactive_prompt", {})
+    payload = _decode_response(response)
+
+    assert payload["success"] is False
+    assert payload["data"] == native_failure["data"]
+    assert payload["data"]["verified"] is False
+    assert payload["data"]["state_uncertain"] is True
+    call_rhino_mock.assert_awaited_once()
+    assert call_rhino_mock.await_args.args == ("/command/prompt", "GET", None)
 
 
 @pytest.mark.asyncio

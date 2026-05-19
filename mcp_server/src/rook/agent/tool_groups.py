@@ -48,7 +48,7 @@ TIER_0: Set[str] = {
 AGENT_TIER_0: Set[str] = (TIER_0 - {"gh_execute_intent"}) | {
     "gh_snapshot",
     "session_history",       # per-command success/failure for post-execution verification
-    "rhino_command_prompt",  # Rhino prompt state — detect non-idle after execution
+    "rhino_command_interactive_prompt",  # Rhino prompt state — detect non-idle after execution
     "ui_block",              # Adaptive UI pseudo-tool (intercepted by ChatRunner)
 }
 
@@ -235,7 +235,6 @@ TOOL_GROUPS: Dict[str, List[str]] = {
     # --- Rhino Commands (direct) ---
     "rhino_commands": [
         "rhino_command", "rhino_execute",
-        "rhino_command_interactive_start", "rhino_command_interactive_send",
         "rhino_command_interactive_prompt", "rhino_command_interactive_cancel",
     ],
 
@@ -394,9 +393,7 @@ TOOL_GROUPS: Dict[str, List[str]] = {
     "command_learning": [
         "rhino_command_knowledge", "rhino_knowledge_query", "rhino_command_knowledge_reload",
         "rhino_command_observations",
-        "rhino_command_consolidate", "rhino_command_experiment",
-        "rhino_learn_interactive", "rhino_learn_next",
-        "rhino_learn_variations_interactive", "rhino_learning_progress",
+        "rhino_command_consolidate", "rhino_learning_progress",
         "rhino_command_select", "rhino_command_queue",
     ],
 

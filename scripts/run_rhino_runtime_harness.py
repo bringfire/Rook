@@ -7,6 +7,8 @@ from pathlib import Path
 
 DEFAULT_RHINO_EXE = Path(r"C:\Program Files\Rhino 8\System\Rhino.exe")
 DEFAULT_ARTIFACT_ROOT = Path(r".scratch\rhino-runtime-harness")
+RUNSCRIPT_SAFETY_TIMEOUT_SECONDS = 120.0
+RUNSCRIPT_SAFETY_READINESS_TIMEOUT_SECONDS = 90.0
 
 
 def _repo_root() -> Path:
@@ -58,7 +60,61 @@ def _smoke_command(name: str, repo_root: Path) -> tuple[list[str], Path]:
             ],
             repo_root,
         )
+    if name == "runscript-safety":
+        return (
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                "tests/test_runscript_safety_live.py",
+                "-m",
+                "requires_rhino and runscript_safety_live and not runscript_safety_hooks",
+                "-v",
+            ],
+            repo_root / "mcp_server",
+        )
+    if name == "runscript-safety-hooks":
+        return (
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                "tests/test_runscript_safety_live.py",
+                "-m",
+                "requires_rhino and runscript_safety_live and runscript_safety_hooks",
+                "-v",
+            ],
+            repo_root / "mcp_server",
+        )
     raise ValueError(f"unknown smoke command: {name}")
+
+
+def _smoke_timeout_seconds(name: str) -> float | None:
+    if name in {"runscript-safety", "runscript-safety-hooks"}:
+        return RUNSCRIPT_SAFETY_TIMEOUT_SECONDS
+    return None
+
+
+def _readiness_timeout_seconds(name: str, requested: float | None) -> float:
+    if requested is not None:
+        return requested
+    if name in {"runscript-safety", "runscript-safety-hooks"}:
+        return RUNSCRIPT_SAFETY_READINESS_TIMEOUT_SECONDS
+    return 30.0
+
+
+def _launch_env_overrides(name: str) -> dict[str, str | None]:
+    if name == "runscript-safety":
+        return {
+            "ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING": None,
+            "ROOK_ENABLE_RUNSCRIPT_SAFETY_TEST_HOOKS": None,
+        }
+    if name == "runscript-safety-hooks":
+        return {
+            "ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING": None,
+            "ROOK_ENABLE_RUNSCRIPT_SAFETY_TEST_HOOKS": "1",
+        }
+    return {}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -67,7 +123,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--rhino-exe", type=Path, default=DEFAULT_RHINO_EXE)
     parser.add_argument("--artifact-root", type=Path, default=DEFAULT_ARTIFACT_ROOT)
-    parser.add_argument("--readiness-timeout", type=float, default=30.0)
+    parser.add_argument("--readiness-timeout", type=float, default=None)
     parser.add_argument("--cleanup-timeout", type=float, default=10.0)
     parser.add_argument(
         "--smoke",
@@ -77,6 +133,8 @@ def build_parser() -> argparse.ArgumentParser:
             "rhino-operational",
             "gh-readiness",
             "gh-python-geometry-output",
+            "runscript-safety",
+            "runscript-safety-hooks",
         ],
         default="pytest-select",
     )
@@ -101,7 +159,9 @@ def main(argv: list[str] | None = None) -> int:
         smoke_command=command,
         smoke_kind=args.smoke,
         smoke_cwd=cwd,
-        readiness_timeout_seconds=args.readiness_timeout,
+        smoke_timeout_seconds=_smoke_timeout_seconds(args.smoke),
+        launch_env_overrides=_launch_env_overrides(args.smoke),
+        readiness_timeout_seconds=_readiness_timeout_seconds(args.smoke, args.readiness_timeout),
         cleanup_timeout_seconds=args.cleanup_timeout,
     )
     print(f"Artifact directory: {result.artifact_dir}")

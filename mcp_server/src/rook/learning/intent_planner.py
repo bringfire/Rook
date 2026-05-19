@@ -432,7 +432,7 @@ class IntentPlanner:
             command=selected_command,
             mode=selected_mode,
             syntax=full_command,
-            fallbacks=["interactive"],
+            fallbacks=[],
             confidence=confidence,
             knowledge_context=gotchas,
             reasoning_trace=trace,

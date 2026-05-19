@@ -274,8 +274,16 @@ def _():
     from rook.agent.tool_groups import TOOL_GROUPS
     assert "rhino_command_select" not in TOOL_GROUPS["rhino_commands"]
     assert "rhino_command_queue" not in TOOL_GROUPS["rhino_commands"]
+    assert "rhino_command_interactive_prompt" in TOOL_GROUPS["rhino_commands"]
+    assert "rhino_command_interactive_cancel" in TOOL_GROUPS["rhino_commands"]
+    assert "rhino_command_interactive_start" not in TOOL_GROUPS["rhino_commands"]
+    assert "rhino_command_interactive_send" not in TOOL_GROUPS["rhino_commands"]
     assert "rhino_command_select" in TOOL_GROUPS["command_learning"]
     assert "rhino_command_queue" in TOOL_GROUPS["command_learning"]
+    assert "rhino_command_experiment" not in TOOL_GROUPS["command_learning"]
+    assert "rhino_learn_interactive" not in TOOL_GROUPS["command_learning"]
+    assert "rhino_learn_next" not in TOOL_GROUPS["command_learning"]
+    assert "rhino_learn_variations_interactive" not in TOOL_GROUPS["command_learning"]
 
 
 # =========================================================================
