@@ -9,6 +9,61 @@ path (server.py call_tool) and the agent path (tool_dispatcher.py).
 from typing import Any
 
 
+RUNSCRIPT_REFUSAL_ERROR = "run_script_safety_refusal"
+
+
+def _runscript_safety_refusal(
+    reason: str,
+    command: Any = None,
+    mode: Any = None,
+) -> dict[str, Any]:
+    return {
+        "success": False,
+        "data": {
+            "error": RUNSCRIPT_REFUSAL_ERROR,
+            "reason": reason,
+            "command": command,
+            "mode": mode,
+            "verified": False,
+            "recovery": "Use a typed Rook tool or a known-safe fully scripted command.",
+        },
+    }
+
+
+def _get_mapping_value(source: Any, key: str, default: Any = None) -> Any:
+    if isinstance(source, dict):
+        return source.get(key, default)
+    return getattr(source, key, default)
+
+
+def _safe_modes_from_metadata(metadata: Any) -> set[str]:
+    modes = _get_mapping_value(metadata, "safe_non_interactive_modes", [])
+    if isinstance(modes, str):
+        return {modes}
+    if isinstance(modes, (list, tuple, set)):
+        return {mode for mode in modes if isinstance(mode, str)}
+    return set()
+
+
+def _is_safe_non_interactive(cmd_knowledge: Any, mode: Any) -> bool:
+    if not isinstance(mode, str):
+        return False
+
+    preconditions = _get_mapping_value(cmd_knowledge, "preconditions", {})
+    if _get_mapping_value(preconditions, "safe_non_interactive") is True:
+        return True
+    if mode in _safe_modes_from_metadata(preconditions):
+        return True
+
+    modes = _get_mapping_value(cmd_knowledge, "modes", {})
+    mode_metadata = _get_mapping_value(modes, mode)
+    if mode_metadata is None:
+        return False
+    if _get_mapping_value(mode_metadata, "safe_non_interactive") is True:
+        return True
+    return mode in _safe_modes_from_metadata(mode_metadata)
+
+
 def preflight_rhino_command(
     command: Any,
     knowledge_store: Any | None = None,
@@ -16,7 +71,8 @@ def preflight_rhino_command(
     """Reject obviously malformed Rhino command strings before they hit RunScript.
 
     Returns an error dict if the command should be rejected, or None if it passes.
-    The knowledge_store is optional — when absent, only the underscore check runs.
+    A command knowledge store is required so RunScript only executes commands
+    that are known and explicitly marked safe for non-interactive use.
     """
     if not isinstance(command, str) or not command.strip():
         return {"success": False, "data": "Missing required parameter: command"}
@@ -45,20 +101,42 @@ def preflight_rhino_command(
         }
 
     if knowledge_store is None:
-        return None
+        return _runscript_safety_refusal(
+            "command_safety_unavailable",
+            command=command_text,
+        )
 
     parsed = knowledge_store.parse_command_string(command_text)
     if not isinstance(parsed, dict):
-        return None
+        return _runscript_safety_refusal(
+            "unknown_command",
+            command=first_token.lstrip("_"),
+        )
 
     cmd_name = parsed.get("command")
-    syntax = parsed.get("syntax")
-    if not isinstance(cmd_name, str) or not isinstance(syntax, str) or not syntax:
-        return None
+    mode = parsed.get("mode")
+    if not isinstance(cmd_name, str):
+        return _runscript_safety_refusal(
+            "unknown_command",
+            command=first_token.lstrip("_"),
+            mode=mode,
+        )
 
     cmd_knowledge = knowledge_store.get_command(cmd_name)
     if cmd_knowledge is None:
-        return None
+        return _runscript_safety_refusal(
+            "unknown_command",
+            command=cmd_name,
+            mode=mode,
+        )
+
+    syntax = parsed.get("syntax")
+    if not isinstance(cmd_name, str) or not isinstance(syntax, str) or not syntax:
+        return _runscript_safety_refusal(
+            "unknown_command",
+            command=cmd_name,
+            mode=mode,
+        )
 
     from .learning.command_knowledge_store import parse_syntax_template
 
@@ -82,9 +160,12 @@ def preflight_rhino_command(
             ),
         }
 
-    allowed_options: set[str] = set(cmd_knowledge.options.keys())
-    for mode_data in cmd_knowledge.modes.values():
-        mode_syntax = getattr(mode_data, "syntax", "")
+    options = _get_mapping_value(cmd_knowledge, "options", {})
+    allowed_options: set[str] = set(options.keys()) if isinstance(options, dict) else set()
+    modes = _get_mapping_value(cmd_knowledge, "modes", {})
+    mode_values = modes.values() if isinstance(modes, dict) else []
+    for mode_data in mode_values:
+        mode_syntax = _get_mapping_value(mode_data, "syntax", "")
         for token in str(mode_syntax).split()[1:]:
             if token.startswith("_") and "," not in token:
                 allowed_options.add(token)
@@ -104,5 +185,12 @@ def preflight_rhino_command(
                     f"Known options: {allowed_preview}."
                 ),
             }
+
+    if not _is_safe_non_interactive(cmd_knowledge, mode):
+        return _runscript_safety_refusal(
+            "command_not_marked_safe_non_interactive",
+            command=cmd_name,
+            mode=mode,
+        )
 
     return None
