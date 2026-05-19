@@ -155,6 +155,21 @@ bool HasPositiveOptionalNumber(const nlohmann::json& object, const std::string& 
     return true;
 }
 
+bool HasValidFovDegrees(const nlohmann::json& object)
+{
+    if (!object.contains("fov_degrees") || object["fov_degrees"].is_null())
+        return false;
+
+    if (!object["fov_degrees"].is_number())
+        throw DirectorFrameValidationError("invalid_input", "fov_degrees must be a positive number when provided");
+
+    double value = object["fov_degrees"].get<double>();
+    if (!std::isfinite(value) || value <= 0.0 || value >= 180.0)
+        throw DirectorFrameValidationError("invalid_input", "fov_degrees must be finite and between 0 and 180");
+
+    return true;
+}
+
 fs::path PathFromUtf8(const std::string& value)
 {
     ON_wString wide = Utf8ToWide(value);
@@ -403,7 +418,7 @@ void ValidateCamera(const nlohmann::json& body)
         throw DirectorFrameValidationError("invalid_input", "camera.up must be nonzero");
 
     const bool hasLensLength = HasPositiveOptionalNumber(camera, "lens_length");
-    const bool hasFovDegrees = HasPositiveOptionalNumber(camera, "fov_degrees");
+    const bool hasFovDegrees = HasValidFovDegrees(camera);
     if (!hasLensLength && !hasFovDegrees)
         throw DirectorFrameValidationError("invalid_input", "perspective camera requires positive lens_length or fov_degrees");
 }

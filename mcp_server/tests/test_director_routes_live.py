@@ -59,6 +59,7 @@ def _frame_instruction(
     director_version: str = "slice1",
     projection: str = "perspective",
     resolution: dict[str, int] | None = None,
+    camera_overrides: dict[str, Any] | None = None,
     object_transforms: Any | None = None,
 ) -> dict[str, Any]:
     root = run_root or (_director_output_root() / "task8_contract")
@@ -76,6 +77,20 @@ def _frame_instruction(
                 },
             }
         ]
+    camera = {
+        "projection": projection,
+        "location": [4, -4, 3],
+        "target": [0, 0, 0],
+        "up": [0, 0, 1],
+        "lens_length": 35.0,
+        "fov_degrees": 45.0,
+        "parallel_scale": None,
+        "near_clip": 0.1,
+        "far_clip": 1000.0,
+        "aspect": 1.7778,
+    }
+    if camera_overrides:
+        camera.update(camera_overrides)
     return {
         "schema_version": schema_version,
         "director_version": director_version,
@@ -86,18 +101,7 @@ def _frame_instruction(
         "output_path": str(output),
         "resolution": resolution or {"width": 320, "height": 180},
         "display": {"mode": "Rendered"},
-        "camera": {
-            "projection": projection,
-            "location": [4, -4, 3],
-            "target": [0, 0, 0],
-            "up": [0, 0, 1],
-            "lens_length": 35.0,
-            "fov_degrees": 45.0,
-            "parallel_scale": None,
-            "near_clip": 0.1,
-            "far_clip": 1000.0,
-            "aspect": 1.7778,
-        },
+        "camera": camera,
         "object_transforms": object_transforms,
     }
 
@@ -193,6 +197,61 @@ async def test_director_frame_capture_rejects_over_limit_resolution():
     _, envelope = await _post_director(
         "frame-capture",
         _frame_instruction(resolution={"width": 320, "height": 8193}),
+    )
+    assert envelope["success"] is False
+    assert _error_code(envelope) == "invalid_input"
+
+
+async def test_director_frame_capture_rejects_missing_perspective_lens_or_fov():
+    _, envelope = await _post_director(
+        "frame-capture",
+        _frame_instruction(camera_overrides={"lens_length": None, "fov_degrees": None}),
+    )
+    assert envelope["success"] is False
+    assert _error_code(envelope) == "invalid_input"
+
+
+async def test_director_frame_capture_rejects_invalid_fov_degrees():
+    _, envelope = await _post_director(
+        "frame-capture",
+        _frame_instruction(camera_overrides={"lens_length": None, "fov_degrees": 180.0}),
+    )
+    assert envelope["success"] is False
+    assert _error_code(envelope) == "invalid_input"
+
+
+async def test_director_frame_capture_rejects_missing_validation_strength():
+    transform = {
+        "object_id": "00000000-0000-0000-0000-000000000001",
+        "transform": _identity_matrix(),
+        "source_state": {
+            "bbox_min": [0, 0, 0],
+            "bbox_max": [1, 1, 1],
+            "state_hash": None,
+        },
+    }
+    _, envelope = await _post_director(
+        "frame-capture",
+        _frame_instruction(object_transforms=[transform]),
+    )
+    assert envelope["success"] is False
+    assert _error_code(envelope) == "invalid_input"
+
+
+async def test_director_frame_capture_rejects_unsupported_validation_strength():
+    transform = {
+        "object_id": "00000000-0000-0000-0000-000000000001",
+        "transform": _identity_matrix(),
+        "source_state": {
+            "bbox_min": [0, 0, 0],
+            "bbox_max": [1, 1, 1],
+            "validation_strength": "state_hash",
+            "state_hash": None,
+        },
+    }
+    _, envelope = await _post_director(
+        "frame-capture",
+        _frame_instruction(object_transforms=[transform]),
     )
     assert envelope["success"] is False
     assert _error_code(envelope) == "invalid_input"
