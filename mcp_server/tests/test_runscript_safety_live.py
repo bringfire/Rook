@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import tempfile
+import threading
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -22,7 +23,7 @@ pytestmark = [
 ]
 
 
-REQUEST_TIMEOUT = 15.0
+REQUEST_TIMEOUT = 20.0
 RECOVERY_TIMEOUT = 6.0
 RECOVERY_POLL_INTERVAL = 0.25
 
@@ -379,6 +380,39 @@ def test_active_prompt_quarantines_command_until_cancel(prompt_recovery_guard: N
     assert final_data.get("executed") is True
 
 
+def test_concurrent_cancel_does_not_mask_command_uncertainty(
+    prompt_recovery_guard: None,
+) -> None:
+    command_result: dict[str, Any] | None = None
+    command_error: BaseException | None = None
+
+    def run_prompt_command() -> None:
+        nonlocal command_result, command_error
+        try:
+            command_result = _native_post("/command", {"command": "_-Line", "echo": False})
+        except BaseException as exc:
+            command_error = exc
+
+    command_thread = threading.Thread(target=run_prompt_command)
+    command_thread.start()
+    time.sleep(0.5)
+
+    cancel = _native_post("/command/cancel")
+    command_thread.join(timeout=REQUEST_TIMEOUT)
+    assert not command_thread.is_alive()
+    if command_error is not None:
+        raise command_error
+    assert command_result is not None
+    _assert_command_uncertain_failure(command_result)
+    assert _is_verified_cancel_response(cancel)
+
+    final = _native_post("/command", {"command": "_SelNone", "echo": False})
+    final_data = final.get("data")
+    assert final.get("success") is True
+    assert isinstance(final_data, dict)
+    assert final_data.get("executed") is True
+
+
 def test_runscript_safety_hooks_disabled_by_default(owned_rhino_runtime: dict[str, Any]) -> None:
     response = _set_hook("prompt_unknown")
     data = response.get("data")
@@ -449,6 +483,43 @@ def test_hook_cancel_active_prompt_preserves_uncertain_state(prompt_recovery_gua
     assert quarantined.get("success") is False
     assert isinstance(quarantined_data, dict)
     assert quarantined_data.get("code") == "native_command_state_uncertain"
+
+
+@pytest.mark.runscript_safety_hooks
+def test_hook_cancel_waits_for_command_verification_window() -> None:
+    hook = _set_hook("prompt_poll_delay")
+    assert hook.get("success") is True
+
+    command_result: dict[str, Any] | None = None
+    command_error: BaseException | None = None
+
+    def run_safe_command() -> None:
+        nonlocal command_result, command_error
+        try:
+            command_result = _native_post("/command", {"command": "_SelNone", "echo": False})
+        except BaseException as exc:
+            command_error = exc
+
+    command_thread = threading.Thread(target=run_safe_command)
+    command_thread.start()
+    time.sleep(0.1)
+
+    start = time.monotonic()
+    cancel = _native_post("/command/cancel")
+    elapsed = time.monotonic() - start
+
+    command_thread.join(timeout=REQUEST_TIMEOUT)
+    assert not command_thread.is_alive()
+    if command_error is not None:
+        raise command_error
+    assert command_result is not None
+    command_data = command_result.get("data")
+    assert command_result.get("success") is True
+    assert isinstance(command_data, dict)
+    assert command_data.get("executed") is True
+
+    assert elapsed >= 1.0
+    assert _is_verified_cancel_response(cancel)
 
 
 @pytest.mark.asyncio

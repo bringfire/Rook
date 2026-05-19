@@ -361,6 +361,8 @@ void HandleCommandCancel(const httplib::Request& /*req*/, httplib::Response& res
 {
     try
     {
+        auto commandRunLock = AcquireCommandRunLifecycleLock();
+
         // C24 fix: RunScript is asynchronous — reading the prompt immediately
         // after _Cancel returns the OLD prompt because the cancel hasn't
         // processed yet. We send the cancel, wait briefly, then re-read.

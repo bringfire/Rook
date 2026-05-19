@@ -13,8 +13,10 @@
 #include "Threading/MainThreadDispatcher.h"
 #include "RookServer.h"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cctype>
 #include <cstdlib>
 #include <filesystem>
 #include <future>
@@ -33,6 +35,7 @@ static std::atomic<bool> s_commandStateUncertain{false};
 static std::atomic<bool> s_testHookPromptUnknown{false};
 static std::atomic<bool> s_testHookCommandTimeout{false};
 static std::atomic<bool> s_testHookCancelPromptActive{false};
+static std::atomic<bool> s_testHookPromptPollDelay{false};
 static const bool s_runScriptSafetyTestHooksEnabled = []() {
     const char* env = std::getenv("ROOK_ENABLE_RUNSCRIPT_SAFETY_TEST_HOOKS");
     return env != nullptr && std::string(env) == "1";
@@ -44,7 +47,7 @@ namespace
 {
     constexpr auto kCommandRunTimeout = std::chrono::seconds(10);
     constexpr auto kCommandPromptPollInterval = std::chrono::milliseconds(100);
-    constexpr auto kCommandPromptPollWindow = std::chrono::seconds(1);
+    constexpr auto kCommandPromptPollWindow = std::chrono::seconds(3);
     constexpr auto kCommandPromptDispatchTimeout = std::chrono::milliseconds(250);
 
     enum class CommandPromptState
@@ -181,6 +184,8 @@ namespace
             return &s_testHookCommandTimeout;
         if (hookName == "cancel_prompt_active")
             return &s_testHookCancelPromptActive;
+        if (hookName == "prompt_poll_delay")
+            return &s_testHookPromptPollDelay;
         return nullptr;
     }
 
@@ -258,6 +263,63 @@ namespace
         return data;
     }
 
+    std::string TrimAscii(const std::string& value)
+    {
+        auto begin = std::find_if_not(value.begin(), value.end(), [](unsigned char ch) {
+            return std::isspace(ch) != 0;
+        });
+        auto end = std::find_if_not(value.rbegin(), value.rend(), [](unsigned char ch) {
+            return std::isspace(ch) != 0;
+        }).base();
+        if (begin >= end)
+            return "";
+        return std::string(begin, end);
+    }
+
+    std::string CanonicalCommandToken(std::string token)
+    {
+        while (!token.empty() && (token.front() == '_' || token.front() == '-' || token.front() == '!'))
+            token.erase(token.begin());
+
+        std::transform(token.begin(), token.end(), token.begin(), [](unsigned char ch) {
+            return static_cast<char>(std::tolower(ch));
+        });
+        return token;
+    }
+
+    bool IsKnownSafeBareNoEffectCommand(const std::string& token)
+    {
+        return token == "selnone";
+    }
+
+    bool IsUnsafeBareNoEffectCommand(const std::string& command, int objectsCreated)
+    {
+        if (objectsCreated != 0)
+            return false;
+
+        const std::string trimmed = TrimAscii(command);
+        if (trimmed.empty())
+            return false;
+
+        if (trimmed.find_first_of(" \t\r\n") != std::string::npos)
+            return false;
+
+        return !IsKnownSafeBareNoEffectCommand(CanonicalCommandToken(trimmed));
+    }
+
+    nlohmann::json BuildCommandBareNoEffectUnverifiedError(const std::string& command)
+    {
+        nlohmann::json data = BuildCommandStateUncertainError(command);
+        data["code"] = "native_command_bare_no_effect_unverified";
+        data["waitingFor"] = "explicit non-interactive command arguments";
+        data["error"] = "Native command execution could not verify that this bare "
+            "command completed non-interactively or produced an effect.";
+        data["recovery"] = "Bare command names can enter Rhino prompt state after "
+            "RunScript returns. Rook quarantined command execution; call "
+            "/command/cancel to verify idle before continuing.";
+        return data;
+    }
+
     CommandPromptProbe TryReadCommandPrompt()
     {
         if (ConsumeRunScriptSafetyTestHook("prompt_unknown"))
@@ -290,6 +352,9 @@ namespace
 
     CommandPromptProbe PollForCommandPromptState()
     {
+        if (ConsumeRunScriptSafetyTestHook("prompt_poll_delay"))
+            std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+
         const auto deadline = std::chrono::steady_clock::now() + kCommandPromptPollWindow;
         bool sawIdle = false;
         bool sawUnknown = false;
@@ -327,6 +392,11 @@ bool ConsumeRunScriptSafetyTestHook(const char* hookName)
 
     std::atomic<bool>* flag = GetRunScriptSafetyTestHookFlag(hookName);
     return flag != nullptr && flag->exchange(false, std::memory_order_acq_rel);
+}
+
+std::unique_lock<std::mutex> AcquireCommandRunLifecycleLock()
+{
+    return std::unique_lock<std::mutex>(s_commandRunMutex);
 }
 
 void ClearCommandStateUncertain()
@@ -368,6 +438,7 @@ void HandleRunScriptSafetyTestHook(const httplib::Request& req, httplib::Respons
         s_testHookPromptUnknown.store(false, std::memory_order_release);
         s_testHookCommandTimeout.store(false, std::memory_order_release);
         s_testHookCancelPromptActive.store(false, std::memory_order_release);
+        s_testHookPromptPollDelay.store(false, std::memory_order_release);
 
         nlohmann::json data;
         data["reset"] = true;
@@ -442,7 +513,7 @@ void HandleCommand(const httplib::Request& req, httplib::Response& res)
     // Serialize /command lifecycles through the delayed prompt-verification
     // window. Without this, request A could read request B's prompt
     // after A's RunScript returns but before A's worker-side poll completes.
-    std::unique_lock<std::mutex> commandRunLock(s_commandRunMutex);
+    auto commandRunLock = AcquireCommandRunLifecycleLock();
 
     if (s_commandStateUncertain.load(std::memory_order_acquire))
     {
@@ -515,6 +586,21 @@ void HandleCommand(const httplib::Request& req, httplib::Response& res)
         {
             s_commandStateUncertain.store(true, std::memory_order_release);
             CRookServer::SendErrorData(res, BuildCommandPromptUnknownError(command));
+            return;
+        }
+
+        int objectsCreated = 0;
+        if (result.success
+            && result.data.contains("objectsCreated")
+            && result.data["objectsCreated"].is_number_integer())
+        {
+            objectsCreated = result.data["objectsCreated"].get<int>();
+        }
+
+        if (result.success && IsUnsafeBareNoEffectCommand(command, objectsCreated))
+        {
+            s_commandStateUncertain.store(true, std::memory_order_release);
+            CRookServer::SendErrorData(res, BuildCommandBareNoEffectUnverifiedError(command));
             return;
         }
 
