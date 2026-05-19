@@ -154,7 +154,7 @@ _TOOL_DESCRIPTIONS: Dict[str, str] = {
     "rhino_geometry": "Get geometry details for specific objects",
     "rhino_execute": "Run a Python script in Rhino (last resort — syntax/runtime failures are returned as structured errors, obvious rhinoscriptsyntax Get* prompts are rejected before dispatch, but other UI can still block Rhino)",
     "rhino_command": "Run a Rhino scripted command string via RunScript. May trigger modal dialogs if the command needs input.",
-    "rhino_command_prompt": "Read Rhino's current command prompt state. Returns {prompt, is_active}. If is_active=true after execution, Rhino is waiting for input and the command did not complete.",
+    "rhino_command_interactive_prompt": "Read Rhino's current command prompt state. Returns {prompt, is_active}. If is_active=true after execution, Rhino is waiting for input and the command did not complete.",
     "rhino_viewport": "Get or set viewport properties (camera, display mode)",
     "rhino_create": "Create geometry (points, curves, surfaces, solids)",
     "rhino_delete": "Delete objects by GUID",

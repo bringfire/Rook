@@ -119,9 +119,9 @@ def annotate_result(
     Args:
         tool_name:         The dispatched tool name.
         result:            Raw dict returned by the tool executor.
-        prompt_state:      Optional result of a ``rhino_command_prompt`` call.
+        prompt_state:      Optional result of a ``rhino_command_interactive_prompt`` call.
                            If ``is_active=True``, Rhino is blocked on input.
-        prompt_poll_failed: True when the rhino_command_prompt call raised an
+        prompt_poll_failed: True when the rhino_command_interactive_prompt call raised an
                             exception. For modal-risk tools this is treated as
                             unverified rather than silently passing.
     """
@@ -144,7 +144,7 @@ def annotate_result(
         verified = False
         annotations.append(
             "Could not verify Rhino prompt state after execution — Rhino may be "
-            "blocked. Call rhino_command_prompt manually to check the current state."
+            "blocked. Call rhino_command_interactive_prompt manually to check the current state."
         )
 
     # ── Strongest signal: non-idle prompt means the command did not finish ──
@@ -156,7 +156,7 @@ def annotate_result(
             annotations.append(
                 f"Rhino is waiting for input (prompt: {prompt_text!r}). "
                 "The command did not complete. Inspect state with "
-                "rhino_command_prompt, cancel with rhino_command_interactive_cancel, "
+                "rhino_command_interactive_prompt, cancel with rhino_command_interactive_cancel, "
                 "then retry through typed Rook tools or a known-safe fully scripted "
                 "rhino_command."
             )

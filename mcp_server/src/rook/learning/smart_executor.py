@@ -279,7 +279,7 @@ class SmartExecutor:
                 ),
                 recovery_suggestion=(
                     "Use typed Rook tools or a known-safe fully scripted command. "
-                    "Use rhino_command_prompt and rhino_command_interactive_cancel "
+                    "Use rhino_command_interactive_prompt and rhino_command_interactive_cancel "
                     "only for recovery."
                 ),
             ),

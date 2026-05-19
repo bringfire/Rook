@@ -48,7 +48,7 @@ TIER_0: Set[str] = {
 AGENT_TIER_0: Set[str] = (TIER_0 - {"gh_execute_intent"}) | {
     "gh_snapshot",
     "session_history",       # per-command success/failure for post-execution verification
-    "rhino_command_prompt",  # Rhino prompt state — detect non-idle after execution
+    "rhino_command_interactive_prompt",  # Rhino prompt state — detect non-idle after execution
     "ui_block",              # Adaptive UI pseudo-tool (intercepted by ChatRunner)
 }
 

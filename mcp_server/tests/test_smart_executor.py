@@ -348,7 +348,8 @@ class TestInteractiveExecution:
         )
         assert "typed Rook tools" in result.failure.recovery_suggestion
         assert "known-safe fully scripted command" in result.failure.recovery_suggestion
-        assert "rhino_command_prompt" in result.failure.recovery_suggestion
+        assert "rhino_command_interactive_prompt" in result.failure.recovery_suggestion
+        assert "rhino_command_prompt" not in result.failure.recovery_suggestion
         assert "rhino_command_interactive_cancel" in result.failure.recovery_suggestion
         assert "Interactive execution route is deprecated" in result.reasoning_trace
         assert "/command/start" not in calls
