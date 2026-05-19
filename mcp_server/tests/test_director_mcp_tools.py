@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sys
 from unittest.mock import AsyncMock, patch
@@ -62,6 +63,11 @@ async def test_director_tool_returns_error_envelope_for_authoring_error():
     mock.assert_awaited_once()
     assert result[0].text.startswith("Error:")
     assert "bad director request" in result[0].text
+    payload = json.loads(result[0].text.removeprefix("Error: "))
+    assert payload == {
+        "code": "director_error",
+        "message": "bad director request",
+    }
 
 
 def test_director_tool_groups_are_mcp_only():
