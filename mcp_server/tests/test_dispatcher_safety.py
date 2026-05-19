@@ -514,6 +514,8 @@ def test_interactive_start_send_not_exposed_to_agent_bridge_or_fallback_catalog(
     assert "rhino_command_interactive_send" not in BRIDGE_ROUTES
     assert "rhino_command_interactive_start" not in catalog
     assert "rhino_command_interactive_send" not in catalog
+    assert "rhino_command_experiment" not in catalog
+    assert "rhino_learn_next" not in catalog
     assert "rhino_command_interactive_prompt" in BRIDGE_ROUTES
     assert "rhino_command_interactive_cancel" in BRIDGE_ROUTES
 
@@ -524,11 +526,14 @@ def test_interactive_start_send_not_exposed_to_agent_bridge_or_fallback_catalog(
     [
         ("rhino_command_interactive_start", {"command": "_-Box"}),
         ("rhino_command_interactive_send", {"input": "0,0,0"}),
+        ("rhino_command_experiment", {"command": "_-Box", "variations": ["_-Box 0,0,0 1,1,1"]}),
         ("rhino_learn_interactive", {"command": "_-Box", "inputs": ["0,0,0"]}),
+        ("rhino_learn_next", {}),
         (
             "rhino_learn_variations_interactive",
             {"command": "_-Box", "input_sequences": [["0,0,0"]]},
         ),
+        ("rhino_prepare_geometry", {"geometry_type": "curve"}),
     ],
 )
 async def test_deprecated_interactive_tools_refuse_agent_dispatch(tool_name, params):

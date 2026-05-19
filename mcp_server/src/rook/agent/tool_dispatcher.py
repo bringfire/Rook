@@ -53,10 +53,13 @@ GH_READINESS_HOIST_TOOLS: frozenset[str] = frozenset({
 
 
 _DEPRECATED_INTERACTIVE_COMMAND_TOOLS: frozenset[str] = frozenset({
+    "rhino_command_experiment",
     "rhino_command_interactive_start",
     "rhino_command_interactive_send",
     "rhino_learn_interactive",
+    "rhino_learn_next",
     "rhino_learn_variations_interactive",
+    "rhino_prepare_geometry",
 })
 
 

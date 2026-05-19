@@ -98,6 +98,64 @@ def test_allows_known_command_with_command_level_safe_metadata():
     assert result is None
 
 
+def test_rejects_unmatched_raw_values_even_when_command_marked_safe():
+    parsed = {
+        "command": "-Box",
+        "mode": "default",
+        "syntax": "_-Box <corner1> <corner2>",
+        "parameters": {"corner1": "0,0,0", "corner2": "1,1,0"},
+        "options_used": [],
+        "raw_values": ["unexpected"],
+    }
+
+    result = preflight_rhino_command(
+        "_-Box 0,0,0 1,1,0 unexpected",
+        FakeKnowledgeStore(
+            parsed=parsed,
+            command_knowledge=command_knowledge(
+                preconditions={"safe_non_interactive": True},
+            ),
+        ),
+    )
+
+    assert_safety_refusal(
+        result,
+        "unmatched_command_tokens",
+        command="-Box",
+        mode="default",
+    )
+    assert result["data"]["raw_values"] == ["unexpected"]
+
+
+def test_rejects_missing_required_values_with_safety_refusal():
+    parsed = {
+        "command": "-Box",
+        "mode": "default",
+        "syntax": "_-Box <corner1> <corner2>",
+        "parameters": {"corner1": "0,0,0"},
+        "options_used": [],
+    }
+
+    result = preflight_rhino_command(
+        "_-Box 0,0,0",
+        FakeKnowledgeStore(
+            parsed=parsed,
+            command_knowledge=command_knowledge(
+                preconditions={"safe_non_interactive": True},
+            ),
+        ),
+    )
+
+    assert_safety_refusal(
+        result,
+        "missing_required_command_values",
+        command="-Box",
+        mode="default",
+    )
+    assert result["data"]["missing_required"] == ["corner2"]
+    assert result["data"]["expected_syntax"] == "_-Box <corner1> <corner2>"
+
+
 def test_allows_dict_command_knowledge_with_command_level_safe_metadata():
     result = preflight_rhino_command(
         "_-Box 0,0,0 1,1,0",

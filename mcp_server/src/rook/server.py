@@ -284,10 +284,13 @@ def _interactive_command_deprecated_result(tool_name: str) -> dict[str, Any]:
 
 
 _DEPRECATED_INTERACTIVE_COMMAND_TOOLS = {
+    "rhino_command_experiment",
     "rhino_command_interactive_start",
     "rhino_command_interactive_send",
     "rhino_learn_interactive",
+    "rhino_learn_next",
     "rhino_learn_variations_interactive",
+    "rhino_prepare_geometry",
 }
 
 
@@ -10987,6 +10990,12 @@ Returns the full profile JSON including features, surfaces, and elements.""",
         ),
     ]
 
+    if not _interactive_command_learning_enabled():
+        return [
+            tool for tool in all_tools
+            if tool.name not in _DEPRECATED_INTERACTIVE_COMMAND_TOOLS
+        ]
+
     return all_tools
 
 
@@ -12494,7 +12503,7 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                 "success": False,
                 "data": (
                     "rhino_command_learn is deprecated and disabled. "
-                    "Use rhino_learn_interactive instead."
+                    "Use typed Rook tools or a known-safe fully scripted rhino_command."
                 ),
             }
 

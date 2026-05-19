@@ -99,7 +99,9 @@ async def test_rhino_command_learn_is_rejected(monkeypatch, patched_server):
 
 
 @pytest.mark.asyncio
-async def test_rhino_command_tool_contract_only_lists_safe_scripted_command():
+async def test_rhino_command_tool_contract_only_lists_safe_scripted_command(monkeypatch):
+    monkeypatch.delenv("ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING", raising=False)
+    monkeypatch.delenv("ROOK_MCP_TARGET_MODE", raising=False)
     tools = {tool.name: tool for tool in await server.list_tools()}
 
     assert "rhino_command" in tools
@@ -112,10 +114,35 @@ async def test_rhino_command_tool_contract_only_lists_safe_scripted_command():
 
     assert "rhino_command_interactive_start" not in tools
     assert "rhino_command_interactive_send" not in tools
+    assert "rhino_command_experiment" not in tools
     assert "rhino_learn_interactive" not in tools
+    assert "rhino_learn_next" not in tools
     assert "rhino_learn_variations_interactive" not in tools
+    assert "rhino_prepare_geometry" not in tools
     assert "rhino_command_interactive_prompt" in tools
     assert "rhino_command_interactive_cancel" in tools
+
+
+@pytest.mark.asyncio
+async def test_interactive_learning_tools_list_only_in_dev_learning_mode(monkeypatch):
+    monkeypatch.setenv("ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING", "1")
+    monkeypatch.delenv("ROOK_MCP_TARGET_MODE", raising=False)
+    dev_tools = {tool.name for tool in await server.list_tools()}
+
+    assert "rhino_command_interactive_start" not in dev_tools
+    assert "rhino_command_interactive_send" not in dev_tools
+    assert "rhino_command_experiment" in dev_tools
+    assert "rhino_learn_next" in dev_tools
+    assert "rhino_prepare_geometry" in dev_tools
+
+    monkeypatch.setenv("ROOK_MCP_TARGET_MODE", "panel_locked")
+    panel_tools = {tool.name for tool in await server.list_tools()}
+
+    assert "rhino_command_interactive_start" not in panel_tools
+    assert "rhino_command_interactive_send" not in panel_tools
+    assert "rhino_command_experiment" not in panel_tools
+    assert "rhino_learn_next" not in panel_tools
+    assert "rhino_prepare_geometry" not in panel_tools
 
 
 @pytest.mark.asyncio
@@ -124,8 +151,11 @@ async def test_rhino_command_tool_contract_only_lists_safe_scripted_command():
     [
         ("rhino_command_interactive_start", {"command": "_-Box"}),
         ("rhino_command_interactive_send", {"input": "0,0,0"}),
+        ("rhino_command_experiment", {"command": "_-Box", "variations": ["_-Box 0,0,0 1,1,1"]}),
         ("rhino_learn_interactive", {"command": "_-Box", "inputs": ["0,0,0"]}),
+        ("rhino_learn_next", {}),
         ("rhino_learn_variations_interactive", {"command": "_-Box", "variations": [["0,0,0"]]}),
+        ("rhino_prepare_geometry", {"geometry_type": "curve"}),
     ],
 )
 async def test_deprecated_interactive_command_tools_refuse_direct_calls_in_normal_mode(
@@ -151,8 +181,11 @@ async def test_deprecated_interactive_command_tools_refuse_direct_calls_in_norma
     [
         ("rhino_command_interactive_start", {"command": "_-Box"}),
         ("rhino_command_interactive_send", {"input": "0,0,0"}),
+        ("rhino_command_experiment", {"command": "_-Box", "variations": ["_-Box 0,0,0 1,1,1"]}),
         ("rhino_learn_interactive", {"command": "_-Box", "inputs": ["0,0,0"]}),
+        ("rhino_learn_next", {}),
         ("rhino_learn_variations_interactive", {"command": "_-Box", "variations": [["0,0,0"]]}),
+        ("rhino_prepare_geometry", {"geometry_type": "curve"}),
     ],
 )
 async def test_deprecated_interactive_command_tools_refuse_direct_calls_in_panel_locked_mode(

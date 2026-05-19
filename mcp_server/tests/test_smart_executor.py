@@ -2,6 +2,7 @@
 
 import asyncio
 import pytest
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from rook.learning.intent_runtime import (
@@ -40,6 +41,41 @@ def make_caller(responses: dict[str, dict] | None = None):
         return resp_map.get(endpoint, default)
 
     return caller
+
+
+class FakeCommandKnowledgeStore:
+    def __init__(self, *, safe=True):
+        self.safe = safe
+
+    def parse_command_string(self, _command_text):
+        return {
+            "command": "_-Loft",
+            "mode": "default",
+            "syntax": "_-Loft _SelID <curve1> _SelID <curve2> _Enter",
+            "parameters": {"curve1": "a", "curve2": "b"},
+            "options_used": ["_SelID", "_Enter"],
+            "raw_values": [],
+        }
+
+    def get_command(self, _command):
+        preconditions = {"safe_non_interactive": True} if self.safe else {}
+        return SimpleNamespace(
+            preconditions=preconditions,
+            options={
+                "_Radius": "Set radius",
+                "_SelID": "Select by id",
+                "_Enter": "Finish command",
+            },
+            modes={
+                "default": SimpleNamespace(
+                    syntax="_-Loft _SelID <curve1> _SelID <curve2> _Enter"
+                )
+            },
+        )
+
+
+def safe_command_store():
+    return FakeCommandKnowledgeStore(safe=True)
 
 
 # ---------------------------------------------------------------------------
@@ -166,7 +202,10 @@ class TestKnownCommandExecution:
                 "data": {"objectIds": ["guid-1"], "objectsCreated": 1},
             },
         })
-        executor = SmartExecutor(http_caller=caller)
+        executor = SmartExecutor(
+            http_caller=caller,
+            command_knowledge_store=safe_command_store(),
+        )
         plan = ExecutionPlan(
             intent="loft curves",
             operation="command:_-Loft",
@@ -201,7 +240,10 @@ class TestKnownCommandExecution:
                 "data": {"waitingFor": "Select objects to fillet"},
             },
         })
-        executor = SmartExecutor(http_caller=caller)
+        executor = SmartExecutor(
+            http_caller=caller,
+            command_knowledge_store=safe_command_store(),
+        )
         plan = ExecutionPlan(
             intent="fillet edges",
             operation="command:_-FilletEdge",
@@ -226,7 +268,10 @@ class TestKnownCommandExecution:
                 return {"success": False, "data": {"waitingFor": "Select rail"}}
             return {"success": True, "data": {}}
 
-        executor = SmartExecutor(http_caller=sequenced_caller)
+        executor = SmartExecutor(
+            http_caller=sequenced_caller,
+            command_knowledge_store=safe_command_store(),
+        )
         plan = ExecutionPlan(
             intent="sweep curve",
             operation="command:_-Sweep1",
@@ -244,6 +289,31 @@ class TestKnownCommandExecution:
         assert "interactive prompt driving is disabled" in result.failure.recovery_suggestion
         assert "/command/start" not in calls
         assert "/command/send" not in calls
+
+    def test_known_command_rejects_without_safe_metadata_before_http_call(self):
+        calls = []
+
+        async def tracking_caller(endpoint, method="POST", data=None):
+            calls.append(endpoint)
+            return {"success": True, "data": {}}
+
+        executor = SmartExecutor(
+            http_caller=tracking_caller,
+            command_knowledge_store=FakeCommandKnowledgeStore(safe=False),
+        )
+        plan = ExecutionPlan(
+            intent="loft curves",
+            operation="command:_-Loft",
+            execution_route="known_command",
+            command="_-Loft",
+            syntax="_-Loft _SelID a _SelID b _Enter",
+        )
+        result = run(executor.execute(plan))
+
+        assert result.success is False
+        assert result.failure.layer == FailureLayer.ROUTING
+        assert "run_script_safety_refusal" in result.failure.error_detail
+        assert calls == []
 
 
 # ---------------------------------------------------------------------------

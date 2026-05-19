@@ -16,17 +16,20 @@ def _runscript_safety_refusal(
     reason: str,
     command: Any = None,
     mode: Any = None,
+    **extra_data: Any,
 ) -> dict[str, Any]:
+    data = {
+        "error": RUNSCRIPT_REFUSAL_ERROR,
+        "reason": reason,
+        "command": command,
+        "mode": mode,
+        "verified": False,
+        "recovery": "Use a typed Rook tool or a known-safe fully scripted command.",
+    }
+    data.update(extra_data)
     return {
         "success": False,
-        "data": {
-            "error": RUNSCRIPT_REFUSAL_ERROR,
-            "reason": reason,
-            "command": command,
-            "mode": mode,
-            "verified": False,
-            "recovery": "Use a typed Rook tool or a known-safe fully scripted command.",
-        },
+        "data": data,
     }
 
 
@@ -151,14 +154,13 @@ def preflight_rhino_command(
         if not is_optional and param_name not in provided_params
     ]
     if missing_required:
-        return {
-            "success": False,
-            "data": (
-                f"Command syntax incomplete for {cmd_name}. Missing required values for: "
-                f"{', '.join(missing_required)}. Expected syntax: {syntax}. "
-                "Use rhino_command_interactive_* if the command must prompt for input."
-            ),
-        }
+        return _runscript_safety_refusal(
+            "missing_required_command_values",
+            command=cmd_name,
+            mode=mode,
+            missing_required=missing_required,
+            expected_syntax=syntax,
+        )
 
     options = _get_mapping_value(cmd_knowledge, "options", {})
     allowed_options: set[str] = set(options.keys()) if isinstance(options, dict) else set()
@@ -185,6 +187,17 @@ def preflight_rhino_command(
                     f"Known options: {allowed_preview}."
                 ),
             }
+
+    raw_values = parsed.get("raw_values", [])
+    if isinstance(raw_values, list):
+        unmatched_values = [value for value in raw_values if isinstance(value, str)]
+        if unmatched_values:
+            return _runscript_safety_refusal(
+                "unmatched_command_tokens",
+                command=cmd_name,
+                mode=mode,
+                raw_values=unmatched_values,
+            )
 
     if not _is_safe_non_interactive(cmd_knowledge, mode):
         return _runscript_safety_refusal(

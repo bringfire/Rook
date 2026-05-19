@@ -185,7 +185,7 @@ _TOOL_DESCRIPTIONS: Dict[str, str] = {
     "rhino_boolean": "Boolean operations (union, difference, intersection) on solids",
     "rhino_extrude": "Extrude a curve to create a surface or solid",
     "rhino_text": "Create 3D text objects",
-    "rhino_execute_intent": "Execute a Rhino intent through the typed runtime. It prefers direct API routes, but can fall back to command or interactive substrates for ambiguous requests.",
+    "rhino_execute_intent": "Execute a Rhino intent through the typed runtime. It prefers direct API routes and may use only known-safe fully scripted command substrates when safety metadata permits.",
     # Grasshopper
     "gh_status": "Get Grasshopper document status",
     "gh_snapshot": "Read the entire canvas as a structured graph document",

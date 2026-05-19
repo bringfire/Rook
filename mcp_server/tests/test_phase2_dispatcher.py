@@ -280,7 +280,9 @@ def _():
     assert "rhino_command_interactive_send" not in TOOL_GROUPS["rhino_commands"]
     assert "rhino_command_select" in TOOL_GROUPS["command_learning"]
     assert "rhino_command_queue" in TOOL_GROUPS["command_learning"]
+    assert "rhino_command_experiment" not in TOOL_GROUPS["command_learning"]
     assert "rhino_learn_interactive" not in TOOL_GROUPS["command_learning"]
+    assert "rhino_learn_next" not in TOOL_GROUPS["command_learning"]
     assert "rhino_learn_variations_interactive" not in TOOL_GROUPS["command_learning"]
 
 

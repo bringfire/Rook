@@ -144,7 +144,7 @@ namespace
 
     bool IsInteractivePrompt(const std::string& prompt)
     {
-        return !prompt.empty() && prompt.find("Command") == std::string::npos;
+        return !prompt.empty() && prompt.rfind("Command:", 0) != 0;
     }
 
     nlohmann::json BuildCommandInteractiveError(

@@ -393,8 +393,7 @@ TOOL_GROUPS: Dict[str, List[str]] = {
     "command_learning": [
         "rhino_command_knowledge", "rhino_knowledge_query", "rhino_command_knowledge_reload",
         "rhino_command_observations",
-        "rhino_command_consolidate", "rhino_command_experiment",
-        "rhino_learn_next", "rhino_learning_progress",
+        "rhino_command_consolidate", "rhino_learning_progress",
         "rhino_command_select", "rhino_command_queue",
     ],
 

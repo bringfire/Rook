@@ -20,6 +20,7 @@ Recovery helpers (C++ CommandInteractiveHandler):
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import shlex
 import time
@@ -32,6 +33,7 @@ from .intent_runtime import (
     FailureLayer,
     CapabilityRouter,
 )
+from ..preflight import preflight_rhino_command
 
 logger = logging.getLogger("rook.learning.smart_executor")
 
@@ -75,9 +77,11 @@ class SmartExecutor:
         self,
         http_caller: HttpCaller,
         router: CapabilityRouter | None = None,
+        command_knowledge_store: Any | None = None,
     ) -> None:
         self._call = http_caller
         self._router = router or CapabilityRouter.get()
+        self._command_knowledge_store = command_knowledge_store
 
     # ------------------------------------------------------------------
     # Public API
@@ -194,6 +198,21 @@ class SmartExecutor:
 
         trace.append(f"Command: {plan.syntax}")
 
+        preflight_error = preflight_rhino_command(
+            plan.syntax,
+            self._resolve_command_knowledge_store(),
+        )
+        if preflight_error is not None:
+            detail = json.dumps(preflight_error.get("data", preflight_error), sort_keys=True)
+            trace.append(f"Command safety preflight rejected command: {detail}")
+            return self._execution_failure(
+                plan,
+                "known_command",
+                detail,
+                FailureLayer.ROUTING,
+                "Use typed Rook tools or a known-safe fully scripted command.",
+            )
+
         try:
             response = await self._call("/command", "POST", {"command": plan.syntax})
         except Exception as e:
@@ -228,6 +247,15 @@ class SmartExecutor:
             )
 
         return self._parse_response(plan, "known_command", response, trace)
+
+    def _resolve_command_knowledge_store(self) -> Any | None:
+        if self._command_knowledge_store is not None:
+            return self._command_knowledge_store
+        try:
+            from ..server import command_learner
+            return command_learner.knowledge_store
+        except Exception:
+            return None
 
     # ------------------------------------------------------------------
     # Interactive execution
