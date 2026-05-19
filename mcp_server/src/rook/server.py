@@ -16895,8 +16895,7 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
 
         case "rhino_command_interactive_prompt":
             try:
-                response = await call_rhino("/command/prompt", "GET")
-                result = {"success": True, "data": response}
+                result = await call_rhino("/command/prompt", "GET", None, port=port)
             except Exception as e:
                 result = {"success": False, "data": f"Failed to get prompt: {str(e)}"}
 

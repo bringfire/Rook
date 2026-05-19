@@ -266,6 +266,30 @@ async def test_interactive_cancel_preserves_native_uncertain_failure(monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_interactive_prompt_preserves_native_uncertain_failure(monkeypatch, patched_server):
+    native_failure = {
+        "success": False,
+        "data": {
+            "error": "Could not read Rhino command prompt",
+            "verified": False,
+            "state_uncertain": True,
+        },
+    }
+    call_rhino_mock = AsyncMock(return_value=native_failure)
+    monkeypatch.setattr(server, "call_rhino", call_rhino_mock)
+
+    response = await server.call_tool("rhino_command_interactive_prompt", {})
+    payload = _decode_response(response)
+
+    assert payload["success"] is False
+    assert payload["data"] == native_failure["data"]
+    assert payload["data"]["verified"] is False
+    assert payload["data"]["state_uncertain"] is True
+    call_rhino_mock.assert_awaited_once()
+    assert call_rhino_mock.await_args.args == ("/command/prompt", "GET", None)
+
+
+@pytest.mark.asyncio
 async def test_gh_record_investigation_rejects_unverified_working_config(monkeypatch, patched_server, tmp_path):
     gh_dir = tmp_path / "gh"
     gh_dir.mkdir()
