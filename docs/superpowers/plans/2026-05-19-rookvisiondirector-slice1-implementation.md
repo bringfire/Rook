@@ -134,7 +134,7 @@ Python and native use the same root contract:
 5. `runtime.data_root / "rookvision_director"` is not the slice 1 default because the dev fallback currently resolves to `repo/knowledge`, which native should not implicitly allow for frame output.
 ```
 
-- [ ] **Step 3: Commit the inventory note**
+- [x] **Step 3: Commit the inventory note**
 
 Run:
 
@@ -155,7 +155,7 @@ Python is implemented first behind a fake native caller so schema, status, and f
 - Create: `mcp_server/tests/test_director.py`
 - Create: `mcp_server/src/rook/director.py`
 
-- [ ] **Step 1: Write failing tests for request validation and output roots**
+- [x] **Step 1: Write failing tests for request validation and output roots**
 
 Create `mcp_server/tests/test_director.py` with:
 
@@ -189,7 +189,7 @@ def test_output_root_must_stay_under_shared_director_root(tmp_path, monkeypatch)
 
 
 @pytest.mark.parametrize(
-    "request, message",
+    "payload, message",
     [
         ({"frame_count": 0}, "frame_count"),
         ({"frame_count": 1, "resolution": {"width": 0, "height": 720}}, "resolution"),
@@ -197,12 +197,12 @@ def test_output_root_must_stay_under_shared_director_root(tmp_path, monkeypatch)
         ({"frame_count": 1, "resolution": {"width": 1280, "height": 720}, "motion": {"strategy": "radial_bbox_center", "parameters": {"distance": -1}}}, "distance"),
     ],
 )
-def test_validate_request_rejects_bad_authoring_inputs(request, message):
+def test_validate_request_rejects_bad_authoring_inputs(payload, message):
     with pytest.raises(director.DirectorInputError, match=message):
-        director.validate_authoring_request(request)
+        director.validate_authoring_request(payload)
 ```
 
-- [ ] **Step 2: Run tests and verify they fail because module is missing**
+- [x] **Step 2: Run tests and verify they fail because module is missing**
 
 Run:
 
@@ -212,7 +212,7 @@ pytest mcp_server/tests/test_director.py -q
 
 Expected: fails with `ImportError` or missing symbols from `rook.director`.
 
-- [ ] **Step 3: Implement minimal contract helpers**
+- [x] **Step 3: Implement minimal contract helpers**
 
 Create `mcp_server/src/rook/director.py` with:
 
@@ -299,7 +299,7 @@ def validate_authoring_request(request: dict[str, Any]) -> None:
         raise DirectorInputError("motion distance must be nonnegative")
 ```
 
-- [ ] **Step 4: Run tests and verify they pass**
+- [x] **Step 4: Run tests and verify they pass**
 
 Run:
 
