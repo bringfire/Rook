@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import httpx
 import pytest
@@ -145,18 +146,21 @@ async def test_director_frame_capture_rejects_run_root_outside_allowed_root(tmp_
     _, envelope = await _post_director("frame-capture", instruction)
     assert envelope["success"] is False
     assert _error_code(envelope) == "output_policy_violation"
+    assert not Path(instruction["run_root"]).exists()
+    assert not Path(instruction["output_path"]).exists()
 
 
 async def test_director_frame_capture_rejects_output_outside_run_root():
     allowed_root = _director_output_root()
-    run_root = allowed_root / "task8_run_root"
-    output_path = allowed_root / "task8_sibling" / "frame_0001.png"
-    _, envelope = await _post_director(
-        "frame-capture",
-        _frame_instruction(run_root=run_root, output_path=output_path),
-    )
+    suffix = uuid4().hex
+    run_root = allowed_root / f"task8_run_root_{suffix}"
+    output_path = allowed_root / f"task8_sibling_{suffix}" / "frame_0001.png"
+    instruction = _frame_instruction(run_root=run_root, output_path=output_path)
+    _, envelope = await _post_director("frame-capture", instruction)
     assert envelope["success"] is False
     assert _error_code(envelope) == "output_policy_violation"
+    assert not Path(instruction["output_path"]).parent.exists()
+    assert not Path(instruction["output_path"]).exists()
 
 
 async def test_director_frame_capture_rejects_invalid_schema_version():
