@@ -82,39 +82,7 @@ def test_output_root_must_stay_under_shared_director_root(tmp_path, monkeypatch)
         ),
         (
             {"frame_count": 1, "resolution": {"width": 1280, "height": 720}},
-            "camera_keyframes",
-        ),
-        (
-            {
-                "frame_count": 2,
-                "resolution": {"width": 1280, "height": 720},
-                "camera_keyframes": [{"frame_index": 3, "source": {"kind": "active_view"}}],
-            },
-            "camera keyframe",
-        ),
-        (
-            {
-                "frame_count": 2,
-                "resolution": {"width": 1280, "height": 720},
-                "camera_keyframes": [{"frame_index": 1}],
-            },
-            "camera keyframe",
-        ),
-        (
-            {
-                "frame_count": 2,
-                "resolution": {"width": 1280, "height": 720},
-                "camera_keyframes": [{"frame_index": 1, "source": {"kind": "saved_camera"}}],
-            },
-            "source.kind",
-        ),
-        (
-            {
-                "frame_count": 2,
-                "resolution": {"width": 1280, "height": 720},
-                "camera_keyframes": [{"frame_index": 1, "source": {"kind": "named_view"}}],
-            },
-            "named_view",
+            "camera.keyframes",
         ),
     ],
 )
@@ -338,7 +306,7 @@ def test_explicit_camera_keyframe_normalizes_optional_numeric_fields(tmp_path):
     ]
     assert frame_camera["lens_length"] == 35.0
     assert frame_camera["fov_degrees"] == 45.0
-    assert frame_camera["aspect"] == 1.7778
+    assert frame_camera["aspect"] == pytest.approx(320 / 180)
     assert frame_camera["near_clip"] == 0.1
     assert frame_camera["far_clip"] == 1000.0
 
@@ -365,6 +333,209 @@ def test_run_complete_writes_manifest_status_and_evidence(tmp_path):
     assert len(evidence_lines) == 2
     assert (run_root / "frames" / "frame_0001.png").exists()
     assert (run_root / "frames" / "frame_0002.png").exists()
+
+
+@pytest.mark.asyncio
+async def test_run_director_writes_camera_plan_provenance(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
+
+    async def fake_native(endpoint, method, data, *, port=None):
+        if endpoint == "/director/object-states":
+            return {
+                "success": True,
+                "data": {
+                    "units": "Millimeters",
+                    "objects": [
+                        {
+                            "object_id": "obj-1",
+                            "bbox_min": [0, 0, 0],
+                            "bbox_max": [1, 1, 1],
+                            "validation_strength": "bbox_only",
+                            "state_hash": None,
+                        }
+                    ],
+                },
+            }
+        if endpoint == "/director/view-state":
+            return {
+                "success": True,
+                "data": {
+                    "camera": {
+                        "projection": "perspective",
+                        "location": [0, 0, 10],
+                        "target": [0, 0, 0],
+                        "up": [0, 1, 0],
+                        "lens_length": 35.0,
+                        "fov_degrees": 37.8493,
+                        "parallel_scale": None,
+                        "near_clip": 0.1,
+                        "far_clip": 1000.0,
+                        "aspect": 0.75,
+                    },
+                    "provenance": {"source": "active_view"},
+                },
+            }
+        if endpoint == "/director/frame-capture":
+            output_path = Path(data["output_path"])
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_bytes(b"png")
+            return {
+                "success": True,
+                "data": {
+                    "success": True,
+                    "dirty_partial_state": False,
+                    "objects": {"requested": 1, "restored": 1},
+                    "viewport": {"restore_verified": True},
+                },
+            }
+        raise AssertionError(endpoint)
+
+    result = await director.run_director(
+        {
+            "run_id": "camera-plan-provenance",
+            "object_ids": ["obj-1"],
+            "frame_count": 1,
+            "resolution": {"width": 640, "height": 360},
+            "camera_keyframes": [{"frame_index": 1, "source": {"kind": "active_view"}}],
+            "motion": {"strategy": "radial_bbox_center", "parameters": {"distance": 0}},
+        },
+        call_native=fake_native,
+    )
+
+    assert result["state"] == "complete"
+    manifest = json.loads(
+        (Path(result["run_root"]) / "manifest.json").read_text(encoding="utf-8")
+    )
+    assert manifest["camera_plan"]["strategy"] == "keyframes"
+    assert manifest["camera_plan"]["request_shape"] == "legacy_camera_keyframes"
+    assert manifest["camera_plan"]["aspect_authority"] == "output_resolution"
+    assert manifest["camera_plan"]["optics_authority"] == "lens_length"
+    assert manifest["camera_keyframe_provenance"][0]["provenance"] == {
+        "source": "active_view"
+    }
+    assert manifest["frames"][0]["camera"]["aspect"] == pytest.approx(640 / 360)
+
+
+@pytest.mark.asyncio
+async def test_run_director_accepts_explicit_camera_strategy_and_writes_compatibility_fields(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
+
+    async def fake_native(endpoint, method, data, *, port=None):
+        if endpoint == "/director/object-states":
+            return {
+                "success": True,
+                "data": {
+                    "units": "Millimeters",
+                    "objects": [
+                        {
+                            "object_id": "obj-1",
+                            "bbox_min": [0, 0, 0],
+                            "bbox_max": [1, 1, 1],
+                            "validation_strength": "bbox_only",
+                            "state_hash": None,
+                        }
+                    ],
+                },
+            }
+        if endpoint == "/director/view-state":
+            return {
+                "success": True,
+                "data": {
+                    "camera": {
+                        "projection": "perspective",
+                        "location": [0, 0, 10],
+                        "target": [0, 0, 0],
+                        "up": [0, 1, 0],
+                        "lens_length": 35.0,
+                        "fov_degrees": 37.8493,
+                        "parallel_scale": None,
+                        "near_clip": 0.1,
+                        "far_clip": 1000.0,
+                        "aspect": 0.75,
+                    },
+                    "provenance": {"source": "named_view", "name": "Shot_A"},
+                },
+            }
+        if endpoint == "/director/frame-capture":
+            output_path = Path(data["output_path"])
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_bytes(b"png")
+            return {
+                "success": True,
+                "data": {
+                    "success": True,
+                    "dirty_partial_state": False,
+                    "objects": {"requested": 1, "restored": 1},
+                    "viewport": {"restore_verified": True},
+                },
+            }
+        raise AssertionError(endpoint)
+
+    result = await director.run_director(
+        {
+            "run_id": "explicit-camera-strategy",
+            "object_ids": ["obj-1"],
+            "frame_count": 1,
+            "resolution": {"width": 640, "height": 360},
+            "camera": {
+                "strategy": "keyframes",
+                "keyframes": [
+                    {"frame_index": 1, "source": {"kind": "named_view", "name": "Shot_A"}}
+                ],
+            },
+            "motion": {"strategy": "radial_bbox_center", "parameters": {"distance": 0}},
+        },
+        call_native=fake_native,
+    )
+
+    assert result["state"] == "complete"
+    manifest = json.loads(
+        (Path(result["run_root"]) / "manifest.json").read_text(encoding="utf-8")
+    )
+    assert manifest["camera_plan"]["request_shape"] == "camera_strategy"
+    assert manifest["camera_keyframes"] == [
+        {"frame_index": 1, "source": {"kind": "named_view", "name": "Shot_A"}}
+    ]
+    assert manifest["camera_keyframe_provenance"][0]["provenance"] == {
+        "source": "named_view",
+        "name": "Shot_A",
+    }
+
+
+@pytest.mark.asyncio
+async def test_run_director_rejects_bad_camera_before_resolving_objects(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
+    calls = []
+
+    async def fake_native(endpoint, method, data, *, port=None):
+        calls.append(endpoint)
+        raise AssertionError(
+            f"native should not be called for invalid camera input: {endpoint}"
+        )
+
+    with pytest.raises(director.DirectorInputError, match="frame_index"):
+        await director.run_director(
+            {
+                "run_id": "bad-camera-fail-fast",
+                "object_ids": ["obj-1"],
+                "frame_count": 1,
+                "resolution": {"width": 640, "height": 360},
+                "camera": {
+                    "strategy": "keyframes",
+                    "keyframes": [
+                        {"frame_index": 2, "source": {"kind": "active_view"}}
+                    ],
+                },
+                "motion": {"strategy": "radial_bbox_center", "parameters": {"distance": 0}},
+            },
+            call_native=fake_native,
+        )
+
+    assert calls == []
 
 
 def test_run_fails_when_native_success_does_not_create_frame_file(tmp_path):
