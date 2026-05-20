@@ -1552,6 +1552,55 @@ async def test_rhino_create_coordinate_schema_advertises_numeric_arrays():
     assert "non-zero height" in properties["height"]["description"]
 
 
+@pytest.mark.asyncio
+async def test_rhino_curve_ops_trim_schema_matches_native_interval_contract():
+    tools = {tool.name: tool for tool in await server.list_tools()}
+    properties = tools["rhino_curve_ops"].inputSchema["properties"]
+
+    assert "point" not in properties
+    assert properties["t0"]["type"] == "number"
+    assert properties["t1"]["type"] == "number"
+    assert "Legacy trim end parameter" in properties["parameter"]["description"]
+
+
+@pytest.mark.asyncio
+async def test_rhino_curve_ops_trim_dispatches_native_interval(monkeypatch, patched_server):
+    native_success = {"success": True, "data": {"id": "trimmed-curve"}}
+    call_rhino_mock = AsyncMock(return_value=native_success)
+    monkeypatch.setattr(server, "call_rhino", call_rhino_mock)
+
+    response = await server.call_tool(
+        "rhino_curve_ops",
+        {"action": "trim", "id": "curve-id", "t0": 0.25, "t1": 0.75},
+    )
+
+    assert _decode_response(response) == native_success
+    call_rhino_mock.assert_awaited_once_with(
+        "/curve/trim",
+        "POST",
+        {"id": "curve-id", "t0": 0.25, "t1": 0.75},
+    )
+
+
+@pytest.mark.asyncio
+async def test_rhino_curve_ops_trim_legacy_parameter_maps_to_native_interval(monkeypatch, patched_server):
+    native_success = {"success": True, "data": {"id": "trimmed-curve"}}
+    call_rhino_mock = AsyncMock(return_value=native_success)
+    monkeypatch.setattr(server, "call_rhino", call_rhino_mock)
+
+    response = await server.call_tool(
+        "rhino_curve_ops",
+        {"action": "trim", "id": "curve-id", "parameter": 0.5},
+    )
+
+    assert _decode_response(response) == native_success
+    call_rhino_mock.assert_awaited_once_with(
+        "/curve/trim",
+        "POST",
+        {"id": "curve-id", "t0": 0.0, "t1": 0.5},
+    )
+
+
 def test_rhino_create_bootstrap_matrix_matches_native_rejection_contract():
     from rook.bootstrap.test_matrix import ExpectedOutcome, TOOL_TESTS
 

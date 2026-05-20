@@ -5315,7 +5315,7 @@ Available actions:
 - explode: Explode a polycurve into segments (requires 'id' parameter)
 - divide: Divide curve into points (requires 'id' and 'count' parameters)
 - extend: Extend a curve (requires 'id', 'end' (0 or 1), and 'length' parameters)
-- trim: Trim a curve (requires 'id' and 'parameter' or 'point' parameters)
+- trim: Trim a curve to a normalized sub-domain (requires 'id', 't0', and 't1'; legacy 'parameter' maps to t0=0, t1=parameter)
 - split: Split curve at parameter (requires 'id' and 'parameter' parameters)
 - rebuild: Rebuild curve (requires 'id', optional 'degree' and 'pointCount' parameters)
 - fillet: Fillet two curves (requires 'id1', 'id2', and 'radius' parameters)
@@ -5325,7 +5325,7 @@ Examples:
 - Explode: {"action": "explode", "id": "guid"}
 - Divide: {"action": "divide", "id": "guid", "count": 10}
 - Extend: {"action": "extend", "id": "guid", "end": 0, "length": 5.0}
-- Trim: {"action": "trim", "id": "guid", "parameter": 0.5}
+- Trim: {"action": "trim", "id": "guid", "t0": 0.0, "t1": 0.5}
 - Split: {"action": "split", "id": "guid", "parameter": 0.5}
 - Rebuild: {"action": "rebuild", "id": "guid", "degree": 3, "pointCount": 20}
 - Fillet: {"action": "fillet", "id1": "guid1", "id2": "guid2", "radius": 2.0}""",
@@ -5368,9 +5368,16 @@ Examples:
                     },
                     "parameter": {
                         "type": "number",
-                        "description": "Curve parameter (for trim/split operations)"
+                        "description": "Legacy trim end parameter, or split parameter"
                     },
-                    "point": _point3_schema("Point [x, y, z] for trim operation"),
+                    "t0": {
+                        "type": "number",
+                        "description": "Trim start parameter normalized 0-1"
+                    },
+                    "t1": {
+                        "type": "number",
+                        "description": "Trim end parameter normalized 0-1"
+                    },
                     "degree": {
                         "type": "integer",
                         "description": "Curve degree (for rebuild operation)"
@@ -12400,15 +12407,15 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
             elif action == "trim":
                 curve_id = arguments.get("id")
                 parameter = arguments.get("parameter")
-                point = arguments.get("point")
-                if not curve_id or (parameter is None and not point):
-                    result = {"success": False, "data": "Missing required parameters for trim action (need 'id' and either 'parameter' or 'point')"}
+                t0 = arguments.get("t0")
+                t1 = arguments.get("t1")
+                if parameter is not None and (t0 is None and t1 is None):
+                    t0 = 0.0
+                    t1 = parameter
+                if not curve_id or t0 is None or t1 is None:
+                    result = {"success": False, "data": "Missing required parameters for trim action (need 'id', 't0', and 't1')"}
                 else:
-                    payload = {"id": curve_id}
-                    if parameter is not None:
-                        payload["parameter"] = parameter
-                    if point:
-                        payload["point"] = point
+                    payload = {"id": curve_id, "t0": t0, "t1": t1}
                     result = await call_rhino("/curve/trim", "POST", payload)
             elif action == "split":
                 curve_id = arguments.get("id")
