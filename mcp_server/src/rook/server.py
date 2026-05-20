@@ -2270,7 +2270,7 @@ Use this before any Rhino operations to ensure Rhino is available. Safe to call 
             ),
             inputSchema={
                 "type": "object",
-                "required": ["object_ids", "frame_count", "resolution"],
+                "required": ["object_ids", "resolution"],
                 "properties": {
                     "object_ids": {
                         "type": "array",
@@ -2281,7 +2281,35 @@ Use this before any Rhino operations to ensure Rhino is available. Safe to call 
                     "frame_count": {
                         "type": "integer",
                         "minimum": 1,
-                        "description": "Number of sequential frames to capture.",
+                        "description": (
+                            "Optional legacy number of sequential frames to capture. "
+                            "When timeline is present, this must match the derived frame count. "
+                            "MCP callers should send a JSON integer; Python also normalizes "
+                            "positive integral values from direct callers."
+                        ),
+                    },
+                    "timeline": {
+                        "type": "object",
+                        "description": (
+                            "Optional timeline authoring input. Python validation derives "
+                            "canonical frame_count from fps and duration_seconds."
+                        ),
+                        "properties": {
+                            "fps": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "description": (
+                                    "Frames per second for this run. MCP callers should send "
+                                    "a JSON integer; Python also normalizes positive integral "
+                                    "values from direct callers."
+                                ),
+                            },
+                            "duration_seconds": {
+                                "type": "number",
+                                "exclusiveMinimum": 0,
+                                "description": "Timeline duration in seconds.",
+                            },
+                        },
                     },
                     "resolution": {
                         "type": "object",
@@ -2304,12 +2332,35 @@ Use this before any Rhino operations to ensure Rhino is available. Safe to call 
                         "type": "array",
                         "items": {
                             "type": "object",
-                            "required": ["frame_index", "source"],
+                            "required": ["source"],
                             "properties": {
                                 "frame_index": {
                                     "type": "integer",
                                     "minimum": 1,
-                                    "description": "1-based frame index for this camera keyframe.",
+                                    "description": (
+                                        "1-based frame index for this camera keyframe. MCP callers "
+                                        "should send a JSON integer; Python also normalizes positive "
+                                        "integral values from direct callers."
+                                    ),
+                                },
+                                "time": {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "description": (
+                                        "Timeline seconds for this camera keyframe. "
+                                        "Python validation requires exactly one of "
+                                        "frame_index, time, or at."
+                                    ),
+                                },
+                                "at": {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "maximum": 1,
+                                    "description": (
+                                        "Normalized timeline position for this camera keyframe. "
+                                        "Python validation requires exactly one of "
+                                        "frame_index, time, or at."
+                                    ),
                                 },
                                 "source": {
                                     "type": "object",
@@ -2475,27 +2526,102 @@ Examples:
 - Box (corner pair): {"type": "BOX", "corner1": [0, 0, 0], "corner2": [10, 10, 5]}
 - Sphere: {"type": "SPHERE", "center": [0, 0, 0], "radius": 5}
 
-Optional for all: "name", "layer", "color" (as [r,g,b] or {"r":255,"g":0,"b":0})""",
+Optional for all: "name", "layer", "color" (as [r,g,b], {"r":255,"g":0,"b":0}, or "#rrggbb")""",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "type": {"type": "string", "description": "Geometry type: POINT, LINE, POLYLINE, CIRCLE, ARC, RECTANGLE, BOX, SPHERE, CYLINDER, CONE"},
                     "name": {"type": "string", "description": "Object name"},
                     "layer": {"type": "string", "description": "Layer path"},
-                    "color": {"description": "Color as [r,g,b] array or {r,g,b} object"},
-                    "point": {"type": "array", "description": "For POINT: [x, y, z]"},
-                    "start": {"type": "array", "description": "For LINE: start point [x, y, z]"},
-                    "end": {"type": "array", "description": "For LINE: end point [x, y, z]"},
-                    "points": {"type": "array", "description": "For POLYLINE: array of [x, y, z] points"},
-                    "center": {"type": "array", "description": "For CIRCLE, ARC, SPHERE, CYLINDER, CONE: center [x, y, z]"},
-                    "radius": {"type": "number", "description": "For CIRCLE, ARC, SPHERE, CYLINDER, CONE"},
-                    "origin": {"type": "array", "description": "For RECTANGLE, BOX: origin [x, y, z]"},
-                    "corner": {"type": "array", "description": "Alias for origin on RECTANGLE and BOX"},
-                    "corner1": {"type": "array", "description": "For BOX: first diagonal corner [x, y, z]"},
-                    "corner2": {"type": "array", "description": "For BOX: second diagonal corner [x, y, z]"},
-                    "width": {"type": "number", "description": "For RECTANGLE, BOX: width in +X"},
-                    "height": {"type": "number", "description": "For RECTANGLE, BOX, CYLINDER, CONE: height in +Z"},
-                    "depth": {"type": "number", "description": "For BOX: depth in +Y"},
+                    "color": {"description": "Color as [r,g,b] array, {r,g,b} object, or #rrggbb string"},
+                    "point": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "minItems": 3,
+                        "maxItems": 3,
+                        "description": "For POINT: [x, y, z]",
+                    },
+                    "location": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "minItems": 3,
+                        "maxItems": 3,
+                        "description": "Alias for POINT point [x, y, z]",
+                    },
+                    "start": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "minItems": 3,
+                        "maxItems": 3,
+                        "description": "For LINE: start point [x, y, z]",
+                    },
+                    "end": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "minItems": 3,
+                        "maxItems": 3,
+                        "description": "For LINE: end point [x, y, z]",
+                    },
+                    "points": {
+                        "type": "array",
+                        "items": {
+                            "type": "array",
+                            "items": {"type": "number"},
+                            "minItems": 3,
+                            "maxItems": 3,
+                        },
+                        "description": "For POLYLINE: array of [x, y, z] points",
+                    },
+                    "center": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "minItems": 3,
+                        "maxItems": 3,
+                        "description": "For CIRCLE, ARC, SPHERE, CYLINDER, CONE: center [x, y, z]",
+                    },
+                    "base": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "minItems": 3,
+                        "maxItems": 3,
+                        "description": "Alias for CYLINDER and CONE base center [x, y, z]",
+                    },
+                    "plane": {
+                        "type": "string",
+                        "description": "For CIRCLE and ARC orientation: XY, XZ, or YZ. Defaults to XY.",
+                    },
+                    "radius": {"type": "number", "description": "For CIRCLE, ARC, SPHERE, CYLINDER, CONE. Must be positive."},
+                    "origin": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "minItems": 3,
+                        "maxItems": 3,
+                        "description": "For RECTANGLE, BOX: origin [x, y, z]",
+                    },
+                    "corner": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "minItems": 3,
+                        "maxItems": 3,
+                        "description": "Alias for origin on RECTANGLE and BOX",
+                    },
+                    "corner1": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "minItems": 3,
+                        "maxItems": 3,
+                        "description": "For BOX: first diagonal corner [x, y, z]",
+                    },
+                    "corner2": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "minItems": 3,
+                        "maxItems": 3,
+                        "description": "For BOX: second diagonal corner [x, y, z]",
+                    },
+                    "width": {"type": "number", "description": "For RECTANGLE, BOX: positive width in +X"},
+                    "height": {"type": "number", "description": "For RECTANGLE and BOX: positive height in +Z. For CYLINDER and CONE: non-zero height along Z."},
+                    "depth": {"type": "number", "description": "For BOX: positive depth in +Y"},
                     "x": {"type": "number", "description": "Alias for BOX width"},
                     "y": {"type": "number", "description": "Alias for BOX depth"},
                     "z": {"type": "number", "description": "Alias for BOX height"},

@@ -324,29 +324,29 @@ PHASE_2_TESTS = [
         id="create-006",
         tool="rhino_create",
         params={"type": "CIRCLE", "center": [0, 0, 0], "radius": -5},
-        expected=ExpectedOutcome.SUCCESS,  # Rhino uses absolute value
+        expected=ExpectedOutcome.FAILURE,
         phase=TestPhase.PHASE_2_CREATE,
-        description="Create circle with negative radius (uses absolute value)",
+        description="Create circle with negative radius",
         intent="create a circle with negative radius value",
-        tags=["create", "circle", "edge-case"],
-        learn_on_success=(
-            "CIRCLE with negative radius uses absolute value - Rhino is permissive. "
-            "radius: -5 creates same circle as radius: 5. "
-            "No need to validate radius sign before calling."
+        tags=["create", "circle", "invalid"],
+        learn_on_failure=(
+            "CIRCLE requires a positive radius. "
+            "Negative radius values return {success: false}. "
+            "Send a positive radius explicitly before calling rhino_create."
         ),
     ),
     TestCase(
         id="create-007",
         tool="rhino_create",
         params={"type": "CIRCLE", "center": [0, 0, 0], "radius": 0},
-        expected=ExpectedOutcome.SUCCESS,  # Creates degenerate circle
+        expected=ExpectedOutcome.FAILURE,
         phase=TestPhase.PHASE_2_CREATE,
-        description="Create circle with zero radius (creates degenerate)",
+        description="Create circle with zero radius",
         intent="create a circle with zero radius",
-        tags=["create", "circle", "edge-case"],
-        learn_on_success=(
-            "CIRCLE with radius 0 creates a degenerate (point-like) circle. "
-            "Rhino allows this but it's essentially invisible. "
+        tags=["create", "circle", "invalid"],
+        learn_on_failure=(
+            "CIRCLE requires a positive radius. "
+            "Zero radius returns {success: false}. "
             "Use POINT instead for zero-radius locations."
         ),
     ),
@@ -404,15 +404,18 @@ PHASE_2_TESTS = [
         id="create-011",
         tool="rhino_create",
         params={"type": "SPHERE", "center": [0, 0, 0], "radius": 5, "color": "red"},
-        expected=ExpectedOutcome.SUCCESS,  # Actually works! Rhino parses color names
+        expected=ExpectedOutcome.EITHER,
         phase=TestPhase.PHASE_2_CREATE,
-        description="Create sphere with color string (Rhino parses names)",
+        description="Create sphere with color string",
         intent="create a red sphere using color name string",
         tags=["create", "sphere", "color"],
         learn_on_success=(
-            "Color strings like 'red', 'blue', 'green' work! Rhino parses common color names. "
-            "Supported: 'red', 'green', 'blue', 'yellow', 'cyan', 'magenta', 'white', 'black'. "
-            "Use this for quick prototyping, [R,G,B] for precise colors."
+            "Color strings should be hex strings such as '#ff0000'. "
+            "Prefer [R,G,B] array or {r,g,b} object for compatibility."
+        ),
+        learn_on_failure=(
+            "Named color strings such as 'red' are not part of the rhino_create contract. "
+            "Use [255,0,0], {r:255,g:0,b:0}, or '#ff0000' instead."
         ),
     ),
 

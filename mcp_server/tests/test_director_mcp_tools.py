@@ -50,14 +50,27 @@ async def test_director_tool_registered():
     assert schema["type"] == "object"
     assert not {"oneOf", "anyOf", "allOf", "enum", "not"} & set(schema)
     assert _find_rejected_schema_keywords(schema) == []
-    assert schema["required"] == [
-        "object_ids",
-        "frame_count",
-        "resolution",
-    ]
+    assert schema["required"] == ["object_ids", "resolution"]
+    assert "frame_count" in schema["properties"]
+    assert "timeline" in schema["properties"]
+    assert schema["properties"]["timeline"]["type"] == "object"
+    assert "fps" in schema["properties"]["timeline"]["properties"]
+    assert "duration_seconds" in schema["properties"]["timeline"]["properties"]
+    assert (
+        "MCP callers should send a JSON integer"
+        in schema["properties"]["timeline"]["properties"]["fps"]["description"]
+    )
     assert "camera_keyframes" in schema["properties"]
     assert "camera" in schema["properties"]
     keyframe_schema = schema["properties"]["camera_keyframes"]["items"]
+    assert keyframe_schema["required"] == ["source"]
+    assert "frame_index" in keyframe_schema["properties"]
+    assert "time" in keyframe_schema["properties"]
+    assert "at" in keyframe_schema["properties"]
+    assert (
+        "MCP callers should send a JSON integer"
+        in keyframe_schema["properties"]["frame_index"]["description"]
+    )
     source_schema = keyframe_schema["properties"]["source"]
     assert "explicit_camera" in source_schema["description"]
     assert "camera" in source_schema["properties"]
@@ -96,6 +109,24 @@ async def test_director_tool_dispatches_to_python_runner():
         mock.return_value = {"state": "complete", "run_root": "C:/runs/x"}
         result = await server.call_tool("rhino_director_run", request)
     mock.assert_awaited_once()
+    assert "complete" in result[0].text
+
+
+@pytest.mark.asyncio
+async def test_director_tool_dispatches_timeline_only_request_to_python_runner():
+    request = {
+        "object_ids": ["obj-1"],
+        "timeline": {"fps": 24, "duration_seconds": 0.125},
+        "resolution": {"width": 64, "height": 64},
+        "camera_keyframes": [
+            {"time": 0.0, "source": {"kind": "active_view"}}
+        ],
+    }
+    with patch.object(server.director, "run_director", new_callable=AsyncMock) as mock:
+        mock.return_value = {"state": "complete", "run_root": "C:/runs/timeline"}
+        result = await server.call_tool("rhino_director_run", request)
+    mock.assert_awaited_once()
+    assert mock.await_args.args[0] == request
     assert "complete" in result[0].text
 
 

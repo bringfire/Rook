@@ -1480,6 +1480,61 @@ async def test_gh_set_script_description_does_not_claim_py3_only():
 
 
 @pytest.mark.asyncio
+async def test_rhino_create_coordinate_schema_advertises_numeric_arrays():
+    tools = {tool.name: tool for tool in await server.list_tools()}
+    schema = tools["rhino_create"].inputSchema
+    properties = schema["properties"]
+
+    for name in (
+        "point",
+        "location",
+        "start",
+        "end",
+        "center",
+        "base",
+        "origin",
+        "corner",
+        "corner1",
+        "corner2",
+    ):
+        coordinate_schema = properties[name]
+        assert coordinate_schema["type"] == "array"
+        assert coordinate_schema["items"] == {"type": "number"}
+        assert coordinate_schema["minItems"] == 3
+        assert coordinate_schema["maxItems"] == 3
+
+    points_schema = properties["points"]
+    assert points_schema["type"] == "array"
+    assert points_schema["items"]["type"] == "array"
+    assert points_schema["items"]["items"] == {"type": "number"}
+    assert points_schema["items"]["minItems"] == 3
+    assert points_schema["items"]["maxItems"] == 3
+
+    assert properties["plane"]["type"] == "string"
+    assert "XY, XZ, or YZ" in properties["plane"]["description"]
+    assert "#rrggbb" in properties["color"]["description"]
+    assert "positive" in properties["radius"]["description"]
+    assert "positive width" in properties["width"]["description"]
+    assert "positive depth" in properties["depth"]["description"]
+    assert "non-zero height" in properties["height"]["description"]
+
+
+def test_rhino_create_bootstrap_matrix_matches_native_rejection_contract():
+    from rook.bootstrap.test_matrix import ExpectedOutcome, TOOL_TESTS
+
+    cases = {case.id: case for case in TOOL_TESTS.cases}
+
+    assert cases["create-006"].expected is ExpectedOutcome.FAILURE
+    assert "positive radius" in cases["create-006"].learn_on_failure
+    assert cases["create-007"].expected is ExpectedOutcome.FAILURE
+    assert "positive radius" in cases["create-007"].learn_on_failure
+    assert cases["create-013"].expected is ExpectedOutcome.EITHER
+    assert "positive dimensions" in cases["create-013"].learn_on_failure
+    assert cases["create-011"].expected is ExpectedOutcome.EITHER
+    assert "Named color strings" in cases["create-011"].learn_on_failure
+
+
+@pytest.mark.asyncio
 async def test_gh_execute_intent_description_does_not_claim_only_tool():
     """Drift regression — gh_execute_intent must not claim exclusive ownership
     of GH component creation when gh_create_python_script and
