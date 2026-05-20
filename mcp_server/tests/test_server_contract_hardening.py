@@ -1479,6 +1479,39 @@ async def test_gh_set_script_description_does_not_claim_py3_only():
     )
 
 
+def _schema_type_permits_array(schema_type):
+    return schema_type == "array" or (
+        isinstance(schema_type, list) and "array" in schema_type
+    )
+
+
+def _find_array_schemas_missing_items(value, path="$"):
+    findings = []
+    if isinstance(value, dict):
+        if _schema_type_permits_array(value.get("type")) and "items" not in value:
+            findings.append(path)
+        for key, child in value.items():
+            findings.extend(_find_array_schemas_missing_items(child, f"{path}.{key}"))
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            findings.extend(_find_array_schemas_missing_items(child, f"{path}[{index}]"))
+    return findings
+
+
+@pytest.mark.asyncio
+async def test_all_mcp_array_schemas_declare_items():
+    tools = await server.list_tools()
+    findings = []
+    for tool in tools:
+        for path in _find_array_schemas_missing_items(tool.inputSchema or {}):
+            findings.append(f"{tool.name}: {path}")
+
+    assert findings == [], (
+        "MCP input schemas that permit arrays must declare an 'items' schema:\n"
+        + "\n".join(findings)
+    )
+
+
 @pytest.mark.asyncio
 async def test_rhino_create_coordinate_schema_advertises_numeric_arrays():
     tools = {tool.name: tool for tool in await server.list_tools()}
@@ -1517,6 +1550,55 @@ async def test_rhino_create_coordinate_schema_advertises_numeric_arrays():
     assert "positive width" in properties["width"]["description"]
     assert "positive depth" in properties["depth"]["description"]
     assert "non-zero height" in properties["height"]["description"]
+
+
+@pytest.mark.asyncio
+async def test_rhino_curve_ops_trim_schema_matches_native_interval_contract():
+    tools = {tool.name: tool for tool in await server.list_tools()}
+    properties = tools["rhino_curve_ops"].inputSchema["properties"]
+
+    assert "point" not in properties
+    assert properties["t0"]["type"] == "number"
+    assert properties["t1"]["type"] == "number"
+    assert "Legacy trim end parameter" in properties["parameter"]["description"]
+
+
+@pytest.mark.asyncio
+async def test_rhino_curve_ops_trim_dispatches_native_interval(monkeypatch, patched_server):
+    native_success = {"success": True, "data": {"id": "trimmed-curve"}}
+    call_rhino_mock = AsyncMock(return_value=native_success)
+    monkeypatch.setattr(server, "call_rhino", call_rhino_mock)
+
+    response = await server.call_tool(
+        "rhino_curve_ops",
+        {"action": "trim", "id": "curve-id", "t0": 0.25, "t1": 0.75},
+    )
+
+    assert _decode_response(response) == native_success
+    call_rhino_mock.assert_awaited_once_with(
+        "/curve/trim",
+        "POST",
+        {"id": "curve-id", "t0": 0.25, "t1": 0.75},
+    )
+
+
+@pytest.mark.asyncio
+async def test_rhino_curve_ops_trim_legacy_parameter_maps_to_native_interval(monkeypatch, patched_server):
+    native_success = {"success": True, "data": {"id": "trimmed-curve"}}
+    call_rhino_mock = AsyncMock(return_value=native_success)
+    monkeypatch.setattr(server, "call_rhino", call_rhino_mock)
+
+    response = await server.call_tool(
+        "rhino_curve_ops",
+        {"action": "trim", "id": "curve-id", "parameter": 0.5},
+    )
+
+    assert _decode_response(response) == native_success
+    call_rhino_mock.assert_awaited_once_with(
+        "/curve/trim",
+        "POST",
+        {"id": "curve-id", "t0": 0.0, "t1": 0.5},
+    )
 
 
 def test_rhino_create_bootstrap_matrix_matches_native_rejection_contract():
