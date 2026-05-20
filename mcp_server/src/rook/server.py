@@ -2302,9 +2302,78 @@ Use this before any Rhino operations to ensure Rhino is available. Safe to call 
                     },
                     "camera_keyframes": {
                         "type": "array",
-                        "items": {"type": "object"},
+                        "items": {
+                            "type": "object",
+                            "required": ["frame_index", "source"],
+                            "properties": {
+                                "frame_index": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "description": "1-based frame index for this camera keyframe.",
+                                },
+                                "source": {
+                                    "type": "object",
+                                    "description": (
+                                        "Camera source. Use kind active_view, named_view with name, "
+                                        "or explicit_camera with a camera object."
+                                    ),
+                                    "required": ["kind"],
+                                    "properties": {
+                                        "kind": {
+                                            "type": "string",
+                                            "description": "active_view, named_view, or explicit_camera.",
+                                        },
+                                        "name": {
+                                            "type": "string",
+                                            "description": "Named view name when kind is named_view.",
+                                        },
+                                        "camera": {
+                                            "type": "object",
+                                            "additionalProperties": True,
+                                            "description": (
+                                                "Explicit perspective camera when kind is explicit_camera. "
+                                                "Provide projection, location, target, up, and either "
+                                                "lens_length or fov_degrees. Optional copied view-state "
+                                                "fields such as parallel_scale, near_clip, far_clip, and "
+                                                "aspect are accepted."
+                                            ),
+                                            "required": [
+                                                "projection",
+                                                "location",
+                                                "target",
+                                                "up",
+                                            ],
+                                            "properties": {
+                                                "projection": {
+                                                    "type": "string",
+                                                    "description": "Must be perspective for Director slice 1.",
+                                                },
+                                                "location": {
+                                                    "type": "array",
+                                                    "items": {"type": "number"},
+                                                    "minItems": 3,
+                                                    "maxItems": 3,
+                                                },
+                                                "target": {
+                                                    "type": "array",
+                                                    "items": {"type": "number"},
+                                                    "minItems": 3,
+                                                    "maxItems": 3,
+                                                },
+                                                "up": {
+                                                    "type": "array",
+                                                    "items": {"type": "number"},
+                                                    "minItems": 3,
+                                                    "maxItems": 3,
+                                                },
+                                            },
+                                        },
+                                    },
+                                },
+                            },
+                        },
                         "minItems": 1,
-                        "description": "Camera authoring keyframes; sources are active_view or named_view.",
+                        "description": "Camera authoring keyframes; sources are active_view, named_view, or explicit_camera.",
                     },
                     "motion": {
                         "type": "object",

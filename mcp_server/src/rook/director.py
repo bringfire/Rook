@@ -14,6 +14,7 @@ from .runtime_paths import resolve_runtime_paths
 
 SCHEMA_VERSION = 1
 DIRECTOR_VERSION = "slice1"
+CAMERA_SOURCE_KINDS = {"active_view", "named_view", "explicit_camera", "camera"}
 
 
 class DirectorError(Exception):
@@ -123,12 +124,96 @@ def validate_authoring_request(request: dict[str, Any]) -> None:
         if not isinstance(source, dict) or not source.get("kind"):
             raise DirectorInputError("camera keyframe source.kind is required")
         source_kind = source["kind"]
-        if source_kind not in {"active_view", "named_view"}:
+        if source_kind not in CAMERA_SOURCE_KINDS:
             raise DirectorInputError(
-                "camera keyframe source.kind must be active_view or named_view"
+                "camera keyframe source.kind must be active_view, named_view, or explicit_camera"
             )
         if source_kind == "named_view" and not source.get("name"):
             raise DirectorInputError("named_view camera keyframes require source.name")
+        if source_kind in {"explicit_camera", "camera"}:
+            _validate_camera_payload(source.get("camera"))
+
+
+def _require_finite_number(value: Any, field: str) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as ex:
+        raise DirectorInputError(f"{field} must be a finite number") from ex
+    if not math.isfinite(number):
+        raise DirectorInputError(f"{field} must be a finite number")
+    return number
+
+
+def _require_point3(camera: dict[str, Any], field: str) -> list[float]:
+    value = camera.get(field)
+    if not isinstance(value, list) or len(value) != 3:
+        raise DirectorInputError(f"camera.{field} must be a 3-number array")
+    return [_require_finite_number(item, f"camera.{field}") for item in value]
+
+
+def _optional_positive_number(camera: dict[str, Any], field: str) -> float | None:
+    if field not in camera or camera[field] is None:
+        return None
+    value = _require_finite_number(camera[field], f"camera.{field}")
+    if value <= 0:
+        raise DirectorInputError(f"camera.{field} must be positive")
+    return value
+
+
+def _validate_camera_payload(camera: Any) -> dict[str, Any]:
+    if not isinstance(camera, dict):
+        raise DirectorInputError("explicit_camera source requires camera object")
+
+    projection = str(camera.get("projection", "")).lower()
+    if projection == "parallel":
+        raise DirectorInputError(
+            "parallel cameras are not supported by RookVisionDirector slice1"
+        )
+    if projection != "perspective":
+        raise DirectorInputError(
+            "explicit_camera source requires camera.projection perspective"
+        )
+
+    location = _require_point3(camera, "location")
+    target = _require_point3(camera, "target")
+    up = _require_point3(camera, "up")
+    if _normalize([target[i] - location[i] for i in range(3)]) is None:
+        raise DirectorInputError("camera location and target must differ")
+    if _normalize(up) is None:
+        raise DirectorInputError("camera.up must be nonzero")
+
+    lens_length = _optional_positive_number(camera, "lens_length")
+    fov_degrees = _optional_positive_number(camera, "fov_degrees")
+    if fov_degrees is not None and fov_degrees >= 180:
+        raise DirectorInputError("camera.fov_degrees must be between 0 and 180")
+    if lens_length is None and fov_degrees is None:
+        raise DirectorInputError(
+            "perspective camera requires positive lens_length or fov_degrees"
+        )
+
+    aspect = _optional_positive_number(camera, "aspect")
+    near_clip = _optional_positive_number(camera, "near_clip")
+    far_clip = _optional_positive_number(camera, "far_clip")
+    if (near_clip is None) != (far_clip is None):
+        raise DirectorInputError("camera near_clip and far_clip must be provided together")
+    if near_clip is not None and far_clip is not None and near_clip >= far_clip:
+        raise DirectorInputError("camera.near_clip must be less than camera.far_clip")
+
+    normalized = dict(camera)
+    normalized["projection"] = "perspective"
+    normalized["location"] = location
+    normalized["target"] = target
+    normalized["up"] = up
+    for field, value in (
+        ("lens_length", lens_length),
+        ("fov_degrees", fov_degrees),
+        ("aspect", aspect),
+        ("near_clip", near_clip),
+        ("far_clip", far_clip),
+    ):
+        if field in camera:
+            normalized[field] = value
+    return normalized
 
 
 def identity_matrix() -> list[list[float]]:
@@ -251,8 +336,18 @@ async def _resolve_camera_keyframes(
             raise DirectorInputError(
                 "camera keyframe frame_index must be inside 1..frame_count"
             )
+        source = keyframe["source"]
+        if source.get("kind") in {"explicit_camera", "camera"}:
+            resolved.append(
+                {
+                    "frame_index": frame_index,
+                    "camera": _validate_camera_payload(source.get("camera")),
+                    "provenance": {"source": "explicit_camera"},
+                }
+            )
+            continue
         result = await call_native(
-            "/director/view-state", "POST", {"source": keyframe["source"]}, port=port
+            "/director/view-state", "POST", {"source": source}, port=port
         )
         if not result.get("success"):
             raise DirectorInputError(f"camera resolution failed: {result.get('data')}")

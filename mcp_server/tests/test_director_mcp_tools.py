@@ -13,6 +13,27 @@ from rook import server, targeting
 from rook.agent import tool_groups
 
 
+OPENAI_REJECTED_SCHEMA_KEYWORDS = {"oneOf", "anyOf", "allOf", "not"}
+
+
+def _find_rejected_schema_keywords(value, path="$"):
+    if isinstance(value, dict):
+        findings = [
+            f"{path}.{key}"
+            for key in OPENAI_REJECTED_SCHEMA_KEYWORDS
+            if key in value
+        ]
+        for key, child in value.items():
+            findings.extend(_find_rejected_schema_keywords(child, f"{path}.{key}"))
+        return findings
+    if isinstance(value, list):
+        findings = []
+        for index, child in enumerate(value):
+            findings.extend(_find_rejected_schema_keywords(child, f"{path}[{index}]"))
+        return findings
+    return []
+
+
 @pytest.fixture(autouse=True)
 def fake_rhino_discovery(monkeypatch):
     monkeypatch.setattr(targeting, "discover_instances", lambda: [
@@ -26,12 +47,40 @@ async def test_director_tool_registered():
     by_name = {tool.name: tool for tool in tools}
     assert "rhino_director_run" in by_name
     schema = by_name["rhino_director_run"].inputSchema
+    assert schema["type"] == "object"
+    assert not {"oneOf", "anyOf", "allOf", "enum", "not"} & set(schema)
+    assert _find_rejected_schema_keywords(schema) == []
     assert schema["required"] == [
         "object_ids",
         "frame_count",
         "resolution",
         "camera_keyframes",
     ]
+    keyframe_schema = schema["properties"]["camera_keyframes"]["items"]
+    source_schema = keyframe_schema["properties"]["source"]
+    assert "explicit_camera" in source_schema["description"]
+    assert "camera" in source_schema["properties"]
+    camera_schema = source_schema["properties"]["camera"]
+    assert "lens_length or fov_degrees" in camera_schema["description"]
+    assert camera_schema["required"] == ["projection", "location", "target", "up"]
+
+
+@pytest.mark.asyncio
+async def test_director_schema_keeps_nullable_copied_camera_fields_runtime_only():
+    tools = await server.list_tools()
+    schema = {tool.name: tool for tool in tools}["rhino_director_run"].inputSchema
+    camera_schema = schema["properties"]["camera_keyframes"]["items"]["properties"][
+        "source"
+    ]["properties"]["camera"]
+
+    assert not OPENAI_REJECTED_SCHEMA_KEYWORDS & set(camera_schema)
+    assert camera_schema["additionalProperties"] is True
+    assert set(camera_schema["properties"]) == {
+        "projection",
+        "location",
+        "target",
+        "up",
+    }
 
 
 @pytest.mark.asyncio
