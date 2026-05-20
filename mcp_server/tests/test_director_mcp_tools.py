@@ -250,3 +250,26 @@ def test_director_readonly_group_loads_for_readonly_registry():
 
     assert result["success"] is True
     assert "rhino_director_curve_samples" in result["loaded"]
+
+
+def test_director_curve_samples_search_loads_readonly_bridge_tool():
+    catalog = {
+        "rhino_director_curve_samples": _lite_tool_schema("rhino_director_curve_samples"),
+        "rhino_director_run": _lite_tool_schema("rhino_director_run"),
+    }
+    catalog["rhino_director_curve_samples"]["function"][
+        "description"
+    ] = "director curve samples"
+    catalog["rhino_director_run"]["function"]["description"] = "director run"
+    registry = ToolRegistry(
+        catalog=catalog,
+        tier0=set(),
+        allowed_groups=tool_groups.READONLY_ALLOWED_GROUPS,
+        agent_mode=True,
+    )
+
+    result = registry.search("director curve samples", top_k=5, turn=1)
+
+    assert result["success"] is True
+    assert "rhino_director_curve_samples" in result["loaded"]
+    assert "rhino_director_run" not in result["loaded"]
