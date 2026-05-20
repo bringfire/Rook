@@ -87,6 +87,7 @@ READONLY_ALLOWED_GROUPS: Set[str] = {
     "gh_canvas_readonly",
     "sessions",
     "scene_graph",
+    "director_readonly",
 }
 
 

@@ -11,6 +11,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from rook import server, targeting
 from rook.agent import tool_groups
+from rook.agent.tool_registry import ToolRegistry
 
 
 OPENAI_REJECTED_SCHEMA_KEYWORDS = {"oneOf", "anyOf", "allOf", "not"}
@@ -32,6 +33,17 @@ def _find_rejected_schema_keywords(value, path="$"):
             findings.extend(_find_rejected_schema_keywords(child, f"{path}[{index}]"))
         return findings
     return []
+
+
+def _lite_tool_schema(name: str) -> dict:
+    return {
+        "type": "function",
+        "function": {
+            "name": name,
+            "description": name,
+            "parameters": {"type": "object", "properties": {}},
+        },
+    }
 
 
 @pytest.fixture(autouse=True)
@@ -219,3 +231,22 @@ def test_director_tool_groups_include_curve_samples_readonly():
     assert "director_readonly" in tool_groups.TOOL_GROUPS
     assert "rhino_director_curve_samples" in tool_groups.TOOL_GROUPS["director_readonly"]
     assert "director" in tool_groups.MCP_ONLY_GROUPS
+
+
+def test_director_readonly_group_loads_for_readonly_registry():
+    assert "director_readonly" in tool_groups.READONLY_ALLOWED_GROUPS
+    catalog = {
+        name: _lite_tool_schema(name)
+        for name in tool_groups.TOOL_GROUPS["director_readonly"]
+    }
+    registry = ToolRegistry(
+        catalog=catalog,
+        tier0=set(),
+        allowed_groups=tool_groups.READONLY_ALLOWED_GROUPS,
+        agent_mode=True,
+    )
+
+    result = registry.request_group("director_readonly", turn=1)
+
+    assert result["success"] is True
+    assert "rhino_director_curve_samples" in result["loaded"]
