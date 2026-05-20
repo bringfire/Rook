@@ -7,6 +7,7 @@ Supports multiple Rhino instances through automatic discovery.
 
 import ast
 import asyncio
+import copy
 import json
 import logging
 import os
@@ -258,6 +259,105 @@ def _preflight_rhino_command(command: Any) -> dict[str, Any] | None:
     """Reject obviously malformed Rhino command strings before they hit RunScript."""
     from .preflight import preflight_rhino_command
     return preflight_rhino_command(command, command_learner.knowledge_store)
+
+
+def _array_schema(
+    item_schema: dict[str, Any],
+    description: str,
+    *,
+    min_items: int | None = None,
+    max_items: int | None = None,
+    schema_type: str | list[str] = "array",
+) -> dict[str, Any]:
+    schema: dict[str, Any] = {
+        "type": schema_type,
+        "items": copy.deepcopy(item_schema),
+        "description": description,
+    }
+    if min_items is not None:
+        schema["minItems"] = min_items
+    if max_items is not None:
+        schema["maxItems"] = max_items
+    return schema
+
+
+def _number_array_schema(
+    description: str,
+    *,
+    min_items: int | None = None,
+    max_items: int | None = None,
+) -> dict[str, Any]:
+    return _array_schema(
+        {"type": "number"},
+        description,
+        min_items=min_items,
+        max_items=max_items,
+    )
+
+
+def _integer_array_schema(
+    description: str,
+    *,
+    min_items: int | None = None,
+    max_items: int | None = None,
+) -> dict[str, Any]:
+    return _array_schema(
+        {"type": "integer"},
+        description,
+        min_items=min_items,
+        max_items=max_items,
+    )
+
+
+def _point3_schema(description: str) -> dict[str, Any]:
+    return _number_array_schema(description, min_items=3, max_items=3)
+
+
+def _vector3_schema(description: str) -> dict[str, Any]:
+    return _number_array_schema(description, min_items=3, max_items=3)
+
+
+def _point3_list_schema(
+    description: str,
+    *,
+    min_items: int | None = None,
+) -> dict[str, Any]:
+    return _array_schema(
+        {
+            "type": "array",
+            "items": {"type": "number"},
+            "minItems": 3,
+            "maxItems": 3,
+        },
+        description,
+        min_items=min_items,
+    )
+
+
+def _string_array_schema(
+    description: str,
+    *,
+    min_items: int | None = None,
+) -> dict[str, Any]:
+    return _array_schema({"type": "string"}, description, min_items=min_items)
+
+
+def _object_array_schema(
+    description: str,
+    *,
+    min_items: int | None = None,
+) -> dict[str, Any]:
+    return _array_schema({"type": "object"}, description, min_items=min_items)
+
+
+def _color_schema(description: str) -> dict[str, Any]:
+    return _array_schema(
+        {"type": "integer"},
+        description,
+        min_items=3,
+        max_items=3,
+        schema_type=["string", "array", "object"],
+    )
 
 
 def _interactive_command_learning_enabled() -> bool:
@@ -2665,13 +2765,13 @@ Examples:
                         "description": "List of object GUIDs to transform"
                     },
                     "operation": {"type": "string", "description": "Transform type: move, rotate, scale, mirror"},
-                    "vector": {"type": "array", "description": "For move: translation vector [x, y, z]"},
+                    "vector": _vector3_schema("For move: translation vector [x, y, z]"),
                     "angle": {"type": "number", "description": "For rotate: angle in degrees"},
-                    "axis": {"type": "array", "description": "For rotate: rotation axis [x, y, z]"},
-                    "center": {"type": "array", "description": "For rotate/scale: center point [x, y, z]"},
+                    "axis": _vector3_schema("For rotate: rotation axis [x, y, z]"),
+                    "center": _point3_schema("For rotate/scale: center point [x, y, z]"),
                     "factor": {"type": "number", "description": "For scale: scale factor"},
-                    "planeOrigin": {"type": "array", "description": "For mirror: plane origin [x, y, z]"},
-                    "planeNormal": {"type": "array", "description": "For mirror: plane normal [x, y, z]"}
+                    "planeOrigin": _point3_schema("For mirror: plane origin [x, y, z]"),
+                    "planeNormal": _vector3_schema("For mirror: plane normal [x, y, z]")
                 },
                 "required": ["ids", "operation"]
             }
@@ -2687,7 +2787,7 @@ Examples:
                         "items": {"type": "string"},
                         "description": "List of object GUIDs to copy"
                     },
-                    "offset": {"type": "array", "description": "Optional offset vector [x, y, z]"}
+                    "offset": _vector3_schema("Optional offset vector [x, y, z]")
                 },
                 "required": ["ids"]
             }
@@ -2989,8 +3089,8 @@ Examples:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "from": {"type": "array", "description": "Start point [x, y, z]"},
-                    "to": {"type": "array", "description": "End point [x, y, z]"},
+                    "from": _point3_schema("Start point [x, y, z]"),
+                    "to": _point3_schema("End point [x, y, z]"),
                     "fromId": {"type": "string", "description": "First object GUID (alternative to 'from' point)"},
                     "toId": {"type": "string", "description": "Second object GUID (alternative to 'to' point)"}
                 },
@@ -3099,8 +3199,8 @@ Examples:
                         "enum": ["Normal", "Loose", "Tight", "Straight", "Uniform", "Developable"],
                     },
                     "closed": {"type": "boolean", "description": "Close the loft (default false). Incompatible with startPoint/endPoint."},
-                    "startPoint": {"type": "array", "description": "Convergence point at loft start [x,y,z]"},
-                    "endPoint": {"type": "array", "description": "Convergence point at loft end [x,y,z]"},
+                    "startPoint": _point3_schema("Convergence point at loft start [x,y,z]"),
+                    "endPoint": _point3_schema("Convergence point at loft end [x,y,z]"),
                     "name": {"type": "string", "description": "Object name (applied to every brep)"},
                     "layer": {"type": "string", "description": "Layer path (must exist in document)"},
                     "color": {"type": "string", "description": "Object color (e.g. '255,128,0' or '#ff8000')"},
@@ -3135,7 +3235,7 @@ Examples:
                         "description": "Sweep orientation style (default Freeform)",
                         "enum": ["Freeform", "Roadlike"],
                     },
-                    "roadlikeUp": {"type": "array", "description": "Up direction [x,y,z] for Roadlike style (required iff style='Roadlike')"},
+                    "roadlikeUp": _vector3_schema("Up direction [x,y,z] for Roadlike style (required iff style='Roadlike')"),
                     "name": {"type": "string", "description": "Object name (applied to every brep)"},
                     "layer": {"type": "string", "description": "Layer path (must exist in document)"},
                     "color": {"type": "string", "description": "Object color"},
@@ -3187,8 +3287,8 @@ Examples:
                 "type": "object",
                 "properties": {
                     "curveId": {"type": "string", "description": "Profile curve GUID"},
-                    "axisStart": {"type": "array", "description": "Axis line start [x,y,z]"},
-                    "axisEnd": {"type": "array", "description": "Axis line end [x,y,z] — must differ from axisStart"},
+                    "axisStart": _point3_schema("Axis line start [x,y,z]"),
+                    "axisEnd": _point3_schema("Axis line end [x,y,z] — must differ from axisStart"),
                     "startAngle": {"type": "number", "description": "Sweep start angle in degrees (default 0)"},
                     "endAngle": {"type": "number", "description": "Sweep end angle in degrees (default 360)"},
                     "name": {"type": "string", "description": "Object name"},
@@ -3248,10 +3348,7 @@ Examples:
                     },
                     "name": {"type": "string", "description": "Object name."},
                     "layer": {"type": "string", "description": "Layer path (must exist in document)."},
-                    "color": {
-                        "type": ["string", "array", "object"],
-                        "description": "Object color — accepts hex string '#rrggbb', array [r,g,b] (ints 0-255), or object {r,g,b}.",
-                    },
+                    "color": _color_schema("Object color — accepts hex string '#rrggbb', array [r,g,b] (ints 0-255), or object {r,g,b}."),
                     "visible": {"type": "boolean", "description": "Object visibility (default true)."},
                 },
                 "required": ["curveIds"]
@@ -3318,10 +3415,7 @@ Examples:
                     },
                     "name": {"type": "string", "description": "Object name."},
                     "layer": {"type": "string", "description": "Layer path (must exist in document)."},
-                    "color": {
-                        "type": ["string", "array", "object"],
-                        "description": "Object color — accepts hex string '#rrggbb', array [r,g,b] (ints 0-255), or object {r,g,b}.",
-                    },
+                    "color": _color_schema("Object color — accepts hex string '#rrggbb', array [r,g,b] (ints 0-255), or object {r,g,b}."),
                     "visible": {"type": "boolean", "description": "Object visibility (default true)."},
                 },
                 "required": ["geometryIds"]
@@ -3392,10 +3486,7 @@ Examples:
                     },
                     "name": {"type": "string", "description": "Object name."},
                     "layer": {"type": "string", "description": "Layer path (must exist in document)."},
-                    "color": {
-                        "type": ["string", "array", "object"],
-                        "description": "Object color — accepts hex string '#rrggbb', array [r,g,b] (ints 0-255), or object {r,g,b}.",
-                    },
+                    "color": _color_schema("Object color — accepts hex string '#rrggbb', array [r,g,b] (ints 0-255), or object {r,g,b}."),
                     "visible": {"type": "boolean", "description": "Object visibility (default true)."},
                 },
                 "oneOf": [
@@ -3429,10 +3520,7 @@ Examples:
                     },
                     "name": {"type": "string", "description": "Object name."},
                     "layer": {"type": "string", "description": "Layer path (must exist in document)."},
-                    "color": {
-                        "type": ["string", "array", "object"],
-                        "description": "Object color — accepts hex string '#rrggbb', array [r,g,b] (ints 0-255), or object {r,g,b}.",
-                    },
+                    "color": _color_schema("Object color — accepts hex string '#rrggbb', array [r,g,b] (ints 0-255), or object {r,g,b}."),
                     "visible": {"type": "boolean", "description": "Object visibility (default true)."},
                 },
                 "required": ["curve1Id", "curve2Id"]
@@ -3469,10 +3557,7 @@ Examples:
                     },
                     "name": {"type": "string", "description": "Object name (applied to every output curve)."},
                     "layer": {"type": "string", "description": "Layer path (must exist in document)."},
-                    "color": {
-                        "type": ["string", "array", "object"],
-                        "description": "Object color — accepts hex string '#rrggbb', array [r,g,b] (ints 0-255), or object {r,g,b}.",
-                    },
+                    "color": _color_schema("Object color — accepts hex string '#rrggbb', array [r,g,b] (ints 0-255), or object {r,g,b}."),
                     "visible": {"type": "boolean", "description": "Object visibility (default true)."},
                 },
                 "required": ["curveIds"]
@@ -3507,10 +3592,7 @@ Examples:
                     },
                     "name": {"type": "string", "description": "Object name (applied to every output curve)."},
                     "layer": {"type": "string", "description": "Layer path (must exist in document)."},
-                    "color": {
-                        "type": ["string", "array", "object"],
-                        "description": "Object color — accepts hex string '#rrggbb', array [r,g,b] (ints 0-255), or object {r,g,b}.",
-                    },
+                    "color": _color_schema("Object color — accepts hex string '#rrggbb', array [r,g,b] (ints 0-255), or object {r,g,b}."),
                     "visible": {"type": "boolean", "description": "Object visibility (default true)."},
                 },
                 "required": ["curveIds"]
@@ -3544,10 +3626,7 @@ Examples:
                     },
                     "name": {"type": "string", "description": "Object name (applied to every output curve)."},
                     "layer": {"type": "string", "description": "Layer path (must exist in document)."},
-                    "color": {
-                        "type": ["string", "array", "object"],
-                        "description": "Object color — accepts hex string '#rrggbb', array [r,g,b] (ints 0-255), or object {r,g,b}.",
-                    },
+                    "color": _color_schema("Object color — accepts hex string '#rrggbb', array [r,g,b] (ints 0-255), or object {r,g,b}."),
                     "visible": {"type": "boolean", "description": "Object visibility (default true)."},
                 },
                 "required": ["curveIds"]
@@ -3570,12 +3649,7 @@ Examples:
                 "type": "object",
                 "properties": {
                     "text": {"type": "string", "description": "Annotation text (non-empty)."},
-                    "point": {
-                        "type": "array",
-                        "description": "Insertion point [x, y, z] in world coordinates (default [0, 0, 0]).",
-                        "minItems": 3,
-                        "maxItems": 3,
-                    },
+                    "point": _point3_schema("Insertion point [x, y, z] in world coordinates (default [0, 0, 0])."),
                     "height": {"type": "number", "description": "Text height (> 0, default 1.0)."},
                     "font": {"type": "string", "description": "Font family name (default 'Arial'). Falls back to document default if unavailable."},
                     "bold": {"type": "boolean", "description": "Bold weight (default false)."},
@@ -3606,12 +3680,7 @@ Examples:
                 "type": "object",
                 "properties": {
                     "text": {"type": "string", "description": "Primary dot text (non-empty)."},
-                    "location": {
-                        "type": "array",
-                        "description": "Dot center point [x,y,z] (exactly 3 numbers).",
-                        "minItems": 3,
-                        "maxItems": 3,
-                    },
+                    "location": _point3_schema("Dot center point [x,y,z] (exactly 3 numbers)."),
                     "secondaryText": {
                         "type": "string",
                         "description": "Optional secondary text shown on hover/click in the Rhino UI.",
@@ -3656,16 +3725,10 @@ Examples:
                 "type": "object",
                 "properties": {
                     "text": {"type": "string", "description": "Leader text (non-empty)."},
-                    "points": {
-                        "type": "array",
-                        "description": "Polyline points [[x,y,z], ...] — first is arrow tip, last is text anchor. Minimum 2 points. Input Z behavior in the resulting geometry is SDK-governed, not pinned by Rook's contract.",
-                        "items": {
-                            "type": "array",
-                            "minItems": 3,
-                            "maxItems": 3,
-                        },
-                        "minItems": 2,
-                    },
+                    "points": _point3_list_schema(
+                        "Polyline points [[x,y,z], ...] — first is arrow tip, last is text anchor. Minimum 2 points. Input Z behavior in the resulting geometry is SDK-governed, not pinned by Rook's contract.",
+                        min_items=2,
+                    ),
                     "name": {"type": "string"},
                     "layer": {"type": "string", "description": "Layer path (must exist)."},
                     "color": {"type": "string"},
@@ -3693,30 +3756,10 @@ Examples:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "center": {
-                        "type": "array",
-                        "description": "Angle vertex [x,y,z] (exactly 3 numbers).",
-                        "minItems": 3,
-                        "maxItems": 3,
-                    },
-                    "start": {
-                        "type": "array",
-                        "description": "Endpoint of first extension ray [x,y,z]. Must differ from center.",
-                        "minItems": 3,
-                        "maxItems": 3,
-                    },
-                    "end": {
-                        "type": "array",
-                        "description": "Endpoint of second extension ray [x,y,z]. Must differ from center.",
-                        "minItems": 3,
-                        "maxItems": 3,
-                    },
-                    "point": {
-                        "type": "array",
-                        "description": "Interior point of the angular dim arc [x,y,z]. Load-bearing: selects which span (principal or reflex) the SDK measures. Principal-span point returns the principal angle; reflex-span point returns 360° - principal.",
-                        "minItems": 3,
-                        "maxItems": 3,
-                    },
+                    "center": _point3_schema("Angle vertex [x,y,z] (exactly 3 numbers)."),
+                    "start": _point3_schema("Endpoint of first extension ray [x,y,z]. Must differ from center."),
+                    "end": _point3_schema("Endpoint of second extension ray [x,y,z]. Must differ from center."),
+                    "point": _point3_schema("Interior point of the angular dim arc [x,y,z]. Load-bearing: selects which span (principal or reflex) the SDK measures. Principal-span point returns the principal angle; reflex-span point returns 360° - principal."),
                     "name": {"type": "string"},
                     "layer": {"type": "string", "description": "Layer path (must exist)."},
                     "color": {"type": "string"},
@@ -3739,12 +3782,7 @@ Examples:
                 "type": "object",
                 "properties": {
                     "curveId": {"type": "string", "description": "GUID of an existing arc or circle curve object."},
-                    "point": {
-                        "type": "array",
-                        "description": "Dim leader text position [x,y,z] (exactly 3 numbers, default = arc midpoint).",
-                        "minItems": 3,
-                        "maxItems": 3,
-                    },
+                    "point": _point3_schema("Dim leader text position [x,y,z] (exactly 3 numbers, default = arc midpoint)."),
                     "name": {"type": "string", "description": "Object name."},
                     "layer": {"type": "string", "description": "Layer path (must exist)."},
                     "color": {"type": "string", "description": "Object color (e.g. '255,128,0' or '#ff8000')."},
@@ -3766,12 +3804,7 @@ Examples:
                 "type": "object",
                 "properties": {
                     "curveId": {"type": "string", "description": "GUID of an existing arc or circle curve object."},
-                    "point": {
-                        "type": "array",
-                        "description": "Dim leader text position [x,y,z] (exactly 3 numbers, default = arc midpoint).",
-                        "minItems": 3,
-                        "maxItems": 3,
-                    },
+                    "point": _point3_schema("Dim leader text position [x,y,z] (exactly 3 numbers, default = arc midpoint)."),
                     "name": {"type": "string", "description": "Object name."},
                     "layer": {"type": "string", "description": "Layer path (must exist)."},
                     "color": {"type": "string", "description": "Object color."},
@@ -3796,18 +3829,8 @@ Examples:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "start": {
-                        "type": "array",
-                        "description": "Start point [x,y,z] (exactly 3 numbers).",
-                        "minItems": 3,
-                        "maxItems": 3,
-                    },
-                    "end": {
-                        "type": "array",
-                        "description": "End point [x,y,z] (exactly 3 numbers). Must be distinct from start.",
-                        "minItems": 3,
-                        "maxItems": 3,
-                    },
+                    "start": _point3_schema("Start point [x,y,z] (exactly 3 numbers)."),
+                    "end": _point3_schema("End point [x,y,z] (exactly 3 numbers). Must be distinct from start."),
                     "offset": {
                         "type": "number",
                         "description": "Perpendicular offset of the dim line from the start-end midpoint. Sign selects which side.",
@@ -3837,28 +3860,13 @@ Examples:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "start": {
-                        "type": "array",
-                        "description": "Start point [x,y,z] (exactly 3 numbers).",
-                        "minItems": 3,
-                        "maxItems": 3,
-                    },
-                    "end": {
-                        "type": "array",
-                        "description": "End point [x,y,z] (exactly 3 numbers). Must be distinct from start.",
-                        "minItems": 3,
-                        "maxItems": 3,
-                    },
+                    "start": _point3_schema("Start point [x,y,z] (exactly 3 numbers)."),
+                    "end": _point3_schema("End point [x,y,z] (exactly 3 numbers). Must be distinct from start."),
                     "offset": {
                         "type": "number",
                         "description": "Perpendicular offset of the dim line from the start-end midpoint in the dim plane. Sign selects which side.",
                     },
-                    "direction": {
-                        "type": "array",
-                        "description": "Projection direction [x,y,z] (exactly 3 numbers, default [1,0,0] world X). Must be non-zero.",
-                        "minItems": 3,
-                        "maxItems": 3,
-                    },
+                    "direction": _vector3_schema("Projection direction [x,y,z] (exactly 3 numbers, default [1,0,0] world X). Must be non-zero."),
                     "name": {"type": "string", "description": "Object name."},
                     "layer": {"type": "string", "description": "Layer path (must exist)."},
                     "color": {"type": "string", "description": "Object color (e.g. '255,128,0' or '#ff8000')."},
@@ -4074,12 +4082,7 @@ Examples:
                         "description": "Source object GUIDs (min 1)",
                         "minItems": 1,
                     },
-                    "direction": {
-                        "type": "array",
-                        "description": "Direction vector [x, y, z] (must be non-zero)",
-                        "minItems": 3,
-                        "maxItems": 3,
-                    },
+                    "direction": _vector3_schema("Direction vector [x, y, z] (must be non-zero)"),
                     "spacing": {"type": "number", "description": "Distance between copies (> 0)"},
                     "count": {"type": "integer", "description": "Total copies including source (>= 1)"},
                 },
@@ -4138,18 +4141,8 @@ Examples:
                         "description": "Source object GUIDs (min 1)",
                         "minItems": 1,
                     },
-                    "center": {
-                        "type": "array",
-                        "description": "Rotation center [x, y, z]",
-                        "minItems": 3,
-                        "maxItems": 3,
-                    },
-                    "axis": {
-                        "type": "array",
-                        "description": "Rotation axis direction [x, y, z], default world Z [0,0,1]",
-                        "minItems": 3,
-                        "maxItems": 3,
-                    },
+                    "center": _point3_schema("Rotation center [x, y, z]"),
+                    "axis": _vector3_schema("Rotation axis direction [x, y, z], default world Z [0,0,1]"),
                     "count": {"type": "integer", "description": "Total copies including source (>= 1)"},
                     "angle": {"type": "number", "description": "Total sweep in degrees (default 360). Negative reverses direction."},
                     "rotate": {"type": "boolean", "description": "If true (default), each copy is re-oriented to its angular position. If false, copies orbit the bounding-box center and keep source orientation."},
@@ -4165,7 +4158,7 @@ Examples:
                 "properties": {
                     "type": {"type": "string", "const": "EXTRUSION"},
                     "curveId": {"type": "string", "description": "Curve GUID to extrude"},
-                    "direction": {"type": "array", "description": "Extrusion direction [x, y, z]"},
+                    "direction": _vector3_schema("Extrusion direction [x, y, z]"),
                     "distance": {"type": "number", "description": "Extrusion distance"},
                     "cap": {"type": "boolean", "description": "Cap ends if curve is closed (default true)"},
                     "name": {"type": "string", "description": "Object name"},
@@ -4228,9 +4221,9 @@ Examples:
                     "ids": {"type": "array", "items": {"type": "string"}, "description": "Object GUIDs to include in block"},
                     "objectIds": {"type": "array", "items": {"type": "string"}, "description": "Alias for ids"},
                     "name": {"type": "string", "description": "Block name"},
-                    "basePoint": {"type": "array", "description": "Block base point [x, y, z]"},
-                    "point": {"type": "array", "description": "Alias for basePoint"},
-                    "insertionPoint": {"type": "array", "description": "Alias for basePoint"},
+                    "basePoint": _point3_schema("Block base point [x, y, z]"),
+                    "point": _point3_schema("Alias for basePoint"),
+                    "insertionPoint": _point3_schema("Alias for basePoint"),
                     "replaceWithInstance": {"type": "boolean", "description": "Replace objects with a block instance after definition creation (default true)"},
                     "deleteObjects": {"type": "boolean", "description": "Legacy alias for replaceWithInstance"}
                 },
@@ -4250,9 +4243,9 @@ Examples:
                 "type": "object",
                 "properties": {
                     "name": {"type": "string", "description": "Block definition name to insert"},
-                    "point": {"type": "array", "description": "Insertion point [x, y, z]"},
-                    "insertionPoint": {"type": "array", "description": "Alias for point"},
-                    "basePoint": {"type": "array", "description": "Alias for point"},
+                    "point": _point3_schema("Insertion point [x, y, z]"),
+                    "insertionPoint": _point3_schema("Alias for point"),
+                    "basePoint": _point3_schema("Alias for point"),
                     "scale": {"type": "number", "description": "Uniform scale factor (default 1.0)"},
                     "rotation": {"type": "number", "description": "Rotation angle in degrees around Z axis (default 0)"}
                 },
@@ -5022,7 +5015,7 @@ Examples:
                     "path": {"type": "string", "description": "Path to external file (.3dm)"},
                     "name": {"type": "string", "description": "Block definition name"},
                     "updateType": {"type": "string", "description": "Link type: 'static', 'linked', or 'linkedAndEmbedded' (default 'linked')"},
-                    "insertionPoint": {"type": "array", "description": "Insertion point [x, y, z] (default [0,0,0])"}
+                    "insertionPoint": _point3_schema("Insertion point [x, y, z] (default [0,0,0])")
                 },
                 "required": ["path", "name"]
             }
@@ -5226,7 +5219,7 @@ Example execute: {"name": "InstanceDefinition 413", "anchor": "bbox_min", "axes"
                 "properties": {
                     "type": {"type": "string", "const": "TEXT"},
                     "text": {"type": "string", "description": "Text content"},
-                    "point": {"type": "array", "description": "Location [x, y, z]"},
+                    "point": _point3_schema("Location [x, y, z]"),
                     "height": {"type": "number", "description": "Text height"},
                     "font": {"type": "string", "description": "Font name (optional)"},
                     "bold": {"type": "boolean", "description": "Bold text (optional)"},
@@ -5249,13 +5242,13 @@ Types:
                 "type": "object",
                 "properties": {
                     "type": {"type": "string", "description": "Dimension type: DIMENSION_LINEAR, DIMENSION_ALIGNED, DIMENSION_RADIUS, DIMENSION_DIAMETER, DIMENSION_ANGLE"},
-                    "start": {"type": "array", "description": "Start point for linear dimensions"},
-                    "end": {"type": "array", "description": "End point for linear dimensions"},
+                    "start": _point3_schema("Start point for linear dimensions"),
+                    "end": _point3_schema("End point for linear dimensions"),
                     "offset": {"type": "number", "description": "Dimension line offset distance"},
                     "curveId": {"type": "string", "description": "Curve GUID for radius/diameter dimensions"},
-                    "anglePoint": {"type": "array", "description": "Point on curve for radius/diameter"},
-                    "center": {"type": "array", "description": "Center point for angle dimensions"},
-                    "dimLocation": {"type": "array", "description": "Dimension arc location for angle dimensions"},
+                    "anglePoint": _point3_schema("Point on curve for radius/diameter"),
+                    "center": _point3_schema("Center point for angle dimensions"),
+                    "dimLocation": _point3_schema("Dimension arc location for angle dimensions"),
                     "name": {"type": "string", "description": "Object name"},
                     "layer": {"type": "string", "description": "Layer path"}
                 },
@@ -5377,10 +5370,7 @@ Examples:
                         "type": "number",
                         "description": "Curve parameter (for trim/split operations)"
                     },
-                    "point": {
-                        "type": "array",
-                        "description": "Point [x, y, z] for trim operation"
-                    },
+                    "point": _point3_schema("Point [x, y, z] for trim operation"),
                     "degree": {
                         "type": "integer",
                         "description": "Curve degree (for rebuild operation)"
@@ -5591,8 +5581,8 @@ Example:
                 "type": "object",
                 "properties": {
                     "brepId": {"type": "string", "description": "Brep GUID"},
-                    "planeOrigin": {"type": "array", "description": "Plane origin point [x, y, z]"},
-                    "planeNormal": {"type": "array", "description": "Plane normal vector [x, y, z]"},
+                    "planeOrigin": _point3_schema("Plane origin point [x, y, z]"),
+                    "planeNormal": _vector3_schema("Plane normal vector [x, y, z]"),
                     "tolerance": {"type": "number", "description": "Intersection tolerance (optional)"}
                 },
                 "required": ["brepId", "planeOrigin", "planeNormal"]
@@ -5611,7 +5601,7 @@ Example:
                 "properties": {
                     "curveIds": {"type": "array", "items": {"type": "string"}, "description": "Curve GUIDs to project"},
                     "brepIds": {"type": "array", "items": {"type": "string"}, "description": "Brep/Surface GUIDs to project onto"},
-                    "direction": {"type": "array", "description": "Projection direction [x, y, z]"},
+                    "direction": _vector3_schema("Projection direction [x, y, z]"),
                     "tolerance": {"type": "number", "description": "Projection tolerance (optional)"}
                 },
                 "required": ["curveIds", "brepIds", "direction"]
@@ -5710,8 +5700,8 @@ Example with cutters:
                 "type": "object",
                 "properties": {
                     "brepId": {"type": "string", "description": "Brep GUID to split"},
-                    "planeOrigin": {"type": "array", "description": "Cutting plane origin [x, y, z]"},
-                    "planeNormal": {"type": "array", "description": "Cutting plane normal [x, y, z]"},
+                    "planeOrigin": _point3_schema("Cutting plane origin [x, y, z]"),
+                    "planeNormal": _vector3_schema("Cutting plane normal [x, y, z]"),
                     "cutterIds": {"type": "array", "items": {"type": "string"}, "description": "Cutter object GUIDs (curves or breps)"},
                     "tolerance": {"type": "number", "description": "Split tolerance (optional)"}
                 },
@@ -5730,8 +5720,8 @@ keepSide: "positive" (above plane) or "negative" (below plane)""",
                 "type": "object",
                 "properties": {
                     "brepId": {"type": "string", "description": "Brep GUID to trim"},
-                    "planeOrigin": {"type": "array", "description": "Cutting plane origin [x, y, z]"},
-                    "planeNormal": {"type": "array", "description": "Cutting plane normal [x, y, z]"},
+                    "planeOrigin": _point3_schema("Cutting plane origin [x, y, z]"),
+                    "planeNormal": _vector3_schema("Cutting plane normal [x, y, z]"),
                     "keepSide": {"type": "string", "enum": ["positive", "negative"], "description": "Which side to keep"},
                     "tolerance": {"type": "number", "description": "Trim tolerance (optional)"}
                 },
@@ -6160,7 +6150,7 @@ Example: {"origin": [0, 0, 0], "width": 10, "depth": 10, "height": 10, "xFaces":
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "origin": {"type": "array", "description": "Origin point [x, y, z] (default [0,0,0])"},
+                    "origin": _point3_schema("Origin point [x, y, z] (default [0,0,0])"),
                     "width": {"type": "number", "description": "Width in X direction"},
                     "depth": {"type": "number", "description": "Depth in Y direction"},
                     "height": {"type": "number", "description": "Height in Z direction"},
@@ -6179,7 +6169,7 @@ Example: {"center": [0, 0, 0], "radius": 5, "divisions": 3}""",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "center": {"type": "array", "description": "Center point [x, y, z] (default [0,0,0])"},
+                    "center": _point3_schema("Center point [x, y, z] (default [0,0,0])"),
                     "radius": {"type": "number", "description": "Sphere radius"},
                     "divisions": {"type": "integer", "description": "Subdivision level (default 3)"}
                 },
@@ -6194,7 +6184,7 @@ Example: {"center": [0, 0, 0], "radius": 5, "height": 10, "circumferenceFaces": 
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "center": {"type": "array", "description": "Base center point [x, y, z] (default [0,0,0])"},
+                    "center": _point3_schema("Base center point [x, y, z] (default [0,0,0])"),
                     "radius": {"type": "number", "description": "Cylinder radius"},
                     "height": {"type": "number", "description": "Cylinder height"},
                     "circumferenceFaces": {"type": "integer", "description": "Faces around circumference (default 8)"},
@@ -6318,7 +6308,7 @@ Example: {"origin": [0, 0, 0], "width": 10, "depth": 10, "height": 10, "xCount":
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "origin": {"type": "array", "description": "Origin point [x, y, z] (default [0,0,0])"},
+                    "origin": _point3_schema("Origin point [x, y, z] (default [0,0,0])"),
                     "width": {"type": "number", "description": "Width in X direction"},
                     "depth": {"type": "number", "description": "Depth in Y direction"},
                     "height": {"type": "number", "description": "Height in Z direction"},
@@ -6337,7 +6327,7 @@ Example: {"center": [0, 0, 0], "radius": 5, "rings": 10, "segments": 10}""",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "center": {"type": "array", "description": "Center point [x, y, z] (default [0,0,0])"},
+                    "center": _point3_schema("Center point [x, y, z] (default [0,0,0])"),
                     "radius": {"type": "number", "description": "Sphere radius"},
                     "rings": {"type": "integer", "description": "Number of rings (default 10)"},
                     "segments": {"type": "integer", "description": "Number of segments (default 10)"}
@@ -6353,7 +6343,7 @@ Example: {"center": [0, 0, 0], "radius": 5, "height": 10, "vertical": 10, "aroun
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "center": {"type": "array", "description": "Base center point [x, y, z] (default [0,0,0])"},
+                    "center": _point3_schema("Base center point [x, y, z] (default [0,0,0])"),
                     "radius": {"type": "number", "description": "Cylinder radius"},
                     "height": {"type": "number", "description": "Cylinder height"},
                     "vertical": {"type": "integer", "description": "Vertical divisions (default 10)"},
@@ -6370,7 +6360,7 @@ Example: {"center": [0, 0, 0], "radius": 5, "height": 10, "vertical": 10, "aroun
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "center": {"type": "array", "description": "Base center point [x, y, z] (default [0,0,0])"},
+                    "center": _point3_schema("Base center point [x, y, z] (default [0,0,0])"),
                     "radius": {"type": "number", "description": "Cone base radius"},
                     "height": {"type": "number", "description": "Cone height"},
                     "vertical": {"type": "integer", "description": "Vertical divisions (default 10)"},
@@ -6530,7 +6520,7 @@ Example: {"brepId": "guid", "direction": [0, 0, 1]}""",
                 "type": "object",
                 "properties": {
                     "brepId": {"type": "string", "description": "Brep GUID"},
-                    "direction": {"type": "array", "description": "Pull direction [x, y, z] (default [0,0,1])"}
+                    "direction": _vector3_schema("Pull direction [x, y, z] (default [0,0,1])")
                 },
                 "required": ["brepId"]
             }
@@ -6548,7 +6538,7 @@ Example: {"id": "guid", "point": [5, 5, 5]}""",
                 "type": "object",
                 "properties": {
                     "id": {"type": "string", "description": "Object GUID"},
-                    "point": {"type": "array", "description": "Test point [x, y, z]"}
+                    "point": _point3_schema("Test point [x, y, z]")
                 },
                 "required": ["id", "point"]
             }
@@ -9244,14 +9234,8 @@ Example: Test sphere with slider wiring:
                         "type": "object",
                         "description": "Workflow definition with components and wiring",
                         "properties": {
-                            "components": {
-                                "type": "array",
-                                "description": "Components to create, in order. Each has: role (input/main), type (slider/panel/sphere/etc), optional nickname/value"
-                            },
-                            "wiring": {
-                                "type": "array",
-                                "description": "Connections to make. Each has: from (index), to (index), target_param (name)"
-                            }
+                            "components": _object_array_schema("Components to create, in order. Each has: role (input/main), type (slider/panel/sphere/etc), optional nickname/value"),
+                            "wiring": _object_array_schema("Connections to make. Each has: from (index), to (index), target_param (name)")
                         }
                     },
                     "description": {
@@ -10580,8 +10564,8 @@ Returns canonical profile + validation + provenance. Input 'role' is accepted as
                 "type": "object",
                 "properties": {
                     "name": {"type": "string", "description": "Profile name"},
-                    "features": {"type": "array", "description": "Mode A: explicit features with id, offset, role/type, styleRef"},
-                    "observations": {"type": "array", "description": "Mode C: annotated observations with curveId, side, offset, role"},
+                    "features": _object_array_schema("Mode A: explicit features with id, offset, role/type, styleRef"),
+                    "observations": _object_array_schema("Mode C: annotated observations with curveId, side, offset, role"),
                     "laneWidth": {"type": "number", "description": "Mode B: lane width in meters"},
                     "lanesPerDirection": {"type": "integer", "description": "Mode B: lanes per direction (default 1)"},
                     "curb": {"type": "object", "description": "Mode B: { height, topWidth }"},
@@ -10589,8 +10573,8 @@ Returns canonical profile + validation + provenance. Input 'role' is accepted as
                     "shoulder": {"type": "object", "description": "Mode B: { width }"},
                     "median": {"type": "object", "description": "Mode B: { width }"},
                     "guardrail": {"description": "Mode B: true or { postSpacing }"},
-                    "surfaces": {"type": "array", "description": "Optional surface definitions for 3D"},
-                    "elements": {"type": "array", "description": "Optional element definitions for 3D"},
+                    "surfaces": _object_array_schema("Optional surface definitions for 3D"),
+                    "elements": _object_array_schema("Optional element definitions for 3D"),
                 },
                 "required": ["name"]
             }
