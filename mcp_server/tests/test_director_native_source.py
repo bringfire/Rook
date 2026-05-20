@@ -70,16 +70,21 @@ def test_director_curve_samples_route_is_registered_and_delegated():
 
 def test_director_curve_samples_has_required_contract_guards():
     source = DIRECTOR_HANDLER.read_text(encoding="utf-8")
+    parser_body = _extract_function(source, "CurveSampleRequest ParseCurveSampleRequest")
+    sampler_body = _extract_function(source, "nlohmann::json SampleDirectorCurve")
     handler_body = _extract_function(source, "void HandleDirectorCurveSamples")
 
     assert "kMaxDirectorCurveSampleFrameCount = 5000" in source
-    assert "sampling must be an object" in handler_body
-    assert "sampling.mode is required" in handler_body
-    assert "sampling.start is required" in handler_body
-    assert "sampling.end is required" in handler_body
-    assert "normalized_parameter" in handler_body
-    assert "curve_not_found" in handler_body
-    assert "not_curve" in handler_body
-    assert "invalid_curve_sample" in handler_body
+    assert "sampling must be an object" in parser_body
+    assert 'RequireString(sampling, "mode", "sampling.mode")' in parser_body
+    assert 'RequireFiniteNumber(sampling, "start", "sampling.start")' in parser_body
+    assert 'RequireFiniteNumber(sampling, "end", "sampling.end")' in parser_body
+    assert "normalized_parameter" in parser_body
+    assert "request.samplingEnd < request.samplingStart" in parser_body
+    assert "sampling.start must be less than or equal to sampling.end" in parser_body
+    assert "!obj || obj->IsDeleted()" in sampler_body
+    assert "curve_not_found" in sampler_body
+    assert "not_curve" in sampler_body
+    assert "invalid_curve_sample" in sampler_body
     assert "director_read_failed" in handler_body
     assert "MakeErrorData(ex.code, ex.what())" in handler_body

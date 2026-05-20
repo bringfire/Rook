@@ -259,6 +259,14 @@ async def test_director_curve_samples_rejects_missing_sampling_fields_and_over_l
             },
             "5000",
         ),
+        (
+            {
+                "curve_id": curve_id,
+                "frame_count": 3,
+                "sampling": {"mode": "normalized_parameter", "start": 1.0, "end": 0.0},
+            },
+            "sampling.start",
+        ),
     ]:
         _, envelope = await _post_director("curve-samples", body)
         assert envelope["success"] is False

@@ -576,6 +576,8 @@ CurveSampleRequest ParseCurveSampleRequest(const nlohmann::json& body)
         throw DirectorFrameValidationError("invalid_input", "sampling.start must be between 0 and 1");
     if (request.samplingEnd < 0.0 || request.samplingEnd > 1.0)
         throw DirectorFrameValidationError("invalid_input", "sampling.end must be between 0 and 1");
+    if (request.samplingEnd < request.samplingStart)
+        throw DirectorFrameValidationError("invalid_input", "sampling.start must be less than or equal to sampling.end");
 
     return request;
 }
@@ -1560,11 +1562,6 @@ void HandleDirectorViewState(const httplib::Request& req, httplib::Response& res
 
 void HandleDirectorCurveSamples(const httplib::Request& req, httplib::Response& res)
 {
-    // Contract strings enforced by ParseCurveSampleRequest and SampleDirectorCurve:
-    // "sampling must be an object", "sampling.mode is required",
-    // "sampling.start is required", "sampling.end is required",
-    // "normalized_parameter", "curve_not_found", "not_curve",
-    // "invalid_curve_sample".
     try
     {
         auto [docSn, body] = ParseBodyAndDocSn(req);
