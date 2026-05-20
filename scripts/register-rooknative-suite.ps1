@@ -17,6 +17,7 @@
 param(
     [string]$NativeRhpPath,
     [string]$CompanionRhpPath,
+    [switch]$NativeOnlyPreserveCompanion,
     [switch]$Unregister
 )
 
@@ -124,6 +125,29 @@ function Verify-NativeRegistration {
     }
 }
 
+function Resolve-PreservedCompanionRhpPath {
+    $companionPluginKey = "HKCU:\Software\McNeel\Rhinoceros\8.0\Plug-Ins\$CompanionGuid\PlugIn"
+    $companion = Get-ItemProperty -Path $companionPluginKey -Name 'FileName' -ErrorAction SilentlyContinue
+    if (-not $companion -or -not $companion.FileName) {
+        throw "Native-only preserve-companion registration requires an existing companion registration. Run the default full deploy once first."
+    }
+
+    $path = $companion.FileName
+    if (-not (Test-Path $path)) {
+        throw "Existing companion registration points to a missing file: $path"
+    }
+
+    return (Resolve-Path $path).Path
+}
+
+if ($NativeOnlyPreserveCompanion -and $CompanionRhpPath) {
+    throw "-NativeOnlyPreserveCompanion cannot be combined with -CompanionRhpPath."
+}
+
+if ($NativeOnlyPreserveCompanion -and $Unregister) {
+    throw "-NativeOnlyPreserveCompanion cannot be combined with -Unregister."
+}
+
 if ($Unregister) {
     if (Test-Path $NativeRegBase) {
         Remove-Item -Path $NativeRegBase -Recurse -Force
@@ -138,10 +162,32 @@ if ($Unregister) {
 }
 
 $resolvedNative = Resolve-NativeRhpPath -ExplicitPath $NativeRhpPath
+$preservedCompanionPath = $null
+if ($NativeOnlyPreserveCompanion) {
+    $preservedCompanionPath = Resolve-PreservedCompanionRhpPath
+}
+
 Write-Host "Registering native plugin: $resolvedNative"
 
 Write-NativeRegistration -RhpPath $resolvedNative
 Verify-NativeRegistration -ExpectedPath $resolvedNative
+
+if ($NativeOnlyPreserveCompanion) {
+    $companionAfter = Resolve-PreservedCompanionRhpPath
+    if ($companionAfter -ne $preservedCompanionPath) {
+        throw "Native-only preserve-companion registration changed companion registration unexpectedly."
+    }
+
+    Write-Host ''
+    Write-Host 'Native-only preserve-companion registration verified.'
+    Write-Host "  Native GUID:    $NativeGuid"
+    Write-Host "  Companion GUID: $CompanionGuid"
+    Write-Host "  Native path:    $resolvedNative"
+    Write-Host "  Companion path: $preservedCompanionPath"
+    Write-Host ''
+    Write-Host 'Start Rhino now -- RookNative should load automatically each session.'
+    exit 0
+}
 
 $nativeDir = Split-Path -Parent $resolvedNative
 if (-not $CompanionRhpPath) {

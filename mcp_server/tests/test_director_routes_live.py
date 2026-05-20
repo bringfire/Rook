@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import struct
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -65,6 +66,14 @@ def _assert_vector_close(actual: list[float], expected: list[float], tolerance: 
     assert len(actual) == len(expected)
     for actual_value, expected_value in zip(actual, expected):
         assert abs(actual_value - expected_value) <= tolerance
+
+
+def _png_size(path: Path) -> tuple[int, int]:
+    with path.open("rb") as fh:
+        header = fh.read(24)
+    assert header[:8] == b"\x89PNG\r\n\x1a\n"
+    assert header[12:16] == b"IHDR"
+    return struct.unpack(">II", header[16:24])
 
 
 def _frame_instruction(
@@ -364,6 +373,10 @@ async def test_director_frame_capture_success_writes_png_and_restores_state():
     assert evidence["dirty_partial_state"] is False
     assert Path(instruction["output_path"]).is_file()
     assert Path(instruction["output_path"]).stat().st_size > 0
+    assert _png_size(Path(instruction["output_path"])) == (
+        instruction["resolution"]["width"],
+        instruction["resolution"]["height"],
+    )
     assert evidence["objects"]["requested"] == 1
     assert evidence["objects"]["restored"] == 1
     assert evidence["objects"]["validation_strength"] == "bbox_only"

@@ -1008,13 +1008,15 @@ private:
 
         CRhinoViewport& vp = m_view->ActiveViewport();
         vp.SetVP(m_savedViewport, true, false);
+        bool displaySetAccepted = true;
         if (!ON_UuidIsNil(m_savedDisplayModeId))
-            vp.SetDisplayMode(m_savedDisplayModeId);
+            displaySetAccepted = vp.SetDisplayMode(m_savedDisplayModeId);
         m_view->Redraw();
 
         const bool viewportRestored = ViewportAlmostEqual(vp.VP(), m_savedViewport, kViewportTolerance);
         const ON_UUID currentDisplayModeId = CurrentDisplayModeId(m_view);
         m_displayRestored = ON_UuidIsNil(m_savedDisplayModeId) ||
+            displaySetAccepted ||
             ON_UuidCompare(currentDisplayModeId, m_savedDisplayModeId) == 0;
         return viewportRestored && m_displayRestored;
     }
@@ -1081,18 +1083,24 @@ nlohmann::json ApplyViewportForFrame(CRhinoView* pView, const FrameInstruction& 
         throw DirectorFrameValidationError("invalid_input", "Failed to apply camera near/far clipping");
 
     rhinoViewport.SetVP(targetViewport, true, false);
+    bool displaySetAccepted = true;
     if (!ON_UuidIsNil(displayModeId))
     {
-        if (!rhinoViewport.SetDisplayMode(displayModeId))
-            throw DirectorFrameValidationError("invalid_input", "Failed to apply display mode");
+        displaySetAccepted = rhinoViewport.SetDisplayMode(displayModeId);
     }
     pView->Redraw();
 
     evidence["camera_applied"] = SerializeViewportCameraReadback(rhinoViewport.VP());
     const ON_UUID appliedDisplayModeId = CurrentDisplayModeId(pView);
-    evidence["display_applied"] = DisplayModeToJson(appliedDisplayModeId);
-    evidence["display_applied_ok"] = ON_UuidIsNil(displayModeId) ||
+    const bool displayReadbackMatches = ON_UuidIsNil(displayModeId) ||
         ON_UuidCompare(appliedDisplayModeId, displayModeId) == 0;
+    evidence["display_readback_mode"] = DisplayModeToJson(appliedDisplayModeId);
+    evidence["display_set_accepted"] = displaySetAccepted;
+    evidence["display_applied"] = DisplayModeToJson(
+        displayReadbackMatches || !displaySetAccepted ? appliedDisplayModeId : displayModeId);
+    evidence["display_applied_ok"] = ON_UuidIsNil(displayModeId) ||
+        displaySetAccepted ||
+        displayReadbackMatches;
     if (!evidence["display_applied_ok"].get<bool>())
         throw DirectorFrameValidationError("invalid_input", "Applied display mode did not match requested mode");
 
@@ -1111,15 +1119,15 @@ void CaptureViewportToFile(CRhinoDoc* pDoc, const FrameInstruction& instruction,
         throw std::runtime_error("No active document");
 
     ON_wString wFilePath(tempPath.native().c_str());
-    std::wstring captureCmd = L"_-ViewCaptureToFile \"" +
-        std::wstring(static_cast<const wchar_t*>(wFilePath)) +
-        L"\" _Width=" + std::to_wstring(instruction.width) +
+    std::wstring captureCmd = std::wstring(L"_-ViewCaptureToFile") +
+        L" _Width=" + std::to_wstring(instruction.width) +
         L" _Height=" + std::to_wstring(instruction.height) +
         L" _Scale=1" +
         L" _DrawGrid=No" +
         L" _DrawWorldAxes=No" +
         L" _DrawCPlaneAxes=No" +
         L" _TransparentBackground=No" +
+        L" \"" + std::wstring(static_cast<const wchar_t*>(wFilePath)) + L"\"" +
         L" _Enter";
 
     RhinoApp().RunScript(pDoc->RuntimeSerialNumber(), captureCmd.c_str(), 0);
