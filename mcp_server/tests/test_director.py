@@ -308,6 +308,41 @@ def test_explicit_camera_keyframe_bypasses_view_state_resolution(tmp_path):
     ]
 
 
+def test_explicit_camera_keyframe_normalizes_optional_numeric_fields(tmp_path):
+    request = _run_request(tmp_path)
+    request["run_id"] = "explicit-camera-normalized"
+    camera = _explicit_camera(lens_length="35.0")
+    camera.update(
+        {
+            "fov_degrees": "45.0",
+            "aspect": "1.7778",
+            "near_clip": "0.1",
+            "far_clip": "1000.0",
+        }
+    )
+    request["camera_keyframes"] = [
+        {"frame_index": 1, "source": {"kind": "explicit_camera", "camera": camera}}
+    ]
+    fake = FakeNative(
+        [
+            {"success": True, "data": {"frame_id": "frame_0001", "dirty_partial_state": False}},
+            {"success": True, "data": {"frame_id": "frame_0002", "dirty_partial_state": False}},
+        ],
+        create_outputs=True,
+    )
+
+    asyncio.run(director.run_director(request, call_native=fake, runtime=_runtime(tmp_path)))
+
+    frame_camera = next(call for call in fake.calls if call[0] == "/director/frame-capture")[2][
+        "camera"
+    ]
+    assert frame_camera["lens_length"] == 35.0
+    assert frame_camera["fov_degrees"] == 45.0
+    assert frame_camera["aspect"] == 1.7778
+    assert frame_camera["near_clip"] == 0.1
+    assert frame_camera["far_clip"] == 1000.0
+
+
 def test_run_complete_writes_manifest_status_and_evidence(tmp_path):
     fake = FakeNative(
         [

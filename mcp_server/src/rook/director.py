@@ -191,7 +191,7 @@ def _validate_camera_payload(camera: Any) -> dict[str, Any]:
             "perspective camera requires positive lens_length or fov_degrees"
         )
 
-    _optional_positive_number(camera, "aspect")
+    aspect = _optional_positive_number(camera, "aspect")
     near_clip = _optional_positive_number(camera, "near_clip")
     far_clip = _optional_positive_number(camera, "far_clip")
     if (near_clip is None) != (far_clip is None):
@@ -204,6 +204,15 @@ def _validate_camera_payload(camera: Any) -> dict[str, Any]:
     normalized["location"] = location
     normalized["target"] = target
     normalized["up"] = up
+    for field, value in (
+        ("lens_length", lens_length),
+        ("fov_degrees", fov_degrees),
+        ("aspect", aspect),
+        ("near_clip", near_clip),
+        ("far_clip", far_clip),
+    ):
+        if field in camera:
+            normalized[field] = value
     return normalized
 
 
