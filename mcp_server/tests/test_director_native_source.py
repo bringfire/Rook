@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 
@@ -55,8 +56,14 @@ def test_director_curve_samples_route_is_registered_and_delegated():
     server_header = ROOK_SERVER_HEADER.read_text(encoding="utf-8")
     server_source = ROOK_SERVER_CPP.read_text(encoding="utf-8")
 
-    assert "HandleDirectorCurveSamples" in handler_header
-    assert "HandleDirectorCurveSamples" in server_header
+    assert re.search(
+        r"void\s+HandleDirectorCurveSamples\s*\(\s*const\s+httplib::Request&\s+req,\s*httplib::Response&\s+res\s*\)\s*;",
+        handler_header,
+    )
+    assert re.search(
+        r"void\s+HandleDirectorCurveSamples\s*\(\s*const\s+httplib::Request&\s+req,\s*httplib::Response&\s+res\s*\)\s*;",
+        server_header,
+    )
     assert 'm_server->Post("/director/curve-samples"' in server_source
     assert "Rook::Handlers::HandleDirectorCurveSamples(req, res);" in server_source
 
