@@ -242,6 +242,21 @@ def _runtime(tmp_path):
     )
 
 
+def _explicit_camera(location=None, lens_length=35.0):
+    return {
+        "projection": "perspective",
+        "location": location or [4.0, -4.0, 3.0],
+        "target": [0.0, 0.0, 0.0],
+        "up": [0.0, 0.0, 1.0],
+        "lens_length": lens_length,
+        "fov_degrees": None,
+        "parallel_scale": None,
+        "near_clip": None,
+        "far_clip": None,
+        "aspect": 1.7778,
+    }
+
+
 def test_two_camera_keyframes_interpolate_per_frame(tmp_path):
     request = _run_request(tmp_path)
     request["frame_count"] = 3
@@ -263,6 +278,34 @@ def test_two_camera_keyframes_interpolate_per_frame(tmp_path):
     lens_lengths = [frame["camera"]["lens_length"] for frame in manifest["frames"]]
     assert locations == [[4.0, -4.0, 3.0], [6.0, -4.0, 3.0], [8.0, -4.0, 3.0]]
     assert lens_lengths == [35.0, 45.0, 55.0]
+
+
+def test_explicit_camera_keyframe_bypasses_view_state_resolution(tmp_path):
+    request = _run_request(tmp_path)
+    request["run_id"] = "explicit-camera"
+    request["camera_keyframes"] = [
+        {
+            "frame_index": 1,
+            "source": {"kind": "explicit_camera", "camera": _explicit_camera()},
+        }
+    ]
+    fake = FakeNative(
+        [
+            {"success": True, "data": {"frame_id": "frame_0001", "dirty_partial_state": False}},
+            {"success": True, "data": {"frame_id": "frame_0002", "dirty_partial_state": False}},
+        ],
+        create_outputs=True,
+    )
+    result = asyncio.run(director.run_director(request, call_native=fake, runtime=_runtime(tmp_path)))
+
+    view_state_calls = [call for call in fake.calls if call[0] == "/director/view-state"]
+    frame_calls = [call for call in fake.calls if call[0] == "/director/frame-capture"]
+    manifest = json.loads((Path(result["run_root"]) / "manifest.json").read_text(encoding="utf-8"))
+    assert view_state_calls == []
+    assert frame_calls[0][2]["camera"]["location"] == [4.0, -4.0, 3.0]
+    assert manifest["camera_keyframe_provenance"] == [
+        {"frame_index": 1, "provenance": {"source": "explicit_camera"}}
+    ]
 
 
 def test_run_complete_writes_manifest_status_and_evidence(tmp_path):
