@@ -48,7 +48,7 @@ if logger.isEnabledFor(logging.DEBUG):
     )
 
 from .bridge import call_rhino, get_rhino_host, discover_instances, TIMEOUT, DISCOVERY_FOLDER, rhino_request_context
-from . import script_library, targeting
+from . import director, script_library, targeting
 targeting.initialize_from_environment()
 from .knowledge import query_knowledge, query_knowledge_tiered, record_knowledge, invalidate_condensed_command_cache
 from .learning.command_observer import (
@@ -2260,6 +2260,66 @@ Use this before any Rhino operations to ensure Rhino is available. Safe to call 
                 },
                 "required": []
             }
+        ),
+        Tool(
+            name="rhino_director_run",
+            description=(
+                "Run RookVisionDirector slice 1: resolve Rhino object/camera state, "
+                "expand radial_bbox_center motion, call native per-frame capture, "
+                "and write manifest/status/evidence plus sequential PNG frames."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["object_ids", "frame_count", "resolution", "camera_keyframes"],
+                "properties": {
+                    "object_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 1,
+                        "description": "Top-level Rhino object IDs to move for slice 1.",
+                    },
+                    "frame_count": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "Number of sequential frames to capture.",
+                    },
+                    "resolution": {
+                        "type": "object",
+                        "required": ["width", "height"],
+                        "properties": {
+                            "width": {"type": "integer", "minimum": 1},
+                            "height": {"type": "integer", "minimum": 1},
+                        },
+                    },
+                    "display": {
+                        "type": "object",
+                        "properties": {
+                            "mode": {
+                                "type": "string",
+                                "description": "Rhino display mode, e.g. Rendered.",
+                            }
+                        },
+                    },
+                    "camera_keyframes": {
+                        "type": "array",
+                        "items": {"type": "object"},
+                        "minItems": 1,
+                        "description": "Camera authoring keyframes; sources are active_view or named_view.",
+                    },
+                    "motion": {
+                        "type": "object",
+                        "description": "Slice 1 supports strategy radial_bbox_center with distance and optional per_object_scale.",
+                    },
+                    "output_root": {
+                        "type": "string",
+                        "description": "Optional output root under the configured RookVisionDirector root.",
+                    },
+                    "run_id": {
+                        "type": "string",
+                        "description": "Optional stable run id for deterministic test runs.",
+                    },
+                },
+            },
         ),
         Tool(
             name="rhino_views",
@@ -17774,6 +17834,21 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
         # validation boundary (VisionHandler.RequireArtifactId). The
         # single-segment native matcher [^/]+ still admits any
         # non-slash string; encoding keeps the string intact end-to-end.
+        case "rhino_director_run":
+            try:
+                result = {
+                    "success": True,
+                    "data": await director.run_director(arguments, port=port),
+                }
+            except director.DirectorError as exc:
+                result = {
+                    "success": False,
+                    "data": {
+                        "code": "director_error",
+                        "message": str(exc),
+                    },
+                }
+
         case "rhino_render_view":
             result = await call_rhino("/vision/generate", "POST", arguments, port=port)
 

@@ -3,6 +3,7 @@ $ErrorActionPreference = 'Stop'
 $TestRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $TestRoot)
 $DeployScript = Join-Path $RepoRoot 'scripts\deploy-local-testing.ps1'
+$RegisterSuiteScript = Join-Path $RepoRoot 'scripts\register-rooknative-suite.ps1'
 $DeploySkill = Join-Path $RepoRoot '.agents\skills\deploy-local-testing\SKILL.md'
 
 function Assert-True {
@@ -134,11 +135,50 @@ function Test-DeployScriptLiveSmokeIsExplicit {
     Assert-Contains -Text $content -Expected 'Live Rhino/Grasshopper/Chirp smoke not run' -Message 'Default deploy must not claim live functionality when live smoke is skipped.'
 }
 
+function Test-DeployScriptNativeOnlyIsNarrow {
+    $content = Get-Content -Path $DeployScript -Raw
+
+    Assert-Contains -Text $content -Expected '[switch]$NativeOnly' -Message 'Local deploy must expose a native-only mode for native route iteration.'
+    Assert-Contains -Text $content -Expected 'Native-only deploy surfaces' -Message 'Native-only mode must print affected surfaces before doing work.'
+    Assert-Contains -Text $content -Expected '-NativeOnly cannot be combined with -PayloadOnly' -Message 'Native-only and payload-only deploy modes must be mutually exclusive.'
+    Assert-Contains -Text $content -Expected 'function Assert-NoRunningRhino' -Message 'Native-only mode must keep a hard Rhino-closed guard.'
+    Assert-Contains -Text $content -Expected 'function Assert-NoRunningFullDeployBlockers' -Message 'Full deploy must retain the stricter Rhino and MCP process guard.'
+    Assert-Contains -Text $content -Expected 'function Deploy-NativePayload' -Message 'Native-only mode must copy native payload through an explicit helper.'
+    Assert-Contains -Text $content -Expected 'function Deploy-CompanionPayload' -Message 'Full deploy must keep companion payload copying explicit and separate from native payload copying.'
+    Assert-Contains -Text $content -Expected 'Deploy-NativePayload' -Message 'Native-only mode must deploy the native payload.'
+    Assert-Contains -Text $content -Expected 'Register-NativeOnlyPlugins' -Message 'Native-only mode must register against existing companion payload without refreshing app/MCP config.'
+    Assert-Contains -Text $content -Expected '-NativeOnlyPreserveCompanion' -Message 'Native-only deploy must delegate preserve-companion registration to the suite registration script.'
+    Assert-NotContains -Text $content -Unexpected 'Set-ItemProperty -Path $nativeRegBase' -Message 'Native-only deploy must not duplicate native registry writes.'
+    Assert-Contains -Text $content -Expected 'Skipping MCP payload, Chirp payload, post-install config, and MCP client config validation.' -Message 'Native-only mode must state it skips MCP/Chirp/config work.'
+    Assert-Contains -Text $content -Expected 'Native-only deploy complete.' -Message 'Native-only mode must have a distinct completion message.'
+}
+
+function Test-RegisterSuiteSupportsNativeOnlyPreserveCompanion {
+    $content = Get-Content -Path $RegisterSuiteScript -Raw
+
+    Assert-Contains -Text $content -Expected '[switch]$NativeOnlyPreserveCompanion' -Message 'Suite registration must expose native-only preserve-companion mode.'
+    Assert-Contains -Text $content -Expected '-NativeOnlyPreserveCompanion cannot be combined with -CompanionRhpPath' -Message 'Preserve-companion mode must reject explicit companion path rewrites.'
+    Assert-Contains -Text $content -Expected '-NativeOnlyPreserveCompanion cannot be combined with -Unregister' -Message 'Preserve-companion mode must reject unregister mode.'
+    Assert-Contains -Text $content -Expected 'Resolve-PreservedCompanionRhpPath' -Message 'Preserve-companion mode must resolve existing companion registration before writing native registration.'
+    Assert-Contains -Text $content -Expected 'Native-only preserve-companion registration verified.' -Message 'Preserve-companion mode must report its distinct verification path.'
+    Assert-Contains -Text $content -Expected 'changed companion registration unexpectedly' -Message 'Preserve-companion mode must verify companion registration remains unchanged.'
+}
+
+function Test-DeployScriptNativeOnlySkipBuildFastPath {
+    $content = Get-Content -Path $DeployScript -Raw
+
+    Assert-Contains -Text $content -Expected 'if (-not $SkipBuild)' -Message 'Native-only mode must honor -SkipBuild for fast iteration after a prior build.'
+    Assert-Contains -Text $content -Expected 'Skipping native build because -SkipBuild was specified.' -Message 'Native-only -SkipBuild must make the fast path explicit.'
+    Assert-Contains -Text $content -Expected 'Deploy-NativePayload' -Message 'Native-only -SkipBuild must still copy the existing native payload.'
+    Assert-Contains -Text $content -Expected 'Skipping MCP payload, Chirp payload, post-install config, and MCP client config validation.' -Message 'Native-only -SkipBuild must still skip MCP/Chirp/config work.'
+}
+
 function Test-DeploySkillPointsToAuthoritativeScriptAndChirpChecks {
     $content = Get-Content -Path $DeploySkill -Raw
 
     Assert-Contains -Text $content -Expected 'Use the repo script as the authority' -Message 'Skill must keep the script authoritative.'
     Assert-Contains -Text $content -Expected '-LiveSmoke' -Message 'Skill must document the live smoke gate.'
+    Assert-Contains -Text $content -Expected '-NativeOnly' -Message 'Skill must document the native-only development deploy path.'
     Assert-Contains -Text $content -Expected 'syncs sibling `..\Chirp`' -Message 'Skill must state that default deploy syncs sibling Chirp.'
     Assert-Contains -Text $content -Expected 'Do not claim live plugin capability unless `-LiveSmoke` passes' -Message 'Skill must prevent false live-capability claims.'
     Assert-Contains -Text $content -Expected 'scripts\validate-local-testing-stack.ps1 -ReleaseReadiness' -Message 'Skill must point release-readiness proof at the stack validator.'
@@ -154,6 +194,9 @@ Test-DeployScriptParsesMcpConfigs
 Test-DeployScriptVerifiesChatManifest
 Test-DeployScriptSeedsChatEnvWithoutOverwriting
 Test-DeployScriptLiveSmokeIsExplicit
+Test-DeployScriptNativeOnlyIsNarrow
+Test-RegisterSuiteSupportsNativeOnlyPreserveCompanion
+Test-DeployScriptNativeOnlySkipBuildFastPath
 Test-DeploySkillPointsToAuthoritativeScriptAndChirpChecks
 
 Write-Host 'Local testing deploy guard tests passed.'

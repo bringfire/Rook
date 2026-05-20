@@ -11,6 +11,7 @@ param(
 
     [string]$VCToolsVersion = '14.44.35207',
 
+    [switch]$NativeOnly,
     [switch]$PayloadOnly,
     [switch]$AllowRunning,
     [switch]$SkipBuild,
@@ -69,10 +70,44 @@ function Write-Step {
     Write-Host "== $Message =="
 }
 
-function Assert-NoRunningRook {
-    $rhino = Get-Process | Where-Object { $_.ProcessName -match '^(Rhino|Rhinoceros)$' }
-    $rookPython = Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" |
+function Get-RunningRhinoProcesses {
+    return Get-Process | Where-Object { $_.ProcessName -match '^(Rhino|Rhinoceros)$' }
+}
+
+function Get-RunningRookMcpProcesses {
+    return Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" |
         Where-Object { $_.CommandLine -match '(^|\s)-m\s+rook(\s|$)' }
+}
+
+function Assert-NoRunningRhino {
+    $rhino = Get-RunningRhinoProcesses
+    if ($rhino) {
+        $rhino | Select-Object ProcessName, Id, Path | Format-Table | Out-String | Write-Host
+        throw "Refusing native plugin deploy while Rhino is running. Close Rhino first."
+    }
+}
+
+function Assert-DeployMode {
+    if ($NativeOnly -and $PayloadOnly) {
+        throw "-NativeOnly cannot be combined with -PayloadOnly."
+    }
+
+    if ($NativeOnly -and $LiveSmoke) {
+        throw "-LiveSmoke cannot be combined with -NativeOnly. Run live smoke after restarting Rhino with the deployed native plugin."
+    }
+
+    if ($AllowRunning -and -not $PayloadOnly) {
+        throw "-AllowRunning is only permitted with -PayloadOnly. Full plugin deploy requires Rhino and rook MCP processes to be stopped."
+    }
+
+    if ($LiveSmoke -and -not ($PayloadOnly -and $AllowRunning)) {
+        throw "-LiveSmoke requires -PayloadOnly -AllowRunning. Run the full deploy first, restart Rhino/Grasshopper, then run payload-only live smoke."
+    }
+}
+
+function Assert-NoRunningFullDeployBlockers {
+    $rhino = Get-Process | Where-Object { $_.ProcessName -match '^(Rhino|Rhinoceros)$' }
+    $rookPython = Get-RunningRookMcpProcesses
 
     if (($rhino -or $rookPython) -and -not $AllowRunning) {
         if ($rhino) {
@@ -82,14 +117,6 @@ function Assert-NoRunningRook {
             $rookPython | Select-Object ProcessId, CommandLine | Format-Table -Wrap | Out-String | Write-Host
         }
         throw "Refusing deploy while Rhino or python -m rook is running. Close them first, or use -PayloadOnly -AllowRunning for payload-only sync."
-    }
-
-    if ($AllowRunning -and -not $PayloadOnly) {
-        throw "-AllowRunning is only permitted with -PayloadOnly. Full plugin deploy requires Rhino and rook MCP processes to be stopped."
-    }
-
-    if ($LiveSmoke -and -not ($PayloadOnly -and $AllowRunning)) {
-        throw "-LiveSmoke requires -PayloadOnly -AllowRunning. Run the full deploy first, restart Rhino/Grasshopper, then run payload-only live smoke."
     }
 }
 
@@ -221,15 +248,20 @@ function Sync-Directory {
     }
 }
 
-function Deploy-PluginPayload {
+function Deploy-NativePayload {
     New-Item -ItemType Directory -Force -Path $PluginDir | Out-Null
 
     $nativeDir = Join-Path $RepoRoot "src\RookNative\bin\$Configuration\x64"
-    $companionDir = Join-Path $RepoRoot "src\Rook\bin\$Configuration\net7.0"
-    $ffmpegDir = Join-Path $RepoRoot 'third_party\ffmpeg'
 
     Copy-RequiredFile (Join-Path $nativeDir 'RookNative.rhp') (Join-Path $PluginDir 'RookNative.rhp')
     Copy-OptionalFile (Join-Path $nativeDir 'RookNative.pdb') (Join-Path $PluginDir 'RookNative.pdb')
+}
+
+function Deploy-CompanionPayload {
+    New-Item -ItemType Directory -Force -Path $PluginDir | Out-Null
+
+    $companionDir = Join-Path $RepoRoot "src\Rook\bin\$Configuration\net7.0"
+    $ffmpegDir = Join-Path $RepoRoot 'third_party\ffmpeg'
 
     foreach ($name in @('Rook.rhp', 'Rook.rui', 'Rook.deps.json', 'Rook.runtimeconfig.json')) {
         Copy-RequiredFile (Join-Path $companionDir $name) (Join-Path $PluginDir $name)
@@ -242,6 +274,11 @@ function Deploy-PluginPayload {
     if (Test-Path $ffmpegDir) {
         Sync-Directory $ffmpegDir (Join-Path $PluginDir 'ffmpeg')
     }
+}
+
+function Deploy-PluginPayload {
+    Deploy-NativePayload
+    Deploy-CompanionPayload
 }
 
 function Sync-AppPayload {
@@ -310,6 +347,11 @@ function Invoke-PostInstallConfig {
 function Register-Plugins {
     $register = Join-Path $RepoRoot 'scripts\register-rooknative-suite.ps1'
     & $register -NativeRhpPath (Join-Path $PluginDir 'RookNative.rhp') -CompanionRhpPath (Join-Path $PluginDir 'Rook.rhp')
+}
+
+function Register-NativeOnlyPlugins {
+    $register = Join-Path $RepoRoot 'scripts\register-rooknative-suite.ps1'
+    & $register -NativeRhpPath (Join-Path $PluginDir 'RookNative.rhp') -NativeOnlyPreserveCompanion
 }
 
 function Test-EffectiveRuntime {
@@ -675,7 +717,47 @@ asyncio.run(main())
 }
 
 Set-Location $RepoRoot
-Assert-NoRunningRook
+Assert-DeployMode
+
+if ($NativeOnly) {
+    Write-Step "Native-only deploy surfaces"
+    Write-Host "  Builds native:           $(-not $SkipBuild)"
+    Write-Host "  Copies native payload:   true"
+    Write-Host "  Updates native registry: true"
+    Write-Host "  Copies companion:        false"
+    Write-Host "  Syncs MCP payload:       false"
+    Write-Host "  Syncs Chirp payload:     false"
+    Write-Host "  Refreshes MCP config:    false"
+    Write-Host "  Checks MCP processes:    false"
+
+    Assert-NoRunningRhino
+
+    if (-not $SkipBuild) {
+        Write-Step "Build native plugin"
+        Invoke-NativeBuild
+    } else {
+        Write-Step "Build native plugin"
+        Write-Host "Skipping native build because -SkipBuild was specified."
+    }
+
+    Write-Step "Deploy native plugin payload"
+    Deploy-NativePayload
+
+    Write-Step "Register native plugin"
+    Register-NativeOnlyPlugins
+
+    Write-Host ""
+    Write-Host "Skipping MCP payload, Chirp payload, post-install config, and MCP client config validation."
+    Write-Host ""
+    Write-Host "Native-only deploy complete."
+    Write-Host "  Repo:       $RepoRoot"
+    Write-Host "  PluginDir:  $PluginDir"
+    Write-Host ""
+    Write-Host "Restart Rhino before testing native plugin changes loaded before this deploy."
+    exit 0
+}
+
+Assert-NoRunningFullDeployBlockers
 
 if (-not $PayloadOnly) {
     if (-not $SkipBuild) {

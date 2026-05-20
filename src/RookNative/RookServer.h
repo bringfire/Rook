@@ -146,6 +146,9 @@ private:
     void HandleGetSelection(const httplib::Request& req, httplib::Response& res);
     void HandleSelect(const httplib::Request& req, httplib::Response& res);
     void HandleViewport(const httplib::Request& req, httplib::Response& res);
+    void HandleDirectorObjectStates(const httplib::Request& req, httplib::Response& res);
+    void HandleDirectorViewState(const httplib::Request& req, httplib::Response& res);
+    void HandleDirectorFrameCapture(const httplib::Request& req, httplib::Response& res);
     void HandleGetDisplayModes(const httplib::Request& req, httplib::Response& res);
     void HandleSetDisplayMode(const httplib::Request& req, httplib::Response& res);
     void HandleMeasureDistance(const httplib::Request& req, httplib::Response& res);
