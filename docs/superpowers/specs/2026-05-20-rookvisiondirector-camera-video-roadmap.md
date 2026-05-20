@@ -23,10 +23,11 @@ This roadmap defines the path from the current slice to that workflow.
 
 ## Point A
 
-Current Director behavior is centered in `mcp_server/src/rook/director.py`.
-Python owns run orchestration, object-state resolution, camera keyframe
-resolution, camera interpolation, radial object motion, manifest/status/evidence
-writes, and calls to native `/director/frame-capture`.
+Current Director behavior is orchestrated by `mcp_server/src/rook/director.py`.
+Python owns run orchestration, object-state resolution, radial object motion,
+manifest/status/evidence writes, and calls to native `/director/frame-capture`.
+Phase 1 extracted camera request validation, keyframe resolution, and camera
+interpolation into `mcp_server/src/rook/camera_planner.py`.
 
 RookNative owns the atomic per-frame Rhino transaction:
 
@@ -49,8 +50,10 @@ The current camera input is:
 }
 ```
 
-This is useful, but the camera planning logic is embedded inside the run
-orchestrator and there is no explicit contract for other camera strategies.
+This is useful, and the extracted camera planner now gives it a focused Python
+contract. The remaining gap is timeline semantics: FPS, duration, and endpoint
+mapping are still implicit in frame indexes rather than first-class authoring
+inputs.
 
 ## Point B
 
@@ -169,9 +172,10 @@ agree by default.
 
 ## Roadmap
 
-### Phase 1: Camera Planning Contract Extraction
+### Phase 1: Camera Planning Contract Extraction (Complete)
 
-Extract the current keyframe camera logic into a focused Python planning module.
+The current keyframe camera logic has been extracted into a focused Python
+planning module.
 
 Deliverable:
 
@@ -180,9 +184,9 @@ camera request + frame_count + resolution
   -> resolved per-frame camera list + provenance
 ```
 
-The phase preserves current behavior while making the camera planner an
-independent, test-covered seam. It does not add curve sampling, FFmpeg, artifact
-publishing, or native frame-capture changes.
+The phase preserved current behavior while making the camera planner an
+independent, test-covered contract. It did not add curve sampling, FFmpeg,
+artifact publishing, or native frame-capture changes.
 
 Acceptance:
 
@@ -193,6 +197,114 @@ Acceptance:
 - interpolated direction and up vector are validated;
 - default aspect comes from output resolution;
 - manifest provenance records the camera planning strategy and source keyframes.
+
+### Phase 1.5: Timeline Authoring Contract
+
+Add a Python-only timeline resolver before native curve sampling or video
+assembly. The frame run should know shot timing before any frame files exist;
+FFmpeg later consumes that metadata rather than becoming the first owner of FPS.
+
+Legacy requests without `timeline` remain frame-count based:
+
+```json
+{
+  "frame_count": 120,
+  "camera_keyframes": [
+    { "frame_index": 1, "source": { "kind": "active_view" } }
+  ]
+}
+```
+
+Timeline requests derive canonical frame count from duration and FPS:
+
+```json
+{
+  "timeline": {
+    "fps": 24,
+    "duration_seconds": 5.0
+  },
+  "camera": {
+    "strategy": "keyframes",
+    "keyframes": [
+      { "time": 0.0, "source": { "kind": "active_view" } },
+      { "time": 5.0, "source": { "kind": "named_view", "name": "End" } }
+    ]
+  }
+}
+```
+
+The canonical contract is:
+
+```text
+derived_frame_count = round(duration_seconds * fps)
+frame_time(frame_index) = (frame_index - 1) / fps
+normalized_time = time / duration_seconds
+frame_index = round(1 + normalized_time * (frame_count - 1))
+```
+
+For implementation, Director's timeline `round` is deterministic nonnegative
+half-up rounding, equivalent to `floor(value + 0.5)`. This avoids
+runtime-specific banker's rounding at midpoint frame positions.
+
+Camera keyframes may specify exactly one timing field:
+
+- `frame_index`: positive integral value in `1..frame_count`;
+- `time`: finite seconds in `0..duration_seconds`;
+- `at`: finite normalized position in `0..1`.
+
+Timeline normalization happens before `camera_planner` runs. The planner still
+receives keyframes with canonical `frame_index` values and remains focused on
+camera state, interpolation, and provenance.
+
+If the request contains explicit top-level `camera`, timeline normalization
+normalizes that active shape and preserves the existing rule that legacy
+`camera_keyframes` are ignored by planning. If `camera` is absent, legacy
+`camera_keyframes` are normalized.
+
+The manifest records canonical timing:
+
+```json
+{
+  "frame_count": 120,
+  "timeline": {
+    "source": "timeline",
+    "fps": 24,
+    "duration_seconds": 5.0,
+    "frame_count": 120
+  }
+}
+```
+
+When no `timeline` is present, the manifest records:
+
+```json
+{
+  "frame_count": 120,
+  "timeline": {
+    "source": "frame_count",
+    "fps": null,
+    "duration_seconds": null,
+    "frame_count": 120
+  }
+}
+```
+
+Acceptance:
+
+- existing frame-count requests still work;
+- `timeline.fps` is a positive integral value for this slice and normalizes to
+  an integer;
+- `timeline.duration_seconds` is positive;
+- `derived_frame_count >= 1`;
+- top-level `frame_count`, when present with `timeline`, equals the derived
+  count;
+- camera keyframes using `frame_index`, `time`, or `at` normalize to the same
+  canonical frame-index contract;
+- MCP `rhino_director_run` accepts timeline-only requests without requiring
+  top-level `frame_count`;
+- endpoint mapping is exact: `time=0` and `at=0` map to frame `1`, while
+  `time=duration_seconds` and `at=1` map to `frame_count`;
+- manifest provenance records the timing source and canonical values.
 
 ### Phase 2: Native Curve Sampling Primitive
 
@@ -241,6 +353,9 @@ The route must not overclaim arc-length sampling. If native later implements tru
 arc-length sampling, the response should record that as a distinct sampling mode
 and provenance value.
 
+This phase consumes the canonical `frame_count` produced by Phase 1.5. It does
+not derive frame count from FPS or duration itself.
+
 ### Phase 3: Curve-Follow Target Camera Strategy
 
 Add a Python camera strategy:
@@ -270,6 +385,8 @@ same per-frame camera objects used by current keyframe planning.
 
 Add a post-processing stage that can stitch completed PNG frames into an MP4.
 This phase should not change frame-run status semantics.
+FPS is read from the run timeline metadata when available; MP4 assembly must not
+invent shot timing after frames have already been resolved.
 
 Frame run status remains in `status.json`:
 
@@ -338,16 +455,19 @@ The first follow-up slice does not implement:
 - UI/gallery changes;
 - native `/director/frame-capture` changes.
 
-The first slice exists to make camera planning modular enough that those later
-features are additive.
+The first follow-up slice after camera planning is the timeline contract. It
+exists to make later curve sampling, curve-follow, easing, holds, variable
+pacing, and MP4 assembly consume one canonical timing model.
 
 ## Self-Review
 
 - No phase depends on artifact publishing before deterministic local outputs
   exist.
 - Native frame capture remains the atomic Rhino mutation boundary.
-- The first implementation slice is limited to camera planning extraction.
+- Phase 1 is complete: camera planning now lives in `camera_planner.py`.
 - Existing slice 1 requests remain valid.
+- Timeline/FPS/duration semantics are now separated from MP4 assembly and run
+  before future camera strategies.
 - MP4 output is explicitly separated from frame-run status.
 - Curve sampling provenance avoids claiming arc-length behavior before native
   implements it.
