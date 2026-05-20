@@ -38,6 +38,22 @@ async def _post_director(route: str, body: dict[str, Any]) -> tuple[int, dict[st
     return resp.status_code, envelope
 
 
+async def _create_line_curve(name: str) -> str:
+    from rook.server import _mcp_tool_executor
+
+    res = await _mcp_tool_executor(
+        "rhino_create",
+        {
+            "type": "LINE",
+            "start": [0.0, 0.0, 0.0],
+            "end": [10.0, 0.0, 0.0],
+            "name": name,
+        },
+    )
+    assert "id" in res, f"rhino_create returned no id: {res!r}"
+    return res["id"]
+
+
 def _director_output_root() -> Path:
     configured = os.environ.get("ROOK_DIRECTOR_OUTPUT_ROOT")
     if configured:
@@ -178,6 +194,106 @@ async def test_director_object_states_rejects_empty_ids():
     _, envelope = await _post_director("object-states", {"object_ids": []})
     assert envelope["success"] is False
     assert "object_ids" in str(envelope["data"])
+
+
+async def test_director_curve_samples_live_smoke_samples_line_curve(fresh_document):
+    curve_id = await _create_line_curve(f"director_curve_samples_{uuid4().hex}")
+
+    _, envelope = await _post_director(
+        "curve-samples",
+        {
+            "curve_id": curve_id,
+            "frame_count": 3,
+            "sampling": {"mode": "normalized_parameter", "start": 0.0, "end": 1.0},
+        },
+    )
+
+    assert envelope["success"] is True
+    data = envelope["data"]
+    assert data["schema_version"] == 1
+    assert data["curve_id"] == curve_id
+    assert data["frame_count"] == 3
+    assert data["provenance"]["sampling_mode"] == "normalized_parameter"
+    assert data["provenance"]["parameter_mapping"] == "curve_domain_parameter_at"
+    assert data["provenance"]["frame_count_source"] == "caller_canonical_frame_count"
+    assert data["provenance"]["arc_length_sampled"] is False
+    assert data["provenance"]["validation_strength"] == "curve_parameter_sampled"
+
+    samples = data["samples"]
+    assert [sample["frame_index"] for sample in samples] == [1, 2, 3]
+    assert [sample["normalized_parameter"] for sample in samples] == [0.0, 0.5, 1.0]
+    _assert_vector_close(samples[0]["point"], [0.0, 0.0, 0.0])
+    _assert_vector_close(samples[1]["point"], [5.0, 0.0, 0.0])
+    _assert_vector_close(samples[2]["point"], [10.0, 0.0, 0.0])
+    for sample in samples:
+        _assert_vector_close(sample["tangent"], [1.0, 0.0, 0.0])
+
+
+async def test_director_curve_samples_rejects_missing_sampling_fields_and_over_limit():
+    curve_id = "00000000-0000-0000-0000-000000000001"
+
+    for body, message in [
+        ({"curve_id": curve_id, "frame_count": 1}, "sampling"),
+        ({"curve_id": curve_id, "frame_count": 1, "sampling": {"start": 0.0, "end": 1.0}}, "sampling.mode"),
+        (
+            {
+                "curve_id": curve_id,
+                "frame_count": 1,
+                "sampling": {"mode": "normalized_parameter", "end": 1.0},
+            },
+            "sampling.start",
+        ),
+        (
+            {
+                "curve_id": curve_id,
+                "frame_count": 1,
+                "sampling": {"mode": "normalized_parameter", "start": 0.0},
+            },
+            "sampling.end",
+        ),
+        (
+            {
+                "curve_id": curve_id,
+                "frame_count": 5001,
+                "sampling": {"mode": "normalized_parameter", "start": 0.0, "end": 1.0},
+            },
+            "5000",
+        ),
+    ]:
+        _, envelope = await _post_director("curve-samples", body)
+        assert envelope["success"] is False
+        assert envelope["data"]["code"] == "invalid_input"
+        assert message in envelope["data"]["message"]
+
+
+async def test_director_curve_samples_reports_expected_curve_contract_errors(fresh_document):
+    missing_id = "00000000-0000-0000-0000-000000000001"
+    _, missing_envelope = await _post_director(
+        "curve-samples",
+        {
+            "curve_id": missing_id,
+            "frame_count": 1,
+            "sampling": {"mode": "normalized_parameter", "start": 0.0, "end": 1.0},
+        },
+    )
+    assert missing_envelope["success"] is False
+    assert missing_envelope["data"]["code"] == "curve_not_found"
+
+    brep_id = await _create_brep(
+        [0.0, 0.0, 0.0],
+        [1.0, 1.0, 1.0],
+        f"director_curve_samples_not_curve_{uuid4().hex}",
+    )
+    _, not_curve_envelope = await _post_director(
+        "curve-samples",
+        {
+            "curve_id": brep_id,
+            "frame_count": 1,
+            "sampling": {"mode": "normalized_parameter", "start": 0.0, "end": 1.0},
+        },
+    )
+    assert not_curve_envelope["success"] is False
+    assert not_curve_envelope["data"]["code"] == "not_curve"
 
 
 async def test_director_frame_capture_rejects_run_root_outside_allowed_root(tmp_path):
