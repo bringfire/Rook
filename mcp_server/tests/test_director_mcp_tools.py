@@ -54,8 +54,9 @@ async def test_director_tool_registered():
         "object_ids",
         "frame_count",
         "resolution",
-        "camera_keyframes",
     ]
+    assert "camera_keyframes" in schema["properties"]
+    assert "camera" in schema["properties"]
     keyframe_schema = schema["properties"]["camera_keyframes"]["items"]
     source_schema = keyframe_schema["properties"]["source"]
     assert "explicit_camera" in source_schema["description"]

@@ -2270,7 +2270,7 @@ Use this before any Rhino operations to ensure Rhino is available. Safe to call 
             ),
             inputSchema={
                 "type": "object",
-                "required": ["object_ids", "frame_count", "resolution", "camera_keyframes"],
+                "required": ["object_ids", "frame_count", "resolution"],
                 "properties": {
                     "object_ids": {
                         "type": "array",
@@ -2373,7 +2373,24 @@ Use this before any Rhino operations to ensure Rhino is available. Safe to call 
                             },
                         },
                         "minItems": 1,
-                        "description": "Camera authoring keyframes; sources are active_view, named_view, or explicit_camera.",
+                        "description": "Legacy camera authoring keyframes; sources are active_view, named_view, or explicit_camera.",
+                    },
+                    "camera": {
+                        "type": "object",
+                        "description": "Explicit camera planning request. Phase 1 supports strategy keyframes.",
+                        "required": ["strategy", "keyframes"],
+                        "properties": {
+                            "strategy": {
+                                "type": "string",
+                                "description": "Must be keyframes for this slice.",
+                            },
+                            "keyframes": {
+                                "type": "array",
+                                "items": {"type": "object"},
+                                "minItems": 1,
+                                "description": "Camera keyframes using the same shape as camera_keyframes.",
+                            },
+                        },
                     },
                     "motion": {
                         "type": "object",

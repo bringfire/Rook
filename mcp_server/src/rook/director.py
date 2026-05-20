@@ -9,12 +9,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from . import camera_planner
 from .bridge import call_rhino
 from .runtime_paths import resolve_runtime_paths
 
 SCHEMA_VERSION = 1
 DIRECTOR_VERSION = "slice1"
-CAMERA_SOURCE_KINDS = {"active_view", "named_view", "explicit_camera", "camera"}
 
 
 class DirectorError(Exception):
@@ -106,114 +106,10 @@ def validate_authoring_request(request: dict[str, Any]) -> None:
                 f"per_object_scale for {object_id} must be nonnegative"
             )
 
-    camera_keyframes = request.get("camera_keyframes")
-    if not isinstance(camera_keyframes, list) or not camera_keyframes:
-        raise DirectorInputError("camera_keyframes must contain at least one keyframe")
-    for keyframe in camera_keyframes:
-        if not isinstance(keyframe, dict):
-            raise DirectorInputError("camera keyframe entries must be objects")
-        try:
-            frame_index = int(keyframe.get("frame_index"))
-        except (TypeError, ValueError) as ex:
-            raise DirectorInputError("camera keyframe frame_index must be an integer") from ex
-        if frame_index < 1 or frame_index > frame_count:
-            raise DirectorInputError(
-                "camera keyframe frame_index must be inside 1..frame_count"
-            )
-        source = keyframe.get("source")
-        if not isinstance(source, dict) or not source.get("kind"):
-            raise DirectorInputError("camera keyframe source.kind is required")
-        source_kind = source["kind"]
-        if source_kind not in CAMERA_SOURCE_KINDS:
-            raise DirectorInputError(
-                "camera keyframe source.kind must be active_view, named_view, or explicit_camera"
-            )
-        if source_kind == "named_view" and not source.get("name"):
-            raise DirectorInputError("named_view camera keyframes require source.name")
-        if source_kind in {"explicit_camera", "camera"}:
-            _validate_camera_payload(source.get("camera"))
-
-
-def _require_finite_number(value: Any, field: str) -> float:
-    try:
-        number = float(value)
-    except (TypeError, ValueError) as ex:
-        raise DirectorInputError(f"{field} must be a finite number") from ex
-    if not math.isfinite(number):
-        raise DirectorInputError(f"{field} must be a finite number")
-    return number
-
-
-def _require_point3(camera: dict[str, Any], field: str) -> list[float]:
-    value = camera.get(field)
-    if not isinstance(value, list) or len(value) != 3:
-        raise DirectorInputError(f"camera.{field} must be a 3-number array")
-    return [_require_finite_number(item, f"camera.{field}") for item in value]
-
-
-def _optional_positive_number(camera: dict[str, Any], field: str) -> float | None:
-    if field not in camera or camera[field] is None:
-        return None
-    value = _require_finite_number(camera[field], f"camera.{field}")
-    if value <= 0:
-        raise DirectorInputError(f"camera.{field} must be positive")
-    return value
-
-
-def _validate_camera_payload(camera: Any) -> dict[str, Any]:
-    if not isinstance(camera, dict):
-        raise DirectorInputError("explicit_camera source requires camera object")
-
-    projection = str(camera.get("projection", "")).lower()
-    if projection == "parallel":
-        raise DirectorInputError(
-            "parallel cameras are not supported by RookVisionDirector slice1"
-        )
-    if projection != "perspective":
-        raise DirectorInputError(
-            "explicit_camera source requires camera.projection perspective"
-        )
-
-    location = _require_point3(camera, "location")
-    target = _require_point3(camera, "target")
-    up = _require_point3(camera, "up")
-    if _normalize([target[i] - location[i] for i in range(3)]) is None:
-        raise DirectorInputError("camera location and target must differ")
-    if _normalize(up) is None:
-        raise DirectorInputError("camera.up must be nonzero")
-
-    lens_length = _optional_positive_number(camera, "lens_length")
-    fov_degrees = _optional_positive_number(camera, "fov_degrees")
-    if fov_degrees is not None and fov_degrees >= 180:
-        raise DirectorInputError("camera.fov_degrees must be between 0 and 180")
-    if lens_length is None and fov_degrees is None:
-        raise DirectorInputError(
-            "perspective camera requires positive lens_length or fov_degrees"
-        )
-
-    aspect = _optional_positive_number(camera, "aspect")
-    near_clip = _optional_positive_number(camera, "near_clip")
-    far_clip = _optional_positive_number(camera, "far_clip")
-    if (near_clip is None) != (far_clip is None):
-        raise DirectorInputError("camera near_clip and far_clip must be provided together")
-    if near_clip is not None and far_clip is not None and near_clip >= far_clip:
-        raise DirectorInputError("camera.near_clip must be less than camera.far_clip")
-
-    normalized = dict(camera)
-    normalized["projection"] = "perspective"
-    normalized["location"] = location
-    normalized["target"] = target
-    normalized["up"] = up
-    for field, value in (
-        ("lens_length", lens_length),
-        ("fov_degrees", fov_degrees),
-        ("aspect", aspect),
-        ("near_clip", near_clip),
-        ("far_clip", far_clip),
-    ):
-        if field in camera:
-            normalized[field] = value
-    return normalized
+    has_legacy_camera = "camera_keyframes" in request
+    has_camera_request = isinstance(request.get("camera"), dict)
+    if not has_legacy_camera and not has_camera_request:
+        raise DirectorInputError("camera.keyframes or camera_keyframes is required")
 
 
 def identity_matrix() -> list[list[float]]:
@@ -322,126 +218,6 @@ async def _resolve_objects(call_native, object_ids: list[str], port: int | None)
     return result["data"]
 
 
-async def _resolve_camera_keyframes(
-    call_native,
-    keyframes: list[dict[str, Any]],
-    *,
-    frame_count: int,
-    port: int | None,
-) -> list[dict[str, Any]]:
-    resolved: list[dict[str, Any]] = []
-    for keyframe in sorted(keyframes, key=lambda item: int(item["frame_index"])):
-        frame_index = int(keyframe["frame_index"])
-        if frame_index < 1 or frame_index > frame_count:
-            raise DirectorInputError(
-                "camera keyframe frame_index must be inside 1..frame_count"
-            )
-        source = keyframe["source"]
-        if source.get("kind") in {"explicit_camera", "camera"}:
-            resolved.append(
-                {
-                    "frame_index": frame_index,
-                    "camera": _validate_camera_payload(source.get("camera")),
-                    "provenance": {"source": "explicit_camera"},
-                }
-            )
-            continue
-        result = await call_native(
-            "/director/view-state", "POST", {"source": source}, port=port
-        )
-        if not result.get("success"):
-            raise DirectorInputError(f"camera resolution failed: {result.get('data')}")
-        data = result["data"]
-        projection = str(data["camera"].get("projection", "")).lower()
-        if projection == "parallel":
-            raise DirectorInputError(
-                "parallel cameras are not supported by RookVisionDirector slice1"
-            )
-        if projection != "perspective":
-            raise DirectorInputError(
-                f"camera projection is unsupported by RookVisionDirector slice1: {projection}"
-            )
-        resolved.append(
-            {
-                "frame_index": frame_index,
-                "camera": data["camera"],
-                "provenance": data.get("provenance"),
-            }
-        )
-    if not resolved:
-        raise DirectorInputError("camera_keyframes must contain at least one keyframe")
-    return resolved
-
-
-def _lerp(a: float, b: float, t: float) -> float:
-    return float(a) + (float(b) - float(a)) * t
-
-
-def _lerp_vec(a: list[float], b: list[float], t: float) -> list[float]:
-    return [_lerp(a[i], b[i], t) for i in range(3)]
-
-
-def _normalized_required(vector: list[float], field: str) -> list[float]:
-    normalized = _normalize(vector)
-    if normalized is None:
-        raise DirectorInputError(
-            f"camera {field} vector became degenerate during interpolation"
-        )
-    return normalized
-
-
-def _interpolate_camera(a: dict[str, Any], b: dict[str, Any], t: float) -> dict[str, Any]:
-    if a["projection"] != b["projection"]:
-        raise DirectorInputError(
-            "camera projection cannot change during slice1 interpolation"
-        )
-    camera = dict(a)
-    camera["location"] = _lerp_vec(a["location"], b["location"], t)
-    camera["target"] = _lerp_vec(a["target"], b["target"], t)
-    camera["up"] = _normalized_required(_lerp_vec(a["up"], b["up"], t), "up")
-    for field in (
-        "lens_length",
-        "fov_degrees",
-        "parallel_scale",
-        "near_clip",
-        "far_clip",
-        "aspect",
-    ):
-        av = a.get(field)
-        bv = b.get(field)
-        if av is None or bv is None:
-            camera[field] = av if t < 0.5 else bv
-        else:
-            camera[field] = _lerp(float(av), float(bv), t)
-    return camera
-
-
-def interpolate_camera_frames(
-    resolved_keyframes: list[dict[str, Any]], frame_count: int
-) -> list[dict[str, Any]]:
-    keyframes = sorted(resolved_keyframes, key=lambda item: item["frame_index"])
-    if len(keyframes) == 1:
-        return [dict(keyframes[0]["camera"]) for _ in range(frame_count)]
-
-    cameras: list[dict[str, Any]] = []
-    for frame_index in range(1, frame_count + 1):
-        previous = keyframes[0]
-        next_key = keyframes[-1]
-        for candidate in keyframes:
-            if candidate["frame_index"] <= frame_index:
-                previous = candidate
-            if candidate["frame_index"] >= frame_index:
-                next_key = candidate
-                break
-        if previous["frame_index"] == next_key["frame_index"]:
-            cameras.append(dict(previous["camera"]))
-            continue
-        span = next_key["frame_index"] - previous["frame_index"]
-        t = (frame_index - previous["frame_index"]) / span
-        cameras.append(_interpolate_camera(previous["camera"], next_key["camera"], t))
-    return cameras
-
-
 def _frame_id(index: int) -> str:
     return f"frame_{index:04d}"
 
@@ -466,16 +242,26 @@ async def run_director(
     if not object_ids:
         raise DirectorInputError("object_ids must contain at least one object for slice1")
 
+    frame_count = int(request["frame_count"])
+    try:
+        camera_planner.validate_camera_request(request, frame_count=frame_count)
+    except camera_planner.CameraPlanError as ex:
+        raise DirectorInputError(str(ex)) from ex
+
     object_data = await _resolve_objects(call_native, object_ids, port)
     objects = object_data["objects"]
-    frame_count = int(request["frame_count"])
-    resolved_camera_keyframes = await _resolve_camera_keyframes(
-        call_native,
-        request["camera_keyframes"],
-        frame_count=frame_count,
-        port=port,
-    )
-    frame_cameras = interpolate_camera_frames(resolved_camera_keyframes, frame_count)
+    try:
+        camera_plan = await camera_planner.resolve_camera_plan(
+            request,
+            frame_count=frame_count,
+            resolution=request["resolution"],
+            call_native=call_native,
+            port=port,
+        )
+    except camera_planner.CameraPlanError as ex:
+        raise DirectorInputError(str(ex)) from ex
+    frame_cameras = camera_plan["frames"]
+    resolved_camera_keyframes = camera_plan["provenance"]["keyframes"]
     motion_params = (request.get("motion") or {}).get("parameters") or {}
     motion_frames, motion_warnings = expand_radial_bbox_center(
         objects,
@@ -504,6 +290,14 @@ async def run_director(
             }
         )
 
+    manifest_camera_keyframes = [
+        {
+            "frame_index": keyframe["frame_index"],
+            "source": keyframe["source"],
+        }
+        for keyframe in resolved_camera_keyframes
+    ]
+
     manifest = {
         "schema_version": SCHEMA_VERSION,
         "director_version": DIRECTOR_VERSION,
@@ -518,7 +312,13 @@ async def run_director(
             "parameters": motion_params,
             "warnings": motion_warnings,
         },
-        "camera_keyframes": request["camera_keyframes"],
+        "camera_plan": {
+            "strategy": camera_plan["provenance"]["strategy"],
+            "request_shape": camera_plan["provenance"]["request_shape"],
+            "aspect_authority": camera_plan["provenance"]["aspect_authority"],
+            "optics_authority": camera_plan["provenance"]["optics_authority"],
+        },
+        "camera_keyframes": manifest_camera_keyframes,
         "camera_keyframe_provenance": [
             {
                 "frame_index": keyframe["frame_index"],
