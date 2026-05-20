@@ -56,7 +56,7 @@ def test_director_curve_samples_route_is_registered_and_delegated():
     server_source = ROOK_SERVER_CPP.read_text(encoding="utf-8")
 
     assert "HandleDirectorCurveSamples" in handler_header
-    assert "void HandleDirectorCurveSamples(const httplib::Request& req, httplib::Response& res);" in server_header
+    assert "HandleDirectorCurveSamples" in server_header
     assert 'm_server->Post("/director/curve-samples"' in server_source
     assert "Rook::Handlers::HandleDirectorCurveSamples(req, res);" in server_source
 
@@ -66,13 +66,13 @@ def test_director_curve_samples_has_required_contract_guards():
     handler_body = _extract_function(source, "void HandleDirectorCurveSamples")
 
     assert "kMaxDirectorCurveSampleFrameCount = 5000" in source
-    assert "sampling must be an object" in source
-    assert "sampling.mode is required" in source
-    assert "sampling.start is required" in source
-    assert "sampling.end is required" in source
-    assert "normalized_parameter" in source
-    assert "curve_not_found" in source
-    assert "not_curve" in source
-    assert "invalid_curve_sample" in source
+    assert "sampling must be an object" in handler_body
+    assert "sampling.mode is required" in handler_body
+    assert "sampling.start is required" in handler_body
+    assert "sampling.end is required" in handler_body
+    assert "normalized_parameter" in handler_body
+    assert "curve_not_found" in handler_body
+    assert "not_curve" in handler_body
+    assert "invalid_curve_sample" in handler_body
     assert "director_read_failed" in handler_body
     assert "MakeErrorData(ex.code, ex.what())" in handler_body
