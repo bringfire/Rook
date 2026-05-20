@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from . import camera_planner
+from . import camera_planner, timeline
 from .bridge import call_rhino
 from .runtime_paths import resolve_runtime_paths
 
@@ -230,6 +230,11 @@ async def run_director(
     port: int | None = None,
     should_cancel=None,
 ) -> dict[str, Any]:
+    try:
+        request, timeline_manifest = timeline.normalize_director_request(request)
+    except timeline.TimelineError as ex:
+        raise DirectorInputError(str(ex)) from ex
+
     validate_authoring_request(request)
     runtime = runtime or _runtime_paths()
     output_root = resolve_output_root(request.get("output_root"), runtime)
@@ -307,6 +312,8 @@ async def run_director(
         "created_at": _utc_now(),
         "document_units": object_data.get("units"),
         "source_objects": objects,
+        "frame_count": frame_count,
+        "timeline": timeline_manifest,
         "motion": {
             "strategy": "radial_bbox_center",
             "parameters": motion_params,

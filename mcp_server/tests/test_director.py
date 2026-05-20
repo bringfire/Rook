@@ -336,6 +336,70 @@ def test_run_complete_writes_manifest_status_and_evidence(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_run_director_accepts_timeline_and_writes_manifest_timing(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
+    fake = FakeNative(
+        [
+            {"success": True, "data": {"frame_id": "frame_0001", "dirty_partial_state": False}},
+            {"success": True, "data": {"frame_id": "frame_0002", "dirty_partial_state": False}},
+            {"success": True, "data": {"frame_id": "frame_0003", "dirty_partial_state": False}},
+        ],
+        create_outputs=True,
+    )
+    request = _run_request(tmp_path)
+    request.pop("frame_count")
+    request["timeline"] = {"fps": 24, "duration_seconds": 0.125}
+    request["camera_keyframes"] = [
+        {"time": 0.0, "source": {"kind": "active_view"}},
+        {"at": 1.0, "source": {"kind": "active_view"}},
+    ]
+
+    result = await director.run_director(
+        request,
+        call_native=fake,
+        runtime=_runtime(tmp_path),
+    )
+
+    assert result["state"] == "complete"
+    manifest = json.loads(
+        (Path(result["run_root"]) / "manifest.json").read_text(encoding="utf-8")
+    )
+    assert manifest["timeline"] == {
+        "source": "timeline",
+        "fps": 24,
+        "duration_seconds": 0.125,
+        "frame_count": 3,
+    }
+    assert manifest["frame_count"] == 3
+    assert manifest["camera_keyframes"][0]["frame_index"] == 1
+    assert manifest["camera_keyframes"][1]["frame_index"] == 3
+    assert len(manifest["frames"]) == 3
+
+
+def test_timeline_frame_count_mismatch_does_not_create_run_directory(tmp_path):
+    request = _run_request(tmp_path)
+    request["run_id"] = "bad-timeline"
+    request["frame_count"] = 4
+    request["timeline"] = {"fps": 24, "duration_seconds": 0.125}
+    request["camera_keyframes"] = [
+        {"time": 0.0, "source": {"kind": "active_view"}}
+    ]
+
+    with pytest.raises(director.DirectorInputError, match="frame_count"):
+        asyncio.run(
+            director.run_director(
+                request,
+                call_native=FakeNative([]),
+                runtime=_runtime(tmp_path),
+            )
+        )
+
+    assert not (tmp_path / "data" / "rookvision_director" / "bad-timeline").exists()
+
+
+@pytest.mark.asyncio
 async def test_run_director_writes_camera_plan_provenance(tmp_path, monkeypatch):
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
 

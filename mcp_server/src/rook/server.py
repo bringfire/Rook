@@ -2270,7 +2270,7 @@ Use this before any Rhino operations to ensure Rhino is available. Safe to call 
             ),
             inputSchema={
                 "type": "object",
-                "required": ["object_ids", "frame_count", "resolution"],
+                "required": ["object_ids", "resolution"],
                 "properties": {
                     "object_ids": {
                         "type": "array",
@@ -2281,7 +2281,35 @@ Use this before any Rhino operations to ensure Rhino is available. Safe to call 
                     "frame_count": {
                         "type": "integer",
                         "minimum": 1,
-                        "description": "Number of sequential frames to capture.",
+                        "description": (
+                            "Optional legacy number of sequential frames to capture. "
+                            "When timeline is present, this must match the derived frame count. "
+                            "MCP callers should send a JSON integer; Python also normalizes "
+                            "positive integral values from direct callers."
+                        ),
+                    },
+                    "timeline": {
+                        "type": "object",
+                        "description": (
+                            "Optional timeline authoring input. Python validation derives "
+                            "canonical frame_count from fps and duration_seconds."
+                        ),
+                        "properties": {
+                            "fps": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "description": (
+                                    "Frames per second for this run. MCP callers should send "
+                                    "a JSON integer; Python also normalizes positive integral "
+                                    "values from direct callers."
+                                ),
+                            },
+                            "duration_seconds": {
+                                "type": "number",
+                                "exclusiveMinimum": 0,
+                                "description": "Timeline duration in seconds.",
+                            },
+                        },
                     },
                     "resolution": {
                         "type": "object",
@@ -2304,12 +2332,35 @@ Use this before any Rhino operations to ensure Rhino is available. Safe to call 
                         "type": "array",
                         "items": {
                             "type": "object",
-                            "required": ["frame_index", "source"],
+                            "required": ["source"],
                             "properties": {
                                 "frame_index": {
                                     "type": "integer",
                                     "minimum": 1,
-                                    "description": "1-based frame index for this camera keyframe.",
+                                    "description": (
+                                        "1-based frame index for this camera keyframe. MCP callers "
+                                        "should send a JSON integer; Python also normalizes positive "
+                                        "integral values from direct callers."
+                                    ),
+                                },
+                                "time": {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "description": (
+                                        "Timeline seconds for this camera keyframe. "
+                                        "Python validation requires exactly one of "
+                                        "frame_index, time, or at."
+                                    ),
+                                },
+                                "at": {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "maximum": 1,
+                                    "description": (
+                                        "Normalized timeline position for this camera keyframe. "
+                                        "Python validation requires exactly one of "
+                                        "frame_index, time, or at."
+                                    ),
                                 },
                                 "source": {
                                     "type": "object",
