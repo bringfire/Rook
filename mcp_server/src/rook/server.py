@@ -2559,6 +2559,55 @@ Use this before any Rhino operations to ensure Rhino is available. Safe to call 
             },
         ),
         Tool(
+            name="rhino_director_curve_samples",
+            description=(
+                "Read-only RookVisionDirector primitive: sample a Rhino curve once per "
+                "canonical frame using normalized curve parameters. This does not perform "
+                "arc-length sampling and does not create cameras or capture frames."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["curve_id", "frame_count", "sampling"],
+                "properties": {
+                    "curve_id": {
+                        "type": "string",
+                        "description": "Rhino curve object GUID.",
+                    },
+                    "frame_count": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 5000,
+                        "description": (
+                            "Canonical Director frame count produced by timeline or legacy "
+                            "frame_count resolution. Native rejects values above 5000."
+                        ),
+                    },
+                    "sampling": {
+                        "type": "object",
+                        "required": ["mode", "start", "end"],
+                        "properties": {
+                            "mode": {
+                                "type": "string",
+                                "description": "Must be normalized_parameter for v1.",
+                            },
+                            "start": {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 1,
+                                "description": "Start normalized curve parameter in [0, 1].",
+                            },
+                            "end": {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 1,
+                                "description": "End normalized curve parameter in [0, 1].",
+                            },
+                        },
+                    },
+                },
+            },
+        ),
+        Tool(
             name="rhino_views",
             description="List all named views saved in the document. Returns name and index for each view. "
                         "Use rhino_views_restore to activate a named view, then rhino_viewport to capture it.",
@@ -18051,6 +18100,9 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                         "message": str(exc),
                     },
                 }
+
+        case "rhino_director_curve_samples":
+            result = await call_rhino("/director/curve-samples", "POST", arguments, port=port)
 
         case "rhino_render_view":
             result = await call_rhino("/vision/generate", "POST", arguments, port=port)
