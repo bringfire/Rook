@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import json
 import os
 import struct
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 from uuid import uuid4
 
 import httpx
 import pytest
 
+from rook import director
 from .conftest import _create_brep
 
 
@@ -45,6 +48,11 @@ def _director_output_root() -> Path:
     return (Path(local_app_data) / "Rook" / "rookvision_director").resolve()
 
 
+def _director_port() -> int | None:
+    parsed = urlparse(_require_host())
+    return parsed.port
+
+
 def _identity_matrix() -> list[list[float]]:
     return [
         [1.0, 0.0, 0.0, 0.0],
@@ -74,6 +82,10 @@ def _png_size(path: Path) -> tuple[int, int]:
     assert header[:8] == b"\x89PNG\r\n\x1a\n"
     assert header[12:16] == b"IHDR"
     return struct.unpack(">II", header[16:24])
+
+
+def _read_jsonl(path: Path) -> list[dict[str, Any]]:
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
 def _frame_instruction(
@@ -396,7 +408,11 @@ async def test_director_frame_capture_success_writes_png_and_restores_state():
     assert evidence["display"]["resolved_mode"]["id"]
     assert evidence["display"]["applied_mode"]["id"] == evidence["display"]["resolved_mode"]["id"]
     assert evidence["display"]["applied"] is True
+    assert evidence["display"]["set_accepted"] is True
+    assert evidence["display"]["readback_mode"]["id"] == evidence["display"]["resolved_mode"]["id"]
+    assert evidence["display"]["readback_matches"] is True
     assert evidence["display"]["restored"] is True
+    assert evidence["display"]["restore_readback_matches"] is True
 
     _, restored_state_envelope = await _post_director("object-states", {"object_ids": [object_id]})
     assert restored_state_envelope["success"] is True
@@ -410,3 +426,82 @@ async def test_director_frame_capture_success_writes_png_and_restores_state():
     _assert_vector_close(restored_camera["location"], camera["location"])
     _assert_vector_close(restored_camera["target"], camera["target"])
     _assert_vector_close(restored_camera["up"], camera["up"])
+
+
+async def test_director_run_director_live_smoke_writes_three_frames_and_restores_state():
+    _require_host()
+    object_ids = [
+        await _create_brep(
+            [-1.0, -0.5, 0.0],
+            [0.0, 0.5, 1.0],
+            f"director_task11_a_{uuid4().hex}",
+        ),
+        await _create_brep(
+            [1.0, -0.5, 0.0],
+            [2.0, 0.5, 1.0],
+            f"director_task11_b_{uuid4().hex}",
+        ),
+    ]
+
+    _, state_envelope = await _post_director("object-states", {"object_ids": object_ids})
+    assert state_envelope["success"] is True
+    source_states = state_envelope["data"]["objects"]
+
+    _, view_envelope = await _post_director("view-state", {"source": {"kind": "active_view"}})
+    assert view_envelope["success"] is True
+    if view_envelope["data"]["camera"]["projection"] != "perspective":
+        pytest.skip("Active Rhino view is not perspective; slice 1 director rejects parallel cameras.")
+
+    run_id = f"task11_live_{uuid4().hex}"
+    result = await director.run_director(
+        {
+            "run_id": run_id,
+            "output_root": str(_director_output_root()),
+            "object_ids": object_ids,
+            "frame_count": 3,
+            "resolution": {"width": 320, "height": 180},
+            "display": {"mode": "Rendered"},
+            "motion": {
+                "strategy": "radial_bbox_center",
+                "parameters": {"distance": 2.0},
+            },
+            "camera_keyframes": [
+                {"frame_index": 1, "source": {"kind": "active_view"}},
+                {"frame_index": 3, "source": {"kind": "active_view"}},
+            ],
+        },
+        port=_director_port(),
+    )
+
+    assert result["state"] == "complete"
+    run_root = Path(result["run_root"])
+    assert run_root == _director_output_root() / run_id
+    assert (run_root / "manifest.json").is_file()
+    assert (run_root / "status.json").is_file()
+    assert json.loads((run_root / "status.json").read_text(encoding="utf-8"))["state"] == "complete"
+
+    frames = [run_root / "frames" / f"frame_{index:04d}.png" for index in range(1, 4)]
+    for frame in frames:
+        assert frame.is_file()
+        assert frame.stat().st_size > 0
+        assert _png_size(frame) == (320, 180)
+
+    evidence_rows = _read_jsonl(run_root / "logs" / "frame_evidence.jsonl")
+    assert len(evidence_rows) == 3
+    for evidence in evidence_rows:
+        assert evidence["success"] is True
+        assert evidence["dirty_partial_state"] is False
+        assert evidence["objects"]["requested"] == 2
+        assert evidence["objects"]["restored"] == 2
+        assert evidence["viewport"]["restore_verified"] is True
+        assert evidence["display"]["applied"] is True
+        assert evidence["display"]["readback_matches"] is True
+        assert evidence["display"]["restored"] is True
+        assert evidence["display"]["restore_readback_matches"] is True
+
+    _, restored_state_envelope = await _post_director("object-states", {"object_ids": object_ids})
+    assert restored_state_envelope["success"] is True
+    restored_states = restored_state_envelope["data"]["objects"]
+    for before, after in zip(source_states, restored_states):
+        _assert_vector_close(after["bbox_min"], before["bbox_min"])
+        _assert_vector_close(after["bbox_max"], before["bbox_max"])

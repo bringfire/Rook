@@ -1527,7 +1527,7 @@ git commit -m "feat: capture director frames transactionally"
 **Files:**
 - Modify: `mcp_server/tests/test_director_routes_live.py`
 
-- [ ] **Step 1: Add end-to-end live test**
+- [x] **Step 1: Add end-to-end live test**
 
 Append a live test that calls `director.run_director` with:
 
@@ -1558,7 +1558,7 @@ assert manifest["frames"][0]["object_transforms"][0]["transform"] == director.id
 assert len((run_root / "logs" / "frame_evidence.jsonl").read_text(encoding="utf-8").splitlines()) == 3
 ```
 
-- [ ] **Step 2: Run all director tests**
+- [x] **Step 2: Run all director tests**
 
 Run:
 
@@ -1590,7 +1590,7 @@ git commit -m "test: prove director slice one end to end"
 
 ## Final Verification
 
-- [ ] **Run Python unit and MCP tests**
+- [x] **Run Python unit and MCP tests**
 
 ```powershell
 pytest mcp_server/tests/test_director.py mcp_server/tests/test_director_mcp_tools.py -q
@@ -1598,7 +1598,7 @@ pytest mcp_server/tests/test_director.py mcp_server/tests/test_director_mcp_tool
 
 Expected: pass.
 
-- [ ] **Run live Rhino tests**
+- [x] **Run live Rhino tests**
 
 ```powershell
 pytest mcp_server/tests/test_director_routes_live.py -q -m requires_rhino
@@ -1606,7 +1606,7 @@ pytest mcp_server/tests/test_director_routes_live.py -q -m requires_rhino
 
 Expected: pass with Rhino/RookNative running, or skip without Rhino.
 
-- [ ] **Build native when toolchain is available**
+- [x] **Build native when toolchain is available**
 
 ```cmd
 cmd /c "call \"C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat\" x64 -vcvars_ver=14.44 && msbuild src\RookNative\RookNative.vcxproj /t:Build /p:Configuration=Debug /p:Platform=x64 /p:VCToolsVersion=14.44.35207"

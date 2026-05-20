@@ -354,6 +354,28 @@ const ON_3dmView* FindNamedView(CRhinoDoc* pDoc, const std::string& name)
     return nullptr;
 }
 
+std::string Slice1UnsupportedViewMessage(const std::string& source)
+{
+    return "RookVisionDirector slice1 only supports model views; " + source +
+        " resolved to a page, layout, detail, UV, block editor, or otherwise unsupported view";
+}
+
+void ValidateSlice1ModelRhinoView(const CRhinoView* pView)
+{
+    if (!pView)
+        throw std::runtime_error("No active view");
+    if (pView->IsPageView() || pView->RhinoViewType() != CRhinoView::rhino_view_type)
+        throw DirectorFrameValidationError("unsupported_view", Slice1UnsupportedViewMessage("active_view"));
+}
+
+void ValidateSlice1NamedView(const ON_3dmView& view, const std::string& name)
+{
+    if (view.m_view_type != ON::model_view_type)
+        throw DirectorFrameValidationError(
+            "unsupported_view",
+            Slice1UnsupportedViewMessage("named_view '" + name + "'"));
+}
+
 nlohmann::json SerializeViewportCamera(const ON_Viewport& vp)
 {
     double aspect = 0.0;
@@ -956,6 +978,7 @@ public:
         m_view = pDoc->ActiveView();
         if (!m_view)
             throw std::runtime_error("No active view");
+        ValidateSlice1ModelRhinoView(m_view);
 
         m_savedViewport = m_view->ActiveViewport().VP();
         m_savedDisplayModeId = CurrentDisplayModeId(m_view);
@@ -989,6 +1012,9 @@ public:
         evidence["viewport"]["restored"] = restored;
         evidence["viewport"]["restore_verified"] = restored;
         evidence["display"]["restored"] = m_displayRestored;
+        evidence["display"]["restore_set_accepted"] = m_displayRestoreSetAccepted;
+        evidence["display"]["restore_readback_mode"] = DisplayModeToJson(m_displayRestoreReadbackModeId);
+        evidence["display"]["restore_readback_matches"] = m_displayRestoreReadbackMatches;
         if (!restoreError.empty())
             evidence["viewport"]["restore_error"] = restoreError;
         m_restored = restored;
@@ -1015,9 +1041,12 @@ private:
 
         const bool viewportRestored = ViewportAlmostEqual(vp.VP(), m_savedViewport, kViewportTolerance);
         const ON_UUID currentDisplayModeId = CurrentDisplayModeId(m_view);
-        m_displayRestored = ON_UuidIsNil(m_savedDisplayModeId) ||
-            displaySetAccepted ||
+        m_displayRestoreSetAccepted = displaySetAccepted;
+        m_displayRestoreReadbackModeId = currentDisplayModeId;
+        m_displayRestoreReadbackMatches = ON_UuidIsNil(m_savedDisplayModeId) ||
             ON_UuidCompare(currentDisplayModeId, m_savedDisplayModeId) == 0;
+        m_displayRestored = ON_UuidIsNil(m_savedDisplayModeId) ||
+            m_displayRestoreReadbackMatches;
         return viewportRestored && m_displayRestored;
     }
 
@@ -1039,6 +1068,9 @@ private:
     bool m_restoreAttempted = false;
     bool m_restored = false;
     bool m_displayRestored = false;
+    bool m_displayRestoreSetAccepted = true;
+    bool m_displayRestoreReadbackMatches = false;
+    ON_UUID m_displayRestoreReadbackModeId = ON_nil_uuid;
 
     static constexpr double kViewportTolerance = 1.0e-4;
 };
@@ -1047,6 +1079,7 @@ nlohmann::json ApplyViewportForFrame(CRhinoView* pView, const FrameInstruction& 
 {
     if (!pView)
         throw std::runtime_error("No active view");
+    ValidateSlice1ModelRhinoView(pView);
 
     nlohmann::json evidence;
     evidence["display_resolved"] = DisplayModeToJson(displayModeId);
@@ -1096,11 +1129,9 @@ nlohmann::json ApplyViewportForFrame(CRhinoView* pView, const FrameInstruction& 
         ON_UuidCompare(appliedDisplayModeId, displayModeId) == 0;
     evidence["display_readback_mode"] = DisplayModeToJson(appliedDisplayModeId);
     evidence["display_set_accepted"] = displaySetAccepted;
-    evidence["display_applied"] = DisplayModeToJson(
-        displayReadbackMatches || !displaySetAccepted ? appliedDisplayModeId : displayModeId);
-    evidence["display_applied_ok"] = ON_UuidIsNil(displayModeId) ||
-        displaySetAccepted ||
-        displayReadbackMatches;
+    evidence["display_readback_matches"] = displayReadbackMatches;
+    evidence["display_applied"] = DisplayModeToJson(appliedDisplayModeId);
+    evidence["display_applied_ok"] = displayReadbackMatches;
     if (!evidence["display_applied_ok"].get<bool>())
         throw DirectorFrameValidationError("invalid_input", "Applied display mode did not match requested mode");
 
@@ -1180,6 +1211,9 @@ nlohmann::json BaseFrameEvidence(const FrameInstruction& instruction)
         { "resolved_mode", nullptr },
         { "applied_mode", nullptr },
         { "applied", false },
+        { "set_accepted", nullptr },
+        { "readback_mode", nullptr },
+        { "readback_matches", false },
         { "restored", false }
     };
     data["objects"] = {
@@ -1232,6 +1266,9 @@ nlohmann::json ExecuteFrameTransaction(CRhinoDoc* pDoc, const FrameInstruction& 
         data["display"]["resolved_mode"] = std::move(viewportApplyEvidence["display_resolved"]);
         data["display"]["applied_mode"] = std::move(viewportApplyEvidence["display_applied"]);
         data["display"]["applied"] = viewportApplyEvidence["display_applied_ok"];
+        data["display"]["set_accepted"] = viewportApplyEvidence["display_set_accepted"];
+        data["display"]["readback_mode"] = std::move(viewportApplyEvidence["display_readback_mode"]);
+        data["display"]["readback_matches"] = viewportApplyEvidence["display_readback_matches"];
         CaptureViewportToFile(pDoc, instruction, tempPath);
         ReplaceOutputFromTemp(tempPath, instruction.outputPath, overwroteExisting);
         data["overwrote_existing"] = overwroteExisting;
@@ -1353,6 +1390,7 @@ void HandleDirectorViewState(const httplib::Request& req, httplib::Response& res
                 CRhinoView* pView = pDoc->ActiveView();
                 if (!pView)
                     throw std::runtime_error("No active view");
+                ValidateSlice1ModelRhinoView(pView);
                 vp = pView->ActiveViewport().VP();
                 resolvedName = WideToUtf8(pView->ActiveViewport().Name());
             }
@@ -1361,6 +1399,7 @@ void HandleDirectorViewState(const httplib::Request& req, httplib::Response& res
                 const ON_3dmView* pNamedView = FindNamedView(pDoc, name);
                 if (!pNamedView)
                     throw std::invalid_argument("Named view not found: " + name);
+                ValidateSlice1NamedView(*pNamedView, name);
                 vp = pNamedView->m_vp;
                 resolvedName = WideToUtf8(pNamedView->m_name);
             }
@@ -1378,6 +1417,10 @@ void HandleDirectorViewState(const httplib::Request& req, httplib::Response& res
         });
 
         CRookServer::SendSuccess(res, future.get());
+    }
+    catch (const DirectorFrameValidationError& ex)
+    {
+        CRookServer::SendErrorData(res, MakeErrorData(ex.code, ex.what()));
     }
     catch (const std::invalid_argument& ex)
     {
