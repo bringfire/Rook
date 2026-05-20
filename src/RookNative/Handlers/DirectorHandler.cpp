@@ -1132,9 +1132,6 @@ nlohmann::json ApplyViewportForFrame(CRhinoView* pView, const FrameInstruction& 
     evidence["display_readback_matches"] = displayReadbackMatches;
     evidence["display_applied"] = DisplayModeToJson(appliedDisplayModeId);
     evidence["display_applied_ok"] = displayReadbackMatches;
-    if (!evidence["display_applied_ok"].get<bool>())
-        throw DirectorFrameValidationError("invalid_input", "Applied display mode did not match requested mode");
-
     return evidence;
 }
 
@@ -1269,6 +1266,8 @@ nlohmann::json ExecuteFrameTransaction(CRhinoDoc* pDoc, const FrameInstruction& 
         data["display"]["set_accepted"] = viewportApplyEvidence["display_set_accepted"];
         data["display"]["readback_mode"] = std::move(viewportApplyEvidence["display_readback_mode"]);
         data["display"]["readback_matches"] = viewportApplyEvidence["display_readback_matches"];
+        if (!data["display"]["applied"].get<bool>())
+            throw DirectorFrameValidationError("invalid_input", "Applied display mode did not match requested mode");
         CaptureViewportToFile(pDoc, instruction, tempPath);
         ReplaceOutputFromTemp(tempPath, instruction.outputPath, overwroteExisting);
         data["overwrote_existing"] = overwroteExisting;
