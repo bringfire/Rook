@@ -21,6 +21,14 @@ dependencies = [
     "numpy>=1.24.0",
 ]
 
+[project.optional-dependencies]
+test = [
+    "pytest",
+    "pytest-asyncio",
+    "pytest-cov",
+    "anyio",
+]
+
 [project.scripts]
 rook-mcp = "rook:main"
 
