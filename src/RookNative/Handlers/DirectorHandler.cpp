@@ -775,8 +775,7 @@ ON_UUID CurrentDisplayModeId(CRhinoView* pView)
 {
     if (!pView)
         return ON_nil_uuid;
-    const CDisplayPipelineAttributes* pActive = pView->DisplayAttributes();
-    return pActive ? pActive->Id() : ON_nil_uuid;
+    return pView->ActiveViewport().m_v.m_display_mode_id;
 }
 
 nlohmann::json DisplayModeToJson(const ON_UUID& modeId)

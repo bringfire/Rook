@@ -37,3 +37,11 @@ def test_display_readback_mismatch_copies_diagnostics_before_failure():
 
     assert copy_index < failure_index < capture_index
     assert "Applied display mode did not match requested mode" in transaction_body[failure_index:capture_index]
+
+
+def test_display_readback_uses_viewport_setting_not_pipeline_attributes():
+    source = DIRECTOR_HANDLER.read_text(encoding="utf-8")
+    readback_body = _extract_function(source, "ON_UUID CurrentDisplayModeId")
+
+    assert "ActiveViewport().m_v.m_display_mode_id" in readback_body
+    assert "DisplayAttributes()" not in readback_body
