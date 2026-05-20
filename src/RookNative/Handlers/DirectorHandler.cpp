@@ -24,6 +24,7 @@ namespace {
 
 constexpr int kMaxDirectorCaptureWidth = 8192;
 constexpr int kMaxDirectorCaptureHeight = 8192;
+constexpr int kMaxDirectorCurveSampleFrameCount = 5000;
 
 nlohmann::json MakeErrorData(const std::string& code, const std::string& message)
 {
@@ -87,6 +88,16 @@ struct FrameInstruction
     std::string displayMode;
     FrameCamera camera;
     std::vector<FrameObjectTransform> objectTransforms;
+};
+
+struct CurveSampleRequest
+{
+    std::string curveId;
+    ON_UUID curveUuid = ON_nil_uuid;
+    int frameCount = 0;
+    std::string samplingMode;
+    double samplingStart = 0.0;
+    double samplingEnd = 0.0;
 };
 
 nlohmann::json MakeFrameErrorData(
@@ -158,6 +169,28 @@ bool IsFinitePoint(const ON_3dPoint& point)
 bool IsFiniteVector(const ON_3dVector& vector)
 {
     return std::isfinite(vector.x) && std::isfinite(vector.y) && std::isfinite(vector.z);
+}
+
+double RequireFiniteNumber(const nlohmann::json& object, const std::string& key, const std::string& displayPath)
+{
+    if (!object.contains(key))
+        throw DirectorFrameValidationError("invalid_input", displayPath + " is required");
+    if (!object[key].is_number())
+        throw DirectorFrameValidationError("invalid_input", displayPath + " must be a finite number");
+
+    const double value = object[key].get<double>();
+    if (!std::isfinite(value))
+        throw DirectorFrameValidationError("invalid_input", displayPath + " must be a finite number");
+    return value;
+}
+
+std::string RequireString(const nlohmann::json& object, const std::string& key, const std::string& displayPath)
+{
+    if (!object.contains(key))
+        throw DirectorFrameValidationError("invalid_input", displayPath + " is required");
+    if (!object[key].is_string() || object[key].get<std::string>().empty())
+        throw DirectorFrameValidationError("invalid_input", displayPath + " must be a non-empty string");
+    return object[key].get<std::string>();
 }
 
 bool HasPositiveOptionalNumber(const nlohmann::json& object, const std::string& key)
@@ -511,6 +544,40 @@ FrameCamera ParseCamera(const nlohmann::json& body)
     parsed.nearClip = parsed.hasNearFar ? camera["near_clip"].get<double>() : 0.0;
     parsed.farClip = parsed.hasNearFar ? camera["far_clip"].get<double>() : 0.0;
     return parsed;
+}
+
+CurveSampleRequest ParseCurveSampleRequest(const nlohmann::json& body)
+{
+    CurveSampleRequest request;
+    request.curveId = RequireString(body, "curve_id", "curve_id");
+    request.curveUuid = ON_UuidFromString(request.curveId.c_str());
+    if (ON_UuidIsNil(request.curveUuid))
+        throw DirectorFrameValidationError("invalid_input", "curve_id must be a valid UUID string");
+
+    if (!body.contains("frame_count") || !body["frame_count"].is_number_integer())
+        throw DirectorFrameValidationError("invalid_input", "frame_count must be an integer");
+    request.frameCount = body["frame_count"].get<int>();
+    if (request.frameCount < 1 || request.frameCount > kMaxDirectorCurveSampleFrameCount)
+        throw DirectorFrameValidationError(
+            "invalid_input",
+            "frame_count must be between 1 and " + std::to_string(kMaxDirectorCurveSampleFrameCount));
+
+    if (!body.contains("sampling") || !body["sampling"].is_object())
+        throw DirectorFrameValidationError("invalid_input", "sampling must be an object");
+    const auto& sampling = body["sampling"];
+
+    request.samplingMode = RequireString(sampling, "mode", "sampling.mode");
+    if (request.samplingMode != "normalized_parameter")
+        throw DirectorFrameValidationError("invalid_input", "sampling.mode must be normalized_parameter");
+
+    request.samplingStart = RequireFiniteNumber(sampling, "start", "sampling.start");
+    request.samplingEnd = RequireFiniteNumber(sampling, "end", "sampling.end");
+    if (request.samplingStart < 0.0 || request.samplingStart > 1.0)
+        throw DirectorFrameValidationError("invalid_input", "sampling.start must be between 0 and 1");
+    if (request.samplingEnd < 0.0 || request.samplingEnd > 1.0)
+        throw DirectorFrameValidationError("invalid_input", "sampling.end must be between 0 and 1");
+
+    return request;
 }
 
 ON_Xform ParseTransformMatrix(const nlohmann::json& transform, const std::string& objectId)
@@ -1134,6 +1201,67 @@ nlohmann::json ApplyViewportForFrame(CRhinoView* pView, const FrameInstruction& 
     return evidence;
 }
 
+nlohmann::json SampleDirectorCurve(CRhinoDoc* pDoc, const CurveSampleRequest& request)
+{
+    if (!pDoc)
+        throw std::runtime_error("No active document");
+
+    const CRhinoObject* obj = pDoc->LookupObject(request.curveUuid);
+    if (!obj || obj->IsDeleted())
+        throw DirectorFrameValidationError("curve_not_found", "Curve not found: " + request.curveId);
+
+    const ON_Curve* curve = ON_Curve::Cast(obj->Geometry());
+    if (!curve)
+        throw DirectorFrameValidationError("not_curve", "Object is not a curve: " + request.curveId);
+
+    nlohmann::json samples = nlohmann::json::array();
+    samples.get_ref<nlohmann::json::array_t&>().reserve(static_cast<size_t>(request.frameCount));
+
+    for (int frameIndex = 1; frameIndex <= request.frameCount; ++frameIndex)
+    {
+        const double u = request.frameCount == 1
+            ? 0.0
+            : static_cast<double>(frameIndex - 1) / static_cast<double>(request.frameCount - 1);
+        const double normalizedParameter = request.samplingStart +
+            (request.samplingEnd - request.samplingStart) * u;
+        const double curveParameter = curve->Domain().ParameterAt(normalizedParameter);
+        if (!std::isfinite(curveParameter))
+            throw DirectorFrameValidationError("invalid_curve_sample", "Mapped curve parameter is not finite");
+
+        ON_3dPoint point = curve->PointAt(curveParameter);
+        ON_3dVector tangent = curve->TangentAt(curveParameter);
+        if (!IsFinitePoint(point))
+            throw DirectorFrameValidationError("invalid_curve_sample", "Curve sample point is not finite");
+        if (!IsFiniteVector(tangent))
+            throw DirectorFrameValidationError("invalid_curve_sample", "Curve sample tangent is not finite");
+        if (!tangent.Unitize())
+            throw DirectorFrameValidationError("invalid_curve_sample", "Curve sample tangent is degenerate");
+
+        nlohmann::json sample;
+        sample["frame_index"] = frameIndex;
+        sample["normalized_parameter"] = RoundTo(normalizedParameter, 6);
+        sample["curve_parameter"] = RoundTo(curveParameter, 6);
+        sample["point"] = PointToJson(point);
+        sample["tangent"] = VectorToJson(tangent);
+        samples.push_back(std::move(sample));
+    }
+
+    nlohmann::json provenance;
+    provenance["sampling_mode"] = "normalized_parameter";
+    provenance["parameter_mapping"] = "curve_domain_parameter_at";
+    provenance["frame_count_source"] = "caller_canonical_frame_count";
+    provenance["arc_length_sampled"] = false;
+    provenance["validation_strength"] = "curve_parameter_sampled";
+
+    nlohmann::json result;
+    result["schema_version"] = 1;
+    result["curve_id"] = request.curveId;
+    result["frame_count"] = request.frameCount;
+    result["samples"] = std::move(samples);
+    result["provenance"] = std::move(provenance);
+    return result;
+}
+
 fs::path BuildTempCapturePath(const fs::path& outputPath)
 {
     std::wstring tempName = outputPath.filename().native() + L".tmp.png";
@@ -1419,6 +1547,45 @@ void HandleDirectorViewState(const httplib::Request& req, httplib::Response& res
     catch (const DirectorFrameValidationError& ex)
     {
         CRookServer::SendErrorData(res, MakeErrorData(ex.code, ex.what()));
+    }
+    catch (const std::invalid_argument& ex)
+    {
+        CRookServer::SendErrorData(res, MakeErrorData("invalid_input", ex.what()));
+    }
+    catch (const std::exception& ex)
+    {
+        CRookServer::SendErrorData(res, MakeErrorData("director_read_failed", ex.what()));
+    }
+}
+
+void HandleDirectorCurveSamples(const httplib::Request& req, httplib::Response& res)
+{
+    // Contract strings enforced by ParseCurveSampleRequest and SampleDirectorCurve:
+    // "sampling must be an object", "sampling.mode is required",
+    // "sampling.start is required", "sampling.end is required",
+    // "normalized_parameter", "curve_not_found", "not_curve",
+    // "invalid_curve_sample".
+    try
+    {
+        auto [docSn, body] = ParseBodyAndDocSn(req);
+        CurveSampleRequest request = ParseCurveSampleRequest(body);
+
+        auto future = CMainThreadDispatcher::Instance().Dispatch(
+            [docSn, request]() -> nlohmann::json
+        {
+            CRhinoDoc* pDoc = ResolveDoc(docSn);
+            return SampleDirectorCurve(pDoc, request);
+        });
+
+        CRookServer::SendSuccess(res, future.get());
+    }
+    catch (const DirectorFrameValidationError& ex)
+    {
+        CRookServer::SendErrorData(res, MakeErrorData(ex.code, ex.what()));
+    }
+    catch (const nlohmann::json::exception& ex)
+    {
+        CRookServer::SendErrorData(res, MakeErrorData("invalid_input", ex.what()));
     }
     catch (const std::invalid_argument& ex)
     {
