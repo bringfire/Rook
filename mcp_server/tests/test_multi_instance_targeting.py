@@ -66,6 +66,16 @@ def test_background_worker_launch_tools_are_rhino_dependent_mutating():
         assert policy.risk == "mutate"
 
 
+def test_director_curve_samples_policy_is_rhino_read():
+    policy = targeting.policy_for_tool("rhino_director_curve_samples")
+    assert policy == targeting.RhinoToolPolicy(True, "read")
+
+
+def test_director_run_policy_is_explicit_rhino_mutate():
+    policy = targeting.policy_for_tool("rhino_director_run")
+    assert policy == targeting.RhinoToolPolicy(True, "mutate")
+
+
 def test_panel_lock_initializes_from_valid_env(monkeypatch):
     targeting.reset_targeting_state_for_tests()
     monkeypatch.setenv("ROOK_MCP_TARGET_MODE", "panel_locked")

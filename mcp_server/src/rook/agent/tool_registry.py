@@ -387,12 +387,21 @@ class ToolRegistry:
         scores.sort(key=lambda x: (-x[1], x[0]))
         results = scores[:top_k]
 
-        # Build MCP-only tool set
+        # Build MCP-only tool set. A tool shared with a non-MCP-only group remains
+        # bridgeable through that group and should not be blocked from search.
+        non_mcp_group_tools: Set[str] = set()
+        for g, tools in self._groups.items():
+            if g not in MCP_ONLY_GROUPS:
+                non_mcp_group_tools.update(tools)
+
         mcp_only_tools: Set[str] = set()
         for g in MCP_ONLY_GROUPS:
             if g in self._groups:
                 for t in self._groups[g]:
-                    if t not in self._locally_registered:
+                    if (
+                        t not in self._locally_registered
+                        and t not in non_mcp_group_tools
+                    ):
                         mcp_only_tools.add(t)
 
         # Build allowlist if group restrictions are set

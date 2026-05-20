@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DIRECTOR_HANDLER = REPO_ROOT / "src" / "RookNative" / "Handlers" / "DirectorHandler.cpp"
+DIRECTOR_HEADER = REPO_ROOT / "src" / "RookNative" / "Handlers" / "DirectorHandler.h"
+ROOK_SERVER_CPP = REPO_ROOT / "src" / "RookNative" / "RookServer.cpp"
+ROOK_SERVER_HEADER = REPO_ROOT / "src" / "RookNative" / "RookServer.h"
 
 
 def _extract_function(source: str, signature: str) -> str:
@@ -45,3 +49,42 @@ def test_display_readback_uses_viewport_setting_not_pipeline_attributes():
 
     assert "ActiveViewport().m_v.m_display_mode_id" in readback_body
     assert "DisplayAttributes()" not in readback_body
+
+
+def test_director_curve_samples_route_is_registered_and_delegated():
+    handler_header = DIRECTOR_HEADER.read_text(encoding="utf-8")
+    server_header = ROOK_SERVER_HEADER.read_text(encoding="utf-8")
+    server_source = ROOK_SERVER_CPP.read_text(encoding="utf-8")
+
+    assert re.search(
+        r"void\s+HandleDirectorCurveSamples\s*\(\s*const\s+httplib::Request&\s+req,\s*httplib::Response&\s+res\s*\)\s*;",
+        handler_header,
+    )
+    assert re.search(
+        r"void\s+HandleDirectorCurveSamples\s*\(\s*const\s+httplib::Request&\s+req,\s*httplib::Response&\s+res\s*\)\s*;",
+        server_header,
+    )
+    assert 'm_server->Post("/director/curve-samples"' in server_source
+    assert "Rook::Handlers::HandleDirectorCurveSamples(req, res);" in server_source
+
+
+def test_director_curve_samples_has_required_contract_guards():
+    source = DIRECTOR_HANDLER.read_text(encoding="utf-8")
+    parser_body = _extract_function(source, "CurveSampleRequest ParseCurveSampleRequest")
+    sampler_body = _extract_function(source, "nlohmann::json SampleDirectorCurve")
+    handler_body = _extract_function(source, "void HandleDirectorCurveSamples")
+
+    assert "kMaxDirectorCurveSampleFrameCount = 5000" in source
+    assert "sampling must be an object" in parser_body
+    assert 'RequireString(sampling, "mode", "sampling.mode")' in parser_body
+    assert 'RequireFiniteNumber(sampling, "start", "sampling.start")' in parser_body
+    assert 'RequireFiniteNumber(sampling, "end", "sampling.end")' in parser_body
+    assert "normalized_parameter" in parser_body
+    assert "request.samplingEnd < request.samplingStart" in parser_body
+    assert "sampling.start must be less than or equal to sampling.end" in parser_body
+    assert "!obj || obj->IsDeleted()" in sampler_body
+    assert "curve_not_found" in sampler_body
+    assert "not_curve" in sampler_body
+    assert "invalid_curve_sample" in sampler_body
+    assert "director_read_failed" in handler_body
+    assert "MakeErrorData(ex.code, ex.what())" in handler_body

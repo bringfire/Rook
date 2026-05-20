@@ -87,6 +87,7 @@ READONLY_ALLOWED_GROUPS: Set[str] = {
     "gh_canvas_readonly",
     "sessions",
     "scene_graph",
+    "director_readonly",
 }
 
 
@@ -199,9 +200,11 @@ TOOL_GROUPS: Dict[str, List[str]] = {
     # internal agent dispatcher can host Python-local tools directly.
     "director": [
         "rhino_director_run",
+        "rhino_director_curve_samples",
     ],
     "director_readonly": [
         "rhino_objects", "rhino_views", "rhino_display_modes", "rhino_document",
+        "rhino_director_curve_samples",
     ],
 
     # --- Vision (PR-6): Gemini generation + artifact management ---
