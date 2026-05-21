@@ -73,11 +73,9 @@ def _png_size(path: Path) -> tuple[int, int]:
 
 
 def _positive_int(value: Any) -> int | None:
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError):
+    if type(value) is not int:
         return None
-    return parsed if parsed > 0 else None
+    return value if value > 0 else None
 
 
 def _failure_manifest(
@@ -204,6 +202,29 @@ def _context_from_manifest(
     return context, frame_count, width, height
 
 
+def _validate_video_child_paths(
+    run_root: Path,
+    frames_dir: Path,
+    output_path: Path,
+) -> tuple[str, str] | None:
+    run_root_resolved = run_root.resolve()
+    expected_frames_dir = run_root_resolved / "frames"
+    if frames_dir.resolve() != expected_frames_dir:
+        return (
+            "frames_dir_policy_violation",
+            "frames_dir must resolve to run_root/frames",
+        )
+
+    videos_dir = run_root_resolved / "videos"
+    output_resolved = output_path.resolve(strict=False)
+    if output_resolved == videos_dir or not _is_relative_to(output_resolved, videos_dir):
+        return (
+            "output_policy_violation",
+            "output_path must resolve under run_root/videos and name a file",
+        )
+    return None
+
+
 async def assemble_director_video(
     request: dict[str, Any],
     *,
@@ -313,6 +334,19 @@ async def assemble_director_video(
         )
 
     frames_dir = run_root / "frames"
+    child_path_error = _validate_video_child_paths(run_root, frames_dir, output_path)
+    if child_path_error is not None:
+        error_code, message = child_path_error
+        return _write_failure(
+            run_id=run_id,
+            run_root=run_root,
+            output_path=output_path,
+            error_code=error_code,
+            message=message,
+            started_at=started_at,
+            context=context,
+        )
+
     for index in range(1, frame_count + 1):
         frame_path = frames_dir / f"frame_{index:04d}.png"
         if not frame_path.is_file():
@@ -389,9 +423,21 @@ async def assemble_director_video(
             context=context,
         )
 
+    if not output_path.is_file() or output_path.stat().st_size <= 0:
+        return _write_failure(
+            run_id=run_id,
+            run_root=run_root,
+            output_path=output_path,
+            error_code="missing_output",
+            message="native video assembly reported success but preview output is missing or empty",
+            started_at=started_at,
+            evidence=native_data.get("evidence") or {},
+            context=context,
+        )
+
     output_bytes = native_data.get("bytes")
     if output_bytes is None:
-        output_bytes = output_path.stat().st_size if output_path.exists() else 0
+        output_bytes = output_path.stat().st_size
     result = {
         "schema_version": VIDEO_SCHEMA_VERSION,
         "state": "complete",

@@ -98,6 +98,36 @@ class FakeNative:
         }
 
 
+class FakeNativeNoOutput:
+    def __init__(self, *, write_zero_bytes: bool = False):
+        self.calls = []
+        self.write_zero_bytes = write_zero_bytes
+
+    async def __call__(self, endpoint, method="GET", data=None, port=None):
+        self.calls.append((endpoint, method, data, port))
+        if self.write_zero_bytes:
+            output = Path(data["output_path"])
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_bytes(b"")
+        return {
+            "success": True,
+            "data": {
+                "backend": "media_foundation",
+                "platform": "windows",
+                "output_path": data["output_path"],
+                "bytes": 0,
+                "evidence": {"codec": "h264", "container": "mp4"},
+            },
+        }
+
+
+def _rewrite_manifest(run_root: Path, updates: dict) -> None:
+    manifest_path = run_root / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest.update(updates)
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+
 @pytest.mark.asyncio
 async def test_assemble_video_success_uses_timeline_fps_and_writes_manifest(tmp_path):
     run_root = _write_run(tmp_path / "director")
@@ -284,6 +314,40 @@ async def test_assemble_video_missing_status_after_manifest_keeps_known_context(
     assert fake.calls == []
 
 
+def test_video_child_path_policy_rejects_escaped_frames_dir(tmp_path):
+    run_root = tmp_path / "director" / "run-a"
+    outside = tmp_path / "outside"
+
+    error = director_video._validate_video_child_paths(
+        run_root,
+        outside / "frames",
+        run_root / "videos" / "preview.mp4",
+    )
+
+    assert error is not None
+    assert error[0] == "frames_dir_policy_violation"
+
+
+def test_video_child_path_policy_rejects_output_directory_and_escape(tmp_path):
+    run_root = tmp_path / "director" / "run-a"
+
+    directory_error = director_video._validate_video_child_paths(
+        run_root,
+        run_root / "frames",
+        run_root / "videos",
+    )
+    escape_error = director_video._validate_video_child_paths(
+        run_root,
+        run_root / "frames",
+        run_root / "videos" / ".." / "preview.mp4",
+    )
+
+    assert directory_error is not None
+    assert directory_error[0] == "output_policy_violation"
+    assert escape_error is not None
+    assert escape_error[0] == "output_policy_violation"
+
+
 @pytest.mark.asyncio
 async def test_assemble_video_rejects_frame_dimension_mismatch(tmp_path):
     run_root = _write_run(tmp_path / "director", frame_count=2)
@@ -307,6 +371,91 @@ async def test_assemble_video_rejects_frame_dimension_mismatch(tmp_path):
     assert manifest["height"] == 180
     assert manifest["input_pattern"] == "frames/frame_%04d.png"
     assert "completed_at" in manifest
+    assert fake.calls == []
+
+
+@pytest.mark.asyncio
+async def test_assemble_video_native_success_missing_output_writes_failed_manifest(
+    tmp_path,
+):
+    run_root = _write_run(tmp_path / "director")
+    fake = FakeNativeNoOutput()
+
+    result = await director_video.assemble_director_video(
+        {"run_root": str(run_root)},
+        call_native=fake,
+        director_output_root=tmp_path / "director",
+    )
+
+    assert result["state"] == "failed"
+    assert result["error"]["code"] == "missing_output"
+    assert result["output_current"] is False
+    manifest = json.loads((run_root / "video_manifest.json").read_text(encoding="utf-8"))
+    assert manifest["state"] == "failed"
+    assert manifest["error"]["code"] == "missing_output"
+    assert manifest["output_current"] is False
+    assert fake.calls
+
+
+@pytest.mark.asyncio
+async def test_assemble_video_native_success_zero_byte_output_writes_failed_manifest(
+    tmp_path,
+):
+    run_root = _write_run(tmp_path / "director")
+    fake = FakeNativeNoOutput(write_zero_bytes=True)
+
+    result = await director_video.assemble_director_video(
+        {"run_root": str(run_root)},
+        call_native=fake,
+        director_output_root=tmp_path / "director",
+    )
+
+    assert result["state"] == "failed"
+    assert result["error"]["code"] == "missing_output"
+    assert result["output_current"] is False
+    manifest = json.loads((run_root / "video_manifest.json").read_text(encoding="utf-8"))
+    assert manifest["state"] == "failed"
+    assert manifest["error"]["code"] == "missing_output"
+    assert manifest["output_current"] is False
+    assert fake.calls
+
+
+@pytest.mark.asyncio
+async def test_assemble_video_rejects_non_integer_frame_count_without_native_call(
+    tmp_path,
+):
+    run_root = _write_run(tmp_path / "director")
+    _rewrite_manifest(run_root, {"frame_count": 2.9})
+    fake = FakeNative()
+
+    result = await director_video.assemble_director_video(
+        {"run_root": str(run_root)},
+        call_native=fake,
+        director_output_root=tmp_path / "director",
+    )
+
+    assert result["state"] == "failed"
+    assert result["error"]["code"] == "frame_count_mismatch"
+    assert fake.calls == []
+
+
+@pytest.mark.asyncio
+async def test_assemble_video_rejects_bool_width_without_native_call(tmp_path):
+    run_root = _write_run(tmp_path / "director")
+    manifest_path = run_root / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["resolution"]["width"] = True
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    fake = FakeNative()
+
+    result = await director_video.assemble_director_video(
+        {"run_root": str(run_root)},
+        call_native=fake,
+        director_output_root=tmp_path / "director",
+    )
+
+    assert result["state"] == "failed"
+    assert result["error"]["code"] == "unsupported_dimensions"
     assert fake.calls == []
 
 
