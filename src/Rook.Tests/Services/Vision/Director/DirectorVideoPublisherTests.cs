@@ -282,6 +282,141 @@ namespace Rook.Tests.Services.Vision.Director
             Assert.Equal("prior_artifact_mismatch", data["managed_subcode"]!.GetValue<string>());
         }
 
+        [Fact]
+        public void Publish_MissingPriorArtifactBlobReturnsPriorArtifactMismatch()
+        {
+            var runRoot = WriteStandardRun();
+            var request = BuildRequest(runRoot);
+            var requestMetadata = Assert.IsType<JsonObject>(request["metadata"]);
+            var sourcePath = Path.Combine(runRoot, "videos", "preview.mp4");
+            var prior = _store.CreateFromFiles(
+                "generated_video",
+                new[]
+                {
+                    new BlobFileInput(
+                        "video",
+                        sourcePath,
+                        "mp4",
+                        ExpectedBytes: new FileInfo(sourcePath).Length),
+                },
+                metadata: new Dictionary<string, JsonNode?>
+                {
+                    ["director"] = requestMetadata["director"]!.DeepClone(),
+                });
+            File.Delete(_store.GetBlobAbsolutePath(prior.Id, "video"));
+            var publisher = new DirectorVideoPublisher(_store, _directorRoot);
+
+            var response = publisher.Publish(BuildRequest(runRoot, prior.Id));
+
+            Assert.False(response.Success);
+            var data = Assert.IsType<JsonObject>(response.Data);
+            Assert.Equal("artifact_boundary_mismatch", data["code"]!.GetValue<string>());
+            Assert.Equal("prior_artifact_mismatch", data["managed_subcode"]!.GetValue<string>());
+        }
+
+        [Fact]
+        public void Publish_DeletesCreatedArtifactWhenCopiedBlobHashDiffersFromRequest()
+        {
+            var runRoot = WriteStandardRun(bytes: Encoding.ASCII.GetBytes("fake-mp4"));
+            var request = BuildRequest(runRoot);
+            var sourcePath = Path.Combine(runRoot, "videos", "preview.mp4");
+            var publisher = new DirectorVideoPublisher(
+                _store,
+                _directorRoot,
+                beforeCreateFromFilesForTests: _ => File.WriteAllBytes(sourcePath, Encoding.ASCII.GetBytes("race-mp4")));
+
+            var response = publisher.Publish(request);
+
+            Assert.False(response.Success);
+            var data = Assert.IsType<JsonObject>(response.Data);
+            Assert.Equal("source_hash_mismatch", data["managed_subcode"]!.GetValue<string>());
+            Assert.Empty(_store.List());
+        }
+
+        [Fact]
+        public void Publish_RejectsRunRootJunctionInsideDirectorRoot()
+        {
+            var outsideRunRoot = Path.Combine(_root, "outside-run");
+            WriteStandardRunAt(outsideRunRoot);
+            var junctionRunRoot = Path.Combine(_directorRoot, "run-junction");
+            if (!TryCreateJunction(junctionRunRoot, outsideRunRoot))
+                return;
+            var request = BuildRequest(junctionRunRoot);
+            var publisher = new DirectorVideoPublisher(_store, _directorRoot);
+
+            var response = publisher.Publish(request);
+
+            Assert.False(response.Success);
+            var data = Assert.IsType<JsonObject>(response.Data);
+            Assert.Equal("source_path_mismatch", data["managed_subcode"]!.GetValue<string>());
+        }
+
+        [Fact]
+        public void Publish_MalformedRequestScalarReturnsBoundaryMismatch()
+        {
+            var runRoot = WriteStandardRun();
+            var request = BuildRequest(runRoot);
+            request["source"]!["byte_size"] = "not-an-integer";
+            var publisher = new DirectorVideoPublisher(_store, _directorRoot);
+
+            var response = publisher.Publish(request);
+
+            Assert.False(response.Success);
+            var data = Assert.IsType<JsonObject>(response.Data);
+            Assert.Equal("artifact_boundary_mismatch", data["code"]!.GetValue<string>());
+            Assert.Equal("manifest_fact_mismatch", data["managed_subcode"]!.GetValue<string>());
+        }
+
+        [Fact]
+        public void Publish_MalformedManifestReturnsBoundaryMismatch()
+        {
+            var runRoot = WriteStandardRun();
+            File.WriteAllText(Path.Combine(runRoot, "video_manifest.json"), "{not-json");
+            var request = BuildRequest(runRoot);
+            request["hashes"]!["video_manifest_sha256"] = Sha256(Path.Combine(runRoot, "video_manifest.json"));
+            var publisher = new DirectorVideoPublisher(_store, _directorRoot);
+
+            var response = publisher.Publish(request);
+
+            Assert.False(response.Success);
+            var data = Assert.IsType<JsonObject>(response.Data);
+            Assert.Equal("artifact_boundary_mismatch", data["code"]!.GetValue<string>());
+            Assert.Equal("manifest_fact_mismatch", data["managed_subcode"]!.GetValue<string>());
+        }
+
+        [Fact]
+        public void Publish_PriorArtifactDirectorMetadataMustContainNestedRequestFields()
+        {
+            var runRoot = WriteStandardRun();
+            var request = BuildRequest(runRoot);
+            var requestMetadata = Assert.IsType<JsonObject>(request["metadata"]);
+            var priorDirector = requestMetadata["director"]!.DeepClone().AsObject();
+            priorDirector["camera"]!.AsObject().Remove("sampling");
+            priorDirector["extra_future_field"] = "allowed";
+            var sourcePath = Path.Combine(runRoot, "videos", "preview.mp4");
+            var prior = _store.CreateFromFiles(
+                "generated_video",
+                new[]
+                {
+                    new BlobFileInput(
+                        "video",
+                        sourcePath,
+                        "mp4",
+                        ExpectedBytes: new FileInfo(sourcePath).Length),
+                },
+                metadata: new Dictionary<string, JsonNode?>
+                {
+                    ["director"] = priorDirector,
+                });
+            var publisher = new DirectorVideoPublisher(_store, _directorRoot);
+
+            var response = publisher.Publish(BuildRequest(runRoot, prior.Id));
+
+            Assert.False(response.Success);
+            var data = Assert.IsType<JsonObject>(response.Data);
+            Assert.Equal("prior_artifact_mismatch", data["managed_subcode"]!.GetValue<string>());
+        }
+
         private string WriteStandardRun(
             string runId = "run-a",
             int width = 1280,
@@ -291,6 +426,20 @@ namespace Rook.Tests.Services.Vision.Director
             byte[]? bytes = null)
         {
             var runRoot = Path.Combine(_directorRoot, runId);
+            WriteStandardRunAt(runRoot, runId, width, height, fps, frameCount, bytes);
+            return runRoot;
+        }
+
+        private static void WriteStandardRunAt(
+            string runRoot,
+            string? runId = null,
+            int width = 1280,
+            int height = 720,
+            int fps = 24,
+            int frameCount = 96,
+            byte[]? bytes = null)
+        {
+            runId ??= Path.GetFileName(runRoot);
             Directory.CreateDirectory(Path.Combine(runRoot, "videos"));
             File.WriteAllBytes(Path.Combine(runRoot, "videos", "preview.mp4"), bytes ?? Encoding.ASCII.GetBytes("fake-mp4"));
             File.WriteAllText(
@@ -321,7 +470,22 @@ namespace Rook.Tests.Services.Vision.Director
                     output_path = "videos/preview.mp4",
                     output_current = true,
                 }));
-            return runRoot;
+        }
+
+        private static bool TryCreateJunction(string junctionPath, string targetPath)
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo("cmd.exe", $"/c mklink /J \"{junctionPath}\" \"{targetPath}\"")
+            {
+                CreateNoWindow = true,
+                UseShellExecute = false,
+                RedirectStandardError = true,
+                RedirectStandardOutput = true,
+            };
+            using var process = System.Diagnostics.Process.Start(psi);
+            if (process is null)
+                return false;
+            process.WaitForExit();
+            return process.ExitCode == 0;
         }
 
         private static string Sha256(string path)
