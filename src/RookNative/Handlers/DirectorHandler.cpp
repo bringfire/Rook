@@ -693,7 +693,7 @@ VideoAssembleRequest ParseVideoAssembleRequest(const nlohmann::json& body)
         body,
         "frame_count",
         1,
-        std::numeric_limits<int>::max(),
+        (std::numeric_limits<int>::max)(),
         "invalid_input",
         "frame_count must be a positive integer");
 
@@ -707,14 +707,14 @@ VideoAssembleRequest ParseVideoAssembleRequest(const nlohmann::json& body)
         body,
         "width",
         1,
-        std::numeric_limits<int>::max(),
+        (std::numeric_limits<int>::max)(),
         "unsupported_dimensions",
         "width and height must be positive even integers");
     request.height = RequireIntInRange(
         body,
         "height",
         1,
-        std::numeric_limits<int>::max(),
+        (std::numeric_limits<int>::max)(),
         "unsupported_dimensions",
         "width and height must be positive even integers");
     if ((request.width % 2) != 0 || (request.height % 2) != 0)
@@ -743,7 +743,7 @@ VideoAssembleRequest ParseVideoAssembleRequest(const nlohmann::json& body)
             body,
             "start_number",
             1,
-            std::numeric_limits<int>::max(),
+            (std::numeric_limits<int>::max)(),
             "invalid_input",
             "start_number must be a positive integer");
     }
@@ -826,7 +826,8 @@ fs::path FramePathForIndex(const VideoAssembleRequest& request, int frameNumber)
 
 void FrameRateRatio(double fps, UINT32& numerator, UINT32& denominator)
 {
-    numerator = static_cast<UINT32>(std::max(1.0, std::round(fps * 1000.0)));
+    const double scaled = std::round(fps * 1000.0);
+    numerator = static_cast<UINT32>(scaled < 1.0 ? 1.0 : scaled);
     denominator = 1000;
 }
 
