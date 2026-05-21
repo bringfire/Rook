@@ -54,6 +54,22 @@ Managed confirms only when Python supplies a prior artifact id from
 `generated_video`, has a `video` blob, and has matching contract metadata/source
 facts. Managed does not globally scan for duplicate artifacts.
 
+## Director Output Root Contract
+
+Managed C# must use the same Director output root contract as Python and
+RookNative:
+
+1. If `ROOK_DIRECTOR_OUTPUT_ROOT` is set, canonicalize it and use it as the only
+   allowed Director output root.
+2. Otherwise, canonicalize `%LOCALAPPDATA%/Rook/rookvision_director`.
+3. If `LOCALAPPDATA` is unavailable and `ROOK_DIRECTOR_OUTPUT_ROOT` is not set,
+   reject the publish request before reading or copying files.
+
+Managed must not use `%APPDATA%/Rook`, `RookPaths.ArtifactsRoot`, the Vision
+artifact root, or a request-provided path as the Director output-root fallback.
+This keeps publish containment aligned with the existing Director frame and
+video assembly policies.
+
 ## Public Tool Contract
 
 Add:
@@ -137,6 +153,8 @@ Python validates before managed publish:
 - `manifest.json` exists and is readable;
 - `video_manifest.json` exists and has `state == "complete"`;
 - `video_manifest.json.output_current == true`;
+- `manifest.json` and `video_manifest.json` agree on frame count, resolution,
+  and FPS before Python builds `metadata.director`;
 - source video is exactly `videos/preview.mp4`;
 - source video exists, is non-empty, and its byte size and SHA-256 are computed;
 - format/container/codec/dimensions/FPS match `director_publish_standard_v1`;
@@ -239,6 +257,9 @@ Managed also verifies:
 - source byte size and hash match disk reality;
 - `profile`, preset, manifest hashes, and stable Director metadata contract
   fields match a supplied prior artifact;
+- when confirming a prior artifact, the existing artifact's `video` blob is
+  resolved through `ArtifactStore`, hashed, and byte-counted, then compared to
+  the request `source.sha256` and `source.byte_size`;
 - prior artifact confirmation accepts additional metadata fields but requires
   the contract fields to match.
 
@@ -433,6 +454,8 @@ Python tests cover:
   as `video_not_assembled`;
 - `video_manifest.output_current == false` fails as `video_not_current`, even
   when `videos/preview.mp4` exists;
+- `manifest.json` and `video_manifest.json` mismatch on frame count,
+  resolution, or FPS fails before metadata construction;
 - missing/inconsistent manifest facts fail as `video_manifest_invalid`;
 - valid but nonstandard dimensions/FPS/codec fail as
   `unsupported_video_profile`;
@@ -461,6 +484,8 @@ Managed tests cover:
 - prior artifact confirmation checks contract fields, not byte-for-byte
   metadata equality;
 - prior artifact confirmation accepts additional metadata fields;
+- prior artifact confirmation hashes and byte-counts the existing artifact's
+  `video` blob before accepting idempotency;
 - missing prior artifact returns `published_artifact_missing`;
 - wrong prior artifact kind/blob/profile/hash returns
   `prior_artifact_mismatch`;
