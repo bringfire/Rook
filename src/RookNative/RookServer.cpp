@@ -800,6 +800,9 @@ void CRookServer::RegisterRoutes()
     m_server->Post("/director/curve-samples", [this](const httplib::Request& req, httplib::Response& res) {
         HandleDirectorCurveSamples(req, res);
     });
+    m_server->Post("/director/video-assemble", [this](const httplib::Request& req, httplib::Response& res) {
+        HandleDirectorVideoAssemble(req, res);
+    });
     m_server->Post("/director/frame-capture", [this](const httplib::Request& req, httplib::Response& res) {
         HandleDirectorFrameCapture(req, res);
     });
@@ -2142,6 +2145,11 @@ void CRookServer::HandleDirectorViewState(const httplib::Request& req, httplib::
 void CRookServer::HandleDirectorCurveSamples(const httplib::Request& req, httplib::Response& res)
 {
     Rook::Handlers::HandleDirectorCurveSamples(req, res);
+}
+
+void CRookServer::HandleDirectorVideoAssemble(const httplib::Request& req, httplib::Response& res)
+{
+    Rook::Handlers::HandleDirectorVideoAssemble(req, res);
 }
 
 void CRookServer::HandleDirectorFrameCapture(const httplib::Request& req, httplib::Response& res)

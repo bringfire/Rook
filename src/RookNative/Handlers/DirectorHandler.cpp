@@ -100,6 +100,23 @@ struct CurveSampleRequest
     double samplingEnd = 0.0;
 };
 
+struct VideoAssembleRequest
+{
+    std::string runId;
+    fs::path runRoot;
+    fs::path framesDir;
+    fs::path outputPath;
+    std::string inputPattern;
+    int startNumber = 1;
+    int frameCount = 0;
+    double fps = 0.0;
+    std::string fpsSource;
+    int width = 0;
+    int height = 0;
+    std::string codec;
+    std::string container;
+};
+
 nlohmann::json MakeFrameErrorData(
     const nlohmann::json& body,
     const std::string& code,
@@ -116,6 +133,33 @@ nlohmann::json MakeFrameErrorData(
     data["success"] = false;
     data["dirty_partial_state"] = false;
     data["affected_object_ids"] = affectedObjectIds;
+    data["error"] = MakeErrorData(code, message);
+    return data;
+}
+
+nlohmann::json MakeVideoErrorData(
+    const nlohmann::json& body,
+    const std::string& code,
+    const std::string& message,
+    nlohmann::json evidence = nlohmann::json::object())
+{
+    nlohmann::json data;
+    data["success"] = false;
+    data["run_id"] = body.contains("run_id") && body["run_id"].is_string()
+        ? body["run_id"].get<std::string>()
+        : "";
+    data["run_root"] = body.contains("run_root") && body["run_root"].is_string()
+        ? body["run_root"].get<std::string>()
+        : "";
+    data["frames_dir"] = body.contains("frames_dir") && body["frames_dir"].is_string()
+        ? body["frames_dir"].get<std::string>()
+        : "";
+    data["output_path"] = body.contains("output_path") && body["output_path"].is_string()
+        ? body["output_path"].get<std::string>()
+        : "";
+    data["backend"] = "media_foundation";
+    data["platform"] = "windows";
+    data["evidence"] = std::move(evidence);
     data["error"] = MakeErrorData(code, message);
     return data;
 }
@@ -580,6 +624,99 @@ CurveSampleRequest ParseCurveSampleRequest(const nlohmann::json& body)
         throw DirectorFrameValidationError("invalid_input", "sampling.start must be less than or equal to sampling.end");
 
     return request;
+}
+
+VideoAssembleRequest ParseVideoAssembleRequest(const nlohmann::json& body)
+{
+    VideoAssembleRequest request;
+
+    if (!body.contains("run_root") || !body["run_root"].is_string() || body["run_root"].get<std::string>().empty())
+        throw DirectorFrameValidationError("invalid_input", "run_root is required");
+    request.runRoot = NormalizePolicyPath(PathFromUtf8(body["run_root"].get<std::string>()));
+
+    if (!body.contains("frames_dir") || !body["frames_dir"].is_string() || body["frames_dir"].get<std::string>().empty())
+        throw DirectorFrameValidationError("invalid_input", "frames_dir is required");
+    request.framesDir = NormalizePolicyPath(PathFromUtf8(body["frames_dir"].get<std::string>()));
+
+    if (!body.contains("output_path") || !body["output_path"].is_string() || body["output_path"].get<std::string>().empty())
+        throw DirectorFrameValidationError("invalid_input", "output_path is required");
+    request.outputPath = NormalizePolicyPath(PathFromUtf8(body["output_path"].get<std::string>()));
+
+    if (!body.contains("frame_count") || !body["frame_count"].is_number_integer() ||
+        body["frame_count"].get<int>() <= 0)
+    {
+        throw DirectorFrameValidationError("invalid_input", "frame_count must be a positive integer");
+    }
+    request.frameCount = body["frame_count"].get<int>();
+
+    if (!body.contains("fps") || !body["fps"].is_number())
+        throw DirectorFrameValidationError("invalid_input", "fps must be a positive finite number");
+    request.fps = body["fps"].get<double>();
+    if (!std::isfinite(request.fps) || request.fps <= 0.0)
+        throw DirectorFrameValidationError("invalid_input", "fps must be a positive finite number");
+
+    if (!body.contains("width") || !body.contains("height") ||
+        !body["width"].is_number_integer() || !body["height"].is_number_integer() ||
+        body["width"].get<int>() <= 0 || body["height"].get<int>() <= 0 ||
+        (body["width"].get<int>() % 2) != 0 || (body["height"].get<int>() % 2) != 0)
+    {
+        throw DirectorFrameValidationError("unsupported_dimensions", "width and height must be positive even integers");
+    }
+    request.width = body["width"].get<int>();
+    request.height = body["height"].get<int>();
+
+    if (!body.contains("codec") || !body["codec"].is_string() || body["codec"].get<std::string>() != "h264")
+        throw DirectorFrameValidationError("invalid_input", "codec must be h264");
+    request.codec = body["codec"].get<std::string>();
+
+    if (!body.contains("container") || !body["container"].is_string() || body["container"].get<std::string>() != "mp4")
+        throw DirectorFrameValidationError("invalid_input", "container must be mp4");
+    request.container = body["container"].get<std::string>();
+
+    if (!body.contains("input_pattern") || !body["input_pattern"].is_string() ||
+        body["input_pattern"].get<std::string>() != "frame_%04d.png")
+    {
+        throw DirectorFrameValidationError("invalid_input", "input_pattern must be frame_%04d.png");
+    }
+    request.inputPattern = body["input_pattern"].get<std::string>();
+
+    if (body.contains("start_number") && !body["start_number"].is_null())
+    {
+        if (!body["start_number"].is_number_integer() || body["start_number"].get<int>() <= 0)
+            throw DirectorFrameValidationError("invalid_input", "start_number must be a positive integer");
+        request.startNumber = body["start_number"].get<int>();
+    }
+
+    if (body.contains("run_id") && body["run_id"].is_string())
+        request.runId = body["run_id"].get<std::string>();
+    if (body.contains("fps_source") && body["fps_source"].is_string())
+        request.fpsSource = body["fps_source"].get<std::string>();
+
+    return request;
+}
+
+void ValidateVideoAssemblyPolicy(const VideoAssembleRequest& request)
+{
+    const fs::path allowedRoot = GetAllowedDirectorRoot();
+    if (!IsSameOrDescendantPath(allowedRoot, request.runRoot))
+        throw DirectorFrameValidationError(
+            "run_root_policy_violation",
+            "run_root must be inside the native director output root");
+
+    const fs::path expectedFramesDir = request.runRoot / L"frames";
+    if (!IsSamePath(expectedFramesDir, request.framesDir))
+        throw DirectorFrameValidationError(
+            "frames_dir_policy_violation",
+            "frames_dir must be exactly run_root/frames");
+
+    const fs::path videosDir = request.runRoot / L"videos";
+    if (!IsSameOrDescendantPath(videosDir, request.outputPath) ||
+        IsSamePath(videosDir, request.outputPath))
+    {
+        throw DirectorFrameValidationError(
+            "output_policy_violation",
+            "output_path must be a file below run_root/videos");
+    }
 }
 
 ON_Xform ParseTransformMatrix(const nlohmann::json& transform, const std::string& objectId)
@@ -1591,6 +1728,54 @@ void HandleDirectorCurveSamples(const httplib::Request& req, httplib::Response& 
     catch (const std::exception& ex)
     {
         CRookServer::SendErrorData(res, MakeErrorData("director_read_failed", ex.what()));
+    }
+}
+
+void HandleDirectorVideoAssemble(const httplib::Request& req, httplib::Response& res)
+{
+    nlohmann::json body = nlohmann::json::object();
+
+    try
+    {
+        auto parsed = ParseBodyAndDocSn(req);
+        body = std::move(parsed.second);
+
+        VideoAssembleRequest request = ParseVideoAssembleRequest(body);
+        ValidateVideoAssemblyPolicy(request);
+
+        nlohmann::json evidence;
+        evidence["backend"] = "media_foundation";
+        evidence["codec"] = request.codec;
+        evidence["container"] = request.container;
+        evidence["width"] = request.width;
+        evidence["height"] = request.height;
+        evidence["frame_count"] = request.frameCount;
+        evidence["fps"] = request.fps;
+        evidence["input_pattern"] = request.inputPattern;
+
+        CRookServer::SendErrorData(
+            res,
+            MakeVideoErrorData(
+                body,
+                "backend_unavailable",
+                "Media Foundation backend is not implemented yet",
+                std::move(evidence)));
+    }
+    catch (const DirectorFrameValidationError& ex)
+    {
+        CRookServer::SendErrorData(res, MakeVideoErrorData(body, ex.code, ex.what()));
+    }
+    catch (const nlohmann::json::exception& ex)
+    {
+        CRookServer::SendErrorData(res, MakeVideoErrorData(body, "invalid_input", ex.what()));
+    }
+    catch (const std::invalid_argument& ex)
+    {
+        CRookServer::SendErrorData(res, MakeVideoErrorData(body, "invalid_input", ex.what()));
+    }
+    catch (const std::exception& ex)
+    {
+        CRookServer::SendErrorData(res, MakeVideoErrorData(body, "director_video_failed", ex.what()));
     }
 }
 
