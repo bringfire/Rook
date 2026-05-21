@@ -60,6 +60,59 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
+        public void DispatchOffUi_PublishDirectorVideo_ReachesPublisherValidation()
+        {
+            var directorRoot = CreateTempRoot("rook-director-publish-dispatch-root");
+            var previousDirectorRoot = Environment.GetEnvironmentVariable("ROOK_DIRECTOR_OUTPUT_ROOT");
+            Environment.SetEnvironmentVariable("ROOK_DIRECTOR_OUTPUT_ROOT", directorRoot);
+            try
+            {
+                var handler = NewDispatchHandler();
+
+                var response = handler.DispatchOffUi("{\"op\":\"publish_director_video\"}");
+
+                Assert.False(response.Success);
+                var data = Assert.IsType<JsonObject>(response.Data);
+                Assert.Equal("artifact_boundary_mismatch", data["code"]!.GetValue<string>());
+                Assert.Equal("manifest_fact_mismatch", data["managed_subcode"]!.GetValue<string>());
+                Assert.Contains("run_id", data["message"]!.GetValue<string>());
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable("ROOK_DIRECTOR_OUTPUT_ROOT", previousDirectorRoot);
+                try { Directory.Delete(directorRoot, recursive: true); } catch { }
+            }
+        }
+
+        [Fact]
+        public void Dispatch_PublishDirectorVideo_RejectsNonOffUiDispatcher()
+        {
+            var handler = NewDispatchHandler();
+
+            var response = handler.Dispatch("{\"op\":\"publish_director_video\"}");
+
+            Assert.False(response.Success);
+            var message = Assert.IsType<string>(response.Data);
+            Assert.Equal(
+                "op 'publish_director_video' must be routed through the off-UI dispatcher, not the sync UI-thread dispatcher.",
+                message);
+        }
+
+        [Fact]
+        public async Task DispatchAsync_PublishDirectorVideo_RejectsNonOffUiDispatcher()
+        {
+            var handler = NewDispatchHandler();
+
+            var response = await handler.DispatchAsync("{\"op\":\"publish_director_video\"}");
+
+            Assert.False(response.Success);
+            var message = Assert.IsType<string>(response.Data);
+            Assert.Equal(
+                "op 'publish_director_video' must be routed through the off-UI dispatcher, not the async dispatcher.",
+                message);
+        }
+
+        [Fact]
         public void BuildArtifactCountsByKind_IncludesAllVisionKinds()
         {
             var tempDir = Path.Combine(Path.GetTempPath(),
@@ -1087,6 +1140,13 @@ namespace Rook.Tests.Handlers
                 {
                     new TestImageProviderRegistration(provider),
                 }));
+
+        private static VisionHandler NewDispatchHandler()
+            => new VisionHandler(
+                new ArtifactStore(CreateTempRoot("rook-vision-dispatch")),
+                new InMemoryGenerationSecretStore(),
+                new PromptEnhancer(),
+                new ViewportHandler());
 
         private static Dictionary<string, JsonElement> GenerateArgs(
             string inputPath,
@@ -2596,6 +2656,7 @@ namespace Rook.Tests.Handlers
                 Metadata: new Dictionary<string, JsonNode?>(),
                 Flags: flags);
         }
+
     }
 
     /// <summary>

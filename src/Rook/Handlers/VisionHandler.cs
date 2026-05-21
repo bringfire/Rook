@@ -13,6 +13,7 @@ using System.Threading.Tasks;
 using Rhino;
 using Rook.Artifacts;
 using Rook.Services.Vision;
+using Rook.Services.Vision.Director;
 using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Image;
 using Rook.Services.Vision.Image.Fal;
@@ -324,6 +325,7 @@ namespace Rook.Handlers
                         $"op '{op}' must be routed through the async dispatcher, not the sync dispatcher."),
                     "list_artifacts" or "get_artifact" or "approve_artifact"
                         or "delete_artifact" or "consume_approved"
+                        or "publish_director_video"
                         or "set_api_key" or "get_settings_overview"
                         or "set_provider_secret" or "clear_provider_secret"
                         or "list_image_models"
@@ -389,6 +391,7 @@ namespace Rook.Handlers
                     "approve_artifact" => ApproveArtifact(args),
                     "delete_artifact" => DeleteArtifact(args),
                     "consume_approved" => ConsumeApproved(args),
+                    "publish_director_video" => PublishDirectorVideo(args),
                     "set_api_key" => SetApiKey(args),
                     "set_provider_secret" => SetProviderSecret(args),
                     "clear_provider_secret" => ClearProviderSecret(args),
@@ -474,6 +477,7 @@ namespace Rook.Handlers
                         $"op '{op}' must be routed through the sync dispatcher, not the async dispatcher."),
                     "list_artifacts" or "get_artifact" or "approve_artifact"
                         or "delete_artifact" or "consume_approved"
+                        or "publish_director_video"
                         or "set_api_key" or "get_settings_overview"
                         or "set_provider_secret" or "clear_provider_secret"
                         or "list_image_models"
@@ -1621,6 +1625,20 @@ namespace Rook.Handlers
                 if (codec.FormatID == format.Guid) return codec;
             }
             return null;
+        }
+
+        // ─── op: publish_director_video (off-UI) ───────────────────────
+
+        internal ApiResponse PublishDirectorVideo(Dictionary<string, JsonElement> args)
+        {
+            var json = new JsonObject();
+            foreach (var kvp in args)
+            {
+                json[kvp.Key] = JsonNode.Parse(kvp.Value.GetRawText());
+            }
+
+            var publisher = new DirectorVideoPublisher(_artifactStore);
+            return publisher.Publish(json);
         }
 
         // ─── op: list_artifacts (off-UI) ────────────────────────────────
