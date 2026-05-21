@@ -119,6 +119,10 @@ def test_director_video_assemble_has_native_parser_policy_and_backend_contract()
     assert "frame_count must be a positive integer" in parser_body
     assert "fps must be a positive finite number" in parser_body
     assert "width and height must be positive even integers" in parser_body
+    assert "kMaxDirectorVideoFrameCount = 5000" in source
+    assert "kMaxDirectorVideoWidth = kMaxDirectorCaptureWidth" in source
+    assert "kMaxDirectorVideoHeight = kMaxDirectorCaptureHeight" in source
+    assert "kMaxDirectorVideoFps = 240.0" in source
     assert "codec must be h264" in parser_body
     assert "container must be mp4" in parser_body
     assert "input_pattern must be frame_%04d.png" in parser_body

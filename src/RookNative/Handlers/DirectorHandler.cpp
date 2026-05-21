@@ -42,6 +42,10 @@ namespace {
 constexpr int kMaxDirectorCaptureWidth = 8192;
 constexpr int kMaxDirectorCaptureHeight = 8192;
 constexpr int kMaxDirectorCurveSampleFrameCount = 5000;
+constexpr int kMaxDirectorVideoFrameCount = 5000;
+constexpr int kMaxDirectorVideoWidth = kMaxDirectorCaptureWidth;
+constexpr int kMaxDirectorVideoHeight = kMaxDirectorCaptureHeight;
+constexpr double kMaxDirectorVideoFps = 240.0;
 
 nlohmann::json MakeErrorData(const std::string& code, const std::string& message)
 {
@@ -693,28 +697,28 @@ VideoAssembleRequest ParseVideoAssembleRequest(const nlohmann::json& body)
         body,
         "frame_count",
         1,
-        (std::numeric_limits<int>::max)(),
+        kMaxDirectorVideoFrameCount,
         "invalid_input",
         "frame_count must be a positive integer");
 
     if (!body.contains("fps") || !body["fps"].is_number())
         throw DirectorFrameValidationError("invalid_input", "fps must be a positive finite number");
     request.fps = body["fps"].get<double>();
-    if (!std::isfinite(request.fps) || request.fps <= 0.0)
+    if (!std::isfinite(request.fps) || request.fps <= 0.0 || request.fps > kMaxDirectorVideoFps)
         throw DirectorFrameValidationError("invalid_input", "fps must be a positive finite number");
 
     request.width = RequireIntInRange(
         body,
         "width",
         1,
-        (std::numeric_limits<int>::max)(),
+        kMaxDirectorVideoWidth,
         "unsupported_dimensions",
         "width and height must be positive even integers");
     request.height = RequireIntInRange(
         body,
         "height",
         1,
-        (std::numeric_limits<int>::max)(),
+        kMaxDirectorVideoHeight,
         "unsupported_dimensions",
         "width and height must be positive even integers");
     if ((request.width % 2) != 0 || (request.height % 2) != 0)

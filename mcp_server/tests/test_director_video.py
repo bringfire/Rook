@@ -128,6 +128,10 @@ def _rewrite_manifest(run_root: Path, updates: dict) -> None:
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
 
+def _read_video_manifest(run_root: Path) -> dict:
+    return json.loads((run_root / "video_manifest.json").read_text(encoding="utf-8"))
+
+
 @pytest.mark.asyncio
 async def test_assemble_video_success_uses_timeline_fps_and_writes_manifest(tmp_path):
     run_root = _write_run(tmp_path / "director")
@@ -225,6 +229,44 @@ async def test_assemble_video_invalid_explicit_fps_fails_without_native_call(tmp
 
 
 @pytest.mark.asyncio
+async def test_assemble_video_rejects_bool_timeline_fps_without_native_call(tmp_path):
+    run_root = _write_run(
+        tmp_path / "director",
+        timeline={"source": "timeline", "fps": True, "duration_seconds": 1.0, "frame_count": 2},
+    )
+    fake = FakeNative()
+
+    result = await director_video.assemble_director_video(
+        {"run_root": str(run_root)},
+        call_native=fake,
+        director_output_root=tmp_path / "director",
+    )
+
+    assert result["state"] == "failed"
+    assert result["error"]["code"] == "fps_missing"
+    assert fake.calls == []
+
+
+@pytest.mark.asyncio
+async def test_assemble_video_rejects_over_limit_fps_without_native_call(tmp_path):
+    run_root = _write_run(
+        tmp_path / "director",
+        timeline={"source": "timeline", "fps": 1000, "duration_seconds": 1.0, "frame_count": 2},
+    )
+    fake = FakeNative()
+
+    result = await director_video.assemble_director_video(
+        {"run_root": str(run_root)},
+        call_native=fake,
+        director_output_root=tmp_path / "director",
+    )
+
+    assert result["state"] == "failed"
+    assert result["error"]["code"] == "fps_missing"
+    assert fake.calls == []
+
+
+@pytest.mark.asyncio
 async def test_assemble_video_failed_first_attempt_marks_no_previous_preview(tmp_path):
     run_root = _write_run(tmp_path / "director")
     fake = FakeNative(success=False)
@@ -283,6 +325,52 @@ async def test_assemble_video_rejects_incomplete_frame_run_without_changing_stat
         json.loads((run_root / "status.json").read_text(encoding="utf-8"))["state"]
         == "failed"
     )
+    assert fake.calls == []
+
+
+@pytest.mark.asyncio
+async def test_assemble_video_rejects_missing_manifest_identity_without_native_call(
+    tmp_path,
+):
+    run_root = _write_run(tmp_path / "director")
+    manifest_path = run_root / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest.pop("schema_version")
+    manifest.pop("director_version")
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    fake = FakeNative()
+
+    result = await director_video.assemble_director_video(
+        {"run_root": str(run_root)},
+        call_native=fake,
+        director_output_root=tmp_path / "director",
+    )
+
+    assert result["state"] == "failed"
+    assert result["error"]["code"] == "invalid_run_manifest"
+    assert _read_video_manifest(run_root)["error"]["code"] == "invalid_run_manifest"
+    assert fake.calls == []
+
+
+@pytest.mark.asyncio
+async def test_assemble_video_rejects_over_limit_dimensions_without_native_call(
+    tmp_path,
+):
+    run_root = _write_run(tmp_path / "director")
+    manifest_path = run_root / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["resolution"]["width"] = director_video.MAX_VIDEO_WIDTH + 2
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    fake = FakeNative()
+
+    result = await director_video.assemble_director_video(
+        {"run_root": str(run_root)},
+        call_native=fake,
+        director_output_root=tmp_path / "director",
+    )
+
+    assert result["state"] == "failed"
+    assert result["error"]["code"] == "unsupported_dimensions"
     assert fake.calls == []
 
 

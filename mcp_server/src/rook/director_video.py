@@ -15,6 +15,10 @@ DEFAULT_OUTPUT_NAME = "preview.mp4"
 RELATIVE_OUTPUT_PATH = "videos/preview.mp4"
 RELATIVE_INPUT_PATTERN = "frames/frame_%04d.png"
 NATIVE_INPUT_PATTERN = "frame_%04d.png"
+MAX_VIDEO_FPS = 240.0
+MAX_VIDEO_FRAME_COUNT = 5000
+MAX_VIDEO_WIDTH = 8192
+MAX_VIDEO_HEIGHT = 8192
 
 
 class DirectorVideoError(Exception):
@@ -72,10 +76,21 @@ def _png_size(path: Path) -> tuple[int, int]:
     return width, height
 
 
-def _positive_int(value: Any) -> int | None:
+def _positive_int(value: Any, *, maximum: int | None = None) -> int | None:
     if type(value) is not int:
         return None
-    return value if value > 0 else None
+    if value <= 0:
+        return None
+    if maximum is not None and value > maximum:
+        return None
+    return value
+
+
+def _finite_number(value: Any) -> float | None:
+    if type(value) not in (int, float):
+        return None
+    numeric = float(value)
+    return numeric if math.isfinite(numeric) else None
 
 
 def _failure_manifest(
@@ -144,22 +159,20 @@ def _resolve_fps(
     request: dict[str, Any], manifest: dict[str, Any]
 ) -> tuple[float, str] | tuple[None, None]:
     if request.get("fps") is not None:
-        try:
-            fps = float(request["fps"])
-        except (TypeError, ValueError):
+        fps = _finite_number(request["fps"])
+        if fps is None:
             return None, None
-        if math.isfinite(fps) and fps > 0:
+        if 0 < fps <= MAX_VIDEO_FPS:
             return fps, "explicit_override"
         return None, None
 
     timeline = manifest.get("timeline")
     if not isinstance(timeline, dict):
         return None, None
-    try:
-        fps = float(timeline.get("fps"))
-    except (TypeError, ValueError):
+    fps = _finite_number(timeline.get("fps"))
+    if fps is None:
         return None, None
-    if math.isfinite(fps) and fps > 0:
+    if 0 < fps <= MAX_VIDEO_FPS:
         return fps, "timeline"
     return None, None
 
@@ -188,9 +201,11 @@ def _context_from_manifest(
 ) -> tuple[dict[str, Any], int | None, int | None, int | None]:
     resolution = manifest.get("resolution")
     resolution = resolution if isinstance(resolution, dict) else {}
-    frame_count = _positive_int(manifest.get("frame_count"))
-    width = _positive_int(resolution.get("width"))
-    height = _positive_int(resolution.get("height"))
+    frame_count = _positive_int(
+        manifest.get("frame_count"), maximum=MAX_VIDEO_FRAME_COUNT
+    )
+    width = _positive_int(resolution.get("width"), maximum=MAX_VIDEO_WIDTH)
+    height = _positive_int(resolution.get("height"), maximum=MAX_VIDEO_HEIGHT)
     fps, fps_source = _resolve_fps(request, manifest)
     context = _failure_context(
         fps=fps,
@@ -222,6 +237,22 @@ def _validate_video_child_paths(
             "output_policy_violation",
             "output_path must resolve under run_root/videos and name a file",
         )
+    return None
+
+
+def _validate_manifest_identity(manifest: dict[str, Any]) -> str | None:
+    if manifest.get("schema_version") != SCHEMA_VERSION:
+        return "manifest schema_version must be 1"
+    if manifest.get("director_version") != "slice1":
+        return "manifest director_version must be slice1"
+    if "frame_count" not in manifest:
+        return "manifest frame_count is required"
+    if not isinstance(manifest.get("resolution"), dict):
+        return "manifest resolution is required"
+    if not isinstance(manifest.get("frames"), list):
+        return "manifest frames must be an array"
+    if not isinstance(manifest.get("timeline"), dict):
+        return "manifest timeline is required"
     return None
 
 
@@ -261,6 +292,17 @@ async def assemble_director_video(
 
     run_id = str(manifest.get("run_id") or run_id)
     context, frame_count, width, height = _context_from_manifest(request, manifest)
+    manifest_identity_error = _validate_manifest_identity(manifest)
+    if manifest_identity_error is not None:
+        return _write_failure(
+            run_id=run_id,
+            run_root=run_root,
+            output_path=output_path,
+            error_code="invalid_run_manifest",
+            message=manifest_identity_error,
+            started_at=started_at,
+            context=context,
+        )
 
     try:
         status = _read_json(run_root / "status.json")
