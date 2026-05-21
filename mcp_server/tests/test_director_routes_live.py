@@ -12,7 +12,7 @@ from uuid import uuid4
 import httpx
 import pytest
 
-from rook import director
+from rook import director, server
 from .conftest import _create_brep
 
 
@@ -845,6 +845,108 @@ async def test_director_curve_follow_target_fixture_renders_four_second_video():
     endpoints = [call[0] for call in native_calls]
     assert endpoints.count("/director/curve-samples") == 1
     assert "/director/view-state" not in endpoints
+
+
+async def test_director_publish_video_live_smoke(fresh_document):
+    _require_host()
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if not local_app_data:
+        pytest.skip("LOCALAPPDATA is not available")
+
+    object_id = await _create_brep(
+        [0.0, 0.0, 0.0],
+        [1.0, 1.0, 1.0],
+        f"director_publish_smoke_{uuid4().hex}",
+    )
+    _, view_envelope = await _post_director(
+        "view-state", {"source": {"kind": "active_view"}}
+    )
+    assert view_envelope["success"] is True
+    if view_envelope["data"]["camera"]["projection"] != "perspective":
+        pytest.skip(
+            "Active Rhino view is not perspective; slice 1 director rejects parallel cameras."
+        )
+
+    run_id = f"director_publish_live_smoke_{uuid4().hex}"
+    run_result = await director.run_director(
+        {
+            "run_id": run_id,
+            "output_root": str(_director_output_root()),
+            "object_ids": [object_id],
+            "timeline": {"fps": 24, "duration_seconds": 1 / 24},
+            "resolution": {"width": 1280, "height": 720},
+            "display": {"mode": "Rendered"},
+            "motion": {"strategy": "radial_bbox_center", "parameters": {"distance": 0}},
+            "camera_keyframes": [
+                {"time": 0.0, "source": {"kind": "active_view"}},
+            ],
+        },
+        port=_director_port(),
+    )
+    assert run_result["state"] == "complete"
+    run_root = Path(run_result["run_root"])
+    manifest_path = run_root / "manifest.json"
+    status_path = run_root / "status.json"
+    assert manifest_path.is_file()
+    assert status_path.is_file()
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    status = json.loads(status_path.read_text(encoding="utf-8"))
+    assert status["state"] == "complete"
+
+    assemble_result = await server.call_tool(
+        "rhino_director_assemble_video",
+        {"run_root": str(run_root)},
+    )
+    assemble_text = assemble_result[0].text
+    if assemble_text.startswith("Error:"):
+        error_payload = json.loads(assemble_text.removeprefix("Error: "))
+        if error_payload.get("code") == "backend_unavailable":
+            pytest.skip(
+                f"Media Foundation backend unavailable on this machine: {error_payload}"
+            )
+        pytest.fail(f"Video assembly failed before publish smoke: {error_payload!r}")
+
+    assemble_payload = json.loads(assemble_text)
+    assert assemble_payload["state"] == "complete"
+    video_manifest_path = run_root / "video_manifest.json"
+    video_path = run_root / "videos" / "preview.mp4"
+    assert video_manifest_path.is_file()
+    assert video_path.is_file()
+    assert video_path.stat().st_size > 0
+
+    video_manifest = json.loads(video_manifest_path.read_text(encoding="utf-8"))
+    assert video_manifest["state"] == "complete"
+    assert video_manifest["output_current"] is True
+    assert video_manifest["output_path"] == "videos/preview.mp4"
+    assert video_manifest["format"] == "mp4"
+    assert video_manifest["container"] == "mp4"
+    assert video_manifest["codec"] == "h264"
+    assert video_manifest["width"] == manifest["resolution"]["width"] == 1280
+    assert video_manifest["height"] == manifest["resolution"]["height"] == 720
+    assert video_manifest["fps"] == manifest["timeline"]["fps"] == 24
+    assert video_manifest["frame_count"] == manifest["frame_count"]
+
+    result = await server.call_tool(
+        "rhino_director_publish_video",
+        {"run_root": str(run_root)},
+    )
+    payload = json.loads(result[0].text)
+    assert payload["state"] == "complete"
+    assert payload["profile"] == "director_publish_standard_v1"
+    artifact_id = payload["artifact_id"]
+
+    artifact_result = await server.call_tool(
+        "rhino_vision_get_artifact",
+        {"artifact_id": artifact_id},
+    )
+    artifact_payload = json.loads(artifact_result[0].text)
+    artifact = artifact_payload["artifact"]
+    assert artifact["kind"] == "generated_video"
+    files = artifact["files"]
+    assert len(files) == 1
+    assert {(file["role"], file["path"]) for file in files} == {
+        ("video", "video.mp4")
+    }
 
 
 async def test_director_video_assemble_rejects_output_outside_run_videos():
