@@ -1090,6 +1090,14 @@ VideoBackendResult EncodeMp4WithMediaFoundation(const VideoAssembleRequest& requ
 
         ThrowIfFailed(writer->Finalize(), "backend_encode_failed", "Failed to finalize MP4");
 
+        const bool tempExists = fs::exists(tempPath, ec);
+        if (ec || !tempExists)
+            throw DirectorFrameValidationError("backend_encode_failed", "MP4 temp output is missing after finalize");
+
+        const uintmax_t tempBytes = fs::file_size(tempPath, ec);
+        if (ec || tempBytes == 0)
+            throw DirectorFrameValidationError("backend_encode_failed", "MP4 temp output is empty after finalize");
+
         result.overwroteExisting = fs::exists(request.outputPath, ec);
         if (!MoveFileExW(
                 tempPath.c_str(),
@@ -1103,7 +1111,7 @@ VideoBackendResult EncodeMp4WithMediaFoundation(const VideoAssembleRequest& requ
 
         result.bytes = fs::file_size(request.outputPath, ec);
         if (ec || result.bytes == 0)
-            throw DirectorFrameValidationError("backend_encode_failed", "MP4 output is missing or empty after replacement");
+            throw DirectorFrameValidationError("output_replace_failed", "MP4 output is missing or empty after replacement");
 
         writer.Reset();
         inputType.Reset();

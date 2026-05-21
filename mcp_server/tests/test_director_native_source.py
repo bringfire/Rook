@@ -143,3 +143,16 @@ def test_director_video_assemble_has_native_parser_policy_and_backend_contract()
     assert "MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH" in source
     assert ".tmp.mp4" in source
     assert "MakeVideoErrorData" in handler_body
+
+
+def test_director_video_assemble_validates_temp_mp4_before_replacing_preview():
+    source = DIRECTOR_HANDLER.read_text(encoding="utf-8")
+    backend_body = _extract_function(source, "VideoBackendResult EncodeMp4WithMediaFoundation")
+
+    finalize_index = backend_body.index('writer->Finalize()')
+    temp_size_index = backend_body.index("const uintmax_t tempBytes = fs::file_size(tempPath, ec);")
+    overwrite_index = backend_body.index("result.overwroteExisting = fs::exists(request.outputPath, ec);")
+    replace_index = backend_body.index("MoveFileExW")
+    output_size_index = backend_body.index("result.bytes = fs::file_size(request.outputPath, ec);")
+
+    assert finalize_index < temp_size_index < overwrite_index < replace_index < output_size_index
