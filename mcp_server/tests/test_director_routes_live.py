@@ -629,3 +629,115 @@ async def test_director_run_director_live_smoke_writes_three_frames_and_restores
     for before, after in zip(source_states, restored_states):
         _assert_vector_close(after["bbox_min"], before["bbox_min"])
         _assert_vector_close(after["bbox_max"], before["bbox_max"])
+
+
+async def test_director_video_assemble_rejects_output_outside_run_videos():
+    allowed_root = _director_output_root()
+    run_root = allowed_root / f"video_policy_{uuid4().hex}"
+    frames_dir = run_root / "frames"
+    output_path = allowed_root / "escaped.mp4"
+    request = {
+        "schema_version": 1,
+        "run_id": run_root.name,
+        "run_root": str(run_root),
+        "frames_dir": str(frames_dir),
+        "input_pattern": "frame_%04d.png",
+        "start_number": 1,
+        "frame_count": 1,
+        "fps": 24,
+        "fps_source": "timeline",
+        "width": 320,
+        "height": 180,
+        "output_path": str(output_path),
+        "codec": "h264",
+        "container": "mp4",
+    }
+
+    _, envelope = await _post_director("video-assemble", request)
+
+    assert envelope["success"] is False
+    assert _error_code(envelope) == "output_policy_violation"
+
+
+async def test_director_video_assemble_rejects_odd_dimensions_before_backend():
+    allowed_root = _director_output_root()
+    run_root = allowed_root / f"video_odd_{uuid4().hex}"
+    request = {
+        "schema_version": 1,
+        "run_id": run_root.name,
+        "run_root": str(run_root),
+        "frames_dir": str(run_root / "frames"),
+        "input_pattern": "frame_%04d.png",
+        "start_number": 1,
+        "frame_count": 1,
+        "fps": 24,
+        "fps_source": "timeline",
+        "width": 321,
+        "height": 180,
+        "output_path": str(run_root / "videos" / "preview.mp4"),
+        "codec": "h264",
+        "container": "mp4",
+    }
+
+    _, envelope = await _post_director("video-assemble", request)
+
+    assert envelope["success"] is False
+    assert _error_code(envelope) == "unsupported_dimensions"
+
+
+async def test_director_video_assemble_live_smoke_after_completed_run():
+    _require_host()
+    object_id = await _create_brep(
+        [0.0, 0.0, 0.0],
+        [1.0, 1.0, 1.0],
+        f"director_video_smoke_{uuid4().hex}",
+    )
+    _, view_envelope = await _post_director("view-state", {"source": {"kind": "active_view"}})
+    assert view_envelope["success"] is True
+    if view_envelope["data"]["camera"]["projection"] != "perspective":
+        pytest.skip("Active Rhino view is not perspective; slice 1 director rejects parallel cameras.")
+
+    run_id = f"video_smoke_{uuid4().hex}"
+    result = await director.run_director(
+        {
+            "run_id": run_id,
+            "output_root": str(_director_output_root()),
+            "object_ids": [object_id],
+            "timeline": {"fps": 12, "duration_seconds": 0.25},
+            "resolution": {"width": 320, "height": 180},
+            "display": {"mode": "Rendered"},
+            "motion": {"strategy": "radial_bbox_center", "parameters": {"distance": 0}},
+            "camera_keyframes": [
+                {"time": 0.0, "source": {"kind": "active_view"}},
+                {"at": 1.0, "source": {"kind": "active_view"}},
+            ],
+        },
+        port=_director_port(),
+    )
+    assert result["state"] == "complete"
+    run_root = Path(result["run_root"])
+    manifest = json.loads((run_root / "manifest.json").read_text(encoding="utf-8"))
+    request = {
+        "schema_version": 1,
+        "run_id": run_id,
+        "run_root": str(run_root),
+        "frames_dir": str(run_root / "frames"),
+        "input_pattern": "frame_%04d.png",
+        "start_number": 1,
+        "frame_count": manifest["frame_count"],
+        "fps": manifest["timeline"]["fps"],
+        "fps_source": "timeline",
+        "width": manifest["resolution"]["width"],
+        "height": manifest["resolution"]["height"],
+        "output_path": str(run_root / "videos" / "preview.mp4"),
+        "codec": "h264",
+        "container": "mp4",
+    }
+
+    _, envelope = await _post_director("video-assemble", request)
+
+    if envelope["success"] is False and _error_code(envelope) == "backend_unavailable":
+        pytest.skip(f"Media Foundation backend unavailable on this machine: {envelope['data']}")
+    assert envelope["success"] is True
+    assert (run_root / "videos" / "preview.mp4").is_file()
+    assert (run_root / "videos" / "preview.mp4").stat().st_size > 0
