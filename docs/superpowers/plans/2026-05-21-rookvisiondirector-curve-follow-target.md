@@ -999,9 +999,9 @@ validation has the request resolution:
 
 ```python
 camera_planner.validate_camera_request(
-    normalized_request,
+    request,
     frame_count=frame_count,
-    resolution=normalized_request["resolution"],
+    resolution=request["resolution"],
 )
 ```
 
