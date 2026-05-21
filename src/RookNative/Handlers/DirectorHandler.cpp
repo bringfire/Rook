@@ -11,13 +11,29 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cwctype>
+#include <cstring>
 #include <filesystem>
+#include <iomanip>
 #include <limits>
 #include <stdexcept>
+#include <sstream>
 #include <vector>
+#include <wincodec.h>
+#include <mfapi.h>
+#include <mfidl.h>
+#include <mfreadwrite.h>
+#include <wrl/client.h>
+
+#pragma comment(lib, "mfplat.lib")
+#pragma comment(lib, "mfreadwrite.lib")
+#pragma comment(lib, "mfuuid.lib")
+#pragma comment(lib, "windowscodecs.lib")
+#pragma comment(lib, "ole32.lib")
 
 namespace fs = std::filesystem;
+using Microsoft::WRL::ComPtr;
 
 namespace Rook {
 namespace Handlers {
@@ -761,6 +777,352 @@ void ValidateVideoAssemblyPolicy(const VideoAssembleRequest& request)
         throw DirectorFrameValidationError(
             "output_policy_violation",
             "output_path must be a file below run_root/videos");
+    }
+}
+
+uint8_t ClampByte(int value)
+{
+    if (value < 0)
+        return 0;
+    if (value > 255)
+        return 255;
+    return static_cast<uint8_t>(value);
+}
+
+void ThrowIfFailed(HRESULT hr, const std::string& code, const std::string& message)
+{
+    if (FAILED(hr))
+        throw DirectorFrameValidationError(code, message);
+}
+
+std::wstring GuidSuffix()
+{
+    GUID guid = {};
+    if (FAILED(CoCreateGuid(&guid)))
+        return L"guid";
+
+    wchar_t buffer[39] = {};
+    if (StringFromGUID2(guid, buffer, 39) == 0)
+        return L"guid";
+
+    std::wstring suffix(buffer);
+    suffix.erase(std::remove(suffix.begin(), suffix.end(), L'{'), suffix.end());
+    suffix.erase(std::remove(suffix.begin(), suffix.end(), L'}'), suffix.end());
+    return suffix;
+}
+
+fs::path BuildTempVideoPath(const fs::path& outputPath)
+{
+    const std::wstring stem = outputPath.stem().native();
+    return outputPath.parent_path() / (stem + L"." + GuidSuffix() + L".tmp.mp4");
+}
+
+fs::path FramePathForIndex(const VideoAssembleRequest& request, int frameNumber)
+{
+    std::wostringstream name;
+    name << L"frame_" << std::setw(4) << std::setfill(L'0') << frameNumber << L".png";
+    return request.framesDir / name.str();
+}
+
+void FrameRateRatio(double fps, UINT32& numerator, UINT32& denominator)
+{
+    numerator = static_cast<UINT32>(std::max(1.0, std::round(fps * 1000.0)));
+    denominator = 1000;
+}
+
+struct DecodedFrame
+{
+    std::vector<uint8_t> bgra;
+    bool alphaSeen = false;
+};
+
+DecodedFrame DecodePngBgra(IWICImagingFactory* factory, const fs::path& path, int expectedWidth, int expectedHeight)
+{
+    ComPtr<IWICBitmapDecoder> decoder;
+    ThrowIfFailed(
+        factory->CreateDecoderFromFilename(
+            path.c_str(),
+            nullptr,
+            GENERIC_READ,
+            WICDecodeMetadataCacheOnLoad,
+            &decoder),
+        "unsupported_frame_format",
+        "Failed to decode PNG frame");
+
+    GUID containerFormat = {};
+    ThrowIfFailed(
+        decoder->GetContainerFormat(&containerFormat),
+        "unsupported_frame_format",
+        "Failed to inspect frame container format");
+    if (!IsEqualGUID(containerFormat, GUID_ContainerFormatPng))
+        throw DirectorFrameValidationError("unsupported_frame_format", "Frame must be a PNG image");
+
+    UINT frameCount = 0;
+    ThrowIfFailed(
+        decoder->GetFrameCount(&frameCount),
+        "unsupported_frame_format",
+        "Failed to inspect PNG frame count");
+    if (frameCount < 1)
+        throw DirectorFrameValidationError("unsupported_frame_format", "PNG frame does not contain image data");
+
+    ComPtr<IWICBitmapFrameDecode> frame;
+    ThrowIfFailed(
+        decoder->GetFrame(0, &frame),
+        "unsupported_frame_format",
+        "Failed to read PNG frame");
+
+    UINT width = 0;
+    UINT height = 0;
+    ThrowIfFailed(
+        frame->GetSize(&width, &height),
+        "unsupported_frame_format",
+        "Failed to inspect PNG dimensions");
+    if (width != static_cast<UINT>(expectedWidth) || height != static_cast<UINT>(expectedHeight))
+        throw DirectorFrameValidationError("unsupported_frame_format", "PNG dimensions do not match requested video dimensions");
+
+    ComPtr<IWICFormatConverter> converter;
+    ThrowIfFailed(
+        factory->CreateFormatConverter(&converter),
+        "unsupported_frame_format",
+        "Failed to create PNG format converter");
+
+    BOOL canConvert = FALSE;
+    WICPixelFormatGUID sourceFormat = {};
+    ThrowIfFailed(
+        frame->GetPixelFormat(&sourceFormat),
+        "unsupported_frame_format",
+        "Failed to inspect PNG pixel format");
+    ThrowIfFailed(
+        converter->CanConvert(sourceFormat, GUID_WICPixelFormat32bppBGRA, &canConvert),
+        "unsupported_frame_format",
+        "Failed to validate PNG pixel conversion");
+    if (!canConvert)
+        throw DirectorFrameValidationError("unsupported_frame_format", "PNG frame cannot be converted to BGRA");
+
+    ThrowIfFailed(
+        converter->Initialize(
+            frame.Get(),
+            GUID_WICPixelFormat32bppBGRA,
+            WICBitmapDitherTypeNone,
+            nullptr,
+            0.0,
+            WICBitmapPaletteTypeCustom),
+        "unsupported_frame_format",
+        "Failed to convert PNG frame to BGRA");
+
+    DecodedFrame decoded;
+    decoded.bgra.resize(static_cast<size_t>(expectedWidth) * static_cast<size_t>(expectedHeight) * 4);
+    const UINT stride = static_cast<UINT>(expectedWidth * 4);
+    ThrowIfFailed(
+        converter->CopyPixels(nullptr, stride, static_cast<UINT>(decoded.bgra.size()), decoded.bgra.data()),
+        "unsupported_frame_format",
+        "Failed to copy PNG pixels");
+
+    for (size_t i = 3; i < decoded.bgra.size(); i += 4)
+    {
+        const uint8_t alpha = decoded.bgra[i];
+        if (alpha < 255)
+        {
+            decoded.alphaSeen = true;
+            decoded.bgra[i - 3] = static_cast<uint8_t>((static_cast<int>(decoded.bgra[i - 3]) * alpha) / 255);
+            decoded.bgra[i - 2] = static_cast<uint8_t>((static_cast<int>(decoded.bgra[i - 2]) * alpha) / 255);
+            decoded.bgra[i - 1] = static_cast<uint8_t>((static_cast<int>(decoded.bgra[i - 1]) * alpha) / 255);
+            decoded.bgra[i] = 255;
+        }
+    }
+
+    return decoded;
+}
+
+std::vector<uint8_t> ConvertBgraToNv12(const std::vector<uint8_t>& bgra, int width, int height)
+{
+    const size_t yPlaneSize = static_cast<size_t>(width) * static_cast<size_t>(height);
+    std::vector<uint8_t> nv12(yPlaneSize + yPlaneSize / 2);
+    uint8_t* yPlane = nv12.data();
+    uint8_t* uvPlane = nv12.data() + yPlaneSize;
+
+    for (int y = 0; y < height; ++y)
+    {
+        for (int x = 0; x < width; ++x)
+        {
+            const size_t offset = (static_cast<size_t>(y) * width + x) * 4;
+            const int b = bgra[offset + 0];
+            const int g = bgra[offset + 1];
+            const int r = bgra[offset + 2];
+            yPlane[static_cast<size_t>(y) * width + x] = ClampByte(((66 * r + 129 * g + 25 * b + 128) >> 8) + 16);
+        }
+    }
+
+    for (int y = 0; y < height; y += 2)
+    {
+        for (int x = 0; x < width; x += 2)
+        {
+            int rSum = 0;
+            int gSum = 0;
+            int bSum = 0;
+            for (int dy = 0; dy < 2; ++dy)
+            {
+                for (int dx = 0; dx < 2; ++dx)
+                {
+                    const size_t offset = (static_cast<size_t>(y + dy) * width + (x + dx)) * 4;
+                    bSum += bgra[offset + 0];
+                    gSum += bgra[offset + 1];
+                    rSum += bgra[offset + 2];
+                }
+            }
+
+            const int r = rSum / 4;
+            const int g = gSum / 4;
+            const int b = bSum / 4;
+            const size_t uvOffset = static_cast<size_t>(y / 2) * width + x;
+            uvPlane[uvOffset + 0] = ClampByte(((-38 * r - 74 * g + 112 * b + 128) >> 8) + 128);
+            uvPlane[uvOffset + 1] = ClampByte(((112 * r - 94 * g - 18 * b + 128) >> 8) + 128);
+        }
+    }
+
+    return nv12;
+}
+
+struct VideoBackendResult
+{
+    bool overwroteExisting = false;
+    uintmax_t bytes = 0;
+    bool alphaComposited = false;
+};
+
+std::string PathToUtf8(const fs::path& path);
+
+VideoBackendResult EncodeMp4WithMediaFoundation(const VideoAssembleRequest& request)
+{
+    std::error_code ec;
+    fs::create_directories(request.outputPath.parent_path(), ec);
+    if (ec)
+        throw DirectorFrameValidationError("output_policy_violation", "Failed to create videos directory: " + ec.message());
+
+    const fs::path tempPath = BuildTempVideoPath(request.outputPath);
+    fs::remove(tempPath, ec);
+    if (ec)
+        throw DirectorFrameValidationError("backend_encode_failed", "Failed to clear temp video output: " + ec.message());
+
+    HRESULT coHr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    const bool uninitializeCom = SUCCEEDED(coHr);
+    if (FAILED(coHr) && coHr != RPC_E_CHANGED_MODE)
+        throw DirectorFrameValidationError("backend_unavailable", "COM initialization failed");
+
+    bool mediaFoundationStarted = false;
+    HRESULT hr = MFStartup(MF_VERSION);
+    if (SUCCEEDED(hr))
+        mediaFoundationStarted = true;
+    try
+    {
+        ThrowIfFailed(hr, "backend_unavailable", "Media Foundation startup failed");
+
+        UINT32 frameRateNumerator = 0;
+        UINT32 frameRateDenominator = 0;
+        FrameRateRatio(request.fps, frameRateNumerator, frameRateDenominator);
+
+        ComPtr<IWICImagingFactory> wicFactory;
+        ThrowIfFailed(
+            CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wicFactory)),
+            "backend_unavailable",
+            "Windows Imaging Component is unavailable");
+
+        ComPtr<IMFSinkWriter> writer;
+        ThrowIfFailed(
+            MFCreateSinkWriterFromURL(tempPath.c_str(), nullptr, nullptr, &writer),
+            "backend_unavailable",
+            "Failed to create Media Foundation MP4 sink writer");
+
+        ComPtr<IMFMediaType> outputType;
+        ThrowIfFailed(MFCreateMediaType(&outputType), "backend_unavailable", "Failed to create output media type");
+        ThrowIfFailed(outputType->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video), "backend_unavailable", "Failed to set output major type");
+        ThrowIfFailed(outputType->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_H264), "backend_unavailable", "Failed to set H.264 output type");
+        ThrowIfFailed(outputType->SetUINT32(MF_MT_AVG_BITRATE, 8000000), "backend_unavailable", "Failed to set output bitrate");
+        ThrowIfFailed(outputType->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive), "backend_unavailable", "Failed to set output interlace mode");
+        ThrowIfFailed(MFSetAttributeSize(outputType.Get(), MF_MT_FRAME_SIZE, request.width, request.height), "backend_unavailable", "Failed to set output frame size");
+        ThrowIfFailed(MFSetAttributeRatio(outputType.Get(), MF_MT_FRAME_RATE, frameRateNumerator, frameRateDenominator), "backend_unavailable", "Failed to set output frame rate");
+        ThrowIfFailed(MFSetAttributeRatio(outputType.Get(), MF_MT_PIXEL_ASPECT_RATIO, 1, 1), "backend_unavailable", "Failed to set output pixel aspect ratio");
+
+        DWORD streamIndex = 0;
+        ThrowIfFailed(writer->AddStream(outputType.Get(), &streamIndex), "backend_unavailable", "Failed to add H.264 output stream");
+
+        ComPtr<IMFMediaType> inputType;
+        ThrowIfFailed(MFCreateMediaType(&inputType), "backend_unavailable", "Failed to create input media type");
+        ThrowIfFailed(inputType->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video), "backend_unavailable", "Failed to set input major type");
+        ThrowIfFailed(inputType->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_NV12), "backend_unavailable", "Failed to set NV12 input type");
+        ThrowIfFailed(inputType->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive), "backend_unavailable", "Failed to set input interlace mode");
+        ThrowIfFailed(MFSetAttributeSize(inputType.Get(), MF_MT_FRAME_SIZE, request.width, request.height), "backend_unavailable", "Failed to set input frame size");
+        ThrowIfFailed(MFSetAttributeRatio(inputType.Get(), MF_MT_FRAME_RATE, frameRateNumerator, frameRateDenominator), "backend_unavailable", "Failed to set input frame rate");
+        ThrowIfFailed(MFSetAttributeRatio(inputType.Get(), MF_MT_PIXEL_ASPECT_RATIO, 1, 1), "backend_unavailable", "Failed to set input pixel aspect ratio");
+        ThrowIfFailed(writer->SetInputMediaType(streamIndex, inputType.Get(), nullptr), "backend_unavailable", "Failed to set NV12 input media type");
+        ThrowIfFailed(writer->BeginWriting(), "backend_unavailable", "Failed to begin Media Foundation writing");
+
+        VideoBackendResult result;
+        const LONGLONG frameDuration = static_cast<LONGLONG>((10000000.0 / request.fps) + 0.5);
+        for (int i = 0; i < request.frameCount; ++i)
+        {
+            const fs::path framePath = FramePathForIndex(request, request.startNumber + i);
+            if (!fs::exists(framePath, ec))
+                throw DirectorFrameValidationError("missing_frame", "Frame does not exist: " + PathToUtf8(framePath));
+
+            DecodedFrame decoded = DecodePngBgra(wicFactory.Get(), framePath, request.width, request.height);
+            result.alphaComposited = result.alphaComposited || decoded.alphaSeen;
+            std::vector<uint8_t> nv12 = ConvertBgraToNv12(decoded.bgra, request.width, request.height);
+
+            ComPtr<IMFMediaBuffer> buffer;
+            ThrowIfFailed(MFCreateMemoryBuffer(static_cast<DWORD>(nv12.size()), &buffer), "backend_encode_failed", "Failed to create frame buffer");
+
+            BYTE* destination = nullptr;
+            DWORD maxLength = 0;
+            DWORD currentLength = 0;
+            ThrowIfFailed(buffer->Lock(&destination, &maxLength, &currentLength), "backend_encode_failed", "Failed to lock frame buffer");
+            std::memcpy(destination, nv12.data(), nv12.size());
+            ThrowIfFailed(buffer->Unlock(), "backend_encode_failed", "Failed to unlock frame buffer");
+            ThrowIfFailed(buffer->SetCurrentLength(static_cast<DWORD>(nv12.size())), "backend_encode_failed", "Failed to set frame buffer length");
+
+            ComPtr<IMFSample> sample;
+            ThrowIfFailed(MFCreateSample(&sample), "backend_encode_failed", "Failed to create video sample");
+            ThrowIfFailed(sample->AddBuffer(buffer.Get()), "backend_encode_failed", "Failed to attach video frame buffer");
+            ThrowIfFailed(sample->SetSampleTime(static_cast<LONGLONG>(i) * frameDuration), "backend_encode_failed", "Failed to set video sample time");
+            ThrowIfFailed(sample->SetSampleDuration(frameDuration), "backend_encode_failed", "Failed to set video sample duration");
+            ThrowIfFailed(writer->WriteSample(streamIndex, sample.Get()), "backend_encode_failed", "Failed to write video sample");
+        }
+
+        ThrowIfFailed(writer->Finalize(), "backend_encode_failed", "Failed to finalize MP4");
+
+        result.overwroteExisting = fs::exists(request.outputPath, ec);
+        if (!MoveFileExW(
+                tempPath.c_str(),
+                request.outputPath.c_str(),
+                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+        {
+            throw DirectorFrameValidationError(
+                "output_replace_failed",
+                "Failed to atomically replace preview output with temp MP4");
+        }
+
+        result.bytes = fs::file_size(request.outputPath, ec);
+        if (ec || result.bytes == 0)
+            throw DirectorFrameValidationError("backend_encode_failed", "MP4 output is missing or empty after replacement");
+
+        writer.Reset();
+        inputType.Reset();
+        outputType.Reset();
+        wicFactory.Reset();
+        if (mediaFoundationStarted)
+            MFShutdown();
+        if (uninitializeCom)
+            CoUninitialize();
+        return result;
+    }
+    catch (...)
+    {
+        fs::remove(tempPath, ec);
+        if (mediaFoundationStarted)
+            MFShutdown();
+        if (uninitializeCom)
+            CoUninitialize();
+        throw;
     }
 }
 
@@ -1788,23 +2150,31 @@ void HandleDirectorVideoAssemble(const httplib::Request& req, httplib::Response&
         VideoAssembleRequest request = ParseVideoAssembleRequest(body);
         ValidateVideoAssemblyPolicy(request);
 
+        VideoBackendResult backend = EncodeMp4WithMediaFoundation(request);
         nlohmann::json evidence;
         evidence["backend"] = "media_foundation";
-        evidence["codec"] = request.codec;
-        evidence["container"] = request.container;
+        evidence["codec"] = "h264";
+        evidence["container"] = "mp4";
         evidence["width"] = request.width;
         evidence["height"] = request.height;
         evidence["frame_count"] = request.frameCount;
         evidence["fps"] = request.fps;
         evidence["input_pattern"] = request.inputPattern;
+        if (backend.alphaComposited)
+        {
+            evidence["alpha_composited"] = true;
+            evidence["alpha_background"] = "#000000";
+        }
 
-        CRookServer::SendErrorData(
-            res,
-            MakeVideoErrorData(
-                body,
-                "backend_unavailable",
-                "Media Foundation backend is not implemented yet",
-                std::move(evidence)));
+        nlohmann::json data;
+        data["success"] = true;
+        data["backend"] = "media_foundation";
+        data["platform"] = "windows";
+        data["output_path"] = PathToUtf8(request.outputPath);
+        data["bytes"] = backend.bytes;
+        data["overwrote_existing"] = backend.overwroteExisting;
+        data["evidence"] = std::move(evidence);
+        CRookServer::SendSuccess(res, data);
     }
     catch (const DirectorFrameValidationError& ex)
     {
