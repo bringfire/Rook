@@ -748,9 +748,9 @@ VideoAssembleRequest ParseVideoAssembleRequest(const nlohmann::json& body)
             body,
             "start_number",
             1,
-            (std::numeric_limits<int>::max)(),
+            1,
             "invalid_input",
-            "start_number must be a positive integer");
+            "start_number must be 1");
     }
 
     if (body.contains("run_id") && body["run_id"].is_string())

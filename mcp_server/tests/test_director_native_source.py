@@ -129,6 +129,7 @@ def test_director_video_assemble_has_native_parser_policy_and_backend_contract()
     assert "codec must be h264" in parser_body
     assert "container must be mp4" in parser_body
     assert "input_pattern must be frame_%04d.png" in parser_body
+    assert "start_number must be 1" in parser_body
 
     assert "GetAllowedDirectorRoot()" in policy_body
     assert "run_root_policy_violation" in policy_body
