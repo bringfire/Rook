@@ -16,6 +16,7 @@ RELATIVE_OUTPUT_PATH = "videos/preview.mp4"
 RELATIVE_INPUT_PATTERN = "frames/frame_%04d.png"
 NATIVE_INPUT_PATTERN = "frame_%04d.png"
 MAX_VIDEO_FPS = 240.0
+MIN_VIDEO_FPS = 1.0
 MAX_VIDEO_FRAME_COUNT = 5000
 MAX_VIDEO_WIDTH = 8192
 MAX_VIDEO_HEIGHT = 8192
@@ -162,7 +163,7 @@ def _resolve_fps(
         fps = _finite_number(request["fps"])
         if fps is None:
             return None, None
-        if 0 < fps <= MAX_VIDEO_FPS:
+        if MIN_VIDEO_FPS <= fps <= MAX_VIDEO_FPS:
             return fps, "explicit_override"
         return None, None
 
@@ -172,7 +173,7 @@ def _resolve_fps(
     fps = _finite_number(timeline.get("fps"))
     if fps is None:
         return None, None
-    if 0 < fps <= MAX_VIDEO_FPS:
+    if MIN_VIDEO_FPS <= fps <= MAX_VIDEO_FPS:
         return fps, "timeline"
     return None, None
 

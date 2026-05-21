@@ -267,6 +267,25 @@ async def test_assemble_video_rejects_over_limit_fps_without_native_call(tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_assemble_video_rejects_tiny_positive_fps_without_native_call(tmp_path):
+    run_root = _write_run(
+        tmp_path / "director",
+        timeline={"source": "timeline", "fps": 1e-300, "duration_seconds": 1.0, "frame_count": 2},
+    )
+    fake = FakeNative()
+
+    result = await director_video.assemble_director_video(
+        {"run_root": str(run_root)},
+        call_native=fake,
+        director_output_root=tmp_path / "director",
+    )
+
+    assert result["state"] == "failed"
+    assert result["error"]["code"] == "fps_missing"
+    assert fake.calls == []
+
+
+@pytest.mark.asyncio
 async def test_assemble_video_failed_first_attempt_marks_no_previous_preview(tmp_path):
     run_root = _write_run(tmp_path / "director")
     fake = FakeNative(success=False)

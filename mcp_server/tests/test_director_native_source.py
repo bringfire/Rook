@@ -122,6 +122,7 @@ def test_director_video_assemble_has_native_parser_policy_and_backend_contract()
     assert "kMaxDirectorVideoFrameCount = 5000" in source
     assert "kMaxDirectorVideoWidth = kMaxDirectorCaptureWidth" in source
     assert "kMaxDirectorVideoHeight = kMaxDirectorCaptureHeight" in source
+    assert "kMinDirectorVideoFps = 1.0" in source
     assert "kMaxDirectorVideoFps = 240.0" in source
     assert "codec must be h264" in parser_body
     assert "container must be mp4" in parser_body

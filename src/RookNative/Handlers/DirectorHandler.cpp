@@ -45,6 +45,7 @@ constexpr int kMaxDirectorCurveSampleFrameCount = 5000;
 constexpr int kMaxDirectorVideoFrameCount = 5000;
 constexpr int kMaxDirectorVideoWidth = kMaxDirectorCaptureWidth;
 constexpr int kMaxDirectorVideoHeight = kMaxDirectorCaptureHeight;
+constexpr double kMinDirectorVideoFps = 1.0;
 constexpr double kMaxDirectorVideoFps = 240.0;
 
 nlohmann::json MakeErrorData(const std::string& code, const std::string& message)
@@ -704,7 +705,7 @@ VideoAssembleRequest ParseVideoAssembleRequest(const nlohmann::json& body)
     if (!body.contains("fps") || !body["fps"].is_number())
         throw DirectorFrameValidationError("invalid_input", "fps must be a positive finite number");
     request.fps = body["fps"].get<double>();
-    if (!std::isfinite(request.fps) || request.fps <= 0.0 || request.fps > kMaxDirectorVideoFps)
+    if (!std::isfinite(request.fps) || request.fps < kMinDirectorVideoFps || request.fps > kMaxDirectorVideoFps)
         throw DirectorFrameValidationError("invalid_input", "fps must be a positive finite number");
 
     request.width = RequireIntInRange(
