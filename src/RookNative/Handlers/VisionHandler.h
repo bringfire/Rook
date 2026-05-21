@@ -67,6 +67,11 @@ void HandleVisionDeleteArtifact(const httplib::Request& req, httplib::Response& 
 // Returns {artifact: {...} | null}.
 void HandleVisionConsumeApproved(const httplib::Request& req, httplib::Response& res);
 
+// POST /vision/director/publish-video — Thin proxy to managed
+// publish_director_video. Native owns transport only; Python owns
+// Director publish validation and managed owns artifact safety.
+void HandleVisionDirectorPublishVideo(const httplib::Request& req, httplib::Response& res);
+
 // ─── V2 video routes ────────────────────────────────────────────────
 // All five proxy through the same vision_dispatch bridge callback
 // (ABI v14, no bump). Long-form op names are injected by native and
