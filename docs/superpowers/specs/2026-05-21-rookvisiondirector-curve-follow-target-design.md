@@ -174,8 +174,8 @@ strategy-specific provenance:
       },
       "curve_sampling": {
         "sampling_mode": "normalized_parameter",
-        "parameter_mapping": "domain_normalized",
-        "frame_count_source": "request",
+        "parameter_mapping": "curve_domain_parameter_at",
+        "frame_count_source": "caller_canonical_frame_count",
         "arc_length_sampled": false,
         "validation_strength": "curve_parameter_sampled"
       }
