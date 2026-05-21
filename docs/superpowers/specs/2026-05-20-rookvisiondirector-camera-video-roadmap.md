@@ -1,8 +1,10 @@
 # RookVisionDirector Camera And Video Roadmap
 
 Date: 2026-05-20
+Last updated: 2026-05-21
 
-Status: approved roadmap, pre-implementation planning
+Status: active roadmap; Phases 1, 1.5, 2, and 3 are complete. The next slice is
+Phase 4, the `curve_follow_target` camera strategy.
 
 ## Purpose
 
@@ -20,6 +22,26 @@ Render the frames and package them into a video.
 ```
 
 This roadmap defines the path from the current slice to that workflow.
+
+## Current State As Of 2026-05-21
+
+The deterministic frame spine and local playback loop are now implemented on
+`main`:
+
+- PR #162 fixed Director frame capture validation and proved the slice 1 live
+  end-to-end frame run.
+- PR #164 extracted keyframe camera planning into
+  `mcp_server/src/rook/camera_planner.py`.
+- PR #168 added timeline authoring, canonical FPS/duration/frame-count
+  resolution, and keyframe timing normalization.
+- PR #170 added the native read-only `/director/curve-samples` primitive.
+- PR #172 added explicit post-run MP4 assembly through
+  `rhino_director_assemble_video` and native `/director/video-assemble`.
+
+Completed Director runs can now produce PNG frame sequences, keep frame-run
+status separate from video assembly status, and assemble local Windows H.264 MP4
+previews through Media Foundation. The roadmap now moves to camera-path authoring
+on top of that proven frame/video loop.
 
 ## Point A
 
@@ -58,8 +80,8 @@ captured.
 Live testing has also proven the current combined frame spine: a completed
 Director run can interpolate camera keyframes and radial object motion together
 across a PNG sequence while restoring objects, viewport, and display mode after
-each frame. The next practical gap is local video playback from that completed
-frame run.
+each frame. Local video playback from a completed frame run is now complete; the
+next practical gap is authoring camera movement from Rhino curve paths.
 
 ## Point B
 
@@ -363,10 +385,16 @@ and provenance value.
 This phase consumes the canonical `frame_count` produced by Phase 1.5. It does
 not derive frame count from FPS or duration itself.
 
-### Phase 3: Platform-Native MP4 Video Assembly
+### Phase 3: Platform-Native MP4 Video Assembly (Complete)
 
 Add an explicit post-run assembly tool/API that turns a completed Director PNG
 frame run into a local MP4 preview.
+
+This shipped in PR #172. Python now owns post-run orchestration, frame-run
+validation, FPS resolution, stale-preview semantics, and deterministic
+`video_manifest.json` writing. RookNative exposes `/director/video-assemble`,
+enforces Director output-root policy independently, decodes PNG frames with WIC,
+and encodes H.264 MP4 with Media Foundation on Windows.
 
 The contract is intentionally narrow:
 
@@ -448,6 +476,19 @@ Video assembly is an explicit post-run operation first. A future convenience
 flag on `rhino_director_run` may opt into automatic assembly only after the
 post-run contract is stable.
 
+Acceptance:
+
+- completed frame runs assemble through `rhino_director_assemble_video`;
+- `status.json` remains the frame-run status and is not rewritten by video
+  assembly success or failure;
+- `video_manifest.json` records success and failure state separately;
+- frame count, FPS, dimensions, frame sequence completeness, and output path
+  policy are validated before encoding;
+- Windows Media Foundation MP4 assembly was live-smoked against a 96-frame,
+  1280x720, 24 FPS Director run;
+- FFmpeg, artifact publication, UI/gallery exposure, and Mac encoding remain out
+  of this slice.
+
 ### Phase 4: Curve-Follow Target Camera Strategy
 
 Add a Python camera strategy:
@@ -488,7 +529,7 @@ This phase should consume completed Director outputs. It should not become a
 dependency of camera planning, native frame capture, or local native video
 assembly.
 
-## Non-Goals For The First Follow-Up Slice
+## Non-Goals For The Completed Phase 3 Slice
 
 The platform-native MP4 assembly slice does not implement:
 
@@ -500,9 +541,10 @@ The platform-native MP4 assembly slice does not implement:
 - native `/director/frame-capture` changes;
 - Mac AVFoundation implementation.
 
-It exists to prove that completed Director frame runs can become local preview
+It existed to prove that completed Director frame runs can become local preview
 videos without weakening the deterministic frame-run spine or introducing GPL
-licensing ambiguity.
+licensing ambiguity. That proof is complete; these remain non-goals for the
+Phase 4 camera-path slice.
 
 ## Self-Review
 
@@ -516,5 +558,7 @@ licensing ambiguity.
 - MP4 output is explicitly separated from frame-run status.
 - The next video path avoids FFmpeg/libx264 licensing ambiguity by using a
   platform-native backend boundary.
-- Curve-follow now follows video assembly so camera-path smoothness can be
-  reviewed as playback.
+- Phase 3 is complete: local MP4 previews now provide the playback surface for
+  reviewing camera-path smoothness.
+- Phase 4 should add `curve_follow_target` without changing frame capture,
+  video assembly, artifact publishing, or UI/gallery behavior.

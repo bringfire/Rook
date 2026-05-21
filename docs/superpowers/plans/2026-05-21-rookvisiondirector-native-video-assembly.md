@@ -10,6 +10,28 @@
 
 ---
 
+## Completion Status
+
+Status as of 2026-05-21: implemented and merged in PR #172,
+`[codex] Add RookVisionDirector native video assembly`.
+
+This plan is retained as the historical execution plan for the completed Phase 3
+slice. The unchecked task boxes below are historical plan scaffolding, not open
+work. The source of truth for completion is PR #172 and commit
+`a36be9a Add RookVisionDirector native video assembly` on `main`.
+
+Verified completion recorded in PR #172:
+
+- focused Python/MCP/native-source tests passed: `43 passed`;
+- native Debug build with MSVC `14.44.35207` succeeded earlier on the branch;
+- native-only local deploy succeeded;
+- live Rhino smoke produced a completed 96-frame, 1280x720, 24 FPS Director run;
+- `rhino_director_assemble_video` produced
+  `videos/preview.mp4` through the `media_foundation` backend;
+- `video_manifest.json` recorded `state: complete`, `output_current: true`,
+  `preserved_previous_output: false`, and no `error`;
+- `status.json` remained the frame-run status.
+
 ## Constraints
 
 - Do not add automatic video generation to `rhino_director_run`.
