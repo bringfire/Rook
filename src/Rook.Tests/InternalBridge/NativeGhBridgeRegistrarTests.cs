@@ -162,6 +162,29 @@ namespace Rook.Tests.InternalBridge
                 : matches[matches.Count - 1].Groups["name"].Value;
         }
 
+        private static string FindRepoRoot()
+        {
+            var dir = new DirectoryInfo(AppContext.BaseDirectory);
+            while (dir is not null)
+            {
+                if (File.Exists(Path.Combine(dir.FullName, "Rook.sln")))
+                    return dir.FullName;
+                dir = dir.Parent;
+            }
+            throw new DirectoryNotFoundException("Could not locate Rook.sln from test output directory.");
+        }
+
+        private static string ExtractSwitchArm(string source, string caseLabel)
+        {
+            var caseIndex = source.IndexOf(caseLabel, StringComparison.Ordinal);
+            Assert.True(caseIndex >= 0, $"Could not find switch case: {caseLabel}");
+
+            var nextCaseIndex = source.IndexOf("\n                case ", caseIndex + caseLabel.Length, StringComparison.Ordinal);
+            Assert.True(nextCaseIndex > caseIndex, $"Could not find switch case after: {caseLabel}");
+
+            return source.Substring(caseIndex, nextCaseIndex - caseIndex);
+        }
+
         [Theory]
         [InlineData(415)]
         [InlineData(500)]
@@ -250,13 +273,32 @@ namespace Rook.Tests.InternalBridge
         }
 
         [Fact]
-        public void ExpectedVisionOps_HasExactly15Ops()
+        public void ExpectedVisionOps_ContainsDirectorPublishVideo()
         {
-            // Pinned count: 8 image + 5 V2 video + 2 V4 video list ops.
+            Assert.Contains("publish_director_video", NativeGhBridgeRegistrar.ExpectedVisionOps);
+        }
+
+        [Fact]
+        public void ExpectedVisionOps_HasExactly16Ops()
+        {
+            // Pinned count: 8 image + 1 Director publish + 5 V2 video + 2 V4 video list ops.
             // If this drifts, either a new op landed (update both the
             // count and the per-op test above) or one was removed
             // (intentional retirement).
-            Assert.Equal(15, NativeGhBridgeRegistrar.ExpectedVisionOps.Count);
+            Assert.Equal(16, NativeGhBridgeRegistrar.ExpectedVisionOps.Count);
+        }
+
+        [Fact]
+        public void VisionDispatch_RoutesDirectorPublishVideoThroughOffUi()
+        {
+            var source = File.ReadAllText(Path.Combine(FindRepoRoot(), "src", "Rook", "InternalBridge", "NativeGhBridgeRegistrar.cs"));
+            var publishArm = ExtractSwitchArm(source, "case \"publish_director_video\":");
+
+            Assert.Contains("return ExecuteOffUiApiResponseCallback(", publishArm);
+            Assert.Contains("reqJson => Vision.DispatchOffUi(reqJson)", publishArm);
+            Assert.Contains("timeoutSeconds: 180", publishArm);
+            Assert.DoesNotContain("_videoOpHandler", publishArm);
+            Assert.DoesNotContain("ExecuteAsyncApiResponseCallback", publishArm);
         }
 
         [Theory]

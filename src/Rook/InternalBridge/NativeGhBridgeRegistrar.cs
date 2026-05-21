@@ -80,6 +80,8 @@ namespace Rook.InternalBridge
                 "approve_artifact",
                 "delete_artifact",
                 "consume_approved",
+                // Director publish
+                "publish_director_video",
                 // V2 video
                 VideoOpHandler.OpSubmit,
                 VideoOpHandler.OpStatus,
@@ -1660,6 +1662,21 @@ namespace Rook.InternalBridge
                         requestJson,
                         reqJson => Vision.DispatchOffUi(reqJson),
                         timeoutSeconds: 30);
+
+                case "publish_director_video":
+                    // Off-UI sync path — disk-heavy Director publish
+                    // work can hash and copy large video blobs, then
+                    // re-hash the stored copy. Native still owns only
+                    // dispatch; managed Vision.DispatchOffUi owns the
+                    // ArtifactStore safety and publish semantics.
+                    return ExecuteOffUiApiResponseCallback(
+                        responseJsonUtf8,
+                        responseJsonCapacity,
+                        responseJsonLength,
+                        httpStatusCode,
+                        requestJson,
+                        reqJson => Vision.DispatchOffUi(reqJson),
+                        timeoutSeconds: 180);
 
                 case VideoOpHandler.OpSubmit:
                 case VideoOpHandler.OpCancel:
