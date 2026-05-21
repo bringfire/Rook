@@ -257,6 +257,34 @@ async def test_assemble_video_rejects_incomplete_frame_run_without_changing_stat
 
 
 @pytest.mark.asyncio
+async def test_assemble_video_missing_status_after_manifest_keeps_known_context(
+    tmp_path,
+):
+    run_root = _write_run(tmp_path / "director", frame_count=3, width=640, height=360)
+    (run_root / "status.json").unlink()
+    fake = FakeNative()
+
+    result = await director_video.assemble_director_video(
+        {"run_root": str(run_root)},
+        call_native=fake,
+        director_output_root=tmp_path / "director",
+    )
+
+    assert result["state"] == "failed"
+    assert result["error"]["code"] == "missing_run_metadata"
+    manifest = json.loads((run_root / "video_manifest.json").read_text(encoding="utf-8"))
+    assert manifest["output_path"] == "videos/preview.mp4"
+    assert manifest["frame_count"] == 3
+    assert manifest["width"] == 640
+    assert manifest["height"] == 360
+    assert manifest["fps"] == 24
+    assert manifest["fps_source"] == "timeline"
+    assert manifest["input_pattern"] == "frames/frame_%04d.png"
+    assert "completed_at" in manifest
+    assert fake.calls == []
+
+
+@pytest.mark.asyncio
 async def test_assemble_video_rejects_frame_dimension_mismatch(tmp_path):
     run_root = _write_run(tmp_path / "director", frame_count=2)
     (run_root / "frames" / "frame_0002.png").write_bytes(_png_header(640, 180))

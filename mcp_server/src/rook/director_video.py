@@ -184,6 +184,26 @@ def _failure_context(
     }
 
 
+def _context_from_manifest(
+    request: dict[str, Any],
+    manifest: dict[str, Any],
+) -> tuple[dict[str, Any], int | None, int | None, int | None]:
+    resolution = manifest.get("resolution")
+    resolution = resolution if isinstance(resolution, dict) else {}
+    frame_count = _positive_int(manifest.get("frame_count"))
+    width = _positive_int(resolution.get("width"))
+    height = _positive_int(resolution.get("height"))
+    fps, fps_source = _resolve_fps(request, manifest)
+    context = _failure_context(
+        fps=fps,
+        fps_source=fps_source,
+        frame_count=frame_count,
+        width=width,
+        height=height,
+    )
+    return context, frame_count, width, height
+
+
 async def assemble_director_video(
     request: dict[str, Any],
     *,
@@ -208,7 +228,6 @@ async def assemble_director_video(
 
     try:
         manifest = _read_json(run_root / "manifest.json")
-        status = _read_json(run_root / "status.json")
     except (OSError, json.JSONDecodeError, DirectorVideoError) as ex:
         return _write_failure(
             run_id=run_id,
@@ -220,16 +239,20 @@ async def assemble_director_video(
         )
 
     run_id = str(manifest.get("run_id") or run_id)
-    resolution = manifest.get("resolution")
-    resolution = resolution if isinstance(resolution, dict) else {}
-    frame_count = _positive_int(manifest.get("frame_count"))
-    width = _positive_int(resolution.get("width"))
-    height = _positive_int(resolution.get("height"))
-    context = _failure_context(
-        frame_count=frame_count,
-        width=width,
-        height=height,
-    )
+    context, frame_count, width, height = _context_from_manifest(request, manifest)
+
+    try:
+        status = _read_json(run_root / "status.json")
+    except (OSError, json.JSONDecodeError, DirectorVideoError) as ex:
+        return _write_failure(
+            run_id=run_id,
+            run_root=run_root,
+            output_path=output_path,
+            error_code="missing_run_metadata",
+            message=str(ex),
+            started_at=started_at,
+            context=context,
+        )
 
     if status.get("state") != "complete":
         return _write_failure(
@@ -242,9 +265,8 @@ async def assemble_director_video(
             context=context,
         )
 
-    fps, fps_source = _resolve_fps(request, manifest)
-    context["fps"] = fps
-    context["fps_source"] = fps_source
+    fps = context["fps"]
+    fps_source = context["fps_source"]
     if fps is None or fps_source is None:
         return _write_failure(
             run_id=run_id,
