@@ -314,6 +314,68 @@ async def test_publish_video_rejects_frame_video_manifest_mismatch(
 
 
 @pytest.mark.asyncio
+async def test_publish_video_rejects_source_symlink_escape(tmp_path):
+    run_root = _write_standard_run(tmp_path / "director")
+    outside = tmp_path / "outside.mp4"
+    outside.write_bytes(b"outside-video")
+    source_path = run_root / "videos" / "preview.mp4"
+    source_path.unlink()
+    try:
+        source_path.symlink_to(outside)
+    except OSError as ex:
+        pytest.skip(f"symlink creation is unavailable: {ex}")
+    managed = FakeManagedPublish()
+
+    result = await director_publish.publish_director_video(
+        {"run_root": str(run_root)},
+        call_managed=managed,
+        director_output_root=tmp_path / "director",
+    )
+
+    assert result["state"] == "failed"
+    assert result["error"]["code"] == "source_path_invalid"
+    assert managed.calls == []
+    publish_manifest = json.loads(
+        (run_root / "publish_manifest.json").read_text(encoding="utf-8")
+    )
+    assert publish_manifest["error"]["code"] == "source_path_invalid"
+
+
+@pytest.mark.asyncio
+async def test_publish_video_sends_validated_absolute_source_path(
+    tmp_path, monkeypatch
+):
+    run_root = _write_standard_run(tmp_path / "director")
+    expected_source_path = (run_root / "videos" / "preview.mp4").resolve()
+    escaped_path = (tmp_path / "escaped.mp4").resolve()
+    escaped_path.write_bytes(b"escaped-video")
+    original_resolve = type(expected_source_path).resolve
+    source_resolve_calls = 0
+
+    def resolve_with_swap(self, *args, **kwargs):
+        nonlocal source_resolve_calls
+        resolved = original_resolve(self, *args, **kwargs)
+        if resolved == expected_source_path:
+            source_resolve_calls += 1
+            if source_resolve_calls >= 2:
+                return escaped_path
+        return resolved
+
+    monkeypatch.setattr(type(expected_source_path), "resolve", resolve_with_swap)
+    managed = FakeManagedPublish()
+
+    result = await director_publish.publish_director_video(
+        {"run_root": str(run_root)},
+        call_managed=managed,
+        director_output_root=tmp_path / "director",
+    )
+
+    assert result["state"] == "complete"
+    assert managed.calls[0][2]["source"]["absolute_path"] == str(expected_source_path)
+    assert managed.calls[0][2]["source"]["absolute_path"] != str(escaped_path)
+
+
+@pytest.mark.asyncio
 async def test_publish_video_idempotent_path_passes_prior_artifact_id(tmp_path):
     run_root = _write_standard_run(tmp_path / "director")
     previous = {
@@ -474,3 +536,54 @@ async def test_publish_video_preserves_managed_subcode(tmp_path):
         (run_root / "publish_manifest.json").read_text(encoding="utf-8")
     )
     assert publish_manifest["error"]["managed_subcode"] == "source_hash_mismatch"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("artifact_id", [None, "", "not-a-guid"])
+async def test_publish_video_rejects_managed_success_without_valid_artifact_id(
+    tmp_path, artifact_id
+):
+    run_root = _write_standard_run(tmp_path / "director")
+    managed = FakeManagedPublish({"success": True, "data": {"artifact_id": artifact_id}})
+
+    result = await director_publish.publish_director_video(
+        {"run_root": str(run_root)},
+        call_managed=managed,
+        director_output_root=tmp_path / "director",
+    )
+
+    assert result["state"] == "failed"
+    assert result["error"]["code"] == "managed_publish_rejected"
+    publish_manifest = json.loads(
+        (run_root / "publish_manifest.json").read_text(encoding="utf-8")
+    )
+    assert publish_manifest["state"] == "failed"
+    assert publish_manifest["artifact_id"] is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("success_value", ["false", 1, None])
+async def test_publish_video_rejects_malformed_managed_success_flag(
+    tmp_path, success_value
+):
+    run_root = _write_standard_run(tmp_path / "director")
+    managed = FakeManagedPublish(
+        {
+            "success": success_value,
+            "data": {"artifact_id": "00000000-0000-0000-0000-000000000099"},
+        }
+    )
+
+    result = await director_publish.publish_director_video(
+        {"run_root": str(run_root)},
+        call_managed=managed,
+        director_output_root=tmp_path / "director",
+    )
+
+    assert result["state"] == "failed"
+    assert result["error"]["code"] == "managed_publish_rejected"
+    publish_manifest = json.loads(
+        (run_root / "publish_manifest.json").read_text(encoding="utf-8")
+    )
+    assert publish_manifest["state"] == "failed"
+    assert publish_manifest["artifact_id"] is None
