@@ -34,18 +34,99 @@ Implement this plan against:
 
 - Modify `mcp_server/src/rook/camera_planner.py`
   Add strategy-aware validation, UUID and boolean-safe numeric helpers, curve-follow native dispatch, strict sample indexing, optics authority, up/direction rejection, and direct per-frame camera output.
+- Modify `mcp_server/src/rook/timeline.py`
+  Normalize `camera.keyframes` only for `camera.strategy == "keyframes"`; leave `curve_follow_target` camera requests unchanged.
 - Modify `mcp_server/src/rook/director.py`
   Make manifest camera fields strategy-aware. Keep legacy keyframe fields stable for keyframes and write empty legacy arrays for non-keyframe plans.
 - Modify `mcp_server/src/rook/server.py`
   Update `rhino_director_run` schema so `camera.required == ["strategy"]` and the new fields are documented without rejected schema keywords.
 - Modify `mcp_server/tests/test_camera_planner.py`
   Add planner tests for success, validation, native failure parsing, strict sample indexing, optics authority, and no view-state calls.
+- Modify `mcp_server/tests/test_timeline.py`
+  Add timeline normalization coverage that proves `curve_follow_target` cameras pass through without keyframe normalization.
 - Modify `mcp_server/tests/test_director.py`
   Add orchestration and manifest compatibility tests, including fail-fast validation before `/director/object-states`.
 - Modify `mcp_server/tests/test_director_mcp_tools.py`
   Add schema tests for the new strategy and required-field change.
 - Modify `mcp_server/tests/test_director_routes_live.py`
   Add only a guarded live smoke if existing helpers can resolve a fixture curve to UUID without adding a runtime lookup path.
+
+---
+
+### Task 1A: Timeline Pass-Through For Non-Keyframe Camera Strategies
+
+**Files:**
+- Modify: `mcp_server/tests/test_timeline.py`
+- Modify: `mcp_server/src/rook/timeline.py`
+
+- [ ] **Step 1: Add a failing timeline pass-through test**
+
+Add a test proving `timeline.normalize_director_request()` does not treat
+`curve_follow_target` as keyframe input:
+
+```python
+def test_timeline_leaves_curve_follow_target_camera_unchanged():
+    camera = {
+        "strategy": "curve_follow_target",
+        "curve_id": "00000000-0000-0000-0000-000000000001",
+        "target": [0.0, 0.0, 0.0],
+        "up": [0.0, 0.0, 1.0],
+        "sampling": {"mode": "normalized_parameter", "start": 0.0, "end": 1.0},
+        "lens_length": 35.0,
+    }
+
+    normalized, manifest = timeline.normalize_director_request(
+        {
+            "object_ids": ["a"],
+            "timeline": {"fps": 24, "duration_seconds": 0.125},
+            "resolution": {"width": 320, "height": 180},
+            "camera": camera,
+        }
+    )
+
+    assert normalized["frame_count"] == 3
+    assert normalized["camera"] == camera
+    assert manifest["frame_count"] == 3
+```
+
+- [ ] **Step 2: Run the timeline test and verify red**
+
+Run:
+
+```powershell
+python -m pytest mcp_server/tests/test_timeline.py::test_timeline_leaves_curve_follow_target_camera_unchanged -q
+```
+
+Expected before implementation: fails because timeline normalization attempts to
+normalize missing `camera.keyframes`.
+
+- [ ] **Step 3: Make top-level camera normalization strategy-aware**
+
+In `mcp_server/src/rook/timeline.py`, replace the current unconditional
+top-level camera keyframe normalization with:
+
+```python
+if isinstance(normalized.get("camera"), dict):
+    camera = dict(normalized["camera"])
+    if camera.get("strategy") == "keyframes":
+        camera["keyframes"] = _normalize_keyframes(
+            camera.get("keyframes"),
+            timeline_manifest=timeline_manifest,
+        )
+    normalized["camera"] = camera
+```
+
+Do not change legacy top-level `camera_keyframes` normalization.
+
+- [ ] **Step 4: Run timeline tests**
+
+Run:
+
+```powershell
+python -m pytest mcp_server/tests/test_timeline.py -q
+```
+
+Expected: all timeline tests pass.
 
 ---
 
@@ -450,33 +531,69 @@ Expected before implementation: new curve-follow tests fail because
 
 - [ ] **Step 1: Add imports and numeric helpers**
 
-Add `uuid` and boolean-safe helpers:
+Add `uuid`. Keep legacy keyframe numeric-string coercion intact, but reject
+booleans explicitly. Add a stricter helper only for curve-follow authoring and
+native sample validation:
 
 ```python
 import uuid
 ```
 
 ```python
-def _finite_float(value: Any) -> float | None:
+def _coerce_float(value: Any) -> float | None:
     if isinstance(value, bool):
         return None
-    if type(value) not in (int, float):
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return None
+    return result if math.isfinite(result) else None
+
+
+def _strict_float(value: Any) -> float | None:
+    if isinstance(value, bool) or type(value) not in (int, float):
         return None
     result = float(value)
     return result if math.isfinite(result) else None
 
 
 def _finite_positive(value: Any) -> float | None:
-    result = _finite_float(value)
+    result = _coerce_float(value)
     if result is None or result <= 0:
         return None
     return result
+
+
+def _valid_fov(value: Any) -> float | None:
+    result = _coerce_float(value)
+    if result is None or result <= 0 or result >= 180:
+        return None
+    return result
+
+
+def _point3(camera: dict[str, Any], field: str) -> list[float]:
+    value = camera.get(field)
+    if not isinstance(value, list) or len(value) != 3:
+        raise CameraPlanError(f"camera.{field} must be a 3-number array")
+    values = [_coerce_float(item) for item in value]
+    if any(item is None for item in values):
+        raise CameraPlanError(f"camera.{field} must be a 3-number array")
+    return [float(item) for item in values]
+
+
+def _strict_point3(value: Any, message: str) -> list[float]:
+    if not isinstance(value, list) or len(value) != 3:
+        raise CameraPlanError(message)
+    values = [_strict_float(item) for item in value]
+    if any(item is None for item in values):
+        raise CameraPlanError(message)
+    return [float(item) for item in values]
 ```
 
-Update `_valid_fov()` and `_point3()` to reject booleans. `_point3()` should
-raise `CameraPlanError(f"camera.{field} must be a 3-number array")` for authoring
-fields and can be reused with field names such as `"location"` for generated
-cameras.
+Use `_coerce_float()`, `_finite_positive()`, `_valid_fov()`, and `_point3()` for
+existing keyframe paths so numeric strings continue to work while booleans do
+not. Use `_strict_float()` and `_strict_point3()` only for
+`curve_follow_target` authoring fields and native curve samples.
 
 - [ ] **Step 2: Make `normalize_camera_request()` strategy-aware**
 
@@ -517,8 +634,8 @@ def _validated_sampling(value: Any) -> dict[str, Any]:
         raise CameraPlanError("camera.sampling is required")
     if value.get("mode") != "normalized_parameter":
         raise CameraPlanError("camera.sampling.mode must be normalized_parameter")
-    start = _finite_float(value.get("start"))
-    end = _finite_float(value.get("end"))
+    start = _strict_float(value.get("start"))
+    end = _strict_float(value.get("end"))
     if start is None or end is None:
         raise CameraPlanError("camera.sampling start and end must be finite numbers")
     if start < 0.0 or start > 1.0 or end < 0.0 or end > 1.0:
@@ -530,8 +647,16 @@ def _validated_sampling(value: Any) -> dict[str, Any]:
 
 def _validate_curve_follow_request(camera_request: dict[str, Any], *, aspect: float) -> dict[str, Any]:
     curve_id = _validated_uuid_string(camera_request.get("curve_id"), "curve_id")
-    target = _point3(camera_request, "target")
-    up = _normalize(_point3(camera_request, "up"))
+    target = _strict_point3(
+        camera_request.get("target"),
+        "camera.target must be a finite 3-number array",
+    )
+    up = _normalize(
+        _strict_point3(
+            camera_request.get("up"),
+            "camera.up must be a finite 3-number array",
+        )
+    )
     if up is None:
         raise CameraPlanError("camera up vector became degenerate")
     sampling = _validated_sampling(camera_request.get("sampling"))
@@ -561,11 +686,11 @@ def validate_camera_request(
     request: dict[str, Any],
     *,
     frame_count: int,
-    resolution: dict[str, int] | None = None,
+    resolution: dict[str, int],
 ) -> dict[str, Any]:
+    aspect = _aspect_from_resolution(resolution)
     camera_request, request_shape = normalize_camera_request(request)
     if camera_request.get("strategy") == "curve_follow_target":
-        aspect = _aspect_from_resolution(resolution or {"width": 1, "height": 1})
         validated_curve = _validate_curve_follow_request(camera_request, aspect=aspect)
         validated_curve["request_shape"] = request_shape
         return validated_curve
@@ -577,10 +702,9 @@ def validate_camera_request(
     }
 ```
 
-Update callers so `resolve_camera_plan()` passes the real resolution. If keeping
-the existing signature is simpler for compatibility, use aspect `1.0` inside
-`validate_camera_request()` and run full validation again in `resolve_camera_plan()`;
-the key invariant is no native calls during validation.
+Update all direct callers and tests so `resolution` is supplied. This keeps the
+fail-fast path native-free while using the same aspect calculation as final
+camera resolution.
 
 - [ ] **Step 5: Add strict sample and native-error helpers**
 
@@ -599,13 +723,10 @@ def _native_error_message(data: Any) -> str:
 
 
 def _sample_point(sample: dict[str, Any]) -> list[float]:
-    point = sample.get("point")
-    if not isinstance(point, list) or len(point) != 3:
-        raise CameraPlanError("curve sample point must be a 3-number array")
-    values = [_finite_float(value) for value in point]
-    if any(value is None for value in values):
-        raise CameraPlanError("curve sample point must be a finite 3-number array")
-    return [float(value) for value in values]
+    return _strict_point3(
+        sample.get("point"),
+        "curve sample point must be a finite 3-number array",
+    )
 
 
 def _indexed_curve_samples(samples: Any, *, frame_count: int) -> dict[int, dict[str, Any]]:
@@ -782,6 +903,7 @@ if endpoint == "/director/curve-samples":
 @pytest.mark.asyncio
 async def test_director_rejects_invalid_curve_follow_before_object_resolution(tmp_path):
     native = FakeNative([], create_outputs=True)
+    allowed_root = tmp_path / "data" / "rookvision_director"
 
     with pytest.raises(director.DirectorInputError, match="curve_id"):
         await director.run_director(
@@ -801,9 +923,10 @@ async def test_director_rejects_invalid_curve_follow_before_object_resolution(tm
                     },
                     "lens_length": 35.0,
                 },
-                "output_root": str(tmp_path / "director"),
+                "output_root": str(allowed_root),
             },
             call_native=native,
+            runtime=_runtime(tmp_path),
         )
 
     assert not any(call[0] == "/director/object-states" for call in native.calls)
@@ -816,6 +939,7 @@ async def test_director_rejects_invalid_curve_follow_before_object_resolution(tm
 async def test_director_curve_follow_target_writes_strategy_manifest_and_frame_cameras(tmp_path):
     native = FakeNative([], create_outputs=True)
     curve_id = "00000000-0000-0000-0000-000000000001"
+    allowed_root = tmp_path / "data" / "rookvision_director"
 
     result = await director.run_director(
         {
@@ -834,9 +958,10 @@ async def test_director_curve_follow_target_writes_strategy_manifest_and_frame_c
                 },
                 "lens_length": 35.0,
             },
-            "output_root": str(tmp_path / "director"),
+            "output_root": str(allowed_root),
         },
         call_native=native,
+        runtime=_runtime(tmp_path),
     )
 
     manifest = json.loads((Path(result["run_root"]) / "manifest.json").read_text(encoding="utf-8"))
@@ -1115,7 +1240,7 @@ claim live verification unless Rhino actually runs the test.
 - [ ] **Step 1: Run focused non-live tests**
 
 ```powershell
-python -m pytest mcp_server/tests/test_camera_planner.py mcp_server/tests/test_director.py mcp_server/tests/test_director_mcp_tools.py -q
+python -m pytest mcp_server/tests/test_timeline.py mcp_server/tests/test_camera_planner.py mcp_server/tests/test_director.py mcp_server/tests/test_director_mcp_tools.py -q
 ```
 
 Expected: all selected tests pass.
@@ -1140,9 +1265,11 @@ Expected changed files are limited to:
 
 ```text
 mcp_server/src/rook/camera_planner.py
+mcp_server/src/rook/timeline.py
 mcp_server/src/rook/director.py
 mcp_server/src/rook/server.py
 mcp_server/tests/test_camera_planner.py
+mcp_server/tests/test_timeline.py
 mcp_server/tests/test_director.py
 mcp_server/tests/test_director_mcp_tools.py
 mcp_server/tests/test_director_routes_live.py
@@ -1155,6 +1282,8 @@ scope before proceeding.
 
 - `target` is numeric-only and schema text does not imply ids or names are accepted.
 - `curve_id` validates as a UUID string before native calls.
+- Timeline normalization leaves `camera.strategy == "curve_follow_target"` unchanged instead of requiring `camera.keyframes`.
+- Existing keyframe numeric-string coercion remains supported while booleans are rejected.
 - `validate_camera_request()` stays native-free.
 - Invalid curve-follow authoring fails before `/director/object-states`.
 - `curve_follow_target` calls `/director/curve-samples` once and never calls `/director/view-state`.
