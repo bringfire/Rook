@@ -580,3 +580,22 @@ async def test_assemble_video_rejects_run_root_outside_director_root(tmp_path):
     assert result["state"] == "failed"
     assert result["error"]["code"] == "run_root_policy_violation"
     assert fake.calls == []
+
+
+@pytest.mark.asyncio
+async def test_assemble_video_missing_run_root_does_not_create_directory(tmp_path):
+    run_root = tmp_path / "director" / "missing-run"
+    fake = FakeNative()
+
+    result = await director_video.assemble_director_video(
+        {"run_root": str(run_root)},
+        call_native=fake,
+        director_output_root=tmp_path / "director",
+    )
+
+    assert result["state"] == "failed"
+    assert result["error"]["code"] == "missing_run_metadata"
+    assert result["output_current"] is False
+    assert result["preserved_previous_output"] is False
+    assert not run_root.exists()
+    assert fake.calls == []

@@ -279,6 +279,15 @@ async def assemble_director_video(
             started_at=started_at,
         )
 
+    if not run_root.is_dir():
+        return _failure_manifest(
+            run_id=run_id,
+            output_path=output_path,
+            error_code="missing_run_metadata",
+            message="run_root must be an existing Director run directory",
+            started_at=started_at,
+        )
+
     try:
         manifest = _read_json(run_root / "manifest.json")
     except (OSError, json.JSONDecodeError, DirectorVideoError) as ex:

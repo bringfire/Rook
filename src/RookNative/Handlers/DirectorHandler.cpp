@@ -699,14 +699,14 @@ VideoAssembleRequest ParseVideoAssembleRequest(const nlohmann::json& body)
         "frame_count",
         1,
         kMaxDirectorVideoFrameCount,
-        "invalid_input",
+        "frame_count_mismatch",
         "frame_count must be a positive integer");
 
     if (!body.contains("fps") || !body["fps"].is_number())
-        throw DirectorFrameValidationError("invalid_input", "fps must be a positive finite number");
+        throw DirectorFrameValidationError("fps_missing", "fps must be a positive finite number");
     request.fps = body["fps"].get<double>();
     if (!std::isfinite(request.fps) || request.fps < kMinDirectorVideoFps || request.fps > kMaxDirectorVideoFps)
-        throw DirectorFrameValidationError("invalid_input", "fps must be a positive finite number");
+        throw DirectorFrameValidationError("fps_missing", "fps must be a positive finite number");
 
     request.width = RequireIntInRange(
         body,
@@ -1095,6 +1095,9 @@ VideoBackendResult EncodeMp4WithMediaFoundation(const VideoAssembleRequest& requ
         }
 
         ThrowIfFailed(writer->Finalize(), "backend_encode_failed", "Failed to finalize MP4");
+        writer.Reset();
+        inputType.Reset();
+        outputType.Reset();
 
         const bool tempExists = fs::exists(tempPath, ec);
         if (ec || !tempExists)
@@ -1119,9 +1122,6 @@ VideoBackendResult EncodeMp4WithMediaFoundation(const VideoAssembleRequest& requ
         if (ec || result.bytes == 0)
             throw DirectorFrameValidationError("output_replace_failed", "MP4 output is missing or empty after replacement");
 
-        writer.Reset();
-        inputType.Reset();
-        outputType.Reset();
         wicFactory.Reset();
         if (mediaFoundationStarted)
             MFShutdown();

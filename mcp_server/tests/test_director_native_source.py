@@ -117,7 +117,9 @@ def test_director_video_assemble_has_native_parser_policy_and_backend_contract()
     assert "frames_dir is required" in parser_body
     assert "output_path is required" in parser_body
     assert "frame_count must be a positive integer" in parser_body
+    assert '"frame_count_mismatch"' in parser_body
     assert "fps must be a positive finite number" in parser_body
+    assert 'DirectorFrameValidationError("fps_missing"' in parser_body
     assert "width and height must be positive even integers" in parser_body
     assert "kMaxDirectorVideoFrameCount = 5000" in source
     assert "kMaxDirectorVideoWidth = kMaxDirectorCaptureWidth" in source
@@ -155,9 +157,10 @@ def test_director_video_assemble_validates_temp_mp4_before_replacing_preview():
     backend_body = _extract_function(source, "VideoBackendResult EncodeMp4WithMediaFoundation")
 
     finalize_index = backend_body.index('writer->Finalize()')
+    writer_release_index = backend_body.index("writer.Reset();", finalize_index)
     temp_size_index = backend_body.index("const uintmax_t tempBytes = fs::file_size(tempPath, ec);")
     overwrite_index = backend_body.index("result.overwroteExisting = fs::exists(request.outputPath, ec);")
     replace_index = backend_body.index("MoveFileExW")
     output_size_index = backend_body.index("result.bytes = fs::file_size(request.outputPath, ec);")
 
-    assert finalize_index < temp_size_index < overwrite_index < replace_index < output_size_index
+    assert finalize_index < writer_release_index < temp_size_index < overwrite_index < replace_index < output_size_index
