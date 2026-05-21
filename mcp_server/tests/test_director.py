@@ -184,6 +184,34 @@ class FakeNative:
                     "provenance": provenance,
                 },
             }
+        if endpoint == "/director/curve-samples":
+            return {
+                "success": True,
+                "data": {
+                    "schema_version": 1,
+                    "curve_id": data["curve_id"],
+                    "frame_count": data["frame_count"],
+                    "samples": [
+                        {
+                            "frame_index": index,
+                            "normalized_parameter": 0.0
+                            if data["frame_count"] == 1
+                            else (index - 1) / (data["frame_count"] - 1),
+                            "curve_parameter": float(index),
+                            "point": [float(index), -10.0, 5.0],
+                            "tangent": [1.0, 0.0, 0.0],
+                        }
+                        for index in range(1, data["frame_count"] + 1)
+                    ],
+                    "provenance": {
+                        "sampling_mode": "normalized_parameter",
+                        "parameter_mapping": "curve_domain_parameter_at",
+                        "frame_count_source": "caller_canonical_frame_count",
+                        "arc_length_sampled": False,
+                        "validation_strength": "curve_parameter_sampled",
+                    },
+                },
+            }
         result = self.responses.pop(0)
         if endpoint == "/director/frame-capture" and self.create_outputs and result.get("success"):
             output_path = Path(data["output_path"])
@@ -309,6 +337,100 @@ def test_explicit_camera_keyframe_normalizes_optional_numeric_fields(tmp_path):
     assert frame_camera["aspect"] == pytest.approx(320 / 180)
     assert frame_camera["near_clip"] == 0.1
     assert frame_camera["far_clip"] == 1000.0
+
+
+@pytest.mark.asyncio
+async def test_director_rejects_invalid_curve_follow_before_object_resolution(tmp_path):
+    native = FakeNative([], create_outputs=True)
+    allowed_root = tmp_path / "data" / "rookvision_director"
+
+    with pytest.raises(director.DirectorInputError, match="curve_id"):
+        await director.run_director(
+            {
+                "object_ids": ["a"],
+                "frame_count": 1,
+                "resolution": {"width": 320, "height": 180},
+                "camera": {
+                    "strategy": "curve_follow_target",
+                    "curve_id": "not-a-uuid",
+                    "target": [0.0, 0.0, 0.0],
+                    "up": [0.0, 0.0, 1.0],
+                    "sampling": {
+                        "mode": "normalized_parameter",
+                        "start": 0.0,
+                        "end": 1.0,
+                    },
+                    "lens_length": 35.0,
+                },
+                "output_root": str(allowed_root),
+            },
+            call_native=native,
+            runtime=_runtime(tmp_path),
+        )
+
+    assert not any(call[0] == "/director/object-states" for call in native.calls)
+
+
+@pytest.mark.asyncio
+async def test_director_curve_follow_target_writes_strategy_manifest_and_frame_cameras(
+    tmp_path,
+):
+    native = FakeNative(
+        [
+            {"success": True, "data": {"frame_id": "frame_0001", "dirty_partial_state": False}},
+            {"success": True, "data": {"frame_id": "frame_0002", "dirty_partial_state": False}},
+            {"success": True, "data": {"frame_id": "frame_0003", "dirty_partial_state": False}},
+        ],
+        create_outputs=True,
+    )
+    curve_id = "00000000-0000-0000-0000-000000000001"
+    allowed_root = tmp_path / "data" / "rookvision_director"
+
+    result = await director.run_director(
+        {
+            "object_ids": ["a"],
+            "timeline": {"fps": 24, "duration_seconds": 0.125},
+            "resolution": {"width": 320, "height": 180},
+            "camera": {
+                "strategy": "curve_follow_target",
+                "curve_id": curve_id,
+                "target": [0.0, 0.0, 0.0],
+                "up": [0.0, 0.0, 1.0],
+                "sampling": {
+                    "mode": "normalized_parameter",
+                    "start": 0.0,
+                    "end": 1.0,
+                },
+                "lens_length": 35.0,
+            },
+            "output_root": str(allowed_root),
+        },
+        call_native=native,
+        runtime=_runtime(tmp_path),
+    )
+
+    manifest = json.loads(
+        (Path(result["run_root"]) / "manifest.json").read_text(encoding="utf-8")
+    )
+    assert manifest["camera_plan"]["strategy"] == "curve_follow_target"
+    assert manifest["camera_plan"]["request_shape"] == "camera_strategy"
+    assert manifest["camera_plan"]["aspect_authority"] == "output_resolution"
+    assert manifest["camera_plan"]["optics_authority"] == "lens_length"
+    assert manifest["camera_plan"]["provenance"]["curve_id"] == curve_id
+    assert (
+        manifest["camera_plan"]["provenance"]["curve_sampling"]["parameter_mapping"]
+        == "curve_domain_parameter_at"
+    )
+    assert manifest["camera_keyframes"] == []
+    assert manifest["camera_keyframe_provenance"] == []
+    assert all(
+        frame["camera"]["projection"] == "perspective" for frame in manifest["frames"]
+    )
+
+    endpoints = [call[0] for call in native.calls]
+    assert "/director/view-state" not in endpoints
+    assert endpoints.count("/director/curve-samples") == 1
+    assert endpoints.count("/director/frame-capture") == manifest["frame_count"]
 
 
 def test_run_complete_writes_manifest_status_and_evidence(tmp_path):

@@ -2528,18 +2528,66 @@ Use this before any Rhino operations to ensure Rhino is available. Safe to call 
                     },
                     "camera": {
                         "type": "object",
-                        "description": "Explicit camera planning request. Phase 1 supports strategy keyframes.",
-                        "required": ["strategy", "keyframes"],
+                        "additionalProperties": True,
+                        "description": (
+                            "Camera planning request. strategy may be keyframes or "
+                            "curve_follow_target. Runtime validation enforces "
+                            "strategy-specific required fields."
+                        ),
+                        "required": ["strategy"],
                         "properties": {
                             "strategy": {
                                 "type": "string",
-                                "description": "Must be keyframes for this slice.",
+                                "description": "Camera strategy: keyframes or curve_follow_target.",
                             },
                             "keyframes": {
                                 "type": "array",
                                 "items": {"type": "object"},
                                 "minItems": 1,
                                 "description": "Camera keyframes using the same shape as camera_keyframes.",
+                            },
+                            "curve_id": {
+                                "type": "string",
+                                "description": "Rhino curve object UUID string for curve_follow_target; not a name lookup.",
+                            },
+                            "target": {
+                                "type": "array",
+                                "items": {"type": "number"},
+                                "minItems": 3,
+                                "maxItems": 3,
+                                "description": "numeric [x, y, z] target point for curve_follow_target; not an object id or name.",
+                            },
+                            "up": {
+                                "type": "array",
+                                "items": {"type": "number"},
+                                "minItems": 3,
+                                "maxItems": 3,
+                                "description": "Numeric 3-vector up direction for curve_follow_target.",
+                            },
+                            "sampling": {
+                                "type": "object",
+                                "required": ["mode", "start", "end"],
+                                "additionalProperties": True,
+                                "description": "Curve sampling for curve_follow_target. v1 supports normalized_parameter only.",
+                                "properties": {
+                                    "mode": {
+                                        "type": "string",
+                                        "description": "Use normalized_parameter for v1.",
+                                    },
+                                    "start": {"type": "number", "minimum": 0, "maximum": 1},
+                                    "end": {"type": "number", "minimum": 0, "maximum": 1},
+                                },
+                            },
+                            "lens_length": {
+                                "type": "number",
+                                "exclusiveMinimum": 0,
+                                "description": "Perspective lens length. Authoritative when supplied.",
+                            },
+                            "fov_degrees": {
+                                "type": "number",
+                                "exclusiveMinimum": 0,
+                                "exclusiveMaximum": 180,
+                                "description": "Perspective FOV in degrees. Used only when lens_length is absent.",
                             },
                         },
                     },

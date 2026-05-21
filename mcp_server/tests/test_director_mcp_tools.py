@@ -89,6 +89,21 @@ async def test_director_tool_registered():
     camera_schema = source_schema["properties"]["camera"]
     assert "lens_length or fov_degrees" in camera_schema["description"]
     assert camera_schema["required"] == ["projection", "location", "target", "up"]
+    camera_request_schema = schema["properties"]["camera"]
+    assert camera_request_schema["required"] == ["strategy"]
+    assert "curve_follow_target" in camera_request_schema["properties"]["strategy"]["description"]
+    assert "curve_id" in camera_request_schema["properties"]
+    assert (
+        "Rhino curve object UUID"
+        in camera_request_schema["properties"]["curve_id"]["description"]
+    )
+    assert "not a name" in camera_request_schema["properties"]["curve_id"]["description"]
+    assert "target" in camera_request_schema["properties"]
+    assert "numeric" in camera_request_schema["properties"]["target"]["description"]
+    assert "not an object" in camera_request_schema["properties"]["target"]["description"]
+    assert "sampling" in camera_request_schema["properties"]
+    assert "lens_length" in camera_request_schema["properties"]
+    assert "fov_degrees" in camera_request_schema["properties"]
 
 
 @pytest.mark.asyncio

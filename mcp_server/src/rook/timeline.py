@@ -166,9 +166,10 @@ def normalize_director_request(
 
     if isinstance(normalized.get("camera"), dict):
         camera = dict(normalized["camera"])
-        camera["keyframes"] = _normalize_keyframes(
-            camera.get("keyframes"), timeline_manifest=timeline_manifest
-        )
+        if camera.get("strategy") == "keyframes":
+            camera["keyframes"] = _normalize_keyframes(
+                camera.get("keyframes"), timeline_manifest=timeline_manifest
+            )
         normalized["camera"] = camera
     elif "camera_keyframes" in normalized:
         normalized["camera_keyframes"] = _normalize_keyframes(

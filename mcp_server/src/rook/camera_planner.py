@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import uuid
 from typing import Any
 
 
@@ -38,11 +39,18 @@ def normalize_camera_request(request: dict[str, Any]) -> tuple[dict[str, Any], s
     if isinstance(request.get("camera"), dict):
         camera_request = dict(request["camera"])
         strategy = camera_request.get("strategy")
-        if strategy != "keyframes":
-            raise CameraPlanError("camera.strategy must be keyframes for this slice")
-        if not isinstance(camera_request.get("keyframes"), list) or not camera_request["keyframes"]:
-            raise CameraPlanError("camera.keyframes must be a non-empty array")
-        return camera_request, "camera_strategy"
+        if strategy == "keyframes":
+            if (
+                not isinstance(camera_request.get("keyframes"), list)
+                or not camera_request["keyframes"]
+            ):
+                raise CameraPlanError("camera.keyframes must be a non-empty array")
+            return camera_request, "camera_strategy"
+        if strategy == "curve_follow_target":
+            return camera_request, "camera_strategy"
+        raise CameraPlanError(
+            "camera.strategy must be keyframes or curve_follow_target for this slice"
+        )
 
     if "camera_keyframes" in request:
         keyframes = request.get("camera_keyframes")
@@ -98,8 +106,14 @@ def validate_camera_request(
     request: dict[str, Any],
     *,
     frame_count: int,
+    resolution: dict[str, int],
 ) -> dict[str, Any]:
+    aspect = _aspect_from_resolution(resolution)
     camera_request, request_shape = normalize_camera_request(request)
+    if camera_request.get("strategy") == "curve_follow_target":
+        validated_curve = _validate_curve_follow_request(camera_request, aspect=aspect)
+        validated_curve["request_shape"] = request_shape
+        return validated_curve
     keyframes = _validated_keyframes(camera_request, frame_count)
     return {
         "strategy": "keyframes",
@@ -108,26 +122,33 @@ def validate_camera_request(
     }
 
 
-def _finite_positive(value: Any) -> float | None:
-    if value is None:
+def _coerce_float(value: Any) -> float | None:
+    if isinstance(value, bool):
         return None
     try:
         result = float(value)
     except (TypeError, ValueError):
         return None
-    if not math.isfinite(result) or result <= 0:
+    return result if math.isfinite(result) else None
+
+
+def _strict_float(value: Any) -> float | None:
+    if isinstance(value, bool) or type(value) not in (int, float):
+        return None
+    result = float(value)
+    return result if math.isfinite(result) else None
+
+
+def _finite_positive(value: Any) -> float | None:
+    result = _coerce_float(value)
+    if result is None or result <= 0:
         return None
     return result
 
 
 def _valid_fov(value: Any) -> float | None:
-    if value is None:
-        return None
-    try:
-        result = float(value)
-    except (TypeError, ValueError):
-        return None
-    if not math.isfinite(result) or result <= 0 or result >= 180:
+    result = _coerce_float(value)
+    if result is None or result <= 0 or result >= 180:
         return None
     return result
 
@@ -154,13 +175,85 @@ def _point3(camera: dict[str, Any], field: str) -> list[float]:
     value = camera.get(field)
     if not isinstance(value, list) or len(value) != 3:
         raise CameraPlanError(f"camera.{field} must be a 3-number array")
-    try:
-        result = [float(v) for v in value]
-    except (TypeError, ValueError) as ex:
-        raise CameraPlanError(f"camera.{field} must be a 3-number array") from ex
-    if not all(math.isfinite(v) for v in result):
+    result = [_coerce_float(v) for v in value]
+    if any(v is None for v in result):
         raise CameraPlanError(f"camera.{field} must be a 3-number array")
-    return result
+    return [float(v) for v in result]
+
+
+def _strict_point3(value: Any, message: str) -> list[float]:
+    if not isinstance(value, list) or len(value) != 3:
+        raise CameraPlanError(message)
+    result = [_strict_float(v) for v in value]
+    if any(v is None for v in result):
+        raise CameraPlanError(message)
+    return [float(v) for v in result]
+
+
+def _validated_uuid_string(value: Any, field: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise CameraPlanError(f"camera.{field} must be a Rhino curve object UUID string")
+    try:
+        uuid.UUID(value.strip())
+    except ValueError as ex:
+        raise CameraPlanError(
+            f"camera.{field} must be a Rhino curve object UUID string"
+        ) from ex
+    return value.strip()
+
+
+def _validated_sampling(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise CameraPlanError("camera.sampling is required")
+    if value.get("mode") != "normalized_parameter":
+        raise CameraPlanError("camera.sampling.mode must be normalized_parameter")
+    start = _strict_float(value.get("start"))
+    end = _strict_float(value.get("end"))
+    if start is None or end is None:
+        raise CameraPlanError("camera.sampling start and end must be finite numbers")
+    if start < 0.0 or start > 1.0 or end < 0.0 or end > 1.0:
+        raise CameraPlanError("camera.sampling start and end must be in 0..1")
+    if end < start:
+        raise CameraPlanError(
+            "camera.sampling end must be greater than or equal to start"
+        )
+    return {"mode": "normalized_parameter", "start": start, "end": end}
+
+
+def _validate_curve_follow_request(
+    camera_request: dict[str, Any], *, aspect: float
+) -> dict[str, Any]:
+    curve_id = _validated_uuid_string(camera_request.get("curve_id"), "curve_id")
+    target = _strict_point3(
+        camera_request.get("target"),
+        "camera.target must be a finite 3-number array",
+    )
+    up = _normalize(
+        _strict_point3(
+            camera_request.get("up"),
+            "camera.up must be a finite 3-number array",
+        )
+    )
+    if up is None:
+        raise CameraPlanError("camera up vector became degenerate")
+    sampling = _validated_sampling(camera_request.get("sampling"))
+    lens_length = _optional_lens_length(camera_request)
+    fov_degrees = _optional_fov_degrees(camera_request)
+    if lens_length is None and fov_degrees is None:
+        raise CameraPlanError("perspective camera requires lens_length or fov_degrees")
+    return {
+        "strategy": "curve_follow_target",
+        "curve_id": curve_id,
+        "target": target,
+        "up": up,
+        "sampling": sampling,
+        "lens_length": lens_length,
+        "fov_degrees": fov_degrees,
+        "aspect": aspect,
+        "optics_authority": "lens_length"
+        if lens_length is not None
+        else "fov_degrees",
+    }
 
 
 def _validate_resolved_camera(camera: Any, *, aspect: float) -> dict[str, Any]:
@@ -317,6 +410,120 @@ def interpolate_camera_frames(
     return cameras
 
 
+def _native_error_message(data: Any) -> str:
+    if isinstance(data, dict):
+        nested = data.get("error")
+        if isinstance(nested, dict):
+            return str(nested.get("code") or nested.get("message") or nested)
+        return str(data.get("code") or data.get("message") or data)
+    if data is None:
+        return "curve sample resolution failed"
+    return str(data)
+
+
+def _sample_point(sample: dict[str, Any]) -> list[float]:
+    return _strict_point3(
+        sample.get("point"),
+        "curve sample point must be a finite 3-number array",
+    )
+
+
+def _indexed_curve_samples(
+    samples: Any, *, frame_count: int
+) -> dict[int, dict[str, Any]]:
+    if not isinstance(samples, list):
+        raise CameraPlanError("curve sample response samples must be an array")
+    indexed: dict[int, dict[str, Any]] = {}
+    for sample in samples:
+        if not isinstance(sample, dict):
+            raise CameraPlanError("curve sample entries must be objects")
+        frame_index = sample.get("frame_index")
+        if isinstance(frame_index, bool) or type(frame_index) is not int:
+            raise CameraPlanError("curve sample frame_index must be an integer")
+        if frame_index < 1 or frame_index > frame_count:
+            raise CameraPlanError(
+                "curve sample frame_index must be inside 1..frame_count"
+            )
+        if frame_index in indexed:
+            raise CameraPlanError("curve sample response contains duplicate frame_index")
+        _sample_point(sample)
+        indexed[frame_index] = sample
+    missing = [index for index in range(1, frame_count + 1) if index not in indexed]
+    if missing:
+        raise CameraPlanError(
+            f"curve sample response is missing frame_index {missing[0]}"
+        )
+    return indexed
+
+
+def _reject_curve_follow_parallel_up(camera: dict[str, Any]) -> None:
+    direction = _normalize(
+        [camera["target"][i] - camera["location"][i] for i in range(3)]
+    )
+    if direction is None:
+        raise CameraPlanError("camera location and target must differ")
+    dot = abs(sum(direction[i] * camera["up"][i] for i in range(3)))
+    if dot >= 0.999:
+        raise CameraPlanError(
+            "curve_follow_target up vector is parallel to the view direction"
+        )
+
+
+async def _resolve_curve_follow_target(
+    camera_request: dict[str, Any],
+    *,
+    frame_count: int,
+    aspect: float,
+    call_native,
+    port: int | None,
+) -> dict[str, Any]:
+    validated = _validate_curve_follow_request(camera_request, aspect=aspect)
+    native_request = {
+        "curve_id": validated["curve_id"],
+        "frame_count": frame_count,
+        "sampling": validated["sampling"],
+    }
+    result = await call_native(
+        "/director/curve-samples", "POST", native_request, port=port
+    )
+    if not result.get("success"):
+        raise CameraPlanError(
+            f"curve sample resolution failed: {_native_error_message(result.get('data'))}"
+        )
+    data = result.get("data") if isinstance(result.get("data"), dict) else {}
+    samples = _indexed_curve_samples(data.get("samples"), frame_count=frame_count)
+
+    frames = []
+    for frame_index in range(1, frame_count + 1):
+        sample = samples[frame_index]
+        camera = {
+            "projection": "perspective",
+            "location": _sample_point(sample),
+            "target": validated["target"],
+            "up": validated["up"],
+            "lens_length": validated["lens_length"],
+            "fov_degrees": validated["fov_degrees"],
+            "aspect": aspect,
+        }
+        _reject_curve_follow_parallel_up(camera)
+        frames.append(_validate_resolved_camera(camera, aspect=aspect))
+
+    return {
+        "strategy": "curve_follow_target",
+        "frames": frames,
+        "provenance": {
+            "request_shape": "camera_strategy",
+            "curve_id": validated["curve_id"],
+            "target": validated["target"],
+            "up": validated["up"],
+            "sampling": validated["sampling"],
+            "curve_sampling": data.get("provenance", {}),
+            "aspect_authority": "output_resolution",
+            "optics_authority": validated["optics_authority"],
+        },
+    }
+
+
 async def resolve_camera_plan(
     request: dict[str, Any],
     *,
@@ -326,7 +533,19 @@ async def resolve_camera_plan(
     port: int | None,
 ) -> dict[str, Any]:
     aspect = _aspect_from_resolution(resolution)
-    validated = validate_camera_request(request, frame_count=frame_count)
+    validated = validate_camera_request(
+        request,
+        frame_count=frame_count,
+        resolution=resolution,
+    )
+    if validated["strategy"] == "curve_follow_target":
+        return await _resolve_curve_follow_target(
+            request["camera"],
+            frame_count=frame_count,
+            aspect=aspect,
+            call_native=call_native,
+            port=port,
+        )
     resolved_keyframes = await _resolve_keyframes(
         validated["keyframes"],
         aspect=aspect,

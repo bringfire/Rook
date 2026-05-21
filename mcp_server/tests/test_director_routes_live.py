@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import struct
 from pathlib import Path
@@ -52,6 +53,39 @@ async def _create_line_curve(name: str) -> str:
     )
     assert "id" in res, f"rhino_create returned no id: {res!r}"
     return res["id"]
+
+
+async def _fixture_objects_by_layer(
+    layer: str,
+    *,
+    object_type: str | None = None,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    from rook.server import _mcp_tool_executor
+
+    request: dict[str, Any] = {"layer": layer, "limit": limit}
+    if object_type:
+        request["type"] = object_type
+    result = await _mcp_tool_executor("rhino_objects", request)
+    if not isinstance(result, dict) or not isinstance(result.get("objects"), list):
+        pytest.fail(f"rhino_objects returned unexpected result for {layer!r}: {result!r}")
+    return result["objects"]
+
+
+def _point_from_bbox(obj: dict[str, Any]) -> list[float]:
+    bbox = obj.get("bbox") if isinstance(obj, dict) else None
+    if not isinstance(bbox, dict):
+        pytest.fail(f"Point object has no bbox coordinates: {obj!r}")
+    minimum = bbox.get("min")
+    maximum = bbox.get("max")
+    if not isinstance(minimum, list) or not isinstance(maximum, list):
+        pytest.fail(f"Point object bbox is malformed: {obj!r}")
+    _assert_vector_close(minimum, maximum)
+    return [float(value) for value in minimum]
+
+
+def _vector_distance(a: list[float], b: list[float]) -> float:
+    return math.dist([float(value) for value in a], [float(value) for value in b])
 
 
 def _director_output_root() -> Path:
@@ -629,6 +663,188 @@ async def test_director_run_director_live_smoke_writes_three_frames_and_restores
     for before, after in zip(source_states, restored_states):
         _assert_vector_close(after["bbox_min"], before["bbox_min"])
         _assert_vector_close(after["bbox_max"], before["bbox_max"])
+
+
+async def test_director_run_director_live_smoke_curve_follow_target_uses_curve_uuid(
+    fresh_document,
+):
+    _require_host()
+    object_id = await _create_brep(
+        [-0.5, -0.5, 0.0],
+        [0.5, 0.5, 1.0],
+        f"director_curve_follow_object_{uuid4().hex}",
+    )
+    curve_id = await _create_line_curve(f"director_curve_follow_path_{uuid4().hex}")
+
+    run_id = f"curve_follow_live_{uuid4().hex}"
+    result = await director.run_director(
+        {
+            "run_id": run_id,
+            "output_root": str(_director_output_root()),
+            "object_ids": [object_id],
+            "frame_count": 3,
+            "resolution": {"width": 320, "height": 180},
+            "display": {"mode": "Rendered"},
+            "motion": {"strategy": "radial_bbox_center", "parameters": {"distance": 0}},
+            "camera": {
+                "strategy": "curve_follow_target",
+                "curve_id": curve_id,
+                "target": [5.0, 5.0, 0.0],
+                "up": [0.0, 0.0, 1.0],
+                "sampling": {"mode": "normalized_parameter", "start": 0.0, "end": 1.0},
+                "lens_length": 35.0,
+            },
+        },
+        port=_director_port(),
+    )
+
+    assert result["state"] == "complete"
+    run_root = Path(result["run_root"])
+    manifest = json.loads((run_root / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["camera_plan"]["strategy"] == "curve_follow_target"
+    assert manifest["camera_plan"]["provenance"]["curve_id"] == curve_id
+    assert manifest["camera_keyframes"] == []
+    assert manifest["camera_keyframe_provenance"] == []
+    assert [frame["camera"]["location"] for frame in manifest["frames"]] == [
+        [0.0, 0.0, 0.0],
+        [5.0, 0.0, 0.0],
+        [10.0, 0.0, 0.0],
+    ]
+    for index in range(1, 4):
+        frame = run_root / "frames" / f"frame_{index:04d}.png"
+        assert frame.is_file()
+        assert frame.stat().st_size > 0
+        assert _png_size(frame) == (320, 180)
+
+
+async def test_director_curve_follow_target_fixture_renders_four_second_video():
+    _require_host()
+    curve_objects = await _fixture_objects_by_layer("camera_curve", object_type="Curve")
+    point_objects = await _fixture_objects_by_layer("focus_point", object_type="Point")
+    scene_objects = await _fixture_objects_by_layer(
+        "RookVisionDirector::TestParts", object_type="Brep"
+    )
+    if not curve_objects or not point_objects or not scene_objects:
+        pytest.skip(
+            "Fixture requires camera_curve, focus_point, and "
+            "RookVisionDirector::TestParts objects in the active Rhino document."
+        )
+    if len(curve_objects) != 1:
+        pytest.fail(f"Expected one camera_curve object, found {len(curve_objects)}")
+    if len(point_objects) != 1:
+        pytest.fail(f"Expected one focus_point object, found {len(point_objects)}")
+
+    curve_id = curve_objects[0]["id"]
+    target = _point_from_bbox(point_objects[0])
+    object_ids = [obj["id"] for obj in scene_objects[:8]]
+    native_calls: list[tuple[str, str]] = []
+
+    async def tracked_call_native(endpoint, method, payload, *, port=None):
+        native_calls.append((endpoint, method))
+        return await director.call_rhino(endpoint, method, payload, port=port)
+
+    run_id = f"curve_follow_fixture_video_{uuid4().hex}"
+    result = await director.run_director(
+        {
+            "run_id": run_id,
+            "output_root": str(_director_output_root()),
+            "object_ids": object_ids,
+            "timeline": {"fps": 30, "duration_seconds": 4.0},
+            "resolution": {"width": 320, "height": 180},
+            "display": {"mode": "Rendered"},
+            "motion": {"strategy": "radial_bbox_center", "parameters": {"distance": 0}},
+            "camera": {
+                "strategy": "curve_follow_target",
+                "curve_id": curve_id,
+                "target": target,
+                "up": [0.0, 0.0, 1.0],
+                "sampling": {"mode": "normalized_parameter", "start": 0.0, "end": 1.0},
+                "lens_length": 35.0,
+            },
+        },
+        call_native=tracked_call_native,
+        port=_director_port(),
+    )
+
+    assert result["state"] == "complete"
+    run_root = Path(result["run_root"])
+    manifest = json.loads((run_root / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["timeline"] == {
+        "source": "timeline",
+        "fps": 30,
+        "duration_seconds": 4.0,
+        "frame_count": 120,
+    }
+    assert manifest["frame_count"] == 120
+    assert manifest["camera_plan"]["strategy"] == "curve_follow_target"
+    assert manifest["camera_plan"]["provenance"]["curve_id"] == curve_id
+    assert manifest["camera_plan"]["provenance"]["target"] == target
+    assert manifest["camera_keyframes"] == []
+    assert manifest["camera_keyframe_provenance"] == []
+    assert len(manifest["frames"]) == 120
+    assert all(
+        frame["camera"]["projection"] == "perspective" for frame in manifest["frames"]
+    )
+    assert all(frame["camera"]["target"] == target for frame in manifest["frames"])
+
+    _, sample_envelope = await _post_director(
+        "curve-samples",
+        {
+            "curve_id": curve_id,
+            "frame_count": manifest["frame_count"],
+            "sampling": manifest["camera_plan"]["provenance"]["sampling"],
+        },
+    )
+    assert sample_envelope["success"] is True
+    samples = sample_envelope["data"]["samples"]
+    assert len(samples) == 120
+    assert samples[0]["normalized_parameter"] == 0.0
+    assert samples[-1]["normalized_parameter"] == 1.0
+    max_location_delta = max(
+        _vector_distance(sample["point"], frame["camera"]["location"])
+        for sample, frame in zip(samples, manifest["frames"])
+    )
+    assert max_location_delta <= 1.0e-6
+
+    frame_paths = [
+        run_root / "frames" / f"frame_{index:04d}.png"
+        for index in range(1, 121)
+    ]
+    for frame in frame_paths:
+        assert frame.is_file()
+        assert frame.stat().st_size > 0
+    assert _png_size(frame_paths[0]) == (320, 180)
+    assert _png_size(frame_paths[-1]) == (320, 180)
+
+    request = {
+        "schema_version": 1,
+        "run_id": run_id,
+        "run_root": str(run_root),
+        "frames_dir": str(run_root / "frames"),
+        "input_pattern": "frame_%04d.png",
+        "start_number": 1,
+        "frame_count": manifest["frame_count"],
+        "fps": manifest["timeline"]["fps"],
+        "fps_source": "timeline",
+        "width": manifest["resolution"]["width"],
+        "height": manifest["resolution"]["height"],
+        "output_path": str(run_root / "videos" / "preview.mp4"),
+        "codec": "h264",
+        "container": "mp4",
+    }
+    _, envelope = await _post_director("video-assemble", request)
+    if envelope["success"] is False and _error_code(envelope) == "backend_unavailable":
+        pytest.skip(
+            f"Media Foundation backend unavailable on this machine: {envelope['data']}"
+        )
+    assert envelope["success"] is True
+    video_path = run_root / "videos" / "preview.mp4"
+    assert video_path.is_file()
+    assert video_path.stat().st_size > 0
+
+    endpoints = [call[0] for call in native_calls]
+    assert endpoints.count("/director/curve-samples") == 1
+    assert "/director/view-state" not in endpoints
 
 
 async def test_director_video_assemble_rejects_output_outside_run_videos():

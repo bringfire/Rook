@@ -249,7 +249,11 @@ async def run_director(
 
     frame_count = int(request["frame_count"])
     try:
-        camera_planner.validate_camera_request(request, frame_count=frame_count)
+        camera_planner.validate_camera_request(
+            request,
+            frame_count=frame_count,
+            resolution=request["resolution"],
+        )
     except camera_planner.CameraPlanError as ex:
         raise DirectorInputError(str(ex)) from ex
 
@@ -266,7 +270,12 @@ async def run_director(
     except camera_planner.CameraPlanError as ex:
         raise DirectorInputError(str(ex)) from ex
     frame_cameras = camera_plan["frames"]
-    resolved_camera_keyframes = camera_plan["provenance"]["keyframes"]
+    plan_provenance = camera_plan.get("provenance", {})
+    resolved_camera_keyframes = (
+        plan_provenance.get("keyframes", [])
+        if camera_plan.get("strategy") == "keyframes"
+        else []
+    )
     motion_params = (request.get("motion") or {}).get("parameters") or {}
     motion_frames, motion_warnings = expand_radial_bbox_center(
         objects,
@@ -295,6 +304,21 @@ async def run_director(
             }
         )
 
+    manifest_camera_plan = {
+        "strategy": camera_plan["strategy"],
+        "request_shape": plan_provenance.get("request_shape"),
+        "aspect_authority": plan_provenance.get("aspect_authority"),
+        "optics_authority": plan_provenance.get("optics_authority"),
+    }
+    if camera_plan["strategy"] == "curve_follow_target":
+        manifest_camera_plan["provenance"] = {
+            "curve_id": plan_provenance["curve_id"],
+            "target": plan_provenance["target"],
+            "up": plan_provenance["up"],
+            "sampling": plan_provenance["sampling"],
+            "curve_sampling": plan_provenance.get("curve_sampling", {}),
+        }
+
     manifest_camera_keyframes = [
         {
             "frame_index": keyframe["frame_index"],
@@ -319,12 +343,7 @@ async def run_director(
             "parameters": motion_params,
             "warnings": motion_warnings,
         },
-        "camera_plan": {
-            "strategy": camera_plan["provenance"]["strategy"],
-            "request_shape": camera_plan["provenance"]["request_shape"],
-            "aspect_authority": camera_plan["provenance"]["aspect_authority"],
-            "optics_authority": camera_plan["provenance"]["optics_authority"],
-        },
+        "camera_plan": manifest_camera_plan,
         "camera_keyframes": manifest_camera_keyframes,
         "camera_keyframe_provenance": [
             {

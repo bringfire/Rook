@@ -72,6 +72,30 @@ def test_timeline_maps_normalized_at_values():
     assert [k["frame_index"] for k in normalized["camera"]["keyframes"]] == [1, 6, 10]
 
 
+def test_timeline_leaves_curve_follow_target_camera_unchanged():
+    camera = {
+        "strategy": "curve_follow_target",
+        "curve_id": "00000000-0000-0000-0000-000000000001",
+        "target": [0.0, 0.0, 0.0],
+        "up": [0.0, 0.0, 1.0],
+        "sampling": {"mode": "normalized_parameter", "start": 0.0, "end": 1.0},
+        "lens_length": 35.0,
+    }
+
+    normalized, manifest = timeline.normalize_director_request(
+        {
+            "object_ids": ["a"],
+            "timeline": {"fps": 24, "duration_seconds": 0.125},
+            "resolution": {"width": 320, "height": 180},
+            "camera": camera,
+        }
+    )
+
+    assert normalized["frame_count"] == 3
+    assert normalized["camera"] == camera
+    assert manifest["frame_count"] == 3
+
+
 def test_timeline_normalizes_integral_fps_and_frame_indexes():
     normalized, manifest = timeline.normalize_director_request(
         {
