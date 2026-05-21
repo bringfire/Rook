@@ -631,6 +631,58 @@ async def test_director_run_director_live_smoke_writes_three_frames_and_restores
         _assert_vector_close(after["bbox_max"], before["bbox_max"])
 
 
+async def test_director_run_director_live_smoke_curve_follow_target_uses_curve_uuid(
+    fresh_document,
+):
+    _require_host()
+    object_id = await _create_brep(
+        [-0.5, -0.5, 0.0],
+        [0.5, 0.5, 1.0],
+        f"director_curve_follow_object_{uuid4().hex}",
+    )
+    curve_id = await _create_line_curve(f"director_curve_follow_path_{uuid4().hex}")
+
+    run_id = f"curve_follow_live_{uuid4().hex}"
+    result = await director.run_director(
+        {
+            "run_id": run_id,
+            "output_root": str(_director_output_root()),
+            "object_ids": [object_id],
+            "frame_count": 3,
+            "resolution": {"width": 320, "height": 180},
+            "display": {"mode": "Rendered"},
+            "motion": {"strategy": "radial_bbox_center", "parameters": {"distance": 0}},
+            "camera": {
+                "strategy": "curve_follow_target",
+                "curve_id": curve_id,
+                "target": [5.0, 5.0, 0.0],
+                "up": [0.0, 0.0, 1.0],
+                "sampling": {"mode": "normalized_parameter", "start": 0.0, "end": 1.0},
+                "lens_length": 35.0,
+            },
+        },
+        port=_director_port(),
+    )
+
+    assert result["state"] == "complete"
+    run_root = Path(result["run_root"])
+    manifest = json.loads((run_root / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["camera_plan"]["strategy"] == "curve_follow_target"
+    assert manifest["camera_plan"]["provenance"]["curve_id"] == curve_id
+    assert manifest["camera_keyframes"] == []
+    assert manifest["camera_keyframe_provenance"] == []
+    assert [frame["camera"]["location"] for frame in manifest["frames"]] == [
+        [0.0, 0.0, 0.0],
+        [5.0, 0.0, 0.0],
+        [10.0, 0.0, 0.0],
+    ]
+    for index in range(1, 4):
+        frame = run_root / "frames" / f"frame_{index:04d}.png"
+        assert frame.is_file()
+        assert frame.stat().st_size > 0
+        assert _png_size(frame) == (320, 180)
+
+
 async def test_director_video_assemble_rejects_output_outside_run_videos():
     allowed_root = _director_output_root()
     run_root = allowed_root / f"video_policy_{uuid4().hex}"
