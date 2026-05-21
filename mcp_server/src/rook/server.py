@@ -49,7 +49,7 @@ if logger.isEnabledFor(logging.DEBUG):
     )
 
 from .bridge import call_rhino, get_rhino_host, discover_instances, TIMEOUT, DISCOVERY_FOLDER, rhino_request_context
-from . import director, script_library, targeting
+from . import director, director_video, script_library, targeting
 targeting.initialize_from_environment()
 from .knowledge import query_knowledge, query_knowledge_tiered, record_knowledge, invalidate_condensed_command_cache
 from .learning.command_observer import (
@@ -2603,6 +2603,32 @@ Use this before any Rhino operations to ensure Rhino is available. Safe to call 
                                 "description": "End normalized curve parameter in [0, 1].",
                             },
                         },
+                    },
+                },
+            },
+        ),
+        Tool(
+            name="rhino_director_assemble_video",
+            description=(
+                "Assemble a completed RookVisionDirector PNG frame run into "
+                "videos/preview.mp4 and write video_manifest.json. This is a "
+                "post-run mutating operation; it does not capture frames."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["run_root"],
+                "properties": {
+                    "run_root": {
+                        "type": "string",
+                        "description": "Absolute path to a completed Director frame run root.",
+                    },
+                    "fps": {
+                        "type": "number",
+                        "exclusiveMinimum": 0,
+                        "description": (
+                            "Optional positive frames-per-second override. "
+                            "When omitted, the completed run manifest timeline fps is used."
+                        ),
                     },
                 },
             },
@@ -18103,6 +18129,23 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
 
         case "rhino_director_curve_samples":
             result = await call_rhino("/director/curve-samples", "POST", arguments, port=port)
+
+        case "rhino_director_assemble_video":
+            try:
+                result = {
+                    "success": True,
+                    "data": await director_video.assemble_director_video(
+                        arguments, port=port
+                    ),
+                }
+            except director_video.DirectorVideoError as exc:
+                result = {
+                    "success": False,
+                    "data": {
+                        "code": "director_video_error",
+                        "message": str(exc),
+                    },
+                }
 
         case "rhino_render_view":
             result = await call_rhino("/vision/generate", "POST", arguments, port=port)

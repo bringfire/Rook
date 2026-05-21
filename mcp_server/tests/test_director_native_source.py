@@ -88,3 +88,80 @@ def test_director_curve_samples_has_required_contract_guards():
     assert "invalid_curve_sample" in sampler_body
     assert "director_read_failed" in handler_body
     assert "MakeErrorData(ex.code, ex.what())" in handler_body
+
+
+def test_director_video_assemble_route_is_registered_and_delegated():
+    handler_header = DIRECTOR_HEADER.read_text(encoding="utf-8")
+    server_header = ROOK_SERVER_HEADER.read_text(encoding="utf-8")
+    server_source = ROOK_SERVER_CPP.read_text(encoding="utf-8")
+
+    assert re.search(
+        r"void\s+HandleDirectorVideoAssemble\s*\(\s*const\s+httplib::Request&\s+req,\s*httplib::Response&\s+res\s*\)\s*;",
+        handler_header,
+    )
+    assert re.search(
+        r"void\s+HandleDirectorVideoAssemble\s*\(\s*const\s+httplib::Request&\s+req,\s*httplib::Response&\s+res\s*\)\s*;",
+        server_header,
+    )
+    assert 'm_server->Post("/director/video-assemble"' in server_source
+    assert "Rook::Handlers::HandleDirectorVideoAssemble(req, res);" in server_source
+
+
+def test_director_video_assemble_has_native_parser_policy_and_backend_contract():
+    source = DIRECTOR_HANDLER.read_text(encoding="utf-8")
+    parser_body = _extract_function(source, "VideoAssembleRequest ParseVideoAssembleRequest")
+    policy_body = _extract_function(source, "void ValidateVideoAssemblyPolicy")
+    handler_body = _extract_function(source, "void HandleDirectorVideoAssemble")
+
+    assert "run_root is required" in parser_body
+    assert "frames_dir is required" in parser_body
+    assert "output_path is required" in parser_body
+    assert "frame_count must be a positive integer" in parser_body
+    assert '"frame_count_mismatch"' in parser_body
+    assert "fps must be a positive finite number" in parser_body
+    assert 'DirectorFrameValidationError("fps_missing"' in parser_body
+    assert "width and height must be positive even integers" in parser_body
+    assert "kMaxDirectorVideoFrameCount = 5000" in source
+    assert "kMaxDirectorVideoWidth = kMaxDirectorCaptureWidth" in source
+    assert "kMaxDirectorVideoHeight = kMaxDirectorCaptureHeight" in source
+    assert "kMinDirectorVideoFps = 1.0" in source
+    assert "kMaxDirectorVideoFps = 240.0" in source
+    assert "codec must be h264" in parser_body
+    assert "container must be mp4" in parser_body
+    assert "input_pattern must be frame_%04d.png" in parser_body
+    assert "start_number must be 1" in parser_body
+
+    assert "GetAllowedDirectorRoot()" in policy_body
+    assert "run_root_policy_violation" in policy_body
+    assert "frames_dir_policy_violation" in policy_body
+    assert "output_policy_violation" in policy_body
+    assert 'request.runRoot / L"frames"' in policy_body
+    assert 'request.runRoot / L"videos"' in policy_body
+
+    assert "MFCreateSinkWriterFromURL" in source
+    assert "MFVideoFormat_H264" in source
+    assert "MFVideoFormat_NV12" in source
+    assert "CLSID_WICImagingFactory" in source
+    assert "unsupported_frame_format" in source
+    assert "unsupported_dimensions" in source
+    assert "backend_unavailable" in source
+    assert "backend_encode_failed" in source
+    assert "alpha_background" in source
+    assert "MoveFileExW" in source
+    assert "MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH" in source
+    assert ".tmp.mp4" in source
+    assert "MakeVideoErrorData" in handler_body
+
+
+def test_director_video_assemble_validates_temp_mp4_before_replacing_preview():
+    source = DIRECTOR_HANDLER.read_text(encoding="utf-8")
+    backend_body = _extract_function(source, "VideoBackendResult EncodeMp4WithMediaFoundation")
+
+    finalize_index = backend_body.index('writer->Finalize()')
+    writer_release_index = backend_body.index("writer.Reset();", finalize_index)
+    temp_size_index = backend_body.index("const uintmax_t tempBytes = fs::file_size(tempPath, ec);")
+    overwrite_index = backend_body.index("result.overwroteExisting = fs::exists(request.outputPath, ec);")
+    replace_index = backend_body.index("MoveFileExW")
+    output_size_index = backend_body.index("result.bytes = fs::file_size(request.outputPath, ec);")
+
+    assert finalize_index < writer_release_index < temp_size_index < overwrite_index < replace_index < output_size_index

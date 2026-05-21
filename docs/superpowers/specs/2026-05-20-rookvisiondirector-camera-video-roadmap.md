@@ -51,9 +51,15 @@ The current camera input is:
 ```
 
 This is useful, and the extracted camera planner now gives it a focused Python
-contract. The remaining gap is timeline semantics: FPS, duration, and endpoint
-mapping are still implicit in frame indexes rather than first-class authoring
-inputs.
+contract. Timeline semantics have also been extracted: FPS, duration, and
+endpoint mapping can now produce a canonical frame count before frames are
+captured.
+
+Live testing has also proven the current combined frame spine: a completed
+Director run can interpolate camera keyframes and radial object motion together
+across a PNG sequence while restoring objects, viewport, and display mode after
+each frame. The next practical gap is local video playback from that completed
+frame run.
 
 ## Point B
 
@@ -198,11 +204,12 @@ Acceptance:
 - default aspect comes from output resolution;
 - manifest provenance records the camera planning strategy and source keyframes.
 
-### Phase 1.5: Timeline Authoring Contract
+### Phase 1.5: Timeline Authoring Contract (Complete)
 
 Add a Python-only timeline resolver before native curve sampling or video
 assembly. The frame run should know shot timing before any frame files exist;
-FFmpeg later consumes that metadata rather than becoming the first owner of FPS.
+video assembly later consumes that metadata rather than becoming the first
+owner of FPS.
 
 Legacy requests without `timeline` remain frame-count based:
 
@@ -306,9 +313,9 @@ Acceptance:
   `time=duration_seconds` and `at=1` map to `frame_count`;
 - manifest provenance records the timing source and canonical values.
 
-### Phase 2: Native Curve Sampling Primitive
+### Phase 2: Native Curve Sampling Primitive (Complete)
 
-Add a read-only native route for curve sampling. A likely shape is:
+Add a read-only native route for curve sampling:
 
 ```text
 POST /director/curve-samples
@@ -356,7 +363,92 @@ and provenance value.
 This phase consumes the canonical `frame_count` produced by Phase 1.5. It does
 not derive frame count from FPS or duration itself.
 
-### Phase 3: Curve-Follow Target Camera Strategy
+### Phase 3: Platform-Native MP4 Video Assembly
+
+Add an explicit post-run assembly tool/API that turns a completed Director PNG
+frame run into a local MP4 preview.
+
+The contract is intentionally narrow:
+
+```text
+completed Director frame run + timeline fps or explicit fps override -> videos/preview.mp4 + video_manifest.json
+```
+
+This phase must not change frame-run status semantics. `status.json` remains
+the status of frame capture only. Video assembly status lives separately in
+`video_manifest.json`, so a completed frame run remains complete even if video
+assembly fails.
+
+The first implementation is Windows-only through Media Foundation because the
+current Rook runtime is Windows-first. The design must define the matching Mac
+backend contract for AVFoundation/VideoToolbox, but Mac implementation is
+deferred until the Mac Rook runtime exists. This does not introduce a new
+platform split; Rook already needs separate Windows and Mac native builds.
+
+Python owns post-run orchestration, run-folder validation, and deterministic
+manifest writing. The actual MP4 encoding backend must live behind a
+platform-native boundary below Python, likely native C++ for the Windows Media
+Foundation implementation.
+
+The native backend must independently canonicalize `run_root`, `frames_dir`, and
+`output_path` against the configured Director output root. Python validation is
+not enough because the native route is a public HTTP surface that reads PNG
+frames and writes MP4 output.
+
+Video assembly must validate before encoding:
+
+- frame run `status.json.state == "complete"`;
+- `manifest.json` exists and has `timeline.fps`, or the caller supplies an
+  explicit FPS override;
+- frame count in the manifest matches the number of expected frame files;
+- every `frames/frame_%04d.png` exists from frame 1 through frame count;
+- every frame dimension matches the manifest resolution;
+- v1 H.264/MP4 dimensions and frame formats are compatible with the platform
+  backend, or fail with structured capability errors;
+- output path resolves under the completed run folder.
+
+`video_manifest.json` records enough information to debug both input and
+backend failures:
+
+```json
+{
+  "schema_version": 1,
+  "state": "complete",
+  "backend": "media_foundation",
+  "platform": "windows",
+  "format": "mp4",
+  "codec": "h264",
+  "container": "mp4",
+  "fps": 24,
+  "frame_count": 120,
+  "width": 1280,
+  "height": 720,
+  "input_pattern": "frames/frame_%04d.png",
+  "output_path": "videos/preview.mp4",
+  "output_current": true,
+  "preserved_previous_output": false,
+  "started_at": "2026-05-21T00:00:00Z",
+  "completed_at": "2026-05-21T00:00:03Z",
+  "error": null
+}
+```
+
+Failed manifests use the same shape with `state: "failed"` and structured
+`error`. If a failed attempt preserves an older successful
+`videos/preview.mp4`, the manifest must set `output_current: false` and
+`preserved_previous_output: true`.
+
+This phase explicitly does not use FFmpeg as the Director video assembly path.
+The existing bundled Rook FFmpeg is a sidecar-extraction build, not an MP4
+encoder, and broad FFmpeg builds with GPL encoders such as libx264 are outside
+the Director product path. The slice should not add an FFmpeg fallback because
+that would make release behavior ambiguous.
+
+Video assembly is an explicit post-run operation first. A future convenience
+flag on `rhino_director_run` may opt into automatic assembly only after the
+post-run contract is stable.
+
+### Phase 4: Curve-Follow Target Camera Strategy
 
 Add a Python camera strategy:
 
@@ -379,57 +471,9 @@ Add a Python camera strategy:
 
 The strategy calls native curve sampling, turns samples into camera locations,
 uses the fixed point as target, validates each resolved camera, and emits the
-same per-frame camera objects used by current keyframe planning.
-
-### Phase 4: MP4 Video Assembly
-
-Add a post-processing stage that can stitch completed PNG frames into an MP4.
-This phase should not change frame-run status semantics.
-FPS is read from the run timeline metadata when available; MP4 assembly must not
-invent shot timing after frames have already been resolved.
-
-Frame run status remains in `status.json`:
-
-```json
-{
-  "state": "complete"
-}
-```
-
-Video assembly status lives separately in `video_manifest.json`:
-
-```json
-{
-  "schema_version": 1,
-  "state": "complete",
-  "format": "mp4",
-  "fps": 24,
-  "input_pattern": "frames/frame_%04d.png",
-  "output_path": "videos/preview.mp4",
-  "started_at": "2026-05-20T00:00:00Z",
-  "completed_at": "2026-05-20T00:00:03Z"
-}
-```
-
-The first target is MP4 only. WebM or codec matrices should wait for a concrete
-publishing surface that needs them.
-
-The FFmpeg command should include `-start_number 1` because Director frame names
-start at `frame_0001.png`:
-
-```powershell
-ffmpeg -y `
-  -framerate 24 `
-  -start_number 1 `
-  -i frames/frame_%04d.png `
-  -c:v libx264 `
-  -pix_fmt yuv420p `
-  videos/preview.mp4
-```
-
-Video assembly should only run automatically for frame runs with
-`status.state == "complete"`. Failed or unsafe frame runs may be stitched only by
-an explicit diagnostic command.
+same per-frame camera objects used by current keyframe planning. This phase
+comes after local video assembly so curve-follow smoothness can be reviewed as
+both individual frames and a playable preview.
 
 ### Phase 5: Artifact And RookVision Publishing
 
@@ -441,23 +485,24 @@ layer:
 - hand selected frames or videos to RookVision generation workflows.
 
 This phase should consume completed Director outputs. It should not become a
-dependency of camera planning, native frame capture, or local MP4 assembly.
+dependency of camera planning, native frame capture, or local native video
+assembly.
 
 ## Non-Goals For The First Follow-Up Slice
 
-The first follow-up slice does not implement:
+The platform-native MP4 assembly slice does not implement:
 
-- native curve sampling;
 - `curve_follow_target`;
-- FFmpeg invocation;
-- MP4 output;
+- FFmpeg invocation or FFmpeg fallback;
 - artifact store publication;
 - UI/gallery changes;
-- native `/director/frame-capture` changes.
+- RookVision publishing;
+- native `/director/frame-capture` changes;
+- Mac AVFoundation implementation.
 
-The first follow-up slice after camera planning is the timeline contract. It
-exists to make later curve sampling, curve-follow, easing, holds, variable
-pacing, and MP4 assembly consume one canonical timing model.
+It exists to prove that completed Director frame runs can become local preview
+videos without weakening the deterministic frame-run spine or introducing GPL
+licensing ambiguity.
 
 ## Self-Review
 
@@ -466,8 +511,10 @@ pacing, and MP4 assembly consume one canonical timing model.
 - Native frame capture remains the atomic Rhino mutation boundary.
 - Phase 1 is complete: camera planning now lives in `camera_planner.py`.
 - Existing slice 1 requests remain valid.
-- Timeline/FPS/duration semantics are now separated from MP4 assembly and run
-  before future camera strategies.
+- Timeline/FPS/duration semantics are now separated from native video assembly
+  and run before future camera strategies.
 - MP4 output is explicitly separated from frame-run status.
-- Curve sampling provenance avoids claiming arc-length behavior before native
-  implements it.
+- The next video path avoids FFmpeg/libx264 licensing ambiguity by using a
+  platform-native backend boundary.
+- Curve-follow now follows video assembly so camera-path smoothness can be
+  reviewed as playback.
