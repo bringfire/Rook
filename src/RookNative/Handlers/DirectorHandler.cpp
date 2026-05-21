@@ -13,6 +13,7 @@
 #include <cmath>
 #include <cwctype>
 #include <filesystem>
+#include <limits>
 #include <stdexcept>
 #include <vector>
 
@@ -275,6 +276,36 @@ bool HasValidFovDegrees(const nlohmann::json& object)
 double GetFovDegrees(const nlohmann::json& object)
 {
     return object["fov_degrees"].get<double>();
+}
+
+int RequireIntInRange(
+    const nlohmann::json& object,
+    const std::string& key,
+    int minimum,
+    int maximum,
+    const std::string& code,
+    const std::string& message)
+{
+    if (!object.contains(key) || object[key].is_boolean() || !object[key].is_number_integer())
+        throw DirectorFrameValidationError(code, message);
+
+    const auto& value = object[key];
+    if (value.is_number_unsigned())
+    {
+        const auto numeric = value.get<nlohmann::json::number_unsigned_t>();
+        if (numeric < static_cast<nlohmann::json::number_unsigned_t>(minimum) ||
+            numeric > static_cast<nlohmann::json::number_unsigned_t>(maximum))
+            throw DirectorFrameValidationError(code, message);
+        return static_cast<int>(numeric);
+    }
+
+    const auto numeric = value.get<nlohmann::json::number_integer_t>();
+    if (numeric < static_cast<nlohmann::json::number_integer_t>(minimum) ||
+        numeric > static_cast<nlohmann::json::number_integer_t>(maximum))
+    {
+        throw DirectorFrameValidationError(code, message);
+    }
+    return static_cast<int>(numeric);
 }
 
 bool HasPositiveOptionalFiniteNumber(const nlohmann::json& object, const std::string& key)
@@ -642,12 +673,13 @@ VideoAssembleRequest ParseVideoAssembleRequest(const nlohmann::json& body)
         throw DirectorFrameValidationError("invalid_input", "output_path is required");
     request.outputPath = NormalizePolicyPath(PathFromUtf8(body["output_path"].get<std::string>()));
 
-    if (!body.contains("frame_count") || !body["frame_count"].is_number_integer() ||
-        body["frame_count"].get<int>() <= 0)
-    {
-        throw DirectorFrameValidationError("invalid_input", "frame_count must be a positive integer");
-    }
-    request.frameCount = body["frame_count"].get<int>();
+    request.frameCount = RequireIntInRange(
+        body,
+        "frame_count",
+        1,
+        std::numeric_limits<int>::max(),
+        "invalid_input",
+        "frame_count must be a positive integer");
 
     if (!body.contains("fps") || !body["fps"].is_number())
         throw DirectorFrameValidationError("invalid_input", "fps must be a positive finite number");
@@ -655,22 +687,31 @@ VideoAssembleRequest ParseVideoAssembleRequest(const nlohmann::json& body)
     if (!std::isfinite(request.fps) || request.fps <= 0.0)
         throw DirectorFrameValidationError("invalid_input", "fps must be a positive finite number");
 
-    if (!body.contains("width") || !body.contains("height") ||
-        !body["width"].is_number_integer() || !body["height"].is_number_integer() ||
-        body["width"].get<int>() <= 0 || body["height"].get<int>() <= 0 ||
-        (body["width"].get<int>() % 2) != 0 || (body["height"].get<int>() % 2) != 0)
+    request.width = RequireIntInRange(
+        body,
+        "width",
+        1,
+        std::numeric_limits<int>::max(),
+        "unsupported_dimensions",
+        "width and height must be positive even integers");
+    request.height = RequireIntInRange(
+        body,
+        "height",
+        1,
+        std::numeric_limits<int>::max(),
+        "unsupported_dimensions",
+        "width and height must be positive even integers");
+    if ((request.width % 2) != 0 || (request.height % 2) != 0)
     {
         throw DirectorFrameValidationError("unsupported_dimensions", "width and height must be positive even integers");
     }
-    request.width = body["width"].get<int>();
-    request.height = body["height"].get<int>();
 
     if (!body.contains("codec") || !body["codec"].is_string() || body["codec"].get<std::string>() != "h264")
-        throw DirectorFrameValidationError("invalid_input", "codec must be h264");
+        throw DirectorFrameValidationError("unsupported_frame_format", "codec must be h264");
     request.codec = body["codec"].get<std::string>();
 
     if (!body.contains("container") || !body["container"].is_string() || body["container"].get<std::string>() != "mp4")
-        throw DirectorFrameValidationError("invalid_input", "container must be mp4");
+        throw DirectorFrameValidationError("unsupported_frame_format", "container must be mp4");
     request.container = body["container"].get<std::string>();
 
     if (!body.contains("input_pattern") || !body["input_pattern"].is_string() ||
@@ -682,9 +723,13 @@ VideoAssembleRequest ParseVideoAssembleRequest(const nlohmann::json& body)
 
     if (body.contains("start_number") && !body["start_number"].is_null())
     {
-        if (!body["start_number"].is_number_integer() || body["start_number"].get<int>() <= 0)
-            throw DirectorFrameValidationError("invalid_input", "start_number must be a positive integer");
-        request.startNumber = body["start_number"].get<int>();
+        request.startNumber = RequireIntInRange(
+            body,
+            "start_number",
+            1,
+            std::numeric_limits<int>::max(),
+            "invalid_input",
+            "start_number must be a positive integer");
     }
 
     if (body.contains("run_id") && body["run_id"].is_string())
