@@ -138,6 +138,23 @@ async def test_director_curve_samples_tool_registered_as_readonly_schema():
 
 
 @pytest.mark.asyncio
+async def test_director_assemble_video_tool_registered_as_mutating_schema():
+    tools = await server.list_tools()
+    by_name = {tool.name: tool for tool in tools}
+    assert "rhino_director_assemble_video" in by_name
+
+    schema = by_name["rhino_director_assemble_video"].inputSchema
+    assert schema["type"] == "object"
+    assert schema["required"] == ["run_root"]
+    assert _find_rejected_schema_keywords(schema) == []
+
+    properties = schema["properties"]
+    assert properties["run_root"]["type"] == "string"
+    assert properties["fps"]["type"] == "number"
+    assert properties["fps"]["exclusiveMinimum"] == 0
+
+
+@pytest.mark.asyncio
 async def test_director_tool_dispatches_to_python_runner():
     request = {
         "object_ids": ["a"],
@@ -150,6 +167,35 @@ async def test_director_tool_dispatches_to_python_runner():
         result = await server.call_tool("rhino_director_run", request)
     mock.assert_awaited_once()
     assert "complete" in result[0].text
+
+
+@pytest.mark.asyncio
+async def test_director_assemble_video_tool_dispatches_to_python_runner():
+    request = {"run_root": "C:/runs/video", "fps": 24}
+    with patch.object(
+        server.director_video, "assemble_director_video", new_callable=AsyncMock
+    ) as mock:
+        mock.return_value = {"state": "complete", "output_path": "videos/preview.mp4"}
+        result = await server.call_tool("rhino_director_assemble_video", request)
+    mock.assert_awaited_once_with(request, port=None)
+    assert "videos/preview.mp4" in result[0].text
+
+
+@pytest.mark.asyncio
+async def test_director_assemble_video_tool_returns_error_envelope_for_video_error():
+    request = {"run_root": "C:/runs/video"}
+    with patch.object(
+        server.director_video, "assemble_director_video", new_callable=AsyncMock
+    ) as mock:
+        mock.side_effect = server.director_video.DirectorVideoError("bad video request")
+        result = await server.call_tool("rhino_director_assemble_video", request)
+    mock.assert_awaited_once_with(request, port=None)
+    assert result[0].text.startswith("Error:")
+    payload = json.loads(result[0].text.removeprefix("Error: "))
+    assert payload == {
+        "code": "director_video_error",
+        "message": "bad video request",
+    }
 
 
 @pytest.mark.asyncio
@@ -231,6 +277,13 @@ def test_director_tool_groups_include_curve_samples_readonly():
     assert "director_readonly" in tool_groups.TOOL_GROUPS
     assert "rhino_director_curve_samples" in tool_groups.TOOL_GROUPS["director_readonly"]
     assert "director" in tool_groups.MCP_ONLY_GROUPS
+
+
+def test_director_tool_groups_include_assemble_video_mutating_only():
+    assert "rhino_director_assemble_video" in tool_groups.TOOL_GROUPS["director"]
+    assert "rhino_director_assemble_video" not in tool_groups.TOOL_GROUPS[
+        "director_readonly"
+    ]
 
 
 def test_director_readonly_group_loads_for_readonly_registry():
