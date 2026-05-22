@@ -247,6 +247,7 @@ function Test-ReleaseWorkflowDocsUseMultiRuntimeCompanionOutputs {
     Assert-Contains -Text $combined -Expected 'src\Rook\bin\Release\net7.0\Rook.rhp' -Message 'Release workflow docs must reference the net7.0 companion output.'
     Assert-Contains -Text $combined -Expected 'src\Rook\bin\Release\net7.0\Rook.runtimeconfig.json' -Message 'Release workflow docs must mention the net7.0 runtimeconfig output.'
     Assert-Contains -Text $combined -Expected 'src\Rook\bin\Release\net48\Rook.rhp' -Message 'Release workflow docs must reference the net48 companion output.'
+    Assert-Contains -Text $combined -Expected 'src\Rook\bin\Release\net48\runtimes' -Message 'Release workflow docs must copy net48 runtime assets for WebView2 panels.'
     Assert-Contains -Text $combined -Expected 'Rhino.Inside.Revit' -Message 'Release workflow docs must require Rhino.Inside.Revit smoke coverage for release validation.'
     Assert-Contains -Text $combined -Expected 'direct-registry' -Message 'Release workflow docs must call out the direct-registry loader assumption.'
     Assert-Contains -Text $combined -Expected 'physical `Rook.rhp`' -Message 'Release workflow docs must require recording the physical Rook.rhp path loaded by Rhino.'

@@ -314,6 +314,7 @@ Test-Path src\Rook\bin\Release\net7.0\Rook.deps.json
 Test-Path src\Rook\bin\Release\net7.0\Rook.runtimeconfig.json
 Test-Path src\Rook\bin\Release\net7.0\runtimes
 Test-Path src\Rook\bin\Release\net48\Rook.rhp
+Test-Path src\Rook\bin\Release\net48\runtimes
 ```
 
 ---
@@ -353,11 +354,12 @@ Copy-Item "src\Rook\bin\Release\net7.0\runtimes" $net7Dest -Recurse -Force
 Copy-Item "src\Rook\bin\Release\net48\Rook.rhp" $net48Dest -Force
 Copy-Item "src\Rook\bin\Release\net48\Rook.rui" $net48Dest -Force -ErrorAction SilentlyContinue
 Copy-Item "src\Rook\bin\Release\net48\*.dll" $net48Dest -Force
+Copy-Item "src\Rook\bin\Release\net48\runtimes" $net48Dest -Recurse -Force
 ```
 
 Then register the plugins with Rhino:
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\register-rooknative-suite.ps1 -NativeRhpPath "$dest\RookNative.rhp"
+powershell -ExecutionPolicy Bypass -File scripts\register-rooknative-suite.ps1 -NativeRhpPath "$dest\RookNative.rhp" -CompanionRhpPath "$dest\net7.0\Rook.rhp"
 ```
 
 Or run `install.ps1` which handles deployment and registration automatically

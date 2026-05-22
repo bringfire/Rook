@@ -63,6 +63,7 @@ $LogsRoot = Join-Path $RuntimeRoot 'logs'
 $VenvPython = Join-Path $RuntimeRoot 'venv\Scripts\python.exe'
 $PluginDir = Join-Path ([Environment]::GetFolderPath('ApplicationData')) 'McNeel\Rhinoceros\8.0\Plug-ins\RookNative'
 $ChirpInstallRoot = Join-Path $InstallRoot 'chirp'
+$ManagedCompanionRuntimes = @('net8.0', 'net7.0', 'net48')
 
 function Write-Step {
     param([string]$Message)
@@ -176,7 +177,7 @@ echo EXIT_CODE=%ERRORLEVEL%
 }
 
 function Invoke-ManagedBuild {
-    & dotnet build (Join-Path $RepoRoot 'src\Rook\Rook.csproj') -f net7.0 -c $Configuration
+    & dotnet build (Join-Path $RepoRoot 'src\Rook\Rook.csproj') -c $Configuration
     if ($LASTEXITCODE -ne 0) {
         throw "Managed build failed."
     }
@@ -257,19 +258,70 @@ function Deploy-NativePayload {
     Copy-OptionalFile (Join-Path $nativeDir 'RookNative.pdb') (Join-Path $PluginDir 'RookNative.pdb')
 }
 
+function Remove-StaleRootCompanionPayload {
+    foreach ($name in @('Rook.rhp', 'Rook.rui', 'Rook.deps.json', 'Rook.runtimeconfig.json')) {
+        $path = Join-Path $PluginDir $name
+        if (Test-Path $path) {
+            Remove-Item -LiteralPath $path -Force
+        }
+    }
+
+    $staleRootRuntimes = Join-Path $PluginDir 'runtimes'
+    if (Test-Path $staleRootRuntimes) {
+        Remove-Item -LiteralPath $staleRootRuntimes -Recurse -Force
+    }
+
+    $rootDllNames = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($runtime in $ManagedCompanionRuntimes) {
+        $source = Join-Path $RepoRoot "src\Rook\bin\$Configuration\$runtime"
+        if (Test-Path $source) {
+            Get-ChildItem $source -Filter '*.dll' -File | ForEach-Object {
+                [void]$rootDllNames.Add($_.Name)
+            }
+        }
+    }
+
+    foreach ($dllName in $rootDllNames) {
+        $path = Join-Path $PluginDir $dllName
+        if (Test-Path $path) {
+            Remove-Item -LiteralPath $path -Force
+        }
+    }
+}
+
+function Deploy-CompanionRuntimePayload {
+    param([Parameter(Mandatory = $true)][string]$Runtime)
+
+    $sourceDir = Join-Path $RepoRoot "src\Rook\bin\$Configuration\$Runtime"
+    $targetDir = Join-Path $PluginDir $Runtime
+
+    Copy-RequiredFile (Join-Path $sourceDir 'Rook.rhp') (Join-Path $targetDir 'Rook.rhp')
+    Copy-OptionalFile (Join-Path $sourceDir 'Rook.rui') (Join-Path $targetDir 'Rook.rui')
+    if ($Runtime -ne 'net48') {
+        Copy-RequiredFile (Join-Path $sourceDir 'Rook.deps.json') (Join-Path $targetDir 'Rook.deps.json')
+        Copy-RequiredFile (Join-Path $sourceDir 'Rook.runtimeconfig.json') (Join-Path $targetDir 'Rook.runtimeconfig.json')
+    } else {
+        Copy-OptionalFile (Join-Path $sourceDir 'Rook.deps.json') (Join-Path $targetDir 'Rook.deps.json')
+        Copy-OptionalFile (Join-Path $sourceDir 'Rook.runtimeconfig.json') (Join-Path $targetDir 'Rook.runtimeconfig.json')
+    }
+
+    Get-ChildItem $sourceDir -Filter '*.dll' -File | ForEach-Object {
+        Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $targetDir $_.Name) -Force
+    }
+
+    Sync-Directory (Join-Path $sourceDir 'runtimes') (Join-Path $targetDir 'runtimes')
+}
+
 function Deploy-CompanionPayload {
     New-Item -ItemType Directory -Force -Path $PluginDir | Out-Null
 
-    $companionDir = Join-Path $RepoRoot "src\Rook\bin\$Configuration\net7.0"
     $ffmpegDir = Join-Path $RepoRoot 'third_party\ffmpeg'
 
-    foreach ($name in @('Rook.rhp', 'Rook.rui', 'Rook.deps.json', 'Rook.runtimeconfig.json')) {
-        Copy-RequiredFile (Join-Path $companionDir $name) (Join-Path $PluginDir $name)
+    Remove-StaleRootCompanionPayload
+
+    foreach ($runtime in $ManagedCompanionRuntimes) {
+        Deploy-CompanionRuntimePayload -Runtime $runtime
     }
-    Get-ChildItem $companionDir -Filter '*.dll' -File | ForEach-Object {
-        Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $PluginDir $_.Name) -Force
-    }
-    Sync-Directory (Join-Path $companionDir 'runtimes') (Join-Path $PluginDir 'runtimes')
 
     if (Test-Path $ffmpegDir) {
         Sync-Directory $ffmpegDir (Join-Path $PluginDir 'ffmpeg')
@@ -346,7 +398,7 @@ function Invoke-PostInstallConfig {
 
 function Register-Plugins {
     $register = Join-Path $RepoRoot 'scripts\register-rooknative-suite.ps1'
-    & $register -NativeRhpPath (Join-Path $PluginDir 'RookNative.rhp') -CompanionRhpPath (Join-Path $PluginDir 'Rook.rhp')
+    & $register -NativeRhpPath (Join-Path $PluginDir 'RookNative.rhp') -CompanionRhpPath (Join-Path $PluginDir 'net7.0\Rook.rhp')
 }
 
 function Register-NativeOnlyPlugins {
