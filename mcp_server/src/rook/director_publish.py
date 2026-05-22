@@ -590,13 +590,6 @@ async def publish_director_video(
     if managed.get("success") is not True:
         code = str(data.get("code") or "managed_publish_rejected")
         managed_subcode = data.get("managed_subcode")
-        preserve_prior_manifest = (
-            prior_artifact_id is not None
-            and (
-                code == "published_artifact_missing"
-                or str(managed_subcode or "") == "prior_artifact_mismatch"
-            )
-        )
         return _failure(
             run_id=run_id,
             run_root=run_root,
@@ -611,7 +604,7 @@ async def publish_director_video(
             source_byte_size=source_byte_size,
             video_manifest_hash=video_manifest_hash,
             frame_manifest_hash=frame_manifest_hash,
-            write_manifest=not preserve_prior_manifest,
+            write_manifest=prior_artifact_id is None,
         )
 
     artifact_id = str(data.get("artifact_id") or "")
@@ -631,6 +624,7 @@ async def publish_director_video(
             source_byte_size=source_byte_size,
             video_manifest_hash=video_manifest_hash,
             frame_manifest_hash=frame_manifest_hash,
+            write_manifest=prior_artifact_id is None,
         )
 
     success_manifest = _base_publish_manifest(

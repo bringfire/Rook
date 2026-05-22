@@ -188,15 +188,15 @@ namespace Rook.Services.Vision.Director
                 || RequireInt(resolution, "height") != RequireInt(facts, "height")
                 || RequireInt(timeline, "fps") != RequireInt(facts, "fps")
                 || RequireInt(timeline, "frame_count") != RequireInt(facts, "frame_count")
-                || manifest["frame_count"]?.GetValue<int>() != RequireInt(facts, "frame_count"))
+                || RequireInt(manifest, "frame_count") != RequireInt(facts, "frame_count"))
             {
                 return DirectorVideoPublishResponses.BoundaryMismatch("manifest_fact_mismatch", "request facts do not match manifest.json.");
             }
 
-            if (videoManifest["width"]?.GetValue<int>() != RequireInt(facts, "width")
-                || videoManifest["height"]?.GetValue<int>() != RequireInt(facts, "height")
-                || videoManifest["frame_count"]?.GetValue<int>() != RequireInt(facts, "frame_count")
-                || videoManifest["fps"]?.GetValue<int>() != RequireInt(facts, "fps")
+            if (RequireInt(videoManifest, "width") != RequireInt(facts, "width")
+                || RequireInt(videoManifest, "height") != RequireInt(facts, "height")
+                || RequireInt(videoManifest, "frame_count") != RequireInt(facts, "frame_count")
+                || RequireInt(videoManifest, "fps") != RequireInt(facts, "fps")
                 || !string.Equals(videoManifest["format"]?.GetValue<string>(), RequireString(facts, "format"), StringComparison.Ordinal)
                 || !string.Equals(videoManifest["container"]?.GetValue<string>(), RequireString(facts, "container"), StringComparison.Ordinal)
                 || !string.Equals(videoManifest["codec"]?.GetValue<string>(), RequireString(facts, "codec"), StringComparison.Ordinal))
@@ -424,7 +424,63 @@ namespace Rook.Services.Vision.Director
             => obj[name]?.GetValue<string>() ?? throw new ArgumentException($"{name} must be a string.");
 
         private static int RequireInt(JsonObject obj, string name)
-            => obj[name]?.GetValue<int>() ?? throw new ArgumentException($"{name} must be an integer.");
+            => RequireIntegralInt(obj[name], name);
+
+        private static int RequireIntegralInt(JsonNode? node, string name)
+        {
+            if (node is null)
+                throw new ArgumentException($"{name} must be an integer.");
+
+            if (TryGetIntegralInt(node, out var value))
+                return value;
+
+            throw new ArgumentException($"{name} must be an integer.");
+        }
+
+        private static bool TryGetIntegralInt(JsonNode node, out int value)
+        {
+            try
+            {
+                value = node.GetValue<int>();
+                return true;
+            }
+            catch (Exception ex) when (ex is InvalidOperationException || ex is FormatException)
+            {
+            }
+
+            try
+            {
+                var longValue = node.GetValue<long>();
+                if (longValue >= int.MinValue && longValue <= int.MaxValue)
+                {
+                    value = (int)longValue;
+                    return true;
+                }
+            }
+            catch (Exception ex) when (ex is InvalidOperationException || ex is FormatException)
+            {
+            }
+
+            try
+            {
+                var doubleValue = node.GetValue<double>();
+                if (!double.IsNaN(doubleValue)
+                    && !double.IsInfinity(doubleValue)
+                    && doubleValue >= int.MinValue
+                    && doubleValue <= int.MaxValue
+                    && Math.Truncate(doubleValue) == doubleValue)
+                {
+                    value = (int)doubleValue;
+                    return true;
+                }
+            }
+            catch (Exception ex) when (ex is InvalidOperationException || ex is FormatException)
+            {
+            }
+
+            value = default;
+            return false;
+        }
 
         private static long RequireLong(JsonObject obj, string name)
         {

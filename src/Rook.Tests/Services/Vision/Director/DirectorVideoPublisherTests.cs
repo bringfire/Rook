@@ -224,6 +224,34 @@ namespace Rook.Tests.Services.Vision.Director
         }
 
         [Fact]
+        public void Publish_AcceptsIntegralFloatVideoManifestFps()
+        {
+            var runRoot = WriteStandardRun();
+            var request = BuildRequest(runRoot);
+            RewriteVideoManifestField(runRoot, "fps", 24.0, request);
+            var publisher = new DirectorVideoPublisher(_store, _directorRoot);
+
+            var response = publisher.Publish(request);
+
+            Assert.True(response.Success);
+        }
+
+        [Fact]
+        public void Publish_RejectsNonIntegralFloatVideoManifestFps()
+        {
+            var runRoot = WriteStandardRun();
+            var request = BuildRequest(runRoot);
+            RewriteVideoManifestField(runRoot, "fps", 24.5, request);
+            var publisher = new DirectorVideoPublisher(_store, _directorRoot);
+
+            var response = publisher.Publish(request);
+
+            Assert.False(response.Success);
+            var data = Assert.IsType<JsonObject>(response.Data);
+            Assert.Equal("manifest_fact_mismatch", data["managed_subcode"]!.GetValue<string>());
+        }
+
+        [Fact]
         public void Publish_RejectsUnsupportedDimensions()
         {
             var runRoot = WriteStandardRun(width: 1024, height: 768);

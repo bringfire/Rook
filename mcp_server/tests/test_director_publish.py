@@ -622,6 +622,61 @@ async def test_publish_video_preserves_managed_subcode(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_publish_video_preserves_prior_manifest_for_managed_boundary_failure(
+    tmp_path,
+):
+    run_root = _write_standard_run(tmp_path / "director")
+    previous = {
+        "schema_version": 1,
+        "state": "complete",
+        "artifact_id": "00000000-0000-0000-0000-000000000099",
+        "profile": "director_publish_standard_v1",
+        "preset": "hd_720",
+        "source_video": "videos/preview.mp4",
+        "source_sha256": _sha256_file(run_root / "videos" / "preview.mp4"),
+        "source_byte_size": (run_root / "videos" / "preview.mp4").stat().st_size,
+        "video_manifest_hash": _sha256_file(run_root / "video_manifest.json"),
+        "frame_manifest_hash": _sha256_file(run_root / "manifest.json"),
+        "sidecar_policy": "existing_generated_video_pipeline",
+    }
+    _write_json(run_root / "publish_manifest.json", previous)
+    managed = FakeManagedPublish(
+        {
+            "success": False,
+            "data": {
+                "code": "artifact_boundary_mismatch",
+                "managed_subcode": "source_hash_mismatch",
+                "message": "Managed publish rejected the source video hash.",
+            },
+        }
+    )
+
+    result = await director_publish.publish_director_video(
+        {"run_root": str(run_root)},
+        call_managed=managed,
+        director_output_root=tmp_path / "director",
+    )
+
+    assert result["state"] == "failed"
+    assert result["error"]["managed_subcode"] == "source_hash_mismatch"
+    publish_manifest = json.loads(
+        (run_root / "publish_manifest.json").read_text(encoding="utf-8")
+    )
+    assert publish_manifest["state"] == "complete"
+    assert publish_manifest["artifact_id"] == previous["artifact_id"]
+
+    second_managed = FakeManagedPublish()
+    second = await director_publish.publish_director_video(
+        {"run_root": str(run_root)},
+        call_managed=second_managed,
+        director_output_root=tmp_path / "director",
+    )
+
+    assert second["state"] == "complete"
+    assert second_managed.calls[0][2]["prior_artifact_id"] == previous["artifact_id"]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("artifact_id", [None, "", "not-a-guid"])
 async def test_publish_video_rejects_managed_success_without_valid_artifact_id(
     tmp_path, artifact_id
@@ -642,6 +697,42 @@ async def test_publish_video_rejects_managed_success_without_valid_artifact_id(
     )
     assert publish_manifest["state"] == "failed"
     assert publish_manifest["artifact_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_publish_video_preserves_prior_manifest_for_malformed_managed_success(
+    tmp_path,
+):
+    run_root = _write_standard_run(tmp_path / "director")
+    previous = {
+        "schema_version": 1,
+        "state": "complete",
+        "artifact_id": "00000000-0000-0000-0000-000000000099",
+        "profile": "director_publish_standard_v1",
+        "preset": "hd_720",
+        "source_video": "videos/preview.mp4",
+        "source_sha256": _sha256_file(run_root / "videos" / "preview.mp4"),
+        "source_byte_size": (run_root / "videos" / "preview.mp4").stat().st_size,
+        "video_manifest_hash": _sha256_file(run_root / "video_manifest.json"),
+        "frame_manifest_hash": _sha256_file(run_root / "manifest.json"),
+        "sidecar_policy": "existing_generated_video_pipeline",
+    }
+    _write_json(run_root / "publish_manifest.json", previous)
+    managed = FakeManagedPublish({"success": True, "data": {"artifact_id": "not-a-guid"}})
+
+    result = await director_publish.publish_director_video(
+        {"run_root": str(run_root)},
+        call_managed=managed,
+        director_output_root=tmp_path / "director",
+    )
+
+    assert result["state"] == "failed"
+    assert result["error"]["code"] == "managed_publish_rejected"
+    publish_manifest = json.loads(
+        (run_root / "publish_manifest.json").read_text(encoding="utf-8")
+    )
+    assert publish_manifest["state"] == "complete"
+    assert publish_manifest["artifact_id"] == previous["artifact_id"]
 
 
 @pytest.mark.asyncio
