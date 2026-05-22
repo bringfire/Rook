@@ -96,28 +96,65 @@ namespace Rook
             // new-first reads start working without further code changes.
             // Any deeper managed-side migration belongs in follow-up #34.
 
-            // Register the Rook Chat panel (interactive AI chat)
-            var chatPanelType = typeof(UI.Chat.RookChatPanel);
-            Panels.RegisterPanel(this, chatPanelType, "Rook Chat",
-                System.Drawing.SystemIcons.Information,
-                PanelType.PerDoc);
+            if (ShouldRegisterStartupPanels(_isRhinoInside))
+            {
+                RegisterStartupPanels();
+            }
+            else
+            {
+                TraceStartup("Rhino.Inside mode: startup panel registration skipped");
+            }
 
-            // Register the Rook Vision panel (AI image/video UI)
-            var visionPanelType = typeof(UI.Vision.RookVisionPanel);
-            Panels.RegisterPanel(this, visionPanelType, "Rook Vision",
-                System.Drawing.SystemIcons.Information,
-                PanelType.PerDoc);
-
-            // Register the Knowledge Graph panel (WebUI module)
-            var kgPanelType = typeof(UI.Knowledge.KnowledgeGraphPanel);
-            Panels.RegisterPanel(this, kgPanelType, "Knowledge Graph",
-                System.Drawing.SystemIcons.Information,
-                PanelType.PerDoc);
-
-            BeginStartupRetries();
-            RhinoApp.InvokeOnUiThread(new Action(TryInitializeRuntime));
+            try
+            {
+                BeginStartupRetries();
+                RhinoApp.InvokeOnUiThread(new Action(TryInitializeRuntime));
+            }
+            catch (Exception ex)
+            {
+                TraceStartup($"Startup retry scheduling failed (non-fatal): {ex.GetType().Name}: {ex.Message}");
+                RhinoApp.WriteLine(
+                    "Rook: startup retry scheduling failed; companion load will continue. " +
+                    $"Reason: {ex.GetType().Name}.");
+            }
 
             return LoadReturnCode.Success;
+        }
+
+        internal static bool ShouldRegisterStartupPanels(bool isRhinoInside)
+        {
+            return !isRhinoInside;
+        }
+
+        private void RegisterStartupPanels()
+        {
+            try
+            {
+                // Register the Rook Chat panel (interactive AI chat)
+                var chatPanelType = typeof(UI.Chat.RookChatPanel);
+                Panels.RegisterPanel(this, chatPanelType, "Rook Chat",
+                    System.Drawing.SystemIcons.Information,
+                    PanelType.PerDoc);
+
+                // Register the Rook Vision panel (AI image/video UI)
+                var visionPanelType = typeof(UI.Vision.RookVisionPanel);
+                Panels.RegisterPanel(this, visionPanelType, "Rook Vision",
+                    System.Drawing.SystemIcons.Information,
+                    PanelType.PerDoc);
+
+                // Register the Knowledge Graph panel (WebUI module)
+                var kgPanelType = typeof(UI.Knowledge.KnowledgeGraphPanel);
+                Panels.RegisterPanel(this, kgPanelType, "Knowledge Graph",
+                    System.Drawing.SystemIcons.Information,
+                    PanelType.PerDoc);
+            }
+            catch (Exception ex)
+            {
+                TraceStartup($"Panel registration failed (non-fatal): {ex.GetType().Name}: {ex.Message}");
+                RhinoApp.WriteLine(
+                    "Rook: panel registration failed; continuing without companion panels. " +
+                    $"Reason: {ex.GetType().Name}.");
+            }
         }
 
         private void BeginStartupRetries()

@@ -151,6 +151,38 @@ function Test-InstallerRegistersRhinoPluginFileNamesUnderPluginSubkey {
     }
 }
 
+function Test-InstallerBlocksWhenRhinoOrRevitAreRunning {
+    $content = Get-Content -Path $InstallerScript -Raw
+
+    Assert-Contains -Text $content -Expected 'function IsProcessRunning(const ImageName: String): Boolean;' -Message 'Installer must define a process-running check.'
+    Assert-Contains -Text $content -Expected 'function IsRhinoHostRunning(): Boolean;' -Message 'Installer must define a Rhino/Revit host-running check.'
+    Assert-Contains -Text $content -Expected "IsProcessRunning('Rhino.exe')" -Message 'Installer must block when Rhino.exe is running.'
+    Assert-Contains -Text $content -Expected "IsProcessRunning('Rhinoceros.exe')" -Message 'Installer must block when Rhinoceros.exe is running.'
+    Assert-Contains -Text $content -Expected "IsProcessRunning('Revit.exe')" -Message 'Installer must block when Revit.exe is running.'
+    Assert-Contains -Text $content -Expected 'Close Rhino, Rhino.Inside.Revit, and Revit before installing Rook.' -Message 'Installer must tell users to close Rhino/Revit before install.'
+    Assert-Contains -Text $content -Expected 'Result := False;' -Message 'Installer must abort setup when host applications are running.'
+}
+
+function Test-InstallerWarnsRegistrationIsPerWindowsUser {
+    $installerContent = Get-Content -Path $InstallerScript -Raw
+    $readmeContent = Get-Content -Path (Join-Path $RepoRoot 'installer\pre-install-readme.txt') -Raw
+
+    Assert-Contains -Text $installerContent -Expected 'Rook installs Rhino plug-ins for the current Windows user only.' -Message 'Installer must warn that Rhino registration is per-user.'
+    Assert-Contains -Text $installerContent -Expected 'If an administrator installs Rook for someone else, Rhino will not see the plug-ins in that user profile.' -Message 'Installer must warn against admin-for-another-user installs.'
+    Assert-Contains -Text $readmeContent -Expected 'Run this installer as the same Windows user who runs Rhino/Revit.' -Message 'Pre-install readme must warn about per-user Rhino registration.'
+}
+
+function Test-InstallerVerifiesRhinoPluginRegistrationAfterInstall {
+    $content = Get-Content -Path $InstallerScript -Raw
+
+    Assert-Contains -Text $content -Expected 'function VerifyPluginRegistration(const Guid, FileName: String; IsDotNet: Cardinal; LoadMode: Cardinal): Boolean;' -Message 'Installer must define registry verification for Rhino plugins.'
+    Assert-Contains -Text $content -Expected 'procedure VerifyRhinoPluginInstall();' -Message 'Installer must run post-install Rhino plugin verification.'
+    Assert-Contains -Text $content -Expected 'VerifyPluginRegistration(''A38E0E8F-E06E-40D2-A6BD-7EDBC2CB1906''' -Message 'Installer must verify native Rhino registry registration.'
+    Assert-Contains -Text $content -Expected 'VerifyPluginRegistration(''B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B''' -Message 'Installer must verify companion Rhino registry registration.'
+    Assert-Contains -Text $content -Expected 'Rook copied the plug-in files, but Rhino registration verification failed.' -Message 'Installer must surface a clear post-install registration failure.'
+    Assert-Contains -Text $content -Expected 'Restart Rhino after installation.' -Message 'Installer must remind users to restart Rhino after installer-time registry writes.'
+}
+
 function Test-ReleaseWorkflowDocsUseNet7CompanionOutput {
     $combined = @(
         Get-Content -Path $BuildReleaseSkill -Raw
@@ -244,6 +276,9 @@ Test-FfmpegBuildScriptUsesAgentlessSignatureVerification
 Test-FfmpegBuildRecipeTargetsOnlyFfmpegProgram
 Test-InstallerRequiresNativePluginBuildOutput
 Test-InstallerRegistersRhinoPluginFileNamesUnderPluginSubkey
+Test-InstallerBlocksWhenRhinoOrRevitAreRunning
+Test-InstallerWarnsRegistrationIsPerWindowsUser
+Test-InstallerVerifiesRhinoPluginRegistrationAfterInstall
 Test-ReleaseWorkflowDocsUseNet7CompanionOutput
 Test-BuildReleaseWorkflowUsesWindowsPowerShellCommands
 Test-BuildReleaseDocsRequireFfmpegValidation
