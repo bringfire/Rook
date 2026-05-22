@@ -27,6 +27,7 @@ All paths are relative to the repo root.
 | `src/Rook/bin/Release/net48/Rook.rhp` | C# .NET Framework build output for Rhino.Inside.Revit hosts |
 | `src/Rook/bin/Release/net48/Rook.rui` | Rhino toolbar file |
 | `src/Rook/bin/Release/net48/*.dll` | C# .NET Framework dependency DLLs |
+| `src/Rook/bin/Release/net48/runtimes/` | C# .NET Framework runtime assets, including WebView2 native loader |
 
 **CRITICAL:** The installer must package sibling `net8.0`, `net7.0`, and `net48`
 companion outputs. The registry `FileName` points at the `net7.0` child RHP.
@@ -199,7 +200,8 @@ $directories = @(
   ".claude\agents",
   ".agents\skills",
   "src\Rook\bin\Release\net8.0\runtimes",
-  "src\Rook\bin\Release\net7.0\runtimes"
+  "src\Rook\bin\Release\net7.0\runtimes",
+  "src\Rook\bin\Release\net48\runtimes"
 )
 
 foreach ($directory in $directories) {
