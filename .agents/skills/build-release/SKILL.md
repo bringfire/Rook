@@ -176,6 +176,7 @@ Test-Path src\Rook\bin\Release\net7.0\Rook.deps.json
 Test-Path src\Rook\bin\Release\net7.0\Rook.runtimeconfig.json
 Test-Path src\Rook\bin\Release\net7.0\runtimes
 Test-Path src\Rook\bin\Release\net48\Rook.rhp
+Test-Path src\Rook\bin\Release\net48\runtimes
 ```
 
 ## Step 4: Verify All .iss Source Paths
