@@ -819,6 +819,9 @@ void CRookServer::RegisterRoutes()
     m_server->Post("/vision/capture-depth", [](const httplib::Request& req, httplib::Response& res) {
         Rook::Handlers::HandleVisionCaptureDepth(req, res);
     });
+    m_server->Post("/vision/director/publish-video", [](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleVisionDirectorPublishVideo(req, res);
+    });
 
     // PR-5b: artifact-management routes. The more-specific routes
     // (consume-approved, {id}/approve) are registered BEFORE the

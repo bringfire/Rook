@@ -165,3 +165,17 @@ def test_director_video_assemble_validates_temp_mp4_before_replacing_preview():
     output_size_index = backend_body.index("result.bytes = fs::file_size(request.outputPath, ec);")
 
     assert finalize_index < writer_release_index < temp_size_index < overwrite_index < replace_index < output_size_index
+
+
+def test_director_publish_video_native_route_is_thin_vision_proxy():
+    server_source = ROOK_SERVER_CPP.read_text(encoding="utf-8")
+    header_source = (REPO_ROOT / "src" / "RookNative" / "Handlers" / "VisionHandler.h").read_text(encoding="utf-8")
+    handler_source = (REPO_ROOT / "src" / "RookNative" / "Handlers" / "VisionHandler.cpp").read_text(encoding="utf-8")
+
+    assert 'm_server->Post("/vision/director/publish-video"' in server_source
+    assert "HandleVisionDirectorPublishVideo" in header_source
+    assert "void HandleVisionDirectorPublishVideo" in handler_source
+    assert 'DispatchVisionOp(req, res, "publish_director_video")' in handler_source
+    assert "DirectorVideoPublisher" not in handler_source
+    assert "ArtifactStore" not in handler_source
+    assert "director_publish_standard_v1" not in handler_source

@@ -49,7 +49,7 @@ if logger.isEnabledFor(logging.DEBUG):
     )
 
 from .bridge import call_rhino, get_rhino_host, discover_instances, TIMEOUT, DISCOVERY_FOLDER, rhino_request_context
-from . import director, director_video, script_library, targeting
+from . import director, director_publish, director_video, script_library, targeting
 targeting.initialize_from_environment()
 from .knowledge import query_knowledge, query_knowledge_tiered, record_knowledge, invalidate_condensed_command_cache
 from .learning.command_observer import (
@@ -2677,6 +2677,25 @@ Use this before any Rhino operations to ensure Rhino is available. Safe to call 
                             "Optional positive frames-per-second override. "
                             "When omitted, the completed run manifest timeline fps is used."
                         ),
+                    },
+                },
+            },
+        ),
+        Tool(
+            name="rhino_director_publish_video",
+            description=(
+                "Publish a completed/current RookVisionDirector videos/preview.mp4 "
+                "as a durable RookVision generated_video artifact. Validates "
+                "director_publish_standard_v1 and writes publish_manifest.json. "
+                "Does not create sidecars or transcode."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["run_root"],
+                "properties": {
+                    "run_root": {
+                        "type": "string",
+                        "description": "Absolute path to a completed Director run root with current videos/preview.mp4.",
                     },
                 },
             },
@@ -18191,6 +18210,23 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                     "success": False,
                     "data": {
                         "code": "director_video_error",
+                        "message": str(exc),
+                    },
+                }
+
+        case "rhino_director_publish_video":
+            try:
+                result = {
+                    "success": True,
+                    "data": await director_publish.publish_director_video(
+                        arguments, port=port
+                    ),
+                }
+            except director_publish.DirectorPublishError as exc:
+                result = {
+                    "success": False,
+                    "data": {
+                        "code": "director_publish_error",
                         "message": str(exc),
                     },
                 }

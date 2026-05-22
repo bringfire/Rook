@@ -379,6 +379,11 @@ void HandleVisionConsumeApproved(const httplib::Request& req, httplib::Response&
     DispatchVisionOp(req, res, "consume_approved");
 }
 
+void HandleVisionDirectorPublishVideo(const httplib::Request& req, httplib::Response& res)
+{
+    DispatchVisionOp(req, res, "publish_director_video");
+}
+
 // ─── Video routes (V2 — long-form ops; C# accepts these names canonically) ──
 
 void HandleVisionVideoSubmit(const httplib::Request& req, httplib::Response& res)

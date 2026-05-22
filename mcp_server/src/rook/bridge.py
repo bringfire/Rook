@@ -495,6 +495,7 @@ async def call_rhino(
     data: dict | None = None,
     port: int | None = None,
     process_id: int | None = None,
+    timeout: httpx.Timeout | float | None = None,
 ) -> dict[str, Any]:
     """Make an HTTP request to the Rhino bridge.
 
@@ -504,6 +505,7 @@ async def call_rhino(
         data: Optional JSON data to send
         port: Optional specific port to connect to (for multi-instance support)
         process_id: Optional specific Rhino process ID to connect to
+        timeout: Optional per-call HTTP timeout override
     """
     resolved_port = port if port is not None else _RHINO_CONTEXT_PORT.get()
     resolved_process_id = (
@@ -617,7 +619,7 @@ async def call_rhino(
         }
     url = f"{host}{endpoint}"
 
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+    async with httpx.AsyncClient(timeout=timeout or TIMEOUT) as client:
         try:
             if method == "GET":
                 if data:

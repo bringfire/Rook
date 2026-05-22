@@ -14,6 +14,13 @@ Requirements:
   - Python 3.10+ (required for the MCP server component)
   - Claude Code or Claude Desktop (install from claude.ai)
 
+Important:
+  - Close Rhino, Rhino.Inside.Revit, and Revit before installing.
+  - Run this installer as the same Windows user who runs Rhino/Revit.
+    Rook registers Rhino plugins in that user's HKCU registry and APPDATA
+    profile; an administrator installing for another user will not register
+    the plugins for that user's Rhino session.
+
 After installation:
   1. Open (or restart) Rhino 8
   2. In Claude Code, type: rhino_ping

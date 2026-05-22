@@ -296,6 +296,105 @@ begin
   Result := RegKeyExists(HKCU, 'Software\McNeel\Rhinoceros\8.0');
 end;
 
+function IsProcessRunning(const ImageName: String): Boolean;
+var
+  ResultCode: Integer;
+  CmdLine: String;
+begin
+  CmdLine := '/C tasklist /FI "IMAGENAME eq ' + ImageName + '" /NH | find /I "' + ImageName + '" >NUL';
+  Result := Exec('cmd.exe', CmdLine, '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
+end;
+
+function IsRhinoHostRunning(): Boolean;
+begin
+  Result :=
+    IsProcessRunning('Rhino.exe') or
+    IsProcessRunning('Rhinoceros.exe') or
+    IsProcessRunning('Revit.exe');
+end;
+
+function VerifyPluginRegistration(const Guid, FileName: String; IsDotNet: Cardinal; LoadMode: Cardinal): Boolean;
+var
+  BaseKey: String;
+  RegisteredFileName: String;
+  RegisteredIsDotNet: Cardinal;
+  RegisteredLoadMode: Cardinal;
+begin
+  Result := False;
+  BaseKey := 'Software\McNeel\Rhinoceros\8.0\Plug-Ins\' + Guid;
+
+  if not FileExists(FileName) then
+  begin
+    Log('Rhino plugin verification failed: file missing: ' + FileName);
+    Exit;
+  end;
+
+  if not RegQueryStringValue(HKCU, BaseKey + '\PlugIn', 'FileName', RegisteredFileName) then
+  begin
+    Log('Rhino plugin verification failed: missing PlugIn\FileName for ' + Guid);
+    Exit;
+  end;
+
+  if CompareText(RegisteredFileName, FileName) <> 0 then
+  begin
+    Log('Rhino plugin verification failed: FileName for ' + Guid + ' expected "' + FileName + '", got "' + RegisteredFileName + '"');
+    Exit;
+  end;
+
+  if not RegQueryDWordValue(HKCU, BaseKey, 'IsDotNETPlugIn', RegisteredIsDotNet) then
+  begin
+    Log('Rhino plugin verification failed: missing IsDotNETPlugIn for ' + Guid);
+    Exit;
+  end;
+
+  if RegisteredIsDotNet <> IsDotNet then
+  begin
+    Log('Rhino plugin verification failed: IsDotNETPlugIn for ' + Guid + ' had unexpected value');
+    Exit;
+  end;
+
+  if not RegQueryDWordValue(HKCU, BaseKey, 'LoadMode', RegisteredLoadMode) then
+  begin
+    Log('Rhino plugin verification failed: missing LoadMode for ' + Guid);
+    Exit;
+  end;
+
+  if RegisteredLoadMode <> LoadMode then
+  begin
+    Log('Rhino plugin verification failed: LoadMode for ' + Guid + ' had unexpected value');
+    Exit;
+  end;
+
+  Result := True;
+end;
+
+procedure VerifyRhinoPluginInstall();
+var
+  NativePath: String;
+  CompanionPath: String;
+begin
+  if not WizardIsComponentSelected('plugins') then
+    Exit;
+
+  NativePath := ExpandConstant('{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\RookNative.rhp');
+  CompanionPath := ExpandConstant('{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\Rook.rhp');
+
+  if not (
+    VerifyPluginRegistration('A38E0E8F-E06E-40D2-A6BD-7EDBC2CB1906', NativePath, 0, 1) and
+    VerifyPluginRegistration('B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B', CompanionPath, 1, 2)) then
+  begin
+    MsgBox(
+      'Rook copied the plug-in files, but Rhino registration verification failed.' + #13#10 + #13#10 +
+      'This usually means the installer was run from a different Windows user account than the one that runs Rhino, or registry writes were blocked.' + #13#10 + #13#10 +
+      'Run the installer again as the same Windows user who runs Rhino/Revit. Then restart Rhino after installation.',
+      mbError, MB_OK);
+  end
+  else
+  begin
+    Log('Rook Rhino plugin registration verified for current Windows user. Restart Rhino after installation.');
+  end;
+end;
+
 // --- API Key wizard page ---
 
 procedure InitializeWizard();
@@ -331,6 +430,16 @@ function InitializeSetup(): Boolean;
 begin
   Result := True;
 
+  if IsRhinoHostRunning() then
+  begin
+    MsgBox(
+      'Close Rhino, Rhino.Inside.Revit, and Revit before installing Rook.' + #13#10 + #13#10 +
+      'Rhino reads plug-in registry registration at startup. Installing while Rhino or Revit is running can leave this session unaware of Rook until users manually repair it in PluginManager.',
+      mbCriticalError, MB_OK);
+    Result := False;
+    Exit;
+  end;
+
   // Check Rhino 8
   if not RhinoInstalled() then
   begin
@@ -340,6 +449,12 @@ begin
       Exit;
     end;
   end;
+
+  MsgBox(
+    'Rook installs Rhino plug-ins for the current Windows user only.' + #13#10 + #13#10 +
+    'If an administrator installs Rook for someone else, Rhino will not see the plug-ins in that user profile.' + #13#10 + #13#10 +
+    'Run this installer as the same Windows user who runs Rhino/Revit.',
+    mbInformation, MB_OK);
 
   // Detect Python
   FindPython();
@@ -385,6 +500,8 @@ begin
       Log('Post-install: setup completed via post_install.py')
     else if not PythonDetected then
       Log('Post-install: Python not found, MCP server setup skipped');
+
+    VerifyRhinoPluginInstall();
   end;
 end;
 

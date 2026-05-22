@@ -170,6 +170,17 @@ async def test_director_assemble_video_tool_registered_as_mutating_schema():
 
 
 @pytest.mark.asyncio
+async def test_director_publish_video_tool_registered():
+    tools = await server.list_tools()
+    by_name = {tool.name: tool for tool in tools}
+    assert "rhino_director_publish_video" in by_name
+    schema = by_name["rhino_director_publish_video"].inputSchema
+    assert schema["required"] == ["run_root"]
+    assert schema["properties"]["run_root"]["type"] == "string"
+    assert _find_rejected_schema_keywords(schema) == []
+
+
+@pytest.mark.asyncio
 async def test_director_tool_dispatches_to_python_runner():
     request = {
         "object_ids": ["a"],
@@ -194,6 +205,32 @@ async def test_director_assemble_video_tool_dispatches_to_python_runner():
         result = await server.call_tool("rhino_director_assemble_video", request)
     mock.assert_awaited_once_with(request, port=None)
     assert "videos/preview.mp4" in result[0].text
+
+
+@pytest.mark.asyncio
+async def test_director_publish_video_dispatches_to_python(monkeypatch):
+    request = {
+        "run_root": "C:/Users/aryan/AppData/Local/Rook/rookvision_director/run-a"
+    }
+    called = {}
+
+    async def fake_publish(arguments, *, port=None):
+        called["arguments"] = arguments
+        called["port"] = port
+        return {
+            "state": "complete",
+            "artifact_id": "00000000-0000-0000-0000-000000000099",
+            "profile": "director_publish_standard_v1",
+            "preset": "hd_720",
+        }
+
+    monkeypatch.setattr(server.director_publish, "publish_director_video", fake_publish)
+    result = await server.call_tool("rhino_director_publish_video", request)
+
+    assert called["arguments"] == request
+    assert result[0].text
+    payload = json.loads(result[0].text)
+    assert payload["state"] == "complete"
 
 
 @pytest.mark.asyncio
@@ -297,6 +334,13 @@ def test_director_tool_groups_include_curve_samples_readonly():
 def test_director_tool_groups_include_assemble_video_mutating_only():
     assert "rhino_director_assemble_video" in tool_groups.TOOL_GROUPS["director"]
     assert "rhino_director_assemble_video" not in tool_groups.TOOL_GROUPS[
+        "director_readonly"
+    ]
+
+
+def test_director_publish_video_in_director_group_only():
+    assert "rhino_director_publish_video" in tool_groups.TOOL_GROUPS["director"]
+    assert "rhino_director_publish_video" not in tool_groups.TOOL_GROUPS[
         "director_readonly"
     ]
 

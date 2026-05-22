@@ -7,6 +7,49 @@ namespace Rook.Tests.Plugin
 {
     public class RookPluginLifecycleSourceTests
     {
+        [Theory]
+        [InlineData(false, true)]
+        [InlineData(true, false)]
+        public void StartupPanelRegistration_IsDisabledForRhinoInside(
+            bool isRhinoInside,
+            bool expected)
+        {
+            Assert.Equal(
+                expected,
+                RookPlugin.ShouldRegisterStartupPanels(isRhinoInside));
+        }
+
+        [Fact]
+        public void StartupPanelRegistration_IsWrappedAsNonFatalOnLoadStep()
+        {
+            var source = ReadSourceFile("src", "Rook", "RookPlugin.cs");
+            var onLoad = ExtractMethod(source, "protected override LoadReturnCode OnLoad(");
+            var registerPanels = ExtractMethod(source, "private void RegisterStartupPanels()");
+
+            Assert.Contains(
+                "if (ShouldRegisterStartupPanels(_isRhinoInside))",
+                onLoad);
+            Assert.Contains("RegisterStartupPanels();", onLoad);
+
+            var panelBlock = ExtractTryCatchContaining(
+                registerPanels,
+                "Panels.RegisterPanel(this, chatPanelType, \"Rook Chat\"");
+
+            Assert.Contains(
+                "Panels.RegisterPanel(this, chatPanelType, \"Rook Chat\"",
+                panelBlock.TryBody);
+            Assert.Contains(
+                "Panels.RegisterPanel(this, visionPanelType, \"Rook Vision\"",
+                panelBlock.TryBody);
+            Assert.Contains(
+                "Panels.RegisterPanel(this, kgPanelType, \"Knowledge Graph\"",
+                panelBlock.TryBody);
+            Assert.Contains(
+                "TraceStartup($\"Panel registration failed (non-fatal):",
+                panelBlock.CatchBody);
+            Assert.DoesNotContain("throw", panelBlock.CatchBody);
+        }
+
         [Fact]
         public void StartupVideoReconcileFailure_IsCaughtAndLoggedAsNonFatal()
         {
