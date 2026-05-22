@@ -23,6 +23,11 @@ from .runtime_paths import RuntimePaths, resolve_runtime_paths
 
 REQUIRED_MCP_ENV_KEYS = ("PYTHONPATH", "PYTHONHOME", "ROOK_INSTALL_ROOT", "ROOK_DATA_DIR", "ROOK_MODE")
 PATH_LIKE_ENV_KEYS = {"ROOK_INSTALL_ROOT", "ROOK_DATA_DIR", "CHIRP_HOME"}
+MANAGED_COMPANION_RUNTIMES = ("net8.0", "net7.0", "net48")
+
+
+def _managed_companion_payloads(plugin_dir: Path) -> list[tuple[str, Path]]:
+    return [(runtime, plugin_dir / runtime / "Rook.rhp") for runtime in MANAGED_COMPANION_RUNTIMES]
 
 
 def _normalize_path_string(value: str | Path) -> str:
@@ -570,13 +575,14 @@ def run_doctor(
                 value=str(plugin_dir / "RookNative.rhp"),
             )
         )
-        result.checks.append(
-            DoctorCheck(
-                name="Rook.rhp deployed",
-                ok=(plugin_dir / "Rook.rhp").exists(),
-                value=str(plugin_dir / "Rook.rhp"),
+        for runtime, companion in _managed_companion_payloads(plugin_dir):
+            result.checks.append(
+                DoctorCheck(
+                    name=f"Rook.rhp {runtime} deployed",
+                    ok=companion.exists(),
+                    value=str(companion),
+                )
             )
-        )
 
     if targets["legacy_claude"].exists():
         result.warnings.append(f"Legacy Claude MCP path still exists: {targets['legacy_claude']}")

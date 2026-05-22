@@ -28,11 +28,12 @@ The argument is a semver version (X.Y.Z). If omitted, ask the user.
 | 0 | Pre-flight checks | Any check fails |
 | 1 | Version bump (6 files / 8 edits) | Grep verification fails |
 | 2 | Build C++ native plugin | Exit code != 0 |
-| 3 | Build C# companion plugin | Exit code != 0 |
+| 3 | Build C# companion plugin for all managed runtimes | Exit code != 0 |
 | 4 | Verify all .iss source paths | Any file missing or stale |
 | 5 | Run ISCC compiler | Exit code != 0 or output missing |
-| 6 | Commit & push | Push fails |
-| 7 | Create GitHub release | gh command fails |
+| 6 | Installer live smoke: Rhino 8 standalone + Rhino.Inside.Revit | Either host fails to load Rook |
+| 7 | Commit & push | Push fails |
+| 8 | Create GitHub release | gh command fails |
 
 **HARD RULE: Abort the entire pipeline on any step failure. No partial releases.**
 
@@ -154,18 +155,28 @@ Test-Path src\RookNative\bin\Release\x64\RookNative.rhp
 Call `dotnet build` directly (C# doesn't need MFC):
 
 ```powershell
-dotnet build src\Rook\Rook.csproj -f net7.0 -c Release
+dotnet build src\Rook\Rook.csproj -c Release
 ```
 
-**Key gotcha:** The release installer must package the net7.0 companion output.
-Do not package or register older framework outputs.
+**Key gotcha:** The release installer must package all companion runtime
+outputs. Rhino 8 standalone loads a .NET Core payload; Rhino.Inside.Revit on
+Revit 2025+ needs the sibling `net8.0` payload, and .NET Framework hosts need
+the sibling `net48` payload. The Inno direct-registry sibling layout is a
+release hypothesis, not proof; only the live Inno-install smoke can prove Rhino
+redirected from the registered child to the physical runtime sibling.
 
 Verify:
 ```powershell
+Test-Path src\Rook\bin\Release\net8.0\Rook.rhp
+Test-Path src\Rook\bin\Release\net8.0\Rook.deps.json
+Test-Path src\Rook\bin\Release\net8.0\Rook.runtimeconfig.json
+Test-Path src\Rook\bin\Release\net8.0\runtimes
 Test-Path src\Rook\bin\Release\net7.0\Rook.rhp
 Test-Path src\Rook\bin\Release\net7.0\Rook.deps.json
 Test-Path src\Rook\bin\Release\net7.0\Rook.runtimeconfig.json
 Test-Path src\Rook\bin\Release\net7.0\runtimes
+Test-Path src\Rook\bin\Release\net48\Rook.rhp
+Test-Path src\Rook\bin\Release\net48\runtimes
 ```
 
 ## Step 4: Verify All .iss Source Paths
@@ -195,7 +206,28 @@ $installer.Length
 Sanity check: file size should be > 5MB (current baseline is ~12MB). If significantly
 smaller, something was excluded.
 
-## Step 6: Commit & Push
+## Step 6: Installer Live Smoke
+
+Install the generated EXE on the release machine and verify both Rhino hosts:
+
+```powershell
+# Standalone Rhino smoke
+python scripts\run_rhino_runtime_harness.py --smoke ping-only
+
+# Manual release gate
+# 1. Launch Revit with Rhino.Inside.Revit.
+# 2. Start Rhino from the Rhino.Inside.Revit tab.
+# 3. Confirm RookNative and Rook load without CLR binding or TypeLoad errors.
+# 4. Run a non-mutating Rook ping from the discovered native port.
+# 5. Record the physical Rook.rhp path Rhino loaded in each host/runtime.
+```
+
+Do not publish the installer if the Rhino.Inside.Revit smoke was not run or did
+not pass. Do not cite Yak/package-manager layout docs as proof for this Inno
+installer shape. Record the Rhino, Revit, Rhino.Inside.Revit, Rook versions,
+and physical `Rook.rhp` load paths in the release notes.
+
+## Step 7: Commit & Push
 
 ```powershell
 # Stage only the version-bumped files
@@ -206,7 +238,7 @@ git commit -m "release: bump versions to X.Y.Z"
 git push origin main
 ```
 
-## Step 7: GitHub Release
+## Step 8: GitHub Release
 
 ```powershell
 gh release create vX.Y.Z "installer/output/Rook-Setup-X.Y.Z.exe" --title "Rook vX.Y.Z" --generate-notes
@@ -226,7 +258,7 @@ Remove-Item (Join-Path $env:TEMP "rook_build_native_release.bat") -Force -ErrorA
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | `error MSB8041: MFC libraries are required` | vcvarsall.bat not sourced, or wrong VCToolsVersion | Must call vcvarsall.bat before msbuild, and set VCToolsVersion=14.44.35207 |
-| C# output at wrong path | Installer expects the dotnet net7.0 output | Build with `dotnet build src\Rook\Rook.csproj -f net7.0 -c Release`; output is at `bin\Release\net7.0\` |
+| C# output at wrong path | Installer expects sibling net8.0, net7.0, and net48 outputs | Build with `dotnet build src\Rook\Rook.csproj -c Release`; outputs are at `bin\Release\net8.0\`, `bin\Release\net7.0\`, and `bin\Release\net48\` |
 | MSBuild `/p:` flags ignored | Bash mangles forward-slash flags | Use .bat file or quote as `"-p:Configuration=Release"` |
 | ISCC can't find source file | Path mismatch in .iss | Check CompanionDir matches actual build output path |
 | `error MSB1008: Only one project` | MSBuild.exe invoked from bash with /p flags | Bash interprets /p as a path; use `-p:` or route through .bat |

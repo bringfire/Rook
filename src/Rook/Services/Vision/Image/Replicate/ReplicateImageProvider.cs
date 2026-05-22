@@ -398,7 +398,7 @@ namespace Rook.Services.Vision.Image.Replicate
                 return request;
             }
 
-            return request with { Resolution = "1 MP" };
+            return request.With(resolution: "1 MP");
         }
 
         private static string BuildRequestJson(

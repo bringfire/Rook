@@ -98,18 +98,26 @@ if (-not $RhpPath) {
     $RepoRoot  = Split-Path -Parent $ScriptDir
     $RhpSource = $null
 
-    # Priority 1: Colocated with deployed RookNative.rhp.
-    # In a deployed package, both plugins live in the same directory.
+    # Priority 1: Sibling runtime payload beside deployed RookNative.rhp.
+    # The release installer keeps RookNative at the root and managed payloads
+    # under runtime subdirectories.
     $NativeGuid    = 'a38e0e8f-e06e-40d2-a6bd-7edbc2cb1906'
     $NativeRegPath = "HKCU:\Software\McNeel\Rhinoceros\8.0\Plug-Ins\$NativeGuid\PlugIn"
     $NativeReg     = Get-ItemProperty -Path $NativeRegPath -Name 'FileName' -ErrorAction SilentlyContinue
 
     if ($NativeReg -and $NativeReg.FileName) {
         $NativeDir = Split-Path -Parent $NativeReg.FileName
-        $Colocated = Join-Path $NativeDir 'Rook.rhp'
-        if (Test-Path $Colocated) {
-            $RhpPath = (Resolve-Path $Colocated).Path
-            $RhpSource = 'colocated with RookNative'
+        $ColocatedCandidates = @(
+            (Join-Path $NativeDir 'net7.0\Rook.rhp'),
+            (Join-Path $NativeDir 'Rook.rhp')
+        )
+
+        foreach ($Colocated in $ColocatedCandidates) {
+            if (Test-Path $Colocated) {
+                $RhpPath = (Resolve-Path $Colocated).Path
+                $RhpSource = 'installed beside RookNative'
+                break
+            }
         }
     }
 
@@ -131,7 +139,7 @@ if (-not $RhpPath) {
 
     if (-not $RhpPath) {
         $msg = "Could not find Rook.rhp.`n"
-        $msg += "  Checked colocated with registered RookNative (not found or native not registered).`n"
+        $msg += "  Checked runtime payload beside registered RookNative (not found or native not registered).`n"
         $msg += "  Checked repo net7.0 build outputs (not built).`n`n"
         $msg += "Build the managed companion first:`n"
         $msg += "  dotnet build src\Rook\Rook.csproj -f net7.0 -c Debug`n`n"

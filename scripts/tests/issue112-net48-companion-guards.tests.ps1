@@ -89,7 +89,6 @@ function Test-InstallScriptHasNoNet48Fallbacks {
     $content = Get-Content -Path $InstallScript -Raw
 
     $forbidden = @(
-        'src\Rook\bin\Release\net48\Rook.rhp',
         'Reuse existing companion net48 build',
         'Companion already built (net48)',
         'Companion built successfully (net48)'
@@ -98,6 +97,22 @@ function Test-InstallScriptHasNoNet48Fallbacks {
     foreach ($pattern in $forbidden) {
         Assert-NotContains -Text $content -Unexpected $pattern -Message "install.ps1 still contains unsafe companion fallback text: $pattern"
     }
+}
+
+function Test-InstallScriptUsesMultiRuntimeCompanionLayout {
+    $content = Get-Content -Path $InstallScript -Raw
+
+    Assert-Contains -Text $content -Expected '$ManagedCompanionRuntimes = @(''net8.0'', ''net7.0'', ''net48'')' -Message 'install.ps1 must know every managed companion runtime folder.'
+    Assert-Contains -Text $content -Expected 'dotnet build $buildTarget -c Release' -Message 'install.ps1 must build all companion target frameworks from source.'
+    Assert-Contains -Text $content -Expected 'function Get-MissingCompanionRuntimePayloads' -Message 'install.ps1 must validate required files inside every runtime child.'
+    Assert-Contains -Text $content -Expected 'function Copy-CompanionRuntimePayload' -Message 'install.ps1 must copy companion payloads per runtime child.'
+    Assert-Contains -Text $content -Expected 'Rook.runtimeconfig.json' -Message 'install.ps1 must require runtime metadata for .NET Core companion runtime children.'
+    Assert-Contains -Text $content -Expected 'Remove-StaleRootCompanionPayload' -Message 'install.ps1 must remove stale root-level companion payload files from old installs.'
+    Assert-Contains -Text $content -Expected 'Join-Path $pluginDest "net7.0\Rook.rhp"' -Message 'install.ps1 must register the net7.0 child RHP anchor.'
+    Assert-Contains -Text $content -Expected 'plugin\net7.0\Rook.rhp' -Message 'install.ps1 release detection must use a runtime-child companion payload.'
+    Assert-NotContains -Text $content -Unexpected 'Test-Path (Join-Path $installDir "plugin\Rook.rhp")' -Message 'install.ps1 must not detect old root-level release companion packages.'
+    Assert-NotContains -Text $content -Unexpected 'Copy-Item (Join-Path $Context.CompanionBuildDir "*.rhp") $pluginDest' -Message 'install.ps1 must not copy companion RHPs to the plugin root.'
+    Assert-NotContains -Text $content -Unexpected 'dotnet build $buildTarget -f net7.0' -Message 'install.ps1 must not build only the net7.0 companion target.'
 }
 
 function Test-RegisterScriptHasNoNet48Discovery {
@@ -161,9 +176,9 @@ function Test-RegisterScriptRejectsFrameworklessNet48Package {
     }
 }
 
-function Test-InstallReleasePackageRejectsMissingRuntimeConfig {
+function Test-InstallReleasePackageRejectsIncompleteRuntimeLayout {
     $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("rook-issue112-install-" + [System.Guid]::NewGuid().ToString('N'))
-    $pluginDir = Join-Path $tempRoot 'plugin'
+    $pluginDir = Join-Path $tempRoot 'plugin\net7.0'
     $scriptsDir = Join-Path $tempRoot 'scripts'
     New-Item -ItemType Directory -Path $pluginDir -Force | Out-Null
     New-Item -ItemType Directory -Path $scriptsDir -Force | Out-Null
@@ -175,17 +190,18 @@ function Test-InstallReleasePackageRejectsMissingRuntimeConfig {
     try {
         $result = Invoke-ScriptProcess -Arguments @('-File', (Join-Path $tempRoot 'install.ps1'), '-DryRun', '-SkipNative', '-SkipConfig', '-SkipChirp', '-NoVerify')
 
-        Assert-True -Condition ($result.ExitCode -ne 0) -Message 'Release-package dry-run unexpectedly accepted Rook.rhp without runtime metadata.'
-        Assert-Contains -Text $result.Output -Expected 'Rook companion runtime metadata missing' -Message "Missing runtimeconfig was not reported clearly. Output: $($result.Output)"
+        Assert-True -Condition ($result.ExitCode -ne 0) -Message 'Release-package dry-run unexpectedly accepted an incomplete runtime-child layout.'
+        Assert-Contains -Text $result.Output -Expected 'Release companion payload is incomplete' -Message "Incomplete runtime layout was not reported clearly. Output: $($result.Output)"
     } finally {
         Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 
 Test-InstallScriptHasNoNet48Fallbacks
+Test-InstallScriptUsesMultiRuntimeCompanionLayout
 Test-RegisterScriptHasNoNet48Discovery
 Test-RegisterScriptRejectsExplicitNet48Path
 Test-RegisterScriptRejectsFrameworklessNet48Package
-Test-InstallReleasePackageRejectsMissingRuntimeConfig
+Test-InstallReleasePackageRejectsIncompleteRuntimeLayout
 
 Write-Host 'Issue 112 net48 companion guard tests passed.'

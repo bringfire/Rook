@@ -286,7 +286,7 @@ namespace Rook.Tests.Services.Vision.Video
             // typed envelope rather than throwing.
             var (provider, _) = MakeProvider(_ =>
                 JsonResponse(HttpStatusCode.OK, "{\"name\":\"operations/abc\"}"));
-            var bad = T2vRequest() with { Options = new ForeignProviderOptions() };
+            var bad = T2vRequest().With(options: new ForeignProviderOptions());
 
             var outcome = await provider.SubmitAsync(
                 bad, NoMedia, CancellationToken.None);
@@ -298,7 +298,9 @@ namespace Rook.Tests.Services.Vision.Video
         }
 
         // Test-only ProviderOptions subtype to exercise the cast guard.
-        private sealed record ForeignProviderOptions : ProviderOptions;
+        private sealed class ForeignProviderOptions : ProviderOptions
+        {
+        }
 
         // ─── Constructor ──────────────────────────────────────────────
 

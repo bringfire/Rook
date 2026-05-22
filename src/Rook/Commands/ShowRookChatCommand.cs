@@ -22,28 +22,60 @@ namespace Rook.Commands
         {
             var panelId = RookChatPanel.PanelId;
 
-            // Check visibility, not instance existence.  Rhino keeps panel
-            // instances alive after close, so GetPanels returns non-empty
-            // even when the panel is hidden.
-            var openPanels = Panels.GetOpenPanelIds();
-            var isVisible = false;
-            foreach (var id in openPanels)
-            {
-                if (id == panelId) { isVisible = true; break; }
-            }
-
-            if (isVisible)
+            if (IsRookChatPanelVisible())
             {
                 Panels.ClosePanel(panelId, doc);
                 RhinoApp.WriteLine($"Rook Chat panel closed for document {doc.RuntimeSerialNumber}.");
             }
             else
             {
-                Panels.OpenPanel(panelId);
+                try
+                {
+                    Panels.OpenPanel(panelId);
+                }
+                catch (System.Exception ex)
+                {
+                    RhinoApp.WriteLine($"Rook Chat panel could not be shown: {ex.Message}");
+                    return Result.Failure;
+                }
+
+                if (!IsRookChatPanelVisible())
+                {
+                    RhinoApp.WriteLine(
+                        "Rook Chat panel could not be shown. " +
+                        "The panel may not be registered or this host may not expose Rhino panels.");
+                    return Result.Failure;
+                }
+
                 RhinoApp.WriteLine($"Rook Chat panel opened for document {doc.RuntimeSerialNumber}.");
             }
 
             return Result.Success;
+        }
+
+        private static bool IsRookChatPanelVisible()
+        {
+            var panelId = RookChatPanel.PanelId;
+
+            // Check visibility, not instance existence. Rhino keeps panel
+            // instances alive after close, so GetPanels can be non-empty even
+            // when the panel is hidden.
+            var openPanels = Panels.GetOpenPanelIds();
+            foreach (var id in openPanels)
+            {
+                if (id == panelId)
+                    return true;
+            }
+
+            try
+            {
+                return Panels.IsPanelVisible(typeof(RookChatPanel), isSelectedTab: true) ||
+                       Panels.IsPanelVisible(typeof(RookChatPanel), isSelectedTab: false);
+            }
+            catch
+            {
+                return false;
+            }
         }
     }
 }

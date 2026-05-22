@@ -52,13 +52,11 @@ namespace Rook.Tests.Services.Vision.Image
         {
             var codec = new GeminiImageOptionsCodec();
             var request = Request(
-                model: GeminiImageCapabilities.NanoBanana2,
-                resolution: "1K",
-                aspectRatio: "1:1",
-                referenceCount: 0) with
-            {
-                Options = new ForeignImageOptions(),
-            };
+                    model: GeminiImageCapabilities.NanoBanana2,
+                    resolution: "1K",
+                    aspectRatio: "1:1",
+                    referenceCount: 0)
+                .With(options: new ForeignImageOptions());
 
             var result = codec.Validate(request, request.Options, NanoBanana2);
 
@@ -100,6 +98,8 @@ namespace Rook.Tests.Services.Vision.Image
                 Options: new GeminiImageOptions());
         }
 
-        private sealed record ForeignImageOptions : ProviderOptions;
+        private sealed class ForeignImageOptions : ProviderOptions
+        {
+        }
     }
 }

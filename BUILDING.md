@@ -21,6 +21,7 @@
 | **Visual Studio 2022** | Community, Pro, or Enterprise | MSBuild, C++ compiler, .NET Framework build tools | `ls "C:/Program Files/Microsoft Visual Studio/2022/*/VC/Auxiliary/Build/vcvarsall.bat"` |
 | **C++ Desktop workload** | Installed via VS Installer | MSVC v143 toolset, Windows SDK 10.0 | VS Installer > Modify > "Desktop development with C++" checked |
 | **MFC libraries** | MSVC v14.44.35207 | Dynamic MFC (required by RookNative) | `ls "C:/Program Files/Microsoft Visual Studio/2022/*/VC/Tools/MSVC/14.44.35207/atlmfc/"` |
+| **.NET SDK** | 8.x | Managed companion build for `net8.0`, `net7.0`, and `net48` targets | `dotnet --list-sdks` |
 | **.NET Framework 4.8** | Targeting pack | C# companion plugin target | `ls "C:/Program Files (x86)/Reference Assemblies/Microsoft/Framework/.NETFramework/v4.8/"` |
 | **Python 3.10+** | 3.10, 3.11, 3.12, or 3.13 | MCP server runtime | `python --version` |
 
@@ -242,35 +243,78 @@ Get-Item src\RookNative\bin\Release\x64\RookNative.rhp
 ## Manual Build: C# Companion Plugin (Rook)
 
 The C# companion handles Grasshopper operations and the embedded chat panel.
-It targets .NET Framework 4.8 and .NET 7.0 (multi-target).
+It targets .NET 8.0, .NET 7.0, and .NET Framework 4.8.
 
 ### Option A: release build
-
-```powershell
-dotnet build src\Rook\Rook.csproj -f net7.0 -c Release
-```
-
-Output: `src\Rook\bin\Release\net7.0\Rook.rhp`
-
-**Critical:** Rook's source installer and release installer register the net7.0
-companion output. Older framework outputs are not supported for registration.
-
-### Option B: build both target frameworks for development
 
 ```powershell
 dotnet build src\Rook\Rook.csproj -c Release
 ```
 
-Use this only when you need to compile all project targets. Deploy and release
-from the net7.0 output.
+Outputs:
+- `src\Rook\bin\Release\net8.0\Rook.rhp`
+- `src\Rook\bin\Release\net7.0\Rook.rhp`
+- `src\Rook\bin\Release\net48\Rook.rhp`
+
+**Critical:** release installers must package all managed companion payloads.
+Rhino 8 standalone loads a .NET Core payload, while Rhino.Inside.Revit uses
+the host application's CLR. Revit 2025+ uses .NET 8, and Revit 2024 and older
+use .NET Framework. The Inno installer currently uses a direct-registry
+multi-runtime layout with `net8.0`, `net7.0`, and `net48` installed as sibling
+runtime payloads. Do not treat that as release-proven until live smoke records
+which physical `Rook.rhp` Rhino actually loaded for each host/runtime.
+
+### Option B: build a single target for focused development
+
+```powershell
+dotnet build src\Rook\Rook.csproj -f net8.0 -c Release
+dotnet build src\Rook\Rook.csproj -f net7.0 -c Release
+dotnet build src\Rook\Rook.csproj -f net48 -c Release
+```
+
+Use single-target builds only for focused debugging. Do not build a release
+installer until all target frameworks have been rebuilt.
+
+### Developer-only runtime profile switcher
+
+The release installer does not use registry profile switching. It deploys all
+runtime payloads and registers one runtime child RHP. The release-blocking
+question is whether Rhino's direct registry loader redirects from that
+registered child to the active runtime sibling. The live Inno-install smoke must
+prove that behavior and record the physical `Rook.rhp` path loaded.
+
+For local debugging from build outputs, you can still force current-user
+registry registration to one runtime profile:
+
+```powershell
+dotnet build src\Rook\Rook.csproj -f net48 -c Release
+dotnet build ..\RookRoads\RookRoads.csproj -f net48 -c Release
+dotnet build ..\SA_Banana\src\SA_Banana\SA_Banana.csproj -f net48 -c Release
+
+powershell -ExecutionPolicy Bypass -File scripts\register-managed-runtime-profile.ps1 -Runtime NetFramework -Deploy
+```
+
+Switching the registry is a developer convenience only. It is not a customer
+install path and it cannot represent two concurrently running Rhino hosts that
+need different managed runtimes.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\register-managed-runtime-profile.ps1 -Runtime NetCore -Deploy
+```
 
 ### Verify C# Build
 
 ```powershell
+Test-Path src\Rook\bin\Release\net8.0\Rook.rhp
+Test-Path src\Rook\bin\Release\net8.0\Rook.deps.json
+Test-Path src\Rook\bin\Release\net8.0\Rook.runtimeconfig.json
+Test-Path src\Rook\bin\Release\net8.0\runtimes
 Test-Path src\Rook\bin\Release\net7.0\Rook.rhp
 Test-Path src\Rook\bin\Release\net7.0\Rook.deps.json
 Test-Path src\Rook\bin\Release\net7.0\Rook.runtimeconfig.json
 Test-Path src\Rook\bin\Release\net7.0\runtimes
+Test-Path src\Rook\bin\Release\net48\Rook.rhp
+Test-Path src\Rook\bin\Release\net48\runtimes
 ```
 
 ---
@@ -287,18 +331,35 @@ New-Item -ItemType Directory -Path $dest -Force | Out-Null
 Copy-Item "src\RookNative\bin\Release\x64\RookNative.rhp" $dest -Force
 Copy-Item "src\RookNative\bin\Release\x64\RookNative.pdb" $dest -Force -ErrorAction SilentlyContinue
 
-# C# companion plugin (net7.0)
-Copy-Item "src\Rook\bin\Release\net7.0\Rook.rhp" $dest -Force
-Copy-Item "src\Rook\bin\Release\net7.0\Rook.rui" $dest -Force -ErrorAction SilentlyContinue
-Copy-Item "src\Rook\bin\Release\net7.0\Rook.deps.json" $dest -Force
-Copy-Item "src\Rook\bin\Release\net7.0\Rook.runtimeconfig.json" $dest -Force
-Copy-Item "src\Rook\bin\Release\net7.0\*.dll" $dest -Force
-Copy-Item "src\Rook\bin\Release\net7.0\runtimes" $dest -Recurse -Force
+# C# companion plugin runtime payloads
+$net8Dest = Join-Path $dest "net8.0"
+$net7Dest = Join-Path $dest "net7.0"
+$net48Dest = Join-Path $dest "net48"
+New-Item -ItemType Directory -Path $net8Dest,$net7Dest,$net48Dest -Force | Out-Null
+
+Copy-Item "src\Rook\bin\Release\net8.0\Rook.rhp" $net8Dest -Force
+Copy-Item "src\Rook\bin\Release\net8.0\Rook.rui" $net8Dest -Force -ErrorAction SilentlyContinue
+Copy-Item "src\Rook\bin\Release\net8.0\Rook.deps.json" $net8Dest -Force
+Copy-Item "src\Rook\bin\Release\net8.0\Rook.runtimeconfig.json" $net8Dest -Force
+Copy-Item "src\Rook\bin\Release\net8.0\*.dll" $net8Dest -Force
+Copy-Item "src\Rook\bin\Release\net8.0\runtimes" $net8Dest -Recurse -Force
+
+Copy-Item "src\Rook\bin\Release\net7.0\Rook.rhp" $net7Dest -Force
+Copy-Item "src\Rook\bin\Release\net7.0\Rook.rui" $net7Dest -Force -ErrorAction SilentlyContinue
+Copy-Item "src\Rook\bin\Release\net7.0\Rook.deps.json" $net7Dest -Force
+Copy-Item "src\Rook\bin\Release\net7.0\Rook.runtimeconfig.json" $net7Dest -Force
+Copy-Item "src\Rook\bin\Release\net7.0\*.dll" $net7Dest -Force
+Copy-Item "src\Rook\bin\Release\net7.0\runtimes" $net7Dest -Recurse -Force
+
+Copy-Item "src\Rook\bin\Release\net48\Rook.rhp" $net48Dest -Force
+Copy-Item "src\Rook\bin\Release\net48\Rook.rui" $net48Dest -Force -ErrorAction SilentlyContinue
+Copy-Item "src\Rook\bin\Release\net48\*.dll" $net48Dest -Force
+Copy-Item "src\Rook\bin\Release\net48\runtimes" $net48Dest -Recurse -Force
 ```
 
 Then register the plugins with Rhino:
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\register-rooknative-suite.ps1 -NativeRhpPath "$dest\RookNative.rhp"
+powershell -ExecutionPolicy Bypass -File scripts\register-rooknative-suite.ps1 -NativeRhpPath "$dest\RookNative.rhp" -CompanionRhpPath "$dest\net7.0\Rook.rhp"
 ```
 
 Or run `install.ps1` which handles deployment and registration automatically
@@ -436,7 +497,7 @@ Get-Process | Where-Object { $_.ProcessName -match '^(Rhino|Rhinoceros)$' }
 | `error MSB4019: The imported project was not found` (other) | C++ Desktop workload not installed | Open VS Installer, add "Desktop development with C++" |
 | `LNK1104: cannot open file 'mfc140u.lib'` | MFC libs missing for the pinned toolset | Install the exact MFC component matching v14.44.35207 |
 | `error CS0246: type or namespace not found` | Missing NuGet packages for C# build | Run `dotnet restore src/Rook` before building |
-| C# output not found at expected path | Wrong target framework or output path | Build with `dotnet build src\Rook\Rook.csproj -f net7.0 -c Release`; release output is `bin\Release\net7.0\` |
+| C# output not found at expected path | Wrong target framework or output path | Build with `dotnet build src\Rook\Rook.csproj -c Release`; release output includes `bin\Release\net8.0\`, `bin\Release\net7.0\`, and `bin\Release\net48\` |
 | Access denied / file in use | Rhino has the DLL loaded | Close Rhino, then rebuild |
 | `error MSB8020: ... v143 ... cannot be found` | v143 toolset not installed (common on VS2026) | VS Installer > Individual Components > install "MSVC v143 - VS 2022 C++ x64/x86 build tools" |
 | `vcvarsall.bat` not found | VS not at expected path | May be Professional/Enterprise instead of Community, or VS2026 (`\18\` instead of `\2022\`) |
@@ -446,7 +507,7 @@ Get-Process | Where-Object { $_.ProcessName -match '^(Rhino|Rhinoceros)$' }
 | File | Purpose |
 |------|---------|
 | `src/RookNative/RookNative.vcxproj` | C++ project — v143 toolset, dynamic MFC, Windows SDK 10.0 |
-| `src/Rook/Rook.csproj` | C# project — multi-target net48 + net7.0, NuGet dependencies |
+| `src/Rook/Rook.csproj` | C# project — multi-target net8.0 + net7.0 + net48, NuGet dependencies |
 | `src/Rook.sln` | Solution file containing both projects |
 | `build_native.ps1` | Canonical C++ build script (dot-sources `scripts/detect-vs.ps1`) |
 | `scripts/detect-vs.ps1` | Shared VS 2022 toolchain detection (dot-sourced) |

@@ -10,7 +10,7 @@ namespace Rook.Services.Vision.Generation
     /// provider-specific bag; the provider casts to its concrete
     /// <see cref="ProviderOptions"/> subtype internally.
     /// </summary>
-    public abstract record GenerationRequest
+    public abstract class GenerationRequest
     {
         protected GenerationRequest(string model, ProviderOptions options)
         {
@@ -24,7 +24,7 @@ namespace Rook.Services.Vision.Generation
             Options = options;
         }
 
-        public string Model { get; init; }
-        public ProviderOptions Options { get; init; }
+        public string Model { get; }
+        public ProviderOptions Options { get; }
     }
 }

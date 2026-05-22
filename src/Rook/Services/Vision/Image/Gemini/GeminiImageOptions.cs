@@ -2,5 +2,7 @@ using Rook.Services.Vision.Generation;
 
 namespace Rook.Services.Vision.Image.Gemini
 {
-    public sealed record GeminiImageOptions : ProviderOptions;
+    public sealed class GeminiImageOptions : ProviderOptions
+    {
+    }
 }

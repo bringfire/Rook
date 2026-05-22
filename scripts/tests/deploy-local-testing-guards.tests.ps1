@@ -153,6 +153,19 @@ function Test-DeployScriptNativeOnlyIsNarrow {
     Assert-Contains -Text $content -Expected 'Native-only deploy complete.' -Message 'Native-only mode must have a distinct completion message.'
 }
 
+function Test-DeployScriptUsesMultiRuntimeCompanionLayout {
+    $content = Get-Content -Path $DeployScript -Raw
+
+    Assert-Contains -Text $content -Expected '$ManagedCompanionRuntimes = @(''net8.0'', ''net7.0'', ''net48'')' -Message 'Local deploy must know every managed companion runtime folder.'
+    Assert-Contains -Text $content -Expected 'dotnet build (Join-Path $RepoRoot ''src\Rook\Rook.csproj'') -c $Configuration' -Message 'Local deploy must build all companion target frameworks.'
+    Assert-Contains -Text $content -Expected 'function Deploy-CompanionRuntimePayload' -Message 'Local deploy must copy companion payloads per runtime child.'
+    Assert-Contains -Text $content -Expected 'Copy-RequiredFile (Join-Path $sourceDir ''Rook.runtimeconfig.json'')' -Message 'Local deploy must require .NET Core runtime metadata in runtime-child payloads.'
+    Assert-Contains -Text $content -Expected 'Remove-StaleRootCompanionPayload' -Message 'Local deploy must remove stale root-level companion payload files from old installs.'
+    Assert-Contains -Text $content -Expected 'Join-Path $PluginDir ''net7.0\Rook.rhp''' -Message 'Local deploy must register the net7.0 child RHP anchor.'
+    Assert-NotContains -Text $content -Unexpected '& dotnet build (Join-Path $RepoRoot ''src\Rook\Rook.csproj'') -f net7.0' -Message 'Local deploy must not build only the net7.0 companion target.'
+    Assert-NotContains -Text $content -Unexpected '-CompanionRhpPath (Join-Path $PluginDir ''Rook.rhp'')' -Message 'Local deploy must not register a root-level companion RHP.'
+}
+
 function Test-RegisterSuiteSupportsNativeOnlyPreserveCompanion {
     $content = Get-Content -Path $RegisterSuiteScript -Raw
 
@@ -195,6 +208,7 @@ Test-DeployScriptVerifiesChatManifest
 Test-DeployScriptSeedsChatEnvWithoutOverwriting
 Test-DeployScriptLiveSmokeIsExplicit
 Test-DeployScriptNativeOnlyIsNarrow
+Test-DeployScriptUsesMultiRuntimeCompanionLayout
 Test-RegisterSuiteSupportsNativeOnlyPreserveCompanion
 Test-DeployScriptNativeOnlySkipBuildFastPath
 Test-DeploySkillPointsToAuthoritativeScriptAndChirpChecks

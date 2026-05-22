@@ -9,8 +9,8 @@ namespace Rook.Tests.Plugin
     {
         [Theory]
         [InlineData(false, true)]
-        [InlineData(true, false)]
-        public void StartupPanelRegistration_IsDisabledForRhinoInside(
+        [InlineData(true, true)]
+        public void StartupPanelRegistration_IsEnabledForStandaloneAndRhinoInside(
             bool isRhinoInside,
             bool expected)
         {
@@ -48,6 +48,17 @@ namespace Rook.Tests.Plugin
                 "TraceStartup($\"Panel registration failed (non-fatal):",
                 panelBlock.CatchBody);
             Assert.DoesNotContain("throw", panelBlock.CatchBody);
+        }
+
+        [Fact]
+        public void ShowRookChatCommand_VerifiesPanelVisibilityAfterOpen()
+        {
+            var source = ReadSourceFile("src", "Rook", "Commands", "ShowRookChatCommand.cs");
+
+            Assert.Contains("Panels.OpenPanel(panelId);", source);
+            Assert.Contains("IsRookChatPanelVisible()", source);
+            Assert.Contains("could not be shown", source);
+            Assert.Contains("return Result.Failure;", source);
         }
 
         [Fact]

@@ -14,6 +14,13 @@ namespace Rook.Services.Vision.Video
     /// <see cref="Rook.Services.Vision.Generation.ProviderOptions"/> so a
     /// single options hierarchy spans video and image providers.</para>
     /// </summary>
-    public sealed record VeoOptions(
-        PersonGenerationPolicy PersonGeneration) : ProviderOptions;
+    public sealed class VeoOptions : ProviderOptions
+    {
+        public VeoOptions(PersonGenerationPolicy PersonGeneration)
+        {
+            this.PersonGeneration = PersonGeneration;
+        }
+
+        public PersonGenerationPolicy PersonGeneration { get; }
+    }
 }

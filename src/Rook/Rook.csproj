@@ -1,12 +1,16 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFrameworks>net7.0;net48</TargetFrameworks>
+    <TargetFrameworks>net8.0;net7.0;net48</TargetFrameworks>
     <EnableDynamicLoading>true</EnableDynamicLoading>
     <TargetExt>.rhp</TargetExt>
-    <NoWarn>NU1701</NoWarn>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
+    <DefineConstants>$(DefineConstants);ROOK_WEBVIEW2</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <RhinoSystemDir Condition="'$(RhinoSystemDir)' == ''">$(ProgramFiles)\Rhino 8\System</RhinoSystemDir>
   </PropertyGroup>
 
   <PropertyGroup>
@@ -21,15 +25,34 @@
     <InternalsVisibleTo Include="Rook.Tests" />
   </ItemGroup>
 
-  <ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net8.0' Or '$(TargetFramework)' == 'net7.0'">
+    <Reference Include="RhinoCommon">
+      <HintPath>$(RhinoSystemDir)\netcore\RhinoCommon.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Rhino.UI">
+      <HintPath>$(RhinoSystemDir)\netcore\Rhino.UI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Eto">
+      <HintPath>$(RhinoSystemDir)\Eto.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net48'">
     <PackageReference Include="RhinoCommon" Version="8.0.23304.9001" ExcludeAssets="runtime" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="System.Text.Json" Version="8.0.5" />
-    <PackageReference Include="System.Drawing.Common" Version="8.0.0" Condition="'$(TargetFramework)' == 'net7.0'" />
+    <PackageReference Include="System.Drawing.Common" Version="8.0.0" Condition="'$(TargetFramework)' == 'net8.0' Or '$(TargetFramework)' == 'net7.0'" />
     <!-- DPAPI for secure API key storage. Multi-target: NuGet package
-         supports net462+ so both net48 and net7.0 paths get it. -->
+         supports net462+ so all managed target frameworks get it. -->
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
-    <!-- WebView2 compile-time types for virtual host mapping (runtime DLL ships with Rhino 8) -->
-    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.1938.49" ExcludeAssets="runtime" Condition="'$(TargetFramework)' == 'net7.0'" />
+    <!-- WebView2 wrapper assemblies are packaged with each runtime child;
+         the Evergreen WebView2 Runtime still comes from the host machine. -->
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.1938.49" />
     <!-- HttpClient for net48 -->
     <PackageReference Include="System.Net.Http" Version="4.3.4" Condition="'$(TargetFramework)' == 'net48'" />
   </ItemGroup>
@@ -47,25 +70,42 @@
   </ItemGroup>
 
   <!-- Deploy companion plugin to Rhino's plugin directory after build.
-       Only runs for the net7.0 target (Rhino 8 loads net7.0).
-       Mirrors the install.ps1 deployment logic. -->
+       Mirrors the installer multi-runtime layout for local development. -->
   <PropertyGroup>
     <RhinoPluginDir>$(APPDATA)\McNeel\Rhinoceros\8.0\Plug-ins\RookNative</RhinoPluginDir>
   </PropertyGroup>
 
   <Target Name="DeployToRhino" AfterTargets="Build"
-          Condition="'$(TargetFramework)' == 'net7.0' AND Exists('$(RhinoPluginDir)')">
-    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(RhinoPluginDir)" SkipUnchangedFiles="true" />
+          Condition="'$(Configuration)' == 'Release' AND '$(TargetFramework)' != '' AND Exists('$(RhinoPluginDir)')">
+    <PropertyGroup>
+      <RhinoManagedRuntimeDir>$(RhinoPluginDir)\$(TargetFramework)</RhinoManagedRuntimeDir>
+    </PropertyGroup>
+    <ItemGroup>
+      <RookRuntimeDependencyFiles Include="$(TargetDir)*.dll" />
+      <RookRuntimeAssetFiles Include="$(TargetDir)runtimes\**\*" />
+    </ItemGroup>
+    <MakeDir Directories="$(RhinoManagedRuntimeDir)" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(RhinoManagedRuntimeDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(TargetDir)$(TargetName).rui"
+          DestinationFolder="$(RhinoManagedRuntimeDir)" SkipUnchangedFiles="true"
+          Condition="Exists('$(TargetDir)$(TargetName).rui')" />
     <Copy SourceFiles="$(TargetDir)$(TargetName).deps.json"
-          DestinationFolder="$(RhinoPluginDir)" SkipUnchangedFiles="true"
+          DestinationFolder="$(RhinoManagedRuntimeDir)" SkipUnchangedFiles="true"
           Condition="Exists('$(TargetDir)$(TargetName).deps.json')" />
     <Copy SourceFiles="$(TargetDir)$(TargetName).runtimeconfig.json"
-          DestinationFolder="$(RhinoPluginDir)" SkipUnchangedFiles="true"
+          DestinationFolder="$(RhinoManagedRuntimeDir)" SkipUnchangedFiles="true"
           Condition="Exists('$(TargetDir)$(TargetName).runtimeconfig.json')" />
     <Copy SourceFiles="$(TargetDir)$(TargetName).pdb"
-          DestinationFolder="$(RhinoPluginDir)" SkipUnchangedFiles="true"
+          DestinationFolder="$(RhinoManagedRuntimeDir)" SkipUnchangedFiles="true"
           Condition="Exists('$(TargetDir)$(TargetName).pdb')" />
-    <Message Importance="high" Text="Deployed Rook.rhp to $(RhinoPluginDir)" />
+    <Copy SourceFiles="@(RookRuntimeDependencyFiles)"
+          DestinationFolder="$(RhinoManagedRuntimeDir)" SkipUnchangedFiles="true"
+          Condition="'@(RookRuntimeDependencyFiles)' != ''" />
+    <Copy SourceFiles="@(RookRuntimeAssetFiles)"
+          DestinationFiles="@(RookRuntimeAssetFiles->'$(RhinoManagedRuntimeDir)\runtimes\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true"
+          Condition="'@(RookRuntimeAssetFiles)' != ''" />
+    <Message Importance="high" Text="Deployed Rook.rhp to $(RhinoManagedRuntimeDir)" />
   </Target>
 
 </Project>

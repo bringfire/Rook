@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 using Eto.Forms;
 using Eto.Drawing;
 using Rhino;
-#if NET7_0_OR_GREATER
+#if ROOK_WEBVIEW2
 using Microsoft.Web.WebView2.Core;
 #endif
 
@@ -176,7 +176,7 @@ namespace Rook.UI.Web
         // ─── Bridge state ─────────────────────────────────────────────
         private readonly BridgeDispatcher _dispatcher;
         private bool _bridgeUnavailableSignaled;
-#if NET7_0_OR_GREATER
+#if ROOK_WEBVIEW2
         private CoreWebView2? _coreWebView2;
         private object? _nativeControlWithInitHandler;
         private EventInfo? _initEvent;
@@ -298,7 +298,7 @@ namespace Rook.UI.Web
             scripts.Add(BuildBridgeShimScript());
 
             // 3. Focus diagnostics
-#if NET7_0_OR_GREATER
+#if ROOK_WEBVIEW2
             if (IsWebViewFocusDiagnosticsEnabled())
                 scripts.Add(BuildFocusProbeScript());
 #endif
@@ -328,7 +328,7 @@ namespace Rook.UI.Web
         /// <summary>
         /// Whether the JS↔C# bridge is wired and operational. Set after
         /// WebView2 initialization completes (success or failure).
-        /// Returns false on net48 fallback, on WebView2 init failure, and
+        /// Returns false on WebView2 init failure, and
         /// before initialization runs.
         /// </summary>
         public bool IsBridgeAvailable { get; private set; }
@@ -352,7 +352,7 @@ namespace Rook.UI.Web
 
         internal void ReconcileHostVisibility(bool visible, string reason)
         {
-#if NET7_0_OR_GREATER
+#if ROOK_WEBVIEW2
             TraceWebViewFocus("host-visibility-reconcile-request", $"{visible};{reason}");
             ScheduleHostVisibilityReconcile(
                 _hostVisibility.RecordHostVisibility(visible, reason));
@@ -388,7 +388,7 @@ namespace Rook.UI.Web
                 _webView.DocumentLoaded += OnDocumentLoaded;
                 _disposeWebView = DisposeWebView;
 
-#if NET7_0_OR_GREATER
+#if ROOK_WEBVIEW2
                 // Rhino panels can be shown, hidden, floated, docked, and
                 // reparented without recreating the panel instance. Keep
                 // WebView2's controller visibility synchronized with that
@@ -415,7 +415,7 @@ namespace Rook.UI.Web
 
         protected void RequestHostVisibleRefresh(string reason)
         {
-#if NET7_0_OR_GREATER
+#if ROOK_WEBVIEW2
             TraceWebViewFocus("host-visibility-reconcile-request",
                 $"visible-refresh;{reason}");
             ScheduleHostVisibilityReconcile(
@@ -427,7 +427,7 @@ namespace Rook.UI.Web
 #endif
         }
 
-#if NET7_0_OR_GREATER
+#if ROOK_WEBVIEW2
         private void ScheduleHostVisibilityReconcile(WebViewHostVisibilityDecision decision)
         {
             if (_disposed || _webView == null)
@@ -817,7 +817,7 @@ namespace Rook.UI.Web
         {
             if (_disposed) return;
 
-#if NET7_0_OR_GREATER
+#if ROOK_WEBVIEW2
             TraceWebViewFocus("document-loaded", e.Uri?.ToString());
 #endif
 
@@ -1013,7 +1013,7 @@ namespace Rook.UI.Web
   setTimeout(function() { postLayout('installed+500ms'); }, 500);
 })();";
 
-#if NET7_0_OR_GREATER
+#if ROOK_WEBVIEW2
 
         private bool TrySetupVirtualHost()
         {
@@ -1481,7 +1481,7 @@ namespace Rook.UI.Web
 
             if (!disposing) return;
 
-#if NET7_0_OR_GREATER
+#if ROOK_WEBVIEW2
             if (_initEvent != null && _nativeControlWithInitHandler != null && _initHandler != null)
             {
                 try { _initEvent.RemoveEventHandler(_nativeControlWithInitHandler, _initHandler); }
@@ -1520,7 +1520,7 @@ namespace Rook.UI.Web
         {
             try { _webView!.DocumentLoaded -= OnDocumentLoaded; }
             catch { }
-#if NET7_0_OR_GREATER
+#if ROOK_WEBVIEW2
             // Match the subscriptions added in CreateWebContent so the
             // surface doesn't leak handlers across tab close / open
             // cycles.

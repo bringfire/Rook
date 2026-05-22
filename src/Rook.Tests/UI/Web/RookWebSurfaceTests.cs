@@ -313,6 +313,26 @@ namespace Rook.Tests.UI.Web
         }
 
         [Fact]
+        public void WebView2Setup_IsNotGatedOutOfNet48Runtime()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+
+            Assert.Contains("#if ROOK_WEBVIEW2", source);
+            Assert.DoesNotContain("#if NET7_0_OR_GREATER", source);
+        }
+
+        [Fact]
+        public void RookProject_WebView2CompileReference_AppliesToNet48()
+        {
+            var source = ReadSourceFile("src", "Rook", "Rook.csproj");
+
+            Assert.Contains("Microsoft.Web.WebView2", source);
+            Assert.DoesNotContain(
+                "Microsoft.Web.WebView2\" Version=\"1.0.1938.49\" ExcludeAssets=\"runtime\" Condition=\"'$(TargetFramework)' == 'net8.0' Or '$(TargetFramework)' == 'net7.0'\"",
+                source);
+        }
+
+        [Fact]
         public void WebViewHostVisibilitySynchronization_RefreshesOnApplicationDeactivation()
         {
             var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");

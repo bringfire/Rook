@@ -1312,7 +1312,9 @@ namespace Rook.Tests.Handlers
                 = Array.Empty<ProviderSecretRequirement>();
         }
 
-        private sealed record FakeImageOptions : ProviderOptions;
+        private sealed class FakeImageOptions : ProviderOptions
+        {
+        }
 
         private sealed class FakeImageOptionsCodec
             : IProviderOptionsCodec<ImageGenerationRequest, ImageCapability>

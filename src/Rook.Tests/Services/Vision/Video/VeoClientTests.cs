@@ -171,7 +171,7 @@ namespace Rook.Tests.Services.Vision.Video
                 return JsonResponse(HttpStatusCode.OK, "{\"name\":\"operations/x\"}");
             });
 
-            var veo2 = T2vRequest() with { Model = "veo-2.0-generate-001" };
+            var veo2 = T2vRequest().With(model: "veo-2.0-generate-001");
 
             await client.StartGenerationAsync(ApiKey, veo2, T2vOptions(), NoMedia, CancellationToken.None);
 

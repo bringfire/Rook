@@ -36,6 +36,8 @@ param(
     [string]$VCToolsVersion       # override MSVC toolset version
 )
 
+$ManagedCompanionRuntimes = @('net8.0', 'net7.0', 'net48')
+
 # Note: We intentionally do NOT set $ErrorActionPreference = "Stop" here
 # because external tools (uv, dotnet) write info messages to stderr, and
 # PowerShell treats any stderr output as a non-terminating error that would
@@ -142,39 +144,29 @@ function Add-InstallError {
     Write-Host "      [ERROR] $Message" -ForegroundColor Red
 }
 
-function Test-RookNet7CompanionPackage {
-    param(
-        [hashtable]$Summary,
-        [string]$RhpPath
-    )
+function Get-MissingCompanionRuntimePayloads {
+    param([string]$CompanionRoot)
 
-    $runtimeConfigPath = [System.IO.Path]::ChangeExtension($RhpPath, '.runtimeconfig.json')
-    if (-not (Test-Path $runtimeConfigPath)) {
-        Add-InstallError -Summary $Summary -Code 'companion.runtimeconfig_missing' `
-            -Message "Rook companion runtime metadata missing at $runtimeConfigPath. Rhino 8 companion deployment requires the net7.0 Rook.rhp output." `
-            -Remediation "Rebuild or repackage the companion with 'dotnet build src\Rook\Rook.csproj -f net7.0 -c Release'."
-        return $false
+    $missing = @()
+    foreach ($runtime in $ManagedCompanionRuntimes) {
+        $runtimeDir = Join-Path $CompanionRoot $runtime
+        $requiredFiles = @('Rook.rhp')
+        if ($runtime -ne 'net48') {
+            $requiredFiles += @('Rook.deps.json', 'Rook.runtimeconfig.json')
+        }
+
+        foreach ($name in $requiredFiles) {
+            if (-not (Test-Path (Join-Path $runtimeDir $name))) {
+                $missing += "$runtime\$name"
+            }
+        }
+
+        if (-not (Test-Path (Join-Path $runtimeDir 'runtimes'))) {
+            $missing += "$runtime\runtimes"
+        }
     }
 
-    try {
-        $metadata = Get-Content -Path $runtimeConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    } catch {
-        Add-InstallError -Summary $Summary -Code 'companion.runtimeconfig_invalid' `
-            -Message "Rook companion runtime metadata is not valid JSON at ${runtimeConfigPath}: $_" `
-            -Remediation "Rebuild or repackage the companion with 'dotnet build src\Rook\Rook.csproj -f net7.0 -c Release'."
-        return $false
-    }
-
-    $tfm = $metadata.runtimeOptions.tfm
-    if ($tfm -ne 'net7.0') {
-        $reportedTfm = if ($tfm) { $tfm } else { '(missing)' }
-        Add-InstallError -Summary $Summary -Code 'companion.unsupported_target_framework' `
-            -Message "Rook companion runtime metadata targets '$reportedTfm'. Rhino 8 companion deployment requires net7.0." `
-            -Remediation "Rebuild or repackage the companion with 'dotnet build src\Rook\Rook.csproj -f net7.0 -c Release'."
-        return $false
-    }
-
-    return $true
+    return $missing
 }
 
 function Write-InstallSummary {
@@ -265,11 +257,11 @@ function Step-DetectEnvironment {
 
     $installDir = $Context.InstallDir
     $isSourceClone = Test-Path (Join-Path $installDir "src\Rook\Rook.csproj")
-    $isRelease = Test-Path (Join-Path $installDir "plugin\Rook.rhp")
+    $isRelease = Test-Path (Join-Path $installDir "plugin\net7.0\Rook.rhp")
 
     if (-not $isSourceClone -and -not $isRelease) {
         Write-Host "      ERROR: Cannot determine install type." -ForegroundColor Red
-        Write-Host "      Expected either src/Rook/Rook.csproj (source) or plugin/Rook.rhp (release)." -ForegroundColor Red
+        Write-Host "      Expected either src/Rook/Rook.csproj (source) or plugin/net7.0/Rook.rhp (release)." -ForegroundColor Red
         return
     }
 
@@ -635,24 +627,27 @@ function Step-BuildCompanion {
     Write-Host ""
     Write-Host "[6/10] Building companion plugin (C#)..." -ForegroundColor White
 
-    $built70 = Join-Path $Context.InstallDir "src\Rook\bin\Release\net7.0\Rook.rhp"
+    $sourceCompanionRoot = Join-Path $Context.InstallDir "src\Rook\bin\Release"
 
     if ($DryRun) {
         $Summary.steps.companion.state = "planned"
         if ($Context.IsRelease) {
-            $releaseCompanion = Join-Path $Context.InstallDir "plugin\Rook.rhp"
-            if ((Test-Path $releaseCompanion) -and (Test-RookNet7CompanionPackage -Summary $Summary -RhpPath $releaseCompanion)) {
-                $Summary.planned_actions += "Use pre-built net7.0 companion plugin from release package at $releaseCompanion"
-            } elseif (Test-Path $releaseCompanion) {
+            $releaseCompanionRoot = Join-Path $Context.InstallDir "plugin"
+            $missingPayloads = @(Get-MissingCompanionRuntimePayloads -CompanionRoot $releaseCompanionRoot)
+            if ($missingPayloads.Count -gt 0) {
+                Add-InstallError -Summary $Summary -Code "companion.release_layout_invalid" `
+                    -Message "Release companion payload is incomplete: $($missingPayloads -join ', ')." `
+                    -Remediation "Use the Inno installer or rebuild the release package with plugin\net8.0, plugin\net7.0, and plugin\net48 companion folders."
                 $Summary.steps.companion.state = "failed"
             } else {
-                $Summary.planned_actions += "Use pre-built companion plugin from release package if present"
+                $Summary.planned_actions += "Use pre-built multi-runtime companion plugin from release package at $releaseCompanionRoot"
             }
         } else {
-            if (Test-Path $built70) {
-                $Summary.planned_actions += "Reuse existing companion net7.0 build at $built70"
+            $missingPayloads = @(Get-MissingCompanionRuntimePayloads -CompanionRoot $sourceCompanionRoot)
+            if ($missingPayloads.Count -eq 0) {
+                $Summary.planned_actions += "Reuse existing companion multi-runtime build at $sourceCompanionRoot"
             } else {
-                $Summary.planned_actions += "Build companion C# plugin via dotnet build src/Rook/Rook.csproj -f net7.0 -c Release"
+                $Summary.planned_actions += "Build companion C# plugin via dotnet build src/Rook/Rook.csproj -c Release"
             }
         }
         Write-Host "      [PLAN] Would prepare companion plugin" -ForegroundColor Cyan
@@ -660,24 +655,27 @@ function Step-BuildCompanion {
     }
 
     if ($Context.IsRelease) {
-        $releaseCompanion = Join-Path $Context.InstallDir "plugin\Rook.rhp"
-        if (Test-Path $releaseCompanion) {
-            if (-not (Test-RookNet7CompanionPackage -Summary $Summary -RhpPath $releaseCompanion)) {
-                $Summary.steps.companion.state = "failed"
-                return
-            }
-
-            $Context.CompanionBuildDir = Join-Path $Context.InstallDir "plugin"
-            $Summary.steps.companion.built = $true
-            $Summary.steps.companion.state = "completed"
-            Write-Host "      [OK] Pre-built net7.0 companion plugin found" -ForegroundColor Green
+        $releaseCompanionRoot = Join-Path $Context.InstallDir "plugin"
+        $missingPayloads = @(Get-MissingCompanionRuntimePayloads -CompanionRoot $releaseCompanionRoot)
+        if ($missingPayloads.Count -gt 0) {
+            Add-InstallError -Summary $Summary -Code "companion.release_layout_invalid" `
+                -Message "Release companion payload is incomplete: $($missingPayloads -join ', ')." `
+                -Remediation "Use the Inno installer or rebuild the release package with plugin\net8.0, plugin\net7.0, and plugin\net48 companion folders."
+            $Summary.steps.companion.state = "failed"
+            return
         }
+
+        $Context.CompanionBuildRoot = $releaseCompanionRoot
+        $Summary.steps.companion.built = $true
+        $Summary.steps.companion.state = "completed"
+        Write-Host "      [OK] Pre-built multi-runtime companion plugin found" -ForegroundColor Green
         return
     }
 
-    if (Test-Path $built70) {
-        Write-Host "      [OK] Companion already built (net7.0)" -ForegroundColor Green
-        $Context.CompanionBuildDir = Split-Path -Parent $built70
+    $missingBuilds = @(Get-MissingCompanionRuntimePayloads -CompanionRoot $sourceCompanionRoot)
+    if ($missingBuilds.Count -eq 0) {
+        Write-Host "      [OK] Companion already built (multi-runtime)" -ForegroundColor Green
+        $Context.CompanionBuildRoot = $sourceCompanionRoot
         $Summary.steps.companion.built = $true
         $Summary.steps.companion.state = "completed"
         return
@@ -695,31 +693,100 @@ function Step-BuildCompanion {
     $Summary.steps.companion.build_attempted = $true
     $buildTarget = Join-Path $Context.InstallDir "src\Rook\Rook.csproj"
 
-    Write-Host "      Building from source (dotnet build src/Rook/Rook.csproj -f net7.0 -c Release)..."
-    & dotnet build $buildTarget -f net7.0 -c Release --verbosity quiet 2>&1 | Out-Null
+    Write-Host "      Building from source (dotnet build src/Rook/Rook.csproj -c Release)..."
+    & dotnet build $buildTarget -c Release --verbosity quiet 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) {
         Write-Host "      Retrying with full output..." -ForegroundColor Yellow
-        & dotnet build $buildTarget -f net7.0 -c Release
+        & dotnet build $buildTarget -c Release
         if ($LASTEXITCODE -ne 0) {
             Add-InstallError -Summary $Summary -Code "companion.build_failed" `
-                -Message "Companion plugin net7.0 build failed." `
-                -Remediation "Run 'dotnet build src\Rook\Rook.csproj -f net7.0 -c Release' manually to see full output."
+                -Message "Companion plugin multi-runtime build failed." `
+                -Remediation "Run 'dotnet build src\Rook\Rook.csproj -c Release' manually to see full output."
             $Summary.steps.companion.state = "failed"
             return
         }
     }
 
-    if (Test-Path $built70) {
-        $Context.CompanionBuildDir = Split-Path -Parent $built70
+    $missingBuilds = @(Get-MissingCompanionRuntimePayloads -CompanionRoot $sourceCompanionRoot)
+    if ($missingBuilds.Count -eq 0) {
+        $Context.CompanionBuildRoot = $sourceCompanionRoot
         $Summary.steps.companion.built = $true
         $Summary.steps.companion.state = "completed"
-        Write-Host "      [OK] Companion built successfully (net7.0)" -ForegroundColor Green
+        Write-Host "      [OK] Companion built successfully (multi-runtime)" -ForegroundColor Green
     } else {
         Add-InstallError -Summary $Summary -Code "companion.build_failed" `
-            -Message "Build reported success but net7.0 companion output was not found at $built70." `
-            -Remediation "Run 'dotnet build src\Rook\Rook.csproj -f net7.0 -c Release' manually and check the output path."
+            -Message "Build reported success but companion runtime outputs were missing: $($missingBuilds -join ', ')." `
+            -Remediation "Run 'dotnet build src\Rook\Rook.csproj -c Release' manually and check bin\Release runtime output folders."
         $Summary.steps.companion.state = "failed"
     }
+}
+
+function Remove-StaleRootCompanionPayload {
+    param(
+        [string]$PluginDest,
+        [string]$CompanionBuildRoot
+    )
+
+    foreach ($name in @('Rook.rhp', 'Rook.rui', 'Rook.deps.json', 'Rook.runtimeconfig.json')) {
+        $path = Join-Path $PluginDest $name
+        if (Test-Path $path) {
+            Remove-Item -LiteralPath $path -Force
+        }
+    }
+
+    $rootRuntimes = Join-Path $PluginDest 'runtimes'
+    if (Test-Path $rootRuntimes) {
+        Remove-Item -LiteralPath $rootRuntimes -Recurse -Force
+    }
+
+    $rootDllNames = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($runtime in $ManagedCompanionRuntimes) {
+        $sourceDir = Join-Path $CompanionBuildRoot $runtime
+        if (Test-Path $sourceDir) {
+            Get-ChildItem $sourceDir -Filter '*.dll' -File | ForEach-Object {
+                [void]$rootDllNames.Add($_.Name)
+            }
+        }
+    }
+
+    foreach ($dllName in $rootDllNames) {
+        $path = Join-Path $PluginDest $dllName
+        if (Test-Path $path) {
+            Remove-Item -LiteralPath $path -Force
+        }
+    }
+}
+
+function Copy-CompanionRuntimePayload {
+    param(
+        [string]$CompanionBuildRoot,
+        [string]$PluginDest,
+        [string]$Runtime
+    )
+
+    $sourceDir = Join-Path $CompanionBuildRoot $Runtime
+    $targetDir = Join-Path $PluginDest $Runtime
+    if (-not (Test-Path $sourceDir)) {
+        throw "Companion runtime output missing: $sourceDir"
+    }
+
+    New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
+    Copy-Item (Join-Path $sourceDir "Rook.rhp") $targetDir -Force -ErrorAction Stop
+    Copy-Item (Join-Path $sourceDir "Rook.rui") $targetDir -Force -ErrorAction SilentlyContinue
+    Copy-Item (Join-Path $sourceDir "*.dll") $targetDir -Force -ErrorAction SilentlyContinue
+    if ($Runtime -ne 'net48') {
+        Copy-Item (Join-Path $sourceDir "Rook.deps.json") $targetDir -Force -ErrorAction Stop
+        Copy-Item (Join-Path $sourceDir "Rook.runtimeconfig.json") $targetDir -Force -ErrorAction Stop
+    } else {
+        Copy-Item (Join-Path $sourceDir "*.deps.json") $targetDir -Force -ErrorAction SilentlyContinue
+        Copy-Item (Join-Path $sourceDir "*.runtimeconfig.json") $targetDir -Force -ErrorAction SilentlyContinue
+    }
+
+    $runtimesDir = Join-Path $sourceDir "runtimes"
+    if (-not (Test-Path $runtimesDir)) {
+        throw "Companion runtime assets missing: $runtimesDir"
+    }
+    Copy-Item $runtimesDir $targetDir -Recurse -Force -ErrorAction Stop
 }
 
 function Step-DeployPlugins {
@@ -738,7 +805,7 @@ function Step-DeployPlugins {
         return
     }
 
-    if (-not $Context.CompanionBuildDir -and -not $Context.NativeBuildDir) {
+    if (-not $Context.CompanionBuildRoot -and -not $Context.NativeBuildDir) {
         Write-Host "      [SKIP] No plugin files available to deploy" -ForegroundColor Yellow
         return
     }
@@ -748,7 +815,7 @@ function Step-DeployPlugins {
     if ($DryRun) {
         $Summary.planned_actions += "Deploy plugins to $pluginDest"
         if ($Context.NativeBuildDir) { $Summary.planned_actions += "  - RookNative.rhp from $($Context.NativeBuildDir)" }
-        if ($Context.CompanionBuildDir) { $Summary.planned_actions += "  - Rook.rhp + deps from $($Context.CompanionBuildDir)" }
+        if ($Context.CompanionBuildRoot) { $Summary.planned_actions += "  - Rook multi-runtime companion from $($Context.CompanionBuildRoot)" }
         Write-Host "      [PLAN] Would deploy plugins to $pluginDest" -ForegroundColor Cyan
         return
     }
@@ -760,19 +827,14 @@ function Step-DeployPlugins {
     $Summary.paths.plugin_dir = $pluginDest
 
     # Deploy companion files
-    if ($Context.CompanionBuildDir) {
+    if ($Context.CompanionBuildRoot) {
         try {
-            Copy-Item (Join-Path $Context.CompanionBuildDir "*.rhp") $pluginDest -Force
-            Copy-Item (Join-Path $Context.CompanionBuildDir "*.dll") $pluginDest -Force -ErrorAction SilentlyContinue
-            Copy-Item (Join-Path $Context.CompanionBuildDir "*.rui") $pluginDest -Force -ErrorAction SilentlyContinue
-            Copy-Item (Join-Path $Context.CompanionBuildDir "*.deps.json") $pluginDest -Force -ErrorAction SilentlyContinue
-            Copy-Item (Join-Path $Context.CompanionBuildDir "*.runtimeconfig.json") $pluginDest -Force -ErrorAction SilentlyContinue
-            $runtimesDir = Join-Path $Context.CompanionBuildDir "runtimes"
-            if (Test-Path $runtimesDir) {
-                Copy-Item $runtimesDir $pluginDest -Recurse -Force
+            Remove-StaleRootCompanionPayload -PluginDest $pluginDest -CompanionBuildRoot $Context.CompanionBuildRoot
+            foreach ($runtime in $ManagedCompanionRuntimes) {
+                Copy-CompanionRuntimePayload -CompanionBuildRoot $Context.CompanionBuildRoot -PluginDest $pluginDest -Runtime $runtime
             }
             $Summary.steps.companion.installed = $true
-            Write-Host "      [OK] Companion plugin deployed" -ForegroundColor Green
+            Write-Host "      [OK] Companion plugin deployed (multi-runtime)" -ForegroundColor Green
         } catch {
             Add-InstallError -Summary $Summary -Code "companion.deploy_failed" `
                 -Message "Failed to deploy companion plugin: $_" `
@@ -815,23 +877,25 @@ function Step-RegisterPlugins {
         return
     }
 
-    $hasNative = Test-Path (Join-Path $pluginDest "RookNative.rhp")
-    $hasCompanion = Test-Path (Join-Path $pluginDest "Rook.rhp")
+    $nativeRhpPath = Join-Path $pluginDest "RookNative.rhp"
+    $companionAnchorPath = Join-Path $pluginDest "net7.0\Rook.rhp"
+    $hasNative = Test-Path $nativeRhpPath
+    $hasCompanion = Test-Path $companionAnchorPath
 
     if ($hasNative) {
         $suiteScript = Join-Path $Context.InstallDir "scripts\register-rooknative-suite.ps1"
         if (Test-Path $suiteScript) {
             try {
-                $regArgs = @{ NativeRhpPath = Join-Path $pluginDest "RookNative.rhp" }
+                $regArgs = @{ NativeRhpPath = $nativeRhpPath }
                 if ($hasCompanion) {
-                    $regArgs["CompanionRhpPath"] = Join-Path $pluginDest "Rook.rhp"
+                    $regArgs["CompanionRhpPath"] = $companionAnchorPath
                 }
                 & $suiteScript @regArgs | Out-Null
                 $Summary.steps.native.registered = $true
-                $Summary.paths.native_rhp = Join-Path $pluginDest "RookNative.rhp"
+                $Summary.paths.native_rhp = $nativeRhpPath
                 if ($hasCompanion) {
                     $Summary.steps.companion.registered = $true
-                    $Summary.paths.companion_rhp = Join-Path $pluginDest "Rook.rhp"
+                    $Summary.paths.companion_rhp = $companionAnchorPath
                 }
                 Write-Host "      [OK] Plugin suite registered with Rhino" -ForegroundColor Green
             } catch {
@@ -844,9 +908,9 @@ function Step-RegisterPlugins {
         $companionScript = Join-Path $Context.InstallDir "scripts\register-companion.ps1"
         if (Test-Path $companionScript) {
             try {
-                & $companionScript -RhpPath (Join-Path $pluginDest "Rook.rhp") | Out-Null
+                & $companionScript -RhpPath $companionAnchorPath | Out-Null
                 $Summary.steps.companion.registered = $true
-                $Summary.paths.companion_rhp = Join-Path $pluginDest "Rook.rhp"
+                $Summary.paths.companion_rhp = $companionAnchorPath
                 Write-Host "      [OK] Companion plugin registered" -ForegroundColor Green
             } catch {
                 Add-InstallError -Summary $Summary -Code "companion.register_failed" `
@@ -1208,13 +1272,22 @@ function Step-Verify {
     }
 
     if ($Summary.steps.companion.installed) {
-        $companionRhp = Join-Path $pluginDest "Rook.rhp"
-        if ((Test-Path $companionRhp) -and (Get-Item $companionRhp).Length -gt 0) {
-            Write-Host "      [OK] Rook.rhp exists and is non-zero" -ForegroundColor Green
-        } else {
-            Add-InstallWarning -Summary $Summary -Code "verify.file_missing" `
-                -Message "Rook.rhp missing or empty at $pluginDest." `
-                -Remediation "Re-run install.ps1 to rebuild and deploy."
+        foreach ($runtime in $ManagedCompanionRuntimes) {
+            $companionRhp = Join-Path $pluginDest "$runtime\Rook.rhp"
+            if ((Test-Path $companionRhp) -and (Get-Item $companionRhp).Length -gt 0) {
+                Write-Host "      [OK] $runtime Rook.rhp exists and is non-zero" -ForegroundColor Green
+            } else {
+                Add-InstallWarning -Summary $Summary -Code "verify.file_missing" `
+                    -Message "$runtime Rook.rhp missing or empty under $pluginDest." `
+                    -Remediation "Re-run install.ps1 to rebuild and deploy."
+            }
+        }
+
+        $rootCompanionRhp = Join-Path $pluginDest "Rook.rhp"
+        if (Test-Path $rootCompanionRhp) {
+            Add-InstallWarning -Summary $Summary -Code "verify.stale_root_companion" `
+                -Message "Stale root-level Rook.rhp exists at $rootCompanionRhp." `
+                -Remediation "Re-run install.ps1 after closing Rhino so the multi-runtime deploy can remove stale root companion files."
         }
     }
 
@@ -1487,7 +1560,7 @@ if ($ns.state -eq "failed" -and $ns.build_attempted) {
 }
 
 if ($cs.state -eq "failed") {
-    $Summary.next_actions += "Install .NET SDK or run dotnet build src\Rook\Rook.csproj -f net7.0 -c Release"
+    $Summary.next_actions += "Install .NET SDK or run dotnet build src\Rook\Rook.csproj -c Release"
 }
 
 if ($ns.built -and $ns.installed -and -not $ns.registered) {

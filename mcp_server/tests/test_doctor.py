@@ -3,6 +3,7 @@ from pathlib import Path
 from rook.doctor import (
     _build_probe_server_parameters,
     _config_targets,
+    _managed_companion_payloads,
     _probe_stderr_buffer,
     _should_check_codex,
     _upsert_toml_section,
@@ -30,6 +31,17 @@ def _runtime_paths(tmp_path: Path) -> RuntimePaths:
         mcp_server_dir=mcp_server_dir,
         repo_root=tmp_path,
     )
+
+
+def test_managed_companion_payloads_use_runtime_child_folders(tmp_path: Path):
+    payloads = dict(_managed_companion_payloads(tmp_path / "RookNative"))
+
+    assert payloads == {
+        "net8.0": tmp_path / "RookNative" / "net8.0" / "Rook.rhp",
+        "net7.0": tmp_path / "RookNative" / "net7.0" / "Rook.rhp",
+        "net48": tmp_path / "RookNative" / "net48" / "Rook.rhp",
+    }
+    assert tmp_path / "RookNative" / "Rook.rhp" not in payloads.values()
 
 
 def test_validate_mcp_entry_checks_required_fields_but_ignores_optional_chirp_home(tmp_path: Path):

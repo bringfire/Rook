@@ -356,10 +356,8 @@ namespace Rook.Tests.Services.Vision.Video
         public void Validate_rejects_undefined_PersonGeneration_value()
         {
             var codec = new VeoOptionsCodec();
-            var req = TestVideoFixtures.DefaultT2vRequest() with
-            {
-                Options = new VeoOptions((PersonGenerationPolicy)999),
-            };
+            var req = TestVideoFixtures.DefaultT2vRequest()
+                .With(options: new VeoOptions((PersonGenerationPolicy)999));
 
             var result = codec.Validate(req, req.Options, Cap);
 
@@ -372,10 +370,8 @@ namespace Rook.Tests.Services.Vision.Video
         public void Validate_rejects_negative_undefined_PersonGeneration()
         {
             var codec = new VeoOptionsCodec();
-            var req = TestVideoFixtures.DefaultT2vRequest() with
-            {
-                Options = new VeoOptions((PersonGenerationPolicy)(-1)),
-            };
+            var req = TestVideoFixtures.DefaultT2vRequest()
+                .With(options: new VeoOptions((PersonGenerationPolicy)(-1)));
 
             var result = codec.Validate(req, req.Options, Cap);
 
@@ -413,6 +409,8 @@ namespace Rook.Tests.Services.Vision.Video
 
         // Test-only ProviderOptions subtype to exercise the codec's type
         // discrimination. Lives here so the production code stays Veo-only.
-        private sealed record SomeOtherProviderOptions : ProviderOptions;
+        private sealed class SomeOtherProviderOptions : ProviderOptions
+        {
+        }
     }
 }
