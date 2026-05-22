@@ -9,7 +9,15 @@ $ClaudeBuildReleaseSkill = Join-Path $RepoRoot '.claude\skills\build-release\SKI
 $ClaudeIssSourcePaths = Join-Path $RepoRoot '.claude\skills\build-release\references\iss-source-paths.md'
 $VersionLocations = Join-Path $RepoRoot '.agents\skills\build-release\references\version-locations.md'
 $BuildingDoc = Join-Path $RepoRoot 'BUILDING.md'
-$CompanionRuntimeConfig = Join-Path $RepoRoot 'src\Rook\bin\Release\net7.0\Rook.runtimeconfig.json'
+$PostInstallScript = Join-Path $RepoRoot 'installer\post_install.py'
+$DoctorScript = Join-Path $RepoRoot 'mcp_server\src\rook\doctor.py'
+$CompanionNet8RuntimeConfig = Join-Path $RepoRoot 'src\Rook\bin\Release\net8.0\Rook.runtimeconfig.json'
+$CompanionNet7RuntimeConfig = Join-Path $RepoRoot 'src\Rook\bin\Release\net7.0\Rook.runtimeconfig.json'
+$CompanionNet8Rhp = Join-Path $RepoRoot 'src\Rook\bin\Release\net8.0\Rook.rhp'
+$CompanionNet7Rhp = Join-Path $RepoRoot 'src\Rook\bin\Release\net7.0\Rook.rhp'
+$CompanionNet48Rhp = Join-Path $RepoRoot 'src\Rook\bin\Release\net48\Rook.rhp'
+$CompanionNet48WebView2Core = Join-Path $RepoRoot 'src\Rook\bin\Release\net48\Microsoft.Web.WebView2.Core.dll'
+$CompanionNet48WebView2Loader = Join-Path $RepoRoot 'src\Rook\bin\Release\net48\runtimes\win-x64\native\WebView2Loader.dll'
 $FfmpegValidationScript = Join-Path $RepoRoot 'scripts\validate-ffmpeg-bundle.ps1'
 $FfmpegBuildScript = Join-Path $RepoRoot 'scripts\ffmpeg\build-rook-ffmpeg.ps1'
 $FfmpegConfigureRecipe = Join-Path $RepoRoot 'scripts\ffmpeg\rook-ffmpeg-configure.txt'
@@ -64,28 +72,55 @@ function Assert-FfmpegInstallerLine {
     Assert-NotContains -Text $line -Unexpected 'skipifsourcedoesntexist' -Message "Release installer must fail packaging when bundled FFmpeg payload file is missing: $FileName."
 }
 
-function Test-InstallerPackagesNet7CompanionRuntime {
+function Test-InstallerPackagesMultiRuntimeCompanionPayloads {
     $content = Get-Content -Path $InstallerScript -Raw
 
-    Assert-Contains -Text $content -Expected '#define CompanionDir RepoRoot + "\src\Rook\bin\Release\net7.0"' -Message 'Installer must package the net7.0 companion output.'
-    Assert-NotContains -Text $content -Unexpected 'net48' -Message 'Installer must not reference net48 companion artifacts.'
-    Assert-Contains -Text $content -Expected '{#CompanionDir}\Rook.rhp' -Message 'Installer must package Rook.rhp from the companion output.'
-    Assert-Contains -Text $content -Expected '{#CompanionDir}\Rook.deps.json' -Message 'Installer must package Rook.deps.json for the net7.0 companion.'
-    Assert-Contains -Text $content -Expected '{#CompanionDir}\Rook.runtimeconfig.json' -Message 'Installer must package Rook.runtimeconfig.json for the net7.0 companion.'
-    Assert-Contains -Text $content -Expected '{#CompanionDir}\runtimes\*' -Message 'Installer must package companion runtime assets.'
+    Assert-Contains -Text $content -Expected '#define CompanionNet8Dir RepoRoot + "\src\Rook\bin\Release\net8.0"' -Message 'Installer must define the net8.0 companion output for Rhino.Inside/Revit .NET 8 hosts.'
+    Assert-Contains -Text $content -Expected '#define CompanionNet7Dir RepoRoot + "\src\Rook\bin\Release\net7.0"' -Message 'Installer must define the net7.0 companion output.'
+    Assert-Contains -Text $content -Expected '#define CompanionNet48Dir RepoRoot + "\src\Rook\bin\Release\net48"' -Message 'Installer must define the net48 companion output for Rhino.Inside/Revit .NET Framework hosts.'
+
+    foreach ($runtime in @('net8.0', 'net7.0', 'net48')) {
+        Assert-Contains -Text $content -Expected "DestDir: `"{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\$runtime`"" -Message "Installer must deploy the companion into the $runtime runtime subfolder."
+        Assert-Contains -Text $content -Expected "RookNative\$runtime\Rook.rhp" -Message "Installer must reference the $runtime Rook.rhp payload."
+    }
+
+    Assert-Contains -Text $content -Expected '{#CompanionNet8Dir}\Rook.deps.json' -Message 'Installer must package Rook.deps.json for the net8.0 companion.'
+    Assert-Contains -Text $content -Expected '{#CompanionNet8Dir}\Rook.runtimeconfig.json' -Message 'Installer must package Rook.runtimeconfig.json for the net8.0 companion.'
+    Assert-Contains -Text $content -Expected '{#CompanionNet8Dir}\runtimes\*' -Message 'Installer must package net8.0 companion runtime assets.'
+    Assert-Contains -Text $content -Expected '{#CompanionNet7Dir}\Rook.deps.json' -Message 'Installer must package Rook.deps.json for the net7.0 companion.'
+    Assert-Contains -Text $content -Expected '{#CompanionNet7Dir}\Rook.runtimeconfig.json' -Message 'Installer must package Rook.runtimeconfig.json for the net7.0 companion.'
+    Assert-Contains -Text $content -Expected '{#CompanionNet7Dir}\runtimes\*' -Message 'Installer must package net7.0 companion runtime assets.'
+    Assert-Contains -Text $content -Expected '{#CompanionNet48Dir}\Rook.rhp' -Message 'Installer must package the net48 companion RHP.'
+    Assert-Contains -Text $content -Expected '{#CompanionNet48Dir}\*.dll' -Message 'Installer must package net48 companion dependency DLLs.'
+    Assert-Contains -Text $content -Expected '{#CompanionNet48Dir}\runtimes\*' -Message 'Installer must package net48 companion runtime assets.'
 }
 
-function Test-BuiltCompanionRuntimeConfigDeclaresNet7 {
-    Assert-True -Condition (Test-Path $CompanionRuntimeConfig) -Message "Built companion runtimeconfig is missing: $CompanionRuntimeConfig"
+function Assert-RuntimeConfigDeclaresTfm {
+    param(
+        [string]$RuntimeConfigPath,
+        [string]$ExpectedTfm
+    )
+
+    Assert-True -Condition (Test-Path $RuntimeConfigPath) -Message "Built companion runtimeconfig is missing: $RuntimeConfigPath"
 
     try {
-        $runtimeConfig = Get-Content -Path $CompanionRuntimeConfig -Raw | ConvertFrom-Json
+        $runtimeConfig = Get-Content -Path $RuntimeConfigPath -Raw | ConvertFrom-Json
     } catch {
-        throw "Built companion runtimeconfig is malformed JSON: $CompanionRuntimeConfig"
+        throw "Built companion runtimeconfig is malformed JSON: $RuntimeConfigPath"
     }
 
     $tfm = $runtimeConfig.runtimeOptions.tfm
-    Assert-True -Condition ($tfm -eq 'net7.0') -Message "Built companion runtimeconfig must declare runtimeOptions.tfm == net7.0; actual value: $tfm"
+    Assert-True -Condition ($tfm -eq $ExpectedTfm) -Message "Built companion runtimeconfig must declare runtimeOptions.tfm == $ExpectedTfm; actual value: $tfm"
+}
+
+function Test-BuiltCompanionPayloadsExist {
+    Assert-True -Condition (Test-Path $CompanionNet8Rhp) -Message "Built net8.0 companion payload is missing: $CompanionNet8Rhp"
+    Assert-True -Condition (Test-Path $CompanionNet7Rhp) -Message "Built net7.0 registered-anchor companion payload is missing: $CompanionNet7Rhp"
+    Assert-True -Condition (Test-Path $CompanionNet48Rhp) -Message "Built net48 companion payload is missing: $CompanionNet48Rhp"
+    Assert-True -Condition (Test-Path $CompanionNet48WebView2Core) -Message "Built net48 WebView2 wrapper is missing: $CompanionNet48WebView2Core"
+    Assert-True -Condition (Test-Path $CompanionNet48WebView2Loader) -Message "Built net48 WebView2 loader is missing: $CompanionNet48WebView2Loader"
+    Assert-RuntimeConfigDeclaresTfm -RuntimeConfigPath $CompanionNet8RuntimeConfig -ExpectedTfm 'net8.0'
+    Assert-RuntimeConfigDeclaresTfm -RuntimeConfigPath $CompanionNet7RuntimeConfig -ExpectedTfm 'net7.0'
 }
 
 function Test-InstallerPackagesBundledFfmpegPayload {
@@ -179,36 +214,43 @@ function Test-InstallerVerifiesRhinoPluginRegistrationAfterInstall {
     Assert-Contains -Text $content -Expected 'procedure VerifyRhinoPluginInstall();' -Message 'Installer must run post-install Rhino plugin verification.'
     Assert-Contains -Text $content -Expected 'VerifyPluginRegistration(''A38E0E8F-E06E-40D2-A6BD-7EDBC2CB1906''' -Message 'Installer must verify native Rhino registry registration.'
     Assert-Contains -Text $content -Expected 'VerifyPluginRegistration(''B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B''' -Message 'Installer must verify companion Rhino registry registration.'
+    Assert-Contains -Text $content -Expected 'RookNative\net7.0\Rook.rhp' -Message 'Installer must register the current direct-registry runtime child RHP anchor.'
     Assert-Contains -Text $content -Expected 'Rook copied the plug-in files, but Rhino registration verification failed.' -Message 'Installer must surface a clear post-install registration failure.'
     Assert-Contains -Text $content -Expected 'Restart Rhino after installation.' -Message 'Installer must remind users to restart Rhino after installer-time registry writes.'
 }
 
-function Test-ReleaseWorkflowDocsUseNet7CompanionOutput {
+function Test-PostInstallValidationUsesMultiRuntimeCompanionLayout {
+    $postInstall = Get-Content -Path $PostInstallScript -Raw
+    $doctor = Get-Content -Path $DoctorScript -Raw
+    $combined = @($postInstall, $doctor) -join "`n"
+
+    Assert-Contains -Text $combined -Expected 'MANAGED_COMPANION_RUNTIMES = ("net8.0", "net7.0", "net48")' -Message 'Post-install validation must know the managed companion runtime folders.'
+    Assert-Contains -Text $combined -Expected 'plugin_dir / runtime / "Rook.rhp"' -Message 'Post-install validation must check runtime-child companion RHP payloads.'
+    Assert-Contains -Text $combined -Expected 'Rook.rhp {runtime} deployed' -Message 'Post-install validation must label runtime-child companion checks.'
+    Assert-Contains -Text $postInstall -Expected '"--skip-handshake"' -Message 'Post-install validation must not fail installation on MCP handshake performance thresholds.'
+    Assert-NotContains -Text $combined -Unexpected 'plugin_dir / "Rook.rhp"' -Message 'Post-install validation must not require a root-level Rook.rhp companion payload.'
+}
+
+function Test-ReleaseWorkflowDocsUseMultiRuntimeCompanionOutputs {
     $combined = @(
         Get-Content -Path $BuildReleaseSkill -Raw
         Get-Content -Path $IssSourcePaths -Raw
         Get-Content -Path $ClaudeBuildReleaseSkill -Raw
         Get-Content -Path $ClaudeIssSourcePaths -Raw
-        Get-Content -Path $VersionLocations -Raw
         Get-Content -Path $BuildingDoc -Raw
+        Get-Content -Path $VersionLocations -Raw
     ) -join "`n"
 
-    $forbidden = @(
-        '-p:TargetFramework=net48',
-        'TargetFramework=net48',
-        'src\Rook\bin\x64\Release\net48',
-        'src/Rook/bin/x64/Release/net48',
-        'src\Rook\bin\Release\net48',
-        'src/Rook/bin/Release/net48'
-    )
-
-    foreach ($pattern in $forbidden) {
-        Assert-NotContains -Text $combined -Unexpected $pattern -Message "Release workflow docs still reference unsupported net48 companion release path or build flag: $pattern"
-    }
-
-    Assert-Contains -Text $combined -Expected 'dotnet build src\Rook\Rook.csproj -f net7.0 -c Release' -Message 'Release workflow docs must use the canonical net7.0 companion build command.'
+    Assert-Contains -Text $combined -Expected 'dotnet build src\Rook\Rook.csproj -c Release' -Message 'Release workflow docs must build all companion target frameworks.'
+    Assert-Contains -Text $combined -Expected 'src\Rook\bin\Release\net8.0\Rook.rhp' -Message 'Release workflow docs must reference the net8.0 companion output.'
+    Assert-Contains -Text $combined -Expected 'src\Rook\bin\Release\net8.0\Rook.runtimeconfig.json' -Message 'Release workflow docs must mention the net8.0 runtimeconfig output.'
     Assert-Contains -Text $combined -Expected 'src\Rook\bin\Release\net7.0\Rook.rhp' -Message 'Release workflow docs must reference the net7.0 companion output.'
     Assert-Contains -Text $combined -Expected 'src\Rook\bin\Release\net7.0\Rook.runtimeconfig.json' -Message 'Release workflow docs must mention the net7.0 runtimeconfig output.'
+    Assert-Contains -Text $combined -Expected 'src\Rook\bin\Release\net48\Rook.rhp' -Message 'Release workflow docs must reference the net48 companion output.'
+    Assert-Contains -Text $combined -Expected 'Rhino.Inside.Revit' -Message 'Release workflow docs must require Rhino.Inside.Revit smoke coverage for release validation.'
+    Assert-Contains -Text $combined -Expected 'direct-registry' -Message 'Release workflow docs must call out the direct-registry loader assumption.'
+    Assert-Contains -Text $combined -Expected 'physical `Rook.rhp`' -Message 'Release workflow docs must require recording the physical Rook.rhp path loaded by Rhino.'
+    Assert-Contains -Text $combined -Expected 'Do not cite Yak/package-manager layout docs as proof' -Message 'Release workflow docs must not treat Yak package layout docs as proof for the Inno installer.'
 }
 
 function Test-BuildReleaseWorkflowUsesWindowsPowerShellCommands {
@@ -268,8 +310,8 @@ function Test-LegacyGitHubReleaseWorkflowIsDisabled {
     Assert-NotContains -Text $content -Unexpected 'Compress-Archive' -Message 'Legacy GitHub release workflow must not package the old ZIP release.'
 }
 
-Test-InstallerPackagesNet7CompanionRuntime
-Test-BuiltCompanionRuntimeConfigDeclaresNet7
+Test-InstallerPackagesMultiRuntimeCompanionPayloads
+Test-BuiltCompanionPayloadsExist
 Test-InstallerPackagesBundledFfmpegPayload
 Test-FfmpegValidatorRequiresReleaseSourceBundleArgument
 Test-FfmpegBuildScriptUsesAgentlessSignatureVerification
@@ -279,7 +321,8 @@ Test-InstallerRegistersRhinoPluginFileNamesUnderPluginSubkey
 Test-InstallerBlocksWhenRhinoOrRevitAreRunning
 Test-InstallerWarnsRegistrationIsPerWindowsUser
 Test-InstallerVerifiesRhinoPluginRegistrationAfterInstall
-Test-ReleaseWorkflowDocsUseNet7CompanionOutput
+Test-PostInstallValidationUsesMultiRuntimeCompanionLayout
+Test-ReleaseWorkflowDocsUseMultiRuntimeCompanionOutputs
 Test-BuildReleaseWorkflowUsesWindowsPowerShellCommands
 Test-BuildReleaseDocsRequireFfmpegValidation
 Test-LegacyGitHubReleaseWorkflowIsDisabled

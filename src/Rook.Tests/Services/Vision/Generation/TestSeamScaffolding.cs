@@ -15,10 +15,17 @@ namespace Rook.Tests.Services.Vision.Generation
     /// values for <see cref="TestCapability.Modality"/>; <c>"test"</c>
     /// is the chosen value so the scan guards production code only.
     /// </summary>
-    internal sealed record TestGenerationRequest(string Model, ProviderOptions Options)
-        : GenerationRequest(Model, Options);
+    internal sealed class TestGenerationRequest : GenerationRequest
+    {
+        public TestGenerationRequest(string Model, ProviderOptions Options)
+            : base(Model, Options)
+        {
+        }
+    }
 
-    internal sealed record TestProviderOptions : ProviderOptions;
+    internal sealed class TestProviderOptions : ProviderOptions
+    {
+    }
 
     internal sealed record TestCapability(
         string Id,

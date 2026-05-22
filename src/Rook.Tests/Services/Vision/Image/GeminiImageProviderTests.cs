@@ -99,7 +99,7 @@ namespace Rook.Tests.Services.Vision.Image
             });
 
             await provider.SubmitAsync(
-                Request() with { AspectRatio = "" },
+                Request().With(aspectRatio: ""),
                 ResolvedInputImage(),
                 CancellationToken.None);
 
@@ -131,7 +131,7 @@ namespace Rook.Tests.Services.Vision.Image
         {
             var (provider, handler) = MakeProvider(
                 _ => JsonResponse(HttpStatusCode.OK, "{}"));
-            var request = Request() with { Options = new ForeignImageOptions() };
+            var request = Request().With(options: new ForeignImageOptions());
 
             var outcome = await provider.SubmitAsync(
                 request,
@@ -368,6 +368,8 @@ namespace Rook.Tests.Services.Vision.Image
         private static HttpResponseMessage JsonResponse(HttpStatusCode status, string json) =>
             new(status) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
 
-        private sealed record ForeignImageOptions : ProviderOptions;
+        private sealed class ForeignImageOptions : ProviderOptions
+        {
+        }
     }
 }

@@ -61,7 +61,7 @@ namespace Rook.Tests.Services.Vision.Image.Fal
             var (provider, handler) = MakeProvider(_ => JsonResponse(HttpStatusCode.OK, "{}"));
 
             var outcome = await provider.SubmitAsync(
-                Request() with { Options = new GeminiImageOptions() },
+                Request().With(options: new GeminiImageOptions()),
                 ResolvedImages(),
                 CancellationToken.None);
 
@@ -688,7 +688,7 @@ namespace Rook.Tests.Services.Vision.Image.Fal
             var (provider, handler) = MakeProvider(_ => JsonResponse(HttpStatusCode.OK, "{}"));
 
             var outcome = await provider.SubmitAsync(
-                Request() with { AspectRatio = "2:1" },
+                Request().With(aspectRatio: "2:1"),
                 ResolvedImages(),
                 CancellationToken.None);
 

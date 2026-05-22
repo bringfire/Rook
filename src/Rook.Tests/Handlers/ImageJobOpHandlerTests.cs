@@ -967,7 +967,9 @@ namespace Rook.Tests.Handlers
                 throw new InvalidOperationException();
         }
 
-        private sealed record FakeImageOptions : ProviderOptions;
+        private sealed class FakeImageOptions : ProviderOptions
+        {
+        }
 
         private sealed class FakeImageOptionsCodec
             : IProviderOptionsCodec<ImageGenerationRequest, ImageCapability>

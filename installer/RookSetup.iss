@@ -22,7 +22,9 @@
 #define RepoRoot ".."
 #define NativePlugin RepoRoot + "\src\RookNative\bin\Release\x64\RookNative.rhp"
 #define NativePdb    RepoRoot + "\src\RookNative\bin\Release\x64\RookNative.pdb"
-#define CompanionDir RepoRoot + "\src\Rook\bin\Release\net7.0"
+#define CompanionNet8Dir RepoRoot + "\src\Rook\bin\Release\net8.0"
+#define CompanionNet7Dir RepoRoot + "\src\Rook\bin\Release\net7.0"
+#define CompanionNet48Dir RepoRoot + "\src\Rook\bin\Release\net48"
 #define McpServerDir RepoRoot + "\mcp_server"
 #define KnowledgeDir RepoRoot + "\knowledge"
 #define ScriptsDir   RepoRoot + "\scripts"
@@ -87,13 +89,27 @@ Name: "codex"; Description: "OpenAI Codex CLI Configuration + user skills (requi
 Source: "{#NativePlugin}"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative"; Components: plugins; Flags: ignoreversion
 Source: "{#NativePdb}"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative"; Components: plugins; Flags: ignoreversion skipifsourcedoesntexist
 
-; C# companion plugin (net7.0) + dependencies
-Source: "{#CompanionDir}\Rook.rhp"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative"; Components: plugins; Flags: ignoreversion
-Source: "{#CompanionDir}\Rook.rui"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative"; Components: plugins; Flags: ignoreversion
-Source: "{#CompanionDir}\Rook.deps.json"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative"; Components: plugins; Flags: ignoreversion
-Source: "{#CompanionDir}\Rook.runtimeconfig.json"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative"; Components: plugins; Flags: ignoreversion
-Source: "{#CompanionDir}\*.dll"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative"; Components: plugins; Flags: ignoreversion
-Source: "{#CompanionDir}\runtimes\*"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\runtimes"; Components: plugins; Flags: ignoreversion recursesubdirs createallsubdirs
+; C# companion plugin: package sibling runtime payloads for direct-registry
+; install smoke validation. Release is blocked until Rhino proves which physical
+; Rook.rhp path it loads for standalone and Rhino.Inside hosts.
+Source: "{#CompanionNet8Dir}\Rook.rhp"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net8.0"; Components: plugins; Flags: ignoreversion
+Source: "{#CompanionNet8Dir}\Rook.rui"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net8.0"; Components: plugins; Flags: ignoreversion
+Source: "{#CompanionNet8Dir}\Rook.deps.json"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net8.0"; Components: plugins; Flags: ignoreversion
+Source: "{#CompanionNet8Dir}\Rook.runtimeconfig.json"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net8.0"; Components: plugins; Flags: ignoreversion
+Source: "{#CompanionNet8Dir}\*.dll"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net8.0"; Components: plugins; Flags: ignoreversion
+Source: "{#CompanionNet8Dir}\runtimes\*"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net8.0\runtimes"; Components: plugins; Flags: ignoreversion recursesubdirs createallsubdirs
+
+Source: "{#CompanionNet7Dir}\Rook.rhp"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net7.0"; Components: plugins; Flags: ignoreversion
+Source: "{#CompanionNet7Dir}\Rook.rui"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net7.0"; Components: plugins; Flags: ignoreversion
+Source: "{#CompanionNet7Dir}\Rook.deps.json"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net7.0"; Components: plugins; Flags: ignoreversion
+Source: "{#CompanionNet7Dir}\Rook.runtimeconfig.json"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net7.0"; Components: plugins; Flags: ignoreversion
+Source: "{#CompanionNet7Dir}\*.dll"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net7.0"; Components: plugins; Flags: ignoreversion
+Source: "{#CompanionNet7Dir}\runtimes\*"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net7.0\runtimes"; Components: plugins; Flags: ignoreversion recursesubdirs createallsubdirs
+
+Source: "{#CompanionNet48Dir}\Rook.rhp"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net48"; Components: plugins; Flags: ignoreversion
+Source: "{#CompanionNet48Dir}\Rook.rui"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net48"; Components: plugins; Flags: ignoreversion
+Source: "{#CompanionNet48Dir}\*.dll"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net48"; Components: plugins; Flags: ignoreversion
+Source: "{#CompanionNet48Dir}\runtimes\*"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net48\runtimes"; Components: plugins; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; Bundled LGPL-only FFmpeg for video sidecar extraction
 Source: "{#FfmpegDir}\ffmpeg.exe"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\ffmpeg"; Components: plugins; Flags: ignoreversion
@@ -168,7 +184,7 @@ Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\A38E0E8F-E06E-40D2-
 
 ; Rook Companion (C# plugin) — load when needed
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: string; ValueName: "Name"; ValueData: "Rook"; Components: plugins; Flags: uninsdeletekey
-Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B\PlugIn"; ValueType: string; ValueName: "FileName"; ValueData: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\Rook.rhp"; Components: plugins
+Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B\PlugIn"; ValueType: string; ValueName: "FileName"; ValueData: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net7.0\Rook.rhp"; Components: plugins
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: dword; ValueName: "Type"; ValueData: "16"; Components: plugins
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: dword; ValueName: "IsDotNETPlugIn"; ValueData: "1"; Components: plugins
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: dword; ValueName: "LoadMode"; ValueData: "2"; Components: plugins
@@ -372,12 +388,36 @@ procedure VerifyRhinoPluginInstall();
 var
   NativePath: String;
   CompanionPath: String;
+  CompanionNet8Path: String;
+  CompanionNet48Path: String;
 begin
   if not WizardIsComponentSelected('plugins') then
     Exit;
 
   NativePath := ExpandConstant('{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\RookNative.rhp');
-  CompanionPath := ExpandConstant('{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\Rook.rhp');
+  CompanionPath := ExpandConstant('{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net7.0\Rook.rhp');
+  CompanionNet8Path := ExpandConstant('{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net8.0\Rook.rhp');
+  CompanionNet48Path := ExpandConstant('{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net48\Rook.rhp');
+
+  if not FileExists(CompanionNet8Path) then
+  begin
+    Log('Rhino plugin verification failed: net8.0 companion file missing: ' + CompanionNet8Path);
+    MsgBox(
+      'Rook copied the plug-in files, but the .NET 8 companion payload is missing.' + #13#10 + #13#10 +
+      'Rhino.Inside.Revit on .NET 8 hosts will not be able to load the runtime-specific Rook payload. Rebuild the installer from all companion target frameworks and reinstall.',
+      mbError, MB_OK);
+    Exit;
+  end;
+
+  if not FileExists(CompanionNet48Path) then
+  begin
+    Log('Rhino plugin verification failed: net48 companion file missing: ' + CompanionNet48Path);
+    MsgBox(
+      'Rook copied the plug-in files, but the .NET Framework companion payload is missing.' + #13#10 + #13#10 +
+      'Rhino.Inside.Revit on .NET Framework hosts will not be able to load Rook. Rebuild the installer from both companion target frameworks and reinstall.',
+      mbError, MB_OK);
+    Exit;
+  end;
 
   if not (
     VerifyPluginRegistration('A38E0E8F-E06E-40D2-A6BD-7EDBC2CB1906', NativePath, 0, 1) and

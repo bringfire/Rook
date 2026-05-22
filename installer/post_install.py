@@ -23,6 +23,9 @@ import sys
 from pathlib import Path
 
 
+MANAGED_COMPANION_RUNTIMES = ("net8.0", "net7.0", "net48")
+
+
 def _codex_on_path() -> bool:
     """Check if the Codex CLI is available on PATH."""
     return shutil.which("codex") is not None
@@ -432,6 +435,10 @@ def install_user_assets(install_dir: Path, install_claude: bool, install_codex: 
     return installed_any
 
 
+def managed_companion_payloads(plugin_dir: Path) -> list[tuple[str, Path]]:
+    return [(runtime, plugin_dir / runtime / "Rook.rhp") for runtime in MANAGED_COMPANION_RUNTIMES]
+
+
 def validate(
     install_dir: Path,
     runtime_root: Path,
@@ -449,9 +456,9 @@ def validate(
     if install_plugins:
         plugin_dir = Path(os.environ.get("APPDATA", "")) / "McNeel" / "Rhinoceros" / "8.0" / "Plug-ins" / "RookNative"
         native = plugin_dir / "RookNative.rhp"
-        companion = plugin_dir / "Rook.rhp"
         checks.append(("RookNative.rhp deployed", native.exists()))
-        checks.append(("Rook.rhp deployed", companion.exists()))
+        for runtime, companion in managed_companion_payloads(plugin_dir):
+            checks.append((f"Rook.rhp {runtime} deployed", companion.exists()))
 
     checks.append(("Managed runtime venv", venv_dir.exists()))
     checks.append(("Managed runtime data dir", data_dir.exists()))
@@ -478,7 +485,16 @@ def validate(
     doctor_env = os.environ.copy()
     doctor_env.update(_build_mcp_env(install_dir, data_dir, "release", chirp_dir))
     doctor_cwd = install_dir / "mcp_server"
-    doctor_cmd = [python_path, "-m", "rook", "doctor", "--json", "--python-path", python_path]
+    doctor_cmd = [
+        python_path,
+        "-m",
+        "rook",
+        "doctor",
+        "--json",
+        "--skip-handshake",
+        "--python-path",
+        python_path,
+    ]
     if install_claude:
         doctor_cmd.append("--claude")
     if install_codex:

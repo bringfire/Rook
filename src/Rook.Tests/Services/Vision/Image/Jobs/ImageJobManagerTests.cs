@@ -67,20 +67,23 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
         }
 
         [Fact]
-        public async Task SubmitAsync_AppendsQueuedLedgerRecordBeforeBackgroundWork()
+        public async Task SubmitAsync_AppendsInitialQueuedLedgerRecord()
         {
             using var manager = Manager();
 
             var submit = await manager.SubmitAsync(Start(), CancellationToken.None);
 
             Assert.Equal(ImageJobState.Queued, submit.State);
-            var queued = Assert.Single(
-                _ledger.AllRecords,
-                r => r.JobId == submit.JobId);
+            var records = _ledger.AllRecords
+                .Where(r => r.JobId == submit.JobId)
+                .ToArray();
+            Assert.NotEmpty(records);
+            var queued = records[0];
             Assert.Equal(ImageJobState.Queued, queued.State);
             Assert.Equal(GeminiImageCapabilities.ProviderName, queued.Provider);
             Assert.Equal(GeminiImageCapabilities.DefaultModel, queued.Model);
             Assert.Null(queued.ProviderJobId);
+            Assert.Single(records, r => r.State == ImageJobState.Queued);
             await WaitForTerminalAsync(manager, submit.JobId!.Value);
         }
 

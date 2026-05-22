@@ -12,5 +12,7 @@ namespace Rook.Services.Vision.Generation
     /// per-route input field names, Replicate's version hash, Gemini's
     /// generationConfig — none of these share a contract).
     /// </summary>
-    public abstract record ProviderOptions;
+    public abstract class ProviderOptions
+    {
+    }
 }

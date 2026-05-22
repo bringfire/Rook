@@ -74,7 +74,7 @@ namespace Rook
             if (_isRhinoInside)
             {
                 TraceStartup("Rhino.Inside mode detected");
-                RhinoApp.WriteLine("Rook companion: Rhino.Inside detected — toolbar disabled.");
+                RhinoApp.WriteLine("Rook companion: Rhino.Inside detected — toolbar disabled; panels enabled.");
             }
             else
             {
@@ -123,7 +123,9 @@ namespace Rook
 
         internal static bool ShouldRegisterStartupPanels(bool isRhinoInside)
         {
-            return !isRhinoInside;
+            // Panels are supported in both standalone Rhino and Rhino.Inside;
+            // only Rhino toolbar loading is suppressed for Rhino.Inside.
+            return true;
         }
 
         private void RegisterStartupPanels()

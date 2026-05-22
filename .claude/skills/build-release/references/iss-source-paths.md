@@ -12,16 +12,28 @@ All paths are relative to the repo root.
 |------|--------|
 | `src/RookNative/bin/Release/x64/RookNative.rhp` | C++ build output |
 | `src/RookNative/bin/Release/x64/RookNative.pdb` | C++ debug symbols |
-| `src/Rook/bin/Release/net7.0/Rook.rhp` | C# build output |
+| `src/Rook/bin/Release/net8.0/Rook.rhp` | C# .NET 8 build output |
+| `src/Rook/bin/Release/net8.0/Rook.rui` | Rhino toolbar file |
+| `src/Rook/bin/Release/net8.0/Rook.deps.json` | C# .NET 8 dependency manifest |
+| `src/Rook/bin/Release/net8.0/Rook.runtimeconfig.json` | C# runtime metadata; must declare net8.0 |
+| `src/Rook/bin/Release/net8.0/*.dll` | C# .NET 8 dependency DLLs |
+| `src/Rook/bin/Release/net8.0/runtimes/` | C# .NET 8 runtime assets |
+| `src/Rook/bin/Release/net7.0/Rook.rhp` | C# .NET Core build output |
 | `src/Rook/bin/Release/net7.0/Rook.rui` | Rhino toolbar file |
-| `src/Rook/bin/Release/net7.0/Rook.deps.json` | C# dependency manifest |
+| `src/Rook/bin/Release/net7.0/Rook.deps.json` | C# .NET Core dependency manifest |
 | `src/Rook/bin/Release/net7.0/Rook.runtimeconfig.json` | C# runtime metadata; must declare net7.0 |
-| `src/Rook/bin/Release/net7.0/*.dll` | C# dependency DLLs |
-| `src/Rook/bin/Release/net7.0/runtimes/` | C# runtime assets |
+| `src/Rook/bin/Release/net7.0/*.dll` | C# .NET Core dependency DLLs |
+| `src/Rook/bin/Release/net7.0/runtimes/` | C# .NET Core runtime assets |
+| `src/Rook/bin/Release/net48/Rook.rhp` | C# .NET Framework build output for Rhino.Inside.Revit hosts |
+| `src/Rook/bin/Release/net48/Rook.rui` | Rhino toolbar file |
+| `src/Rook/bin/Release/net48/*.dll` | C# .NET Framework dependency DLLs |
 
-**CRITICAL:** The installer must package the net7.0 companion output from
-`src/Rook/bin/Release/net7.0/`. Older framework outputs are not supported for
-registration or release packaging.
+**CRITICAL:** The installer must package sibling `net8.0`, `net7.0`, and `net48`
+companion outputs. The registry `FileName` points at the `net7.0` child RHP.
+For direct registry installs, sibling-runtime redirection is not release-proven
+by package-manager/Yak layout docs. The live Inno-install smoke must prove which
+physical `Rook.rhp` path Rhino loads under standalone Rhino, Rhino.Inside.Revit
+on Revit 2025+, and Rhino.Inside.Revit on Revit 2024 or older.
 
 ## Python MCP Server
 
@@ -130,10 +142,16 @@ $missing = New-Object System.Collections.Generic.List[string]
 $files = @(
   "src\RookNative\bin\Release\x64\RookNative.rhp",
   "src\RookNative\bin\Release\x64\RookNative.pdb",
+  "src\Rook\bin\Release\net8.0\Rook.rhp",
+  "src\Rook\bin\Release\net8.0\Rook.rui",
+  "src\Rook\bin\Release\net8.0\Rook.deps.json",
+  "src\Rook\bin\Release\net8.0\Rook.runtimeconfig.json",
   "src\Rook\bin\Release\net7.0\Rook.rhp",
   "src\Rook\bin\Release\net7.0\Rook.rui",
   "src\Rook\bin\Release\net7.0\Rook.deps.json",
   "src\Rook\bin\Release\net7.0\Rook.runtimeconfig.json",
+  "src\Rook\bin\Release\net48\Rook.rhp",
+  "src\Rook\bin\Release\net48\Rook.rui",
   "mcp_server\pyproject.toml",
   "..\Chirp\pyproject.toml",
   ".claude-plugin\plugin.json",
@@ -180,6 +198,7 @@ $directories = @(
   ".claude\skills",
   ".claude\agents",
   ".agents\skills",
+  "src\Rook\bin\Release\net8.0\runtimes",
   "src\Rook\bin\Release\net7.0\runtimes"
 )
 
@@ -190,8 +209,14 @@ foreach ($directory in $directories) {
   }
 }
 
-$dllCount = @(Get-ChildItem -Path (Join-Path $Repo "src\Rook\bin\Release\net7.0") -Filter *.dll).Count
-if ($dllCount -lt 1) { $missing.Add("MISSING: C# dependency DLLs") }
+$net8DllCount = @(Get-ChildItem -Path (Join-Path $Repo "src\Rook\bin\Release\net8.0") -Filter *.dll).Count
+if ($net8DllCount -lt 1) { $missing.Add("MISSING: C# net8.0 dependency DLLs") }
+
+$net7DllCount = @(Get-ChildItem -Path (Join-Path $Repo "src\Rook\bin\Release\net7.0") -Filter *.dll).Count
+if ($net7DllCount -lt 1) { $missing.Add("MISSING: C# net7.0 dependency DLLs") }
+
+$net48DllCount = @(Get-ChildItem -Path (Join-Path $Repo "src\Rook\bin\Release\net48") -Filter *.dll).Count
+if ($net48DllCount -lt 1) { $missing.Add("MISSING: C# net48 dependency DLLs") }
 
 if ($missing.Count -eq 0) {
   "ALL CHECKS PASSED"

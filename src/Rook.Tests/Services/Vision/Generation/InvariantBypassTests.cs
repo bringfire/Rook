@@ -52,6 +52,21 @@ namespace Rook.Tests.Services.Vision.Generation
                 new object[] { typeof(FailedCancelOutcome) },
             };
 
+        public static System.Collections.Generic.IEnumerable<object[]> CrossBoundaryRequestTypes() =>
+            new[]
+            {
+                new object[] { typeof(GenerationRequest) },
+                new object[] { typeof(ProviderOptions) },
+                new object[] { typeof(MediaRef) },
+                new object[] { typeof(Rook.Services.Vision.Video.VideoGenerationRequest) },
+                new object[] { typeof(Rook.Services.Vision.Image.ImageGenerationRequest) },
+                new object[] { typeof(Rook.Services.Vision.Video.VeoOptions) },
+                new object[] { typeof(Rook.Services.Vision.Video.Fal.FalVideoOptions) },
+                new object[] { typeof(Rook.Services.Vision.Image.Gemini.GeminiImageOptions) },
+                new object[] { typeof(Rook.Services.Vision.Image.Fal.FalImageOptions) },
+                new object[] { typeof(Rook.Services.Vision.Image.Replicate.ReplicateImageOptions) },
+            };
+
         [Theory]
         [MemberData(nameof(InvariantTypes))]
         public void Type_has_no_init_setters_on_public_instance_properties(Type type)
@@ -84,8 +99,53 @@ namespace Rook.Tests.Services.Vision.Generation
         }
 
         [Theory]
+        [MemberData(nameof(CrossBoundaryRequestTypes))]
+        public void Cross_boundary_request_type_has_no_init_setters(Type type)
+        {
+            AssertNoInitSetters(type);
+        }
+
+        [Theory]
+        [MemberData(nameof(CrossBoundaryRequestTypes))]
+        public void Cross_boundary_request_type_is_not_a_record(Type type)
+        {
+            AssertNotRecord(type);
+        }
+
+        [Theory]
         [MemberData(nameof(InvariantTypes))]
         public void Type_is_not_a_record(Type type)
+        {
+            AssertNotRecord(type);
+        }
+
+        private static void AssertNoInitSetters(Type type)
+        {
+            var properties = type.GetProperties(
+                BindingFlags.Public | BindingFlags.Instance);
+
+            foreach (var prop in properties)
+            {
+                var setter = prop.SetMethod;
+                if (setter is null) continue;     // read-only, fine
+
+                var isInit = setter.ReturnParameter.GetRequiredCustomModifiers()
+                    .Any(t => t.FullName == "System.Runtime.CompilerServices.IsExternalInit");
+
+                Assert.False(
+                    isInit,
+                    $"{type.Name}.{prop.Name} has an init setter. " +
+                    "Cross-boundary request DTOs must use read-only properties so " +
+                    "CLR-4 hosts do not have to resolve IsExternalInit metadata.");
+
+                Assert.False(
+                    setter.IsPublic,
+                    $"{type.Name}.{prop.Name} has a public setter. " +
+                    "Cross-boundary request DTOs must be construction-only.");
+            }
+        }
+
+        private static void AssertNotRecord(Type type)
         {
             // Records compile to classes that have:
             //   - a public Clone method named "<Clone>$"

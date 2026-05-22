@@ -25,18 +25,86 @@ namespace Rook.Services.Vision.Video
     /// init-only properties; the derived's positional <c>Model</c> and
     /// <c>Options</c> parameters pass through to the base initializer.</para>
     /// </summary>
-    public sealed record VideoGenerationRequest(
-        string Model,
-        VideoMode Mode,
-        int DurationSeconds,
-        string Resolution,
-        string AspectRatio,
-        string? Prompt,
-        MediaRef? StartFrame,
-        MediaRef? EndFrame,
-        IReadOnlyList<MediaRef>? ReferenceFrames,
-        int? Seed,
-        ProviderOptions Options,
-        int NumberOfVideos)
-        : GenerationRequest(Model, Options);
+    public sealed class VideoGenerationRequest : GenerationRequest
+    {
+        public VideoGenerationRequest(
+            string Model,
+            VideoMode Mode,
+            int DurationSeconds,
+            string Resolution,
+            string AspectRatio,
+            string? Prompt,
+            MediaRef? StartFrame,
+            MediaRef? EndFrame,
+            IReadOnlyList<MediaRef>? ReferenceFrames,
+            int? Seed,
+            ProviderOptions Options,
+            int NumberOfVideos)
+            : base(Model, Options)
+        {
+            this.Mode = Mode;
+            this.DurationSeconds = DurationSeconds;
+            this.Resolution = Resolution;
+            this.AspectRatio = AspectRatio;
+            this.Prompt = Prompt;
+            this.StartFrame = StartFrame;
+            this.EndFrame = EndFrame;
+            this.ReferenceFrames = ReferenceFrames;
+            this.Seed = Seed;
+            this.NumberOfVideos = NumberOfVideos;
+        }
+
+        public VideoMode Mode { get; }
+        public int DurationSeconds { get; }
+        public string Resolution { get; }
+        public string AspectRatio { get; }
+        public string? Prompt { get; }
+        public MediaRef? StartFrame { get; }
+        public MediaRef? EndFrame { get; }
+        public IReadOnlyList<MediaRef>? ReferenceFrames { get; }
+        public int? Seed { get; }
+        public int NumberOfVideos { get; }
+
+        public VideoGenerationRequest With(
+            string? model = null,
+            VideoMode? mode = null,
+            int? durationSeconds = null,
+            string? resolution = null,
+            string? aspectRatio = null,
+            string? prompt = null,
+            MediaRef? startFrame = null,
+            MediaRef? endFrame = null,
+            IReadOnlyList<MediaRef>? referenceFrames = null,
+            int? seed = null,
+            ProviderOptions? options = null,
+            int? numberOfVideos = null) =>
+            new VideoGenerationRequest(
+                model ?? Model,
+                mode ?? Mode,
+                durationSeconds ?? DurationSeconds,
+                resolution ?? Resolution,
+                aspectRatio ?? AspectRatio,
+                prompt ?? Prompt,
+                startFrame ?? StartFrame,
+                endFrame ?? EndFrame,
+                referenceFrames ?? ReferenceFrames,
+                seed ?? Seed,
+                options ?? Options,
+                numberOfVideos ?? NumberOfVideos);
+
+        public VideoGenerationRequest WithPrompt(string? prompt) =>
+            new VideoGenerationRequest(
+                Model,
+                Mode,
+                DurationSeconds,
+                Resolution,
+                AspectRatio,
+                prompt,
+                StartFrame,
+                EndFrame,
+                ReferenceFrames,
+                Seed,
+                Options,
+                NumberOfVideos);
+    }
 }

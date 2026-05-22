@@ -642,7 +642,7 @@ namespace Rook.Tests.Services.Vision.Video
         public async Task Submit_with_invalid_model_returns_Fail_no_ledger_write()
         {
             var mgr = Manager();
-            var bad = T2vRequest() with { Model = "veo-9000" };
+            var bad = T2vRequest().With(model: "veo-9000");
 
             var result = await mgr.SubmitAsync(bad, CancellationToken.None);
 
@@ -662,14 +662,13 @@ namespace Rook.Tests.Services.Vision.Video
                     : new ResolvedMedia(new byte[] { 1 }, "image/png");
 
             var mgr = Manager();
-            var req = T2vRequest() with
-            {
-                Mode = VideoMode.I2V,
-                Prompt = null,
-                StartFrame = MediaRef.ForPath(@"C:\nope.png", VideoMediaRoles.Image),
-                Options = new VeoOptions(PersonGenerationPolicy.AllowAdult),
-                Model = "veo-3.1-generate-preview",
-            };
+            var req = T2vRequest()
+                .With(
+                    mode: VideoMode.I2V,
+                    startFrame: MediaRef.ForPath(@"C:\nope.png", VideoMediaRoles.Image),
+                    options: new VeoOptions(PersonGenerationPolicy.AllowAdult),
+                    model: "veo-3.1-generate-preview")
+                .WithPrompt(null);
 
             var result = await mgr.SubmitAsync(req, CancellationToken.None);
 
@@ -1285,7 +1284,7 @@ namespace Rook.Tests.Services.Vision.Video
 
             var mgr = Manager();
             // Invalid: resolution doesn't match cap.
-            var bad = T2vRequest() with { Resolution = "8k" };
+            var bad = T2vRequest().With(resolution: "8k");
 
             var result = await mgr.SubmitAsync(bad, CancellationToken.None);
 
@@ -1356,7 +1355,7 @@ namespace Rook.Tests.Services.Vision.Video
         {
             var providerMismatchJobId = Guid.NewGuid();
             var falModelId = "fal-ai/seedance/v1/pro/text-to-video";
-            var request = T2vRequest() with { Model = falModelId };
+            var request = T2vRequest().With(model: falModelId);
             var falModel = _resolvedModel with
             {
                 ModelId = falModelId,
@@ -1439,10 +1438,8 @@ namespace Rook.Tests.Services.Vision.Video
                 ProviderName = "fal",
                 Provider = _provider,
             };
-            var deprecatedRequest = T2vRequest() with
-            {
-                Model = "fal-ai/seedance/deprecated/url-handle",
-            };
+            var deprecatedRequest = T2vRequest()
+                .With(model: "fal-ai/seedance/deprecated/url-handle");
             var handle = new ProviderJobHandle(
                 providerJobId: "fal-url-queue-id",
                 statusUrl: new Uri("https://queue.fal.ai/status/fal-url-queue-id"),
@@ -1451,10 +1448,8 @@ namespace Rook.Tests.Services.Vision.Video
                 cancelHttpMethod: "PUT");
             var prior = VideoJobRecordFactory.From(
                 jobId, deprecatedRequest, activeFalModel,
-                _estimator.Estimate(activeFalModel, T2vRequest() with
-                {
-                    Model = activeFalModel.ModelId,
-                }).Estimate!,
+                _estimator.Estimate(activeFalModel, T2vRequest()
+                    .With(model: activeFalModel.ModelId)).Estimate!,
                 VideoJobState.Polling, _clock.UtcNow());
             prior = VideoJobRecordFactory.WithState(
                 prior, VideoJobState.Interrupted, _clock.UtcNow(),
@@ -1491,10 +1486,7 @@ namespace Rook.Tests.Services.Vision.Video
             var startFrame = MediaRef.ForArtifact(
                 Guid.NewGuid(),
                 VideoMediaRoles.StartFrame);
-            var request = SeedanceI2vRequest(startFrame) with
-            {
-                Prompt = "   ",
-            };
+            var request = SeedanceI2vRequest(startFrame).WithPrompt("   ");
             _resolver.OnResolve = _ =>
                 throw new InvalidOperationException(
                     "Invalid Seedance prompt should fail before media resolution.");

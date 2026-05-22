@@ -9,7 +9,7 @@ namespace Rook.Services.Vision.Generation
     /// path. Never carries inline bytes — same domain-shape rule as V1c
     /// video: there is no base64 field anywhere in the domain.
     /// </summary>
-    public sealed record MediaRef
+    public sealed class MediaRef : IEquatable<MediaRef>
     {
         // Match ArtifactStore's RolePattern exactly so any role accepted
         // here can be passed through to artifact-store APIs.
@@ -67,6 +67,32 @@ namespace Rook.Services.Vision.Generation
                     "(^[a-z0-9][a-z0-9_-]*$).", nameof(role));
 
             return role;
+        }
+
+        public bool Equals(MediaRef? other)
+        {
+            if (ReferenceEquals(this, other)) return true;
+            if (other is null) return false;
+
+            return Kind == other.Kind
+                && ArtifactId == other.ArtifactId
+                && string.Equals(Path, other.Path, StringComparison.Ordinal)
+                && string.Equals(Role, other.Role, StringComparison.Ordinal);
+        }
+
+        public override bool Equals(object? obj) => Equals(obj as MediaRef);
+
+        public override int GetHashCode()
+        {
+            unchecked
+            {
+                var hash = 17;
+                hash = hash * 31 + Kind.GetHashCode();
+                hash = hash * 31 + ArtifactId.GetHashCode();
+                hash = hash * 31 + (Path?.GetHashCode() ?? 0);
+                hash = hash * 31 + Role.GetHashCode();
+                return hash;
+            }
         }
     }
 
