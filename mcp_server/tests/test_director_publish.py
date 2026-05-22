@@ -436,6 +436,22 @@ async def test_publish_video_changed_source_after_prior_success_fails(tmp_path):
     assert result["state"] == "failed"
     assert result["error"]["code"] == "publish_facts_changed"
     assert managed.calls == []
+    publish_manifest = json.loads(
+        (run_root / "publish_manifest.json").read_text(encoding="utf-8")
+    )
+    assert publish_manifest["state"] == "complete"
+    assert publish_manifest["artifact_id"] == previous["artifact_id"]
+
+    second_managed = FakeManagedPublish()
+    second = await director_publish.publish_director_video(
+        {"run_root": str(run_root)},
+        call_managed=second_managed,
+        director_output_root=tmp_path / "director",
+    )
+
+    assert second["state"] == "failed"
+    assert second["error"]["code"] == "publish_facts_changed"
+    assert second_managed.calls == []
 
 
 @pytest.mark.asyncio
@@ -457,14 +473,61 @@ async def test_publish_video_malformed_prior_artifact_id_fails(tmp_path):
         },
     )
 
+    managed = FakeManagedPublish()
     result = await director_publish.publish_director_video(
         {"run_root": str(run_root)},
-        call_managed=FakeManagedPublish(),
+        call_managed=managed,
         director_output_root=tmp_path / "director",
     )
 
     assert result["state"] == "failed"
     assert result["error"]["code"] == "publish_manifest_invalid"
+    assert managed.calls == []
+
+    second_managed = FakeManagedPublish()
+    second = await director_publish.publish_director_video(
+        {"run_root": str(run_root)},
+        call_managed=second_managed,
+        director_output_root=tmp_path / "director",
+    )
+
+    assert second["state"] == "failed"
+    assert second["error"]["code"] == "publish_manifest_invalid"
+    assert second_managed.calls == []
+    publish_manifest = json.loads(
+        (run_root / "publish_manifest.json").read_text(encoding="utf-8")
+    )
+    assert publish_manifest["state"] == "complete"
+    assert publish_manifest["artifact_id"] == "not-a-guid"
+
+
+@pytest.mark.asyncio
+async def test_publish_video_invalid_prior_manifest_json_fails_repeatedly(tmp_path):
+    run_root = _write_standard_run(tmp_path / "director")
+    (run_root / "publish_manifest.json").write_text("{not-json", encoding="utf-8")
+    managed = FakeManagedPublish()
+
+    result = await director_publish.publish_director_video(
+        {"run_root": str(run_root)},
+        call_managed=managed,
+        director_output_root=tmp_path / "director",
+    )
+
+    assert result["state"] == "failed"
+    assert result["error"]["code"] == "publish_manifest_invalid"
+    assert managed.calls == []
+
+    second_managed = FakeManagedPublish()
+    second = await director_publish.publish_director_video(
+        {"run_root": str(run_root)},
+        call_managed=second_managed,
+        director_output_root=tmp_path / "director",
+    )
+
+    assert second["state"] == "failed"
+    assert second["error"]["code"] == "publish_manifest_invalid"
+    assert second_managed.calls == []
+    assert (run_root / "publish_manifest.json").read_text(encoding="utf-8") == "{not-json"
 
 
 @pytest.mark.asyncio
@@ -506,7 +569,27 @@ async def test_publish_video_propagates_published_artifact_missing(tmp_path):
     publish_manifest = json.loads(
         (run_root / "publish_manifest.json").read_text(encoding="utf-8")
     )
-    assert publish_manifest["error"]["code"] == "published_artifact_missing"
+    assert publish_manifest["state"] == "complete"
+    assert publish_manifest["artifact_id"] == previous["artifact_id"]
+
+    second_managed = FakeManagedPublish(
+        {
+            "success": False,
+            "data": {
+                "code": "published_artifact_missing",
+                "message": "Prior published artifact no longer exists.",
+            },
+        }
+    )
+    second = await director_publish.publish_director_video(
+        {"run_root": str(run_root)},
+        call_managed=second_managed,
+        director_output_root=tmp_path / "director",
+    )
+
+    assert second["state"] == "failed"
+    assert second["error"]["code"] == "published_artifact_missing"
+    assert second_managed.calls[0][2]["prior_artifact_id"] == previous["artifact_id"]
 
 
 @pytest.mark.asyncio

@@ -14,6 +14,15 @@ namespace Rook.Services.Vision.Director
     {
         private const string ProfileName = "director_publish_standard_v1";
         private const string SourceRelativePath = "videos/preview.mp4";
+        private static readonly IReadOnlyDictionary<string, (int Width, int Height)> PresetDimensions =
+            new Dictionary<string, (int Width, int Height)>(StringComparer.Ordinal)
+            {
+                ["hd_720"] = (1280, 720),
+                ["full_hd_1080"] = (1920, 1080),
+                ["uhd_4k"] = (3840, 2160),
+                ["uhd_8k"] = (7680, 4320),
+            };
+        private static readonly ISet<int> AllowedFps = new HashSet<int> { 24, 30 };
 
         private readonly ArtifactStore _artifactStore;
         private readonly string _directorRoot;
@@ -112,7 +121,10 @@ namespace Rook.Services.Vision.Director
             var manifestCheck = ValidateManifests(runRoot, request, runId);
             if (!manifestCheck.Success) return manifestCheck;
 
-            var requestContractCheck = ValidateRequestHashesAndMetadata(runRoot, request, runId);
+            var profileCheck = ValidateProfile(request);
+            if (!profileCheck.Success) return profileCheck;
+
+            var requestContractCheck = ValidateRequestHashesAndMetadata(runRoot, request, runId, expectedHash);
             if (!requestContractCheck.Success) return requestContractCheck;
 
             if (request.TryGetPropertyValue("prior_artifact_id", out var priorNode) && priorNode is not null)
@@ -166,6 +178,8 @@ namespace Rook.Services.Vision.Director
             {
                 return DirectorVideoPublishResponses.BoundaryMismatch("manifest_fact_mismatch", "video_manifest is not current and complete.");
             }
+            if (!string.Equals(videoManifest["output_path"]?.GetValue<string>(), SourceRelativePath, StringComparison.Ordinal))
+                return DirectorVideoPublishResponses.BoundaryMismatch("manifest_fact_mismatch", "video_manifest output_path must be videos/preview.mp4.");
 
             var facts = RequireObject(request, "facts");
             var resolution = RequireObject(manifest, "resolution");
@@ -193,9 +207,38 @@ namespace Rook.Services.Vision.Director
             return SuccessResponse();
         }
 
-        private ApiResponse ValidateRequestHashesAndMetadata(string runRoot, JsonObject request, string runId)
+        private ApiResponse ValidateProfile(JsonObject request)
+        {
+            var facts = RequireObject(request, "facts");
+            if (!string.Equals(RequireString(facts, "format"), "mp4", StringComparison.Ordinal)
+                || !string.Equals(RequireString(facts, "container"), "mp4", StringComparison.Ordinal)
+                || !string.Equals(RequireString(facts, "codec"), "h264", StringComparison.Ordinal))
+            {
+                return DirectorVideoPublishResponses.BoundaryMismatch("manifest_fact_mismatch", "unsupported director_publish_standard_v1 format/container/codec.");
+            }
+
+            var width = RequireInt(facts, "width");
+            var height = RequireInt(facts, "height");
+            var fps = RequireInt(facts, "fps");
+            if (!AllowedFps.Contains(fps))
+                return DirectorVideoPublishResponses.BoundaryMismatch("manifest_fact_mismatch", "unsupported director_publish_standard_v1 fps.");
+
+            var preset = RequireString(request, "preset");
+            if (!PresetDimensions.TryGetValue(preset, out var dimensions)
+                || dimensions.Width != width
+                || dimensions.Height != height)
+            {
+                return DirectorVideoPublishResponses.BoundaryMismatch("manifest_fact_mismatch", "preset does not match director_publish_standard_v1 dimensions.");
+            }
+
+            return SuccessResponse();
+        }
+
+        private ApiResponse ValidateRequestHashesAndMetadata(string runRoot, JsonObject request, string runId, string expectedSourceHash)
         {
             var hashes = RequireObject(request, "hashes");
+            if (!string.Equals(expectedSourceHash, RequireString(hashes, "source_video_sha256"), StringComparison.OrdinalIgnoreCase))
+                return DirectorVideoPublishResponses.BoundaryMismatch("source_hash_mismatch", "source video hash does not match request hashes.");
             var videoManifestHash = Sha256(Path.Combine(runRoot, "video_manifest.json"));
             var frameManifestHash = Sha256(Path.Combine(runRoot, "manifest.json"));
             if (!string.Equals(videoManifestHash, RequireString(hashes, "video_manifest_sha256"), StringComparison.OrdinalIgnoreCase))

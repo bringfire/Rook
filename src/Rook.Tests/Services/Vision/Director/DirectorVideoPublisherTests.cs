@@ -174,6 +174,105 @@ namespace Rook.Tests.Services.Vision.Director
         }
 
         [Fact]
+        public void Publish_RejectsSourceHashContractMismatch()
+        {
+            var runRoot = WriteStandardRun();
+            var request = BuildRequest(runRoot);
+            request["hashes"]!["source_video_sha256"] = new string('0', 64);
+            var publisher = new DirectorVideoPublisher(_store, _directorRoot);
+
+            var response = publisher.Publish(request);
+
+            Assert.False(response.Success);
+            var data = Assert.IsType<JsonObject>(response.Data);
+            Assert.Equal("source_hash_mismatch", data["managed_subcode"]!.GetValue<string>());
+        }
+
+        [Theory]
+        [InlineData("format", "mpeg4")]
+        [InlineData("container", "mov")]
+        [InlineData("codec", "vp9")]
+        public void Publish_RejectsUnsupportedFormatContainerOrCodec(string field, string value)
+        {
+            var runRoot = WriteStandardRun();
+            var request = BuildRequest(runRoot);
+            request["facts"]![field] = value;
+            RewriteVideoManifestField(runRoot, field, value, request);
+            var publisher = new DirectorVideoPublisher(_store, _directorRoot);
+
+            var response = publisher.Publish(request);
+
+            Assert.False(response.Success);
+            var data = Assert.IsType<JsonObject>(response.Data);
+            Assert.Equal("manifest_fact_mismatch", data["managed_subcode"]!.GetValue<string>());
+        }
+
+        [Fact]
+        public void Publish_RejectsUnsupportedFps()
+        {
+            var runRoot = WriteStandardRun(fps: 60);
+            var request = BuildRequest(runRoot);
+            request["facts"]!["fps"] = 60;
+            request["metadata"]!["director"]!["timeline"]!["fps"] = 60;
+            var publisher = new DirectorVideoPublisher(_store, _directorRoot);
+
+            var response = publisher.Publish(request);
+
+            Assert.False(response.Success);
+            var data = Assert.IsType<JsonObject>(response.Data);
+            Assert.Equal("manifest_fact_mismatch", data["managed_subcode"]!.GetValue<string>());
+        }
+
+        [Fact]
+        public void Publish_RejectsUnsupportedDimensions()
+        {
+            var runRoot = WriteStandardRun(width: 1024, height: 768);
+            var request = BuildRequest(runRoot);
+            request["facts"]!["width"] = 1024;
+            request["facts"]!["height"] = 768;
+            request["metadata"]!["director"]!["resolution"]!["width"] = 1024;
+            request["metadata"]!["director"]!["resolution"]!["height"] = 768;
+            var publisher = new DirectorVideoPublisher(_store, _directorRoot);
+
+            var response = publisher.Publish(request);
+
+            Assert.False(response.Success);
+            var data = Assert.IsType<JsonObject>(response.Data);
+            Assert.Equal("manifest_fact_mismatch", data["managed_subcode"]!.GetValue<string>());
+        }
+
+        [Fact]
+        public void Publish_RejectsPresetThatDoesNotMatchDimensions()
+        {
+            var runRoot = WriteStandardRun();
+            var request = BuildRequest(runRoot);
+            request["preset"] = "full_hd_1080";
+            request["metadata"]!["director"]!["preset"] = "full_hd_1080";
+            var publisher = new DirectorVideoPublisher(_store, _directorRoot);
+
+            var response = publisher.Publish(request);
+
+            Assert.False(response.Success);
+            var data = Assert.IsType<JsonObject>(response.Data);
+            Assert.Equal("manifest_fact_mismatch", data["managed_subcode"]!.GetValue<string>());
+        }
+
+        [Fact]
+        public void Publish_RejectsVideoManifestOutputPathMismatch()
+        {
+            var runRoot = WriteStandardRun();
+            var request = BuildRequest(runRoot);
+            RewriteVideoManifestField(runRoot, "output_path", "videos/other.mp4", request);
+            var publisher = new DirectorVideoPublisher(_store, _directorRoot);
+
+            var response = publisher.Publish(request);
+
+            Assert.False(response.Success);
+            var data = Assert.IsType<JsonObject>(response.Data);
+            Assert.Equal("manifest_fact_mismatch", data["managed_subcode"]!.GetValue<string>());
+        }
+
+        [Fact]
         public void Publish_RejectsDirectorMetadataResolutionMismatch()
         {
             var runRoot = WriteStandardRun();
@@ -525,6 +624,7 @@ namespace Rook.Tests.Services.Vision.Director
                 },
                 ["hashes"] = new JsonObject
                 {
+                    ["source_video_sha256"] = Sha256(sourcePath),
                     ["video_manifest_sha256"] = Sha256(videoManifestPath),
                     ["frame_manifest_sha256"] = Sha256(frameManifestPath),
                 },
@@ -570,6 +670,17 @@ namespace Rook.Tests.Services.Vision.Director
             if (priorArtifactId.HasValue)
                 request["prior_artifact_id"] = priorArtifactId.Value.ToString("D");
             return request;
+        }
+
+        private static void RewriteVideoManifestField(string runRoot, string field, JsonNode? value, JsonObject request)
+        {
+            var videoManifestPath = Path.Combine(runRoot, "video_manifest.json");
+            var videoManifest = JsonNode.Parse(File.ReadAllText(videoManifestPath))!.AsObject();
+            videoManifest[field] = value?.DeepClone();
+            File.WriteAllText(videoManifestPath, JsonSerializer.Serialize(videoManifest));
+            var videoManifestHash = Sha256(videoManifestPath);
+            request["hashes"]!["video_manifest_sha256"] = videoManifestHash;
+            request["metadata"]!["director"]!["video_manifest_hash"] = videoManifestHash;
         }
     }
 }

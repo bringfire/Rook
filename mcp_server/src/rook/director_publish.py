@@ -137,6 +137,7 @@ def _failure(
     source_byte_size: int | None = None,
     video_manifest_hash: str | None = None,
     frame_manifest_hash: str | None = None,
+    write_manifest: bool = True,
 ) -> dict[str, Any]:
     error: dict[str, Any] = {"code": code, "message": message}
     if managed_subcode:
@@ -155,7 +156,8 @@ def _failure(
         frame_manifest_hash=frame_manifest_hash,
         error=error,
     )
-    _atomic_write_json(run_root / "publish_manifest.json", manifest)
+    if write_manifest:
+        _atomic_write_json(run_root / "publish_manifest.json", manifest)
     return manifest
 
 
@@ -536,6 +538,7 @@ async def publish_director_video(
             source_byte_size=source_byte_size,
             video_manifest_hash=video_manifest_hash,
             frame_manifest_hash=frame_manifest_hash,
+            write_manifest=False,
         )
 
     metadata_director = _metadata_director(
@@ -587,6 +590,13 @@ async def publish_director_video(
     if managed.get("success") is not True:
         code = str(data.get("code") or "managed_publish_rejected")
         managed_subcode = data.get("managed_subcode")
+        preserve_prior_manifest = (
+            prior_artifact_id is not None
+            and (
+                code == "published_artifact_missing"
+                or str(managed_subcode or "") == "prior_artifact_mismatch"
+            )
+        )
         return _failure(
             run_id=run_id,
             run_root=run_root,
@@ -601,7 +611,8 @@ async def publish_director_video(
             source_byte_size=source_byte_size,
             video_manifest_hash=video_manifest_hash,
             frame_manifest_hash=frame_manifest_hash,
-    )
+            write_manifest=not preserve_prior_manifest,
+        )
 
     artifact_id = str(data.get("artifact_id") or "")
     try:
