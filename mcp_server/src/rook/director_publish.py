@@ -8,12 +8,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import httpx
+
 from .bridge import call_rhino
 
 PUBLISH_SCHEMA_VERSION = 1
 PROFILE_NAME = "director_publish_standard_v1"
 RELATIVE_SOURCE_VIDEO = "videos/preview.mp4"
 SIDECAR_POLICY = "existing_generated_video_pipeline"
+PUBLISH_HTTP_TIMEOUT = httpx.Timeout(connect=5.0, read=240.0, write=60.0, pool=5.0)
 ALLOWED_PRESETS: dict[tuple[int, int], str] = {
     (1280, 720): "hd_720",
     (1920, 1080): "full_hd_1080",
@@ -585,6 +588,7 @@ async def publish_director_video(
         "POST",
         managed_request,
         port=port,
+        timeout=PUBLISH_HTTP_TIMEOUT,
     )
     data = managed.get("data") if isinstance(managed.get("data"), dict) else {}
     if managed.get("success") is not True:

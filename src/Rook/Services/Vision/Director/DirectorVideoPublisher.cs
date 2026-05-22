@@ -248,7 +248,8 @@ namespace Rook.Services.Vision.Director
 
             var facts = RequireObject(request, "facts");
             var director = RequireObject(RequireObject(request, "metadata"), "director");
-            if (!string.Equals(director["run_id"]?.GetValue<string>(), runId, StringComparison.Ordinal)
+            if (RequireInt(director, "schema_version") != 1
+                || !string.Equals(director["run_id"]?.GetValue<string>(), runId, StringComparison.Ordinal)
                 || !string.Equals(director["profile"]?.GetValue<string>(), ProfileName, StringComparison.Ordinal)
                 || !string.Equals(director["preset"]?.GetValue<string>(), RequireString(request, "preset"), StringComparison.Ordinal)
                 || !string.Equals(director["source_video"]?.GetValue<string>(), SourceRelativePath, StringComparison.Ordinal)
@@ -271,6 +272,9 @@ namespace Rook.Services.Vision.Director
             {
                 return DirectorVideoPublishResponses.BoundaryMismatch("manifest_fact_mismatch", "metadata.director timeline does not match request facts.");
             }
+            var manifestTimeline = RequireObject(ParseJsonObject(Path.Combine(runRoot, "manifest.json")), "timeline");
+            if (Math.Abs(RequireDouble(timeline, "duration_seconds") - RequireDouble(manifestTimeline, "duration_seconds")) > 1e-9)
+                return DirectorVideoPublishResponses.BoundaryMismatch("manifest_fact_mismatch", "metadata.director duration does not match manifest.");
 
             return SuccessResponse();
         }
@@ -488,6 +492,19 @@ namespace Rook.Services.Vision.Director
             try
             {
                 return node.GetValue<long>();
+            }
+            catch (InvalidOperationException)
+            {
+                return node.GetValue<int>();
+            }
+        }
+
+        private static double RequireDouble(JsonObject obj, string name)
+        {
+            var node = obj[name] ?? throw new ArgumentException($"{name} must be a number.");
+            try
+            {
+                return node.GetValue<double>();
             }
             catch (InvalidOperationException)
             {

@@ -316,6 +316,36 @@ namespace Rook.Tests.Services.Vision.Director
         }
 
         [Fact]
+        public void Publish_RejectsDirectorMetadataSchemaVersionMismatch()
+        {
+            var runRoot = WriteStandardRun();
+            var request = BuildRequest(runRoot);
+            request["metadata"]!["director"]!["schema_version"] = 2;
+            var publisher = new DirectorVideoPublisher(_store, _directorRoot);
+
+            var response = publisher.Publish(request);
+
+            Assert.False(response.Success);
+            var data = Assert.IsType<JsonObject>(response.Data);
+            Assert.Equal("manifest_fact_mismatch", data["managed_subcode"]!.GetValue<string>());
+        }
+
+        [Fact]
+        public void Publish_RejectsDirectorMetadataDurationMismatch()
+        {
+            var runRoot = WriteStandardRun();
+            var request = BuildRequest(runRoot);
+            request["metadata"]!["director"]!["timeline"]!["duration_seconds"] = 9.0;
+            var publisher = new DirectorVideoPublisher(_store, _directorRoot);
+
+            var response = publisher.Publish(request);
+
+            Assert.False(response.Success);
+            var data = Assert.IsType<JsonObject>(response.Data);
+            Assert.Equal("manifest_fact_mismatch", data["managed_subcode"]!.GetValue<string>());
+        }
+
+        [Fact]
         public void Publish_RejectsManifestFactMismatch()
         {
             var runRoot = WriteStandardRun();

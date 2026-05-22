@@ -76,6 +76,12 @@ def test_director_run_policy_is_explicit_rhino_mutate():
     assert policy == targeting.RhinoToolPolicy(True, "mutate")
 
 
+def test_director_video_tools_are_explicit_rhino_mutate():
+    for name in {"rhino_director_assemble_video", "rhino_director_publish_video"}:
+        policy = targeting.policy_for_tool(name)
+        assert policy == targeting.RhinoToolPolicy(True, "mutate")
+
+
 def test_panel_lock_initializes_from_valid_env(monkeypatch):
     targeting.reset_targeting_state_for_tests()
     monkeypatch.setenv("ROOK_MCP_TARGET_MODE", "panel_locked")

@@ -141,7 +141,7 @@ def _write_standard_run(root: Path, **overrides) -> Path:
 
 class FakeManagedPublish:
     def __init__(self, response: dict | None = None):
-        self.calls: list[tuple[str, str, dict, int | None]] = []
+        self.calls: list[tuple[str, str, dict, int | None, object | None]] = []
         self.response = response or {
             "success": True,
             "data": {
@@ -151,8 +151,8 @@ class FakeManagedPublish:
             },
         }
 
-    async def __call__(self, endpoint, method="GET", data=None, port=None):
-        self.calls.append((endpoint, method, data, port))
+    async def __call__(self, endpoint, method="GET", data=None, port=None, timeout=None):
+        self.calls.append((endpoint, method, data, port, timeout))
         return self.response
 
 
@@ -175,6 +175,7 @@ async def test_publish_video_validates_profile_and_calls_managed_route(tmp_path)
     assert result["sidecar_policy"] == "existing_generated_video_pipeline"
 
     assert managed.calls[0][0:2] == ("/vision/director/publish-video", "POST")
+    assert managed.calls[0][4].read >= 180.0
     request = managed.calls[0][2]
     assert request["profile"] == "director_publish_standard_v1"
     assert request["preset"] == "hd_720"
