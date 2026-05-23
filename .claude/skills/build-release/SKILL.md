@@ -277,14 +277,23 @@ with at least:
 ```
 git_sha
 installer_sha256
-rhino_version
-revit_version
-rhino_inside_version
 rook_version
-native_port
-ping_result
-loaded_native_path
-loaded_companion_path
+standalone_rhino:
+  rhino_version
+  host_runtime
+  native_port
+  ping_result
+  loaded_native_path
+  loaded_companion_path
+rhino_inside_revit:
+  rhino_version
+  revit_version
+  rhino_inside_version
+  host_runtime
+  native_port
+  ping_result
+  loaded_native_path
+  loaded_companion_path
 ```
 
 Then validate artifact identity and emit the release manifest:

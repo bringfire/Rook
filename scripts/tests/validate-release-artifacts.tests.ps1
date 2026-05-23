@@ -39,7 +39,8 @@ function New-ValidatorFixture {
         [string]$PingResult = 'pong',
         [int]$NativePort = 9876,
         [string]$LoadedNativePath = 'C:/Users/test/AppData/Roaming/McNeel/Rhinoceros/8.0/Plug-ins/RookNative/RookNative.rhp',
-        [string]$LoadedCompanionPath = 'C:/Users/test/AppData/Roaming/McNeel/Rhinoceros/8.0/Plug-ins/RookNative/net7.0/Rook.rhp'
+        [string]$LoadedCompanionPath = 'C:/Users/test/AppData/Roaming/McNeel/Rhinoceros/8.0/Plug-ins/RookNative/net7.0/Rook.rhp',
+        [switch]$LegacySingleHost
     )
 
     if ([string]::IsNullOrWhiteSpace($GitSha)) {
@@ -55,18 +56,44 @@ function New-ValidatorFixture {
     $installerSha = (Get-FileHash -LiteralPath $installerPath -Algorithm SHA256).Hash
 
     $smokeManifestPath = Join-Path $tempRoot "smoke-$Version.json"
-    [ordered]@{
-        git_sha = $GitSha
-        installer_sha256 = $installerSha
-        rhino_version = '8.test'
-        revit_version = '2025.test'
-        rhino_inside_version = 'test'
-        rook_version = $Version
-        native_port = $NativePort
-        ping_result = $PingResult
-        loaded_native_path = $LoadedNativePath
-        loaded_companion_path = $LoadedCompanionPath
-    } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $smokeManifestPath -Encoding UTF8
+    if ($LegacySingleHost) {
+        [ordered]@{
+            git_sha = $GitSha
+            installer_sha256 = $installerSha
+            rhino_version = '8.test'
+            revit_version = '2025.test'
+            rhino_inside_version = 'test'
+            rook_version = $Version
+            native_port = $NativePort
+            ping_result = $PingResult
+            loaded_native_path = $LoadedNativePath
+            loaded_companion_path = $LoadedCompanionPath
+        } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $smokeManifestPath -Encoding UTF8
+    } else {
+        [ordered]@{
+            git_sha = $GitSha
+            installer_sha256 = $installerSha
+            rook_version = $Version
+            standalone_rhino = [ordered]@{
+                rhino_version = '8.test'
+                host_runtime = 'net7.0'
+                native_port = $NativePort
+                ping_result = $PingResult
+                loaded_native_path = $LoadedNativePath
+                loaded_companion_path = $LoadedCompanionPath
+            }
+            rhino_inside_revit = [ordered]@{
+                rhino_version = '8.test'
+                revit_version = '2025.test'
+                rhino_inside_version = 'test'
+                host_runtime = 'net7.0'
+                native_port = $NativePort
+                ping_result = $PingResult
+                loaded_native_path = $LoadedNativePath
+                loaded_companion_path = $LoadedCompanionPath
+            }
+        } | ConvertTo-Json -Depth 7 | Set-Content -LiteralPath $smokeManifestPath -Encoding UTF8
+    }
 
     return [pscustomobject]@{
         Version = $Version
@@ -182,9 +209,33 @@ function Test-ValidatorRejectsFailedSmokeEvidence {
     }
 }
 
+function Test-ValidatorRejectsLegacySingleHostSmokeManifest {
+    $fixture = New-ValidatorFixture -LegacySingleHost
+
+    try {
+        $result = Invoke-Validator -Arguments @(
+            '-File', $Validator,
+            '-Version', $fixture.Version,
+            '-RepoRoot', $RepoRoot,
+            '-GitSha', $fixture.GitSha,
+            '-InstallerPath', $fixture.InstallerPath,
+            '-FfmpegSourceBundleManifestPath', $fixture.SourceBundleManifestPath,
+            '-SmokeManifestPath', $fixture.SmokeManifestPath,
+            '-OutputManifestPath', $fixture.OutputManifestPath,
+            '-MinInstallerBytes', '1'
+        )
+
+        Assert-True -Condition ($result.ExitCode -ne 0) -Message 'Validator must reject legacy single-host smoke manifests that do not prove standalone Rhino and Rhino.Inside.Revit were both tested.'
+        Assert-Contains -Text $result.Output -Expected 'standalone_rhino' -Message "Validator host coverage error was not specific. Output: $($result.Output)"
+    } finally {
+        Remove-Item -LiteralPath $fixture.TempRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 Test-ValidatorWritesExactArtifactManifest
 Test-DocumentedValidatorCommandDefaultsRepoRoot
 Test-ValidatorRejectsGitShaThatDoesNotMatchCheckout
 Test-ValidatorRejectsFailedSmokeEvidence
+Test-ValidatorRejectsLegacySingleHostSmokeManifest
 
 Write-Host 'Release artifact validator tests passed.'

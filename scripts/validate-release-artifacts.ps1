@@ -114,29 +114,44 @@ function Assert-GitCommitExists {
     }
 }
 
-function Assert-SmokeSuccess {
-    param([object]$SmokeManifest)
+function Assert-SmokeHostSuccess {
+    param(
+        [object]$HostManifest,
+        [string]$Label,
+        [string[]]$RequiredVersionFields
+    )
 
-    $pingResult = ([string](Require-JsonField -Json $SmokeManifest -Field 'ping_result' -Label 'release smoke manifest')).Trim()
+    foreach ($field in $RequiredVersionFields) {
+        $null = Require-JsonField -Json $HostManifest -Field $field -Label $Label
+    }
+
+    $hostRuntime = ([string](Require-JsonField -Json $HostManifest -Field 'host_runtime' -Label $Label)).Trim()
+    if ($hostRuntime -notin @('net8.0', 'net7.0', 'net48')) {
+        Fail "$Label field 'host_runtime' must be net8.0, net7.0, or net48; actual value: $hostRuntime"
+    }
+
+    $pingResult = ([string](Require-JsonField -Json $HostManifest -Field 'ping_result' -Label $Label)).Trim()
     $successPingValues = @('pong', 'ok', 'success')
     if (-not ($successPingValues -contains $pingResult.ToLowerInvariant())) {
-        Fail "release smoke manifest ping_result must be a success value (pong, ok, or success); actual value: $pingResult"
+        Fail "$Label field 'ping_result' must be a success value (pong, ok, or success); actual value: $pingResult"
     }
 
-    $nativePortValue = Require-JsonField -Json $SmokeManifest -Field 'native_port' -Label 'release smoke manifest'
+    $nativePortValue = Require-JsonField -Json $HostManifest -Field 'native_port' -Label $Label
     $nativePort = 0
     if (-not [int]::TryParse(([string]$nativePortValue), [ref]$nativePort) -or $nativePort -lt 1 -or $nativePort -gt 65535) {
-        Fail "release smoke manifest native_port must be between 1 and 65535; actual value: $nativePortValue"
+        Fail "$Label field 'native_port' must be between 1 and 65535; actual value: $nativePortValue"
     }
 
-    $nativePath = ([string](Require-JsonField -Json $SmokeManifest -Field 'loaded_native_path' -Label 'release smoke manifest')).Replace('/', '\')
+    $nativePath = ([string](Require-JsonField -Json $HostManifest -Field 'loaded_native_path' -Label $Label)).Replace('/', '\')
     if ($nativePath -notmatch '(?i)\\RookNative\\RookNative\.rhp$') {
-        Fail "release smoke manifest loaded_native_path must point to the installed RookNative\\RookNative.rhp; actual value: $($SmokeManifest.loaded_native_path)"
+        Fail "$Label field 'loaded_native_path' must point to the installed RookNative\\RookNative.rhp; actual value: $($HostManifest.loaded_native_path)"
     }
 
-    $companionPath = ([string](Require-JsonField -Json $SmokeManifest -Field 'loaded_companion_path' -Label 'release smoke manifest')).Replace('/', '\')
-    if ($companionPath -notmatch '(?i)\\RookNative\\(net8\.0|net7\.0|net48)\\Rook\.rhp$') {
-        Fail "release smoke manifest loaded_companion_path must point to a runtime-child RookNative\\<tfm>\\Rook.rhp; actual value: $($SmokeManifest.loaded_companion_path)"
+    $runtimePattern = [regex]::Escape($hostRuntime)
+    $companionPattern = "(?i)\\RookNative\\$runtimePattern\\Rook\.rhp$"
+    $companionPath = ([string](Require-JsonField -Json $HostManifest -Field 'loaded_companion_path' -Label $Label)).Replace('/', '\')
+    if ($companionPath -notmatch $companionPattern) {
+        Fail "$Label field 'loaded_companion_path' must point to a runtime-child RookNative\\$hostRuntime\\Rook.rhp; actual value: $($HostManifest.loaded_companion_path)"
     }
 }
 
@@ -229,14 +244,9 @@ $smokeManifest = Get-Content -LiteralPath $smokeManifestPathResolved -Raw | Conv
 foreach ($field in @(
     'git_sha',
     'installer_sha256',
-    'rhino_version',
-    'revit_version',
-    'rhino_inside_version',
     'rook_version',
-    'native_port',
-    'ping_result',
-    'loaded_native_path',
-    'loaded_companion_path'
+    'standalone_rhino',
+    'rhino_inside_revit'
 )) {
     $null = Require-JsonField -Json $smokeManifest -Field $field -Label 'release smoke manifest'
 }
@@ -250,7 +260,8 @@ if (([string]$smokeManifest.installer_sha256).ToUpperInvariant() -ne $installerS
 if ([string]$smokeManifest.rook_version -ne $Version) {
     Fail "smoke manifest rook_version does not match release version. Expected $Version, actual $($smokeManifest.rook_version)"
 }
-Assert-SmokeSuccess -SmokeManifest $smokeManifest
+Assert-SmokeHostSuccess -HostManifest $smokeManifest.standalone_rhino -Label 'release smoke manifest standalone_rhino' -RequiredVersionFields @('rhino_version')
+Assert-SmokeHostSuccess -HostManifest $smokeManifest.rhino_inside_revit -Label 'release smoke manifest rhino_inside_revit' -RequiredVersionFields @('rhino_version', 'revit_version', 'rhino_inside_version')
 
 $outputManifestParent = Split-Path -Parent $OutputManifestPath
 if ($outputManifestParent) {
