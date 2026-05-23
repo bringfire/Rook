@@ -60,7 +60,7 @@ Select-String -Path `
   -Pattern ([regex]::Escape($newVersion))
 ```
 
-Expected: 6 string matches (`pyproject.toml`, `RookSetup.iss`, `Rook.csproj`,
+Expected: 7 string matches (`pyproject.toml`, `RookSetup.iss`, `Rook.csproj`,
 the two string-value lines in `RookNative.rc`, `RookNativePlugin.cpp`,
 `RookServer.cpp`). The binary `FILEVERSION` / `PRODUCTVERSION` lines in the
 `.rc` file must be checked separately because they use comma-delimited values.

@@ -26,14 +26,15 @@ The argument is a semver version (X.Y.Z). If omitted, ask the user.
 | Step | Action | Abort if |
 |------|--------|----------|
 | 0 | Pre-flight checks | Any check fails |
-| 1 | Version bump (6 files / 8 edits) | Grep verification fails |
-| 2 | Build C++ native plugin | Exit code != 0 |
-| 3 | Build C# companion plugin for all managed runtimes | Exit code != 0 |
-| 4 | Verify all .iss source paths | Any file missing or stale |
-| 5 | Run ISCC compiler | Exit code != 0 or output missing |
-| 6 | Installer live smoke: Rhino 8 standalone + Rhino.Inside.Revit | Either host fails to load Rook |
-| 7 | Commit & push | Push fails |
-| 8 | Create GitHub release | gh command fails |
+| 1 | Release branch version bump (6 files / 8 edits) | Verification fails |
+| 2 | Merge the release PR and check out the exact main SHA to tag | Main HEAD is not the intended release commit |
+| 3 | Build and validate bundled FFmpeg payload/source bundle | Validation fails |
+| 4 | Build C++ native plugin | Exit code != 0 |
+| 5 | Build C# companion plugin for all managed runtimes | Exit code != 0 |
+| 6 | Verify all .iss source paths | Any required file missing or stale |
+| 7 | Run ISCC compiler | Exit code != 0 or output missing |
+| 8 | Installer live smoke + release artifact validation manifest | Smoke or validation fails |
+| 9 | Create GitHub release with all required assets | gh command fails |
 
 **HARD RULE: Abort the entire pipeline on any step failure. No partial releases.**
 
@@ -92,12 +93,20 @@ first-frame, and last-frame JPEGs from the required smoke fixtures.
 PATH-discovered FFmpeg is allowed for development smoke only and cannot satisfy
 release validation.
 
-## Step 1: Version Bump
+## Step 1: Release Branch Version Bump
 
 Read the reference file for exact locations and patterns:
 
 ```
 Read references/version-locations.md
+```
+
+Create a release branch from updated `main` before editing:
+
+```powershell
+git switch main
+git pull --ff-only origin main
+git switch -c release/vX.Y.Z
 ```
 
 Update all 6 files using the Edit tool. The .rc file requires 4 separate edits
@@ -116,11 +125,46 @@ Select-String -Path `
   -Pattern "X.Y.Z"
 ```
 
-Expect 6 string matches (`pyproject.toml`, `RookSetup.iss`, `Rook.csproj`, the two
+Expect 7 string matches (`pyproject.toml`, `RookSetup.iss`, `Rook.csproj`, the two
 string values in `RookNative.rc`, `RookNativePlugin.cpp`, and `RookServer.cpp`).
 Then verify the binary version lines in `RookNative.rc` separately.
 
-## Step 2: Build C++ Native Plugin
+Commit and push only the version-bumped files on the release branch:
+
+```powershell
+git add mcp_server\pyproject.toml installer\RookSetup.iss src\Rook\Rook.csproj src\RookNative\RookNative.rc src\RookNative\RookNativePlugin.cpp src\RookNative\RookServer.cpp
+git commit -m "release: bump versions to X.Y.Z"
+git push -u origin release/vX.Y.Z
+```
+
+Open a release PR and merge it before building publishable artifacts. Do not
+publish artifacts built from a branch SHA if the PR creates a different merge
+commit.
+
+## Step 2: Check Out Exact Release SHA
+
+After the release PR is merged, update local `main` and record the exact commit
+that will be tagged. All publishable artifacts must be built from this SHA.
+
+```powershell
+git switch main
+git pull --ff-only origin main
+$gitSha = (git rev-parse HEAD).Trim()
+$buildStartedAt = [DateTimeOffset]::Now.ToString('o')
+```
+
+If the commit changes after any artifact is built, discard those artifacts,
+rebuild from the new `main` SHA, rerun smoke, and regenerate the release
+manifest.
+
+## Step 3: Build and Validate Bundled FFmpeg
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\ffmpeg\build-rook-ffmpeg.ps1 -InstallPayload
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\validate-ffmpeg-bundle.ps1 -SourceBundleManifestPath artifacts\ffmpeg\ffmpeg-8.1.1-rook-minimal\rook-ffmpeg-source-bundle-manifest.json
+```
+
+## Step 4: Build C++ Native Plugin
 
 Write an ephemeral batch file and execute it from PowerShell:
 
@@ -129,7 +173,7 @@ $buildBat = Join-Path $env:TEMP "rook_build_native_release.bat"
 @'
 @echo off
 set "VSCMD_START_DIR=%CD%"
-call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat" x64
+call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat" x64 -vcvars_ver=14.44
 set VCToolsVersion=14.44.35207
 msbuild "%~1" /p:Configuration=Release /p:Platform=x64 /p:VCToolsVersion=14.44.35207 /m /v:minimal
 echo EXIT_CODE=%ERRORLEVEL%
@@ -140,7 +184,7 @@ echo EXIT_CODE=%ERRORLEVEL%
 ```
 
 **Key gotchas:**
-- Must call vcvarsall.bat FIRST — without it, MSBuild can't find MFC headers
+- Must call vcvarsall.bat FIRST with `-vcvars_ver=14.44` — without it, MSBuild can pick the incomplete 14.38 MFC payload
 - Must set VCToolsVersion=14.44.35207 explicitly — the default may pick a toolset without MFC
 - Must use a .bat file — bash can't source vcvarsall.bat directly
 - The /p: flags with forward slashes get mangled by bash — route through .bat to avoid this
@@ -150,7 +194,7 @@ Verify: `EXIT_CODE=0` in output and file exists:
 Test-Path src\RookNative\bin\Release\x64\RookNative.rhp
 ```
 
-## Step 3: Build C# Companion Plugin
+## Step 5: Build C# Companion Plugin
 
 Call `dotnet build` directly (C# doesn't need MFC):
 
@@ -179,7 +223,7 @@ Test-Path src\Rook\bin\Release\net48\Rook.rhp
 Test-Path src\Rook\bin\Release\net48\runtimes
 ```
 
-## Step 4: Verify All .iss Source Paths
+## Step 6: Verify All .iss Source Paths
 
 Read the reference file for the full checklist:
 
@@ -187,10 +231,10 @@ Read the reference file for the full checklist:
 Read references/iss-source-paths.md
 ```
 
-Every file listed there must exist. Additionally, verify build outputs are **newer than
-the version bump** (not stale from a previous build).
+Every required file listed there must exist. Additionally, verify build outputs
+are **newer than the version bump** (not stale from a previous build).
 
-## Step 5: Run Inno Setup Compiler
+## Step 7: Run Inno Setup Compiler
 
 ```powershell
 & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "C:\Users\aryan\source\repos\Rook\installer\RookSetup.iss"
@@ -206,7 +250,7 @@ $installer.Length
 Sanity check: file size should be > 5MB (current baseline is ~12MB). If significantly
 smaller, something was excluded.
 
-## Step 6: Installer Live Smoke
+## Step 8: Installer Live Smoke and Artifact Validation
 
 Install the generated EXE on the release machine and verify both Rhino hosts:
 
@@ -227,21 +271,67 @@ not pass. Do not cite Yak/package-manager layout docs as proof for this Inno
 installer shape. Record the Rhino, Revit, Rhino.Inside.Revit, Rook versions,
 and physical `Rook.rhp` load paths in the release notes.
 
-## Step 7: Commit & Push
+Write a structured smoke manifest at `installer\output\release-smoke-X.Y.Z.json`
+with at least:
 
-```powershell
-# Stage only the version-bumped files
-git add mcp_server\pyproject.toml installer\RookSetup.iss src\Rook\Rook.csproj src\RookNative\RookNative.rc src\RookNative\RookNativePlugin.cpp src\RookNative\RookServer.cpp
-
-git commit -m "release: bump versions to X.Y.Z"
-
-git push origin main
+```
+git_sha
+installer_sha256
+rook_version
+standalone_rhino:
+  rhino_version
+  host_runtime
+  native_port
+  ping_result
+  loaded_native_path
+  loaded_companion_path
+rhino_inside_revit:
+  rhino_version
+  revit_version
+  rhino_inside_version
+  host_runtime
+  native_port
+  ping_result
+  loaded_native_path
+  loaded_companion_path
 ```
 
-## Step 8: GitHub Release
+Then validate artifact identity and emit the release manifest:
 
 ```powershell
-gh release create vX.Y.Z "installer/output/Rook-Setup-X.Y.Z.exe" --title "Rook vX.Y.Z" --generate-notes
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\validate-release-artifacts.ps1 `
+  -Version X.Y.Z `
+  -GitSha $gitSha `
+  -InstallerPath installer\output\Rook-Setup-X.Y.Z.exe `
+  -FfmpegSourceBundleManifestPath artifacts\ffmpeg\ffmpeg-8.1.1-rook-minimal\rook-ffmpeg-source-bundle-manifest.json `
+  -SmokeManifestPath installer\output\release-smoke-X.Y.Z.json `
+  -OutputManifestPath installer\output\release-manifest-X.Y.Z.json `
+  -BuildStartedAt $buildStartedAt
+```
+
+The release manifest must include `git_sha`, `installer_sha256`,
+`ffmpeg_source_bundle_sha256`, and smoke evidence. Do not create the GitHub
+release if validation fails.
+
+## Step 9: GitHub Release
+
+Attach the installer, FFmpeg source bundle zip, FFmpeg source-bundle manifest,
+smoke manifest, and release manifest:
+
+```powershell
+$sourceBundleManifestPath = "artifacts\ffmpeg\ffmpeg-8.1.1-rook-minimal\rook-ffmpeg-source-bundle-manifest.json"
+$sourceBundleZip = (Get-Content $sourceBundleManifestPath -Raw | ConvertFrom-Json).bundle_path
+if ((Split-Path -Leaf $sourceBundleZip) -ne "rook-ffmpeg-8.1.1-source-bundle.zip") { throw "Unexpected FFmpeg source bundle path: $sourceBundleZip" }
+
+gh release create vX.Y.Z `
+  "installer/output/Rook-Setup-X.Y.Z.exe" `
+  $sourceBundleZip `
+  $sourceBundleManifestPath `
+  "installer/output/release-smoke-X.Y.Z.json" `
+  "installer/output/release-manifest-X.Y.Z.json" `
+  --target $gitSha `
+  --title "Rook vX.Y.Z" `
+  --generate-notes
 ```
 
 Report the release URL to the user when done.

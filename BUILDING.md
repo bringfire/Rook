@@ -220,7 +220,7 @@ If you need to run the build yourself (e.g., from a script or CI):
 
 **From a Windows Command Prompt (cmd.exe):**
 ```cmd
-call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat" x64
+call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat" x64 -vcvars_ver=14.44
 set VCToolsVersion=14.44.35207
 msbuild src\RookNative\RookNative.vcxproj /p:Configuration=Release /p:Platform=x64 /p:VCToolsVersion=14.44.35207 /v:minimal
 ```
