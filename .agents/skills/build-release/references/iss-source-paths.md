@@ -1,6 +1,6 @@
 # Inno Setup Source Path Checklist
 
-Every file listed here is referenced by `installer/RookSetup.iss`. If any file
+Every required file listed here is referenced by `installer/RookSetup.iss`. If any file
 is missing, ISCC will either fail or silently exclude the component (if
 `skipifsourcedoesntexist` is set).
 
@@ -11,7 +11,7 @@ All paths are relative to the repo root.
 | File | Source |
 |------|--------|
 | `src/RookNative/bin/Release/x64/RookNative.rhp` | C++ build output |
-| `src/RookNative/bin/Release/x64/RookNative.pdb` | C++ debug symbols |
+| `src/RookNative/bin/Release/x64/RookNative.pdb` | Optional C++ debug symbols; installer uses `skipifsourcedoesntexist` |
 | `src/Rook/bin/Release/net8.0/Rook.rhp` | C# .NET 8 build output |
 | `src/Rook/bin/Release/net8.0/Rook.rui` | Rhino toolbar file |
 | `src/Rook/bin/Release/net8.0/Rook.deps.json` | C# .NET 8 dependency manifest |

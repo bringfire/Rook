@@ -8,9 +8,12 @@ $IssSourcePaths = Join-Path $RepoRoot '.agents\skills\build-release\references\i
 $ClaudeBuildReleaseSkill = Join-Path $RepoRoot '.claude\skills\build-release\SKILL.md'
 $ClaudeIssSourcePaths = Join-Path $RepoRoot '.claude\skills\build-release\references\iss-source-paths.md'
 $VersionLocations = Join-Path $RepoRoot '.agents\skills\build-release\references\version-locations.md'
+$ClaudeVersionLocations = Join-Path $RepoRoot '.claude\skills\build-release\references\version-locations.md'
 $BuildingDoc = Join-Path $RepoRoot 'BUILDING.md'
 $PostInstallScript = Join-Path $RepoRoot 'installer\post_install.py'
 $DoctorScript = Join-Path $RepoRoot 'mcp_server\src\rook\doctor.py'
+$BuildNativeScript = Join-Path $RepoRoot 'build_native.ps1'
+$ReleaseArtifactValidator = Join-Path $RepoRoot 'scripts\validate-release-artifacts.ps1'
 $CompanionNet8RuntimeConfig = Join-Path $RepoRoot 'src\Rook\bin\Release\net8.0\Rook.runtimeconfig.json'
 $CompanionNet7RuntimeConfig = Join-Path $RepoRoot 'src\Rook\bin\Release\net7.0\Rook.runtimeconfig.json'
 $CompanionNet8Rhp = Join-Path $RepoRoot 'src\Rook\bin\Release\net8.0\Rook.rhp'
@@ -261,6 +264,7 @@ function Test-BuildReleaseWorkflowUsesWindowsPowerShellCommands {
         Get-Content -Path $ClaudeBuildReleaseSkill -Raw
         Get-Content -Path $ClaudeIssSourcePaths -Raw
         Get-Content -Path $VersionLocations -Raw
+        Get-Content -Path $ClaudeVersionLocations -Raw
         Get-Content -Path $BuildingDoc -Raw
     ) -join "`n"
 
@@ -280,6 +284,72 @@ function Test-BuildReleaseWorkflowUsesWindowsPowerShellCommands {
     Assert-Contains -Text $combined -Expected 'Test-Path' -Message 'Release workflow docs must use PowerShell path checks.'
     Assert-Contains -Text $combined -Expected 'Select-String' -Message 'Release workflow docs must use PowerShell text checks.'
     Assert-Contains -Text $combined -Expected '$env:TEMP' -Message 'Release workflow docs must create temporary build scripts using Windows temp paths.'
+}
+
+function Test-BuildReleaseReferencesStaySynchronized {
+    $agentVersionLocations = (Get-Content -Path $VersionLocations -Raw) -replace "`r`n", "`n"
+    $claudeVersionLocations = (Get-Content -Path $ClaudeVersionLocations -Raw) -replace "`r`n", "`n"
+
+    Assert-True -Condition ($agentVersionLocations -eq $claudeVersionLocations) -Message 'Codex and Claude build-release version-location references must stay synchronized.'
+}
+
+function Test-BuildReleaseWorkflowUsesReleaseBranchAndExactArtifacts {
+    $combined = @(
+        Get-Content -Path $BuildReleaseSkill -Raw
+        Get-Content -Path $ClaudeBuildReleaseSkill -Raw
+    ) -join "`n"
+
+    Assert-NotContains -Text $combined -Unexpected 'git push origin main' -Message 'Release workflow must not document direct pushes to main.'
+    Assert-Contains -Text $combined -Expected 'git switch -c release/vX.Y.Z' -Message 'Release workflow must make the release branch explicit.'
+    Assert-Contains -Text $combined -Expected 'validate-release-artifacts.ps1' -Message 'Release workflow must run executable release artifact validation.'
+    Assert-Contains -Text $combined -Expected 'release-manifest-X.Y.Z.json' -Message 'Release workflow must produce a release manifest with exact artifact identity.'
+    Assert-Contains -Text $combined -Expected 'git_sha' -Message 'Release manifest requirements must include the exact git SHA being released.'
+    Assert-Contains -Text $combined -Expected 'installer_sha256' -Message 'Release manifest requirements must include the installer SHA-256.'
+    Assert-Contains -Text $combined -Expected 'ffmpeg_source_bundle_sha256' -Message 'Release manifest requirements must include the FFmpeg source bundle SHA-256.'
+}
+
+function Test-BuildReleaseWorkflowPublishesFfmpegSourceBundle {
+    $combined = @(
+        Get-Content -Path $BuildReleaseSkill -Raw
+        Get-Content -Path $ClaudeBuildReleaseSkill -Raw
+    ) -join "`n"
+
+    Assert-Contains -Text $combined -Expected 'rook-ffmpeg-8.1.1-source-bundle.zip' -Message 'GitHub release command must attach the FFmpeg source bundle zip.'
+    Assert-Contains -Text $combined -Expected 'rook-ffmpeg-source-bundle-manifest.json' -Message 'GitHub release command must attach the FFmpeg source bundle manifest.'
+    Assert-Contains -Text $combined -Expected 'Rook-Setup-X.Y.Z.exe' -Message 'GitHub release command must attach the installer.'
+}
+
+function Test-NativeReleaseBuildSelectsVcvarsToolset {
+    $combined = @(
+        Get-Content -Path $BuildReleaseSkill -Raw
+        Get-Content -Path $ClaudeBuildReleaseSkill -Raw
+        Get-Content -Path $BuildNativeScript -Raw
+    ) -join "`n"
+
+    Assert-Contains -Text $combined -Expected '-vcvars_ver=14.44' -Message 'Release native build docs/scripts must initialize vcvars with the known-good 14.44 toolset family.'
+    Assert-Contains -Text $combined -Expected '$vcvarsVersion' -Message 'Native build script must derive and pass a vcvars toolset selector.'
+}
+
+function Test-ReleaseArtifactValidatorExists {
+    Assert-True -Condition (Test-Path $ReleaseArtifactValidator) -Message "Release artifact validator is missing: $ReleaseArtifactValidator"
+    $content = Get-Content -Path $ReleaseArtifactValidator -Raw
+
+    Assert-Contains -Text $content -Expected 'installer_sha256' -Message 'Release artifact validator must emit installer SHA-256.'
+    Assert-Contains -Text $content -Expected 'ffmpeg_source_bundle_sha256' -Message 'Release artifact validator must emit FFmpeg source bundle SHA-256.'
+    Assert-Contains -Text $content -Expected 'git_sha' -Message 'Release artifact validator must bind artifacts to a git SHA.'
+    Assert-Contains -Text $content -Expected 'System.Reflection.AssemblyName' -Message 'Release artifact validator must inspect managed assembly versions.'
+    Assert-Contains -Text $content -Expected 'VersionInfo' -Message 'Release artifact validator must inspect native file version metadata.'
+}
+
+function Test-NativePdbRequirementIsConsistent {
+    $combined = @(
+        Get-Content -Path $BuildReleaseSkill -Raw
+        Get-Content -Path $IssSourcePaths -Raw
+        Get-Content -Path $ClaudeBuildReleaseSkill -Raw
+        Get-Content -Path $ClaudeIssSourcePaths -Raw
+    ) -join "`n"
+
+    Assert-Contains -Text $combined -Expected 'RookNative.pdb` | Optional' -Message 'Release source checklist must describe the native PDB as optional to match installer skipifsourcedoesntexist behavior.'
 }
 
 function Test-BuildReleaseDocsRequireFfmpegValidation {
@@ -325,6 +395,12 @@ Test-InstallerVerifiesRhinoPluginRegistrationAfterInstall
 Test-PostInstallValidationUsesMultiRuntimeCompanionLayout
 Test-ReleaseWorkflowDocsUseMultiRuntimeCompanionOutputs
 Test-BuildReleaseWorkflowUsesWindowsPowerShellCommands
+Test-BuildReleaseReferencesStaySynchronized
+Test-BuildReleaseWorkflowUsesReleaseBranchAndExactArtifacts
+Test-BuildReleaseWorkflowPublishesFfmpegSourceBundle
+Test-NativeReleaseBuildSelectsVcvarsToolset
+Test-ReleaseArtifactValidatorExists
+Test-NativePdbRequirementIsConsistent
 Test-BuildReleaseDocsRequireFfmpegValidation
 Test-LegacyGitHubReleaseWorkflowIsDisabled
 

@@ -58,10 +58,11 @@ Write-Host ""
 # --- Build via cmd subprocess (vcvarsall.bat requires cmd.exe) ---
 $buildBat = [System.IO.Path]::GetTempFileName() + ".bat"
 try {
+    $vcvarsVersion = (($tc.VCToolsVersion -split '\.')[0..1] -join '.')
     @"
 @echo off
 set "VSCMD_START_DIR=%CD%"
-call "$($tc.VcvarsallPath)" x64 >nul 2>&1
+call "$($tc.VcvarsallPath)" x64 -vcvars_ver=$vcvarsVersion >nul 2>&1
 set VCToolsVersion=$($tc.VCToolsVersion)
 msbuild "%~1" /p:Configuration=$Configuration /p:Platform=x64 /p:VCToolsVersion=$($tc.VCToolsVersion) /m /v:minimal
 exit /b %ERRORLEVEL%
