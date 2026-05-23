@@ -189,6 +189,37 @@ function Test-InstallerRegistersRhinoPluginFileNamesUnderPluginSubkey {
     }
 }
 
+function Test-InstallerWritesRhinoPluginEnumerationMetadata {
+    $content = Get-Content -Path $InstallerScript -Raw
+
+    foreach ($guid in @(
+        'A38E0E8F-E06E-40D2-A6BD-7EDBC2CB1906',
+        'B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B'
+    )) {
+        Assert-Contains -Text $content -Expected "Plug-Ins\$guid`"; ValueType: string; ValueName: `"EnglishName`"" -Message "Installer must pre-populate EnglishName so Rhino can enumerate plugin $guid before first load."
+        Assert-Contains -Text $content -Expected "Plug-Ins\$guid`"; ValueType: string; ValueName: `"Organization`"" -Message "Installer must pre-populate Organization so Rhino can enumerate plugin $guid before first load."
+        Assert-Contains -Text $content -Expected "Plug-Ins\$guid`"; ValueType: string; ValueName: `"Description`"" -Message "Installer must pre-populate Description so Rhino can enumerate plugin $guid before first load."
+        Assert-Contains -Text $content -Expected "Plug-Ins\$guid`"; ValueType: string; ValueName: `"RegPath`"" -Message "Installer must pre-populate RegPath so Rhino can enumerate plugin $guid before first load."
+        Assert-Contains -Text $content -Expected "Plug-Ins\$guid`"; ValueType: dword; ValueName: `"AddToHelpMenu`"; ValueData: `"0`"" -Message "Installer must pre-populate AddToHelpMenu for plugin $guid."
+        Assert-Contains -Text $content -Expected "Plug-Ins\$guid`"; ValueType: dword; ValueName: `"DirectoryInstall`"; ValueData: `"0`"" -Message "Installer must pre-populate DirectoryInstall for plugin $guid."
+    }
+
+    Assert-Contains -Text $content -Expected 'Plug-Ins\A38E0E8F-E06E-40D2-A6BD-7EDBC2CB1906\CommandList"; ValueType: string; ValueName: "AIGumball"; ValueData: "2;AIGumball"' -Message 'Installer must pre-populate the native command list entry that Rhino records after a successful load.'
+    foreach ($command in @(
+        'RestartRookChatService',
+        'ShowRookChat',
+        'ShowRookKnowledgeGraph',
+        'ShowRookVision',
+        'UVBoxMapping'
+    )) {
+        Assert-Contains -Text $content -Expected "Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B\CommandList`"; ValueType: string; ValueName: `"$command`"; ValueData: `"2;$command`"" -Message "Installer must pre-populate companion command list entry $command."
+    }
+
+    Assert-Contains -Text $content -Expected 'ValueName: "RuiFile"; ValueData: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net7.0\Rook.rui"' -Message 'Installer must pre-populate the companion RuiFile metadata for Rhino plugin enumeration.'
+    Assert-Contains -Text $content -Expected 'RequiredStringValues: TArrayOfString;' -Message 'Installer post-install verification must check required plugin metadata, not only sparse load fields.'
+    Assert-Contains -Text $content -Expected 'RequiredCommandValues: TArrayOfString;' -Message 'Installer post-install verification must check required command-list entries.'
+}
+
 function Test-InstallerBlocksWhenRhinoOrRevitAreRunning {
     $content = Get-Content -Path $InstallerScript -Raw
 
@@ -318,6 +349,7 @@ function Test-BuildReleaseDocsRequirePerHostSmokeManifest {
     Assert-Contains -Text $combined -Expected 'standalone_rhino' -Message 'Release smoke manifest must require a standalone Rhino host entry.'
     Assert-Contains -Text $combined -Expected 'rhino_inside_revit' -Message 'Release smoke manifest must require a Rhino.Inside.Revit host entry.'
     Assert-Contains -Text $combined -Expected 'host_runtime' -Message 'Release smoke manifest must record the runtime tested for each host.'
+    Assert-Contains -Text $combined -Expected 'plugin_manager_listed' -Message 'Release smoke manifest must record that Rhino Plugin Manager lists RookNative.'
     Assert-Contains -Text $combined -Expected 'release smoke manifest standalone_rhino' -Message 'Release artifact validator must validate standalone Rhino smoke evidence separately.'
     Assert-Contains -Text $combined -Expected 'release smoke manifest rhino_inside_revit' -Message 'Release artifact validator must validate Rhino.Inside.Revit smoke evidence separately.'
 }
@@ -413,6 +445,7 @@ Test-FfmpegBuildScriptUsesAgentlessSignatureVerification
 Test-FfmpegBuildRecipeTargetsOnlyFfmpegProgram
 Test-InstallerRequiresNativePluginBuildOutput
 Test-InstallerRegistersRhinoPluginFileNamesUnderPluginSubkey
+Test-InstallerWritesRhinoPluginEnumerationMetadata
 Test-InstallerBlocksWhenRhinoOrRevitAreRunning
 Test-InstallerWarnsRegistrationIsPerWindowsUser
 Test-InstallerVerifiesRhinoPluginRegistrationAfterInstall

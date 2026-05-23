@@ -136,6 +136,12 @@ function Assert-SmokeHostSuccess {
         Fail "$Label field 'ping_result' must be a success value (pong, ok, or success); actual value: $pingResult"
     }
 
+    $pluginManagerListedValue = Require-JsonField -Json $HostManifest -Field 'plugin_manager_listed' -Label $Label
+    $pluginManagerListed = $false
+    if (-not [bool]::TryParse(([string]$pluginManagerListedValue), [ref]$pluginManagerListed) -or -not $pluginManagerListed) {
+        Fail "$Label field 'plugin_manager_listed' must be true to prove Rhino enumerated RookNative; actual value: $pluginManagerListedValue"
+    }
+
     $nativePortValue = Require-JsonField -Json $HostManifest -Field 'native_port' -Label $Label
     $nativePort = 0
     if (-not [int]::TryParse(([string]$nativePortValue), [ref]$nativePort) -or $nativePort -lt 1 -or $nativePort -gt 65535) {

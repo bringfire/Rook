@@ -283,6 +283,7 @@ standalone_rhino:
   host_runtime
   native_port
   ping_result
+  plugin_manager_listed
   loaded_native_path
   loaded_companion_path
 rhino_inside_revit:
@@ -292,6 +293,7 @@ rhino_inside_revit:
   host_runtime
   native_port
   ping_result
+  plugin_manager_listed
   loaded_native_path
   loaded_companion_path
 ```
