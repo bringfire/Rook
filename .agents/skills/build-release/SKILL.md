@@ -284,6 +284,8 @@ standalone_rhino:
   native_port
   ping_result
   plugin_manager_listed
+  chat_service_manifest_path
+  chat_service_health
   loaded_native_path
   loaded_companion_path
 rhino_inside_revit:
@@ -294,6 +296,8 @@ rhino_inside_revit:
   native_port
   ping_result
   plugin_manager_listed
+  chat_service_manifest_path
+  chat_service_health
   loaded_native_path
   loaded_companion_path
 ```

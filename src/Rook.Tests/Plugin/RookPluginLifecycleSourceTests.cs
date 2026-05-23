@@ -62,6 +62,23 @@ namespace Rook.Tests.Plugin
         }
 
         [Fact]
+        public void ChatServiceManifestFallback_KnowsReleaseInstallLayout()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Chat", "ChatServiceManager.cs");
+            var autoGenerate = ExtractMethod(source, "private static ChatServiceManifest? TryAutoGenerateManifest(");
+            var releaseRoot = ExtractMethod(source, "private static string? GetReleaseInstallRoot()");
+            var managedPython = ExtractMethod(source, "private static string? DiscoverManagedVenvPython()");
+
+            Assert.Contains("GetReleaseInstallRoot();", autoGenerate);
+            Assert.Contains("Path.Combine(releaseInstallRoot, \"mcp_server\")", autoGenerate);
+            Assert.Contains("candidates.Add(releaseInstallRoot);", autoGenerate);
+            Assert.Contains("DiscoverManagedVenvPython() ?? DiscoverPython()", autoGenerate);
+
+            Assert.Contains("\"Rook\", \"app\"", releaseRoot);
+            Assert.Contains("\"Rook\", \"venv\", \"Scripts\", \"python.exe\"", managedPython);
+        }
+
+        [Fact]
         public void StartupVideoReconcileFailure_IsCaughtAndLoggedAsNonFatal()
         {
             var source = ReadSourceFile("src", "Rook", "RookPlugin.cs");

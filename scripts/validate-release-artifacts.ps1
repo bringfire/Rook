@@ -142,6 +142,17 @@ function Assert-SmokeHostSuccess {
         Fail "$Label field 'plugin_manager_listed' must be true to prove Rhino enumerated RookNative; actual value: $pluginManagerListedValue"
     }
 
+    $chatManifestPath = ([string](Require-JsonField -Json $HostManifest -Field 'chat_service_manifest_path' -Label $Label)).Replace('/', '\')
+    if ($chatManifestPath -notmatch '(?i)\\RookNative\\RookChatService\.json$') {
+        Fail "$Label field 'chat_service_manifest_path' must point to the installed RookNative\\RookChatService.json; actual value: $($HostManifest.chat_service_manifest_path)"
+    }
+
+    $chatServiceHealth = ([string](Require-JsonField -Json $HostManifest -Field 'chat_service_health' -Label $Label)).Trim()
+    $successHealthValues = @('ok', 'healthy', 'success')
+    if (-not ($successHealthValues -contains $chatServiceHealth.ToLowerInvariant())) {
+        Fail "$Label field 'chat_service_health' must be a success value (ok, healthy, or success); actual value: $chatServiceHealth"
+    }
+
     $nativePortValue = Require-JsonField -Json $HostManifest -Field 'native_port' -Label $Label
     $nativePort = 0
     if (-not [int]::TryParse(([string]$nativePortValue), [ref]$nativePort) -or $nativePort -lt 1 -or $nativePort -gt 65535) {

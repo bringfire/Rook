@@ -474,8 +474,9 @@ namespace Rook.UI.Chat
         /// Discovery strategies (in priority order):
         ///   1. ROOK_PROJECT_ROOT env var → .mcp.json
         ///   2. Plugin-relative repo detection (assembly dir → ancestor with .mcp.json)
-        ///   3. pip-installed rook package (python -c "import rook; ...")
-        ///   4. PATH-based Python discovery (where python, py launcher)
+        ///   3. Release install root (%LOCALAPPDATA%\Rook\app\mcp_server)
+        ///   4. pip-installed rook package (python -c "import rook; ...")
+        ///   5. PATH-based Python discovery (where python, py launcher)
         ///
         /// Designed to work on any machine — no hardcoded developer paths.
         /// </summary>
@@ -512,6 +513,13 @@ namespace Rook.UI.Chat
                     }
                 }
 
+                var releaseInstallRoot = GetReleaseInstallRoot();
+                if (!string.IsNullOrEmpty(releaseInstallRoot)
+                    && Directory.Exists(Path.Combine(releaseInstallRoot, "mcp_server")))
+                {
+                    candidates.Add(releaseInstallRoot);
+                }
+
                 // --- Try to extract Python path + working directory from .mcp.json ---
                 foreach (var candidate in candidates)
                 {
@@ -544,7 +552,7 @@ namespace Rook.UI.Chat
                 // --- Find Python if .mcp.json didn't provide it ---
                 if (string.IsNullOrEmpty(pythonPath) || !File.Exists(pythonPath))
                 {
-                    pythonPath = DiscoverPython();
+                    pythonPath = DiscoverManagedVenvPython() ?? DiscoverPython();
                 }
 
                 if (string.IsNullOrEmpty(pythonPath) || !File.Exists(pythonPath))
@@ -643,6 +651,25 @@ namespace Rook.UI.Chat
                 RhinoApp.WriteLine($"Rook: auto-generate manifest failed: {ex.Message}");
                 return null;
             }
+        }
+
+        private static string? GetReleaseInstallRoot()
+        {
+            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            if (string.IsNullOrWhiteSpace(localAppData))
+                return null;
+
+            return Path.Combine(localAppData, "Rook", "app");
+        }
+
+        private static string? DiscoverManagedVenvPython()
+        {
+            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            if (string.IsNullOrWhiteSpace(localAppData))
+                return null;
+
+            var candidate = Path.Combine(localAppData, "Rook", "venv", "Scripts", "python.exe");
+            return File.Exists(candidate) ? candidate : null;
         }
 
         /// <summary>
