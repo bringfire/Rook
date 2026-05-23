@@ -39,6 +39,8 @@ function New-ValidatorFixture {
         [string]$PingResult = 'pong',
         [int]$NativePort = 9876,
         [object]$PluginManagerListed = $true,
+        [string]$ChatServiceHealth = 'ok',
+        [string]$ChatServiceManifestPath = 'C:/Users/test/AppData/Roaming/McNeel/Rhinoceros/8.0/Plug-ins/RookNative/RookChatService.json',
         [string]$LoadedNativePath = 'C:/Users/test/AppData/Roaming/McNeel/Rhinoceros/8.0/Plug-ins/RookNative/RookNative.rhp',
         [string]$LoadedCompanionPath = 'C:/Users/test/AppData/Roaming/McNeel/Rhinoceros/8.0/Plug-ins/RookNative/net7.0/Rook.rhp',
         [switch]$LegacySingleHost
@@ -81,6 +83,8 @@ function New-ValidatorFixture {
                 native_port = $NativePort
                 ping_result = $PingResult
                 plugin_manager_listed = $PluginManagerListed
+                chat_service_manifest_path = $ChatServiceManifestPath
+                chat_service_health = $ChatServiceHealth
                 loaded_native_path = $LoadedNativePath
                 loaded_companion_path = $LoadedCompanionPath
             }
@@ -92,6 +96,8 @@ function New-ValidatorFixture {
                 native_port = $NativePort
                 ping_result = $PingResult
                 plugin_manager_listed = $PluginManagerListed
+                chat_service_manifest_path = $ChatServiceManifestPath
+                chat_service_health = $ChatServiceHealth
                 loaded_native_path = $LoadedNativePath
                 loaded_companion_path = $LoadedCompanionPath
             }
@@ -235,6 +241,29 @@ function Test-ValidatorRejectsMissingPluginManagerEvidence {
     }
 }
 
+function Test-ValidatorRejectsMissingChatServiceEvidence {
+    $fixture = New-ValidatorFixture -ChatServiceHealth 'not_connected'
+
+    try {
+        $result = Invoke-Validator -Arguments @(
+            '-File', $Validator,
+            '-Version', $fixture.Version,
+            '-RepoRoot', $RepoRoot,
+            '-GitSha', $fixture.GitSha,
+            '-InstallerPath', $fixture.InstallerPath,
+            '-FfmpegSourceBundleManifestPath', $fixture.SourceBundleManifestPath,
+            '-SmokeManifestPath', $fixture.SmokeManifestPath,
+            '-OutputManifestPath', $fixture.OutputManifestPath,
+            '-MinInstallerBytes', '1'
+        )
+
+        Assert-True -Condition ($result.ExitCode -ne 0) -Message 'Validator accepted smoke evidence without successful chat service health.'
+        Assert-Contains -Text $result.Output -Expected 'chat_service_health' -Message "Validator chat service evidence error was not specific. Output: $($result.Output)"
+    } finally {
+        Remove-Item -LiteralPath $fixture.TempRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Test-ValidatorRejectsLegacySingleHostSmokeManifest {
     $fixture = New-ValidatorFixture -LegacySingleHost
 
@@ -263,6 +292,7 @@ Test-DocumentedValidatorCommandDefaultsRepoRoot
 Test-ValidatorRejectsGitShaThatDoesNotMatchCheckout
 Test-ValidatorRejectsFailedSmokeEvidence
 Test-ValidatorRejectsMissingPluginManagerEvidence
+Test-ValidatorRejectsMissingChatServiceEvidence
 Test-ValidatorRejectsLegacySingleHostSmokeManifest
 
 Write-Host 'Release artifact validator tests passed.'

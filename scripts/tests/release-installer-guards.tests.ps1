@@ -350,6 +350,8 @@ function Test-BuildReleaseDocsRequirePerHostSmokeManifest {
     Assert-Contains -Text $combined -Expected 'rhino_inside_revit' -Message 'Release smoke manifest must require a Rhino.Inside.Revit host entry.'
     Assert-Contains -Text $combined -Expected 'host_runtime' -Message 'Release smoke manifest must record the runtime tested for each host.'
     Assert-Contains -Text $combined -Expected 'plugin_manager_listed' -Message 'Release smoke manifest must record that Rhino Plugin Manager lists RookNative.'
+    Assert-Contains -Text $combined -Expected 'chat_service_manifest_path' -Message 'Release smoke manifest must record the installed chat service manifest path.'
+    Assert-Contains -Text $combined -Expected 'chat_service_health' -Message 'Release smoke manifest must record successful chat service health.'
     Assert-Contains -Text $combined -Expected 'release smoke manifest standalone_rhino' -Message 'Release artifact validator must validate standalone Rhino smoke evidence separately.'
     Assert-Contains -Text $combined -Expected 'release smoke manifest rhino_inside_revit' -Message 'Release artifact validator must validate Rhino.Inside.Revit smoke evidence separately.'
 }
