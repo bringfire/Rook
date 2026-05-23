@@ -348,8 +348,18 @@ function Test-NativePdbRequirementIsConsistent {
         Get-Content -Path $ClaudeBuildReleaseSkill -Raw
         Get-Content -Path $ClaudeIssSourcePaths -Raw
     ) -join "`n"
+    $agentIss = Get-Content -Path $IssSourcePaths -Raw
+    $claudeIss = Get-Content -Path $ClaudeIssSourcePaths -Raw
 
     Assert-Contains -Text $combined -Expected 'RookNative.pdb` | Optional' -Message 'Release source checklist must describe the native PDB as optional to match installer skipifsourcedoesntexist behavior.'
+    Assert-Contains -Text $combined -Expected '$optionalFiles' -Message 'Release source verification script must put optional artifacts in an optional file list.'
+    Assert-Contains -Text $combined -Expected 'OPTIONAL MISSING' -Message 'Release source verification script must report absent optional artifacts without failing the checklist.'
+    Assert-NotContains -Text $agentIss -Unexpected '$files = @(
+  "src\RookNative\bin\Release\x64\RookNative.rhp",
+  "src\RookNative\bin\Release\x64\RookNative.pdb",' -Message 'Codex release source verification script must not require RookNative.pdb.'
+    Assert-NotContains -Text $claudeIss -Unexpected '$files = @(
+  "src\RookNative\bin\Release\x64\RookNative.rhp",
+  "src\RookNative\bin\Release\x64\RookNative.pdb",' -Message 'Claude release source verification script must not require RookNative.pdb.'
 }
 
 function Test-BuildReleaseDocsRequireFfmpegValidation {

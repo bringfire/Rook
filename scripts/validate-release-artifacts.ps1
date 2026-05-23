@@ -2,7 +2,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$Version,
 
-    [string]$RepoRoot = (Split-Path -Parent $PSScriptRoot),
+    [string]$RepoRoot = '',
     [string]$GitSha = '',
     [string]$InstallerPath = '',
     [string]$FfmpegSourceBundleManifestPath = '',
@@ -97,17 +97,71 @@ function Assert-RuntimeConfigTfm {
     }
 }
 
+function Resolve-GitHead {
+    param([string]$Root)
+    $head = ((& git -C $Root rev-parse HEAD 2>$null) -join '').Trim()
+    if ($LASTEXITCODE -ne 0 -or $head -notmatch '^[0-9a-fA-F]{40}$') {
+        Fail 'could not resolve checked-out git HEAD'
+    }
+    return $head.ToLowerInvariant()
+}
+
+function Assert-GitCommitExists {
+    param([string]$Root, [string]$CommitSha)
+    $null = & git -C $Root cat-file -e "$CommitSha^{commit}" 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        Fail "GitSha is not a valid git commit: $CommitSha"
+    }
+}
+
+function Assert-SmokeSuccess {
+    param([object]$SmokeManifest)
+
+    $pingResult = ([string](Require-JsonField -Json $SmokeManifest -Field 'ping_result' -Label 'release smoke manifest')).Trim()
+    $successPingValues = @('pong', 'ok', 'success')
+    if (-not ($successPingValues -contains $pingResult.ToLowerInvariant())) {
+        Fail "release smoke manifest ping_result must be a success value (pong, ok, or success); actual value: $pingResult"
+    }
+
+    $nativePortValue = Require-JsonField -Json $SmokeManifest -Field 'native_port' -Label 'release smoke manifest'
+    $nativePort = 0
+    if (-not [int]::TryParse(([string]$nativePortValue), [ref]$nativePort) -or $nativePort -lt 1 -or $nativePort -gt 65535) {
+        Fail "release smoke manifest native_port must be between 1 and 65535; actual value: $nativePortValue"
+    }
+
+    $nativePath = ([string](Require-JsonField -Json $SmokeManifest -Field 'loaded_native_path' -Label 'release smoke manifest')).Replace('/', '\')
+    if ($nativePath -notmatch '(?i)\\RookNative\\RookNative\.rhp$') {
+        Fail "release smoke manifest loaded_native_path must point to the installed RookNative\\RookNative.rhp; actual value: $($SmokeManifest.loaded_native_path)"
+    }
+
+    $companionPath = ([string](Require-JsonField -Json $SmokeManifest -Field 'loaded_companion_path' -Label 'release smoke manifest')).Replace('/', '\')
+    if ($companionPath -notmatch '(?i)\\RookNative\\(net8\.0|net7\.0|net48)\\Rook\.rhp$') {
+        Fail "release smoke manifest loaded_companion_path must point to a runtime-child RookNative\\<tfm>\\Rook.rhp; actual value: $($SmokeManifest.loaded_companion_path)"
+    }
+}
+
 if ($Version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$') {
     Fail "version must be X.Y.Z; actual value: $Version"
 }
 
+if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
+    $RepoRoot = Split-Path -Parent $PSScriptRoot
+}
 $RepoRoot = Require-Directory -Path $RepoRoot -Label 'RepoRoot'
 
+$checkedOutHead = Resolve-GitHead -Root $RepoRoot
 if ([string]::IsNullOrWhiteSpace($GitSha)) {
-    $GitSha = ((& git -C $RepoRoot rev-parse HEAD) -join '').Trim()
-    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($GitSha)) {
-        Fail 'could not resolve git SHA'
+    $GitSha = $checkedOutHead
+} else {
+    $rawGitSha = $GitSha.Trim().ToLowerInvariant()
+    if ($rawGitSha -notmatch '^[0-9a-f]{40}$') {
+        Fail "GitSha must be a full 40-character commit SHA; actual value: $GitSha"
     }
+    if ($rawGitSha -ne $checkedOutHead) {
+        Fail "GitSha does not match checked-out HEAD. Expected $checkedOutHead, actual $rawGitSha"
+    }
+    Assert-GitCommitExists -Root $RepoRoot -CommitSha $rawGitSha
+    $GitSha = $rawGitSha
 }
 
 if ([string]::IsNullOrWhiteSpace($InstallerPath)) {
@@ -196,6 +250,7 @@ if (([string]$smokeManifest.installer_sha256).ToUpperInvariant() -ne $installerS
 if ([string]$smokeManifest.rook_version -ne $Version) {
     Fail "smoke manifest rook_version does not match release version. Expected $Version, actual $($smokeManifest.rook_version)"
 }
+Assert-SmokeSuccess -SmokeManifest $smokeManifest
 
 $outputManifestParent = Split-Path -Parent $OutputManifestPath
 if ($outputManifestParent) {

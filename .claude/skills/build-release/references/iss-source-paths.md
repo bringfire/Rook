@@ -142,7 +142,6 @@ $missing = New-Object System.Collections.Generic.List[string]
 
 $files = @(
   "src\RookNative\bin\Release\x64\RookNative.rhp",
-  "src\RookNative\bin\Release\x64\RookNative.pdb",
   "src\Rook\bin\Release\net8.0\Rook.rhp",
   "src\Rook\bin\Release\net8.0\Rook.rui",
   "src\Rook\bin\Release\net8.0\Rook.deps.json",
@@ -186,9 +185,18 @@ $files = @(
   "LICENSE"
 )
 
+$optionalFiles = @(
+  "src\RookNative\bin\Release\x64\RookNative.pdb"
+)
+
 foreach ($file in $files) {
   $path = Join-Path $Repo $file
   if (-not (Test-Path $path)) { $missing.Add("MISSING: $path") }
+}
+
+foreach ($file in $optionalFiles) {
+  $path = Join-Path $Repo $file
+  if (-not (Test-Path $path)) { Write-Warning "OPTIONAL MISSING: $path" }
 }
 
 $directories = @(
