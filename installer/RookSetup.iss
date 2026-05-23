@@ -176,20 +176,53 @@ Source: "AGENTS.md"; DestDir: "{localappdata}\Rook"; Components: codex; Flags: i
 [Registry]
 ; RookNative (C++ plugin) — load at startup
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\A38E0E8F-E06E-40D2-A6BD-7EDBC2CB1906"; ValueType: string; ValueName: "Name"; ValueData: "RookNative"; Components: plugins; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\A38E0E8F-E06E-40D2-A6BD-7EDBC2CB1906"; ValueType: string; ValueName: "EnglishName"; ValueData: "RookNative"; Components: plugins
+Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\A38E0E8F-E06E-40D2-A6BD-7EDBC2CB1906"; ValueType: string; ValueName: "Organization"; ValueData: "Bringfire"; Components: plugins
+Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\A38E0E8F-E06E-40D2-A6BD-7EDBC2CB1906"; ValueType: string; ValueName: "Address"; ValueData: ""; Components: plugins
+Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\A38E0E8F-E06E-40D2-A6BD-7EDBC2CB1906"; ValueType: string; ValueName: "Country"; ValueData: ""; Components: plugins
+Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\A38E0E8F-E06E-40D2-A6BD-7EDBC2CB1906"; ValueType: string; ValueName: "Phone"; ValueData: ""; Components: plugins
+Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\A38E0E8F-E06E-40D2-A6BD-7EDBC2CB1906"; ValueType: string; ValueName: "EMail"; ValueData: ""; Components: plugins
+Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\A38E0E8F-E06E-40D2-A6BD-7EDBC2CB1906"; ValueType: string; ValueName: "WebSite"; ValueData: "https://github.com/bringfire/Rhino_AI"; Components: plugins
+Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\A38E0E8F-E06E-40D2-A6BD-7EDBC2CB1906"; ValueType: string; ValueName: "UpdateURL"; ValueData: "https://github.com/bringfire/Rhino_AI/releases"; Components: plugins
+Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\A38E0E8F-E06E-40D2-A6BD-7EDBC2CB1906"; ValueType: string; ValueName: "Fax"; ValueData: ""; Components: plugins
+Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\A38E0E8F-E06E-40D2-A6BD-7EDBC2CB1906"; ValueType: string; ValueName: "Description"; ValueData: "RookNative - High-performance Rhino bridge for Claude Code"; Components: plugins
+Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\A38E0E8F-E06E-40D2-A6BD-7EDBC2CB1906"; ValueType: string; ValueName: "RegPath"; ValueData: "\\HKEY_CURRENT_USER\Software\McNeel\Rhinoceros\8.0\Plug-Ins\A38E0E8F-E06E-40D2-A6BD-7EDBC2CB1906"; Components: plugins
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\A38E0E8F-E06E-40D2-A6BD-7EDBC2CB1906\PlugIn"; ValueType: string; ValueName: "FileName"; ValueData: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\RookNative.rhp"; Components: plugins
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\A38E0E8F-E06E-40D2-A6BD-7EDBC2CB1906"; ValueType: dword; ValueName: "Type"; ValueData: "16"; Components: plugins
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\A38E0E8F-E06E-40D2-A6BD-7EDBC2CB1906"; ValueType: dword; ValueName: "IsDotNETPlugIn"; ValueData: "0"; Components: plugins
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\A38E0E8F-E06E-40D2-A6BD-7EDBC2CB1906"; ValueType: dword; ValueName: "LoadMode"; ValueData: "1"; Components: plugins
+Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\A38E0E8F-E06E-40D2-A6BD-7EDBC2CB1906"; ValueType: dword; ValueName: "AddToHelpMenu"; ValueData: "0"; Components: plugins
+Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\A38E0E8F-E06E-40D2-A6BD-7EDBC2CB1906"; ValueType: dword; ValueName: "DirectoryInstall"; ValueData: "0"; Components: plugins
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\A38E0E8F-E06E-40D2-A6BD-7EDBC2CB1906\CommandList"; Flags: uninsdeletekey; Components: plugins
+Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\A38E0E8F-E06E-40D2-A6BD-7EDBC2CB1906\CommandList"; ValueType: string; ValueName: "AIGumball"; ValueData: "2;AIGumball"; Components: plugins
 
 ; Rook Companion (C# plugin) — load when needed
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: string; ValueName: "Name"; ValueData: "Rook"; Components: plugins; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: string; ValueName: "EnglishName"; ValueData: "Rook"; Components: plugins
+Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: string; ValueName: "Organization"; ValueData: "Bringfire"; Components: plugins
+Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: string; ValueName: "Address"; ValueData: ""; Components: plugins
+Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: string; ValueName: "Country"; ValueData: ""; Components: plugins
+Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: string; ValueName: "Phone"; ValueData: ""; Components: plugins
+Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: string; ValueName: "EMail"; ValueData: ""; Components: plugins
+Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: string; ValueName: "WebSite"; ValueData: "https://github.com/bringfire/Rhino_AI"; Components: plugins
+Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: string; ValueName: "UpdateURL"; ValueData: "https://github.com/bringfire/Rhino_AI/releases"; Components: plugins
+Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: string; ValueName: "Fax"; ValueData: ""; Components: plugins
+Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: string; ValueName: "Description"; ValueData: "Rook for Rhino 3D - HTTP server enabling AI-powered CAD operations"; Components: plugins
+Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: string; ValueName: "RuiFile"; ValueData: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net7.0\Rook.rui"; Components: plugins
+Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: string; ValueName: "RegPath"; ValueData: "\\HKEY_CURRENT_USER\Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; Components: plugins
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B\PlugIn"; ValueType: string; ValueName: "FileName"; ValueData: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net7.0\Rook.rhp"; Components: plugins
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: dword; ValueName: "Type"; ValueData: "16"; Components: plugins
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: dword; ValueName: "IsDotNETPlugIn"; ValueData: "1"; Components: plugins
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: dword; ValueName: "LoadMode"; ValueData: "2"; Components: plugins
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: dword; ValueName: "LoadProtection"; ValueData: "1"; Components: plugins
+Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: dword; ValueName: "AddToHelpMenu"; ValueData: "0"; Components: plugins
+Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: dword; ValueName: "DirectoryInstall"; ValueData: "0"; Components: plugins
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B\CommandList"; Flags: uninsdeletekey; Components: plugins
+Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B\CommandList"; ValueType: string; ValueName: "RestartRookChatService"; ValueData: "2;RestartRookChatService"; Components: plugins
+Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B\CommandList"; ValueType: string; ValueName: "ShowRookChat"; ValueData: "2;ShowRookChat"; Components: plugins
+Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B\CommandList"; ValueType: string; ValueName: "ShowRookKnowledgeGraph"; ValueData: "2;ShowRookKnowledgeGraph"; Components: plugins
+Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B\CommandList"; ValueType: string; ValueName: "ShowRookVision"; ValueData: "2;ShowRookVision"; Components: plugins
+Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B\CommandList"; ValueType: string; ValueName: "UVBoxMapping"; ValueData: "2;UVBoxMapping"; Components: plugins
 
 ; ---------------------------------------------------------------------------
 ; Post-install: run Python setup
@@ -329,12 +362,66 @@ begin
     IsProcessRunning('Revit.exe');
 end;
 
+function VerifyRegistryStringValue(const BaseKey, ValueName, ExpectedValue: String): Boolean;
+var
+  ActualValue: String;
+begin
+  Result := False;
+
+  if not RegQueryStringValue(HKCU, BaseKey, ValueName, ActualValue) then
+  begin
+    Log('Rhino plugin verification failed: missing ' + BaseKey + '\' + ValueName);
+    Exit;
+  end;
+
+  if CompareText(ActualValue, ExpectedValue) <> 0 then
+  begin
+    Log('Rhino plugin verification failed: ' + BaseKey + '\' + ValueName + ' expected "' + ExpectedValue + '", got "' + ActualValue + '"');
+    Exit;
+  end;
+
+  Result := True;
+end;
+
+function VerifyRegistryDWordValue(const BaseKey, ValueName: String; ExpectedValue: Cardinal): Boolean;
+var
+  ActualValue: Cardinal;
+begin
+  Result := False;
+
+  if not RegQueryDWordValue(HKCU, BaseKey, ValueName, ActualValue) then
+  begin
+    Log('Rhino plugin verification failed: missing ' + BaseKey + '\' + ValueName);
+    Exit;
+  end;
+
+  if ActualValue <> ExpectedValue then
+  begin
+    Log('Rhino plugin verification failed: ' + BaseKey + '\' + ValueName + ' had unexpected value');
+    Exit;
+  end;
+
+  Result := True;
+end;
+
+function VerifyCommandListValue(const Guid, CommandName: String): Boolean;
+begin
+  Result := VerifyRegistryStringValue(
+    'Software\McNeel\Rhinoceros\8.0\Plug-Ins\' + Guid + '\CommandList',
+    CommandName,
+    '2;' + CommandName);
+end;
+
 function VerifyPluginRegistration(const Guid, FileName: String; IsDotNet: Cardinal; LoadMode: Cardinal): Boolean;
 var
   BaseKey: String;
-  RegisteredFileName: String;
-  RegisteredIsDotNet: Cardinal;
-  RegisteredLoadMode: Cardinal;
+  PluginName: String;
+  Description: String;
+  RegPath: String;
+  RuiFile: String;
+  RequiredStringValues: TArrayOfString;
+  RequiredCommandValues: TArrayOfString;
+  I: Integer;
 begin
   Result := False;
   BaseKey := 'Software\McNeel\Rhinoceros\8.0\Plug-Ins\' + Guid;
@@ -345,40 +432,75 @@ begin
     Exit;
   end;
 
-  if not RegQueryStringValue(HKCU, BaseKey + '\PlugIn', 'FileName', RegisteredFileName) then
+  if CompareText(Guid, 'A38E0E8F-E06E-40D2-A6BD-7EDBC2CB1906') = 0 then
   begin
-    Log('Rhino plugin verification failed: missing PlugIn\FileName for ' + Guid);
-    Exit;
+    PluginName := 'RookNative';
+    Description := 'RookNative - High-performance Rhino bridge for Claude Code';
+    SetArrayLength(RequiredCommandValues, 1);
+    RequiredCommandValues[0] := 'AIGumball';
+  end
+  else
+  begin
+    PluginName := 'Rook';
+    Description := 'Rook for Rhino 3D - HTTP server enabling AI-powered CAD operations';
+    RuiFile := ExpandConstant('{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net7.0\Rook.rui');
+    SetArrayLength(RequiredCommandValues, 5);
+    RequiredCommandValues[0] := 'RestartRookChatService';
+    RequiredCommandValues[1] := 'ShowRookChat';
+    RequiredCommandValues[2] := 'ShowRookKnowledgeGraph';
+    RequiredCommandValues[3] := 'ShowRookVision';
+    RequiredCommandValues[4] := 'UVBoxMapping';
   end;
 
-  if CompareText(RegisteredFileName, FileName) <> 0 then
+  RegPath := '\\HKEY_CURRENT_USER\Software\McNeel\Rhinoceros\8.0\Plug-Ins\' + Guid;
+
+  SetArrayLength(RequiredStringValues, 16);
+  RequiredStringValues[0] := 'Name';
+  RequiredStringValues[1] := PluginName;
+  RequiredStringValues[2] := 'EnglishName';
+  RequiredStringValues[3] := PluginName;
+  RequiredStringValues[4] := 'Organization';
+  RequiredStringValues[5] := 'Bringfire';
+  RequiredStringValues[6] := 'Description';
+  RequiredStringValues[7] := Description;
+  RequiredStringValues[8] := 'RegPath';
+  RequiredStringValues[9] := RegPath;
+  RequiredStringValues[10] := 'WebSite';
+  RequiredStringValues[11] := 'https://github.com/bringfire/Rhino_AI';
+  RequiredStringValues[12] := 'UpdateURL';
+  RequiredStringValues[13] := 'https://github.com/bringfire/Rhino_AI/releases';
+  RequiredStringValues[14] := 'PlugIn\FileName';
+  RequiredStringValues[15] := FileName;
+
+  for I := 0 to (GetArrayLength(RequiredStringValues) div 2) - 1 do
   begin
-    Log('Rhino plugin verification failed: FileName for ' + Guid + ' expected "' + FileName + '", got "' + RegisteredFileName + '"');
-    Exit;
+    if RequiredStringValues[I * 2] = 'PlugIn\FileName' then
+    begin
+      if not VerifyRegistryStringValue(BaseKey + '\PlugIn', 'FileName', RequiredStringValues[(I * 2) + 1]) then
+        Exit;
+    end
+    else if not VerifyRegistryStringValue(BaseKey, RequiredStringValues[I * 2], RequiredStringValues[(I * 2) + 1]) then
+      Exit;
   end;
 
-  if not RegQueryDWordValue(HKCU, BaseKey, 'IsDotNETPlugIn', RegisteredIsDotNet) then
-  begin
-    Log('Rhino plugin verification failed: missing IsDotNETPlugIn for ' + Guid);
+  if (IsDotNet = 1) and (not VerifyRegistryStringValue(BaseKey, 'RuiFile', RuiFile)) then
     Exit;
-  end;
 
-  if RegisteredIsDotNet <> IsDotNet then
-  begin
-    Log('Rhino plugin verification failed: IsDotNETPlugIn for ' + Guid + ' had unexpected value');
+  if not VerifyRegistryDWordValue(BaseKey, 'Type', 16) then
     Exit;
-  end;
+  if not VerifyRegistryDWordValue(BaseKey, 'IsDotNETPlugIn', IsDotNet) then
+    Exit;
+  if not VerifyRegistryDWordValue(BaseKey, 'LoadMode', LoadMode) then
+    Exit;
+  if not VerifyRegistryDWordValue(BaseKey, 'AddToHelpMenu', 0) then
+    Exit;
+  if not VerifyRegistryDWordValue(BaseKey, 'DirectoryInstall', 0) then
+    Exit;
 
-  if not RegQueryDWordValue(HKCU, BaseKey, 'LoadMode', RegisteredLoadMode) then
+  for I := 0 to GetArrayLength(RequiredCommandValues) - 1 do
   begin
-    Log('Rhino plugin verification failed: missing LoadMode for ' + Guid);
-    Exit;
-  end;
-
-  if RegisteredLoadMode <> LoadMode then
-  begin
-    Log('Rhino plugin verification failed: LoadMode for ' + Guid + ' had unexpected value');
-    Exit;
+    if not VerifyCommandListValue(Guid, RequiredCommandValues[I]) then
+      Exit;
   end;
 
   Result := True;

@@ -34,10 +34,11 @@ function Invoke-Validator {
 
 function New-ValidatorFixture {
     param(
-        [string]$Version = '1.5.6',
+        [string]$Version = '1.5.7',
         [string]$GitSha = '',
         [string]$PingResult = 'pong',
         [int]$NativePort = 9876,
+        [object]$PluginManagerListed = $true,
         [string]$LoadedNativePath = 'C:/Users/test/AppData/Roaming/McNeel/Rhinoceros/8.0/Plug-ins/RookNative/RookNative.rhp',
         [string]$LoadedCompanionPath = 'C:/Users/test/AppData/Roaming/McNeel/Rhinoceros/8.0/Plug-ins/RookNative/net7.0/Rook.rhp',
         [switch]$LegacySingleHost
@@ -79,6 +80,7 @@ function New-ValidatorFixture {
                 host_runtime = 'net7.0'
                 native_port = $NativePort
                 ping_result = $PingResult
+                plugin_manager_listed = $PluginManagerListed
                 loaded_native_path = $LoadedNativePath
                 loaded_companion_path = $LoadedCompanionPath
             }
@@ -89,6 +91,7 @@ function New-ValidatorFixture {
                 host_runtime = 'net7.0'
                 native_port = $NativePort
                 ping_result = $PingResult
+                plugin_manager_listed = $PluginManagerListed
                 loaded_native_path = $LoadedNativePath
                 loaded_companion_path = $LoadedCompanionPath
             }
@@ -108,7 +111,7 @@ function New-ValidatorFixture {
 
 function Test-ValidatorWritesExactArtifactManifest {
     Assert-True -Condition (Test-Path $Validator) -Message "Validator script is missing: $Validator"
-    $version = '1.5.6'
+    $version = '1.5.7'
     $fixture = New-ValidatorFixture -Version $version
 
     try {
@@ -209,6 +212,29 @@ function Test-ValidatorRejectsFailedSmokeEvidence {
     }
 }
 
+function Test-ValidatorRejectsMissingPluginManagerEvidence {
+    $fixture = New-ValidatorFixture -PluginManagerListed $false
+
+    try {
+        $result = Invoke-Validator -Arguments @(
+            '-File', $Validator,
+            '-Version', $fixture.Version,
+            '-RepoRoot', $RepoRoot,
+            '-GitSha', $fixture.GitSha,
+            '-InstallerPath', $fixture.InstallerPath,
+            '-FfmpegSourceBundleManifestPath', $fixture.SourceBundleManifestPath,
+            '-SmokeManifestPath', $fixture.SmokeManifestPath,
+            '-OutputManifestPath', $fixture.OutputManifestPath,
+            '-MinInstallerBytes', '1'
+        )
+
+        Assert-True -Condition ($result.ExitCode -ne 0) -Message 'Validator accepted smoke evidence without Plugin Manager enumeration.'
+        Assert-Contains -Text $result.Output -Expected 'plugin_manager_listed' -Message "Validator Plugin Manager evidence error was not specific. Output: $($result.Output)"
+    } finally {
+        Remove-Item -LiteralPath $fixture.TempRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Test-ValidatorRejectsLegacySingleHostSmokeManifest {
     $fixture = New-ValidatorFixture -LegacySingleHost
 
@@ -236,6 +262,7 @@ Test-ValidatorWritesExactArtifactManifest
 Test-DocumentedValidatorCommandDefaultsRepoRoot
 Test-ValidatorRejectsGitShaThatDoesNotMatchCheckout
 Test-ValidatorRejectsFailedSmokeEvidence
+Test-ValidatorRejectsMissingPluginManagerEvidence
 Test-ValidatorRejectsLegacySingleHostSmokeManifest
 
 Write-Host 'Release artifact validator tests passed.'
