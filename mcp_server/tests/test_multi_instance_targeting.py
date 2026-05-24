@@ -330,7 +330,7 @@ def test_explicit_missing_port_returns_requested_port_not_discovered(monkeypatch
     assert result["data"]["instances"][0]["port"] == 9950
 
 
-@pytest.mark.parametrize("raw_port", ["9951", 0, -1])
+@pytest.mark.parametrize("raw_port", ["9951", 0, -1, True, False])
 def test_invalid_explicit_port_returns_invalid_requested_port(monkeypatch, raw_port):
     monkeypatch.setattr(targeting, "discover_instances", lambda: [
         _inst(9951, 7102, "B.3dm"),
