@@ -653,6 +653,7 @@ def uninstall_cleanup() -> None:
         (runtime_root / "venv", "managed Python venv"),
         (runtime_root / "data", "runtime data"),
         (runtime_root / "logs", "runtime logs"),
+        (runtime_root / "discovery", "runtime discovery metadata"),
         (runtime_root / "docs", "runtime docs"),
         (roaming_root, "roaming Rook data"),
         (temp_root, "temporary diagnostics"),

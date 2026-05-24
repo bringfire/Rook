@@ -548,16 +548,33 @@ async def test_document_metadata_normalizes_native_document_fields(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_bind_missing_port_returns_target_unavailable(monkeypatch):
+async def test_bind_missing_port_returns_requested_port_not_discovered(monkeypatch):
     monkeypatch.setattr(targeting, "discover_instances", lambda: [
         _inst(9950, 7101, "A.3dm"),
     ])
+    monkeypatch.setattr(
+        targeting,
+        "discovery_diagnostics",
+        lambda: {
+            "discoveryFolder": r"C:\Users\bring\AppData\Local\Rook\discovery",
+            "discoveryFolders": [
+                r"C:\Users\bring\AppData\Local\Rook\discovery",
+                r"C:\Users\bring\AppData\Local\Temp\rook",
+            ],
+            "selection": "localappdata",
+            "tempRoot": r"C:\Users\bring\AppData\Local\Temp",
+            "legacyTempDiscoveryFolder": r"C:\Users\bring\AppData\Local\Temp\rook",
+        },
+    )
     targeting.clear_active_target()
 
     result = await targeting.bind_active_instance(port=9999)
 
     assert result["success"] is False
-    assert result["data"]["error"] == "rhino_target_unavailable"
+    assert result["data"]["error"] == "requested_port_not_discovered"
+    assert result["data"]["requestedPort"] == 9999
+    assert result["data"]["discoveryFolder"] == r"C:\Users\bring\AppData\Local\Rook\discovery"
+    assert result["data"]["discoveryFolders"][1] == r"C:\Users\bring\AppData\Local\Temp\rook"
     assert len(result["data"]["instances"]) == 1
     assert targeting.get_active_target() is None
 

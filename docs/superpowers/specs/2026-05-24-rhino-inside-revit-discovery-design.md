@@ -50,9 +50,10 @@ native and MCP:
 <shared-discovery-root>\instance-<host-process-pid>-native.json
 ```
 
-Today's default shared discovery root is `%TEMP%\rook`, but the implementation
-must not hard-code that as the architectural contract if native and MCP resolve
-different temp roots on the test machine.
+The default shared discovery root is `%LOCALAPPDATA%\Rook\discovery` when
+`LOCALAPPDATA` is available. `%TEMP%\rook` remains a legacy compatibility read
+path for MCP and a fallback write path only when the deterministic per-user root
+cannot be resolved.
 
 For Rhino.Inside Revit, `<host-process-pid>` and JSON `processId` should be the
 Revit process ID, because `RookNative.rhp` is loaded in the Revit process. The
@@ -128,10 +129,10 @@ Treat temp-directory mismatch as a first-class suspect. Native uses
 elevation, or user profile state could make these disagree.
 
 Native diagnostics must record native `TEMP`/`TMP` and resolved discovery root.
-MCP diagnostics/errors must report Python `tempfile.gettempdir()` and the
-resolved `DISCOVERY_FOLDER`. If those differ on the test machine, the fix should
-prefer a deterministic per-user discovery root both runtimes can compute without
-installer state.
+MCP diagnostics/errors must report Python `tempfile.gettempdir()`, the resolved
+primary shared discovery root, and any legacy compatibility discovery roots.
+The implementation should prefer a deterministic per-user discovery root both
+runtimes can compute without installer state.
 
 Only use an installer-provided stable runtime setting if a code-computed
 per-user root is proven insufficient. If that fallback is used, specify

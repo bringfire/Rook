@@ -1030,6 +1030,15 @@ async def bind_active_instance(
         return _error_result("rhino_target_required", instances=instances)
 
     if not matched:
+        if port is not None:
+            return route_error_result(
+                ToolRoute(
+                    success=False,
+                    error="requested_port_not_discovered",
+                    requested_port=port,
+                    instances=instances,
+                )
+            )
         return _error_result(error, instances=instances)
 
     if lock is not None:

@@ -20,9 +20,22 @@ from typing import Any, Awaitable, Callable, Protocol
 
 import httpx
 
+from .bridge import resolve_discovery_folder
+
 
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost"}
-DEFAULT_DISCOVERY_DIR = Path(tempfile.gettempdir()) / "rook"
+
+
+def default_discovery_dir() -> Path:
+    folder, _, _ = resolve_discovery_folder(temp_root=Path(tempfile.gettempdir()))
+    return folder
+
+
+def default_temp_rook_dir() -> Path:
+    return default_discovery_dir()
+
+
+DEFAULT_DISCOVERY_DIR = default_discovery_dir()
 MIN_POLL_SECONDS = 0.001
 HARNESS_ENV_KEYS = (
     "ROOK_RHINO_PORT",
@@ -637,7 +650,7 @@ def run_rhino_runtime_harness(
     smoke_cwd: Path | None = None,
     smoke_timeout_seconds: float | None = None,
     discovery: OwnedRhinoDiscovery | None = None,
-    temp_rook_dir: Path = DEFAULT_DISCOVERY_DIR,
+    temp_rook_dir: Path | None = None,
     readiness_timeout_seconds: float = 30.0,
     readiness_poll_seconds: float = 0.25,
     cleanup_timeout_seconds: float = 10.0,
@@ -653,6 +666,7 @@ def run_rhino_runtime_harness(
     artifact_dir = artifact_root / run_id
     run_started_at = time.time()
     warnings: list[str] = []
+    temp_rook_dir = temp_rook_dir or default_temp_rook_dir()
 
     rhino_exe = Path(rhino_exe)
     artifact_root = Path(artifact_root)
@@ -879,8 +893,8 @@ async def ping_native(host: str, port: int) -> bool:
 
 
 class OwnedRhinoDiscovery:
-    def __init__(self, discovery_dir: Path = DEFAULT_DISCOVERY_DIR):
-        self.discovery_dir = discovery_dir
+    def __init__(self, discovery_dir: Path | None = None):
+        self.discovery_dir = discovery_dir or default_discovery_dir()
 
     def owned_path(self, pid: int) -> Path:
         return self.discovery_dir / f"instance-{pid}-native.json"

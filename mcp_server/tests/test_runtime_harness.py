@@ -26,6 +26,7 @@ from rook.runtime_harness import (
     ping_native,
     _scoped_env_subset,
 )
+from rook import runtime_harness
 
 
 def _load_harness_cli_module():
@@ -164,6 +165,28 @@ def _harness_result(tmp_path: Path, *, smoke: SmokeCommandResult | None = None) 
         smoke=smoke,
         run_started_at=100.0,
     )
+
+
+def test_default_owned_discovery_prefers_shared_localappdata_root(tmp_path: Path, monkeypatch):
+    local_app_data = tmp_path / "LocalAppData"
+    temp_root = tmp_path / "Temp"
+    monkeypatch.setenv("LOCALAPPDATA", str(local_app_data))
+    monkeypatch.setattr(runtime_harness.tempfile, "gettempdir", lambda: str(temp_root))
+
+    discovery_dir = runtime_harness.default_discovery_dir()
+
+    assert discovery_dir == local_app_data / "Rook" / "discovery"
+
+
+def test_default_temp_rook_artifacts_follow_shared_discovery_root(tmp_path: Path, monkeypatch):
+    local_app_data = tmp_path / "LocalAppData"
+    temp_root = tmp_path / "Temp"
+    monkeypatch.setenv("LOCALAPPDATA", str(local_app_data))
+    monkeypatch.setattr(runtime_harness.tempfile, "gettempdir", lambda: str(temp_root))
+
+    artifact_dir = runtime_harness.default_temp_rook_dir()
+
+    assert artifact_dir == local_app_data / "Rook" / "discovery"
 
 
 class FakeExternalProcess:
