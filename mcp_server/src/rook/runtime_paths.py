@@ -30,6 +30,35 @@ def _repo_fallback_roots() -> tuple[Path, Path]:
     return repo_root, mcp_server_dir
 
 
+def _same_path(left: Path, right: Path) -> bool:
+    return left.expanduser().resolve() == right.expanduser().resolve()
+
+
+def _installed_runtime_from_package_root(
+    repo_root: Path,
+    mcp_server_dir: Path,
+    mode: str,
+) -> RuntimePaths | None:
+    local_appdata = os.environ.get("LOCALAPPDATA")
+    if not local_appdata or mode == "dev":
+        return None
+
+    runtime_root = Path(local_appdata).expanduser().resolve() / "Rook"
+    install_root = runtime_root / "app"
+    if not _same_path(repo_root, install_root):
+        return None
+
+    return RuntimePaths(
+        mode="release",
+        install_root=install_root,
+        data_root=runtime_root / "data",
+        logs_root=runtime_root / "logs",
+        runtime_root=runtime_root,
+        mcp_server_dir=mcp_server_dir.expanduser().resolve(),
+        repo_root=repo_root.expanduser().resolve(),
+    )
+
+
 def _normalize_mode(mode: str | None) -> str:
     normalized = (mode or "").strip().lower()
     return normalized if normalized in {"dev", "release"} else ""
@@ -59,6 +88,11 @@ def resolve_runtime_paths() -> RuntimePaths:
         if not mode:
             mode = "dev" if install_root == repo_root else "release"
     else:
+        installed_paths = _installed_runtime_from_package_root(repo_root, fallback_mcp_server_dir, mode)
+        if installed_paths is not None:
+            _cached_runtime_paths = installed_paths
+            return _cached_runtime_paths
+
         install_root = repo_root
         data_root = repo_root / "knowledge"
         runtime_root = repo_root
