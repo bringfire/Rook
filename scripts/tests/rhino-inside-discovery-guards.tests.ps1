@@ -70,6 +70,21 @@ function Test-NativeCleanupDiagnostics {
     Assert-Contains -Text $content -Expected 'IsPidAlive' -Message 'Cleanup must keep using PID liveness.'
 }
 
+function Test-NativeDiscoveryKeepsOperationalPathsNative {
+    $cppContent = Get-Content -Path $RookServerCpp -Raw
+    $headerContent = Get-Content -Path $RookServerHeader -Raw
+
+    if ($cppContent.Contains('discoveryPath.string()')) {
+        throw 'Native discovery must not convert discoveryPath to ACP string for operational path storage.'
+    }
+    if ($cppContent.Contains('tmpPath.string()')) {
+        throw 'Native discovery must not convert tmpPath to ACP string for operational file operations.'
+    }
+
+    Assert-Contains -Text $headerContent -Expected 'std::filesystem::path m_discovery_path;' -Message 'Native discovery should retain the unload path as std::filesystem::path.'
+    Assert-Contains -Text $cppContent -Expected 'PathToUtf8String(m_discovery_path)' -Message 'Unload diagnostics should convert the retained native path to UTF-8 only for logging.'
+}
+
 function Test-HeaderDocumentsSharedDiscoveryRoot {
     $content = Get-Content -Path $RookServerHeader -Raw
 
@@ -80,6 +95,7 @@ Test-NativeDiscoveryUsesSharedRoot
 Test-NativeDiscoveryPublishesRhinoInsideMetadata
 Test-NativeDiscoveryDiagnosticsAreDurable
 Test-NativeCleanupDiagnostics
+Test-NativeDiscoveryKeepsOperationalPathsNative
 Test-HeaderDocumentsSharedDiscoveryRoot
 
 Write-Host 'rhino-inside-discovery-guards.tests.ps1 passed'

@@ -1873,13 +1873,15 @@ nlohmann::json GetNativeGrasshopperRoutes()
 
 std::string CRookServer::GetDiscoveryFolder()
 {
-    return ResolveDiscoveryRootInfo().sharedDiscoveryFolder.string();
+    return PathToUtf8String(ResolveDiscoveryRootInfo().sharedDiscoveryFolder);
 }
 
 std::string CRookServer::GetDiscoveryFilePath()
 {
     DWORD pid = ::GetCurrentProcessId();
-    return GetDiscoveryFolder() + "\\instance-" + std::to_string(pid) + "-native.json";
+    const fs::path discoveryPath = ResolveDiscoveryRootInfo().sharedDiscoveryFolder
+        / ("instance-" + std::to_string(pid) + "-native.json");
+    return PathToUtf8String(discoveryPath);
 }
 
 void CRookServer::WriteDiscoveryFile()
@@ -1909,14 +1911,14 @@ void CRookServer::WriteDiscoveryFile()
             {"ghRoutes", callbackBridgeReady ? ghRoutes : nlohmann::json::array()}
         };
 
-        const fs::path discoveryPath = rootInfo.sharedDiscoveryFolder
+        fs::path discoveryPath = rootInfo.sharedDiscoveryFolder
             / ("instance-" + std::to_string(pid) + "-native.json");
-        m_discovery_path = discoveryPath.string();
+        m_discovery_path = discoveryPath;
 
         // Atomic write: write to .tmp then rename to avoid torn reads
         // from Python bridge polling the same directory.
         fs::path tmpPath = discoveryPath;
-        tmpPath += L".tmp";
+        tmpPath += ".tmp";
         std::ostringstream writeStart;
         writeStart << "write start rhinoInside=" << BoolText(CRookNativePlugin::IsRhinoInside())
             << " port=" << m_port
@@ -1991,7 +1993,7 @@ void CRookServer::RemoveDiscoveryFile()
         {
             const DiscoveryRootInfo rootInfo = ResolveDiscoveryRootInfo();
             std::ostringstream diagnostic;
-            diagnostic << "remove-on-unload path=" << m_discovery_path;
+            diagnostic << "remove-on-unload path=" << PathToUtf8String(m_discovery_path);
             WriteDiscoveryDiagnostic(rootInfo, ::GetCurrentProcessId(), diagnostic.str());
         }
         catch (...) {}

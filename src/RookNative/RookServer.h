@@ -351,5 +351,5 @@ private:
     std::thread m_server_thread;
     int m_port = 0;
     std::atomic<bool> m_running{false};
-    std::string m_discovery_path;
+    std::filesystem::path m_discovery_path;
 };
