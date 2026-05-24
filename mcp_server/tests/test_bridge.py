@@ -168,6 +168,77 @@ def test_discover_instances_prefers_primary_duplicate_identity(
     assert instances[0]["port"] == 9950
 
 
+def test_discover_instances_accepts_rhino_inside_native_record(discovery_dir: Path) -> None:
+    _write_instance(
+        discovery_dir / "instance-528-native.json",
+        {
+            "host": "127.0.0.1",
+            "port": 57011,
+            "processId": 528,
+            "pluginType": "native",
+            "pluginVersion": "1.5.8",
+            "rhinoInside": True,
+            "capabilities": {"ghProvider": "callback", "ghRoutes": []},
+        },
+    )
+
+    instances = bridge.discover_instances()
+
+    assert len(instances) == 1
+    assert instances[0]["port"] == 57011
+    assert instances[0]["processId"] == 528
+    assert instances[0]["pluginType"] == "native"
+    assert instances[0]["rhinoInside"] is True
+    assert instances[0]["capabilities"]["ghProvider"] == "callback"
+
+
+def test_cleanup_keeps_live_rhino_inside_native_record(
+    discovery_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = discovery_dir / "instance-528-native.json"
+    _write_instance(
+        path,
+        {
+            "host": "127.0.0.1",
+            "port": 57011,
+            "processId": 528,
+            "pluginType": "native",
+            "rhinoInside": True,
+        },
+    )
+    monkeypatch.setattr(bridge, "_is_pid_alive", lambda pid: pid == 528)
+
+    survivors = bridge._cleanup_stale_discovery_files()
+
+    assert path.exists()
+    assert len(survivors) == 1
+    assert survivors[0]["processId"] == 528
+
+
+def test_cleanup_removes_dead_rhino_inside_native_record(
+    discovery_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = discovery_dir / "instance-528-native.json"
+    _write_instance(
+        path,
+        {
+            "host": "127.0.0.1",
+            "port": 57011,
+            "processId": 528,
+            "pluginType": "native",
+            "rhinoInside": True,
+        },
+    )
+    monkeypatch.setattr(bridge, "_is_pid_alive", lambda pid: False)
+
+    survivors = bridge._cleanup_stale_discovery_files()
+
+    assert not path.exists()
+    assert survivors == []
+
+
 def test_process_local_active_target_round_trip() -> None:
     from rook import targeting
 
