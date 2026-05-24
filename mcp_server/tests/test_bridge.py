@@ -104,6 +104,70 @@ def test_discover_instances_reads_legacy_folder_when_primary_exists(tmp_path: Pa
     assert instances[0]["port"] == 9960
 
 
+def test_discover_instances_honors_discovery_folder_only_monkeypatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    selected = tmp_path / "selected"
+    configured = tmp_path / "configured"
+    selected.mkdir()
+    configured.mkdir()
+    monkeypatch.setattr(bridge, "DISCOVERY_FOLDER", selected)
+    monkeypatch.setattr(bridge, "DISCOVERY_FOLDERS", [configured])
+    monkeypatch.setattr(bridge, "_is_pid_alive", lambda pid: True)
+    _write_instance(
+        selected / "instance-7101-native.json",
+        {
+            "host": "127.0.0.1",
+            "port": 9950,
+            "processId": 7101,
+            "pluginType": "native",
+        },
+    )
+
+    instances = bridge.discover_instances()
+
+    assert len(instances) == 1
+    assert instances[0]["pluginType"] == "native"
+    assert instances[0]["port"] == 9950
+
+
+def test_discover_instances_prefers_primary_duplicate_identity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    primary = tmp_path / "primary"
+    legacy = tmp_path / "legacy"
+    primary.mkdir()
+    legacy.mkdir()
+    monkeypatch.setattr(bridge, "DISCOVERY_FOLDER", primary)
+    monkeypatch.setattr(bridge, "DISCOVERY_FOLDERS", [primary, legacy])
+    monkeypatch.setattr(bridge, "_is_pid_alive", lambda pid: True)
+    _write_instance(
+        primary / "instance-7101-native.json",
+        {
+            "host": "127.0.0.1",
+            "port": 9950,
+            "processId": 7101,
+            "pluginType": "native",
+        },
+    )
+    _write_instance(
+        legacy / "instance-7101-native.json",
+        {
+            "host": "127.0.0.1",
+            "port": 9960,
+            "processId": 7101,
+            "pluginType": "native",
+        },
+    )
+
+    instances = bridge.discover_instances()
+
+    assert len(instances) == 1
+    assert instances[0]["port"] == 9950
+
+
 def test_process_local_active_target_round_trip() -> None:
     from rook import targeting
 

@@ -65,10 +65,18 @@ def resolve_discovery_folder(
 DISCOVERY_FOLDER, DISCOVERY_FOLDERS, _DISCOVERY_FOLDER_DIAGNOSTICS = resolve_discovery_folder()
 
 
+def _effective_discovery_folders() -> list[Path]:
+    folders = list(DISCOVERY_FOLDERS)
+    if DISCOVERY_FOLDER not in folders:
+        folders.insert(0, DISCOVERY_FOLDER)
+    return folders
+
+
 def discovery_diagnostics() -> dict[str, Any]:
+    folders = _effective_discovery_folders()
     diagnostics = dict(_DISCOVERY_FOLDER_DIAGNOSTICS)
     diagnostics["discoveryFolder"] = str(DISCOVERY_FOLDER)
-    diagnostics["discoveryFolders"] = [str(folder) for folder in DISCOVERY_FOLDERS]
+    diagnostics["discoveryFolders"] = [str(folder) for folder in folders]
     return diagnostics
 
 GH_ROUTE_PREFIX = "/gh/"
@@ -368,7 +376,8 @@ def _cleanup_stale_discovery_files() -> list[dict[str, Any]]:
         "chirp-service-*.json",
     ]
     seen: set[Path] = set()
-    for folder in DISCOVERY_FOLDERS:
+    seen_instances: set[tuple[str, object]] = set()
+    for folder in _effective_discovery_folders():
         if not folder.exists():
             continue
 
@@ -387,6 +396,14 @@ def _cleanup_stale_discovery_files() -> list[dict[str, Any]]:
 
                     # Keep surviving instance-* records for discover_instances()
                     if file.name.startswith("instance-"):
+                        process_id = data.get("processId")
+                        if process_id:
+                            instance_key = (str(data.get("pluginType") or "native"), process_id)
+                        else:
+                            instance_key = ("path", file.resolve())
+                        if instance_key in seen_instances:
+                            continue
+                        seen_instances.add(instance_key)
                         surviving_instances.append(data)
                 except Exception:
                     # Malformed file — remove it
