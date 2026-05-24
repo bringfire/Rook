@@ -1768,7 +1768,7 @@ void CRookServer::WriteDiscoveryFile()
         info["pluginType"] = "native";
         info["processId"] = ::GetCurrentProcessId();
         info["startTime"] = ts.str();
-        info["pluginVersion"] = "1.5.7";
+        info["pluginVersion"] = "1.5.8";
         info["rhinoInside"] = CRookNativePlugin::IsRhinoInside();
         const auto ghRoutes = GetNativeGrasshopperRoutes();
         const bool callbackBridgeReady = Rook::Handlers::HasGrasshopperBridgeRegistration();
