@@ -20,6 +20,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -545,8 +546,17 @@ def validate(
     return all_ok
 
 
+def _remove_tree(path: Path, label: str) -> None:
+    try:
+        if path.exists():
+            shutil.rmtree(path)
+            print(f"Removed {label}: {path}")
+    except Exception as e:
+        print(f"Warning: could not remove {label} {path}: {e}")
+
+
 def uninstall_cleanup() -> None:
-    """Remove Rook entries from Claude configs during uninstall."""
+    """Remove Rook entries and generated runtime artifacts during uninstall."""
     # Remove user-level MCP registration - try CLI first, then manual cleanup
     claude = shutil.which("claude")
     if claude:
@@ -633,6 +643,32 @@ def uninstall_cleanup() -> None:
                 print(f"Removed rook from {codex_config}")
         except Exception as e:
             print(f"Warning: could not clean {codex_config}: {e}")
+
+    runtime_root = get_runtime_root()
+    roaming_root = Path(os.environ.get("APPDATA", "")) / "Rook"
+    temp_root = Path(tempfile.gettempdir()) / "rook"
+
+    for path, label in [
+        (runtime_root / "app", "runtime app payload"),
+        (runtime_root / "venv", "managed Python venv"),
+        (runtime_root / "data", "runtime data"),
+        (runtime_root / "logs", "runtime logs"),
+        (runtime_root / "docs", "runtime docs"),
+        (roaming_root, "roaming Rook data"),
+        (temp_root, "temporary diagnostics"),
+    ]:
+        _remove_tree(path, label)
+
+    for path, label in [
+        (runtime_root / "CLAUDE.md", "Claude instruction file"),
+        (runtime_root / "AGENTS.md", "Codex instruction file"),
+    ]:
+        try:
+            if path.exists():
+                path.unlink()
+                print(f"Removed {label}: {path}")
+        except Exception as e:
+            print(f"Warning: could not remove {label} {path}: {e}")
 
     print("Uninstall cleanup complete.")
 

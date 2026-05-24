@@ -253,6 +253,27 @@ function Test-InstallerVerifiesRhinoPluginRegistrationAfterInstall {
     Assert-Contains -Text $content -Expected 'Restart Rhino after installation.' -Message 'Installer must remind users to restart Rhino after installer-time registry writes.'
 }
 
+function Test-UninstallRemovesGeneratedRuntimeArtifacts {
+    $installerContent = Get-Content -Path $InstallerScript -Raw
+    $postInstallContent = Get-Content -Path $PostInstallScript -Raw
+
+    foreach ($path in @(
+        '{localappdata}\Rook\app',
+        '{localappdata}\Rook\venv',
+        '{localappdata}\Rook\data',
+        '{localappdata}\Rook\logs',
+        '{userappdata}\Rook',
+        '{localappdata}\Temp\rook'
+    )) {
+        Assert-Contains -Text $installerContent -Expected "Type: filesandordirs; Name: `"$path`"" -Message "Uninstall must remove generated Rook artifact path: $path"
+    }
+
+    Assert-Contains -Text $postInstallContent -Expected 'Path(tempfile.gettempdir()) / "rook"' -Message 'Uninstall cleanup must remove the actual user temp Rook diagnostics directory.'
+    Assert-Contains -Text $postInstallContent -Expected 'runtime_root / "venv"' -Message 'Uninstall cleanup must remove the managed Python venv created by post_install.py.'
+    Assert-Contains -Text $postInstallContent -Expected 'runtime_root / "data"' -Message 'Uninstall cleanup must remove runtime data for a fresh reinstall surface.'
+    Assert-Contains -Text $postInstallContent -Expected 'roaming_root' -Message 'Uninstall cleanup must remove user-level Rook roaming state.'
+}
+
 function Test-PostInstallValidationUsesMultiRuntimeCompanionLayout {
     $postInstall = Get-Content -Path $PostInstallScript -Raw
     $doctor = Get-Content -Path $DoctorScript -Raw
@@ -451,6 +472,7 @@ Test-InstallerWritesRhinoPluginEnumerationMetadata
 Test-InstallerBlocksWhenRhinoOrRevitAreRunning
 Test-InstallerWarnsRegistrationIsPerWindowsUser
 Test-InstallerVerifiesRhinoPluginRegistrationAfterInstall
+Test-UninstallRemovesGeneratedRuntimeArtifacts
 Test-PostInstallValidationUsesMultiRuntimeCompanionLayout
 Test-ReleaseWorkflowDocsUseMultiRuntimeCompanionOutputs
 Test-BuildReleaseWorkflowUsesWindowsPowerShellCommands
