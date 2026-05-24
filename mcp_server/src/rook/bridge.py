@@ -268,7 +268,7 @@ def select_rhino_instance(
     if port is not None:
         anchor = next((inst for inst in instances if inst.get("port") == port), None)
         if anchor is None:
-            return {"port": port} if process_id is None else None
+            return None
 
         if process_id is not None and anchor.get("processId") != process_id:
             return None
@@ -443,8 +443,8 @@ def get_rhino_host(
 ) -> str | None:
     """Get the Rhino host URL, optionally resolved for a specific endpoint.
 
-    Returns None if no Rhino instance is discovered and no explicit port
-    was provided. Callers must handle None to produce clear error messages.
+    Returns None if no matching Rhino instance is discovered. Callers must
+    handle None to produce clear error messages.
     """
     resolved_port = port if port is not None else _RHINO_CONTEXT_PORT.get()
     resolved_process_id = (
@@ -455,9 +455,6 @@ def get_rhino_host(
     if resolved_process_id is not None and resolved_process_id <= 0:
         resolved_process_id = None
 
-    if resolved_port and endpoint is None and resolved_process_id is None:
-        return f"http://{DEFAULT_HOST}:{resolved_port}"
-
     instance = select_rhino_instance(
         endpoint=endpoint,
         port=resolved_port,
@@ -466,9 +463,6 @@ def get_rhino_host(
     if instance and instance.get("port"):
         host = instance.get("host") or DEFAULT_HOST
         return f"http://{host}:{instance['port']}"
-
-    if resolved_port and resolved_process_id is None:
-        return f"http://{DEFAULT_HOST}:{resolved_port}"
 
     return None
 

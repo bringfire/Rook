@@ -734,7 +734,7 @@ def test_select_rhino_instance_respects_explicit_port_for_non_gh(discovery_dir: 
     assert selected["pluginType"] == "native"
 
 
-def test_select_rhino_instance_preserves_ambient_missing_explicit_port(
+def test_select_rhino_instance_rejects_missing_explicit_port(
     discovery_dir: Path,
 ) -> None:
     _write_instance(
@@ -748,7 +748,7 @@ def test_select_rhino_instance_preserves_ambient_missing_explicit_port(
 
     selected = bridge.select_rhino_instance(port=9951)
 
-    assert selected == {"port": 9951}
+    assert selected is None
 
 
 def test_select_rhino_instance_respects_process_id_for_non_gh(discovery_dir: Path) -> None:
@@ -937,6 +937,45 @@ def test_get_rhino_host_uses_scoped_process_context(discovery_dir: Path) -> None
     assert result == "http://127.0.0.1:9951"
 
 
+def test_get_rhino_host_resolves_discovered_explicit_port(discovery_dir: Path) -> None:
+    _write_instance(
+        discovery_dir / "instance-7101-native.json",
+        {
+            "port": 9950,
+            "processId": 7101,
+            "pluginType": "native",
+        },
+    )
+
+    result = bridge.get_rhino_host(port=9950)
+
+    assert result == "http://127.0.0.1:9950"
+
+
+def test_get_rhino_host_rejects_missing_explicit_port_without_http_probe(
+    discovery_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write_instance(
+        discovery_dir / "instance-7101-native.json",
+        {
+            "port": 9950,
+            "processId": 7101,
+            "pluginType": "native",
+        },
+    )
+
+    class UnexpectedAsyncClient:
+        def __init__(self, *args, **kwargs) -> None:
+            raise AssertionError("get_rhino_host must not create an HTTP client")
+
+    monkeypatch.setattr(bridge.httpx, "AsyncClient", UnexpectedAsyncClient)
+
+    result = bridge.get_rhino_host(port=9999)
+
+    assert result is None
+
+
 def test_get_rhino_host_rejects_scoped_port_with_wrong_process_id(
     discovery_dir: Path,
 ) -> None:
@@ -980,6 +1019,45 @@ async def test_call_rhino_returns_error_when_no_instance(discovery_dir: Path) ->
 
     assert result["success"] is False
     assert "No Rhino instance discovered" in result["data"]
+
+
+@pytest.mark.asyncio
+async def test_call_rhino_rejects_missing_explicit_port_without_http_probe(
+    discovery_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write_instance(
+        discovery_dir / "instance-7101-native.json",
+        {
+            "port": 9950,
+            "processId": 7101,
+            "pluginType": "native",
+        },
+    )
+    called = False
+
+    class UnexpectedAsyncClient:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+        async def get(self, url: str, params: dict[str, str] | None = None):
+            nonlocal called
+            called = True
+            raise RuntimeError(f"HTTP client invoked for {url}")
+
+    monkeypatch.setattr(bridge.httpx, "AsyncClient", UnexpectedAsyncClient)
+
+    result = await bridge.call_rhino("/ping", port=9999)
+
+    assert result["success"] is False
+    assert "No Rhino instance discovered" in result["data"]
+    assert called is False
 
 
 # ─── Host loopback validation (security Phase 1B) ────────────────────
