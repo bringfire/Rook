@@ -16,6 +16,15 @@ function Assert-Contains {
     Assert-True -Condition $Text.Contains($Expected) -Message $Message
 }
 
+function Get-RepoReleaseVersion {
+    $pyprojectPath = Join-Path $RepoRoot 'mcp_server\pyproject.toml'
+    $pyprojectText = Get-Content -LiteralPath $pyprojectPath -Raw
+    if ($pyprojectText -notmatch '(?m)^version\s*=\s*"([^"]+)"') {
+        throw "Could not resolve release version from $pyprojectPath"
+    }
+    return $Matches[1]
+}
+
 function Invoke-Validator {
     param([string[]]$Arguments)
 
@@ -34,7 +43,7 @@ function Invoke-Validator {
 
 function New-ValidatorFixture {
     param(
-        [string]$Version = '1.5.7',
+        [string]$Version = (Get-RepoReleaseVersion),
         [string]$GitSha = '',
         [string]$PingResult = 'pong',
         [int]$NativePort = 9876,
@@ -117,7 +126,7 @@ function New-ValidatorFixture {
 
 function Test-ValidatorWritesExactArtifactManifest {
     Assert-True -Condition (Test-Path $Validator) -Message "Validator script is missing: $Validator"
-    $version = '1.5.7'
+    $version = Get-RepoReleaseVersion
     $fixture = New-ValidatorFixture -Version $version
 
     try {
