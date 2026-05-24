@@ -301,6 +301,77 @@ async def test_live_smoke_launches_grasshopper_when_not_ready(monkeypatch):
     assert chirp_call["deterministic_only"] is True
 
 
+@pytest.mark.asyncio
+async def test_live_smoke_polls_after_grasshopper_command_timeout(monkeypatch):
+    calls = []
+
+    async def fake_dispatch(name: str, args: dict):
+        calls.append((name, args))
+        if name == "rhino_ping":
+            return {"success": True, "data": {"processId": 42, "port": 9001}}
+        if name == "gh_status":
+            if any(call[0] == "gh_document_new" for call in calls):
+                return {"success": True, "data": {"ready_for_edit": True}}
+            return {"success": True, "data": {"available": False, "ready_for_edit": False}}
+        if name == "rhino_command":
+            return {
+                "success": False,
+                "data": {
+                    "code": "native_command_timeout",
+                    "execution_may_have_occurred": True,
+                    "state_uncertain": True,
+                },
+            }
+        if name == "gh_document_new":
+            return {"success": True, "data": {"documentName": "Untitled"}}
+        if name == "chirp_create":
+            return {"success": True, "data": {"component_guid": "abc", "compilation_errors": []}}
+        if name == "gh_errors":
+            return {"success": True, "data": {"errors": []}}
+        if name == "gh_undo":
+            return {"success": True, "data": {"undone": True}}
+        raise AssertionError(name)
+
+    monkeypatch.setattr(proof, "_call_tool_dispatch", fake_dispatch)
+
+    async def fake_sleep(_seconds: float):
+        return None
+
+    monkeypatch.setattr(proof.asyncio, "sleep", fake_sleep)
+
+    result = await proof.run_live_smoke(port=9001, process_id=42)
+
+    assert result["grasshopper_ready"]["opened"] is True
+    assert result["grasshopper_ready"]["rhino_command"]["data"]["code"] == "native_command_timeout"
+    assert any(name == "gh_document_new" for name, _ in calls)
+
+
+@pytest.mark.asyncio
+async def test_live_smoke_rejects_grasshopper_timeout_without_uncertain_launch_flags(monkeypatch):
+    async def fake_dispatch(name: str, args: dict):
+        if name == "rhino_ping":
+            return {"success": True, "data": {"processId": 42, "port": 9001}}
+        if name == "gh_status":
+            return {"success": True, "data": {"available": False, "ready_for_edit": False}}
+        if name == "rhino_command":
+            return {
+                "success": False,
+                "data": {
+                    "code": "native_command_timeout",
+                    "command": "_Grasshopper",
+                },
+            }
+        raise AssertionError(name)
+
+    monkeypatch.setattr(proof, "_call_tool_dispatch", fake_dispatch)
+
+    with pytest.raises(proof.ProofFailure) as exc:
+        await proof.run_live_smoke(port=9001, process_id=42)
+
+    assert exc.value.failure_label == "gh_not_ready"
+    assert exc.value.details["rhino_command"]["data"]["code"] == "native_command_timeout"
+
+
 def test_write_json_writes_gate_envelope(tmp_path: Path):
     path = tmp_path / "gate.json"
     result = proof.GateResult.passed(

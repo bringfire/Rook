@@ -558,6 +558,13 @@ def _gh_ready(status: dict[str, Any]) -> bool:
     )
 
 
+def _grasshopper_launch_may_have_started(result: dict[str, Any]) -> bool:
+    data = result.get("data")
+    if isinstance(data, dict):
+        return bool(data.get("execution_may_have_occurred") or data.get("state_uncertain"))
+    return False
+
+
 async def _ensure_grasshopper_ready(args: dict[str, int]) -> dict[str, Any]:
     status = await _call_tool_dispatch("gh_status", dict(args))
     if _gh_ready(status):
@@ -567,7 +574,7 @@ async def _ensure_grasshopper_ready(args: dict[str, int]) -> dict[str, Any]:
         "rhino_command",
         {**args, "command": "_Grasshopper", "echo": False},
     )
-    if not open_result.get("success"):
+    if not open_result.get("success") and not _grasshopper_launch_may_have_started(open_result):
         raise ProofFailure(
             "gh_not_ready",
             "failed to launch Grasshopper",
