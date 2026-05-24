@@ -120,8 +120,8 @@ namespace
         if (size <= 1)
             return "";
 
-        std::string result(static_cast<size_t>(size - 1), '\0');
-        ::WideCharToMultiByte(
+        std::string result(static_cast<size_t>(size), '\0');
+        const int written = ::WideCharToMultiByte(
             CP_UTF8,
             0,
             value.c_str(),
@@ -130,6 +130,10 @@ namespace
             size,
             nullptr,
             nullptr);
+        if (written <= 1 || written > size)
+            return "";
+
+        result.resize(static_cast<size_t>(written - 1));
         return result;
     }
 

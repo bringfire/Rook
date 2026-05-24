@@ -85,6 +85,14 @@ function Test-NativeDiscoveryKeepsOperationalPathsNative {
     Assert-Contains -Text $cppContent -Expected 'PathToUtf8String(m_discovery_path)' -Message 'Unload diagnostics should convert the retained native path to UTF-8 only for logging.'
 }
 
+function Test-NativeUtf8ConversionDoesNotOverflowTerminator {
+    $content = Get-Content -Path $RookServerCpp -Raw
+
+    Assert-Contains -Text $content -Expected "std::string result(static_cast<size_t>(size), '\0');" -Message 'WideToUtf8String must allocate space for the terminating NUL returned by WideCharToMultiByte.'
+    Assert-Contains -Text $content -Expected 'const int written = ::WideCharToMultiByte(' -Message 'WideToUtf8String must check the second WideCharToMultiByte result before resizing.'
+    Assert-Contains -Text $content -Expected 'result.resize(static_cast<size_t>(written - 1));' -Message 'WideToUtf8String must trim the terminating NUL only after a checked conversion.'
+}
+
 function Test-HeaderDocumentsSharedDiscoveryRoot {
     $content = Get-Content -Path $RookServerHeader -Raw
 
@@ -96,6 +104,7 @@ Test-NativeDiscoveryPublishesRhinoInsideMetadata
 Test-NativeDiscoveryDiagnosticsAreDurable
 Test-NativeCleanupDiagnostics
 Test-NativeDiscoveryKeepsOperationalPathsNative
+Test-NativeUtf8ConversionDoesNotOverflowTerminator
 Test-HeaderDocumentsSharedDiscoveryRoot
 
 Write-Host 'rhino-inside-discovery-guards.tests.ps1 passed'
