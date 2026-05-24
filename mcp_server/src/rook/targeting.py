@@ -6,7 +6,7 @@ import os
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from .bridge import call_rhino, discover_instances
+from .bridge import call_rhino, discover_instances, discovery_diagnostics
 
 
 @dataclass(frozen=True)
@@ -37,6 +37,8 @@ class ToolRoute:
     instances: list[dict[str, Any]] | None = None
     alternatives: list[dict[str, Any]] | None = None
     document_serial_number: int | None = None
+    requested_port: int | None = None
+    invalid_port: object | None = None
 
 
 Risk = Literal["read", "mutate", "meta"]
@@ -683,6 +685,14 @@ def instance_ref_from_instance(instance: dict[str, Any]) -> InstanceRef | None:
     return InstanceRef(port=port, process_id=process_id)
 
 
+def _valid_explicit_port(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int) and value > 0:
+        return value
+    return None
+
+
 def _native_preferred_instance(
     process_id: int,
     instances: list[dict[str, Any]],
@@ -833,7 +843,7 @@ def resolve_active_target() -> ActiveTargetResolution:
     )
 
 
-def resolve_tool_route(name: str, *, explicit_port: int | None = None) -> ToolRoute:
+def resolve_tool_route(name: str, *, explicit_port: object | None = None) -> ToolRoute:
     policy = policy_for_tool(name)
     if not policy.requires_rhino:
         return ToolRoute(success=True, selection="none")
@@ -845,6 +855,17 @@ def resolve_tool_route(name: str, *, explicit_port: int | None = None) -> ToolRo
             error="panel_target_config_error",
             instances=instances,
         )
+
+    if explicit_port is not None:
+        normalized_port = _valid_explicit_port(explicit_port)
+        if normalized_port is None:
+            return ToolRoute(
+                success=False,
+                error="invalid_requested_port",
+                invalid_port=explicit_port,
+                instances=instances,
+            )
+        explicit_port = normalized_port
 
     lock = _PANEL_TARGET_LOCK
     if lock is not None:
@@ -897,7 +918,8 @@ def resolve_tool_route(name: str, *, explicit_port: int | None = None) -> ToolRo
                 )
         return ToolRoute(
             success=False,
-            error="rhino_target_unavailable",
+            error="requested_port_not_discovered",
+            requested_port=explicit_port,
             instances=instances,
         )
 
@@ -1193,6 +1215,29 @@ def route_error_result(route: ToolRoute) -> dict[str, Any]:
         return _error_result(
             "multiple_rhino_instances",
             message="Multiple Rhino instances are available. Bind one with rhino_set_active_instance or pass port.",
+            instances=route.instances or [],
+        )
+    if route.error == "requested_port_not_discovered":
+        diagnostics = discovery_diagnostics()
+        return _error_result(
+            "requested_port_not_discovered",
+            message=(
+                "No discovered RookNative instance owns the requested port. "
+                "Native discovery publication may have failed or MCP may be looking in a different discovery folder."
+            ),
+            requestedPort=route.requested_port,
+            discoveryFolder=diagnostics.get("discoveryFolder"),
+            discoveryFolders=diagnostics.get("discoveryFolders"),
+            selection=diagnostics.get("selection"),
+            tempRoot=diagnostics.get("tempRoot"),
+            legacyTempDiscoveryFolder=diagnostics.get("legacyTempDiscoveryFolder"),
+            instances=route.instances or [],
+        )
+    if route.error == "invalid_requested_port":
+        return _error_result(
+            "invalid_requested_port",
+            message="Explicit Rhino port must be a positive integer discovered in Rook metadata.",
+            invalidPort=repr(route.invalid_port),
             instances=route.instances or [],
         )
     if route.error == "rhino_target_unavailable":
