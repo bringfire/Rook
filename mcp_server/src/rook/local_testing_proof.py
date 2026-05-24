@@ -17,6 +17,8 @@ except ModuleNotFoundError:  # Python 3.10 support floor.
     tomllib = None  # type: ignore[assignment]
 
 from .bridge import rhino_request_context
+from .learning.command_knowledge_store import CommandKnowledgeStore
+from .preflight import preflight_rhino_command
 from .runtime_harness import CleanupStatus, run_rhino_runtime_harness
 from .runtime_paths import resolve_runtime_paths
 
@@ -471,6 +473,39 @@ def verify_effective_configs(
     }
 
 
+def verify_command_knowledge_runtime() -> dict[str, Any]:
+    store = CommandKnowledgeStore()
+    diagnostics = store.layering_diagnostics()
+    grasshopper_source = store.get_command_source("-Grasshopper")
+    preflight = preflight_rhino_command("_Grasshopper", store)
+    details = {
+        "command_knowledge": diagnostics,
+        "grasshopper_source": grasshopper_source,
+        "grasshopper_preflight": "passed" if preflight is None else preflight,
+    }
+
+    if preflight is not None:
+        raise ProofFailure(
+            "command_knowledge_stale",
+            "Grasshopper command knowledge failed preflight",
+            details,
+        )
+    if grasshopper_source == "missing":
+        raise ProofFailure(
+            "command_knowledge_stale",
+            "Grasshopper command knowledge is missing",
+            details,
+        )
+    if grasshopper_source not in {"bundled", "layered"}:
+        raise ProofFailure(
+            "command_knowledge_stale",
+            "Grasshopper command knowledge must come from bundled release metadata",
+            details,
+        )
+
+    return details
+
+
 def verify_installed_runtime(command: list[str]) -> GateResult:
     started = time.monotonic()
     try:
@@ -499,6 +534,7 @@ def verify_installed_runtime(command: list[str]) -> GateResult:
             raise ProofFailure("runtime_path_mismatch", "ROOK_DATA_DIR mismatch")
 
         chirp_details = verify_chirp_runtime(expected_chirp_root)
+        command_knowledge_details = verify_command_knowledge_runtime()
         config_details = verify_effective_configs(
             paths=paths,
             venv_python=Path(sys.executable),
@@ -515,6 +551,7 @@ def verify_installed_runtime(command: list[str]) -> GateResult:
                 "install_root": str(install_root),
                 "data_root": str(data_root),
                 **chirp_details,
+                **command_knowledge_details,
                 **config_details,
             },
         )

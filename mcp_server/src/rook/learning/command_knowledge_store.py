@@ -8,6 +8,7 @@ This is used by:
 - Execution mode: Read knowledge to execute commands correctly
 """
 
+import copy
 import json
 import logging
 import re
@@ -16,7 +17,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from ..runtime_paths import resolve_readable_knowledge_path, resolve_writable_knowledge_path
+from ..runtime_paths import (
+    get_bundled_knowledge_root,
+    resolve_readable_knowledge_path,
+    resolve_writable_knowledge_path,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +32,14 @@ def _default_command_knowledge_path() -> Path:
 
 def _default_command_knowledge_read_path() -> Path:
     return resolve_readable_knowledge_path("commands", "command_knowledge.json")
+
+
+def _default_bundled_command_knowledge_path() -> Path:
+    return get_bundled_knowledge_root().joinpath("commands", "command_knowledge.json")
+
+
+def _paths_equal(left: Path, right: Path) -> bool:
+    return str(left.expanduser().resolve()).casefold() == str(right.expanduser().resolve()).casefold()
 
 
 def _default_command_structure_path() -> Path:
@@ -209,6 +222,13 @@ class CommandKnowledgeStore:
         self.structure_path = Path(structure_path) if structure_path is not None else _default_command_structure_path()
         self.condensed_path = Path(condensed_path) if condensed_path is not None else _default_condensed_command_path()
         self._cache: Optional[dict] = None
+        self._bundled_cache: Optional[dict] = None
+        self._mutable_cache: Optional[dict] = None
+        self._command_sources: dict[str, str] = {}
+        self._layered_default_paths = path is None and not _paths_equal(
+            _default_bundled_command_knowledge_path(),
+            self.path,
+        )
         self._dirty: bool = False
 
         # Structure-aware caches (Phase 4 enhancement)
@@ -225,6 +245,28 @@ class CommandKnowledgeStore:
     # =========================================================================
     # READ OPERATIONS
     # =========================================================================
+
+    def get_command_source(self, command: str) -> str:
+        """Return where a command came from: bundled, mutable, layered, or missing."""
+
+        normalized = self._normalize_command(command)
+        return self._command_sources.get(normalized, "missing")
+
+    def layering_diagnostics(self) -> dict:
+        """Return command-knowledge layering provenance for diagnostics/tests."""
+
+        bundled_commands = (self._bundled_cache or {}).get("commands", {})
+        mutable_commands = (self._mutable_cache or {}).get("commands", {})
+        effective_commands = (self._cache or {}).get("commands", {})
+        return {
+            "layered": self._layered_default_paths,
+            "bundled_path": str(_default_bundled_command_knowledge_path() if self._layered_default_paths else self.path),
+            "mutable_path": str(self.path),
+            "bundled_count": len(bundled_commands) if isinstance(bundled_commands, dict) else 0,
+            "mutable_count": len(mutable_commands) if isinstance(mutable_commands, dict) else 0,
+            "mutable_only_count": sum(1 for source in self._command_sources.values() if source == "mutable"),
+            "effective_count": len(effective_commands) if isinstance(effective_commands, dict) else 0,
+        }
 
     def get_command(self, command: str) -> Optional[CommandKnowledge]:
         """Get knowledge for a specific command.
@@ -817,13 +859,11 @@ class CommandKnowledgeStore:
         Returns:
             True if updated successfully
         """
-        if self._cache is None:
-            self._cache = {"version": "1.0", "commands": {}}
-
-        if "commands" not in self._cache:
-            self._cache["commands"] = {}
-
         normalized = self._normalize_command(knowledge.command)
+        if self._is_bundled_command(normalized):
+            logger.warning(f"Refusing to overwrite bundled command safety contract for {normalized}")
+            return False
+
         now = datetime.now(timezone.utc).isoformat()
 
         # Convert modes to dict format
@@ -853,8 +893,9 @@ class CommandKnowledgeStore:
             "last_updated": now,
         }
 
-        self._cache["commands"][normalized] = cmd_data
+        self._mutable_commands()[normalized] = cmd_data
         self._dirty = True
+        self._rebuild_effective_cache()
 
         # Auto-save
         self.save()
@@ -876,13 +917,12 @@ class CommandKnowledgeStore:
         Returns:
             The created CommandKnowledge object
         """
-        if self._cache is None:
-            self._cache = {"version": "1.0", "commands": {}}
-
         normalized = self._normalize_command(command)
-
-        if "commands" not in self._cache:
-            self._cache["commands"] = {}
+        if self._is_bundled_command(normalized):
+            cmd = self.get_command(normalized)
+            if cmd is None:
+                raise RuntimeError(f"Bundled command {normalized} is unavailable")
+            return cmd
 
         now = datetime.now(timezone.utc).isoformat()
 
@@ -898,8 +938,9 @@ class CommandKnowledgeStore:
             "last_updated": now,
         }
 
-        self._cache["commands"][normalized] = cmd_data
+        self._mutable_commands()[normalized] = cmd_data
         self._dirty = True
+        self._rebuild_effective_cache()
 
         return CommandKnowledge.from_dict(normalized, cmd_data)
 
@@ -926,12 +967,15 @@ class CommandKnowledgeStore:
             True if added, False if command not found
         """
         normalized = self._normalize_command(command)
+        if self._is_bundled_command(normalized):
+            logger.warning(f"Refusing to add mutable mode overlay for bundled command {normalized}")
+            return False
 
         if self._cache is None or normalized not in self._cache.get("commands", {}):
             # Create command if it doesn't exist
             self.add_command(normalized)
 
-        cmd_data = self._cache["commands"][normalized]
+        cmd_data = self._ensure_mutable_full_command(normalized)
 
         if "modes" not in cmd_data:
             cmd_data["modes"] = {}
@@ -945,6 +989,7 @@ class CommandKnowledgeStore:
 
         cmd_data["last_updated"] = datetime.now(timezone.utc).isoformat()
         self._dirty = True
+        self._rebuild_effective_cache()
 
         return True
 
@@ -965,11 +1010,14 @@ class CommandKnowledgeStore:
             True if updated, False if not found
         """
         normalized = self._normalize_command(command)
-
-        if self._cache is None:
+        if self._is_bundled_command(normalized):
+            logger.warning(f"Refusing to update mutable mode overlay for bundled command {normalized}")
             return False
 
-        commands = self._cache.get("commands", {})
+        if self._mutable_cache is None:
+            return False
+
+        commands = self._mutable_cache.get("commands", {})
         if normalized not in commands:
             return False
 
@@ -982,6 +1030,7 @@ class CommandKnowledgeStore:
         modes[mode_name].update(updates)
         cmd_data["last_updated"] = datetime.now(timezone.utc).isoformat()
         self._dirty = True
+        self._rebuild_effective_cache()
 
         return True
 
@@ -997,14 +1046,14 @@ class CommandKnowledgeStore:
         """
         normalized = self._normalize_command(command)
 
-        if self._cache is None:
+        if self._cache is None or normalized not in self._cache.get("commands", {}):
             return False
 
-        commands = self._cache.get("commands", {})
-        if normalized not in commands:
-            return False
-
-        cmd_data = commands[normalized]
+        cmd_data = (
+            self._ensure_mutable_overlay_command(normalized)
+            if self._is_bundled_command(normalized)
+            else self._ensure_mutable_full_command(normalized)
+        )
 
         if "gotchas" not in cmd_data:
             cmd_data["gotchas"] = []
@@ -1016,6 +1065,7 @@ class CommandKnowledgeStore:
         cmd_data["gotchas"].append(gotcha)
         cmd_data["last_updated"] = datetime.now(timezone.utc).isoformat()
         self._dirty = True
+        self._rebuild_effective_cache()
 
         return True
 
@@ -1031,11 +1081,14 @@ class CommandKnowledgeStore:
             True if added, False if command not found
         """
         normalized = self._normalize_command(command)
-
-        if self._cache is None:
+        if self._is_bundled_command(normalized):
+            logger.warning(f"Refusing to add mutable option overlay for bundled command {normalized}")
             return False
 
-        commands = self._cache.get("commands", {})
+        if self._mutable_cache is None:
+            return False
+
+        commands = self._mutable_cache.get("commands", {})
         if normalized not in commands:
             return False
 
@@ -1047,6 +1100,7 @@ class CommandKnowledgeStore:
         cmd_data["options"][option] = description
         cmd_data["last_updated"] = datetime.now(timezone.utc).isoformat()
         self._dirty = True
+        self._rebuild_effective_cache()
 
         return True
 
@@ -1061,17 +1115,18 @@ class CommandKnowledgeStore:
         """
         normalized = self._normalize_command(command)
 
-        if self._cache is None:
+        if self._cache is None or normalized not in self._cache.get("commands", {}):
             return False
 
-        commands = self._cache.get("commands", {})
-        if normalized not in commands:
-            return False
-
-        cmd_data = commands[normalized]
+        cmd_data = (
+            self._ensure_mutable_overlay_command(normalized)
+            if self._is_bundled_command(normalized)
+            else self._ensure_mutable_full_command(normalized)
+        )
         cmd_data["observations_count"] = cmd_data.get("observations_count", 0) + 1
         cmd_data["last_updated"] = datetime.now(timezone.utc).isoformat()
         self._dirty = True
+        self._rebuild_effective_cache()
 
         return True
 
@@ -1086,11 +1141,14 @@ class CommandKnowledgeStore:
             True if set, False if command not found
         """
         normalized = self._normalize_command(command)
-
-        if self._cache is None:
+        if self._is_bundled_command(normalized):
+            logger.warning(f"Refusing to set mutable description overlay for bundled command {normalized}")
             return False
 
-        commands = self._cache.get("commands", {})
+        if self._mutable_cache is None:
+            return False
+
+        commands = self._mutable_cache.get("commands", {})
         if normalized not in commands:
             return False
 
@@ -1098,6 +1156,7 @@ class CommandKnowledgeStore:
         cmd_data["description"] = description
         cmd_data["last_updated"] = datetime.now(timezone.utc).isoformat()
         self._dirty = True
+        self._rebuild_effective_cache()
 
         return True
 
@@ -1113,17 +1172,18 @@ class CommandKnowledgeStore:
         """
         normalized = self._normalize_command(command)
 
-        if self._cache is None:
+        if self._cache is None or normalized not in self._cache.get("commands", {}):
             return False
 
-        commands = self._cache.get("commands", {})
-        if normalized not in commands:
-            return False
-
-        cmd_data = commands[normalized]
+        cmd_data = (
+            self._ensure_mutable_overlay_command(normalized)
+            if self._is_bundled_command(normalized)
+            else self._ensure_mutable_full_command(normalized)
+        )
         cmd_data["related_commands"] = related
         cmd_data["last_updated"] = datetime.now(timezone.utc).isoformat()
         self._dirty = True
+        self._rebuild_effective_cache()
 
         return True
 
@@ -1146,17 +1206,18 @@ class CommandKnowledgeStore:
         """
         normalized = self._normalize_command(command)
 
-        if self._cache is None:
+        if self._cache is None or normalized not in self._cache.get("commands", {}):
             return False
 
-        commands = self._cache.get("commands", {})
-        if normalized not in commands:
-            return False
-
-        cmd_data = commands[normalized]
+        cmd_data = (
+            self._ensure_mutable_overlay_command(normalized)
+            if self._is_bundled_command(normalized)
+            else self._ensure_mutable_full_command(normalized)
+        )
         cmd_data["observations_count"] = cmd_data.get("observations_count", 0) + 1
         cmd_data["last_updated"] = datetime.now(timezone.utc).isoformat()
         self._dirty = True
+        self._rebuild_effective_cache()
 
         return True
 
@@ -1164,13 +1225,175 @@ class CommandKnowledgeStore:
     # PERSISTENCE
     # =========================================================================
 
+    def _empty_cache(self) -> dict:
+        return {"version": "1.0", "commands": {}}
+
+    def _load_json_cache(self, path: Path, *, missing_log_level: str = "debug") -> tuple[dict, bool]:
+        if not path.exists():
+            message = f"Command knowledge file not found: {path}"
+            if missing_log_level == "warning":
+                logger.warning(message)
+            else:
+                logger.debug(message)
+            return self._empty_cache(), False
+
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                payload = json.load(f)
+            if not isinstance(payload, dict):
+                return self._empty_cache(), False
+            if "commands" not in payload or not isinstance(payload.get("commands"), dict):
+                payload["commands"] = {}
+            return payload, True
+        except Exception as e:
+            logger.error(f"Failed to load command knowledge {path}: {e}")
+            return self._empty_cache(), False
+
+    @staticmethod
+    def _dedupe_sequence(values: list) -> list:
+        result = []
+        seen = set()
+        for value in values:
+            key = json.dumps(value, sort_keys=True) if isinstance(value, (dict, list)) else value
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append(value)
+        return result
+
+    @staticmethod
+    def _int_value(value: object) -> int:
+        return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+    @staticmethod
+    def _list_value(value: object) -> list:
+        return value if isinstance(value, list) else []
+
+    def _merge_command_overlay(self, bundled: dict, mutable: dict) -> dict:
+        merged = copy.deepcopy(bundled)
+        merged["gotchas"] = self._dedupe_sequence(
+            self._list_value(bundled.get("gotchas")) + self._list_value(mutable.get("gotchas"))
+        )
+        merged["related_commands"] = self._dedupe_sequence(
+            self._list_value(bundled.get("related_commands")) + self._list_value(mutable.get("related_commands"))
+        )
+        merged["observations_count"] = self._int_value(bundled.get("observations_count")) + self._int_value(
+            mutable.get("observations_count")
+        )
+        if mutable.get("last_updated"):
+            merged["last_updated"] = mutable.get("last_updated")
+        return merged
+
+    def _rebuild_effective_cache(self) -> None:
+        if not self._layered_default_paths:
+            self._cache = self._mutable_cache or self._empty_cache()
+            commands = self._cache.get("commands", {}) if isinstance(self._cache, dict) else {}
+            self._command_sources = {name: "mutable" for name in commands.keys()}
+            return
+
+        bundled = self._bundled_cache or self._empty_cache()
+        mutable = self._mutable_cache or self._empty_cache()
+        bundled_commands = bundled.get("commands", {}) if isinstance(bundled.get("commands"), dict) else {}
+        mutable_commands = mutable.get("commands", {}) if isinstance(mutable.get("commands"), dict) else {}
+
+        effective = {
+            "version": bundled.get("version", mutable.get("version", "1.0")),
+            "commands": {},
+        }
+        if bundled.get("last_updated"):
+            effective["last_updated"] = bundled.get("last_updated")
+
+        self._command_sources = {}
+        for command, bundled_data in bundled_commands.items():
+            if command in mutable_commands:
+                effective["commands"][command] = self._merge_command_overlay(bundled_data, mutable_commands[command])
+                self._command_sources[command] = "layered"
+            else:
+                effective["commands"][command] = copy.deepcopy(bundled_data)
+                self._command_sources[command] = "bundled"
+
+        for command, mutable_data in mutable_commands.items():
+            if command in bundled_commands:
+                continue
+            effective["commands"][command] = copy.deepcopy(mutable_data)
+            self._command_sources[command] = "mutable"
+
+        self._cache = effective
+
+    def _mutable_commands(self) -> dict:
+        if self._mutable_cache is None:
+            self._mutable_cache = self._empty_cache()
+        if "commands" not in self._mutable_cache or not isinstance(self._mutable_cache.get("commands"), dict):
+            self._mutable_cache["commands"] = {}
+        return self._mutable_cache["commands"]
+
+    def _is_bundled_command(self, normalized: str) -> bool:
+        if not self._layered_default_paths or self._bundled_cache is None:
+            return False
+        commands = self._bundled_cache.get("commands", {})
+        return isinstance(commands, dict) and normalized in commands
+
+    def _to_mutable_overlay_command(self, normalized: str, source: dict) -> dict:
+        overlay = {"command": normalized}
+        gotchas = self._list_value(source.get("gotchas"))
+        related = self._list_value(source.get("related_commands"))
+        observations_count = self._int_value(source.get("observations_count"))
+        if gotchas:
+            overlay["gotchas"] = gotchas
+        if related:
+            overlay["related_commands"] = related
+        if observations_count:
+            overlay["observations_count"] = observations_count
+        if source.get("last_updated"):
+            overlay["last_updated"] = source.get("last_updated")
+        return overlay
+
+    def _prune_mutable_bundled_overlays(self) -> None:
+        if not self._layered_default_paths or self._mutable_cache is None:
+            return
+        commands = self._mutable_cache.get("commands", {})
+        if not isinstance(commands, dict):
+            return
+        for command, command_data in list(commands.items()):
+            if self._is_bundled_command(command) and isinstance(command_data, dict):
+                commands[command] = self._to_mutable_overlay_command(command, command_data)
+
+    def _ensure_mutable_overlay_command(self, normalized: str) -> dict:
+        commands = self._mutable_commands()
+        if normalized not in commands or not isinstance(commands.get(normalized), dict):
+            commands[normalized] = {
+                "command": normalized,
+                "gotchas": [],
+                "related_commands": [],
+                "observations_count": 0,
+            }
+        else:
+            commands[normalized] = self._to_mutable_overlay_command(normalized, commands[normalized])
+        return commands[normalized]
+
+    def _ensure_mutable_full_command(self, normalized: str, description: str = "") -> dict:
+        commands = self._mutable_commands()
+        if normalized not in commands or not isinstance(commands.get(normalized), dict):
+            commands[normalized] = {
+                "command": normalized,
+                "description": description,
+                "modes": {},
+                "options": {},
+                "preconditions": {},
+                "gotchas": [],
+                "related_commands": [],
+                "observations_count": 0,
+                "last_updated": datetime.now(timezone.utc).isoformat(),
+            }
+        return commands[normalized]
+
     def save(self) -> bool:
         """Persist changes to disk.
 
         Returns:
             True if saved successfully
         """
-        if self._cache is None:
+        if self._mutable_cache is None:
             return False
 
         if not self._dirty:
@@ -1178,8 +1401,9 @@ class CommandKnowledgeStore:
             return True
 
         try:
+            self._prune_mutable_bundled_overlays()
             # Update metadata
-            self._cache["last_updated"] = datetime.now(timezone.utc).isoformat()
+            self._mutable_cache["last_updated"] = datetime.now(timezone.utc).isoformat()
 
             # Ensure directory exists
             self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -1187,11 +1411,12 @@ class CommandKnowledgeStore:
             # Write atomically
             temp_path = self.path.with_suffix(".tmp")
             with open(temp_path, 'w', encoding='utf-8') as f:
-                json.dump(self._cache, f, indent=2, ensure_ascii=False)
+                json.dump(self._mutable_cache, f, indent=2, ensure_ascii=False)
 
             temp_path.replace(self.path)
 
             self._dirty = False
+            self._rebuild_effective_cache()
             logger.info(f"Saved command knowledge to {self.path}")
             return True
 
@@ -1211,6 +1436,9 @@ class CommandKnowledgeStore:
             Number of commands loaded
         """
         self._cache = None
+        self._bundled_cache = None
+        self._mutable_cache = None
+        self._command_sources = {}
         self._structure_cache = None
         self._condensed_cache = None
         self._command_to_family = {}
@@ -1224,25 +1452,26 @@ class CommandKnowledgeStore:
 
     def _load(self) -> bool:
         """Load knowledge from disk."""
-        read_path = _default_command_knowledge_read_path() if self._uses_default_path else self.path
-
-        if not read_path.exists():
-            logger.warning(f"Command knowledge file not found: {read_path}")
-            self._cache = {"version": "1.0", "commands": {}}
-            return False
-
-        try:
-            with open(read_path, 'r', encoding='utf-8') as f:
-                self._cache = json.load(f)
-
-            cmd_count = len(self._cache.get("commands", {}))
+        if not self._layered_default_paths:
+            self._mutable_cache, loaded = self._load_json_cache(self.path, missing_log_level="warning")
+            self._rebuild_effective_cache()
+            cmd_count = len(self._cache.get("commands", {})) if self._cache else 0
             logger.debug(f"Loaded command knowledge: {cmd_count} commands")
-            return True
+            return loaded
 
-        except Exception as e:
-            logger.error(f"Failed to load command knowledge: {e}")
-            self._cache = {"version": "1.0", "commands": {}}
-            return False
+        bundled_path = _default_bundled_command_knowledge_path()
+        self._bundled_cache, bundled_loaded = self._load_json_cache(bundled_path, missing_log_level="warning")
+        self._mutable_cache, mutable_loaded = self._load_json_cache(self.path)
+        self._rebuild_effective_cache()
+
+        cmd_count = len(self._cache.get("commands", {})) if self._cache else 0
+        logger.debug(
+            "Loaded layered command knowledge: "
+            f"{cmd_count} effective commands "
+            f"({len((self._bundled_cache or {}).get('commands', {}))} bundled, "
+            f"{len((self._mutable_cache or {}).get('commands', {}))} mutable)"
+        )
+        return bundled_loaded or mutable_loaded
 
     def _load_structure(self) -> bool:
         """Load command structure (families, similar pairs, shared gotchas) from disk."""
