@@ -13,11 +13,12 @@ Extracted from server.py to avoid circular imports.
 import ctypes
 import json
 import logging
+import os
 import tempfile
 from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterator, Mapping
 
 import httpx
 
@@ -28,8 +29,47 @@ DEFAULT_HOST = "127.0.0.1"
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost"})
 TIMEOUT = httpx.Timeout(connect=5.0, read=120.0, write=60.0, pool=5.0)
 
-# Discovery folder (matches C# side)
-DISCOVERY_FOLDER = Path(tempfile.gettempdir()) / "rook"
+def resolve_discovery_folder(
+    *,
+    env: Mapping[str, str] | None = None,
+    temp_root: str | Path | None = None,
+) -> tuple[Path, list[Path], dict[str, Any]]:
+    """Resolve primary and compatibility discovery roots used by MCP."""
+    source_env = os.environ if env is None else env
+    resolved_temp_root = Path(temp_root) if temp_root is not None else Path(tempfile.gettempdir())
+    local_app_data = source_env.get("LOCALAPPDATA")
+    legacy_temp_discovery = resolved_temp_root / "rook"
+
+    if local_app_data:
+        selected = Path(local_app_data) / "Rook" / "discovery"
+        selection = "localappdata"
+    else:
+        selected = legacy_temp_discovery
+        selection = "temp"
+
+    folders = [selected]
+    if legacy_temp_discovery != selected:
+        folders.append(legacy_temp_discovery)
+
+    diagnostics = {
+        "selection": selection,
+        "localAppData": local_app_data,
+        "tempRoot": str(resolved_temp_root),
+        "legacyTempDiscoveryFolder": str(legacy_temp_discovery),
+        "discoveryFolders": [str(folder) for folder in folders],
+    }
+
+    return selected, folders, diagnostics
+
+
+DISCOVERY_FOLDER, DISCOVERY_FOLDERS, _DISCOVERY_FOLDER_DIAGNOSTICS = resolve_discovery_folder()
+
+
+def discovery_diagnostics() -> dict[str, Any]:
+    diagnostics = dict(_DISCOVERY_FOLDER_DIAGNOSTICS)
+    diagnostics["discoveryFolder"] = str(DISCOVERY_FOLDER)
+    diagnostics["discoveryFolders"] = [str(folder) for folder in DISCOVERY_FOLDERS]
+    return diagnostics
 
 GH_ROUTE_PREFIX = "/gh/"
 RC_ROUTE_PREFIX = "/rc/"
@@ -320,9 +360,6 @@ def _cleanup_stale_discovery_files() -> list[dict[str, Any]]:
     """
     surviving_instances: list[dict[str, Any]] = []
 
-    if not DISCOVERY_FOLDER.exists():
-        return surviving_instances
-
     patterns = [
         "instance-*.json",
         "native-*.json",
@@ -331,28 +368,32 @@ def _cleanup_stale_discovery_files() -> list[dict[str, Any]]:
         "chirp-service-*.json",
     ]
     seen: set[Path] = set()
-    for pattern in patterns:
-        for file in DISCOVERY_FOLDER.glob(pattern):
-            if file in seen:
-                continue
-            seen.add(file)
-            try:
-                data = json.loads(file.read_text(encoding="utf-8"))
-                pid = data.get("processId") or data.get("pid")
-                if pid and not _is_pid_alive(int(pid)):
-                    logger.debug(f"Removing stale discovery file {file.name} (PID {pid} dead)")
-                    file.unlink(missing_ok=True)
-                    continue
+    for folder in DISCOVERY_FOLDERS:
+        if not folder.exists():
+            continue
 
-                # Keep surviving instance-* records for discover_instances()
-                if file.name.startswith("instance-"):
-                    surviving_instances.append(data)
-            except Exception:
-                # Malformed file — remove it
+        for pattern in patterns:
+            for file in folder.glob(pattern):
+                if file in seen:
+                    continue
+                seen.add(file)
                 try:
-                    file.unlink(missing_ok=True)
+                    data = json.loads(file.read_text(encoding="utf-8"))
+                    pid = data.get("processId") or data.get("pid")
+                    if pid and not _is_pid_alive(int(pid)):
+                        logger.debug(f"Removing stale discovery file {file.name} (PID {pid} dead)")
+                        file.unlink(missing_ok=True)
+                        continue
+
+                    # Keep surviving instance-* records for discover_instances()
+                    if file.name.startswith("instance-"):
+                        surviving_instances.append(data)
                 except Exception:
-                    pass
+                    # Malformed file — remove it
+                    try:
+                        file.unlink(missing_ok=True)
+                    except Exception:
+                        pass
 
     return surviving_instances
 

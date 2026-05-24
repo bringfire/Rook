@@ -26,8 +26,82 @@ def _write_instance(path: Path, data: dict) -> None:
 @pytest.fixture
 def discovery_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setattr(bridge, "DISCOVERY_FOLDER", tmp_path)
+    monkeypatch.setattr(bridge, "DISCOVERY_FOLDERS", [tmp_path])
     monkeypatch.setattr(bridge, "_is_pid_alive", lambda pid: True)
     return tmp_path
+
+
+def test_resolve_discovery_folder_prefers_localappdata(tmp_path: Path) -> None:
+    env = {"LOCALAPPDATA": str(tmp_path / "LocalAppData")}
+
+    folder, folders, diagnostics = bridge.resolve_discovery_folder(env=env, temp_root=tmp_path / "Temp")
+
+    assert folder == tmp_path / "LocalAppData" / "Rook" / "discovery"
+    assert folders == [folder, tmp_path / "Temp" / "rook"]
+    assert diagnostics["selection"] == "localappdata"
+    assert diagnostics["localAppData"] == str(tmp_path / "LocalAppData")
+    assert diagnostics["tempRoot"] == str(tmp_path / "Temp")
+    assert diagnostics["legacyTempDiscoveryFolder"] == str(tmp_path / "Temp" / "rook")
+    assert diagnostics["discoveryFolders"] == [str(folder), str(tmp_path / "Temp" / "rook")]
+
+
+def test_resolve_discovery_folder_falls_back_to_temp(tmp_path: Path) -> None:
+    folder, folders, diagnostics = bridge.resolve_discovery_folder(env={}, temp_root=tmp_path / "Temp")
+
+    assert folder == tmp_path / "Temp" / "rook"
+    assert folders == [folder]
+    assert diagnostics["selection"] == "temp"
+    assert diagnostics["localAppData"] is None
+    assert diagnostics["tempRoot"] == str(tmp_path / "Temp")
+    assert diagnostics["discoveryFolders"] == [str(folder)]
+
+
+def test_discovery_diagnostics_reports_current_folder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(bridge, "DISCOVERY_FOLDER", tmp_path / "selected")
+    monkeypatch.setattr(bridge, "DISCOVERY_FOLDERS", [tmp_path / "selected", tmp_path / "legacy"])
+    monkeypatch.setattr(
+        bridge,
+        "_DISCOVERY_FOLDER_DIAGNOSTICS",
+        {
+            "selection": "localappdata",
+            "localAppData": str(tmp_path / "LocalAppData"),
+            "tempRoot": str(tmp_path / "Temp"),
+            "legacyTempDiscoveryFolder": str(tmp_path / "Temp" / "rook"),
+            "discoveryFolders": [str(tmp_path / "selected"), str(tmp_path / "legacy")],
+        },
+    )
+
+    diagnostics = bridge.discovery_diagnostics()
+
+    assert diagnostics["discoveryFolder"] == str(tmp_path / "selected")
+    assert diagnostics["discoveryFolders"] == [str(tmp_path / "selected"), str(tmp_path / "legacy")]
+    assert diagnostics["selection"] == "localappdata"
+    assert diagnostics["tempRoot"] == str(tmp_path / "Temp")
+
+
+def test_discover_instances_reads_legacy_folder_when_primary_exists(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    primary = tmp_path / "primary"
+    legacy = tmp_path / "legacy"
+    primary.mkdir()
+    legacy.mkdir()
+    monkeypatch.setattr(bridge, "DISCOVERY_FOLDER", primary)
+    monkeypatch.setattr(bridge, "DISCOVERY_FOLDERS", [primary, legacy])
+    monkeypatch.setattr(bridge, "_is_pid_alive", lambda pid: True)
+    _write_instance(
+        legacy / "instance-rc-7101.json",
+        {
+            "host": "127.0.0.1",
+            "port": 9960,
+            "processId": 7101,
+            "pluginType": "roadcreator",
+        },
+    )
+
+    instances = bridge.discover_instances()
+
+    assert len(instances) == 1
+    assert instances[0]["pluginType"] == "roadcreator"
+    assert instances[0]["port"] == 9960
 
 
 def test_process_local_active_target_round_trip() -> None:
