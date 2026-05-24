@@ -194,6 +194,70 @@ def test_verify_chat_manifest_rejects_stale_python(tmp_path: Path):
     assert exc.value.failure_label == "chat_manifest_stale"
 
 
+def test_verify_command_knowledge_runtime_requires_grasshopper_preflight(monkeypatch):
+    class FakeStore:
+        def layering_diagnostics(self):
+            return {
+                "bundled_path": "C:/Rook/app/knowledge/commands/command_knowledge.json",
+                "mutable_path": "C:/Rook/data/commands/command_knowledge.json",
+                "effective_count": 2,
+                "bundled_count": 1,
+                "mutable_only_count": 1,
+            }
+
+        def get_command_source(self, command):
+            return "bundled" if command == "-Grasshopper" else "missing"
+
+    monkeypatch.setattr(proof, "CommandKnowledgeStore", FakeStore, raising=False)
+    monkeypatch.setattr(proof, "preflight_rhino_command", lambda command, store: None, raising=False)
+
+    details = proof.verify_command_knowledge_runtime()
+
+    assert details["grasshopper_preflight"] == "passed"
+    assert details["grasshopper_source"] == "bundled"
+    assert details["command_knowledge"]["effective_count"] == 2
+
+
+def test_verify_command_knowledge_runtime_rejects_shadowed_grasshopper(monkeypatch):
+    class FakeStore:
+        def layering_diagnostics(self):
+            return {"effective_count": 1}
+
+        def get_command_source(self, command):
+            return "mutable" if command == "-Grasshopper" else "missing"
+
+    monkeypatch.setattr(proof, "CommandKnowledgeStore", FakeStore, raising=False)
+    monkeypatch.setattr(
+        proof,
+        "preflight_rhino_command",
+        lambda command, store: {"success": False, "data": {"error": "run_script_safety_refusal"}},
+        raising=False,
+    )
+
+    with pytest.raises(proof.ProofFailure) as exc:
+        proof.verify_command_knowledge_runtime()
+
+    assert exc.value.failure_label == "command_knowledge_stale"
+
+
+def test_verify_command_knowledge_runtime_rejects_mutable_only_grasshopper_even_if_preflight_passes(monkeypatch):
+    class FakeStore:
+        def layering_diagnostics(self):
+            return {"effective_count": 1, "bundled_count": 0, "mutable_only_count": 1}
+
+        def get_command_source(self, command):
+            return "mutable" if command == "-Grasshopper" else "missing"
+
+    monkeypatch.setattr(proof, "CommandKnowledgeStore", FakeStore, raising=False)
+    monkeypatch.setattr(proof, "preflight_rhino_command", lambda command, store: None, raising=False)
+
+    with pytest.raises(proof.ProofFailure) as exc:
+        proof.verify_command_knowledge_runtime()
+
+    assert exc.value.failure_label == "command_knowledge_stale"
+    assert exc.value.details["grasshopper_source"] == "mutable"
+
+
 @pytest.mark.asyncio
 async def test_live_smoke_rejects_chirp_warning(monkeypatch):
     calls = []
