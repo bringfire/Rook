@@ -3,7 +3,9 @@
 // HTTP server for RookNative using cpp-httplib.
 // Runs on a background thread, serves JSON responses on 127.0.0.1.
 // Port is OS-assigned (port 0) — the actual port is published via a
-// discovery file in %TEMP%/rook/.
+// discovery file in the shared discovery root. The default root is
+// %LOCALAPPDATA%/Rook/discovery; when LOCALAPPDATA is unavailable,
+// publication falls back to %TEMP%/rook.
 
 #pragma once
 
@@ -349,5 +351,5 @@ private:
     std::thread m_server_thread;
     int m_port = 0;
     std::atomic<bool> m_running{false};
-    std::string m_discovery_path;
+    std::filesystem::path m_discovery_path;
 };

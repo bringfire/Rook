@@ -20,9 +20,37 @@ from typing import Any, Awaitable, Callable, Protocol
 
 import httpx
 
+from .bridge import resolve_discovery_folder
+
 
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost"}
-DEFAULT_DISCOVERY_DIR = Path(tempfile.gettempdir()) / "rook"
+
+
+def default_discovery_dir() -> Path:
+    folder, _, _ = resolve_discovery_folder(temp_root=Path(tempfile.gettempdir()))
+    return folder
+
+
+def default_temp_rook_dir() -> Path:
+    return default_discovery_dir()
+
+
+@dataclass(frozen=True)
+class ArtifactRoot:
+    label: str
+    path: Path
+
+
+def default_artifact_roots() -> list[ArtifactRoot]:
+    primary, _, diagnostics = resolve_discovery_folder(temp_root=Path(tempfile.gettempdir()))
+    roots = [ArtifactRoot("shared-discovery", primary)]
+    legacy = Path(str(diagnostics["legacyTempDiscoveryFolder"]))
+    if legacy != primary:
+        roots.append(ArtifactRoot("legacy-temp-rook", legacy))
+    return roots
+
+
+DEFAULT_DISCOVERY_DIR = default_discovery_dir()
 MIN_POLL_SECONDS = 0.001
 HARNESS_ENV_KEYS = (
     "ROOK_RHINO_PORT",
@@ -624,6 +652,29 @@ def copy_temp_rook_artifacts(
     return copied
 
 
+def copy_rook_artifacts(
+    result: RhinoHarnessResult,
+    artifact_roots: list[ArtifactRoot],
+    label: str,
+    mtime_slop_seconds: float = 0.0,
+) -> list[Path]:
+    copied: list[Path] = []
+    for root in artifact_roots:
+        root_label = label if not root.label else f"{label}-{root.label}"
+        if mtime_slop_seconds:
+            copied.extend(
+                copy_temp_rook_artifacts(
+                    result,
+                    root.path,
+                    root_label,
+                    mtime_slop_seconds=mtime_slop_seconds,
+                )
+            )
+        else:
+            copied.extend(copy_temp_rook_artifacts(result, root.path, root_label))
+    return copied
+
+
 def _new_run_id() -> str:
     return f"rhino-runtime-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}"
 
@@ -637,7 +688,7 @@ def run_rhino_runtime_harness(
     smoke_cwd: Path | None = None,
     smoke_timeout_seconds: float | None = None,
     discovery: OwnedRhinoDiscovery | None = None,
-    temp_rook_dir: Path = DEFAULT_DISCOVERY_DIR,
+    temp_rook_dir: Path | None = None,
     readiness_timeout_seconds: float = 30.0,
     readiness_poll_seconds: float = 0.25,
     cleanup_timeout_seconds: float = 10.0,
@@ -653,6 +704,11 @@ def run_rhino_runtime_harness(
     artifact_dir = artifact_root / run_id
     run_started_at = time.time()
     warnings: list[str] = []
+    artifact_roots = (
+        [ArtifactRoot("", Path(temp_rook_dir))]
+        if temp_rook_dir is not None
+        else default_artifact_roots()
+    )
 
     rhino_exe = Path(rhino_exe)
     artifact_root = Path(artifact_root)
@@ -683,7 +739,7 @@ def run_rhino_runtime_harness(
             run_started_at=run_started_at,
             warnings=[f"Rhino launch failed: {exc}"],
         )
-        copy_temp_rook_artifacts(result, temp_rook_dir, "launch-failure")
+        copy_rook_artifacts(result, artifact_roots, "launch-failure")
         result.write_manifest()
         return result
     pid = int(process.pid)
@@ -709,13 +765,13 @@ def run_rhino_runtime_harness(
             )
         except DiscoveryError as exc:
             warnings.append(f"Rhino readiness failed: {exc}")
-            copy_temp_rook_artifacts(result, temp_rook_dir, "readiness-failure")
+            copy_rook_artifacts(result, artifact_roots, "readiness-failure")
         else:
             try:
                 confirmed_record = discovery.read_owned_record(pid)
             except DiscoveryError as exc:
                 warnings.append(f"Rhino discovery changed after ping: {exc}")
-                copy_temp_rook_artifacts(result, temp_rook_dir, "readiness-failure")
+                copy_rook_artifacts(result, artifact_roots, "readiness-failure")
                 confirmed_record = None
             else:
                 if confirmed_record.port != record.port or confirmed_record.pid != record.pid:
@@ -724,7 +780,7 @@ def run_rhino_runtime_harness(
                         f"was pid {record.pid} port {record.port}, "
                         f"now pid {confirmed_record.pid} port {confirmed_record.port}"
                     )
-                    copy_temp_rook_artifacts(result, temp_rook_dir, "readiness-failure")
+                    copy_rook_artifacts(result, artifact_roots, "readiness-failure")
                     confirmed_record = None
             if confirmed_record is not None:
                 record = confirmed_record
@@ -759,7 +815,7 @@ def run_rhino_runtime_harness(
                             result,
                             runscript_safety_unrecovered_path=unrecovered_path,
                         )
-                    copy_temp_rook_artifacts(result, temp_rook_dir, "smoke-failure")
+                    copy_rook_artifacts(result, artifact_roots, "smoke-failure")
                 else:
                     result = replace(result, smoke=smoke)
                     unrecovered_path = _runscript_safety_unrecovered_path(artifact_dir)
@@ -773,14 +829,14 @@ def run_rhino_runtime_harness(
                         )
                     elif smoke_kind != "ping-only":
                         save_owned_document_for_cleanup(record, artifact_dir, warnings)
-                    copy_temp_rook_artifacts(result, temp_rook_dir, "before-shutdown")
+                    copy_rook_artifacts(result, artifact_roots, "before-shutdown")
                     before_shutdown_copied = True
                     if not smoke.succeeded:
                         warnings.append(f"Rhino smoke command failed with exit code {smoke.returncode}")
-                        copy_temp_rook_artifacts(result, temp_rook_dir, "smoke-failure")
+                        copy_rook_artifacts(result, artifact_roots, "smoke-failure")
     finally:
         if not before_shutdown_copied:
-            copy_temp_rook_artifacts(result, temp_rook_dir, "before-shutdown")
+            copy_rook_artifacts(result, artifact_roots, "before-shutdown")
         already_exited_before_cleanup = process.poll() is not None
         should_keep_on_failure = (
             keep_rhino_on_failure
@@ -826,7 +882,7 @@ def run_rhino_runtime_harness(
                 force_failed=force_failed,
             )
         result = replace(result, cleanup_status=cleanup_status)
-        copy_temp_rook_artifacts(result, temp_rook_dir, "after-shutdown")
+        copy_rook_artifacts(result, artifact_roots, "after-shutdown")
         result.write_manifest()
 
     return result
@@ -879,8 +935,8 @@ async def ping_native(host: str, port: int) -> bool:
 
 
 class OwnedRhinoDiscovery:
-    def __init__(self, discovery_dir: Path = DEFAULT_DISCOVERY_DIR):
-        self.discovery_dir = discovery_dir
+    def __init__(self, discovery_dir: Path | None = None):
+        self.discovery_dir = discovery_dir or default_discovery_dir()
 
     def owned_path(self, pid: int) -> Path:
         return self.discovery_dir / f"instance-{pid}-native.json"

@@ -1,6 +1,6 @@
 # Current Architecture
 
-Updated: 2026-04-03
+Updated: 2026-05-24
 
 This file is the short canonical description of the live runtime architecture.
 
@@ -32,7 +32,7 @@ Rhino 3D / Grasshopper
 ## Public Surface
 
 - `RookNative` is the **only** public Rhino plugin and the **only** HTTP surface
-- All ports are OS-assigned (port 0) — discovered via JSON files in `%TEMP%/rook/`
+- All ports are OS-assigned (port 0) — discovered via JSON files in the shared discovery root
 - MCP clients and internal Python tooling target the discovered native instance
 
 ## C++ Native Plugin (`src/RookNative/`)
@@ -43,7 +43,7 @@ Rhino 3D / Grasshopper
 | HTTP library | cpp-httplib, port 0 (OS-assigned) |
 | Thread pool | 8 threads (capped) |
 | Thread dispatch | CMainThreadDispatcher — all Rhino API calls serialize through UI thread |
-| Discovery file | `%TEMP%/rook/instance-{PID}-native.json` |
+| Discovery file | `%LOCALAPPDATA%\Rook\discovery\instance-{PID}-native.json` by default; MCP also reads legacy `%TEMP%\rook` records |
 | Key subsystems | Scene graph (CRhinoEventWatcher + ON_RTree), AI Gumball (WH_MOUSE hook), Session recording, Command interactive (WndProc subclass), GH proxy (P/Invoke to C# companion) |
 
 ## C# Managed Companion (`src/Rook/`)
@@ -74,7 +74,7 @@ Everything else is native-owned.
 |------|-------|
 | MCP tools | 300 registered in `server.py` |
 | Entry point | `python -m rook` (stdio transport) |
-| HTTP bridge | `bridge.py` — discovers native plugin via `%TEMP%/rook/` files |
+| HTTP bridge | `bridge.py` — discovers native plugin via `%LOCALAPPDATA%\Rook\discovery` by default and legacy `%TEMP%\rook` compatibility files |
 | Key subsystems | Intent runtime, Knowledge stores, Agent system, Chat service, DSPy consolidation, Chirp manager |
 
 ### Agent System (`agent/`)
@@ -90,7 +90,7 @@ The multi-agent system provides autonomous task execution via Planner → Worker
 | ChatRunner | Interactive chat service for Rook panel (aiohttp, execution policy) |
 | IntentOrchestrator | Layered intent pipeline: plan → route → execute → reflect |
 
-**Key principle:** Agents call RookNative HTTP endpoints directly via `bridge.py` — they never go through MCP. Port is resolved via discovery files in `%TEMP%/rook/`.
+**Key principle:** Agents call RookNative HTTP endpoints directly via `bridge.py` — they never go through MCP. Port is resolved via discovery files in the shared discovery root.
 
 ### Intent Runtime (`learning/intent_*.py`)
 
@@ -115,11 +115,11 @@ IntentPlanner (P1) → ExecutionPlan → SmartExecutor (P2) → ExecutionResult 
 
 ## Port Discovery
 
-All Rook services use OS-assigned ports. Discovery via atomic JSON files:
+All Rook services use OS-assigned ports. Native Rhino target discovery uses atomic JSON files in `%LOCALAPPDATA%\Rook\discovery` by default. MCP also reads legacy `%TEMP%\rook` records for compatibility with older producers.
 
 | Service | Discovery file | Writer |
 |---------|---------------|--------|
-| Native plugin | `%TEMP%/rook/instance-{PID}-native.json` | C++ plugin on startup |
+| Native plugin | `%LOCALAPPDATA%\Rook\discovery\instance-{PID}-native.json` | C++ plugin on startup |
 | Chat service | `%TEMP%/rook/chat-service-{PID}.json` | Python chat server |
 
 Stale files are cleaned up on startup by checking process liveness.

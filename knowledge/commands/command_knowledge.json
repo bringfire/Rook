@@ -51,6 +51,33 @@
       "observations_count": 25,
       "last_updated": "2026-02-07T12:15:21.853827+00:00"
     },
+    "-Grasshopper": {
+      "command": "-Grasshopper",
+      "description": "Loads and opens Grasshopper in the current Rhino session.",
+      "modes": {
+        "default": {
+          "syntax": "_Grasshopper",
+          "dialogue": "Open Grasshopper",
+          "example": "_Grasshopper",
+          "description": "Launch Grasshopper without command-line parameters"
+        }
+      },
+      "options": {},
+      "preconditions": {
+        "requires_selection": false,
+        "selection_type": "none",
+        "clear_pending": false,
+        "safe_non_interactive": true
+      },
+      "gotchas": [
+        "This command opens or focuses the Grasshopper UI and may take time before the canvas is ready for editing"
+      ],
+      "related_commands": [
+        "GrasshopperUnloadPlugin"
+      ],
+      "observations_count": 1,
+      "last_updated": "2026-05-24T00:00:00+00:00"
+    },
     "-Sphere": {
       "command": "-Sphere",
       "description": "Creates a spherical surface using various geometric construction methods including center-radius, diameter, or point-fitting approaches.",

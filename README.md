@@ -63,7 +63,7 @@ Rhino 3D / Grasshopper
 
 | Layer | Role |
 |-------|------|
-| **RookNative (C++)** | The sole Rhino plugin and sole HTTP server. 198 routes across 34 handlers covering geometry, documents, scene graph, gumball, export, blocks, analysis, curves, meshes, SubD, and more. OS-assigned port discovered via `%TEMP%/rook/` JSON files. |
+| **RookNative (C++)** | The sole Rhino plugin and sole HTTP server. 198 routes across 34 handlers covering geometry, documents, scene graph, gumball, export, blocks, analysis, curves, meshes, SubD, and more. OS-assigned port discovered via `%LOCALAPPDATA%/Rook/discovery` JSON files, with legacy `%TEMP%/rook` compatibility reads. |
 | **Managed Companion (C#)** | Loaded by RookNative. Grasshopper routes pass through a P/Invoke callback bridge — no separate HTTP server. Also hosts the embedded chat panel. |
 | **MCP Server (Python)** | Translates 264 MCP tool calls into HTTP requests. Houses the knowledge graph, DSPy-based intent runtime (plan → route → execute → reflect), session recording, and the multi-agent system. Works with any MCP client. |
 | **Knowledge Graph** | Self-improving store of 196 Rhino command patterns (543+ observations) and 924 Grasshopper components (1,400+ intents). Powers intent-based execution and correction detection. |

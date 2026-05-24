@@ -262,6 +262,7 @@ function Test-UninstallRemovesGeneratedRuntimeArtifacts {
         '{localappdata}\Rook\venv',
         '{localappdata}\Rook\data',
         '{localappdata}\Rook\logs',
+        '{localappdata}\Rook\discovery',
         '{userappdata}\Rook',
         '{localappdata}\Temp\rook'
     )) {
@@ -271,6 +272,7 @@ function Test-UninstallRemovesGeneratedRuntimeArtifacts {
     Assert-Contains -Text $postInstallContent -Expected 'Path(tempfile.gettempdir()) / "rook"' -Message 'Uninstall cleanup must remove the actual user temp Rook diagnostics directory.'
     Assert-Contains -Text $postInstallContent -Expected 'runtime_root / "venv"' -Message 'Uninstall cleanup must remove the managed Python venv created by post_install.py.'
     Assert-Contains -Text $postInstallContent -Expected 'runtime_root / "data"' -Message 'Uninstall cleanup must remove runtime data for a fresh reinstall surface.'
+    Assert-Contains -Text $postInstallContent -Expected 'runtime_root / "discovery"' -Message 'Uninstall cleanup must remove shared Rook discovery metadata for a fresh reinstall surface.'
     Assert-Contains -Text $postInstallContent -Expected 'roaming_root' -Message 'Uninstall cleanup must remove user-level Rook roaming state.'
 }
 

@@ -282,18 +282,69 @@ def test_explicit_port_wins_over_active_binding(monkeypatch):
         targeting.clear_active_target()
 
 
-def test_explicit_missing_port_returns_target_error(monkeypatch):
+def test_explicit_port_still_selects_discovered_target(monkeypatch):
+    monkeypatch.setattr(targeting, "discover_instances", lambda: [
+        _inst(9950, 7101, "A.3dm"),
+        _inst(9951, 7102, "B.3dm"),
+    ])
+
+    route = targeting.resolve_tool_route("rhino_document", explicit_port=9951)
+
+    assert route.success is True
+    assert route.target == targeting.InstanceRef(9951, 7102)
+    assert route.selection == "explicit"
+
+
+def test_explicit_missing_port_returns_requested_port_not_discovered(monkeypatch):
     monkeypatch.setattr(targeting, "discover_instances", lambda: [
         _inst(9950, 7101, "A.3dm"),
     ])
+    monkeypatch.setattr(
+        targeting,
+        "discovery_diagnostics",
+        lambda: {
+            "discoveryFolder": r"C:\Users\bring\AppData\Local\Rook\discovery",
+            "discoveryFolders": [
+                r"C:\Users\bring\AppData\Local\Rook\discovery",
+                r"C:\Users\bring\AppData\Local\Temp\rook",
+            ],
+            "selection": "localappdata",
+            "tempRoot": r"C:\Users\bring\AppData\Local\Temp",
+            "legacyTempDiscoveryFolder": r"C:\Users\bring\AppData\Local\Temp\rook",
+        },
+    )
     targeting.clear_active_target()
 
     route = targeting.resolve_tool_route("rhino_document", explicit_port=9999)
+    result = targeting.route_error_result(route)
 
     assert route.success is False
-    assert route.error == "rhino_target_unavailable"
+    assert route.error == "requested_port_not_discovered"
     assert route.target is None
-    assert len(route.instances or []) == 1
+    assert result["success"] is False
+    assert result["data"]["error"] == "requested_port_not_discovered"
+    assert result["data"]["requestedPort"] == 9999
+    assert result["data"]["discoveryFolder"] == r"C:\Users\bring\AppData\Local\Rook\discovery"
+    assert result["data"]["discoveryFolders"][1] == r"C:\Users\bring\AppData\Local\Temp\rook"
+    assert result["data"]["selection"] == "localappdata"
+    assert result["data"]["instances"][0]["port"] == 9950
+
+
+@pytest.mark.parametrize("raw_port", ["9951", 0, -1, True, False])
+def test_invalid_explicit_port_returns_invalid_requested_port(monkeypatch, raw_port):
+    monkeypatch.setattr(targeting, "discover_instances", lambda: [
+        _inst(9951, 7102, "B.3dm"),
+    ])
+
+    route = targeting.resolve_tool_route("rhino_document", explicit_port=raw_port)
+    result = targeting.route_error_result(route)
+
+    assert route.success is False
+    assert route.error == "invalid_requested_port"
+    assert result["success"] is False
+    assert result["data"]["error"] == "invalid_requested_port"
+    assert "requestedPort" not in result["data"]
+    assert result["data"]["invalidPort"] == repr(raw_port)
 
 
 def test_single_rhino_process_with_native_and_roadcreator_is_not_ambiguous(monkeypatch):
@@ -497,16 +548,33 @@ async def test_document_metadata_normalizes_native_document_fields(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_bind_missing_port_returns_target_unavailable(monkeypatch):
+async def test_bind_missing_port_returns_requested_port_not_discovered(monkeypatch):
     monkeypatch.setattr(targeting, "discover_instances", lambda: [
         _inst(9950, 7101, "A.3dm"),
     ])
+    monkeypatch.setattr(
+        targeting,
+        "discovery_diagnostics",
+        lambda: {
+            "discoveryFolder": r"C:\Users\bring\AppData\Local\Rook\discovery",
+            "discoveryFolders": [
+                r"C:\Users\bring\AppData\Local\Rook\discovery",
+                r"C:\Users\bring\AppData\Local\Temp\rook",
+            ],
+            "selection": "localappdata",
+            "tempRoot": r"C:\Users\bring\AppData\Local\Temp",
+            "legacyTempDiscoveryFolder": r"C:\Users\bring\AppData\Local\Temp\rook",
+        },
+    )
     targeting.clear_active_target()
 
     result = await targeting.bind_active_instance(port=9999)
 
     assert result["success"] is False
-    assert result["data"]["error"] == "rhino_target_unavailable"
+    assert result["data"]["error"] == "requested_port_not_discovered"
+    assert result["data"]["requestedPort"] == 9999
+    assert result["data"]["discoveryFolder"] == r"C:\Users\bring\AppData\Local\Rook\discovery"
+    assert result["data"]["discoveryFolders"][1] == r"C:\Users\bring\AppData\Local\Temp\rook"
     assert len(result["data"]["instances"]) == 1
     assert targeting.get_active_target() is None
 

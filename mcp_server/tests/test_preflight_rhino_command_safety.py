@@ -1,5 +1,7 @@
+from pathlib import Path
 from types import SimpleNamespace
 
+from rook.learning.command_knowledge_store import CommandKnowledgeStore
 from rook.preflight import preflight_rhino_command
 
 
@@ -266,5 +268,18 @@ def test_allows_known_command_with_mode_safe_metadata():
             ),
         ),
     )
+
+    assert result is None
+
+
+def test_shipped_command_knowledge_allows_grasshopper_startup_command():
+    repo_root = Path(__file__).resolve().parents[2]
+    store = CommandKnowledgeStore(
+        path=repo_root / "knowledge" / "commands" / "command_knowledge.json",
+        structure_path=repo_root / "knowledge" / "commands" / "command_structure.json",
+        condensed_path=repo_root / "knowledge" / "commands" / "condensed_command_knowledge.json",
+    )
+
+    result = preflight_rhino_command("_Grasshopper", store)
 
     assert result is None

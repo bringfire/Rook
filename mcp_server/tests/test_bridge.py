@@ -26,8 +26,217 @@ def _write_instance(path: Path, data: dict) -> None:
 @pytest.fixture
 def discovery_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setattr(bridge, "DISCOVERY_FOLDER", tmp_path)
+    monkeypatch.setattr(bridge, "DISCOVERY_FOLDERS", [tmp_path])
     monkeypatch.setattr(bridge, "_is_pid_alive", lambda pid: True)
     return tmp_path
+
+
+def test_resolve_discovery_folder_prefers_localappdata(tmp_path: Path) -> None:
+    env = {"LOCALAPPDATA": str(tmp_path / "LocalAppData")}
+
+    folder, folders, diagnostics = bridge.resolve_discovery_folder(env=env, temp_root=tmp_path / "Temp")
+
+    assert folder == tmp_path / "LocalAppData" / "Rook" / "discovery"
+    assert folders == [folder, tmp_path / "Temp" / "rook"]
+    assert diagnostics["selection"] == "localappdata"
+    assert diagnostics["localAppData"] == str(tmp_path / "LocalAppData")
+    assert diagnostics["tempRoot"] == str(tmp_path / "Temp")
+    assert diagnostics["legacyTempDiscoveryFolder"] == str(tmp_path / "Temp" / "rook")
+    assert diagnostics["discoveryFolders"] == [str(folder), str(tmp_path / "Temp" / "rook")]
+
+
+def test_resolve_discovery_folder_falls_back_to_temp(tmp_path: Path) -> None:
+    folder, folders, diagnostics = bridge.resolve_discovery_folder(env={}, temp_root=tmp_path / "Temp")
+
+    assert folder == tmp_path / "Temp" / "rook"
+    assert folders == [folder]
+    assert diagnostics["selection"] == "temp"
+    assert diagnostics["localAppData"] is None
+    assert diagnostics["tempRoot"] == str(tmp_path / "Temp")
+    assert diagnostics["discoveryFolders"] == [str(folder)]
+
+
+def test_discovery_diagnostics_reports_current_folder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(bridge, "DISCOVERY_FOLDER", tmp_path / "selected")
+    monkeypatch.setattr(bridge, "DISCOVERY_FOLDERS", [tmp_path / "selected", tmp_path / "legacy"])
+    monkeypatch.setattr(
+        bridge,
+        "_DISCOVERY_FOLDER_DIAGNOSTICS",
+        {
+            "selection": "localappdata",
+            "localAppData": str(tmp_path / "LocalAppData"),
+            "tempRoot": str(tmp_path / "Temp"),
+            "legacyTempDiscoveryFolder": str(tmp_path / "Temp" / "rook"),
+            "discoveryFolders": [str(tmp_path / "selected"), str(tmp_path / "legacy")],
+        },
+    )
+
+    diagnostics = bridge.discovery_diagnostics()
+
+    assert diagnostics["discoveryFolder"] == str(tmp_path / "selected")
+    assert diagnostics["discoveryFolders"] == [str(tmp_path / "selected"), str(tmp_path / "legacy")]
+    assert diagnostics["selection"] == "localappdata"
+    assert diagnostics["tempRoot"] == str(tmp_path / "Temp")
+
+
+def test_discover_instances_reads_legacy_folder_when_primary_exists(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    primary = tmp_path / "primary"
+    legacy = tmp_path / "legacy"
+    primary.mkdir()
+    legacy.mkdir()
+    monkeypatch.setattr(bridge, "DISCOVERY_FOLDER", primary)
+    monkeypatch.setattr(bridge, "DISCOVERY_FOLDERS", [primary, legacy])
+    monkeypatch.setattr(bridge, "_is_pid_alive", lambda pid: True)
+    _write_instance(
+        legacy / "instance-rc-7101.json",
+        {
+            "host": "127.0.0.1",
+            "port": 9960,
+            "processId": 7101,
+            "pluginType": "roadcreator",
+        },
+    )
+
+    instances = bridge.discover_instances()
+
+    assert len(instances) == 1
+    assert instances[0]["pluginType"] == "roadcreator"
+    assert instances[0]["port"] == 9960
+
+
+def test_discover_instances_honors_discovery_folder_only_monkeypatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    selected = tmp_path / "selected"
+    configured = tmp_path / "configured"
+    selected.mkdir()
+    configured.mkdir()
+    monkeypatch.setattr(bridge, "DISCOVERY_FOLDER", selected)
+    monkeypatch.setattr(bridge, "DISCOVERY_FOLDERS", [configured])
+    monkeypatch.setattr(bridge, "_is_pid_alive", lambda pid: True)
+    _write_instance(
+        selected / "instance-7101-native.json",
+        {
+            "host": "127.0.0.1",
+            "port": 9950,
+            "processId": 7101,
+            "pluginType": "native",
+        },
+    )
+
+    instances = bridge.discover_instances()
+
+    assert len(instances) == 1
+    assert instances[0]["pluginType"] == "native"
+    assert instances[0]["port"] == 9950
+
+
+def test_discover_instances_prefers_primary_duplicate_identity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    primary = tmp_path / "primary"
+    legacy = tmp_path / "legacy"
+    primary.mkdir()
+    legacy.mkdir()
+    monkeypatch.setattr(bridge, "DISCOVERY_FOLDER", primary)
+    monkeypatch.setattr(bridge, "DISCOVERY_FOLDERS", [primary, legacy])
+    monkeypatch.setattr(bridge, "_is_pid_alive", lambda pid: True)
+    _write_instance(
+        primary / "instance-7101-native.json",
+        {
+            "host": "127.0.0.1",
+            "port": 9950,
+            "processId": 7101,
+            "pluginType": "native",
+        },
+    )
+    _write_instance(
+        legacy / "instance-7101-native.json",
+        {
+            "host": "127.0.0.1",
+            "port": 9960,
+            "processId": 7101,
+            "pluginType": "native",
+        },
+    )
+
+    instances = bridge.discover_instances()
+
+    assert len(instances) == 1
+    assert instances[0]["port"] == 9950
+
+
+def test_discover_instances_accepts_rhino_inside_native_record(discovery_dir: Path) -> None:
+    _write_instance(
+        discovery_dir / "instance-528-native.json",
+        {
+            "host": "127.0.0.1",
+            "port": 57011,
+            "processId": 528,
+            "pluginType": "native",
+            "pluginVersion": "1.5.8",
+            "rhinoInside": True,
+            "capabilities": {"ghProvider": "callback", "ghRoutes": []},
+        },
+    )
+
+    instances = bridge.discover_instances()
+
+    assert len(instances) == 1
+    assert instances[0]["port"] == 57011
+    assert instances[0]["processId"] == 528
+    assert instances[0]["pluginType"] == "native"
+    assert instances[0]["rhinoInside"] is True
+    assert instances[0]["capabilities"] == {"ghProvider": "callback", "ghRoutes": []}
+
+
+def test_cleanup_keeps_live_rhino_inside_native_record(
+    discovery_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = discovery_dir / "instance-528-native.json"
+    _write_instance(
+        path,
+        {
+            "host": "127.0.0.1",
+            "port": 57011,
+            "processId": 528,
+            "pluginType": "native",
+            "rhinoInside": True,
+        },
+    )
+    monkeypatch.setattr(bridge, "_is_pid_alive", lambda pid: pid == 528)
+
+    survivors = bridge._cleanup_stale_discovery_files()
+
+    assert path.exists()
+    assert len(survivors) == 1
+    assert survivors[0]["processId"] == 528
+
+
+def test_cleanup_removes_dead_rhino_inside_native_record(
+    discovery_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = discovery_dir / "instance-528-native.json"
+    _write_instance(
+        path,
+        {
+            "host": "127.0.0.1",
+            "port": 57011,
+            "processId": 528,
+            "pluginType": "native",
+            "rhinoInside": True,
+        },
+    )
+    monkeypatch.setattr(bridge, "_is_pid_alive", lambda pid: False)
+
+    survivors = bridge._cleanup_stale_discovery_files()
+
+    assert not path.exists()
+    assert survivors == []
 
 
 def test_process_local_active_target_round_trip() -> None:
@@ -525,7 +734,7 @@ def test_select_rhino_instance_respects_explicit_port_for_non_gh(discovery_dir: 
     assert selected["pluginType"] == "native"
 
 
-def test_select_rhino_instance_preserves_ambient_missing_explicit_port(
+def test_select_rhino_instance_rejects_missing_explicit_port(
     discovery_dir: Path,
 ) -> None:
     _write_instance(
@@ -539,7 +748,7 @@ def test_select_rhino_instance_preserves_ambient_missing_explicit_port(
 
     selected = bridge.select_rhino_instance(port=9951)
 
-    assert selected == {"port": 9951}
+    assert selected is None
 
 
 def test_select_rhino_instance_respects_process_id_for_non_gh(discovery_dir: Path) -> None:
@@ -728,6 +937,45 @@ def test_get_rhino_host_uses_scoped_process_context(discovery_dir: Path) -> None
     assert result == "http://127.0.0.1:9951"
 
 
+def test_get_rhino_host_resolves_discovered_explicit_port(discovery_dir: Path) -> None:
+    _write_instance(
+        discovery_dir / "instance-7101-native.json",
+        {
+            "port": 9950,
+            "processId": 7101,
+            "pluginType": "native",
+        },
+    )
+
+    result = bridge.get_rhino_host(port=9950)
+
+    assert result == "http://127.0.0.1:9950"
+
+
+def test_get_rhino_host_rejects_missing_explicit_port_without_http_probe(
+    discovery_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write_instance(
+        discovery_dir / "instance-7101-native.json",
+        {
+            "port": 9950,
+            "processId": 7101,
+            "pluginType": "native",
+        },
+    )
+
+    class UnexpectedAsyncClient:
+        def __init__(self, *args, **kwargs) -> None:
+            raise AssertionError("get_rhino_host must not create an HTTP client")
+
+    monkeypatch.setattr(bridge.httpx, "AsyncClient", UnexpectedAsyncClient)
+
+    result = bridge.get_rhino_host(port=9999)
+
+    assert result is None
+
+
 def test_get_rhino_host_rejects_scoped_port_with_wrong_process_id(
     discovery_dir: Path,
 ) -> None:
@@ -771,6 +1019,45 @@ async def test_call_rhino_returns_error_when_no_instance(discovery_dir: Path) ->
 
     assert result["success"] is False
     assert "No Rhino instance discovered" in result["data"]
+
+
+@pytest.mark.asyncio
+async def test_call_rhino_rejects_missing_explicit_port_without_http_probe(
+    discovery_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write_instance(
+        discovery_dir / "instance-7101-native.json",
+        {
+            "port": 9950,
+            "processId": 7101,
+            "pluginType": "native",
+        },
+    )
+    called = False
+
+    class UnexpectedAsyncClient:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+        async def get(self, url: str, params: dict[str, str] | None = None):
+            nonlocal called
+            called = True
+            raise RuntimeError(f"HTTP client invoked for {url}")
+
+    monkeypatch.setattr(bridge.httpx, "AsyncClient", UnexpectedAsyncClient)
+
+    result = await bridge.call_rhino("/ping", port=9999)
+
+    assert result["success"] is False
+    assert "No Rhino instance discovered" in result["data"]
+    assert called is False
 
 
 # ─── Host loopback validation (security Phase 1B) ────────────────────

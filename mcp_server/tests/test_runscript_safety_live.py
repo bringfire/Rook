@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-import tempfile
 import threading
 import time
 from datetime import UTC, datetime
@@ -68,7 +67,7 @@ def _assert_owned_runtime_binding() -> None:
     pid = _owned_pid()
     port = _owned_port()
     try:
-        record = OwnedRhinoDiscovery(Path(tempfile.gettempdir()) / "rook").read_owned_record(pid)
+        record = OwnedRhinoDiscovery().read_owned_record(pid)
     except DiscoveryError as exc:
         pytest.fail(f"Could not verify owned Rhino discovery record for pid {pid}: {exc}")
     if record.port != port:
