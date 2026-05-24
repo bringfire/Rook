@@ -112,7 +112,7 @@ Test with:
 ### "Connection refused" or timeout errors
 - Make sure Rhino 8 is running
 - Check that the plugin loaded: run `ShowRookChat` in Rhino
-- Port is OS-assigned — the MCP server discovers it automatically via `%TEMP%\rook\` files
+- Port is OS-assigned — the MCP server discovers native Rhino targets automatically via `%LOCALAPPDATA%\Rook\discovery\` files, and still reads legacy `%TEMP%\rook\` files
 
 ### Plugin not loading in Rhino
 - Restart Rhino after installation

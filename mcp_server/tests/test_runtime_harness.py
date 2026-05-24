@@ -189,6 +189,20 @@ def test_default_temp_rook_artifacts_follow_shared_discovery_root(tmp_path: Path
     assert artifact_dir == local_app_data / "Rook" / "discovery"
 
 
+def test_default_artifact_roots_include_shared_and_legacy_temp(tmp_path: Path, monkeypatch):
+    local_app_data = tmp_path / "LocalAppData"
+    temp_root = tmp_path / "Temp"
+    monkeypatch.setenv("LOCALAPPDATA", str(local_app_data))
+    monkeypatch.setattr(runtime_harness.tempfile, "gettempdir", lambda: str(temp_root))
+
+    roots = runtime_harness.default_artifact_roots()
+
+    assert roots == [
+        runtime_harness.ArtifactRoot("shared-discovery", local_app_data / "Rook" / "discovery"),
+        runtime_harness.ArtifactRoot("legacy-temp-rook", temp_root / "rook"),
+    ]
+
+
 class FakeExternalProcess:
     def __init__(self, pid: int, wait_results: list[object]):
         self.pid = pid
@@ -1374,7 +1388,12 @@ def test_runtime_harness_successful_flow_uses_exact_owned_discovery_and_scoped_s
             None,
         )
     ]
-    assert artifact_labels == ["before-shutdown", "after-shutdown"]
+    assert artifact_labels == [
+        "before-shutdown-shared-discovery",
+        "before-shutdown-legacy-temp-rook",
+        "after-shutdown-shared-discovery",
+        "after-shutdown-legacy-temp-rook",
+    ]
     assert close_calls == [(process, 2.5)]
     assert result.cleanup_status == CleanupStatus.GRACEFUL_EXIT
     assert result.success is True
@@ -1904,7 +1923,7 @@ def test_runtime_harness_run_started_at_covers_rhino_launch(
     )
 
     def record_artifact_copy(result, temp_rook_dir, label):
-        if label == "before-shutdown":
+        if label.startswith("before-shutdown-"):
             copied_started_at.append(result.run_started_at)
         return []
 
@@ -1923,7 +1942,7 @@ def test_runtime_harness_run_started_at_covers_rhino_launch(
 
     assert result.success is True
     assert result.run_started_at == 10.0
-    assert copied_started_at == [10.0]
+    assert copied_started_at == [10.0, 10.0]
 
 
 def test_runtime_harness_readiness_failure_captures_artifacts_and_cleans_owned_process(
@@ -1957,7 +1976,14 @@ def test_runtime_harness_readiness_failure_captures_artifacts_and_cleans_owned_p
     )
 
     manifest = json.loads((result.artifact_dir / "manifest.json").read_text(encoding="utf-8"))
-    assert artifact_labels == ["readiness-failure", "before-shutdown", "after-shutdown"]
+    assert artifact_labels == [
+        "readiness-failure-shared-discovery",
+        "readiness-failure-legacy-temp-rook",
+        "before-shutdown-shared-discovery",
+        "before-shutdown-legacy-temp-rook",
+        "after-shutdown-shared-discovery",
+        "after-shutdown-legacy-temp-rook",
+    ]
     assert close_calls == [process]
     assert result.smoke is None
     assert result.success is False

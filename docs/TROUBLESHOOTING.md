@@ -149,8 +149,9 @@ After manual installation, run `install.bat` again.
    - If not found, see [Plugin not loading](#plugin-not-loading)
 
 3. **Port discovery failed**
-   - RookNative uses an OS-assigned port, discovered via `%TEMP%\rook\` JSON files
-   - Check that discovery files exist: `dir %TEMP%\rook\`
+   - RookNative uses an OS-assigned port, discovered via `%LOCALAPPDATA%\Rook\discovery\` JSON files
+   - Check that discovery files exist: `dir %LOCALAPPDATA%\Rook\discovery\`
+   - Also check legacy diagnostics in `%TEMP%\rook\`
    - Restart Rhino to regenerate them
 
 4. **Modal dialog blocking** — see [Rhino Frozen / Not Responding](#rhino-frozen--not-responding)
@@ -285,7 +286,7 @@ Both are deployed to the same directory. RookNative loads first and loads the co
 **Symptoms:**
 - RookNative appears in Plugin Manager
 - `rhino_ping` times out
-- No discovery file in `%TEMP%\rook\`
+- No native discovery file in `%LOCALAPPDATA%\Rook\discovery\`
 
 **Solutions:**
 
@@ -360,7 +361,7 @@ Both are deployed to the same directory. RookNative loads first and loads the co
 
 3. **Check discovery files exist:**
    ```bash
-   dir %TEMP%\rook\
+   dir %LOCALAPPDATA%\Rook\discovery\
    ```
    Should contain `instance-{PID}-native.json`. If missing, restart Rhino.
 
@@ -444,8 +445,8 @@ The HTTP server auto-starts when RookNative loads — there are no manual start/
 
 ```bash
 # The HTTP port is OS-assigned. Find it from the discovery file:
-dir %TEMP%\rook\
-type %TEMP%\rook\instance-*-native.json
+dir %LOCALAPPDATA%\Rook\discovery\
+type %LOCALAPPDATA%\Rook\discovery\instance-*-native.json
 
 # Then test (replace PORT with the port from the discovery file):
 curl http://localhost:PORT/ping
