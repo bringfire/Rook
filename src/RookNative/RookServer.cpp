@@ -145,8 +145,8 @@ namespace
         const std::wstring tempEnv = GetEnvironmentVariableWide(L"TEMP");
         const std::wstring tmpEnv = GetEnvironmentVariableWide(L"TMP");
 
-        info.nativeTempRoot = fs::temp_directory_path() / "rook";
-        info.legacyTempDiscoveryFolder = info.nativeTempRoot;
+        info.nativeTempRoot = fs::temp_directory_path();
+        info.legacyTempDiscoveryFolder = info.nativeTempRoot / "rook";
         info.localAppData = WideToUtf8String(localAppData);
         info.tempEnv = WideToUtf8String(tempEnv);
         info.tmpEnv = WideToUtf8String(tmpEnv);
@@ -158,7 +158,7 @@ namespace
         }
         else
         {
-            info.sharedDiscoveryFolder = info.nativeTempRoot;
+            info.sharedDiscoveryFolder = info.legacyTempDiscoveryFolder;
             info.selectionBranch = "TEMP";
         }
 
@@ -1958,13 +1958,17 @@ void CRookServer::WriteDiscoveryFile()
         const bool finalExists = fs::exists(discoveryPath);
         const auto finalSize = finalExists ? fs::file_size(discoveryPath) : 0;
         std::ifstream verify(discoveryPath);
-        nlohmann::json parsed = nlohmann::json::parse(verify);
-        (void)parsed;
+        const bool readBackOpen = verify.is_open();
+        const auto parsed = readBackOpen
+            ? nlohmann::json::parse(verify, nullptr, false)
+            : nlohmann::json();
+        const bool jsonParsed = readBackOpen && !parsed.is_discarded();
 
         std::ostringstream verification;
         verification << "post-rename verification finalExists=" << BoolText(finalExists)
             << " fileSize=" << finalSize
-            << " jsonParse=ok"
+            << " readBackOpen=" << BoolText(readBackOpen)
+            << " jsonParse=" << BoolText(jsonParsed)
             << " path=" << PathToUtf8String(discoveryPath);
         WriteDiscoveryDiagnostic(rootInfo, pid, verification.str());
     }
