@@ -189,7 +189,7 @@ def test_discover_instances_accepts_rhino_inside_native_record(discovery_dir: Pa
     assert instances[0]["processId"] == 528
     assert instances[0]["pluginType"] == "native"
     assert instances[0]["rhinoInside"] is True
-    assert instances[0]["capabilities"]["ghProvider"] == "callback"
+    assert instances[0]["capabilities"] == {"ghProvider": "callback", "ghRoutes": []}
 
 
 def test_cleanup_keeps_live_rhino_inside_native_record(
