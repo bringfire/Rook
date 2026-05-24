@@ -60,6 +60,152 @@ namespace
 {
     constexpr const char* kNativeBindHost = "127.0.0.1";
 
+    struct DiscoveryRootInfo
+    {
+        fs::path nativeTempRoot;
+        fs::path legacyTempDiscoveryFolder;
+        fs::path sharedDiscoveryFolder;
+        std::string selectionBranch;
+        std::string localAppData;
+        std::string tempEnv;
+        std::string tmpEnv;
+    };
+
+    std::string MakeLocalTimestamp()
+    {
+        auto now = std::chrono::system_clock::now();
+        auto time = std::chrono::system_clock::to_time_t(now);
+        std::ostringstream ts;
+        struct tm tm_buf = {};
+        if (localtime_s(&tm_buf, &time) == 0)
+        {
+            ts << std::put_time(&tm_buf, "%Y-%m-%dT%H:%M:%S");
+        }
+        else
+        {
+            ts << time;
+        }
+        return ts.str();
+    }
+
+    std::wstring GetEnvironmentVariableWide(const wchar_t* name)
+    {
+        const DWORD length = ::GetEnvironmentVariableW(name, nullptr, 0);
+        if (length == 0)
+            return L"";
+
+        std::wstring value(length, L'\0');
+        const DWORD written = ::GetEnvironmentVariableW(name, &value[0], length);
+        if (written == 0 || written >= length)
+            return L"";
+
+        value.resize(written);
+        return value;
+    }
+
+    std::string WideToUtf8String(const std::wstring& value)
+    {
+        if (value.empty())
+            return "";
+
+        const int size = ::WideCharToMultiByte(
+            CP_UTF8,
+            0,
+            value.c_str(),
+            -1,
+            nullptr,
+            0,
+            nullptr,
+            nullptr);
+        if (size <= 1)
+            return "";
+
+        std::string result(static_cast<size_t>(size - 1), '\0');
+        ::WideCharToMultiByte(
+            CP_UTF8,
+            0,
+            value.c_str(),
+            -1,
+            &result[0],
+            size,
+            nullptr,
+            nullptr);
+        return result;
+    }
+
+    std::string PathToUtf8String(const fs::path& path)
+    {
+        return WideToUtf8String(path.wstring());
+    }
+
+    DiscoveryRootInfo ResolveDiscoveryRootInfo()
+    {
+        DiscoveryRootInfo info;
+        const std::wstring localAppData = GetEnvironmentVariableWide(L"LOCALAPPDATA");
+        const std::wstring tempEnv = GetEnvironmentVariableWide(L"TEMP");
+        const std::wstring tmpEnv = GetEnvironmentVariableWide(L"TMP");
+
+        info.nativeTempRoot = fs::temp_directory_path() / "rook";
+        info.legacyTempDiscoveryFolder = info.nativeTempRoot;
+        info.localAppData = WideToUtf8String(localAppData);
+        info.tempEnv = WideToUtf8String(tempEnv);
+        info.tmpEnv = WideToUtf8String(tmpEnv);
+
+        if (!localAppData.empty())
+        {
+            info.sharedDiscoveryFolder = fs::path(localAppData) / "Rook" / "discovery";
+            info.selectionBranch = "LOCALAPPDATA";
+        }
+        else
+        {
+            info.sharedDiscoveryFolder = info.nativeTempRoot;
+            info.selectionBranch = "TEMP";
+        }
+
+        return info;
+    }
+
+    const char* BoolText(bool value)
+    {
+        return value ? "true" : "false";
+    }
+
+    void WriteDiscoveryDiagnostic(const DiscoveryRootInfo& rootInfo, DWORD pid, const std::string& message)
+    {
+        try
+        {
+            fs::create_directories(rootInfo.sharedDiscoveryFolder);
+            const fs::path logPath = rootInfo.sharedDiscoveryFolder
+                / ("native-discovery-" + std::to_string(pid) + ".log");
+            std::ofstream log(logPath, std::ios::out | std::ios::app);
+            if (!log.is_open())
+                return;
+
+            log << MakeLocalTimestamp()
+                << " pid=" << pid
+                << " selectionBranch=" << rootInfo.selectionBranch
+                << " nativeTempRoot=" << PathToUtf8String(rootInfo.nativeTempRoot)
+                << " sharedDiscoveryFolder=" << PathToUtf8String(rootInfo.sharedDiscoveryFolder)
+                << " legacyTempDiscoveryFolder=" << PathToUtf8String(rootInfo.legacyTempDiscoveryFolder)
+                << " LOCALAPPDATA=" << rootInfo.localAppData
+                << " TEMP=" << rootInfo.tempEnv
+                << " TMP=" << rootInfo.tmpEnv
+                << " message=" << message
+                << "\n";
+        }
+        catch (const std::exception& ex)
+        {
+            std::string debug = "RookNative: discovery diagnostic write failed: ";
+            debug += ex.what();
+            debug += "\n";
+            ::OutputDebugStringA(debug.c_str());
+        }
+        catch (...)
+        {
+            ::OutputDebugStringA("RookNative: discovery diagnostic write failed\n");
+        }
+    }
+
     bool EndsWith(const std::string& value, const std::string& suffix)
     {
         return value.size() >= suffix.size()
@@ -1727,8 +1873,7 @@ nlohmann::json GetNativeGrasshopperRoutes()
 
 std::string CRookServer::GetDiscoveryFolder()
 {
-    // %TEMP%/rook/ — same location as C# plugin's discovery files
-    return (fs::temp_directory_path() / "rook").string();
+    return ResolveDiscoveryRootInfo().sharedDiscoveryFolder.string();
 }
 
 std::string CRookServer::GetDiscoveryFilePath()
@@ -1743,31 +1888,18 @@ void CRookServer::WriteDiscoveryFile()
     // The Python MCP server (bridge.py) should check process liveness
     // before trusting a discovery file — same pattern as the C# plugin's
     // CleanupStaleDiscoveryFiles() which verifies PIDs are still alive.
+    const DiscoveryRootInfo rootInfo = ResolveDiscoveryRootInfo();
+    const DWORD pid = ::GetCurrentProcessId();
     try
     {
-        std::string folder = GetDiscoveryFolder();
-        fs::create_directories(folder);
-
-        // ISO 8601 timestamp
-        auto now = std::chrono::system_clock::now();
-        auto time = std::chrono::system_clock::to_time_t(now);
-        std::ostringstream ts;
-        struct tm tm_buf = {};
-        if (localtime_s(&tm_buf, &time) == 0)
-        {
-            ts << std::put_time(&tm_buf, "%Y-%m-%dT%H:%M:%S");
-        }
-        else
-        {
-            ts << time;
-        }
+        fs::create_directories(rootInfo.sharedDiscoveryFolder);
 
         nlohmann::json info;
         info["host"] = kNativeBindHost;
         info["port"] = m_port;
         info["pluginType"] = "native";
         info["processId"] = ::GetCurrentProcessId();
-        info["startTime"] = ts.str();
+        info["startTime"] = MakeLocalTimestamp();
         info["pluginVersion"] = "1.5.8";
         info["rhinoInside"] = CRookNativePlugin::IsRhinoInside();
         const auto ghRoutes = GetNativeGrasshopperRoutes();
@@ -1777,35 +1909,68 @@ void CRookServer::WriteDiscoveryFile()
             {"ghRoutes", callbackBridgeReady ? ghRoutes : nlohmann::json::array()}
         };
 
-        m_discovery_path = GetDiscoveryFilePath();
+        const fs::path discoveryPath = rootInfo.sharedDiscoveryFolder
+            / ("instance-" + std::to_string(pid) + "-native.json");
+        m_discovery_path = discoveryPath.string();
 
         // Atomic write: write to .tmp then rename to avoid torn reads
         // from Python bridge polling the same directory.
-        std::string tmp_path = m_discovery_path + ".tmp";
-        std::ofstream file(tmp_path);
+        fs::path tmpPath = discoveryPath;
+        tmpPath += L".tmp";
+        std::ostringstream writeStart;
+        writeStart << "write start rhinoInside=" << BoolText(CRookNativePlugin::IsRhinoInside())
+            << " port=" << m_port
+            << " path=" << PathToUtf8String(discoveryPath);
+        WriteDiscoveryDiagnostic(rootInfo, pid, writeStart.str());
+
+        std::ofstream file(tmpPath);
         if (!file.is_open())
         {
+            std::ostringstream diagnostic;
+            diagnostic << "temp file open failed path=" << PathToUtf8String(tmpPath);
+            WriteDiscoveryDiagnostic(rootInfo, pid, diagnostic.str());
             RhinoApp().Print(L"RookNative: warning — cannot open discovery file for writing: %S\n",
-                tmp_path.c_str());
+                PathToUtf8String(tmpPath).c_str());
             return;
         }
         file << info.dump(2);
         file.close();
-        const auto tmp_path_w = fs::path(tmp_path).wstring();
-        const auto discovery_path_w = fs::path(m_discovery_path).wstring();
+        const auto tmp_path_w = tmpPath.wstring();
+        const auto discovery_path_w = discoveryPath.wstring();
         if (!::MoveFileExW(
                 tmp_path_w.c_str(),
                 discovery_path_w.c_str(),
                 MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
         {
             const DWORD error = ::GetLastError();
+            std::ostringstream diagnostic;
+            diagnostic << "MoveFileExW failed GetLastError=" << error
+                << " tempPath=" << PathToUtf8String(tmpPath)
+                << " finalPath=" << PathToUtf8String(discoveryPath);
+            WriteDiscoveryDiagnostic(rootInfo, pid, diagnostic.str());
             std::ostringstream message;
             message << "MoveFileExW failed with error " << error;
             throw std::runtime_error(message.str());
         }
+
+        const bool finalExists = fs::exists(discoveryPath);
+        const auto finalSize = finalExists ? fs::file_size(discoveryPath) : 0;
+        std::ifstream verify(discoveryPath);
+        nlohmann::json parsed = nlohmann::json::parse(verify);
+        (void)parsed;
+
+        std::ostringstream verification;
+        verification << "post-rename verification finalExists=" << BoolText(finalExists)
+            << " fileSize=" << finalSize
+            << " jsonParse=ok"
+            << " path=" << PathToUtf8String(discoveryPath);
+        WriteDiscoveryDiagnostic(rootInfo, pid, verification.str());
     }
     catch (const std::exception& ex)
     {
+        std::ostringstream diagnostic;
+        diagnostic << "write exception message=" << ex.what();
+        WriteDiscoveryDiagnostic(rootInfo, pid, diagnostic.str());
         RhinoApp().Print(L"RookNative: warning — failed to write discovery file: %S\n", ex.what());
     }
 }
@@ -1822,6 +1987,15 @@ void CRookServer::RemoveDiscoveryFile()
 {
     if (!m_discovery_path.empty())
     {
+        try
+        {
+            const DiscoveryRootInfo rootInfo = ResolveDiscoveryRootInfo();
+            std::ostringstream diagnostic;
+            diagnostic << "remove-on-unload path=" << m_discovery_path;
+            WriteDiscoveryDiagnostic(rootInfo, ::GetCurrentProcessId(), diagnostic.str());
+        }
+        catch (...) {}
+
         try
         {
             fs::remove(m_discovery_path);
@@ -1843,7 +2017,16 @@ bool CRookServer::Start()
     //         chat-service-*.json, instance-rc-*.json, companion-*.json (via JSON pid field).
     try
     {
-        const fs::path discoveryFolder = GetDiscoveryFolder();
+        const DiscoveryRootInfo rootInfo = ResolveDiscoveryRootInfo();
+        const DWORD currentPid = ::GetCurrentProcessId();
+        const fs::path discoveryFolder = rootInfo.sharedDiscoveryFolder;
+        {
+            std::ostringstream diagnostic;
+            diagnostic << "cleanup scan folder=" << PathToUtf8String(discoveryFolder)
+                << " exists=" << BoolText(fs::exists(discoveryFolder));
+            WriteDiscoveryDiagnostic(rootInfo, currentPid, diagnostic.str());
+        }
+
         if (fs::exists(discoveryFolder))
         {
             for (const auto& entry : fs::directory_iterator(discoveryFolder))
@@ -1857,7 +2040,16 @@ bool CRookServer::Start()
                 DWORD pid = 0;
                 if (TryParseDiscoveryPid(entry.path(), pid))
                 {
-                    if (!IsPidAlive(pid))
+                    const bool alive = IsPidAlive(pid);
+                    {
+                        std::ostringstream diagnostic;
+                        diagnostic << "cleanup filename path=" << PathToUtf8String(entry.path())
+                            << " parsedPid=" << pid
+                            << " alive=" << BoolText(alive)
+                            << " action=" << (alive ? "keep" : "remove");
+                        WriteDiscoveryDiagnostic(rootInfo, currentPid, diagnostic.str());
+                    }
+                    if (!alive)
                         fs::remove(entry.path());
                     continue;
                 }
@@ -1878,6 +2070,10 @@ bool CRookServer::Start()
                     auto data = nlohmann::json::parse(f, nullptr, false);
                     if (data.is_discarded())
                     {
+                        std::ostringstream diagnostic;
+                        diagnostic << "cleanup json malformed path=" << PathToUtf8String(entry.path())
+                            << " action=remove";
+                        WriteDiscoveryDiagnostic(rootInfo, currentPid, diagnostic.str());
                         fs::remove(entry.path());
                         continue;
                     }
@@ -1888,12 +2084,34 @@ bool CRookServer::Start()
                     else if (data.contains("processId") && data["processId"].is_number_integer())
                         filePid = static_cast<DWORD>(data["processId"].get<int>());
 
-                    if (filePid > 0 && !IsPidAlive(filePid))
+                    if (filePid == 0)
+                    {
+                        std::ostringstream diagnostic;
+                        diagnostic << "cleanup json path=" << PathToUtf8String(entry.path())
+                            << " jsonPid=0 action=keep";
+                        WriteDiscoveryDiagnostic(rootInfo, currentPid, diagnostic.str());
+                        continue;
+                    }
+
+                    const bool alive = IsPidAlive(filePid);
+                    {
+                        std::ostringstream diagnostic;
+                        diagnostic << "cleanup json path=" << PathToUtf8String(entry.path())
+                            << " jsonPid=" << filePid
+                            << " alive=" << BoolText(alive)
+                            << " action=" << (alive ? "keep" : "remove");
+                        WriteDiscoveryDiagnostic(rootInfo, currentPid, diagnostic.str());
+                    }
+                    if (!alive)
                         fs::remove(entry.path());
                 }
                 catch (...)
                 {
                     // Malformed JSON — remove it
+                    std::ostringstream diagnostic;
+                    diagnostic << "cleanup json malformed path=" << PathToUtf8String(entry.path())
+                        << " action=remove";
+                    WriteDiscoveryDiagnostic(rootInfo, currentPid, diagnostic.str());
                     try { fs::remove(entry.path()); } catch (...) {}
                 }
             }
