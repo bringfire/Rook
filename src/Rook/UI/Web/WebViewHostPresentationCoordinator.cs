@@ -71,6 +71,11 @@ namespace Rook.UI.Web
         public string Reason { get; init; } = string.Empty;
     }
 
+    /// <summary>
+    /// Stateful presentation decision engine for one WebView host surface.
+    /// Not thread-safe: runtime integration must call <see cref="Evaluate" />
+    /// from one serialized UI/lifecycle owner.
+    /// </summary>
     internal sealed class WebViewHostPresentationCoordinator
     {
         private WebViewHostPresentationState _state = WebViewHostPresentationState.Hidden;

@@ -137,6 +137,9 @@ private WebViewHostPresentationState _state;
 No timers, polling, Rhino objects, Eto controls, WebView2 objects, HWND handles,
 or logging sinks are stored.
 
+The coordinator is stateful and intentionally not thread-safe. Runtime
+integration must call `Evaluate` from one serialized UI/lifecycle owner.
+
 ## Snapshot
 
 The snapshot is plain data supplied by adapters.
