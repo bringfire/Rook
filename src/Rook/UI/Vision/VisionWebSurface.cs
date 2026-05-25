@@ -135,6 +135,8 @@ p { margin: 8px 0; line-height: 1.4; }
 
         protected override string ContentSecurityPolicy => VisionContentSecurityPolicy;
 
+        protected override bool UseHostPresentationCoordinator => true;
+
         // ─── Op-routing table ─────────────────────────────────────────
 
         internal enum VisionOpRoute

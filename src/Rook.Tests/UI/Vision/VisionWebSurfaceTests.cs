@@ -56,6 +56,14 @@ namespace Rook.Tests.UI.Vision
         private VisionWebSurface NewSurface()
             => new VisionWebSurface(new VisionHandler(), _store);
 
+        [Fact]
+        public void VisionWebSurface_OptsIntoHostPresentationCoordinator()
+        {
+            using var surface = NewSurface();
+
+            Assert.True(surface.UsesHostPresentationCoordinatorForTest);
+        }
+
         // ─── CSP override pin ─────────────────────────────────────────
 
         [Fact]

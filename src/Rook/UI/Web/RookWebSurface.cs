@@ -243,6 +243,10 @@ namespace Rook.UI.Web
         /// </summary>
         protected virtual string ContentSecurityPolicy => DefaultContentSecurityPolicy;
 
+        protected virtual bool UseHostPresentationCoordinator => false;
+
+        internal bool UsesHostPresentationCoordinatorForTest => UseHostPresentationCoordinator;
+
         /// <summary>
         /// Fires once after WebView2 setup completes if the bridge could
         /// not be brought up AND at least one bridge handler was registered.

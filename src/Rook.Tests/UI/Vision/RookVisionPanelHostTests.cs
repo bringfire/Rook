@@ -82,6 +82,16 @@ namespace Rook.Tests.UI.Vision
             Assert.Contains("RequestHostVisibleRefresh(\"VisionUiOpCompleted:\" + op)", source);
         }
 
+        [Fact]
+        public void VisionWebSurface_UsesCodeOptIn_NotEnvironmentFlag()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Vision", "VisionWebSurface.cs");
+
+            Assert.Contains("UseHostPresentationCoordinator", source);
+            Assert.DoesNotContain("GetEnvironmentVariable", source);
+            Assert.DoesNotContain("ROOK_USE_HOST_PRESENTATION_COORDINATOR", source);
+        }
+
         private static string ReadSourceFile(params string[] pathParts)
         {
             var dir = new DirectoryInfo(AppContext.BaseDirectory);

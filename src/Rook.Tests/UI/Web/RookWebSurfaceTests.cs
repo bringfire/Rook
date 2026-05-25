@@ -28,6 +28,7 @@ namespace Rook.Tests.UI.Web
             protected override string MinimalFallbackHtml => "<html></html>";
 
             public string CspForTest => ContentSecurityPolicy;
+            public bool UsesCoordinatorForTest => UsesHostPresentationCoordinatorForTest;
             public IReadOnlyList<string> ComposeForTest() => ComposeDocumentScripts();
             public void RegisterForTest(string method, Func<JsonNode?, Task<JsonNode?>> handler)
                 => RegisterBridgeHandler(method, handler);
@@ -72,6 +73,29 @@ namespace Rook.Tests.UI.Web
 
             Assert.Contains("connect-src 'none'", s.CspForTest);
             Assert.DoesNotContain("127.0.0.1", s.CspForTest);
+        }
+
+        [Fact]
+        public void RookWebSurface_Default_DoesNotUseHostPresentationCoordinator()
+        {
+            var surface = new DefaultSurface();
+
+            Assert.False(surface.UsesCoordinatorForTest);
+        }
+
+        [Fact]
+        public void HostPresentationCoordinatorPolicy_IsNotEnvironmentControlled()
+        {
+            var previous = Environment.GetEnvironmentVariable("ROOK_USE_HOST_PRESENTATION_COORDINATOR");
+            try
+            {
+                Environment.SetEnvironmentVariable("ROOK_USE_HOST_PRESENTATION_COORDINATOR", "1");
+                Assert.False(new DefaultSurface().UsesCoordinatorForTest);
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable("ROOK_USE_HOST_PRESENTATION_COORDINATOR", previous);
+            }
         }
 
         [Fact]
