@@ -96,6 +96,37 @@ namespace Rook.Tests.UI.Panels
         }
 
         [Fact]
+        public void ReconcileFactsOverload_PassesCapturedLifecycleFacts()
+        {
+            var visibility = new FakeVisibilityQuery { Visible = true };
+            var adapter = new HostedPanelLifecycleAdapter(
+                typeof(Rook.UI.Vision.RookVisionPanel),
+                visibility,
+                (_, action) => action());
+            adapter.PanelShown(123, Rhino.UI.ShowPanelReason.Show);
+
+            PanelLifecycleFacts? capturedFacts = null;
+            HostedSurfaceDecision? capturedDecision = null;
+            adapter.ReconcileForTest(
+                "surface",
+                isSelectedTab: true,
+                isHostReady: true,
+                (decision, facts) =>
+                {
+                    capturedDecision = decision;
+                    capturedFacts = facts;
+                });
+
+            Assert.NotNull(capturedDecision);
+            Assert.NotNull(capturedFacts);
+            Assert.True(capturedFacts!.PanelReportedVisible);
+            Assert.Equal(HostedPanelLifecycleReason.Show, capturedFacts.LastReason);
+            Assert.True(capturedFacts.IsSelectedTab);
+            Assert.True(capturedFacts.IsRhinoSelectedPanelVisible);
+            Assert.True(capturedFacts.IsHostReady);
+        }
+
+        [Fact]
         public void PanelHidden_HideOnDeactivate_DoesNotHideOrCleanup()
         {
             var adapter = new HostedPanelLifecycleAdapter(typeof(Form), new FakeVisibilityQuery());

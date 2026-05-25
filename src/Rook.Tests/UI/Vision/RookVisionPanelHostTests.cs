@@ -63,6 +63,28 @@ namespace Rook.Tests.UI.Vision
         }
 
         [Fact]
+        public void RookVisionPanel_UsesPresentationFactsOverload()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Vision", "RookVisionPanel.cs");
+
+            Assert.Contains("WebViewHostPanelPresentationFacts", source);
+            Assert.Contains("ReconcileHostVisibility(BuildPresentationFacts", source);
+            Assert.DoesNotContain("_surface.ReconcileHostVisibility(true, sourceReason", source);
+            Assert.DoesNotContain("_surface.ReconcileHostVisibility(false, sourceReason", source);
+        }
+
+        [Fact]
+        public void RookVisionPanel_TemporaryDeactivateKeepsDesiredVisible()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Vision", "RookVisionPanel.cs");
+
+            Assert.Contains("TemporaryDeactivateHidden", source);
+            Assert.Contains("DesiredVisible = !durableHidden", source);
+            Assert.Contains("var appActive = SafeApplicationActive();", source);
+            Assert.Contains("AppActive = appActive", source);
+        }
+
+        [Fact]
         public void DedicatedPanels_ReconcileClosingThroughLifecycleAdapter()
         {
             var visionSource = ReadSourceFile("src", "Rook", "UI", "Vision", "RookVisionPanel.cs");

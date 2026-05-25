@@ -76,6 +76,24 @@ namespace Rook.UI.Panels
             Control hostControl,
             Action<HostedSurfaceDecision> apply)
         {
+            if (apply == null)
+            {
+                throw new ArgumentNullException(nameof(apply));
+            }
+
+            Reconcile(
+                surfaceId,
+                isSelectedTab,
+                hostControl,
+                (decision, _) => apply(decision));
+        }
+
+        public void Reconcile(
+            string surfaceId,
+            bool isSelectedTab,
+            Control hostControl,
+            Action<HostedSurfaceDecision, PanelLifecycleFacts> apply)
+        {
             if (hostControl == null)
             {
                 throw new ArgumentNullException(nameof(hostControl));
@@ -95,11 +113,30 @@ namespace Rook.UI.Panels
             bool isHostReady,
             Action<HostedSurfaceDecision> apply)
         {
+            if (apply == null)
+            {
+                throw new ArgumentNullException(nameof(apply));
+            }
+
             ReconcileForTest(
                 surfaceId,
                 isSelectedTab,
                 () => isHostReady,
-                apply);
+                (decision, _) => apply(decision));
+        }
+
+        internal void ReconcileForTest(
+            string surfaceId,
+            bool isSelectedTab,
+            bool isHostReady,
+            Action<HostedSurfaceDecision, PanelLifecycleFacts> apply)
+        {
+            ReconcileCore(
+                surfaceId,
+                isSelectedTab,
+                () => HostReadiness.ForTest(isHostReady),
+                apply,
+                eventName: "ReconcileForTest");
         }
 
         internal void ReconcileForTest(
@@ -107,6 +144,24 @@ namespace Rook.UI.Panels
             bool isSelectedTab,
             Func<bool> readinessProvider,
             Action<HostedSurfaceDecision> apply)
+        {
+            if (apply == null)
+            {
+                throw new ArgumentNullException(nameof(apply));
+            }
+
+            ReconcileForTest(
+                surfaceId,
+                isSelectedTab,
+                readinessProvider,
+                (decision, _) => apply(decision));
+        }
+
+        internal void ReconcileForTest(
+            string surfaceId,
+            bool isSelectedTab,
+            Func<bool> readinessProvider,
+            Action<HostedSurfaceDecision, PanelLifecycleFacts> apply)
         {
             ReconcileCore(
                 surfaceId,
@@ -140,7 +195,7 @@ namespace Rook.UI.Panels
             string surfaceId,
             bool isSelectedTab,
             Func<HostReadiness> readinessProvider,
-            Action<HostedSurfaceDecision> apply,
+            Action<HostedSurfaceDecision, PanelLifecycleFacts> apply,
             string eventName)
         {
             if (string.IsNullOrWhiteSpace(surfaceId))
@@ -180,12 +235,12 @@ namespace Rook.UI.Panels
             if (decision.Action == HostedSurfaceAction.Defer)
             {
                 ScheduleDeferred(surfaceId, state);
-                apply(decision);
+                apply(decision, facts);
                 return;
             }
 
             state.PendingRetry = false;
-            apply(decision);
+            apply(decision, facts);
         }
 
         private PanelLifecycleFacts CaptureFacts(
@@ -321,7 +376,7 @@ namespace Rook.UI.Panels
             public bool LastSelectedTab { get; set; }
             public Func<HostReadiness> LastReadinessProvider { get; set; } =
                 () => HostReadiness.ForTest(false);
-            public Action<HostedSurfaceDecision>? LastApply { get; set; }
+            public Action<HostedSurfaceDecision, PanelLifecycleFacts>? LastApply { get; set; }
             public string LastEventName { get; set; } = "";
             public int DeferAttempt { get; set; }
             public bool PendingRetry { get; set; }

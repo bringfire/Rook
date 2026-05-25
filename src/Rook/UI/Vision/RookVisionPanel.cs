@@ -3,6 +3,7 @@ using System.Threading;
 using Eto.Forms;
 using Rhino.UI;
 using Rook.UI.Panels;
+using Rook.UI.Web;
 
 namespace Rook.UI.Vision
 {
@@ -81,22 +82,59 @@ namespace Rook.UI.Vision
                 _surfaceId,
                 isSelectedTab: true,
                 this,
-                decision => ApplyDecision(decision, reason));
+                (decision, facts) => ApplyDecision(decision, facts, reason));
         }
 
-        private void ApplyDecision(HostedSurfaceDecision decision, string sourceReason)
+        private void ApplyDecision(
+            HostedSurfaceDecision decision,
+            PanelLifecycleFacts facts,
+            string sourceReason)
         {
+            _surface.ReconcileHostVisibility(BuildPresentationFacts(decision, facts, sourceReason));
+
             switch (decision.Action)
             {
-                case HostedSurfaceAction.Show:
-                    _surface.ReconcileHostVisibility(true, sourceReason + ":" + decision.Reason);
-                    break;
-                case HostedSurfaceAction.Hide:
-                    _surface.ReconcileHostVisibility(false, sourceReason + ":" + decision.Reason);
-                    break;
                 case HostedSurfaceAction.Close:
                     CloseSurface();
                     break;
+            }
+        }
+
+        private static WebViewHostPanelPresentationFacts BuildPresentationFacts(
+            HostedSurfaceDecision decision,
+            PanelLifecycleFacts facts,
+            string sourceReason)
+        {
+            var appActive = SafeApplicationActive();
+            var durableHidden =
+                decision.Action == HostedSurfaceAction.Close ||
+                (decision.Action == HostedSurfaceAction.Hide &&
+                 string.Equals(decision.Reason, "panel-hidden", StringComparison.Ordinal));
+            var temporaryDeactivateHidden =
+                facts.LastReason == HostedPanelLifecycleReason.HideOnDeactivate &&
+                !appActive;
+
+            return new WebViewHostPanelPresentationFacts
+            {
+                DesiredVisible = !durableHidden,
+                AppActive = appActive,
+                TemporaryDeactivateHidden = temporaryDeactivateHidden,
+                PanelVisible = facts.PanelReportedVisible,
+                RequiresSelectedPanel = true,
+                PanelSelectedVisible = facts.IsSelectedTab && facts.IsRhinoSelectedPanelVisible,
+                Reason = sourceReason + ":" + decision.Reason
+            };
+        }
+
+        private static bool SafeApplicationActive()
+        {
+            try
+            {
+                return Application.Instance.IsActive;
+            }
+            catch
+            {
+                return true;
             }
         }
     }

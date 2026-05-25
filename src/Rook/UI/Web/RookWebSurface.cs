@@ -366,6 +366,16 @@ namespace Rook.UI.Web
 #endif
         }
 
+        internal void ReconcileHostVisibility(WebViewHostPanelPresentationFacts facts)
+        {
+            if (facts == null)
+            {
+                throw new ArgumentNullException(nameof(facts));
+            }
+
+            ReconcileHostVisibility(facts.DesiredVisible, facts.Reason);
+        }
+
         /// <summary>
         /// Register a typed bridge handler keyed on a method name. Stored
         /// immediately; only fires once the bridge comes up. Call from the
