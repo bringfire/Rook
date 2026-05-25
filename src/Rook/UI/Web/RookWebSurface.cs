@@ -182,6 +182,10 @@ namespace Rook.UI.Web
         private EventInfo? _initEvent;
         private EventHandler<CoreWebView2InitializationCompletedEventArgs>? _initHandler;
         private readonly WebViewHostVisibilityCoordinator _hostVisibility = new();
+        private readonly WebViewHostPresentationCoordinator _hostPresentation = new();
+        private WebViewHostPanelPresentationFacts? _latestPresentationFacts;
+        private WebViewHostPanelPresentationFacts? _queuedPresentationFacts;
+        private bool _presentationReconcileQueued;
 #endif
 
         // ─── Constructor ──────────────────────────────────────────────
@@ -357,6 +361,12 @@ namespace Rook.UI.Web
         internal void ReconcileHostVisibility(bool visible, string reason)
         {
 #if ROOK_WEBVIEW2
+            if (UseHostPresentationCoordinator)
+            {
+                ReconcileHostVisibility(CreateCompatibilityPresentationFacts(visible, reason));
+                return;
+            }
+
             TraceWebViewFocus("host-visibility-reconcile-request", $"{visible};{reason}");
             ScheduleHostVisibilityReconcile(
                 _hostVisibility.RecordHostVisibility(visible, reason));
@@ -368,12 +378,22 @@ namespace Rook.UI.Web
 
         internal void ReconcileHostVisibility(WebViewHostPanelPresentationFacts facts)
         {
+#if ROOK_WEBVIEW2
             if (facts == null)
             {
                 throw new ArgumentNullException(nameof(facts));
             }
 
-            ReconcileHostVisibility(facts.DesiredVisible, facts.Reason);
+            if (!UseHostPresentationCoordinator)
+            {
+                ReconcileHostVisibility(facts.DesiredVisible, facts.Reason);
+                return;
+            }
+
+            ScheduleHostPresentationCoordinatorReconcile(facts);
+#else
+            _ = facts;
+#endif
         }
 
         /// <summary>
@@ -430,6 +450,20 @@ namespace Rook.UI.Web
         protected void RequestHostVisibleRefresh(string reason)
         {
 #if ROOK_WEBVIEW2
+            if (UseHostPresentationCoordinator)
+            {
+                if (_latestPresentationFacts == null)
+                    return;
+
+                var facts = _latestPresentationFacts with
+                {
+                    Reason = reason,
+                    AppActive = SafeApplicationActive()
+                };
+                ScheduleHostPresentationCoordinatorReconcile(facts);
+                return;
+            }
+
             TraceWebViewFocus("host-visibility-reconcile-request",
                 $"visible-refresh;{reason}");
             ScheduleHostVisibilityReconcile(
@@ -442,6 +476,159 @@ namespace Rook.UI.Web
         }
 
 #if ROOK_WEBVIEW2
+        private WebViewHostPanelPresentationFacts CreateCompatibilityPresentationFacts(
+            bool visible,
+            string reason)
+        {
+            return new WebViewHostPanelPresentationFacts
+            {
+                DesiredVisible = visible,
+                AppActive = SafeApplicationActive(),
+                TemporaryDeactivateHidden = false,
+                PanelVisible = visible,
+                RequiresSelectedPanel = false,
+                PanelSelectedVisible = visible,
+                Reason = reason
+            };
+        }
+
+        private void ScheduleHostPresentationCoordinatorReconcile(
+            WebViewHostPanelPresentationFacts facts)
+        {
+            _latestPresentationFacts = facts;
+
+            if (_disposed || _webView == null)
+            {
+                EvaluateDisposedHostPresentation(facts, facts.Reason);
+                return;
+            }
+
+            _queuedPresentationFacts = facts;
+            if (_presentationReconcileQueued)
+                return;
+
+            _presentationReconcileQueued = true;
+
+            try
+            {
+                Application.Instance.AsyncInvoke(RunHostPresentationCoordinatorReconcile);
+            }
+            catch (Exception ex)
+            {
+                _presentationReconcileQueued = false;
+                Log($"Rook: WebView host presentation dispatch failed for surface " +
+                    $"'{ResourceRoot}' (reason={facts.Reason}): {ex.Message}");
+                RunHostPresentationCoordinatorReconcile();
+            }
+        }
+
+        private void RunHostPresentationCoordinatorReconcile()
+        {
+            var facts = _queuedPresentationFacts;
+            _queuedPresentationFacts = null;
+            _presentationReconcileQueued = false;
+
+            if (facts == null)
+                return;
+
+            if (_disposed || _webView == null)
+            {
+                EvaluateDisposedHostPresentation(facts, facts.Reason);
+                return;
+            }
+
+            facts = facts with { AppActive = SafeApplicationActive() };
+            _latestPresentationFacts = facts;
+
+            var snapshot = BuildHostPresentationSnapshot(facts);
+            var decision = _hostPresentation.Evaluate(snapshot, facts.Reason);
+
+            // Task 4 wires the full action sink. Task 3 only serializes
+            // evaluation and preserves the terminal coordinator contract.
+            RecordHostPresentationDecision(facts, snapshot, decision, "none");
+        }
+
+        private WebViewHostPresentationSnapshot BuildHostPresentationSnapshot(
+            WebViewHostPanelPresentationFacts facts)
+        {
+            var controller = TryGetCoreWebView2Controller();
+            var controllerVisible = SafeBoolValue(() =>
+                controller != null && GetInstanceProperty(controller.GetType(), "IsVisible")
+                    ?.GetValue(controller) is true);
+
+            return new WebViewHostPresentationSnapshot
+            {
+                Disposed = _disposed || _webView == null,
+                DesiredVisible = facts.DesiredVisible,
+                AppActive = facts.AppActive,
+                TemporaryDeactivateHidden = facts.TemporaryDeactivateHidden,
+                PanelVisible = facts.PanelVisible,
+                RequiresSelectedPanel = facts.RequiresSelectedPanel,
+                PanelSelectedVisible = facts.PanelSelectedVisible,
+                EtoLoaded = _webView != null,
+                EtoVisible = _webView?.Visible == true,
+                EtoWidth = SafeIntValue(() => _webView?.Width ?? 0),
+                EtoHeight = SafeIntValue(() => _webView?.Height ?? 0),
+                ParentWindowPresent = _webView?.ParentWindow != null,
+                HwndChainVisible = _webView?.Visible == true,
+                HwndClientRectNonZero =
+                    SafeIntValue(() => _webView?.Width ?? 0) > 0 &&
+                    SafeIntValue(() => _webView?.Height ?? 0) > 0,
+                ControllerAvailable = controller != null,
+                ControllerParentWindowPresent = controller != null,
+                ControllerVisible = controllerVisible,
+                ControllerBoundsMatchHostTarget = false
+            };
+        }
+
+        private void EvaluateDisposedHostPresentation(
+            WebViewHostPanelPresentationFacts facts,
+            string reason)
+        {
+            var snapshot = new WebViewHostPresentationSnapshot
+            {
+                Disposed = true,
+                DesiredVisible = facts.DesiredVisible,
+                AppActive = facts.AppActive,
+                TemporaryDeactivateHidden = facts.TemporaryDeactivateHidden,
+                PanelVisible = facts.PanelVisible,
+                RequiresSelectedPanel = facts.RequiresSelectedPanel,
+                PanelSelectedVisible = facts.PanelSelectedVisible
+            };
+            var decision = _hostPresentation.Evaluate(snapshot, reason);
+            RecordHostPresentationDecision(facts, snapshot, decision, "none");
+        }
+
+        private bool SafeApplicationActive()
+        {
+            try { return Application.Instance.IsActive; }
+            catch { return true; }
+        }
+
+        private static bool SafeBoolValue(Func<bool> read)
+        {
+            try { return read(); }
+            catch { return false; }
+        }
+
+        private static int SafeIntValue(Func<int> read)
+        {
+            try { return read(); }
+            catch { return 0; }
+        }
+
+        private void RecordHostPresentationDecision(
+            WebViewHostPanelPresentationFacts facts,
+            WebViewHostPresentationSnapshot snapshot,
+            WebViewHostPresentationDecision decision,
+            string actionResult)
+        {
+            _ = facts;
+            _ = snapshot;
+            _ = decision;
+            _ = actionResult;
+        }
+
         private void ScheduleHostVisibilityReconcile(WebViewHostVisibilityDecision decision)
         {
             if (_disposed || _webView == null)
@@ -609,6 +796,12 @@ namespace Rook.UI.Web
         private void OnWebViewShown(object? sender, EventArgs e)
         {
             TraceWebViewFocus("webview-shown");
+            if (UseHostPresentationCoordinator)
+            {
+                RequestHostVisibleRefresh("WebViewShown");
+                return;
+            }
+
             ReconcileHostVisibility(true, "WebViewShown");
         }
 
@@ -1146,8 +1339,15 @@ namespace Rook.UI.Web
                 coreWebView2.NavigationStarting += OnNavigationStarting;
                 coreWebView2.NavigationCompleted += OnNavigationCompleted;
                 _coreWebView2 = coreWebView2;
-                ScheduleHostVisibilityReconcile(
-                    _hostVisibility.RecordControllerAvailable("WebView2Configured"));
+                if (UseHostPresentationCoordinator)
+                {
+                    RequestHostVisibleRefresh("WebView2Configured");
+                }
+                else
+                {
+                    ScheduleHostVisibilityReconcile(
+                        _hostVisibility.RecordControllerAvailable("WebView2Configured"));
+                }
 
                 // Inject document-creation scripts in the locked order:
                 // nonce, bridge shim, surface bootstrap.

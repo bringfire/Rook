@@ -391,6 +391,59 @@ namespace Rook.Tests.UI.Web
         }
 
         [Fact]
+        public void CoordinatorPath_HasFactsOverloadAndKeepsBoolCompatibilityOverload()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+
+            Assert.Contains("ReconcileHostVisibility(WebViewHostPanelPresentationFacts facts)", source);
+            Assert.Contains("ReconcileHostVisibility(bool visible, string reason)", source);
+        }
+
+        [Fact]
+        public void CoordinatorPath_BuildsSnapshotInsideQueuedCallback()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+
+            Assert.Contains("RunHostPresentationCoordinatorReconcile", source);
+            Assert.Contains("BuildHostPresentationSnapshot", source);
+            Assert.True(
+                source.IndexOf("RunHostPresentationCoordinatorReconcile", StringComparison.Ordinal) <
+                source.IndexOf("BuildHostPresentationSnapshot", StringComparison.Ordinal),
+                "snapshot must be built inside the callback/run path, not at request time");
+        }
+
+        [Fact]
+        public void CoordinatorPath_DoesNotUseEnvironmentFlagsOrFileLogging()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+
+            Assert.DoesNotContain("ROOK_USE_HOST_PRESENTATION_COORDINATOR", source);
+            Assert.DoesNotContain("File.AppendAllText", ExtractCoordinatorPathSource(source));
+            Assert.DoesNotContain("ExecuteScript", ExtractCoordinatorPathSource(source));
+        }
+
+        [Fact]
+        public void CoordinatorPath_ControllerConfiguredWithoutPanelFacts_DoesNotPresent()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+            var method = ExtractMethod(source, "RequestHostVisibleRefresh");
+
+            Assert.Contains("_latestPresentationFacts == null", method);
+            Assert.Contains("return;", method);
+            Assert.DoesNotContain("CreateCompatibilityPresentationFacts(\r\n        visible: true", method);
+            Assert.DoesNotContain("CreateCompatibilityPresentationFacts(visible: true", method);
+        }
+
+        [Fact]
+        public void CoordinatorPath_DisposedEvaluatesTerminalDecision()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+
+            Assert.Contains("EvaluateDisposedHostPresentation", source);
+            Assert.Contains("Disposed = true", source);
+        }
+
+        [Fact]
         public void HostVisibilityCoordinator_HiddenHost_IgnoresActivationRefreshWhenControlIsNotVisible()
         {
             var coordinator = new WebViewHostVisibilityCoordinator();
@@ -599,6 +652,44 @@ namespace Rook.Tests.UI.Web
 
             throw new FileNotFoundException(
                 "Could not locate source file " + string.Join("/", pathParts));
+        }
+
+        private static string ExtractCoordinatorPathSource(string source)
+        {
+            var start = source.IndexOf("RunHostPresentationCoordinatorReconcile", StringComparison.Ordinal);
+            if (start < 0)
+                return source;
+
+            var end = source.IndexOf("private void RunHostVisibilityReconcile", StringComparison.Ordinal);
+            return end > start ? source.Substring(start, end - start) : source.Substring(start);
+        }
+
+        private static string ExtractMethod(string source, string methodName)
+        {
+            var signatureIndex = source.IndexOf(methodName, StringComparison.Ordinal);
+            if (signatureIndex < 0)
+                return string.Empty;
+
+            var bodyStart = source.IndexOf('{', signatureIndex);
+            if (bodyStart < 0)
+                return string.Empty;
+
+            var depth = 0;
+            for (var i = bodyStart; i < source.Length; i++)
+            {
+                if (source[i] == '{')
+                {
+                    depth++;
+                }
+                else if (source[i] == '}')
+                {
+                    depth--;
+                    if (depth == 0)
+                        return source.Substring(signatureIndex, i - signatureIndex + 1);
+                }
+            }
+
+            return source.Substring(signatureIndex);
         }
 
         [Fact]
