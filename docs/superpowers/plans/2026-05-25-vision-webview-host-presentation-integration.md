@@ -509,6 +509,27 @@ public void CoordinatorPath_DoesNotUseEnvironmentFlagsOrFileLogging()
     Assert.DoesNotContain("File.AppendAllText", ExtractCoordinatorPathSource(source));
     Assert.DoesNotContain("ExecuteScript", ExtractCoordinatorPathSource(source));
 }
+
+[Fact]
+public void CoordinatorPath_ControllerConfiguredWithoutPanelFacts_DoesNotPresent()
+{
+    var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+    var method = ExtractMethod(source, "RequestHostVisibleRefresh");
+
+    Assert.Contains("_latestPresentationFacts == null", method);
+    Assert.Contains("return;", method);
+    Assert.DoesNotContain("CreateCompatibilityPresentationFacts(\r\n        visible: true", method);
+    Assert.DoesNotContain("CreateCompatibilityPresentationFacts(visible: true", method);
+}
+
+[Fact]
+public void CoordinatorPath_DisposedEvaluatesTerminalDecision()
+{
+    var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+
+    Assert.Contains("EvaluateDisposedHostPresentation", source);
+    Assert.Contains("Disposed = true", source);
+}
 ```
 
 If `ReadSourceFile` is not present in `RookWebSurfaceTests.cs`, add the same helper used by other source tests:
@@ -540,6 +561,23 @@ private static string ExtractCoordinatorPathSource(string source)
         return source;
     var end = source.IndexOf("private void RunHostVisibilityReconcile", StringComparison.Ordinal);
     return end > start ? source.Substring(start, end - start) : source.Substring(start);
+}
+
+private static string ExtractMethod(string source, string methodName)
+{
+    var start = source.IndexOf(methodName, StringComparison.Ordinal);
+    Assert.True(start >= 0, "Could not find method " + methodName);
+    var brace = source.IndexOf('{', start);
+    Assert.True(brace >= 0, "Could not find method body for " + methodName);
+    var depth = 0;
+    for (var i = brace; i < source.Length; i++)
+    {
+        if (source[i] == '{') depth++;
+        if (source[i] == '}') depth--;
+        if (depth == 0) return source.Substring(start, i - start + 1);
+    }
+
+    throw new InvalidOperationException("Unbalanced method body for " + methodName);
 }
 ```
 
@@ -640,6 +678,7 @@ private void ScheduleHostPresentationCoordinatorReconcile(
         _latestPresentationFacts = facts;
         _queuedPresentationFacts = null;
         _presentationReconcileQueued = false;
+        EvaluateDisposedHostPresentation(facts, "Disposed:" + facts.Reason);
         return;
     }
 
@@ -679,6 +718,30 @@ private void RunHostPresentationCoordinatorReconcile()
 }
 ```
 
+Add a no-action disposed evaluator. Task 5 will record this decision in the in-memory ring; until the recorder exists, it still exercises the coordinator's terminal contract:
+
+```csharp
+private void EvaluateDisposedHostPresentation(
+    WebViewHostPanelPresentationFacts facts,
+    string reason)
+{
+    var snapshot = new WebViewHostPresentationSnapshot
+    {
+        DesiredVisible = facts.DesiredVisible,
+        AppActive = SafeApplicationActive(),
+        TemporaryDeactivateHidden = facts.TemporaryDeactivateHidden,
+        PanelVisible = facts.PanelVisible,
+        RequiresSelectedPanel = facts.RequiresSelectedPanel,
+        PanelSelectedVisible = facts.PanelSelectedVisible,
+        Disposed = true
+    };
+    var decision = _hostPresentation.Evaluate(snapshot, reason);
+    RecordHostPresentationDecision(facts with { Reason = reason }, snapshot, decision, "none");
+}
+```
+
+Provide `RecordHostPresentationDecision(...)` as a private no-op in this task if the recorder has not been added yet; Task 5 replaces the body with the ring append.
+
 Use this helper:
 
 ```csharp
@@ -691,14 +754,15 @@ private static bool SafeApplicationActive()
 
 - [ ] **Step 6: Update refresh/controller events to preserve latest authoritative facts**
 
-In `RequestHostVisibleRefresh`, if `UseHostPresentationCoordinator` is true, do not create durable visible state from scratch. Refresh only the latest facts:
+In `RequestHostVisibleRefresh`, if `UseHostPresentationCoordinator` is true, do not create durable visible state from scratch. Refresh only the latest authoritative panel facts. Controller, focus, activation, and WebView events must never synthesize `DesiredVisible=true` before `RookVisionPanel` has supplied facts:
 
 ```csharp
 if (UseHostPresentationCoordinator)
 {
-    var facts = (_latestPresentationFacts ?? CreateCompatibilityPresentationFacts(
-        visible: true,
-        reason: reason)) with
+    if (_latestPresentationFacts == null)
+        return;
+
+    var facts = _latestPresentationFacts with
     {
         Reason = reason,
         AppActive = SafeApplicationActive()
@@ -781,7 +845,16 @@ public void CoordinatorActionSink_NotifyOnlyPresentDoesNotSetBoundsOrVisible()
 
     Assert.Contains("if (decision.ShouldSetControllerBounds)", method);
     Assert.Contains("if (decision.ShouldSetControllerVisible)", method);
-    Assert.Contains("NotifyParentWindowPositionChanged(controller, reason)", method);
+    Assert.Contains("NotifyParentWindowPositionChangedForPresentation(controller, reason)", method);
+}
+
+[Fact]
+public void CoordinatorActionSink_ReportsNotifyFailure()
+{
+    var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+
+    Assert.Contains("notify-parent-failed", source);
+    Assert.Contains("NotifyParentWindowPositionChangedForPresentation", source);
 }
 
 [Fact]
@@ -1065,12 +1138,30 @@ private string ApplyHostPresentationDecision(
             return "set-visible-failed:Unknown";
     }
 
-    NotifyParentWindowPositionChanged(controller, reason);
-    return "applied";
+    return NotifyParentWindowPositionChangedForPresentation(controller, reason);
 }
 ```
 
-If you can cheaply return exception type names from `SetControllerBounds`, `SetControllerVisible`, and `NotifyParentWindowPositionChanged`, do so through a tiny result helper. Do not store stack traces.
+Add a coordinator-path notify helper that returns short sanitized results instead of swallowing the failure into `"applied"`:
+
+```csharp
+private string NotifyParentWindowPositionChangedForPresentation(object controller, string reason)
+{
+    try
+    {
+        NotifyParentWindowPositionChanged(controller, reason);
+        return "applied";
+    }
+    catch (Exception ex)
+    {
+        Log($"Rook: WebView2 parent position notify failed for surface " +
+            $"'{ResourceRoot}' (reason={reason}): {ex.GetType().Name}");
+        return "notify-parent-failed:" + ex.GetType().Name;
+    }
+}
+```
+
+If the existing `NotifyParentWindowPositionChanged` currently swallows exceptions, split the reflection call into a non-throwing legacy wrapper plus the result-returning coordinator helper so the coordinator path can report `notify-parent-failed:<ExceptionType>`. If you can cheaply return exception type names from `SetControllerBounds` and `SetControllerVisible`, do so through the same small result-helper pattern. Do not store stack traces.
 
 - [ ] **Step 6: Run focused Web tests**
 
@@ -1122,7 +1213,7 @@ namespace Rook.Tests.UI.Vision
         {
             var store = new VisionPresentationStateStore(capacity: 4);
 
-            var snapshot = store.Snapshot(surfacePresent: false);
+            var snapshot = store.Snapshot();
 
             Assert.False(snapshot.SurfacePresent);
             Assert.Equal(0, snapshot.EntryCount);
@@ -1131,15 +1222,29 @@ namespace Rook.Tests.UI.Vision
         }
 
         [Fact]
+        public void SurfaceRegistration_ControlsSurfacePresentMetadata()
+        {
+            var store = new VisionPresentationStateStore(capacity: 4);
+
+            Assert.False(store.Snapshot().SurfacePresent);
+            using (store.RegisterSurface())
+            {
+                Assert.True(store.Snapshot().SurfacePresent);
+            }
+            Assert.False(store.Snapshot().SurfacePresent);
+        }
+
+        [Fact]
         public void Append_EvictsOldestEntriesAtCapacity()
         {
             var store = new VisionPresentationStateStore(capacity: 2);
+            using var surface = store.RegisterSurface();
 
             store.Append(TestEntry("one"));
             store.Append(TestEntry("two"));
             store.Append(TestEntry("three"));
 
-            var entries = store.Snapshot(surfacePresent: true).Entries;
+            var entries = store.Snapshot().Entries;
             Assert.Equal(new[] { "two", "three" }, entries.Select(e => e.Reason).ToArray());
         }
 
@@ -1147,11 +1252,12 @@ namespace Rook.Tests.UI.Vision
         public void Append_AssignsMonotonicSequence()
         {
             var store = new VisionPresentationStateStore(capacity: 4);
+            using var surface = store.RegisterSurface();
 
             store.Append(TestEntry("one"));
             store.Append(TestEntry("two"));
 
-            var entries = store.Snapshot(surfacePresent: true).Entries;
+            var entries = store.Snapshot().Entries;
             Assert.True(entries[0].Sequence < entries[1].Sequence);
         }
 
@@ -1267,6 +1373,7 @@ namespace Rook.UI.Vision
         private int _nextIndex;
         private int _count;
         private long _sequence;
+        private int _surfaceCount;
 
         public VisionPresentationStateStore(int capacity = DefaultCapacity)
         {
@@ -1276,6 +1383,12 @@ namespace Rook.UI.Vision
         }
 
         public int Capacity => _entries.Length;
+
+        public IDisposable RegisterSurface()
+        {
+            Interlocked.Increment(ref _surfaceCount);
+            return new SurfaceRegistration(this);
+        }
 
         public void Append(WebViewHostPresentationRecord record)
         {
@@ -1303,7 +1416,7 @@ namespace Rook.UI.Vision
             }
         }
 
-        public VisionPresentationStateSnapshot Snapshot(bool surfacePresent)
+        public VisionPresentationStateSnapshot Snapshot()
         {
             WebViewHostPresentationRecord[] copy;
             lock (_gate)
@@ -1319,11 +1432,31 @@ namespace Rook.UI.Vision
             return new VisionPresentationStateSnapshot
             {
                 DumpRequestedUtc = DateTimeOffset.UtcNow,
-                SurfacePresent = surfacePresent,
+                SurfacePresent = Volatile.Read(ref _surfaceCount) > 0,
                 EntryCount = copy.Length,
                 Capacity = Capacity,
                 Entries = copy
             };
+        }
+
+        private void UnregisterSurface()
+        {
+            Interlocked.Decrement(ref _surfaceCount);
+        }
+
+        private sealed class SurfaceRegistration : IDisposable
+        {
+            private VisionPresentationStateStore? _owner;
+
+            public SurfaceRegistration(VisionPresentationStateStore owner)
+            {
+                _owner = owner;
+            }
+
+            public void Dispose()
+            {
+                Interlocked.Exchange(ref _owner, null)?.UnregisterSurface();
+            }
         }
     }
 
@@ -1409,9 +1542,19 @@ In `VisionWebSurface`, add a shared store and override:
 
 ```csharp
 internal static VisionPresentationStateStore PresentationState { get; } = new();
+private readonly IDisposable _presentationSurfaceRegistration =
+    PresentationState.RegisterSurface();
 
 protected override IWebViewHostPresentationRecorder? HostPresentationRecorder =>
     PresentationState;
+
+protected override void Dispose(bool disposing)
+{
+    if (disposing)
+        _presentationSurfaceRegistration.Dispose();
+
+    base.Dispose(disposing);
+}
 ```
 
 - [ ] **Step 6: Run focused tests**
@@ -1457,10 +1600,11 @@ In `VisionPresentationStateStoreTests.cs`, add:
 public void CreateDumpPayload_IncludesMetadataAndEntries()
 {
     var store = new VisionPresentationStateStore(capacity: 2);
+    using var surface = store.RegisterSurface();
     store.Append(TestEntry("one"));
 
     var payload = VisionPresentationStateDump.CreatePayload(
-        store.Snapshot(surfacePresent: true),
+        store.Snapshot(),
         rookVersion: "1.2.3-test",
         rhinoVersion: "8-test",
         processId: 123,
@@ -1482,7 +1626,7 @@ public void CreateDumpPayload_WhenNoSurface_WritesValidEmptyDump()
     var store = new VisionPresentationStateStore(capacity: 2);
 
     var payload = VisionPresentationStateDump.CreatePayload(
-        store.Snapshot(surfacePresent: false),
+        store.Snapshot(),
         rookVersion: "1.2.3-test",
         rhinoVersion: "8-test",
         processId: 123,
@@ -1597,7 +1741,7 @@ namespace Rook.Commands
                     $"vision-presentation-state-{timestamp}.json");
 
                 var payload = VisionPresentationStateDump.CreatePayload(
-                    VisionWebSurface.PresentationState.Snapshot(surfacePresent: true),
+                    VisionWebSurface.PresentationState.Snapshot(),
                     GetRookVersion(),
                     RhinoApp.Version?.ToString() ?? "",
                     Process.GetCurrentProcess().Id,

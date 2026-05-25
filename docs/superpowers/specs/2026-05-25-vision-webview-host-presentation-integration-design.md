@@ -218,6 +218,12 @@ lifecycle explicitly reports the surface visible again. "Latest facts wins" is
 acceptable only when the latest facts come from the authoritative lifecycle
 layer.
 
+Coordinator-enabled WebView/controller/app refreshes must not invent visible
+panel facts. If no authoritative Vision panel facts have been supplied yet,
+controller-ready, focus, activation, and WebView refresh events must no-op or
+record a non-presenting decision; they must never synthesize
+`DesiredVisible=true` from event reason strings.
+
 `ApplicationDeactivated` must not fight Rhino. It may enqueue a reconcile with
 `AppActive=false`; the coordinator should normally land in `PendingHost` and
 hide only if the controller is available and visible. Presentation waits until
@@ -308,6 +314,8 @@ Behavior:
 - writes JSON to %TEMP%\rook\vision-presentation-state-<timestamp>.json
 - includes a dump-requested marker or metadata timestamp
 - writes a valid dump even when no Vision surface exists
+- derives `surfacePresent` from a Vision surface lifetime tracker, not a
+  hardcoded command assumption
 - prints the file path to Rhino command line
 - never refreshes, focuses, shows, hides, reloads, or otherwise touches the panel
 ```
@@ -343,9 +351,13 @@ Facts overload is used by the Vision panel path.
 Old bool overload remains available and preserves old-path behavior for non-coordinator surfaces.
 Coordinator path builds snapshot at execution time, not request time.
 Durable hidden facts are not overwritten by stale visible refreshes.
+Controller-ready refresh without authoritative panel facts does not present.
 Action sink order is bounds -> visible -> notify.
 PresentController with notify-only action does not set bounds or visible.
+Notify failure is reported as notify-parent-failed:<ExceptionType>.
 Hide action requires controller availability.
+Disposed surfaces enter a terminal coordinator/ring decision or are otherwise
+proven unable to run later presentation actions.
 Ring append stores plain DTO fields only.
 Dump command writes valid JSON with surfacePresent=false when no Vision surface exists.
 Dump command snapshots ring before file I/O.
