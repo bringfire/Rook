@@ -226,7 +226,10 @@ Rules:
   `ShouldNotifyParentPositionChanged=true`.
 - `ShouldSetControllerBounds=true` when
   `ControllerBoundsMatchHostTarget=false`.
-- `ShouldSetControllerVisible=true` when `ControllerVisible=false`.
+- `ShouldSetControllerVisible=true` when `Action=PresentController` and
+  `ControllerVisible=false`.
+- `HideController` does not use `ShouldSetControllerVisible`; the action itself
+  means the controller should be hidden.
 - Transitioning into `Presenting` emits `PresentController` and notifies parent
   position even when bounds already match and the controller is already visible.
 - Repeated healthy `Presenting` emits `None`.
@@ -368,6 +371,7 @@ ActiveTemporaryDeactivateWithHostReady_Presents
 ActiveTemporaryDeactivateWithHostStillHidden_PendingHost_HwndChainHidden
 
 HostReady_ControllerBoundsMismatch_PresentsAndRequestsBoundsCorrection
+HostReady_ControllerHiddenAndBoundsMismatch_PresentsWithBothCorrections
 TransitionIntoPresenting_NotifiesParentEvenWhenAlreadyVisibleAndBoundsMatch
 RepeatedPresentingHealthy_NoAction
 RepeatedPresentingBoundsMismatch_PresentsWithBoundsAndNotify
