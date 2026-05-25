@@ -165,6 +165,11 @@ For `PresentController`, action order is fixed:
 3. NotifyParentWindowPositionChanged last.
 ```
 
+`SetControllerVisible(true)` should run only when
+`ShouldSetControllerVisible=true`. `NotifyParentWindowPositionChanged` should
+still run for every `PresentController` action, including notify-only
+transitions where bounds already match and the controller is already visible.
+
 For `HideController`, only set visible false. No reload, navigation, DOM read,
 JS probe, or file I/O.
 
@@ -339,6 +344,7 @@ Old bool overload remains available and preserves old-path behavior for non-coor
 Coordinator path builds snapshot at execution time, not request time.
 Durable hidden facts are not overwritten by stale visible refreshes.
 Action sink order is bounds -> visible -> notify.
+PresentController with notify-only action does not set bounds or visible.
 Hide action requires controller availability.
 Ring append stores plain DTO fields only.
 Dump command writes valid JSON with surfacePresent=false when no Vision surface exists.
