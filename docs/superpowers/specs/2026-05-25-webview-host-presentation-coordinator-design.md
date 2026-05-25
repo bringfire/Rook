@@ -235,6 +235,8 @@ Rules:
 - Repeated healthy `Presenting` emits `None`.
 - Repeated `Presenting` with controller drift emits `PresentController` with
   only the needed correction flags plus parent-position notification.
+- `HideController` is emitted only when both `ControllerAvailable=true` and
+  `ControllerVisible=true`.
 
 ## Host Gate Priority
 
@@ -362,6 +364,7 @@ Required scenarios:
 
 ```text
 UserHide_HidesAndEntersHidden
+UserHide_ControllerUnavailable_NoAction
 PanelNotSelected_WhenSelectionRequired_EntersPendingHost
 PanelNotSelected_WithVisibleController_HidesControllerButKeepsDesiredVisible
 PanelSelectedAgain_WithHostReady_Presents
@@ -379,6 +382,7 @@ RepeatedPresentingControllerHidden_PresentsWithVisibleAndNotify
 
 PresentingToPendingHost_WithVisibleController_HidesController
 PresentingToPendingHost_WithHiddenController_NoAction
+PendingHost_ControllerUnavailable_NoAction
 PendingHostToPresenting_WhenHostRecovers_PresentsAndNotifies
 
 ControllerUnavailableOnlyAfterHostPasses

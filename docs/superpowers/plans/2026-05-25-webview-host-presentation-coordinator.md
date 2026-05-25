@@ -97,6 +97,24 @@ namespace Rook.Tests.UI.Web
         }
 
         [Fact]
+        public void UserHide_ControllerUnavailable_NoAction()
+        {
+            var coordinator = new WebViewHostPresentationCoordinator();
+            var snapshot = ReadySnapshot() with
+            {
+                DesiredVisible = false,
+                ControllerAvailable = false,
+                ControllerVisible = true
+            };
+
+            var decision = coordinator.Evaluate(snapshot, "user-hide-controller-unavailable");
+
+            Assert.Equal(WebViewHostPresentationState.Hidden, decision.NewState);
+            Assert.Equal(WebViewHostPresentationAction.None, decision.Action);
+            Assert.Equal(WebViewHostNotPresentableReason.None, decision.NotPresentableReason);
+        }
+
+        [Fact]
         public void PanelNotSelected_WhenSelectionRequired_EntersPendingHost()
         {
             var coordinator = new WebViewHostPresentationCoordinator();
@@ -290,6 +308,22 @@ namespace Rook.Tests.UI.Web
             {
                 HwndChainVisible = false
             }, "host-hidden");
+
+            Assert.Equal(WebViewHostPresentationState.PendingHost, decision.NewState);
+            Assert.Equal(WebViewHostPresentationAction.None, decision.Action);
+            Assert.Equal(WebViewHostNotPresentableReason.HwndChainHidden, decision.NotPresentableReason);
+        }
+
+        [Fact]
+        public void PendingHost_ControllerUnavailable_NoAction()
+        {
+            var coordinator = new WebViewHostPresentationCoordinator();
+
+            var decision = coordinator.Evaluate(ReadySnapshot(controllerVisible: true) with
+            {
+                HwndChainVisible = false,
+                ControllerAvailable = false
+            }, "host-hidden-controller-unavailable");
 
             Assert.Equal(WebViewHostPresentationState.PendingHost, decision.NewState);
             Assert.Equal(WebViewHostPresentationAction.None, decision.Action);
@@ -569,7 +603,7 @@ namespace Rook.UI.Web
                 return CreateDecision(
                     oldState,
                     WebViewHostPresentationState.Hidden,
-                    snapshot.ControllerVisible
+                    snapshot.ControllerAvailable && snapshot.ControllerVisible
                         ? WebViewHostPresentationAction.HideController
                         : WebViewHostPresentationAction.None,
                     WebViewHostNotPresentableReason.None,
@@ -583,7 +617,7 @@ namespace Rook.UI.Web
                 return CreateDecision(
                     oldState,
                     WebViewHostPresentationState.PendingHost,
-                    snapshot.ControllerVisible
+                    snapshot.ControllerAvailable && snapshot.ControllerVisible
                         ? WebViewHostPresentationAction.HideController
                         : WebViewHostPresentationAction.None,
                     hostBlocker,
@@ -708,17 +742,18 @@ dotnet test .\src\Rook.Tests\Rook.Tests.csproj --no-restore --filter "FullyQuali
 
 Expected result: all `WebViewHostPresentationCoordinatorTests` pass.
 
-- [ ] **Step 3: Fix only coordinator/test compile issues if the repo compiler exposes a language compatibility detail**
+- [ ] **Step 3: Fix only coordinator/test compile issues if the focused command exposes a real issue**
 
 Allowed adjustments:
 
 ```text
-If record init syntax fails unexpectedly, keep the same properties and convert records to sealed classes with settable properties.
 If the xUnit filter returns zero tests, run the exact class by namespace using:
 dotnet test .\src\Rook.Tests\Rook.Tests.csproj --no-restore --filter "FullyQualifiedName~Rook.Tests.UI.Web.WebViewHostPresentationCoordinatorTests"
 ```
 
-Do not add runtime calls from `RookWebSurface` in this task.
+Do not change the record-based type shape unless the compiler reports a specific
+failure in this repo. Do not add runtime calls from `RookWebSurface` in this
+task.
 
 ---
 
@@ -737,14 +772,15 @@ Run:
 git diff --name-only
 ```
 
-Expected output includes only:
+Expected output for implementation-only work includes only:
 
 ```text
-docs/superpowers/plans/2026-05-25-webview-host-presentation-coordinator.md
-docs/superpowers/specs/2026-05-25-webview-host-presentation-coordinator-design.md
 src/Rook/UI/Web/WebViewHostPresentationCoordinator.cs
 src/Rook.Tests/UI/Web/WebViewHostPresentationCoordinatorTests.cs
 ```
+
+If the executor updates this checklist or makes a reviewed spec tweak, the
+corresponding plan/spec markdown file may also appear.
 
 If `src/Rook/UI/Web/RookWebSurface.cs`, `src/Rook/UI/Vision/RookVisionPanel.cs`, `src/Rook/UI/Chat`, or `src/Rook/UI/Knowledge` appears, revert only the unintended edits from this branch after inspecting them.
 
@@ -783,9 +819,7 @@ Expected result: no output and exit code `0`.
 Run:
 
 ```powershell
-git add .\docs\superpowers\plans\2026-05-25-webview-host-presentation-coordinator.md `
-  .\docs\superpowers\specs\2026-05-25-webview-host-presentation-coordinator-design.md `
-  .\src\Rook\UI\Web\WebViewHostPresentationCoordinator.cs `
+git add .\src\Rook\UI\Web\WebViewHostPresentationCoordinator.cs `
   .\src\Rook.Tests\UI\Web\WebViewHostPresentationCoordinatorTests.cs
 git commit -m "feat: add webview host presentation coordinator contract"
 ```
