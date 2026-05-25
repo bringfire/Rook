@@ -82,6 +82,7 @@ namespace Rook.Tests.UI.Vision
             Assert.Contains("DesiredVisible = !durableHidden", source);
             Assert.Contains("var appActive = SafeApplicationActive();", source);
             Assert.Contains("AppActive = appActive", source);
+            Assert.Contains("return false;", ExtractMethod(source, "private static bool SafeApplicationActive"));
         }
 
         [Fact]
@@ -127,6 +128,23 @@ namespace Rook.Tests.UI.Vision
 
             throw new FileNotFoundException(
                 "Could not locate source file " + string.Join("/", pathParts));
+        }
+
+        private static string ExtractMethod(string source, string methodName)
+        {
+            var start = source.IndexOf(methodName, StringComparison.Ordinal);
+            Assert.True(start >= 0, "Could not find method " + methodName);
+            var brace = source.IndexOf('{', start);
+            Assert.True(brace >= 0, "Could not find method body for " + methodName);
+            var depth = 0;
+            for (var i = brace; i < source.Length; i++)
+            {
+                if (source[i] == '{') depth++;
+                if (source[i] == '}') depth--;
+                if (depth == 0) return source.Substring(start, i - start + 1);
+            }
+
+            throw new InvalidOperationException("Unbalanced method body for " + methodName);
         }
     }
 }

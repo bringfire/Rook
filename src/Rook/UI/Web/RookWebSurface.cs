@@ -186,6 +186,20 @@ namespace Rook.UI.Web
         private WebViewHostPanelPresentationFacts? _latestPresentationFacts;
         private WebViewHostPanelPresentationFacts? _queuedPresentationFacts;
         private bool _presentationReconcileQueued;
+
+        private readonly struct HostPresentationSnapshotResult
+        {
+            public HostPresentationSnapshotResult(
+                WebViewHostPresentationSnapshot snapshot,
+                object? targetBounds)
+            {
+                Snapshot = snapshot;
+                TargetBounds = targetBounds;
+            }
+
+            public WebViewHostPresentationSnapshot Snapshot { get; }
+            public object? TargetBounds { get; }
+        }
 #endif
 
         // ─── Constructor ──────────────────────────────────────────────
@@ -537,48 +551,56 @@ namespace Rook.UI.Web
                 return;
             }
 
-            facts = facts with { AppActive = SafeApplicationActive() };
             _latestPresentationFacts = facts;
 
-            var snapshot = BuildHostPresentationSnapshot(facts);
+            var controller = TryGetCoreWebView2Controller();
+            var snapshotResult = BuildHostPresentationSnapshot(facts, controller);
+            var snapshot = snapshotResult.Snapshot;
             var decision = _hostPresentation.Evaluate(snapshot, facts.Reason);
+            var actionResult = ApplyHostPresentationDecision(
+                decision,
+                snapshot,
+                controller,
+                snapshotResult.TargetBounds,
+                facts.Reason);
 
-            // Task 4 wires the full action sink. Task 3 only serializes
-            // evaluation and preserves the terminal coordinator contract.
-            RecordHostPresentationDecision(facts, snapshot, decision, "none");
+            RecordHostPresentationDecision(facts, snapshot, decision, actionResult);
         }
 
-        private WebViewHostPresentationSnapshot BuildHostPresentationSnapshot(
-            WebViewHostPanelPresentationFacts facts)
+        private HostPresentationSnapshotResult BuildHostPresentationSnapshot(
+            WebViewHostPanelPresentationFacts facts,
+            object? controller)
         {
-            var controller = TryGetCoreWebView2Controller();
-            var controllerVisible = SafeBoolValue(() =>
-                controller != null && GetInstanceProperty(controller.GetType(), "IsVisible")
-                    ?.GetValue(controller) is true);
+            var appActive = SafeApplicationActive();
+            var width = ReadEtoWidth();
+            var height = ReadEtoHeight();
+            var targetBounds = CreateControllerBoundsTarget(controller, width, height);
+            var hwndChainVisible = ReadHostHwndChainVisible();
+            var hwndClientRectNonZero = ReadHostHwndClientRectNonZero();
 
-            return new WebViewHostPresentationSnapshot
+            var snapshot = new WebViewHostPresentationSnapshot
             {
                 Disposed = _disposed || _webView == null,
                 DesiredVisible = facts.DesiredVisible,
-                AppActive = facts.AppActive,
-                TemporaryDeactivateHidden = facts.TemporaryDeactivateHidden,
+                AppActive = appActive,
+                TemporaryDeactivateHidden = facts.TemporaryDeactivateHidden && !appActive,
                 PanelVisible = facts.PanelVisible,
                 RequiresSelectedPanel = facts.RequiresSelectedPanel,
                 PanelSelectedVisible = facts.PanelSelectedVisible,
                 EtoLoaded = _webView != null,
                 EtoVisible = _webView?.Visible == true,
-                EtoWidth = SafeIntValue(() => _webView?.Width ?? 0),
-                EtoHeight = SafeIntValue(() => _webView?.Height ?? 0),
+                EtoWidth = width,
+                EtoHeight = height,
                 ParentWindowPresent = _webView?.ParentWindow != null,
-                HwndChainVisible = _webView?.Visible == true,
-                HwndClientRectNonZero =
-                    SafeIntValue(() => _webView?.Width ?? 0) > 0 &&
-                    SafeIntValue(() => _webView?.Height ?? 0) > 0,
+                HwndChainVisible = hwndChainVisible,
+                HwndClientRectNonZero = hwndClientRectNonZero,
                 ControllerAvailable = controller != null,
-                ControllerParentWindowPresent = controller != null,
-                ControllerVisible = controllerVisible,
-                ControllerBoundsMatchHostTarget = false
+                ControllerParentWindowPresent = ReadControllerParentWindowPresent(controller),
+                ControllerVisible = ReadControllerVisible(controller),
+                ControllerBoundsMatchHostTarget = ControllerBoundsMatchTarget(controller, targetBounds)
             };
+
+            return new HostPresentationSnapshotResult(snapshot, targetBounds);
         }
 
         private void EvaluateDisposedHostPresentation(
@@ -602,7 +624,7 @@ namespace Rook.UI.Web
         private bool SafeApplicationActive()
         {
             try { return Application.Instance.IsActive; }
-            catch { return true; }
+            catch { return false; }
         }
 
         private static bool SafeBoolValue(Func<bool> read)
@@ -627,6 +649,220 @@ namespace Rook.UI.Web
             _ = snapshot;
             _ = decision;
             _ = actionResult;
+        }
+
+        private string ApplyHostPresentationDecision(
+            WebViewHostPresentationDecision decision,
+            WebViewHostPresentationSnapshot snapshot,
+            object? controller,
+            object? targetBounds,
+            string reason)
+        {
+            _ = snapshot;
+
+            if (decision.Action == WebViewHostPresentationAction.None)
+                return "none";
+
+            if (controller == null)
+                return "skipped-controller-unavailable";
+
+            if (decision.Action == WebViewHostPresentationAction.HideController)
+            {
+                return SetControllerVisible(controller, false, reason)
+                    ? "applied"
+                    : "set-visible-failed:Unknown";
+            }
+
+            if (decision.Action == WebViewHostPresentationAction.PresentController)
+            {
+                if (decision.ShouldSetControllerBounds)
+                {
+                    var boundsResult = SetControllerBounds(controller, targetBounds, reason);
+                    if (boundsResult != "applied")
+                        return boundsResult;
+                }
+
+                if (decision.ShouldSetControllerVisible)
+                {
+                    if (!SetControllerVisible(controller, true, reason))
+                        return "set-visible-failed:Unknown";
+                }
+
+                return NotifyParentWindowPositionChangedForPresentation(controller, reason);
+            }
+
+            return "none";
+        }
+
+        private int ReadEtoWidth()
+        {
+            var width = SafeIntValue(() => _webView?.Size.Width ?? 0);
+            return width > 0
+                ? width
+                : SafeIntValue(() => _webView?.Bounds.Size.Width ?? 0);
+        }
+
+        private int ReadEtoHeight()
+        {
+            var height = SafeIntValue(() => _webView?.Size.Height ?? 0);
+            return height > 0
+                ? height
+                : SafeIntValue(() => _webView?.Bounds.Size.Height ?? 0);
+        }
+
+        private bool ReadHostHwndChainVisible()
+        {
+            try
+            {
+                var host = GetCurrentWebView2NativeControl();
+                if (host == null)
+                    return false;
+
+                var isHandleCreated = GetInstanceProperty(host.GetType(), "IsHandleCreated")
+                    ?.GetValue(host);
+                if (isHandleCreated is bool handleCreated && !handleCreated)
+                    return false;
+
+                return GetInstanceProperty(host.GetType(), "Visible")?.GetValue(host) is true;
+            }
+            catch { return false; }
+        }
+
+        private bool ReadHostHwndClientRectNonZero()
+        {
+            try
+            {
+                var host = GetCurrentWebView2NativeControl();
+                if (host == null)
+                    return false;
+
+                var rect = GetInstanceProperty(host.GetType(), "ClientRectangle")?.GetValue(host);
+                if (rect == null)
+                    return false;
+
+                return ReadIntProperty(rect, "Width") > 0 &&
+                    ReadIntProperty(rect, "Height") > 0;
+            }
+            catch { return false; }
+        }
+
+        private object? GetCurrentWebView2NativeControl()
+        {
+            var nativeControl = _webView?.ControlObject;
+            return nativeControl == null ? null : GetWebView2NativeControl(nativeControl);
+        }
+
+        private static int ReadIntProperty(object value, string name)
+        {
+            try
+            {
+                return GetInstanceProperty(value.GetType(), name)?.GetValue(value) is int i
+                    ? i
+                    : 0;
+            }
+            catch { return 0; }
+        }
+
+        private static bool ReadControllerVisible(object? controller)
+        {
+            if (controller == null)
+                return false;
+
+            return SafeBoolValue(() =>
+                GetInstanceProperty(controller.GetType(), "IsVisible")
+                    ?.GetValue(controller) is true);
+        }
+
+        private static bool ReadControllerParentWindowPresent(object? controller)
+        {
+            if (controller == null)
+                return false;
+
+            return SafeBoolValue(() =>
+            {
+                var parentWindow = GetInstanceProperty(controller.GetType(), "ParentWindow")
+                    ?.GetValue(controller);
+                return parentWindow is IntPtr handle
+                    ? handle != IntPtr.Zero
+                    : parentWindow != null;
+            });
+        }
+
+        private static object? CreateControllerBoundsTarget(
+            object? controller,
+            int width,
+            int height)
+        {
+            if (controller == null || width <= 0 || height <= 0)
+                return null;
+
+            try
+            {
+                var boundsProp = GetInstanceProperty(controller.GetType(), "Bounds");
+                var boundsType = boundsProp?.PropertyType;
+                var ctor = boundsType?.GetConstructor(new[]
+                {
+                    typeof(int),
+                    typeof(int),
+                    typeof(int),
+                    typeof(int)
+                });
+
+                return ctor?.Invoke(new object[] { 0, 0, width, height });
+            }
+            catch { return null; }
+        }
+
+        private static bool ControllerBoundsMatchTarget(
+            object? controller,
+            object? targetBounds)
+        {
+            if (controller == null || targetBounds == null)
+                return false;
+
+            try
+            {
+                var current = GetInstanceProperty(controller.GetType(), "Bounds")
+                    ?.GetValue(controller);
+                return Equals(current, targetBounds);
+            }
+            catch { return false; }
+        }
+
+        private string SetControllerBounds(
+            object controller,
+            object? targetBounds,
+            string reason)
+        {
+            if (targetBounds == null)
+            {
+                TraceWebViewFocus("host-visibility-reconcile-skip",
+                    $"controller-bounds-target-unavailable;{reason}");
+                return "set-bounds-failed:TargetUnavailable";
+            }
+
+            var boundsProp = GetInstanceProperty(controller.GetType(), "Bounds");
+            if (boundsProp == null || !boundsProp.CanWrite)
+            {
+                TraceWebViewFocus("host-visibility-reconcile-skip",
+                    $"controller-bounds-unavailable;{reason}");
+                return "set-bounds-failed:BoundsUnavailable";
+            }
+
+            try
+            {
+                boundsProp.SetValue(controller, targetBounds);
+                TraceWebViewFocus("host-controller-bounds-set", reason);
+                return "applied";
+            }
+            catch (Exception ex)
+            {
+                TraceWebViewFocus("host-visibility-reconcile-failed",
+                    $"set-bounds;{reason};{ex.Message}");
+                Log($"Rook: WebView2 controller bounds set failed for surface " +
+                    $"'{ResourceRoot}' (reason={reason}): {ex.Message}");
+                return "set-bounds-failed:" + ex.GetType().Name;
+            }
         }
 
         private void ScheduleHostVisibilityReconcile(WebViewHostVisibilityDecision decision)
@@ -762,6 +998,13 @@ namespace Rook.UI.Web
 
         private void NotifyParentWindowPositionChanged(object controller, string reason)
         {
+            _ = NotifyParentWindowPositionChangedForPresentation(controller, reason);
+        }
+
+        private string NotifyParentWindowPositionChangedForPresentation(
+            object controller,
+            string reason)
+        {
             var notifyMethod = controller.GetType().GetMethod(
                 "NotifyParentWindowPositionChanged",
                 Type.EmptyTypes);
@@ -770,13 +1013,14 @@ namespace Rook.UI.Web
             {
                 TraceWebViewFocus("host-visibility-reconcile-skip",
                     $"notify-parent-unavailable;{reason}");
-                return;
+                return "notify-parent-failed:MissingMethod";
             }
 
             try
             {
                 notifyMethod.Invoke(controller, null);
                 TraceWebViewFocus("host-controller-position-notified", reason);
+                return "applied";
             }
             catch (Exception ex)
             {
@@ -784,6 +1028,7 @@ namespace Rook.UI.Web
                     $"notify-parent;{reason};{ex.Message}");
                 Log($"Rook: WebView2 parent-position notification failed for surface " +
                     $"'{ResourceRoot}' (reason={reason}): {ex.Message}");
+                return "notify-parent-failed:" + ex.GetType().Name;
             }
         }
 
@@ -807,7 +1052,7 @@ namespace Rook.UI.Web
 
         private void OnApplicationIsActiveChanged(object? sender, EventArgs e)
         {
-            var active = Application.Instance.IsActive;
+            var active = SafeApplicationActive();
             TraceWebViewFocus("app-active-changed", active ? "active" : "inactive");
 
             if (active)

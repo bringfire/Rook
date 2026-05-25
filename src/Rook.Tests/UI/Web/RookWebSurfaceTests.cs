@@ -444,6 +444,89 @@ namespace Rook.Tests.UI.Web
         }
 
         [Fact]
+        public void CoordinatorPath_UnknownAppActiveIsConservativeFalse()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+            var method = ExtractMethod(source, "SafeApplicationActive");
+
+            Assert.Contains("return false;", method);
+        }
+
+        [Fact]
+        public void CoordinatorActionSink_OrdersBoundsVisibleNotify()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+            var method = ExtractMethod(source, "ApplyHostPresentationDecision");
+
+            var bounds = method.IndexOf("SetControllerBounds(", StringComparison.Ordinal);
+            var visible = method.IndexOf("SetControllerVisible(controller, true", StringComparison.Ordinal);
+            var notify = method.IndexOf("NotifyParentWindowPositionChangedForPresentation", StringComparison.Ordinal);
+
+            Assert.True(bounds >= 0, "PresentController must set bounds when requested.");
+            Assert.True(visible > bounds, "PresentController must set visible after bounds.");
+            Assert.True(notify > visible, "PresentController must notify parent position after bounds/visible work.");
+        }
+
+        [Fact]
+        public void CoordinatorActionSink_NotifyOnlyPresentDoesNotSetBoundsOrVisible()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+            var method = ExtractMethod(source, "ApplyHostPresentationDecision");
+
+            Assert.Contains("decision.ShouldSetControllerBounds", method);
+            Assert.Contains("decision.ShouldSetControllerVisible", method);
+            Assert.DoesNotContain("else\r\n                SetControllerBounds", method);
+            Assert.DoesNotContain("else\r\n                SetControllerVisible(controller, true", method);
+            Assert.Contains("return NotifyParentWindowPositionChangedForPresentation", method);
+        }
+
+        [Fact]
+        public void CoordinatorActionSink_BoundsFailureStopsPresentAction()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+            var method = ExtractMethod(source, "ApplyHostPresentationDecision");
+
+            Assert.Contains("var boundsResult = SetControllerBounds", method);
+            Assert.Contains("if (boundsResult != \"applied\")", method);
+            Assert.Contains("return boundsResult;", method);
+        }
+
+        [Fact]
+        public void CoordinatorActionSink_ReportsNotifyFailure()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+            var method = ExtractMethod(source, "NotifyParentWindowPositionChangedForPresentation");
+
+            Assert.Contains("notify-parent-failed:", method);
+            Assert.Contains("ex.GetType().Name", method);
+            Assert.Contains("return \"applied\"", method);
+        }
+
+        [Fact]
+        public void ApplicationActiveChanged_UsesConservativeSafeProbe()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+            var method = ExtractMethod(source, "OnApplicationIsActiveChanged");
+
+            Assert.Contains("var active = SafeApplicationActive();", method);
+            Assert.DoesNotContain("Application.Instance.IsActive;", method);
+        }
+
+        [Fact]
+        public void HostPresentationSnapshot_UsesSingleControllerForSnapshotAndAction()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+            var run = ExtractMethod(source, "RunHostPresentationCoordinatorReconcile");
+            var snapshot = ExtractMethod(source, "BuildHostPresentationSnapshot");
+
+            Assert.Contains("var controller = TryGetCoreWebView2Controller();", run);
+            Assert.Contains("BuildHostPresentationSnapshot(facts, controller)", run);
+            Assert.Contains("ApplyHostPresentationDecision", run);
+            Assert.Contains("controller,", run);
+            Assert.DoesNotContain("TryGetCoreWebView2Controller", snapshot);
+        }
+
+        [Fact]
         public void HostVisibilityCoordinator_HiddenHost_IgnoresActivationRefreshWhenControlIsNotVisible()
         {
             var coordinator = new WebViewHostVisibilityCoordinator();
@@ -666,7 +749,29 @@ namespace Rook.Tests.UI.Web
 
         private static string ExtractMethod(string source, string methodName)
         {
-            var signatureIndex = source.IndexOf(methodName, StringComparison.Ordinal);
+            var signatureIndex = -1;
+            var searchIndex = 0;
+            while (searchIndex < source.Length)
+            {
+                var nameIndex = source.IndexOf(methodName + "(", searchIndex, StringComparison.Ordinal);
+                if (nameIndex < 0)
+                    break;
+
+                var lineStart = source.LastIndexOf('\n', nameIndex);
+                lineStart = lineStart < 0 ? 0 : lineStart + 1;
+                var prefix = source.Substring(lineStart, nameIndex - lineStart);
+                if (prefix.Contains("private ") ||
+                    prefix.Contains("protected ") ||
+                    prefix.Contains("internal ") ||
+                    prefix.Contains("public "))
+                {
+                    signatureIndex = lineStart;
+                    break;
+                }
+
+                searchIndex = nameIndex + methodName.Length;
+            }
+
             if (signatureIndex < 0)
                 return string.Empty;
 

@@ -134,7 +134,7 @@ namespace Rook.UI.Vision
             }
             catch
             {
-                return true;
+                return false;
             }
         }
     }
