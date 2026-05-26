@@ -52,6 +52,14 @@ function New-ValidatorFixture {
         [string]$ChatServiceManifestPath = 'C:/Users/test/AppData/Roaming/McNeel/Rhinoceros/8.0/Plug-ins/RookNative/RookChatService.json',
         [string]$LoadedNativePath = 'C:/Users/test/AppData/Roaming/McNeel/Rhinoceros/8.0/Plug-ins/RookNative/RookNative.rhp',
         [string]$LoadedCompanionPath = 'C:/Users/test/AppData/Roaming/McNeel/Rhinoceros/8.0/Plug-ins/RookNative/net7.0/Rook.rhp',
+        [string]$SmokeStartedUtc = '2026-05-26T17:59:00.0000000Z',
+        [string]$StandaloneCompanionAssemblyLocation = 'C:/Users/test/AppData/Roaming/McNeel/Rhinoceros/8.0/Plug-ins/RookNative/net7.0/Rook.rhp',
+        [string]$StandaloneCompanionRuntimeChild = 'net7.0',
+        [string]$RhinoInsideCompanionAssemblyLocation = 'C:/Users/test/AppData/Roaming/McNeel/Rhinoceros/8.0/Plug-ins/RookNative/net48/Rook.rhp',
+        [string]$RhinoInsideCompanionRuntimeChild = 'net48',
+        [bool]$CompanionStartupComplete = $true,
+        [bool]$CompanionBridgeRegistered = $true,
+        [string]$CompanionStatusUpdatedUtc = '2026-05-26T18:00:06.0000000Z',
         [switch]$LegacySingleHost
     )
 
@@ -76,6 +84,7 @@ function New-ValidatorFixture {
             revit_version = '2025.test'
             rhino_inside_version = 'test'
             rook_version = $Version
+            smoke_started_utc = $SmokeStartedUtc
             native_port = $NativePort
             ping_result = $PingResult
             loaded_native_path = $LoadedNativePath
@@ -86,6 +95,7 @@ function New-ValidatorFixture {
             git_sha = $GitSha
             installer_sha256 = $installerSha
             rook_version = $Version
+            smoke_started_utc = $SmokeStartedUtc
             standalone_rhino = [ordered]@{
                 rhino_version = '8.test'
                 host_runtime = 'net7.0'
@@ -96,12 +106,27 @@ function New-ValidatorFixture {
                 chat_service_health = $ChatServiceHealth
                 loaded_native_path = $LoadedNativePath
                 loaded_companion_path = $LoadedCompanionPath
+                companion_self_report = [ordered]@{
+                    processId = 1111
+                    processName = 'Rhino'
+                    rhinoInside = $false
+                    assemblyLocation = $StandaloneCompanionAssemblyLocation
+                    runtimeChild = $StandaloneCompanionRuntimeChild
+                    targetFramework = '.NETCoreApp,Version=v7.0'
+                    startupGateAttached = $false
+                    deferredLocalStartupComplete = $true
+                    startupComplete = $CompanionStartupComplete
+                    bridgeRegistered = $CompanionBridgeRegistered
+                    onLoadUtc = '2026-05-26T18:00:00.0000000Z'
+                    startupCompleteUtc = '2026-05-26T18:00:05.0000000Z'
+                    statusUpdatedUtc = $CompanionStatusUpdatedUtc
+                }
             }
             rhino_inside_revit = [ordered]@{
                 rhino_version = '8.test'
                 revit_version = '2025.test'
                 rhino_inside_version = 'test'
-                host_runtime = 'net7.0'
+                host_runtime = $RhinoInsideCompanionRuntimeChild
                 native_port = $NativePort
                 ping_result = $PingResult
                 plugin_manager_listed = $PluginManagerListed
@@ -109,6 +134,21 @@ function New-ValidatorFixture {
                 chat_service_health = $ChatServiceHealth
                 loaded_native_path = $LoadedNativePath
                 loaded_companion_path = $LoadedCompanionPath
+                companion_self_report = [ordered]@{
+                    processId = 2222
+                    processName = 'Revit'
+                    rhinoInside = $true
+                    assemblyLocation = $RhinoInsideCompanionAssemblyLocation
+                    runtimeChild = $RhinoInsideCompanionRuntimeChild
+                    targetFramework = '.NETFramework,Version=v4.8'
+                    startupGateAttached = $false
+                    deferredLocalStartupComplete = $true
+                    startupComplete = $CompanionStartupComplete
+                    bridgeRegistered = $CompanionBridgeRegistered
+                    onLoadUtc = '2026-05-26T18:00:00.0000000Z'
+                    startupCompleteUtc = '2026-05-26T18:00:05.0000000Z'
+                    statusUpdatedUtc = $CompanionStatusUpdatedUtc
+                }
             }
         } | ConvertTo-Json -Depth 7 | Set-Content -LiteralPath $smokeManifestPath -Encoding UTF8
     }
@@ -296,6 +336,76 @@ function Test-ValidatorRejectsLegacySingleHostSmokeManifest {
     }
 }
 
+function Test-ValidatorUsesCompanionSelfReportAsAuthoritativePath {
+    $fixture = New-ValidatorFixture -LoadedCompanionPath 'C:/bogus/from-module-enumeration/Rook.rhp'
+
+    try {
+        $result = Invoke-Validator -Arguments @(
+            '-File', $Validator,
+            '-Version', $fixture.Version,
+            '-RepoRoot', $RepoRoot,
+            '-GitSha', $fixture.GitSha,
+            '-InstallerPath', $fixture.InstallerPath,
+            '-FfmpegSourceBundleManifestPath', $fixture.SourceBundleManifestPath,
+            '-SmokeManifestPath', $fixture.SmokeManifestPath,
+            '-OutputManifestPath', $fixture.OutputManifestPath,
+            '-MinInstallerBytes', '1'
+        )
+
+        Assert-True -Condition ($result.ExitCode -eq 0) -Message "Validator must accept companion self-report even when loaded_companion_path is unusable module evidence. Output: $($result.Output)"
+    } finally {
+        Remove-Item -LiteralPath $fixture.TempRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Test-ValidatorRejectsIncompleteCompanionSelfReport {
+    $fixture = New-ValidatorFixture -CompanionStartupComplete $false
+
+    try {
+        $result = Invoke-Validator -Arguments @(
+            '-File', $Validator,
+            '-Version', $fixture.Version,
+            '-RepoRoot', $RepoRoot,
+            '-GitSha', $fixture.GitSha,
+            '-InstallerPath', $fixture.InstallerPath,
+            '-FfmpegSourceBundleManifestPath', $fixture.SourceBundleManifestPath,
+            '-SmokeManifestPath', $fixture.SmokeManifestPath,
+            '-OutputManifestPath', $fixture.OutputManifestPath,
+            '-MinInstallerBytes', '1'
+        )
+
+        Assert-True -Condition ($result.ExitCode -ne 0) -Message 'Validator accepted companion self-report without startup completion.'
+        Assert-Contains -Text $result.Output -Expected 'companion_self_report.startupComplete' -Message "Validator companion self-report error was not specific. Output: $($result.Output)"
+    } finally {
+        Remove-Item -LiteralPath $fixture.TempRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Test-ValidatorRejectsStaleCompanionSelfReport {
+    $fixture = New-ValidatorFixture `
+        -SmokeStartedUtc '2026-05-26T18:00:00.0000000Z' `
+        -CompanionStatusUpdatedUtc '2026-05-26T17:59:59.0000000Z'
+
+    try {
+        $result = Invoke-Validator -Arguments @(
+            '-File', $Validator,
+            '-Version', $fixture.Version,
+            '-RepoRoot', $RepoRoot,
+            '-GitSha', $fixture.GitSha,
+            '-InstallerPath', $fixture.InstallerPath,
+            '-FfmpegSourceBundleManifestPath', $fixture.SourceBundleManifestPath,
+            '-SmokeManifestPath', $fixture.SmokeManifestPath,
+            '-OutputManifestPath', $fixture.OutputManifestPath,
+            '-MinInstallerBytes', '1'
+        )
+
+        Assert-True -Condition ($result.ExitCode -ne 0) -Message 'Validator accepted a stale companion self-report.'
+        Assert-Contains -Text $result.Output -Expected 'companion_self_report.statusUpdatedUtc' -Message "Validator stale self-report error was not specific. Output: $($result.Output)"
+    } finally {
+        Remove-Item -LiteralPath $fixture.TempRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 Test-ValidatorWritesExactArtifactManifest
 Test-DocumentedValidatorCommandDefaultsRepoRoot
 Test-ValidatorRejectsGitShaThatDoesNotMatchCheckout
@@ -303,5 +413,8 @@ Test-ValidatorRejectsFailedSmokeEvidence
 Test-ValidatorRejectsMissingPluginManagerEvidence
 Test-ValidatorRejectsMissingChatServiceEvidence
 Test-ValidatorRejectsLegacySingleHostSmokeManifest
+Test-ValidatorUsesCompanionSelfReportAsAuthoritativePath
+Test-ValidatorRejectsIncompleteCompanionSelfReport
+Test-ValidatorRejectsStaleCompanionSelfReport
 
 Write-Host 'Release artifact validator tests passed.'

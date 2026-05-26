@@ -15,6 +15,25 @@ namespace Rook
         public static string DiscoveryFolder => Path.Combine(Path.GetTempPath(), "rook");
 
         /// <summary>
+        /// Shared per-user discovery folder under <c>%LOCALAPPDATA%\Rook\discovery</c>.
+        /// Falls back to <see cref="DiscoveryFolder"/> when LocalApplicationData is unavailable.
+        /// </summary>
+        public static string SharedDiscoveryFolder
+        {
+            get
+            {
+                var localAppData = Environment.GetFolderPath(
+                    Environment.SpecialFolder.LocalApplicationData);
+                if (string.IsNullOrWhiteSpace(localAppData))
+                {
+                    return DiscoveryFolder;
+                }
+
+                return Path.Combine(localAppData, "Rook", "discovery");
+            }
+        }
+
+        /// <summary>
         /// Persistent settings root under <c>%APPDATA%\Rook</c>.
         /// Lazily created by <see cref="RookSettingsStore"/> on first write.
         /// </summary>

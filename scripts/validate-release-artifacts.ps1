@@ -118,7 +118,9 @@ function Assert-SmokeHostSuccess {
     param(
         [object]$HostManifest,
         [string]$Label,
-        [string[]]$RequiredVersionFields
+        [string[]]$RequiredVersionFields,
+        [bool]$ExpectedRhinoInside,
+        [DateTimeOffset]$SmokeStartedAt
     )
 
     foreach ($field in $RequiredVersionFields) {
@@ -164,11 +166,92 @@ function Assert-SmokeHostSuccess {
         Fail "$Label field 'loaded_native_path' must point to the installed RookNative\\RookNative.rhp; actual value: $($HostManifest.loaded_native_path)"
     }
 
-    $runtimePattern = [regex]::Escape($hostRuntime)
+    Assert-CompanionSelfReport `
+        -SelfReport (Require-JsonField -Json $HostManifest -Field 'companion_self_report' -Label $Label) `
+        -Label "$Label companion_self_report" `
+        -HostRuntime $hostRuntime `
+        -ExpectedRhinoInside $ExpectedRhinoInside `
+        -SmokeStartedAt $SmokeStartedAt
+}
+
+function Assert-BooleanField {
+    param(
+        [object]$Json,
+        [string]$Field,
+        [string]$Label,
+        [bool]$Expected
+    )
+
+    $value = Require-JsonField -Json $Json -Field $Field -Label $Label
+    $parsed = $false
+    if (-not [bool]::TryParse(([string]$value), [ref]$parsed) -or $parsed -ne $Expected) {
+        Fail "$Label.$Field must be $Expected; actual value: $value"
+    }
+}
+
+function Require-TimestampField {
+    param(
+        [object]$Json,
+        [string]$Field,
+        [string]$Label
+    )
+
+    $rawValue = [string](Require-JsonField -Json $Json -Field $Field -Label $Label)
+    $parsed = [DateTimeOffset]::MinValue
+    if (-not [DateTimeOffset]::TryParse($rawValue, [ref]$parsed)) {
+        Fail "$Label.$Field must be a valid timestamp; actual value: $rawValue"
+    }
+
+    return $parsed
+}
+
+function Assert-CompanionSelfReport {
+    param(
+        [object]$SelfReport,
+        [string]$Label,
+        [string]$HostRuntime,
+        [bool]$ExpectedRhinoInside,
+        [DateTimeOffset]$SmokeStartedAt
+    )
+
+    foreach ($field in @(
+        'processId',
+        'processName',
+        'rhinoInside',
+        'assemblyLocation',
+        'runtimeChild',
+        'targetFramework',
+        'startupGateAttached',
+        'deferredLocalStartupComplete',
+        'startupComplete',
+        'bridgeRegistered',
+        'onLoadUtc',
+        'startupCompleteUtc',
+        'statusUpdatedUtc'
+    )) {
+        $null = Require-JsonField -Json $SelfReport -Field $field -Label $Label
+    }
+
+    Assert-BooleanField -Json $SelfReport -Field 'rhinoInside' -Label $Label -Expected $ExpectedRhinoInside
+    Assert-BooleanField -Json $SelfReport -Field 'deferredLocalStartupComplete' -Label $Label -Expected $true
+    Assert-BooleanField -Json $SelfReport -Field 'startupComplete' -Label $Label -Expected $true
+    Assert-BooleanField -Json $SelfReport -Field 'bridgeRegistered' -Label $Label -Expected $true
+
+    $runtimeChild = ([string](Require-JsonField -Json $SelfReport -Field 'runtimeChild' -Label $Label)).Trim()
+    if ($runtimeChild -ne $HostRuntime) {
+        Fail "$Label.runtimeChild must match host_runtime $HostRuntime; actual value: $runtimeChild"
+    }
+
+    $runtimePattern = [regex]::Escape($HostRuntime)
     $companionPattern = "(?i)\\RookNative\\$runtimePattern\\Rook\.rhp$"
-    $companionPath = ([string](Require-JsonField -Json $HostManifest -Field 'loaded_companion_path' -Label $Label)).Replace('/', '\')
-    if ($companionPath -notmatch $companionPattern) {
-        Fail "$Label field 'loaded_companion_path' must point to a runtime-child RookNative\\$hostRuntime\\Rook.rhp; actual value: $($HostManifest.loaded_companion_path)"
+    $assemblyLocation = ([string](Require-JsonField -Json $SelfReport -Field 'assemblyLocation' -Label $Label)).Replace('/', '\')
+    if ($assemblyLocation -notmatch $companionPattern) {
+        Fail "$Label.assemblyLocation must point to the self-reported runtime child RookNative\\$HostRuntime\\Rook.rhp; actual value: $($SelfReport.assemblyLocation)"
+    }
+
+    $statusUpdatedUtc = Require-TimestampField -Json $SelfReport -Field 'statusUpdatedUtc' -Label $Label
+    if ($statusUpdatedUtc -lt $SmokeStartedAt) {
+        Fail "$Label.statusUpdatedUtc must be at or after release smoke start $($SmokeStartedAt.ToString('o')); actual value: $($statusUpdatedUtc.ToString('o'))"
     }
 }
 
@@ -262,11 +345,14 @@ foreach ($field in @(
     'git_sha',
     'installer_sha256',
     'rook_version',
+    'smoke_started_utc',
     'standalone_rhino',
     'rhino_inside_revit'
 )) {
     $null = Require-JsonField -Json $smokeManifest -Field $field -Label 'release smoke manifest'
 }
+
+$smokeStartedAt = Require-TimestampField -Json $smokeManifest -Field 'smoke_started_utc' -Label 'release smoke manifest'
 
 if ([string]$smokeManifest.git_sha -ne $GitSha) {
     Fail "smoke manifest git_sha does not match release git SHA. Expected $GitSha, actual $($smokeManifest.git_sha)"
@@ -277,8 +363,8 @@ if (([string]$smokeManifest.installer_sha256).ToUpperInvariant() -ne $installerS
 if ([string]$smokeManifest.rook_version -ne $Version) {
     Fail "smoke manifest rook_version does not match release version. Expected $Version, actual $($smokeManifest.rook_version)"
 }
-Assert-SmokeHostSuccess -HostManifest $smokeManifest.standalone_rhino -Label 'release smoke manifest standalone_rhino' -RequiredVersionFields @('rhino_version')
-Assert-SmokeHostSuccess -HostManifest $smokeManifest.rhino_inside_revit -Label 'release smoke manifest rhino_inside_revit' -RequiredVersionFields @('rhino_version', 'revit_version', 'rhino_inside_version')
+Assert-SmokeHostSuccess -HostManifest $smokeManifest.standalone_rhino -Label 'release smoke manifest standalone_rhino' -RequiredVersionFields @('rhino_version') -ExpectedRhinoInside $false -SmokeStartedAt $smokeStartedAt
+Assert-SmokeHostSuccess -HostManifest $smokeManifest.rhino_inside_revit -Label 'release smoke manifest rhino_inside_revit' -RequiredVersionFields @('rhino_version', 'revit_version', 'rhino_inside_version') -ExpectedRhinoInside $true -SmokeStartedAt $smokeStartedAt
 
 $outputManifestParent = Split-Path -Parent $OutputManifestPath
 if ($outputManifestParent) {

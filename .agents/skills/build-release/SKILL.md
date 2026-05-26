@@ -263,13 +263,15 @@ python scripts\run_rhino_runtime_harness.py --smoke ping-only
 # 2. Start Rhino from the Rhino.Inside.Revit tab.
 # 3. Confirm RookNative and Rook load without CLR binding or TypeLoad errors.
 # 4. Run a non-mutating Rook ping from the discovered native port.
-# 5. Record the physical Rook.rhp path Rhino loaded in each host/runtime.
+# 5. Record the managed companion self-report from %LOCALAPPDATA%\Rook\discovery\companion-<pid>.json.
 ```
 
 Do not publish the installer if the Rhino.Inside.Revit smoke was not run or did
 not pass. Do not cite Yak/package-manager layout docs as proof for this Inno
 installer shape. Record the Rhino, Revit, Rhino.Inside.Revit, Rook versions,
-and physical `Rook.rhp` load paths in the release notes.
+and companion self-report evidence in the release notes. Do not use registry
+`FileName` values or `Get-Process.Modules` absence as proof of managed
+companion load.
 
 Write a structured smoke manifest at `installer\output\release-smoke-X.Y.Z.json`
 with at least:
@@ -278,6 +280,7 @@ with at least:
 git_sha
 installer_sha256
 rook_version
+smoke_started_utc
 standalone_rhino:
   rhino_version
   host_runtime
@@ -287,7 +290,20 @@ standalone_rhino:
   chat_service_manifest_path
   chat_service_health
   loaded_native_path
-  loaded_companion_path
+  companion_self_report:
+    processId
+    processName
+    rhinoInside
+    assemblyLocation
+    runtimeChild
+    targetFramework
+    startupGateAttached
+    deferredLocalStartupComplete
+    startupComplete
+    bridgeRegistered
+    onLoadUtc
+    startupCompleteUtc
+    statusUpdatedUtc
 rhino_inside_revit:
   rhino_version
   revit_version
@@ -299,7 +315,20 @@ rhino_inside_revit:
   chat_service_manifest_path
   chat_service_health
   loaded_native_path
-  loaded_companion_path
+  companion_self_report:
+    processId
+    processName
+    rhinoInside
+    assemblyLocation
+    runtimeChild
+    targetFramework
+    startupGateAttached
+    deferredLocalStartupComplete
+    startupComplete
+    bridgeRegistered
+    onLoadUtc
+    startupCompleteUtc
+    statusUpdatedUtc
 ```
 
 Then validate artifact identity and emit the release manifest:

@@ -69,6 +69,25 @@ namespace Rook.Tests.Plugin
         }
 
         [Fact]
+        public void RuntimeStatus_IsPublishedOnLoadAndStartupTransitions()
+        {
+            var source = ReadSourceFile("src", "Rook", "RookPlugin.cs");
+            var onLoad = ExtractMethod(source, "protected override LoadReturnCode OnLoad(");
+            var runFromIdle = ExtractMethod(source, "private void RunDeferredStartupFromIdle()");
+            var deferredStartup = ExtractMethod(source, "private bool RunDeferredCompanionStartup()");
+            var writeStatus = ExtractMethod(source, "private void WriteCompanionRuntimeStatus()");
+
+            Assert.Contains("_onLoadUtc = DateTimeOffset.UtcNow;", onLoad);
+            Assert.Contains("WriteCompanionRuntimeStatus();", onLoad);
+            Assert.Contains("WriteCompanionRuntimeStatus();", runFromIdle);
+            Assert.Contains("WriteCompanionRuntimeStatus();", deferredStartup);
+            Assert.Contains("CompanionRuntimeStatus.CreateSnapshot", writeStatus);
+            Assert.Contains("CompanionRuntimeStatus.Write", writeStatus);
+            Assert.Contains("bridgeRegistered: _bridgeRegistered", writeStatus);
+            Assert.Contains("startupComplete: _startupComplete", writeStatus);
+        }
+
+        [Fact]
         public void ShowRookChatCommand_VerifiesPanelVisibilityAfterOpen()
         {
             var source = ReadSourceFile("src", "Rook", "Commands", "ShowRookChatCommand.cs");

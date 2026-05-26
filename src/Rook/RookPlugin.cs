@@ -35,6 +35,10 @@ namespace Rook
         private bool _startupHooksAttached = false;
         private bool _shutdownStarted = false;
         private bool _deferredLocalStartupComplete = false;
+        private bool _startupComplete = false;
+        private bool _bridgeRegistered = false;
+        private DateTimeOffset _onLoadUtc = DateTimeOffset.MinValue;
+        private DateTimeOffset? _startupCompleteUtc;
         private string? _lastStartupGateTraceKey;
         private int _lastStartupGateTraceRepeatCount = 0;
         private static readonly string StartupTracePath =
@@ -60,10 +64,12 @@ namespace Rook
         /// </summary>
         protected override LoadReturnCode OnLoad(ref string errorMessage)
         {
+            _onLoadUtc = DateTimeOffset.UtcNow;
             TraceStartup("OnLoad minimal");
 
             _isRhinoInside = Rhino.Runtime.HostUtils.RunningAsRhinoInside;
             AttachStartupGateHooks();
+            WriteCompanionRuntimeStatus();
 
             // NOTE on RookBlockBasePointUserData: the class exists for native
             // side storage/read and for cross-language binary-format contract.
@@ -345,6 +351,7 @@ namespace Rook
                 {
                     _startupGate.MarkStartupComplete();
                     DetachStartupGateHooks();
+                    WriteCompanionRuntimeStatus();
                 }
             }
             catch (Exception ex)
@@ -354,6 +361,7 @@ namespace Rook
                 {
                     _startupGate.MarkStartupAvailableForRetry();
                 }
+                WriteCompanionRuntimeStatus();
             }
             finally
             {
@@ -434,6 +442,7 @@ namespace Rook
                 }
 
                 _deferredLocalStartupComplete = true;
+                WriteCompanionRuntimeStatus();
             }
 
             var nowUtc = DateTime.UtcNow;
@@ -443,6 +452,7 @@ namespace Rook
             }
 
             var nativeBridgeRegistered = NativeGhBridgeRegistrar.TryRegister();
+            _bridgeRegistered = nativeBridgeRegistered;
             TraceStartup($"Deferred startup bridgeRegistered={nativeBridgeRegistered} bridgeRetryCount={_bridgeRetryCount}");
             if (!nativeBridgeRegistered)
             {
@@ -452,14 +462,39 @@ namespace Rook
                 {
                     TraceStartup("Startup bridge retries exhausted; bridge-dependent features unavailable.");
                     DetachStartupGateHooks();
+                    WriteCompanionRuntimeStatus();
                     return true;
                 }
 
+                WriteCompanionRuntimeStatus();
                 return false;
             }
 
             TraceStartup("Startup complete");
+            _startupComplete = true;
+            _startupCompleteUtc = DateTimeOffset.UtcNow;
+            WriteCompanionRuntimeStatus();
             return true;
+        }
+
+        private void WriteCompanionRuntimeStatus()
+        {
+            try
+            {
+                var snapshot = CompanionRuntimeStatus.CreateSnapshot(
+                    rhinoInside: _isRhinoInside,
+                    startupGateAttached: _startupHooksAttached,
+                    deferredLocalStartupComplete: _deferredLocalStartupComplete,
+                    startupComplete: _startupComplete,
+                    bridgeRegistered: _bridgeRegistered,
+                    onLoadUtc: _onLoadUtc,
+                    startupCompleteUtc: _startupCompleteUtc);
+                CompanionRuntimeStatus.Write(snapshot);
+            }
+            catch (Exception ex)
+            {
+                TraceStartup($"Companion runtime status write failed (non-fatal): {ex.GetType().Name}: {ex.Message}");
+            }
         }
 
         private static void TraceStartup(string message)

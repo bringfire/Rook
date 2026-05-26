@@ -307,7 +307,10 @@ function Test-ReleaseWorkflowDocsUseMultiRuntimeCompanionOutputs {
     Assert-Contains -Text $combined -Expected 'src\Rook\bin\Release\net48\runtimes' -Message 'Release workflow docs must copy net48 runtime assets for WebView2 panels.'
     Assert-Contains -Text $combined -Expected 'Rhino.Inside.Revit' -Message 'Release workflow docs must require Rhino.Inside.Revit smoke coverage for release validation.'
     Assert-Contains -Text $combined -Expected 'direct-registry' -Message 'Release workflow docs must call out the direct-registry loader assumption.'
-    Assert-Contains -Text $combined -Expected 'physical `Rook.rhp`' -Message 'Release workflow docs must require recording the physical Rook.rhp path loaded by Rhino.'
+    Assert-Contains -Text $combined -Expected 'companion self-report' -Message 'Release workflow docs must require managed companion self-report evidence.'
+    Assert-Contains -Text $combined -Expected 'companion_self_report' -Message 'Release workflow docs must include companion_self_report in smoke manifests.'
+    Assert-Contains -Text $combined -Expected 'statusUpdatedUtc' -Message 'Release workflow docs must require the managed companion self-report freshness timestamp.'
+    Assert-Contains -Text $combined -Expected 'smoke_started_utc' -Message 'Release workflow docs must include the release smoke start timestamp.'
     Assert-Contains -Text $combined -Expected 'Do not cite Yak/package-manager layout docs as proof' -Message 'Release workflow docs must not treat Yak package layout docs as proof for the Inno installer.'
 }
 
@@ -375,6 +378,10 @@ function Test-BuildReleaseDocsRequirePerHostSmokeManifest {
     Assert-Contains -Text $combined -Expected 'plugin_manager_listed' -Message 'Release smoke manifest must record that Rhino Plugin Manager lists RookNative.'
     Assert-Contains -Text $combined -Expected 'chat_service_manifest_path' -Message 'Release smoke manifest must record the installed chat service manifest path.'
     Assert-Contains -Text $combined -Expected 'chat_service_health' -Message 'Release smoke manifest must record successful chat service health.'
+    Assert-Contains -Text $combined -Expected 'companion_self_report' -Message 'Release smoke manifest must record managed companion self-report evidence.'
+    Assert-Contains -Text $combined -Expected 'assemblyLocation' -Message 'Release smoke manifest must record self-reported companion assemblyLocation.'
+    Assert-Contains -Text $combined -Expected 'startupComplete' -Message 'Release smoke manifest must record self-reported companion startup completion.'
+    Assert-Contains -Text $combined -Expected 'statusUpdatedUtc' -Message 'Release smoke manifest must record self-reported companion status freshness.'
     Assert-Contains -Text $combined -Expected 'release smoke manifest standalone_rhino' -Message 'Release artifact validator must validate standalone Rhino smoke evidence separately.'
     Assert-Contains -Text $combined -Expected 'release smoke manifest rhino_inside_revit' -Message 'Release artifact validator must validate Rhino.Inside.Revit smoke evidence separately.'
 }
