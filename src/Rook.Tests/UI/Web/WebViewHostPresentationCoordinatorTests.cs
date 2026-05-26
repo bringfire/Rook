@@ -65,6 +65,35 @@ namespace Rook.Tests.UI.Web
         }
 
         [Fact]
+        public void PresentationFacts_Defaults_PinReturnEdgeContract()
+        {
+            var facts = new WebViewHostPanelPresentationFacts
+            {
+                Generation = 42,
+                DesiredVisible = true,
+                AppActive = false,
+                TemporaryDeactivateHidden = true,
+                PanelVisibleAnyTab = true,
+                PanelVisible = false,
+                PanelSelectedVisible = false,
+                Disposed = false,
+                Reason = "hide-on-deactivate"
+            };
+
+            Assert.Equal(42, facts.Generation);
+            Assert.True(facts.DesiredVisible);
+            Assert.False(facts.AppActive);
+            Assert.True(facts.TemporaryDeactivateHidden);
+            Assert.True(facts.PanelVisibleAnyTab);
+            Assert.False(facts.PanelVisible);
+            Assert.True(facts.RequiresSelectedPanel);
+            Assert.False(facts.PanelSelectedVisible);
+            Assert.False(facts.Disposed);
+            Assert.True(facts.Authoritative);
+            Assert.Equal("hide-on-deactivate", facts.Reason);
+        }
+
+        [Fact]
         public void UserHide_ControllerUnavailable_NoAction()
         {
             var coordinator = new WebViewHostPresentationCoordinator();
