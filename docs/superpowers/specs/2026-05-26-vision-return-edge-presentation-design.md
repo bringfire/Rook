@@ -107,10 +107,26 @@ The Vision integration uses a bounded, named set of direct reconcile requests:
 - app deactivated
 - app activated
 - panel shown
+- panel hidden
+- panel closing
 - selection-visible refresh
 - size/layout changed
 
 `app deactivated` is not a return edge, but it is a direct reconcile request because it moves Vision into the no-present zone and permits protective hide. Without this, stale active facts could survive until a later event.
+
+`panel hidden` and `panel closing` are authoritative direct reconcile requests. They must update durable facts, increment authoritative generation, and enqueue a no-present reconcile so `DesiredVisible=false` can hide the controller and prevent stale delayed work from presenting later.
+
+### Selection-Visible Refresh Source
+
+`selection-visible refresh` must have a concrete source in the implementation plan. This is the riskiest live edge because the failure reproduces when Vision is tabbed behind another panel and then reselected without an app refocus.
+
+Acceptable sources, in priority order:
+
+1. A Rhino panel event that fires when Vision becomes the selected visible tab.
+2. An Eto/Rhino panel shown/visibility event plus an immediate `Panels.IsPanelVisible(..., isSelectedTab: true)` style query.
+3. A bounded follow-up query after panel shown/layout/app activation, guarded by the authoritative generation token.
+
+Do not use WebView focus as the primary selection source. If no reliable direct tab-selection event exists, the implementation must use a bounded visibility query/follow-up rather than an unbounded retry loop.
 
 ### Idle Follow-Up
 
@@ -126,6 +142,14 @@ After a return-edge or layout trigger, Vision may schedule one coalesced Rhino i
 - presents only if the host is presentable
 
 There is at most one pending idle follow-up per Vision surface.
+
+Idle mechanics are one-shot:
+
+- subscribe or schedule once
+- execute at most once
+- detach/clear immediately after execution
+
+There must be no persistent `RhinoApp.Idle` subscription for this feature and no recurring idle source.
 
 ## Authoritative Generation
 
@@ -158,6 +182,12 @@ else:
 ```
 
 This protects against stale return-edge work presenting after hide, tab-away, close, or newer panel facts.
+
+### Disposed Snapshot
+
+PR #191 defines `Snapshot.Disposed=true` as terminal forever. Runtime integration must only pass `Disposed=true` when the Vision surface is actually disposed, closing, or otherwise unrecoverable.
+
+Do not use `Disposed=true` for transient states such as `_webView == null`, controller not created yet, or WebView not yet loaded. Those states should be represented by controller/host readiness facts so they can recover normally.
 
 ## Action Policy
 
@@ -241,6 +271,7 @@ Required tests:
 - `Disposed_PreventsDelayedReturnEdge`
 - `DelayedIdleAfterHide_DoesNotPresent`
 - `StaleIdleAfterNewerPanelFacts_DoesNotPresent`
+- `PanelHidden_DurableHide_UpdatesFactsAndDoesNotAllowStaleIdlePresent`
 - `SizeLayout_DoesNotInvalidateAuthoritativeGenerationByItself`
 
 Tests should cover the generation/token boundary, not only coordinator source strings.
