@@ -19,6 +19,7 @@ namespace Rook
     public class RookPlugin : PlugIn
     {
         private const int BridgeRetryLimit = 120;
+        private static readonly TimeSpan BridgeRetryInterval = TimeSpan.FromMilliseconds(250);
 
         private static RookPlugin? _instance;
         private readonly CompanionStartupGate _startupGate =
@@ -28,6 +29,7 @@ namespace Rook
         private bool _isRhinoInside = false;
         private int _startupRunInProgress = 0;
         private int _bridgeRetryCount = 0;
+        private DateTime _nextBridgeRetryUtc = DateTime.MinValue;
         private bool _documentOpening = false;
         private bool _documentOpenInitialViewReady = false;
         private bool _startupHooksAttached = false;
@@ -171,6 +173,11 @@ namespace Rook
 
         private void OnStartupGateIdle(object? sender, EventArgs e)
         {
+            if (IsWaitingForBridgeRetry())
+            {
+                return;
+            }
+
             var snapshot = new CompanionStartupGateSnapshot(
                 CommandActive: IsRhinoCommandActive(),
                 DocumentOpening: IsDocumentOpenLifecycleBlocking(),
@@ -185,6 +192,27 @@ namespace Rook
             }
 
             RunDeferredStartupFromIdle();
+        }
+
+        private bool IsWaitingForBridgeRetry()
+        {
+            if (!_deferredLocalStartupComplete || _nextBridgeRetryUtc == DateTime.MinValue)
+            {
+                return false;
+            }
+
+            var nowUtc = DateTime.UtcNow;
+            if (nowUtc < _nextBridgeRetryUtc)
+            {
+                TraceStartupThrottled(
+                    "bridge-retry-wait",
+                    "StartupGate bridge retry waiting for throttle interval");
+                return true;
+            }
+
+            _nextBridgeRetryUtc = DateTime.MinValue;
+            _startupGate.MarkStartupAvailableForRetry();
+            return false;
         }
 
         private static bool IsRhinoCommandActive()
@@ -235,15 +263,39 @@ namespace Rook
                 return true;
             }
 
+            if (IsActiveDocumentOpenLifecycleBlocking())
+            {
+                return true;
+            }
+
             // If this plugin loaded after BeginOpenDocument already fired, we may
-            // never see the begin event. While Rhino still reports a command active,
-            // avoid assuming the document-open lifecycle is stable.
+            // never see the begin event. While Rhino still reports a command active
+            // and no initial view update has been observed, avoid assuming the
+            // document-open lifecycle is stable.
             if (!_documentOpenInitialViewReady && IsRhinoCommandActive())
             {
                 return true;
             }
 
             return false;
+        }
+
+        private static bool IsActiveDocumentOpenLifecycleBlocking()
+        {
+            try
+            {
+                var doc = RhinoDoc.ActiveDoc;
+                if (doc == null)
+                {
+                    return true;
+                }
+
+                return doc.IsOpening || doc.IsInitializing || !doc.IsAvailable;
+            }
+            catch
+            {
+                return true;
+            }
         }
 
         private void TraceStartupGateDecision(
@@ -293,6 +345,14 @@ namespace Rook
                 {
                     _startupGate.MarkStartupComplete();
                     DetachStartupGateHooks();
+                }
+            }
+            catch (Exception ex)
+            {
+                TraceStartup($"Deferred startup failed (will retry): {ex.GetType().Name}: {ex.Message}");
+                if (!_shutdownStarted)
+                {
+                    _startupGate.MarkStartupAvailableForRetry();
                 }
             }
             finally
@@ -376,11 +436,18 @@ namespace Rook
                 _deferredLocalStartupComplete = true;
             }
 
+            var nowUtc = DateTime.UtcNow;
+            if (nowUtc < _nextBridgeRetryUtc)
+            {
+                return false;
+            }
+
             var nativeBridgeRegistered = NativeGhBridgeRegistrar.TryRegister();
             TraceStartup($"Deferred startup bridgeRegistered={nativeBridgeRegistered} bridgeRetryCount={_bridgeRetryCount}");
             if (!nativeBridgeRegistered)
             {
                 _bridgeRetryCount++;
+                _nextBridgeRetryUtc = nowUtc + BridgeRetryInterval;
                 if (_bridgeRetryCount >= BridgeRetryLimit)
                 {
                     TraceStartup("Startup bridge retries exhausted; bridge-dependent features unavailable.");
@@ -388,7 +455,6 @@ namespace Rook
                     return true;
                 }
 
-                _startupGate.MarkStartupAvailableForRetry();
                 return false;
             }
 
@@ -472,7 +538,7 @@ namespace Rook
         /// <list type="number">
         ///   <item>Detach startup gate handlers — stops new deferred startup
         ///         calls from racing with the rest of shutdown.</item>
-        ///   <item>StopStartupRetries — cancels the background timer.</item>
+        ///   <item>DetachStartupGateHooks — stops idle/document lifecycle startup callbacks.</item>
         ///   <item>NativeGhBridgeRegistrar.ClearRegistration — removes
         ///         the C++→C# vision_dispatch callback so no new video
         ///         (or image) ops can be routed.</item>

@@ -224,12 +224,124 @@ namespace Rook.Tests.Plugin
             var source = ReadSourceFile("src", "Rook", "RookPlugin.cs");
             var idle = ExtractMethod(source, "private void OnStartupGateIdle(");
             var blocker = ExtractMethod(source, "private bool IsDocumentOpenLifecycleBlocking()");
+            var docBlocker = ExtractMethod(source, "private static bool IsActiveDocumentOpenLifecycleBlocking()");
 
             Assert.Contains("DocumentOpening: IsDocumentOpenLifecycleBlocking()", idle);
             Assert.DoesNotContain("DocumentOpening: _documentOpening", idle);
 
             Assert.Contains("if (_documentOpening)", blocker);
+            Assert.Contains("IsActiveDocumentOpenLifecycleBlocking()", blocker);
             Assert.Contains("!_documentOpenInitialViewReady && IsRhinoCommandActive()", blocker);
+
+            Assert.Contains("RhinoDoc.ActiveDoc", docBlocker);
+            Assert.Contains("if (doc == null)", docBlocker);
+            Assert.Contains("doc.IsOpening", docBlocker);
+            Assert.Contains("doc.IsInitializing", docBlocker);
+            Assert.Contains("!doc.IsAvailable", docBlocker);
+            Assert.Contains("catch", docBlocker);
+            Assert.Contains("return true;", docBlocker);
+        }
+
+        [Fact]
+        public void DeferredStartupFailure_IsCaughtAndAllowsIdleRetry()
+        {
+            var source = ReadSourceFile("src", "Rook", "RookPlugin.cs");
+            var runFromIdle = ExtractMethod(source, "private void RunDeferredStartupFromIdle()");
+
+            Assert.Contains("catch (Exception ex)", runFromIdle);
+            Assert.Contains("Deferred startup failed (will retry):", runFromIdle);
+            Assert.Contains("if (!_shutdownStarted)", runFromIdle);
+            Assert.Contains("_startupGate.MarkStartupAvailableForRetry();", runFromIdle);
+        }
+
+        [Fact]
+        public void BridgeUnavailableAfterQuiescence_RetriesThroughIdleOnly()
+        {
+            var source = ReadSourceFile("src", "Rook", "RookPlugin.cs");
+            var idle = ExtractMethod(source, "private void OnStartupGateIdle(");
+            var wait = ExtractMethod(source, "private bool IsWaitingForBridgeRetry()");
+            var deferredStartup = ExtractMethod(source, "private bool RunDeferredCompanionStartup()");
+
+            Assert.Contains("if (IsWaitingForBridgeRetry())", idle);
+            Assert.Contains("return;", idle);
+            Assert.Contains("StartupGate bridge retry waiting for throttle interval", wait);
+            Assert.Contains("_startupGate.MarkStartupAvailableForRetry();", wait);
+            Assert.Contains("NativeGhBridgeRegistrar.TryRegister();", deferredStartup);
+            Assert.DoesNotContain("_startupGate.MarkStartupAvailableForRetry();", deferredStartup);
+            Assert.Contains("BridgeRetryLimit", source);
+            Assert.Contains("BridgeRetryInterval", source);
+            Assert.Contains("_nextBridgeRetryUtc = nowUtc + BridgeRetryInterval;", deferredStartup);
+            Assert.Contains("_nextBridgeRetryUtc", deferredStartup);
+            Assert.DoesNotContain("RhinoApp.InvokeOnUiThread", deferredStartup);
+            Assert.DoesNotContain("new Timer", deferredStartup);
+        }
+
+        [Fact]
+        public void StartupRetryTimer_IsRemovedFromManagedCompanionStartup()
+        {
+            var source = ReadSourceFile("src", "Rook", "RookPlugin.cs");
+
+            Assert.DoesNotContain("new Timer", source);
+            Assert.DoesNotContain("_startupRetryTimer", source);
+            Assert.DoesNotContain("StartupRetryIntervalMs", source);
+            Assert.DoesNotContain("BeginStartupRetries", source);
+            Assert.DoesNotContain("ScheduleNextStartupRetry", source);
+            Assert.DoesNotContain("StopStartupRetries", source);
+        }
+
+        [Fact]
+        public void BridgeRetryExhausted_DoesNotSuppressDeferredUiStartup()
+        {
+            var source = ReadSourceFile("src", "Rook", "RookPlugin.cs");
+            var deferredStartup = ExtractMethod(source, "private bool RunDeferredCompanionStartup()");
+
+            var localStartupIndex = deferredStartup.IndexOf(
+                "_deferredLocalStartupComplete = true;",
+                StringComparison.Ordinal);
+            var bridgeIndex = deferredStartup.IndexOf(
+                "NativeGhBridgeRegistrar.TryRegister();",
+                StringComparison.Ordinal);
+            var exhaustionIndex = deferredStartup.IndexOf(
+                "Startup bridge retries exhausted",
+                StringComparison.Ordinal);
+
+            Assert.True(localStartupIndex >= 0, "Local startup completion must be recorded.");
+            Assert.True(bridgeIndex >= 0, "Bridge registration must be attempted after local startup.");
+            Assert.True(exhaustionIndex >= 0, "Bridge retry exhaustion must be explicit.");
+            Assert.True(
+                localStartupIndex < bridgeIndex,
+                "Local UI/runtime startup must complete before bridge registration.");
+            Assert.True(
+                bridgeIndex < exhaustionIndex,
+                "Bridge exhaustion must not run before local UI/runtime startup.");
+        }
+
+        [Fact]
+        public void LocalReconcileAndBackfill_RunBeforeBridgeRegistration()
+        {
+            var source = ReadSourceFile("src", "Rook", "RookPlugin.cs");
+            var deferredStartup = ExtractMethod(source, "private bool RunDeferredCompanionStartup()");
+
+            var videoIndex = deferredStartup.IndexOf(
+                "RookSubsystemRoot.Instance.ReconcileVideoJobsOnce();",
+                StringComparison.Ordinal);
+            var imageIndex = deferredStartup.IndexOf(
+                "RookSubsystemRoot.Instance.ReconcileImageJobsOnce();",
+                StringComparison.Ordinal);
+            var backfillIndex = deferredStartup.IndexOf(
+                "RookSubsystemRoot.Instance.BackfillVideoSidecarsOnce(",
+                StringComparison.Ordinal);
+            var bridgeIndex = deferredStartup.IndexOf(
+                "NativeGhBridgeRegistrar.TryRegister();",
+                StringComparison.Ordinal);
+
+            Assert.True(videoIndex >= 0, "Video reconcile must still run after quiescence.");
+            Assert.True(imageIndex >= 0, "Image reconcile must still run after quiescence.");
+            Assert.True(backfillIndex >= 0, "Video sidecar backfill must still be scheduled after quiescence.");
+            Assert.True(bridgeIndex >= 0, "Bridge registration must still be attempted.");
+            Assert.True(videoIndex < bridgeIndex, "Video reconcile must not wait for bridge registration.");
+            Assert.True(imageIndex < bridgeIndex, "Image reconcile must not wait for bridge registration.");
+            Assert.True(backfillIndex < bridgeIndex, "Backfill must not wait for bridge registration.");
         }
 
         [Fact]
