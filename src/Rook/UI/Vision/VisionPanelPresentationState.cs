@@ -6,12 +6,13 @@ namespace Rook.UI.Vision
     internal sealed class VisionPanelPresentationState
     {
         private long _generation;
-        private bool _desiredVisible = true;
+        private bool _desiredVisible;
         private bool _appActive;
         private bool _temporaryDeactivateHidden;
-        private bool _panelVisible = true;
+        private bool _panelVisible;
         private bool _panelSelectedVisible;
         private bool _disposed;
+        private bool _authoritative;
 
         public VisionPanelPresentationState(bool appActive)
         {
@@ -26,10 +27,11 @@ namespace Rook.UI.Vision
             bool visibleAnyTab,
             bool selectedVisible)
         {
-            if (_disposed)
-                return Update("PanelShownAfterDisposed:" + reason);
+            if (TryGetDisposedFacts(out var disposedFacts))
+                return disposedFacts;
 
             _generation++;
+            _authoritative = true;
             _desiredVisible = true;
             _panelVisible = visibleAnyTab;
             _panelSelectedVisible = selectedVisible;
@@ -42,7 +44,11 @@ namespace Rook.UI.Vision
             bool visibleAnyTab,
             bool selectedVisible)
         {
+            if (TryGetDisposedFacts(out var disposedFacts))
+                return disposedFacts;
+
             _generation++;
+            _authoritative = true;
             _panelVisible = visibleAnyTab;
             _panelSelectedVisible = selectedVisible;
 
@@ -62,7 +68,11 @@ namespace Rook.UI.Vision
 
         public WebViewHostPanelPresentationFacts PanelClosing()
         {
+            if (TryGetDisposedFacts(out var disposedFacts))
+                return disposedFacts;
+
             _generation++;
+            _authoritative = true;
             _desiredVisible = false;
             _temporaryDeactivateHidden = false;
             _panelVisible = false;
@@ -73,6 +83,9 @@ namespace Rook.UI.Vision
 
         public WebViewHostPanelPresentationFacts SetAppActive(bool active)
         {
+            if (TryGetDisposedFacts(out var disposedFacts))
+                return disposedFacts;
+
             if (_appActive != active)
             {
                 _generation++;
@@ -88,6 +101,9 @@ namespace Rook.UI.Vision
             bool selectedVisible,
             string reason)
         {
+            if (TryGetDisposedFacts(out var disposedFacts))
+                return disposedFacts;
+
             if (_panelSelectedVisible != selectedVisible)
             {
                 _generation++;
@@ -99,7 +115,16 @@ namespace Rook.UI.Vision
 
         public WebViewHostPanelPresentationFacts SizeLayoutSignal(string reason)
         {
+            if (TryGetDisposedFacts(out var disposedFacts))
+                return disposedFacts;
+
             return Update(reason);
+        }
+
+        private bool TryGetDisposedFacts(out WebViewHostPanelPresentationFacts facts)
+        {
+            facts = Current;
+            return _disposed;
         }
 
         private WebViewHostPanelPresentationFacts Update(string reason)
@@ -121,7 +146,7 @@ namespace Rook.UI.Vision
                 RequiresSelectedPanel = true,
                 PanelSelectedVisible = _panelSelectedVisible,
                 Disposed = _disposed,
-                Authoritative = true,
+                Authoritative = _authoritative,
                 Reason = reason
             };
         }

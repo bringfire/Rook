@@ -1,11 +1,27 @@
 using Rhino.UI;
 using Rook.UI.Vision;
+using Rook.UI.Web;
 using Xunit;
 
 namespace Rook.Tests.UI.Vision
 {
     public class VisionPanelPresentationStateTests
     {
+        [Fact]
+        public void InitialState_IsNonAuthoritativeAndDoesNotRequestPresentation()
+        {
+            var state = new VisionPanelPresentationState(appActive: true);
+
+            var facts = state.Current;
+
+            Assert.False(facts.Authoritative);
+            Assert.False(facts.DesiredVisible);
+            Assert.False(facts.PanelVisible);
+            Assert.False(facts.PanelVisibleAnyTab);
+            Assert.False(facts.PanelSelectedVisible);
+            Assert.Equal(0, facts.Generation);
+        }
+
         [Fact]
         public void PanelShown_SetsDesiredVisibleAndPanelFacts()
         {
@@ -144,6 +160,40 @@ namespace Rook.Tests.UI.Vision
 
             Assert.True(facts.Disposed);
             Assert.False(facts.DesiredVisible);
+        }
+
+        [Fact]
+        public void EventsAfterClosing_PreserveDisposedFactsAndGeneration()
+        {
+            var state = new VisionPanelPresentationState(appActive: true);
+            state.PanelShown(ShowPanelReason.Show, visibleAnyTab: true, selectedVisible: true);
+            var closed = state.PanelClosing();
+
+            var hidden = state.PanelHidden(
+                ShowPanelReason.HideOnDeactivate,
+                visibleAnyTab: true,
+                selectedVisible: true);
+            var inactive = state.SetAppActive(false);
+            var refreshed = state.RefreshSelection(
+                selectedVisible: true,
+                reason: "selection-visible-refresh-after-close");
+
+            AssertTerminalDisposedFacts(closed.Generation, hidden);
+            AssertTerminalDisposedFacts(closed.Generation, inactive);
+            AssertTerminalDisposedFacts(closed.Generation, refreshed);
+        }
+
+        private static void AssertTerminalDisposedFacts(
+            long expectedGeneration,
+            WebViewHostPanelPresentationFacts facts)
+        {
+            Assert.True(facts.Disposed);
+            Assert.False(facts.DesiredVisible);
+            Assert.False(facts.PanelVisible);
+            Assert.False(facts.PanelVisibleAnyTab);
+            Assert.False(facts.PanelSelectedVisible);
+            Assert.False(facts.TemporaryDeactivateHidden);
+            Assert.Equal(expectedGeneration, facts.Generation);
         }
     }
 }
