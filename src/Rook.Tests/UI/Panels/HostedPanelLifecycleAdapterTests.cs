@@ -12,7 +12,15 @@ namespace Rook.Tests.UI.Panels
         private sealed class FakeVisibilityQuery : IRhinoPanelVisibilityQuery
         {
             public bool Visible { get; set; } = true;
+            public bool? VisibleAnyTab { get; set; }
             public Type? LastPanelType { get; private set; }
+            public Type? LastAnyTabPanelType { get; private set; }
+
+            public bool IsPanelVisibleAnyTab(Type panelType)
+            {
+                LastAnyTabPanelType = panelType;
+                return VisibleAnyTab ?? Visible;
+            }
 
             public bool IsSelectedPanelVisible(Type panelType)
             {
@@ -93,6 +101,27 @@ namespace Rook.Tests.UI.Panels
             Assert.Equal(typeof(Form), visibility.LastPanelType);
             Assert.Single(decisions);
             Assert.NotEqual(HostedSurfaceAction.Show, decisions[0].Action);
+        }
+
+        [Fact]
+        public void FakeVisibilityQuery_VisibleAnyTabDefaultsToSelectedVisible()
+        {
+            var visibility = new FakeVisibilityQuery { Visible = false };
+
+            Assert.False(visibility.IsPanelVisibleAnyTab(typeof(Form)));
+            Assert.Equal(typeof(Form), visibility.LastAnyTabPanelType);
+        }
+
+        [Fact]
+        public void FakeVisibilityQuery_VisibleAnyTabCanBeConfiguredSeparately()
+        {
+            var visibility = new FakeVisibilityQuery
+            {
+                Visible = false,
+                VisibleAnyTab = true
+            };
+
+            Assert.True(visibility.IsPanelVisibleAnyTab(typeof(Form)));
         }
 
         [Fact]
