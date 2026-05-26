@@ -116,7 +116,7 @@ namespace Rook.UI.Web
                 return CreateDecision(
                     oldState,
                     WebViewHostPresentationState.PendingHost,
-                    HideControllerAction(snapshot),
+                    HostBlockerAction(snapshot, hostBlocker),
                     hostBlocker,
                     safeReason);
             }
@@ -159,6 +159,19 @@ namespace Rook.UI.Web
             return snapshot.ControllerAvailable && snapshot.ControllerVisible
                 ? WebViewHostPresentationAction.HideController
                 : WebViewHostPresentationAction.None;
+        }
+
+        private static WebViewHostPresentationAction HostBlockerAction(
+            WebViewHostPresentationSnapshot snapshot,
+            WebViewHostNotPresentableReason blocker)
+        {
+            if (blocker == WebViewHostNotPresentableReason.AppInactive ||
+                blocker == WebViewHostNotPresentableReason.TemporaryDeactivateHidden)
+            {
+                return WebViewHostPresentationAction.None;
+            }
+
+            return HideControllerAction(snapshot);
         }
 
         private static WebViewHostNotPresentableReason FirstHostBlocker(

@@ -148,6 +148,41 @@ namespace Rook.Tests.UI.Web
         }
 
         [Fact]
+        public void InactiveTemporaryDeactivate_WithVisibleController_DoesNotHide()
+        {
+            var coordinator = new WebViewHostPresentationCoordinator();
+            coordinator.Evaluate(ReadySnapshot(controllerVisible: true), "initial-ready");
+
+            var decision = coordinator.Evaluate(ReadySnapshot(controllerVisible: true) with
+            {
+                AppActive = false,
+                TemporaryDeactivateHidden = true
+            }, "hide-on-deactivate");
+
+            Assert.Equal(WebViewHostPresentationState.Presenting, decision.OldState);
+            Assert.Equal(WebViewHostPresentationState.PendingHost, decision.NewState);
+            Assert.Equal(WebViewHostNotPresentableReason.TemporaryDeactivateHidden, decision.NotPresentableReason);
+            Assert.Equal(WebViewHostPresentationAction.None, decision.Action);
+        }
+
+        [Fact]
+        public void AppInactive_WithVisibleController_DoesNotHide()
+        {
+            var coordinator = new WebViewHostPresentationCoordinator();
+            coordinator.Evaluate(ReadySnapshot(controllerVisible: true), "initial-ready");
+
+            var decision = coordinator.Evaluate(ReadySnapshot(controllerVisible: true) with
+            {
+                AppActive = false
+            }, "application-deactivated");
+
+            Assert.Equal(WebViewHostPresentationState.Presenting, decision.OldState);
+            Assert.Equal(WebViewHostPresentationState.PendingHost, decision.NewState);
+            Assert.Equal(WebViewHostNotPresentableReason.AppInactive, decision.NotPresentableReason);
+            Assert.Equal(WebViewHostPresentationAction.None, decision.Action);
+        }
+
+        [Fact]
         public void ActiveTemporaryDeactivateWithHostReady_Presents()
         {
             var coordinator = new WebViewHostPresentationCoordinator();
