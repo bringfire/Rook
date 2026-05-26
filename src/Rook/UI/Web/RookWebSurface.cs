@@ -530,6 +530,7 @@ namespace Rook.UI.Web
             if (_disposed ||
                 facts == null ||
                 !facts.Authoritative ||
+                !facts.DesiredVisible ||
                 facts.Disposed ||
                 facts.Generation != _hostPresentationIdleGeneration)
             {
@@ -1310,8 +1311,17 @@ namespace Rook.UI.Web
                 coreWebView2.NavigationStarting += OnNavigationStarting;
                 coreWebView2.NavigationCompleted += OnNavigationCompleted;
                 _coreWebView2 = coreWebView2;
-                ScheduleHostVisibilityReconcile(
-                    _hostVisibility.RecordControllerAvailable("WebView2Configured"));
+                if (UseHostPresentationCoordinator)
+                {
+                    ScheduleLatestHostPresentationFromEvent(
+                        "WebView2Configured",
+                        scheduleIdleFollowUp: true);
+                }
+                else
+                {
+                    ScheduleHostVisibilityReconcile(
+                        _hostVisibility.RecordControllerAvailable("WebView2Configured"));
+                }
 
                 // Inject document-creation scripts in the locked order:
                 // nonce, bridge shim, surface bootstrap.

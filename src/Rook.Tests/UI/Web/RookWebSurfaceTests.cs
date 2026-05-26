@@ -578,6 +578,45 @@ namespace Rook.Tests.UI.Web
         }
 
         [Fact]
+        public void VisionPresentationPath_ControllerConfiguredUsesCoordinatorPath()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+            var configure = ExtractMemberBlock(
+                source,
+                "private async void ConfigureVirtualHost(");
+
+            Assert.Contains("if (UseHostPresentationCoordinator)", configure);
+            Assert.Contains(
+                "ScheduleLatestHostPresentationFromEvent(",
+                configure);
+            Assert.Contains("\"WebView2Configured\"", configure);
+            Assert.Contains("scheduleIdleFollowUp: true", configure);
+            Assert.DoesNotContain(
+                "ScheduleHostVisibilityReconcile(\r\n                    _hostVisibility.RecordControllerAvailable(\"WebView2Configured\"));",
+                configure);
+        }
+
+        [Fact]
+        public void VisionPresentationPath_IdleSkipsHiddenLatestFactsBeforeReconcile()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+            var idleHandler = ExtractMemberBlock(
+                source,
+                "private void OnHostPresentationIdle(");
+
+            var hiddenGuard = idleHandler.IndexOf("!facts.DesiredVisible", StringComparison.Ordinal);
+            var reconcile = idleHandler.IndexOf(
+                "RunHostPresentationCoordinatorReconcile(reason);",
+                StringComparison.Ordinal);
+
+            Assert.True(hiddenGuard >= 0, "Idle handler must guard hidden facts.");
+            Assert.True(reconcile >= 0, "Idle handler must run presentation reconcile.");
+            Assert.True(
+                hiddenGuard < reconcile,
+                "Idle hidden-facts guard must run before presentation reconcile.");
+        }
+
+        [Fact]
         public void VisionPresentationPath_DoesNotUseReloadOrJsProbeForRecovery()
         {
             var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
