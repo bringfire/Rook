@@ -681,6 +681,20 @@ namespace Rook.Tests.UI.Web
         }
 
         [Fact]
+        public void VisionPresentationPath_ActionResultStaysInMemoryOnly()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+            var run = ExtractMethod(
+                source,
+                "private void RunHostPresentationCoordinatorReconcile");
+
+            Assert.Contains("_lastHostPresentationActionResult", source);
+            Assert.Contains("_lastHostPresentationActionResult =", run);
+            Assert.DoesNotContain("TraceWebViewFocus", run);
+            Assert.DoesNotContain("File.", run);
+        }
+
+        [Fact]
         public void VisionPresentationPath_DoesNotUseReloadOrJsProbeForRecovery()
         {
             var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");

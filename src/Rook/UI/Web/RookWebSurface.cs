@@ -191,6 +191,7 @@ namespace Rook.UI.Web
         private bool _hostPresentationIdlePending;
         private long _hostPresentationIdleGeneration;
         private string _hostPresentationIdleReason = string.Empty;
+        private string _lastHostPresentationActionResult = "none";
 #endif
 
         // ─── Constructor ──────────────────────────────────────────────
@@ -580,9 +581,8 @@ namespace Rook.UI.Web
                 decision,
                 probe.Controller,
                 reason);
-            TraceWebViewFocus(
-                "host-presentation-action",
-                $"{decision.Action};{actionResult};{reason}");
+            _lastHostPresentationActionResult =
+                $"{decision.Action};{actionResult};{reason}";
         }
 
         private string ApplyHostPresentationDecision(
