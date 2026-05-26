@@ -468,15 +468,7 @@ namespace Rook.UI.Web
 #if ROOK_WEBVIEW2
             if (UseHostPresentationCoordinator)
             {
-                if (_latestPresentationFacts == null)
-                    return;
-
-                var facts = _latestPresentationFacts with
-                {
-                    Reason = reason,
-                    AppActive = SafeApplicationActive()
-                };
-                ScheduleHostPresentationCoordinatorReconcile(facts);
+                ScheduleHostPresentationCoordinatorRefresh(reason);
                 return;
             }
 
@@ -502,17 +494,56 @@ namespace Rook.UI.Web
                 AppActive = SafeApplicationActive(),
                 TemporaryDeactivateHidden = false,
                 PanelVisible = visible,
+                HostReady = visible,
                 RequiresSelectedPanel = false,
                 PanelSelectedVisible = visible,
                 Reason = reason
             };
         }
 
+        private void ScheduleHostPresentationCoordinatorRefresh(string reason)
+        {
+            try
+            {
+                Application.Instance.AsyncInvoke(() =>
+                {
+                    var latestFacts = _latestPresentationFacts;
+                    if (latestFacts == null)
+                        return;
+
+                    EnqueueHostPresentationCoordinatorReconcile(latestFacts with
+                    {
+                        Reason = reason,
+                        AppActive = SafeApplicationActive()
+                    });
+                });
+            }
+            catch (Exception ex)
+            {
+                Log($"Rook: WebView host presentation refresh dispatch failed for surface " +
+                    $"'{ResourceRoot}' (reason={reason}): {ex.Message}");
+            }
+        }
+
         private void ScheduleHostPresentationCoordinatorReconcile(
             WebViewHostPanelPresentationFacts facts)
         {
-            _latestPresentationFacts = facts;
+            try
+            {
+                Application.Instance.AsyncInvoke(() =>
+                    EnqueueHostPresentationCoordinatorReconcile(facts));
+            }
+            catch (Exception ex)
+            {
+                Log($"Rook: WebView host presentation dispatch failed for surface " +
+                    $"'{ResourceRoot}' (reason={facts.Reason}): {ex.Message}");
+            }
+        }
 
+        private void EnqueueHostPresentationCoordinatorReconcile(
+            WebViewHostPanelPresentationFacts facts)
+        {
+            _latestPresentationFacts = facts;
             if (_disposed || _webView == null)
             {
                 EvaluateDisposedHostPresentation(facts, facts.Reason);
@@ -576,6 +607,7 @@ namespace Rook.UI.Web
             var appActive = SafeApplicationActive();
             var width = ReadEtoWidth();
             var height = ReadEtoHeight();
+            var panelHostReady = facts.HostReady;
             var targetBounds = CreateControllerBoundsTarget(controller, width, height);
             var hwndChainVisible = ReadHostHwndChainVisible();
             var hwndClientRectNonZero = ReadHostHwndClientRectNonZero();
@@ -589,13 +621,13 @@ namespace Rook.UI.Web
                 PanelVisible = facts.PanelVisible,
                 RequiresSelectedPanel = facts.RequiresSelectedPanel,
                 PanelSelectedVisible = facts.PanelSelectedVisible,
-                EtoLoaded = _webView != null,
-                EtoVisible = _webView?.Visible == true,
+                EtoLoaded = panelHostReady && _webView?.Loaded == true,
+                EtoVisible = panelHostReady && _webView?.Visible == true,
                 EtoWidth = width,
                 EtoHeight = height,
-                ParentWindowPresent = _webView?.ParentWindow != null,
-                HwndChainVisible = hwndChainVisible,
-                HwndClientRectNonZero = hwndClientRectNonZero,
+                ParentWindowPresent = panelHostReady && _webView?.ParentWindow != null,
+                HwndChainVisible = panelHostReady && hwndChainVisible,
+                HwndClientRectNonZero = panelHostReady && hwndClientRectNonZero,
                 ControllerAvailable = controller != null,
                 ControllerParentWindowPresent = ReadControllerParentWindowPresent(controller),
                 ControllerVisible = ReadControllerVisible(controller),

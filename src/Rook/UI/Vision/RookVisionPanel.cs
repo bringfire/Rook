@@ -120,6 +120,7 @@ namespace Rook.UI.Vision
                 AppActive = appActive,
                 TemporaryDeactivateHidden = temporaryDeactivateHidden,
                 PanelVisible = facts.PanelReportedVisible,
+                HostReady = facts.IsHostReady,
                 RequiresSelectedPanel = true,
                 PanelSelectedVisible = facts.IsSelectedTab && facts.IsRhinoSelectedPanelVisible,
                 Reason = sourceReason + ":" + decision.Reason

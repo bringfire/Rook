@@ -69,6 +69,7 @@ namespace Rook.Tests.UI.Vision
 
             Assert.Contains("WebViewHostPanelPresentationFacts", source);
             Assert.Contains("ReconcileHostVisibility(BuildPresentationFacts", source);
+            Assert.Contains("HostReady = facts.IsHostReady", source);
             Assert.DoesNotContain("_surface.ReconcileHostVisibility(true, sourceReason", source);
             Assert.DoesNotContain("_surface.ReconcileHostVisibility(false, sourceReason", source);
         }

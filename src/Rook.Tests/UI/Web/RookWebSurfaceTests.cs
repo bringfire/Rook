@@ -426,12 +426,44 @@ namespace Rook.Tests.UI.Web
         public void CoordinatorPath_ControllerConfiguredWithoutPanelFacts_DoesNotPresent()
         {
             var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
-            var method = ExtractMethod(source, "RequestHostVisibleRefresh");
+            var method = ExtractMethod(source, "ScheduleHostPresentationCoordinatorRefresh");
 
-            Assert.Contains("_latestPresentationFacts == null", method);
+            Assert.Contains("var latestFacts = _latestPresentationFacts", method);
+            Assert.Contains("latestFacts == null", method);
             Assert.Contains("return;", method);
+            Assert.Contains("Application.Instance.AsyncInvoke", method);
+            Assert.Contains("EnqueueHostPresentationCoordinatorReconcile", method);
             Assert.DoesNotContain("CreateCompatibilityPresentationFacts(\r\n        visible: true", method);
             Assert.DoesNotContain("CreateCompatibilityPresentationFacts(visible: true", method);
+        }
+
+        [Fact]
+        public void CoordinatorPath_QueuesFactsInsideUiDispatch()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+            var request = ExtractMethod(source, "RequestHostVisibleRefresh");
+            var schedule = ExtractMethod(source, "ScheduleHostPresentationCoordinatorReconcile");
+            var enqueue = ExtractMethod(source, "EnqueueHostPresentationCoordinatorReconcile");
+
+            Assert.DoesNotContain("_latestPresentationFacts", request);
+            Assert.Contains("Application.Instance.AsyncInvoke", schedule);
+            Assert.Contains("EnqueueHostPresentationCoordinatorReconcile(facts)", schedule);
+            Assert.Contains("_latestPresentationFacts = facts", enqueue);
+            Assert.DoesNotContain("_latestPresentationFacts = facts", schedule);
+        }
+
+        [Fact]
+        public void CoordinatorPath_HostReadinessFactBlocksSnapshotPresentation()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+            var method = ExtractMethod(source, "BuildHostPresentationSnapshot");
+
+            Assert.Contains("var panelHostReady = facts.HostReady;", method);
+            Assert.Contains("EtoLoaded = panelHostReady && _webView?.Loaded == true", method);
+            Assert.Contains("EtoVisible = panelHostReady && _webView?.Visible == true", method);
+            Assert.Contains("ParentWindowPresent = panelHostReady && _webView?.ParentWindow != null", method);
+            Assert.Contains("HwndChainVisible = panelHostReady && hwndChainVisible", method);
+            Assert.Contains("HwndClientRectNonZero = panelHostReady && hwndClientRectNonZero", method);
         }
 
         [Fact]
