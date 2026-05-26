@@ -3,10 +3,12 @@ using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using Rhino;
+using Rhino.Commands;
 using Rhino.PlugIns;
 using Rhino.UI;
 using Rook.InternalBridge;
 using Rook.Services.Vision.Video;
+using Rook.Startup;
 using Rook.UI.Chat;
 
 namespace Rook
@@ -16,17 +18,23 @@ namespace Rook
     /// </summary>
     public class RookPlugin : PlugIn
     {
-        private const int StartupRetryIntervalMs = 250;
-        private const int StartupRetryLimit = 120;
+        private const int BridgeRetryLimit = 120;
 
         private static RookPlugin? _instance;
+        private readonly CompanionStartupGate _startupGate =
+            new(requiredStableIdleTicks: 2);
         private bool _serverStarted = false;
         private bool _toolbarLoaded = false;
         private bool _isRhinoInside = false;
-        private int _startupRetryCount = 0;
-        private Timer? _startupRetryTimer;
-        private int _startupInitInProgress = 0;
-        private bool _startupRetriesActive = false;
+        private int _startupRunInProgress = 0;
+        private int _bridgeRetryCount = 0;
+        private bool _documentOpening = false;
+        private bool _documentOpenInitialViewReady = false;
+        private bool _startupHooksAttached = false;
+        private bool _shutdownStarted = false;
+        private bool _deferredLocalStartupComplete = false;
+        private string? _lastStartupGateTraceKey;
+        private int _lastStartupGateTraceRepeatCount = 0;
         private static readonly string StartupTracePath =
             Path.Combine(RookPaths.DiscoveryFolder, "companion-startup.log");
 
@@ -34,10 +42,6 @@ namespace Rook
         {
             _instance = this;
             TraceStartup("constructor");
-            // Keep Idle hooks for normal Rhino startup, but do not depend on them
-            // exclusively when the plugin is autoloaded by RookNative later.
-            RhinoApp.Idle += OnRhinoIdle;
-            RhinoApp.Idle += EnsureNativeGhBridgeRegistered;
         }
 
         /// <summary>Gets the only instance of the RookPlugin plug-in.</summary>
@@ -50,36 +54,14 @@ namespace Rook
         public override PlugInLoadTime LoadTime => PlugInLoadTime.WhenNeeded;
 
         /// <summary>
-        /// Start server when Rhino is ready. Idle remains a helpful signal, but
-        /// startup also has an explicit retry path for autoloaded companion mode.
-        /// </summary>
-        private void OnRhinoIdle(object? sender, EventArgs e)
-        {
-            TryInitializeRuntime();
-        }
-
-        private void EnsureNativeGhBridgeRegistered(object? sender, EventArgs e)
-        {
-            TryInitializeRuntime();
-        }
-
-        /// <summary>
         /// Called when the plugin is loaded.
         /// </summary>
         protected override LoadReturnCode OnLoad(ref string errorMessage)
         {
-            TraceStartup("OnLoad");
+            TraceStartup("OnLoad minimal");
 
             _isRhinoInside = Rhino.Runtime.HostUtils.RunningAsRhinoInside;
-            if (_isRhinoInside)
-            {
-                TraceStartup("Rhino.Inside mode detected");
-                RhinoApp.WriteLine("Rook companion: Rhino.Inside detected — toolbar disabled; panels enabled.");
-            }
-            else
-            {
-                RhinoApp.WriteLine("Rook companion loaded. HTTP server will start shortly...");
-            }
+            AttachStartupGateHooks();
 
             // NOTE on RookBlockBasePointUserData: the class exists for native
             // side storage/read and for cross-language binary-format contract.
@@ -95,28 +77,6 @@ namespace Rook
             // PR #30. If a future SDK exposes the missing surface, managed
             // new-first reads start working without further code changes.
             // Any deeper managed-side migration belongs in follow-up #34.
-
-            if (ShouldRegisterStartupPanels(_isRhinoInside))
-            {
-                RegisterStartupPanels();
-            }
-            else
-            {
-                TraceStartup("Rhino.Inside mode: startup panel registration skipped");
-            }
-
-            try
-            {
-                BeginStartupRetries();
-                RhinoApp.InvokeOnUiThread(new Action(TryInitializeRuntime));
-            }
-            catch (Exception ex)
-            {
-                TraceStartup($"Startup retry scheduling failed (non-fatal): {ex.GetType().Name}: {ex.Message}");
-                RhinoApp.WriteLine(
-                    "Rook: startup retry scheduling failed; companion load will continue. " +
-                    $"Reason: {ex.GetType().Name}.");
-            }
 
             return LoadReturnCode.Success;
         }
@@ -159,173 +119,281 @@ namespace Rook
             }
         }
 
-        private void BeginStartupRetries()
+        private void AttachStartupGateHooks()
         {
-            TraceStartup("BeginStartupRetries");
-            _startupRetryTimer?.Dispose();
-            _startupRetryCount = 0;
-            _startupRetriesActive = true;
-            _startupRetryTimer = new Timer(_ =>
+            if (_startupHooksAttached)
             {
-                try
-                {
-                    RhinoApp.InvokeOnUiThread(new Action(TryInitializeRuntime));
-                }
-                catch
-                {
-                    // Ignore transient shutdown/startup races; the next retry or
-                    // idle event will try again while Rhino is still alive.
-                }
-            }, null, Timeout.Infinite, Timeout.Infinite);
-            ScheduleNextStartupRetry();
+                return;
+            }
+
+            RhinoApp.Idle += OnStartupGateIdle;
+            RhinoDoc.BeginOpenDocument += OnBeginOpenDocument;
+            RhinoDoc.EndOpenDocument += OnEndOpenDocument;
+            RhinoDoc.EndOpenDocumentInitialViewUpdate += OnEndOpenDocumentInitialViewUpdate;
+            _startupHooksAttached = true;
         }
 
-        private void StopStartupRetries()
+        private void DetachStartupGateHooks()
         {
-            _startupRetriesActive = false;
-            _startupRetryTimer?.Dispose();
-            _startupRetryTimer = null;
+            if (!_startupHooksAttached)
+            {
+                return;
+            }
+
+            RhinoApp.Idle -= OnStartupGateIdle;
+            RhinoDoc.BeginOpenDocument -= OnBeginOpenDocument;
+            RhinoDoc.EndOpenDocument -= OnEndOpenDocument;
+            RhinoDoc.EndOpenDocumentInitialViewUpdate -= OnEndOpenDocumentInitialViewUpdate;
+            _startupHooksAttached = false;
+            TraceStartup("StartupGate hooks detached");
         }
 
-        private void ScheduleNextStartupRetry()
+        private void OnBeginOpenDocument(object? sender, DocumentOpenEventArgs e)
         {
-            if (!_startupRetriesActive || _startupRetryTimer == null)
+            _documentOpening = true;
+            _documentOpenInitialViewReady = false;
+            TraceStartupThrottled("document-open-begin", "StartupGate document open begin");
+        }
+
+        private void OnEndOpenDocument(object? sender, DocumentOpenEventArgs e)
+        {
+            _documentOpening = false;
+            _documentOpenInitialViewReady = false;
+            TraceStartupThrottled("document-open-end", "StartupGate document open end");
+        }
+
+        private void OnEndOpenDocumentInitialViewUpdate(object? sender, DocumentOpenEventArgs e)
+        {
+            _documentOpening = false;
+            _documentOpenInitialViewReady = true;
+            TraceStartupThrottled("document-open-initial-view", "StartupGate document open initial view update");
+        }
+
+        private void OnStartupGateIdle(object? sender, EventArgs e)
+        {
+            var snapshot = new CompanionStartupGateSnapshot(
+                CommandActive: IsRhinoCommandActive(),
+                DocumentOpening: IsDocumentOpenLifecycleBlocking(),
+                ShutdownStarted: _shutdownStarted);
+            var decision = _startupGate.EvaluateIdle(snapshot);
+
+            TraceStartupGateDecision(snapshot, decision);
+
+            if (decision.Action != CompanionStartupGateAction.RunStartup)
+            {
+                return;
+            }
+
+            RunDeferredStartupFromIdle();
+        }
+
+        private static bool IsRhinoCommandActive()
+        {
+            try
+            {
+                if (RhinoApp.InCommand > 0)
+                {
+                    return true;
+                }
+            }
+            catch
+            {
+                return true;
+            }
+
+            try
+            {
+                if (RhinoDoc.ActiveDoc?.IsCommandRunning == true)
+                {
+                    return true;
+                }
+            }
+            catch
+            {
+                return true;
+            }
+
+            try
+            {
+                if (Command.InCommand())
+                {
+                    return true;
+                }
+            }
+            catch
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        private bool IsDocumentOpenLifecycleBlocking()
+        {
+            if (_documentOpening)
+            {
+                return true;
+            }
+
+            // If this plugin loaded after BeginOpenDocument already fired, we may
+            // never see the begin event. While Rhino still reports a command active,
+            // avoid assuming the document-open lifecycle is stable.
+            if (!_documentOpenInitialViewReady && IsRhinoCommandActive())
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        private void TraceStartupGateDecision(
+            CompanionStartupGateSnapshot snapshot,
+            CompanionStartupGateDecision decision)
+        {
+            var key =
+                $"blocked={decision.BlockedReason};action={decision.Action};" +
+                $"command={snapshot.CommandActive};docOpen={snapshot.DocumentOpening};" +
+                $"stable={decision.StableIdleCount}";
+            var message =
+                $"StartupGate idle attempt: commandActive={snapshot.CommandActive} " +
+                $"documentOpening={snapshot.DocumentOpening} " +
+                $"stableIdleCount={decision.StableIdleCount} " +
+                $"blockedReason={decision.BlockedReason} action={decision.Action}";
+            TraceStartupThrottled(key, message);
+        }
+
+        private void TraceStartupThrottled(string key, string message)
+        {
+            if (!string.Equals(_lastStartupGateTraceKey, key, StringComparison.Ordinal))
+            {
+                _lastStartupGateTraceKey = key;
+                _lastStartupGateTraceRepeatCount = 0;
+                TraceStartup(message);
+                return;
+            }
+
+            _lastStartupGateTraceRepeatCount++;
+            if (_lastStartupGateTraceRepeatCount % 25 == 0)
+            {
+                TraceStartup(message + $" repeat={_lastStartupGateTraceRepeatCount}");
+            }
+        }
+
+        private void RunDeferredStartupFromIdle()
+        {
+            if (Interlocked.Exchange(ref _startupRunInProgress, 1) == 1)
             {
                 return;
             }
 
             try
             {
-                _startupRetryTimer.Change(StartupRetryIntervalMs, Timeout.Infinite);
+                TraceStartup("StartupGate quiescent: running startup");
+                if (RunDeferredCompanionStartup())
+                {
+                    _startupGate.MarkStartupComplete();
+                    DetachStartupGateHooks();
+                }
             }
-            catch (ObjectDisposedException)
+            finally
             {
-                // Shutdown race — safe to ignore.
+                Interlocked.Exchange(ref _startupRunInProgress, 0);
             }
         }
 
-        private void TryInitializeRuntime()
+        private bool RunDeferredCompanionStartup()
         {
-            if (Interlocked.Exchange(ref _startupInitInProgress, 1) == 1)
+            if (!_deferredLocalStartupComplete)
             {
-                return;
-            }
-
-            try
-            {
-                var nativeBridgeRegistered = NativeGhBridgeRegistrar.TryRegister();
-                TraceStartup($"TryInitializeRuntime bridgeRegistered={nativeBridgeRegistered} serverStarted={_serverStarted} retryCount={_startupRetryCount}");
+                if (ShouldRegisterStartupPanels(_isRhinoInside))
+                {
+                    RegisterStartupPanels();
+                }
+                else
+                {
+                    TraceStartup("Rhino.Inside mode: startup panel registration skipped");
+                }
 
                 if (!_serverStarted)
                 {
                     // The C++ native plugin (RookNative) now owns the HTTP server,
                     // session recording, and scene graph.  The C# companion must NOT
-                    // start its own HTTP server or SessionRecorder — doing so adds a
-                    // second set of Command.BeginCommand / EndCommand handlers that
-                    // enumerate doc.Objects on every command (including _SaveSmall),
-                    // plus a background-thread HTTP server whose handlers can race
-                    // with Rhino's file-save serialization.
-                    //
-                    // The companion's only responsibilities are:
-                    //   1. GH bridge registration (NativeGhBridgeRegistrar)
-                    //   2. Panel UI (Rook panel, Chat panel)
-                    //   3. Toolbar loading
+                    // start its own HTTP server or SessionRecorder.
                     _serverStarted = true;
-                    RhinoApp.Idle -= OnRhinoIdle;
-                    // DO NOT call EnsureSessionInitialized() — C++ CSessionRecorder handles this
                     if (!_isRhinoInside)
+                    {
                         EnsureToolbarLoaded();
-                    RhinoApp.WriteLine("Rook companion loaded (HTTP server + session recording delegated to RookNative).");
+                    }
+                    TraceStartup("Companion UI/runtime startup complete; HTTP server delegated to RookNative");
                 }
 
-                if (nativeBridgeRegistered)
+                try
                 {
-                    // NOTE: RookServer.EnableCompanionMode() was previously called
-                    // here, but it's a no-op — the C# HTTP server is never started
-                    // in companion mode (IsRunning is always false).  Removed to
-                    // avoid confusion.  The C++ native plugin writes the only
-                    // discovery file that bridge.py reads.
-
-                    // V2: reconcile any non-terminal video jobs left by a
-                    // prior session (per v3.1 D4). The root's
-                    // ReconcileVideoJobsOnce is Interlocked-guarded so a
-                    // double-call across plugin reload paths is safe.
-                    // Reconcile failures are non-fatal — startup continues.
-                    // The Interlocked flag inside ReconcileVideoJobsOnce
-                    // resets on throw so a future plugin reload retries
-                    // fresh.
-                    try
-                    {
-                        RookSubsystemRoot.Instance.ReconcileVideoJobsOnce();
-                        TraceStartup("Video subsystem reconciled (or no-op if never used previously)");
-                    }
-                    catch (Exception ex)
-                    {
-                        TraceStartup($"Video reconcile failed (non-fatal): {ex.GetType().Name}: {ex.Message}");
-                        RhinoApp.WriteLine(
-                            "Rook: video reconcile failed at startup; continuing without reconcile. " +
-                            $"Reason: {ex.GetType().Name}.");
-                    }
-
-                    try
-                    {
-                        RookSubsystemRoot.Instance.ReconcileImageJobsOnce();
-                        TraceStartup("Image job subsystem reconciled (or no-op)");
-                    }
-                    catch (Exception ex)
-                    {
-                        TraceStartup($"Image job reconcile failed (non-fatal): {ex.GetType().Name}: {ex.Message}");
-                        RhinoApp.WriteLine(
-                            "Rook: image job reconcile failed at startup; continuing without reconcile. " +
-                            $"Reason: {ex.GetType().Name}.");
-                    }
-
-                    try
-                    {
-                        RookSubsystemRoot.Instance.BackfillVideoSidecarsOnce(
-                            new VideoSidecarBackfillStartupOptions(
-                                Enabled: true,
-                                ServiceOptions: VideoSidecarBackfillOptions.StartupDefault,
-                                OnCompleted: result =>
-                                    TraceStartup($"Video sidecar backfill completed: {result.ToTraceSummary()}"),
-                                OnFailed: ex =>
-                                    TraceStartup($"Video sidecar backfill failed (non-fatal): {ex.GetType().Name}: {ex.Message}")));
-                        TraceStartup("Video sidecar backfill scheduled (or no-op if already scheduled)");
-                    }
-                    catch (Exception ex)
-                    {
-                        TraceStartup($"Video sidecar backfill scheduling failed (non-fatal): {ex.GetType().Name}: {ex.Message}");
-                        RhinoApp.WriteLine(
-                            "Rook: video sidecar backfill could not be scheduled at startup; continuing. " +
-                            $"Reason: {ex.GetType().Name}.");
-                    }
-
-                    RhinoApp.Idle -= EnsureNativeGhBridgeRegistered;
-                    StopStartupRetries();
-                    TraceStartup("GH bridge registered — companion startup complete");
-                    return;
+                    RookSubsystemRoot.Instance.ReconcileVideoJobsOnce();
+                    TraceStartup("Video subsystem reconciled (or no-op if never used previously)");
                 }
-
-                if (_serverStarted && _startupRetriesActive)
+                catch (Exception ex)
                 {
-                    _startupRetryCount++;
-                    if (_startupRetryCount >= StartupRetryLimit)
-                    {
-                        StopStartupRetries();
-                        RhinoApp.Idle -= EnsureNativeGhBridgeRegistered;
-                        TraceStartup("Startup retries exhausted");
-                        RhinoApp.WriteLine("Rook: native GH callback bridge was not available after startup retries; staying in companion mode.");
-                    }
-                    else
-                    {
-                        ScheduleNextStartupRetry();
-                    }
+                    TraceStartup($"Video reconcile failed (non-fatal): {ex.GetType().Name}: {ex.Message}");
+                    RhinoApp.WriteLine(
+                        "Rook: video reconcile failed at startup; continuing without reconcile. " +
+                        $"Reason: {ex.GetType().Name}.");
                 }
+
+                try
+                {
+                    RookSubsystemRoot.Instance.ReconcileImageJobsOnce();
+                    TraceStartup("Image job subsystem reconciled (or no-op)");
+                }
+                catch (Exception ex)
+                {
+                    TraceStartup($"Image job reconcile failed (non-fatal): {ex.GetType().Name}: {ex.Message}");
+                    RhinoApp.WriteLine(
+                        "Rook: image job reconcile failed at startup; continuing without reconcile. " +
+                        $"Reason: {ex.GetType().Name}.");
+                }
+
+                try
+                {
+                    RookSubsystemRoot.Instance.BackfillVideoSidecarsOnce(
+                        new VideoSidecarBackfillStartupOptions(
+                            Enabled: true,
+                            ServiceOptions: VideoSidecarBackfillOptions.StartupDefault,
+                            OnCompleted: result =>
+                                TraceStartup($"Video sidecar backfill completed: {result.ToTraceSummary()}"),
+                            OnFailed: ex =>
+                                TraceStartup($"Video sidecar backfill failed (non-fatal): {ex.GetType().Name}: {ex.Message}")));
+                    TraceStartup("Video sidecar backfill scheduled (or no-op if already scheduled)");
+                }
+                catch (Exception ex)
+                {
+                    TraceStartup($"Video sidecar backfill scheduling failed (non-fatal): {ex.GetType().Name}: {ex.Message}");
+                    RhinoApp.WriteLine(
+                        "Rook: video sidecar backfill could not be scheduled at startup; continuing. " +
+                        $"Reason: {ex.GetType().Name}.");
+                }
+
+                _deferredLocalStartupComplete = true;
             }
-            finally
+
+            var nativeBridgeRegistered = NativeGhBridgeRegistrar.TryRegister();
+            TraceStartup($"Deferred startup bridgeRegistered={nativeBridgeRegistered} bridgeRetryCount={_bridgeRetryCount}");
+            if (!nativeBridgeRegistered)
             {
-                Interlocked.Exchange(ref _startupInitInProgress, 0);
+                _bridgeRetryCount++;
+                if (_bridgeRetryCount >= BridgeRetryLimit)
+                {
+                    TraceStartup("Startup bridge retries exhausted; bridge-dependent features unavailable.");
+                    DetachStartupGateHooks();
+                    return true;
+                }
+
+                _startupGate.MarkStartupAvailableForRetry();
+                return false;
             }
+
+            TraceStartup("Startup complete");
+            return true;
         }
 
         private static void TraceStartup(string message)
@@ -402,7 +470,7 @@ namespace Rook
         ///
         /// Order of operations matters:
         /// <list type="number">
-        ///   <item>Detach Idle handlers — stops new TryInitializeRuntime
+        ///   <item>Detach startup gate handlers — stops new deferred startup
         ///         calls from racing with the rest of shutdown.</item>
         ///   <item>StopStartupRetries — cancels the background timer.</item>
         ///   <item>NativeGhBridgeRegistrar.ClearRegistration — removes
@@ -421,9 +489,8 @@ namespace Rook
         /// </summary>
         protected override void OnShutdown()
         {
-            RhinoApp.Idle -= OnRhinoIdle;
-            RhinoApp.Idle -= EnsureNativeGhBridgeRegistered;
-            StopStartupRetries();
+            _shutdownStarted = true;
+            DetachStartupGateHooks();
 
             // Codex review of step 7: each external-state teardown step
             // gets its own try/catch. A failure in ClearRegistration

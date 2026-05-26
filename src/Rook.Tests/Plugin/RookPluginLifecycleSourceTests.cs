@@ -20,16 +20,15 @@ namespace Rook.Tests.Plugin
         }
 
         [Fact]
-        public void StartupPanelRegistration_IsWrappedAsNonFatalOnLoadStep()
+        public void StartupPanelRegistration_IsDeferredAndWrappedAsNonFatal()
         {
             var source = ReadSourceFile("src", "Rook", "RookPlugin.cs");
             var onLoad = ExtractMethod(source, "protected override LoadReturnCode OnLoad(");
             var registerPanels = ExtractMethod(source, "private void RegisterStartupPanels()");
+            var deferredStartup = ExtractMethod(source, "private bool RunDeferredCompanionStartup()");
 
-            Assert.Contains(
-                "if (ShouldRegisterStartupPanels(_isRhinoInside))",
-                onLoad);
-            Assert.Contains("RegisterStartupPanels();", onLoad);
+            Assert.DoesNotContain("RegisterStartupPanels();", onLoad);
+            Assert.Contains("RegisterStartupPanels();", deferredStartup);
 
             var panelBlock = ExtractTryCatchContaining(
                 registerPanels,
@@ -48,6 +47,25 @@ namespace Rook.Tests.Plugin
                 "TraceStartup($\"Panel registration failed (non-fatal):",
                 panelBlock.CatchBody);
             Assert.DoesNotContain("throw", panelBlock.CatchBody);
+        }
+
+        [Fact]
+        public void OnLoad_IsMinimalAndDoesNotRunCompanionStartupSideEffects()
+        {
+            var source = ReadSourceFile("src", "Rook", "RookPlugin.cs");
+            var onLoad = ExtractMethod(source, "protected override LoadReturnCode OnLoad(");
+
+            Assert.Contains("TraceStartup(\"OnLoad minimal\");", onLoad);
+            Assert.Contains("AttachStartupGateHooks();", onLoad);
+            Assert.Contains("return LoadReturnCode.Success;", onLoad);
+
+            Assert.DoesNotContain("RegisterStartupPanels();", onLoad);
+            Assert.DoesNotContain("RhinoApp.InvokeOnUiThread", onLoad);
+            Assert.DoesNotContain("BeginStartupRetries();", onLoad);
+            Assert.DoesNotContain("TryInitializeRuntime();", onLoad);
+            Assert.DoesNotContain("NativeGhBridgeRegistrar.TryRegister", onLoad);
+            Assert.DoesNotContain("EnsureToolbarLoaded();", onLoad);
+            Assert.DoesNotContain("RhinoApp.WriteLine", onLoad);
         }
 
         [Fact]
@@ -83,14 +101,14 @@ namespace Rook.Tests.Plugin
         {
             var source = ReadSourceFile("src", "Rook", "RookPlugin.cs");
             var onLoad = ExtractMethod(source, "protected override LoadReturnCode OnLoad(");
-            var tryInitializeRuntime = ExtractMethod(source, "private void TryInitializeRuntime()");
+            var deferredStartup = ExtractMethod(source, "private bool RunDeferredCompanionStartup()");
 
-            Assert.Contains("BeginStartupRetries();", onLoad);
-            Assert.Contains("RhinoApp.InvokeOnUiThread(new Action(TryInitializeRuntime));", onLoad);
+            Assert.DoesNotContain("BeginStartupRetries();", onLoad);
+            Assert.DoesNotContain("RhinoApp.InvokeOnUiThread(new Action(TryInitializeRuntime));", onLoad);
             Assert.Contains("return LoadReturnCode.Success;", onLoad);
 
             var reconcileBlock = ExtractTryCatchContaining(
-                tryInitializeRuntime,
+                deferredStartup,
                 "RookSubsystemRoot.Instance.ReconcileVideoJobsOnce();");
 
             Assert.Contains(
@@ -148,15 +166,15 @@ namespace Rook.Tests.Plugin
         public void StartupVideoSidecarBackfill_IsScheduledAsSeparateNonFatalAsyncStep()
         {
             var source = ReadSourceFile("src", "Rook", "RookPlugin.cs");
-            var tryInitializeRuntime = ExtractMethod(source, "private void TryInitializeRuntime()");
+            var deferredStartup = ExtractMethod(source, "private bool RunDeferredCompanionStartup()");
 
             var reconcileBlock = ExtractTryCatchContaining(
-                tryInitializeRuntime,
+                deferredStartup,
                 "RookSubsystemRoot.Instance.ReconcileVideoJobsOnce();");
             Assert.DoesNotContain("BackfillVideoSidecarsOnce", reconcileBlock.TryBody);
 
             var backfillBlock = ExtractTryCatchContaining(
-                tryInitializeRuntime,
+                deferredStartup,
                 "RookSubsystemRoot.Instance.BackfillVideoSidecarsOnce(");
 
             Assert.Contains(
@@ -175,6 +193,57 @@ namespace Rook.Tests.Plugin
                 "TraceStartup($\"Video sidecar backfill scheduling failed (non-fatal):",
                 backfillBlock.CatchBody);
             Assert.DoesNotContain("throw", backfillBlock.CatchBody);
+        }
+
+        [Fact]
+        public void StartupGateHooks_UseIdleAndDocumentOpenLifecycle()
+        {
+            var source = ReadSourceFile("src", "Rook", "RookPlugin.cs");
+            var attach = ExtractMethod(source, "private void AttachStartupGateHooks()");
+            var detach = ExtractMethod(source, "private void DetachStartupGateHooks()");
+
+            Assert.Contains("RhinoApp.Idle += OnStartupGateIdle;", attach);
+            Assert.Contains("RhinoDoc.BeginOpenDocument += OnBeginOpenDocument;", attach);
+            Assert.Contains("RhinoDoc.EndOpenDocument += OnEndOpenDocument;", attach);
+            Assert.Contains(
+                "RhinoDoc.EndOpenDocumentInitialViewUpdate += OnEndOpenDocumentInitialViewUpdate;",
+                attach);
+
+            Assert.Contains("RhinoApp.Idle -= OnStartupGateIdle;", detach);
+            Assert.Contains("RhinoDoc.BeginOpenDocument -= OnBeginOpenDocument;", detach);
+            Assert.Contains("RhinoDoc.EndOpenDocument -= OnEndOpenDocument;", detach);
+            Assert.Contains(
+                "RhinoDoc.EndOpenDocumentInitialViewUpdate -= OnEndOpenDocumentInitialViewUpdate;",
+                detach);
+            Assert.Contains("TraceStartup(\"StartupGate hooks detached\");", detach);
+        }
+
+        [Fact]
+        public void StartupGateIdle_UsesDocumentOpenLifecycleBlockingAdapter()
+        {
+            var source = ReadSourceFile("src", "Rook", "RookPlugin.cs");
+            var idle = ExtractMethod(source, "private void OnStartupGateIdle(");
+            var blocker = ExtractMethod(source, "private bool IsDocumentOpenLifecycleBlocking()");
+
+            Assert.Contains("DocumentOpening: IsDocumentOpenLifecycleBlocking()", idle);
+            Assert.DoesNotContain("DocumentOpening: _documentOpening", idle);
+
+            Assert.Contains("if (_documentOpening)", blocker);
+            Assert.Contains("!_documentOpenInitialViewReady && IsRhinoCommandActive()", blocker);
+        }
+
+        [Fact]
+        public void Constructor_DoesNotSubscribeStartupIdleHandlers()
+        {
+            var source = ReadSourceFile("src", "Rook", "RookPlugin.cs");
+            var constructor = ExtractMethod(source, "public RookPlugin()");
+
+            Assert.DoesNotContain("RhinoApp.Idle +=", constructor);
+            Assert.DoesNotContain("OnRhinoIdle", source);
+            Assert.DoesNotContain("EnsureNativeGhBridgeRegistered", source);
+            Assert.DoesNotContain("BeginStartupRetries", source);
+            Assert.DoesNotContain("ScheduleNextStartupRetry", source);
+            Assert.DoesNotContain("new Timer", source);
         }
 
         [Fact]
