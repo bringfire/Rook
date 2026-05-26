@@ -455,7 +455,6 @@ p { margin: 8px 0; line-height: 1.4; }
                             () => isMediaImportOp
                                 ? _mediaImportHandler!.DispatchUi(body)
                                 : _handler.Dispatch(body)).ConfigureAwait(false);
-                        RequestHostVisibleRefresh("VisionUiOpCompleted:" + op);
                         break;
                     case VisionOpRoute.OffUi:
                         // Off-UI ops are disk-only (artifact store) or

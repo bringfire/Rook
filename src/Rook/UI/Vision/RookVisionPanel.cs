@@ -92,6 +92,9 @@ namespace Rook.UI.Vision
         {
             if (_closed) return;
             _closed = true;
+            _surface.ReconcileHostPresentation(
+                _presentationState.PanelClosing(),
+                scheduleIdleFollowUp: false);
             if (_content != null)
             {
                 try { _content.SizeChanged -= OnContentSizeChanged; } catch { }
@@ -113,10 +116,14 @@ namespace Rook.UI.Vision
 
         private void ApplyDecision(HostedSurfaceDecision decision, string sourceReason)
         {
-            _ = sourceReason;
-            if (decision.Action == HostedSurfaceAction.Close)
+            switch (decision.Action)
             {
-                CloseSurface();
+                case HostedSurfaceAction.Show:
+                    RefreshSelectionVisible(sourceReason + ":Show");
+                    break;
+                case HostedSurfaceAction.Close:
+                    CloseSurface();
+                    break;
             }
         }
 
@@ -130,9 +137,14 @@ namespace Rook.UI.Vision
 
         private void OnContentSizeChanged(object? sender, EventArgs e)
         {
+            RefreshSelectionVisible("ContentSizeChanged");
+        }
+
+        private void RefreshSelectionVisible(string reason)
+        {
             var facts = _presentationState.RefreshSelection(
                 IsSelectedVisible(),
-                "ContentSizeChanged");
+                reason);
             _surface.ReconcileHostPresentation(facts, scheduleIdleFollowUp: true);
         }
 

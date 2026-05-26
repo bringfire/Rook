@@ -85,11 +85,42 @@ namespace Rook.Tests.UI.Vision
         }
 
         [Fact]
+        public void RookVisionPanel_ShowDecisionRefreshesSelectionFactsOnly()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Vision", "RookVisionPanel.cs");
+            var apply = ExtractMethod(source, "private void ApplyDecision");
+
+            Assert.Contains("case HostedSurfaceAction.Show:", apply);
+            Assert.Contains("RefreshSelectionVisible", apply);
+            Assert.DoesNotContain("ReconcileHostVisibility", apply);
+        }
+
+        [Fact]
+        public void RookVisionPanel_CloseSurfaceSendsTerminalPresentationFacts()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Vision", "RookVisionPanel.cs");
+            var close = ExtractMethod(source, "private void CloseSurface");
+
+            Assert.Contains("_presentationState.PanelClosing()", close);
+            Assert.Contains("_surface.ReconcileHostPresentation", close);
+            Assert.Contains("scheduleIdleFollowUp: false", close);
+        }
+
+        [Fact]
         public void RookVisionPanel_DoesNotSendLegacyHostVisibilityCommands()
         {
             var source = ReadSourceFile("src", "Rook", "UI", "Vision", "RookVisionPanel.cs");
 
             Assert.DoesNotContain("_surface.ReconcileHostVisibility", source);
+        }
+
+        [Fact]
+        public void VisionWebSurface_UiBridgeOps_DoNotUseLegacyHostVisibilityRefresh()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Vision", "VisionWebSurface.cs");
+
+            Assert.DoesNotContain("VisionUiOpCompleted", source);
+            Assert.DoesNotContain("RequestHostVisibleRefresh", source);
         }
 
         [Fact]
@@ -114,14 +145,6 @@ namespace Rook.Tests.UI.Vision
             Assert.Contains("HostedSurfaceAction.Close", knowledgeSource);
         }
 
-        [Fact]
-        public void VisionWebSurface_UiBridgeOps_RequestHostRefreshAfterModalReturn()
-        {
-            var source = ReadSourceFile("src", "Rook", "UI", "Vision", "VisionWebSurface.cs");
-
-            Assert.Contains("RequestHostVisibleRefresh(\"VisionUiOpCompleted:\" + op)", source);
-        }
-
         private static string ReadSourceFile(params string[] pathParts)
         {
             var dir = new DirectoryInfo(AppContext.BaseDirectory);
@@ -135,6 +158,28 @@ namespace Rook.Tests.UI.Vision
 
             throw new FileNotFoundException(
                 "Could not locate source file " + string.Join("/", pathParts));
+        }
+
+        private static string ExtractMethod(string source, string signature)
+        {
+            var start = source.IndexOf(signature, StringComparison.Ordinal);
+            if (start < 0)
+                return string.Empty;
+
+            var brace = source.IndexOf('{', start);
+            if (brace < 0)
+                return source.Substring(start);
+
+            var depth = 0;
+            for (var i = brace; i < source.Length; i++)
+            {
+                if (source[i] == '{') depth++;
+                if (source[i] == '}') depth--;
+                if (depth == 0)
+                    return source.Substring(start, i - start + 1);
+            }
+
+            return source.Substring(start);
         }
     }
 }
