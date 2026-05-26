@@ -215,14 +215,16 @@ static void StartCompanionLoadDeferred()
             std::this_thread::sleep_for(std::chrono::milliseconds(kBridgePollMs));
         }
 
-        // Bridge never came up — plugin loaded but didn't register.
+        // The managed companion now defers substantial startup until Rhino is
+        // quiescent. During slow document opens the bridge may register after
+        // this bounded native poll window, so this is informational.
         try
         {
             CMainThreadDispatcher::Instance().Dispatch([]()
             {
                 RhinoApp().Print(
-                    L"RookNative: managed companion loaded but GH bridge did not register.\n"
-                    L"  GH execution may be unavailable. Check companion startup log.\n");
+                    L"RookNative: managed companion loaded; GH bridge registration is deferred until Rhino is idle.\n"
+                    L"  GH execution will be unavailable until the bridge registers.\n");
             });
         }
         catch (...) {}
