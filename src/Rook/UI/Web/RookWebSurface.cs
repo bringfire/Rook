@@ -188,8 +188,7 @@ namespace Rook.UI.Web
         private readonly WebViewHostPresentationCoordinator _hostPresentation = new();
         private WebViewHostPanelPresentationFacts? _latestPresentationFacts;
         private bool _hostPresentationQueued;
-        private bool _hostPresentationIdlePending;
-        private long _hostPresentationIdleGeneration;
+        private readonly WebViewHostPresentationIdleGate _hostPresentationIdleGate = new();
         private string _hostPresentationIdleReason = string.Empty;
         private string _lastHostPresentationActionResult = "none";
 #endif
@@ -513,11 +512,9 @@ namespace Rook.UI.Web
             if (facts == null || !facts.Authoritative)
                 return;
 
-            if (_hostPresentationIdlePending)
+            if (!_hostPresentationIdleGate.TrySchedule(facts.Generation))
                 return;
 
-            _hostPresentationIdlePending = true;
-            _hostPresentationIdleGeneration = facts.Generation;
             _hostPresentationIdleReason = reason;
             RhinoApp.Idle += OnHostPresentationIdle;
         }
@@ -528,15 +525,14 @@ namespace Rook.UI.Web
 
             var facts = _latestPresentationFacts;
             var reason = _hostPresentationIdleReason;
-            _hostPresentationIdlePending = false;
             _hostPresentationIdleReason = string.Empty;
 
-            if (_disposed ||
-                facts == null ||
+            if (facts == null ||
                 !facts.Authoritative ||
-                !facts.DesiredVisible ||
-                facts.Disposed ||
-                facts.Generation != _hostPresentationIdleGeneration)
+                !_hostPresentationIdleGate.ShouldRun(
+                    facts.Generation,
+                    _disposed || facts.Disposed,
+                    facts.DesiredVisible))
             {
                 return;
             }
@@ -546,13 +542,10 @@ namespace Rook.UI.Web
 
         private void ClearHostPresentationIdle()
         {
-            if (_hostPresentationIdlePending)
-            {
-                try { RhinoApp.Idle -= OnHostPresentationIdle; }
-                catch { }
-            }
+            try { RhinoApp.Idle -= OnHostPresentationIdle; }
+            catch { }
 
-            _hostPresentationIdlePending = false;
+            _hostPresentationIdleGate.Clear();
             _hostPresentationIdleReason = string.Empty;
         }
 

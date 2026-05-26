@@ -562,16 +562,16 @@ namespace Rook.Tests.UI.Web
                 "private string ApplyHostPresentationDecision(");
             var scopedScheduler = scheduler + idleScheduler + idleHandler + run + apply;
 
-            Assert.Contains("_hostPresentationIdlePending", source);
-            Assert.Contains("_hostPresentationIdleGeneration", source);
+            Assert.Contains(
+                "private readonly WebViewHostPresentationIdleGate _hostPresentationIdleGate = new();",
+                source);
             Assert.Contains("_hostPresentationIdleReason", source);
-            Assert.Contains("if (_hostPresentationIdlePending)", idleScheduler);
+            Assert.Contains("TrySchedule(facts.Generation)", idleScheduler);
             Assert.Contains("RhinoApp.Idle += OnHostPresentationIdle;", idleScheduler);
             Assert.Contains("RhinoApp.Idle -= OnHostPresentationIdle;", idleHandler);
-            Assert.Contains("_hostPresentationIdlePending = false;", idleHandler);
-            Assert.Contains(
-                "facts.Generation != _hostPresentationIdleGeneration",
-                idleHandler);
+            Assert.Contains("ShouldRun(", idleHandler);
+            Assert.Contains("facts.Generation", idleHandler);
+            Assert.Contains("_hostPresentationIdleGate.Clear();", source);
             Assert.Contains("RhinoApp.Idle -= OnHostPresentationIdle;", disposeWebView);
             Assert.DoesNotContain("while (", scopedScheduler);
             Assert.DoesNotContain("for (", scopedScheduler);
@@ -604,7 +604,7 @@ namespace Rook.Tests.UI.Web
                 source,
                 "private void OnHostPresentationIdle(");
 
-            var hiddenGuard = idleHandler.IndexOf("!facts.DesiredVisible", StringComparison.Ordinal);
+            var hiddenGuard = idleHandler.IndexOf("ShouldRun(", StringComparison.Ordinal);
             var reconcile = idleHandler.IndexOf(
                 "RunHostPresentationCoordinatorReconcile(reason);",
                 StringComparison.Ordinal);
