@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Text.Json;
 using Rook.UI.Vision;
 using Rook.UI.Web;
 using Xunit;
@@ -102,6 +103,87 @@ namespace Rook.Tests.UI.Vision
             Assert.NotEqual(default, entry.Utc);
             Assert.True(entry.ElapsedMilliseconds >= 0);
             Assert.True(entry.ThreadId > 0);
+        }
+
+        [Fact]
+        public void CreateDumpPayload_IncludesMetadataAndEntries()
+        {
+            var store = new VisionPresentationStateStore(capacity: 4);
+            using var registration = store.RegisterSurface();
+
+            store.Append(CreateRecord("dump"));
+
+            var payload = VisionPresentationStateDump.CreatePayload(
+                store.Snapshot(),
+                rookVersion: "1.2.3",
+                rhinoVersion: "8.9.10",
+                processId: 1234,
+                threadId: 5678);
+
+            Assert.Equal("1.2.3", payload.RookVersion);
+            Assert.Equal("8.9.10", payload.RhinoVersion);
+            Assert.Equal(1234, payload.ProcessId);
+            Assert.Equal(5678, payload.ThreadId);
+            Assert.NotEqual(default, payload.DumpRequestedUtc);
+            Assert.True(payload.SurfacePresent);
+            Assert.Equal(1, payload.EntryCount);
+            Assert.Equal(4, payload.Capacity);
+
+            var entry = Assert.Single(payload.Entries);
+            Assert.Equal("dump", entry.Reason);
+            Assert.Equal(1, entry.Sequence);
+            Assert.True(entry.ThreadId > 0);
+        }
+
+        [Fact]
+        public void CreateDumpPayload_WhenNoSurface_WritesValidEmptyDump()
+        {
+            var store = new VisionPresentationStateStore(capacity: 3);
+
+            var payload = VisionPresentationStateDump.CreatePayload(
+                store.Snapshot(),
+                rookVersion: "1.2.3",
+                rhinoVersion: "8.9.10",
+                processId: 1234,
+                threadId: 5678);
+
+            Assert.Equal("1.2.3", payload.RookVersion);
+            Assert.Equal("8.9.10", payload.RhinoVersion);
+            Assert.Equal(1234, payload.ProcessId);
+            Assert.Equal(5678, payload.ThreadId);
+            Assert.NotEqual(default, payload.DumpRequestedUtc);
+            Assert.False(payload.SurfacePresent);
+            Assert.Equal(0, payload.EntryCount);
+            Assert.Equal(3, payload.Capacity);
+            Assert.Empty(payload.Entries);
+        }
+
+        [Fact]
+        public void DumpPayload_SerializesCamelCaseMetadata()
+        {
+            var store = new VisionPresentationStateStore(capacity: 3);
+
+            var payload = VisionPresentationStateDump.CreatePayload(
+                store.Snapshot(),
+                rookVersion: "1.2.3",
+                rhinoVersion: "8.9.10",
+                processId: 1234,
+                threadId: 5678);
+            var json = JsonSerializer.Serialize(
+                payload,
+                VisionPresentationStateDump.JsonOptions);
+
+            Assert.Contains("\"rookVersion\"", json);
+            Assert.Contains("\"rhinoVersion\"", json);
+            Assert.Contains("\"processId\"", json);
+            Assert.Contains("\"threadId\"", json);
+            Assert.Contains("\"dumpRequestedUtc\"", json);
+            Assert.Contains("\"surfacePresent\"", json);
+            Assert.Contains("\"entryCount\"", json);
+            Assert.Contains("\"capacity\"", json);
+            Assert.Contains("\"entries\"", json);
+            Assert.DoesNotContain("\"RookVersion\"", json);
+            Assert.DoesNotContain("\"SurfacePresent\"", json);
         }
 
         private static WebViewHostPresentationRecord CreateRecord(string reason)

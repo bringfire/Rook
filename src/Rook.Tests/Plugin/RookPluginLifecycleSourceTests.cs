@@ -62,6 +62,23 @@ namespace Rook.Tests.Plugin
         }
 
         [Fact]
+        public void DumpVisionPresentationStateCommand_DoesNotTouchPanelVisibility()
+        {
+            var source = ReadSourceFile(
+                "src",
+                "Rook",
+                "Commands",
+                "RookDumpVisionPresentationStateCommand.cs");
+
+            Assert.Contains("RookDumpVisionPresentationState", source);
+            Assert.Contains("VisionWebSurface.PresentationState", source);
+            Assert.DoesNotContain("OpenPanel", source);
+            Assert.DoesNotContain("ClosePanel", source);
+            Assert.DoesNotContain("ReconcileHostVisibility", source);
+            Assert.DoesNotContain("CreateWebContent", source);
+        }
+
+        [Fact]
         public void ChatServiceManifestFallback_KnowsReleaseInstallLayout()
         {
             var source = ReadSourceFile("src", "Rook", "UI", "Chat", "ChatServiceManager.cs");
