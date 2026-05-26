@@ -76,6 +76,7 @@ Quiescence for this PR:
 - The callback is running from Rhino idle.
 - No Rhino command is active, using RhinoCommon command-state APIs available in this codebase/runtime.
 - Any observed document-open lifecycle has completed.
+- Attach-time document-open state is conservative. If the companion loads after `BeginOpenDocument` already fired, startup must not immediately green-light from the initial `documentOpening=false` default.
 - At least `2` consecutive quiescent idle ticks have been observed.
 - Startup has not already completed.
 - Shutdown has not started.
@@ -201,7 +202,7 @@ StartupGate blocked: <reason>
 StartupGate quiescent: running startup
 Startup complete
 Bridge retries exhausted
-Startup shutdown: hooks detached
+StartupGate hooks detached
 ```
 
 These are not verbose diagnostics. They are a small audit trail for startup lifecycle. They should not include JS probes, WebView probes, reflection-heavy diagnostics, or hot-path file logging outside the existing startup trace.

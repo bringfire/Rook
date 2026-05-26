@@ -130,6 +130,37 @@ namespace Rook.Tests.Plugin
         }
 
         [Fact]
+        public void LoadedAfterBeginOpen_DoesNotRunUntilEndOpenOrStableIdleAfterCommandClears()
+        {
+            var gate = new CompanionStartupGate(requiredStableIdleTicks: 2);
+
+            var missedBeginOpen = gate.EvaluateIdle(new CompanionStartupGateSnapshot(
+                CommandActive: true,
+                DocumentOpening: false,
+                ShutdownStarted: false));
+            var openStillActive = gate.EvaluateIdle(new CompanionStartupGateSnapshot(
+                CommandActive: false,
+                DocumentOpening: true,
+                ShutdownStarted: false));
+            var firstStableAfterOpen = gate.EvaluateIdle(new CompanionStartupGateSnapshot(
+                CommandActive: false,
+                DocumentOpening: false,
+                ShutdownStarted: false));
+            var secondStableAfterOpen = gate.EvaluateIdle(new CompanionStartupGateSnapshot(
+                CommandActive: false,
+                DocumentOpening: false,
+                ShutdownStarted: false));
+
+            Assert.Equal(CompanionStartupGateAction.None, missedBeginOpen.Action);
+            Assert.Equal(CompanionStartupGateBlockedReason.CommandActive, missedBeginOpen.BlockedReason);
+            Assert.Equal(CompanionStartupGateAction.None, openStillActive.Action);
+            Assert.Equal(CompanionStartupGateBlockedReason.DocumentOpening, openStillActive.BlockedReason);
+            Assert.Equal(CompanionStartupGateAction.None, firstStableAfterOpen.Action);
+            Assert.Equal(1, firstStableAfterOpen.StableIdleCount);
+            Assert.Equal(CompanionStartupGateAction.RunStartup, secondStableAfterOpen.Action);
+        }
+
+        [Fact]
         public void StartupComplete_DoesNotRunAgain()
         {
             var gate = new CompanionStartupGate(requiredStableIdleTicks: 2);
@@ -478,6 +509,26 @@ Expected: fails because `RookPlugin.cs` still has old startup behavior and lacks
 
 Do not commit this task yet. Commit after Task 3 makes tests pass.
 
+- [ ] **Step 7: Add constructor old-path source guard**
+
+Add this test:
+
+```csharp
+[Fact]
+public void Constructor_DoesNotSubscribeStartupIdleHandlers()
+{
+    var source = ReadSourceFile("src", "Rook", "RookPlugin.cs");
+    var constructor = ExtractMethod(source, "public RookPlugin()");
+
+    Assert.DoesNotContain("RhinoApp.Idle +=", constructor);
+    Assert.DoesNotContain("OnRhinoIdle", source);
+    Assert.DoesNotContain("EnsureNativeGhBridgeRegistered", source);
+    Assert.DoesNotContain("BeginStartupRetries", source);
+    Assert.DoesNotContain("ScheduleNextStartupRetry", source);
+    Assert.DoesNotContain("new Timer", source);
+}
+```
+
 ## Task 3: Wire `RookPlugin` To Idle-Gated Startup
 
 **Files:**
@@ -511,6 +562,7 @@ private readonly CompanionStartupGate _startupGate =
 private int _startupRunInProgress = 0;
 private int _bridgeRetryCount = 0;
 private bool _documentOpening = false;
+private bool _documentOpenInitialViewReady = false;
 private bool _startupHooksAttached = false;
 private bool _shutdownStarted = false;
 private bool _deferredLocalStartupComplete = false;
@@ -577,24 +629,27 @@ private void DetachStartupGateHooks()
     RhinoDoc.EndOpenDocument -= OnEndOpenDocument;
     RhinoDoc.EndOpenDocumentInitialViewUpdate -= OnEndOpenDocumentInitialViewUpdate;
     _startupHooksAttached = false;
-    TraceStartup("Startup shutdown: hooks detached");
+    TraceStartup("StartupGate hooks detached");
 }
 
 private void OnBeginOpenDocument(object? sender, DocumentOpenEventArgs e)
 {
     _documentOpening = true;
+    _documentOpenInitialViewReady = false;
     TraceStartupThrottled("document-open-begin", "StartupGate document open begin");
 }
 
 private void OnEndOpenDocument(object? sender, DocumentOpenEventArgs e)
 {
     _documentOpening = false;
+    _documentOpenInitialViewReady = false;
     TraceStartupThrottled("document-open-end", "StartupGate document open end");
 }
 
 private void OnEndOpenDocumentInitialViewUpdate(object? sender, DocumentOpenEventArgs e)
 {
     _documentOpening = false;
+    _documentOpenInitialViewReady = true;
     TraceStartupThrottled("document-open-initial-view", "StartupGate document open initial view update");
 }
 ```
@@ -628,7 +683,7 @@ private void OnStartupGateIdle(object? sender, EventArgs e)
 {
     var snapshot = new CompanionStartupGateSnapshot(
         CommandActive: IsRhinoCommandActive(),
-        DocumentOpening: _documentOpening,
+        DocumentOpening: IsDocumentOpenLifecycleBlocking(),
         ShutdownStarted: _shutdownStarted);
     var decision = _startupGate.EvaluateIdle(snapshot);
 
@@ -692,7 +747,33 @@ private static bool IsRhinoCommandActive()
 
 If `Command.InCommand()` does not compile as a `bool`, remove that third probe and rely on `RhinoApp.InCommand` plus `RhinoDoc.IsCommandRunning`; do not guess another signature.
 
-- [ ] **Step 7: Add throttled trace helpers**
+- [ ] **Step 7: Add conservative document-open blocker**
+
+Add:
+
+```csharp
+private bool IsDocumentOpenLifecycleBlocking()
+{
+    if (_documentOpening)
+    {
+        return true;
+    }
+
+    // If this plugin loaded after BeginOpenDocument already fired, we may
+    // never see the begin event. While Rhino still reports a command active,
+    // avoid assuming the document-open lifecycle is stable.
+    if (!_documentOpenInitialViewReady && IsRhinoCommandActive())
+    {
+        return true;
+    }
+
+    return false;
+}
+```
+
+This is deliberately conservative for startup recent-file `_Open`: command-active plus no observed initial view update blocks startup even if `BeginOpenDocument` was missed.
+
+- [ ] **Step 8: Add throttled trace helpers**
 
 Add:
 
@@ -731,7 +812,7 @@ private void TraceStartupThrottled(string key, string message)
 }
 ```
 
-- [ ] **Step 8: Move startup side effects into deferred startup**
+- [ ] **Step 9: Move startup side effects into deferred startup**
 
 Rename `TryInitializeRuntime` to `RunDeferredCompanionStartup` and change its signature to:
 
@@ -842,7 +923,7 @@ TraceStartup("Startup complete");
 return true;
 ```
 
-- [ ] **Step 9: Add guarded startup runner**
+- [ ] **Step 10: Add guarded startup runner**
 
 Add:
 
@@ -870,7 +951,7 @@ private void RunDeferredStartupFromIdle()
 }
 ```
 
-- [ ] **Step 10: Update shutdown**
+- [ ] **Step 11: Update shutdown**
 
 In `OnShutdown`, replace:
 
@@ -889,7 +970,7 @@ DetachStartupGateHooks();
 
 Keep existing bridge clear, chat shutdown, video dispose, and `base.OnShutdown()` behavior unchanged.
 
-- [ ] **Step 11: Run focused tests**
+- [ ] **Step 12: Run focused tests**
 
 Run:
 
@@ -899,7 +980,7 @@ dotnet test .\src\Rook.Tests\Rook.Tests.csproj --no-restore --filter "FullyQuali
 
 Expected: all focused startup lifecycle tests pass. If `Command.InCommand()` does not compile as a boolean probe, remove that one probe and rely on `RhinoApp.InCommand` plus `RhinoDoc.IsCommandRunning`; do not guess another command-state API.
 
-- [ ] **Step 12: Commit Tasks 2-3**
+- [ ] **Step 13: Commit Tasks 2-3**
 
 ```powershell
 git add src\Rook\RookPlugin.cs src\Rook.Tests\Plugin\RookPluginLifecycleSourceTests.cs
@@ -1192,6 +1273,7 @@ Repeat the startup recent-file path at least 3 times. If any run wedges Rhino, s
 
 ```powershell
 Get-Content "$env:TEMP\rook\companion-startup.log" -Tail 120
+Get-ChildItem "$env:TEMP\rook" | Sort-Object LastWriteTime -Descending | Select-Object -First 10
 Get-ChildItem "$env:LOCALAPPDATA\Rook\discovery" | Sort-Object LastWriteTime -Descending | Select-Object -First 10
 Get-ChildItem "$env:APPDATA\Rook\sessions" | Sort-Object LastWriteTime -Descending | Select-Object -First 5
 ```
