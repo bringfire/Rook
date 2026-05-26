@@ -263,6 +263,8 @@ namespace Rook.UI.Web
 
         protected virtual bool UseHostPresentationCoordinator => false;
 
+        private protected virtual IWebViewHostPresentationRecorder? HostPresentationRecorder => null;
+
         internal bool UsesHostPresentationCoordinatorForTest => UseHostPresentationCoordinator;
 
         /// <summary>
@@ -645,10 +647,35 @@ namespace Rook.UI.Web
             WebViewHostPresentationDecision decision,
             string actionResult)
         {
-            _ = facts;
-            _ = snapshot;
-            _ = decision;
-            _ = actionResult;
+            HostPresentationRecorder?.Append(new WebViewHostPresentationRecord
+            {
+                Reason = decision.Reason,
+                OldState = decision.OldState,
+                NewState = decision.NewState,
+                Action = decision.Action,
+                NotPresentableReason = decision.NotPresentableReason,
+                DesiredVisible = snapshot.DesiredVisible,
+                AppActive = snapshot.AppActive,
+                TemporaryDeactivateHidden = snapshot.TemporaryDeactivateHidden,
+                PanelVisible = snapshot.PanelVisible,
+                RequiresSelectedPanel = snapshot.RequiresSelectedPanel,
+                PanelSelectedVisible = snapshot.PanelSelectedVisible,
+                EtoLoaded = snapshot.EtoLoaded,
+                EtoVisible = snapshot.EtoVisible,
+                EtoWidth = snapshot.EtoWidth,
+                EtoHeight = snapshot.EtoHeight,
+                ParentWindowPresent = snapshot.ParentWindowPresent,
+                HwndChainVisible = snapshot.HwndChainVisible,
+                HwndClientRectNonZero = snapshot.HwndClientRectNonZero,
+                ControllerAvailable = snapshot.ControllerAvailable,
+                ControllerParentWindowPresent = snapshot.ControllerParentWindowPresent,
+                ControllerVisible = snapshot.ControllerVisible,
+                ControllerBoundsMatchHostTarget = snapshot.ControllerBoundsMatchHostTarget,
+                ShouldSetControllerBounds = decision.ShouldSetControllerBounds,
+                ShouldSetControllerVisible = decision.ShouldSetControllerVisible,
+                ShouldNotifyParentPositionChanged = decision.ShouldNotifyParentPositionChanged,
+                ActionResult = actionResult
+            });
         }
 
         private string ApplyHostPresentationDecision(

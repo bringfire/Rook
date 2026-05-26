@@ -135,7 +135,11 @@ p { margin: 8px 0; line-height: 1.4; }
 
         protected override string ContentSecurityPolicy => VisionContentSecurityPolicy;
 
+        internal static VisionPresentationStateStore PresentationState { get; } = new();
+
         protected override bool UseHostPresentationCoordinator => true;
+
+        private protected override IWebViewHostPresentationRecorder? HostPresentationRecorder => PresentationState;
 
         // ─── Op-routing table ─────────────────────────────────────────
 
@@ -268,6 +272,8 @@ p { margin: 8px 0; line-height: 1.4; }
         private readonly ImageJobOpHandler? _imageJobHandler;
         private readonly MediaImportOpHandler? _mediaImportHandler;
         private readonly ArtifactStore _artifactStore;
+        private readonly IDisposable _presentationSurfaceRegistration =
+            PresentationState.RegisterSurface();
 
         /// <summary>
         /// Production constructor. Wires every long-lived dependency
@@ -901,6 +907,16 @@ p { margin: 8px 0; line-height: 1.4; }
                 "text/plain; charset=utf-8",
                 404,
                 extraHeaders: "Cache-Control: no-store");
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                _presentationSurfaceRegistration.Dispose();
+            }
+
+            base.Dispose(disposing);
         }
     }
 }
