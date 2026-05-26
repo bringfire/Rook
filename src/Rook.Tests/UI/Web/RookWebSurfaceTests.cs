@@ -617,6 +617,36 @@ namespace Rook.Tests.UI.Web
         }
 
         [Fact]
+        public void VisionPresentationPath_AppliesPresentInBoundsVisibleNotifyOrder()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+            var method = ExtractMethod(source, "private string ApplyHostPresentationDecision");
+
+            var boundsIndex = method.IndexOf("SetControllerBounds", StringComparison.Ordinal);
+            var visibleIndex = method.IndexOf(
+                "SetControllerVisible(controller, true",
+                StringComparison.Ordinal);
+            var notifyIndex = method.IndexOf(
+                "NotifyParentWindowPositionChanged",
+                StringComparison.Ordinal);
+
+            Assert.True(boundsIndex >= 0);
+            Assert.True(visibleIndex >= 0);
+            Assert.True(notifyIndex >= 0);
+            Assert.True(boundsIndex < visibleIndex);
+            Assert.True(visibleIndex < notifyIndex);
+        }
+
+        [Fact]
+        public void VisionPresentationPath_DoesNotMarkMissingWebViewAsDisposed()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+
+            Assert.DoesNotContain("Disposed = _webView == null", source);
+            Assert.Contains("Disposed = facts.Disposed", source);
+        }
+
+        [Fact]
         public void VisionPresentationPath_DoesNotUseReloadOrJsProbeForRecovery()
         {
             var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
@@ -716,6 +746,31 @@ namespace Rook.Tests.UI.Web
 
             throw new FileNotFoundException(
                 "Could not locate source file " + string.Join("/", pathParts));
+        }
+
+        private static string ExtractMethod(string source, string signature)
+        {
+            var start = source.IndexOf(signature, StringComparison.Ordinal);
+            if (start < 0)
+                return string.Empty;
+
+            var brace = source.IndexOf('{', start);
+            if (brace < 0)
+                return source.Substring(start);
+
+            var depth = 0;
+            for (var i = brace; i < source.Length; i++)
+            {
+                if (source[i] == '{')
+                    depth++;
+                else if (source[i] == '}')
+                    depth--;
+
+                if (depth == 0)
+                    return source.Substring(start, i - start + 1);
+            }
+
+            return source.Substring(start);
         }
 
         private static string ExtractMemberBlock(string source, string signature)

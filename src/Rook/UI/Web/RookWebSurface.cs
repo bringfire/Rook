@@ -2,6 +2,9 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
+#if ROOK_WEBVIEW2
+using System.Runtime.InteropServices;
+#endif
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using Eto.Forms;
@@ -567,8 +570,13 @@ namespace Rook.UI.Web
 
         private void RunHostPresentationCoordinatorReconcile(string reason)
         {
-            _ = reason;
-            _ = _hostPresentation;
+            if (_latestPresentationFacts == null)
+                return;
+
+            var facts = _latestPresentationFacts;
+            var probe = CaptureHostPresentationProbe(facts);
+            var decision = _hostPresentation.Evaluate(probe.Snapshot, reason);
+            ApplyHostPresentationDecision(decision, probe.Controller, reason);
         }
 
         private string ApplyHostPresentationDecision(
@@ -576,10 +584,312 @@ namespace Rook.UI.Web
             object? controller,
             string reason)
         {
-            _ = decision;
-            _ = controller;
-            _ = reason;
-            return "none";
+            if (decision.Action == WebViewHostPresentationAction.None)
+                return "none";
+
+            if (controller == null)
+                return "skipped-controller-unavailable";
+
+            if (decision.Action == WebViewHostPresentationAction.HideController)
+            {
+                return SetControllerVisible(controller, false, reason)
+                    ? "applied"
+                    : "set-visible-failed";
+            }
+
+            if (decision.Action != WebViewHostPresentationAction.PresentController)
+                return "none";
+
+            if (decision.ShouldSetControllerBounds)
+            {
+                var target = TryBuildControllerTargetBounds();
+                if (target != null && !SetControllerBounds(controller, target, reason))
+                    return "set-bounds-failed";
+            }
+
+            if (decision.ShouldSetControllerVisible &&
+                !SetControllerVisible(controller, true, reason))
+            {
+                return "set-visible-failed";
+            }
+
+            return NotifyParentWindowPositionChangedWithResult(controller, reason)
+                ? "applied"
+                : "notify-parent-failed";
+        }
+
+        private HostPresentationProbe CaptureHostPresentationProbe(
+            WebViewHostPanelPresentationFacts facts)
+        {
+            var controller = TryGetCoreWebView2Controller();
+            var controllerAvailable = controller != null;
+            var controllerVisible = controllerAvailable &&
+                TryGetControllerVisible(controller!, out var isVisible) &&
+                isVisible;
+            var targetBounds = TryBuildControllerTargetBounds();
+
+            return new HostPresentationProbe(
+                controller,
+                targetBounds,
+                new WebViewHostPresentationSnapshot
+                {
+                    Disposed = facts.Disposed,
+                    DesiredVisible = facts.DesiredVisible,
+                    AppActive = facts.AppActive,
+                    TemporaryDeactivateHidden = facts.TemporaryDeactivateHidden,
+                    PanelVisible = facts.PanelVisible,
+                    RequiresSelectedPanel = facts.RequiresSelectedPanel,
+                    PanelSelectedVisible = facts.PanelSelectedVisible,
+                    EtoLoaded = _webView?.Loaded == true,
+                    EtoVisible = _webView?.Visible == true,
+                    EtoWidth = _webView?.Size.Width ?? 0,
+                    EtoHeight = _webView?.Size.Height ?? 0,
+                    ParentWindowPresent = _webView?.ParentWindow != null,
+                    HwndChainVisible = IsHostHwndChainVisible(),
+                    HwndClientRectNonZero = IsHostHwndClientRectNonZero(),
+                    ControllerAvailable = controllerAvailable,
+                    ControllerParentWindowPresent = controllerAvailable &&
+                        TryGetControllerParentWindow(controller!, out var parent) &&
+                        parent != IntPtr.Zero,
+                    ControllerVisible = controllerVisible,
+                    ControllerBoundsMatchHostTarget = targetBounds == null ||
+                        (controllerAvailable &&
+                         TryControllerBoundsMatch(controller!, targetBounds))
+                });
+        }
+
+        private readonly record struct HostPresentationProbe(
+            object? Controller,
+            object? TargetBounds,
+            WebViewHostPresentationSnapshot Snapshot);
+
+        private static bool TryGetControllerVisible(object controller, out bool visible)
+        {
+            visible = false;
+            var prop = GetInstanceProperty(controller.GetType(), "IsVisible");
+            if (prop == null || !prop.CanRead)
+                return false;
+
+            try
+            {
+                visible = prop.GetValue(controller) is bool b && b;
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool TryGetControllerParentWindow(object controller, out IntPtr hwnd)
+        {
+            hwnd = IntPtr.Zero;
+            var prop = GetInstanceProperty(controller.GetType(), "ParentWindow");
+            if (prop == null || !prop.CanRead)
+                return false;
+
+            try
+            {
+                var value = prop.GetValue(controller);
+                if (value is IntPtr ptr)
+                {
+                    hwnd = ptr;
+                    return true;
+                }
+
+                return false;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private object? TryBuildControllerTargetBounds()
+        {
+            var webView = _webView;
+            if (webView == null)
+                return null;
+
+            var size = webView.Size;
+            if (size.Width <= 0 || size.Height <= 0)
+                return null;
+
+            return new System.Drawing.Rectangle(0, 0, size.Width, size.Height);
+        }
+
+        private static bool TryControllerBoundsMatch(object controller, object targetBounds)
+        {
+            var prop = GetInstanceProperty(controller.GetType(), "Bounds");
+            if (prop == null || !prop.CanRead)
+                return true;
+
+            try
+            {
+                return Equals(prop.GetValue(controller), targetBounds);
+            }
+            catch
+            {
+                return true;
+            }
+        }
+
+        private bool SetControllerBounds(object controller, object bounds, string reason)
+        {
+            var prop = GetInstanceProperty(controller.GetType(), "Bounds");
+            if (prop == null || !prop.CanWrite)
+                return false;
+
+            try
+            {
+                prop.SetValue(controller, bounds);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Log($"Rook: WebView2 bounds set failed for surface '{ResourceRoot}' " +
+                    $"(reason={reason}): {ex.Message}");
+                return false;
+            }
+        }
+
+        private bool NotifyParentWindowPositionChangedWithResult(
+            object controller,
+            string reason)
+        {
+            var notifyMethod = controller.GetType().GetMethod(
+                "NotifyParentWindowPositionChanged",
+                Type.EmptyTypes);
+            if (notifyMethod == null)
+                return false;
+
+            try
+            {
+                notifyMethod.Invoke(controller, null);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Log($"Rook: WebView2 parent-position notification failed for surface " +
+                    $"'{ResourceRoot}' (reason={reason}): {ex.Message}");
+                return false;
+            }
+        }
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetParent(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        private static extern bool IsWindowVisible(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        private static extern bool GetClientRect(IntPtr hWnd, out NativeRect lpRect);
+
+        [DllImport("user32.dll")]
+        private static extern bool GetWindowRect(IntPtr hWnd, out NativeRect lpRect);
+
+        private struct NativeRect
+        {
+            public int Left;
+            public int Top;
+            public int Right;
+            public int Bottom;
+        }
+
+        private bool IsHostHwndChainVisible()
+        {
+            var hwnd = TryGetHostHwnd();
+            if (hwnd == IntPtr.Zero)
+                return false;
+
+            var guard = 0;
+            while (hwnd != IntPtr.Zero && guard++ < 32)
+            {
+                if (!IsWindowVisible(hwnd))
+                    return false;
+                hwnd = GetParent(hwnd);
+            }
+
+            return true;
+        }
+
+        private bool IsHostHwndClientRectNonZero()
+        {
+            var hwnd = TryGetHostHwnd();
+            if (hwnd == IntPtr.Zero)
+                return false;
+
+            var guard = 0;
+            while (hwnd != IntPtr.Zero && guard++ < 32)
+            {
+                if (!HasNonZeroRect(hwnd))
+                    return false;
+                hwnd = GetParent(hwnd);
+            }
+
+            return true;
+        }
+
+        private IntPtr TryGetHostHwnd()
+        {
+            var nativeControl = _webView?.ControlObject;
+            if (nativeControl == null)
+                return IntPtr.Zero;
+
+            if (TryReadHandle(nativeControl, out var hwnd))
+                return hwnd;
+
+            var webView2 = GetWebView2NativeControl(nativeControl);
+            if (webView2 != null && !ReferenceEquals(webView2, nativeControl) &&
+                TryReadHandle(webView2, out hwnd))
+            {
+                return hwnd;
+            }
+
+            return IntPtr.Zero;
+        }
+
+        private static bool TryReadHandle(object target, out IntPtr hwnd)
+        {
+            hwnd = IntPtr.Zero;
+            var handleProp = GetInstanceProperty(target.GetType(), "Handle");
+            if (handleProp == null || !handleProp.CanRead)
+                return false;
+
+            try
+            {
+                var value = handleProp.GetValue(target);
+                if (value is IntPtr ptr)
+                {
+                    hwnd = ptr;
+                    return hwnd != IntPtr.Zero;
+                }
+
+                return false;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool HasNonZeroRect(IntPtr hwnd)
+        {
+            if (GetClientRect(hwnd, out var client) &&
+                client.Right > client.Left &&
+                client.Bottom > client.Top)
+            {
+                return true;
+            }
+
+            if (GetWindowRect(hwnd, out var window) &&
+                window.Right > window.Left &&
+                window.Bottom > window.Top)
+            {
+                return true;
+            }
+
+            return false;
         }
 
         private void ScheduleHostVisibilityReconcile(WebViewHostVisibilityDecision decision)
