@@ -148,6 +148,60 @@ namespace Rook.Tests.UI.Web
         }
 
         [Fact]
+        public void AppInactive_DoesNotPresent()
+        {
+            var coordinator = new WebViewHostPresentationCoordinator();
+            coordinator.Evaluate(ReadySnapshot(), "initial-ready");
+
+            var decision = coordinator.Evaluate(ReadySnapshot(controllerVisible: true) with
+            {
+                AppActive = false
+            }, "app-deactivated");
+
+            Assert.Equal(WebViewHostPresentationState.PendingHost, decision.NewState);
+            Assert.Equal(WebViewHostNotPresentableReason.AppInactive, decision.NotPresentableReason);
+            Assert.NotEqual(WebViewHostPresentationAction.PresentController, decision.Action);
+            Assert.False(decision.ShouldSetControllerBounds);
+            Assert.False(decision.ShouldSetControllerVisible);
+            Assert.False(decision.ShouldNotifyParentPositionChanged);
+        }
+
+        [Fact]
+        public void AppDeactivated_VisibleController_HidesWithoutPresenting()
+        {
+            var coordinator = new WebViewHostPresentationCoordinator();
+            coordinator.Evaluate(ReadySnapshot(), "initial-ready");
+
+            var decision = coordinator.Evaluate(ReadySnapshot(controllerVisible: true) with
+            {
+                AppActive = false
+            }, "application-deactivated");
+
+            Assert.Equal(WebViewHostPresentationState.Presenting, decision.OldState);
+            Assert.Equal(WebViewHostPresentationState.PendingHost, decision.NewState);
+            Assert.Equal(WebViewHostPresentationAction.HideController, decision.Action);
+            Assert.False(decision.ShouldSetControllerVisible);
+            Assert.False(decision.ShouldNotifyParentPositionChanged);
+        }
+
+        [Fact]
+        public void HideOnDeactivate_DoesNotClearDesiredVisible()
+        {
+            var coordinator = new WebViewHostPresentationCoordinator();
+
+            var decision = coordinator.Evaluate(ReadySnapshot(controllerVisible: true) with
+            {
+                DesiredVisible = true,
+                AppActive = false,
+                TemporaryDeactivateHidden = true
+            }, "hide-on-deactivate");
+
+            Assert.Equal(WebViewHostPresentationState.PendingHost, decision.NewState);
+            Assert.Equal(WebViewHostNotPresentableReason.TemporaryDeactivateHidden, decision.NotPresentableReason);
+            Assert.NotEqual(WebViewHostPresentationState.Hidden, decision.NewState);
+        }
+
+        [Fact]
         public void ActiveTemporaryDeactivateWithHostReady_Presents()
         {
             var coordinator = new WebViewHostPresentationCoordinator();
