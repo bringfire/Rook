@@ -35,7 +35,7 @@ Key constraints from the spec:
 
 - Create: `src/Rook/UI/Vision/VisionPanelPresentationState.cs`
   - Vision-owned authoritative facts/generation tracker.
-  - Interprets Rhino `ShowPanelReason`, app active state, close/hide, and selected-tab query results.
+  - Interprets Rhino `ShowPanelReason`, app active state, close/hide, visible-any-tab query results, and selected-tab query results.
 
 - Modify: `src/Rook/UI/Web/RookWebSurface.cs`
   - Add Vision-only presentation opt-in seam.
@@ -50,8 +50,9 @@ Key constraints from the spec:
 - Modify: `src/Rook/UI/Vision/RookVisionPanel.cs`
   - Use `VisionPanelPresentationState`.
   - Subscribe app active changes for Vision only.
-  - Query selected-tab visibility with `RhinoPanelVisibilityQuery`.
+  - Query both selected-tab visibility and visible-any-tab with `RhinoPanelVisibilityQuery`.
   - Send authoritative facts to `_surface.ReconcileHostPresentation(...)`.
+  - Stop sending legacy `_surface.ReconcileHostVisibility(...)` commands for Vision.
 
 - Modify: `src/Rook.Tests/UI/Web/WebViewHostPresentationCoordinatorTests.cs`
   - Add coordinator-level safety contract tests.
@@ -169,6 +170,8 @@ namespace Rook.UI.Web
         public bool DesiredVisible { get; init; }
         public bool AppActive { get; init; }
         public bool TemporaryDeactivateHidden { get; init; }
+        public bool PanelVisibleAnyTab { get; init; }
+        public bool PanelVisibleAnyTab { get; init; }
         public bool PanelVisible { get; init; }
         public bool RequiresSelectedPanel { get; init; } = true;
         public bool PanelSelectedVisible { get; init; }
@@ -184,6 +187,7 @@ Contract notes:
 - `Disposed=true` is terminal. Only actual close/dispose may set it.
 - `_webView == null`, controller missing, or not-yet-loaded states must not be represented as disposed.
 - `TemporaryDeactivateHidden=true` must not imply `DesiredVisible=false`.
+- `PanelVisibleAnyTab` distinguishes durable hidden intent from selected-tab loss. Tabbed-behind states must keep `DesiredVisible=true` when the panel is still visible anywhere.
 
 - [ ] **Step 2: Build managed tests to verify compile**
 
@@ -200,6 +204,54 @@ Expected: pass.
 ```powershell
 git add src\Rook\UI\Web\WebViewHostPanelPresentationFacts.cs
 git commit -m "feat: add webview panel presentation facts"
+```
+
+- [ ] **Step 4: Extend panel visibility query for visible-any-tab**
+
+Modify `src/Rook/UI/Panels/IRhinoPanelVisibilityQuery.cs`:
+
+```csharp
+using System;
+
+namespace Rook.UI.Panels
+{
+    internal interface IRhinoPanelVisibilityQuery
+    {
+        bool IsSelectedPanelVisible(Type panelType);
+        bool IsPanelVisibleAnyTab(Type panelType);
+    }
+}
+```
+
+Modify `src/Rook/UI/Panels/RhinoPanelVisibilityQuery.cs`:
+
+```csharp
+using System;
+
+namespace Rook.UI.Panels
+{
+    internal sealed class RhinoPanelVisibilityQuery : IRhinoPanelVisibilityQuery
+    {
+        public bool IsSelectedPanelVisible(Type panelType)
+        {
+            return Rhino.UI.Panels.IsPanelVisible(panelType, isSelectedTab: true);
+        }
+
+        public bool IsPanelVisibleAnyTab(Type panelType)
+        {
+            return Rhino.UI.Panels.IsPanelVisible(panelType, isSelectedTab: false);
+        }
+    }
+}
+```
+
+Update fake test implementations of `IRhinoPanelVisibilityQuery` to return a configurable visible-any-tab value.
+
+- [ ] **Step 5: Commit query extension**
+
+```powershell
+git add src\Rook\UI\Panels\IRhinoPanelVisibilityQuery.cs src\Rook\UI\Panels\RhinoPanelVisibilityQuery.cs src\Rook.Tests\UI\Panels\HostedPanelLifecycleAdapterTests.cs
+git commit -m "feat: expose panel visible-any-tab query"
 ```
 
 ---
@@ -224,13 +276,17 @@ namespace Rook.Tests.UI.Vision
     public class VisionPanelPresentationStateTests
     {
         [Fact]
-        public void PanelShown_SetsDesiredVisibleAndSelectedFacts()
+        public void PanelShown_SetsDesiredVisibleAndPanelFacts()
         {
             var state = new VisionPanelPresentationState(appActive: true);
 
-            var facts = state.PanelShown(ShowPanelReason.Show, selectedVisible: true);
+            var facts = state.PanelShown(
+                ShowPanelReason.Show,
+                visibleAnyTab: true,
+                selectedVisible: true);
 
             Assert.True(facts.DesiredVisible);
+            Assert.True(facts.PanelVisibleAnyTab);
             Assert.True(facts.PanelVisible);
             Assert.True(facts.PanelSelectedVisible);
             Assert.False(facts.TemporaryDeactivateHidden);
@@ -241,25 +297,51 @@ namespace Rook.Tests.UI.Vision
         public void HideOnDeactivate_BlocksPresentationButDoesNotClearDesiredVisible()
         {
             var state = new VisionPanelPresentationState(appActive: true);
-            state.PanelShown(ShowPanelReason.Show, selectedVisible: true);
+            state.PanelShown(ShowPanelReason.Show, visibleAnyTab: true, selectedVisible: true);
 
-            var facts = state.PanelHidden(ShowPanelReason.HideOnDeactivate, selectedVisible: true);
+            var facts = state.PanelHidden(
+                ShowPanelReason.HideOnDeactivate,
+                visibleAnyTab: true,
+                selectedVisible: true);
 
             Assert.True(facts.DesiredVisible);
             Assert.True(facts.TemporaryDeactivateHidden);
+            Assert.True(facts.PanelVisibleAnyTab);
             Assert.True(facts.PanelVisible);
             Assert.Equal(2, facts.Generation);
         }
 
         [Fact]
-        public void DurablePanelHidden_ClearsDesiredVisible()
+        public void PanelHiddenHide_WhenVisibleAnyTab_DoesNotClearDesiredVisible()
         {
             var state = new VisionPanelPresentationState(appActive: true);
-            state.PanelShown(ShowPanelReason.Show, selectedVisible: true);
+            state.PanelShown(ShowPanelReason.Show, visibleAnyTab: true, selectedVisible: true);
 
-            var facts = state.PanelHidden(ShowPanelReason.Hide, selectedVisible: false);
+            var facts = state.PanelHidden(
+                ShowPanelReason.Hide,
+                visibleAnyTab: true,
+                selectedVisible: false);
+
+            Assert.True(facts.DesiredVisible);
+            Assert.True(facts.PanelVisibleAnyTab);
+            Assert.True(facts.PanelVisible);
+            Assert.False(facts.PanelSelectedVisible);
+            Assert.False(facts.TemporaryDeactivateHidden);
+        }
+
+        [Fact]
+        public void PanelHiddenHide_WhenNotVisibleAnyTab_ClearsDesiredVisible()
+        {
+            var state = new VisionPanelPresentationState(appActive: true);
+            state.PanelShown(ShowPanelReason.Show, visibleAnyTab: true, selectedVisible: true);
+
+            var facts = state.PanelHidden(
+                ShowPanelReason.Hide,
+                visibleAnyTab: false,
+                selectedVisible: false);
 
             Assert.False(facts.DesiredVisible);
+            Assert.False(facts.PanelVisibleAnyTab);
             Assert.False(facts.PanelVisible);
             Assert.False(facts.PanelSelectedVisible);
             Assert.False(facts.TemporaryDeactivateHidden);
@@ -269,7 +351,7 @@ namespace Rook.Tests.UI.Vision
         public void AppActiveChange_IncrementsAuthoritativeGeneration()
         {
             var state = new VisionPanelPresentationState(appActive: true);
-            state.PanelShown(ShowPanelReason.Show, selectedVisible: true);
+            state.PanelShown(ShowPanelReason.Show, visibleAnyTab: true, selectedVisible: true);
             var before = state.Current.Generation;
 
             var facts = state.SetAppActive(false);
@@ -282,7 +364,7 @@ namespace Rook.Tests.UI.Vision
         public void SelectionRefresh_IncrementsWhenSelectionChanges()
         {
             var state = new VisionPanelPresentationState(appActive: true);
-            state.PanelShown(ShowPanelReason.Show, selectedVisible: false);
+            state.PanelShown(ShowPanelReason.Show, visibleAnyTab: true, selectedVisible: false);
             var before = state.Current.Generation;
 
             var facts = state.RefreshSelection(selectedVisible: true, reason: "selection-visible-refresh");
@@ -295,7 +377,7 @@ namespace Rook.Tests.UI.Vision
         public void SizeLayoutSignal_DoesNotInvalidateAuthoritativeGenerationByItself()
         {
             var state = new VisionPanelPresentationState(appActive: true);
-            state.PanelShown(ShowPanelReason.Show, selectedVisible: true);
+            state.PanelShown(ShowPanelReason.Show, visibleAnyTab: true, selectedVisible: true);
             var before = state.Current.Generation;
 
             var facts = state.SizeLayoutSignal("size-changed");
@@ -308,13 +390,29 @@ namespace Rook.Tests.UI.Vision
         public void PanelClosing_MarksDisposedAndDesiredHidden()
         {
             var state = new VisionPanelPresentationState(appActive: true);
-            state.PanelShown(ShowPanelReason.Show, selectedVisible: true);
+            state.PanelShown(ShowPanelReason.Show, visibleAnyTab: true, selectedVisible: true);
 
             var facts = state.PanelClosing();
 
             Assert.False(facts.DesiredVisible);
             Assert.True(facts.Disposed);
             Assert.False(facts.PanelVisible);
+        }
+
+        [Fact]
+        public void PanelShownAfterClosing_DoesNotClearDisposed()
+        {
+            var state = new VisionPanelPresentationState(appActive: true);
+            state.PanelShown(ShowPanelReason.Show, visibleAnyTab: true, selectedVisible: true);
+            state.PanelClosing();
+
+            var facts = state.PanelShown(
+                ShowPanelReason.Show,
+                visibleAnyTab: true,
+                selectedVisible: true);
+
+            Assert.True(facts.Disposed);
+            Assert.False(facts.DesiredVisible);
         }
     }
 }
@@ -360,34 +458,40 @@ namespace Rook.UI.Vision
 
         public WebViewHostPanelPresentationFacts PanelShown(
             ShowPanelReason reason,
+            bool visibleAnyTab,
             bool selectedVisible)
         {
+            if (_disposed)
+                return Update("PanelShownAfterDisposed:" + reason);
+
             _generation++;
             _desiredVisible = true;
-            _panelVisible = true;
+            _panelVisible = visibleAnyTab;
             _panelSelectedVisible = selectedVisible;
             _temporaryDeactivateHidden = false;
-            _disposed = false;
             return Update("PanelShown:" + reason);
         }
 
         public WebViewHostPanelPresentationFacts PanelHidden(
             ShowPanelReason reason,
+            bool visibleAnyTab,
             bool selectedVisible)
         {
             _generation++;
+            _panelVisible = visibleAnyTab;
             _panelSelectedVisible = selectedVisible;
 
             if (reason == ShowPanelReason.HideOnDeactivate)
             {
                 _temporaryDeactivateHidden = true;
-                _panelVisible = true;
                 return Update("PanelHidden:" + reason);
             }
 
-            _desiredVisible = false;
             _temporaryDeactivateHidden = false;
-            _panelVisible = false;
+            if (!visibleAnyTab)
+            {
+                _desiredVisible = false;
+            }
             return Update("PanelHidden:" + reason);
         }
 
@@ -447,6 +551,7 @@ namespace Rook.UI.Vision
                 DesiredVisible = _desiredVisible,
                 AppActive = _appActive,
                 TemporaryDeactivateHidden = _temporaryDeactivateHidden,
+                PanelVisibleAnyTab = _panelVisible,
                 PanelVisible = _panelVisible,
                 RequiresSelectedPanel = true,
                 PanelSelectedVisible = _panelSelectedVisible,
@@ -520,10 +625,11 @@ public void VisionPresentationPath_UsesOneShotIdleAndNoPersistentIdleLoop()
 public void VisionPresentationPath_DoesNotUseReloadOrJsProbeForRecovery()
 {
     var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+    var method = ExtractMethod(source, "private void RunHostPresentationCoordinatorReconcile");
 
-    Assert.DoesNotContain("ExecuteScript", source);
-    Assert.DoesNotContain("ReloadAfterHostActivation", source);
-    Assert.DoesNotContain("ROOK_ENABLE_VISION_RETURN_EDGE", source);
+    Assert.DoesNotContain("ExecuteScript", method);
+    Assert.DoesNotContain("Reload", method);
+    Assert.DoesNotContain("ROOK_ENABLE", method);
 }
 ```
 
@@ -800,7 +906,7 @@ Add:
 public void VisionPresentationPath_AppliesPresentInBoundsVisibleNotifyOrder()
 {
     var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
-    var method = source.Substring(source.IndexOf("private string ApplyHostPresentationDecision"));
+    var method = ExtractMethod(source, "private string ApplyHostPresentationDecision");
 
     var boundsIndex = method.IndexOf("SetControllerBounds", StringComparison.Ordinal);
     var visibleIndex = method.IndexOf("SetControllerVisible(controller, true", StringComparison.Ordinal);
@@ -820,6 +926,32 @@ public void VisionPresentationPath_DoesNotMarkMissingWebViewAsDisposed()
 
     Assert.DoesNotContain("Disposed = _webView == null", source);
     Assert.Contains("Disposed = facts.Disposed", source);
+}
+```
+
+Add this helper to `RookWebSurfaceTests` if it is not already present:
+
+```csharp
+private static string ExtractMethod(string source, string signature)
+{
+    var start = source.IndexOf(signature, StringComparison.Ordinal);
+    if (start < 0)
+        return string.Empty;
+
+    var brace = source.IndexOf('{', start);
+    if (brace < 0)
+        return source.Substring(start);
+
+    var depth = 0;
+    for (var i = brace; i < source.Length; i++)
+    {
+        if (source[i] == '{') depth++;
+        if (source[i] == '}') depth--;
+        if (depth == 0)
+            return source.Substring(start, i - start + 1);
+    }
+
+    return source.Substring(start);
 }
 ```
 
@@ -986,6 +1118,9 @@ private static extern bool IsWindowVisible(IntPtr hWnd);
 [DllImport("user32.dll")]
 private static extern bool GetClientRect(IntPtr hWnd, out NativeRect lpRect);
 
+[DllImport("user32.dll")]
+private static extern bool GetWindowRect(IntPtr hWnd, out NativeRect lpRect);
+
 private struct NativeRect
 {
     public int Left;
@@ -1017,10 +1152,15 @@ private bool IsHostHwndClientRectNonZero()
     if (hwnd == IntPtr.Zero)
         return false;
 
-    if (!GetClientRect(hwnd, out var rect))
-        return false;
+    var guard = 0;
+    while (hwnd != IntPtr.Zero && guard++ < 32)
+    {
+        if (!HasNonZeroRect(hwnd))
+            return false;
+        hwnd = GetParent(hwnd);
+    }
 
-    return rect.Right > rect.Left && rect.Bottom > rect.Top;
+    return true;
 }
 
 private IntPtr TryGetHostHwnd()
@@ -1029,28 +1169,59 @@ private IntPtr TryGetHostHwnd()
     if (nativeControl == null)
         return IntPtr.Zero;
 
-    var handleProp = GetInstanceProperty(nativeControl.GetType(), "Handle");
-    if (handleProp == null)
-    {
-        var webView2 = GetWebView2NativeControl(nativeControl);
-        if (webView2 != null)
-            handleProp = GetInstanceProperty(webView2.GetType(), "Handle");
-    }
+    if (TryReadHandle(nativeControl, out var hwnd))
+        return hwnd;
 
+    var webView2 = GetWebView2NativeControl(nativeControl);
+    if (webView2 != null && !ReferenceEquals(webView2, nativeControl) &&
+        TryReadHandle(webView2, out hwnd))
+        return hwnd;
+
+    return IntPtr.Zero;
+}
+
+private static bool TryReadHandle(object target, out IntPtr hwnd)
+{
+    hwnd = IntPtr.Zero;
+    var handleProp = GetInstanceProperty(target.GetType(), "Handle");
     if (handleProp == null || !handleProp.CanRead)
-        return IntPtr.Zero;
+        return false;
 
     try
     {
-        var value = handleProp.GetValue(nativeControl) ??
-            handleProp.GetValue(GetWebView2NativeControl(nativeControl)!);
+        var value = handleProp.GetValue(target);
         if (value is IntPtr ptr)
-            return ptr;
+        {
+            hwnd = ptr;
+            return hwnd != IntPtr.Zero;
+        }
         if (value is nint n)
-            return n;
-        return IntPtr.Zero;
+        {
+            hwnd = n;
+            return hwnd != IntPtr.Zero;
+        }
+        return false;
     }
-    catch { return IntPtr.Zero; }
+    catch { return false; }
+}
+
+private static bool HasNonZeroRect(IntPtr hwnd)
+{
+    if (GetClientRect(hwnd, out var client) &&
+        client.Right > client.Left &&
+        client.Bottom > client.Top)
+    {
+        return true;
+    }
+
+    if (GetWindowRect(hwnd, out var window) &&
+        window.Right > window.Left &&
+        window.Bottom > window.Top)
+    {
+        return true;
+    }
+
+    return false;
 }
 #endif
 ```
@@ -1185,6 +1356,7 @@ public void RookVisionPanel_SuppliesPresentationFactsToSurface()
     Assert.Contains("_surface.ReconcileHostPresentation", source);
     Assert.Contains("RhinoPanelVisibilityQuery", source);
     Assert.Contains("IsSelectedPanelVisible(typeof(RookVisionPanel))", source);
+    Assert.Contains("IsPanelVisibleAnyTab(typeof(RookVisionPanel))", source);
 }
 
 [Fact]
@@ -1205,6 +1377,14 @@ public void RookVisionPanel_PanelHiddenAndClosingSendNoPresentFacts()
     Assert.Contains("_presentationState.PanelHidden", source);
     Assert.Contains("_presentationState.PanelClosing", source);
     Assert.Contains("scheduleIdleFollowUp: false", source);
+}
+
+[Fact]
+public void RookVisionPanel_DoesNotSendLegacyHostVisibilityCommands()
+{
+    var source = ReadSourceFile("src", "Rook", "UI", "Vision", "RookVisionPanel.cs");
+
+    Assert.DoesNotContain("_surface.ReconcileHostVisibility", source);
 }
 ```
 
@@ -1248,6 +1428,7 @@ public void PanelShown(uint documentSerialNumber, ShowPanelReason reason)
     _lifecycle.PanelShown(documentSerialNumber, reason);
     var facts = _presentationState.PanelShown(
         reason,
+        IsVisibleAnyTab(),
         IsSelectedVisible());
     _surface.ReconcileHostPresentation(facts, scheduleIdleFollowUp: true);
     ReconcileSurface("PanelShown:" + reason);
@@ -1263,6 +1444,7 @@ public void PanelHidden(uint documentSerialNumber, ShowPanelReason reason)
     _lifecycle.PanelHidden(documentSerialNumber, reason);
     var facts = _presentationState.PanelHidden(
         reason,
+        IsVisibleAnyTab(),
         IsSelectedVisible());
     _surface.ReconcileHostPresentation(facts, scheduleIdleFollowUp: false);
     ReconcileSurface("PanelHidden:" + reason);
@@ -1315,6 +1497,12 @@ private bool IsSelectedVisible()
     try { return _visibilityQuery.IsSelectedPanelVisible(typeof(RookVisionPanel)); }
     catch { return false; }
 }
+
+private bool IsVisibleAnyTab()
+{
+    try { return _visibilityQuery.IsPanelVisibleAnyTab(typeof(RookVisionPanel)); }
+    catch { return false; }
+}
 ```
 
 Dispose/close:
@@ -1329,6 +1517,23 @@ try { Application.Instance.IsActiveChanged -= OnApplicationIsActiveChanged; } ca
 ```
 
 Keep the existing `_lifecycle` path so old host lifecycle still protects non-presentation behavior. This PR adds Vision's presentation facts; it does not delete the lifecycle adapter.
+
+However, change Vision `ApplyDecision` so it no longer calls `_surface.ReconcileHostVisibility(...)`. For Vision, old lifecycle decisions may close the surface, but visibility/presentation commands must flow only through `_surface.ReconcileHostPresentation(...)`.
+
+Use:
+
+```csharp
+private void ApplyDecision(HostedSurfaceDecision decision, string sourceReason)
+{
+    _ = sourceReason;
+    if (decision.Action == HostedSurfaceAction.Close)
+    {
+        CloseSurface();
+    }
+}
+```
+
+Do not copy this change to Chat or Knowledge Graph.
 
 - [ ] **Step 4: Run Vision panel tests**
 

@@ -100,6 +100,33 @@ These states keep `DesiredVisible=true` when Rook still logically wants Vision o
 
 `HideOnDeactivate` must update panel facts and block presentation while inactive. It must not become `DesiredVisible=false`.
 
+### Visible Any Tab vs Selected Visible
+
+Vision must track two separate panel facts:
+
+- visible in any tab/container
+- selected visible tab when selection is required
+
+`ShowPanelReason.Hide` alone is not enough to infer durable user hide. In Rhino docked/tabbed hosts, a tabbed-behind transition may surface as a hide-like lifecycle reason while the panel still exists and remains visible in another tab group. Durable hidden intent requires either panel closing, explicit true hidden state, or a visibility query showing the panel is not visible anywhere.
+
+Selected-tab loss is a host blocker, not durable hidden intent:
+
+```text
+VisibleAnyTab=true
+PanelSelectedVisible=false
+DesiredVisible=true
+=> PendingHost + PanelNotSelected
+```
+
+Durable hide:
+
+```text
+VisibleAnyTab=false
+PanelSelectedVisible=false
+DesiredVisible=false
+=> Hidden / protective hide if needed
+```
+
 ## Reconcile Triggers
 
 The Vision integration uses a bounded, named set of direct reconcile requests:
@@ -247,6 +274,8 @@ Expected runtime boundary:
 
 Chat and Knowledge Graph remain on the existing behavior and serve as live controls.
 
+When Vision is on the return-edge path, the old Vision call path must not also call `_surface.ReconcileHostVisibility(...)`. Old and new visibility systems fighting each other is explicitly out of scope and unsafe. Vision lifecycle decisions may still close/forget surfaces, but WebView2 visibility/presentation must flow through `ReconcileHostPresentation(...)` only.
+
 ## Diagnostics
 
 Do not add hot-path file logging.
@@ -264,6 +293,8 @@ Required tests:
 - `Inactive_WithVisibleController_MayProtectivelyHide`
 - `AppDeactivated_VisibleController_HidesWithoutPresenting`
 - `HideOnDeactivate_DoesNotClearDesiredVisible`
+- `PanelHiddenHide_WhenVisibleAnyTab_DoesNotClearDesiredVisible`
+- `PanelHiddenHide_WhenNotVisibleAnyTab_ClearsDesiredVisible`
 - `ActivatedHostReady_PresentsOnce`
 - `TabbedBehindThenReselected_PresentsWithoutAppRefocus`
 - `LayoutThenIdle_WhenAlreadyHealthy_NoAction`
@@ -272,6 +303,7 @@ Required tests:
 - `DelayedIdleAfterHide_DoesNotPresent`
 - `StaleIdleAfterNewerPanelFacts_DoesNotPresent`
 - `PanelHidden_DurableHide_UpdatesFactsAndDoesNotAllowStaleIdlePresent`
+- `VisionPanel_DoesNotCallLegacyReconcileHostVisibility`
 - `SizeLayout_DoesNotInvalidateAuthoritativeGenerationByItself`
 
 Tests should cover the generation/token boundary, not only coordinator source strings.
