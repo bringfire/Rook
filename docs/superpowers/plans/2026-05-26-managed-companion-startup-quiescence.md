@@ -497,7 +497,28 @@ public void StartupGateHooks_UseIdleAndDocumentOpenLifecycle()
 }
 ```
 
-- [ ] **Step 6: Run source tests and confirm expected failure**
+- [ ] **Step 6: Add missed begin-open adapter source guard**
+
+Add this test:
+
+```csharp
+[Fact]
+public void StartupGateIdle_UsesConservativeDocumentOpenBlocker()
+{
+    var source = ReadSourceFile("src", "Rook", "RookPlugin.cs");
+    var idle = ExtractMethod(source, "private void OnStartupGateIdle(");
+    var blocker = ExtractMethod(source, "private bool IsDocumentOpenLifecycleBlocking()");
+
+    Assert.Contains("DocumentOpening: IsDocumentOpenLifecycleBlocking()", idle);
+    Assert.DoesNotContain("DocumentOpening: _documentOpening", idle);
+
+    Assert.Contains("if (_documentOpening)", blocker);
+    Assert.Contains("!_documentOpenInitialViewReady && IsRhinoCommandActive()", blocker);
+    Assert.Contains("return true;", blocker);
+}
+```
+
+- [ ] **Step 7: Run source tests and confirm expected failure**
 
 Run:
 
@@ -509,7 +530,7 @@ Expected: fails because `RookPlugin.cs` still has old startup behavior and lacks
 
 Do not commit this task yet. Commit after Task 3 makes tests pass.
 
-- [ ] **Step 7: Add constructor old-path source guard**
+- [ ] **Step 8: Add constructor old-path source guard**
 
 Add this test:
 
