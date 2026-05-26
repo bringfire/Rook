@@ -34,6 +34,8 @@ Rhino reaches stable idle with no active command/open lifecycle
 
 This PR proves managed companion startup safety. It does not attempt to fix Vision dark-panel behavior directly, and it should not include native dispatcher, WebView, Vision, Chat, Knowledge Graph, or registry behavior changes except where those are startup side effects currently launched from `RookPlugin`.
 
+One native boundary is in scope only if needed to keep status reporting honest: native currently polls for the managed GH bridge after `LoadPlugIn`. If managed bridge registration is intentionally delayed until quiescence, native must not present that delay as a hard companion-load failure.
+
 ## Evidence
 
 The decisive diagnostic was:
@@ -63,6 +65,7 @@ Interpretation: the wedge requires managed companion load/startup overlap with R
 - Do not change Vision/WebView presentation logic in this PR.
 - Do not use fixed timer delays as the durable mechanism.
 - Do not move individual startup side effects earlier unless proven safe in a later PR.
+- Do not treat "bridge unavailable while startup is not yet quiescent" as the same failure mode as "bridge unavailable after quiescent startup attempts are exhausted."
 
 ## Startup Gate
 
@@ -81,6 +84,8 @@ The two-idle requirement is intentional. A single idle callback can occur betwee
 
 If reliable RhinoCommon document-state APIs are available, use them as additional conservative gates. If they are not clearly available, do not invent unverified SDK usage under pressure. The first version must still use command state, observed document-open events, and consecutive idle ticks.
 
+The implementation plan must name the exact document-open signals used. Existing managed code already uses `RhinoDoc.EndOpenDocument`; if a matching begin-open signal is available in the referenced RhinoCommon API, use it. If begin-open cannot be verified locally, document-open state should be injectable in the startup gate tests but not faked into runtime with guessed API names.
+
 ## `OnLoad` Contract
 
 `OnLoad` must become minimal.
@@ -89,7 +94,6 @@ Allowed in `OnLoad`:
 
 - Trace `OnLoad minimal`.
 - Detect `Rhino.Runtime.HostUtils.RunningAsRhinoInside`.
-- Write a short status line if needed.
 - Attach idle/document lifecycle hooks used by the startup gate.
 - Start the gate in an inactive/pending state.
 - Return `LoadReturnCode.Success`.
@@ -104,6 +108,8 @@ Disallowed in `OnLoad`:
 - image/video job reconcile.
 - sidecar backfill scheduling.
 - any panel, toolbar, bridge, job, or runtime startup side effect.
+
+`OnLoad` should not call `RhinoApp.WriteLine` in this PR. For this bug, inert load means trace-to-file and hook attachment only.
 
 ## Deferred Startup Work
 
@@ -122,18 +128,44 @@ Deferred work includes:
 
 The first implementation should defer these side effects together. The registry isolation proves managed startup timing is dangerous but does not identify which individual side effect wedges Rhino. Splitting startup work before the product-breaking issue is eliminated would be guesswork.
 
+## Native Bridge Contract
+
+`NativeGhBridgeRegistrar.TryRegister()` remains deferred until quiescence. It is not classified as minimal `OnLoad` work for this PR because loading the registrar initializes a broad managed bridge surface, including shared Vision-related handlers and callback delegates. Treating that as "safe enough" would be another unproven startup side effect.
+
+This creates an explicit coordination requirement with native companion-load status:
+
+- Native may load the managed companion before Rhino is quiescent.
+- Managed may intentionally delay GH bridge registration until quiescence.
+- Native must not report that expected delay as a hard failure.
+
+Acceptable native adjustment, if required:
+
+- Keep `LoadPlugIn` behavior unchanged.
+- Change the post-load bridge poll message from a hard "did not register" failure to a deferred/availability message, or extend/retry bridge readiness in a way that does not block Rhino startup/open.
+- Do not add new native command/open dispatcher gates for this PR.
+- Do not make route behavior depend on background poll success; routes should continue to check actual bridge registration on demand.
+
+If native is not adjusted in the same PR, the PR description and live validation must explicitly acknowledge that a temporary native "bridge did not register" message can appear while managed startup is deliberately waiting for quiescence. That message must not be treated as the managed startup gate failing.
+
 ## Retry And Exhaustion
 
-Replace timer-driven startup retries with idle-driven attempts.
+Replace timer-driven startup retries with idle-driven attempts, and split startup gating from bridge dependency readiness.
+
+There are two distinct phases:
+
+1. **Quiescence gate**: Rhino is still command-active, document-opening, or not yet stable. During this phase the companion is intentionally inert.
+2. **Bridge readiness**: Rhino is quiescent and deferred startup work is allowed to run, but native bridge registration may not succeed yet.
 
 Rules:
 
 - If idle fires while not quiescent, trace the reason at low volume and return quickly.
 - If idle is quiescent, increment the consecutive quiescent idle count.
 - On the second consecutive quiescent idle, run startup.
-- If startup cannot complete because the native bridge is not available, keep retrying only through future idle ticks, not timer re-entry.
-- Preserve a bounded retry/exhaustion concept so the companion cannot retry forever.
-- On exhaustion, leave the companion loaded but inactive and write a clear trace line.
+- If quiescent startup reaches panel/toolbar/runtime work but bridge registration is unavailable, keep bridge registration retrying only through future idle ticks, not timer re-entry.
+- Panel registration, toolbar loading, and basic companion UI availability should not be silently suppressed forever solely because the native bridge is unavailable after Rhino is quiescent, unless implementation evidence shows one of those steps is unsafe.
+- Preserve a bounded bridge retry/exhaustion concept so bridge registration cannot retry forever.
+- On bridge exhaustion, leave the companion UI/runtime available where safe, mark bridge-dependent features unavailable, and write a clear trace line.
+- On quiescence exhaustion before startup ever runs, leave the companion loaded but inactive and write a clear trace line.
 
 The retry counter should count meaningful idle attempts, not wall-clock timer pulses. The current 250ms `Timer` path is the thing we are removing because it can re-enter during `_Open`.
 
@@ -167,7 +199,15 @@ Startup exhausted
 Startup shutdown: hooks detached
 ```
 
-These are not verbose diagnostics. They are a small audit trail for startup lifecycle and are only written on load/idle attempts/startup completion. They should not include JS probes, WebView probes, reflection-heavy diagnostics, or hot-path file logging outside the existing startup trace.
+These are not verbose diagnostics. They are a small audit trail for startup lifecycle. They should not include JS probes, WebView probes, reflection-heavy diagnostics, or hot-path file logging outside the existing startup trace.
+
+Idle logging must be throttled:
+
+- log the first blocked reason;
+- log when the blocked reason changes;
+- log state transitions;
+- optionally log every Nth repeated blocked attempt;
+- do not append a file line on every idle tick if nothing changed.
 
 ## Tests
 
@@ -184,7 +224,9 @@ Required test coverage:
 - `SecondConsecutiveQuiescentIdle_StartsOnce`.
 - `InterruptedQuiescence_ResetsStableIdleCount`.
 - `StartupComplete_DetachesHooksAndDoesNotRunAgain`.
-- `RetryLimitExceeded_LeavesCompanionInactive`.
+- `BridgeUnavailableAfterQuiescence_DoesNotRestartTimerRetry`.
+- `BridgeRetryExhausted_MarksBridgeUnavailableWithoutSuppressingSafeUiStartup`.
+- `QuiescenceRetryLimitExceeded_LeavesCompanionInactive`.
 - existing panel registration remains wrapped as non-fatal when deferred startup runs.
 - existing reconcile/backfill failures remain non-fatal when deferred startup runs.
 
