@@ -171,7 +171,6 @@ namespace Rook.UI.Web
         public bool AppActive { get; init; }
         public bool TemporaryDeactivateHidden { get; init; }
         public bool PanelVisibleAnyTab { get; init; }
-        public bool PanelVisibleAnyTab { get; init; }
         public bool PanelVisible { get; init; }
         public bool RequiresSelectedPanel { get; init; } = true;
         public bool PanelSelectedVisible { get; init; }
@@ -613,23 +612,28 @@ public void VisionPresentationPath_IsOptInOnly()
 public void VisionPresentationPath_UsesOneShotIdleAndNoPersistentIdleLoop()
 {
     var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+    var schedule = ExtractMethod(source, "private void ScheduleHostPresentationIdleFollowUp");
+    var idle = ExtractMethod(source, "private void OnHostPresentationIdle");
 
     Assert.Contains("ScheduleHostPresentationIdleFollowUp", source);
     Assert.Contains("RhinoApp.Idle += OnHostPresentationIdle", source);
     Assert.Contains("RhinoApp.Idle -= OnHostPresentationIdle", source);
     Assert.Contains("_hostPresentationIdlePending = false", source);
-    Assert.DoesNotContain("while (", source);
+    Assert.DoesNotContain("while (", schedule + idle);
 }
 
 [Fact]
 public void VisionPresentationPath_DoesNotUseReloadOrJsProbeForRecovery()
 {
     var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
-    var method = ExtractMethod(source, "private void RunHostPresentationCoordinatorReconcile");
+    var run = ExtractMethod(source, "private void RunHostPresentationCoordinatorReconcile");
+    var apply = ExtractMethod(source, "private string ApplyHostPresentationDecision");
+    var idle = ExtractMethod(source, "private void OnHostPresentationIdle");
+    var presentationMethods = run + apply + idle;
 
-    Assert.DoesNotContain("ExecuteScript", method);
-    Assert.DoesNotContain("Reload", method);
-    Assert.DoesNotContain("ROOK_ENABLE", method);
+    Assert.DoesNotContain("ExecuteScript", presentationMethods);
+    Assert.DoesNotContain("Reload", presentationMethods);
+    Assert.DoesNotContain("ROOK_ENABLE", presentationMethods);
 }
 ```
 
