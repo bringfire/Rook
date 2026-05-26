@@ -467,6 +467,36 @@ namespace Rook.Tests.UI.Web
         }
 
         [Fact]
+        public void CoordinatorPath_HwndGatesUseNativeAncestorChain()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+            var visible = ExtractMethod(source, "ReadHostHwndChainVisible");
+            var rect = ExtractMethod(source, "ReadHostHwndClientRectNonZero");
+            var handle = ExtractMethod(source, "TryGetHostWindowHandle");
+
+            Assert.Contains("TryGetHostWindowHandle(controller, out var handle)", visible);
+            Assert.Contains("current = GetParent(current)", visible);
+            Assert.Contains("IsWindowVisible(current)", visible);
+            Assert.Contains("GetClientRect(current, out var clientRect)", rect);
+            Assert.Contains("GetWindowRect(current, out var windowRect)", rect);
+            Assert.Contains("ReadControllerParentWindow(controller)", handle);
+            Assert.Contains("\"Handle\"", handle);
+            Assert.Contains("DllImport(\"user32.dll\")", source);
+        }
+
+        [Fact]
+        public void CoordinatorPath_BoundsTargetFailureDoesNotForceBoundsCorrection()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+            var method = ExtractMethod(source, "BuildHostPresentationSnapshot");
+
+            Assert.Contains("ControllerBoundsMatchHostTarget =", method);
+            Assert.Contains(
+                "targetBounds == null || ControllerBoundsMatchTarget(controller, targetBounds)",
+                method);
+        }
+
+        [Fact]
         public void CoordinatorPath_DisposedEvaluatesTerminalDecision()
         {
             var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");

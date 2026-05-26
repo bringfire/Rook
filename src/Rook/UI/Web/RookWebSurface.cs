@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using Eto.Forms;
@@ -609,8 +610,8 @@ namespace Rook.UI.Web
             var height = ReadEtoHeight();
             var panelHostReady = facts.HostReady;
             var targetBounds = CreateControllerBoundsTarget(controller, width, height);
-            var hwndChainVisible = ReadHostHwndChainVisible();
-            var hwndClientRectNonZero = ReadHostHwndClientRectNonZero();
+            var hwndChainVisible = ReadHostHwndChainVisible(controller);
+            var hwndClientRectNonZero = ReadHostHwndClientRectNonZero(controller);
 
             var snapshot = new WebViewHostPresentationSnapshot
             {
@@ -631,7 +632,8 @@ namespace Rook.UI.Web
                 ControllerAvailable = controller != null,
                 ControllerParentWindowPresent = ReadControllerParentWindowPresent(controller),
                 ControllerVisible = ReadControllerVisible(controller),
-                ControllerBoundsMatchHostTarget = ControllerBoundsMatchTarget(controller, targetBounds)
+                ControllerBoundsMatchHostTarget =
+                    targetBounds == null || ControllerBoundsMatchTarget(controller, targetBounds)
             };
 
             return new HostPresentationSnapshotResult(snapshot, targetBounds);
@@ -769,40 +771,84 @@ namespace Rook.UI.Web
                 : SafeIntValue(() => _webView?.Bounds.Size.Height ?? 0);
         }
 
-        private bool ReadHostHwndChainVisible()
+        private bool ReadHostHwndChainVisible(object? controller)
         {
             try
             {
-                var host = GetCurrentWebView2NativeControl();
-                if (host == null)
+                if (!TryGetHostWindowHandle(controller, out var handle))
                     return false;
 
-                var isHandleCreated = GetInstanceProperty(host.GetType(), "IsHandleCreated")
-                    ?.GetValue(host);
-                if (isHandleCreated is bool handleCreated && !handleCreated)
-                    return false;
+                for (var current = handle;
+                     current != IntPtr.Zero;
+                     current = GetParent(current))
+                {
+                    if (!IsWindowVisible(current))
+                        return false;
+                }
 
-                return GetInstanceProperty(host.GetType(), "Visible")?.GetValue(host) is true;
+                return true;
             }
             catch { return false; }
         }
 
-        private bool ReadHostHwndClientRectNonZero()
+        private bool ReadHostHwndClientRectNonZero(object? controller)
         {
             try
             {
-                var host = GetCurrentWebView2NativeControl();
-                if (host == null)
+                if (!TryGetHostWindowHandle(controller, out var handle))
                     return false;
 
-                var rect = GetInstanceProperty(host.GetType(), "ClientRectangle")?.GetValue(host);
-                if (rect == null)
-                    return false;
+                for (var current = handle;
+                     current != IntPtr.Zero;
+                     current = GetParent(current))
+                {
+                    if (!GetClientRect(current, out var clientRect) ||
+                        clientRect.Width <= 0 ||
+                        clientRect.Height <= 0)
+                    {
+                        if (!GetWindowRect(current, out var windowRect) ||
+                            windowRect.Width <= 0 ||
+                            windowRect.Height <= 0)
+                        {
+                            return false;
+                        }
+                    }
+                }
 
-                return ReadIntProperty(rect, "Width") > 0 &&
-                    ReadIntProperty(rect, "Height") > 0;
+                return true;
             }
             catch { return false; }
+        }
+
+        private bool TryGetHostWindowHandle(object? controller, out IntPtr handle)
+        {
+            handle = IntPtr.Zero;
+
+            var host = GetCurrentWebView2NativeControl();
+            if (host != null)
+            {
+                try
+                {
+                    var isHandleCreated = GetInstanceProperty(host.GetType(), "IsHandleCreated")
+                        ?.GetValue(host);
+                    if (isHandleCreated is bool handleCreated && !handleCreated)
+                        return false;
+
+                    var value = GetInstanceProperty(host.GetType(), "Handle")?.GetValue(host);
+                    if (value is IntPtr hwnd && hwnd != IntPtr.Zero)
+                    {
+                        handle = hwnd;
+                        return true;
+                    }
+                }
+                catch
+                {
+                    return false;
+                }
+            }
+
+            handle = ReadControllerParentWindow(controller);
+            return handle != IntPtr.Zero;
         }
 
         private object? GetCurrentWebView2NativeControl()
@@ -834,17 +880,21 @@ namespace Rook.UI.Web
 
         private static bool ReadControllerParentWindowPresent(object? controller)
         {
-            if (controller == null)
-                return false;
+            return ReadControllerParentWindow(controller) != IntPtr.Zero;
+        }
 
-            return SafeBoolValue(() =>
+        private static IntPtr ReadControllerParentWindow(object? controller)
+        {
+            if (controller == null)
+                return IntPtr.Zero;
+
+            try
             {
                 var parentWindow = GetInstanceProperty(controller.GetType(), "ParentWindow")
                     ?.GetValue(controller);
-                return parentWindow is IntPtr handle
-                    ? handle != IntPtr.Zero
-                    : parentWindow != null;
-            });
+                return parentWindow is IntPtr handle ? handle : IntPtr.Zero;
+            }
+            catch { return IntPtr.Zero; }
         }
 
         private static object? CreateControllerBoundsTarget(
@@ -886,6 +936,30 @@ namespace Rook.UI.Web
                 return Equals(current, targetBounds);
             }
             catch { return false; }
+        }
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetParent(IntPtr hwnd);
+
+        [DllImport("user32.dll")]
+        private static extern bool IsWindowVisible(IntPtr hwnd);
+
+        [DllImport("user32.dll")]
+        private static extern bool GetClientRect(IntPtr hwnd, out NativeRect rect);
+
+        [DllImport("user32.dll")]
+        private static extern bool GetWindowRect(IntPtr hwnd, out NativeRect rect);
+
+        [StructLayout(LayoutKind.Sequential)]
+        private readonly struct NativeRect
+        {
+            private readonly int _left;
+            private readonly int _top;
+            private readonly int _right;
+            private readonly int _bottom;
+
+            public int Width => _right - _left;
+            public int Height => _bottom - _top;
         }
 
         private string SetControllerBounds(
