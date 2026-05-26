@@ -182,6 +182,12 @@ namespace Rook.UI.Web
         private EventInfo? _initEvent;
         private EventHandler<CoreWebView2InitializationCompletedEventArgs>? _initHandler;
         private readonly WebViewHostVisibilityCoordinator _hostVisibility = new();
+        private readonly WebViewHostPresentationCoordinator _hostPresentation = new();
+        private WebViewHostPanelPresentationFacts? _latestPresentationFacts;
+        private bool _hostPresentationQueued;
+        private bool _hostPresentationIdlePending;
+        private long _hostPresentationIdleGeneration;
+        private string _hostPresentationIdleReason = string.Empty;
 #endif
 
         // ─── Constructor ──────────────────────────────────────────────
@@ -250,6 +256,12 @@ namespace Rook.UI.Web
         /// via RhinoApp.WriteLine — failures never go silent.
         /// </summary>
         protected virtual void OnBridgeUnavailable() { }
+
+        /// <summary>
+        /// Opt-in seam for the Vision-only host presentation coordinator.
+        /// Chat and Knowledge Graph stay on the legacy visibility path.
+        /// </summary>
+        protected virtual bool UseHostPresentationCoordinator => false;
 
         /// <summary>
         /// Optional hook for subclasses to resolve <em>virtual</em> resources
@@ -362,6 +374,28 @@ namespace Rook.UI.Web
 #endif
         }
 
+        internal void ReconcileHostPresentation(
+            WebViewHostPanelPresentationFacts facts,
+            bool scheduleIdleFollowUp)
+        {
+#if ROOK_WEBVIEW2
+            if (!UseHostPresentationCoordinator)
+            {
+                ReconcileHostVisibility(facts.DesiredVisible, facts.Reason);
+                return;
+            }
+
+            if (!facts.Authoritative)
+                return;
+
+            _latestPresentationFacts = facts;
+            ScheduleHostPresentationReconcile(facts.Reason, scheduleIdleFollowUp);
+#else
+            ReconcileHostVisibility(facts.DesiredVisible, facts.Reason);
+            _ = scheduleIdleFollowUp;
+#endif
+        }
+
         /// <summary>
         /// Register a typed bridge handler keyed on a method name. Stored
         /// immediately; only fires once the bridge comes up. Call from the
@@ -395,6 +429,7 @@ namespace Rook.UI.Web
                 // host lifecycle so the live document keeps presenting.
                 _webView.GotFocus += OnWebViewGotFocus;
                 _webView.Shown += OnWebViewShown;
+                _webView.SizeChanged += OnWebViewSizeChanged;
                 Application.Instance.IsActiveChanged += OnApplicationIsActiveChanged;
                 TraceWebViewFocus("create-web-content");
 
@@ -428,6 +463,124 @@ namespace Rook.UI.Web
         }
 
 #if ROOK_WEBVIEW2
+        private void ScheduleHostPresentationReconcile(
+            string reason,
+            bool scheduleIdleFollowUp)
+        {
+            if (_disposed)
+            {
+                _hostPresentationQueued = false;
+                ClearHostPresentationIdle();
+                return;
+            }
+
+            if (scheduleIdleFollowUp)
+                ScheduleHostPresentationIdleFollowUp(reason);
+
+            if (_hostPresentationQueued)
+                return;
+
+            _hostPresentationQueued = true;
+
+            try
+            {
+                Application.Instance.AsyncInvoke(() =>
+                {
+                    if (!_hostPresentationQueued)
+                        return;
+
+                    _hostPresentationQueued = false;
+                    RunHostPresentationCoordinatorReconcile(reason);
+                });
+            }
+            catch (Exception ex)
+            {
+                _hostPresentationQueued = false;
+                TraceWebViewFocus(
+                    "host-presentation-reconcile-failed",
+                    "dispatch;" + reason + ";" + ex.Message);
+                RunHostPresentationCoordinatorReconcile(reason);
+            }
+        }
+
+        private void ScheduleHostPresentationIdleFollowUp(string reason)
+        {
+            var facts = _latestPresentationFacts;
+            if (facts == null || !facts.Authoritative)
+                return;
+
+            if (_hostPresentationIdlePending)
+                return;
+
+            _hostPresentationIdlePending = true;
+            _hostPresentationIdleGeneration = facts.Generation;
+            _hostPresentationIdleReason = reason;
+            RhinoApp.Idle += OnHostPresentationIdle;
+        }
+
+        private void OnHostPresentationIdle(object? sender, EventArgs e)
+        {
+            RhinoApp.Idle -= OnHostPresentationIdle;
+
+            var facts = _latestPresentationFacts;
+            var reason = _hostPresentationIdleReason;
+            _hostPresentationIdlePending = false;
+            _hostPresentationIdleReason = string.Empty;
+
+            if (_disposed ||
+                facts == null ||
+                !facts.Authoritative ||
+                facts.Disposed ||
+                facts.Generation != _hostPresentationIdleGeneration)
+            {
+                return;
+            }
+
+            RunHostPresentationCoordinatorReconcile(reason);
+        }
+
+        private void ClearHostPresentationIdle()
+        {
+            if (_hostPresentationIdlePending)
+            {
+                try { RhinoApp.Idle -= OnHostPresentationIdle; }
+                catch { }
+            }
+
+            _hostPresentationIdlePending = false;
+            _hostPresentationIdleReason = string.Empty;
+        }
+
+        private void ScheduleLatestHostPresentationFromEvent(
+            string reason,
+            bool scheduleIdleFollowUp)
+        {
+            var facts = _latestPresentationFacts;
+            if (facts == null || !facts.Authoritative)
+                return;
+
+            ReconcileHostPresentation(
+                facts with { Reason = reason },
+                scheduleIdleFollowUp);
+        }
+
+        private void RunHostPresentationCoordinatorReconcile(string reason)
+        {
+            _ = reason;
+            _ = _hostPresentation;
+        }
+
+        private string ApplyHostPresentationDecision(
+            WebViewHostPresentationDecision decision,
+            object? controller,
+            string reason)
+        {
+            _ = decision;
+            _ = controller;
+            _ = reason;
+            return "none";
+        }
+
         private void ScheduleHostVisibilityReconcile(WebViewHostVisibilityDecision decision)
         {
             if (_disposed || _webView == null)
@@ -589,19 +742,44 @@ namespace Rook.UI.Web
         private void OnWebViewGotFocus(object? sender, EventArgs e)
         {
             TraceWebViewFocus("webview-got-focus");
+            if (UseHostPresentationCoordinator)
+                return;
+
             RequestHostVisibleRefresh("WebViewGotFocus");
         }
 
         private void OnWebViewShown(object? sender, EventArgs e)
         {
             TraceWebViewFocus("webview-shown");
+            if (UseHostPresentationCoordinator)
+            {
+                ScheduleLatestHostPresentationFromEvent(
+                    "WebViewShown",
+                    scheduleIdleFollowUp: true);
+                return;
+            }
+
             ReconcileHostVisibility(true, "WebViewShown");
+        }
+
+        private void OnWebViewSizeChanged(object? sender, EventArgs e)
+        {
+            TraceWebViewFocus("webview-size-changed");
+            if (!UseHostPresentationCoordinator)
+                return;
+
+            ScheduleLatestHostPresentationFromEvent(
+                "WebViewSizeChanged",
+                scheduleIdleFollowUp: true);
         }
 
         private void OnApplicationIsActiveChanged(object? sender, EventArgs e)
         {
             var active = Application.Instance.IsActive;
             TraceWebViewFocus("app-active-changed", active ? "active" : "inactive");
+
+            if (UseHostPresentationCoordinator)
+                return;
 
             if (active)
             {
@@ -1482,6 +1660,9 @@ namespace Rook.UI.Web
             if (!disposing) return;
 
 #if ROOK_WEBVIEW2
+            ClearHostPresentationIdle();
+            _hostPresentationQueued = false;
+
             if (_initEvent != null && _nativeControlWithInitHandler != null && _initHandler != null)
             {
                 try { _initEvent.RemoveEventHandler(_nativeControlWithInitHandler, _initHandler); }
@@ -1527,6 +1708,10 @@ namespace Rook.UI.Web
             try { _webView!.GotFocus -= OnWebViewGotFocus; }
             catch { }
             try { _webView!.Shown -= OnWebViewShown; }
+            catch { }
+            try { _webView!.SizeChanged -= OnWebViewSizeChanged; }
+            catch { }
+            try { RhinoApp.Idle -= OnHostPresentationIdle; }
             catch { }
             try { Application.Instance.IsActiveChanged -= OnApplicationIsActiveChanged; }
             catch { }

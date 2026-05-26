@@ -503,6 +503,108 @@ namespace Rook.Tests.UI.Web
             Assert.Contains("BindingFlags.NonPublic", source);
         }
 
+        // ─── Vision host presentation coordinator path ──────────────
+
+        [Fact]
+        public void VisionPresentationPath_IsOptInOnly()
+        {
+            var surface = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+            var vision = ReadSourceFile("src", "Rook", "UI", "Vision", "VisionWebSurface.cs");
+            var reconcile = ExtractMemberBlock(
+                surface,
+                "internal void ReconcileHostPresentation(");
+            var gotFocus = ExtractMemberBlock(
+                surface,
+                "private void OnWebViewGotFocus(");
+            var appActive = ExtractMemberBlock(
+                surface,
+                "private void OnApplicationIsActiveChanged(");
+
+            Assert.Contains(
+                "protected virtual bool UseHostPresentationCoordinator => false;",
+                surface);
+            Assert.Contains(
+                "protected override bool UseHostPresentationCoordinator => true;",
+                vision);
+            Assert.Contains("if (!UseHostPresentationCoordinator)", reconcile);
+            Assert.Contains(
+                "ReconcileHostVisibility(facts.DesiredVisible, facts.Reason);",
+                reconcile);
+            Assert.Contains("if (!facts.Authoritative)", reconcile);
+            Assert.Contains("if (UseHostPresentationCoordinator)", gotFocus);
+            Assert.Contains("if (UseHostPresentationCoordinator)", appActive);
+            Assert.DoesNotContain(
+                "protected override bool UseHostPresentationCoordinator => true;",
+                surface);
+        }
+
+        [Fact]
+        public void VisionPresentationPath_UsesOneShotIdleAndNoPersistentIdleLoop()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+            var scheduler = ExtractMemberBlock(
+                source,
+                "private void ScheduleHostPresentationReconcile(");
+            var idleScheduler = ExtractMemberBlock(
+                source,
+                "private void ScheduleHostPresentationIdleFollowUp(");
+            var idleHandler = ExtractMemberBlock(
+                source,
+                "private void OnHostPresentationIdle(");
+            var disposeWebView = ExtractMemberBlock(
+                source,
+                "private void DisposeWebView(");
+            var run = ExtractMemberBlock(
+                source,
+                "private void RunHostPresentationCoordinatorReconcile(");
+            var apply = ExtractMemberBlock(
+                source,
+                "private string ApplyHostPresentationDecision(");
+            var scopedScheduler = scheduler + idleScheduler + idleHandler + run + apply;
+
+            Assert.Contains("_hostPresentationIdlePending", source);
+            Assert.Contains("_hostPresentationIdleGeneration", source);
+            Assert.Contains("_hostPresentationIdleReason", source);
+            Assert.Contains("if (_hostPresentationIdlePending)", idleScheduler);
+            Assert.Contains("RhinoApp.Idle += OnHostPresentationIdle;", idleScheduler);
+            Assert.Contains("RhinoApp.Idle -= OnHostPresentationIdle;", idleHandler);
+            Assert.Contains("_hostPresentationIdlePending = false;", idleHandler);
+            Assert.Contains(
+                "facts.Generation != _hostPresentationIdleGeneration",
+                idleHandler);
+            Assert.Contains("RhinoApp.Idle -= OnHostPresentationIdle;", disposeWebView);
+            Assert.DoesNotContain("while (", scopedScheduler);
+            Assert.DoesNotContain("for (", scopedScheduler);
+        }
+
+        [Fact]
+        public void VisionPresentationPath_DoesNotUseReloadOrJsProbeForRecovery()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+            var scoped = string.Concat(
+                ExtractMemberBlock(
+                    source,
+                    "private void ScheduleHostPresentationReconcile("),
+                ExtractMemberBlock(
+                    source,
+                    "private void ScheduleHostPresentationIdleFollowUp("),
+                ExtractMemberBlock(
+                    source,
+                    "private void OnHostPresentationIdle("),
+                ExtractMemberBlock(
+                    source,
+                    "private void RunHostPresentationCoordinatorReconcile("),
+                ExtractMemberBlock(
+                    source,
+                    "private string ApplyHostPresentationDecision("));
+
+            Assert.DoesNotContain("ExecuteScript", scoped);
+            Assert.DoesNotContain(".Reload(", scoped);
+            Assert.DoesNotContain("ReloadAfterRendererExit", scoped);
+            Assert.DoesNotContain("TryRenavigateAfterReloadFailure", scoped);
+            Assert.DoesNotContain("BuildFocusProbeScript", scoped);
+        }
+
         // ─── TryResolveVirtualResource hook (PR-7a) ──────────────────
 
         /// <summary>
@@ -575,6 +677,31 @@ namespace Rook.Tests.UI.Web
 
             throw new FileNotFoundException(
                 "Could not locate source file " + string.Join("/", pathParts));
+        }
+
+        private static string ExtractMemberBlock(string source, string signature)
+        {
+            var start = source.IndexOf(signature, StringComparison.Ordinal);
+            Assert.True(start >= 0, "Missing source member: " + signature);
+
+            var brace = source.IndexOf('{', start);
+            Assert.True(brace >= 0, "Missing member body: " + signature);
+
+            var depth = 0;
+            for (var i = brace; i < source.Length; i++)
+            {
+                if (source[i] == '{')
+                    depth++;
+                else if (source[i] == '}')
+                {
+                    depth--;
+                    if (depth == 0)
+                        return source.Substring(start, i - start + 1);
+                }
+            }
+
+            throw new InvalidOperationException(
+                "Unterminated source member: " + signature);
         }
 
         [Fact]
