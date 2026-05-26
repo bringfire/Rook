@@ -576,7 +576,13 @@ namespace Rook.UI.Web
             var facts = _latestPresentationFacts;
             var probe = CaptureHostPresentationProbe(facts);
             var decision = _hostPresentation.Evaluate(probe.Snapshot, reason);
-            ApplyHostPresentationDecision(decision, probe.Controller, reason);
+            var actionResult = ApplyHostPresentationDecision(
+                decision,
+                probe.Controller,
+                reason);
+            TraceWebViewFocus(
+                "host-presentation-action",
+                $"{decision.Action};{actionResult};{reason}");
         }
 
         private string ApplyHostPresentationDecision(
@@ -600,11 +606,14 @@ namespace Rook.UI.Web
             if (decision.Action != WebViewHostPresentationAction.PresentController)
                 return "none";
 
+            var actionResult = "none";
             if (decision.ShouldSetControllerBounds)
             {
                 var target = TryBuildControllerTargetBounds();
                 if (target != null && !SetControllerBounds(controller, target, reason))
-                    return "set-bounds-failed";
+                {
+                    actionResult = "set-bounds-failed";
+                }
             }
 
             if (decision.ShouldSetControllerVisible &&
@@ -613,9 +622,16 @@ namespace Rook.UI.Web
                 return "set-visible-failed";
             }
 
-            return NotifyParentWindowPositionChangedWithResult(controller, reason)
+            var notifyResult = NotifyParentWindowPositionChangedWithResult(
+                controller,
+                reason)
                 ? "applied"
                 : "notify-parent-failed";
+
+            if (actionResult == "none")
+                return notifyResult;
+
+            return actionResult + ";" + notifyResult;
         }
 
         private HostPresentationProbe CaptureHostPresentationProbe(
@@ -635,7 +651,7 @@ namespace Rook.UI.Web
                 {
                     Disposed = facts.Disposed,
                     DesiredVisible = facts.DesiredVisible,
-                    AppActive = facts.AppActive,
+                    AppActive = facts.AppActive && IsApplicationActiveForPresentation(),
                     TemporaryDeactivateHidden = facts.TemporaryDeactivateHidden,
                     PanelVisible = facts.PanelVisible,
                     RequiresSelectedPanel = facts.RequiresSelectedPanel,
@@ -656,6 +672,18 @@ namespace Rook.UI.Web
                         (controllerAvailable &&
                          TryControllerBoundsMatch(controller!, targetBounds))
                 });
+        }
+
+        private static bool IsApplicationActiveForPresentation()
+        {
+            try
+            {
+                return Application.Instance?.IsActive == true;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         private readonly record struct HostPresentationProbe(

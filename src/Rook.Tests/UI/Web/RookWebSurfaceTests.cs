@@ -647,6 +647,40 @@ namespace Rook.Tests.UI.Web
         }
 
         [Fact]
+        public void VisionPresentationPath_RefreshesAppActiveAtSnapshotTime()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+            var capture = ExtractMethod(source, "private HostPresentationProbe CaptureHostPresentationProbe");
+
+            Assert.Contains(
+                "AppActive = facts.AppActive && IsApplicationActiveForPresentation()",
+                capture);
+            Assert.Contains(
+                "private static bool IsApplicationActiveForPresentation()",
+                source);
+        }
+
+        [Fact]
+        public void VisionPresentationPath_BoundsFailureDoesNotSkipVisibleOrNotify()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+            var method = ExtractMethod(source, "private string ApplyHostPresentationDecision");
+
+            var boundsFailure = method.IndexOf("actionResult = \"set-bounds-failed\"", StringComparison.Ordinal);
+            var visibleIndex = method.IndexOf("SetControllerVisible(controller, true", StringComparison.Ordinal);
+            var notifyIndex = method.IndexOf(
+                "NotifyParentWindowPositionChangedWithResult",
+                StringComparison.Ordinal);
+
+            Assert.True(boundsFailure >= 0);
+            Assert.True(visibleIndex >= 0);
+            Assert.True(notifyIndex >= 0);
+            Assert.True(boundsFailure < visibleIndex);
+            Assert.True(visibleIndex < notifyIndex);
+            Assert.DoesNotContain("return \"set-bounds-failed\"", method);
+        }
+
+        [Fact]
         public void VisionPresentationPath_DoesNotUseReloadOrJsProbeForRecovery()
         {
             var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
