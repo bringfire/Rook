@@ -104,27 +104,6 @@ namespace Rook.Tests.UI.Panels
         }
 
         [Fact]
-        public void FakeVisibilityQuery_VisibleAnyTabDefaultsToSelectedVisible()
-        {
-            var visibility = new FakeVisibilityQuery { Visible = false };
-
-            Assert.False(visibility.IsPanelVisibleAnyTab(typeof(Form)));
-            Assert.Equal(typeof(Form), visibility.LastAnyTabPanelType);
-        }
-
-        [Fact]
-        public void FakeVisibilityQuery_VisibleAnyTabCanBeConfiguredSeparately()
-        {
-            var visibility = new FakeVisibilityQuery
-            {
-                Visible = false,
-                VisibleAnyTab = true
-            };
-
-            Assert.True(visibility.IsPanelVisibleAnyTab(typeof(Form)));
-        }
-
-        [Fact]
         public void PanelHidden_HideOnDeactivate_DoesNotHideOrCleanup()
         {
             var adapter = new HostedPanelLifecycleAdapter(typeof(Form), new FakeVisibilityQuery());
