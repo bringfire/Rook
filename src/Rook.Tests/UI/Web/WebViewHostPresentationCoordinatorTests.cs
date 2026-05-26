@@ -151,16 +151,15 @@ namespace Rook.Tests.UI.Web
         public void AppInactive_DoesNotPresent()
         {
             var coordinator = new WebViewHostPresentationCoordinator();
-            coordinator.Evaluate(ReadySnapshot(), "initial-ready");
 
-            var decision = coordinator.Evaluate(ReadySnapshot(controllerVisible: true) with
+            var decision = coordinator.Evaluate(ReadySnapshot(controllerVisible: false) with
             {
                 AppActive = false
-            }, "app-deactivated");
+            }, "app-inactive");
 
             Assert.Equal(WebViewHostPresentationState.PendingHost, decision.NewState);
             Assert.Equal(WebViewHostNotPresentableReason.AppInactive, decision.NotPresentableReason);
-            Assert.NotEqual(WebViewHostPresentationAction.PresentController, decision.Action);
+            Assert.Equal(WebViewHostPresentationAction.None, decision.Action);
             Assert.False(decision.ShouldSetControllerBounds);
             Assert.False(decision.ShouldSetControllerVisible);
             Assert.False(decision.ShouldNotifyParentPositionChanged);
@@ -185,7 +184,7 @@ namespace Rook.Tests.UI.Web
         }
 
         [Fact]
-        public void HideOnDeactivate_DoesNotClearDesiredVisible()
+        public void HideOnDeactivate_WhileInactiveEntersPendingHostWithoutPresenting()
         {
             var coordinator = new WebViewHostPresentationCoordinator();
 
@@ -199,6 +198,7 @@ namespace Rook.Tests.UI.Web
             Assert.Equal(WebViewHostPresentationState.PendingHost, decision.NewState);
             Assert.Equal(WebViewHostNotPresentableReason.TemporaryDeactivateHidden, decision.NotPresentableReason);
             Assert.NotEqual(WebViewHostPresentationState.Hidden, decision.NewState);
+            Assert.NotEqual(WebViewHostPresentationAction.PresentController, decision.Action);
         }
 
         [Fact]
