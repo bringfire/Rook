@@ -53,7 +53,7 @@ namespace Rook.Tests.Plugin
         [Fact]
         public void CommandActive_DoesNotStartAndResetsStableIdle()
         {
-            var gate = new CompanionStartupGate(requiredStableIdleTicks: 2, maxBlockedIdleAttempts: 5);
+            var gate = new CompanionStartupGate(requiredStableIdleTicks: 2);
 
             var first = gate.EvaluateIdle(new CompanionStartupGateSnapshot(
                 CommandActive: false,
@@ -74,7 +74,7 @@ namespace Rook.Tests.Plugin
         [Fact]
         public void DocumentOpenActive_DoesNotStart()
         {
-            var gate = new CompanionStartupGate(requiredStableIdleTicks: 2, maxBlockedIdleAttempts: 5);
+            var gate = new CompanionStartupGate(requiredStableIdleTicks: 2);
 
             var decision = gate.EvaluateIdle(new CompanionStartupGateSnapshot(
                 CommandActive: false,
@@ -89,7 +89,7 @@ namespace Rook.Tests.Plugin
         [Fact]
         public void FirstQuiescentIdle_DoesNotStart()
         {
-            var gate = new CompanionStartupGate(requiredStableIdleTicks: 2, maxBlockedIdleAttempts: 5);
+            var gate = new CompanionStartupGate(requiredStableIdleTicks: 2);
 
             var decision = gate.EvaluateIdle(new CompanionStartupGateSnapshot(
                 CommandActive: false,
@@ -104,7 +104,7 @@ namespace Rook.Tests.Plugin
         [Fact]
         public void SecondConsecutiveQuiescentIdle_StartsOnce()
         {
-            var gate = new CompanionStartupGate(requiredStableIdleTicks: 2, maxBlockedIdleAttempts: 5);
+            var gate = new CompanionStartupGate(requiredStableIdleTicks: 2);
 
             gate.EvaluateIdle(new CompanionStartupGateSnapshot(false, false, false));
             var start = gate.EvaluateIdle(new CompanionStartupGateSnapshot(false, false, false));
@@ -119,7 +119,7 @@ namespace Rook.Tests.Plugin
         [Fact]
         public void InterruptedQuiescence_ResetsStableIdleCount()
         {
-            var gate = new CompanionStartupGate(requiredStableIdleTicks: 2, maxBlockedIdleAttempts: 5);
+            var gate = new CompanionStartupGate(requiredStableIdleTicks: 2);
 
             gate.EvaluateIdle(new CompanionStartupGateSnapshot(false, false, false));
             gate.EvaluateIdle(new CompanionStartupGateSnapshot(false, true, false));
@@ -132,7 +132,7 @@ namespace Rook.Tests.Plugin
         [Fact]
         public void StartupComplete_DoesNotRunAgain()
         {
-            var gate = new CompanionStartupGate(requiredStableIdleTicks: 2, maxBlockedIdleAttempts: 5);
+            var gate = new CompanionStartupGate(requiredStableIdleTicks: 2);
 
             gate.EvaluateIdle(new CompanionStartupGateSnapshot(false, false, false));
             gate.EvaluateIdle(new CompanionStartupGateSnapshot(false, false, false));
@@ -144,24 +144,28 @@ namespace Rook.Tests.Plugin
         }
 
         [Fact]
-        public void QuiescenceRetryLimitExceeded_LeavesCompanionInactive()
+        public void BlockedQuiescence_WaitsUntilLaterQuiescentIdle()
         {
-            var gate = new CompanionStartupGate(requiredStableIdleTicks: 2, maxBlockedIdleAttempts: 2);
+            var gate = new CompanionStartupGate(requiredStableIdleTicks: 2);
 
-            gate.EvaluateIdle(new CompanionStartupGateSnapshot(true, false, false));
-            var exhausted = gate.EvaluateIdle(new CompanionStartupGateSnapshot(true, false, false));
-            var later = gate.EvaluateIdle(new CompanionStartupGateSnapshot(false, false, false));
+            for (var i = 0; i < 500; i++)
+            {
+                var blocked = gate.EvaluateIdle(new CompanionStartupGateSnapshot(true, false, false));
+                Assert.Equal(CompanionStartupGateAction.None, blocked.Action);
+                Assert.Equal(CompanionStartupGateBlockedReason.CommandActive, blocked.BlockedReason);
+            }
 
-            Assert.Equal(CompanionStartupGateAction.MarkQuiescenceExhausted, exhausted.Action);
-            Assert.Equal(CompanionStartupGateBlockedReason.CommandActive, exhausted.BlockedReason);
-            Assert.Equal(CompanionStartupGateAction.None, later.Action);
-            Assert.Equal(CompanionStartupGateBlockedReason.StartupExhausted, later.BlockedReason);
+            var first = gate.EvaluateIdle(new CompanionStartupGateSnapshot(false, false, false));
+            var second = gate.EvaluateIdle(new CompanionStartupGateSnapshot(false, false, false));
+
+            Assert.Equal(CompanionStartupGateAction.None, first.Action);
+            Assert.Equal(CompanionStartupGateAction.RunStartup, second.Action);
         }
 
         [Fact]
         public void ShutdownStarted_BlocksAndDoesNotStart()
         {
-            var gate = new CompanionStartupGate(requiredStableIdleTicks: 1, maxBlockedIdleAttempts: 5);
+            var gate = new CompanionStartupGate(requiredStableIdleTicks: 1);
 
             var decision = gate.EvaluateIdle(new CompanionStartupGateSnapshot(
                 CommandActive: false,
@@ -196,7 +200,6 @@ namespace Rook.Startup
     {
         None,
         RunStartup,
-        MarkQuiescenceExhausted,
     }
 
     internal enum CompanionStartupGateBlockedReason
@@ -206,7 +209,6 @@ namespace Rook.Startup
         DocumentOpening,
         ShutdownStarted,
         StartupComplete,
-        StartupExhausted,
     }
 
     internal sealed record CompanionStartupGateSnapshot(
@@ -218,30 +220,21 @@ namespace Rook.Startup
         CompanionStartupGateAction Action,
         CompanionStartupGateBlockedReason BlockedReason,
         int StableIdleCount,
-        int BlockedIdleAttempts,
         bool StartupAlreadyRequested,
-        bool StartupComplete,
-        bool StartupExhausted);
+        bool StartupComplete);
 
     internal sealed class CompanionStartupGate
     {
         private readonly int _requiredStableIdleTicks;
-        private readonly int _maxBlockedIdleAttempts;
         private int _stableIdleCount;
-        private int _blockedIdleAttempts;
         private bool _startupRequested;
         private bool _startupComplete;
-        private bool _startupExhausted;
 
         public CompanionStartupGate(
-            int requiredStableIdleTicks = 2,
-            int maxBlockedIdleAttempts = 120)
+            int requiredStableIdleTicks = 2)
         {
             _requiredStableIdleTicks = requiredStableIdleTicks > 0
                 ? requiredStableIdleTicks
-                : 1;
-            _maxBlockedIdleAttempts = maxBlockedIdleAttempts > 0
-                ? maxBlockedIdleAttempts
                 : 1;
         }
 
@@ -255,30 +248,13 @@ namespace Rook.Startup
                     CompanionStartupGateBlockedReason.StartupComplete);
             }
 
-            if (_startupExhausted)
-            {
-                return Decision(
-                    CompanionStartupGateAction.None,
-                    CompanionStartupGateBlockedReason.StartupExhausted);
-            }
-
             var blockedReason = GetBlockedReason(snapshot);
             if (blockedReason != CompanionStartupGateBlockedReason.None)
             {
                 _stableIdleCount = 0;
-                _blockedIdleAttempts++;
-                if (_blockedIdleAttempts >= _maxBlockedIdleAttempts)
-                {
-                    _startupExhausted = true;
-                    return Decision(
-                        CompanionStartupGateAction.MarkQuiescenceExhausted,
-                        blockedReason);
-                }
-
                 return Decision(CompanionStartupGateAction.None, blockedReason);
             }
 
-            _blockedIdleAttempts = 0;
             _stableIdleCount++;
 
             if (!_startupRequested && _stableIdleCount >= _requiredStableIdleTicks)
@@ -301,7 +277,7 @@ namespace Rook.Startup
 
         public void MarkStartupAvailableForRetry()
         {
-            if (!_startupComplete && !_startupExhausted)
+            if (!_startupComplete)
             {
                 _startupRequested = false;
                 _stableIdleCount = _requiredStableIdleTicks - 1;
@@ -328,10 +304,8 @@ namespace Rook.Startup
                 action,
                 reason,
                 _stableIdleCount,
-                _blockedIdleAttempts,
                 _startupRequested,
-                _startupComplete,
-                _startupExhausted);
+                _startupComplete);
         }
     }
 }
@@ -531,16 +505,15 @@ private bool _startupRetriesActive = false;
 with:
 
 ```csharp
-private const int StartupQuiescenceAttemptLimit = 120;
 private const int BridgeRetryLimit = 120;
 private readonly CompanionStartupGate _startupGate =
-    new(requiredStableIdleTicks: 2, maxBlockedIdleAttempts: StartupQuiescenceAttemptLimit);
+    new(requiredStableIdleTicks: 2);
 private int _startupRunInProgress = 0;
 private int _bridgeRetryCount = 0;
 private bool _documentOpening = false;
 private bool _startupHooksAttached = false;
 private bool _shutdownStarted = false;
-private bool _deferredUiStartupComplete = false;
+private bool _deferredLocalStartupComplete = false;
 private string? _lastStartupGateTraceKey;
 private int _lastStartupGateTraceRepeatCount = 0;
 ```
@@ -661,13 +634,6 @@ private void OnStartupGateIdle(object? sender, EventArgs e)
 
     TraceStartupGateDecision(snapshot, decision);
 
-    if (decision.Action == CompanionStartupGateAction.MarkQuiescenceExhausted)
-    {
-        TraceStartup("Startup exhausted before quiescence; companion remains inactive.");
-        DetachStartupGateHooks();
-        return;
-    }
-
     if (decision.Action != CompanionStartupGateAction.RunStartup)
     {
         return;
@@ -773,10 +739,10 @@ Rename `TryInitializeRuntime` to `RunDeferredCompanionStartup` and change its si
 private bool RunDeferredCompanionStartup()
 ```
 
-At the beginning of the method, ensure panel/UI startup runs before bridge registration:
+At the beginning of the method, ensure local startup runs once before bridge registration. Local startup includes panel registration, toolbar/runtime state, image/video reconcile, and sidecar backfill. These are delayed until quiescence, but they are not blocked by bridge registration failure.
 
 ```csharp
-if (!_deferredUiStartupComplete)
+if (!_deferredLocalStartupComplete)
 {
     if (ShouldRegisterStartupPanels(_isRhinoInside))
     {
@@ -797,7 +763,53 @@ if (!_deferredUiStartupComplete)
         TraceStartup("Companion UI/runtime startup complete; HTTP server delegated to RookNative");
     }
 
-    _deferredUiStartupComplete = true;
+    try
+    {
+        RookSubsystemRoot.Instance.ReconcileVideoJobsOnce();
+        TraceStartup("Video subsystem reconciled (or no-op if never used previously)");
+    }
+    catch (Exception ex)
+    {
+        TraceStartup($"Video reconcile failed (non-fatal): {ex.GetType().Name}: {ex.Message}");
+        RhinoApp.WriteLine(
+            "Rook: video reconcile failed at startup; continuing without reconcile. " +
+            $"Reason: {ex.GetType().Name}.");
+    }
+
+    try
+    {
+        RookSubsystemRoot.Instance.ReconcileImageJobsOnce();
+        TraceStartup("Image job subsystem reconciled (or no-op)");
+    }
+    catch (Exception ex)
+    {
+        TraceStartup($"Image job reconcile failed (non-fatal): {ex.GetType().Name}: {ex.Message}");
+        RhinoApp.WriteLine(
+            "Rook: image job reconcile failed at startup; continuing without reconcile. " +
+            $"Reason: {ex.GetType().Name}.");
+    }
+
+    try
+    {
+        RookSubsystemRoot.Instance.BackfillVideoSidecarsOnce(
+            new VideoSidecarBackfillStartupOptions(
+                Enabled: true,
+                ServiceOptions: VideoSidecarBackfillOptions.StartupDefault,
+                OnCompleted: result =>
+                    TraceStartup($"Video sidecar backfill completed: {result.ToTraceSummary()}"),
+                OnFailed: ex =>
+                    TraceStartup($"Video sidecar backfill failed (non-fatal): {ex.GetType().Name}: {ex.Message}")));
+        TraceStartup("Video sidecar backfill scheduled (or no-op if already scheduled)");
+    }
+    catch (Exception ex)
+    {
+        TraceStartup($"Video sidecar backfill scheduling failed (non-fatal): {ex.GetType().Name}: {ex.Message}");
+        RhinoApp.WriteLine(
+            "Rook: video sidecar backfill could not be scheduled at startup; continuing. " +
+            $"Reason: {ex.GetType().Name}.");
+    }
+
+    _deferredLocalStartupComplete = true;
 }
 ```
 
@@ -821,7 +833,9 @@ if (!nativeBridgeRegistered)
 }
 ```
 
-Keep existing video reconcile, image reconcile, sidecar backfill, and non-fatal catch blocks after bridge registration succeeds. End with:
+Remove the old duplicate video reconcile, image reconcile, and sidecar backfill blocks from after bridge registration. Those local startup steps now run before bridge registration and exactly once after quiescence.
+
+After bridge registration succeeds, end with:
 
 ```csharp
 TraceStartup("Startup complete");
@@ -934,7 +948,7 @@ public void BridgeUnavailableAfterQuiescence_RetriesThroughIdleOnly()
 }
 ```
 
-- [ ] **Step 3: Add safe UI startup source guard**
+- [ ] **Step 3: Add local startup source guard**
 
 Add:
 
@@ -945,8 +959,8 @@ public void BridgeRetryExhausted_DoesNotSuppressDeferredUiStartup()
     var source = ReadSourceFile("src", "Rook", "RookPlugin.cs");
     var deferredStartup = ExtractMethod(source, "private bool RunDeferredCompanionStartup()");
 
-    var uiStartupIndex = deferredStartup.IndexOf(
-        "_deferredUiStartupComplete = true;",
+    var localStartupIndex = deferredStartup.IndexOf(
+        "_deferredLocalStartupComplete = true;",
         StringComparison.Ordinal);
     var bridgeIndex = deferredStartup.IndexOf(
         "NativeGhBridgeRegistrar.TryRegister();",
@@ -955,13 +969,46 @@ public void BridgeRetryExhausted_DoesNotSuppressDeferredUiStartup()
         "Startup bridge retries exhausted",
         StringComparison.Ordinal);
 
-    Assert.True(uiStartupIndex >= 0, "Deferred UI startup completion must be present.");
-    Assert.True(bridgeIndex > uiStartupIndex, "Bridge registration must run after safe UI startup.");
+    Assert.True(localStartupIndex >= 0, "Deferred local startup completion must be present.");
+    Assert.True(bridgeIndex > localStartupIndex, "Bridge registration must run after local startup.");
     Assert.True(exhaustionIndex > bridgeIndex, "Bridge exhaustion must happen after bridge retry attempts.");
 }
 ```
 
-- [ ] **Step 4: Run plugin tests**
+- [ ] **Step 4: Add local reconcile ordering source guard**
+
+Add:
+
+```csharp
+[Fact]
+public void LocalReconcileAndBackfill_RunBeforeBridgeRegistration()
+{
+    var source = ReadSourceFile("src", "Rook", "RookPlugin.cs");
+    var deferredStartup = ExtractMethod(source, "private bool RunDeferredCompanionStartup()");
+
+    var videoIndex = deferredStartup.IndexOf(
+        "RookSubsystemRoot.Instance.ReconcileVideoJobsOnce();",
+        StringComparison.Ordinal);
+    var imageIndex = deferredStartup.IndexOf(
+        "RookSubsystemRoot.Instance.ReconcileImageJobsOnce();",
+        StringComparison.Ordinal);
+    var backfillIndex = deferredStartup.IndexOf(
+        "RookSubsystemRoot.Instance.BackfillVideoSidecarsOnce(",
+        StringComparison.Ordinal);
+    var bridgeIndex = deferredStartup.IndexOf(
+        "NativeGhBridgeRegistrar.TryRegister();",
+        StringComparison.Ordinal);
+
+    Assert.True(videoIndex >= 0, "Video reconcile must still run after quiescence.");
+    Assert.True(imageIndex >= 0, "Image reconcile must still run after quiescence.");
+    Assert.True(backfillIndex >= 0, "Video sidecar backfill must still be scheduled after quiescence.");
+    Assert.True(bridgeIndex > videoIndex, "Bridge registration must not block video reconcile.");
+    Assert.True(bridgeIndex > imageIndex, "Bridge registration must not block image reconcile.");
+    Assert.True(bridgeIndex > backfillIndex, "Bridge registration must not block sidecar backfill.");
+}
+```
+
+- [ ] **Step 5: Run plugin tests**
 
 Run:
 
@@ -971,7 +1018,7 @@ dotnet test .\src\Rook.Tests\Rook.Tests.csproj --no-restore --filter FullyQualif
 
 Expected: all `RookPluginLifecycleSourceTests` pass.
 
-- [ ] **Step 5: Commit Task 4**
+- [ ] **Step 6: Commit Task 4**
 
 ```powershell
 git add src\Rook.Tests\Plugin\RookPluginLifecycleSourceTests.cs src\Rook\RookPlugin.cs
@@ -1101,10 +1148,6 @@ Expected: managed `Rook.rhp` is deployed to the installed Rhino plugin runtime f
 - [ ] **Step 3: Clear startup trace for clean evidence**
 
 ```powershell
-$log = Join-Path $env:LOCALAPPDATA "Rook\discovery\companion-startup.log"
-if (Test-Path $log) {
-  Rename-Item $log ("companion-startup.before-quiescence-" + (Get-Date -Format "yyyyMMdd-HHmmss") + ".log")
-}
 $tempLog = Join-Path $env:TEMP "rook\companion-startup.log"
 if (Test-Path $tempLog) {
   Rename-Item $tempLog ("companion-startup.before-quiescence-" + (Get-Date -Format "yyyyMMdd-HHmmss") + ".log")
@@ -1148,7 +1191,7 @@ GH/bridge-dependent route reports available after startup complete
 Repeat the startup recent-file path at least 3 times. If any run wedges Rhino, stop and collect:
 
 ```powershell
-Get-Content "$env:LOCALAPPDATA\Rook\discovery\companion-startup.log" -Tail 120
+Get-Content "$env:TEMP\rook\companion-startup.log" -Tail 120
 Get-ChildItem "$env:LOCALAPPDATA\Rook\discovery" | Sort-Object LastWriteTime -Descending | Select-Object -First 10
 Get-ChildItem "$env:APPDATA\Rook\sessions" | Sort-Object LastWriteTime -Descending | Select-Object -First 5
 ```

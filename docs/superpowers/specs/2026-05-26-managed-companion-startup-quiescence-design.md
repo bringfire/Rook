@@ -77,7 +77,7 @@ Quiescence for this PR:
 - No Rhino command is active, using RhinoCommon command-state APIs available in this codebase/runtime.
 - Any observed document-open lifecycle has completed.
 - At least `2` consecutive quiescent idle ticks have been observed.
-- Startup has not already completed or exhausted.
+- Startup has not already completed.
 - Shutdown has not started.
 
 The two-idle requirement is intentional. A single idle callback can occur between unstable startup phases. Two consecutive quiescent idle ticks are still low-latency, but they avoid treating the first idle pulse during startup/open as stable.
@@ -126,7 +126,12 @@ Deferred work includes:
 - video sidecar backfill scheduling;
 - cleanup of idle/document startup hooks after successful completion.
 
-The first implementation should defer these side effects together. The registry isolation proves managed startup timing is dangerous but does not identify which individual side effect wedges Rhino. Splitting startup work before the product-breaking issue is eliminated would be guesswork.
+The first implementation should defer these side effects together until quiescence. After quiescence, split local startup from bridge readiness:
+
+- local startup work runs once after quiescence, including panels, toolbar, image/video reconcile, and sidecar backfill;
+- bridge registration retries independently if native bridge readiness is unavailable.
+
+The registry isolation proves managed startup timing is dangerous but does not identify which individual side effect wedges Rhino. Moving any of these side effects back into `OnLoad` before the product-breaking issue is eliminated would be guesswork.
 
 ## Native Bridge Contract
 
@@ -161,13 +166,13 @@ Rules:
 - If idle fires while not quiescent, trace the reason at low volume and return quickly.
 - If idle is quiescent, increment the consecutive quiescent idle count.
 - On the second consecutive quiescent idle, run startup.
-- If quiescent startup reaches panel/toolbar/runtime work but bridge registration is unavailable, keep bridge registration retrying only through future idle ticks, not timer re-entry.
-- Panel registration, toolbar loading, and basic companion UI availability should not be silently suppressed forever solely because the native bridge is unavailable after Rhino is quiescent, unless implementation evidence shows one of those steps is unsafe.
+- Quiescence waiting is not a failure. Slow document opens must not permanently exhaust managed startup just because idle fires many times while Rhino is still busy.
+- After quiescence, run local panel/toolbar/reconcile/backfill startup once even if bridge registration is unavailable.
+- If bridge registration is unavailable after local startup, keep bridge registration retrying only through future idle ticks, not timer re-entry.
 - Preserve a bounded bridge retry/exhaustion concept so bridge registration cannot retry forever.
 - On bridge exhaustion, leave the companion UI/runtime available where safe, mark bridge-dependent features unavailable, and write a clear trace line.
-- On quiescence exhaustion before startup ever runs, leave the companion loaded but inactive and write a clear trace line.
 
-The retry counter should count meaningful idle attempts, not wall-clock timer pulses. The current 250ms `Timer` path is the thing we are removing because it can re-enter during `_Open`.
+The bridge retry counter should count meaningful idle attempts after quiescence, not wall-clock timer pulses. The current 250ms `Timer` path is the thing we are removing because it can re-enter during `_Open`.
 
 ## Lifecycle Hooks
 
@@ -195,7 +200,7 @@ StartupGate idle attempt: commandActive=<bool> documentOpening=<bool> stableIdle
 StartupGate blocked: <reason>
 StartupGate quiescent: running startup
 Startup complete
-Startup exhausted
+Bridge retries exhausted
 Startup shutdown: hooks detached
 ```
 
@@ -224,9 +229,10 @@ Required test coverage:
 - `SecondConsecutiveQuiescentIdle_StartsOnce`.
 - `InterruptedQuiescence_ResetsStableIdleCount`.
 - `StartupComplete_DetachesHooksAndDoesNotRunAgain`.
+- `BlockedQuiescence_WaitsUntilLaterQuiescentIdle`.
 - `BridgeUnavailableAfterQuiescence_DoesNotRestartTimerRetry`.
-- `BridgeRetryExhausted_MarksBridgeUnavailableWithoutSuppressingSafeUiStartup`.
-- `QuiescenceRetryLimitExceeded_LeavesCompanionInactive`.
+- `BridgeRetryExhausted_MarksBridgeUnavailableWithoutSuppressingLocalStartup`.
+- local image/video reconcile and sidecar backfill run after quiescence even if bridge registration is unavailable.
 - existing panel registration remains wrapped as non-fatal when deferred startup runs.
 - existing reconcile/backfill failures remain non-fatal when deferred startup runs.
 
