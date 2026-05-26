@@ -53,6 +53,46 @@ namespace Rook.Tests.UI.Vision
         }
 
         [Fact]
+        public void RookVisionPanel_SuppliesPresentationFactsToSurface()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Vision", "RookVisionPanel.cs");
+
+            Assert.Contains("VisionPanelPresentationState", source);
+            Assert.Contains("_surface.ReconcileHostPresentation", source);
+            Assert.Contains("RhinoPanelVisibilityQuery", source);
+            Assert.Contains("IsSelectedPanelVisible(typeof(RookVisionPanel))", source);
+            Assert.Contains("IsPanelVisibleAnyTab(typeof(RookVisionPanel))", source);
+        }
+
+        [Fact]
+        public void RookVisionPanel_HandlesAppActiveAsAuthoritativeFacts()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Vision", "RookVisionPanel.cs");
+
+            Assert.Contains("Application.Instance.IsActiveChanged += OnApplicationIsActiveChanged", source);
+            Assert.Contains("Application.Instance.IsActiveChanged -= OnApplicationIsActiveChanged", source);
+            Assert.Contains("_presentationState.SetAppActive", source);
+        }
+
+        [Fact]
+        public void RookVisionPanel_PanelHiddenAndClosingSendNoPresentFacts()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Vision", "RookVisionPanel.cs");
+
+            Assert.Contains("_presentationState.PanelHidden", source);
+            Assert.Contains("_presentationState.PanelClosing", source);
+            Assert.Contains("scheduleIdleFollowUp: false", source);
+        }
+
+        [Fact]
+        public void RookVisionPanel_DoesNotSendLegacyHostVisibilityCommands()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Vision", "RookVisionPanel.cs");
+
+            Assert.DoesNotContain("_surface.ReconcileHostVisibility", source);
+        }
+
+        [Fact]
         public void KnowledgeGraphPanel_UsesHostedPanelLifecycleAdapter()
         {
             var source = ReadSourceFile("src", "Rook", "UI", "Knowledge", "KnowledgeGraphPanel.cs");

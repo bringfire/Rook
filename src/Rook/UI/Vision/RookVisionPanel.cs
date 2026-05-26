@@ -20,9 +20,14 @@ namespace Rook.UI.Vision
         private readonly VisionWebSurface _surface;
         private readonly HostedPanelLifecycleAdapter _lifecycle =
             new(typeof(RookVisionPanel));
+        private readonly IRhinoPanelVisibilityQuery _visibilityQuery =
+            new RhinoPanelVisibilityQuery();
+        private readonly VisionPanelPresentationState _presentationState =
+            new(Application.Instance.IsActive);
         private readonly string _surfaceId;
         private uint _documentSerialNumber;
         private bool _closed;
+        private Control? _content;
 
         public static Guid PanelId => typeof(RookVisionPanel).GUID;
 
@@ -34,13 +39,21 @@ namespace Rook.UI.Vision
                 ":vision-panel:" +
                 Interlocked.Increment(ref s_nextPanelInstanceId).ToString();
 
-            Content = _surface.CreateWebContent();
+            _content = _surface.CreateWebContent();
+            _content.SizeChanged += OnContentSizeChanged;
+            Content = _content;
+            Application.Instance.IsActiveChanged += OnApplicationIsActiveChanged;
         }
 
         public void PanelShown(uint documentSerialNumber, ShowPanelReason reason)
         {
             _documentSerialNumber = documentSerialNumber;
             _lifecycle.PanelShown(documentSerialNumber, reason);
+            var facts = _presentationState.PanelShown(
+                reason,
+                IsVisibleAnyTab(),
+                IsSelectedVisible());
+            _surface.ReconcileHostPresentation(facts, scheduleIdleFollowUp: true);
             ReconcileSurface("PanelShown:" + reason);
         }
 
@@ -48,6 +61,11 @@ namespace Rook.UI.Vision
         {
             _documentSerialNumber = documentSerialNumber;
             _lifecycle.PanelHidden(documentSerialNumber, reason);
+            var facts = _presentationState.PanelHidden(
+                reason,
+                IsVisibleAnyTab(),
+                IsSelectedVisible());
+            _surface.ReconcileHostPresentation(facts, scheduleIdleFollowUp: false);
             ReconcileSurface("PanelHidden:" + reason);
         }
 
@@ -55,6 +73,9 @@ namespace Rook.UI.Vision
         {
             _documentSerialNumber = documentSerialNumber;
             _lifecycle.PanelClosing(documentSerialNumber, onCloseDocument);
+            _surface.ReconcileHostPresentation(
+                _presentationState.PanelClosing(),
+                scheduleIdleFollowUp: false);
             ReconcileSurface("PanelClosing");
         }
 
@@ -71,6 +92,12 @@ namespace Rook.UI.Vision
         {
             if (_closed) return;
             _closed = true;
+            if (_content != null)
+            {
+                try { _content.SizeChanged -= OnContentSizeChanged; } catch { }
+                _content = null;
+            }
+            try { Application.Instance.IsActiveChanged -= OnApplicationIsActiveChanged; } catch { }
             Content = null;
             _surface.Dispose();
         }
@@ -86,18 +113,39 @@ namespace Rook.UI.Vision
 
         private void ApplyDecision(HostedSurfaceDecision decision, string sourceReason)
         {
-            switch (decision.Action)
+            _ = sourceReason;
+            if (decision.Action == HostedSurfaceAction.Close)
             {
-                case HostedSurfaceAction.Show:
-                    _surface.ReconcileHostVisibility(true, sourceReason + ":" + decision.Reason);
-                    break;
-                case HostedSurfaceAction.Hide:
-                    _surface.ReconcileHostVisibility(false, sourceReason + ":" + decision.Reason);
-                    break;
-                case HostedSurfaceAction.Close:
-                    CloseSurface();
-                    break;
+                CloseSurface();
             }
+        }
+
+        private void OnApplicationIsActiveChanged(object? sender, EventArgs e)
+        {
+            var facts = _presentationState.SetAppActive(Application.Instance.IsActive);
+            _surface.ReconcileHostPresentation(
+                facts,
+                scheduleIdleFollowUp: facts.AppActive);
+        }
+
+        private void OnContentSizeChanged(object? sender, EventArgs e)
+        {
+            var facts = _presentationState.RefreshSelection(
+                IsSelectedVisible(),
+                "ContentSizeChanged");
+            _surface.ReconcileHostPresentation(facts, scheduleIdleFollowUp: true);
+        }
+
+        private bool IsSelectedVisible()
+        {
+            try { return _visibilityQuery.IsSelectedPanelVisible(typeof(RookVisionPanel)); }
+            catch { return false; }
+        }
+
+        private bool IsVisibleAnyTab()
+        {
+            try { return _visibilityQuery.IsPanelVisibleAnyTab(typeof(RookVisionPanel)); }
+            catch { return false; }
         }
     }
 }
