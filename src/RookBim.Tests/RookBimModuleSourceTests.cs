@@ -147,6 +147,19 @@ namespace RookBim.Tests
         }
 
         [Fact]
+        public void RevitTask7_DispatchDoesNotMaskFaultedTasksWithAggregateException()
+        {
+            var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
+            var dispatch = ExtractMethod(runtime, "private T Dispatch<T>(");
+
+            Assert.DoesNotContain(".Wait(DispatchTimeout)", dispatch);
+            Assert.Contains("Task.WaitAny", dispatch);
+            Assert.Contains("dispatch.Task.GetAwaiter().GetResult();", dispatch);
+            Assert.Contains("DescribeDispatchException", runtime);
+            Assert.Contains("AggregateException", runtime);
+        }
+
+        [Fact]
         public void RevitTask7_StatusDispatchFailureKeepsRookBimRuntime()
         {
             var runtime = NormalizeLineEndings(Read("src/RookBim/Revit/RevitRookBimRuntime.cs"));
@@ -159,7 +172,7 @@ namespace RookBim.Tests
                 "                    Available = false,\n" +
                 "                    Runtime = \"rookbim\",\n" +
                 "                    ErrorCode = \"not_rhino_inside\",\n" +
-                "                    Message = $\"RookBIM could not enter the Revit API context: {ex.Message}\",\n" +
+                    "                    Message = $\"RookBIM could not enter the Revit API context: {DescribeDispatchException(ex)}\",\n" +
                 "                    Host = \"unknown\",\n" +
                 "                    Module = ModuleName\n" +
                 "                };\n" +
@@ -266,6 +279,37 @@ namespace RookBim.Tests
         private static string NormalizeLineEndings(string value)
         {
             return value.Replace("\r\n", "\n");
+        }
+
+        private static string ExtractMethod(string source, string signatureStartText)
+        {
+            var signatureStart = source.IndexOf(
+                signatureStartText,
+                StringComparison.Ordinal);
+            if (signatureStart < 0)
+                throw new InvalidOperationException(
+                    "Method not found: " + signatureStartText);
+
+            var bodyStart = source.IndexOf('{', signatureStart);
+            if (bodyStart < 0)
+                throw new InvalidOperationException(
+                    "Method body not found: " + signatureStartText);
+
+            var depth = 0;
+            for (var i = bodyStart; i < source.Length; i++)
+            {
+                if (source[i] == '{')
+                    depth++;
+                else if (source[i] == '}')
+                {
+                    depth--;
+                    if (depth == 0)
+                        return source.Substring(signatureStart, i - signatureStart + 1);
+                }
+            }
+
+            throw new InvalidOperationException(
+                "Brace did not close at index " + bodyStart);
         }
 
         private static string FindRepoRoot()

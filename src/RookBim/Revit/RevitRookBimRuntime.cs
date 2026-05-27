@@ -1,4 +1,6 @@
 using System;
+using System.Linq;
+using System.Threading.Tasks;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using Rook.Bim;
@@ -54,7 +56,7 @@ namespace RookBim.Revit
                     Available = false,
                     Runtime = "rookbim",
                     ErrorCode = "not_rhino_inside",
-                    Message = $"RookBIM could not enter the Revit API context: {ex.Message}",
+                    Message = $"RookBIM could not enter the Revit API context: {DescribeDispatchException(ex)}",
                     Host = "unknown",
                     Module = ModuleName
                 };
@@ -95,7 +97,7 @@ namespace RookBim.Revit
             {
                 return BimApiResponse.Fail(
                     BimErrorCode.NotRhinoInside,
-                    $"RookBIM could not enter the Revit API context: {ex.Message}",
+                    $"RookBIM could not enter the Revit API context: {DescribeDispatchException(ex)}",
                     503);
             }
         }
@@ -128,13 +130,21 @@ namespace RookBim.Revit
         private T Dispatch<T>(Func<UIApplication, T> work)
         {
             var dispatch = dispatcher.InvokeAbandonable(work);
-            if (!dispatch.Task.Wait(DispatchTimeout))
+            if (Task.WaitAny(new Task[] { dispatch.Task }, DispatchTimeout) < 0)
             {
                 dispatch.Abandon();
                 throw new TimeoutException("Timed out waiting for Revit ExternalEvent execution.");
             }
 
             return dispatch.Task.GetAwaiter().GetResult();
+        }
+
+        private static string DescribeDispatchException(Exception ex)
+        {
+            var root = ex is AggregateException aggregate
+                ? aggregate.Flatten().InnerExceptions.FirstOrDefault() ?? ex
+                : ex;
+            return $"{root.GetType().Name}: {root.Message}";
         }
 
         private static BimViewIdentity? SerializeActiveView(UIDocument uidoc, Document document)
