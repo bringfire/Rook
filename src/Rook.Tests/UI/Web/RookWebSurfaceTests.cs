@@ -503,6 +503,284 @@ namespace Rook.Tests.UI.Web
             Assert.Contains("BindingFlags.NonPublic", source);
         }
 
+        // ─── Vision host presentation coordinator path ──────────────
+
+        [Fact]
+        public void VisionPresentationPath_IsOptInOnly()
+        {
+            var surface = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+            var vision = ReadSourceFile("src", "Rook", "UI", "Vision", "VisionWebSurface.cs");
+            var reconcile = ExtractMemberBlock(
+                surface,
+                "internal void ReconcileHostPresentation(");
+            var gotFocus = ExtractMemberBlock(
+                surface,
+                "private void OnWebViewGotFocus(");
+            var appActive = ExtractMemberBlock(
+                surface,
+                "private void OnApplicationIsActiveChanged(");
+
+            Assert.Contains(
+                "protected virtual bool UseHostPresentationCoordinator => false;",
+                surface);
+            Assert.Contains(
+                "protected override bool UseHostPresentationCoordinator => true;",
+                vision);
+            Assert.Contains("if (!UseHostPresentationCoordinator)", reconcile);
+            Assert.Contains(
+                "ReconcileHostVisibility(facts.DesiredVisible, facts.Reason);",
+                reconcile);
+            Assert.Contains("if (!facts.Authoritative)", reconcile);
+            Assert.Contains("if (UseHostPresentationCoordinator)", gotFocus);
+            Assert.Contains("if (UseHostPresentationCoordinator)", appActive);
+            Assert.DoesNotContain(
+                "protected override bool UseHostPresentationCoordinator => true;",
+                surface);
+        }
+
+        [Fact]
+        public void VisionPresentationPath_UsesOneShotIdleAndNoPersistentIdleLoop()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+            var scheduler = ExtractMemberBlock(
+                source,
+                "private void ScheduleHostPresentationReconcile(");
+            var idleScheduler = ExtractMemberBlock(
+                source,
+                "private void ScheduleHostPresentationIdleFollowUp(");
+            var idleHandler = ExtractMemberBlock(
+                source,
+                "private void OnHostPresentationIdle(");
+            var disposeWebView = ExtractMemberBlock(
+                source,
+                "private void DisposeWebView(");
+            var run = ExtractMemberBlock(
+                source,
+                "private void RunHostPresentationCoordinatorReconcile(");
+            var apply = ExtractMemberBlock(
+                source,
+                "private string ApplyHostPresentationDecision(");
+            var scopedScheduler = scheduler + idleScheduler + idleHandler + run + apply;
+
+            Assert.Contains(
+                "private readonly WebViewHostPresentationIdleGate _hostPresentationIdleGate = new();",
+                source);
+            Assert.Contains("_hostPresentationIdleReason", source);
+            Assert.Contains("TrySchedule(facts.Generation)", idleScheduler);
+            Assert.Contains("RhinoApp.Idle += OnHostPresentationIdle;", idleScheduler);
+            Assert.Contains("RhinoApp.Idle -= OnHostPresentationIdle;", idleHandler);
+            Assert.Contains("ShouldRun(", idleHandler);
+            Assert.Contains("facts.Generation", idleHandler);
+            Assert.Contains("_hostPresentationIdleGate.Clear();", source);
+            Assert.Contains("RhinoApp.Idle -= OnHostPresentationIdle;", disposeWebView);
+            Assert.DoesNotContain("while (", scopedScheduler);
+            Assert.DoesNotContain("for (", scopedScheduler);
+        }
+
+        [Fact]
+        public void VisionPresentationPath_ControllerConfiguredUsesCoordinatorPath()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+            var configure = ExtractMemberBlock(
+                source,
+                "private async void ConfigureVirtualHost(");
+
+            Assert.Contains("if (UseHostPresentationCoordinator)", configure);
+            Assert.Contains(
+                "ScheduleLatestHostPresentationFromEvent(",
+                configure);
+            Assert.Contains("\"WebView2Configured\"", configure);
+            Assert.Contains("scheduleIdleFollowUp: true", configure);
+            Assert.DoesNotContain(
+                "ScheduleHostVisibilityReconcile(\r\n                    _hostVisibility.RecordControllerAvailable(\"WebView2Configured\"));",
+                configure);
+        }
+
+        [Fact]
+        public void VisionPresentationPath_IdleSkipsHiddenLatestFactsBeforeReconcile()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+            var idleHandler = ExtractMemberBlock(
+                source,
+                "private void OnHostPresentationIdle(");
+
+            var hiddenGuard = idleHandler.IndexOf("ShouldRun(", StringComparison.Ordinal);
+            var reconcile = idleHandler.IndexOf(
+                "RunHostPresentationCoordinatorReconcile(reason);",
+                StringComparison.Ordinal);
+
+            Assert.True(hiddenGuard >= 0, "Idle handler must guard hidden facts.");
+            Assert.True(reconcile >= 0, "Idle handler must run presentation reconcile.");
+            Assert.True(
+                hiddenGuard < reconcile,
+                "Idle hidden-facts guard must run before presentation reconcile.");
+        }
+
+        [Fact]
+        public void VisionPresentationPath_AppliesPresentInBoundsVisibleNotifyOrder()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+            var method = ExtractMethod(source, "private string ApplyHostPresentationDecision");
+
+            var boundsIndex = method.IndexOf("SetControllerBounds", StringComparison.Ordinal);
+            var visibleIndex = method.IndexOf(
+                "SetControllerVisible(controller, true",
+                StringComparison.Ordinal);
+            var notifyIndex = method.IndexOf(
+                "NotifyParentWindowPositionChanged",
+                StringComparison.Ordinal);
+
+            Assert.True(boundsIndex >= 0);
+            Assert.True(visibleIndex >= 0);
+            Assert.True(notifyIndex >= 0);
+            Assert.True(boundsIndex < visibleIndex);
+            Assert.True(visibleIndex < notifyIndex);
+        }
+
+        [Fact]
+        public void VisionPresentationPath_DoesNotMarkMissingWebViewAsDisposed()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+
+            Assert.DoesNotContain("Disposed = _webView == null", source);
+            Assert.Contains("Disposed = facts.Disposed", source);
+        }
+
+        [Fact]
+        public void VisionPresentationPath_RefreshesAppActiveAtSnapshotTime()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+            var capture = ExtractMethod(source, "private HostPresentationProbe CaptureHostPresentationProbe");
+
+            Assert.Contains(
+                "AppActive = facts.AppActive && IsApplicationActiveForPresentation()",
+                capture);
+            Assert.Contains(
+                "private static bool IsApplicationActiveForPresentation()",
+                source);
+        }
+
+        [Fact]
+        public void VisionPresentationPath_RefreshesVolatileFactsBeforeDecision()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+            var run = ExtractMethod(
+                source,
+                "private void RunHostPresentationCoordinatorReconcile");
+            var idle = ExtractMemberBlock(
+                source,
+                "private void OnHostPresentationIdle(");
+
+            var runRefresh = run.IndexOf("RefreshHostPresentationFacts(", StringComparison.Ordinal);
+            var runProbe = run.IndexOf("CaptureHostPresentationProbe(facts)", StringComparison.Ordinal);
+            var idleRefresh = idle.IndexOf("RefreshHostPresentationFacts(", StringComparison.Ordinal);
+            var idleGate = idle.IndexOf("_hostPresentationIdleGate.ShouldRun(", StringComparison.Ordinal);
+
+            Assert.Contains(
+                "private protected virtual WebViewHostPanelPresentationFacts RefreshHostPresentationFacts(",
+                source);
+            Assert.True(runRefresh >= 0, "Run path must refresh volatile facts.");
+            Assert.True(runProbe >= 0, "Run path must capture a presentation probe.");
+            Assert.True(runRefresh < runProbe, "Facts refresh must happen before probe capture.");
+            Assert.True(idleRefresh >= 0, "Idle path must refresh volatile facts.");
+            Assert.True(idleGate >= 0, "Idle path must guard through the idle gate.");
+            Assert.True(idleRefresh < idleGate, "Idle facts refresh must happen before gate evaluation.");
+        }
+
+        [Fact]
+        public void VisionPresentationPath_BoundsFailureDoesNotSkipVisibleOrNotify()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+            var method = ExtractMethod(source, "private string ApplyHostPresentationDecision");
+
+            var boundsFailure = method.IndexOf("actionResult = \"set-bounds-failed\"", StringComparison.Ordinal);
+            var visibleIndex = method.IndexOf("SetControllerVisible(controller, true", StringComparison.Ordinal);
+            var notifyIndex = method.IndexOf(
+                "NotifyParentWindowPositionChangedWithResult",
+                StringComparison.Ordinal);
+
+            Assert.True(boundsFailure >= 0);
+            Assert.True(visibleIndex >= 0);
+            Assert.True(notifyIndex >= 0);
+            Assert.True(boundsFailure < visibleIndex);
+            Assert.True(visibleIndex < notifyIndex);
+            Assert.DoesNotContain("return \"set-bounds-failed\"", method);
+        }
+
+        [Fact]
+        public void VisionPresentationPath_ActionResultStaysInMemoryOnly()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+            var run = ExtractMethod(
+                source,
+                "private void RunHostPresentationCoordinatorReconcile");
+
+            Assert.Contains("_lastHostPresentationActionResult", source);
+            Assert.Contains("_lastHostPresentationActionResult =", run);
+            Assert.DoesNotContain("TraceWebViewFocus", run);
+            Assert.DoesNotContain("File.", run);
+        }
+
+        [Fact]
+        public void VisionPresentationPath_RecordsBoundedMemoryOnlyDiagnosticRing()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+            var diagnostic = ReadSourceFile(
+                "src",
+                "Rook",
+                "UI",
+                "Web",
+                "WebViewHostPresentationDiagnosticEntry.cs");
+            var record = ExtractMethod(
+                source,
+                "private void RecordHostPresentationDiagnostic");
+            var dump = ExtractMemberBlock(
+                source,
+                "internal string DumpHostPresentationDiagnostics(");
+
+            Assert.Contains("MaxHostPresentationDiagnosticEntries = 64", source);
+            Assert.Contains("Queue<WebViewHostPresentationDiagnosticEntry>", source);
+            Assert.Contains("RecordHostPresentationDiagnostic(", source);
+            Assert.Contains("while (_hostPresentationDiagnostics.Count > MaxHostPresentationDiagnosticEntries)", record);
+            Assert.Contains("Facts = WebViewHostPanelPresentationFactsDiagnostic.From(facts)", record);
+            Assert.Contains("Snapshot = WebViewHostPresentationSnapshotDiagnostic.From(snapshot)", record);
+            Assert.Contains("Decision = WebViewHostPresentationDecisionDiagnostic.From(decision)", record);
+            Assert.Contains("ActionResult = actionResult", record);
+            Assert.Contains("JsonSerializer.Serialize", dump);
+            Assert.DoesNotContain("File.", record + dump);
+            Assert.DoesNotContain("object", diagnostic);
+            Assert.DoesNotContain("IntPtr", diagnostic);
+            Assert.DoesNotContain("Exception", diagnostic);
+        }
+
+        [Fact]
+        public void VisionPresentationPath_DoesNotUseReloadOrJsProbeForRecovery()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+            var scoped = string.Concat(
+                ExtractMemberBlock(
+                    source,
+                    "private void ScheduleHostPresentationReconcile("),
+                ExtractMemberBlock(
+                    source,
+                    "private void ScheduleHostPresentationIdleFollowUp("),
+                ExtractMemberBlock(
+                    source,
+                    "private void OnHostPresentationIdle("),
+                ExtractMemberBlock(
+                    source,
+                    "private void RunHostPresentationCoordinatorReconcile("),
+                ExtractMemberBlock(
+                    source,
+                    "private string ApplyHostPresentationDecision("));
+
+            Assert.DoesNotContain("ExecuteScript", scoped);
+            Assert.DoesNotContain(".Reload(", scoped);
+            Assert.DoesNotContain("ReloadAfterRendererExit", scoped);
+            Assert.DoesNotContain("TryRenavigateAfterReloadFailure", scoped);
+            Assert.DoesNotContain("BuildFocusProbeScript", scoped);
+        }
+
         // ─── TryResolveVirtualResource hook (PR-7a) ──────────────────
 
         /// <summary>
@@ -575,6 +853,56 @@ namespace Rook.Tests.UI.Web
 
             throw new FileNotFoundException(
                 "Could not locate source file " + string.Join("/", pathParts));
+        }
+
+        private static string ExtractMethod(string source, string signature)
+        {
+            var start = source.IndexOf(signature, StringComparison.Ordinal);
+            if (start < 0)
+                return string.Empty;
+
+            var brace = source.IndexOf('{', start);
+            if (brace < 0)
+                return source.Substring(start);
+
+            var depth = 0;
+            for (var i = brace; i < source.Length; i++)
+            {
+                if (source[i] == '{')
+                    depth++;
+                else if (source[i] == '}')
+                    depth--;
+
+                if (depth == 0)
+                    return source.Substring(start, i - start + 1);
+            }
+
+            return source.Substring(start);
+        }
+
+        private static string ExtractMemberBlock(string source, string signature)
+        {
+            var start = source.IndexOf(signature, StringComparison.Ordinal);
+            Assert.True(start >= 0, "Missing source member: " + signature);
+
+            var brace = source.IndexOf('{', start);
+            Assert.True(brace >= 0, "Missing member body: " + signature);
+
+            var depth = 0;
+            for (var i = brace; i < source.Length; i++)
+            {
+                if (source[i] == '{')
+                    depth++;
+                else if (source[i] == '}')
+                {
+                    depth--;
+                    if (depth == 0)
+                        return source.Substring(start, i - start + 1);
+                }
+            }
+
+            throw new InvalidOperationException(
+                "Unterminated source member: " + signature);
         }
 
         [Fact]

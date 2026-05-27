@@ -12,7 +12,15 @@ namespace Rook.Tests.UI.Panels
         private sealed class FakeVisibilityQuery : IRhinoPanelVisibilityQuery
         {
             public bool Visible { get; set; } = true;
+            public bool? VisibleAnyTab { get; set; }
             public Type? LastPanelType { get; private set; }
+            public Type? LastAnyTabPanelType { get; private set; }
+
+            public bool IsPanelVisibleAnyTab(Type panelType)
+            {
+                LastAnyTabPanelType = panelType;
+                return VisibleAnyTab ?? Visible;
+            }
 
             public bool IsSelectedPanelVisible(Type panelType)
             {
