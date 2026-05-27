@@ -133,7 +133,7 @@ namespace RookBim.Revit
             if (Task.WaitAny(new Task[] { dispatch.Task }, DispatchTimeout) < 0)
             {
                 dispatch.Abandon();
-                throw new TimeoutException("Timed out waiting for RhinoInside Revit host-context execution.");
+                throw new TimeoutException("Timed out waiting for RhinoInside Revit idling-queue execution.");
             }
 
             return dispatch.Task.GetAwaiter().GetResult();

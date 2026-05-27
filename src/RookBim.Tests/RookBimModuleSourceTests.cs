@@ -156,7 +156,7 @@ namespace RookBim.Tests
             Assert.Contains("var dispatch = dispatcher.InvokeAbandonable(work);", runtime);
             Assert.Contains("dispatch.Abandon();", runtime);
             Assert.Contains("throw new TimeoutException", runtime);
-            Assert.Contains("Timed out waiting for RhinoInside Revit host-context execution.", runtime);
+            Assert.Contains("Timed out waiting for RhinoInside Revit idling-queue execution.", runtime);
             Assert.DoesNotContain("Timed out waiting for Revit ExternalEvent execution.", runtime);
         }
 
