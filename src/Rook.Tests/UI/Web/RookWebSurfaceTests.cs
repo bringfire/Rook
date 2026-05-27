@@ -661,6 +661,33 @@ namespace Rook.Tests.UI.Web
         }
 
         [Fact]
+        public void VisionPresentationPath_RefreshesVolatileFactsBeforeDecision()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+            var run = ExtractMethod(
+                source,
+                "private void RunHostPresentationCoordinatorReconcile");
+            var idle = ExtractMemberBlock(
+                source,
+                "private void OnHostPresentationIdle(");
+
+            var runRefresh = run.IndexOf("RefreshHostPresentationFacts(", StringComparison.Ordinal);
+            var runProbe = run.IndexOf("CaptureHostPresentationProbe(facts)", StringComparison.Ordinal);
+            var idleRefresh = idle.IndexOf("RefreshHostPresentationFacts(", StringComparison.Ordinal);
+            var idleGate = idle.IndexOf("_hostPresentationIdleGate.ShouldRun(", StringComparison.Ordinal);
+
+            Assert.Contains(
+                "private protected virtual WebViewHostPanelPresentationFacts RefreshHostPresentationFacts(",
+                source);
+            Assert.True(runRefresh >= 0, "Run path must refresh volatile facts.");
+            Assert.True(runProbe >= 0, "Run path must capture a presentation probe.");
+            Assert.True(runRefresh < runProbe, "Facts refresh must happen before probe capture.");
+            Assert.True(idleRefresh >= 0, "Idle path must refresh volatile facts.");
+            Assert.True(idleGate >= 0, "Idle path must guard through the idle gate.");
+            Assert.True(idleRefresh < idleGate, "Idle facts refresh must happen before gate evaluation.");
+        }
+
+        [Fact]
         public void VisionPresentationPath_BoundsFailureDoesNotSkipVisibleOrNotify()
         {
             var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
@@ -692,6 +719,38 @@ namespace Rook.Tests.UI.Web
             Assert.Contains("_lastHostPresentationActionResult =", run);
             Assert.DoesNotContain("TraceWebViewFocus", run);
             Assert.DoesNotContain("File.", run);
+        }
+
+        [Fact]
+        public void VisionPresentationPath_RecordsBoundedMemoryOnlyDiagnosticRing()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+            var diagnostic = ReadSourceFile(
+                "src",
+                "Rook",
+                "UI",
+                "Web",
+                "WebViewHostPresentationDiagnosticEntry.cs");
+            var record = ExtractMethod(
+                source,
+                "private void RecordHostPresentationDiagnostic");
+            var dump = ExtractMemberBlock(
+                source,
+                "internal string DumpHostPresentationDiagnostics(");
+
+            Assert.Contains("MaxHostPresentationDiagnosticEntries = 64", source);
+            Assert.Contains("Queue<WebViewHostPresentationDiagnosticEntry>", source);
+            Assert.Contains("RecordHostPresentationDiagnostic(", source);
+            Assert.Contains("while (_hostPresentationDiagnostics.Count > MaxHostPresentationDiagnosticEntries)", record);
+            Assert.Contains("Facts = WebViewHostPanelPresentationFactsDiagnostic.From(facts)", record);
+            Assert.Contains("Snapshot = WebViewHostPresentationSnapshotDiagnostic.From(snapshot)", record);
+            Assert.Contains("Decision = WebViewHostPresentationDecisionDiagnostic.From(decision)", record);
+            Assert.Contains("ActionResult = actionResult", record);
+            Assert.Contains("JsonSerializer.Serialize", dump);
+            Assert.DoesNotContain("File.", record + dump);
+            Assert.DoesNotContain("object", diagnostic);
+            Assert.DoesNotContain("IntPtr", diagnostic);
+            Assert.DoesNotContain("Exception", diagnostic);
         }
 
         [Fact]

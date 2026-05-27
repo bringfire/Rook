@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a Vision-only deterministic WebView2 return-edge path that never presents while Rhino/app/panel host is inactive or non-presentable, and presents exactly once when active selected Vision becomes host-presentable.
+**Goal:** Build a Vision-only deterministic WebView2 return-edge validation path that never presents while Rhino/app/panel host is inactive or non-presentable, and presents exactly once when active selected Vision becomes host-presentable. This is a validation branch, not a fix branch, until live Rhino evidence proves the model.
 
 **Architecture:** Keep PR #191's `WebViewHostPresentationCoordinator` as the pure decision engine. Add a Vision-owned panel-facts tracker and a Vision-only `RookWebSurface` presentation path that builds fresh execution-time snapshots, applies actions in bounds -> visible -> notify order, and schedules one coalesced Rhino idle follow-up guarded by an authoritative generation token. Chat and Knowledge Graph stay on the old path.
 
@@ -18,6 +18,10 @@ Design spec:
 
 Key constraints from the spec:
 
+- Current working `main` behavior is the control; this branch must prove it is safer, not merely plausible.
+- No merge until live Rhino docked/tabbed validation proves the model.
+- Stale panel facts are a known blocking issue before meaningful live validation.
+- Memory-only observability is required before live validation.
 - No runtime flags.
 - No hot-path file logging.
 - No JS/DOM probes.
@@ -25,6 +29,23 @@ Key constraints from the spec:
 - No recurring idle loop.
 - No Chat/KG runtime changes.
 - Do not deploy PR #192 runtime wiring as-is.
+
+---
+
+## Conservative Review Addendum
+
+The branch posture changed after review on 2026-05-26. RookVision is currently working on `main`, and the panel visibility bug has not recently reproduced. Treat this branch as **Vision presentation validation**, not as a fix ready for merge.
+
+Before any merge discussion:
+
+- Refresh panel visibility facts at decision time or immediately before delayed/idle evaluation.
+- Add a bounded in-memory diagnostic ring for facts, snapshot, decision, and action result.
+- Add an explicit dump mechanism suitable for live testing, with panel wrapper metadata and visibility-probe success/failure status. Probe failure must block presentation and preserve the prior visibility value only as diagnostic evidence.
+- Run the docked/tabbed/floating/gallery/modal validation matrix.
+
+Live validation dump command: `RookDumpVisionPresentationState`. If Vision goes dark, run this before clicking inside Vision or changing the panel state.
+
+Do not claim the branch fixes RookVision until live Rhino validation proves that the state model handles the real panel lifecycle. Passing managed tests only proves the model is internally consistent.
 
 ---
 
@@ -618,7 +639,8 @@ public void VisionPresentationPath_UsesOneShotIdleAndNoPersistentIdleLoop()
     Assert.Contains("ScheduleHostPresentationIdleFollowUp", source);
     Assert.Contains("RhinoApp.Idle += OnHostPresentationIdle", source);
     Assert.Contains("RhinoApp.Idle -= OnHostPresentationIdle", source);
-    Assert.Contains("_hostPresentationIdlePending = false", source);
+    Assert.Contains("_hostPresentationIdleGate", source);
+    Assert.Contains("RefreshHostPresentationFacts", idle);
     Assert.DoesNotContain("while (", schedule + idle);
 }
 
@@ -663,10 +685,13 @@ Under `#if ROOK_WEBVIEW2` fields, add:
 private readonly WebViewHostPresentationCoordinator _hostPresentation = new();
 private WebViewHostPanelPresentationFacts? _latestPresentationFacts;
 private bool _hostPresentationQueued;
-private bool _hostPresentationIdlePending;
-private long _hostPresentationIdleGeneration;
+private readonly WebViewHostPresentationIdleGate _hostPresentationIdleGate = new();
 private string _hostPresentationIdleReason = "";
+private const int MaxHostPresentationDiagnosticEntries = 64;
+private readonly Queue<WebViewHostPresentationDiagnosticEntry> _hostPresentationDiagnostics = new();
 ```
+
+Current validation-branch implementation also requires `RefreshHostPresentationFacts(...)` so delayed/idle decisions refresh volatile panel visibility facts before snapshot capture.
 
 In `VisionWebSurface.cs`, add:
 
@@ -755,14 +780,13 @@ In `RookWebSurface.cs`, add:
 #if ROOK_WEBVIEW2
 private void ScheduleHostPresentationIdleFollowUp(string reason)
 {
-    if (_disposed || _latestPresentationFacts == null)
+    var facts = _latestPresentationFacts;
+    if (_disposed || facts == null || !facts.Authoritative)
         return;
 
-    if (_hostPresentationIdlePending)
+    if (!_hostPresentationIdleGate.TrySchedule(facts.Generation))
         return;
 
-    _hostPresentationIdlePending = true;
-    _hostPresentationIdleGeneration = _latestPresentationFacts.Generation;
     _hostPresentationIdleReason = reason;
     RhinoApp.Idle += OnHostPresentationIdle;
 }
@@ -771,24 +795,27 @@ private void OnHostPresentationIdle(object? sender, EventArgs e)
 {
     RhinoApp.Idle -= OnHostPresentationIdle;
 
-    if (!_hostPresentationIdlePending)
-        return;
-
-    _hostPresentationIdlePending = false;
-    var capturedGeneration = _hostPresentationIdleGeneration;
+    var facts = _latestPresentationFacts;
     var reason = _hostPresentationIdleReason;
     _hostPresentationIdleReason = "";
 
-    if (_disposed || _latestPresentationFacts == null)
-        return;
+    if (facts != null && facts.Authoritative)
+    {
+        facts = RefreshHostPresentationFacts(facts, reason);
+        _latestPresentationFacts = facts;
+    }
 
-    if (_latestPresentationFacts.Generation != capturedGeneration)
+    if (facts == null ||
+        !facts.Authoritative ||
+        !_hostPresentationIdleGate.ShouldRun(
+            facts.Generation,
+            _disposed || facts.Disposed,
+            facts.DesiredVisible))
+    {
         return;
+    }
 
-    if (!_latestPresentationFacts.DesiredVisible)
-        return;
-
-    RunHostPresentationCoordinatorReconcile("IdleFollowUp:" + reason);
+    RunHostPresentationCoordinatorReconcile(reason);
 }
 #endif
 ```
@@ -797,7 +824,7 @@ In `DisposeWebView()`, add before disposing `_webView`:
 
 ```csharp
 try { RhinoApp.Idle -= OnHostPresentationIdle; } catch { }
-_hostPresentationIdlePending = false;
+_hostPresentationIdleGate.Clear();
 ```
 
 - [ ] **Step 6: Route WebView/app events correctly**
@@ -980,10 +1007,12 @@ private void RunHostPresentationCoordinatorReconcile(string reason)
     if (_latestPresentationFacts == null)
         return;
 
-    var facts = _latestPresentationFacts;
+    var facts = RefreshHostPresentationFacts(_latestPresentationFacts, reason);
+    _latestPresentationFacts = facts;
     var probe = CaptureHostPresentationProbe(facts);
     var decision = _hostPresentation.Evaluate(probe.Snapshot, reason);
-    ApplyHostPresentationDecision(decision, probe.Controller, reason);
+    var actionResult = ApplyHostPresentationDecision(decision, probe.Controller, reason);
+    RecordHostPresentationDiagnostic(facts, probe.Snapshot, decision, actionResult, reason);
 }
 
 private HostPresentationProbe CaptureHostPresentationProbe(
@@ -1430,11 +1459,15 @@ public void PanelShown(uint documentSerialNumber, ShowPanelReason reason)
 {
     _documentSerialNumber = documentSerialNumber;
     _lifecycle.PanelShown(documentSerialNumber, reason);
+    var visibleAnyTab = ProbeVisibleAnyTab(_presentationState.Current.PanelVisibleAnyTab);
+    var selectedVisible = ProbeSelectedVisible(_presentationState.Current.PanelSelectedVisible);
     var facts = _presentationState.PanelShown(
         reason,
-        IsVisibleAnyTab(),
-        IsSelectedVisible());
-    _surface.ReconcileHostPresentation(facts, scheduleIdleFollowUp: true);
+        visibleAnyTab.CoordinatorValue,
+        selectedVisible.CoordinatorValue);
+    _surface.ReconcileHostPresentation(
+        ApplyProbeStatus(facts, visibleAnyTab, selectedVisible),
+        scheduleIdleFollowUp: true);
     ReconcileSurface("PanelShown:" + reason);
 }
 ```
@@ -1446,11 +1479,15 @@ public void PanelHidden(uint documentSerialNumber, ShowPanelReason reason)
 {
     _documentSerialNumber = documentSerialNumber;
     _lifecycle.PanelHidden(documentSerialNumber, reason);
+    var visibleAnyTab = ProbeVisibleAnyTab(_presentationState.Current.PanelVisibleAnyTab);
+    var selectedVisible = ProbeSelectedVisible(_presentationState.Current.PanelSelectedVisible);
     var facts = _presentationState.PanelHidden(
         reason,
-        IsVisibleAnyTab(),
-        IsSelectedVisible());
-    _surface.ReconcileHostPresentation(facts, scheduleIdleFollowUp: false);
+        visibleAnyTab.CoordinatorValue,
+        selectedVisible.CoordinatorValue);
+    _surface.ReconcileHostPresentation(
+        ApplyProbeStatus(facts, visibleAnyTab, selectedVisible),
+        scheduleIdleFollowUp: false);
     ReconcileSurface("PanelHidden:" + reason);
 }
 ```
@@ -1486,26 +1523,54 @@ Content size/layout:
 ```csharp
 private void OnContentSizeChanged(object? sender, EventArgs e)
 {
+    var visibleAnyTab = ProbeVisibleAnyTab(_presentationState.Current.PanelVisibleAnyTab);
+    var selectedVisible = ProbeSelectedVisible(_presentationState.Current.PanelSelectedVisible);
     var facts = _presentationState.RefreshSelection(
-        IsSelectedVisible(),
+        selectedVisible.CoordinatorValue,
         "ContentSizeChanged");
-    _surface.ReconcileHostPresentation(facts, scheduleIdleFollowUp: true);
+    _surface.ReconcileHostPresentation(
+        ApplyProbeStatus(
+            facts with
+            {
+                PanelVisibleAnyTab = visibleAnyTab.CoordinatorValue,
+                PanelVisible = visibleAnyTab.CoordinatorValue
+            },
+            visibleAnyTab,
+            selectedVisible),
+        scheduleIdleFollowUp: true);
 }
 ```
 
-Helper:
+Probe helper:
 
 ```csharp
-private bool IsSelectedVisible()
+private PanelVisibilityProbe ProbeSelectedVisible(bool fallback)
 {
-    try { return _visibilityQuery.IsSelectedPanelVisible(typeof(RookVisionPanel)); }
-    catch { return false; }
+    try
+    {
+        return PanelVisibilityProbe.Success(
+            _visibilityQuery.IsSelectedPanelVisible(typeof(RookVisionPanel)));
+    }
+    catch (Exception ex)
+    {
+        return PanelVisibilityProbe.Failure(fallback, ex);
+    }
 }
 
-private bool IsVisibleAnyTab()
+private readonly record struct PanelVisibilityProbe(
+    bool CoordinatorValue,
+    bool PriorValue,
+    bool Succeeded,
+    string Status)
 {
-    try { return _visibilityQuery.IsPanelVisibleAnyTab(typeof(RookVisionPanel)); }
-    catch { return false; }
+    public static PanelVisibilityProbe Failure(bool fallback, Exception ex)
+    {
+        return new PanelVisibilityProbe(
+            false,
+            fallback,
+            false,
+            "exception:" + ex.GetType().Name);
+    }
 }
 ```
 

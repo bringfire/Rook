@@ -5,6 +5,7 @@ using System.Reflection;
 #if ROOK_WEBVIEW2
 using System.Runtime.InteropServices;
 #endif
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using Eto.Forms;
@@ -191,6 +192,9 @@ namespace Rook.UI.Web
         private readonly WebViewHostPresentationIdleGate _hostPresentationIdleGate = new();
         private string _hostPresentationIdleReason = string.Empty;
         private string _lastHostPresentationActionResult = "none";
+        private const int MaxHostPresentationDiagnosticEntries = 64;
+        private readonly Queue<WebViewHostPresentationDiagnosticEntry> _hostPresentationDiagnostics = new();
+        private int _hostPresentationDiagnosticSequence;
 #endif
 
         // ─── Constructor ──────────────────────────────────────────────
@@ -265,6 +269,19 @@ namespace Rook.UI.Web
         /// Chat and Knowledge Graph stay on the legacy visibility path.
         /// </summary>
         protected virtual bool UseHostPresentationCoordinator => false;
+
+        /// <summary>
+        /// Gives opt-in surfaces one last chance to refresh volatile host
+        /// facts before a presentation decision. This must not mutate durable
+        /// intent; it is an execution-time visibility overlay.
+        /// </summary>
+        private protected virtual WebViewHostPanelPresentationFacts RefreshHostPresentationFacts(
+            WebViewHostPanelPresentationFacts facts,
+            string reason)
+        {
+            _ = reason;
+            return facts;
+        }
 
         /// <summary>
         /// Optional hook for subclasses to resolve <em>virtual</em> resources
@@ -399,6 +416,26 @@ namespace Rook.UI.Web
 #endif
         }
 
+        internal string DumpHostPresentationDiagnostics()
+        {
+#if ROOK_WEBVIEW2
+            return JsonSerializer.Serialize(
+                GetHostPresentationDiagnosticEntries(),
+                new JsonSerializerOptions { WriteIndented = true });
+#else
+            return "[]";
+#endif
+        }
+
+        internal WebViewHostPresentationDiagnosticEntry[] GetHostPresentationDiagnosticEntries()
+        {
+#if ROOK_WEBVIEW2
+            return _hostPresentationDiagnostics.ToArray();
+#else
+            return Array.Empty<WebViewHostPresentationDiagnosticEntry>();
+#endif
+        }
+
         /// <summary>
         /// Register a typed bridge handler keyed on a method name. Stored
         /// immediately; only fires once the bridge comes up. Call from the
@@ -527,6 +564,12 @@ namespace Rook.UI.Web
             var reason = _hostPresentationIdleReason;
             _hostPresentationIdleReason = string.Empty;
 
+            if (facts != null && facts.Authoritative)
+            {
+                facts = RefreshHostPresentationFacts(facts, reason);
+                _latestPresentationFacts = facts;
+            }
+
             if (facts == null ||
                 !facts.Authoritative ||
                 !_hostPresentationIdleGate.ShouldRun(
@@ -567,7 +610,10 @@ namespace Rook.UI.Web
             if (_latestPresentationFacts == null)
                 return;
 
-            var facts = _latestPresentationFacts;
+            var facts = RefreshHostPresentationFacts(
+                _latestPresentationFacts,
+                reason);
+            _latestPresentationFacts = facts;
             var probe = CaptureHostPresentationProbe(facts);
             var decision = _hostPresentation.Evaluate(probe.Snapshot, reason);
             var actionResult = ApplyHostPresentationDecision(
@@ -576,6 +622,35 @@ namespace Rook.UI.Web
                 reason);
             _lastHostPresentationActionResult =
                 $"{decision.Action};{actionResult};{reason}";
+            RecordHostPresentationDiagnostic(
+                facts,
+                probe.Snapshot,
+                decision,
+                actionResult,
+                reason);
+        }
+
+        private void RecordHostPresentationDiagnostic(
+            WebViewHostPanelPresentationFacts facts,
+            WebViewHostPresentationSnapshot snapshot,
+            WebViewHostPresentationDecision decision,
+            string actionResult,
+            string reason)
+        {
+            _hostPresentationDiagnostics.Enqueue(new WebViewHostPresentationDiagnosticEntry
+            {
+                Sequence = ++_hostPresentationDiagnosticSequence,
+                TimestampUtc = DateTimeOffset.UtcNow,
+                Surface = ResourceRoot,
+                Reason = reason,
+                Facts = WebViewHostPanelPresentationFactsDiagnostic.From(facts),
+                Snapshot = WebViewHostPresentationSnapshotDiagnostic.From(snapshot),
+                Decision = WebViewHostPresentationDecisionDiagnostic.From(decision),
+                ActionResult = actionResult
+            });
+
+            while (_hostPresentationDiagnostics.Count > MaxHostPresentationDiagnosticEntries)
+                _hostPresentationDiagnostics.Dequeue();
         }
 
         private string ApplyHostPresentationDecision(

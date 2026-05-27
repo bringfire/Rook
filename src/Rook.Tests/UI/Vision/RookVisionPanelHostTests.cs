@@ -22,6 +22,30 @@ namespace Rook.Tests.UI.Vision
         }
 
         [Fact]
+        public void DumpVisionPresentationCommand_UsesMemoryOnlyPanelDiagnostics()
+        {
+            var command = ReadSourceFile(
+                "src",
+                "Rook",
+                "Commands",
+                "RookDumpVisionPresentationStateCommand.cs");
+            var panel = ReadSourceFile("src", "Rook", "UI", "Vision", "RookVisionPanel.cs");
+
+            Assert.Contains("RookDumpVisionPresentationState", command);
+            Assert.Contains("RookVisionPanel.DumpPresentationDiagnostics()", command);
+            Assert.Contains("RhinoApp.WriteLine", command);
+            Assert.DoesNotContain("File.", command);
+            Assert.Contains("internal static string DumpPresentationDiagnostics()", panel);
+            Assert.Contains("VisionPanelPresentationDiagnosticDump", panel);
+            Assert.Contains("SurfaceId = panel._surfaceId", panel);
+            Assert.Contains("DocumentSerialNumber = panel._documentSerialNumber", panel);
+            Assert.Contains("Closed = panel._closed", panel);
+            Assert.Contains("SurfaceDisposed = panel._surface.IsDisposed", panel);
+            Assert.Contains("Entries = panel._surface.GetHostPresentationDiagnosticEntries()", panel);
+            Assert.Contains("JsonSerializer.Serialize", panel);
+        }
+
+        [Fact]
         public void RookPlugin_RegistersDedicatedVisionPanel()
         {
             var source = ReadSourceFile("src", "Rook", "RookPlugin.cs");
@@ -59,9 +83,60 @@ namespace Rook.Tests.UI.Vision
 
             Assert.Contains("VisionPanelPresentationState", source);
             Assert.Contains("_surface.ReconcileHostPresentation", source);
+            Assert.Contains("_surface.SetPresentationFactsRefresher", source);
             Assert.Contains("RhinoPanelVisibilityQuery", source);
             Assert.Contains("IsSelectedPanelVisible(typeof(RookVisionPanel))", source);
             Assert.Contains("IsPanelVisibleAnyTab(typeof(RookVisionPanel))", source);
+        }
+
+        [Fact]
+        public void RookVisionPanel_RefreshesVolatilePanelFactsAtDecisionTime()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Vision", "RookVisionPanel.cs");
+            var method = ExtractMethod(
+                source,
+                "private WebViewHostPanelPresentationFacts RefreshPresentationFactsForDecision");
+
+            Assert.Contains("ProbeVisibleAnyTab(facts.PanelVisibleAnyTab)", method);
+            Assert.Contains("ProbeSelectedVisible(facts.PanelSelectedVisible)", method);
+            Assert.Contains("PanelVisibleAnyTab = visibleAnyTab.CoordinatorValue", method);
+            Assert.Contains("PanelVisible = visibleAnyTab.CoordinatorValue", method);
+            Assert.Contains("PanelSelectedVisible = selectedVisible.CoordinatorValue", method);
+            Assert.Contains("ApplyProbeStatus", method);
+            Assert.DoesNotContain("DesiredVisible =", method);
+        }
+
+        [Fact]
+        public void RookVisionPanel_VisibilityProbeFailuresRemainDistinctFromFalse()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Vision", "RookVisionPanel.cs");
+            var facts = ReadSourceFile("src", "Rook", "UI", "Web", "WebViewHostPanelPresentationFacts.cs");
+            var diagnostic = ReadSourceFile(
+                "src",
+                "Rook",
+                "UI",
+                "Web",
+                "WebViewHostPresentationDiagnosticEntry.cs");
+            var failure = ExtractMethod(
+                source,
+                "public static PanelVisibilityProbe Failure");
+
+            Assert.Contains("PanelVisibilityProbe Failure(bool fallback, Exception ex)", source);
+            Assert.Contains("\"exception:\" + ex.GetType().Name", source);
+            Assert.Contains("return new PanelVisibilityProbe(", failure);
+            Assert.Contains("false,", failure);
+            Assert.Contains("fallback,", failure);
+            Assert.Contains("PanelVisibleAnyTabPriorValue", facts);
+            Assert.Contains("PanelVisibleAnyTabProbeSucceeded", facts);
+            Assert.Contains("PanelVisibleAnyTabProbeStatus", facts);
+            Assert.Contains("PanelSelectedVisiblePriorValue", facts);
+            Assert.Contains("PanelSelectedVisibleProbeSucceeded", facts);
+            Assert.Contains("PanelSelectedVisibleProbeStatus", facts);
+            Assert.Contains("PanelVisibleAnyTabPriorValue", diagnostic);
+            Assert.Contains("PanelVisibleAnyTabProbeSucceeded", diagnostic);
+            Assert.Contains("PanelSelectedVisiblePriorValue", diagnostic);
+            Assert.Contains("PanelSelectedVisibleProbeStatus", diagnostic);
+            Assert.DoesNotContain("catch { return false; }", source);
         }
 
         [Fact]

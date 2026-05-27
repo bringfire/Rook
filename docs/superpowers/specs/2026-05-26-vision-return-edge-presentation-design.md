@@ -6,6 +6,19 @@ Draft design for a fresh PR from `main` at `6a40e3b`.
 
 This supersedes PR #192 runtime integration as an implementation direction. PR #192 remains useful failed evidence, but must not be deployed again as the basis for live testing.
 
+### Conservative Review Addendum - 2026-05-26
+
+This branch is a **Vision presentation validation branch**, not a fix branch. Current `main` behavior is the control because RookVision is presently working locally and the panel visibility bug has not recently reproduced. The branch must prove that its presentation model is safer and more deterministic than `main`; plausibility is not enough.
+
+Do not merge this branch until live Rhino docked/tabbed validation proves the model. Passing unit/source tests is necessary but not sufficient because the risk is in real Rhino/Eto/WebView2 event ordering, panel visibility sampling, HWND presentability, and controller behavior.
+
+Known blocking issues before meaningful live validation:
+
+- Stale panel facts: delayed and idle evaluation must refresh or otherwise account for `IsPanelVisible(..., isSelectedTab: false)` and `IsPanelVisible(..., isSelectedTab: true)` close to the presentation decision. Replaying facts sampled too early can incorrectly keep Vision in `PanelNotVisible` or `PanelNotSelected`.
+- Observability: a bounded memory-only diagnostic ring and explicit dump mechanism must capture the latest facts, fresh snapshot, coordinator decision, and action result. If Vision goes dark during validation, the tester must be able to see which blocker or action path was active without relying on hot-path files, JS probes, reloads, or clicking inside the panel.
+
+The branch may proceed as an Option B validation branch only after this addendum is honored: refresh decision-time visibility facts, add memory-only presentation diagnostics, expose a safe dump mechanism, and then run the docked/tabbed/floating/gallery/modal validation matrix. A fix claim is allowed only after that matrix passes.
+
 ## Problem
 
 RookVision has a persistent docked/tabbed WebView2 presentation failure. Previous diagnostics showed the panel can go blank around Rhino app deactivation, tab reselection, and gallery/modal workflows.
@@ -31,7 +44,7 @@ Protective `IsVisible=false` is allowed narrowly during app deactivation or non-
 
 ## Goal
 
-Build a Vision-only runtime integration that makes the return edge deterministic:
+Build a Vision-only runtime integration that makes the return edge deterministic enough to support live validation and debugging:
 
 1. App inactive or host non-presentable never produces `PresentController`.
 2. App deactivated may produce protective `HideController`, but never `PresentController`.
@@ -42,7 +55,7 @@ Build a Vision-only runtime integration that makes the return edge deterministic
    3. notify parent position changed
 5. Tab reselection, panel shown, app activation, and layout/size updates trigger fresh snapshot evaluation without becoming a retry storm.
 
-This PR is not a diagnostic PR and not a rewrite of Vision.
+This PR is not yet a fix claim and not a rewrite of Vision. It is a validation branch until live Rhino evidence proves the model.
 
 ## Non-Goals
 
@@ -282,7 +295,9 @@ Do not add hot-path file logging.
 
 If evidence is needed, use a memory-only ring and explicit dump command only. Ring entries must be plain DTOs and must not store UI objects, controller instances, HWND wrappers, exceptions with stack traces, or DOM state.
 
-This PR should prefer passing behavior with diagnostics off. Diagnostics must not be part of normal recovery.
+This branch requires memory-only presentation observability before live validation. The dump must include enough state to identify whether a dark panel was blocked by stale panel facts, app inactive state, selected-tab state, Eto host readiness, HWND visibility/rect, controller availability, controller parent window, bounds mismatch, or action application failure.
+
+Diagnostics must not be part of normal recovery. They must be bounded in memory, explicit to dump, and safe to leave present while validating.
 
 ## Automated Tests
 
@@ -329,8 +344,24 @@ Required matrix:
 Failure rules:
 
 - If Rhino becomes unresponsive, stop testing and roll back the deployed runtime to `main`.
-- If Vision goes dark, do not click inside Vision before collecting available state evidence.
+- If Vision goes dark, do not click inside Vision before running `RookDumpVisionPresentationState` and collecting the command output.
 - Do not mark the PR ready until live docked/tabbed validation passes.
+
+Merge gate:
+
+- `main` remains the control while current RookVision behavior is working.
+- The branch must pass the validation matrix with the memory dump available.
+- A failure must produce actionable facts/snapshot/decision/action evidence.
+- Do not merge solely because the branch is architecturally cleaner or tests pass.
+
+Expected dump evidence:
+
+- Panel wrapper metadata, including surface id, document serial number, closed state, and surface disposed state.
+- Latest authoritative facts, including generation, durable desired visibility, app active, visible-any-tab, selected visible, temporary deactivate, and disposed.
+- Visibility probe status, including whether visible-any-tab and selected-visible queries succeeded or failed with a sanitized exception type. Probe failure must force the coordinator-facing visibility value to non-presentable while preserving the prior value separately in diagnostics.
+- Fresh execution-time snapshot, including Eto readiness, HWND chain visibility/rect, controller availability, controller parent window, controller visibility, and bounds match.
+- Coordinator decision, including old/new state, action, not-presentable reason, and action flags.
+- Action result, including whether bounds, visibility, or parent-position notification failed.
 
 ## Success Criteria
 
