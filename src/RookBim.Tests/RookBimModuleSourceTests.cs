@@ -14,10 +14,12 @@ namespace RookBim.Tests
         public void RookBimProject_TargetsNet48AndReferencesRevitApisPrivately()
         {
             var project = LoadProject("src/RookBim/RookBim.csproj");
+            var text = Read("src/RookBim/RookBim.csproj");
 
             Assert.Equal("net48", ValueOf(project, "TargetFramework"));
             Assert.Equal("enable", ValueOf(project, "Nullable"));
             Assert.Equal("latest", ValueOf(project, "LangVersion"));
+            Assert.DoesNotContain("RhinoInside.Revit", text, StringComparison.OrdinalIgnoreCase);
 
             var projectReference = project.Descendants("ProjectReference").Single();
             Assert.Equal("../Rook/Rook.csproj", NormalizeProjectPath(AttributeValue(projectReference, "Include")));
@@ -56,13 +58,17 @@ namespace RookBim.Tests
 
             Assert.Contains("public static class RookBimModule", text);
             Assert.Contains("public static void Activate()", text);
+            Assert.Contains("IsLoaded(\"RevitAPIUI\")", text);
+            Assert.Contains("IsLoaded(\"RhinoInside.Revit\")", text);
+            Assert.Contains("new RookBimUnavailableRuntime", text);
+            Assert.Contains("\"not_rhino_inside\"", text);
             Assert.Contains("RookBimRuntimeRegistry.Install", text);
             Assert.Contains("new RevitRookBimRuntime()", text);
             Assert.Contains("\"RookBim.dll\"", text);
         }
 
         [Fact]
-        public void RevitTask7_UsesExternalEventDispatcherWithoutTransactions()
+        public void RevitTask7_UsesRhinoInsideHostContextDispatcherWithoutTransactions()
         {
             var dispatcher = Read("src/RookBim/Revit/RevitApiDispatcher.cs");
             var revitFiles = Directory
@@ -70,11 +76,15 @@ namespace RookBim.Tests
                 .Select(File.ReadAllText);
             var combined = string.Join(Environment.NewLine, revitFiles);
 
-            Assert.Contains("IExternalEventHandler", dispatcher);
-            Assert.Contains("ExternalEvent.Create", dispatcher);
-            Assert.Contains(".Raise()", dispatcher);
-            Assert.Contains("Execute(UIApplication uiapp)", dispatcher);
-            Assert.Contains("TaskCompletionSource", dispatcher);
+            Assert.Contains("RhinoInside.Revit.Rhinoceros", dispatcher);
+            Assert.Contains("InvokeInHostContext", dispatcher);
+            Assert.Contains("RhinoInside.Revit.Revit", dispatcher);
+            Assert.Contains("ActiveUIApplication", dispatcher);
+            Assert.Contains("Type.GetType", dispatcher);
+            Assert.Contains("AppDomain.CurrentDomain", dispatcher);
+            Assert.Contains("TargetInvocationException", dispatcher);
+            Assert.DoesNotContain("ExternalEvent.Create", dispatcher);
+            Assert.DoesNotContain("IExternalEventHandler", dispatcher);
             Assert.DoesNotContain("Transaction", combined);
         }
 
@@ -86,7 +96,7 @@ namespace RookBim.Tests
             var serializer = Read("src/RookBim/Revit/RevitIdentitySerializer.cs");
 
             Assert.Contains("RevitApiDispatcher", runtime);
-            Assert.Contains("dispatcher.Invoke", runtime);
+            Assert.Contains("dispatcher.InvokeAbandonable", runtime);
             Assert.Contains("ActiveDocument(UIApplication", context);
             Assert.Contains("ActiveUiDocument(UIApplication", context);
             Assert.Contains("ActiveUIDocument", context);
@@ -137,13 +147,14 @@ namespace RookBim.Tests
 
             Assert.Contains("InvokeAbandonable", dispatcher);
             Assert.Contains("public bool Abandon()", dispatcher);
-            Assert.Contains("TryAbandon()", dispatcher);
-            Assert.Contains("CompareExchange(ref state, Running, Pending)", dispatcher);
-            Assert.Contains("CompareExchange(ref state, Abandoned, Pending)", dispatcher);
-            Assert.Contains("TrySetCanceled", dispatcher);
+            Assert.Contains("CancellationTokenSource", dispatcher);
+            Assert.Contains("cancellation.Cancel();", dispatcher);
+            Assert.Contains("cancellationToken.ThrowIfCancellationRequested();", dispatcher);
             Assert.Contains("var dispatch = dispatcher.InvokeAbandonable(work);", runtime);
             Assert.Contains("dispatch.Abandon();", runtime);
             Assert.Contains("throw new TimeoutException", runtime);
+            Assert.Contains("Timed out waiting for RhinoInside Revit host-context execution.", runtime);
+            Assert.DoesNotContain("Timed out waiting for Revit ExternalEvent execution.", runtime);
         }
 
         [Fact]

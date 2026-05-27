@@ -1,28 +1,18 @@
 using System;
-using System.Collections.Concurrent;
+using System.Linq;
+using System.Reflection;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Autodesk.Revit.UI;
 
 namespace RookBim.Revit
 {
-    public sealed class RevitApiDispatcher : IExternalEventHandler
+    public sealed class RevitApiDispatcher
     {
-        private readonly ConcurrentQueue<IRevitApiWorkItem> queue = new ConcurrentQueue<IRevitApiWorkItem>();
-        private readonly ExternalEvent? externalEvent;
-        private readonly Exception? creationException;
-
-        public RevitApiDispatcher()
-        {
-            try
-            {
-                externalEvent = ExternalEvent.Create(this);
-            }
-            catch (Exception ex)
-            {
-                creationException = ex;
-            }
-        }
+        private const string RhinoInsideAssemblyName = "RhinoInside.Revit";
+        private const string RhinocerosTypeName = "RhinoInside.Revit.Rhinoceros";
+        private const string RevitTypeName = "RhinoInside.Revit.Revit";
 
         public Task<T> Invoke<T>(Func<UIApplication, T> work)
         {
@@ -36,57 +26,114 @@ namespace RookBim.Revit
                 throw new ArgumentNullException(nameof(work));
             }
 
-            if (creationException != null)
+            var cancellation = new CancellationTokenSource();
+            var task = Task.Run(
+                () => InvokeInHostContext(work, cancellation.Token),
+                cancellation.Token);
+
+            return new RevitApiDispatch<T>(
+                task,
+                () =>
+                {
+                    if (task.IsCompleted)
+                    {
+                        return false;
+                    }
+
+                    cancellation.Cancel();
+                    return true;
+                });
+        }
+
+        private static T InvokeInHostContext<T>(Func<UIApplication, T> work, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var rhinocerosType = ResolveRhinoInsideType(RhinocerosTypeName);
+            var invokeMethod = ResolveInvokeInHostContext(rhinocerosType).MakeGenericMethod(typeof(T));
+            var revitType = ResolveRhinoInsideType(RevitTypeName);
+            var activeApplicationProperty = ResolveActiveUIApplication(revitType);
+
+            Func<T> hostWork = () =>
             {
-                return RevitApiDispatch<T>.FromException(creationException);
-            }
+                cancellationToken.ThrowIfCancellationRequested();
 
-            if (externalEvent == null)
-            {
-                return RevitApiDispatch<T>.FromException(
-                    new InvalidOperationException("Revit external event was not created."));
-            }
+                var uiapp = activeApplicationProperty.GetValue(null, null) as UIApplication;
+                if (uiapp == null)
+                {
+                    throw new InvalidOperationException("RhinoInside.Revit reported no active UIApplication.");
+                }
 
-            var item = new RevitApiWorkItem<T>(work);
-            queue.Enqueue(item);
-            var dispatch = new RevitApiDispatch<T>(item.Task, item.TryAbandon);
+                return work(uiapp);
+            };
 
-            ExternalEventRequest request;
             try
             {
-                request = externalEvent.Raise();
+                return (T)invokeMethod.Invoke(null, new object[] { hostWork });
             }
-            catch (Exception ex)
+            catch (TargetInvocationException ex) when (ex.InnerException != null)
             {
-                item.TrySetException(ex);
-                return dispatch;
-            }
-
-            if (request != ExternalEventRequest.Accepted && request != ExternalEventRequest.Pending)
-            {
-                item.TrySetException(
-                    new InvalidOperationException($"Revit external event request was {request}."));
-            }
-
-            return dispatch;
-        }
-
-        public void Execute(UIApplication uiapp)
-        {
-            while (queue.TryDequeue(out var item))
-            {
-                item.Execute(uiapp);
+                ExceptionDispatchInfo.Capture(ex.InnerException).Throw();
+                throw;
             }
         }
 
-        public string GetName()
+        private static Type ResolveRhinoInsideType(string typeName)
         {
-            return "RookBim Revit API Dispatcher";
+            var type = Type.GetType(typeName + ", " + RhinoInsideAssemblyName, throwOnError: false);
+            if (type != null)
+            {
+                return type;
+            }
+
+            var assembly = AppDomain.CurrentDomain
+                .GetAssemblies()
+                .FirstOrDefault(candidate =>
+                    string.Equals(
+                        candidate.GetName().Name,
+                        RhinoInsideAssemblyName,
+                        StringComparison.OrdinalIgnoreCase));
+
+            type = assembly?.GetType(typeName, throwOnError: false);
+            if (type != null)
+            {
+                return type;
+            }
+
+            throw new InvalidOperationException(RhinoInsideAssemblyName + " is not loaded.");
         }
 
-        private interface IRevitApiWorkItem
+        private static MethodInfo ResolveInvokeInHostContext(Type rhinocerosType)
         {
-            void Execute(UIApplication uiapp);
+            var method = rhinocerosType
+                .GetMethods(BindingFlags.Public | BindingFlags.Static)
+                .SingleOrDefault(candidate =>
+                    candidate.Name == "InvokeInHostContext" &&
+                    candidate.IsGenericMethodDefinition &&
+                    candidate.GetParameters().Length == 1);
+
+            if (method == null)
+            {
+                throw new MissingMethodException(
+                    RhinocerosTypeName,
+                    "InvokeInHostContext<T>(Func<T>)");
+            }
+
+            return method;
+        }
+
+        private static PropertyInfo ResolveActiveUIApplication(Type revitType)
+        {
+            var property = revitType.GetProperty(
+                "ActiveUIApplication",
+                BindingFlags.Public | BindingFlags.Static);
+
+            if (property == null)
+            {
+                throw new MissingMemberException(RevitTypeName, "ActiveUIApplication");
+            }
+
+            return property;
         }
 
         internal sealed class RevitApiDispatch<T>
@@ -104,76 +151,6 @@ namespace RookBim.Revit
             public bool Abandon()
             {
                 return abandon();
-            }
-
-            public static RevitApiDispatch<T> FromException(Exception ex)
-            {
-                var completion = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
-                completion.SetException(ex);
-                return new RevitApiDispatch<T>(completion.Task, () => false);
-            }
-        }
-
-        private sealed class RevitApiWorkItem<T> : IRevitApiWorkItem
-        {
-            private const int Pending = 0;
-            private const int Running = 1;
-            private const int Completed = 2;
-            private const int Abandoned = 3;
-
-            private readonly Func<UIApplication, T> work;
-            private readonly TaskCompletionSource<T> completion =
-                new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
-            private int state = Pending;
-
-            public RevitApiWorkItem(Func<UIApplication, T> work)
-            {
-                this.work = work;
-            }
-
-            public Task<T> Task
-            {
-                get { return completion.Task; }
-            }
-
-            public void Execute(UIApplication uiapp)
-            {
-                if (Interlocked.CompareExchange(ref state, Running, Pending) != Pending)
-                {
-                    return;
-                }
-
-                try
-                {
-                    completion.TrySetResult(work(uiapp));
-                }
-                catch (Exception ex)
-                {
-                    completion.TrySetException(ex);
-                }
-                finally
-                {
-                    Volatile.Write(ref state, Completed);
-                }
-            }
-
-            public void TrySetException(Exception ex)
-            {
-                if (Interlocked.CompareExchange(ref state, Completed, Pending) == Pending)
-                {
-                    completion.TrySetException(ex);
-                }
-            }
-
-            public bool TryAbandon()
-            {
-                if (Interlocked.CompareExchange(ref state, Abandoned, Pending) != Pending)
-                {
-                    return false;
-                }
-
-                completion.TrySetCanceled();
-                return true;
             }
         }
     }

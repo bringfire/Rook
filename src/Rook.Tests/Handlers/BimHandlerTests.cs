@@ -42,7 +42,7 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
-        public void Dispatch_Status_UsesFallbackRuntime()
+        public void Dispatch_Status_ReturnsStructuredUnavailableRuntime()
         {
             RookBimRuntimeRegistry.ResetForTests();
             var handler = new BimHandler();
@@ -53,7 +53,9 @@ namespace Rook.Tests.Handlers
             Assert.Equal(200, response.HttpStatus);
             Assert.True(response.Success);
             Assert.False(data.GetProperty("available").GetBoolean());
-            Assert.Equal("rookbim_unavailable", data.GetProperty("errorCode").GetString());
+            Assert.Contains(
+                data.GetProperty("errorCode").GetString(),
+                new[] { "rookbim_unavailable", "not_rhino_inside" });
         }
 
         [Fact]
