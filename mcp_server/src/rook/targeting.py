@@ -499,6 +499,13 @@ _ALL_KNOWN_TOOLS = {
     "rhino_views",
     "rhino_views_restore",
     "rhino_views_save",
+    "rookbim_active_document",
+    "rookbim_clear_selection",
+    "rookbim_element_info",
+    "rookbim_element_parameters",
+    "rookbim_query_elements",
+    "rookbim_select_elements",
+    "rookbim_status",
     "road_intersection_candidates",
     "road_intersection_resolve",
     "scene_classify",
@@ -628,6 +635,11 @@ _RHINO_READ_TOOLS = {
     "rhino_vision_artifacts",
     "rhino_vision_get_artifact",
     "rhino_views",
+    "rookbim_active_document",
+    "rookbim_element_info",
+    "rookbim_element_parameters",
+    "rookbim_query_elements",
+    "rookbim_status",
     "run_library_script",
     "scene_context",
     "scene_graph",
@@ -638,12 +650,20 @@ _RHINO_READ_TOOLS = {
     "session_list",
 }
 
+_ROOKBIM_SELECTION_MUTATE_TOOLS = {
+    "rookbim_clear_selection",
+    "rookbim_select_elements",
+}
+
 _RHINO_MUTATE_TOOLS = (
-    _ALL_KNOWN_TOOLS
-    - _META_TOOLS
-    - _RHINO_INDEPENDENT_READ_TOOLS
-    - _RHINO_INDEPENDENT_MUTATE_TOOLS
-    - _RHINO_READ_TOOLS
+    _ROOKBIM_SELECTION_MUTATE_TOOLS
+    | (
+        _ALL_KNOWN_TOOLS
+        - _META_TOOLS
+        - _RHINO_INDEPENDENT_READ_TOOLS
+        - _RHINO_INDEPENDENT_MUTATE_TOOLS
+        - _RHINO_READ_TOOLS
+    )
 )
 
 TOOL_POLICIES: dict[str, RhinoToolPolicy] = {

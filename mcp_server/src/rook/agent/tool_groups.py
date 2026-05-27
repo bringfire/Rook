@@ -88,6 +88,7 @@ READONLY_ALLOWED_GROUPS: Set[str] = {
     "sessions",
     "scene_graph",
     "director_readonly",
+    "rookbim_readonly",
 }
 
 
@@ -246,6 +247,24 @@ TOOL_GROUPS: Dict[str, List[str]] = {
         "rhino_video_estimate",
         "rhino_video_status", "rhino_video_result",
         "rhino_video_jobs", "rhino_video_models",
+    ],
+
+    # --- RookBIM (Revit bridge, Phase 1) ---
+    "rookbim": [
+        "rookbim_status",
+        "rookbim_active_document",
+        "rookbim_query_elements",
+        "rookbim_element_info",
+        "rookbim_element_parameters",
+        "rookbim_select_elements",
+        "rookbim_clear_selection",
+    ],
+    "rookbim_readonly": [
+        "rookbim_status",
+        "rookbim_active_document",
+        "rookbim_query_elements",
+        "rookbim_element_info",
+        "rookbim_element_parameters",
     ],
 
     # --- Rhino Commands (direct) ---

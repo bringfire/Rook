@@ -360,6 +360,137 @@ def _color_schema(description: str) -> dict[str, Any]:
     )
 
 
+def _closed_empty_object_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": False,
+    }
+
+
+def _rookbim_port_schema() -> dict[str, Any]:
+    return {"type": "integer", "description": "Specific Rhino port to target."}
+
+
+def _rookbim_empty_input_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "port": _rookbim_port_schema(),
+        },
+        "required": [],
+        "additionalProperties": False,
+    }
+
+
+def _rookbim_identity_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "source": {"const": "revit"},
+            "documentGuid": {"type": ["string", "null"]},
+            "documentGuidSource": {
+                "type": "string",
+                "enum": ["revit_persistent_guid", "path_fallback", "unavailable"],
+            },
+            "documentTitle": {"type": "string"},
+            "documentPath": {"type": ["string", "null"]},
+            "elementId": {"type": ["integer", "null"]},
+            "uniqueId": {"type": ["string", "null"]},
+            "fullUniqueId": {"type": ["string", "null"]},
+            "linked": {"type": "boolean"},
+            "linkInstanceId": {"type": ["integer", "null"]},
+            "linkInstanceUniqueId": {"type": ["string", "null"]},
+            "linkedDocumentGuid": {"type": ["string", "null"]},
+            "linkedElementId": {"type": ["integer", "null"]},
+            "linkedElementUniqueId": {"type": ["string", "null"]},
+            "resolved": {"type": "boolean"},
+            "confidence": {
+                "type": "string",
+                "enum": ["exact", "inferred", "unresolved", "unsupported"],
+            },
+        },
+        "required": ["documentGuidSource"],
+        "additionalProperties": False,
+    }
+
+
+def _rookbim_identity_input_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "identity": _rookbim_identity_schema(),
+            "port": _rookbim_port_schema(),
+        },
+        "required": ["identity"],
+        "additionalProperties": False,
+    }
+
+
+def _rookbim_query_elements_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "scope": {
+                "type": "string",
+                "enum": ["active_view", "document"],
+                "default": "active_view",
+            },
+            "category": {"type": "string"},
+            "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000,
+                "default": 100,
+            },
+            "filters": {
+                "type": "array",
+                "default": [],
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "parameter": {"type": "string"},
+                        "operation": {
+                            "type": "string",
+                            "enum": [
+                                "equals",
+                                "not_equals",
+                                "contains",
+                                "is_empty",
+                                "is_not_empty",
+                            ],
+                        },
+                        "value": {"type": "string"},
+                    },
+                    "required": ["parameter", "operation"],
+                    "additionalProperties": False,
+                },
+            },
+            "port": _rookbim_port_schema(),
+        },
+        "required": [],
+        "additionalProperties": False,
+    }
+
+
+def _rookbim_select_elements_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "identities": {
+                "type": "array",
+                "items": _rookbim_identity_schema(),
+                "minItems": 1,
+                "maxItems": 1000,
+            },
+            "port": _rookbim_port_schema(),
+        },
+        "required": ["identities"],
+        "additionalProperties": False,
+    }
+
+
 def _interactive_command_learning_enabled() -> bool:
     if os.getenv("ROOK_MCP_TARGET_MODE") == "panel_locked":
         return False
@@ -11219,6 +11350,49 @@ Returns the full profile JSON including features, surfaces, and elements.""",
             },
         ),
 
+        # --- RookBIM (Revit bridge, Phase 1) ---
+        Tool(
+            name="rookbim_status",
+            description="Return health and availability for the RookBIM Revit bridge.",
+            inputSchema=_rookbim_empty_input_schema(),
+        ),
+        Tool(
+            name="rookbim_active_document",
+            description="Return active Revit document identity and summary metadata from the RookBIM bridge.",
+            inputSchema=_rookbim_empty_input_schema(),
+        ),
+        Tool(
+            name="rookbim_query_elements",
+            description="Query Revit elements in the active view or whole document by category and parameter filters.",
+            inputSchema=_rookbim_query_elements_schema(),
+        ),
+        Tool(
+            name="rookbim_element_info",
+            description="Return core metadata for one Revit element identity envelope.",
+            inputSchema=_rookbim_identity_input_schema(),
+        ),
+        Tool(
+            name="rookbim_element_parameters",
+            description="Return parameter values for one Revit element identity envelope.",
+            inputSchema=_rookbim_identity_input_schema(),
+        ),
+        Tool(
+            name="rookbim_select_elements",
+            description=(
+                "Select Revit elements by identity envelope. This mutates UI "
+                "selection only and does not write the Revit document."
+            ),
+            inputSchema=_rookbim_select_elements_schema(),
+        ),
+        Tool(
+            name="rookbim_clear_selection",
+            description=(
+                "Clear the current Revit UI selection through the RookBIM "
+                "bridge. This does not write the Revit document."
+            ),
+            inputSchema=_rookbim_empty_input_schema(),
+        ),
+
         # ─── Vision Video (PR-V4) ───────────────────────────────────────
         # Seven MCP tools wrapping the V2/V3 video routes plus the two
         # V4-new list routes (jobs, models). All seven are also wired
@@ -18306,6 +18480,38 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
         case "rhino_vision_consume_approved":
             result = await call_rhino(
                 "/vision/artifacts/consume-approved", "POST", arguments, port=port
+            )
+
+        # --- RookBIM (Revit bridge, Phase 1) ---
+        case "rookbim_status":
+            result = await call_rhino("/bim/status", "GET", None, port=port)
+
+        case "rookbim_active_document":
+            result = await call_rhino("/bim/active-document", "GET", None, port=port)
+
+        case "rookbim_query_elements":
+            result = await call_rhino(
+                "/bim/query-elements", "POST", arguments, port=port
+            )
+
+        case "rookbim_element_info":
+            result = await call_rhino(
+                "/bim/element-info", "POST", arguments, port=port
+            )
+
+        case "rookbim_element_parameters":
+            result = await call_rhino(
+                "/bim/element-parameters", "POST", arguments, port=port
+            )
+
+        case "rookbim_select_elements":
+            result = await call_rhino(
+                "/bim/select-elements", "POST", arguments, port=port
+            )
+
+        case "rookbim_clear_selection":
+            result = await call_rhino(
+                "/bim/clear-selection", "POST", None, port=port
             )
 
         # ─── Vision Video (PR-V4) ────────────────────────────────────

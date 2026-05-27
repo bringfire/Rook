@@ -115,6 +115,13 @@ TOOL_CATEGORIES = {
     "rhino_command": "document",
     "rhino_import": "document",
     "rhino_export": "document",
+    "rookbim_status": "document",
+    "rookbim_active_document": "document",
+    "rookbim_query_elements": "document",
+    "rookbim_element_info": "document",
+    "rookbim_element_parameters": "document",
+    "rookbim_select_elements": "select",
+    "rookbim_clear_selection": "select",
 
     # Knowledge tools - mapped to document category (metadata operations)
     "knowledge_query": "document",

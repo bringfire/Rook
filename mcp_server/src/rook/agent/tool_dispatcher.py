@@ -443,6 +443,15 @@ BRIDGE_ROUTES: Dict[str, Tuple[str, str]] = {
     "road_intersection_candidates": ("/road/intersection/candidates", "POST"),
     "road_intersection_resolve":    ("/road/intersection/resolve", "POST"),
 
+    # --- RookBIM (Revit bridge, Phase 1) ---
+    "rookbim_status":             ("/bim/status", "GET"),
+    "rookbim_active_document":    ("/bim/active-document", "GET"),
+    "rookbim_query_elements":     ("/bim/query-elements", "POST"),
+    "rookbim_element_info":       ("/bim/element-info", "POST"),
+    "rookbim_element_parameters": ("/bim/element-parameters", "POST"),
+    "rookbim_select_elements":    ("/bim/select-elements", "POST"),
+    "rookbim_clear_selection":    ("/bim/clear-selection", "POST"),
+
     # --- Vision Video (PR-V4) ---
     # Body-only / no-param tools live here. Path-param tools
     # (status / cancel / result) and the limit-folding list tool
