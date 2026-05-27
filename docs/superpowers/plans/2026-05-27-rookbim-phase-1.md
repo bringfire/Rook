@@ -73,7 +73,7 @@
 ### Modified Files
 
 - `Rook.sln`
-  - Add `RookBim` and `RookBim.Tests` projects. Do not modify `src/RookNative/*.vcxproj` or `.vcxproj.filters`.
+  - Do not modify. The optional Revit module stays out of the main solution so ordinary Rook solution builds do not require Revit to be installed.
 - `src/Rook/Rook.csproj`
   - No reference to `RookBim.csproj`. Add only a `None` copy item if the optional `RookBim.dll` exists beside the managed runtime during local/release packaging.
 - `src/Rook/InternalBridge/NativeGhBridgeRegistrar.cs`
@@ -226,7 +226,7 @@ namespace Rook.Tests.Bim
             var result = request.Validate();
 
             Assert.False(result.Success);
-            Assert.Equal(BimErrorCode.InvalidQuery, result.ErrorCode);
+            Assert.Equal(BimErrorCode.UnboundedDocumentQuery, result.ErrorCode);
             Assert.Contains("document scope requires category", result.Message);
         }
 
@@ -242,24 +242,78 @@ namespace Rook.Tests.Bim
         }
 
         [Fact]
-        public void IdentityEnvelope_CarriesNullableGuidSourceAndPathDiagnostic()
+        public void IdentityEnvelope_MatchesApprovedSpecShape()
         {
+            var document = new BimDocumentIdentity
+            {
+                Guid = null,
+                GuidSource = BimDocumentGuidSource.Unavailable,
+                Title = "Model.rvt",
+                Path = "C:/Models/Model.rvt",
+                IsFamilyDocument = false,
+                IsWorkshared = true
+            };
             var identity = new BimElementIdentity
             {
+                Source = "revit",
                 DocumentGuid = null,
                 DocumentGuidSource = BimDocumentGuidSource.Unavailable,
-                DocumentTitle = "Model",
+                DocumentTitle = "Model.rvt",
                 DocumentPath = "C:/Models/Model.rvt",
                 ElementId = 123,
                 UniqueId = "abc",
+                FullUniqueId = "abc",
+                Linked = false,
+                LinkInstanceId = null,
+                LinkInstanceUniqueId = null,
+                LinkedDocumentGuid = null,
+                LinkedElementId = null,
+                LinkedElementUniqueId = null,
                 Resolved = true,
                 Confidence = BimIdentityConfidence.Exact
             };
 
+            Assert.False(document.IsFamilyDocument);
+            Assert.True(document.IsWorkshared);
+            Assert.Equal("revit", identity.Source);
             Assert.Null(identity.DocumentGuid);
             Assert.Equal(BimDocumentGuidSource.Unavailable, identity.DocumentGuidSource);
             Assert.Equal("C:/Models/Model.rvt", identity.DocumentPath);
+            Assert.Equal("abc", identity.FullUniqueId);
+            Assert.False(identity.Linked);
             Assert.Equal(BimIdentityConfidence.Exact, identity.Confidence);
+        }
+
+        [Fact]
+        public void QueryResultEnvelope_UsesQueryObjectAndCategoryTypeObjects()
+        {
+            var result = new BimQueryElementsResult
+            {
+                Document = new BimDocumentIdentity { Title = "Model.rvt" },
+                Scope = BimQueryScope.ActiveView,
+                Query = new BimQuerySummary
+                {
+                    Category = "Walls",
+                    Limit = 100,
+                    Returned = 1,
+                    Truncated = false
+                },
+                Elements =
+                {
+                    new BimElementSummary
+                    {
+                        Identity = new BimElementIdentity { Source = "revit", ElementId = 123 },
+                        Name = "Basic Wall",
+                        Category = new BimCategorySummary { Id = -2000011, Name = "Walls" },
+                        Type = new BimElementTypeSummary { Id = 67890, Name = "Generic - 8 inch" }
+                    }
+                }
+            };
+
+            Assert.Equal("Walls", result.Query.Category);
+            Assert.Equal(1, result.Query.Returned);
+            Assert.Equal(-2000011, result.Elements[0].Category.Id);
+            Assert.Equal("Generic - 8 inch", result.Elements[0].Type.Name);
         }
     }
 }
@@ -348,13 +402,19 @@ namespace Rook.Bim
         None,
         RookBimUnavailable,
         NotRhinoInside,
+        RevitUnavailable,
         NoActiveDocument,
-        InvalidQuery,
-        QueryLimitExceeded,
+        NoActiveView,
+        InvalidScope,
+        UnboundedDocumentQuery,
+        InvalidCategory,
         AmbiguousParameter,
+        QueryLimitExceeded,
         ElementNotFound,
-        UnsupportedIdentity,
-        OperationUnavailable,
+        DocumentMismatch,
+        LinkedElementUnsupported,
+        CapabilityUnavailable,
+        SelectionFailed,
         InternalError
     }
 
@@ -461,7 +521,8 @@ namespace Rook.Bim
         public BimDocumentGuidSource GuidSource { get; set; } = BimDocumentGuidSource.Unavailable;
         public string Title { get; set; } = string.Empty;
         public string? Path { get; set; }
-        public string Host { get; set; } = string.Empty;
+        public bool IsFamilyDocument { get; set; }
+        public bool IsWorkshared { get; set; }
     }
 
     public sealed class BimViewIdentity
@@ -473,14 +534,62 @@ namespace Rook.Bim
 
     public sealed class BimElementIdentity
     {
+        public string Source { get; set; } = "revit";
         public string? DocumentGuid { get; set; }
         public BimDocumentGuidSource DocumentGuidSource { get; set; } = BimDocumentGuidSource.Unavailable;
         public string DocumentTitle { get; set; } = string.Empty;
         public string? DocumentPath { get; set; }
         public int? ElementId { get; set; }
         public string? UniqueId { get; set; }
+        public string? FullUniqueId { get; set; }
+        public bool Linked { get; set; }
+        public int? LinkInstanceId { get; set; }
+        public string? LinkInstanceUniqueId { get; set; }
+        public string? LinkedDocumentGuid { get; set; }
+        public int? LinkedElementId { get; set; }
+        public string? LinkedElementUniqueId { get; set; }
         public bool Resolved { get; set; }
         public BimIdentityConfidence Confidence { get; set; } = BimIdentityConfidence.Unresolved;
+    }
+
+    public sealed class BimCategorySummary
+    {
+        public int? Id { get; set; }
+        public string? Name { get; set; }
+    }
+
+    public sealed class BimElementTypeSummary
+    {
+        public int? Id { get; set; }
+        public string? UniqueId { get; set; }
+        public string? FamilyName { get; set; }
+        public string? Name { get; set; }
+    }
+
+    public sealed class BimElementSummary
+    {
+        public BimElementIdentity Identity { get; set; } = new();
+        public string? Name { get; set; }
+        public BimCategorySummary Category { get; set; } = new();
+        public BimElementTypeSummary Type { get; set; } = new();
+    }
+
+    public sealed class BimQuerySummary
+    {
+        public string? Category { get; set; }
+        public int Limit { get; set; }
+        public int Returned { get; set; }
+        public bool Truncated { get; set; }
+        public Dictionary<string, int> MissingParameterCounts { get; set; } = new();
+    }
+
+    public sealed class BimQueryElementsResult
+    {
+        public BimDocumentIdentity Document { get; set; } = new();
+        public BimQueryScope Scope { get; set; } = BimQueryScope.ActiveView;
+        public BimViewIdentity? View { get; set; }
+        public BimQuerySummary Query { get; set; } = new();
+        public List<BimElementSummary> Elements { get; set; } = new();
     }
 
     public sealed class BimQueryFilter
@@ -517,7 +626,7 @@ namespace Rook.Bim
             {
                 return new BimValidationResult(
                     false,
-                    BimErrorCode.InvalidQuery,
+                    BimErrorCode.UnboundedDocumentQuery,
                     "document scope requires category in Phase 1");
             }
 
@@ -527,7 +636,7 @@ namespace Rook.Bim
                 {
                     return new BimValidationResult(
                         false,
-                        BimErrorCode.InvalidQuery,
+                        BimErrorCode.InvalidScope,
                         "filter parameter is required");
                 }
             }
@@ -757,7 +866,7 @@ namespace Rook.Tests.Handlers
 
             Assert.Equal(400, response.HttpStatus);
             Assert.False(doc.RootElement.GetProperty("success").GetBoolean());
-            Assert.Equal("invalid_query", doc.RootElement.GetProperty("errorCode").GetString());
+            Assert.Equal("invalid_scope", doc.RootElement.GetProperty("errorCode").GetString());
             Assert.Contains("Unknown BIM op", doc.RootElement.GetProperty("message").GetString());
         }
 
@@ -788,7 +897,7 @@ namespace Rook.Tests.Handlers
 
             Assert.Equal(400, response.HttpStatus);
             Assert.False(doc.RootElement.GetProperty("success").GetBoolean());
-            Assert.Equal("invalid_query", doc.RootElement.GetProperty("errorCode").GetString());
+            Assert.Equal("unbounded_document_query", doc.RootElement.GetProperty("errorCode").GetString());
             Assert.Contains("document scope requires category", doc.RootElement.GetProperty("message").GetString());
         }
 
@@ -883,11 +992,11 @@ namespace Rook.Handlers
             {
                 using var doc = JsonDocument.Parse(requestJson);
                 if (!doc.RootElement.TryGetProperty("op", out var opElement) || opElement.ValueKind != JsonValueKind.String)
-                    return Error(BimErrorCode.InvalidQuery, "BIM request missing required 'op' discriminator.", 400);
+                    return Error(BimErrorCode.InvalidScope, "BIM request missing required 'op' discriminator.", 400);
 
                 var op = opElement.GetString() ?? string.Empty;
                 if (!ExpectedBimOps.Contains(op))
-                    return Error(BimErrorCode.InvalidQuery, BuildUnknownOpMessage(op), 400);
+                    return Error(BimErrorCode.InvalidScope, BuildUnknownOpMessage(op), 400);
 
                 RookBimModuleLoader.TryActivate();
                 var runtime = RookBimRuntimeRegistry.Current;
@@ -901,12 +1010,12 @@ namespace Rook.Handlers
                     "element_parameters" => DispatchElementParameters(requestJson, runtime),
                     "select_elements" => DispatchSelectElements(requestJson, runtime),
                     "clear_selection" => FromApiResponse(runtime.ClearSelection()),
-                    _ => Error(BimErrorCode.InvalidQuery, BuildUnknownOpMessage(op), 400)
+                    _ => Error(BimErrorCode.InvalidScope, BuildUnknownOpMessage(op), 400)
                 };
             }
             catch (JsonException ex)
             {
-                return Error(BimErrorCode.InvalidQuery, $"Invalid BIM JSON request: {ex.Message}", 400);
+                return Error(BimErrorCode.InvalidScope, $"Invalid BIM JSON request: {ex.Message}", 400);
             }
             catch (Exception ex)
             {
@@ -955,7 +1064,7 @@ namespace Rook.Handlers
             if (response.Success)
                 return Ok(response.Data ?? new { }, response.HttpStatus);
 
-            return Error(response.ErrorCode, response.Message, response.HttpStatus);
+            return Error(response.ErrorCode, response.Message, response.HttpStatus, response.Data);
         }
 
         private static BimDispatchResult Ok(object data, int httpStatus)
@@ -968,13 +1077,14 @@ namespace Rook.Handlers
             return new BimDispatchResult(json, httpStatus);
         }
 
-        private static BimDispatchResult Error(BimErrorCode code, string message, int httpStatus)
+        private static BimDispatchResult Error(BimErrorCode code, string message, int httpStatus, object? data = null)
         {
             var json = JsonSerializer.Serialize(new
             {
                 success = false,
                 errorCode = ToWireCode(code),
-                message
+                message,
+                data
             }, JsonOptions);
             return new BimDispatchResult(json, httpStatus);
         }
@@ -985,13 +1095,19 @@ namespace Rook.Handlers
             {
                 BimErrorCode.RookBimUnavailable => "rookbim_unavailable",
                 BimErrorCode.NotRhinoInside => "not_rhino_inside",
+                BimErrorCode.RevitUnavailable => "revit_unavailable",
                 BimErrorCode.NoActiveDocument => "no_active_document",
-                BimErrorCode.InvalidQuery => "invalid_query",
+                BimErrorCode.NoActiveView => "no_active_view",
+                BimErrorCode.InvalidScope => "invalid_scope",
+                BimErrorCode.UnboundedDocumentQuery => "unbounded_document_query",
+                BimErrorCode.InvalidCategory => "invalid_category",
                 BimErrorCode.QueryLimitExceeded => "query_limit_exceeded",
                 BimErrorCode.AmbiguousParameter => "ambiguous_parameter",
                 BimErrorCode.ElementNotFound => "element_not_found",
-                BimErrorCode.UnsupportedIdentity => "unsupported_identity",
-                BimErrorCode.OperationUnavailable => "operation_unavailable",
+                BimErrorCode.DocumentMismatch => "document_mismatch",
+                BimErrorCode.LinkedElementUnsupported => "linked_element_unsupported",
+                BimErrorCode.CapabilityUnavailable => "capability_unavailable",
+                BimErrorCode.SelectionFailed => "selection_failed",
                 BimErrorCode.InternalError => "internal_error",
                 _ => "internal_error"
             };
@@ -1575,6 +1691,7 @@ def test_identity_envelope_schema_carries_document_guid_source():
     tools = _tool_map()
     for name in ("rookbim_element_info", "rookbim_element_parameters"):
         identity = tools[name].inputSchema["properties"]["identity"]["properties"]
+        assert identity["source"]["const"] == "revit"
         assert "documentGuid" in identity
         assert identity["documentGuid"].get("type") == ["string", "null"]
         assert identity["documentGuidSource"]["enum"] == [
@@ -1585,6 +1702,10 @@ def test_identity_envelope_schema_carries_document_guid_source():
         assert "documentPath" in identity
         assert "elementId" in identity
         assert "uniqueId" in identity
+        assert "fullUniqueId" in identity
+        assert "linked" in identity
+        assert "linkInstanceId" in identity
+        assert "linkedElementUniqueId" in identity
 
 
 def test_rookbim_tool_groups_are_registered():
@@ -1731,6 +1852,7 @@ def _rookbim_identity_schema():
     return {
         "type": "object",
         "properties": {
+            "source": {"type": "string", "const": "revit"},
             "documentGuid": {"type": ["string", "null"]},
             "documentGuidSource": {
                 "type": "string",
@@ -1740,6 +1862,13 @@ def _rookbim_identity_schema():
             "documentPath": {"type": ["string", "null"]},
             "elementId": {"type": ["integer", "null"]},
             "uniqueId": {"type": ["string", "null"]},
+            "fullUniqueId": {"type": ["string", "null"]},
+            "linked": {"type": "boolean"},
+            "linkInstanceId": {"type": ["integer", "null"]},
+            "linkInstanceUniqueId": {"type": ["string", "null"]},
+            "linkedDocumentGuid": {"type": ["string", "null"]},
+            "linkedElementId": {"type": ["integer", "null"]},
+            "linkedElementUniqueId": {"type": ["string", "null"]},
             "resolved": {"type": "boolean"},
             "confidence": {
                 "type": "string",
@@ -1843,7 +1972,6 @@ Expected:
 - Create: `src/RookBim/Revit/RevitRookBimRuntime.cs`
 - Create: `src/RookBim.Tests/RookBim.Tests.csproj`
 - Create: `src/RookBim.Tests/RookBimModuleSourceTests.cs`
-- Modify: `Rook.sln`
 - Modify: `src/Rook/Rook.csproj`
 
 - [ ] **Step 1: Write optional module source tests**
@@ -1878,6 +2006,15 @@ namespace RookBim.Tests
             Assert.DoesNotContain("RookBim.csproj", project);
             Assert.DoesNotContain("Autodesk.Revit", project);
             Assert.DoesNotContain("RevitAPI", project);
+        }
+
+        [Fact]
+        public void MainSolution_DoesNotIncludeOptionalRookBimProjects()
+        {
+            var solution = Read("Rook.sln");
+
+            Assert.DoesNotContain("RookBim.csproj", solution);
+            Assert.DoesNotContain("RookBim.Tests.csproj", solution);
         }
 
         [Fact]
@@ -2013,21 +2150,21 @@ namespace RookBim.Revit
 }
 ```
 
-- [ ] **Step 4: Add projects to solution**
+- [ ] **Step 4: Preserve main solution build isolation**
 
 Run:
 
 ```powershell
-dotnet sln Rook.sln add src/RookBim/RookBim.csproj
-dotnet sln Rook.sln add src/RookBim.Tests/RookBim.Tests.csproj
+Select-String -Path Rook.sln -Pattern "RookBim" -Quiet
 ```
 
 Expected:
 
 ```text
-Project `src\RookBim\RookBim.csproj` added to the solution.
-Project `src\RookBim.Tests\RookBim.Tests.csproj` added to the solution.
+False
 ```
+
+Do not add `RookBim.csproj` or `RookBim.Tests.csproj` to `Rook.sln`. Build and test the optional module by direct project path so ordinary solution builds keep working on machines without Revit installed.
 
 - [ ] **Step 5: Add optional copy item to `Rook.csproj`**
 
@@ -2079,7 +2216,7 @@ Use the containing Revit install directory as the `-p:RevitInstallDir` value.
 Run:
 
 ```powershell
-git add Rook.sln src/Rook/Rook.csproj src/RookBim src/RookBim.Tests
+git add src/Rook/Rook.csproj src/RookBim src/RookBim.Tests
 git commit -m "feat: add optional rookbim module"
 ```
 
@@ -2233,7 +2370,8 @@ namespace RookBim.Revit
                 GuidSource = source,
                 Title = document.Title ?? string.Empty,
                 Path = string.IsNullOrWhiteSpace(document.PathName) ? null : document.PathName,
-                Host = "revit"
+                IsFamilyDocument = document.IsFamilyDocument,
+                IsWorkshared = document.IsWorkshared
             };
         }
 
@@ -2252,12 +2390,15 @@ namespace RookBim.Revit
             var doc = Document(document);
             return new BimElementIdentity
             {
+                Source = "revit",
                 DocumentGuid = doc.Guid,
                 DocumentGuidSource = doc.GuidSource,
                 DocumentTitle = doc.Title,
                 DocumentPath = doc.Path,
                 ElementId = element.Id.IntegerValue,
                 UniqueId = element.UniqueId,
+                FullUniqueId = element.UniqueId,
+                Linked = false,
                 Resolved = true,
                 Confidence = BimIdentityConfidence.Exact
             };
@@ -2346,19 +2487,19 @@ namespace RookBim.Revit
         }
 
         public BimApiResponse QueryElements(BimQueryElementsRequest request) =>
-            BimApiResponse.Fail(BimErrorCode.OperationUnavailable, "query_elements is not implemented in this slice.", 501);
+            BimApiResponse.Fail(BimErrorCode.CapabilityUnavailable, "query_elements is not implemented in this slice.", 501);
 
         public BimApiResponse ElementInfo(BimElementRequest request) =>
-            BimApiResponse.Fail(BimErrorCode.OperationUnavailable, "element_info is not implemented in this slice.", 501);
+            BimApiResponse.Fail(BimErrorCode.CapabilityUnavailable, "element_info is not implemented in this slice.", 501);
 
         public BimApiResponse ElementParameters(BimElementRequest request) =>
-            BimApiResponse.Fail(BimErrorCode.OperationUnavailable, "element_parameters is not implemented in this slice.", 501);
+            BimApiResponse.Fail(BimErrorCode.CapabilityUnavailable, "element_parameters is not implemented in this slice.", 501);
 
         public BimApiResponse SelectElements(BimSelectElementsRequest request) =>
-            BimApiResponse.Fail(BimErrorCode.OperationUnavailable, "select_elements is not implemented in this slice.", 501);
+            BimApiResponse.Fail(BimErrorCode.CapabilityUnavailable, "select_elements is not implemented in this slice.", 501);
 
         public BimApiResponse ClearSelection() =>
-            BimApiResponse.Fail(BimErrorCode.OperationUnavailable, "clear_selection is not implemented in this slice.", 501);
+            BimApiResponse.Fail(BimErrorCode.CapabilityUnavailable, "clear_selection is not implemented in this slice.", 501);
 
         private BimApiResponse InvokeRead(Func<Autodesk.Revit.UI.UIApplication, BimApiResponse> action)
         {
@@ -2399,8 +2540,18 @@ Then deploy locally using the repo's existing local deployment workflow. If usin
 Manual live validation inside RhinoInside/Revit:
 
 ```powershell
-Invoke-RestMethod http://127.0.0.1:9875/bim/status
-Invoke-RestMethod http://127.0.0.1:9875/bim/active-document
+$env:PYTHONPATH = "mcp_server/src"
+@'
+import asyncio, json
+from rook.bridge import call_rhino, discovery_diagnostics
+
+async def main():
+    print(json.dumps(discovery_diagnostics(), indent=2))
+    print(json.dumps(await call_rhino("/bim/status", "GET"), indent=2))
+    print(json.dumps(await call_rhino("/bim/active-document", "GET"), indent=2))
+
+asyncio.run(main())
+'@ | python -
 ```
 
 Expected successful status shape:
@@ -2499,22 +2650,26 @@ namespace RookBim.Revit
             {
                 var category = ResolveBuiltInCategory(request.Category);
                 if (category == null)
-                    return BimApiResponse.Fail(BimErrorCode.InvalidQuery, $"Unknown Revit category '{request.Category}'.", 400);
+                    return BimApiResponse.Fail(BimErrorCode.InvalidCategory, $"Unknown Revit category '{request.Category}'.", 400);
                 collector.OfCategory(category.Value);
             }
 
             var allCandidates = collector.ToElements();
             var missingCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            BimApiResponse? ambiguity = null;
             var matched = new List<Element>();
 
             foreach (var element in allCandidates)
             {
-                if (MatchesAllFilters(element, request.Filters, missingCounts))
+                if (MatchesAllFilters(element, request.Filters, missingCounts, out ambiguity))
                 {
                     matched.Add(element);
                     if (matched.Count >= request.EffectiveLimit)
                         break;
                 }
+
+                if (ambiguity != null)
+                    return ambiguity;
             }
 
             var totalMatchedUpToCap = matched.Count;
@@ -2523,32 +2678,58 @@ namespace RookBim.Revit
             var results = matched.Select(element => new
             {
                 identity = RevitIdentitySerializer.Element(document, element),
-                category = element.Category?.Name,
                 name = element.Name,
-                typeId = element.GetTypeId()?.IntegerValue,
-                className = element.GetType().Name
+                category = new
+                {
+                    id = element.Category?.Id.IntegerValue,
+                    name = element.Category?.Name
+                },
+                type = BuildTypeSummary(document, element)
             }).ToList();
 
             return BimApiResponse.Ok(new
             {
                 document = RevitIdentitySerializer.Document(document),
-                view = activeView == null ? null : RevitIdentitySerializer.View(activeView),
                 scope = request.EffectiveScope == BimQueryScope.ActiveView ? "active_view" : "document",
-                category = request.Category,
-                limit = request.EffectiveLimit,
-                count = results.Count,
-                truncated,
-                missingParameterCounts = missingCounts,
+                view = activeView == null ? null : RevitIdentitySerializer.View(activeView),
+                query = new
+                {
+                    category = request.Category,
+                    limit = request.EffectiveLimit,
+                    returned = results.Count,
+                    truncated,
+                    missingParameterCounts = missingCounts
+                },
                 elements = results
             });
         }
 
-        private static bool MatchesAllFilters(Element element, IReadOnlyList<BimQueryFilter> filters, Dictionary<string, int> missingCounts)
+        private static bool MatchesAllFilters(
+            Element element,
+            IReadOnlyList<BimQueryFilter> filters,
+            Dictionary<string, int> missingCounts,
+            out BimApiResponse? ambiguity)
         {
+            ambiguity = null;
             foreach (var filter in filters)
             {
-                var parameter = FindParameter(element, filter.Parameter);
-                if (parameter == null)
+                var lookup = FindParameter(element, filter.Parameter);
+                if (lookup.Ambiguous)
+                {
+                    ambiguity = BimApiResponse.Fail(
+                        BimErrorCode.AmbiguousParameter,
+                        $"Parameter '{filter.Parameter}' is ambiguous in the target candidate set.",
+                        400);
+                    ambiguity.Data = new
+                    {
+                        error = "ambiguous_parameter",
+                        parameter = filter.Parameter,
+                        candidates = lookup.Candidates
+                    };
+                    return false;
+                }
+
+                if (lookup.Parameter == null)
                 {
                     missingCounts.TryGetValue(filter.Parameter, out var count);
                     missingCounts[filter.Parameter] = count + 1;
@@ -2557,7 +2738,7 @@ namespace RookBim.Revit
                     continue;
                 }
 
-                var display = DisplayValue(parameter);
+                var display = DisplayValue(lookup.Parameter);
                 var isEmpty = string.IsNullOrWhiteSpace(display);
                 var expected = filter.Value ?? string.Empty;
 
@@ -2578,18 +2759,25 @@ namespace RookBim.Revit
             return true;
         }
 
-        private static Parameter? FindParameter(Element element, string name)
+        private static ParameterLookupResult FindParameter(Element element, string name)
         {
-            Parameter? found = null;
+            var candidates = new List<object>();
+            Parameter? first = null;
             foreach (Parameter parameter in element.Parameters)
             {
                 if (!string.Equals(parameter.Definition?.Name, name, StringComparison.OrdinalIgnoreCase))
                     continue;
-                if (found != null)
-                    throw new InvalidOperationException($"ambiguous_parameter:{name}");
-                found = parameter;
+
+                candidates.Add(new
+                {
+                    name = parameter.Definition?.Name,
+                    builtIn = TryBuiltInName(parameter),
+                    guid = TryGuid(parameter)
+                });
+                first ??= parameter;
             }
-            return found;
+
+            return new ParameterLookupResult(first, candidates);
         }
 
         private static string? DisplayValue(Parameter parameter)
@@ -2612,11 +2800,50 @@ namespace RookBim.Revit
             }
             return null;
         }
+
+        private static object? BuildTypeSummary(Document document, Element element)
+        {
+            var typeId = element.GetTypeId();
+            var type = typeId == ElementId.InvalidElementId ? null : document.GetElement(typeId);
+            return type == null
+                ? null
+                : new
+                {
+                    id = type.Id.IntegerValue,
+                    uniqueId = type.UniqueId,
+                    familyName = type.get_Parameter(BuiltInParameter.SYMBOL_FAMILY_NAME_PARAM)?.AsString(),
+                    name = type.Name
+                };
+        }
+
+        private static string? TryBuiltInName(Parameter parameter)
+        {
+            var builtIn = parameter.Definition?.BuiltInParameter;
+            return builtIn.HasValue ? builtIn.Value.ToString() : null;
+        }
+
+        private static string? TryGuid(Parameter parameter)
+        {
+            return parameter.GUID == System.Guid.Empty ? null : parameter.GUID.ToString("D");
+        }
+
+        private sealed class ParameterLookupResult
+        {
+            public ParameterLookupResult(Parameter? parameter, IReadOnlyList<object> candidates)
+            {
+                Parameter = parameter;
+                Candidates = candidates;
+            }
+
+            public Parameter? Parameter { get; }
+            public IReadOnlyList<object> Candidates { get; }
+            public bool Ambiguous => Candidates.Count > 1;
+        }
     }
 }
 ```
 
-If ambiguous parameter detection must return candidates instead of throwing, replace `throw new InvalidOperationException($"ambiguous_parameter:{name}")` with a typed result object before committing this task.
+Ambiguous parameter detection is committed behavior for Phase 1: it returns `ambiguous_parameter` with candidate `name`, `builtIn`, and `guid` fields where available. It must not surface as an untyped exception or a silent zero-result query.
 
 - [ ] **Step 3: Wire query service into runtime**
 
@@ -2659,11 +2886,28 @@ Build succeeded.
 Live validation inside RhinoInside/Revit:
 
 ```powershell
-$body = @{ scope = "active_view"; category = "Walls"; limit = 10 } | ConvertTo-Json
-Invoke-RestMethod http://127.0.0.1:9875/bim/query-elements -Method Post -Body $body -ContentType "application/json"
+$env:PYTHONPATH = "mcp_server/src"
+@'
+import asyncio, json
+from rook.bridge import call_rhino
 
-$docBody = @{ scope = "document"; category = "Doors"; limit = 10; filters = @(@{ parameter = "Mark"; operation = "is_not_empty" }) } | ConvertTo-Json -Depth 5
-Invoke-RestMethod http://127.0.0.1:9875/bim/query-elements -Method Post -Body $docBody -ContentType "application/json"
+async def main():
+    active = await call_rhino("/bim/query-elements", "POST", {
+        "scope": "active_view",
+        "category": "Walls",
+        "limit": 10,
+    })
+    document = await call_rhino("/bim/query-elements", "POST", {
+        "scope": "document",
+        "category": "Doors",
+        "limit": 10,
+        "filters": [{"parameter": "Mark", "operation": "is_not_empty"}],
+    })
+    print(json.dumps(active, indent=2))
+    print(json.dumps(document, indent=2))
+
+asyncio.run(main())
+'@ | python -
 ```
 
 Expected:
@@ -2671,8 +2915,8 @@ Expected:
 ```text
 success true
 data.elements[*].identity.elementId populated
-data.truncated is boolean
-document scope without category returns invalid_query
+data.query.truncated is boolean
+document scope without category returns unbounded_document_query
 ```
 
 - [ ] **Step 5: Commit**
@@ -2827,9 +3071,13 @@ public BimApiResponse ElementInfo(BimElementRequest request)
         return BimApiResponse.Ok(new
         {
             identity = RevitIdentitySerializer.Element(doc, element),
-            category = element.Category?.Name,
             name = element.Name,
-            typeId = element.GetTypeId()?.IntegerValue,
+            category = new
+            {
+                id = element.Category?.Id.IntegerValue,
+                name = element.Category?.Name
+            },
+            type = BuildElementTypeSummary(doc, element),
             className = element.GetType().Name,
             location = element.Location?.GetType().Name
         });
@@ -2855,6 +3103,21 @@ public BimApiResponse ElementParameters(BimElementRequest request)
         });
     });
 }
+
+private static object? BuildElementTypeSummary(Autodesk.Revit.DB.Document document, Autodesk.Revit.DB.Element element)
+{
+    var typeId = element.GetTypeId();
+    var type = typeId == Autodesk.Revit.DB.ElementId.InvalidElementId ? null : document.GetElement(typeId);
+    return type == null
+        ? null
+        : new
+        {
+            id = type.Id.IntegerValue,
+            uniqueId = type.UniqueId,
+            familyName = type.get_Parameter(Autodesk.Revit.DB.BuiltInParameter.SYMBOL_FAMILY_NAME_PARAM)?.AsString(),
+            name = type.Name
+        };
+}
 ```
 
 - [ ] **Step 5: Build and live validate identity round trip**
@@ -2874,12 +3137,25 @@ Build succeeded.
 Live validation inside RhinoInside/Revit:
 
 ```powershell
-$query = @{ scope = "active_view"; category = "Walls"; limit = 1 } | ConvertTo-Json
-$result = Invoke-RestMethod http://127.0.0.1:9875/bim/query-elements -Method Post -Body $query -ContentType "application/json"
-$identity = $result.data.elements[0].identity
-$body = @{ identity = $identity } | ConvertTo-Json -Depth 8
-Invoke-RestMethod http://127.0.0.1:9875/bim/element-info -Method Post -Body $body -ContentType "application/json"
-Invoke-RestMethod http://127.0.0.1:9875/bim/element-parameters -Method Post -Body $body -ContentType "application/json"
+$env:PYTHONPATH = "mcp_server/src"
+@'
+import asyncio, json
+from rook.bridge import call_rhino
+
+async def main():
+    result = await call_rhino("/bim/query-elements", "POST", {
+        "scope": "active_view",
+        "category": "Walls",
+        "limit": 1,
+    })
+    identity = result["data"]["elements"][0]["identity"]
+    info = await call_rhino("/bim/element-info", "POST", {"identity": identity})
+    parameters = await call_rhino("/bim/element-parameters", "POST", {"identity": identity})
+    print(json.dumps(info, indent=2))
+    print(json.dumps(parameters, indent=2))
+
+asyncio.run(main())
+'@ | python -
 ```
 
 Expected:
@@ -3027,12 +3303,25 @@ Build succeeded.
 Live validation inside RhinoInside/Revit:
 
 ```powershell
-$query = @{ scope = "active_view"; category = "Walls"; limit = 3 } | ConvertTo-Json
-$result = Invoke-RestMethod http://127.0.0.1:9875/bim/query-elements -Method Post -Body $query -ContentType "application/json"
-$identities = @($result.data.elements | ForEach-Object { $_.identity })
-$selectBody = @{ identities = $identities } | ConvertTo-Json -Depth 8
-Invoke-RestMethod http://127.0.0.1:9875/bim/select-elements -Method Post -Body $selectBody -ContentType "application/json"
-Invoke-RestMethod http://127.0.0.1:9875/bim/clear-selection -Method Post -Body "{}" -ContentType "application/json"
+$env:PYTHONPATH = "mcp_server/src"
+@'
+import asyncio, json
+from rook.bridge import call_rhino
+
+async def main():
+    result = await call_rhino("/bim/query-elements", "POST", {
+        "scope": "active_view",
+        "category": "Walls",
+        "limit": 3,
+    })
+    identities = [row["identity"] for row in result["data"]["elements"]]
+    selected = await call_rhino("/bim/select-elements", "POST", {"identities": identities})
+    cleared = await call_rhino("/bim/clear-selection", "POST", {})
+    print(json.dumps(selected, indent=2))
+    print(json.dumps(cleared, indent=2))
+
+asyncio.run(main())
+'@ | python -
 ```
 
 Expected:
@@ -3150,9 +3439,22 @@ If this fails due to toolchain availability, record the exact failure and do not
 Run against standalone Rhino with RookNative loaded:
 
 ```powershell
-Invoke-RestMethod http://127.0.0.1:9875/bim/status
-$body = @{ scope = "active_view"; category = "Walls"; limit = 1 } | ConvertTo-Json
-Invoke-RestMethod http://127.0.0.1:9875/bim/query-elements -Method Post -Body $body -ContentType "application/json"
+$env:PYTHONPATH = "mcp_server/src"
+@'
+import asyncio, json
+from rook.bridge import call_rhino, discovery_diagnostics
+
+async def main():
+    print(json.dumps(discovery_diagnostics(), indent=2))
+    print(json.dumps(await call_rhino("/bim/status", "GET"), indent=2))
+    print(json.dumps(await call_rhino("/bim/query-elements", "POST", {
+        "scope": "active_view",
+        "category": "Walls",
+        "limit": 1,
+    }), indent=2))
+
+asyncio.run(main())
+'@ | python -
 ```
 
 Expected:
@@ -3168,26 +3470,38 @@ no native/managed callback failure leaks to the user
 Run inside RhinoInside/Revit with an open model:
 
 ```powershell
-Invoke-RestMethod http://127.0.0.1:9875/bim/status
-Invoke-RestMethod http://127.0.0.1:9875/bim/active-document
-$query = @{ scope = "active_view"; category = "Walls"; limit = 5 } | ConvertTo-Json
-$result = Invoke-RestMethod http://127.0.0.1:9875/bim/query-elements -Method Post -Body $query -ContentType "application/json"
-$identity = $result.data.elements[0].identity
-$body = @{ identity = $identity } | ConvertTo-Json -Depth 8
-Invoke-RestMethod http://127.0.0.1:9875/bim/element-info -Method Post -Body $body -ContentType "application/json"
-Invoke-RestMethod http://127.0.0.1:9875/bim/element-parameters -Method Post -Body $body -ContentType "application/json"
-$selectBody = @{ identities = @($identity) } | ConvertTo-Json -Depth 8
-Invoke-RestMethod http://127.0.0.1:9875/bim/select-elements -Method Post -Body $selectBody -ContentType "application/json"
-Invoke-RestMethod http://127.0.0.1:9875/bim/clear-selection -Method Post -Body "{}" -ContentType "application/json"
+$env:PYTHONPATH = "mcp_server/src"
+@'
+import asyncio, json
+from rook.bridge import call_rhino, discovery_diagnostics
+
+async def main():
+    print(json.dumps(discovery_diagnostics(), indent=2))
+    print(json.dumps(await call_rhino("/bim/status", "GET"), indent=2))
+    print(json.dumps(await call_rhino("/bim/active-document", "GET"), indent=2))
+    result = await call_rhino("/bim/query-elements", "POST", {
+        "scope": "active_view",
+        "category": "Walls",
+        "limit": 5,
+    })
+    print(json.dumps(result, indent=2))
+    identity = result["data"]["elements"][0]["identity"]
+    print(json.dumps(await call_rhino("/bim/element-info", "POST", {"identity": identity}), indent=2))
+    print(json.dumps(await call_rhino("/bim/element-parameters", "POST", {"identity": identity}), indent=2))
+    print(json.dumps(await call_rhino("/bim/select-elements", "POST", {"identities": [identity]}), indent=2))
+    print(json.dumps(await call_rhino("/bim/clear-selection", "POST", {}), indent=2))
+
+asyncio.run(main())
+'@ | python -
 ```
 
 Expected:
 
 ```text
 status available true
-active-document returns document title/path/guid/guidSource/host and active view id/name/optional uniqueId
+active-document returns document title/path/guid/guidSource/isFamilyDocument/isWorkshared and active view id/name/optional uniqueId
 query returns exact element identities with confidence exact and resolved true
-document query without category returns invalid_query
+document query without category returns unbounded_document_query
 parameters return storageType, displayValue, rawValue where safe, canCompareNumeric false
 selection mutates UI selection only
 no Grasshopper document or canvas is required
@@ -3242,7 +3556,7 @@ If no docs changed, skip this commit.
 - No Grasshopper document, Grasshopper canvas, or GH component is required for any Phase 1 operation.
 - Temporary view isolation/highlighting is excluded from Phase 1 unless plain Revit selection fails live validation and the spec is explicitly amended.
 - Numeric comparisons are excluded from Phase 1 filter language.
-- Linked model support is not flattened into loose IDs; unresolved linked identities return structured `operation_unavailable` or `unsupported_identity`.
+- Linked model support is not flattened into loose IDs; unresolved linked identities return structured `linked_element_unsupported` or `capability_unavailable`.
 
 ## Self-Review
 
