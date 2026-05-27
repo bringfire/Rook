@@ -76,13 +76,15 @@ namespace RookBim.Tests
                 .Select(File.ReadAllText);
             var combined = string.Join(Environment.NewLine, revitFiles);
 
-            Assert.Contains("RhinoInside.Revit.Rhinoceros", dispatcher);
-            Assert.Contains("InvokeInHostContext", dispatcher);
             Assert.Contains("RhinoInside.Revit.Revit", dispatcher);
+            Assert.Contains("EnqueueIdlingAction", dispatcher);
             Assert.Contains("ActiveUIApplication", dispatcher);
             Assert.Contains("Type.GetType", dispatcher);
             Assert.Contains("AppDomain.CurrentDomain", dispatcher);
             Assert.Contains("TargetInvocationException", dispatcher);
+            Assert.Contains("TaskCompletionSource", dispatcher);
+            Assert.Contains("new Action(item.Execute)", dispatcher);
+            Assert.DoesNotContain("Task.Run", dispatcher);
             Assert.DoesNotContain("ExternalEvent.Create", dispatcher);
             Assert.DoesNotContain("IExternalEventHandler", dispatcher);
             Assert.DoesNotContain("Transaction", combined);
@@ -147,9 +149,10 @@ namespace RookBim.Tests
 
             Assert.Contains("InvokeAbandonable", dispatcher);
             Assert.Contains("public bool Abandon()", dispatcher);
-            Assert.Contains("CancellationTokenSource", dispatcher);
-            Assert.Contains("cancellation.Cancel();", dispatcher);
-            Assert.Contains("cancellationToken.ThrowIfCancellationRequested();", dispatcher);
+            Assert.Contains("TryAbandon()", dispatcher);
+            Assert.Contains("CompareExchange(ref state, Running, Pending)", dispatcher);
+            Assert.Contains("CompareExchange(ref state, Abandoned, Pending)", dispatcher);
+            Assert.Contains("TrySetCanceled", dispatcher);
             Assert.Contains("var dispatch = dispatcher.InvokeAbandonable(work);", runtime);
             Assert.Contains("dispatch.Abandon();", runtime);
             Assert.Contains("throw new TimeoutException", runtime);
