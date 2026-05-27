@@ -22,7 +22,7 @@ namespace Rook.Tests.UI.Vision
         }
 
         [Fact]
-        public void DumpVisionPresentationCommand_UsesMemoryOnlyPanelDiagnostics()
+        public void DumpVisionPresentationCommand_WritesFileAndPrintsCompactTail()
         {
             var command = ReadSourceFile(
                 "src",
@@ -33,9 +33,15 @@ namespace Rook.Tests.UI.Vision
 
             Assert.Contains("RookDumpVisionPresentationState", command);
             Assert.Contains("RookVisionPanel.DumpPresentationDiagnostics()", command);
+            Assert.Contains("RookVisionPanel.DumpPresentationDiagnosticsSummary(16)", command);
             Assert.Contains("RhinoApp.WriteLine", command);
-            Assert.DoesNotContain("File.", command);
+            Assert.Contains("File.WriteAllText", command);
+            Assert.Contains("try", command);
+            Assert.Contains("catch (Exception ex)", command);
+            Assert.Contains("Guid.NewGuid().ToString(\"N\")", command);
             Assert.Contains("internal static string DumpPresentationDiagnostics()", panel);
+            Assert.Contains("internal static string DumpPresentationDiagnosticsSummary(int tailCount)", panel);
+            Assert.Contains("Skip(Math.Max(0, allEntries.Length - count))", panel);
             Assert.Contains("VisionPanelPresentationDiagnosticDump", panel);
             Assert.Contains("SurfaceId = panel._surfaceId", panel);
             Assert.Contains("DocumentSerialNumber = panel._documentSerialNumber", panel);

@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using Eto.Forms;
@@ -75,6 +77,77 @@ namespace Rook.UI.Vision
                 return JsonSerializer.Serialize(
                     dumps,
                     new JsonSerializerOptions { WriteIndented = true });
+            }
+        }
+
+        internal static string DumpPresentationDiagnosticsSummary(int tailCount)
+        {
+            lock (s_instancesLock)
+            {
+                var builder = new StringBuilder();
+                foreach (var panel in s_instances)
+                {
+                    var allEntries = panel._surface.GetHostPresentationDiagnosticEntries();
+                    var count = Math.Max(1, tailCount);
+                    var entries = allEntries
+                        .Skip(Math.Max(0, allEntries.Length - count))
+                        .ToArray();
+
+                    builder.Append("panel surface=");
+                    builder.Append(panel._surfaceId);
+                    builder.Append("; doc=");
+                    builder.Append(panel._documentSerialNumber);
+                    builder.Append("; closed=");
+                    builder.Append(panel._closed);
+                    builder.Append("; disposed=");
+                    builder.Append(panel._surface.IsDisposed);
+                    builder.Append("; entries=");
+                    builder.Append(entries.Length);
+                    builder.AppendLine();
+
+                    foreach (var entry in entries)
+                    {
+                        builder.Append('#');
+                        builder.Append(entry.Sequence);
+                        builder.Append(' ');
+                        builder.Append(entry.Reason);
+                        builder.Append("; facts=");
+                        builder.Append("app:");
+                        builder.Append(entry.Facts.AppActive);
+                        builder.Append(",any:");
+                        builder.Append(entry.Facts.PanelVisibleAnyTab);
+                        builder.Append(",sel:");
+                        builder.Append(entry.Facts.PanelSelectedVisible);
+                        builder.Append(",tmp:");
+                        builder.Append(entry.Facts.TemporaryDeactivateHidden);
+                        builder.Append("; snap=");
+                        builder.Append("app:");
+                        builder.Append(entry.Snapshot.AppActive);
+                        builder.Append(",panel:");
+                        builder.Append(entry.Snapshot.PanelVisible);
+                        builder.Append(",sel:");
+                        builder.Append(entry.Snapshot.PanelSelectedVisible);
+                        builder.Append(",hwnd:");
+                        builder.Append(entry.Snapshot.HwndChainVisible);
+                        builder.Append(",rect:");
+                        builder.Append(entry.Snapshot.HwndClientRectNonZero);
+                        builder.Append(",ctl:");
+                        builder.Append(entry.Snapshot.ControllerVisible);
+                        builder.Append("; decision=");
+                        builder.Append(entry.Decision.OldState);
+                        builder.Append("->");
+                        builder.Append(entry.Decision.NewState);
+                        builder.Append('/');
+                        builder.Append(entry.Decision.Action);
+                        builder.Append('/');
+                        builder.Append(entry.Decision.NotPresentableReason);
+                        builder.Append("; result=");
+                        builder.Append(entry.ActionResult);
+                        builder.AppendLine();
+                    }
+                }
+
+                return builder.ToString();
             }
         }
 

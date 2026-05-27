@@ -109,7 +109,7 @@ namespace Rook.Tests.UI.Web
         }
 
         [Fact]
-        public void PanelNotSelected_WithVisibleController_HidesControllerButKeepsDesiredVisible()
+        public void PanelNotSelected_WithVisibleController_EntersPendingHostWithoutHiding()
         {
             var coordinator = new WebViewHostPresentationCoordinator();
             var snapshot = ReadySnapshot(controllerVisible: true) with
@@ -120,7 +120,7 @@ namespace Rook.Tests.UI.Web
             var decision = coordinator.Evaluate(snapshot, "panel-not-selected");
 
             Assert.Equal(WebViewHostPresentationState.PendingHost, decision.NewState);
-            Assert.Equal(WebViewHostPresentationAction.HideController, decision.Action);
+            Assert.Equal(WebViewHostPresentationAction.None, decision.Action);
             Assert.Equal(WebViewHostNotPresentableReason.PanelNotSelected, decision.NotPresentableReason);
             Assert.False(decision.ShouldSetControllerVisible);
         }
@@ -134,10 +134,34 @@ namespace Rook.Tests.UI.Web
                 PanelSelectedVisible = false
             }, "panel-not-selected");
 
-            var decision = coordinator.Evaluate(ReadySnapshot(controllerVisible: false), "panel-selected");
+            var decision = coordinator.Evaluate(ReadySnapshot(controllerVisible: true), "panel-selected");
 
             Assert.Equal(WebViewHostPresentationState.PendingHost, decision.OldState);
-            AssertPresentAction(decision, setBounds: false, setVisible: true);
+            AssertPresentAction(decision, setBounds: false, setVisible: false);
+        }
+
+        [Fact]
+        public void PanelSelectedAgain_WithTransientHiddenHwnd_DoesNotHideVisibleController()
+        {
+            var coordinator = new WebViewHostPresentationCoordinator();
+            coordinator.Evaluate(ReadySnapshot(), "initial-ready");
+            coordinator.Evaluate(ReadySnapshot(controllerVisible: true) with
+            {
+                PanelSelectedVisible = false,
+                HwndChainVisible = false,
+                HwndClientRectNonZero = false
+            }, "panel-hidden");
+
+            var decision = coordinator.Evaluate(ReadySnapshot(controllerVisible: true) with
+            {
+                HwndChainVisible = false,
+                HwndClientRectNonZero = true
+            }, "webview-shown");
+
+            Assert.Equal(WebViewHostPresentationState.PendingHost, decision.OldState);
+            Assert.Equal(WebViewHostPresentationState.PendingHost, decision.NewState);
+            Assert.Equal(WebViewHostPresentationAction.None, decision.Action);
+            Assert.Equal(WebViewHostNotPresentableReason.HwndChainHidden, decision.NotPresentableReason);
         }
 
         [Fact]
@@ -176,7 +200,7 @@ namespace Rook.Tests.UI.Web
         }
 
         [Fact]
-        public void AppDeactivated_VisibleController_HidesWithoutPresenting()
+        public void AppDeactivated_VisibleController_EntersPendingHostWithoutHiding()
         {
             var coordinator = new WebViewHostPresentationCoordinator();
             coordinator.Evaluate(ReadySnapshot(), "initial-ready");
@@ -188,7 +212,8 @@ namespace Rook.Tests.UI.Web
 
             Assert.Equal(WebViewHostPresentationState.Presenting, decision.OldState);
             Assert.Equal(WebViewHostPresentationState.PendingHost, decision.NewState);
-            Assert.Equal(WebViewHostPresentationAction.HideController, decision.Action);
+            Assert.Equal(WebViewHostPresentationAction.None, decision.Action);
+            Assert.Equal(WebViewHostNotPresentableReason.AppInactive, decision.NotPresentableReason);
             Assert.False(decision.ShouldSetControllerVisible);
             Assert.False(decision.ShouldNotifyParentPositionChanged);
         }
@@ -208,7 +233,7 @@ namespace Rook.Tests.UI.Web
             Assert.Equal(WebViewHostPresentationState.PendingHost, decision.NewState);
             Assert.Equal(WebViewHostNotPresentableReason.TemporaryDeactivateHidden, decision.NotPresentableReason);
             Assert.NotEqual(WebViewHostPresentationState.Hidden, decision.NewState);
-            Assert.NotEqual(WebViewHostPresentationAction.PresentController, decision.Action);
+            Assert.Equal(WebViewHostPresentationAction.None, decision.Action);
         }
 
         [Fact]
