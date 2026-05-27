@@ -25,6 +25,19 @@
     <InternalsVisibleTo Include="Rook.Tests" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="../RookBim/bin/$(Configuration)/$(TargetFramework)/RookBim.dll"
+          Condition="Exists('../RookBim/bin/$(Configuration)/$(TargetFramework)/RookBim.dll')">
+      <Link>RookBim.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="../RookBim/bin/$(Configuration)/$(TargetFramework)/RookBim.pdb"
+          Condition="Exists('../RookBim/bin/$(Configuration)/$(TargetFramework)/RookBim.pdb')">
+      <Link>RookBim.pdb</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
   <ItemGroup Condition="'$(TargetFramework)' == 'net8.0' Or '$(TargetFramework)' == 'net7.0'">
     <Reference Include="RhinoCommon">
       <HintPath>$(RhinoSystemDir)\netcore\RhinoCommon.dll</HintPath>
