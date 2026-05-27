@@ -62,23 +62,136 @@ namespace RookBim.Tests
         }
 
         [Fact]
-        public void RevitRuntimeSkeleton_DelegatesEveryOperationToUnavailableRuntime()
+        public void RevitTask7_UsesExternalEventDispatcherWithoutTransactions()
         {
-            var text = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
+            var dispatcher = Read("src/RookBim/Revit/RevitApiDispatcher.cs");
+            var revitFiles = Directory
+                .GetFiles(Path.Combine(RepoRoot, "src", "RookBim", "Revit"), "*.cs")
+                .Select(File.ReadAllText);
+            var combined = string.Join(Environment.NewLine, revitFiles);
 
-            Assert.Contains("IRookBimRuntime", text);
-            Assert.Contains("\"not_rhino_inside\"", text);
-            Assert.Contains("\"RookBIM is loaded, but Rhino is not running inside Revit.\"", text);
-            Assert.DoesNotContain("ExternalEvent", text);
-            Assert.DoesNotContain("ActiveUIDocument", text);
+            Assert.Contains("IExternalEventHandler", dispatcher);
+            Assert.Contains("ExternalEvent.Create", dispatcher);
+            Assert.Contains(".Raise()", dispatcher);
+            Assert.Contains("Execute(UIApplication uiapp)", dispatcher);
+            Assert.Contains("TaskCompletionSource", dispatcher);
+            Assert.DoesNotContain("Transaction", combined);
+        }
 
-            AssertMethodDelegates(text, "Status", "fallback.Status()");
-            AssertMethodDelegates(text, "ActiveDocument", "fallback.ActiveDocument()");
-            AssertMethodDelegates(text, "QueryElements", "fallback.QueryElements(request)");
-            AssertMethodDelegates(text, "ElementInfo", "fallback.ElementInfo(request)");
-            AssertMethodDelegates(text, "ElementParameters", "fallback.ElementParameters(request)");
-            AssertMethodDelegates(text, "SelectElements", "fallback.SelectElements(request)");
-            AssertMethodDelegates(text, "ClearSelection", "fallback.ClearSelection()");
+        [Fact]
+        public void RevitTask7_RuntimeUsesDispatcherForStatusAndActiveDocument()
+        {
+            var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
+            var context = Read("src/RookBim/Revit/RevitContext.cs");
+            var serializer = Read("src/RookBim/Revit/RevitIdentitySerializer.cs");
+
+            Assert.Contains("RevitApiDispatcher", runtime);
+            Assert.Contains("dispatcher.Invoke", runtime);
+            Assert.Contains("ActiveDocument(UIApplication", context);
+            Assert.Contains("ActiveUiDocument(UIApplication", context);
+            Assert.Contains("ActiveUIDocument", context);
+            Assert.Contains("GetWorksharingCentralGUID", serializer);
+            Assert.Contains("GuidSource", serializer);
+            Assert.Contains("BimDocumentGuidSource.Unavailable", serializer);
+            Assert.DoesNotContain("PathFallback", serializer);
+
+            Assert.Contains("Available = true", runtime);
+            Assert.Contains("Runtime = \"rookbim\"", runtime);
+            Assert.Contains("Host = \"revit\"", runtime);
+            Assert.Contains("Module = ModuleName", runtime);
+            Assert.Contains("ErrorCode = \"no_active_document\"", runtime);
+            Assert.Contains("BimErrorCode.NoActiveDocument", runtime);
+            Assert.Contains("409", runtime);
+        }
+
+        [Fact]
+        public void RevitTask7_ActiveDocumentResultUsesViewPropertyForCamelCaseContract()
+        {
+            var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
+
+            Assert.Contains("View = SerializeActiveView(uidoc, document)", runtime);
+            Assert.Contains("public BimViewIdentity? View { get; set; }", runtime);
+            Assert.DoesNotContain("ActiveView = SerializeActiveView(uidoc, document)", runtime);
+            Assert.DoesNotContain("public BimViewIdentity? ActiveView { get; set; }", runtime);
+        }
+
+        [Fact]
+        public void RevitTask7_ElementIdSerializationUsesBoundedNullableConversion()
+        {
+            var serializer = Read("src/RookBim/Revit/RevitIdentitySerializer.cs");
+
+            Assert.Contains("private const int InvalidElementIdValue = -1;", serializer);
+            Assert.Contains("Id = ToInt32OrNull(view.Id) ?? InvalidElementIdValue", serializer);
+            Assert.Contains("ElementId = ToInt32OrNull(element.Id)", serializer);
+            Assert.Contains("private static int? ToInt32OrNull(ElementId? id)", serializer);
+            Assert.Contains("if (value < int.MinValue || value > int.MaxValue)", serializer);
+            Assert.Contains("return null;", serializer);
+            Assert.DoesNotContain("Convert.ToInt32", serializer);
+        }
+
+        [Fact]
+        public void RevitTask7_DispatchTimeoutAbandonsPendingWork()
+        {
+            var dispatcher = Read("src/RookBim/Revit/RevitApiDispatcher.cs");
+            var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
+
+            Assert.Contains("InvokeAbandonable", dispatcher);
+            Assert.Contains("public bool Abandon()", dispatcher);
+            Assert.Contains("TryAbandon()", dispatcher);
+            Assert.Contains("CompareExchange(ref state, Running, Pending)", dispatcher);
+            Assert.Contains("CompareExchange(ref state, Abandoned, Pending)", dispatcher);
+            Assert.Contains("TrySetCanceled", dispatcher);
+            Assert.Contains("var dispatch = dispatcher.InvokeAbandonable(work);", runtime);
+            Assert.Contains("dispatch.Abandon();", runtime);
+            Assert.Contains("throw new TimeoutException", runtime);
+        }
+
+        [Fact]
+        public void RevitTask7_StatusDispatchFailureKeepsRookBimRuntime()
+        {
+            var runtime = NormalizeLineEndings(Read("src/RookBim/Revit/RevitRookBimRuntime.cs"));
+
+            Assert.Contains(
+                "catch (Exception ex)\n" +
+                "            {\n" +
+                "                return new BimStatusResponse\n" +
+                "                {\n" +
+                "                    Available = false,\n" +
+                "                    Runtime = \"rookbim\",\n" +
+                "                    ErrorCode = \"not_rhino_inside\",\n" +
+                "                    Message = $\"RookBIM could not enter the Revit API context: {ex.Message}\",\n" +
+                "                    Host = \"unknown\",\n" +
+                "                    Module = ModuleName\n" +
+                "                };\n" +
+                "            }",
+                runtime);
+            Assert.DoesNotContain("Runtime = \"unavailable\"", runtime);
+        }
+
+        [Fact]
+        public void RevitTask7_LaterToolsRemainCapabilityUnavailable()
+        {
+            var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
+
+            AssertLaterToolUnavailable(runtime, "QueryElements");
+            AssertLaterToolUnavailable(runtime, "ElementInfo");
+            AssertLaterToolUnavailable(runtime, "ElementParameters");
+            AssertLaterToolUnavailable(runtime, "SelectElements");
+            AssertLaterToolUnavailable(runtime, "ClearSelection");
+        }
+
+        [Fact]
+        public void RevitTask7_DoesNotStartTask8QueryServiceOrCollectors()
+        {
+            var revitDirectory = Path.Combine(RepoRoot, "src", "RookBim", "Revit");
+            var revitFiles = Directory.GetFiles(revitDirectory, "*.cs");
+            var fileNames = revitFiles.Select(Path.GetFileName).ToArray();
+            var combined = string.Join(Environment.NewLine, revitFiles.Select(File.ReadAllText));
+
+            Assert.DoesNotContain(fileNames, name => name.IndexOf("Query", StringComparison.OrdinalIgnoreCase) >= 0);
+            Assert.DoesNotContain("FilteredElementCollector", combined);
+            Assert.DoesNotContain("ParameterFilterElement", combined);
+            Assert.DoesNotContain("Selection.SetElementIds", combined);
         }
 
         [Fact]
@@ -118,10 +231,11 @@ namespace RookBim.Tests
             Assert.Equal("false", ValueOf(reference, "Private"));
         }
 
-        private static void AssertMethodDelegates(string text, string methodName, string delegation)
+        private static void AssertLaterToolUnavailable(string text, string methodName)
         {
             Assert.Contains(methodName, text);
-            Assert.Contains(delegation, text);
+            Assert.Contains("BimErrorCode.CapabilityUnavailable", text);
+            Assert.Contains("501", text);
         }
 
         private static XDocument LoadProject(string relativePath)
@@ -147,6 +261,11 @@ namespace RookBim.Tests
         private static string NormalizeProjectPath(string value)
         {
             return value.Replace('\\', '/');
+        }
+
+        private static string NormalizeLineEndings(string value)
+        {
+            return value.Replace("\r\n", "\n");
         }
 
         private static string FindRepoRoot()
