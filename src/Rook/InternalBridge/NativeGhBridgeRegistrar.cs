@@ -30,6 +30,7 @@ namespace Rook.InternalBridge
         private static readonly TextureMappingHandler TextureMapping = new();
         private static readonly GameExportHandler GameExport = new();
         private static readonly ViewportHandler Viewport = new();
+        private static readonly BimHandler Bim = new();
         // Image handler. Shares the same ArtifactStore + VisionSecretStore
         // as the Vision tab and the V2 video subsystem via
         // RookSubsystemRoot.Instance. Codex review of step 7 caught that
@@ -196,6 +197,7 @@ namespace Rook.InternalBridge
         private static readonly NativeGhBridgeCallback BakeOutputCallback = HandleBakeOutput;
         private static readonly NativeGhBridgeCallback ViewportCaptureTier3Callback = HandleViewportCaptureTier3;
         private static readonly NativeGhBridgeCallback VisionDispatchCallback = HandleVisionDispatch;
+        private static readonly NativeGhBridgeCallback BimDispatchCallback = HandleBimDispatch;
 
         private static bool _isRegistered;
         private static bool _registrationErrorLogged;
@@ -1755,6 +1757,69 @@ namespace Rook.InternalBridge
             catch (JsonException)
             {
                 return null;
+            }
+        }
+
+        private static int HandleBimDispatch(
+            IntPtr requestJsonUtf8,
+            int requestJsonLength,
+            IntPtr responseJsonUtf8,
+            int responseJsonCapacity,
+            IntPtr responseJsonLength,
+            IntPtr httpStatusCode)
+        {
+            return ExecuteBimDispatchCallback(
+                requestJsonUtf8,
+                requestJsonLength,
+                responseJsonUtf8,
+                responseJsonCapacity,
+                responseJsonLength,
+                httpStatusCode);
+        }
+
+        private static int ExecuteBimDispatchCallback(
+            IntPtr requestJsonUtf8,
+            int requestJsonLength,
+            IntPtr responseJsonUtf8,
+            int responseJsonCapacity,
+            IntPtr responseJsonLength,
+            IntPtr httpStatusCode)
+        {
+            try
+            {
+                var requestJson = ReadUtf8(requestJsonUtf8, requestJsonLength);
+                var result = Bim.Dispatch(requestJson);
+                var responseJson = JsonSerializer.Serialize(new
+                {
+                    success = result.Success,
+                    data = result.Data,
+                }, JsonOptions);
+
+                return WriteUtf8Response(
+                    responseJsonUtf8,
+                    responseJsonCapacity,
+                    responseJsonLength,
+                    httpStatusCode,
+                    responseJson,
+                    MapBridgeStatus(result));
+            }
+            catch (Exception ex)
+            {
+                return WriteUtf8Response(
+                    responseJsonUtf8,
+                    responseJsonCapacity,
+                    responseJsonLength,
+                    httpStatusCode,
+                    JsonSerializer.Serialize(new
+                    {
+                        success = false,
+                        data = new
+                        {
+                            errorCode = "internal_error",
+                            message = $"BIM dispatch failed: {ex.Message}",
+                        },
+                    }, JsonOptions),
+                    500);
             }
         }
 
