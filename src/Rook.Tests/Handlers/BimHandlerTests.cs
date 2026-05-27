@@ -113,12 +113,12 @@ namespace Rook.Tests.Handlers
         {
             var source = ReadSourceFile("src", "Rook", "InternalBridge", "NativeGhBridgeRegistrar.cs");
 
-            Assert.Contains("BridgeAbiVersion = 14", source);
+            Assert.Contains("BridgeAbiVersion = 15", source);
             Assert.Contains("BimDispatchCallback = HandleBimDispatch", source);
             Assert.Contains("private static int HandleBimDispatch(", source);
             Assert.Contains("private static int ExecuteBimDispatchCallback(", source);
-            Assert.DoesNotContain("public IntPtr BimDispatch;", source);
-            Assert.DoesNotContain("BimDispatch = Marshal.GetFunctionPointerForDelegate(BimDispatchCallback)", source);
+            Assert.Contains("public IntPtr BimDispatch;", source);
+            Assert.Contains("BimDispatch = Marshal.GetFunctionPointerForDelegate(BimDispatchCallback)", source);
         }
 
         private static JsonElement ToJsonElement(object? value)

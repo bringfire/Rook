@@ -44,7 +44,7 @@ ManagedCreateInvokeResult InvokeViewportCaptureTier3WithBody(
     int& statusCode,
     std::string& error);
 
-// Invokes the managed vision_dispatch bridge callback (ABI v14). Single
+// Invokes the managed vision_dispatch bridge callback. Single
 // generic dispatch for all /vision/* routes — the op discriminator is
 // carried in the request JSON and routed inside VisionHandler.cs. Keeps
 // VisionHandler.cs as the single validation boundary and avoids one
@@ -54,6 +54,22 @@ ManagedCreateInvokeResult InvokeVisionDispatchWithBody(
     std::string& responseJson,
     int& statusCode,
     std::string& error);
+
+// Invokes the managed bim_dispatch bridge callback. Native /bim/* routes
+// inject only the op discriminator and forward the opaque JSON body to the
+// managed BIM handler.
+ManagedCreateInvokeResult InvokeBimDispatchWithBody(
+    const std::string& requestJson,
+    std::string& responseJson,
+    int& statusCode,
+    std::string& error);
+void HandleBimStatus(const httplib::Request& req, httplib::Response& res);
+void HandleBimActiveDocument(const httplib::Request& req, httplib::Response& res);
+void HandleBimQueryElements(const httplib::Request& req, httplib::Response& res);
+void HandleBimElementInfo(const httplib::Request& req, httplib::Response& res);
+void HandleBimElementParameters(const httplib::Request& req, httplib::Response& res);
+void HandleBimSelectElements(const httplib::Request& req, httplib::Response& res);
+void HandleBimClearSelection(const httplib::Request& req, httplib::Response& res);
 void HandleManagedUvPlanar(const httplib::Request& req, httplib::Response& res);
 void HandleManagedGameExportPrepare(const httplib::Request& req, httplib::Response& res);
 void ProxyManagedCompanionRequest(
