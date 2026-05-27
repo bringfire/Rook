@@ -181,7 +181,8 @@ Element identity envelope:
 {
   "identity": {
     "source": "revit",
-    "documentGuid": "...",
+    "documentGuid": null,
+    "documentGuidSource": "unavailable",
     "documentPath": "C:/path/Model.rvt",
     "documentTitle": "Model.rvt",
     "elementId": 12345,
@@ -195,6 +196,12 @@ Element identity envelope:
 ```
 
 `documentPath` is diagnostic. It is not part of exact identity.
+
+`documentGuid` and `documentGuidSource` mirror the document identity contract.
+If `documentGuidSource` is not `revit_persistent_guid`, `confidence: "exact"`
+means the live element was resolved exactly within the active Revit document
+context for this request. It does not claim a stable cross-session document
+identity.
 
 Linked-model fields are reserved now so linked identity is not flattened later:
 
@@ -274,8 +281,9 @@ Rules:
 - If omitted, `scope` defaults to `active_view`.
 - `active_view` is the preferred Phase 1 path because it is bounded and
   visually explainable.
-- `document` scope is allowed only when bounded by `category` or at least one
-  filter. No blind whole-model dump.
+- `document` scope requires `category` in Phase 1. Filters may narrow the
+  category result set, but they are not sufficient by themselves because
+  negative or empty filters can match most heterogeneous model elements.
 - Default `limit`: `100`.
 - Hard max: `1000`.
 - `truncated: true` is a successful capped query.
@@ -314,6 +322,7 @@ Summary result shape:
       "identity": {
         "source": "revit",
         "documentGuid": "...",
+        "documentGuidSource": "revit_persistent_guid",
         "documentPath": "C:/path/Model.rvt",
         "documentTitle": "Model.rvt",
         "elementId": 12345,
