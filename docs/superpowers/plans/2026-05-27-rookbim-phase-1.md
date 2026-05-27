@@ -2640,8 +2640,16 @@ namespace RookBim.Revit
     {
         public BimApiResponse Query(Document document, View? activeView, BimQueryElementsRequest request)
         {
-            var collector = request.EffectiveScope == BimQueryScope.ActiveView && activeView != null
-                ? new FilteredElementCollector(document, activeView.Id)
+            if (request.EffectiveScope == BimQueryScope.ActiveView && activeView == null)
+            {
+                return BimApiResponse.Fail(
+                    BimErrorCode.NoActiveView,
+                    "active_view scope requires an active Revit view.",
+                    409);
+            }
+
+            var collector = request.EffectiveScope == BimQueryScope.ActiveView
+                ? new FilteredElementCollector(document, activeView!.Id)
                 : new FilteredElementCollector(document);
 
             collector.WhereElementIsNotElementType();
@@ -2655,21 +2663,21 @@ namespace RookBim.Revit
             }
 
             var allCandidates = collector.ToElements();
+            var parameterAmbiguity = PreflightFilterParameterAmbiguity(allCandidates, request.Filters);
+            if (parameterAmbiguity != null)
+                return parameterAmbiguity;
+
             var missingCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-            BimApiResponse? ambiguity = null;
             var matched = new List<Element>();
 
             foreach (var element in allCandidates)
             {
-                if (MatchesAllFilters(element, request.Filters, missingCounts, out ambiguity))
+                if (MatchesAllFilters(element, request.Filters, missingCounts))
                 {
                     matched.Add(element);
                     if (matched.Count >= request.EffectiveLimit)
                         break;
                 }
-
-                if (ambiguity != null)
-                    return ambiguity;
             }
 
             var totalMatchedUpToCap = matched.Count;
@@ -2691,7 +2699,9 @@ namespace RookBim.Revit
             {
                 document = RevitIdentitySerializer.Document(document),
                 scope = request.EffectiveScope == BimQueryScope.ActiveView ? "active_view" : "document",
-                view = activeView == null ? null : RevitIdentitySerializer.View(activeView),
+                view = request.EffectiveScope == BimQueryScope.ActiveView
+                    ? RevitIdentitySerializer.View(activeView!)
+                    : null,
                 query = new
                 {
                     category = request.Category,
@@ -2707,29 +2717,12 @@ namespace RookBim.Revit
         private static bool MatchesAllFilters(
             Element element,
             IReadOnlyList<BimQueryFilter> filters,
-            Dictionary<string, int> missingCounts,
-            out BimApiResponse? ambiguity)
+            Dictionary<string, int> missingCounts)
         {
-            ambiguity = null;
             foreach (var filter in filters)
             {
                 var lookup = FindParameter(element, filter.Parameter);
-                if (lookup.Ambiguous)
-                {
-                    ambiguity = BimApiResponse.Fail(
-                        BimErrorCode.AmbiguousParameter,
-                        $"Parameter '{filter.Parameter}' is ambiguous in the target candidate set.",
-                        400);
-                    ambiguity.Data = new
-                    {
-                        error = "ambiguous_parameter",
-                        parameter = filter.Parameter,
-                        candidates = lookup.Candidates
-                    };
-                    return false;
-                }
-
-                if (lookup.Parameter == null)
+                if (lookup == null)
                 {
                     missingCounts.TryGetValue(filter.Parameter, out var count);
                     missingCounts[filter.Parameter] = count + 1;
@@ -2738,7 +2731,7 @@ namespace RookBim.Revit
                     continue;
                 }
 
-                var display = DisplayValue(lookup.Parameter);
+                var display = DisplayValue(lookup);
                 var isEmpty = string.IsNullOrWhiteSpace(display);
                 var expected = filter.Value ?? string.Empty;
 
@@ -2759,25 +2752,55 @@ namespace RookBim.Revit
             return true;
         }
 
-        private static ParameterLookupResult FindParameter(Element element, string name)
+        private static BimApiResponse? PreflightFilterParameterAmbiguity(
+            IReadOnlyCollection<Element> candidates,
+            IReadOnlyList<BimQueryFilter> filters)
         {
-            var candidates = new List<object>();
-            Parameter? first = null;
+            foreach (var filter in filters)
+            {
+                var identities = new Dictionary<ParameterIdentityKey, object>();
+                foreach (var element in candidates)
+                {
+                    foreach (Parameter parameter in element.Parameters)
+                    {
+                        if (!string.Equals(parameter.Definition?.Name, filter.Parameter, StringComparison.OrdinalIgnoreCase))
+                            continue;
+
+                        var identity = ParameterIdentity(parameter);
+                        identities.TryAdd(identity.Key, identity.Candidate);
+                    }
+                }
+
+                if (identities.Count > 1)
+                {
+                    var response = BimApiResponse.Fail(
+                        BimErrorCode.AmbiguousParameter,
+                        $"Parameter '{filter.Parameter}' is ambiguous in the target candidate set.",
+                        400);
+                    response.Data = new
+                    {
+                        error = "ambiguous_parameter",
+                        parameter = filter.Parameter,
+                        candidates = identities.Values.ToList()
+                    };
+                    return response;
+                }
+            }
+
+            return null;
+        }
+
+        private static Parameter? FindParameter(Element element, string name)
+        {
             foreach (Parameter parameter in element.Parameters)
             {
                 if (!string.Equals(parameter.Definition?.Name, name, StringComparison.OrdinalIgnoreCase))
                     continue;
 
-                candidates.Add(new
-                {
-                    name = parameter.Definition?.Name,
-                    builtIn = TryBuiltInName(parameter),
-                    guid = TryGuid(parameter)
-                });
-                first ??= parameter;
+                return parameter;
             }
 
-            return new ParameterLookupResult(first, candidates);
+            return null;
         }
 
         private static string? DisplayValue(Parameter parameter)
@@ -2818,7 +2841,7 @@ namespace RookBim.Revit
 
         private static string? TryBuiltInName(Parameter parameter)
         {
-            var builtIn = parameter.Definition?.BuiltInParameter;
+            var builtIn = (parameter.Definition as InternalDefinition)?.BuiltInParameter;
             return builtIn.HasValue ? builtIn.Value.ToString() : null;
         }
 
@@ -2827,23 +2850,27 @@ namespace RookBim.Revit
             return parameter.GUID == System.Guid.Empty ? null : parameter.GUID.ToString("D");
         }
 
-        private sealed class ParameterLookupResult
+        private static ParameterIdentity ParameterIdentity(Parameter parameter)
         {
-            public ParameterLookupResult(Parameter? parameter, IReadOnlyList<object> candidates)
+            var candidate = new
             {
-                Parameter = parameter;
-                Candidates = candidates;
-            }
-
-            public Parameter? Parameter { get; }
-            public IReadOnlyList<object> Candidates { get; }
-            public bool Ambiguous => Candidates.Count > 1;
+                name = parameter.Definition?.Name,
+                builtIn = TryBuiltInName(parameter),
+                guid = TryGuid(parameter)
+            };
+            return new ParameterIdentity(
+                new ParameterIdentityKey(candidate.name, candidate.builtIn, candidate.guid),
+                candidate);
         }
+
+        private readonly record struct ParameterIdentityKey(string? Name, string? BuiltIn, string? Guid);
+
+        private readonly record struct ParameterIdentity(ParameterIdentityKey Key, object Candidate);
     }
 }
 ```
 
-Ambiguous parameter detection is committed behavior for Phase 1: it returns `ambiguous_parameter` with candidate `name`, `builtIn`, and `guid` fields where available. It must not surface as an untyped exception or a silent zero-result query.
+Ambiguous parameter detection is committed behavior for Phase 1: before filter evaluation, preflight the requested parameter display names across the full target candidate set. If more than one distinct parameter identity is found for a requested display name, return `ambiguous_parameter` with candidate `name`, `builtIn`, and `guid` fields where available. It must not surface as an untyped exception, per-element partial failure, or a silent zero-result query.
 
 - [ ] **Step 3: Wire query service into runtime**
 
@@ -3037,7 +3064,7 @@ namespace RookBim.Revit
 
         private static string? TryBuiltInName(Parameter parameter)
         {
-            var builtIn = parameter.Definition?.BuiltInParameter;
+            var builtIn = (parameter.Definition as InternalDefinition)?.BuiltInParameter;
             return builtIn.HasValue ? builtIn.Value.ToString() : null;
         }
 
@@ -3049,7 +3076,7 @@ namespace RookBim.Revit
 }
 ```
 
-If `Definition.BuiltInParameter` or `Parameter.GUID` is not available in Revit 2024, replace those two fields with null-producing helpers verified against SDK-supported APIs before committing.
+Use `parameter.Definition as InternalDefinition` for built-in parameter identity. Base `Definition` does not expose `BuiltInParameter` in Revit 2024.
 
 - [ ] **Step 4: Wire info and parameters**
 
