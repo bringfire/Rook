@@ -4,11 +4,16 @@ namespace Rook.Bim
     {
         private readonly string statusCode;
         private readonly string statusMessage;
+        private readonly string module;
 
-        public RookBimUnavailableRuntime(string statusCode, string statusMessage)
+        public RookBimUnavailableRuntime(
+            string statusCode,
+            string statusMessage,
+            string module = "core")
         {
             this.statusCode = statusCode;
             this.statusMessage = statusMessage;
+            this.module = module;
         }
 
         public BimStatusResponse Status()
@@ -20,7 +25,7 @@ namespace Rook.Bim
                 ErrorCode = statusCode,
                 Message = statusMessage,
                 Host = "unknown",
-                Module = "core"
+                Module = module
             };
         }
 

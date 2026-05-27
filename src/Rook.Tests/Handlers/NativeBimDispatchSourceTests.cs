@@ -119,6 +119,17 @@ namespace Rook.Tests.Handlers
             Assert.Contains("BimDispatchCallback = HandleBimDispatch", source);
         }
 
+        [Fact]
+        public void RookNative_StartsCompanionDeferredLoadInRhinoInsideForBimBridge()
+        {
+            var source = ReadSourceFile("src", "RookNative", "RookNativePlugin.cpp");
+            var onLoad = ExtractFunction(source, "CRookNativePlugin::OnLoadPlugIn");
+
+            Assert.Contains("StartCompanionLoadDeferred();", onLoad);
+            Assert.DoesNotContain("skipping companion deferred load", onLoad);
+            Assert.DoesNotContain("companion will register via its own startup hooks if loaded", onLoad);
+        }
+
         private static string ExtractFunction(string source, string functionName)
         {
             var signatureStart = source.IndexOf(functionName + "(", StringComparison.Ordinal);

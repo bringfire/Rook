@@ -57,6 +57,26 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
+        public void ModuleLoader_ResolvesRookBimNextToLoadedCompanionAssembly()
+        {
+            var paths = RookBimModuleLoader.ResolveCandidateModulePathsForTests();
+            var companionDirectory = Path.GetDirectoryName(typeof(RookBimModuleLoader).Assembly.Location);
+
+            Assert.Contains(Path.Combine(companionDirectory!, "RookBim.dll"), paths);
+        }
+
+        [Fact]
+        public void ModuleLoader_SourceDoesNotDependOnlyOnAppContextBaseDirectory()
+        {
+            var source = ReadSourceFile("src", "Rook", "Bim", "RookBimModuleLoader.cs");
+
+            Assert.Contains("typeof(RookBimModuleLoader).Assembly.Location", source);
+            Assert.DoesNotContain("Path.Combine(AppContext.BaseDirectory, \"RookBim.dll\");", source);
+            Assert.Contains("RookBIM module was not found.", source);
+            Assert.Contains("Searched:", source);
+        }
+
+        [Fact]
         public void Dispatch_QueryElements_RejectsDocumentScopeWithoutCategory()
         {
             var handler = new BimHandler();
