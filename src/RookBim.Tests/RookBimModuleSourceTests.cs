@@ -446,13 +446,6 @@ namespace RookBim.Tests
             Assert.Equal("false", ValueOf(reference, "Private"));
         }
 
-        private static void AssertLaterToolUnavailable(string text, string methodName)
-        {
-            Assert.Contains(methodName, text);
-            Assert.Contains("BimErrorCode.CapabilityUnavailable", text);
-            Assert.Contains("501", text);
-        }
-
         private static XDocument LoadProject(string relativePath)
         {
             return XDocument.Load(Path.Combine(RepoRoot, relativePath.Replace('/', Path.DirectorySeparatorChar)));

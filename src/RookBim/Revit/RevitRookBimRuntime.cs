@@ -371,14 +371,6 @@ namespace RookBim.Revit
             return (int)value;
         }
 
-        private static BimApiResponse LaterToolUnavailable()
-        {
-            return BimApiResponse.Fail(
-                BimErrorCode.CapabilityUnavailable,
-                "This RookBIM Revit capability is not implemented in the current task.",
-                501);
-        }
-
         private sealed class ActiveDocumentResult
         {
             public BimDocumentIdentity Document { get; set; } = new BimDocumentIdentity();
