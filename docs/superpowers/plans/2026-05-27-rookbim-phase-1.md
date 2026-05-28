@@ -3572,6 +3572,58 @@ If no docs changed, skip this commit.
 
 ---
 
+## Phase 1 Closeout Validation Notes
+
+Closeout was completed as a public agent-surface validation, not as new Task 11
+feature work.
+
+Validated HTTP/runtime artifacts:
+
+- Task 7 runtime dispatch: `rookbim_status` and `rookbim_active_document`
+  proved Revit API dispatch plus active document/view identity access through
+  the RhinoInside Revit idling queue.
+- Task 8 query: live Snowdon validation proved bounded active-view/document
+  query behavior and exact identity envelopes.
+- Task 9 evidence: live Snowdon validation proved `element_info` and
+  `element_parameters`, including instance/type parameter evidence and
+  authoritative `UniqueId` resolution failures.
+- Task 10 selection: live Snowdon validation proved query -> select -> clear,
+  stale/mismatched identity failure, linked identity rejection, malformed
+  direct HTTP select rejection, and no Grasshopper dependency.
+
+Recorded live artifacts:
+
+- `C:/Users/aryan/AppData/Local/Temp/rookbim-task8-live-validation-20260527-2.json`
+- `C:/Users/aryan/AppData/Local/Temp/rookbim-task9-runtime-validation-final-20260527-235430.json`
+- `C:/Users/aryan/AppData/Local/Temp/rookbim-task10-live-validation-20260528-003039.json`
+- `C:/Users/aryan/AppData/Local/Temp/rookbim-phase1-mcp-closeout-20260528-004840.json`
+
+MCP closeout result: PASS with expected MCP schema validation behavior.
+
+- Valid MCP calls exercise the approved live RookBIM behavior for status,
+  active document, bounded query, element info, element parameters, selection,
+  and clear selection.
+- `rookbim_readonly` includes only status, active document, query, element
+  info, and element parameters. It intentionally excludes
+  `rookbim_select_elements` and `rookbim_clear_selection` because those tools
+  mutate Revit UI selection.
+- Malformed `rookbim_select_elements` calls such as `{}`,
+  `{"identities": null}`, and `{"identities": []}` are expected to fail at MCP
+  schema validation before dispatch because the public MCP schema requires
+  `identities` with `minItems: 1`.
+- If malformed select payloads bypass MCP and hit `/bim/select-elements`
+  directly, the managed route still returns structured `400 invalid_scope`.
+- Semantic negative cases using schema-valid payloads reach RookBIM and return
+  RookBIM errors: `element_not_found` for stale/mismatched identities,
+  `linked_element_unsupported` for linked identities, and
+  `unbounded_document_query` for document-scope queries without category.
+
+Phase 1 public surface is functionally complete: HTTP and MCP surfaces were
+validated, the schema/runtime validation boundary is explicit, no Grasshopper
+document/canvas is required, and no Revit document write transaction is opened.
+
+---
+
 ## Implementation Constraints to Preserve
 
 - `RookNative` remains the only public HTTP surface.
