@@ -341,22 +341,10 @@ BOOL CRookNativePlugin::OnLoadPlugIn()
 
     // Defer managed companion load until after native plugin startup returns.
     // Loading it directly inside OnLoadPlugIn() leaves the managed plug-in in
-    // a half-started state where callbacks never register.
-    //
-    // In Rhino.Inside mode, skip the deferred load entirely — the companion
-    // will load via Rhino's own plugin system if it's registered. The deferred
-    // polling thread would waste ~7 seconds waiting for a load path that may
-    // never succeed in a hosted context.
-    if (rhinoInside)
-    {
-        RhinoApp().Print(
-            L"RookNative: skipping companion deferred load "
-            L"(companion will register via its own startup hooks if loaded).\n");
-    }
-    else
-    {
-        StartCompanionLoadDeferred();
-    }
+    // a half-started state where callbacks never register. The same bridge is
+    // required in hosted Rhino.Inside sessions so /bim/* can reach managed
+    // callbacks without a manual command such as ShowRookChat.
+    StartCompanionLoadDeferred();
 
     return TRUE;
 }

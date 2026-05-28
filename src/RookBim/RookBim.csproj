@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <RevitInstallDir Condition="'$(RevitInstallDir)' == ''">$(ProgramFiles)\Autodesk\Revit 2024</RevitInstallDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Rook/Rook.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="RevitAPI">
+      <HintPath>$(RevitInstallDir)\RevitAPI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="RevitAPIUI">
+      <HintPath>$(RevitInstallDir)\RevitAPIUI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <PropertyGroup>
+    <RookRuntimeDir>../Rook/bin/$(Configuration)/$(TargetFramework)</RookRuntimeDir>
+  </PropertyGroup>
+
+  <Target Name="CopyRookBimToRookRuntime" AfterTargets="Build" Condition="Exists('$(RookRuntimeDir)')">
+    <Copy SourceFiles="$(TargetPath)"
+          DestinationFolder="$(RookRuntimeDir)"
+          SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(TargetDir)$(TargetName).pdb"
+          DestinationFolder="$(RookRuntimeDir)"
+          SkipUnchangedFiles="true"
+          Condition="Exists('$(TargetDir)$(TargetName).pdb')" />
+  </Target>
+
+</Project>

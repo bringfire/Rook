@@ -78,7 +78,7 @@ int EnsureMake2dHiddenLayer(CRhinoDoc* pDoc, int parentLayerIdx)
 }
 
 constexpr auto kDiscoveryFolderName = "rook";
-constexpr uint32_t kGhBridgeAbiVersion = 14;
+constexpr uint32_t kGhBridgeAbiVersion = 15;
 
 using GhBridgeCallbackFn = int(__stdcall*)(
     const char* request_json_utf8,
@@ -176,6 +176,9 @@ struct GhBridgeRegistration
     // request JSON). Keeps VisionHandler.cs as the single validation
     // boundary and avoids one callback slot per route for future PRs.
     GhBridgeCallbackFn vision_dispatch = nullptr;
+    // ABI v15: BIM domain (single generic dispatch; op carried in
+    // request JSON). Native /bim/* remains the only public HTTP surface.
+    GhBridgeCallbackFn bim_dispatch = nullptr;
 };
 
 enum class BridgeInvokeResult
@@ -258,7 +261,9 @@ bool HasGhBridgeRegistration()
         && registration.gh_set_value != nullptr
         && registration.gh_delete != nullptr
         && registration.gh_solve != nullptr
-        && registration.gh_bake_output != nullptr;
+        && registration.gh_bake_output != nullptr
+        && registration.vision_dispatch != nullptr
+        && registration.bim_dispatch != nullptr;
 }
 
 std::string GetManagedDiscoveryPath()
@@ -998,6 +1003,185 @@ ManagedCreateInvokeResult InvokeVisionDispatchWithBody(
     default:
         return ManagedCreateInvokeResult::Failed;
     }
+}
+
+ManagedCreateInvokeResult InvokeBimDispatchWithBody(
+    const std::string& requestJson,
+    std::string& responseJson,
+    int& statusCode,
+    std::string& error)
+{
+    const auto registration = GetGhBridgeRegistrationSnapshot();
+    if (registration.bim_dispatch == nullptr)
+    {
+        error = "BIM dispatch callback is not registered.";
+        return ManagedCreateInvokeResult::Unavailable;
+    }
+
+    const auto result = TryInvokeRegisteredCallbackWithBody(
+        registration.bim_dispatch,
+        requestJson,
+        responseJson,
+        statusCode,
+        error);
+
+    switch (result)
+    {
+    case BridgeInvokeResult::Completed:
+        return ManagedCreateInvokeResult::Ok;
+    case BridgeInvokeResult::Unavailable:
+        return ManagedCreateInvokeResult::Unavailable;
+    case BridgeInvokeResult::Failed:
+    default:
+        return ManagedCreateInvokeResult::Failed;
+    }
+}
+
+void SendBimDispatchError(
+    httplib::Response& res,
+    const std::string& op,
+    int status,
+    const std::string& errorCode,
+    const std::string& message)
+{
+    nlohmann::json envelope;
+    nlohmann::json data;
+    data["errorCode"] = errorCode;
+    data["message"] = message;
+    envelope["success"] = false;
+    envelope["data"] = data;
+
+    res.status = status;
+    res.set_content(envelope.dump(), "application/json");
+    res.set_header("X-Rook-Bim-Op", op);
+}
+
+bool ParseBimPostBody(
+    const httplib::Request& req,
+    httplib::Response& res,
+    const std::string& op,
+    nlohmann::json& body)
+{
+    if (req.body.empty())
+    {
+        body = nlohmann::json::object();
+        res.set_header("X-Rook-Bim-Op", op);
+        return true;
+    }
+
+    try
+    {
+        body = nlohmann::json::parse(req.body);
+    }
+    catch (const std::exception& ex)
+    {
+        SendBimDispatchError(
+            res,
+            op,
+            400,
+            "invalid_scope",
+            std::string("Invalid JSON body for /bim/") + op + ": " + ex.what());
+        return false;
+    }
+
+    if (!body.is_object())
+    {
+        SendBimDispatchError(
+            res,
+            op,
+            400,
+            "invalid_scope",
+            std::string("Invalid JSON body for /bim/") + op + ": expected an object.");
+        return false;
+    }
+
+    res.set_header("X-Rook-Bim-Op", op);
+    return true;
+}
+
+void ForwardBimDispatch(
+    const httplib::Request& /*req*/,
+    httplib::Response& res,
+    const std::string& op,
+    nlohmann::json body)
+{
+    body["op"] = op;
+
+    std::string responseJson;
+    int statusCode = 0;
+    std::string error;
+    const auto result = InvokeBimDispatchWithBody(body.dump(), responseJson, statusCode, error);
+
+    switch (result)
+    {
+    case ManagedCreateInvokeResult::Ok:
+        res.status = statusCode;
+        res.set_content(responseJson, "application/json");
+        res.set_header("X-Rook-Bim-Op", op);
+        return;
+    case ManagedCreateInvokeResult::Unavailable:
+        SendBimDispatchError(
+            res,
+            op,
+            503,
+            "rookbim_unavailable",
+            error.empty() ? "BIM dispatch callback is not registered." : error);
+        return;
+    case ManagedCreateInvokeResult::Failed:
+    default:
+        SendBimDispatchError(
+            res,
+            op,
+            500,
+            "internal_error",
+            error.empty() ? "BIM dispatch failed." : error);
+        return;
+    }
+}
+
+void HandleBimStatus(const httplib::Request& req, httplib::Response& res)
+{
+    ForwardBimDispatch(req, res, "status", nlohmann::json::object());
+}
+
+void HandleBimActiveDocument(const httplib::Request& req, httplib::Response& res)
+{
+    ForwardBimDispatch(req, res, "active_document", nlohmann::json::object());
+}
+
+void HandleBimQueryElements(const httplib::Request& req, httplib::Response& res)
+{
+    nlohmann::json body;
+    if (ParseBimPostBody(req, res, "query_elements", body))
+        ForwardBimDispatch(req, res, "query_elements", body);
+}
+
+void HandleBimElementInfo(const httplib::Request& req, httplib::Response& res)
+{
+    nlohmann::json body;
+    if (ParseBimPostBody(req, res, "element_info", body))
+        ForwardBimDispatch(req, res, "element_info", body);
+}
+
+void HandleBimElementParameters(const httplib::Request& req, httplib::Response& res)
+{
+    nlohmann::json body;
+    if (ParseBimPostBody(req, res, "element_parameters", body))
+        ForwardBimDispatch(req, res, "element_parameters", body);
+}
+
+void HandleBimSelectElements(const httplib::Request& req, httplib::Response& res)
+{
+    nlohmann::json body;
+    if (ParseBimPostBody(req, res, "select_elements", body))
+        ForwardBimDispatch(req, res, "select_elements", body);
+}
+
+void HandleBimClearSelection(const httplib::Request& req, httplib::Response& res)
+{
+    nlohmann::json body;
+    if (ParseBimPostBody(req, res, "clear_selection", body))
+        ForwardBimDispatch(req, res, "clear_selection", body);
 }
 
 void HandleManagedUvPlanar(const httplib::Request& req, httplib::Response& res)

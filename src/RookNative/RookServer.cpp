@@ -1037,6 +1037,17 @@ void CRookServer::RegisterRoutes()
         Rook::Handlers::HandleVisionVideoStatus(req, res);
     });
 
+    // BIM Phase 1: public native /bim/* routes proxy through a single
+    // managed bim_dispatch callback (ABI v15). Native injects the op
+    // discriminator route-side and forwards the remaining JSON opaquely.
+    m_server->Get("/bim/status", Rook::Handlers::HandleBimStatus);
+    m_server->Get("/bim/active-document", Rook::Handlers::HandleBimActiveDocument);
+    m_server->Post("/bim/query-elements", Rook::Handlers::HandleBimQueryElements);
+    m_server->Post("/bim/element-info", Rook::Handlers::HandleBimElementInfo);
+    m_server->Post("/bim/element-parameters", Rook::Handlers::HandleBimElementParameters);
+    m_server->Post("/bim/select-elements", Rook::Handlers::HandleBimSelectElements);
+    m_server->Post("/bim/clear-selection", Rook::Handlers::HandleBimClearSelection);
+
     m_server->Get("/display-modes", [this](const httplib::Request& req, httplib::Response& res) {
         HandleGetDisplayModes(req, res);
     });
@@ -1821,7 +1832,7 @@ void CRookServer::RegisterRoutes()
 
     // Catch-all for unknown routes
     m_server->set_error_handler([](const httplib::Request& req, httplib::Response& res) {
-        if (res.status == 404)
+        if (res.status == 404 && res.body.empty())
         {
             nlohmann::json envelope;
             envelope["success"] = false;
