@@ -196,14 +196,77 @@ namespace RookBim.Tests
         }
 
         [Fact]
-        public void RevitTask8_NonQueryToolsRemainCapabilityUnavailable()
+        public void RevitTask9_SelectionToolsRemainCapabilityUnavailable()
         {
             var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
 
-            AssertLaterToolUnavailable(runtime, "ElementInfo");
-            AssertLaterToolUnavailable(runtime, "ElementParameters");
             AssertLaterToolUnavailable(runtime, "SelectElements");
             AssertLaterToolUnavailable(runtime, "ClearSelection");
+        }
+
+        [Fact]
+        public void RevitTask9_RuntimeWiresElementInfoAndParametersThroughDispatcher()
+        {
+            var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
+            var elementInfo = ExtractMethod(runtime, "public BimApiResponse ElementInfo(");
+            var elementParameters = ExtractMethod(runtime, "public BimApiResponse ElementParameters(");
+
+            Assert.Contains("return Dispatch(uiapp =>", elementInfo);
+            Assert.Contains("return Dispatch(uiapp =>", elementParameters);
+            Assert.Contains("RevitContext.ActiveUiDocument(uiapp)", elementInfo);
+            Assert.Contains("RevitContext.ActiveUiDocument(uiapp)", elementParameters);
+            Assert.Contains("ResolveElementOrFailure(document, request?.Identity)", elementInfo);
+            Assert.Contains("ResolveElementOrFailure(document, request?.Identity)", elementParameters);
+            Assert.Contains("BuildElementInfo(document, resolved.Element!)", elementInfo);
+            Assert.Contains("RevitParameterSerializer.Serialize(resolved.Element!)", elementParameters);
+            Assert.DoesNotContain("LaterToolUnavailable", elementInfo);
+            Assert.DoesNotContain("LaterToolUnavailable", elementParameters);
+        }
+
+        [Fact]
+        public void RevitTask9_ElementResolverPreservesIdentityEnvelopeBoundaries()
+        {
+            var serializer = Read("src/RookBim/Revit/RevitIdentitySerializer.cs");
+
+            Assert.Contains("public static BimElementResolveResult Resolve(Document document, BimElementIdentity? identity)", serializer);
+            Assert.Contains("HasLinkedEvidence(identity)", serializer);
+            Assert.Contains("identity.LinkInstanceId.HasValue", serializer);
+            Assert.Contains("identity.LinkedElementUniqueId", serializer);
+            Assert.Contains("BimErrorCode.LinkedElementUnsupported", serializer);
+            Assert.Contains("DocumentMatches(DocumentIdentity(document), identity)", serializer);
+            Assert.Contains("BimErrorCode.DocumentMismatch", serializer);
+            Assert.Contains("document.GetElement(identity.UniqueId)", serializer);
+            Assert.Contains("if (identity.ElementId.HasValue && !ElementIdMatches(byUniqueId.Id, identity.ElementId.Value))", serializer);
+            Assert.Contains("Only use elementId fallback when uniqueId is absent.", serializer);
+            Assert.Contains("document.GetElement(new ElementId((long)identity.ElementId.Value))", serializer);
+            Assert.Contains("BimErrorCode.ElementNotFound", serializer);
+        }
+
+        [Fact]
+        public void RevitTask9_ParameterSerializerReturnsStorageAndValueEvidence()
+        {
+            var serializer = Read("src/RookBim/Revit/RevitParameterSerializer.cs");
+
+            Assert.Contains("internal static class RevitParameterSerializer", serializer);
+            Assert.Contains("public static IReadOnlyList<object> Serialize(Element element)", serializer);
+            Assert.Contains("SerializeParameters(result, element, \"instance\")", serializer);
+            Assert.Contains("SerializeParameters(result, type, \"type\")", serializer);
+            Assert.Contains("source = source", serializer);
+            Assert.Contains("ownerElementId = ToInt32OrNull(owner.Id)", serializer);
+            Assert.Contains("ownerUniqueId = NullIfWhiteSpace(owner.UniqueId)", serializer);
+            Assert.Contains("name = definition?.Name ?? string.Empty", serializer);
+            Assert.Contains("storageType = parameter.StorageType.ToString()", serializer);
+            Assert.Contains("displayValue = DisplayValue(parameter)", serializer);
+            Assert.Contains("rawValue = RawValue(parameter)", serializer);
+            Assert.Contains("isReadOnly = parameter.IsReadOnly", serializer);
+            Assert.Contains("builtIn = TryBuiltInName(parameter)", serializer);
+            Assert.Contains("guid = TryGuid(parameter)", serializer);
+            Assert.Contains("canCompareNumeric = false", serializer);
+            Assert.Contains("StorageType.String", serializer);
+            Assert.Contains("StorageType.Integer", serializer);
+            Assert.Contains("StorageType.Double", serializer);
+            Assert.Contains("StorageType.ElementId", serializer);
+            Assert.Contains("parameter.Definition as InternalDefinition", serializer);
         }
 
         [Fact]
@@ -294,7 +357,7 @@ namespace RookBim.Tests
         }
 
         [Fact]
-        public void RevitTask8_DoesNotStartTask9SelectionParametersOrWrites()
+        public void RevitTask9_DoesNotStartSelectionOrWrites()
         {
             var revitDirectory = Path.Combine(RepoRoot, "src", "RookBim", "Revit");
             var revitFiles = Directory.GetFiles(revitDirectory, "*.cs");

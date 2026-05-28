@@ -135,12 +135,80 @@ namespace RookBim.Revit
 
         public BimApiResponse ElementInfo(BimElementRequest request)
         {
-            return LaterToolUnavailable();
+            try
+            {
+                return Dispatch(uiapp =>
+                {
+                    var uidoc = RevitContext.ActiveUiDocument(uiapp);
+                    if (uidoc == null || uidoc.Document == null)
+                    {
+                        return BimApiResponse.Fail(
+                            BimErrorCode.NoActiveDocument,
+                            "No active Revit document is open.",
+                            409);
+                    }
+
+                    var document = uidoc.Document;
+                    var resolved = ResolveElementOrFailure(document, request?.Identity);
+                    if (!resolved.Success)
+                    {
+                        return BimApiResponse.Fail(
+                            resolved.ErrorCode,
+                            resolved.Message ?? "Element identity did not resolve in the active Revit document.",
+                            ResolveHttpStatus(resolved.ErrorCode));
+                    }
+
+                    return BimApiResponse.Ok(BuildElementInfo(document, resolved.Element!));
+                });
+            }
+            catch (Exception ex)
+            {
+                return BimApiResponse.Fail(
+                    BimErrorCode.NotRhinoInside,
+                    $"RookBIM could not enter the Revit API context: {DescribeDispatchException(ex)}",
+                    503);
+            }
         }
 
         public BimApiResponse ElementParameters(BimElementRequest request)
         {
-            return LaterToolUnavailable();
+            try
+            {
+                return Dispatch(uiapp =>
+                {
+                    var uidoc = RevitContext.ActiveUiDocument(uiapp);
+                    if (uidoc == null || uidoc.Document == null)
+                    {
+                        return BimApiResponse.Fail(
+                            BimErrorCode.NoActiveDocument,
+                            "No active Revit document is open.",
+                            409);
+                    }
+
+                    var document = uidoc.Document;
+                    var resolved = ResolveElementOrFailure(document, request?.Identity);
+                    if (!resolved.Success)
+                    {
+                        return BimApiResponse.Fail(
+                            resolved.ErrorCode,
+                            resolved.Message ?? "Element identity did not resolve in the active Revit document.",
+                            ResolveHttpStatus(resolved.ErrorCode));
+                    }
+
+                    return BimApiResponse.Ok(new
+                    {
+                        identity = RevitIdentitySerializer.ElementIdentity(resolved.Element!),
+                        parameters = RevitParameterSerializer.Serialize(resolved.Element!)
+                    });
+                });
+            }
+            catch (Exception ex)
+            {
+                return BimApiResponse.Fail(
+                    BimErrorCode.NotRhinoInside,
+                    $"RookBIM could not enter the Revit API context: {DescribeDispatchException(ex)}",
+                    503);
+            }
         }
 
         public BimApiResponse SelectElements(BimSelectElementsRequest request)
@@ -179,11 +247,89 @@ namespace RookBim.Revit
             return view == null ? null : RevitIdentitySerializer.ViewIdentity(view);
         }
 
+        private static BimElementResolveResult ResolveElementOrFailure(
+            Document document,
+            BimElementIdentity? identity)
+        {
+            return RevitIdentitySerializer.Resolve(document, identity);
+        }
+
+        private static object BuildElementInfo(Document document, Element element)
+        {
+            return new
+            {
+                identity = RevitIdentitySerializer.ElementIdentity(element),
+                name = NullIfWhiteSpace(element.Name),
+                category = new BimCategorySummary
+                {
+                    Id = ToInt32OrNull(element.Category?.Id),
+                    Name = NullIfWhiteSpace(element.Category?.Name)
+                },
+                type = BuildElementTypeSummary(document, element),
+                className = element.GetType().Name,
+                location = element.Location?.GetType().Name
+            };
+        }
+
+        private static BimElementTypeSummary BuildElementTypeSummary(Document document, Element element)
+        {
+            var typeId = element.GetTypeId();
+            var type = typeId == ElementId.InvalidElementId ? null : document.GetElement(typeId);
+            if (type == null)
+            {
+                return new BimElementTypeSummary();
+            }
+
+            return new BimElementTypeSummary
+            {
+                Id = ToInt32OrNull(type.Id),
+                UniqueId = NullIfWhiteSpace(type.UniqueId),
+                FamilyName = NullIfWhiteSpace(
+                    type.get_Parameter(BuiltInParameter.SYMBOL_FAMILY_NAME_PARAM)?.AsString()),
+                Name = NullIfWhiteSpace(type.Name)
+            };
+        }
+
+        private static int ResolveHttpStatus(BimErrorCode code)
+        {
+            switch (code)
+            {
+                case BimErrorCode.DocumentMismatch:
+                case BimErrorCode.LinkedElementUnsupported:
+                    return 409;
+                case BimErrorCode.ElementNotFound:
+                    return 404;
+                default:
+                    return 400;
+            }
+        }
+
+        private static string? NullIfWhiteSpace(string? value)
+        {
+            return string.IsNullOrWhiteSpace(value) ? null : value;
+        }
+
+        private static int? ToInt32OrNull(ElementId? id)
+        {
+            if (id == null)
+            {
+                return null;
+            }
+
+            var value = id.Value;
+            if (value < int.MinValue || value > int.MaxValue)
+            {
+                return null;
+            }
+
+            return (int)value;
+        }
+
         private static BimApiResponse LaterToolUnavailable()
         {
             return BimApiResponse.Fail(
                 BimErrorCode.CapabilityUnavailable,
-                "This RookBIM Revit capability is not implemented in Task 7.",
+                "This RookBIM Revit capability is not implemented in the current task.",
                 501);
         }
 

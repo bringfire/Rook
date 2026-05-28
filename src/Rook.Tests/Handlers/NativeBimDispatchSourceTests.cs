@@ -81,6 +81,16 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
+        public void RookServer_ErrorHandlerDoesNotOverwriteStructuredRoute404Bodies()
+        {
+            var source = ReadSourceFile("src", "RookNative", "RookServer.cpp");
+            var handler = ExtractLambdaBody(source, "set_error_handler");
+
+            Assert.Contains("res.body.empty()", handler);
+            Assert.Contains("Unknown endpoint", handler);
+        }
+
+        [Fact]
         public void NativeBimSources_DoNotExposeForbiddenRoutesOrReferences()
         {
             var source = ReadSourceFile("src", "RookNative", "RookServer.cpp");
@@ -156,6 +166,31 @@ namespace Rook.Tests.Handlers
             }
 
             throw new InvalidOperationException("Function body did not close: " + functionName);
+        }
+
+        private static string ExtractLambdaBody(string source, string marker)
+        {
+            var markerIndex = source.IndexOf(marker, StringComparison.Ordinal);
+            if (markerIndex < 0)
+                throw new InvalidOperationException("Marker not found: " + marker);
+
+            var bodyStart = source.IndexOf('{', markerIndex);
+            if (bodyStart < 0)
+                throw new InvalidOperationException("Lambda body not found: " + marker);
+
+            var depth = 0;
+            for (var i = bodyStart; i < source.Length; i++)
+            {
+                if (source[i] == '{') depth++;
+                else if (source[i] == '}')
+                {
+                    depth--;
+                    if (depth == 0)
+                        return source.Substring(bodyStart, i - bodyStart + 1);
+                }
+            }
+
+            throw new InvalidOperationException("Lambda body did not close: " + marker);
         }
 
         private static string ReadSourceFile(params string[] pathParts)

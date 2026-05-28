@@ -71,6 +71,101 @@ namespace RookBim.Revit
             };
         }
 
+        public static BimElementResolveResult Resolve(Document document, BimElementIdentity? identity)
+        {
+            if (document == null)
+            {
+                throw new ArgumentNullException(nameof(document));
+            }
+
+            if (identity == null)
+            {
+                return BimElementResolveResult.Fail(
+                    BimErrorCode.ElementNotFound,
+                    "Element identity is required.");
+            }
+
+            if (HasLinkedEvidence(identity))
+            {
+                return BimElementResolveResult.Fail(
+                    BimErrorCode.LinkedElementUnsupported,
+                    "Linked Revit element identities are not supported in Phase 1.");
+            }
+
+            if (!DocumentMatches(DocumentIdentity(document), identity))
+            {
+                return BimElementResolveResult.Fail(
+                    BimErrorCode.DocumentMismatch,
+                    "Element identity belongs to a different Revit document.");
+            }
+
+            if (!string.IsNullOrWhiteSpace(identity.UniqueId))
+            {
+                var byUniqueId = document.GetElement(identity.UniqueId);
+                if (byUniqueId != null)
+                {
+                    if (identity.ElementId.HasValue && !ElementIdMatches(byUniqueId.Id, identity.ElementId.Value))
+                    {
+                        return BimElementResolveResult.Fail(
+                            BimErrorCode.ElementNotFound,
+                            "Element identity uniqueId resolved, but elementId does not match.");
+                    }
+
+                    return BimElementResolveResult.Ok(byUniqueId);
+                }
+
+                return BimElementResolveResult.Fail(
+                    BimErrorCode.ElementNotFound,
+                    "Element identity uniqueId did not resolve in the active Revit document.");
+            }
+
+            // Only use elementId fallback when uniqueId is absent.
+            if (identity.ElementId.HasValue)
+            {
+                var byElementId = document.GetElement(new ElementId((long)identity.ElementId.Value));
+                if (byElementId != null)
+                {
+                    return BimElementResolveResult.Ok(byElementId);
+                }
+            }
+
+            return BimElementResolveResult.Fail(
+                BimErrorCode.ElementNotFound,
+                "Element identity did not resolve in the active Revit document.");
+        }
+
+        private static bool DocumentMatches(
+            BimDocumentIdentity documentIdentity,
+            BimElementIdentity identity)
+        {
+            if (identity.DocumentGuidSource != BimDocumentGuidSource.RevitPersistentGuid ||
+                string.IsNullOrWhiteSpace(identity.DocumentGuid))
+            {
+                return true;
+            }
+
+            if (documentIdentity.GuidSource != BimDocumentGuidSource.RevitPersistentGuid ||
+                string.IsNullOrWhiteSpace(documentIdentity.Guid))
+            {
+                return false;
+            }
+
+            return string.Equals(
+                documentIdentity.Guid,
+                identity.DocumentGuid,
+                StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool HasLinkedEvidence(BimElementIdentity identity)
+        {
+            return identity.Linked ||
+                identity.LinkInstanceId.HasValue ||
+                !string.IsNullOrWhiteSpace(identity.LinkInstanceUniqueId) ||
+                !string.IsNullOrWhiteSpace(identity.LinkedDocumentGuid) ||
+                identity.LinkedElementId.HasValue ||
+                !string.IsNullOrWhiteSpace(identity.LinkedElementUniqueId);
+        }
+
         private static Guid? GetWorksharingCentralGUID(Document document)
         {
             try
@@ -124,6 +219,43 @@ namespace RookBim.Revit
             }
 
             return (int)value;
+        }
+
+        private static bool ElementIdMatches(ElementId actual, int expected)
+        {
+            var actualValue = ToInt32OrNull(actual);
+            return actualValue.HasValue && actualValue.Value == expected;
+        }
+    }
+
+    public sealed class BimElementResolveResult
+    {
+        public bool Success { get; private set; }
+
+        public Element? Element { get; private set; }
+
+        public BimErrorCode ErrorCode { get; private set; }
+
+        public string? Message { get; private set; }
+
+        public static BimElementResolveResult Ok(Element element)
+        {
+            return new BimElementResolveResult
+            {
+                Success = true,
+                Element = element,
+                ErrorCode = BimErrorCode.None
+            };
+        }
+
+        public static BimElementResolveResult Fail(BimErrorCode errorCode, string message)
+        {
+            return new BimElementResolveResult
+            {
+                Success = false,
+                ErrorCode = errorCode,
+                Message = message
+            };
         }
     }
 }

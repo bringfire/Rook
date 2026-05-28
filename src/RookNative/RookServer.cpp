@@ -1832,7 +1832,7 @@ void CRookServer::RegisterRoutes()
 
     // Catch-all for unknown routes
     m_server->set_error_handler([](const httplib::Request& req, httplib::Response& res) {
-        if (res.status == 404)
+        if (res.status == 404 && res.body.empty())
         {
             nlohmann::json envelope;
             envelope["success"] = false;
