@@ -13,6 +13,7 @@ namespace RookBim.Revit
         private static readonly TimeSpan DispatchTimeout = TimeSpan.FromSeconds(5);
         private readonly RevitApiDispatcher dispatcher;
         private readonly RevitQueryService query;
+        private readonly RevitSelectionService selection;
 
         public RevitRookBimRuntime()
             : this(new RevitApiDispatcher())
@@ -23,6 +24,7 @@ namespace RookBim.Revit
         {
             this.dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
             this.query = new RevitQueryService();
+            this.selection = new RevitSelectionService();
         }
 
         public BimStatusResponse Status()
@@ -213,12 +215,56 @@ namespace RookBim.Revit
 
         public BimApiResponse SelectElements(BimSelectElementsRequest request)
         {
-            return LaterToolUnavailable();
+            try
+            {
+                return Dispatch(uiapp =>
+                {
+                    var uidoc = RevitContext.ActiveUiDocument(uiapp);
+                    if (uidoc == null || uidoc.Document == null)
+                    {
+                        return BimApiResponse.Fail(
+                            BimErrorCode.NoActiveDocument,
+                            "No active Revit document is open.",
+                            409);
+                    }
+
+                    return selection.Select(uidoc, request);
+                });
+            }
+            catch (Exception ex)
+            {
+                return BimApiResponse.Fail(
+                    BimErrorCode.NotRhinoInside,
+                    $"RookBIM could not enter the Revit API context: {DescribeDispatchException(ex)}",
+                    503);
+            }
         }
 
         public BimApiResponse ClearSelection()
         {
-            return LaterToolUnavailable();
+            try
+            {
+                return Dispatch(uiapp =>
+                {
+                    var uidoc = RevitContext.ActiveUiDocument(uiapp);
+                    if (uidoc == null || uidoc.Document == null)
+                    {
+                        return BimApiResponse.Fail(
+                            BimErrorCode.NoActiveDocument,
+                            "No active Revit document is open.",
+                            409);
+                    }
+
+                    return selection.Clear(uidoc);
+                });
+            }
+            catch (Exception ex)
+            {
+                return BimApiResponse.Fail(
+                    BimErrorCode.NotRhinoInside,
+                    $"RookBIM could not enter the Revit API context: {DescribeDispatchException(ex)}",
+                    503);
+            }
         }
 
         private T Dispatch<T>(Func<UIApplication, T> work)

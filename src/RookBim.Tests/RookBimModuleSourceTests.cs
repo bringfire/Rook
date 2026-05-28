@@ -196,12 +196,52 @@ namespace RookBim.Tests
         }
 
         [Fact]
-        public void RevitTask9_SelectionToolsRemainCapabilityUnavailable()
+        public void RevitTask10_SelectionServiceUsesResolvedIdentitiesAndUiSelectionOnly()
+        {
+            var service = Read("src/RookBim/Revit/RevitSelectionService.cs");
+            var select = ExtractMethod(service, "public BimApiResponse Select(");
+            var clear = ExtractMethod(service, "public BimApiResponse Clear(");
+
+            Assert.Contains("internal sealed class RevitSelectionService", service);
+            Assert.Contains("if (request == null || request.Identities == null || request.Identities.Count == 0)", select);
+            Assert.Contains("BimErrorCode.InvalidScope", select);
+            Assert.True(
+                select.IndexOf("BimErrorCode.InvalidScope", StringComparison.Ordinal) <
+                select.IndexOf("uiDocument.Selection.SetElementIds(ids)", StringComparison.Ordinal));
+            Assert.Contains("RevitIdentitySerializer.Resolve(uiDocument.Document, identity)", select);
+            Assert.Contains("if (!resolved.Success)", select);
+            Assert.Contains("return BimApiResponse.Fail(", select);
+            Assert.Contains("resolved.ErrorCode", select);
+            Assert.Contains("uiDocument.Selection.SetElementIds(ids)", select);
+            Assert.Contains("selectedCount = ids.Count", select);
+            Assert.Contains("identities = selectedIdentities", select);
+            Assert.Contains("document = RevitIdentitySerializer.DocumentIdentity(uiDocument.Document)", select);
+            Assert.Contains("uiDocument.Selection.SetElementIds(new List<ElementId>())", clear);
+            Assert.Contains("selectedCount = 0", clear);
+            Assert.DoesNotContain("Transaction", service);
+            Assert.DoesNotContain("OverrideGraphicSettings", service);
+            Assert.DoesNotContain("TemporaryView", service);
+        }
+
+        [Fact]
+        public void RevitTask10_RuntimeWiresSelectionThroughDispatcher()
         {
             var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
+            var select = ExtractMethod(runtime, "public BimApiResponse SelectElements(");
+            var clear = ExtractMethod(runtime, "public BimApiResponse ClearSelection(");
 
-            AssertLaterToolUnavailable(runtime, "SelectElements");
-            AssertLaterToolUnavailable(runtime, "ClearSelection");
+            Assert.Contains("private readonly RevitSelectionService selection;", runtime);
+            Assert.Contains("this.selection = new RevitSelectionService();", runtime);
+            Assert.Contains("return Dispatch(uiapp =>", select);
+            Assert.Contains("return Dispatch(uiapp =>", clear);
+            Assert.Contains("RevitContext.ActiveUiDocument(uiapp)", select);
+            Assert.Contains("RevitContext.ActiveUiDocument(uiapp)", clear);
+            Assert.Contains("BimErrorCode.NoActiveDocument", select);
+            Assert.Contains("BimErrorCode.NoActiveDocument", clear);
+            Assert.Contains("selection.Select(uidoc, request)", select);
+            Assert.Contains("selection.Clear(uidoc)", clear);
+            Assert.DoesNotContain("LaterToolUnavailable", select);
+            Assert.DoesNotContain("LaterToolUnavailable", clear);
         }
 
         [Fact]
@@ -357,14 +397,13 @@ namespace RookBim.Tests
         }
 
         [Fact]
-        public void RevitTask9_DoesNotStartSelectionOrWrites()
+        public void RevitTask10_DoesNotStartWritesGraphicsOrTemporaryViewIsolation()
         {
             var revitDirectory = Path.Combine(RepoRoot, "src", "RookBim", "Revit");
             var revitFiles = Directory.GetFiles(revitDirectory, "*.cs");
             var combined = string.Join(Environment.NewLine, revitFiles.Select(File.ReadAllText));
 
             Assert.DoesNotContain("ParameterFilterElement", combined);
-            Assert.DoesNotContain("Selection.SetElementIds", combined);
             Assert.DoesNotContain("OverrideGraphicSettings", combined);
             Assert.DoesNotContain("TemporaryView", combined);
             Assert.DoesNotContain("Transaction", combined);
