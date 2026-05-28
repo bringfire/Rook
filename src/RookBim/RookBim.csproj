@@ -7,6 +7,14 @@
   </PropertyGroup>
 
   <PropertyGroup>
+    <Version>1.5.9</Version>
+    <Title>RookBIM</Title>
+    <Company>Bringfire</Company>
+    <Description>RookBIM for Rhino.Inside.Revit category and element queries</Description>
+    <Authors>Bringfire</Authors>
+  </PropertyGroup>
+
+  <PropertyGroup>
     <RevitInstallDir Condition="'$(RevitInstallDir)' == ''">$(ProgramFiles)\Autodesk\Revit 2024</RevitInstallDir>
   </PropertyGroup>
 

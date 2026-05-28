@@ -8,6 +8,8 @@ namespace RookBim.Revit
 {
     internal sealed class RevitQueryService
     {
+        private readonly RevitCategoryResolver categories = new RevitCategoryResolver();
+
         public BimApiResponse Query(Document document, View? activeView, BimQueryElementsRequest request)
         {
             if (document == null)
@@ -37,6 +39,7 @@ namespace RookBim.Revit
             }
 
             var filters = request.EffectiveFilters;
+            BimCategoryResolution? categoryResolution = null;
             FilteredElementCollector collector;
             try
             {
@@ -58,32 +61,62 @@ namespace RookBim.Revit
             if (!string.IsNullOrWhiteSpace(request.Category))
             {
                 var categoryName = request.Category!;
-                var category = ResolveBuiltInCategory(categoryName);
-                if (!category.HasValue)
+                var resolution = categories.Resolve(document, categoryName);
+                categoryResolution = resolution;
+                if (resolution.Status == BimCategoryResolutionStatus.Ambiguous)
                 {
-                    return BimApiResponse.Fail(
+                    var response = BimApiResponse.Fail(
+                        BimErrorCode.AmbiguousCategory,
+                        $"Revit category '{categoryName}' is ambiguous.",
+                        400);
+                    response.Data = new { resolution = resolution };
+                    return response;
+                }
+
+                if (resolution.Status != BimCategoryResolutionStatus.Resolved || resolution.Category == null)
+                {
+                    var response = BimApiResponse.Fail(
                         BimErrorCode.InvalidCategory,
                         $"Unknown Revit category '{categoryName}'.",
                         400);
+                    response.Data = new { resolution = resolution };
+                    return response;
+                }
+
+                if (!TryResolvedCategoryFilter(resolution, out var categoryFilter))
+                {
+                    resolution.Queryable = false;
+                    var response = BimApiResponse.Fail(
+                        BimErrorCode.CategoryNotQueryable,
+                        $"Revit category '{categoryName}' cannot be safely used for element collection.",
+                        400);
+                    response.Data = new { resolution = resolution };
+                    return response;
                 }
 
                 try
                 {
-                    collector.OfCategory(category.Value);
+                    collector.WherePasses(categoryFilter);
                 }
                 catch (Autodesk.Revit.Exceptions.ArgumentException)
                 {
-                    return BimApiResponse.Fail(
-                        BimErrorCode.InvalidCategory,
-                        $"Unknown Revit category '{categoryName}'.",
+                    resolution.Queryable = false;
+                    var response = BimApiResponse.Fail(
+                        BimErrorCode.CategoryNotQueryable,
+                        $"Revit category '{categoryName}' cannot be safely used for element collection.",
                         400);
+                    response.Data = new { resolution = resolution };
+                    return response;
                 }
                 catch (ArgumentException)
                 {
-                    return BimApiResponse.Fail(
-                        BimErrorCode.InvalidCategory,
-                        $"Unknown Revit category '{categoryName}'.",
+                    resolution.Queryable = false;
+                    var response = BimApiResponse.Fail(
+                        BimErrorCode.CategoryNotQueryable,
+                        $"Revit category '{categoryName}' cannot be safely used for element collection.",
                         400);
+                    response.Data = new { resolution = resolution };
+                    return response;
                 }
             }
 
@@ -96,7 +129,8 @@ namespace RookBim.Revit
                     request,
                     capped.Elements,
                     capped.Truncated,
-                    new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)));
+                    new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase),
+                    categoryResolution));
             }
 
             var candidates = collector.ToElements();
@@ -134,7 +168,8 @@ namespace RookBim.Revit
                 request,
                 matched,
                 matchedBeyondLimit,
-                missingCounts));
+                missingCounts,
+                categoryResolution));
         }
 
         private static BimQueryElementsResult BuildResult(
@@ -143,7 +178,8 @@ namespace RookBim.Revit
             BimQueryElementsRequest request,
             IReadOnlyCollection<Element> elements,
             bool truncated,
-            Dictionary<string, int> missingCounts)
+            Dictionary<string, int> missingCounts,
+            BimCategoryResolution? categoryResolution)
         {
             return new BimQueryElementsResult
             {
@@ -158,6 +194,13 @@ namespace RookBim.Revit
                     Limit = request.EffectiveLimit,
                     Returned = elements.Count,
                     Truncated = truncated,
+                    CategoryResolution = categoryResolution,
+                    Filters = request.EffectiveFilters.Select(filter => new BimQueryFilterSummary
+                    {
+                        Parameter = NullIfWhiteSpace(filter.Parameter),
+                        Operation = filter.Operation,
+                        Value = NullIfWhiteSpace(filter.Value)
+                    }).ToList(),
                     MissingParameterCounts = missingCounts
                 },
                 Elements = elements.Select(element => new BimElementSummary
@@ -363,25 +406,6 @@ namespace RookBim.Revit
             };
         }
 
-        private static BuiltInCategory? ResolveBuiltInCategory(string category)
-        {
-            var requested = NormalizeCategory(category);
-            foreach (BuiltInCategory value in Enum.GetValues(typeof(BuiltInCategory)))
-            {
-                var name = value.ToString();
-                var withoutPrefix = name.StartsWith("OST_", StringComparison.OrdinalIgnoreCase)
-                    ? name.Substring(4)
-                    : name;
-                if (string.Equals(NormalizeCategory(name), requested, StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(NormalizeCategory(withoutPrefix), requested, StringComparison.OrdinalIgnoreCase))
-                {
-                    return value;
-                }
-            }
-
-            return null;
-        }
-
         private static ParameterIdentity BuildParameterIdentity(Parameter parameter)
         {
             var candidate = new
@@ -424,12 +448,30 @@ namespace RookBim.Revit
             return value?.Trim() ?? string.Empty;
         }
 
-        private static string NormalizeCategory(string value)
+        private static bool TryResolvedCategoryFilter(
+            BimCategoryResolution resolution,
+            out ElementCategoryFilter filter)
         {
-            return value
-                .Replace(" ", string.Empty)
-                .Replace("_", string.Empty)
-                .Replace("-", string.Empty);
+            filter = null!;
+            var id = resolution.Category?.Id;
+            if (!id.HasValue)
+            {
+                return false;
+            }
+
+            try
+            {
+                filter = new ElementCategoryFilter(new ElementId((long)id.Value));
+                return true;
+            }
+            catch (Autodesk.Revit.Exceptions.ArgumentException)
+            {
+                return false;
+            }
+            catch (ArgumentException)
+            {
+                return false;
+            }
         }
 
         private static void IncrementMissingCount(Dictionary<string, int> missingCounts, string? parameter)

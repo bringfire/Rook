@@ -40,7 +40,8 @@ namespace RookBim.Revit
             {
                 Id = ToInt32OrNull(view.Id) ?? InvalidElementIdValue,
                 UniqueId = NullIfWhiteSpace(TryGetUniqueId(view)),
-                Name = NullIfWhiteSpace(view.Name)
+                Name = NullIfWhiteSpace(view.Name),
+                Type = view.ViewType.ToString()
             };
         }
 

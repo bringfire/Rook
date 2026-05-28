@@ -15,9 +15,17 @@ From the Rook repo root:
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy-local-testing.ps1
 ```
 
+Full deploy builds the optional RookBIM module so the installed net48
+Rhino.Inside/Revit payload receives the current `RookBim.dll`. That build
+requires Revit API assemblies. If Revit is not installed under the default
+`%ProgramFiles%\Autodesk\Revit 2024`, pass `-RevitInstallDir`.
+
 Useful variants:
 
 ```powershell
+# Full deploy with a non-default Revit API location for RookBIM.
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy-local-testing.ps1 -RevitInstallDir "C:\Program Files\Autodesk\Revit 2025"
+
 # Sync MCP/AppData payload only; allowed while Rhino/MCP are running.
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy-local-testing.ps1 -PayloadOnly -AllowRunning
 
@@ -37,6 +45,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy-local-testing
 ## Rules
 
 - Default deploy must fail if Rhino or `python -m rook` is running.
+- Default deploy intentionally requires Revit API assemblies for the RookBIM build; Rhino-only native iteration should use `-NativeOnly`, and payload-only sync after a previous build should use `-PayloadOnly -AllowRunning`.
 - `-NativeOnly` must fail if Rhino is running, but must not inspect, kill, block on, sync, or reconfigure running `python -m rook` MCP processes.
 - `-NativeOnly` is for native route/plugin iteration only: it copies/registers the native payload and preserves existing companion/MCP paths from a prior full deploy.
 - Default deploy syncs sibling `..\Chirp` into `%LOCALAPPDATA%\Rook\app\chirp` and refreshes the Chirp editable install.

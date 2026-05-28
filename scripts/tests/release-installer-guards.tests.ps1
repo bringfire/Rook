@@ -19,6 +19,7 @@ $CompanionNet7RuntimeConfig = Join-Path $RepoRoot 'src\Rook\bin\Release\net7.0\R
 $CompanionNet8Rhp = Join-Path $RepoRoot 'src\Rook\bin\Release\net8.0\Rook.rhp'
 $CompanionNet7Rhp = Join-Path $RepoRoot 'src\Rook\bin\Release\net7.0\Rook.rhp'
 $CompanionNet48Rhp = Join-Path $RepoRoot 'src\Rook\bin\Release\net48\Rook.rhp'
+$CompanionNet48RookBimDll = Join-Path $RepoRoot 'src\Rook\bin\Release\net48\RookBim.dll'
 $CompanionNet48WebView2Core = Join-Path $RepoRoot 'src\Rook\bin\Release\net48\Microsoft.Web.WebView2.Core.dll'
 $CompanionNet48WebView2Loader = Join-Path $RepoRoot 'src\Rook\bin\Release\net48\runtimes\win-x64\native\WebView2Loader.dll'
 $FfmpegValidationScript = Join-Path $RepoRoot 'scripts\validate-ffmpeg-bundle.ps1'
@@ -120,6 +121,7 @@ function Test-BuiltCompanionPayloadsExist {
     Assert-True -Condition (Test-Path $CompanionNet8Rhp) -Message "Built net8.0 companion payload is missing: $CompanionNet8Rhp"
     Assert-True -Condition (Test-Path $CompanionNet7Rhp) -Message "Built net7.0 registered-anchor companion payload is missing: $CompanionNet7Rhp"
     Assert-True -Condition (Test-Path $CompanionNet48Rhp) -Message "Built net48 companion payload is missing: $CompanionNet48Rhp"
+    Assert-True -Condition (Test-Path $CompanionNet48RookBimDll) -Message "Built RookBIM net48 module is missing: $CompanionNet48RookBimDll"
     Assert-True -Condition (Test-Path $CompanionNet48WebView2Core) -Message "Built net48 WebView2 wrapper is missing: $CompanionNet48WebView2Core"
     Assert-True -Condition (Test-Path $CompanionNet48WebView2Loader) -Message "Built net48 WebView2 loader is missing: $CompanionNet48WebView2Loader"
     Assert-RuntimeConfigDeclaresTfm -RuntimeConfigPath $CompanionNet8RuntimeConfig -ExpectedTfm 'net8.0'
@@ -299,11 +301,13 @@ function Test-ReleaseWorkflowDocsUseMultiRuntimeCompanionOutputs {
     ) -join "`n"
 
     Assert-Contains -Text $combined -Expected 'dotnet build src\Rook\Rook.csproj -c Release' -Message 'Release workflow docs must build all companion target frameworks.'
+    Assert-Contains -Text $combined -Expected 'dotnet build src\RookBim\RookBim.csproj -c Release' -Message 'Release workflow docs must build the RookBIM module after the managed companion.'
     Assert-Contains -Text $combined -Expected 'src\Rook\bin\Release\net8.0\Rook.rhp' -Message 'Release workflow docs must reference the net8.0 companion output.'
     Assert-Contains -Text $combined -Expected 'src\Rook\bin\Release\net8.0\Rook.runtimeconfig.json' -Message 'Release workflow docs must mention the net8.0 runtimeconfig output.'
     Assert-Contains -Text $combined -Expected 'src\Rook\bin\Release\net7.0\Rook.rhp' -Message 'Release workflow docs must reference the net7.0 companion output.'
     Assert-Contains -Text $combined -Expected 'src\Rook\bin\Release\net7.0\Rook.runtimeconfig.json' -Message 'Release workflow docs must mention the net7.0 runtimeconfig output.'
     Assert-Contains -Text $combined -Expected 'src\Rook\bin\Release\net48\Rook.rhp' -Message 'Release workflow docs must reference the net48 companion output.'
+    Assert-Contains -Text $combined -Expected 'src\Rook\bin\Release\net48\RookBim.dll' -Message 'Release workflow docs must require the RookBIM module in the net48 companion payload.'
     Assert-Contains -Text $combined -Expected 'src\Rook\bin\Release\net48\runtimes' -Message 'Release workflow docs must copy net48 runtime assets for WebView2 panels.'
     Assert-Contains -Text $combined -Expected 'Rhino.Inside.Revit' -Message 'Release workflow docs must require Rhino.Inside.Revit smoke coverage for release validation.'
     Assert-Contains -Text $combined -Expected 'direct-registry' -Message 'Release workflow docs must call out the direct-registry loader assumption.'
@@ -348,6 +352,23 @@ function Test-BuildReleaseReferencesStaySynchronized {
     $claudeVersionLocations = (Get-Content -Path $ClaudeVersionLocations -Raw) -replace "`r`n", "`n"
 
     Assert-True -Condition ($agentVersionLocations -eq $claudeVersionLocations) -Message 'Codex and Claude build-release version-location references must stay synchronized.'
+}
+
+function Test-BuildReleaseVersionBumpIncludesRookBim {
+    $combined = @(
+        Get-Content -Path $BuildReleaseSkill -Raw
+        Get-Content -Path $ClaudeBuildReleaseSkill -Raw
+        Get-Content -Path $VersionLocations -Raw
+        Get-Content -Path $ClaudeVersionLocations -Raw
+    ) -join "`n"
+
+    Assert-Contains -Text $combined -Expected 'Release branch version bump (7 files / 10 edits)' -Message 'Release workflow must count RookBIM in the version bump surface.'
+    Assert-NotContains -Text $combined -Unexpected 'Release branch version bump (6 files / 8 edits)' -Message 'Release workflow must not retain the stale pre-RookBIM version bump count.'
+    Assert-Contains -Text $combined -Expected 'Every release requires updating these 7 files.' -Message 'Version-location docs must include RookBIM in the release file count.'
+    Assert-Contains -Text $combined -Expected 'src/RookBim/RookBim.csproj' -Message 'Version-location docs must list the RookBIM project version.'
+    Assert-Contains -Text $combined -Expected 'src\RookBim\RookBim.csproj, `' -Message 'Step 1 version verification must scan RookBIM.'
+    Assert-Contains -Text $combined -Expected 'Expect 8 string matches' -Message 'Step 1 version verification must expect the additional RookBIM string match.'
+    Assert-Contains -Text $combined -Expected 'git add mcp_server\pyproject.toml installer\RookSetup.iss src\Rook\Rook.csproj src\RookBim\RookBim.csproj' -Message 'Release commit command must stage the RookBIM version bump.'
 }
 
 function Test-BuildReleaseWorkflowUsesReleaseBranchAndExactArtifacts {
@@ -417,6 +438,8 @@ function Test-ReleaseArtifactValidatorExists {
     Assert-Contains -Text $content -Expected 'git_sha' -Message 'Release artifact validator must bind artifacts to a git SHA.'
     Assert-Contains -Text $content -Expected 'System.Reflection.AssemblyName' -Message 'Release artifact validator must inspect managed assembly versions.'
     Assert-Contains -Text $content -Expected 'VersionInfo' -Message 'Release artifact validator must inspect native file version metadata.'
+    Assert-Contains -Text $content -Expected 'src\Rook\bin\Release\net48\RookBim.dll' -Message 'Release artifact validator must require the built RookBIM net48 module.'
+    Assert-Contains -Text $content -Expected 'rook_bim' -Message 'Release artifact validator must record RookBIM module identity in the release manifest.'
 }
 
 function Test-NativePdbRequirementIsConsistent {
@@ -486,6 +509,7 @@ Test-PostInstallValidationUsesMultiRuntimeCompanionLayout
 Test-ReleaseWorkflowDocsUseMultiRuntimeCompanionOutputs
 Test-BuildReleaseWorkflowUsesWindowsPowerShellCommands
 Test-BuildReleaseReferencesStaySynchronized
+Test-BuildReleaseVersionBumpIncludesRookBim
 Test-BuildReleaseWorkflowUsesReleaseBranchAndExactArtifacts
 Test-BuildReleaseDocsRequirePerHostSmokeManifest
 Test-BuildReleaseWorkflowPublishesFfmpegSourceBundle

@@ -249,12 +249,14 @@ It targets .NET 8.0, .NET 7.0, and .NET Framework 4.8.
 
 ```powershell
 dotnet build src\Rook\Rook.csproj -c Release
+dotnet build src\RookBim\RookBim.csproj -c Release
 ```
 
 Outputs:
 - `src\Rook\bin\Release\net8.0\Rook.rhp`
 - `src\Rook\bin\Release\net7.0\Rook.rhp`
 - `src\Rook\bin\Release\net48\Rook.rhp`
+- `src\Rook\bin\Release\net48\RookBim.dll`
 
 **Critical:** release installers must package all managed companion payloads.
 Rhino 8 standalone loads a .NET Core payload, while Rhino.Inside.Revit uses
@@ -263,6 +265,9 @@ use .NET Framework. The Inno installer currently uses a direct-registry
 multi-runtime layout with `net8.0`, `net7.0`, and `net48` installed as sibling
 runtime payloads. Do not treat that as release-proven until live smoke records
 which physical `Rook.rhp` Rhino actually loaded for each host/runtime.
+Build `src\RookBim\RookBim.csproj` after `src\Rook\Rook.csproj` for release
+packaging; its post-build target copies the Rhino.Inside/Revit module into the
+net48 companion payload that the installer packages.
 
 ### Option B: build a single target for focused development
 
@@ -314,6 +319,7 @@ Test-Path src\Rook\bin\Release\net7.0\Rook.deps.json
 Test-Path src\Rook\bin\Release\net7.0\Rook.runtimeconfig.json
 Test-Path src\Rook\bin\Release\net7.0\runtimes
 Test-Path src\Rook\bin\Release\net48\Rook.rhp
+Test-Path src\Rook\bin\Release\net48\RookBim.dll
 Test-Path src\Rook\bin\Release\net48\runtimes
 ```
 
@@ -498,6 +504,7 @@ Get-Process | Where-Object { $_.ProcessName -match '^(Rhino|Rhinoceros)$' }
 | `LNK1104: cannot open file 'mfc140u.lib'` | MFC libs missing for the pinned toolset | Install the exact MFC component matching v14.44.35207 |
 | `error CS0246: type or namespace not found` | Missing NuGet packages for C# build | Run `dotnet restore src/Rook` before building |
 | C# output not found at expected path | Wrong target framework or output path | Build with `dotnet build src\Rook\Rook.csproj -c Release`; release output includes `bin\Release\net8.0\`, `bin\Release\net7.0\`, and `bin\Release\net48\` |
+| `RookBim.dll` missing from `net48` | RookBIM is a separate optional module and was not built | Run `dotnet build src\RookBim\RookBim.csproj -c Release` after building `src\Rook\Rook.csproj` |
 | Access denied / file in use | Rhino has the DLL loaded | Close Rhino, then rebuild |
 | `error MSB8020: ... v143 ... cannot be found` | v143 toolset not installed (common on VS2026) | VS Installer > Individual Components > install "MSVC v143 - VS 2022 C++ x64/x86 build tools" |
 | `vcvarsall.bat` not found | VS not at expected path | May be Professional/Enterprise instead of Community, or VS2026 (`\18\` instead of `\2022\`) |
@@ -508,6 +515,7 @@ Get-Process | Where-Object { $_.ProcessName -match '^(Rhino|Rhinoceros)$' }
 |------|---------|
 | `src/RookNative/RookNative.vcxproj` | C++ project — v143 toolset, dynamic MFC, Windows SDK 10.0 |
 | `src/Rook/Rook.csproj` | C# project — multi-target net8.0 + net7.0 + net48, NuGet dependencies |
+| `src/RookBim/RookBim.csproj` | Optional net48 Rhino.Inside/Revit module copied into the Rook net48 companion payload |
 | `src/Rook.sln` | Solution file containing both projects |
 | `build_native.ps1` | Canonical C++ build script (dot-sources `scripts/detect-vs.ps1`) |
 | `scripts/detect-vs.ps1` | Shared VS 2022 toolchain detection (dot-sourced) |

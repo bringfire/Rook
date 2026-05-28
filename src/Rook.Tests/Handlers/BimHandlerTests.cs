@@ -14,6 +14,7 @@ namespace Rook.Tests.Handlers
         {
             "status",
             "active_document",
+            "list_categories",
             "query_elements",
             "element_info",
             "element_parameters",
@@ -131,6 +132,53 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
+        public void Dispatch_ListCategories_UsesRuntime()
+        {
+            RookBimRuntimeRegistry.Install(new DetailFailureRuntime(), "test-list-categories");
+            try
+            {
+                var handler = new BimHandler();
+                var response = handler.Dispatch("{\"op\":\"list_categories\"}");
+
+                Assert.True(response.Success);
+                Assert.Contains("document_category_table", ((JsonNode)response.Data!).ToJsonString());
+            }
+            finally
+            {
+                RookBimRuntimeRegistry.ResetForTests();
+            }
+        }
+
+        [Fact]
+        public void MapErrorCode_MapsCategoryResolutionErrors()
+        {
+            Assert.Equal("ambiguous_category", BimHandler.MapErrorCode(BimErrorCode.AmbiguousCategory));
+            Assert.Equal("category_not_queryable", BimHandler.MapErrorCode(BimErrorCode.CategoryNotQueryable));
+        }
+
+        [Fact]
+        public void Dispatch_CategoryFailure_PreservesResolutionUnderDetails()
+        {
+            RookBimRuntimeRegistry.Install(new CategoryFailureRuntime(), "test-category-failure");
+            try
+            {
+                var handler = new BimHandler();
+                var response = handler.Dispatch("{\"op\":\"query_elements\",\"scope\":\"document\",\"category\":\"Pipe Accessoryz\"}");
+                var json = ((JsonNode)response.Data!).ToJsonString();
+
+                Assert.False(response.Success);
+                Assert.Contains("\"errorCode\":\"invalid_category\"", json);
+                Assert.Contains("\"details\":{\"resolution\":", json);
+                Assert.Contains("\"status\":\"invalid\"", json);
+                Assert.Contains("\"input\":\"Pipe Accessoryz\"", json);
+            }
+            finally
+            {
+                RookBimRuntimeRegistry.ResetForTests();
+            }
+        }
+
+        [Fact]
         public void NativeRegistrar_SourceDeclaresBimDispatchCallback()
         {
             var source = ReadSourceFile("src", "Rook", "InternalBridge", "NativeGhBridgeRegistrar.cs");
@@ -187,9 +235,73 @@ namespace Rook.Tests.Handlers
                 };
             }
 
+            public BimApiResponse ListCategories()
+            {
+                return BimApiResponse.Ok(new BimListCategoriesResult
+                {
+                    Source = "document_category_table"
+                });
+            }
+
             public BimApiResponse QueryElements(BimQueryElementsRequest request)
             {
                 return BimApiResponse.Ok(null);
+            }
+
+            public BimApiResponse ElementInfo(BimElementRequest request)
+            {
+                return BimApiResponse.Ok(null);
+            }
+
+            public BimApiResponse ElementParameters(BimElementRequest request)
+            {
+                return BimApiResponse.Ok(null);
+            }
+
+            public BimApiResponse SelectElements(BimSelectElementsRequest request)
+            {
+                return BimApiResponse.Ok(null);
+            }
+
+            public BimApiResponse ClearSelection()
+            {
+                return BimApiResponse.Ok(null);
+            }
+        }
+
+        private sealed class CategoryFailureRuntime : IRookBimRuntime
+        {
+            public BimStatusResponse Status()
+            {
+                return new BimStatusResponse { Available = true, Runtime = "test" };
+            }
+
+            public BimApiResponse ActiveDocument()
+            {
+                return BimApiResponse.Ok(null);
+            }
+
+            public BimApiResponse ListCategories()
+            {
+                return BimApiResponse.Ok(new BimListCategoriesResult());
+            }
+
+            public BimApiResponse QueryElements(BimQueryElementsRequest request)
+            {
+                var response = BimApiResponse.Fail(
+                    BimErrorCode.InvalidCategory,
+                    "Unknown Revit category 'Pipe Accessoryz'.",
+                    400);
+                response.Data = new
+                {
+                    resolution = new BimCategoryResolution
+                    {
+                        Status = BimCategoryResolutionStatus.Invalid,
+                        Input = "Pipe Accessoryz",
+                        NormalizedInput = "pipeaccessoryz"
+                    }
+                };
+                return response;
             }
 
             public BimApiResponse ElementInfo(BimElementRequest request)

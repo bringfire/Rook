@@ -14,11 +14,14 @@ namespace RookBim.Tests
         public void RookBimProject_TargetsNet48AndReferencesRevitApisPrivately()
         {
             var project = LoadProject("src/RookBim/RookBim.csproj");
+            var rookProject = LoadProject("src/Rook/Rook.csproj");
             var text = Read("src/RookBim/RookBim.csproj");
 
             Assert.Equal("net48", ValueOf(project, "TargetFramework"));
             Assert.Equal("enable", ValueOf(project, "Nullable"));
             Assert.Equal("latest", ValueOf(project, "LangVersion"));
+            Assert.Equal(ValueOf(rookProject, "Version"), ValueOf(project, "Version"));
+            Assert.Equal("RookBIM", ValueOf(project, "Title"));
             Assert.DoesNotContain("RhinoInside.Revit", text, StringComparison.OrdinalIgnoreCase);
 
             var projectReference = project.Descendants("ProjectReference").Single();
@@ -245,6 +248,100 @@ namespace RookBim.Tests
         }
 
         [Fact]
+        public void RevitCategoryResolver_UsesLiveDocumentCategoryTableAsAuthority()
+        {
+            var resolver = Read("src/RookBim/Revit/RevitCategoryResolver.cs");
+
+            Assert.Contains("internal sealed class RevitCategoryResolver", resolver);
+            Assert.Contains("document.Settings.Categories", resolver);
+            Assert.Contains("BimCategoryResolution", resolver);
+            Assert.Contains("BimCategoryResolutionStrategy.BuiltInExact", resolver);
+            Assert.Contains("BimCategoryResolutionStrategy.CategoryIdExact", resolver);
+            Assert.Contains("BimCategoryResolutionStrategy.DocumentDisplayNameExact", resolver);
+            Assert.Contains("BimCategoryResolutionStrategy.DocumentDisplayNameNormalized", resolver);
+            Assert.Contains("BimCategoryResolutionStrategy.BuiltInTolerant", resolver);
+            Assert.Contains("BimCategoryResolutionStrategy.CuratedAlias", resolver);
+            Assert.Contains("MaxSuggestions = 5", resolver);
+            Assert.Contains("BimCategoryResolutionStatus.Ambiguous", resolver);
+            Assert.Contains("Queryable = entry.Summary.Id.HasValue", resolver);
+            Assert.Contains("TrimTrailingPluralS(entry.NormalizedName), singularInput", resolver);
+            Assert.Contains("private static int SuggestionRank(", resolver);
+            Assert.Contains("private static int EditDistance(", resolver);
+            Assert.Contains("OrderBy(candidate => candidate.Rank)", resolver);
+            Assert.Contains("TryGetBuiltInCategory", resolver);
+            Assert.Contains("TryBuildCategoryEntry", resolver);
+            Assert.Contains("SafeCategoryId", resolver);
+            Assert.Contains("SafeCategoryName", resolver);
+            Assert.Contains("SafeCategoryType", resolver);
+            Assert.Contains("catch (Autodesk.Revit.Exceptions.InternalException)", resolver);
+            Assert.Contains("catch (Autodesk.Revit.Exceptions.InvalidOperationException)", resolver);
+            Assert.Contains("SkippedCount", resolver);
+            Assert.Contains("DegradedCount", resolver);
+            Assert.Contains("Diagnostics", resolver);
+            Assert.Contains("RecordSkip", resolver);
+            Assert.Contains("RecordDegradation", resolver);
+            Assert.Contains("SafeBuiltInCategory", resolver);
+            Assert.Contains("ResolveBuiltIn(document, builtIn)", resolver);
+            Assert.DoesNotContain("BuiltInsByCategoryId", resolver);
+            Assert.DoesNotContain("SafeCategoryParent", resolver);
+            Assert.DoesNotContain(".Where(entry => string.IsNullOrEmpty(normalizedInput)", resolver);
+            Assert.DoesNotContain("knowledge", resolver, StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public void RevitCategoryResolver_TreatsInvalidBuiltInAsUnavailable()
+        {
+            var resolver = Read("src/RookBim/Revit/RevitCategoryResolver.cs");
+            var safeBuiltIn = ExtractMethod(resolver, "private static string? SafeBuiltInCategory(");
+
+            Assert.Contains("builtIn == BuiltInCategory.INVALID", safeBuiltIn);
+            Assert.Contains("return null;", safeBuiltIn);
+        }
+
+        [Fact]
+        public void RevitCategoryResolver_CatchesRevitInvalidOperationDuringExplicitBuiltInLookup()
+        {
+            var resolver = Read("src/RookBim/Revit/RevitCategoryResolver.cs");
+            var tryGetBuiltIn = ExtractMethod(resolver, "private static bool TryGetBuiltInCategory(");
+
+            Assert.Contains("catch (Autodesk.Revit.Exceptions.InvalidOperationException)", tryGetBuiltIn);
+        }
+
+        [Fact]
+        public void RevitRuntime_WiresListCategoriesThroughDispatcher()
+        {
+            var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
+            var listCategories = ExtractMethod(runtime, "public BimApiResponse ListCategories(");
+
+            Assert.Contains("private readonly RevitCategoryResolver categories;", runtime);
+            Assert.Contains("this.categories = new RevitCategoryResolver();", runtime);
+            Assert.Contains("return ExecuteInDocumentContext", listCategories);
+            Assert.Contains("RevitContext.ActiveUiDocument(uiapp)", runtime);
+            Assert.Contains("BimErrorCode.NoActiveDocument", runtime);
+            Assert.Contains("categories.List(document)", runtime);
+            Assert.DoesNotContain("BimErrorCode.NotRhinoInside", listCategories);
+            Assert.Contains("BimErrorCode.InternalError", runtime);
+        }
+
+        [Fact]
+        public void RevitQueryService_UsesCategoryResolverAndReturnsResolutionEvidence()
+        {
+            var service = Read("src/RookBim/Revit/RevitQueryService.cs");
+            var query = ExtractMethod(service, "public BimApiResponse Query(");
+
+            Assert.Contains("private readonly RevitCategoryResolver categories", service);
+            Assert.Contains("categories.Resolve(document, categoryName)", query);
+            Assert.Contains("BimErrorCode.AmbiguousCategory", query);
+            Assert.Contains("BimErrorCode.CategoryNotQueryable", query);
+            Assert.Contains("Data = new { resolution = resolution }", service);
+            Assert.Contains("CategoryResolution = categoryResolution", service);
+            Assert.Contains("TryResolvedCategoryFilter", service);
+            Assert.Contains("new ElementCategoryFilter(new ElementId((long)id.Value))", service);
+            Assert.Contains("collector.WherePasses(categoryFilter);", query);
+            Assert.DoesNotContain("ResolveBuiltInCategory", service);
+        }
+
+        [Fact]
         public void RevitTask9_RuntimeWiresElementInfoAndParametersThroughDispatcher()
         {
             var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
@@ -317,10 +414,10 @@ namespace RookBim.Tests
 
             Assert.Contains("private readonly RevitQueryService query;", runtime);
             Assert.Contains("this.query = new RevitQueryService();", runtime);
-            Assert.Contains("return Dispatch(uiapp =>", queryElements);
-            Assert.Contains("RevitContext.ActiveUiDocument(uiapp)", queryElements);
-            Assert.Contains("BimErrorCode.NoActiveDocument", queryElements);
-            Assert.Contains("query.Query(document, view, request)", queryElements);
+            Assert.Contains("return ExecuteInDocumentContext", queryElements);
+            Assert.Contains("RevitContext.ActiveUiDocument(uiapp)", runtime);
+            Assert.Contains("BimErrorCode.NoActiveDocument", runtime);
+            Assert.Contains("query.Query(document, view, request)", runtime);
             Assert.DoesNotContain("LaterToolUnavailable", queryElements);
         }
 
@@ -341,7 +438,7 @@ namespace RookBim.Tests
             Assert.Contains("catch (ArgumentException)", query);
             Assert.Contains("new FilteredElementCollector(document)", query);
             Assert.Contains("collector.WhereElementIsNotElementType();", query);
-            Assert.Contains("collector.OfCategory(category.Value);", query);
+            Assert.Contains("collector.WherePasses(categoryFilter);", query);
             Assert.Contains("var filters = request.EffectiveFilters;", query);
             Assert.DoesNotContain("request.Filters", service);
         }
@@ -394,6 +491,17 @@ namespace RookBim.Tests
             Assert.Contains("Identity = RevitIdentitySerializer.ElementIdentity(element)", service);
             Assert.Contains("new BimCategorySummary", service);
             Assert.Contains("new BimElementTypeSummary", service);
+        }
+
+        [Fact]
+        public void RevitTask8_QueryServiceAcceptsDisplayNamePluralCategories()
+        {
+            var service = Read("src/RookBim/Revit/RevitQueryService.cs");
+
+            Assert.Contains("categories.Resolve(document, categoryName)", service);
+            Assert.DoesNotContain("NormalizeCategoryCandidate", service);
+            Assert.DoesNotContain("TrimTrailingPluralS", service);
+            Assert.DoesNotContain("ResolveBuiltInCategory", service);
         }
 
         [Fact]

@@ -65,6 +65,7 @@ ManagedCreateInvokeResult InvokeBimDispatchWithBody(
     std::string& error);
 void HandleBimStatus(const httplib::Request& req, httplib::Response& res);
 void HandleBimActiveDocument(const httplib::Request& req, httplib::Response& res);
+void HandleBimCategories(const httplib::Request& req, httplib::Response& res);
 void HandleBimQueryElements(const httplib::Request& req, httplib::Response& res);
 void HandleBimElementInfo(const httplib::Request& req, httplib::Response& res);
 void HandleBimElementParameters(const httplib::Request& req, httplib::Response& res);

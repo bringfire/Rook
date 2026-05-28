@@ -29,6 +29,7 @@ namespace Rook.Tests.Bim
                 configuredMessage);
 
             AssertUnavailable(runtime.ActiveDocument(), configuredMessage);
+            AssertUnavailable(runtime.ListCategories(), configuredMessage);
             AssertUnavailable(runtime.QueryElements(new BimQueryElementsRequest()), configuredMessage);
             AssertUnavailable(runtime.ElementInfo(new BimElementRequest()), configuredMessage);
             AssertUnavailable(runtime.ElementParameters(new BimElementRequest()), configuredMessage);
