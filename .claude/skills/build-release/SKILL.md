@@ -26,7 +26,7 @@ The argument is a semver version (X.Y.Z). If omitted, ask the user.
 | Step | Action | Abort if |
 |------|--------|----------|
 | 0 | Pre-flight checks | Any check fails |
-| 1 | Release branch version bump (6 files / 8 edits) | Verification fails |
+| 1 | Release branch version bump (7 files / 10 edits) | Verification fails |
 | 2 | Merge the release PR and check out the exact main SHA to tag | Main HEAD is not the intended release commit |
 | 3 | Build and validate bundled FFmpeg payload/source bundle | Validation fails |
 | 4 | Build C++ native plugin | Exit code != 0 |
@@ -109,7 +109,7 @@ git pull --ff-only origin main
 git switch -c release/vX.Y.Z
 ```
 
-Update all 6 files using the Edit tool. The .rc file requires 4 separate edits
+Update all 7 files using the Edit tool. The .rc file requires 4 separate edits
 (FILEVERSION binary, PRODUCTVERSION binary, FileVersion string, ProductVersion string).
 
 After all edits, verify with:
@@ -119,20 +119,22 @@ Select-String -Path `
   mcp_server\pyproject.toml, `
   installer\RookSetup.iss, `
   src\Rook\Rook.csproj, `
+  src\RookBim\RookBim.csproj, `
   src\RookNative\RookNative.rc, `
   src\RookNative\RookNativePlugin.cpp, `
   src\RookNative\RookServer.cpp `
   -Pattern "X.Y.Z"
 ```
 
-Expect 7 string matches (`pyproject.toml`, `RookSetup.iss`, `Rook.csproj`, the two
-string values in `RookNative.rc`, `RookNativePlugin.cpp`, and `RookServer.cpp`).
-Then verify the binary version lines in `RookNative.rc` separately.
+Expect 8 string matches (`pyproject.toml`, `RookSetup.iss`, `Rook.csproj`,
+`RookBim.csproj`, the two string values in `RookNative.rc`,
+`RookNativePlugin.cpp`, and `RookServer.cpp`). Then verify the binary version
+lines in `RookNative.rc` separately.
 
 Commit and push only the version-bumped files on the release branch:
 
 ```powershell
-git add mcp_server\pyproject.toml installer\RookSetup.iss src\Rook\Rook.csproj src\RookNative\RookNative.rc src\RookNative\RookNativePlugin.cpp src\RookNative\RookServer.cpp
+git add mcp_server\pyproject.toml installer\RookSetup.iss src\Rook\Rook.csproj src\RookBim\RookBim.csproj src\RookNative\RookNative.rc src\RookNative\RookNativePlugin.cpp src\RookNative\RookServer.cpp
 git commit -m "release: bump versions to X.Y.Z"
 git push -u origin release/vX.Y.Z
 ```
@@ -194,20 +196,24 @@ Verify: `EXIT_CODE=0` in output and file exists:
 Test-Path src\RookNative\bin\Release\x64\RookNative.rhp
 ```
 
-## Step 5: Build C# Companion Plugin
+## Step 5: Build C# Companion Plugin and RookBIM Module
 
 Call `dotnet build` directly (C# doesn't need MFC):
 
 ```powershell
 dotnet build src\Rook\Rook.csproj -c Release
+dotnet build src\RookBim\RookBim.csproj -c Release
 ```
 
 **Key gotcha:** The release installer must package all companion runtime
 outputs. Rhino 8 standalone loads a .NET Core payload; Rhino.Inside.Revit on
 Revit 2025+ needs the sibling `net8.0` payload, and .NET Framework hosts need
-the sibling `net48` payload. The Inno direct-registry sibling layout is a
-release hypothesis, not proof; only the live Inno-install smoke can prove Rhino
-redirected from the registered child to the physical runtime sibling.
+the sibling `net48` payload. `RookBim.csproj` must be built after
+`Rook.csproj`; its post-build target copies `RookBim.dll` into the net48
+companion payload that the installer packages for Rhino.Inside/Revit. The Inno
+direct-registry sibling layout is a release hypothesis, not proof; only the
+live Inno-install smoke can prove Rhino redirected from the registered child to
+the physical runtime sibling.
 
 Verify:
 ```powershell
@@ -220,6 +226,7 @@ Test-Path src\Rook\bin\Release\net7.0\Rook.deps.json
 Test-Path src\Rook\bin\Release\net7.0\Rook.runtimeconfig.json
 Test-Path src\Rook\bin\Release\net7.0\runtimes
 Test-Path src\Rook\bin\Release\net48\Rook.rhp
+Test-Path src\Rook\bin\Release\net48\RookBim.dll
 Test-Path src\Rook\bin\Release\net48\runtimes
 ```
 
@@ -384,6 +391,7 @@ Remove-Item (Join-Path $env:TEMP "rook_build_native_release.bat") -Force -ErrorA
 |---------|-------|-----|
 | `error MSB8041: MFC libraries are required` | vcvarsall.bat not sourced, or wrong VCToolsVersion | Must call vcvarsall.bat before msbuild, and set VCToolsVersion=14.44.35207 |
 | C# output at wrong path | Installer expects sibling net8.0, net7.0, and net48 outputs | Build with `dotnet build src\Rook\Rook.csproj -c Release`; outputs are at `bin\Release\net8.0\`, `bin\Release\net7.0\`, and `bin\Release\net48\` |
+| `RookBim.dll` missing or stale | `RookBim.csproj` was not built after the companion | Build with `dotnet build src\RookBim\RookBim.csproj -c Release`; verify `src\Rook\bin\Release\net48\RookBim.dll` is newer than the release build start. |
 | MSBuild `/p:` flags ignored | Bash mangles forward-slash flags | Use .bat file or quote as `"-p:Configuration=Release"` |
 | ISCC can't find source file | Path mismatch in .iss | Check CompanionDir matches actual build output path |
 | `error MSB1008: Only one project` | MSBuild.exe invoked from bash with /p flags | Bash interprets /p as a path; use `-p:` or route through .bat |

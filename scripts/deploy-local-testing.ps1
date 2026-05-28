@@ -11,6 +11,8 @@ param(
 
     [string]$VCToolsVersion = '14.44.35207',
 
+    [string]$RevitInstallDir = '',
+
     [switch]$NativeOnly,
     [switch]$PayloadOnly,
     [switch]$AllowRunning,
@@ -121,6 +123,34 @@ function Assert-NoRunningFullDeployBlockers {
     }
 }
 
+function Resolve-RookBimRevitInstallDir {
+    if (-not [string]::IsNullOrWhiteSpace($RevitInstallDir)) {
+        return $RevitInstallDir
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($env:RevitInstallDir)) {
+        return $env:RevitInstallDir
+    }
+
+    return (Join-Path $env:ProgramFiles 'Autodesk\Revit 2024')
+}
+
+function Assert-RookBimBuildPrerequisites {
+    $resolvedRevitInstallDir = Resolve-RookBimRevitInstallDir
+    $requiredFiles = @(
+        (Join-Path $resolvedRevitInstallDir 'RevitAPI.dll'),
+        (Join-Path $resolvedRevitInstallDir 'RevitAPIUI.dll')
+    )
+    $missingFiles = @($requiredFiles | Where-Object { -not (Test-Path $_) })
+
+    if ($missingFiles.Count -gt 0) {
+        $missingText = $missingFiles -join ', '
+        throw "Full local deploy builds RookBIM and requires Revit API assemblies. Missing: $missingText. Install Revit, pass -RevitInstallDir <path>, run -NativeOnly for native-only iteration, run -PayloadOnly -AllowRunning after a successful build, or run -SkipBuild to deploy existing build outputs."
+    }
+
+    return (Resolve-Path $resolvedRevitInstallDir).Path
+}
+
 function Resolve-BootstrapPython {
     $candidates = @()
     if (Test-Path $VenvPython) {
@@ -180,6 +210,12 @@ function Invoke-ManagedBuild {
     & dotnet build (Join-Path $RepoRoot 'src\Rook\Rook.csproj') -c $Configuration
     if ($LASTEXITCODE -ne 0) {
         throw "Managed build failed."
+    }
+
+    $rookBimRevitInstallDir = Assert-RookBimBuildPrerequisites
+    & dotnet build (Join-Path $RepoRoot 'src\RookBim\RookBim.csproj') -c $Configuration "/p:RevitInstallDir=$rookBimRevitInstallDir"
+    if ($LASTEXITCODE -ne 0) {
+        throw "RookBIM build failed."
     }
 }
 

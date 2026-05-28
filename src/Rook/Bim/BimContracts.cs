@@ -14,6 +14,8 @@ namespace Rook.Bim
         InvalidScope,
         UnboundedDocumentQuery,
         InvalidCategory,
+        AmbiguousCategory,
+        CategoryNotQueryable,
         AmbiguousParameter,
         QueryLimitExceeded,
         ElementNotFound,
@@ -52,6 +54,24 @@ namespace Rook.Bim
         Contains,
         IsEmpty,
         IsNotEmpty
+    }
+
+    public enum BimCategoryResolutionStatus
+    {
+        Resolved,
+        Invalid,
+        Ambiguous
+    }
+
+    public enum BimCategoryResolutionStrategy
+    {
+        None,
+        BuiltInExact,
+        CategoryIdExact,
+        DocumentDisplayNameExact,
+        DocumentDisplayNameNormalized,
+        BuiltInTolerant,
+        CuratedAlias
     }
 
     public sealed class BimValidationResult
@@ -168,6 +188,8 @@ namespace Rook.Bim
         public string? UniqueId { get; set; }
 
         public string? Name { get; set; }
+
+        public string? Type { get; set; }
     }
 
     public sealed class BimElementIdentity
@@ -205,11 +227,92 @@ namespace Rook.Bim
         public BimIdentityConfidence Confidence { get; set; } = BimIdentityConfidence.Unresolved;
     }
 
+    public sealed class BimCategoryParentSummary
+    {
+        public int? Id { get; set; }
+
+        public string? Name { get; set; }
+
+        public string? BuiltIn { get; set; }
+    }
+
     public sealed class BimCategorySummary
     {
         public int? Id { get; set; }
 
         public string? Name { get; set; }
+
+        public string? BuiltIn { get; set; }
+
+        public string? CategoryType { get; set; }
+
+        public BimCategoryParentSummary? Parent { get; set; }
+    }
+
+    public sealed class BimCategorySuggestion
+    {
+        public int? Id { get; set; }
+
+        public string? Name { get; set; }
+
+        public string? BuiltIn { get; set; }
+
+        public string Source { get; set; } = "live_document";
+
+        public string? MatchReason { get; set; }
+    }
+
+    public sealed class BimCategoryResolution
+    {
+        public int SchemaVersion { get; set; } = 1;
+
+        public BimCategoryResolutionStatus Status { get; set; } = BimCategoryResolutionStatus.Invalid;
+
+        public string? Input { get; set; }
+
+        public string? NormalizedInput { get; set; }
+
+        public List<BimCategoryResolutionStrategy> AttemptedStrategies { get; set; } = new List<BimCategoryResolutionStrategy>();
+
+        public BimCategoryResolutionStrategy Strategy { get; set; } = BimCategoryResolutionStrategy.None;
+
+        public bool Ambiguous { get; set; }
+
+        public bool? Queryable { get; set; }
+
+        public BimCategorySummary? Category { get; set; }
+
+        public BimDocumentIdentity? Document { get; set; }
+
+        public List<BimCategorySummary> Candidates { get; set; } = new List<BimCategorySummary>();
+
+        public List<BimCategorySuggestion> Suggestions { get; set; } = new List<BimCategorySuggestion>();
+
+        public List<string> AdvisorySources { get; set; } = new List<string>();
+    }
+
+    public sealed class BimListCategoriesResult
+    {
+        public int SchemaVersion { get; set; } = 1;
+
+        public string Source { get; set; } = "document_category_table";
+
+        public BimDocumentIdentity Document { get; set; } = new BimDocumentIdentity();
+
+        public int SkippedCount { get; set; }
+
+        public int DegradedCount { get; set; }
+
+        public BimCategoryTableDiagnostics Diagnostics { get; set; } = new BimCategoryTableDiagnostics();
+
+        public List<BimCategorySummary> Categories { get; set; } = new List<BimCategorySummary>();
+    }
+
+    public sealed class BimCategoryTableDiagnostics
+    {
+        public Dictionary<string, int> CountsByReason { get; set; } = new Dictionary<string, int>();
+
+        public List<string> Examples { get; set; } = new List<string>();
     }
 
     public sealed class BimElementTypeSummary
@@ -244,7 +347,20 @@ namespace Rook.Bim
 
         public bool Truncated { get; set; }
 
+        public BimCategoryResolution? CategoryResolution { get; set; }
+
+        public List<BimQueryFilterSummary> Filters { get; set; } = new List<BimQueryFilterSummary>();
+
         public Dictionary<string, int> MissingParameterCounts { get; set; } = new Dictionary<string, int>();
+    }
+
+    public sealed class BimQueryFilterSummary
+    {
+        public string? Parameter { get; set; }
+
+        public BimFilterOperation Operation { get; set; }
+
+        public string? Value { get; set; }
     }
 
     public sealed class BimQueryElementsResult

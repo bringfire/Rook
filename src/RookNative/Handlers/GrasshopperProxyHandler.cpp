@@ -1149,6 +1149,11 @@ void HandleBimActiveDocument(const httplib::Request& req, httplib::Response& res
     ForwardBimDispatch(req, res, "active_document", nlohmann::json::object());
 }
 
+void HandleBimCategories(const httplib::Request& req, httplib::Response& res)
+{
+    ForwardBimDispatch(req, res, "list_categories", nlohmann::json::object());
+}
+
 void HandleBimQueryElements(const httplib::Request& req, httplib::Response& res)
 {
     nlohmann::json body;

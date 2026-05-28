@@ -9,6 +9,7 @@ namespace Rook.Tests.Handlers
         [Theory]
         [InlineData("Get", "/bim/status", "HandleBimStatus", "status")]
         [InlineData("Get", "/bim/active-document", "HandleBimActiveDocument", "active_document")]
+        [InlineData("Get", "/bim/categories", "HandleBimCategories", "list_categories")]
         [InlineData("Post", "/bim/query-elements", "HandleBimQueryElements", "query_elements")]
         [InlineData("Post", "/bim/element-info", "HandleBimElementInfo", "element_info")]
         [InlineData("Post", "/bim/element-parameters", "HandleBimElementParameters", "element_parameters")]

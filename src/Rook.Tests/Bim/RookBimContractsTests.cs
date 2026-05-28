@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Rook.Bim;
 using Xunit;
 
@@ -145,12 +146,15 @@ namespace Rook.Tests.Bim
         {
             var identity = new BimViewIdentity
             {
-                Id = 17
+                Id = 17,
+                Type = "ThreeD"
             };
 
             int id = identity.Id;
+            string? type = identity.Type;
 
             Assert.Equal(17, id);
+            Assert.Equal("ThreeD", type);
         }
 
         [Fact]
@@ -206,6 +210,15 @@ namespace Rook.Tests.Bim
                     Limit = 100,
                     Returned = 1,
                     Truncated = false,
+                    Filters =
+                    {
+                        new BimQueryFilterSummary
+                        {
+                            Parameter = "IfcGUID",
+                            Operation = BimFilterOperation.Contains,
+                            Value = "1G_I00"
+                        }
+                    },
                     MissingParameterCounts =
                     {
                         ["FireRating"] = 2
@@ -237,6 +250,10 @@ namespace Rook.Tests.Bim
             Assert.Equal(100, result.Query.Limit);
             Assert.Equal(1, result.Query.Returned);
             Assert.False(result.Query.Truncated);
+            var filter = Assert.Single(result.Query.Filters);
+            Assert.Equal("IfcGUID", filter.Parameter);
+            Assert.Equal(BimFilterOperation.Contains, filter.Operation);
+            Assert.Equal("1G_I00", filter.Value);
             Assert.Equal(2, result.Query.MissingParameterCounts["FireRating"]);
 
             var element = Assert.Single(result.Elements);
@@ -252,6 +269,145 @@ namespace Rook.Tests.Bim
             Assert.Equal("type-unique-id", element.Type.UniqueId);
             Assert.Equal("Basic Wall", element.Type.FamilyName);
             Assert.Equal("Generic - 8\"", element.Type.Name);
+        }
+
+        [Fact]
+        public void CategoryResolution_UsesSafeDefaults()
+        {
+            var resolution = new BimCategoryResolution();
+
+            Assert.Equal(1, resolution.SchemaVersion);
+            Assert.Equal(BimCategoryResolutionStatus.Invalid, resolution.Status);
+            Assert.Equal(BimCategoryResolutionStrategy.None, resolution.Strategy);
+            Assert.Null(resolution.Queryable);
+            Assert.False(resolution.Ambiguous);
+            Assert.Empty(resolution.AttemptedStrategies);
+            Assert.Empty(resolution.Candidates);
+            Assert.Empty(resolution.Suggestions);
+            Assert.Empty(resolution.AdvisorySources);
+        }
+
+        [Fact]
+        public void CategoryResolution_RepresentsResolvedRuntimeCategory()
+        {
+            var resolution = new BimCategoryResolution
+            {
+                SchemaVersion = 1,
+                Status = BimCategoryResolutionStatus.Resolved,
+                Input = "Pipes",
+                NormalizedInput = "pipes",
+                Strategy = BimCategoryResolutionStrategy.DocumentDisplayNameExact,
+                Ambiguous = false,
+                Queryable = true,
+                AttemptedStrategies = new List<BimCategoryResolutionStrategy>
+                {
+                    BimCategoryResolutionStrategy.BuiltInExact,
+                    BimCategoryResolutionStrategy.DocumentDisplayNameExact
+                },
+                Category = new BimCategorySummary
+                {
+                    Id = -2008044,
+                    Name = "Pipes",
+                    BuiltIn = "OST_PipeCurves",
+                    CategoryType = "Model"
+                },
+                Document = new BimDocumentIdentity
+                {
+                    Title = "Snowdon Towers Sample Plumbing",
+                    GuidSource = BimDocumentGuidSource.Unavailable,
+                    IsFamilyDocument = false
+                }
+            };
+
+            Assert.Equal(1, resolution.SchemaVersion);
+            Assert.Equal(BimCategoryResolutionStatus.Resolved, resolution.Status);
+            Assert.Equal("OST_PipeCurves", resolution.Category!.BuiltIn);
+            Assert.True(resolution.Queryable);
+            Assert.Empty(resolution.AdvisorySources);
+        }
+
+        [Fact]
+        public void CategoryResolution_RepresentsInvalidAndAmbiguousResults()
+        {
+            var invalid = new BimCategoryResolution
+            {
+                Status = BimCategoryResolutionStatus.Invalid,
+                Strategy = BimCategoryResolutionStrategy.None,
+                Input = "Pipe Accessoryz",
+                NormalizedInput = "pipeaccessoryz",
+                Suggestions = new List<BimCategorySuggestion>
+                {
+                    new BimCategorySuggestion
+                    {
+                        Name = "Pipe Accessories",
+                        Id = -2008055,
+                        BuiltIn = "OST_PipeAccessory",
+                        Source = "live_document",
+                        MatchReason = "close_normalized_name"
+                    }
+                }
+            };
+            var ambiguous = new BimCategoryResolution
+            {
+                Status = BimCategoryResolutionStatus.Ambiguous,
+                Ambiguous = true,
+                Candidates = new List<BimCategorySummary>
+                {
+                    new BimCategorySummary { Id = -1, Name = "Lines" },
+                    new BimCategorySummary { Id = -2, Name = "Lines" }
+                }
+            };
+
+            Assert.Single(invalid.Suggestions);
+            Assert.Equal("close_normalized_name", invalid.Suggestions[0].MatchReason);
+            Assert.True(ambiguous.Ambiguous);
+            Assert.Equal(2, ambiguous.Candidates.Count);
+        }
+
+        [Fact]
+        public void ListCategoriesResult_UsesDocumentWideCategoryTableShape()
+        {
+            var result = new BimListCategoriesResult
+            {
+                SchemaVersion = 1,
+                Source = "document_category_table",
+                Document = new BimDocumentIdentity { Title = "Family.rfa", IsFamilyDocument = true },
+                SkippedCount = 1,
+                DegradedCount = 1,
+                Diagnostics = new BimCategoryTableDiagnostics
+                {
+                    CountsByReason = new Dictionary<string, int>
+                    {
+                        ["missing_id"] = 1,
+                        ["missing_name"] = 1
+                    },
+                    Examples = new List<string> { "missing_id" }
+                },
+                Categories = new List<BimCategorySummary>
+                {
+                    new BimCategorySummary
+                    {
+                        Id = -2000240,
+                        Name = "Levels",
+                        BuiltIn = "OST_Levels",
+                        CategoryType = "Model",
+                        Parent = new BimCategoryParentSummary
+                        {
+                            Id = -2000000,
+                            Name = "Parent",
+                            BuiltIn = null
+                        }
+                    }
+                }
+            };
+
+            Assert.Equal("document_category_table", result.Source);
+            Assert.True(result.Document.IsFamilyDocument);
+            Assert.Equal(1, result.SkippedCount);
+            Assert.Equal(1, result.DegradedCount);
+            Assert.Equal(1, result.Diagnostics.CountsByReason["missing_id"]);
+            Assert.Single(result.Diagnostics.Examples);
+            Assert.Equal("Parent", result.Categories[0].Parent!.Name);
         }
     }
 }

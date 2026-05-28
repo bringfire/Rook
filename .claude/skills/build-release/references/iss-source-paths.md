@@ -26,6 +26,7 @@ All paths are relative to the repo root.
 | `src/Rook/bin/Release/net7.0/runtimes/` | C# .NET Core runtime assets |
 | `src/Rook/bin/Release/net48/Rook.rhp` | C# .NET Framework build output for Rhino.Inside.Revit hosts |
 | `src/Rook/bin/Release/net48/Rook.rui` | Rhino toolbar file |
+| `src/Rook/bin/Release/net48/RookBim.dll` | RookBIM Rhino.Inside/Revit module; produced by `src/RookBim/RookBim.csproj` post-build copy |
 | `src/Rook/bin/Release/net48/*.dll` | C# .NET Framework dependency DLLs |
 | `src/Rook/bin/Release/net48/runtimes/` | C# .NET Framework runtime assets, including WebView2 native loader |
 
@@ -152,6 +153,7 @@ $files = @(
   "src\Rook\bin\Release\net7.0\Rook.runtimeconfig.json",
   "src\Rook\bin\Release\net48\Rook.rhp",
   "src\Rook\bin\Release\net48\Rook.rui",
+  "src\Rook\bin\Release\net48\RookBim.dll",
   "mcp_server\pyproject.toml",
   "..\Chirp\pyproject.toml",
   ".claude-plugin\plugin.json",

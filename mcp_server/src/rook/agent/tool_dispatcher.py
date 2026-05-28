@@ -446,6 +446,7 @@ BRIDGE_ROUTES: Dict[str, Tuple[str, str]] = {
     # --- RookBIM (Revit bridge, Phase 1) ---
     "rookbim_status":             ("/bim/status", "GET"),
     "rookbim_active_document":    ("/bim/active-document", "GET"),
+    "rookbim_list_categories":    ("/bim/categories", "GET"),
     "rookbim_query_elements":     ("/bim/query-elements", "POST"),
     "rookbim_element_info":       ("/bim/element-info", "POST"),
     "rookbim_element_parameters": ("/bim/element-parameters", "POST"),

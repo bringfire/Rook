@@ -253,6 +253,7 @@ TOOL_GROUPS: Dict[str, List[str]] = {
     "rookbim": [
         "rookbim_status",
         "rookbim_active_document",
+        "rookbim_list_categories",
         "rookbim_query_elements",
         "rookbim_element_info",
         "rookbim_element_parameters",
@@ -262,6 +263,7 @@ TOOL_GROUPS: Dict[str, List[str]] = {
     "rookbim_readonly": [
         "rookbim_status",
         "rookbim_active_document",
+        "rookbim_list_categories",
         "rookbim_query_elements",
         "rookbim_element_info",
         "rookbim_element_parameters",

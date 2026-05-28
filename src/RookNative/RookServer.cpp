@@ -1042,6 +1042,7 @@ void CRookServer::RegisterRoutes()
     // discriminator route-side and forwards the remaining JSON opaquely.
     m_server->Get("/bim/status", Rook::Handlers::HandleBimStatus);
     m_server->Get("/bim/active-document", Rook::Handlers::HandleBimActiveDocument);
+    m_server->Get("/bim/categories", Rook::Handlers::HandleBimCategories);
     m_server->Post("/bim/query-elements", Rook::Handlers::HandleBimQueryElements);
     m_server->Post("/bim/element-info", Rook::Handlers::HandleBimElementInfo);
     m_server->Post("/bim/element-parameters", Rook::Handlers::HandleBimElementParameters);

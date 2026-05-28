@@ -13,6 +13,7 @@
 ## Working Rules
 - You may read and edit `src/RookNative/**/*.h` and `src/RookNative/**/*.cpp`
 - You may also read and edit `src/Rook/**/*.cs` when the task targets the managed companion, Grasshopper callback bridge, block-definition mutation routes that remain managed, the chat panel, or RhinoCommon-only behavior
+- You may also read and edit `src/RookBim/**/*.cs` and `src/RookBim.Tests/**/*.cs` when the task targets RookBIM, Rhino.Inside.Revit behavior, Revit API dispatch, BIM contracts, or RookBIM packaging/deploy/release behavior
 - You may also read and edit `mcp_server/src/rook/**/*.py` and `mcp_server/tests/**/*.py` when the task targets the Python server, DSPy pipeline, or test coverage
 - Follow existing patterns in neighboring handlers before introducing new code
 - Do not guess Rhino SDK APIs; verify usage from existing files in this repo
@@ -20,6 +21,8 @@
 - Do not modify `.vcxproj` or `.vcxproj.filters` unless explicitly asked
 - Do not claim build verification unless you actually have the Rhino/MFC toolchain
 - If a change crosses the native/managed boundary, keep both sides consistent and state that dependency explicitly
+- Revit API references must remain isolated to `src/RookBim`; do not add Autodesk/Revit references to `src/Rook`
+- `src/RookBim/RookBim.csproj` is a net48 module that copies `RookBim.dll` into `src/Rook/bin/<Configuration>/net48`; release/local deploy workflows must build it after `src/Rook/Rook.csproj`
 
 ## Codex App Notes
 - When emitting Codex app directives in final responses, use forward-slash absolute Windows paths, for example `C:/Users/aryan/source/repos/Rook`. Do not use backslash paths like `C:\Users\...` inside directive attributes; they can be parsed as invalid escapes by the app after task completion.

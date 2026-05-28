@@ -12,6 +12,7 @@ namespace RookBim.Revit
         private const string ModuleName = "RookBim.dll";
         private static readonly TimeSpan DispatchTimeout = TimeSpan.FromSeconds(5);
         private readonly RevitApiDispatcher dispatcher;
+        private readonly RevitCategoryResolver categories;
         private readonly RevitQueryService query;
         private readonly RevitSelectionService selection;
 
@@ -23,6 +24,7 @@ namespace RookBim.Revit
         internal RevitRookBimRuntime(RevitApiDispatcher dispatcher)
         {
             this.dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
+            this.categories = new RevitCategoryResolver();
             this.query = new RevitQueryService();
             this.selection = new RevitSelectionService();
         }
@@ -108,31 +110,20 @@ namespace RookBim.Revit
 
         public BimApiResponse QueryElements(BimQueryElementsRequest request)
         {
-            try
-            {
-                return Dispatch(uiapp =>
+            return ExecuteInDocumentContext(
+                "query_elements",
+                (uidoc, document) =>
                 {
-                    var uidoc = RevitContext.ActiveUiDocument(uiapp);
-                    if (uidoc == null || uidoc.Document == null)
-                    {
-                        return BimApiResponse.Fail(
-                            BimErrorCode.NoActiveDocument,
-                            "No active Revit document is open.",
-                            409);
-                    }
-
-                    var document = uidoc.Document;
                     var view = uidoc.ActiveView ?? document.ActiveView;
                     return query.Query(document, view, request);
                 });
-            }
-            catch (Exception ex)
-            {
-                return BimApiResponse.Fail(
-                    BimErrorCode.NotRhinoInside,
-                    $"RookBIM could not enter the Revit API context: {DescribeDispatchException(ex)}",
-                    503);
-            }
+        }
+
+        public BimApiResponse ListCategories()
+        {
+            return ExecuteInDocumentContext(
+                "list_categories",
+                (_uidoc, document) => BimApiResponse.Ok(categories.List(document)));
         }
 
         public BimApiResponse ElementInfo(BimElementRequest request)
@@ -277,6 +268,51 @@ namespace RookBim.Revit
             }
 
             return dispatch.Task.GetAwaiter().GetResult();
+        }
+
+        private BimApiResponse ExecuteInDocumentContext(
+            string operation,
+            Func<UIDocument, Document, BimApiResponse> work)
+        {
+            try
+            {
+                return Dispatch(uiapp =>
+                {
+                    var uidoc = RevitContext.ActiveUiDocument(uiapp);
+                    if (uidoc == null || uidoc.Document == null)
+                    {
+                        return BimApiResponse.Fail(
+                            BimErrorCode.NoActiveDocument,
+                            "No active Revit document is open.",
+                            409);
+                    }
+
+                    try
+                    {
+                        return work(uidoc, uidoc.Document);
+                    }
+                    catch (Exception ex)
+                    {
+                        var response = BimApiResponse.Fail(
+                            BimErrorCode.InternalError,
+                            $"RookBIM operation '{operation}' failed inside the active Revit document context: {DescribeDispatchException(ex)}",
+                            500);
+                        response.Data = new
+                        {
+                            operation = operation,
+                            exception = DescribeDispatchException(ex)
+                        };
+                        return response;
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                return BimApiResponse.Fail(
+                    BimErrorCode.NotRhinoInside,
+                    $"RookBIM could not enter the Revit API context: {DescribeDispatchException(ex)}",
+                    503);
+            }
         }
 
         private static string DescribeDispatchException(Exception ex)

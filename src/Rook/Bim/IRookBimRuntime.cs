@@ -6,6 +6,8 @@ namespace Rook.Bim
 
         BimApiResponse ActiveDocument();
 
+        BimApiResponse ListCategories();
+
         BimApiResponse QueryElements(BimQueryElementsRequest request);
 
         BimApiResponse ElementInfo(BimElementRequest request);

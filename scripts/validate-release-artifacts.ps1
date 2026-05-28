@@ -330,6 +330,10 @@ foreach ($artifact in $managedArtifacts) {
     }
 }
 
+$rookBimPath = Require-File -Path (Join-Path $RepoRoot 'src\Rook\bin\Release\net48\RookBim.dll') -Label 'RookBIM net48 module'
+Assert-ManagedAssemblyVersion -Path $rookBimPath -Expected $expectedFileVersion
+Assert-FileNewerThanBuildStart -Path $rookBimPath -StartedAt $buildStartedAtValue
+
 $sourceBundleManifestPathResolved = Require-File -Path $FfmpegSourceBundleManifestPath -Label 'FFmpeg source-bundle manifest'
 $sourceBundleManifest = Get-Content -LiteralPath $sourceBundleManifestPathResolved -Raw | ConvertFrom-Json
 $sourceBundlePath = Require-File -Path (Require-JsonField -Json $sourceBundleManifest -Field 'bundle_path' -Label 'FFmpeg source-bundle manifest') -Label 'FFmpeg source bundle'
@@ -397,6 +401,12 @@ $releaseManifest = [ordered]@{
             sha256 = Get-Sha256 -Path $path
         }
     })
+    rook_bim = [ordered]@{
+        runtime = 'net48'
+        path = $rookBimPath
+        assembly_version = $expectedFileVersion
+        sha256 = Get-Sha256 -Path $rookBimPath
+    }
 }
 
 $releaseManifest | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $OutputManifestPath -Encoding UTF8

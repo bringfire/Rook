@@ -13,6 +13,7 @@ namespace Rook.Handlers
         {
             "status",
             "active_document",
+            "list_categories",
             "query_elements",
             "element_info",
             "element_parameters",
@@ -67,6 +68,7 @@ namespace Rook.Handlers
                 {
                     "status" => Ok(runtime.Status()),
                     "active_document" => FromBimResponse(runtime.ActiveDocument()),
+                    "list_categories" => FromBimResponse(runtime.ListCategories()),
                     "query_elements" => DispatchQueryElements(runtime, body),
                     "element_info" => FromBimResponse(
                         runtime.ElementInfo(DeserializeRequest<BimElementRequest>(body))),
@@ -226,6 +228,8 @@ namespace Rook.Handlers
                 BimErrorCode.InvalidScope => "invalid_scope",
                 BimErrorCode.UnboundedDocumentQuery => "unbounded_document_query",
                 BimErrorCode.InvalidCategory => "invalid_category",
+                BimErrorCode.AmbiguousCategory => "ambiguous_category",
+                BimErrorCode.CategoryNotQueryable => "category_not_queryable",
                 BimErrorCode.QueryLimitExceeded => "query_limit_exceeded",
                 BimErrorCode.AmbiguousParameter => "ambiguous_parameter",
                 BimErrorCode.ElementNotFound => "element_not_found",

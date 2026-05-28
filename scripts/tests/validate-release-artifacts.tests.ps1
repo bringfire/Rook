@@ -189,6 +189,9 @@ function Test-ValidatorWritesExactArtifactManifest {
         Assert-Contains -Text $manifestText -Expected '"git_sha"' -Message 'Release manifest must contain git_sha.'
         Assert-Contains -Text $manifestText -Expected '"installer_sha256"' -Message 'Release manifest must contain installer_sha256.'
         Assert-Contains -Text $manifestText -Expected '"ffmpeg_source_bundle_sha256"' -Message 'Release manifest must contain ffmpeg_source_bundle_sha256.'
+        Assert-Contains -Text $manifestText -Expected '"rook_bim"' -Message 'Release manifest must contain RookBIM artifact identity.'
+        Assert-Contains -Text $manifestText -Expected '"runtime":  "net48"' -Message 'Release manifest must identify RookBIM as a net48 artifact.'
+        Assert-Contains -Text $manifestText -Expected '"assembly_version"' -Message 'Release manifest must record RookBIM assembly version.'
     } finally {
         Remove-Item -LiteralPath $fixture.TempRoot -Recurse -Force -ErrorAction SilentlyContinue
     }

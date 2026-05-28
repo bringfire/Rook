@@ -34,6 +34,11 @@ namespace Rook.Bim
             return Unavailable();
         }
 
+        public BimApiResponse ListCategories()
+        {
+            return Unavailable();
+        }
+
         public BimApiResponse QueryElements(BimQueryElementsRequest request)
         {
             return Unavailable();

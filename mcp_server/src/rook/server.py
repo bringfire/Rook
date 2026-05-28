@@ -11362,6 +11362,11 @@ Returns the full profile JSON including features, surfaces, and elements.""",
             inputSchema=_rookbim_empty_input_schema(),
         ),
         Tool(
+            name="rookbim_list_categories",
+            description="Return document-wide Revit categories available in the active document category table.",
+            inputSchema=_rookbim_empty_input_schema(),
+        ),
+        Tool(
             name="rookbim_query_elements",
             description="Query Revit elements in the active view or whole document by category and parameter filters.",
             inputSchema=_rookbim_query_elements_schema(),
@@ -18488,6 +18493,9 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
 
         case "rookbim_active_document":
             result = await call_rhino("/bim/active-document", "GET", None, port=port)
+
+        case "rookbim_list_categories":
+            result = await call_rhino("/bim/categories", "GET", None, port=port)
 
         case "rookbim_query_elements":
             result = await call_rhino(

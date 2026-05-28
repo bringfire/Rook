@@ -17,6 +17,7 @@ from rook.agent import tool_dispatcher, tool_groups
 ROOKBIM_TOOL_ROUTES = {
     "rookbim_status": ("/bim/status", "GET"),
     "rookbim_active_document": ("/bim/active-document", "GET"),
+    "rookbim_list_categories": ("/bim/categories", "GET"),
     "rookbim_query_elements": ("/bim/query-elements", "POST"),
     "rookbim_element_info": ("/bim/element-info", "POST"),
     "rookbim_element_parameters": ("/bim/element-parameters", "POST"),
@@ -27,6 +28,7 @@ ROOKBIM_TOOL_ROUTES = {
 ROOKBIM_READONLY_TOOLS = [
     "rookbim_status",
     "rookbim_active_document",
+    "rookbim_list_categories",
     "rookbim_query_elements",
     "rookbim_element_info",
     "rookbim_element_parameters",
@@ -88,7 +90,7 @@ async def test_all_rookbim_tools_registered():
 async def test_rookbim_status_active_document_and_clear_selection_have_port_only_closed_schemas():
     tools = await _tools_by_name()
 
-    for name in ("rookbim_status", "rookbim_active_document", "rookbim_clear_selection"):
+    for name in ("rookbim_status", "rookbim_active_document", "rookbim_list_categories", "rookbim_clear_selection"):
         assert tools[name].inputSchema == {
             "type": "object",
             "properties": {"port": PORT_SCHEMA},

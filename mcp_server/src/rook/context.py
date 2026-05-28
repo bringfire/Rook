@@ -117,6 +117,7 @@ TOOL_CATEGORIES = {
     "rhino_export": "document",
     "rookbim_status": "document",
     "rookbim_active_document": "document",
+    "rookbim_list_categories": "document",
     "rookbim_query_elements": "document",
     "rookbim_element_info": "document",
     "rookbim_element_parameters": "document",
