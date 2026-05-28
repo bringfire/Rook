@@ -196,11 +196,10 @@ namespace RookBim.Tests
         }
 
         [Fact]
-        public void RevitTask7_LaterToolsRemainCapabilityUnavailable()
+        public void RevitTask8_NonQueryToolsRemainCapabilityUnavailable()
         {
             var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
 
-            AssertLaterToolUnavailable(runtime, "QueryElements");
             AssertLaterToolUnavailable(runtime, "ElementInfo");
             AssertLaterToolUnavailable(runtime, "ElementParameters");
             AssertLaterToolUnavailable(runtime, "SelectElements");
@@ -208,17 +207,104 @@ namespace RookBim.Tests
         }
 
         [Fact]
-        public void RevitTask7_DoesNotStartTask8QueryServiceOrCollectors()
+        public void RevitTask8_RuntimeWiresOnlyQueryElementsThroughDispatcher()
+        {
+            var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
+            var queryElements = ExtractMethod(runtime, "public BimApiResponse QueryElements(");
+
+            Assert.Contains("private readonly RevitQueryService query;", runtime);
+            Assert.Contains("this.query = new RevitQueryService();", runtime);
+            Assert.Contains("return Dispatch(uiapp =>", queryElements);
+            Assert.Contains("RevitContext.ActiveUiDocument(uiapp)", queryElements);
+            Assert.Contains("BimErrorCode.NoActiveDocument", queryElements);
+            Assert.Contains("query.Query(document, view, request)", queryElements);
+            Assert.DoesNotContain("LaterToolUnavailable", queryElements);
+        }
+
+        [Fact]
+        public void RevitTask8_QueryServiceUsesBoundedCollectorsAndEffectiveFilters()
+        {
+            var service = Read("src/RookBim/Revit/RevitQueryService.cs");
+            var query = ExtractMethod(service, "public BimApiResponse Query(");
+            var validationIndex = query.IndexOf("var validation = request.Validate();", StringComparison.Ordinal);
+            var collectorIndex = query.IndexOf("new FilteredElementCollector", StringComparison.Ordinal);
+
+            Assert.True(validationIndex >= 0);
+            Assert.True(collectorIndex > validationIndex);
+            Assert.Contains("request.EffectiveScope == BimQueryScope.ActiveView && activeView == null", query);
+            Assert.Contains("BimErrorCode.NoActiveView", query);
+            Assert.Contains("new FilteredElementCollector(document, activeView!.Id)", query);
+            Assert.Contains("catch (Autodesk.Revit.Exceptions.ArgumentException)", query);
+            Assert.Contains("catch (ArgumentException)", query);
+            Assert.Contains("new FilteredElementCollector(document)", query);
+            Assert.Contains("collector.WhereElementIsNotElementType();", query);
+            Assert.Contains("collector.OfCategory(category.Value);", query);
+            Assert.Contains("var filters = request.EffectiveFilters;", query);
+            Assert.DoesNotContain("request.Filters", service);
+        }
+
+        [Fact]
+        public void RevitTask8_QueryServicePreflightsAmbiguousParametersAcrossCandidateSet()
+        {
+            var service = Read("src/RookBim/Revit/RevitQueryService.cs");
+            var query = ExtractMethod(service, "public BimApiResponse Query(");
+            var preflightIndex = query.IndexOf("PreflightFilterParameterAmbiguity(document, candidates, filters)", StringComparison.Ordinal);
+            var filterIndex = query.IndexOf("MatchesAllFilters(element, document, filters, missingCounts)", StringComparison.Ordinal);
+
+            Assert.True(preflightIndex >= 0);
+            Assert.True(filterIndex > preflightIndex);
+            Assert.Contains("private static BimApiResponse? PreflightFilterParameterAmbiguity(", service);
+            Assert.Contains("ICollection<Element> candidates", service);
+            Assert.Contains("foreach (var element in candidates)", service);
+            Assert.Contains("GetElementAndTypeParameters(document, element)", service);
+            Assert.Contains("parameter.Definition as InternalDefinition", service);
+            Assert.Contains("BimErrorCode.AmbiguousParameter", service);
+            Assert.Contains("error = \"ambiguous_parameter\"", service);
+            Assert.Contains("candidates = identities.Values.ToList()", service);
+        }
+
+        [Fact]
+        public void RevitTask8_QueryServiceCapsUnfilteredCollectionBeforeFullMaterialization()
+        {
+            var service = Read("src/RookBim/Revit/RevitQueryService.cs");
+            var query = ExtractMethod(service, "public BimApiResponse Query(");
+
+            Assert.Contains("if (filters.Count == 0)", query);
+            Assert.Contains("CollectUnfilteredResults(collector, request.EffectiveLimit)", query);
+            Assert.Contains("return BimApiResponse.Ok(BuildResult(", query);
+            Assert.Contains("limit + 1", service);
+            Assert.Contains("break;", ExtractMethod(service, "private static CappedElementCollection CollectUnfilteredResults("));
+        }
+
+        [Fact]
+        public void RevitTask8_QueryServiceReturnsApprovedSummaryShape()
+        {
+            var service = Read("src/RookBim/Revit/RevitQueryService.cs");
+
+            Assert.Contains("new BimQueryElementsResult", service);
+            Assert.Contains("Document = RevitIdentitySerializer.DocumentIdentity(document)", service);
+            Assert.Contains("Scope = request.EffectiveScope", service);
+            Assert.Contains("View = request.EffectiveScope == BimQueryScope.ActiveView", service);
+            Assert.Contains("Query = new BimQuerySummary", service);
+            Assert.Contains("MissingParameterCounts = missingCounts", service);
+            Assert.Contains("new BimElementSummary", service);
+            Assert.Contains("Identity = RevitIdentitySerializer.ElementIdentity(element)", service);
+            Assert.Contains("new BimCategorySummary", service);
+            Assert.Contains("new BimElementTypeSummary", service);
+        }
+
+        [Fact]
+        public void RevitTask8_DoesNotStartTask9SelectionParametersOrWrites()
         {
             var revitDirectory = Path.Combine(RepoRoot, "src", "RookBim", "Revit");
             var revitFiles = Directory.GetFiles(revitDirectory, "*.cs");
-            var fileNames = revitFiles.Select(Path.GetFileName).ToArray();
             var combined = string.Join(Environment.NewLine, revitFiles.Select(File.ReadAllText));
 
-            Assert.DoesNotContain(fileNames, name => name.IndexOf("Query", StringComparison.OrdinalIgnoreCase) >= 0);
-            Assert.DoesNotContain("FilteredElementCollector", combined);
             Assert.DoesNotContain("ParameterFilterElement", combined);
             Assert.DoesNotContain("Selection.SetElementIds", combined);
+            Assert.DoesNotContain("OverrideGraphicSettings", combined);
+            Assert.DoesNotContain("TemporaryView", combined);
+            Assert.DoesNotContain("Transaction", combined);
         }
 
         [Fact]
