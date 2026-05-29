@@ -1625,36 +1625,61 @@ def _summarize_gh_update_script_errors(errors_response: Any, guid: str) -> dict[
         data = {}
 
     guid_lower = str(guid).lower()
+    component_errors: list[Any] = []
+    component_warnings: list[Any] = []
+    canvas_error_count = 0
+    canvas_warning_count = 0
+    unrelated_error_count = 0
+    unrelated_warning_count = 0
+    seen: set[tuple[str, str, str]] = set()
 
-    def _summarize(kind: str) -> tuple[list[Any], int, int]:
-        entries = _dict_get_ci(data, kind, [])
+    def _add_messages(entry_guid: Any, kind: str, messages: Any) -> None:
+        nonlocal canvas_error_count, canvas_warning_count
+        nonlocal unrelated_error_count, unrelated_warning_count
+        for message in _gh_update_script_messages(messages):
+            dedupe_key = (str(entry_guid or ""), kind, repr(message))
+            if dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
+            is_component = isinstance(entry_guid, str) and entry_guid.lower() == guid_lower
+            if kind == "errors":
+                canvas_error_count += 1
+                if is_component:
+                    component_errors.append(message)
+                else:
+                    unrelated_error_count += 1
+            else:
+                canvas_warning_count += 1
+                if is_component:
+                    component_warnings.append(message)
+                else:
+                    unrelated_warning_count += 1
+
+    def _entry_messages(entry: Any, primary_kind: str) -> tuple[Any, Any, Any]:
+        if not isinstance(entry, dict):
+            return None, entry if primary_kind == "errors" else None, entry if primary_kind == "warnings" else None
+        entry_guid = _dict_get_ci(entry, "guid")
+        error_messages = _dict_get_ci(entry, "errors")
+        warning_messages = _dict_get_ci(entry, "warnings")
+        if error_messages is None and warning_messages is None:
+            fallback = _dict_get_ci(entry, "messages")
+            if fallback is None:
+                fallback = _dict_get_ci(entry, "message")
+            if primary_kind == "errors":
+                error_messages = fallback
+            else:
+                warning_messages = fallback
+        return entry_guid, error_messages, warning_messages
+
+    for primary_kind in ("errors", "warnings"):
+        entries = _dict_get_ci(data, primary_kind, [])
         if not isinstance(entries, list):
             entries = []
-        component_messages: list[Any] = []
-        canvas_count = 0
-        unrelated_count = 0
         for entry in entries:
-            messages = None
-            entry_guid = None
-            if isinstance(entry, dict):
-                entry_guid = _dict_get_ci(entry, "guid")
-                messages = _dict_get_ci(entry, kind)
-                if messages is None:
-                    messages = _dict_get_ci(entry, "messages")
-                if messages is None:
-                    messages = _dict_get_ci(entry, "message")
-            else:
-                messages = entry
-            count = _gh_update_script_message_count(messages)
-            canvas_count += count
-            if isinstance(entry_guid, str) and entry_guid.lower() == guid_lower:
-                component_messages.extend(_gh_update_script_messages(messages))
-            else:
-                unrelated_count += count
-        return component_messages, canvas_count, unrelated_count
+            entry_guid, error_messages, warning_messages = _entry_messages(entry, primary_kind)
+            _add_messages(entry_guid, "errors", error_messages)
+            _add_messages(entry_guid, "warnings", warning_messages)
 
-    component_errors, canvas_error_count, unrelated_error_count = _summarize("errors")
-    component_warnings, canvas_warning_count, unrelated_warning_count = _summarize("warnings")
     summary = _empty_gh_update_script_error_summary()
     summary.update({
         "component_errors": component_errors,

@@ -1701,6 +1701,30 @@ def test_gh_update_script_error_summary_accepts_live_capitalized_shape():
     }
 
 
+def test_gh_update_script_error_summary_counts_warnings_on_error_entries():
+    summary = server._summarize_gh_update_script_errors(
+        {
+            "success": True,
+            "Data": {
+                "Errors": [
+                    {"Guid": "target", "Errors": ["E"], "Warnings": ["W"]},
+                ],
+                "Warnings": [],
+            },
+        },
+        "target",
+    )
+
+    assert summary == {
+        "component_errors": ["E"],
+        "component_warnings": ["W"],
+        "canvas_error_count": 1,
+        "canvas_warning_count": 1,
+        "unrelated_error_count": 0,
+        "unrelated_warning_count": 0,
+    }
+
+
 @pytest.mark.asyncio
 async def test_gh_update_script_mocked_call_tool_orchestrates_csharp_body_route_flow(
     monkeypatch, patched_server
