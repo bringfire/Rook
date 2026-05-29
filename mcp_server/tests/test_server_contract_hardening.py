@@ -1781,6 +1781,34 @@ def test_gh_update_script_error_summary_uses_route_level_counts():
     }
 
 
+def test_gh_update_script_error_summary_route_counts_track_top_level_buckets():
+    summary = server._summarize_gh_update_script_errors(
+        {
+            "success": True,
+            "Data": {
+                "ErrorCount": 1,
+                "WarningCount": 1,
+                "Errors": [
+                    {"Guid": "target", "Errors": ["E"], "Warnings": ["W"]},
+                ],
+                "Warnings": [
+                    {"Guid": "other-warning", "Warnings": ["other W"]},
+                ],
+            },
+        },
+        "target",
+    )
+
+    assert summary == {
+        "component_errors": ["E"],
+        "component_warnings": ["W"],
+        "canvas_error_count": 1,
+        "canvas_warning_count": 1,
+        "unrelated_error_count": 0,
+        "unrelated_warning_count": 1,
+    }
+
+
 @pytest.mark.asyncio
 async def test_gh_update_script_mocked_call_tool_orchestrates_csharp_body_route_flow(
     monkeypatch, patched_server

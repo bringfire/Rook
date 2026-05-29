@@ -1639,6 +1639,8 @@ def _summarize_gh_update_script_errors(errors_response: Any, guid: str) -> dict[
     canvas_warning_count = 0
     unrelated_error_count = 0
     unrelated_warning_count = 0
+    target_in_error_bucket = False
+    target_in_warning_bucket = False
     seen: set[tuple[str, str, str]] = set()
 
     def _add_messages(entry_guid: Any, kind: str, messages: Any) -> None:
@@ -1685,6 +1687,11 @@ def _summarize_gh_update_script_errors(errors_response: Any, guid: str) -> dict[
             entries = []
         for entry in entries:
             entry_guid, error_messages, warning_messages = _entry_messages(entry, primary_kind)
+            is_target_entry = isinstance(entry_guid, str) and entry_guid.lower() == guid_lower
+            if is_target_entry and primary_kind == "errors":
+                target_in_error_bucket = True
+            elif is_target_entry and primary_kind == "warnings":
+                target_in_warning_bucket = True
             _add_messages(entry_guid, "errors", error_messages)
             _add_messages(entry_guid, "warnings", warning_messages)
 
@@ -1694,13 +1701,13 @@ def _summarize_gh_update_script_errors(errors_response: Any, guid: str) -> dict[
         canvas_error_count = route_error_count
         unrelated_error_count = max(
             0,
-            route_error_count - (1 if component_errors else 0),
+            route_error_count - (1 if target_in_error_bucket else 0),
         )
     if route_warning_count is not None:
         canvas_warning_count = route_warning_count
         unrelated_warning_count = max(
             0,
-            route_warning_count - (1 if component_warnings else 0),
+            route_warning_count - (1 if target_in_warning_bucket else 0),
         )
 
     summary = _empty_gh_update_script_error_summary()
