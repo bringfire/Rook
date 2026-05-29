@@ -43,6 +43,15 @@ def _get_data(result: Any) -> dict[str, Any]:
     return data
 
 
+def _assert_live_success(result: Any, tool_name: str) -> None:
+    if not _is_error(result):
+        return
+    data = result.get("data") if isinstance(result, dict) else None
+    if isinstance(data, dict) and data.get("error") == "no_rhino_instance":
+        pytest.skip(f"{tool_name} requires a running Rhino/Rook instance")
+    pytest.fail(f"{tool_name} failed: {result!r}")
+
+
 def _get_script_source(result: Any) -> str:
     data = _get_data(result)
     for key in ("script", "Script", "source", "Source"):
@@ -67,7 +76,7 @@ async def _create_csharp_script(name: str, x: int, y: int) -> str:
             "y": y,
         },
     )
-    assert not _is_error(result), f"gh_create_script failed: {result!r}"
+    _assert_live_success(result, "gh_create_script")
 
     guid = _get_guid(result)
     assert isinstance(guid, str) and guid, f"no component guid in response: {result!r}"
@@ -89,7 +98,7 @@ async def test_gh_update_script_csharp_body_end_to_end():
         },
     )
 
-    assert not _is_error(result), f"gh_update_script body update failed: {result!r}"
+    _assert_live_success(result, "gh_update_script body update")
     data = _get_data(result)
     assert data["mode_used"] == "body"
     assert data["wrapped"] is True
@@ -103,7 +112,7 @@ async def test_gh_update_script_csharp_full_source_round_trip():
 
     guid = await _create_csharp_script("UpdateFullSourceCSLive", 720, 300)
     read_result = await _mcp_tool_executor("gh_set_script", {"guid": guid})
-    assert not _is_error(read_result), f"gh_set_script raw read failed: {read_result!r}"
+    _assert_live_success(read_result, "gh_set_script raw read")
     source = _get_script_source(read_result)
     changed_source = source.replace(
         "A = Convert.ToDouble(R);",
@@ -122,16 +131,14 @@ async def test_gh_update_script_csharp_full_source_round_trip():
         },
     )
 
-    assert not _is_error(result), f"gh_update_script full_source failed: {result!r}"
+    _assert_live_success(result, "gh_update_script full_source")
     data = _get_data(result)
     assert data["mode_used"] == "full_source"
     assert data["wrapped"] is False
     assert data["component_errors"] == []
 
     verify_result = await _mcp_tool_executor("gh_set_script", {"guid": guid})
-    assert not _is_error(verify_result), (
-        f"gh_set_script raw read after full_source update failed: {verify_result!r}"
-    )
+    _assert_live_success(verify_result, "gh_set_script raw read after full_source update")
     assert "A = Convert.ToDouble(R) * 4.0;" in _get_script_source(verify_result)
 
 
@@ -152,10 +159,7 @@ async def test_gh_update_script_csharp_compile_error_reports_hint():
             },
         )
 
-        assert not _is_error(result), (
-            "compile errors should be returned in success data, "
-            f"not as MCP errors: {result!r}"
-        )
+        _assert_live_success(result, "gh_update_script compile-error update")
         data = _get_data(result)
         assert data["component_errors"]
         hint = data.get("recovery_hint")

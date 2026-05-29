@@ -1535,6 +1535,7 @@ async def test_gh_update_script_input_schema_and_description():
     [
         ("Python3Component", "RhinoCode Python 3", "python", True, False),
         ("GhPythonComponent", "GH1 legacy Python", "python", True, True),
+        ("CSharpComponent", "RhinoCode C#", "csharp", True, False),
         ("CSharpScriptComponent", "RhinoCode C#", "csharp", True, False),
         ("Component_CSNET_Script", "GH1 legacy C#/.NET Script", "csharp", False, True),
     ],
@@ -1567,6 +1568,21 @@ def test_gh_update_script_snapshot_label_does_not_override_unknown_type():
             {"Type": "UnknownScript"},
             {"DisplayName": "CSharpComponent", "Name": "C# Script"},
         )
+
+
+def test_gh_update_script_csharpcomponent_live_type_wraps_body():
+    prepared = server._prepare_gh_update_script_source(
+        code="A = Convert.ToDouble(R);",
+        mode="body",
+        runtime={"component_type": "CSharpComponent"},
+        inputs=[{"name": "R", "type": "double"}],
+        outputs=[{"name": "A", "type": "double"}],
+        python_preamble=True,
+    )
+
+    assert prepared["mode_used"] == "body"
+    assert prepared["wrapped"] is True
+    assert "private void RunScript(object R, ref object A)" in prepared["source"]
 
 
 def test_gh_update_script_csharp_body_wraps_with_current_pins_and_skips_ref_object_out():
@@ -1821,7 +1837,7 @@ async def test_gh_update_script_mocked_call_tool_orchestrates_csharp_body_route_
             if payload and "script" in payload:
                 assert "private void RunScript(object R, ref object A)" in payload["script"]
                 return {"success": True, "data": {"guid": "cs-guid"}}
-            return {"success": True, "data": {"Type": "CSharpScriptComponent", "script": "old"}}
+            return {"success": True, "data": {"Type": "CSharpComponent", "script": "old"}}
         if route == "/gh/component":
             return {
                 "success": True,

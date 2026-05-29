@@ -119,17 +119,20 @@ documented by `GrasshopperHandler.SetScript` as the canonical mapping:
 | --- | --- | --- | --- |
 | `Python3Component` | RhinoCode Python 3 | `python` | `full_source`, `body`, `auto` |
 | `GhPythonComponent` | GH1 legacy Python | `python` | raw/direct only; no generated preamble/postamble |
-| `CSharpScriptComponent` | RhinoCode C# | `csharp` | `full_source`, `body`, `auto` |
+| `CSharpComponent` | RhinoCode C# | `csharp` | `full_source`, `body`, `auto` |
+| `CSharpScriptComponent` | RhinoCode C# | `csharp` | `full_source`, `body`, `auto`; accepted as a compatibility alias |
 | `Component_CSNET_Script` | GH1 legacy C#/.NET Script | `csharp` | unsupported by `gh_update_script` v1; use raw `gh_set_script` |
 
-If component metadata uses a shorter display/type label, such as the
-`CSharpComponent` identity seen in snapshots, the classifier may use it only as
-supporting evidence. It must still resolve to one of the canonical runtime rows
-above or fail closed.
+`CSharpComponent` is the live RhinoCode C# type string observed from both
+`/gh/script` readback and `gh_snapshot` after creating a modern C# component
+through `gh_create_csharp_script`. `CSharpScriptComponent` remains accepted as a
+compatibility alias because existing route comments and tests historically named
+that type.
 
 ### RhinoCode C#
 
-For detected RhinoCode `CSharpScriptComponent`:
+For detected RhinoCode `CSharpComponent` or compatibility-alias
+`CSharpScriptComponent`:
 
 - `mode: "full_source"` passes source through after validating that it appears
   to contain a full `Script_Instance` or `RunScript` source.
@@ -299,8 +302,8 @@ Add Python MCP tests for:
 - `check_errors: false` skips `/gh/errors`.
 - Result shape is `{ success, data }`.
 - Runtime classifier maps exact `/gh/script` types:
-  `Python3Component`, `GhPythonComponent`, `CSharpScriptComponent`, and
-  `Component_CSNET_Script`.
+  `Python3Component`, `GhPythonComponent`, `CSharpComponent`,
+  `CSharpScriptComponent`, and `Component_CSNET_Script`.
 - `Component_CSNET_Script` fails closed for all `gh_update_script` modes and
   directs callers to raw `gh_set_script`.
 - Prompt/persona/tool guidance no longer presents `gh_set_script` as the

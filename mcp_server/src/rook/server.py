@@ -1419,6 +1419,12 @@ _GH_UPDATE_SCRIPT_RUNTIMES: dict[str, dict[str, Any]] = {
         "supports_update": True,
         "legacy": True,
     },
+    "CSharpComponent": {
+        "detected_runtime": "RhinoCode C#",
+        "detected_language": "csharp",
+        "supports_update": True,
+        "legacy": False,
+    },
     "CSharpScriptComponent": {
         "detected_runtime": "RhinoCode C#",
         "detected_language": "csharp",
@@ -1487,7 +1493,7 @@ def _prepare_gh_update_script_source(
     if component_type == "GhPythonComponent":
         return {"source": code, "mode_used": "full_source", "wrapped": False}
 
-    if component_type == "CSharpScriptComponent":
+    if component_type in ("CSharpComponent", "CSharpScriptComponent"):
         is_full_source = "class Script_Instance" in code or "void RunScript" in code
         if selected_mode == "full_source":
             if not is_full_source:
@@ -1831,7 +1837,7 @@ async def _execute_gh_update_script(arguments: dict[str, Any], port: int) -> dic
             python_preamble=bool(arguments.get("python_preamble", True)),
         )
         if (
-            runtime["component_type"] == "CSharpScriptComponent"
+            runtime["component_type"] in ("CSharpComponent", "CSharpScriptComponent")
             and prepared["mode_used"] == "body"
             and prepared["wrapped"]
             and not params_readable
