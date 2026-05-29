@@ -292,7 +292,6 @@ Add Python MCP tests for:
 - RhinoCode C# auto mode passes through full source.
 - RhinoCode C# wrapper skips the built-in `out` output.
 - Caller `language` mismatch fails.
-- GH1 C# body mode fails closed.
 - Python full source does not add preamble/postamble.
 - Python body mode adds preamble/postamble once.
 - Existing Rook generated Python sentinels prevent duplicate insertion.
