@@ -1,7 +1,10 @@
 """Tests for PromptBuilder — system prompt assembly from personas."""
+from pathlib import Path
+
 import pytest
 
 from rook.agent.chat.prompt_builder import PromptBuilder
+from rook.agent.chat.chat_runner import _build_local_tool_catalog
 from rook.agent.tool_groups import TOOL_GROUPS
 
 
@@ -100,6 +103,57 @@ def test_persona_prompt_script_tool_language_is_capability_accurate(persona):
         f"{persona}: missing gh_create_script (unified tool, PR-2) — "
         "see rook_docs/2026-04-21-gh-script-component-routing-design-pass.md §PR-2"
     )
+
+
+@pytest.mark.parametrize("persona", ["worker", "architect", "scripter"])
+def test_persona_prompt_prefers_gh_update_script_for_normal_edits(persona):
+    prompt = PromptBuilder().build_system(persona)
+
+    assert "gh_update_script" in prompt
+    assert "Use `gh_update_script` for normal source edits" in prompt
+    assert "gh_set_script_pins" in prompt
+    assert "then retry `gh_update_script`" in prompt
+    assert "Use `gh_set_script` only for raw source" in prompt
+
+    assert "Use `gh_set_script` to set/get source" not in prompt
+    assert "Set new source: `gh_set_script" not in prompt
+
+
+def test_worker_display_snapshot_prefers_gh_update_script_for_normal_edits():
+    worker_snapshot = (
+        Path(__file__).resolve().parents[1]
+        / "src"
+        / "rook"
+        / "agent"
+        / "prompts"
+        / "WORKER.md"
+    ).read_text(encoding="utf-8")
+
+    assert "gh_update_script" in worker_snapshot
+    assert "Use `gh_update_script` for normal source edits" in worker_snapshot
+    assert "Use `gh_set_script` only for raw source" in worker_snapshot
+
+    assert "Use `gh_set_script` to set/get source" not in worker_snapshot
+    assert "Set new source: `gh_set_script" not in worker_snapshot
+
+
+def test_local_tool_catalog_keeps_gh_update_script_schema():
+    catalog = _build_local_tool_catalog({"gh_update_script": object()})
+
+    tool = catalog["gh_update_script"]
+    params = tool["function"]["parameters"]
+    props = params["properties"]
+
+    assert params["required"] == ["guid", "code"]
+    assert props["guid"]["type"] == "string"
+    assert props["code"]["type"] == "string"
+    assert props["mode"]["enum"] == ["auto", "body", "full_source"]
+    assert props["mode"]["default"] == "auto"
+    assert props["language"]["enum"] == ["auto", "python", "csharp"]
+    assert props["language"]["default"] == "auto"
+    assert props["python_preamble"]["default"] is True
+    assert props["check_errors"]["default"] is True
+    assert params.get("additionalProperties") is not True
 
 
 @pytest.mark.parametrize("persona", ["worker", "architect", "scripter"])

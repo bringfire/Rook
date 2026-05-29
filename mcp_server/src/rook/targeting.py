@@ -206,6 +206,7 @@ _ALL_KNOWN_TOOLS = {
     "gh_straighten_wires",
     "gh_structure_query",
     "gh_undo",
+    "gh_update_script",
     "gh_upgrade_recipe",
     "gh_validate_latency",
     "gh_validate_regression",

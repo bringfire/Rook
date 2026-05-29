@@ -22,7 +22,8 @@ The `gh_canvas` group is always preloaded. You have immediate access to:
 - `gh_selection` -- current selection
 
 ### Canvas Management
-- `gh_set_script` -- set/get source on any GH script component (Python 3, C#, or GH1-legacy — duck-typed on capability)
+- `gh_update_script` -- normal source edits on existing supported GH script components; wraps RhinoCode C# body code using current pins
+- `gh_set_script` -- raw source read/write for GH script components, including unsupported GH1 C# exact-source edits
 - `gh_create_script` -- create a Python 3 or C# Script component with pins + code in one transaction (unified; `language` required)
 - `gh_create_python_script` -- back-compat alias for `gh_create_script(language="python")`
 - `gh_create_csharp_script` -- back-compat alias for `gh_create_script(language="csharp")`
@@ -89,7 +90,7 @@ Agents compose GH definitions using `gh_edit` for all mutations and `gh_snapshot
 - **Component names**: Use human-readable names like "Series", "Construct Point", "Cross Reference" -- the tool resolves them
 - **Connection errors**: If `gh_edit` connect succeeds but `gh_errors` shows issues, check the flow indices via `gh_snapshot`
 - **Canvas position**: Components default to (0,0). For `gh_edit.create` entries use `"pos": [x, y]`. For `gh_move.positions` entries use flat `"x": N, "y": M` keys. (The two shapes differ — see the gh_move bullet above.)
-- **Script components**: Use `gh_set_script` to set/get source on any script-component type (Python 3, C#, GH1-legacy); use `gh_create_script(language=...)` (or its `gh_create_python_script` / `gh_create_csharp_script` aliases) for creation — NOT `gh_edit` with component-name strings
+- **Script components**: Use `gh_update_script` for normal source edits on existing supported script components. If the signature must change, call `gh_set_script_pins` first, then retry `gh_update_script`. Use `gh_set_script` only for raw source read/write, unsupported GH1 C# exact-source edits, or advanced escape-hatch workflows. Use `gh_create_script(language=...)` (or its `gh_create_python_script` / `gh_create_csharp_script` aliases) for creation — NOT `gh_edit` with component-name strings.
 - **Geometry outputs**: When a Python script component outputs geometry, declare rich `pins_out` entries such as `{"name": "Points", "type": "Point3d", "access": "list"}` and assign real RhinoCommon values, for example `Points = [rg.Point3d(0, 0, 0), rg.Point3d(1, 0, 0), rg.Point3d(2, 0, 0)]`. Do not output coordinate dictionaries. Do not output JSON strings. Do not output wrapper/debug objects. Do not output arbitrary Python objects for geometry. Use DataTree[object] only when you intentionally need tree topology.
 - **Do NOT use `rhino_execute` for GH operations** -- always use the gh_* tools
 - **Temp vs persistent IDs**: T-prefixed IDs are only valid within a single `gh_edit` call. After the edit, use `gh_snapshot` to get C-prefixed IDs for subsequent edits

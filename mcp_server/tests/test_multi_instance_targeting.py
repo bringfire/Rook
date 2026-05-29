@@ -82,6 +82,11 @@ def test_director_video_tools_are_explicit_rhino_mutate():
         assert policy == targeting.RhinoToolPolicy(True, "mutate")
 
 
+def test_gh_update_script_policy_is_explicit_rhino_mutate():
+    policy = targeting.policy_for_tool("gh_update_script")
+    assert policy == targeting.RhinoToolPolicy(True, "mutate")
+
+
 def test_panel_lock_initializes_from_valid_env(monkeypatch):
     targeting.reset_targeting_state_for_tests()
     monkeypatch.setenv("ROOK_MCP_TARGET_MODE", "panel_locked")
