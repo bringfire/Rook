@@ -1,4 +1,6 @@
 """Tests for PromptBuilder — system prompt assembly from personas."""
+from pathlib import Path
+
 import pytest
 
 from rook.agent.chat.prompt_builder import PromptBuilder
@@ -114,6 +116,24 @@ def test_persona_prompt_prefers_gh_update_script_for_normal_edits(persona):
 
     assert "Use `gh_set_script` to set/get source" not in prompt
     assert "Set new source: `gh_set_script" not in prompt
+
+
+def test_worker_display_snapshot_prefers_gh_update_script_for_normal_edits():
+    worker_snapshot = (
+        Path(__file__).resolve().parents[1]
+        / "src"
+        / "rook"
+        / "agent"
+        / "prompts"
+        / "WORKER.md"
+    ).read_text(encoding="utf-8")
+
+    assert "gh_update_script" in worker_snapshot
+    assert "Use `gh_update_script` for normal source edits" in worker_snapshot
+    assert "Use `gh_set_script` only for raw source" in worker_snapshot
+
+    assert "Use `gh_set_script` to set/get source" not in worker_snapshot
+    assert "Set new source: `gh_set_script" not in worker_snapshot
 
 
 @pytest.mark.parametrize("persona", ["worker", "architect", "scripter"])
