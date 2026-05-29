@@ -278,6 +278,53 @@ _UI_BLOCK_SCHEMA: dict = {
     },
 }
 
+_GH_UPDATE_SCRIPT_SCHEMA: dict = {
+    "type": "function",
+    "function": {
+        "name": "gh_update_script",
+        "description": _TOOL_DESCRIPTIONS.get(
+            "gh_update_script",
+            "Update source on an existing supported C#/Python script component",
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "guid": {
+                    "type": "string",
+                    "description": "Component instance GUID or short ID (C1, C2...) from gh_snapshot",
+                },
+                "code": {
+                    "type": "string",
+                    "description": "New source code or body code, depending on mode and detected runtime",
+                },
+                "mode": {
+                    "type": "string",
+                    "enum": ["auto", "body", "full_source"],
+                    "default": "auto",
+                    "description": "auto detects full source where possible; body wraps for supported runtimes; full_source writes complete source",
+                },
+                "language": {
+                    "type": "string",
+                    "enum": ["auto", "python", "csharp"],
+                    "default": "auto",
+                    "description": "Optional runtime language assertion; auto accepts the detected component language",
+                },
+                "python_preamble": {
+                    "type": "boolean",
+                    "default": True,
+                    "description": "For RhinoCode Python 3 body edits, add generated input/output coercion helpers when needed",
+                },
+                "check_errors": {
+                    "type": "boolean",
+                    "default": True,
+                    "description": "After writing, wait briefly and summarize /gh/errors for this component and the canvas",
+                },
+            },
+            "required": ["guid", "code"],
+        },
+    },
+}
+
 
 def _build_local_tool_catalog(local_tools: dict) -> Dict[str, dict]:
     """Build LiteLLM catalog entries for local Python tools."""
@@ -286,6 +333,9 @@ def _build_local_tool_catalog(local_tools: dict) -> Dict[str, dict]:
         # Use the typed schema for ui_block instead of the generic fallback
         if name == "ui_block":
             catalog[name] = _UI_BLOCK_SCHEMA
+            continue
+        if name == "gh_update_script":
+            catalog[name] = _GH_UPDATE_SCRIPT_SCHEMA
             continue
         desc = _TOOL_DESCRIPTIONS.get(name, f"Local tool: {name.replace('_', ' ')}")
         catalog[name] = {

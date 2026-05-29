@@ -1477,6 +1477,15 @@ async def test_gh_set_script_description_does_not_claim_py3_only():
         "gh_set_script description reintroduces Python-only source framing — "
         "handler accepts C# source on RhinoCode/GH1 C# components too"
     )
+    assert "raw" in desc.lower()
+    assert "no wrapping" in desc.lower()
+    assert "gh_update_script" in desc
+    assert "Prefer this over `rhino_execute` for ALL GH script source/pin work" not in desc
+
+    script_prop = gh_set_script.inputSchema["properties"]["script"]["description"]
+    assert "exact raw source" in script_prop
+    assert "target runtime" in script_prop
+    assert "Python source code to set" not in script_prop
 
 
 def test_gh_canvas_tool_group_includes_update_script():
@@ -1738,6 +1747,37 @@ def test_gh_update_script_error_summary_counts_warnings_on_error_entries():
         "canvas_warning_count": 1,
         "unrelated_error_count": 0,
         "unrelated_warning_count": 0,
+    }
+
+
+def test_gh_update_script_error_summary_uses_route_level_counts():
+    summary = server._summarize_gh_update_script_errors(
+        {
+            "success": True,
+            "Data": {
+                "ErrorCount": 2,
+                "WarningCount": 3,
+                "Errors": [
+                    {"Guid": "target", "Errors": ["E1", "E2"], "Warnings": ["W1"]},
+                    {"Guid": "other-error", "Errors": ["E3"]},
+                ],
+                "Warnings": [
+                    {"Guid": "target", "Warnings": ["W2", "W3"]},
+                    {"Guid": "other-warning", "Warnings": ["W4"]},
+                    {"Guid": "other-warning-2", "Warnings": ["W5"]},
+                ],
+            },
+        },
+        "target",
+    )
+
+    assert summary == {
+        "component_errors": ["E1", "E2"],
+        "component_warnings": ["W1", "W2", "W3"],
+        "canvas_error_count": 2,
+        "canvas_warning_count": 3,
+        "unrelated_error_count": 1,
+        "unrelated_warning_count": 2,
     }
 
 

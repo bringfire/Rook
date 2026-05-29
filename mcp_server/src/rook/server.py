@@ -1543,6 +1543,14 @@ def _gh_update_script_messages(value: Any) -> list[Any]:
     return [value]
 
 
+def _gh_update_script_route_count(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    return None
+
+
 def _empty_gh_update_script_error_summary() -> dict[str, Any]:
     return {
         "component_errors": [],
@@ -1679,6 +1687,21 @@ def _summarize_gh_update_script_errors(errors_response: Any, guid: str) -> dict[
             entry_guid, error_messages, warning_messages = _entry_messages(entry, primary_kind)
             _add_messages(entry_guid, "errors", error_messages)
             _add_messages(entry_guid, "warnings", warning_messages)
+
+    route_error_count = _gh_update_script_route_count(_dict_get_ci(data, "ErrorCount"))
+    route_warning_count = _gh_update_script_route_count(_dict_get_ci(data, "WarningCount"))
+    if route_error_count is not None:
+        canvas_error_count = route_error_count
+        unrelated_error_count = max(
+            0,
+            route_error_count - (1 if component_errors else 0),
+        )
+    if route_warning_count is not None:
+        canvas_warning_count = route_warning_count
+        unrelated_warning_count = max(
+            0,
+            route_warning_count - (1 if component_warnings else 0),
+        )
 
     summary = _empty_gh_update_script_error_summary()
     summary.update({
@@ -7964,30 +7987,27 @@ Use this to discover installed plugins and available component types.""",
         ),
         Tool(
             name="gh_set_script",
-            description="""Set or read the source code on a Grasshopper script component.
+            description="""Advanced/raw exact source read/write for a Grasshopper script component.
 
-To SET: pass guid + script (the source code — Python, C#, or GH1-legacy syntax
-depending on the target component's runtime).
+`gh_update_script` is preferred for normal source edits on supported existing
+script components. Use this tool when you need the raw source escape hatch:
+it writes exactly the supplied source and does no wrapping.
+
+To SET: pass guid + script (exact raw source for the target runtime).
 To GET: pass only guid (omit script).
 
 Accepts any script component: RhinoCode Python 3 Script, RhinoCode C# Script,
 GH1-legacy GhPython, GH1-legacy C#/.NET Script. The handler duck-types on
 capability (SetSource/TryGetSource for RhinoCode, ScriptSource property for
-GH1-legacy) — language is inferred from the component's type, not claimed
-by the caller.
+GH1-legacy) and infers language from the component's type.
 
-After setting, automatically triggers ExpireSolution so outputs recompute.
-
-Prefer this over `rhino_execute` for ALL GH script source/pin work.
-`rhino_execute` runs Python via RhinoCode's RunPythonScript in-process —
-it can technically reach GH via Grasshopper namespace imports, but the
-result is unstructured, unsupported, and bypasses the capability detection
-this tool provides. This tool is the correct substrate.""",
+RhinoCode C# raw writes require full Script_Instance/RunScript source.
+After setting, automatically triggers ExpireSolution so outputs recompute.""",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "guid": {"type": "string", "description": "Component instance GUID or short ID (C1, C2...) from gh_snapshot"},
-                    "script": {"type": "string", "description": "Python source code to set (omit to read current script)"}
+                    "script": {"type": "string", "description": "exact raw source for the target runtime (omit to read current script)"}
                 },
                 "required": ["guid"]
             }

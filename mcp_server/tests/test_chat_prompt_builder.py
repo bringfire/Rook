@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from rook.agent.chat.prompt_builder import PromptBuilder
+from rook.agent.chat.chat_runner import _build_local_tool_catalog
 from rook.agent.tool_groups import TOOL_GROUPS
 
 
@@ -134,6 +135,25 @@ def test_worker_display_snapshot_prefers_gh_update_script_for_normal_edits():
 
     assert "Use `gh_set_script` to set/get source" not in worker_snapshot
     assert "Set new source: `gh_set_script" not in worker_snapshot
+
+
+def test_local_tool_catalog_keeps_gh_update_script_schema():
+    catalog = _build_local_tool_catalog({"gh_update_script": object()})
+
+    tool = catalog["gh_update_script"]
+    params = tool["function"]["parameters"]
+    props = params["properties"]
+
+    assert params["required"] == ["guid", "code"]
+    assert props["guid"]["type"] == "string"
+    assert props["code"]["type"] == "string"
+    assert props["mode"]["enum"] == ["auto", "body", "full_source"]
+    assert props["mode"]["default"] == "auto"
+    assert props["language"]["enum"] == ["auto", "python", "csharp"]
+    assert props["language"]["default"] == "auto"
+    assert props["python_preamble"]["default"] is True
+    assert props["check_errors"]["default"] is True
+    assert params.get("additionalProperties") is not True
 
 
 @pytest.mark.parametrize("persona", ["worker", "architect", "scripter"])
