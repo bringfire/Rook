@@ -1603,6 +1603,13 @@ def _gh_update_script_resolved_guid(
     return caller
 
 
+def _is_gh_short_id(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    value = value.strip()
+    return len(value) > 1 and value[0].upper() == "C" and value[1:].isdigit()
+
+
 def _summarize_gh_update_script_errors(errors_response: Any, guid: str) -> dict[str, Any]:
     if isinstance(errors_response, dict) and errors_response.get("success") is False:
         summary = _empty_gh_update_script_error_summary()
@@ -1610,15 +1617,17 @@ def _summarize_gh_update_script_errors(errors_response: Any, guid: str) -> dict[
         return summary
 
     data = errors_response
-    if isinstance(errors_response, dict) and "data" in errors_response:
-        data = errors_response.get("data")
+    if isinstance(errors_response, dict):
+        wrapped_data = _dict_get_ci(errors_response, "data")
+        if wrapped_data is not None:
+            data = wrapped_data
     if not isinstance(data, dict):
         data = {}
 
     guid_lower = str(guid).lower()
 
     def _summarize(kind: str) -> tuple[list[Any], int, int]:
-        entries = data.get(kind, [])
+        entries = _dict_get_ci(data, kind, [])
         if not isinstance(entries, list):
             entries = []
         component_messages: list[Any] = []
@@ -1628,10 +1637,12 @@ def _summarize_gh_update_script_errors(errors_response: Any, guid: str) -> dict[
             messages = None
             entry_guid = None
             if isinstance(entry, dict):
-                entry_guid = entry.get("guid") or entry.get("Guid")
-                messages = entry.get(kind)
+                entry_guid = _dict_get_ci(entry, "guid")
+                messages = _dict_get_ci(entry, kind)
                 if messages is None:
-                    messages = entry.get("messages") or entry.get("Messages") or entry.get("message")
+                    messages = _dict_get_ci(entry, "messages")
+                if messages is None:
+                    messages = _dict_get_ci(entry, "message")
             else:
                 messages = entry
             count = _gh_update_script_message_count(messages)
@@ -1653,6 +1664,75 @@ def _summarize_gh_update_script_errors(errors_response: Any, guid: str) -> dict[
         "unrelated_error_count": unrelated_error_count,
         "unrelated_warning_count": unrelated_warning_count,
     })
+    return summary
+
+
+def _gh_update_script_count_from_snapshot(value: Any, fallback: int) -> int:
+    if isinstance(value, bool):
+        return fallback
+    if isinstance(value, int):
+        return value
+    if isinstance(value, list):
+        return len(value)
+    return fallback
+
+
+def _summarize_gh_update_script_snapshot(snapshot_response: Any, short_id: str) -> dict[str, Any]:
+    if isinstance(snapshot_response, dict) and snapshot_response.get("success") is False:
+        summary = _empty_gh_update_script_error_summary()
+        summary["snapshot_check_failed"] = snapshot_response.get("data", "Unknown /gh/snapshot failure")
+        return summary
+
+    data = snapshot_response
+    if isinstance(snapshot_response, dict):
+        wrapped_data = _dict_get_ci(snapshot_response, "data")
+        if wrapped_data is not None:
+            data = wrapped_data
+    if not isinstance(data, dict):
+        summary = _empty_gh_update_script_error_summary()
+        summary["snapshot_check_failed"] = "Invalid /gh/snapshot response"
+        return summary
+
+    components = _dict_get_ci(data, "components", [])
+    if not isinstance(components, list):
+        components = []
+
+    target = None
+    short_id_lower = short_id.lower()
+    for component in components:
+        if not isinstance(component, dict):
+            continue
+        component_id = _dict_get_ci(component, "id")
+        if isinstance(component_id, str) and component_id.lower() == short_id_lower:
+            target = component
+            break
+
+    component_errors = _gh_update_script_messages(_dict_get_ci(target, "errors")) if target else []
+    component_warnings = _gh_update_script_messages(_dict_get_ci(target, "warnings")) if target else []
+
+    diagnostics = _dict_get_ci(data, "diagnostics", {})
+    if not isinstance(diagnostics, dict):
+        diagnostics = {}
+    canvas_error_count = _gh_update_script_count_from_snapshot(
+        _dict_get_ci(diagnostics, "errors"),
+        len(component_errors),
+    )
+    canvas_warning_count = _gh_update_script_count_from_snapshot(
+        _dict_get_ci(diagnostics, "warnings"),
+        len(component_warnings),
+    )
+
+    summary = _empty_gh_update_script_error_summary()
+    summary.update({
+        "component_errors": component_errors,
+        "component_warnings": component_warnings,
+        "canvas_error_count": canvas_error_count,
+        "canvas_warning_count": canvas_warning_count,
+        "unrelated_error_count": max(0, canvas_error_count - len(component_errors)),
+        "unrelated_warning_count": max(0, canvas_warning_count - len(component_warnings)),
+    })
+    if target is None:
+        summary["snapshot_check_failed"] = f"Component {short_id} not found in /gh/snapshot"
     return summary
 
 
@@ -1729,6 +1809,26 @@ async def _execute_gh_update_script(arguments: dict[str, Any], port: int) -> dic
                 await call_rhino("/gh/errors", "GET", {}, port=port),
                 resolved_guid,
             )
+            if (
+                _is_gh_short_id(guid)
+                and not error_summary.get("component_errors")
+                and not error_summary.get("component_warnings")
+                and (
+                    error_summary.get("canvas_error_count", 0) > 0
+                    or error_summary.get("canvas_warning_count", 0) > 0
+                )
+            ):
+                snapshot_result = await call_rhino(
+                    "/gh/snapshot",
+                    "POST",
+                    {"include_data": False},
+                    port=port,
+                )
+                snapshot_summary = _summarize_gh_update_script_snapshot(snapshot_result, guid)
+                if snapshot_summary.get("component_errors") or snapshot_summary.get("component_warnings"):
+                    error_summary = snapshot_summary
+                elif snapshot_summary.get("snapshot_check_failed"):
+                    error_summary["snapshot_check_failed"] = snapshot_summary["snapshot_check_failed"]
         else:
             error_summary = _empty_gh_update_script_error_summary()
 
