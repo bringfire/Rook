@@ -1734,6 +1734,37 @@ async def test_gh_update_script_mocked_call_tool_orchestrates_csharp_body_route_
 
 
 @pytest.mark.asyncio
+async def test_gh_update_script_csharp_body_fails_closed_when_current_pins_unreadable(
+    monkeypatch, patched_server
+):
+    writes = []
+
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        if route == "/gh/script" and "script" not in (payload or {}):
+            return {"success": True, "data": {"Type": "CSharpScriptComponent", "Guid": "cs-guid"}}
+        if route == "/gh/script":
+            writes.append(payload)
+            return {"success": True, "data": {"guid": "cs-guid"}}
+        if route == "/gh/component":
+            return {"success": True, "data": {"Guid": "cs-guid"}}
+        if route == "/gh/document":
+            return {"success": True, "data": {"name": "contract.gh", "path": ""}}
+        raise AssertionError(f"Unexpected route: {route}")
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    payload = _decode_response(await server.call_tool(
+        "gh_update_script",
+        {"guid": "cs-guid", "code": "A = R;", "mode": "body"},
+    ))
+
+    assert payload["success"] is False
+    assert "current pins could not be read" in payload["data"]
+    assert "gh_set_script" in payload["data"]
+    assert writes == []
+
+
+@pytest.mark.asyncio
 async def test_gh_update_script_check_errors_false_skips_gh_errors(monkeypatch, patched_server):
     routes = []
 

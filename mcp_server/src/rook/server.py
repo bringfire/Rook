@@ -1684,6 +1684,7 @@ async def _execute_gh_update_script(arguments: dict[str, Any], port: int) -> dic
         params = None
         if isinstance(component_data, dict):
             params = component_data.get("Params") or component_data.get("params")
+        params_readable = isinstance(params, dict)
         inputs, outputs = _gh_component_params_to_script_pin_defs(params)
 
         prepared = _prepare_gh_update_script_source(
@@ -1694,6 +1695,17 @@ async def _execute_gh_update_script(arguments: dict[str, Any], port: int) -> dic
             outputs=outputs,
             python_preamble=bool(arguments.get("python_preamble", True)),
         )
+        if (
+            runtime["component_type"] == "CSharpScriptComponent"
+            and prepared["mode_used"] == "body"
+            and prepared["wrapped"]
+            and not params_readable
+        ):
+            raise ValueError(
+                "current pins could not be read for C# body wrapping. "
+                "Use raw gh_set_script with full source, or inspect/fix the component "
+                "so current pins are available."
+            )
 
         write_result = await call_rhino(
             "/gh/script",
