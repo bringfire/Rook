@@ -1479,6 +1479,339 @@ async def test_gh_set_script_description_does_not_claim_py3_only():
     )
 
 
+@pytest.mark.asyncio
+async def test_gh_update_script_input_schema_and_description():
+    tools = {tool.name: tool for tool in await server.list_tools()}
+    tool = tools.get("gh_update_script")
+    assert tool is not None
+
+    schema = tool.inputSchema
+    assert schema["required"] == ["guid", "code"]
+    props = schema["properties"]
+    assert props["guid"]["type"] == "string"
+    assert props["code"]["type"] == "string"
+    assert props["mode"]["enum"] == ["auto", "body", "full_source"]
+    assert props["mode"]["default"] == "auto"
+    assert props["language"]["enum"] == ["auto", "python", "csharp"]
+    assert props["language"]["default"] == "auto"
+    assert props["python_preamble"]["type"] == "boolean"
+    assert props["python_preamble"]["default"] is True
+    assert props["check_errors"]["type"] == "boolean"
+    assert props["check_errors"]["default"] is True
+
+    desc = tool.description
+    assert "normal source edits" in desc
+    assert "gh_set_script_pins first" in desc
+    assert "gh_set_script" in desc and "raw source escape hatch" in desc
+
+
+@pytest.mark.parametrize(
+    ("type_name", "runtime", "language", "supports_update", "legacy"),
+    [
+        ("Python3Component", "RhinoCode Python 3", "python", True, False),
+        ("GhPythonComponent", "GH1 legacy Python", "python", True, True),
+        ("CSharpScriptComponent", "RhinoCode C#", "csharp", True, False),
+        ("Component_CSNET_Script", "GH1 legacy C#/.NET Script", "csharp", False, True),
+    ],
+)
+def test_gh_update_script_runtime_classifier_exact_types(
+    type_name, runtime, language, supports_update, legacy
+):
+    result = server._classify_gh_update_script_runtime({"Type": type_name}, {})
+    assert result == {
+        "component_type": type_name,
+        "detected_runtime": runtime,
+        "detected_language": language,
+        "supports_update": supports_update,
+        "legacy": legacy,
+    }
+
+
+def test_gh_update_script_language_mismatch_fails():
+    with pytest.raises(ValueError, match="language"):
+        server._classify_gh_update_script_runtime(
+            {"Type": "Python3Component"},
+            {},
+            requested_language="csharp",
+        )
+
+
+def test_gh_update_script_snapshot_label_does_not_override_unknown_type():
+    with pytest.raises(ValueError, match="Unsupported"):
+        server._classify_gh_update_script_runtime(
+            {"Type": "UnknownScript"},
+            {"DisplayName": "CSharpComponent", "Name": "C# Script"},
+        )
+
+
+def test_gh_update_script_csharp_body_wraps_with_current_pins_and_skips_ref_object_out():
+    inputs = [{"name": "R", "type": "double"}]
+    outputs = [{"name": "A", "type": "Circle"}]
+
+    prepared = server._prepare_gh_update_script_source(
+        code="A = new Circle(Plane.WorldXY, Convert.ToDouble(R));",
+        mode="body",
+        runtime={"component_type": "CSharpScriptComponent"},
+        inputs=inputs,
+        outputs=outputs,
+        python_preamble=True,
+    )
+
+    assert prepared["mode_used"] == "body"
+    assert prepared["wrapped"] is True
+    assert "private void RunScript(object R, ref object A)" in prepared["source"]
+    assert "ref object out" not in prepared["source"]
+
+
+def test_gh_update_script_csharp_auto_full_source_passes_through():
+    code = "public class Script_Instance : GH_ScriptInstance { private void RunScript(object R, ref object A) { A = R; } }"
+    prepared = server._prepare_gh_update_script_source(
+        code=code,
+        mode="auto",
+        runtime={"component_type": "CSharpScriptComponent"},
+        inputs=[{"name": "R"}],
+        outputs=[{"name": "A"}],
+        python_preamble=True,
+    )
+    assert prepared == {"source": code, "mode_used": "full_source", "wrapped": False}
+
+
+def test_gh_update_script_python_full_source_never_adds_generated_blocks():
+    code = "A = X"
+    prepared = server._prepare_gh_update_script_source(
+        code=code,
+        mode="full_source",
+        runtime={"component_type": "Python3Component"},
+        inputs=[{"name": "X", "type": "Point3d"}],
+        outputs=[{"name": "A", "type": "Point3d", "access": "list"}],
+        python_preamble=True,
+    )
+    assert prepared == {"source": code, "mode_used": "full_source", "wrapped": False}
+
+
+def test_gh_update_script_python_body_adds_generated_blocks_once():
+    prepared = server._prepare_gh_update_script_source(
+        code="A = Pts",
+        mode="body",
+        runtime={"component_type": "Python3Component"},
+        inputs=[{"name": "Pts", "type": "Point3d", "access": "list"}],
+        outputs=[{"name": "A", "type": "Point3d", "access": "list"}],
+        python_preamble=True,
+    )
+    assert prepared["mode_used"] == "body"
+    assert prepared["wrapped"] is True
+    assert prepared["source"].count("# ── Auto-generated GH input coercion") == 1
+    assert prepared["source"].count("# ── Auto-generated GH output coercion") == 1
+
+
+def test_gh_update_script_python_existing_sentinels_prevent_duplication():
+    code = (
+        "# ── Auto-generated GH input coercion\n"
+        "A = Pts\n"
+        "# ── Auto-generated GH output coercion\n"
+    )
+    prepared = server._prepare_gh_update_script_source(
+        code=code,
+        mode="auto",
+        runtime={"component_type": "Python3Component"},
+        inputs=[{"name": "Pts", "type": "Point3d", "access": "list"}],
+        outputs=[{"name": "A", "type": "Point3d", "access": "list"}],
+        python_preamble=True,
+    )
+    assert prepared["source"].count("# ── Auto-generated GH input coercion") == 1
+    assert prepared["source"].count("# ── Auto-generated GH output coercion") == 1
+
+
+def test_gh_update_script_gh1_python_raw_direct():
+    prepared = server._prepare_gh_update_script_source(
+        code="a = x",
+        mode="auto",
+        runtime={"component_type": "GhPythonComponent"},
+        inputs=[{"name": "x", "type": "Point3d"}],
+        outputs=[{"name": "a", "type": "Point3d", "access": "list"}],
+        python_preamble=True,
+    )
+    assert prepared == {"source": "a = x", "mode_used": "full_source", "wrapped": False}
+
+
+@pytest.mark.parametrize("mode", ["auto", "body", "full_source"])
+def test_gh_update_script_gh1_csharp_fails_closed_all_modes(mode):
+    with pytest.raises(ValueError, match="gh_set_script"):
+        server._prepare_gh_update_script_source(
+            code="A = R;",
+            mode=mode,
+            runtime={"component_type": "Component_CSNET_Script"},
+            inputs=[{"name": "R"}],
+            outputs=[{"name": "A"}],
+            python_preamble=True,
+        )
+
+
+def test_gh_update_script_error_summary_component_unrelated_counts_and_wrapped_response():
+    summary = server._summarize_gh_update_script_errors(
+        {
+            "success": True,
+            "data": {
+                "errors": [
+                    {"guid": "target", "errors": ["compile 1", "compile 2"]},
+                    {"guid": "other", "errors": ["canvas err"]},
+                ],
+                "warnings": [
+                    {"guid": "target", "warnings": ["warn"]},
+                    {"guid": "other", "warnings": ["canvas warn 1", "canvas warn 2"]},
+                ],
+            },
+        },
+        "target",
+    )
+    assert summary == {
+        "component_errors": ["compile 1", "compile 2"],
+        "component_warnings": ["warn"],
+        "canvas_error_count": 3,
+        "canvas_warning_count": 3,
+        "unrelated_error_count": 1,
+        "unrelated_warning_count": 2,
+    }
+
+
+@pytest.mark.asyncio
+async def test_gh_update_script_mocked_call_tool_orchestrates_csharp_body_route_flow(
+    monkeypatch, patched_server
+):
+    calls: list[tuple[str, str, dict | None]] = []
+
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        calls.append((route, method, payload))
+        if route == "/gh/script":
+            if payload and "script" in payload:
+                assert "private void RunScript(object R, ref object A)" in payload["script"]
+                return {"success": True, "data": {"guid": "cs-guid"}}
+            return {"success": True, "data": {"Type": "CSharpScriptComponent", "script": "old"}}
+        if route == "/gh/component":
+            return {
+                "success": True,
+                "data": {
+                    "Params": {
+                        "Inputs": [{"Name": "R", "TypeName": "double"}],
+                        "Outputs": [
+                            {"Name": "out", "TypeName": "string"},
+                            {"Name": "A", "TypeName": "Circle"},
+                        ],
+                    }
+                },
+            }
+        if route == "/gh/errors":
+            return {"success": True, "data": {"errors": [], "warnings": []}}
+        if route == "/gh/document":
+            return {"success": True, "data": {"name": "contract.gh", "path": ""}}
+        raise AssertionError(f"Unexpected route: {route}")
+
+    records = []
+
+    async def fake_record(**kwargs):
+        records.append(kwargs)
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+    monkeypatch.setattr(server, "_record_gh_to_session", fake_record)
+
+    payload = _decode_response(await server.call_tool(
+        "gh_update_script",
+        {"guid": "cs-guid", "code": "A = Convert.ToDouble(R);", "mode": "body"},
+    ))
+
+    assert payload["success"] is True
+    data = payload["data"]
+    assert data["detected_runtime"] == "RhinoCode C#"
+    assert data["mode_used"] == "body"
+    assert data["wrapped"] is True
+    assert data["inputs_used"] == [{"name": "R", "type": "double"}]
+    assert data["outputs_used"] == [{"name": "A", "type": "Circle"}]
+    assert [route for route, _, _ in calls].count("/gh/script") == 2
+    assert "/gh/errors" in [route for route, _, _ in calls]
+    assert records[0]["action"] == "gh_update_script"
+    assert "code" not in records[0]["params"]
+    assert records[0]["components_affected"] == ["cs-guid"]
+
+
+@pytest.mark.asyncio
+async def test_gh_update_script_check_errors_false_skips_gh_errors(monkeypatch, patched_server):
+    routes = []
+
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        routes.append(route)
+        if route == "/gh/script" and "script" not in (payload or {}):
+            return {"success": True, "data": {"Type": "Python3Component"}}
+        if route == "/gh/script":
+            return {"success": True, "data": {"guid": "py-guid"}}
+        if route == "/gh/component":
+            return {"success": True, "data": {"Params": {"Inputs": [], "Outputs": []}}}
+        if route == "/gh/document":
+            return {"success": True, "data": {"name": "contract.gh", "path": ""}}
+        if route == "/gh/errors":
+            raise AssertionError("check_errors=False must skip /gh/errors")
+        raise AssertionError(f"Unexpected route: {route}")
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    payload = _decode_response(await server.call_tool(
+        "gh_update_script",
+        {"guid": "py-guid", "code": "A = 1", "check_errors": False},
+    ))
+
+    assert payload["success"] is True
+    data = payload["data"]
+    assert data["component_errors"] == []
+    assert data["canvas_error_count"] == 0
+    assert "/gh/errors" not in routes
+
+
+@pytest.mark.asyncio
+async def test_gh_update_script_compile_failure_returns_component_errors_and_recovery_hint(
+    monkeypatch, patched_server
+):
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        if route == "/gh/script" and "script" not in (payload or {}):
+            return {"success": True, "data": {"Type": "CSharpScriptComponent"}}
+        if route == "/gh/script":
+            return {"success": True, "data": {"guid": "cs-guid"}}
+        if route == "/gh/component":
+            return {
+                "success": True,
+                "data": {
+                    "Params": {
+                        "Inputs": [{"Name": "R"}],
+                        "Outputs": [{"Name": "out"}, {"Name": "A"}],
+                    }
+                },
+            }
+        if route == "/gh/errors":
+            return {
+                "success": True,
+                "data": {
+                    "errors": [{"guid": "cs-guid", "errors": ["The name X does not exist"]}],
+                    "warnings": [],
+                },
+            }
+        if route == "/gh/document":
+            return {"success": True, "data": {"name": "contract.gh", "path": ""}}
+        raise AssertionError(f"Unexpected route: {route}")
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    payload = _decode_response(await server.call_tool(
+        "gh_update_script",
+        {"guid": "cs-guid", "code": "A = X;", "mode": "body"},
+    ))
+
+    assert payload["success"] is True
+    data = payload["data"]
+    assert data["component_errors"] == ["The name X does not exist"]
+    assert data["recovery_hint"] == (
+        "Current inputs are R; outputs are A. To change the signature, call "
+        "gh_set_script_pins first, then retry gh_update_script."
+    )
+
+
 def _schema_type_permits_array(schema_type):
     return schema_type == "array" or (
         isinstance(schema_type, list) and "array" in schema_type

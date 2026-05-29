@@ -1393,6 +1393,294 @@ public class Script_Instance : GH_ScriptInstance
 """
 
 
+def _dict_get_ci(value: Any, key: str, default: Any = None) -> Any:
+    if not isinstance(value, dict):
+        return default
+    if key in value:
+        return value[key]
+    key_lower = key.lower()
+    for existing_key, existing_value in value.items():
+        if isinstance(existing_key, str) and existing_key.lower() == key_lower:
+            return existing_value
+    return default
+
+
+_GH_UPDATE_SCRIPT_RUNTIMES: dict[str, dict[str, Any]] = {
+    "Python3Component": {
+        "detected_runtime": "RhinoCode Python 3",
+        "detected_language": "python",
+        "supports_update": True,
+        "legacy": False,
+    },
+    "GhPythonComponent": {
+        "detected_runtime": "GH1 legacy Python",
+        "detected_language": "python",
+        "supports_update": True,
+        "legacy": True,
+    },
+    "CSharpScriptComponent": {
+        "detected_runtime": "RhinoCode C#",
+        "detected_language": "csharp",
+        "supports_update": True,
+        "legacy": False,
+    },
+    "Component_CSNET_Script": {
+        "detected_runtime": "GH1 legacy C#/.NET Script",
+        "detected_language": "csharp",
+        "supports_update": False,
+        "legacy": True,
+    },
+}
+
+
+def _classify_gh_update_script_runtime(
+    script_data: Any,
+    component_data: Any,
+    requested_language: str = "auto",
+) -> dict[str, Any]:
+    """Classify an existing GH script component from exact /gh/script Type values."""
+    component_type = _dict_get_ci(script_data, "Type")
+    if not isinstance(component_type, str) or not component_type.strip():
+        raise ValueError("Unsupported script component: /gh/script did not return a Type")
+
+    component_type = component_type.strip()
+    runtime = _GH_UPDATE_SCRIPT_RUNTIMES.get(component_type)
+    if runtime is None:
+        raise ValueError(f"Unsupported script component Type for gh_update_script: {component_type}")
+
+    requested = str(requested_language or "auto").strip().lower()
+    if requested not in ("auto", "python", "csharp"):
+        raise ValueError("Invalid language. Choose 'auto', 'python', or 'csharp'.")
+    if requested != "auto" and requested != runtime["detected_language"]:
+        raise ValueError(
+            f"Requested language '{requested}' does not match detected "
+            f"{runtime['detected_language']} runtime ({runtime['detected_runtime']})."
+        )
+
+    return {"component_type": component_type, **runtime}
+
+
+def _prepare_gh_update_script_source(
+    *,
+    code: Any,
+    mode: str,
+    runtime: dict[str, Any],
+    inputs: list[dict[str, Any]],
+    outputs: list[dict[str, Any]],
+    python_preamble: bool,
+) -> dict[str, Any]:
+    if not isinstance(code, str) or not code.strip():
+        raise ValueError("Missing required parameter: code")
+
+    selected_mode = str(mode or "auto").strip().lower()
+    if selected_mode not in ("auto", "body", "full_source"):
+        raise ValueError("Invalid mode. Choose 'auto', 'body', or 'full_source'.")
+
+    component_type = runtime.get("component_type")
+    if component_type == "Component_CSNET_Script":
+        raise ValueError(
+            "GH1 legacy C#/.NET Script cannot be safely updated by gh_update_script. "
+            "Use raw gh_set_script as the escape hatch."
+        )
+
+    if component_type == "GhPythonComponent":
+        return {"source": code, "mode_used": "full_source", "wrapped": False}
+
+    if component_type == "CSharpScriptComponent":
+        is_full_source = "class Script_Instance" in code or "void RunScript" in code
+        if selected_mode == "full_source":
+            if not is_full_source:
+                raise ValueError("C# full_source mode requires Script_Instance or RunScript source")
+            return {"source": code, "mode_used": "full_source", "wrapped": False}
+        if selected_mode == "auto" and is_full_source:
+            return {"source": code, "mode_used": "full_source", "wrapped": False}
+        return {
+            "source": _build_gh_csharp_wrapper(code, inputs, outputs),
+            "mode_used": "body",
+            "wrapped": True,
+        }
+
+    if component_type == "Python3Component":
+        if selected_mode == "full_source":
+            return {"source": code, "mode_used": "full_source", "wrapped": False}
+
+        source_parts: list[str] = []
+        wrapped = False
+        if python_preamble:
+            if "# ── Auto-generated GH input coercion" not in code:
+                preamble = _build_gh_python_preamble(inputs)
+                if preamble:
+                    source_parts.append(preamble)
+                    wrapped = True
+            source_parts.append(code)
+            if "# ── Auto-generated GH output coercion" not in code:
+                postamble = _build_gh_python_output_postamble(outputs)
+                if postamble:
+                    source_parts.append(postamble)
+                    wrapped = True
+            source = "".join(source_parts)
+        else:
+            source = code
+        return {"source": source, "mode_used": "body", "wrapped": wrapped}
+
+    raise ValueError(f"Unsupported script component Type for gh_update_script: {component_type}")
+
+
+def _gh_update_script_message_count(value: Any) -> int:
+    if value is None:
+        return 0
+    if isinstance(value, list):
+        return len(value)
+    return 1
+
+
+def _gh_update_script_messages(value: Any) -> list[Any]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    return [value]
+
+
+def _summarize_gh_update_script_errors(errors_response: Any, guid: str) -> dict[str, Any]:
+    data = errors_response
+    if isinstance(errors_response, dict) and "data" in errors_response:
+        data = errors_response.get("data")
+    if not isinstance(data, dict):
+        data = {}
+
+    guid_lower = str(guid).lower()
+
+    def _summarize(kind: str) -> tuple[list[Any], int, int]:
+        entries = data.get(kind, [])
+        if not isinstance(entries, list):
+            entries = []
+        component_messages: list[Any] = []
+        canvas_count = 0
+        unrelated_count = 0
+        for entry in entries:
+            messages = None
+            entry_guid = None
+            if isinstance(entry, dict):
+                entry_guid = entry.get("guid") or entry.get("Guid")
+                messages = entry.get(kind)
+                if messages is None:
+                    messages = entry.get("messages") or entry.get("Messages") or entry.get("message")
+            else:
+                messages = entry
+            count = _gh_update_script_message_count(messages)
+            canvas_count += count
+            if isinstance(entry_guid, str) and entry_guid.lower() == guid_lower:
+                component_messages.extend(_gh_update_script_messages(messages))
+            else:
+                unrelated_count += count
+        return component_messages, canvas_count, unrelated_count
+
+    component_errors, canvas_error_count, unrelated_error_count = _summarize("errors")
+    component_warnings, canvas_warning_count, unrelated_warning_count = _summarize("warnings")
+    return {
+        "component_errors": component_errors,
+        "component_warnings": component_warnings,
+        "canvas_error_count": canvas_error_count,
+        "canvas_warning_count": canvas_warning_count,
+        "unrelated_error_count": unrelated_error_count,
+        "unrelated_warning_count": unrelated_warning_count,
+    }
+
+
+async def _execute_gh_update_script(arguments: dict[str, Any], port: int) -> dict[str, Any]:
+    guid = arguments.get("guid")
+    if not guid:
+        return {"success": False, "data": "Missing required parameter: guid"}
+    code = arguments.get("code")
+    if not isinstance(code, str) or not code.strip():
+        return {"success": False, "data": "Missing required parameter: code"}
+
+    try:
+        script_result = await call_rhino("/gh/script", "POST", {"guid": guid}, port=port)
+        if not script_result.get("success"):
+            return script_result
+        script_data = script_result.get("data", {})
+
+        component_result = await call_rhino("/gh/component", "GET", {"guid": guid}, port=port)
+        if not component_result.get("success"):
+            return component_result
+        component_data = component_result.get("data", {})
+
+        runtime = _classify_gh_update_script_runtime(
+            script_data,
+            component_data,
+            requested_language=arguments.get("language", "auto"),
+        )
+
+        params = None
+        if isinstance(component_data, dict):
+            params = component_data.get("Params") or component_data.get("params")
+        inputs, outputs = _gh_component_params_to_script_pin_defs(params)
+
+        prepared = _prepare_gh_update_script_source(
+            code=code,
+            mode=arguments.get("mode", "auto"),
+            runtime=runtime,
+            inputs=inputs,
+            outputs=outputs,
+            python_preamble=bool(arguments.get("python_preamble", True)),
+        )
+
+        write_result = await call_rhino(
+            "/gh/script",
+            "POST",
+            {"guid": guid, "script": prepared["source"]},
+            port=port,
+        )
+        if not write_result.get("success"):
+            return write_result
+
+        if bool(arguments.get("check_errors", True)):
+            await asyncio.sleep(0.3)
+            error_summary = _summarize_gh_update_script_errors(
+                await call_rhino("/gh/errors", "GET", {}, port=port),
+                guid,
+            )
+        else:
+            error_summary = {
+                "component_errors": [],
+                "component_warnings": [],
+                "canvas_error_count": 0,
+                "canvas_warning_count": 0,
+                "unrelated_error_count": 0,
+                "unrelated_warning_count": 0,
+            }
+
+        data: dict[str, Any] = {
+            "guid": guid,
+            "detected_runtime": runtime["detected_runtime"],
+            "detected_language": runtime["detected_language"],
+            "mode_used": prepared["mode_used"],
+            "wrapped": prepared["wrapped"],
+            "inputs_used": inputs,
+            "outputs_used": outputs,
+            "script_length": len(prepared["source"]),
+            **error_summary,
+        }
+
+        if (
+            runtime["detected_language"] == "csharp"
+            and prepared["mode_used"] == "body"
+            and data["component_errors"]
+        ):
+            input_names = ", ".join(pin["name"] for pin in inputs) or "(none)"
+            output_names = ", ".join(pin["name"] for pin in outputs) or "(none)"
+            data["recovery_hint"] = (
+                f"Current inputs are {input_names}; outputs are {output_names}. "
+                "To change the signature, call gh_set_script_pins first, then retry gh_update_script."
+            )
+
+        return {"success": True, "data": data}
+    except Exception as exc:
+        return {"success": False, "data": f"gh_update_script failed: {exc}"}
+
+
 def _extract_gh_result_guid(result: dict) -> str | None:
     """Extract a created/affected GH object guid from a tool result."""
     data = result.get("data")
@@ -7498,6 +7786,54 @@ this tool provides. This tool is the correct substrate.""",
             }
         ),
         Tool(
+            name="gh_update_script",
+            description="""Update source on an existing Grasshopper script component for normal source edits.
+
+Use gh_set_script_pins first when changing the script signature, inputs, or
+outputs. This tool reads the current component runtime and pins, prepares body
+edits for RhinoCode Python 3 or RhinoCode C# when appropriate, writes the source,
+and optionally summarizes Grasshopper errors.
+
+`gh_set_script` remains the raw source escape hatch for advanced/manual cases
+and for GH1 legacy C#/.NET Script source.""",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "guid": {
+                        "type": "string",
+                        "description": "Component instance GUID or short ID (C1, C2...) from gh_snapshot",
+                    },
+                    "code": {
+                        "type": "string",
+                        "description": "New source code or body code, depending on mode and detected runtime",
+                    },
+                    "mode": {
+                        "type": "string",
+                        "enum": ["auto", "body", "full_source"],
+                        "default": "auto",
+                        "description": "auto detects full source where possible; body wraps for supported runtimes; full_source writes complete source",
+                    },
+                    "language": {
+                        "type": "string",
+                        "enum": ["auto", "python", "csharp"],
+                        "default": "auto",
+                        "description": "Optional runtime language assertion; auto accepts the detected component language",
+                    },
+                    "python_preamble": {
+                        "type": "boolean",
+                        "default": True,
+                        "description": "For RhinoCode Python 3 body edits, add generated input/output coercion helpers when needed",
+                    },
+                    "check_errors": {
+                        "type": "boolean",
+                        "default": True,
+                        "description": "After writing, wait briefly and summarize /gh/errors for this component and the canvas",
+                    },
+                },
+                "required": ["guid", "code"],
+            },
+        ),
+        Tool(
             name="gh_create_python_script",
             description="""Create a Python 3 Script component on the GH canvas with custom pins and code.
 
@@ -13585,6 +13921,17 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
             await _record_gh_to_session(
                 action="gh_set_script",
                 params=arguments,
+                result=result,
+                port=port,
+                components_affected=[guid] if guid else [],
+            )
+
+        case "gh_update_script":
+            guid = arguments.get("guid")
+            result = await _execute_gh_update_script(arguments, port)
+            await _record_gh_to_session(
+                action="gh_update_script",
+                params={k: v for k, v in arguments.items() if k != "code"},
                 result=result,
                 port=port,
                 components_affected=[guid] if guid else [],
