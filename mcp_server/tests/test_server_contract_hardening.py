@@ -1766,6 +1766,92 @@ async def test_gh_update_script_check_errors_false_skips_gh_errors(monkeypatch, 
 
 
 @pytest.mark.asyncio
+async def test_gh_update_script_short_id_uses_resolved_guid_for_error_summary(
+    monkeypatch, patched_server
+):
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        if route == "/gh/script" and "script" not in (payload or {}):
+            assert payload["guid"] == "C20"
+            return {
+                "success": True,
+                "data": {"Type": "CSharpScriptComponent", "Guid": "real-guid"},
+            }
+        if route == "/gh/script":
+            assert payload["guid"] == "C20"
+            return {"success": True, "data": {"guid": "real-guid"}}
+        if route == "/gh/component":
+            assert payload["guid"] == "C20"
+            return {
+                "success": True,
+                "data": {
+                    "Guid": "real-guid",
+                    "Params": {
+                        "Inputs": [{"Name": "R"}],
+                        "Outputs": [{"Name": "out"}, {"Name": "A"}],
+                    },
+                },
+            }
+        if route == "/gh/errors":
+            return {
+                "success": True,
+                "data": {
+                    "errors": [{"guid": "real-guid", "errors": ["compile from real guid"]}],
+                    "warnings": [],
+                },
+            }
+        if route == "/gh/document":
+            return {"success": True, "data": {"name": "contract.gh", "path": ""}}
+        raise AssertionError(f"Unexpected route: {route}")
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    payload = _decode_response(await server.call_tool(
+        "gh_update_script",
+        {"guid": "C20", "code": "A = R;", "mode": "body"},
+    ))
+
+    assert payload["success"] is True
+    data = payload["data"]
+    assert data["guid"] == "real-guid"
+    assert data["target_guid"] == "C20"
+    assert data["component_errors"] == ["compile from real guid"]
+    assert data["unrelated_error_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_gh_update_script_error_check_failure_is_visible(monkeypatch, patched_server):
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        if route == "/gh/script" and "script" not in (payload or {}):
+            return {"success": True, "data": {"Type": "Python3Component", "guid": "py-guid"}}
+        if route == "/gh/script":
+            return {"success": True, "data": {"guid": "py-guid"}}
+        if route == "/gh/component":
+            return {"success": True, "data": {"Guid": "py-guid", "Params": {"Inputs": [], "Outputs": []}}}
+        if route == "/gh/errors":
+            return {"success": False, "data": "GH unavailable"}
+        if route == "/gh/document":
+            return {"success": True, "data": {"name": "contract.gh", "path": ""}}
+        raise AssertionError(f"Unexpected route: {route}")
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    payload = _decode_response(await server.call_tool(
+        "gh_update_script",
+        {"guid": "py-guid", "code": "A = 1"},
+    ))
+
+    assert payload["success"] is True
+    data = payload["data"]
+    assert data["error_check_failed"] == "GH unavailable"
+    assert data["component_errors"] == []
+    assert data["component_warnings"] == []
+    assert data["canvas_error_count"] == 0
+    assert data["canvas_warning_count"] == 0
+    assert data["unrelated_error_count"] == 0
+    assert data["unrelated_warning_count"] == 0
+
+
+@pytest.mark.asyncio
 async def test_gh_update_script_compile_failure_returns_component_errors_and_recovery_hint(
     monkeypatch, patched_server
 ):

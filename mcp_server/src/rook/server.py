@@ -1542,7 +1542,31 @@ def _gh_update_script_messages(value: Any) -> list[Any]:
     return [value]
 
 
+def _empty_gh_update_script_error_summary() -> dict[str, Any]:
+    return {
+        "component_errors": [],
+        "component_warnings": [],
+        "canvas_error_count": 0,
+        "canvas_warning_count": 0,
+        "unrelated_error_count": 0,
+        "unrelated_warning_count": 0,
+    }
+
+
+def _gh_update_script_resolved_guid(*values: Any, fallback: str) -> str:
+    for value in values:
+        candidate = _dict_get_ci(value, "guid")
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate.strip()
+    return fallback
+
+
 def _summarize_gh_update_script_errors(errors_response: Any, guid: str) -> dict[str, Any]:
+    if isinstance(errors_response, dict) and errors_response.get("success") is False:
+        summary = _empty_gh_update_script_error_summary()
+        summary["error_check_failed"] = errors_response.get("data", "Unknown /gh/errors failure")
+        return summary
+
     data = errors_response
     if isinstance(errors_response, dict) and "data" in errors_response:
         data = errors_response.get("data")
@@ -1578,14 +1602,16 @@ def _summarize_gh_update_script_errors(errors_response: Any, guid: str) -> dict[
 
     component_errors, canvas_error_count, unrelated_error_count = _summarize("errors")
     component_warnings, canvas_warning_count, unrelated_warning_count = _summarize("warnings")
-    return {
+    summary = _empty_gh_update_script_error_summary()
+    summary.update({
         "component_errors": component_errors,
         "component_warnings": component_warnings,
         "canvas_error_count": canvas_error_count,
         "canvas_warning_count": canvas_warning_count,
         "unrelated_error_count": unrelated_error_count,
         "unrelated_warning_count": unrelated_warning_count,
-    }
+    })
+    return summary
 
 
 async def _execute_gh_update_script(arguments: dict[str, Any], port: int) -> dict[str, Any]:
@@ -1635,25 +1661,25 @@ async def _execute_gh_update_script(arguments: dict[str, Any], port: int) -> dic
         )
         if not write_result.get("success"):
             return write_result
+        write_data = write_result.get("data", {})
+        resolved_guid = _gh_update_script_resolved_guid(
+            write_data,
+            component_data,
+            script_data,
+            fallback=guid,
+        )
 
         if bool(arguments.get("check_errors", True)):
             await asyncio.sleep(0.3)
             error_summary = _summarize_gh_update_script_errors(
                 await call_rhino("/gh/errors", "GET", {}, port=port),
-                guid,
+                resolved_guid,
             )
         else:
-            error_summary = {
-                "component_errors": [],
-                "component_warnings": [],
-                "canvas_error_count": 0,
-                "canvas_warning_count": 0,
-                "unrelated_error_count": 0,
-                "unrelated_warning_count": 0,
-            }
+            error_summary = _empty_gh_update_script_error_summary()
 
         data: dict[str, Any] = {
-            "guid": guid,
+            "guid": resolved_guid,
             "detected_runtime": runtime["detected_runtime"],
             "detected_language": runtime["detected_language"],
             "mode_used": prepared["mode_used"],
@@ -1663,6 +1689,8 @@ async def _execute_gh_update_script(arguments: dict[str, Any], port: int) -> dic
             "script_length": len(prepared["source"]),
             **error_summary,
         }
+        if resolved_guid != guid:
+            data["target_guid"] = guid
 
         if (
             runtime["detected_language"] == "csharp"
