@@ -111,9 +111,25 @@ partial-success semantics.
 
 ## Runtime Behavior
 
+Runtime classification must key off readback/component metadata, not caller
+intent. The first implementation should treat the `/gh/script` `Type` values
+documented by `GrasshopperHandler.SetScript` as the canonical mapping:
+
+| `/gh/script` Type | Runtime | Language | `gh_update_script` v1 support |
+| --- | --- | --- | --- |
+| `Python3Component` | RhinoCode Python 3 | `python` | `full_source`, `body`, `auto` |
+| `GhPythonComponent` | GH1 legacy Python | `python` | raw/direct only; no generated preamble/postamble |
+| `CSharpScriptComponent` | RhinoCode C# | `csharp` | `full_source`, `body`, `auto` |
+| `Component_CSNET_Script` | GH1 legacy C#/.NET Script | `csharp` | unsupported by `gh_update_script` v1; use raw `gh_set_script` |
+
+If component metadata uses a shorter display/type label, such as the
+`CSharpComponent` identity seen in snapshots, the classifier may use it only as
+supporting evidence. It must still resolve to one of the canonical runtime rows
+above or fail closed.
+
 ### RhinoCode C#
 
-For detected RhinoCode `CSharpComponent`:
+For detected RhinoCode `CSharpScriptComponent`:
 
 - `mode: "full_source"` passes source through after validating that it appears
   to contain a full `Script_Instance` or `RunScript` source.
@@ -165,12 +181,13 @@ added.
 
 ### GH1 Legacy C#
 
-GH1 legacy C# supports full-source/raw updates through `gh_set_script`.
+GH1 legacy C# supports full-source/raw updates only through `gh_set_script`.
 
-`gh_update_script` v1 fails closed for `mode: "body"` or body-like `auto` on
-GH1 C# until the legacy wrapper/source shape is verified live. The error should
-tell callers to use `mode: "full_source"` if supported by the detected runtime,
-or use `gh_set_script` with exact source.
+`gh_update_script` v1 fails closed for every mode on `Component_CSNET_Script`,
+including `mode: "full_source"`. The error should tell callers to use
+`gh_set_script` with exact source. This avoids suggesting that
+`gh_update_script` has verified legacy C# write behavior before it has been
+tested live.
 
 ## Result Shape
 
@@ -220,7 +237,7 @@ Fail closed when:
 - target is not a supported script component.
 - detected runtime cannot be mapped to Python or C# behavior.
 - caller `language` conflicts with detected runtime.
-- `body` is requested for unsupported GH1 C#.
+- any update mode is requested for unsupported GH1 C#.
 - current pins cannot be read for a wrapping mode.
 - source preparation fails.
 - `/gh/script` write fails.
@@ -245,6 +262,27 @@ The public tool descriptions should make the routing clear:
 `gh_set_script` documentation should explicitly state that RhinoCode C# callers
 must send full source if they use the raw setter.
 
+Agent guidance rollout is part of the feature, not a follow-up. The
+implementation plan must update every agent-facing surface that currently tells
+agents to edit existing scripts with `gh_set_script`, including at minimum:
+
+- `mcp_server/src/rook/agent/personas/scripter/role.md`
+- `mcp_server/src/rook/agent/prompts/WORKER.md`
+- any script-editing tool group, target selection, or generated tool guidance
+  text that routes normal edits through `gh_set_script`
+
+The updated guidance should say:
+
+- Use `gh_update_script` for normal source edits on existing supported script
+  components.
+- Use `gh_set_script_pins` first when the signature must change, then retry
+  `gh_update_script`.
+- Use `gh_set_script` only for raw source read/write, unsupported GH1 C# exact
+  source edits, or advanced escape-hatch workflows.
+
+Add drift tests or equivalent prompt-snapshot checks so future prompt/persona
+changes cannot silently restore `gh_set_script` as the default edit path.
+
 ## Testing
 
 Add Python MCP tests for:
@@ -261,6 +299,13 @@ Add Python MCP tests for:
 - `check_errors` default true reports component and unrelated canvas counts.
 - `check_errors: false` skips `/gh/errors`.
 - Result shape is `{ success, data }`.
+- Runtime classifier maps exact `/gh/script` types:
+  `Python3Component`, `GhPythonComponent`, `CSharpScriptComponent`, and
+  `Component_CSNET_Script`.
+- `Component_CSNET_Script` fails closed for all `gh_update_script` modes and
+  directs callers to raw `gh_set_script`.
+- Prompt/persona/tool guidance no longer presents `gh_set_script` as the
+  default existing-script edit path.
 
 Live validation should cover at least:
 
