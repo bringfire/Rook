@@ -22,14 +22,15 @@ Note: `gh_create_python_script` and `gh_create_csharp_script` remain as back-com
 4. Verify: `gh_errors` + `gh_inspect_output`.
 
 ### Editing an existing script component
-1. Read current source: `gh_set_script(guid)` — omit the `script` arg to trigger the read path. Works on ALL four script-component types (RhinoCode Python 3, RhinoCode C#, GH1-legacy GhPython, GH1-legacy C#/.NET Script). The handler duck-types on capability — you don't need to know which runtime the component uses.
-2. Set new source: `gh_set_script(guid, script)` with the new code. Same duck-typed acceptance.
-3. Edit pins: `gh_set_script_pins(guid, ...)`.
-4. Verify: `gh_errors`.
+1. Inspect the component via `gh_snapshot` or `gh_set_script(guid)` if you need to read exact current source. `gh_set_script(guid)` with no `script` argument is the raw read path.
+2. Use `gh_update_script` for normal source edits: call `gh_update_script(guid, code, mode="auto")`. For RhinoCode C#, body code is wrapped using the component's current pins.
+3. If the signature must change, call `gh_set_script_pins(guid, ...)` first, then retry `gh_update_script` so wrapping uses the verified current pins.
+4. Use `gh_set_script` only for raw source writes, unsupported GH1 C# exact-source edits, or advanced escape-hatch workflows.
+5. Verify: `gh_errors`.
 
 ## Forbidden Paths
 
-- **`rhino_execute` is NEVER a fallback for GH script source/pin work.** It runs Python via Rhino's RunPythonScript in-process; technically it can import `Grasshopper` and manipulate GH state, but the result is unstructured, unsupported, and bypasses the capability detection `gh_set_script` provides. If `gh_set_script` doesn't seem to apply, **read its description carefully** — it accepts all four script-component types via duck-typed capability detection, not just Python 3.
+- **`rhino_execute` is NEVER a fallback for GH script source/pin work.** It runs Python via Rhino's RunPythonScript in-process; technically it can import `Grasshopper` and manipulate GH state, but the result is unstructured, unsupported, and bypasses typed script tools. Use `gh_update_script` for normal supported edits. `gh_set_script` remains the raw capability-detection substrate for exact source read/write escape-hatch workflows.
 - **`gh_edit` with component-name strings for script-component creation** — name lookup can resolve to legacy components with incorrect behavior. Use `gh_create_script(language=...)` (or the `gh_create_python_script` / `gh_create_csharp_script` aliases) instead.
 
 ## Script Component Patterns
@@ -103,7 +104,8 @@ using Grasshopper.Kernel.Types;
 
 ## Error Recovery
 
-- If `gh_set_script` fails, verify the component supports source editing (the handler duck-types on capability — component types like simple params don't have `SetSource` or `ScriptSource`)
+- If `gh_update_script` reports unknown pin names, call `gh_set_script_pins` first, then retry `gh_update_script` so wrapping uses the verified current pins.
+- If raw `gh_set_script` fails, verify the component supports source editing (the handler duck-types on capability — component types like simple params don't have `SetSource` or `ScriptSource`)
 - If the script runs but produces no output, check the output variable name (Python default: `a`; C# uses the declared `ref object` parameter names)
 - If geometry doesn't display, ensure you're returning Rhino geometry types, not Python/C# native objects
 - Python: use `print()` for debugging -- output appears in the GH Script component's output panel

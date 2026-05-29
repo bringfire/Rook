@@ -103,6 +103,20 @@ def test_persona_prompt_script_tool_language_is_capability_accurate(persona):
 
 
 @pytest.mark.parametrize("persona", ["worker", "architect", "scripter"])
+def test_persona_prompt_prefers_gh_update_script_for_normal_edits(persona):
+    prompt = PromptBuilder().build_system(persona)
+
+    assert "gh_update_script" in prompt
+    assert "Use `gh_update_script` for normal source edits" in prompt
+    assert "gh_set_script_pins" in prompt
+    assert "then retry `gh_update_script`" in prompt
+    assert "Use `gh_set_script` only for raw source" in prompt
+
+    assert "Use `gh_set_script` to set/get source" not in prompt
+    assert "Set new source: `gh_set_script" not in prompt
+
+
+@pytest.mark.parametrize("persona", ["worker", "architect", "scripter"])
 def test_persona_prompt_script_geometry_outputs_are_rhinocommon_values(persona):
     prompt = PromptBuilder().build_system(persona)
 

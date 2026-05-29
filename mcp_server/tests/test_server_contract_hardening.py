@@ -1479,6 +1479,22 @@ async def test_gh_set_script_description_does_not_claim_py3_only():
     )
 
 
+def test_gh_canvas_tool_group_includes_update_script():
+    from rook.agent.tool_groups import TOOL_GROUPS
+
+    gh_canvas = TOOL_GROUPS["gh_canvas"]
+
+    assert "gh_update_script" in gh_canvas
+    assert "gh_set_script" in gh_canvas
+    assert gh_canvas.index("gh_update_script") < gh_canvas.index("gh_set_script_pins")
+
+
+def test_gh_update_script_local_tool_registered():
+    from rook.agent.tool_dispatcher import build_local_tools
+
+    assert "gh_update_script" in build_local_tools()
+
+
 @pytest.mark.asyncio
 async def test_gh_update_script_input_schema_and_description():
     tools = {tool.name: tool for tool in await server.list_tools()}
