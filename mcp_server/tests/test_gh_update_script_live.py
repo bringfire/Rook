@@ -105,12 +105,18 @@ async def test_gh_update_script_csharp_full_source_round_trip():
     read_result = await _mcp_tool_executor("gh_set_script", {"guid": guid})
     assert not _is_error(read_result), f"gh_set_script raw read failed: {read_result!r}"
     source = _get_script_source(read_result)
+    changed_source = source.replace(
+        "A = Convert.ToDouble(R);",
+        "A = Convert.ToDouble(R) * 4.0;",
+        1,
+    )
+    assert changed_source != source, f"expected generated C# body was absent: {source!r}"
 
     result = await _mcp_tool_executor(
         "gh_update_script",
         {
             "guid": guid,
-            "code": source,
+            "code": changed_source,
             "mode": "full_source",
             "language": "csharp",
         },
@@ -122,29 +128,53 @@ async def test_gh_update_script_csharp_full_source_round_trip():
     assert data["wrapped"] is False
     assert data["component_errors"] == []
 
+    verify_result = await _mcp_tool_executor("gh_set_script", {"guid": guid})
+    assert not _is_error(verify_result), (
+        f"gh_set_script raw read after full_source update failed: {verify_result!r}"
+    )
+    assert "A = Convert.ToDouble(R) * 4.0;" in _get_script_source(verify_result)
+
 
 async def test_gh_update_script_csharp_compile_error_reports_hint():
     from rook.server import _mcp_tool_executor
 
     guid = await _create_csharp_script("UpdateCompileErrorCSLive", 920, 300)
+    cleanup_error: Any = None
 
-    result = await _mcp_tool_executor(
-        "gh_update_script",
-        {
-            "guid": guid,
-            "code": "A = N;",
-            "mode": "body",
-            "language": "csharp",
-        },
-    )
+    try:
+        result = await _mcp_tool_executor(
+            "gh_update_script",
+            {
+                "guid": guid,
+                "code": "A = N;",
+                "mode": "body",
+                "language": "csharp",
+            },
+        )
 
-    assert not _is_error(result), (
-        f"compile errors should be returned in success data, not as MCP errors: {result!r}"
-    )
-    data = _get_data(result)
-    assert data["component_errors"]
-    hint = data.get("recovery_hint")
-    assert isinstance(hint, str)
-    assert "Current inputs" in hint
-    assert "gh_set_script_pins" in hint
+        assert not _is_error(result), (
+            "compile errors should be returned in success data, "
+            f"not as MCP errors: {result!r}"
+        )
+        data = _get_data(result)
+        assert data["component_errors"]
+        hint = data.get("recovery_hint")
+        assert isinstance(hint, str)
+        assert "Current inputs" in hint
+        assert "gh_set_script_pins" in hint
+    finally:
+        cleanup = await _mcp_tool_executor(
+            "gh_update_script",
+            {
+                "guid": guid,
+                "code": "A = Convert.ToDouble(R);",
+                "mode": "body",
+                "language": "csharp",
+                "check_errors": False,
+            },
+        )
+        if _is_error(cleanup):
+            cleanup_error = cleanup
 
+    if cleanup_error is not None:
+        pytest.fail(f"failed to restore compile-error test component: {cleanup_error!r}")
