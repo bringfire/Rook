@@ -1769,22 +1769,25 @@ async def test_gh_update_script_check_errors_false_skips_gh_errors(monkeypatch, 
 async def test_gh_update_script_short_id_uses_resolved_guid_for_error_summary(
     monkeypatch, patched_server
 ):
+    real_guid = "12345678-1234-4234-9234-123456789abc"
+
     async def fake_call_rhino(route, method="GET", payload=None, port=None):
         if route == "/gh/script" and "script" not in (payload or {}):
             assert payload["guid"] == "C20"
             return {
                 "success": True,
-                "data": {"Type": "CSharpScriptComponent", "Guid": "real-guid"},
+                "data": {"Type": "CSharpScriptComponent", "Guid": "C20"},
             }
         if route == "/gh/script":
             assert payload["guid"] == "C20"
-            return {"success": True, "data": {"guid": "real-guid"}}
+            return {"success": True, "data": {"guid": "C20"}}
         if route == "/gh/component":
             assert payload["guid"] == "C20"
             return {
                 "success": True,
                 "data": {
-                    "Guid": "real-guid",
+                    "Guid": "C20",
+                    "InstanceGuid": real_guid,
                     "Params": {
                         "Inputs": [{"Name": "R"}],
                         "Outputs": [{"Name": "out"}, {"Name": "A"}],
@@ -1795,7 +1798,7 @@ async def test_gh_update_script_short_id_uses_resolved_guid_for_error_summary(
             return {
                 "success": True,
                 "data": {
-                    "errors": [{"guid": "real-guid", "errors": ["compile from real guid"]}],
+                    "errors": [{"guid": real_guid, "errors": ["compile from real guid"]}],
                     "warnings": [],
                 },
             }
@@ -1812,7 +1815,7 @@ async def test_gh_update_script_short_id_uses_resolved_guid_for_error_summary(
 
     assert payload["success"] is True
     data = payload["data"]
-    assert data["guid"] == "real-guid"
+    assert data["guid"] == real_guid
     assert data["target_guid"] == "C20"
     assert data["component_errors"] == ["compile from real guid"]
     assert data["unrelated_error_count"] == 0

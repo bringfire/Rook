@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import tempfile
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -1553,12 +1554,53 @@ def _empty_gh_update_script_error_summary() -> dict[str, Any]:
     }
 
 
-def _gh_update_script_resolved_guid(*values: Any, fallback: str) -> str:
-    for value in values:
-        candidate = _dict_get_ci(value, "guid")
+def _looks_like_guid(value: Any) -> bool:
+    if not isinstance(value, str) or not value.strip():
+        return False
+    try:
+        uuid.UUID(value.strip())
+        return True
+    except ValueError:
+        return False
+
+
+def _gh_update_script_candidate_ids(value: Any, keys: tuple[str, ...]) -> list[str]:
+    if not isinstance(value, dict):
+        return []
+    candidates: list[str] = []
+    for key in keys:
+        candidate = _dict_get_ci(value, key)
         if isinstance(candidate, str) and candidate.strip():
-            return candidate.strip()
-    return fallback
+            candidates.append(candidate.strip())
+    return candidates
+
+
+def _gh_update_script_resolved_guid(
+    *,
+    caller_guid: str,
+    component_data: Any,
+    script_data: Any,
+    write_data: Any,
+) -> str:
+    caller = str(caller_guid)
+    caller_lower = caller.lower()
+    instance_keys = ("instanceGuid", "InstanceGuid", "componentGuid", "ComponentGuid")
+    generic_keys = ("guid", "Guid", "id", "Id")
+
+    candidates: list[str] = []
+    # Component metadata is the authoritative source for live instance identity.
+    candidates.extend(_gh_update_script_candidate_ids(component_data, instance_keys))
+    candidates.extend(_gh_update_script_candidate_ids(component_data, generic_keys))
+    candidates.extend(_gh_update_script_candidate_ids(script_data, instance_keys + generic_keys))
+    candidates.extend(_gh_update_script_candidate_ids(write_data, instance_keys + generic_keys))
+
+    for candidate in candidates:
+        if candidate.lower() != caller_lower and _looks_like_guid(candidate):
+            return candidate
+    for candidate in candidates:
+        if candidate.lower() != caller_lower:
+            return candidate
+    return caller
 
 
 def _summarize_gh_update_script_errors(errors_response: Any, guid: str) -> dict[str, Any]:
@@ -1663,10 +1705,10 @@ async def _execute_gh_update_script(arguments: dict[str, Any], port: int) -> dic
             return write_result
         write_data = write_result.get("data", {})
         resolved_guid = _gh_update_script_resolved_guid(
-            write_data,
-            component_data,
-            script_data,
-            fallback=guid,
+            caller_guid=guid,
+            component_data=component_data,
+            script_data=script_data,
+            write_data=write_data,
         )
 
         if bool(arguments.get("check_errors", True)):
