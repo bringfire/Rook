@@ -29,6 +29,22 @@ namespace Rook.Tests.Threading
             Assert.Contains("std::swap(m_queue, deferred);", drainQueue);
         }
 
+        [Fact]
+        public void DrainQueue_RechecksNormalTasksBeforeExecutionAndRequeuesWhenCommandStarts()
+        {
+            var source = ReadSourceFile("src", "RookNative", "Threading", "MainThreadDispatcher.cpp");
+            var drainQueue = ExtractFunction(source, "CMainThreadDispatcher::DrainQueue");
+
+            Assert.Contains(
+                "queued.policy == DispatchPolicy::Normal && IsNormalDispatchBlocked()",
+                drainQueue);
+            Assert.Contains("std::queue<QueuedTask> deferredNormal", drainQueue);
+            Assert.Contains("std::queue<QueuedTask> commandControl", drainQueue);
+            Assert.Contains("deferredNormal.push(std::move(queued));", drainQueue);
+            Assert.Contains("commandControl.push(std::move(queued));", drainQueue);
+            Assert.Contains("std::swap(local, commandControl);", drainQueue);
+        }
+
         private static string ExtractFunction(string source, string functionName)
         {
             var signatureStart = source.IndexOf(functionName + "(", StringComparison.Ordinal);

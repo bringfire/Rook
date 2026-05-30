@@ -162,10 +162,64 @@ void CMainThreadDispatcher::DrainQueue()
             std::swap(local, m_queue);
         }
     }
+
+    auto requeueAtFront = [this](std::queue<QueuedTask>& tasks) {
+        if (tasks.empty())
+            return;
+
+        std::lock_guard<std::mutex> lock(m_mutex);
+        if (!m_queue.empty())
+        {
+            std::queue<QueuedTask> existing;
+            std::swap(existing, m_queue);
+            while (!existing.empty())
+            {
+                tasks.push(std::move(existing.front()));
+                existing.pop();
+            }
+        }
+        std::swap(m_queue, tasks);
+    };
+
     while (!local.empty())
     {
         auto queued = std::move(local.front());
         local.pop();
+
+        if (IsAllDispatchBlocked())
+        {
+            std::queue<QueuedTask> blocked;
+            blocked.push(std::move(queued));
+            while (!local.empty())
+            {
+                auto queued = std::move(local.front());
+                local.pop();
+                blocked.push(std::move(queued));
+            }
+            requeueAtFront(blocked);
+            return;
+        }
+
+        if (queued.policy == DispatchPolicy::Normal && IsNormalDispatchBlocked())
+        {
+            std::queue<QueuedTask> deferredNormal;
+            std::queue<QueuedTask> commandControl;
+            deferredNormal.push(std::move(queued));
+            while (!local.empty())
+            {
+                auto queued = std::move(local.front());
+                local.pop();
+                if (queued.policy == DispatchPolicy::CommandControl)
+                    commandControl.push(std::move(queued));
+                else
+                    deferredNormal.push(std::move(queued));
+            }
+
+            requeueAtFront(deferredNormal);
+            std::swap(local, commandControl);
+            continue;
+        }
+
         try
         {
             queued.task();
