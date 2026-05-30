@@ -95,6 +95,28 @@ namespace Rook.Tests.Threading
             Assert.DoesNotContain("deferredNormal", drainQueue);
         }
 
+        [Fact]
+        public void CommandInteractive_OnlyPromptSendCancelAndEscapeUseCommandControl()
+        {
+            var commandSource = ReadSourceFile("src", "RookNative", "Handlers", "CommandInteractiveHandler.cpp");
+            var promptSource = ReadSourceFile("src", "RookNative", "Interactive", "PromptManager.cpp");
+
+            var prompt = ExtractFunction(commandSource, "TryReadPromptOnMain");
+            var start = ExtractFunction(commandSource, "HandleCommandStart");
+            var input = ExtractFunction(commandSource, "HandleCommandInput");
+            var cancel = ExtractFunction(commandSource, "HandleCommandCancel");
+            var escape = ExtractFunction(promptSource, "PostEscapeToRhino");
+
+            Assert.Contains("DispatchPolicy::CommandControl", prompt);
+            Assert.DoesNotContain("DispatchPolicy::CommandControl", start);
+            Assert.Contains("DispatchPolicy::CommandControl", input);
+            Assert.Contains("DispatchPolicy::CommandControl", cancel);
+            Assert.Contains("DispatchPolicy::CommandControl", escape);
+
+            Assert.DoesNotContain("CRhinoObjectIterator", input);
+            Assert.DoesNotContain("objects_before", input);
+        }
+
         private static string ExtractFunction(string source, string functionName)
         {
             var signatureStart = source.IndexOf(functionName + "(", StringComparison.Ordinal);
