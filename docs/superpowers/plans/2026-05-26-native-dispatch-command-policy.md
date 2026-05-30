@@ -462,7 +462,7 @@ void CMainThreadDispatcher::EndSaveGuard()
                 std::memory_order_acq_rel,
                 std::memory_order_acquire))
         {
-            if (current == 1 && !IsCommandActive())
+            if (current == 1)
             {
                 HWND hWnd = RhinoApp().MainWnd();
                 if (hWnd != nullptr)
@@ -475,6 +475,10 @@ void CMainThreadDispatcher::EndSaveGuard()
     m_saveDepth.store(0, std::memory_order_release);
 }
 ```
+
+Post the wake whenever save depth reaches zero, even if Rhino is still command-active.
+Save remains the stronger all-dispatch block while active, but command-control work may
+need to drain immediately after save releases.
 
 - [ ] **Step 6: Add source-level policy tests if native test harness is absent**
 
