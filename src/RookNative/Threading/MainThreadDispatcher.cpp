@@ -245,7 +245,7 @@ void CMainThreadDispatcher::EndSaveGuard()
                                               std::memory_order_acq_rel,
                                               std::memory_order_acquire))
         {
-            shouldPostDispatch = (current == 1 && !IsNormalDispatchBlocked());
+            shouldPostDispatch = (current == 1);
             break;
         }
     }

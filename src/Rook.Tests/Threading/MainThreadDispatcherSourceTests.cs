@@ -17,6 +17,18 @@ namespace Rook.Tests.Threading
         }
 
         [Fact]
+        public void EndSaveGuard_PostsWhenSaveDepthReleasesEvenIfCommandActive()
+        {
+            var source = ReadSourceFile("src", "RookNative", "Threading", "MainThreadDispatcher.cpp");
+            var endSaveGuard = ExtractFunction(source, "CMainThreadDispatcher::EndSaveGuard");
+
+            Assert.Contains("shouldPostDispatch = (current == 1);", endSaveGuard);
+            Assert.Contains("PostMessage(m_subclassedHwnd, WM_ROOK_DISPATCH", endSaveGuard);
+            Assert.DoesNotContain("IsNormalDispatchBlocked()", endSaveGuard);
+            Assert.DoesNotContain("IsCommandActive()", endSaveGuard);
+        }
+
+        [Fact]
         public void DrainQueue_DefersNormalTasksInOriginalRelativeOrderWhileCommandActive()
         {
             var source = ReadSourceFile("src", "RookNative", "Threading", "MainThreadDispatcher.cpp");
