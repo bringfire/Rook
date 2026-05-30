@@ -124,6 +124,23 @@ void CMainThreadDispatcher::Stop()
 
 // --- Queue Processing ---
 
+void CMainThreadDispatcher::CancelQueuedTasks(std::queue<QueuedTask>& tasks)
+{
+    while (!tasks.empty())
+    {
+        auto queued = std::move(tasks.front());
+        tasks.pop();
+        try
+        {
+            if (queued.cancel)
+                queued.cancel();
+        }
+        catch (...)
+        {
+        }
+    }
+}
+
 void CMainThreadDispatcher::DrainQueue()
 {
     // Save-guard: while a file-save command (_Save, _SaveSmall, _SaveAs)
@@ -141,21 +158,22 @@ void CMainThreadDispatcher::DrainQueue()
     // lock. This prevents deadlock if a task calls Dispatch() re-entrantly
     // (which would try to acquire m_mutex).
     std::queue<QueuedTask> local;
+    std::queue<QueuedTask> blockedNormal;
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         if (normalDispatchBlocked)
         {
-            std::queue<QueuedTask> deferred;
+            std::queue<QueuedTask> commandControl;
             while (!m_queue.empty())
             {
                 auto queued = std::move(m_queue.front());
                 m_queue.pop();
                 if (queued.policy == DispatchPolicy::CommandControl)
-                    local.push(std::move(queued));
+                    commandControl.push(std::move(queued));
                 else
-                    deferred.push(std::move(queued));
+                    blockedNormal.push(std::move(queued));
             }
-            std::swap(m_queue, deferred);
+            std::swap(local, commandControl);
         }
         else
         {
@@ -181,6 +199,20 @@ void CMainThreadDispatcher::DrainQueue()
         std::swap(m_queue, tasks);
     };
 
+    if (IsAllDispatchBlocked())
+    {
+        while (!local.empty())
+        {
+            auto queued = std::move(local.front());
+            local.pop();
+            blockedNormal.push(std::move(queued));
+        }
+        requeueAtFront(blockedNormal);
+        return;
+    }
+
+    CancelQueuedTasks(blockedNormal);
+
     while (!local.empty())
     {
         auto queued = std::move(local.front());
@@ -202,9 +234,9 @@ void CMainThreadDispatcher::DrainQueue()
 
         if (queued.policy == DispatchPolicy::Normal && IsNormalDispatchBlocked())
         {
-            std::queue<QueuedTask> deferredNormal;
+            std::queue<QueuedTask> blockedNormal;
             std::queue<QueuedTask> commandControl;
-            deferredNormal.push(std::move(queued));
+            blockedNormal.push(std::move(queued));
             while (!local.empty())
             {
                 auto queued = std::move(local.front());
@@ -212,10 +244,10 @@ void CMainThreadDispatcher::DrainQueue()
                 if (queued.policy == DispatchPolicy::CommandControl)
                     commandControl.push(std::move(queued));
                 else
-                    deferredNormal.push(std::move(queued));
+                    blockedNormal.push(std::move(queued));
             }
 
-            requeueAtFront(deferredNormal);
+            CancelQueuedTasks(blockedNormal);
             std::swap(local, commandControl);
             continue;
         }

@@ -103,8 +103,16 @@ private:
         CMainThreadDispatcher& m_owner;
     };
 
+    struct QueuedTask
+    {
+        DispatchPolicy policy = DispatchPolicy::Normal;
+        std::function<void()> task;
+        std::function<void()> cancel;
+    };
+
     // Called by CIdleWatcher::Notify AND SubclassProc on the main thread.
     void DrainQueue();
+    static void CancelQueuedTasks(std::queue<QueuedTask>& tasks);
     bool IsAllDispatchBlocked() const { return m_saveDepth.load(std::memory_order_acquire) > 0; }
     bool IsNormalDispatchBlocked() const;
 
@@ -117,12 +125,6 @@ private:
 
     // Unique ID for our subclass (per SetWindowSubclass contract).
     static constexpr UINT_PTR SUBCLASS_ID = 0x526F6F6B; // "Rook" in ASCII
-
-    struct QueuedTask
-    {
-        DispatchPolicy policy = DispatchPolicy::Normal;
-        std::function<void()> task;
-    };
 
     std::queue<QueuedTask> m_queue;
     std::mutex m_mutex;
@@ -160,12 +162,36 @@ auto CMainThreadDispatcher::Dispatch(
             return p.get_future();
         }
 
-        auto task = std::make_shared<std::packaged_task<ReturnType()>>(
-            std::forward<F>(func));
-        future = task->get_future();
+        auto promise = std::make_shared<std::promise<ReturnType>>();
+        future = promise->get_future();
+
+        auto taskFunc = std::make_shared<std::decay_t<F>>(std::forward<F>(func));
         m_queue.push(QueuedTask{
             policy,
-            [task]() { (*task)(); }
+            [promise, taskFunc]() mutable
+            {
+                try
+                {
+                    if constexpr (std::is_void_v<ReturnType>)
+                    {
+                        (*taskFunc)();
+                        promise->set_value();
+                    }
+                    else
+                    {
+                        promise->set_value((*taskFunc)());
+                    }
+                }
+                catch (...)
+                {
+                    promise->set_exception(std::current_exception());
+                }
+            },
+            [promise]()
+            {
+                promise->set_exception(std::make_exception_ptr(
+                    std::runtime_error("RookNative dispatcher is busy: Rhino command is active")));
+            }
         });
     }
 
