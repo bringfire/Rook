@@ -4,11 +4,25 @@
 
 **Goal:** Prevent normal Rook main-thread work from executing inside active Rhino command loops while preserving explicit command-control operations.
 
-**Architecture:** Add per-task dispatch policy to the native main-thread dispatcher. A dedicated dispatcher-owned command watcher tracks Rhino command depth; during active commands the dispatcher drains only `CommandControl` tasks and keeps `Normal` tasks queued in original order until command depth returns to zero.
+**Architecture:** Add per-task dispatch policy to the native main-thread dispatcher. A dedicated dispatcher-owned command watcher tracks Rhino command depth; during active commands the dispatcher drains `CommandControl` tasks and fails `Normal` tasks fast with a deterministic busy exception so native HTTP workers are released. Save guard remains stronger than all dispatch and preserves queued work without cancellation while active.
 
 **Tech Stack:** C++17, Rhino 8 C++ SDK, `CRhinoEventWatcher`, `CRhinoIsIdle`, Win32 `WM_ROOK_DISPATCH`, existing RookNative dispatcher.
 
 ---
+
+## 2026-05-30 Update
+
+This 2026-05-26 plan originally specified indefinite deferral for `Normal`
+dispatch while Rhino was command-active. That behavior was superseded by
+`docs/superpowers/plans/2026-05-30-native-command-control-starvation.md`.
+
+Do not implement the older "keep `Normal` tasks queued until command end"
+behavior from this document. The final branch behavior is:
+
+- `CommandControl` dispatch may run while command-active
+- `Normal` dispatch fails fast with a deterministic busy exception while
+  command-active
+- save guard remains stronger than all dispatch and does not cancel queued work
 
 ## Scope Guard
 
@@ -55,6 +69,7 @@ struct QueuedTask
 {
     DispatchPolicy policy = DispatchPolicy::Normal;
     std::function<void()> task;
+    std::function<void()> cancel;
 };
 
 std::queue<QueuedTask> m_queue;
@@ -81,18 +96,40 @@ auto Dispatch(
 
 Change the template definition signature the same way.
 
-Replace the queue push:
+Replace packaged-task queueing with promise-backed queueing so cancellation can
+complete the returned future:
 
 ```cpp
-m_queue.push([task]() { (*task)(); });
-```
+auto promise = std::make_shared<std::promise<ReturnType>>();
+future = promise->get_future();
 
-with:
-
-```cpp
+auto taskFunc = std::make_shared<std::decay_t<F>>(std::forward<F>(func));
 m_queue.push(QueuedTask{
     policy,
-    [task]() { (*task)(); }
+    [promise, taskFunc]() mutable
+    {
+        try
+        {
+            if constexpr (std::is_void_v<ReturnType>)
+            {
+                (*taskFunc)();
+                promise->set_value();
+            }
+            else
+            {
+                promise->set_value((*taskFunc)());
+            }
+        }
+        catch (...)
+        {
+            promise->set_exception(std::current_exception());
+        }
+    },
+    [promise]()
+    {
+        promise->set_exception(std::make_exception_ptr(
+            std::runtime_error("RookNative dispatcher is busy: Rhino command is active")));
+    }
 });
 ```
 
@@ -338,40 +375,46 @@ Save remains stricter than command-active filtering: while save depth is active,
 drain nothing and preserve all queued work. Do not allow `CommandControl` to run
 during save in this PR.
 
-- [ ] **Step 3: Replace swap block with command-active policy filtering**
+- [ ] **Step 3: Replace swap block with command-active busy cancellation**
 
-Replace the existing swap block with policy-aware filtering:
+Replace the existing swap block with policy-aware filtering and a cancellation
+queue. `Normal` work must not remain queued solely because Rhino is
+command-active; complete those futures with the deterministic busy exception
+outside `m_mutex`.
 
 ```cpp
-const bool normalBlocked = IsNormalDispatchBlocked();
+const bool normalDispatchBlocked = IsNormalDispatchBlocked();
 
 std::queue<QueuedTask> local;
-std::queue<QueuedTask> deferred;
+std::queue<QueuedTask> blockedNormal;
 {
     std::lock_guard<std::mutex> lock(m_mutex);
-    while (!m_queue.empty())
+    if (normalDispatchBlocked)
     {
-        auto queued = std::move(m_queue.front());
-        m_queue.pop();
-
-        if (normalBlocked && queued.policy == DispatchPolicy::Normal)
+        std::queue<QueuedTask> commandControl;
+        while (!m_queue.empty())
         {
-            deferred.push(std::move(queued));
+            auto queued = std::move(m_queue.front());
+            m_queue.pop();
+            if (queued.policy == DispatchPolicy::CommandControl)
+                commandControl.push(std::move(queued));
+            else
+                blockedNormal.push(std::move(queued));
         }
-        else
-        {
-            local.push(std::move(queued));
-        }
+        std::swap(local, commandControl);
     }
-
-    if (!deferred.empty())
+    else
     {
-        std::swap(m_queue, deferred);
+        std::swap(local, m_queue);
     }
 }
+
+CancelQueuedTasks(blockedNormal);
 ```
 
-This preserves normal task order: during command-active drains, `Normal A` and `Normal C` stay in `deferred` in their original order while `CommandControl B` moves to `local`.
+This preserves ordering as far as the final policy allows: during
+command-active drains, `CommandControl` work may bypass blocked `Normal` work
+only because that `Normal` work is cancelled and its future is completed.
 
 - [ ] **Step 4: Keep execution outside the lock**
 
@@ -390,7 +433,7 @@ while (!local.empty())
     }
     catch (...)
     {
-        // packaged_task captures exceptions into the future.
+        // queued task wrappers capture exceptions into the future.
     }
 }
 ```
@@ -441,9 +484,11 @@ If there is no native unit test harness already configured, add focused source-l
 Assert.Contains("enum class DispatchPolicy", header);
 Assert.Contains("DispatchPolicy::Normal", header);
 Assert.Contains("DispatchPolicy::CommandControl", header);
-Assert.Contains("std::queue<QueuedTask> deferred", source);
-Assert.Contains("deferred.push(std::move(queued))", source);
-Assert.Contains("local.push(std::move(queued))", source);
+Assert.Contains("std::function<void()> cancel", header);
+Assert.Contains("std::queue<QueuedTask> blockedNormal", source);
+Assert.Contains("blockedNormal.push(std::move(queued))", source);
+Assert.Contains("CancelQueuedTasks(blockedNormal)", source);
+Assert.Contains("std::runtime_error(\"RookNative dispatcher is busy: Rhino command is active\")", header);
 Assert.Contains("bool IsAllDispatchBlocked() const", header);
 Assert.Contains("if (IsAllDispatchBlocked())", source);
 Assert.Contains("m_commandWatcher->Enable(TRUE);", source);
@@ -471,7 +516,7 @@ dotnet test .\src\Rook.Tests\Rook.Tests.csproj --no-restore --filter "FullyQuali
 
 ```powershell
 git add src\RookNative\Threading\MainThreadDispatcher.h src\RookNative\Threading\MainThreadDispatcher.cpp src\Rook.Tests
-git commit -m "feat: defer normal dispatch during active commands"
+git commit -m "fix: fail normal dispatch fast during active commands"
 ```
 
 ## Task 4: Mark Only Explicit Command-Control Dispatches
@@ -708,7 +753,7 @@ $diffCheckResult = "git diff --check origin/main...HEAD passed"
 $body = @'
 ## Summary
 
-Adds a native dispatcher command-active policy so normal Rook main-thread work waits while Rhino is inside an active command loop. Explicit command-control work remains able to run during modal command loops.
+Adds a native dispatcher command-active policy so normal Rook main-thread work fails fast with a busy error while Rhino is inside an active command loop. Explicit command-control work remains able to run during modal command loops.
 
 This is a lifecycle safety PR, not a Vision panel fix. PR #193 remains paused until this guard passes live startup recent-file validation.
 
@@ -717,8 +762,11 @@ This is a lifecycle safety PR, not a Vision panel fix. PR #193 remains paused un
 - Adds `DispatchPolicy` per queued dispatcher task.
 - Defaults existing dispatch calls to `Normal`.
 - Tracks native command depth in a dispatcher-owned lifecycle watcher.
-- Drains only `CommandControl` work while command depth is active.
-- Preserves queued `Normal` task order for post-command drain.
+- Drains `CommandControl` work while command depth is active.
+- Cancels blocked `Normal` tasks with a deterministic busy exception while
+  command depth is active.
+- Keeps save guard stronger than all dispatch without cancelling queued work
+  while save is active.
 - Marks only prompt/cancel/send/escape control paths as `CommandControl`.
 
 ## Validation

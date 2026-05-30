@@ -1,5 +1,21 @@
 # Native Dispatcher Command-Active Policy
 
+## 2026-05-30 Update
+
+The original version of this design kept `Normal` dispatch work queued until
+Rhino command depth returned to zero. That behavior was superseded by
+`docs/superpowers/plans/2026-05-30-native-command-control-starvation.md`
+because deferred `Normal` futures can occupy every native HTTP worker and
+starve `/command/prompt`, `/command/send`, and `/command/cancel`.
+
+The current branch behavior is:
+
+- save guard remains strongest and blocks all dispatch without cancelling work
+- while command-active, `CommandControl` work is allowed to run
+- while command-active, queued `Normal` work fails fast with a deterministic
+  busy exception instead of waiting for command end
+- `CommandControl` must remain narrow and must not perform model/document work
+
 ## Scope
 
 This is a P0 Rhino lifecycle safety change. It is not a Vision panel fix and
@@ -84,13 +100,13 @@ When command depth is greater than zero:
 
 ```text
 Drain CommandControl tasks.
-Leave Normal tasks queued.
+Cancel Normal tasks with a deterministic Rhino-command-active busy exception.
 ```
 
 When command depth returns to zero:
 
 ```text
-Post WM_ROOK_DISPATCH to drain queued Normal work later.
+Post WM_ROOK_DISPATCH so any later queued work gets another drain opportunity.
 Do not synchronously drain Normal work inside OnEndCommand.
 ```
 
@@ -114,15 +130,16 @@ Command depth must be defensive:
 
 ## Async Contract Change
 
-Futures for queued `Normal` work may now wait while Rhino is running a command.
-That is expected and safer than entering Rhino at an unsafe lifecycle point.
+Futures for queued `Normal` work now fail fast while Rhino is running a command.
+This is safer than entering Rhino at an unsafe lifecycle point and prevents
+normal HTTP requests from occupying all native HTTP workers until command end.
 
 The P0 PR does not need to rewrite every endpoint response. Where practical,
-future endpoint work should report this as Rhino busy/deferred rather than an
-ambiguous dispatcher failure or broken runtime. The key contract is:
+future endpoint work should report this as Rhino busy rather than an ambiguous
+dispatcher failure or broken runtime. The key contract is:
 
 ```text
-If work needs Rhino model/UI state, dispatch as Normal and accept that it may wait.
+If work needs Rhino model/UI state, dispatch as Normal and accept that it may fail busy while command-active.
 If work must control an active command, dispatch as CommandControl.
 If work does not need Rhino, do not use the Rhino main-thread dispatcher.
 ```
@@ -150,13 +167,15 @@ Do not mark broad HTTP/model handlers as `CommandControl`.
 Automated or source-level checks should prove:
 
 - `Dispatch(...)` defaults to `DispatchPolicy::Normal`.
-- queued items store policy per task.
-- command-active draining leaves `Normal` work queued.
+- queued items store policy, runnable task, and cancellation callback per task.
+- command-active draining cancels `Normal` work with the deterministic busy
+  exception.
 - command-active draining runs `CommandControl` work.
-- queue order is preserved for queued normal work: with `Normal A`,
-  `CommandControl B`, `Normal C` enqueued during command-active, only `B` runs
-  during the command, and `A` then `C` run after command end.
-- after command depth returns to zero, queued `Normal` work can drain.
+- while command-active, `CommandControl` may bypass `Normal` work only because
+  the blocked `Normal` work is cancelled and its future is completed.
+- if a `Normal` task starts a command mid-drain, later `Normal` tasks are
+  cancelled fast rather than requeued; later `CommandControl` tasks may still
+  run.
 - companion load dispatch remains default `Normal`.
 - only the audited prompt/cancel/send/escape paths are marked
   `CommandControl`.
