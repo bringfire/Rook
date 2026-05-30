@@ -13,8 +13,8 @@
 // posted messages. This lets cancel/timeout Dispatch calls reach the main
 // thread even while a modal operation is in progress.
 //
-// DrainQueue() is re-entrant-safe (swap-and-drain), so redundant calls
-// from both paths are harmless.
+// DrainQueue() is re-entrant-safe and executes outside the queue lock, so
+// redundant calls from both paths are harmless.
 
 #pragma once
 
@@ -25,6 +25,12 @@
 // WM_USER+42 could collide with Rhino's own private messages. WM_APP is
 // explicitly designated for application-level inter-component messaging.
 constexpr UINT WM_ROOK_DISPATCH = WM_APP + 42;
+
+enum class DispatchPolicy
+{
+    Normal,
+    CommandControl
+};
 
 class CMainThreadDispatcher
 {
@@ -39,7 +45,10 @@ public:
     // INVARIANT: Never call future.get() on the main thread — the main thread
     // is the one that executes the task, so blocking it would deadlock.
     template<typename F>
-    auto Dispatch(F&& func) -> std::future<std::invoke_result_t<F>>;
+    auto Dispatch(
+        F&& func,
+        DispatchPolicy policy = DispatchPolicy::Normal)
+        -> std::future<std::invoke_result_t<F>>;
 
     // Register the idle watcher with Rhino. Must be called from the main thread.
     // Call once from OnLoadPlugIn, BEFORE CRookServer::Instance().Start().
@@ -59,8 +68,12 @@ public:
     // OnBeginCommand increments when _Save/_SaveSmall/_SaveAs starts;
     // OnEndCommand decrements.  DrainQueue() defers when depth > 0.
     void BeginSaveGuard() { m_saveDepth.fetch_add(1, std::memory_order_release); }
-    void EndSaveGuard()   { m_saveDepth.fetch_sub(1, std::memory_order_release); }
+    void EndSaveGuard();
     bool IsSaving() const { return m_saveDepth.load(std::memory_order_acquire) > 0; }
+
+    void BeginCommandGuard();
+    void EndCommandGuard();
+    bool IsCommandActive() const;
 
 private:
     // CRhinoIsIdle subclass — must be heap-allocated because the plugin GUID
@@ -75,8 +88,25 @@ private:
         CMainThreadDispatcher& m_owner;
     };
 
+    class CCommandWatcher : public CRhinoEventWatcher
+    {
+    public:
+        explicit CCommandWatcher(CMainThreadDispatcher& owner);
+
+        void OnBeginCommand(const CRhinoCommand& command,
+                            const CRhinoCommandContext& context) override;
+        void OnEndCommand(const CRhinoCommand& command,
+                          const CRhinoCommandContext& context,
+                          CRhinoCommand::result rc) override;
+
+    private:
+        CMainThreadDispatcher& m_owner;
+    };
+
     // Called by CIdleWatcher::Notify AND SubclassProc on the main thread.
     void DrainQueue();
+    bool IsAllDispatchBlocked() const { return m_saveDepth.load(std::memory_order_acquire) > 0; }
+    bool IsNormalDispatchBlocked() const;
 
     // WndProc subclass — intercepts WM_ROOK_DISPATCH even during modal loops.
     // SetWindowSubclass chains safely in multi-plugin environments (unlike
@@ -88,18 +118,30 @@ private:
     // Unique ID for our subclass (per SetWindowSubclass contract).
     static constexpr UINT_PTR SUBCLASS_ID = 0x526F6F6B; // "Rook" in ASCII
 
-    std::queue<std::function<void()>> m_queue;
+    struct QueuedTask
+    {
+        DispatchPolicy policy = DispatchPolicy::Normal;
+        std::function<void()> task;
+    };
+
+    std::queue<QueuedTask> m_queue;
     std::mutex m_mutex;
     std::unique_ptr<CIdleWatcher> m_watcher;
+    std::unique_ptr<CCommandWatcher> m_commandWatcher;
     HWND m_subclassedHwnd = nullptr;
     std::atomic<bool> m_running{false};
     std::atomic<int>  m_saveDepth{0};
+    mutable std::mutex m_commandMutex;
+    int m_commandDepth = 0;
 };
 
 // --- Template implementation (must be in header) ---
 
 template<typename F>
-auto CMainThreadDispatcher::Dispatch(F&& func) -> std::future<std::invoke_result_t<F>>
+auto CMainThreadDispatcher::Dispatch(
+    F&& func,
+    DispatchPolicy policy)
+    -> std::future<std::invoke_result_t<F>>
 {
     using ReturnType = std::invoke_result_t<F>;
 
@@ -121,7 +163,10 @@ auto CMainThreadDispatcher::Dispatch(F&& func) -> std::future<std::invoke_result
         auto task = std::make_shared<std::packaged_task<ReturnType()>>(
             std::forward<F>(func));
         future = task->get_future();
-        m_queue.push([task]() { (*task)(); });
+        m_queue.push(QueuedTask{
+            policy,
+            [task]() { (*task)(); }
+        });
     }
 
     // Wake Rhino's message pump so CRhinoIsIdle::Notify fires promptly.

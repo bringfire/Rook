@@ -26,9 +26,18 @@ void CMainThreadDispatcher::Start(ON_UUID plugin_id)
     if (m_running.load())
         return;
 
+    {
+        std::lock_guard<std::mutex> lock(m_commandMutex);
+        m_commandDepth = 0;
+    }
+
     m_watcher = std::make_unique<CIdleWatcher>(plugin_id, *this);
     m_watcher->Register();
     m_watcher->Enable(true);
+
+    m_commandWatcher = std::make_unique<CCommandWatcher>(*this);
+    m_commandWatcher->Register();
+    m_commandWatcher->Enable(TRUE);
 
     // Install WndProc subclass for modal-loop drain path.
     // SetWindowSubclass is safe for multi-plugin environments — each plugin
@@ -76,6 +85,18 @@ void CMainThreadDispatcher::Stop()
         m_subclassedHwnd = nullptr;
     }
 
+    if (m_commandWatcher)
+    {
+        m_commandWatcher->Enable(FALSE);
+        m_commandWatcher->UnRegister();
+        m_commandWatcher.reset();
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(m_commandMutex);
+        m_commandDepth = 0;
+    }
+
     if (m_watcher)
     {
         m_watcher->Enable(false);
@@ -94,7 +115,7 @@ void CMainThreadDispatcher::Stop()
     // destroyed AFTER the lock releases (C++ reverse destruction order).
     // If a packaged_task destructor transitively calls Dispatch(), it
     // must be able to acquire m_mutex — deadlocks if lock is still held.
-    std::queue<std::function<void()>> discard;
+    std::queue<QueuedTask> discard;
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         std::swap(discard, m_queue);
@@ -111,24 +132,43 @@ void CMainThreadDispatcher::DrainQueue()
     // serialization and prevent the temp-file rename from succeeding.
     // Tasks remain queued and drain on the next idle/WM_ROOK_DISPATCH
     // after the save command completes.
-    if (m_saveDepth.load(std::memory_order_acquire) > 0)
+    if (IsAllDispatchBlocked())
         return;
 
-    // Swap-and-drain: hold the lock only for the swap, then execute
-    // tasks outside the lock. This prevents deadlock if a task calls
-    // Dispatch() re-entrantly (which would try to acquire m_mutex).
-    std::queue<std::function<void()>> local;
+    const bool normalDispatchBlocked = IsNormalDispatchBlocked();
+
+    // Hold the lock only while moving tasks, then execute tasks outside the
+    // lock. This prevents deadlock if a task calls Dispatch() re-entrantly
+    // (which would try to acquire m_mutex).
+    std::queue<QueuedTask> local;
     {
         std::lock_guard<std::mutex> lock(m_mutex);
-        std::swap(local, m_queue);
+        if (normalDispatchBlocked)
+        {
+            std::queue<QueuedTask> deferred;
+            while (!m_queue.empty())
+            {
+                auto queued = std::move(m_queue.front());
+                m_queue.pop();
+                if (queued.policy == DispatchPolicy::CommandControl)
+                    local.push(std::move(queued));
+                else
+                    deferred.push(std::move(queued));
+            }
+            std::swap(m_queue, deferred);
+        }
+        else
+        {
+            std::swap(local, m_queue);
+        }
     }
     while (!local.empty())
     {
-        auto task = std::move(local.front());
+        auto queued = std::move(local.front());
         local.pop();
         try
         {
-            task();
+            queued.task();
         }
         catch (...)
         {
@@ -137,6 +177,70 @@ void CMainThreadDispatcher::DrainQueue()
             // abandon the remaining tasks and leave their futures hung.
         }
     }
+}
+
+// --- Command Guard ---
+
+void CMainThreadDispatcher::EndSaveGuard()
+{
+    bool shouldPostDispatch = false;
+    int current = m_saveDepth.load(std::memory_order_acquire);
+    while (current > 0)
+    {
+        if (m_saveDepth.compare_exchange_weak(current, current - 1,
+                                              std::memory_order_acq_rel,
+                                              std::memory_order_acquire))
+        {
+            shouldPostDispatch = (current == 1 && !IsNormalDispatchBlocked());
+            break;
+        }
+    }
+
+    if (shouldPostDispatch && m_subclassedHwnd != nullptr)
+    {
+        ::PostMessage(m_subclassedHwnd, WM_ROOK_DISPATCH, 0, 0);
+    }
+}
+
+void CMainThreadDispatcher::BeginCommandGuard()
+{
+    std::lock_guard<std::mutex> lock(m_commandMutex);
+    ++m_commandDepth;
+}
+
+void CMainThreadDispatcher::EndCommandGuard()
+{
+    bool shouldPostDispatch = false;
+    {
+        std::lock_guard<std::mutex> lock(m_commandMutex);
+        if (m_commandDepth == 0)
+            return;
+
+        --m_commandDepth;
+        shouldPostDispatch = (m_commandDepth == 0);
+    }
+
+    if (shouldPostDispatch && m_subclassedHwnd != nullptr)
+    {
+        ::PostMessage(m_subclassedHwnd, WM_ROOK_DISPATCH, 0, 0);
+    }
+}
+
+bool CMainThreadDispatcher::IsCommandActive() const
+{
+    std::lock_guard<std::mutex> lock(m_commandMutex);
+    return m_commandDepth > 0;
+}
+
+bool CMainThreadDispatcher::IsNormalDispatchBlocked() const
+{
+    if (IsCommandActive())
+        return true;
+
+    // The event watcher can miss commands that were already active when
+    // RookNative loaded, including startup recent-file _Open. Check Rhino's
+    // current command stack at drain time so normal work remains deferred.
+    return RhinoApp().InCommand(false) > 0;
 }
 
 // --- CIdleWatcher ---
@@ -152,6 +256,29 @@ void CMainThreadDispatcher::CIdleWatcher::Notify(
     const CRhinoIsIdle::CParameters& /*params*/)
 {
     m_owner.DrainQueue();
+}
+
+// --- CCommandWatcher ---
+
+CMainThreadDispatcher::CCommandWatcher::CCommandWatcher(
+    CMainThreadDispatcher& owner)
+    : m_owner(owner)
+{
+}
+
+void CMainThreadDispatcher::CCommandWatcher::OnBeginCommand(
+    const CRhinoCommand& /*command*/,
+    const CRhinoCommandContext& /*context*/)
+{
+    m_owner.BeginCommandGuard();
+}
+
+void CMainThreadDispatcher::CCommandWatcher::OnEndCommand(
+    const CRhinoCommand& /*command*/,
+    const CRhinoCommandContext& /*context*/,
+    CRhinoCommand::result /*rc*/)
+{
+    m_owner.EndCommandGuard();
 }
 
 // --- WndProc Subclass ---
