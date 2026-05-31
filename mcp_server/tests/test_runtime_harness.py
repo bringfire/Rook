@@ -2175,6 +2175,7 @@ def test_runtime_harness_cli_help_works():
     assert "ping-only" in result.stdout
     assert "gh-readiness" in result.stdout
     assert "gh-python-geometry-output" in result.stdout
+    assert "command-control-saturation" in result.stdout
 
 
 def test_runtime_harness_maps_gh_python_geometry_output_smoke():
@@ -2236,6 +2237,29 @@ def test_runtime_harness_maps_runscript_safety_hooks_smoke():
     assert module._launch_env_overrides("runscript-safety-hooks") == {
         "ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING": None,
         "ROOK_ENABLE_RUNSCRIPT_SAFETY_TEST_HOOKS": "1",
+    }
+
+
+def test_runtime_harness_maps_command_control_saturation_smoke():
+    repo_root = Path(__file__).resolve().parents[2]
+    module = _load_harness_cli_module()
+
+    command, cwd = module._smoke_command("command-control-saturation", repo_root)
+
+    assert command == [
+        sys.executable,
+        "-m",
+        "pytest",
+        "tests/test_native_command_control_live.py",
+        "-m",
+        "requires_rhino and command_control_live",
+        "-v",
+    ]
+    assert cwd == repo_root / "mcp_server"
+    assert module._smoke_timeout_seconds("command-control-saturation") == 45.0
+    assert module._readiness_timeout_seconds("command-control-saturation", None) == 45.0
+    assert module._launch_env_overrides("command-control-saturation") == {
+        "ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING": "1",
     }
 
 
