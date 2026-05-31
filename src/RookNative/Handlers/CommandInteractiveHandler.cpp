@@ -5,7 +5,8 @@
 // POST /command/send    — Send input to an active command
 // POST /command/cancel  — Cancel active command (Escape)
 //
-// All 4 endpoints use standard Dispatch() — no modal loops involved.
+// Prompt reads and command-control keystrokes use CommandControl dispatch;
+// command start remains normal dispatch because it mutates document command state.
 // RunScript acts as if each character were typed into the command prompt;
 // when called outside a command it returns immediately and the script runs
 // after control returns to Rhino's message loop.
@@ -125,11 +126,11 @@ PromptRead TryReadPromptOnMain(std::chrono::milliseconds timeout)
 {
     try
     {
-        auto future = CMainThreadDispatcher::Instance().Dispatch([&]() -> std::string {
+        auto future = CMainThreadDispatcher::Instance().Dispatch([]() -> std::string {
             ON_wString prompt;
             RhinoApp().GetCommandPrompt(prompt);
             return WideToUtf8(prompt);
-        });
+        }, DispatchPolicy::CommandControl);
 
         if (future.wait_for(timeout) != std::future_status::ready)
             return {PromptReadState::Unknown, ""};
@@ -320,32 +321,21 @@ void HandleCommandInput(const httplib::Request& req, httplib::Response& res)
 
     try
     {
-        auto future = CMainThreadDispatcher::Instance().Dispatch([&]() -> int {
+        auto future = CMainThreadDispatcher::Instance().Dispatch([&]() {
             CRhinoDoc* pDoc = GetDocument();
             unsigned int docSn = pDoc ? pDoc->RuntimeSerialNumber() : 0;
-            int count = 0;
-            if (pDoc) {
-                CRhinoObjectIterator iter(*pDoc,
-                    CRhinoObjectIterator::normal_or_locked_objects,
-                    CRhinoObjectIterator::active_objects);
-                for (const CRhinoObject* obj = iter.First(); obj; obj = iter.Next())
-                    ++count;
-            }
 
             ON_wString wInput = Utf8ToWide(input);
             wInput += L"\n";
             RhinoApp().RunScript(docSn, static_cast<const wchar_t*>(wInput), 0);
+        }, DispatchPolicy::CommandControl);
 
-            return count;
-        });
-
-        int objectsBefore = future.get();
+        future.get();
 
         nlohmann::json result;
-        result["input_sent"]     = input;
-        result["sent"]           = true;
-        result["objects_before"] = objectsBefore;
-        result["note"]           = "Poll /command/prompt to get actual prompt after ~100ms";
+        result["input_sent"] = input;
+        result["sent"]       = true;
+        result["note"]       = "Poll /command/prompt to get actual prompt after ~100ms";
 
         CRookServer::SendSuccess(res, result);
     }
@@ -372,7 +362,7 @@ void HandleCommandCancel(const httplib::Request& /*req*/, httplib::Response& res
 
             ON_wString cancelScript(L"_Cancel\n");
             RhinoApp().RunScript(docSn, static_cast<const wchar_t*>(cancelScript), 0);
-        });
+        }, DispatchPolicy::CommandControl);
 
         if (future.wait_for(kCancelDispatchTimeout) != std::future_status::ready)
         {

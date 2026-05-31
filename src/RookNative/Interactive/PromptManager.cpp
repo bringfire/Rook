@@ -109,7 +109,7 @@ void PostEscapeToRhino()
         HWND hWnd = RhinoApp().MainWnd();
         if (hWnd)
             ::PostMessage(hWnd, WM_KEYDOWN, VK_ESCAPE, 0);
-    });
+    }, DispatchPolicy::CommandControl);
 }
 
 } // anonymous namespace

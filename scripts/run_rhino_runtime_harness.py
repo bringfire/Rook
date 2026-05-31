@@ -9,6 +9,8 @@ DEFAULT_RHINO_EXE = Path(r"C:\Program Files\Rhino 8\System\Rhino.exe")
 DEFAULT_ARTIFACT_ROOT = Path(r".scratch\rhino-runtime-harness")
 RUNSCRIPT_SAFETY_TIMEOUT_SECONDS = 120.0
 RUNSCRIPT_SAFETY_READINESS_TIMEOUT_SECONDS = 90.0
+COMMAND_CONTROL_SATURATION_TIMEOUT_SECONDS = 45.0
+COMMAND_CONTROL_SATURATION_READINESS_TIMEOUT_SECONDS = 45.0
 
 
 def _repo_root() -> Path:
@@ -86,12 +88,27 @@ def _smoke_command(name: str, repo_root: Path) -> tuple[list[str], Path]:
             ],
             repo_root / "mcp_server",
         )
+    if name == "command-control-saturation":
+        return (
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                "tests/test_native_command_control_live.py",
+                "-m",
+                "requires_rhino and command_control_live",
+                "-v",
+            ],
+            repo_root / "mcp_server",
+        )
     raise ValueError(f"unknown smoke command: {name}")
 
 
 def _smoke_timeout_seconds(name: str) -> float | None:
     if name in {"runscript-safety", "runscript-safety-hooks"}:
         return RUNSCRIPT_SAFETY_TIMEOUT_SECONDS
+    if name == "command-control-saturation":
+        return COMMAND_CONTROL_SATURATION_TIMEOUT_SECONDS
     return None
 
 
@@ -100,6 +117,8 @@ def _readiness_timeout_seconds(name: str, requested: float | None) -> float:
         return requested
     if name in {"runscript-safety", "runscript-safety-hooks"}:
         return RUNSCRIPT_SAFETY_READINESS_TIMEOUT_SECONDS
+    if name == "command-control-saturation":
+        return COMMAND_CONTROL_SATURATION_READINESS_TIMEOUT_SECONDS
     return 30.0
 
 
@@ -113,6 +132,10 @@ def _launch_env_overrides(name: str) -> dict[str, str | None]:
         return {
             "ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING": None,
             "ROOK_ENABLE_RUNSCRIPT_SAFETY_TEST_HOOKS": "1",
+        }
+    if name == "command-control-saturation":
+        return {
+            "ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING": "1",
         }
     return {}
 
@@ -135,6 +158,7 @@ def build_parser() -> argparse.ArgumentParser:
             "gh-python-geometry-output",
             "runscript-safety",
             "runscript-safety-hooks",
+            "command-control-saturation",
         ],
         default="pytest-select",
     )
