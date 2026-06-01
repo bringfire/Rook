@@ -46,8 +46,23 @@ Forbidden:
 - No new public managed HTTP surface.
 - No broad "bridge ready" replacement for domain-specific state.
 - No Revit API references in `src/Rook`.
-- No `.vcxproj` or `.vcxproj.filters` edits in this phase.
+- No `.vcxproj` or `.vcxproj.filters` edits in this phase, except for the
+  documented native build-system exception below.
 - No installer module manifests or full runtime/install correlation.
+
+Documented native build-system exception:
+
+- Phase 1 may add `/bigobj` to the `RookServer.cpp` `ClCompile` item only if
+  direct `nlohmann::json` construction for the capability document causes MSVC
+  C1128 section-limit failures during the native build.
+- This exception exists to preserve the stronger schema implementation:
+  `/capabilities` and discovery summaries must be built from structured JSON,
+  not hand-built strings or token scraping.
+- The exception does not permit new dependencies, route ownership changes,
+  companion loading changes, installer path or registry changes, global compiler
+  option changes, or `.vcxproj.filters` edits.
+- If used, reviewers must confirm the project-file diff is limited to
+  `RookServer.cpp` `/bigobj` and that the MSVC 14.44 native build passes.
 
 ## Capability Schema V1
 
@@ -1821,7 +1836,8 @@ Before asking for review, confirm:
 - No companion loading policy changed.
 - No installer path, registry, or module manifest changed.
 - No Revit API references were added under `src/Rook`.
-- No `.vcxproj` or `.vcxproj.filters` files changed.
+- No `.vcxproj` or `.vcxproj.filters` files changed, unless the only project
+  edit is the documented `RookServer.cpp` `/bigobj` exception.
 - Existing startup/GH/BIM/chat/vision route behavior remains compatible.
 
 ## Final Verification Commands
