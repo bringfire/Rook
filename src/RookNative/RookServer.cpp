@@ -1888,6 +1888,33 @@ nlohmann::json GetNativeGrasshopperRoutes()
     return routes;
 }
 
+#define JsonBool(value) ((value) ? "true" : "false")
+
+bool JsonBoolOr(const nlohmann::json& object, const char* name, bool fallback)
+{
+    if (!object.is_object())
+        return fallback;
+
+    const auto it = object.find(name);
+    if (it == object.end() || !it->is_boolean())
+        return fallback;
+
+    return it->get<bool>();
+}
+
+std::string MakeUtcTimestamp()
+{
+    auto now = std::chrono::system_clock::now();
+    auto time = std::chrono::system_clock::to_time_t(now);
+    std::ostringstream ts;
+    struct tm tm_buf = {};
+    if (gmtime_s(&tm_buf, &time) == 0)
+        ts << std::put_time(&tm_buf, "%Y-%m-%dT%H:%M:%SZ");
+    else
+        ts << time;
+    return ts.str();
+}
+
 nlohmann::json ReadCompanionRuntimeStatus(const DiscoveryRootInfo& rootInfo, DWORD pid)
 {
     try
@@ -1916,8 +1943,6 @@ std::string BuildRookCapabilitiesDocument(
     const DiscoveryRootInfo& rootInfo,
     const nlohmann::json& companionStatus)
 {
-    (void)port;
-    (void)rootInfo;
     const DWORD pid = ::GetCurrentProcessId();
     const bool rhinoInside = CRookNativePlugin::IsRhinoInside();
     const bool ghCoreReady = Rook::Handlers::HasGrasshopperCoreRegistration();
@@ -1925,49 +1950,125 @@ std::string BuildRookCapabilitiesDocument(
     const bool bimDispatchReady = Rook::Handlers::HasBimDispatchRegistration();
     const bool tier3CaptureReady = Rook::Handlers::HasViewportCaptureTier3Registration();
     const bool blockMutationReady = Rook::Handlers::HasBlockDefinitionMutationRegistration();
-    const auto ghRoutes = GetNativeGrasshopperRoutes();
-    (void)ghCoreReady;
-    (void)visionReady;
-    (void)bimDispatchReady;
-    (void)tier3CaptureReady;
-    (void)blockMutationReady;
-    (void)companionStatus;
-    (void)ghRoutes;
+    const bool canvasGraphProtocolReady = Rook::Handlers::HasCanvasGraphProtocol();
+    const bool canvasGraphNavigationReady = Rook::Handlers::HasCanvasGraphNavigation();
+    const bool companionStatusPresent = companionStatus.is_object() && !companionStatus.empty();
+    const bool companionStartupComplete = JsonBoolOr(companionStatus, "startupComplete", false);
 
-    // Helper concepts kept text-based to avoid COFF section pressure:
-    // MakeCapabilityEvidence, MakeUtcTimestamp, MakeCapabilityDomain,
-    // MakeManagedDependencyDomain, MergeCompanionCapabilityEvidence,
-    // JsonBoolOr. Top-level fields: "schemaVersion",
-    // "generatedUtc", "domains". Domain fields: "domainId", "declared",
-    // "installed", "state", "stateSource", "reasonCode", "evidence".
-    const char* domains =
-        R"([{"domainId":"native.core","declared":true,"installed":"present","loaded":true,"state":"ready","ready":true,"reasonCode":"native_server_running","retryable":false,"stateSource":"native_server_runtime","message":"","routes":[],"operations":[],"diagnostics":[],"evidence":[]},)"
-        R"({"domainId":"native.command_control","declared":true,"installed":"present","loaded":true,"state":"ready","ready":true,"reasonCode":"native_routes_registered","retryable":false,"stateSource":"native_route_registration","message":"","routes":[],"operations":[],"diagnostics":[],"evidence":[]},)"
-        R"({"domainId":"gh.bridge","declared":true,"installed":"unknown","loaded":false,"state":"unknown","ready":false,"reasonCode":"phase1_status_summary","retryable":true,"stateSource":"native_bridge_callback_registration","message":"","routes":[],"operations":[],"diagnostics":[],"evidence":[]},)"
-        R"({"domainId":"gh.canvas","declared":true,"installed":"unknown","loaded":false,"state":"unknown","ready":false,"reasonCode":"phase1_status_summary","retryable":true,"stateSource":"gh_status_route","message":"","routes":[],"operations":[],"diagnostics":[],"evidence":[]},)"
-        R"({"domainId":"bim.rhino_inside_revit","declared":true,"installed":"unknown","loaded":false,"state":"unknown","ready":false,"reasonCode":"phase1_status_summary","retryable":true,"stateSource":"native_host_state","message":"","routes":[],"operations":[],"diagnostics":[],"evidence":[]},)"
-        R"({"domainId":"chat.ui","declared":true,"installed":"unknown","loaded":false,"state":"unknown","ready":false,"reasonCode":"phase1_status_summary","retryable":true,"stateSource":"companion_runtime_status_file","message":"","routes":[],"operations":[],"diagnostics":[],"evidence":[]},)"
-        R"({"domainId":"vision.media","declared":true,"installed":"unknown","loaded":false,"state":"unknown","ready":false,"reasonCode":"phase1_status_summary","retryable":true,"stateSource":"native_bridge_callback_registration","message":"","routes":[],"operations":[],"diagnostics":[],"evidence":[]},)"
-        R"({"domainId":"viewport.capture","declared":true,"installed":"unknown","loaded":false,"state":"unknown","ready":false,"reasonCode":"phase1_status_summary","retryable":true,"stateSource":"native_bridge_callback_registration","message":"","routes":[],"operations":[],"diagnostics":[],"evidence":[]},)"
-        R"({"domainId":"block.definition_mutation","declared":true,"installed":"unknown","loaded":false,"state":"unknown","ready":false,"reasonCode":"phase1_status_summary","retryable":true,"stateSource":"native_bridge_callback_registration","message":"","routes":[],"operations":[],"diagnostics":[],"evidence":[]},)"
-        R"({"domainId":"mcp.runtime","declared":true,"installed":"unknown","loaded":false,"state":"unknown","ready":false,"reasonCode":"install_evidence_not_available_phase1","retryable":false,"stateSource":"explicit_phase1_unavailable_provider","message":"","routes":[],"operations":[],"diagnostics":[],"evidence":[]},)"
-        R"({"domainId":"knowledge.stores","declared":true,"installed":"unknown","loaded":false,"state":"unknown","ready":false,"reasonCode":"install_evidence_not_available_phase1","retryable":false,"stateSource":"explicit_phase1_unavailable_provider","message":"","routes":[],"operations":[],"diagnostics":[],"evidence":[]},)"
-        R"({"domainId":"chirp.runtime","declared":true,"installed":"unknown","loaded":false,"state":"unknown","ready":false,"reasonCode":"install_evidence_not_available_phase1","retryable":false,"stateSource":"explicit_phase1_unavailable_provider","message":"","routes":[],"operations":[],"diagnostics":[],"evidence":[]},)"
-        R"({"domainId":"licensing.entitlement","declared":true,"installed":"reserved","loaded":false,"state":"reserved","ready":false,"reasonCode":"future_domain_reserved","retryable":false,"stateSource":"explicit_unavailable_provider","message":"","routes":[],"operations":[],"diagnostics":[],"evidence":[]}]})";
+    // Schema fields: "schemaVersion", "generatedUtc", "domains", "domainId",
+    // "declared", "installed", "state", "stateSource", "reasonCode", "evidence".
+    std::ostringstream domains;
+    bool first = true;
+    domains << "[";
+#define EVID(kind, name, value) "{\"kind\":\"" kind "\",\"name\":\"" name "\",\"value\":" value "}"
+#define ADD_DOMAIN(id, installed, loaded, state, ready, reason, retry, source, routes, ops, diag, evidence) \
+    do { \
+        if (!first) domains << ","; \
+        first = false; \
+        domains << "{\"domainId\":\"" id "\",\"declared\":true,\"installed\":\"" installed "\",\"loaded\":" << JsonBool(loaded) \
+            << ",\"state\":\"" << (state) << "\",\"ready\":" << JsonBool(ready) \
+            << ",\"reasonCode\":\"" << (reason) << "\",\"retryable\":" << JsonBool(retry) \
+            << ",\"stateSource\":\"" << (source) << "\",\"message\":\"\",\"routes\":" routes \
+            << ",\"operations\":" ops << ",\"diagnostics\":" diag << ",\"evidence\":" evidence << "}"; \
+    } while (false)
 
-    std::string document = "{\"schemaVersion\":1,\"generatedUtc\":\"";
-    document += MakeLocalTimestamp();
-    document += "\",\"source\":\"RookNative\",\"processId\":";
-    document += std::to_string(static_cast<int>(pid));
-    document += ",\"pluginType\":\"native\",\"pluginVersion\":\"1.5.9\",\"rhinoInside\":";
-    document += rhinoInside ? "true" : "false";
-    document += ",\"domains\":";
-    document += domains;
-    document += "}";
-    return document;
+    ADD_DOMAIN("native.core", "present", true, "ready", true, "native_server_running", false, "native_server_runtime",
+        "[\"GET /ping\",\"GET /capabilities\"]", "[\"ping\",\"capability_discovery\"]", "[\"native discovery file\"]",
+        "[" EVID("http", "port", "0") "]");
+    ADD_DOMAIN("native.command_control", "present", true, "ready", true, "native_routes_registered", false, "native_route_registration",
+        "[\"GET /command/prompt\",\"POST /command/send\",\"POST /command/cancel\",\"POST /command/start\"]", "[\"prompt\",\"send\",\"cancel\",\"start\"]", "[\"GET /command/prompt\"]",
+        "[" EVID("route", "commandControl", "true") "]");
+    ADD_DOMAIN("gh.bridge", "unknown", ghCoreReady, ghCoreReady ? "ready" : "not_loaded", ghCoreReady,
+        ghCoreReady ? "grasshopper_core_callbacks_registered" : "grasshopper_core_callbacks_not_registered", !ghCoreReady, "native_bridge_callback_registration",
+        "[]", "[\"status\",\"document\",\"query\",\"mutate\"]", "[\"GET /gh/status\"]",
+        "[{\"kind\":\"callback\",\"name\":\"grasshopperCore\",\"value\":" << JsonBool(ghCoreReady) << "}]");
+    ADD_DOMAIN("gh.canvas", "unknown", ghCoreReady, ghCoreReady ? "unknown" : "not_loaded", false,
+        ghCoreReady ? "canvas_state_requires_gh_status" : "grasshopper_core_callbacks_not_registered", true, "gh_status_route",
+        "[\"GET /gh/status\",\"GET /gh/document\",\"GET /gh/query\"]", "[\"canvas_status\",\"canvas_query\",\"canvas_mutation\"]", "[\"GET /gh/status\"]",
+        "[{\"kind\":\"callback\",\"name\":\"grasshopperCore\",\"value\":" << JsonBool(ghCoreReady)
+            << "},{\"kind\":\"callback\",\"name\":\"canvasGraphProtocol\",\"value\":" << JsonBool(canvasGraphProtocolReady)
+            << "},{\"kind\":\"callback\",\"name\":\"canvasGraphNavigation\",\"value\":" << JsonBool(canvasGraphNavigationReady) << "}]");
+    ADD_DOMAIN("bim.rhino_inside_revit", "unknown", bimDispatchReady, !bimDispatchReady ? "not_loaded" : (rhinoInside ? "unknown" : "blocked_by_host"), false,
+        !bimDispatchReady ? "bim_dispatch_callback_not_registered" : (rhinoInside ? "bim_status_not_probed_phase1" : "not_rhino_inside"), rhinoInside,
+        !bimDispatchReady ? "native_bridge_callback_registration" : "native_host_state",
+        "[\"GET /bim/status\",\"GET /bim/active-document\",\"GET /bim/categories\",\"POST /bim/query-elements\"]", "[\"status\",\"active_document\",\"list_categories\",\"query_elements\"]", "[\"GET /bim/status\"]",
+        "[{\"kind\":\"callback\",\"name\":\"bimDispatch\",\"value\":" << JsonBool(bimDispatchReady)
+            << "},{\"kind\":\"host\",\"name\":\"rhinoInside\",\"value\":" << JsonBool(rhinoInside) << "}]");
+    ADD_DOMAIN("chat.ui", "unknown", companionStartupComplete, companionStartupComplete ? "unknown" : "not_loaded", false,
+        companionStartupComplete ? "chat_service_state_not_probed_phase1" : "companion_startup_not_complete", true, "companion_runtime_status_file",
+        "[]", "[\"panel_registration\",\"chat_service\"]", "[\"companion runtime status\"]",
+        "[{\"kind\":\"statusFile\",\"name\":\"present\",\"value\":" << JsonBool(companionStatusPresent)
+            << "},{\"kind\":\"companion\",\"name\":\"startupComplete\",\"value\":" << JsonBool(companionStartupComplete) << "}]");
+    ADD_DOMAIN("vision.media", "unknown", visionReady, visionReady ? "unknown" : "not_loaded", false,
+        visionReady ? "operation_state_not_probed_phase1" : "managed_bridge_callback_not_registered", true, "native_bridge_callback_registration",
+        "[\"POST /vision/generate\",\"POST /vision/enhance-prompt\",\"GET /vision/artifacts\",\"POST /vision/video/jobs\"]", "[\"image_generation\",\"prompt_enhancement\",\"artifact_store\",\"video_jobs\"]", "[\"companion runtime status\"]",
+        "[{\"kind\":\"callback\",\"name\":\"visionDispatch\",\"value\":" << JsonBool(visionReady) << "}]");
+    ADD_DOMAIN("viewport.capture", "unknown", tier3CaptureReady, tier3CaptureReady ? "unknown" : "not_loaded", false,
+        tier3CaptureReady ? "operation_state_not_probed_phase1" : "managed_bridge_callback_not_registered", true, "native_bridge_callback_registration",
+        "[\"POST /viewport\"]", "[\"viewport_capture\"]", "[\"POST /viewport\"]",
+        "[{\"kind\":\"callback\",\"name\":\"viewportCaptureTier3\",\"value\":" << JsonBool(tier3CaptureReady) << "}]");
+    ADD_DOMAIN("block.definition_mutation", "unknown", blockMutationReady, blockMutationReady ? "unknown" : "not_loaded", false,
+        blockMutationReady ? "operation_state_not_probed_phase1" : "managed_bridge_callback_not_registered", true, "native_bridge_callback_registration",
+        "[\"POST /block/set-layers\",\"POST /block/set-materials\",\"POST /block/set-object-colors\",\"POST /block/set-object-names\",\"POST /block/set-object-user-strings\",\"POST /block/replace-object-geometry\",\"POST /block/transform-object\"]",
+        "[\"set_layers\",\"set_materials\",\"set_object_colors\",\"set_object_names\",\"set_object_user_strings\",\"replace_object_geometry\",\"transform_object\"]", "[\"companion runtime status\"]",
+        "[{\"kind\":\"callback\",\"name\":\"blockDefinitionMutation\",\"value\":" << JsonBool(blockMutationReady) << "}]");
+    ADD_DOMAIN("mcp.runtime", "unknown", false, "unknown", false, "install_evidence_not_available_phase1", false, "explicit_phase1_unavailable_provider", "[]", "[\"client_runtime\"]", "[\"rook doctor\"]", "[]");
+    ADD_DOMAIN("knowledge.stores", "unknown", false, "unknown", false, "install_evidence_not_available_phase1", false, "explicit_phase1_unavailable_provider", "[]", "[\"knowledge_lookup\"]", "[\"rook doctor\"]", "[]");
+    ADD_DOMAIN("chirp.runtime", "unknown", false, "unknown", false, "install_evidence_not_available_phase1", false, "explicit_phase1_unavailable_provider", "[]", "[\"chirp_component_runtime\"]", "[\"Chirp service discovery\"]", "[]");
+    ADD_DOMAIN("licensing.entitlement", "reserved", false, "reserved", false, "future_domain_reserved", false, "explicit_unavailable_provider", "[]", "[\"license_state\"]", "[]", "[]");
+#undef ADD_DOMAIN
+#undef EVID
+    domains << "]";
+
+    std::ostringstream document;
+    document << "{\"schemaVersion\":1"
+        << ",\"generatedUtc\":\"" << MakeUtcTimestamp() << "\""
+        << ",\"source\":\"RookNative\""
+        << ",\"processId\":" << static_cast<int>(pid)
+        << ",\"pluginType\":\"native\""
+        << ",\"pluginVersion\":\"1.5.9\""
+        << ",\"rhinoInside\":" << JsonBool(rhinoInside)
+        << ",\"domains\":" << domains.str()
+        << "}";
+    return document.str();
 }
 
-#define BuildCompactCapabilitySummary(capabilityDocumentJson) nlohmann::json::array()
+nlohmann::json BuildCompactCapabilitySummary(const std::string& capabilityDocumentJson)
+{
+    nlohmann::json summary = nlohmann::json::array();
+    size_t pos = 0;
+    while ((pos = capabilityDocumentJson.find("\"domainId\":\"", pos)) != std::string::npos)
+    {
+        const size_t idStart = pos + 12;
+        const size_t idEnd = capabilityDocumentJson.find('"', idStart);
+        const size_t statePos = capabilityDocumentJson.find("\"state\":\"", idEnd);
+        const size_t readyPos = capabilityDocumentJson.find("\"ready\":", idEnd);
+        const size_t reasonPos = capabilityDocumentJson.find("\"reasonCode\":\"", idEnd);
+        if (idEnd == std::string::npos || statePos == std::string::npos
+            || readyPos == std::string::npos || reasonPos == std::string::npos)
+        {
+            continue;
+        }
+
+        const size_t stateStart = statePos + 9;
+        const size_t stateEnd = capabilityDocumentJson.find('"', stateStart);
+        const size_t reasonStart = reasonPos + 14;
+        const size_t reasonEnd = capabilityDocumentJson.find('"', reasonStart);
+        const size_t readyStart = readyPos + 8;
+        const bool ready = capabilityDocumentJson.compare(readyStart, 4, "true") == 0;
+        if (stateEnd == std::string::npos || reasonEnd == std::string::npos)
+            continue;
+
+        nlohmann::json item;
+        item["domainId"] = capabilityDocumentJson.substr(idStart, idEnd - idStart);
+        item["state"] = capabilityDocumentJson.substr(stateStart, stateEnd - stateStart);
+        item["ready"] = ready;
+        item["reasonCode"] = capabilityDocumentJson.substr(reasonStart, reasonEnd - reasonStart);
+        summary.push_back(item);
+        pos = reasonEnd;
+    }
+    return summary;
+}
 
 } // namespace
 
