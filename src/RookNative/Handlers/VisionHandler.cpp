@@ -21,6 +21,7 @@
 #include "Handlers/VisionHandler.h"
 #include "Handlers/GrasshopperProxyHandler.h"
 #include "Infrastructure/JsonHelpers.h"
+#include "Infrastructure/RouteDiagnostics.h"
 #include "RookServer.h"
 
 namespace Rook {
@@ -76,7 +77,8 @@ bool ParseBodyAsObject(
 void ForwardVisionDispatch(
     httplib::Response& res,
     const char* op,
-    nlohmann::json& body)
+    nlohmann::json& body,
+    const nlohmann::json* unavailableDiagnostic = nullptr)
 {
     // Inject op. Native owns the op string — callers cannot override it
     // by sending their own op field, because we always overwrite.
@@ -101,13 +103,22 @@ void ForwardVisionDispatch(
         res.set_header("X-Rook-Vision-Op", op);
         return;
     case ManagedCreateInvokeResult::Unavailable:
-        CRookServer::SendError(
-            res,
-            std::string("Vision routes require the Rook companion plugin. "
-                        "Ensure Rook.rhp is loaded in Rhino, then retry."));
+    {
+        const std::string message =
+            "Vision routes require the Rook companion plugin. "
+            "Ensure Rook.rhp is loaded in Rhino, then retry.";
+        if (unavailableDiagnostic != nullptr)
+        {
+            CRookServer::SendErrorWithDiagnostic(res, message, *unavailableDiagnostic);
+        }
+        else
+        {
+            CRookServer::SendError(res, message);
+        }
         res.status = 503;
         res.set_header("X-Rook-Vision-Op", op);
         return;
+    }
     case ManagedCreateInvokeResult::Failed:
     default:
         CRookServer::SendError(
@@ -423,7 +434,11 @@ void HandleVisionVideoModelsList(const httplib::Request& /*req*/, httplib::Respo
     // No params, no body — forward an empty JSON object. Managed
     // VideoOpHandler.ListModels reads no fields beyond `op`.
     nlohmann::json body = nlohmann::json::object();
-    ForwardVisionDispatch(res, "list_video_models", body);
+    const auto unavailableDiagnostic =
+        Rook::Diagnostics::BuildVisionDispatchCallbackUnavailable(
+            "GET /vision/video/models",
+            "list_video_models");
+    ForwardVisionDispatch(res, "list_video_models", body, &unavailableDiagnostic);
 }
 
 } // namespace Handlers
