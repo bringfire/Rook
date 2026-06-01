@@ -130,17 +130,29 @@ void ForwardVisionDispatch(
     }
 }
 
+void ForwardVisionDispatchWithUnavailableDiagnostic(
+    httplib::Response& res,
+    const char* route,
+    const char* op,
+    nlohmann::json& body)
+{
+    const auto unavailableDiagnostic =
+        Rook::Diagnostics::BuildVisionDispatchCallbackUnavailable(route, op);
+    ForwardVisionDispatch(res, op, body, &unavailableDiagnostic);
+}
+
 // Body-forwarding dispatch: parse body, inject op, forward. Used by
 // routes that carry their payload in the request body (POST generate /
 // enhance-prompt / capture-depth / consume-approved).
 void DispatchVisionOp(
     const httplib::Request& req,
     httplib::Response& res,
+    const char* route,
     const char* op)
 {
     nlohmann::json body;
     if (!ParseBodyAsObject(req, res, op, body)) return;
-    ForwardVisionDispatch(res, op, body);
+    ForwardVisionDispatchWithUnavailableDiagnostic(res, route, op, body);
 }
 
 // Path-param dispatch: extract {id} from req.matches[1], inject into
@@ -156,6 +168,7 @@ void DispatchVisionOp(
 void DispatchVisionOpWithPathId(
     const httplib::Request& req,
     httplib::Response& res,
+    const char* route,
     const char* op,
     const char* path_id_field)
 {
@@ -179,7 +192,7 @@ void DispatchVisionOpWithPathId(
     // through the body.
     body[path_id_field] = req.matches[1].str();
 
-    ForwardVisionDispatch(res, op, body);
+    ForwardVisionDispatchWithUnavailableDiagnostic(res, route, op, body);
 }
 
 // V4: strict integer-string grammar /^-?[0-9]+$/. Used by the video
@@ -230,7 +243,11 @@ bool IsCanonicalIntegerString(const std::string& s)
 //   - Anything else (whitespace, "+5", "0x10", "abc", "", overflow) →
 //     forward as raw JSON String so managed's wrong-kind arm rejects
 //     with the established envelope.
-void DispatchVideoJobsList(httplib::Response& res, const httplib::Request& req)
+void DispatchVideoJobsList(
+    httplib::Response& res,
+    const httplib::Request& req,
+    const char* route,
+    const char* op)
 {
     nlohmann::json body = nlohmann::json::object();
 
@@ -254,7 +271,7 @@ void DispatchVideoJobsList(httplib::Response& res, const httplib::Request& req)
         }
     }
 
-    ForwardVisionDispatch(res, "list_video_jobs", body);
+    ForwardVisionDispatchWithUnavailableDiagnostic(res, route, op, body);
 }
 
 // Query-param dispatch: fold whitelisted query parameters into the
@@ -265,6 +282,7 @@ void DispatchVideoJobsList(httplib::Response& res, const httplib::Request& req)
 void DispatchVisionListWithQuery(
     const httplib::Request& req,
     httplib::Response& res,
+    const char* route,
     const char* op)
 {
     nlohmann::json body = nlohmann::json::object();
@@ -345,88 +363,88 @@ void DispatchVisionListWithQuery(
         }
     }
 
-    ForwardVisionDispatch(res, op, body);
+    ForwardVisionDispatchWithUnavailableDiagnostic(res, route, op, body);
 }
 
 } // namespace
 
 void HandleVisionGenerate(const httplib::Request& req, httplib::Response& res)
 {
-    DispatchVisionOp(req, res, "generate");
+    DispatchVisionOp(req, res, "POST /vision/generate", "generate");
 }
 
 void HandleVisionEnhancePrompt(const httplib::Request& req, httplib::Response& res)
 {
-    DispatchVisionOp(req, res, "enhance_prompt");
+    DispatchVisionOp(req, res, "POST /vision/enhance-prompt", "enhance_prompt");
 }
 
 void HandleVisionCaptureDepth(const httplib::Request& req, httplib::Response& res)
 {
-    DispatchVisionOp(req, res, "capture_depth");
+    DispatchVisionOp(req, res, "POST /vision/capture-depth", "capture_depth");
 }
 
 void HandleVisionListArtifacts(const httplib::Request& req, httplib::Response& res)
 {
-    DispatchVisionListWithQuery(req, res, "list_artifacts");
+    DispatchVisionListWithQuery(req, res, "GET /vision/artifacts", "list_artifacts");
 }
 
 void HandleVisionGetArtifact(const httplib::Request& req, httplib::Response& res)
 {
-    DispatchVisionOpWithPathId(req, res, "get_artifact", "artifact_id");
+    DispatchVisionOpWithPathId(req, res, "GET /vision/artifacts/{artifact_id}", "get_artifact", "artifact_id");
 }
 
 void HandleVisionApproveArtifact(const httplib::Request& req, httplib::Response& res)
 {
-    DispatchVisionOpWithPathId(req, res, "approve_artifact", "artifact_id");
+    DispatchVisionOpWithPathId(req, res, "POST /vision/artifacts/{artifact_id}/approve", "approve_artifact", "artifact_id");
 }
 
 void HandleVisionDeleteArtifact(const httplib::Request& req, httplib::Response& res)
 {
-    DispatchVisionOpWithPathId(req, res, "delete_artifact", "artifact_id");
+    DispatchVisionOpWithPathId(req, res, "DELETE /vision/artifacts/{artifact_id}", "delete_artifact", "artifact_id");
 }
 
 void HandleVisionConsumeApproved(const httplib::Request& req, httplib::Response& res)
 {
-    DispatchVisionOp(req, res, "consume_approved");
+    DispatchVisionOp(req, res, "POST /vision/artifacts/consume-approved", "consume_approved");
 }
 
 void HandleVisionDirectorPublishVideo(const httplib::Request& req, httplib::Response& res)
 {
-    DispatchVisionOp(req, res, "publish_director_video");
+    DispatchVisionOp(req, res, "POST /vision/director/publish-video", "publish_director_video");
 }
 
 // ─── Video routes (V2 — long-form ops; C# accepts these names canonically) ──
 
 void HandleVisionVideoSubmit(const httplib::Request& req, httplib::Response& res)
 {
-    DispatchVisionOp(req, res, "submit_video_job");
+    DispatchVisionOp(req, res, "POST /vision/video/jobs", "submit_video_job");
 }
 
 void HandleVisionVideoStatus(const httplib::Request& req, httplib::Response& res)
 {
-    DispatchVisionOpWithPathId(req, res, "get_video_job", "job_id");
+    DispatchVisionOpWithPathId(req, res, "GET /vision/video/jobs/{job_id}", "get_video_job", "job_id");
 }
 
 void HandleVisionVideoCancel(const httplib::Request& req, httplib::Response& res)
 {
-    DispatchVisionOpWithPathId(req, res, "cancel_video_job", "job_id");
+    DispatchVisionOpWithPathId(req, res, "POST /vision/video/jobs/{job_id}/cancel", "cancel_video_job", "job_id");
 }
 
 void HandleVisionVideoResult(const httplib::Request& req, httplib::Response& res)
 {
-    DispatchVisionOpWithPathId(req, res, "get_video_job_result", "job_id");
+    DispatchVisionOpWithPathId(req, res, "GET /vision/video/jobs/{job_id}/result", "get_video_job_result", "job_id");
 }
 
 void HandleVisionVideoEstimate(const httplib::Request& req, httplib::Response& res)
 {
-    DispatchVisionOp(req, res, "estimate_video_job");
+    DispatchVisionOp(req, res, "POST /vision/video/estimate", "estimate_video_job");
 }
 
 // ─── V4 video list routes ───────────────────────────────────────────
 
 void HandleVisionVideoJobsList(const httplib::Request& req, httplib::Response& res)
 {
-    DispatchVideoJobsList(res, req);
+    DispatchVideoJobsList(res, req, "GET /vision/video/jobs", "list_video_jobs");
 }
 
 void HandleVisionVideoModelsList(const httplib::Request& /*req*/, httplib::Response& res)
@@ -434,11 +452,11 @@ void HandleVisionVideoModelsList(const httplib::Request& /*req*/, httplib::Respo
     // No params, no body — forward an empty JSON object. Managed
     // VideoOpHandler.ListModels reads no fields beyond `op`.
     nlohmann::json body = nlohmann::json::object();
-    const auto unavailableDiagnostic =
-        Rook::Diagnostics::BuildVisionDispatchCallbackUnavailable(
-            "GET /vision/video/models",
-            "list_video_models");
-    ForwardVisionDispatch(res, "list_video_models", body, &unavailableDiagnostic);
+    ForwardVisionDispatchWithUnavailableDiagnostic(
+        res,
+        "GET /vision/video/models",
+        "list_video_models",
+        body);
 }
 
 } // namespace Handlers

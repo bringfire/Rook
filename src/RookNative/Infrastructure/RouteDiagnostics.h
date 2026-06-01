@@ -116,5 +116,26 @@ inline nlohmann::json BuildVisionDispatchCallbackUnavailable(
     return ToJson(diagnostic);
 }
 
+inline nlohmann::json BuildViewportCaptureCallbackUnavailable(
+    const std::string& route,
+    const std::string& operation)
+{
+    RouteDiagnostic diagnostic;
+    diagnostic.domainId = "viewport.capture";
+    diagnostic.route = route;
+    diagnostic.operation = operation;
+    diagnostic.reasonCode = "viewport_capture_callback_unavailable";
+    diagnostic.failureKind = FailureKind::DomainUnavailable;
+    diagnostic.state = "not_loaded";
+    diagnostic.retryable = true;
+    diagnostic.userActionRequired = false;
+    diagnostic.ownedBy = "native";
+    diagnostic.evidenceSource = "native_callback_registration";
+    diagnostic.emittedBy = "native_route";
+    diagnostic.recommendedNextStep =
+        "Wait for companion startup, then retry. If it remains unavailable, inspect /capabilities.";
+    return ToJson(diagnostic);
+}
+
 } // namespace Diagnostics
 } // namespace Rook
