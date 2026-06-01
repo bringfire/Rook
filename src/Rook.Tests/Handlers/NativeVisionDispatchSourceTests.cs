@@ -78,6 +78,7 @@ namespace Rook.Tests.Handlers
             var generateHandler = ExtractFunction(source, "HandleVisionGenerate");
             var modelsHandler = ExtractFunction(source, "HandleVisionVideoModelsList");
 
+            Assert.Single(FindAll(source, "BuildVisionDispatchCallbackUnavailable("));
             Assert.Contains("const nlohmann::json* unavailableDiagnostic", helper);
             Assert.Contains("if (unavailableDiagnostic != nullptr)", helper);
             Assert.Contains("CRookServer::SendErrorWithDiagnostic", helper);
@@ -110,6 +111,20 @@ namespace Rook.Tests.Handlers
             }
 
             throw new InvalidOperationException("Function body did not close: " + functionName);
+        }
+
+        private static string[] FindAll(string source, string needle)
+        {
+            var matches = new System.Collections.Generic.List<string>();
+            var index = 0;
+            while (true)
+            {
+                index = source.IndexOf(needle, index, StringComparison.Ordinal);
+                if (index < 0)
+                    return matches.ToArray();
+                matches.Add(needle);
+                index += needle.Length;
+            }
         }
 
         private static string ReadSourceFile(params string[] pathParts)
