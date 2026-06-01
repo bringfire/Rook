@@ -642,6 +642,44 @@ other, but neither should pretend they are the same thing. One installed module
 may provide several runtime domains; one runtime domain may depend on several
 installed modules.
 
+### Future Module Integration Standard
+
+A Rook module is integrated only when its install evidence, runtime capability
+state, diagnostics, and client-facing discovery all agree.
+
+That standard rejects the common failure modes:
+
+- installed but invisible;
+- visible but not actually installed;
+- loaded but not ready;
+- failing but not explainable;
+- optional but indistinguishable from broken.
+
+Module packaging should become declarative before it becomes physically
+modular. Rook does not need to move every payload into a perfect module tree
+before it can grow. It first needs module records and state contracts that make
+current and future modules accountable.
+
+The long-term rule is:
+
+```text
+Do not add a module by adding only code.
+Add the module record, capability domain, diagnostics, and validation with it.
+```
+
+This rule applies to future BIM, vision, knowledge, licensing, sidecar, paid
+module, enterprise deployment, and LLM-facing discovery work. A module is not
+product-integrated merely because a DLL, script, data folder, or sidecar binary
+was copied. It is product-integrated when:
+
+- the installer/local deploy path knows it exists;
+- the runtime can report whether it is usable;
+- clients can discover it without invoking it;
+- failures name the real missing, blocked, degraded, unlicensed, or unhealthy
+  condition;
+- validation proves the expected states;
+- upgrade and uninstall know how to handle it.
+
 ### Commercial Deployment Considerations
 
 The current Inno Setup installer remains the pragmatic near-term packaging
