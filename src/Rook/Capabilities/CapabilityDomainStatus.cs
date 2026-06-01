@@ -5,18 +5,24 @@ using Rook.Bim;
 namespace Rook.Capabilities
 {
     internal sealed record CapabilityEvidence(
-        string StateSource,
-        string? ReasonCode = null,
-        string? Message = null,
-        string? Name = null,
-        bool? Value = null);
+        string Kind,
+        string Name,
+        bool Value);
 
     internal sealed record CapabilityDomainStatus(
         string DomainId,
+        bool Declared,
+        string Installed,
+        bool Loaded,
         string State,
         bool Ready,
-        string StateSource,
         string? ReasonCode,
+        bool Retryable,
+        string StateSource,
+        string Message,
+        IReadOnlyList<string> Routes,
+        IReadOnlyList<string> Operations,
+        IReadOnlyList<string> Diagnostics,
         IReadOnlyList<CapabilityEvidence> Evidence);
 
     internal static class CapabilityDomainStatusBuilder
@@ -37,19 +43,21 @@ namespace Rook.Capabilities
                     panelsRegistered,
                     startupComplete,
                     "panels_not_registered"),
-                BuildManagedDomain(
+                BuildUnprobedDomain(
                     "vision.media",
-                    panelsRegistered,
                     startupComplete,
-                    "panels_not_registered"),
-                BuildBridgeBackedDomain(
+                    "vision_dispatch_evidence_unavailable_phase1",
+                    "visionDispatch"),
+                BuildUnprobedDomain(
                     "viewport.capture",
                     startupComplete,
-                    bridgeRegistered),
-                BuildBridgeBackedDomain(
+                    "viewport_capture_tier3_evidence_unavailable_phase1",
+                    "viewportCaptureTier3"),
+                BuildUnprobedDomain(
                     "block.definition_mutation",
                     startupComplete,
-                    bridgeRegistered),
+                    "block_definition_mutation_evidence_unavailable_phase1",
+                    "blockDefinitionMutation"),
                 BuildBimDomain(rhinoInside, startupComplete, bridgeRegistered),
             };
         }
@@ -62,39 +70,64 @@ namespace Rook.Capabilities
         {
             if (!startupComplete)
             {
-                return Create(
+                return Domain(
                     domainId,
+                    loaded: false,
                     "not_loaded",
-                    ManagedCompanionRuntime,
+                    ready: false,
                     "startup_not_complete");
             }
 
             return localRegistered
-                ? Create(domainId, "available", ManagedCompanionRuntime, null)
-                : Create(domainId, "unavailable", ManagedCompanionRuntime, unavailableReason);
+                ? Domain(
+                    domainId,
+                    loaded: true,
+                    "ready",
+                    ready: true,
+                    reasonCode: null,
+                    evidence: new[]
+                    {
+                        Evidence(ManagedCompanionRuntime, "startupComplete", startupComplete),
+                        Evidence(ManagedCompanionRuntime, "panelsRegistered", localRegistered),
+                    })
+                : Domain(
+                    domainId,
+                    loaded: true,
+                    "unavailable",
+                    ready: false,
+                    unavailableReason,
+                    evidence: new[]
+                    {
+                        Evidence(ManagedCompanionRuntime, "startupComplete", startupComplete),
+                        Evidence(ManagedCompanionRuntime, "panelsRegistered", localRegistered),
+                    });
         }
 
-        private static CapabilityDomainStatus BuildBridgeBackedDomain(
+        private static CapabilityDomainStatus BuildUnprobedDomain(
             string domainId,
             bool startupComplete,
-            bool bridgeRegistered)
+            string reasonCode,
+            string domainEvidenceName)
         {
             if (!startupComplete)
             {
-                return Create(
+                return Domain(
                     domainId,
+                    loaded: false,
                     "not_loaded",
-                    ManagedCompanionRuntime,
-                    "startup_not_complete");
+                    ready: false,
+                    "startup_not_complete",
+                    evidence: UnprobedEvidence(startupComplete, domainEvidenceName));
             }
 
-            return bridgeRegistered
-                ? Create(domainId, "available", ManagedCompanionRuntime, null)
-                : Create(
-                    domainId,
-                    "not_loaded",
-                    ManagedCompanionRuntime,
-                    "managed_bridge_not_registered");
+            return Domain(
+                domainId,
+                loaded: false,
+                "unknown",
+                ready: false,
+                reasonCode,
+                $"Phase 1 managed status does not probe {domainEvidenceName}; use native /capabilities for route-level readiness.",
+                evidence: UnprobedEvidence(startupComplete, domainEvidenceName));
         }
 
         private static CapabilityDomainStatus BuildBimDomain(
@@ -104,89 +137,179 @@ namespace Rook.Capabilities
         {
             if (!bridgeRegistered)
             {
-                return Create(
+                return BimDomain(
                     "bim.rhino_inside_revit",
+                    loaded: false,
                     "not_loaded",
-                    ManagedRookBimStatusProvider,
+                    ready: false,
                     "bim_dispatch_callback_not_registered",
-                    evidenceName: "bimDispatch",
-                    evidenceValue: false);
+                    evidence: BimEvidence(rhinoInside, startupComplete, bridgeRegistered));
             }
 
             if (!rhinoInside)
             {
-                return Create(
+                return BimDomain(
                     "bim.rhino_inside_revit",
+                    loaded: false,
                     "blocked_by_host",
-                    ManagedRookBimStatusProvider,
-                    "not_rhino_inside");
+                    ready: false,
+                    "not_rhino_inside",
+                    evidence: BimEvidence(rhinoInside, startupComplete, bridgeRegistered));
             }
 
             if (!startupComplete)
             {
-                return Create(
+                return BimDomain(
                     "bim.rhino_inside_revit",
+                    loaded: false,
                     "not_loaded",
-                    ManagedRookBimStatusProvider,
-                    "startup_not_complete");
+                    ready: false,
+                    "startup_not_complete",
+                    evidence: BimEvidence(rhinoInside, startupComplete, bridgeRegistered));
             }
 
             var source = RookBimRuntimeRegistry.Source;
             if (string.Equals(source, "core-fallback", StringComparison.Ordinal))
             {
-                return Create(
+                return BimDomain(
                     "bim.rhino_inside_revit",
+                    loaded: false,
                     "not_loaded",
-                    ManagedRookBimStatusProvider,
-                    "rookbim_runtime_not_activated");
+                    ready: false,
+                    "rookbim_runtime_not_activated",
+                    evidence: BimEvidence(rhinoInside, startupComplete, bridgeRegistered));
             }
 
             if (string.Equals(source, "module-not-found", StringComparison.Ordinal))
             {
-                return Create(
+                return BimDomain(
                     "bim.rhino_inside_revit",
+                    loaded: false,
                     "missing_dependency",
-                    ManagedRookBimStatusProvider,
-                    "rookbim_module_not_found");
+                    ready: false,
+                    "rookbim_module_not_found",
+                    evidence: BimEvidence(rhinoInside, startupComplete, bridgeRegistered));
             }
 
             if (string.Equals(source, "module-load-failed", StringComparison.Ordinal))
             {
-                return Create(
+                return BimDomain(
                     "bim.rhino_inside_revit",
+                    loaded: false,
                     "failed",
-                    ManagedRookBimStatusProvider,
-                    "rookbim_module_load_failed");
+                    ready: false,
+                    "rookbim_module_load_failed",
+                    evidence: BimEvidence(rhinoInside, startupComplete, bridgeRegistered));
             }
 
-            return Create(
+            return BimDomain(
                 "bim.rhino_inside_revit",
+                loaded: true,
                 "unknown",
-                ManagedRookBimStatusProvider,
+                ready: false,
                 "bim_status_not_probed_phase1",
-                "Use /bim/status to check active document and Revit API readiness.");
+                "Use /bim/status to check active document and Revit API readiness.",
+                BimEvidence(rhinoInside, startupComplete, bridgeRegistered));
         }
 
-        private static CapabilityDomainStatus Create(
+        private static CapabilityDomainStatus BimDomain(
             string domainId,
+            bool loaded,
             string state,
-            string stateSource,
+            bool ready,
             string? reasonCode,
             string? message = null,
-            string? evidenceName = null,
-            bool? evidenceValue = null)
+            IReadOnlyList<CapabilityEvidence>? evidence = null)
+        {
+            return Domain(
+                domainId,
+                loaded,
+                state,
+                ready,
+                reasonCode,
+                message,
+                routes: new[]
+                {
+                    "GET /bim/status",
+                    "GET /bim/active-document",
+                    "GET /bim/categories",
+                    "POST /bim/query-elements",
+                },
+                operations: new[]
+                {
+                    "status",
+                    "active_document",
+                    "list_categories",
+                    "query_elements",
+                },
+                diagnostics: new[] { "GET /bim/status" },
+                evidence: evidence,
+                stateSource: ManagedRookBimStatusProvider);
+        }
+
+        private static CapabilityDomainStatus Domain(
+            string domainId,
+            bool loaded,
+            string state,
+            bool ready,
+            string? reasonCode,
+            string? message = null,
+            IReadOnlyList<string>? routes = null,
+            IReadOnlyList<string>? operations = null,
+            IReadOnlyList<string>? diagnostics = null,
+            IReadOnlyList<CapabilityEvidence>? evidence = null,
+            string stateSource = ManagedCompanionRuntime)
         {
             return new CapabilityDomainStatus(
                 domainId,
-                state,
-                string.Equals(state, "available", StringComparison.Ordinal),
-                stateSource,
-                reasonCode,
-                new[]
+                Declared: true,
+                Installed: "unknown",
+                Loaded: loaded,
+                State: state,
+                Ready: ready,
+                ReasonCode: reasonCode,
+                Retryable: false,
+                StateSource: stateSource,
+                Message: message ?? string.Empty,
+                Routes: routes ?? Array.Empty<string>(),
+                Operations: operations ?? Array.Empty<string>(),
+                Diagnostics: diagnostics ?? Array.Empty<string>(),
+                Evidence: evidence ?? new[]
                 {
-                    new CapabilityEvidence(stateSource, reasonCode, message, evidenceName, evidenceValue),
+                    Evidence(ManagedCompanionRuntime, "startupComplete", loaded),
                 });
         }
 
+        private static IReadOnlyList<CapabilityEvidence> BimEvidence(
+            bool rhinoInside,
+            bool startupComplete,
+            bool bridgeRegistered)
+        {
+            return new[]
+            {
+                Evidence(ManagedCompanionRuntime, "startupComplete", startupComplete),
+                Evidence("callback", "bimDispatch", bridgeRegistered),
+                Evidence("host", "rhinoInside", rhinoInside),
+            };
+        }
+
+        private static IReadOnlyList<CapabilityEvidence> UnprobedEvidence(
+            bool startupComplete,
+            string domainEvidenceName)
+        {
+            return new[]
+            {
+                Evidence(ManagedCompanionRuntime, "startupComplete", startupComplete),
+                Evidence("status_provider", domainEvidenceName, false),
+            };
+        }
+
+        private static CapabilityEvidence Evidence(
+            string kind,
+            string name,
+            bool value)
+        {
+            return new CapabilityEvidence(kind, name, value);
+        }
     }
 }

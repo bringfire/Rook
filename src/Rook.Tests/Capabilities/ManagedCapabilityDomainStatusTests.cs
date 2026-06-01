@@ -23,10 +23,16 @@ namespace Rook.Tests.Capabilities
             var bim = domains.Single(domain =>
                 domain.DomainId == "bim.rhino_inside_revit");
 
+            Assert.True(bim.Declared);
+            Assert.Equal("unknown", bim.Installed);
             Assert.Equal("blocked_by_host", bim.State);
             Assert.False(bim.Ready);
+            Assert.False(bim.Loaded);
             Assert.Equal("not_rhino_inside", bim.ReasonCode);
             Assert.Equal("managed_rookbim_status_provider", bim.StateSource);
+            Assert.Contains("GET /bim/status", bim.Diagnostics);
+            Assert.Contains(bim.Evidence, evidence =>
+                evidence.Kind == "host" && evidence.Name == "rhinoInside" && evidence.Value == false);
         }
 
         [Fact]
@@ -41,14 +47,63 @@ namespace Rook.Tests.Capabilities
             var bim = domains.Single(domain =>
                 domain.DomainId == "bim.rhino_inside_revit");
 
+            Assert.True(bim.Declared);
             Assert.Equal("not_loaded", bim.State);
             Assert.False(bim.Ready);
+            Assert.False(bim.Loaded);
             Assert.Equal("bim_dispatch_callback_not_registered", bim.ReasonCode);
             Assert.Equal("managed_rookbim_status_provider", bim.StateSource);
             Assert.Contains(bim.Evidence, evidence =>
-                evidence.ReasonCode == "bim_dispatch_callback_not_registered");
-            Assert.Contains(bim.Evidence, evidence =>
-                evidence.Name == "bimDispatch" && evidence.Value == false);
+                evidence.Kind == "callback" && evidence.Name == "bimDispatch" && evidence.Value == false);
+        }
+
+        [Fact]
+        public void BuildCompanionDomains_UsesReadyStateAndConcreteEvidenceForReadyManagedDomains()
+        {
+            var domains = CapabilityDomainStatusBuilder.BuildCompanionDomains(
+                rhinoInside: false,
+                startupComplete: true,
+                bridgeRegistered: true,
+                panelsRegistered: true);
+
+            var chat = domains.Single(domain => domain.DomainId == "chat.ui");
+
+            Assert.True(chat.Declared);
+            Assert.Equal("unknown", chat.Installed);
+            Assert.True(chat.Loaded);
+            Assert.Equal("ready", chat.State);
+            Assert.True(chat.Ready);
+            Assert.Null(chat.ReasonCode);
+            Assert.Contains(chat.Evidence, evidence =>
+                evidence.Kind == "managed_companion_runtime" &&
+                evidence.Name == "panelsRegistered" &&
+                evidence.Value);
+        }
+
+        [Fact]
+        public void BuildCompanionDomains_DoesNotClaimUnprobedManagedDomainsReadyFromBroadBridgeState()
+        {
+            var domains = CapabilityDomainStatusBuilder.BuildCompanionDomains(
+                rhinoInside: false,
+                startupComplete: true,
+                bridgeRegistered: true,
+                panelsRegistered: true);
+
+            AssertUnprobedDomain(
+                domains,
+                "vision.media",
+                "vision_dispatch_evidence_unavailable_phase1",
+                "visionDispatch");
+            AssertUnprobedDomain(
+                domains,
+                "viewport.capture",
+                "viewport_capture_tier3_evidence_unavailable_phase1",
+                "viewportCaptureTier3");
+            AssertUnprobedDomain(
+                domains,
+                "block.definition_mutation",
+                "block_definition_mutation_evidence_unavailable_phase1",
+                "blockDefinitionMutation");
         }
 
         [Fact]
@@ -96,7 +151,10 @@ namespace Rook.Tests.Capabilities
                     domain.DomainId == "bim.rhino_inside_revit");
 
                 Assert.False(runtime.StatusCalled);
+                Assert.True(bim.Declared);
+                Assert.True(bim.Loaded);
                 Assert.Equal("unknown", bim.State);
+                Assert.False(bim.Ready);
                 Assert.Equal("bim_status_not_probed_phase1", bim.ReasonCode);
             }
             finally
@@ -118,6 +176,28 @@ namespace Rook.Tests.Capabilities
 
             throw new FileNotFoundException(
                 "Could not locate source file " + string.Join("/", pathParts));
+        }
+
+        private static void AssertUnprobedDomain(
+            System.Collections.Generic.IEnumerable<CapabilityDomainStatus> domains,
+            string domainId,
+            string reasonCode,
+            string evidenceName)
+        {
+            var domain = domains.Single(item => item.DomainId == domainId);
+
+            Assert.True(domain.Declared);
+            Assert.Equal("unknown", domain.Installed);
+            Assert.False(domain.Loaded);
+            Assert.Equal("unknown", domain.State);
+            Assert.False(domain.Ready);
+            Assert.Equal(reasonCode, domain.ReasonCode);
+            Assert.Contains(domain.Evidence, evidence =>
+                evidence.Kind == "status_provider" &&
+                evidence.Name == evidenceName &&
+                evidence.Value == false);
+            Assert.DoesNotContain(domain.Evidence, evidence =>
+                evidence.Kind == "callback" && evidence.Name == "managedBridge");
         }
 
         private sealed class ThrowingBimRuntime : IRookBimRuntime

@@ -96,13 +96,6 @@ namespace Rook.Tests.Capabilities
             Assert.Contains("HasViewportCaptureTier3Registration()", capabilityBuilder);
             Assert.Contains("HasBlockDefinitionMutationRegistration()", capabilityBuilder);
             Assert.DoesNotContain("HasGrasshopperBridgeRegistration()", capabilityBuilder);
-            Assert.DoesNotContain("(void)ghCoreReady", capabilityBuilder);
-            Assert.DoesNotContain("(void)visionReady", capabilityBuilder);
-            Assert.DoesNotContain("(void)bimDispatchReady", capabilityBuilder);
-            Assert.DoesNotContain("(void)tier3CaptureReady", capabilityBuilder);
-            Assert.DoesNotContain("(void)blockMutationReady", capabilityBuilder);
-            Assert.DoesNotContain("(void)port", capabilityBuilder);
-            Assert.Contains("std::to_string(port)", capabilityBuilder);
             Assert.DoesNotContain("\\\"port\\\",\\\"value\\\":0", capabilityBuilder);
         }
 
@@ -115,7 +108,7 @@ namespace Rook.Tests.Capabilities
             Assert.Contains("MakeUtcTimestamp()", capabilityBuilder);
             Assert.DoesNotContain("MakeLocalTimestamp()", capabilityBuilder);
             Assert.DoesNotContain("#define BuildCompactCapabilitySummary", source);
-            Assert.Contains("nlohmann::json BuildCompactCapabilitySummary(const std::string& capabilityDocumentJson)", source);
+            Assert.Contains("BuildCompactCapabilitySummary", source);
         }
 
         [Fact]

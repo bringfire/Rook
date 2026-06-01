@@ -72,11 +72,29 @@ namespace Rook.Tests.Plugin
             var capabilityDomains = root.GetProperty("capabilityDomains").EnumerateArray().ToArray();
             var chatUi = capabilityDomains.Single(domain =>
                 domain.GetProperty("domainId").GetString() == "chat.ui");
+            Assert.True(chatUi.GetProperty("declared").GetBoolean());
+            Assert.Equal("unknown", chatUi.GetProperty("installed").GetString());
+            Assert.True(chatUi.GetProperty("loaded").GetBoolean());
+            Assert.Equal("ready", chatUi.GetProperty("state").GetString());
             Assert.True(chatUi.GetProperty("ready").GetBoolean());
             Assert.Equal("managed_companion_runtime", chatUi.GetProperty("stateSource").GetString());
+            Assert.Contains(chatUi.GetProperty("evidence").EnumerateArray(), evidence =>
+                evidence.GetProperty("kind").GetString() == "managed_companion_runtime" &&
+                evidence.GetProperty("name").GetString() == "panelsRegistered" &&
+                evidence.GetProperty("value").GetBoolean());
+
+            var vision = capabilityDomains.Single(domain =>
+                domain.GetProperty("domainId").GetString() == "vision.media");
+            Assert.Equal("unknown", vision.GetProperty("state").GetString());
+            Assert.False(vision.GetProperty("ready").GetBoolean());
+            Assert.Contains(vision.GetProperty("evidence").EnumerateArray(), evidence =>
+                evidence.GetProperty("kind").GetString() == "status_provider" &&
+                evidence.GetProperty("name").GetString() == "visionDispatch" &&
+                evidence.GetProperty("value").GetBoolean() == false);
 
             var bim = capabilityDomains.Single(domain =>
                 domain.GetProperty("domainId").GetString() == "bim.rhino_inside_revit");
+            Assert.True(bim.GetProperty("declared").GetBoolean());
             Assert.False(bim.GetProperty("ready").GetBoolean());
             Assert.Equal("managed_rookbim_status_provider", bim.GetProperty("stateSource").GetString());
         }
@@ -128,7 +146,9 @@ namespace Rook.Tests.Plugin
                 Assert.False(runtime.StatusCalled);
                 Assert.Equal("unknown", bim.State);
                 Assert.Equal("bim_status_not_probed_phase1", bim.ReasonCode);
-                Assert.Contains("/bim/status", bim.Evidence.Single().Message);
+                Assert.Contains("/bim/status", bim.Message);
+                Assert.Contains(bim.Evidence, evidence =>
+                    evidence.Kind == "callback" && evidence.Name == "bimDispatch" && evidence.Value);
             }
             finally
             {
@@ -146,8 +166,15 @@ namespace Rook.Tests.Plugin
                 panelsRegistered: false);
 
             var chat = domains.Single(domain => domain.DomainId == "chat.ui");
+            Assert.True(chat.Declared);
+            Assert.True(chat.Loaded);
             Assert.Equal("unavailable", chat.State);
+            Assert.False(chat.Ready);
             Assert.Equal("panels_not_registered", chat.ReasonCode);
+            Assert.Contains(chat.Evidence, evidence =>
+                evidence.Kind == "managed_companion_runtime" &&
+                evidence.Name == "panelsRegistered" &&
+                evidence.Value == false);
         }
 
         [Theory]
