@@ -75,8 +75,11 @@ namespace Rook.Tests.Plugin
             Assert.True(chatUi.GetProperty("declared").GetBoolean());
             Assert.Equal("unknown", chatUi.GetProperty("installed").GetString());
             Assert.True(chatUi.GetProperty("loaded").GetBoolean());
-            Assert.Equal("ready", chatUi.GetProperty("state").GetString());
-            Assert.True(chatUi.GetProperty("ready").GetBoolean());
+            Assert.Equal("unknown", chatUi.GetProperty("state").GetString());
+            Assert.False(chatUi.GetProperty("ready").GetBoolean());
+            Assert.Equal(
+                "chat_service_state_not_probed_phase1",
+                chatUi.GetProperty("reasonCode").GetString());
             Assert.Equal("managed_companion_runtime", chatUi.GetProperty("stateSource").GetString());
             Assert.Contains(chatUi.GetProperty("evidence").EnumerateArray(), evidence =>
                 evidence.GetProperty("kind").GetString() == "managed_companion_runtime" &&

@@ -82,9 +82,10 @@ namespace Rook.Capabilities
                 ? Domain(
                     domainId,
                     loaded: true,
-                    "ready",
-                    ready: true,
-                    reasonCode: null,
+                    "unknown",
+                    ready: false,
+                    reasonCode: "chat_service_state_not_probed_phase1",
+                    message: "Panel registration is present; chat service, Python runtime, provider, and model readiness are not probed in Phase 1.",
                     evidence: new[]
                     {
                         Evidence(ManagedCompanionRuntime, "startupComplete", startupComplete),

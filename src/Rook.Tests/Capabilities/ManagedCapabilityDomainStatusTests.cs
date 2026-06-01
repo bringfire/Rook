@@ -58,7 +58,7 @@ namespace Rook.Tests.Capabilities
         }
 
         [Fact]
-        public void BuildCompanionDomains_UsesReadyStateAndConcreteEvidenceForReadyManagedDomains()
+        public void BuildCompanionDomains_DoesNotClaimChatReadyFromPanelRegistrationOnly()
         {
             var domains = CapabilityDomainStatusBuilder.BuildCompanionDomains(
                 rhinoInside: false,
@@ -71,9 +71,9 @@ namespace Rook.Tests.Capabilities
             Assert.True(chat.Declared);
             Assert.Equal("unknown", chat.Installed);
             Assert.True(chat.Loaded);
-            Assert.Equal("ready", chat.State);
-            Assert.True(chat.Ready);
-            Assert.Null(chat.ReasonCode);
+            Assert.Equal("unknown", chat.State);
+            Assert.False(chat.Ready);
+            Assert.Equal("chat_service_state_not_probed_phase1", chat.ReasonCode);
             Assert.Contains(chat.Evidence, evidence =>
                 evidence.Kind == "managed_companion_runtime" &&
                 evidence.Name == "panelsRegistered" &&

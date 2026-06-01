@@ -40,16 +40,18 @@ namespace Rook.Tests.Capabilities
             var source = ReadSourceFile("src", "RookNative", "RookServer.cpp");
             var capabilityBuilder = ExtractFunction(source, "BuildRookCapabilitiesDocument");
 
-            Assert.Contains("\"schemaVersion\"", capabilityBuilder);
-            Assert.Contains("\"generatedUtc\"", capabilityBuilder);
-            Assert.Contains("\"domains\"", capabilityBuilder);
-            Assert.Contains("\"domainId\"", capabilityBuilder);
-            Assert.Contains("\"declared\"", capabilityBuilder);
-            Assert.Contains("\"installed\"", capabilityBuilder);
-            Assert.Contains("\"state\"", capabilityBuilder);
-            Assert.Contains("\"stateSource\"", capabilityBuilder);
-            Assert.Contains("\"reasonCode\"", capabilityBuilder);
-            Assert.Contains("\"evidence\"", capabilityBuilder);
+            Assert.Contains("schemaVersion", source);
+            Assert.Contains("generatedUtc", source);
+            Assert.Contains("domains", source);
+            Assert.Contains("domainId", source);
+            Assert.Contains("declared", source);
+            Assert.Contains("installed", source);
+            Assert.Contains("state", source);
+            Assert.Contains("stateSource", source);
+            Assert.Contains("reasonCode", source);
+            Assert.Contains("evidence", source);
+            Assert.Contains("companionEvidence", source);
+            Assert.Contains("CompanionEvidenceFor(companionStatus", capabilityBuilder);
 
             foreach (var domain in RequiredDomains)
             {
@@ -108,7 +110,12 @@ namespace Rook.Tests.Capabilities
             Assert.Contains("MakeUtcTimestamp()", capabilityBuilder);
             Assert.DoesNotContain("MakeLocalTimestamp()", capabilityBuilder);
             Assert.DoesNotContain("#define BuildCompactCapabilitySummary", source);
+            Assert.DoesNotContain("capabilityDocumentJson.find", source);
+            Assert.DoesNotContain("pluginVersion\"] = \"1.5.9\"", source);
             Assert.Contains("BuildCompactCapabilitySummary", source);
+            Assert.Contains("for (const auto& domain : *domains)", source);
+            Assert.Contains("document[\"domains\"] = domains;", source);
+            Assert.Contains("kRookNativePluginVersion", source);
         }
 
         [Fact]

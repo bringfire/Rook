@@ -99,7 +99,9 @@
     </ClCompile>
     <ClCompile Include="RookNativePlugin.cpp" />
     <ClCompile Include="Threading\MainThreadDispatcher.cpp" />
-    <ClCompile Include="RookServer.cpp" />
+    <ClCompile Include="RookServer.cpp">
+      <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
     <ClCompile Include="Serialization\RhinoSerializer.cpp" />
     <ClCompile Include="Handlers\DocumentHandler.cpp" />
     <ClCompile Include="Handlers\LayersHandler.cpp" />
