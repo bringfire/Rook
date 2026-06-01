@@ -226,7 +226,7 @@ def test_normalize_instance_preserves_capability_domains() -> None:
     ]
 
 
-def test_get_capability_domain_summary_returns_matching_domain() -> None:
+def test_get_bootstrap_capability_domain_summary_returns_matching_domain() -> None:
     instance = {
         "capabilities": {
             "domainSummary": [
@@ -236,7 +236,7 @@ def test_get_capability_domain_summary_returns_matching_domain() -> None:
         }
     }
 
-    domain = bridge.get_capability_domain_summary(instance, "bim.rhino_inside_revit")
+    domain = bridge.get_bootstrap_capability_domain_summary(instance, "bim.rhino_inside_revit")
 
     assert domain == {
         "domainId": "bim.rhino_inside_revit",
@@ -245,10 +245,10 @@ def test_get_capability_domain_summary_returns_matching_domain() -> None:
     }
 
 
-def test_get_capability_domain_summary_handles_older_discovery() -> None:
+def test_get_bootstrap_capability_domain_summary_handles_older_discovery() -> None:
     instance = {"capabilities": {"ghProvider": "callback", "ghRoutes": []}}
 
-    assert bridge.get_capability_domain_summary(instance, "native.core") is None
+    assert bridge.get_bootstrap_capability_domain_summary(instance, "native.core") is None
 
 
 @pytest.mark.asyncio
@@ -345,6 +345,37 @@ async def test_resolve_capabilities_marks_bootstrap_fallback_when_live_endpoint_
         "ready": False,
         "reasonCode": "companion_startup_not_complete",
     }
+
+
+@pytest.mark.asyncio
+async def test_resolve_capabilities_never_trusts_bootstrap_authoritative_flag(monkeypatch):
+    instance = {
+        "capabilities": {
+            "schemaVersion": 1,
+            "liveEndpoint": "/capabilities",
+            "summaryKind": "bootstrap_snapshot",
+            "authoritative": True,
+            "domainSummary": [
+                {
+                    "domainId": "chat.ui",
+                    "state": "ready",
+                    "ready": True,
+                    "reasonCode": "stale_or_malformed_bootstrap_claim",
+                }
+            ],
+        }
+    }
+
+    async def fake_fetch_live_capabilities(target, timeout=None):
+        raise RuntimeError("connection refused")
+
+    monkeypatch.setattr(bridge, "_fetch_live_capabilities", fake_fetch_live_capabilities)
+
+    resolved = await bridge.resolve_capabilities(instance)
+
+    assert resolved["source"] == "discovery_bootstrap_fallback"
+    assert resolved["stale"] is True
+    assert resolved["authoritative"] is False
 
 
 def test_cleanup_keeps_live_rhino_inside_native_record(

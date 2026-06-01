@@ -1603,7 +1603,7 @@ def test_normalize_instance_preserves_capability_domains() -> None:
     ]
 
 
-def test_get_capability_domain_summary_returns_matching_domain() -> None:
+def test_get_bootstrap_capability_domain_summary_returns_matching_domain() -> None:
     instance = {
         "capabilities": {
             "domainSummary": [
@@ -1613,7 +1613,7 @@ def test_get_capability_domain_summary_returns_matching_domain() -> None:
         }
     }
 
-    domain = bridge.get_capability_domain_summary(instance, "bim.rhino_inside_revit")
+    domain = bridge.get_bootstrap_capability_domain_summary(instance, "bim.rhino_inside_revit")
 
     assert domain == {
         "domainId": "bim.rhino_inside_revit",
@@ -1622,10 +1622,10 @@ def test_get_capability_domain_summary_returns_matching_domain() -> None:
     }
 
 
-def test_get_capability_domain_summary_handles_older_discovery() -> None:
+def test_get_bootstrap_capability_domain_summary_handles_older_discovery() -> None:
     instance = {"capabilities": {"ghProvider": "callback", "ghRoutes": []}}
 
-    assert bridge.get_capability_domain_summary(instance, "native.core") is None
+    assert bridge.get_bootstrap_capability_domain_summary(instance, "native.core") is None
 
 
 ```
@@ -1654,14 +1654,15 @@ Expected: FAIL because live capability resolution helpers do not exist.
 In `mcp_server/src/rook/bridge.py`, add helpers immediately after `_normalize_instance`:
 
 ```python
-def get_capability_domain_summary(
+def get_bootstrap_capability_domain_summary(
     instance: dict[str, Any],
     domain_id: str,
 ) -> dict[str, Any] | None:
-    """Return a compact capability domain summary from native discovery.
+    """Return a bootstrap capability domain summary from native discovery.
 
-    Older discovery files do not have domainSummary. This helper returns None
-    for those files so callers can remain backward compatible.
+    This is stale/non-authoritative bootstrap metadata. Older discovery files
+    do not have domainSummary. This helper returns None for those files so
+    callers can remain backward compatible.
     """
     capabilities = instance.get("capabilities") or {}
     domains = capabilities.get("domainSummary") or []

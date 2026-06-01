@@ -168,10 +168,16 @@ def _normalize_instance(data: dict[str, Any]) -> dict[str, Any]:
     return data
 
 
-def get_capability_domain_summary(
+def get_bootstrap_capability_domain_summary(
     instance: dict[str, Any],
     domain_id: str,
 ) -> dict[str, Any] | None:
+    """Return a discovery bootstrap domain summary.
+
+    This reads stale/non-authoritative discovery metadata. It is suitable for
+    bootstrap fallback only and must not drive readiness decisions when live
+    ``/capabilities`` can be reached.
+    """
     capabilities = instance.get("capabilities") or {}
     domain_summary = capabilities.get("domainSummary")
     if not isinstance(domain_summary, list):
@@ -228,7 +234,7 @@ async def resolve_capabilities(
         return {
             "source": "discovery_bootstrap_fallback",
             "stale": True,
-            "authoritative": bool(capabilities.get("authoritative", False)),
+            "authoritative": False,
             "summaryKind": capabilities.get("summaryKind", "bootstrap_snapshot"),
             "generatedUtc": capabilities.get("generatedUtc"),
             "liveEndpoint": capabilities.get("liveEndpoint", "/capabilities"),
