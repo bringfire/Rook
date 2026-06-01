@@ -117,6 +117,114 @@ namespace Rook.Tests.Threading
             Assert.DoesNotContain("objects_before", input);
         }
 
+        [Fact]
+        public void CompanionLoad_UsesNormalDispatchAndNeverCommandControl()
+        {
+            var source = ReadSourceFile("src", "RookNative", "RookNativePlugin.cpp");
+            var companionLoad = ExtractFunction(source, "StartCompanionLoadDeferred");
+            var attemptLoad = ExtractFunction(source, "AttemptCompanionLoadOnMainThread");
+
+            Assert.Contains("CMainThreadDispatcher::Instance().Dispatch([", attemptLoad);
+            Assert.DoesNotContain("DispatchPolicy::CommandControl", attemptLoad);
+            Assert.DoesNotContain("CommandControl", attemptLoad);
+            Assert.DoesNotContain("DispatchPolicy::CommandControl", companionLoad);
+            Assert.DoesNotContain("CommandControl", companionLoad);
+        }
+
+        [Fact]
+        public void CompanionLoad_ClassifiesCommandActiveBusyAsDeferral()
+        {
+            var source = ReadSourceFile("src", "RookNative", "RookNativePlugin.cpp");
+            var companionLoad = ExtractFunction(source, "StartCompanionLoadDeferred");
+
+            Assert.Contains("enum class CompanionLoadAttemptResult", source);
+            Assert.Contains("NotSafeYet", source);
+            Assert.Contains("ClassifyCompanionLoadException", source);
+            Assert.Contains("RookNative dispatcher is busy: Rhino command is active", source);
+            Assert.Contains("case CompanionLoadAttemptResult::NotSafeYet:", companionLoad);
+            Assert.Contains("WriteCompanionLoadDiagnostic", companionLoad);
+            Assert.Contains("continue;", companionLoad);
+        }
+
+        [Fact]
+        public void CompanionLoad_LoadFailureBudgetCountsOnlyActualLoadPlugInAttempts()
+        {
+            var source = ReadSourceFile("src", "RookNative", "RookNativePlugin.cpp");
+            var companionLoad = ExtractFunction(source, "StartCompanionLoadDeferred");
+
+            Assert.Contains("int loadFailures = 0;", companionLoad);
+            Assert.Contains("++loadFailures;", companionLoad);
+            Assert.True(
+                companionLoad.IndexOf("case CompanionLoadAttemptResult::LoadFailed:", StringComparison.Ordinal)
+                < companionLoad.IndexOf("++loadFailures;", StringComparison.Ordinal),
+                "The failure counter must only increment in the LoadFailed branch.");
+            Assert.DoesNotContain("for (int attempt = 0; attempt < kLoadRetries; ++attempt)", companionLoad);
+        }
+
+        [Fact]
+        public void CompanionLoad_HasStartupDeadlineAfterInitialDelay()
+        {
+            var source = ReadSourceFile("src", "RookNative", "RookNativePlugin.cpp");
+            var companionLoad = ExtractFunction(source, "StartCompanionLoadDeferred");
+
+            Assert.Contains("kCompanionLoadStartupWindowMs", source);
+            Assert.Contains("startupDeadline", companionLoad);
+            Assert.True(
+                companionLoad.IndexOf("std::this_thread::sleep_for(std::chrono::milliseconds(kInitialDelayMs));", StringComparison.Ordinal)
+                < companionLoad.IndexOf("startupDeadline", StringComparison.Ordinal),
+                "The startup deadline must begin after the initial delay.");
+        }
+
+        [Fact]
+        public void CompanionLoad_ChecksAlreadyReadyBeforeAndInsideDispatch()
+        {
+            var source = ReadSourceFile("src", "RookNative", "RookNativePlugin.cpp");
+            var companionLoad = ExtractFunction(source, "StartCompanionLoadDeferred");
+
+            Assert.Contains("if (Rook::Handlers::HasGrasshopperBridgeRegistration())", companionLoad);
+            Assert.Contains("CompanionLoadAttemptResult::AlreadyReady", companionLoad);
+            Assert.True(
+                companionLoad.IndexOf("if (Rook::Handlers::HasGrasshopperBridgeRegistration())", StringComparison.Ordinal)
+                < companionLoad.IndexOf("auto scheduled = CMainThreadDispatcher::Instance().Dispatch([", StringComparison.Ordinal),
+                "AlreadyReady must be checked before dispatch.");
+            Assert.True(
+                companionLoad.LastIndexOf("if (Rook::Handlers::HasGrasshopperBridgeRegistration())", StringComparison.Ordinal)
+                > companionLoad.IndexOf("auto scheduled = CMainThreadDispatcher::Instance().Dispatch([", StringComparison.Ordinal),
+                "AlreadyReady must also be checked inside the dispatched lambda.");
+        }
+
+        [Fact]
+        public void CompanionLoad_WritesNonDispatchDiagnosticsForCommandActiveDeferrals()
+        {
+            var source = ReadSourceFile("src", "RookNative", "RookNativePlugin.cpp");
+            var companionLoad = ExtractFunction(source, "StartCompanionLoadDeferred");
+
+            Assert.Contains("ResolveCompanionLoadDiagnosticPath", source);
+            Assert.Contains("companion-load-", source);
+            Assert.Contains("OutputDebugStringW", source);
+
+            var notSafeBranch = ExtractSwitchCase(
+                companionLoad,
+                "case CompanionLoadAttemptResult::NotSafeYet:",
+                "case CompanionLoadAttemptResult::LoadFailed:");
+            Assert.Contains("WriteCompanionLoadDiagnostic", notSafeBranch);
+            Assert.DoesNotContain("RhinoApp().Print", notSafeBranch);
+            Assert.DoesNotContain("CMainThreadDispatcher::Instance().Dispatch", notSafeBranch);
+        }
+
+        private static string ExtractSwitchCase(string source, string caseStart, string nextCaseStart)
+        {
+            var start = source.IndexOf(caseStart, StringComparison.Ordinal);
+            if (start < 0)
+                throw new InvalidOperationException("Switch case not found: " + caseStart);
+
+            var end = source.IndexOf(nextCaseStart, start + caseStart.Length, StringComparison.Ordinal);
+            if (end < 0)
+                throw new InvalidOperationException("Next switch case not found: " + nextCaseStart);
+
+            return source.Substring(start, end - start);
+        }
+
         private static string ExtractFunction(string source, string functionName)
         {
             var signatureStart = source.IndexOf(functionName + "(", StringComparison.Ordinal);
