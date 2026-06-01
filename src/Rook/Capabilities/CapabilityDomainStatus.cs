@@ -14,6 +14,7 @@ namespace Rook.Capabilities
     internal sealed record CapabilityDomainStatus(
         string DomainId,
         string State,
+        bool Ready,
         string StateSource,
         string? ReasonCode,
         IReadOnlyList<CapabilityEvidence> Evidence);
@@ -178,6 +179,7 @@ namespace Rook.Capabilities
             return new CapabilityDomainStatus(
                 domainId,
                 state,
+                string.Equals(state, "available", StringComparison.Ordinal),
                 stateSource,
                 reasonCode,
                 new[]

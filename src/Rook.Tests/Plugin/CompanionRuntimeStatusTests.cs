@@ -72,10 +72,12 @@ namespace Rook.Tests.Plugin
             var capabilityDomains = root.GetProperty("capabilityDomains").EnumerateArray().ToArray();
             var chatUi = capabilityDomains.Single(domain =>
                 domain.GetProperty("domainId").GetString() == "chat.ui");
+            Assert.True(chatUi.GetProperty("ready").GetBoolean());
             Assert.Equal("managed_companion_runtime", chatUi.GetProperty("stateSource").GetString());
 
             var bim = capabilityDomains.Single(domain =>
                 domain.GetProperty("domainId").GetString() == "bim.rhino_inside_revit");
+            Assert.False(bim.GetProperty("ready").GetBoolean());
             Assert.Equal("managed_rookbim_status_provider", bim.GetProperty("stateSource").GetString());
         }
 
@@ -90,6 +92,7 @@ namespace Rook.Tests.Plugin
             var outsideBim = outsideRhinoInside.Single(domain =>
                 domain.DomainId == "bim.rhino_inside_revit");
             Assert.Equal("blocked_by_host", outsideBim.State);
+            Assert.False(outsideBim.Ready);
             Assert.Equal("not_rhino_inside", outsideBim.ReasonCode);
             Assert.Equal("managed_rookbim_status_provider", outsideBim.StateSource);
 
@@ -101,6 +104,7 @@ namespace Rook.Tests.Plugin
             var missingBridgeBim = missingBridge.Single(domain =>
                 domain.DomainId == "bim.rhino_inside_revit");
             Assert.Equal("not_loaded", missingBridgeBim.State);
+            Assert.False(missingBridgeBim.Ready);
             Assert.Equal("bim_dispatch_callback_not_registered", missingBridgeBim.ReasonCode);
             Assert.Equal("managed_rookbim_status_provider", missingBridgeBim.StateSource);
         }

@@ -24,6 +24,7 @@ namespace Rook.Tests.Capabilities
                 domain.DomainId == "bim.rhino_inside_revit");
 
             Assert.Equal("blocked_by_host", bim.State);
+            Assert.False(bim.Ready);
             Assert.Equal("not_rhino_inside", bim.ReasonCode);
             Assert.Equal("managed_rookbim_status_provider", bim.StateSource);
         }
@@ -41,9 +42,9 @@ namespace Rook.Tests.Capabilities
                 domain.DomainId == "bim.rhino_inside_revit");
 
             Assert.Equal("not_loaded", bim.State);
+            Assert.False(bim.Ready);
             Assert.Equal("bim_dispatch_callback_not_registered", bim.ReasonCode);
             Assert.Equal("managed_rookbim_status_provider", bim.StateSource);
-            Assert.DoesNotContain(bim.State, new[] { "available", "ready" });
             Assert.Contains(bim.Evidence, evidence =>
                 evidence.ReasonCode == "bim_dispatch_callback_not_registered");
             Assert.Contains(bim.Evidence, evidence =>
