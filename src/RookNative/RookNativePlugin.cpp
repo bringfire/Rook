@@ -14,6 +14,11 @@
 #include "Handlers/GrasshopperProxyHandler.h"
 #include <atomic>
 #include <chrono>
+#include <filesystem>
+#include <fstream>
+#include <iomanip>
+#include <sstream>
+#include <string>
 #include <thread>
 
 // --- Required DLL Exports (probed via GetProcAddress before plugin loads) ---
@@ -88,15 +93,27 @@ static std::thread g_companionLoadThread;
 //   4. If all retries fail, logs a clear message — no crash, GH just unavailable
 // ---------------------------------------------------------------------------
 
-// Retry budget: kInitialDelayMs before first attempt, then up to
-// kBridgeRetries polls at kBridgePollMs after LoadPlugIn succeeds
-// to wait for the managed side to register GH callbacks.
+// Retry budget: kInitialDelayMs before the companion-load loop starts, then a
+// bounded wall-clock window for command-active recent-file startup to become
+// safe. kLoadRetries counts only real LoadPlugIn failures, not dispatcher busy
+// deferrals while Rhino is command-active.
 static constexpr int kInitialDelayMs = 2000;
-static constexpr int kLoadRetries    = 3;      // LoadPlugIn attempts
-static constexpr int kLoadRetryMs    = 2000;   // between LoadPlugIn attempts
+static constexpr int kCompanionLoadStartupWindowMs = 120000;
+static constexpr int kLoadRetries    = 3;      // actual LoadPlugIn failures
+static constexpr int kLoadRetryMs    = 2000;   // after actual LoadPlugIn failure
+static constexpr int kNotSafeRetryMs = 500;    // while command-active / dispatcher busy
 static constexpr int kBridgeRetries  = 10;     // bridge-ready polls after load
 static constexpr int kBridgePollMs   = 500;    // between bridge polls
-static constexpr int kDispatchPollMs = 100;    // future wait slice during shutdown-aware polls
+static constexpr int kDispatchPollMs = 100;    // shutdown-aware wait slice
+
+enum class CompanionLoadAttemptResult
+{
+    Loaded,
+    AlreadyReady,
+    NotSafeYet,
+    LoadFailed,
+    DispatcherStopping
+};
 
 template<typename T>
 static bool WaitForFutureOrStop(std::future<T>& future)
@@ -108,6 +125,116 @@ static bool WaitForFutureOrStop(std::future<T>& future)
     }
 
     return !g_stopCompanionLoad.load();
+}
+
+static bool ContainsText(const std::string& value, const char* needle)
+{
+    return value.find(needle) != std::string::npos;
+}
+
+static CompanionLoadAttemptResult ClassifyCompanionLoadException(const std::exception& ex)
+{
+    const std::string message = ex.what() ? ex.what() : "";
+
+    // Coupled to CMainThreadDispatcher's deterministic busy exception. Keep
+    // this match local so command-active cancellation remains a deferral for
+    // companion activation, not a terminal startup failure.
+    if (ContainsText(message, "RookNative dispatcher is busy: Rhino command is active"))
+        return CompanionLoadAttemptResult::NotSafeYet;
+
+    if (ContainsText(message, "dispatcher is not running"))
+        return CompanionLoadAttemptResult::DispatcherStopping;
+
+    return g_stopCompanionLoad.load()
+        ? CompanionLoadAttemptResult::DispatcherStopping
+        : CompanionLoadAttemptResult::NotSafeYet;
+}
+
+static std::filesystem::path ResolveCompanionLoadDiagnosticPath()
+{
+    wchar_t localAppData[MAX_PATH] = {};
+    const DWORD length = ::GetEnvironmentVariableW(L"LOCALAPPDATA", localAppData, MAX_PATH);
+
+    std::filesystem::path root = (length > 0 && length < MAX_PATH)
+        ? std::filesystem::path(localAppData)
+        : std::filesystem::temp_directory_path();
+
+    root /= L"Rook";
+    root /= L"discovery";
+
+    std::error_code error;
+    std::filesystem::create_directories(root, error);
+    return root / (L"companion-load-" + std::to_wstring(::GetCurrentProcessId()) + L".log");
+}
+
+static void WriteCompanionLoadDiagnostic(const std::wstring& message)
+{
+    SYSTEMTIME now{};
+    ::GetSystemTime(&now);
+
+    std::wstringstream line;
+    line
+        << std::setfill(L'0')
+        << now.wYear << L"-" << std::setw(2) << now.wMonth << L"-" << std::setw(2) << now.wDay
+        << L"T" << std::setw(2) << now.wHour << L":" << std::setw(2) << now.wMinute
+        << L":" << std::setw(2) << now.wSecond << L"." << std::setw(3) << now.wMilliseconds
+        << L"Z pid=" << ::GetCurrentProcessId();
+
+    const std::wstring debugLine = L"RookNative: " + message + L"\n";
+    ::OutputDebugStringW(debugLine.c_str());
+
+    try
+    {
+        std::wofstream log(ResolveCompanionLoadDiagnosticPath(), std::ios::app);
+        if (log)
+            log << line.str() << L" RookNative: " << message << std::endl;
+    }
+    catch (...)
+    {
+    }
+}
+
+static CompanionLoadAttemptResult AttemptCompanionLoadOnMainThread()
+{
+    if (g_stopCompanionLoad.load())
+        return CompanionLoadAttemptResult::DispatcherStopping;
+
+    if (Rook::Handlers::HasGrasshopperBridgeRegistration())
+        return CompanionLoadAttemptResult::AlreadyReady;
+
+    try
+    {
+        CompanionLoadAttemptResult result = CompanionLoadAttemptResult::LoadFailed;
+        auto scheduled = CMainThreadDispatcher::Instance().Dispatch([&result]()
+        {
+            if (Rook::Handlers::HasGrasshopperBridgeRegistration())
+            {
+                result = CompanionLoadAttemptResult::AlreadyReady;
+                return;
+            }
+
+            CRhinoPlugIn::SaveLoadProtectionToRegistry(g_RookManagedPlugInId, 1);
+            result = CRhinoPlugIn::LoadPlugIn(g_RookManagedPlugInId, true, true) >= 0
+                ? CompanionLoadAttemptResult::Loaded
+                : CompanionLoadAttemptResult::LoadFailed;
+        });
+
+        if (!WaitForFutureOrStop(scheduled))
+            return CompanionLoadAttemptResult::DispatcherStopping;
+
+        scheduled.get();
+        return result;
+    }
+    catch (const std::exception& ex)
+    {
+        return ClassifyCompanionLoadException(ex);
+    }
+    catch (...)
+    {
+        return g_stopCompanionLoad.load()
+            ? CompanionLoadAttemptResult::DispatcherStopping
+            : CompanionLoadAttemptResult::NotSafeYet;
+    }
 }
 
 static void StartCompanionLoadDeferred()
@@ -129,59 +256,81 @@ static void StartCompanionLoadDeferred()
 
         // ── Phase 1: Load the managed plugin ──────────────────────────
         bool pluginLoaded = false;
+        int loadFailures = 0;
+        const auto startupDeadline = std::chrono::steady_clock::now()
+            + std::chrono::milliseconds(kCompanionLoadStartupWindowMs);
 
-        for (int attempt = 0; attempt < kLoadRetries; ++attempt)
+        while (!g_stopCompanionLoad.load()
+            && std::chrono::steady_clock::now() < startupDeadline
+            && loadFailures < kLoadRetries)
         {
-            if (g_stopCompanionLoad.load())
-                return;
+            const auto result = AttemptCompanionLoadOnMainThread();
 
-            if (Rook::Handlers::HasGrasshopperBridgeRegistration())
-                return; // Already ready (loaded independently).
-
-            try
+            switch (result)
             {
-                bool ok = false;
-                auto scheduled = CMainThreadDispatcher::Instance().Dispatch([&ok]()
+            case CompanionLoadAttemptResult::Loaded:
+                pluginLoaded = true;
+                WriteCompanionLoadDiagnostic(L"managed companion LoadPlugIn succeeded");
+                try
                 {
-                    if (Rook::Handlers::HasGrasshopperBridgeRegistration())
+                    CMainThreadDispatcher::Instance().Dispatch([]()
                     {
-                        ok = true;
-                        return;
-                    }
-
-                    CRhinoPlugIn::SaveLoadProtectionToRegistry(g_RookManagedPlugInId, 1);
-                    ok = CRhinoPlugIn::LoadPlugIn(g_RookManagedPlugInId, true, true) >= 0;
-                });
-                if (!WaitForFutureOrStop(scheduled))
-                    return;
-
-                scheduled.get();
-
-                if (ok)
-                {
-                    pluginLoaded = true;
-                    break;
+                        RhinoApp().Print(L"RookNative: managed companion LoadPlugIn succeeded.\n");
+                    });
                 }
-            }
-            catch (...)
-            {
-                return; // Dispatcher stopping or Rhino shutting down.
+                catch (...) {}
+                break;
+
+            case CompanionLoadAttemptResult::AlreadyReady:
+                pluginLoaded = true;
+                WriteCompanionLoadDiagnostic(L"managed companion already ready");
+                break;
+
+            case CompanionLoadAttemptResult::NotSafeYet:
+                WriteCompanionLoadDiagnostic(L"managed companion load deferred; Rhino command is active");
+                std::this_thread::sleep_for(std::chrono::milliseconds(kNotSafeRetryMs));
+                continue;
+
+            case CompanionLoadAttemptResult::LoadFailed:
+                ++loadFailures;
+                WriteCompanionLoadDiagnostic(
+                    L"managed companion LoadPlugIn attempt " + std::to_wstring(loadFailures) + L" failed");
+                try
+                {
+                    CMainThreadDispatcher::Instance().Dispatch([loadFailures]()
+                    {
+                        RhinoApp().Print(
+                            L"RookNative: managed companion LoadPlugIn attempt %d failed.\n",
+                            loadFailures);
+                    });
+                }
+                catch (...) {}
+                if (loadFailures < kLoadRetries)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(kLoadRetryMs));
+                continue;
+
+            case CompanionLoadAttemptResult::DispatcherStopping:
+                return;
             }
 
-            if (attempt + 1 < kLoadRetries)
-                std::this_thread::sleep_for(std::chrono::milliseconds(kLoadRetryMs));
+            if (pluginLoaded)
+                break;
         }
 
         if (!pluginLoaded)
         {
+            WriteCompanionLoadDiagnostic(
+                L"managed companion startup window expired or LoadPlugIn failed; actual failures "
+                + std::to_wstring(loadFailures) + L" of " + std::to_wstring(kLoadRetries));
             try
             {
-                CMainThreadDispatcher::Instance().Dispatch([]()
+                CMainThreadDispatcher::Instance().Dispatch([loadFailures]()
                 {
                     RhinoApp().Print(
-                        L"RookNative: managed companion LoadPlugIn failed after %d attempts.\n"
-                        L"  GH execution is unavailable for this session.\n"
-                        L"  Run scripts/register-companion.ps1 and restart Rhino.\n",
+                        L"RookNative: managed companion startup window expired or LoadPlugIn failed.\n"
+                        L"  Actual LoadPlugIn failures: %d of %d.\n"
+                        L"  GH execution is unavailable until the companion loads.\n",
+                        loadFailures,
                         kLoadRetries);
                 });
             }

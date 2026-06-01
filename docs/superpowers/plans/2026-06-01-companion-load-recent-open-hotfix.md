@@ -132,17 +132,17 @@ public void CompanionLoad_HasStartupDeadlineAfterInitialDelay()
 public void CompanionLoad_ChecksAlreadyReadyBeforeAndInsideDispatch()
 {
     var source = ReadSourceFile("src", "RookNative", "RookNativePlugin.cpp");
-    var companionLoad = ExtractFunction(source, "StartCompanionLoadDeferred");
+    var attemptLoad = ExtractFunction(source, "AttemptCompanionLoadOnMainThread");
 
-    Assert.Contains("if (Rook::Handlers::HasGrasshopperBridgeRegistration())", companionLoad);
-    Assert.Contains("CompanionLoadAttemptResult::AlreadyReady", companionLoad);
+    Assert.Contains("if (Rook::Handlers::HasGrasshopperBridgeRegistration())", attemptLoad);
+    Assert.Contains("CompanionLoadAttemptResult::AlreadyReady", attemptLoad);
     Assert.True(
-        companionLoad.IndexOf("if (Rook::Handlers::HasGrasshopperBridgeRegistration())", StringComparison.Ordinal)
-        < companionLoad.IndexOf("auto scheduled = CMainThreadDispatcher::Instance().Dispatch([", StringComparison.Ordinal),
+        attemptLoad.IndexOf("if (Rook::Handlers::HasGrasshopperBridgeRegistration())", StringComparison.Ordinal)
+        < attemptLoad.IndexOf("auto scheduled = CMainThreadDispatcher::Instance().Dispatch([", StringComparison.Ordinal),
         "AlreadyReady must be checked before dispatch.");
     Assert.True(
-        companionLoad.LastIndexOf("if (Rook::Handlers::HasGrasshopperBridgeRegistration())", StringComparison.Ordinal)
-        > companionLoad.IndexOf("auto scheduled = CMainThreadDispatcher::Instance().Dispatch([", StringComparison.Ordinal),
+        attemptLoad.LastIndexOf("if (Rook::Handlers::HasGrasshopperBridgeRegistration())", StringComparison.Ordinal)
+        > attemptLoad.IndexOf("auto scheduled = CMainThreadDispatcher::Instance().Dispatch([", StringComparison.Ordinal),
         "AlreadyReady must also be checked inside the dispatched lambda.");
 }
 
