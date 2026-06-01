@@ -115,6 +115,12 @@ enum class CompanionLoadAttemptResult
     DispatcherStopping
 };
 
+struct CompanionLoadAttempt
+{
+    CompanionLoadAttemptResult result = CompanionLoadAttemptResult::NotSafeYet;
+    std::wstring diagnostic;
+};
+
 template<typename T>
 static bool WaitForFutureOrStop(std::future<T>& future)
 {
@@ -132,7 +138,12 @@ static bool ContainsText(const std::string& value, const char* needle)
     return value.find(needle) != std::string::npos;
 }
 
-static CompanionLoadAttemptResult ClassifyCompanionLoadException(const std::exception& ex)
+static std::wstring WidenAscii(const std::string& value)
+{
+    return std::wstring(value.begin(), value.end());
+}
+
+static CompanionLoadAttempt ClassifyCompanionLoadException(const std::exception& ex)
 {
     const std::string message = ex.what() ? ex.what() : "";
 
@@ -140,14 +151,23 @@ static CompanionLoadAttemptResult ClassifyCompanionLoadException(const std::exce
     // this match local so command-active cancellation remains a deferral for
     // companion activation, not a terminal startup failure.
     if (ContainsText(message, "RookNative dispatcher is busy: Rhino command is active"))
-        return CompanionLoadAttemptResult::NotSafeYet;
+    {
+        return {
+            CompanionLoadAttemptResult::NotSafeYet,
+            L"managed companion load deferred; dispatcher busy: Rhino command is active"
+        };
+    }
 
     if (ContainsText(message, "dispatcher is not running"))
-        return CompanionLoadAttemptResult::DispatcherStopping;
+        return { CompanionLoadAttemptResult::DispatcherStopping, L"" };
 
-    return g_stopCompanionLoad.load()
-        ? CompanionLoadAttemptResult::DispatcherStopping
-        : CompanionLoadAttemptResult::NotSafeYet;
+    if (g_stopCompanionLoad.load())
+        return { CompanionLoadAttemptResult::DispatcherStopping, L"" };
+
+    return {
+        CompanionLoadAttemptResult::NotSafeYet,
+        L"managed companion load deferred; unexpected exception: " + WidenAscii(message)
+    };
 }
 
 static std::filesystem::path ResolveCompanionLoadDiagnosticPath()
@@ -194,36 +214,32 @@ static void WriteCompanionLoadDiagnostic(const std::wstring& message)
     }
 }
 
-static CompanionLoadAttemptResult AttemptCompanionLoadOnMainThread()
+static CompanionLoadAttempt AttemptCompanionLoadOnMainThread()
 {
     if (g_stopCompanionLoad.load())
-        return CompanionLoadAttemptResult::DispatcherStopping;
+        return { CompanionLoadAttemptResult::DispatcherStopping, L"" };
 
     if (Rook::Handlers::HasGrasshopperBridgeRegistration())
-        return CompanionLoadAttemptResult::AlreadyReady;
+        return { CompanionLoadAttemptResult::AlreadyReady, L"" };
 
     try
     {
-        CompanionLoadAttemptResult result = CompanionLoadAttemptResult::LoadFailed;
-        auto scheduled = CMainThreadDispatcher::Instance().Dispatch([&result]()
+        auto scheduled = CMainThreadDispatcher::Instance().Dispatch([]() -> CompanionLoadAttemptResult
         {
             if (Rook::Handlers::HasGrasshopperBridgeRegistration())
-            {
-                result = CompanionLoadAttemptResult::AlreadyReady;
-                return;
-            }
+                return CompanionLoadAttemptResult::AlreadyReady;
 
             CRhinoPlugIn::SaveLoadProtectionToRegistry(g_RookManagedPlugInId, 1);
-            result = CRhinoPlugIn::LoadPlugIn(g_RookManagedPlugInId, true, true) >= 0
-                ? CompanionLoadAttemptResult::Loaded
-                : CompanionLoadAttemptResult::LoadFailed;
+            if (CRhinoPlugIn::LoadPlugIn(g_RookManagedPlugInId, true, true) >= 0)
+                return CompanionLoadAttemptResult::Loaded;
+
+            return CompanionLoadAttemptResult::LoadFailed;
         });
 
         if (!WaitForFutureOrStop(scheduled))
-            return CompanionLoadAttemptResult::DispatcherStopping;
+            return { CompanionLoadAttemptResult::DispatcherStopping, L"" };
 
-        scheduled.get();
-        return result;
+        return { scheduled.get(), L"" };
     }
     catch (const std::exception& ex)
     {
@@ -232,8 +248,11 @@ static CompanionLoadAttemptResult AttemptCompanionLoadOnMainThread()
     catch (...)
     {
         return g_stopCompanionLoad.load()
-            ? CompanionLoadAttemptResult::DispatcherStopping
-            : CompanionLoadAttemptResult::NotSafeYet;
+            ? CompanionLoadAttempt{ CompanionLoadAttemptResult::DispatcherStopping, L"" }
+            : CompanionLoadAttempt{
+                CompanionLoadAttemptResult::NotSafeYet,
+                L"managed companion load deferred; unexpected non-standard exception"
+            };
     }
 }
 
@@ -264,9 +283,9 @@ static void StartCompanionLoadDeferred()
             && std::chrono::steady_clock::now() < startupDeadline
             && loadFailures < kLoadRetries)
         {
-            const auto result = AttemptCompanionLoadOnMainThread();
+            const auto attempt = AttemptCompanionLoadOnMainThread();
 
-            switch (result)
+            switch (attempt.result)
             {
             case CompanionLoadAttemptResult::Loaded:
                 pluginLoaded = true;
@@ -287,7 +306,9 @@ static void StartCompanionLoadDeferred()
                 break;
 
             case CompanionLoadAttemptResult::NotSafeYet:
-                WriteCompanionLoadDiagnostic(L"managed companion load deferred; Rhino command is active");
+                WriteCompanionLoadDiagnostic(attempt.diagnostic.empty()
+                    ? L"managed companion load deferred; reason unavailable"
+                    : attempt.diagnostic);
                 std::this_thread::sleep_for(std::chrono::milliseconds(kNotSafeRetryMs));
                 continue;
 

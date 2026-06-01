@@ -147,6 +147,36 @@ namespace Rook.Tests.Threading
         }
 
         [Fact]
+        public void CompanionLoad_DispatchedLambdaReturnsResultWithoutStackReferenceCapture()
+        {
+            var source = ReadSourceFile("src", "RookNative", "RookNativePlugin.cpp");
+            var attemptLoad = ExtractFunction(source, "AttemptCompanionLoadOnMainThread");
+
+            Assert.Contains("CMainThreadDispatcher::Instance().Dispatch([]() -> CompanionLoadAttemptResult", attemptLoad);
+            Assert.Contains("return CompanionLoadAttemptResult::Loaded;", attemptLoad);
+            Assert.DoesNotContain("[&result]", attemptLoad);
+            Assert.DoesNotContain("CompanionLoadAttemptResult result = CompanionLoadAttemptResult::LoadFailed;", attemptLoad);
+        }
+
+        [Fact]
+        public void CompanionLoad_UnexpectedExceptionsKeepDistinctDiagnostic()
+        {
+            var source = ReadSourceFile("src", "RookNative", "RookNativePlugin.cpp");
+            var companionLoad = ExtractFunction(source, "StartCompanionLoadDeferred");
+            var notSafeBranch = ExtractSwitchCase(
+                companionLoad,
+                "case CompanionLoadAttemptResult::NotSafeYet:",
+                "case CompanionLoadAttemptResult::LoadFailed:");
+
+            Assert.Contains("struct CompanionLoadAttempt", source);
+            Assert.Contains("unexpected exception", source);
+            Assert.Contains("unexpected non-standard exception", source);
+            Assert.Contains("managed companion load deferred; dispatcher busy: Rhino command is active", source);
+            Assert.Contains("attempt.diagnostic", notSafeBranch);
+            Assert.DoesNotContain("managed companion load deferred; Rhino command is active", notSafeBranch);
+        }
+
+        [Fact]
         public void CompanionLoad_LoadFailureBudgetCountsOnlyActualLoadPlugInAttempts()
         {
             var source = ReadSourceFile("src", "RookNative", "RookNativePlugin.cpp");
