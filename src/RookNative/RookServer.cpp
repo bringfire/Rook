@@ -317,6 +317,34 @@ void CRookServer::SendErrorData(httplib::Response& res, const nlohmann::json& da
     res.set_content(envelope.dump(), "application/json");
 }
 
+void CRookServer::SendErrorWithDiagnostic(
+    httplib::Response& res,
+    const std::string& message,
+    const nlohmann::json& diagnostic)
+{
+    nlohmann::json envelope;
+    envelope["success"] = false;
+    envelope["data"] = message;
+    envelope["diagnostic"] = diagnostic;
+
+    res.status = 400;
+    res.set_content(envelope.dump(), "application/json");
+}
+
+void CRookServer::SendErrorWithDiagnostic(
+    httplib::Response& res,
+    const nlohmann::json& data,
+    const nlohmann::json& diagnostic)
+{
+    nlohmann::json envelope;
+    envelope["success"] = false;
+    envelope["data"] = data;
+    envelope["diagnostic"] = diagnostic;
+
+    res.status = 400;
+    res.set_content(envelope.dump(), "application/json");
+}
+
 // --- Route Handlers ---
 
 void CRookServer::HandlePing(const httplib::Request& /*req*/, httplib::Response& res)
