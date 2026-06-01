@@ -192,6 +192,65 @@ def test_discover_instances_accepts_rhino_inside_native_record(discovery_dir: Pa
     assert instances[0]["capabilities"] == {"ghProvider": "callback", "ghRoutes": []}
 
 
+def test_normalize_instance_preserves_capability_domains() -> None:
+    raw = {
+        "host": "127.0.0.1",
+        "port": 9950,
+        "processId": 7101,
+        "pluginType": "native",
+        "capabilities": {
+            "schemaVersion": 1,
+            "ghProvider": "callback",
+            "ghRoutes": [],
+            "domainSummary": [
+                {
+                    "domainId": "bim.rhino_inside_revit",
+                    "state": "blocked_by_host",
+                    "ready": False,
+                    "reasonCode": "not_rhino_inside",
+                }
+            ],
+        },
+    }
+
+    normalized = bridge._normalize_instance(raw)
+
+    assert normalized["capabilities"]["schemaVersion"] == 1
+    assert normalized["capabilities"]["domainSummary"] == [
+        {
+            "domainId": "bim.rhino_inside_revit",
+            "state": "blocked_by_host",
+            "ready": False,
+            "reasonCode": "not_rhino_inside",
+        }
+    ]
+
+
+def test_get_capability_domain_summary_returns_matching_domain() -> None:
+    instance = {
+        "capabilities": {
+            "domainSummary": [
+                {"domainId": "native.core", "state": "ready", "ready": True},
+                {"domainId": "bim.rhino_inside_revit", "state": "blocked_by_host", "ready": False},
+            ]
+        }
+    }
+
+    domain = bridge.get_capability_domain_summary(instance, "bim.rhino_inside_revit")
+
+    assert domain == {
+        "domainId": "bim.rhino_inside_revit",
+        "state": "blocked_by_host",
+        "ready": False,
+    }
+
+
+def test_get_capability_domain_summary_handles_older_discovery() -> None:
+    instance = {"capabilities": {"ghProvider": "callback", "ghRoutes": []}}
+
+    assert bridge.get_capability_domain_summary(instance, "native.core") is None
+
+
 def test_cleanup_keeps_live_rhino_inside_native_record(
     discovery_dir: Path,
     monkeypatch: pytest.MonkeyPatch,

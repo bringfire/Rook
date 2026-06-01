@@ -168,6 +168,22 @@ def _normalize_instance(data: dict[str, Any]) -> dict[str, Any]:
     return data
 
 
+def get_capability_domain_summary(
+    instance: dict[str, Any],
+    domain_id: str,
+) -> dict[str, Any] | None:
+    capabilities = instance.get("capabilities") or {}
+    domain_summary = capabilities.get("domainSummary")
+    if not isinstance(domain_summary, list):
+        return None
+
+    for domain in domain_summary:
+        if isinstance(domain, dict) and domain.get("domainId") == domain_id:
+            return domain
+
+    return None
+
+
 def _supports_endpoint(instance: dict[str, Any], endpoint: str | None) -> bool:
     """Check whether a discovered instance advertises a route."""
     if not endpoint or not endpoint.startswith(GH_ROUTE_PREFIX):
