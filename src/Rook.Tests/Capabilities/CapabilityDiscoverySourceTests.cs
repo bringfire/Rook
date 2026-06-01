@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
 using Xunit;
 
@@ -31,32 +30,39 @@ namespace Rook.Tests.Capabilities
             var source = ReadSourceFile("src", "RookNative", "RookServer.cpp");
 
             Assert.Contains("void HandleCapabilities(const httplib::Request& req, httplib::Response& res);", header);
-            Assert.Contains("m_server->Get(\"/capabilities\"", source);
-            Assert.Contains("HandleCapabilities(req, res);", source);
-            Assert.DoesNotContain("RookRegisterCapabilitiesServer", source);
+            var routeRegistration = ExtractRouteRegistration(source, "m_server->Get(\"/capabilities\"");
+            Assert.Contains("HandleCapabilities(req, res);", routeRegistration);
         }
 
         [Fact]
         public void CapabilityDocument_ContainsRequiredDomainsAndSchemaFields()
         {
             var source = ReadSourceFile("src", "RookNative", "RookServer.cpp");
+            var capabilityBuilder = ExtractFunction(source, "BuildRookCapabilitiesDocument");
 
-            Assert.Contains("BuildRookCapabilitiesDocument", source);
-            Assert.Contains("\"schemaVersion\"", source);
-            Assert.Contains("\"generatedUtc\"", source);
-            Assert.Contains("\"domains\"", source);
-            Assert.Contains("\"domainId\"", source);
-            Assert.Contains("\"declared\"", source);
-            Assert.Contains("\"installed\"", source);
-            Assert.Contains("\"state\"", source);
-            Assert.Contains("\"stateSource\"", source);
-            Assert.Contains("\"reasonCode\"", source);
-            Assert.Contains("\"evidence\"", source);
+            Assert.Contains("\"schemaVersion\"", capabilityBuilder);
+            Assert.Contains("\"generatedUtc\"", capabilityBuilder);
+            Assert.Contains("\"domains\"", capabilityBuilder);
+            Assert.Contains("\"domainId\"", capabilityBuilder);
+            Assert.Contains("\"declared\"", capabilityBuilder);
+            Assert.Contains("\"installed\"", capabilityBuilder);
+            Assert.Contains("\"state\"", capabilityBuilder);
+            Assert.Contains("\"stateSource\"", capabilityBuilder);
+            Assert.Contains("\"reasonCode\"", capabilityBuilder);
+            Assert.Contains("\"evidence\"", capabilityBuilder);
 
             foreach (var domain in RequiredDomains)
             {
-                Assert.Contains(domain, source);
+                Assert.Contains(domain, capabilityBuilder);
             }
+        }
+
+        [Fact]
+        public void CapabilityRoute_DoesNotAddPublicManagedCapabilitiesServerExport()
+        {
+            AssertNoCapabilitiesServerExport(ReadSourceFile("src", "RookNative", "RookServer.cpp"));
+            AssertNoCapabilitiesServerExport(ReadSourceFile("src", "RookNative", "Handlers", "GrasshopperProxyHandler.cpp"));
+            AssertNoCapabilitiesServerExport(ReadSourceFile("src", "Rook", "InternalBridge", "NativeGhBridgeRegistrar.cs"));
         }
 
         [Fact]
@@ -127,6 +133,55 @@ namespace Rook.Tests.Capabilities
             }
 
             throw new InvalidOperationException("Function body did not close: " + functionName);
+        }
+
+        private static string ExtractRouteRegistration(string source, string routeStart)
+        {
+            var registrationStart = source.IndexOf(routeStart, StringComparison.Ordinal);
+            if (registrationStart < 0)
+                throw new InvalidOperationException("Route registration not found: " + routeStart);
+
+            var parenStart = source.IndexOf('(', registrationStart);
+            if (parenStart < 0)
+                throw new InvalidOperationException("Route registration call not found: " + routeStart);
+
+            var depth = 0;
+            for (var i = parenStart; i < source.Length; i++)
+            {
+                if (source[i] == '(') depth++;
+                else if (source[i] == ')')
+                {
+                    depth--;
+                    if (depth == 0)
+                    {
+                        var semicolon = source.IndexOf(';', i);
+                        if (semicolon < 0)
+                            throw new InvalidOperationException("Route registration did not terminate: " + routeStart);
+
+                        return source.Substring(registrationStart, semicolon - registrationStart + 1);
+                    }
+                }
+            }
+
+            throw new InvalidOperationException("Route registration call did not close: " + routeStart);
+        }
+
+        private static void AssertNoCapabilitiesServerExport(string source)
+        {
+            Assert.DoesNotContain("RookRegisterCapabilitiesServer", source);
+            Assert.DoesNotContain("RookRegisterCapabilities", source);
+
+            using (var reader = new StringReader(source))
+            {
+                string? line;
+                while ((line = reader.ReadLine()) != null)
+                {
+                    Assert.False(
+                        line.Contains("__declspec(dllexport)") &&
+                        line.IndexOf("Capabilit", StringComparison.OrdinalIgnoreCase) >= 0,
+                        "Capabilities-specific public native export found: " + line.Trim());
+                }
+            }
         }
 
         private static string ReadSourceFile(params string[] pathParts)
