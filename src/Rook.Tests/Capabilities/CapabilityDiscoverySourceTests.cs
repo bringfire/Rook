@@ -101,6 +101,9 @@ namespace Rook.Tests.Capabilities
             Assert.DoesNotContain("(void)bimDispatchReady", capabilityBuilder);
             Assert.DoesNotContain("(void)tier3CaptureReady", capabilityBuilder);
             Assert.DoesNotContain("(void)blockMutationReady", capabilityBuilder);
+            Assert.DoesNotContain("(void)port", capabilityBuilder);
+            Assert.Contains("std::to_string(port)", capabilityBuilder);
+            Assert.DoesNotContain("\\\"port\\\",\\\"value\\\":0", capabilityBuilder);
         }
 
         [Fact]

@@ -1974,7 +1974,7 @@ std::string BuildRookCapabilitiesDocument(
 
     ADD_DOMAIN("native.core", "present", true, "ready", true, "native_server_running", false, "native_server_runtime",
         "[\"GET /ping\",\"GET /capabilities\"]", "[\"ping\",\"capability_discovery\"]", "[\"native discovery file\"]",
-        "[" EVID("http", "port", "0") "]");
+        "[{\"kind\":\"http\",\"name\":\"port\",\"value\":" << std::to_string(port) << "}]");
     ADD_DOMAIN("native.command_control", "present", true, "ready", true, "native_routes_registered", false, "native_route_registration",
         "[\"GET /command/prompt\",\"POST /command/send\",\"POST /command/cancel\",\"POST /command/start\"]", "[\"prompt\",\"send\",\"cancel\",\"start\"]", "[\"GET /command/prompt\"]",
         "[" EVID("route", "commandControl", "true") "]");
