@@ -99,15 +99,6 @@ namespace Rook.Capabilities
             bool startupComplete,
             bool bridgeRegistered)
         {
-            if (!rhinoInside)
-            {
-                return Create(
-                    "bim.rhino_inside_revit",
-                    "blocked_by_host",
-                    ManagedRookBimStatusProvider,
-                    "not_rhino_inside");
-            }
-
             if (!bridgeRegistered)
             {
                 return Create(
@@ -115,6 +106,15 @@ namespace Rook.Capabilities
                     "not_loaded",
                     ManagedRookBimStatusProvider,
                     "bim_dispatch_callback_not_registered");
+            }
+
+            if (!rhinoInside)
+            {
+                return Create(
+                    "bim.rhino_inside_revit",
+                    "blocked_by_host",
+                    ManagedRookBimStatusProvider,
+                    "not_rhino_inside");
             }
 
             if (!startupComplete)
@@ -126,45 +126,40 @@ namespace Rook.Capabilities
                     "startup_not_complete");
             }
 
-            BimStatusResponse status;
-            try
-            {
-                status = RookBimRuntimeRegistry.Current.Status();
-            }
-            catch (Exception ex)
+            var source = RookBimRuntimeRegistry.Source;
+            if (string.Equals(source, "core-fallback", StringComparison.Ordinal))
             {
                 return Create(
                     "bim.rhino_inside_revit",
-                    "unavailable",
+                    "not_loaded",
                     ManagedRookBimStatusProvider,
-                    "rookbim_status_provider_failed",
-                    $"{ex.GetType().Name}: {ex.Message}");
+                    "rookbim_runtime_not_activated");
             }
 
-            var reasonCode = NullIfWhiteSpace(status.ErrorCode);
-            if (string.Equals(reasonCode, "not_rhino_inside", StringComparison.Ordinal))
+            if (string.Equals(source, "module-not-found", StringComparison.Ordinal))
             {
                 return Create(
                     "bim.rhino_inside_revit",
-                    "blocked_by_host",
+                    "missing_dependency",
                     ManagedRookBimStatusProvider,
-                    "not_rhino_inside",
-                    status.Message);
+                    "rookbim_module_not_found");
             }
 
-            return status.Available
-                ? Create(
+            if (string.Equals(source, "module-load-failed", StringComparison.Ordinal))
+            {
+                return Create(
                     "bim.rhino_inside_revit",
-                    "available",
+                    "failed",
                     ManagedRookBimStatusProvider,
-                    null,
-                    status.Message)
-                : Create(
-                    "bim.rhino_inside_revit",
-                    "unavailable",
-                    ManagedRookBimStatusProvider,
-                    reasonCode ?? "rookbim_unavailable",
-                    status.Message);
+                    "rookbim_module_load_failed");
+            }
+
+            return Create(
+                "bim.rhino_inside_revit",
+                "unknown",
+                ManagedRookBimStatusProvider,
+                "bim_status_not_probed_phase1",
+                "Use /bim/status to check active document and Revit API readiness.");
         }
 
         private static CapabilityDomainStatus Create(
@@ -185,9 +180,5 @@ namespace Rook.Capabilities
                 });
         }
 
-        private static string? NullIfWhiteSpace(string? value)
-        {
-            return string.IsNullOrWhiteSpace(value) ? null : value;
-        }
     }
 }

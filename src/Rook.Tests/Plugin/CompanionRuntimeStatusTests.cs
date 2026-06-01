@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using System.Text.Json;
+using Rook.Bim;
 using Rook.Capabilities;
 using Rook.Startup;
 using Xunit;
@@ -82,7 +83,7 @@ namespace Rook.Tests.Plugin
             var outsideRhinoInside = CapabilityDomainStatusBuilder.BuildCompanionDomains(
                 rhinoInside: false,
                 startupComplete: true,
-                bridgeRegistered: false,
+                bridgeRegistered: true,
                 panelsRegistered: true);
             var outsideBim = outsideRhinoInside.Single(domain =>
                 domain.DomainId == "bim.rhino_inside_revit");
@@ -100,6 +101,125 @@ namespace Rook.Tests.Plugin
             Assert.Equal("not_loaded", missingBridgeBim.State);
             Assert.Equal("bim_dispatch_callback_not_registered", missingBridgeBim.ReasonCode);
             Assert.Equal("managed_rookbim_status_provider", missingBridgeBim.StateSource);
+        }
+
+        [Fact]
+        public void BuildCompanionDomains_DoesNotProbeBimRuntimeStatus()
+        {
+            var runtime = new ThrowingBimRuntime();
+            RookBimRuntimeRegistry.Install(runtime, "RookBim.dll");
+
+            try
+            {
+                var domains = CapabilityDomainStatusBuilder.BuildCompanionDomains(
+                    rhinoInside: true,
+                    startupComplete: true,
+                    bridgeRegistered: true,
+                    panelsRegistered: true);
+
+                var bim = domains.Single(domain =>
+                    domain.DomainId == "bim.rhino_inside_revit");
+                Assert.False(runtime.StatusCalled);
+                Assert.Equal("unknown", bim.State);
+                Assert.Equal("bim_status_not_probed_phase1", bim.ReasonCode);
+                Assert.Contains("/bim/status", bim.Evidence.Single().Message);
+            }
+            finally
+            {
+                RookBimRuntimeRegistry.ResetForTests();
+            }
+        }
+
+        [Fact]
+        public void BuildCompanionDomains_ReportsChatPanelRegistrationFailure()
+        {
+            var domains = CapabilityDomainStatusBuilder.BuildCompanionDomains(
+                rhinoInside: false,
+                startupComplete: true,
+                bridgeRegistered: false,
+                panelsRegistered: false);
+
+            var chat = domains.Single(domain => domain.DomainId == "chat.ui");
+            Assert.Equal("unavailable", chat.State);
+            Assert.Equal("panels_not_registered", chat.ReasonCode);
+        }
+
+        [Theory]
+        [InlineData("core-fallback", "not_loaded", "rookbim_runtime_not_activated")]
+        [InlineData("module-not-found", "missing_dependency", "rookbim_module_not_found")]
+        [InlineData("module-load-failed", "failed", "rookbim_module_load_failed")]
+        public void BuildCompanionDomains_MapsBimRegistrySourceWithoutStatusProbe(
+            string source,
+            string expectedState,
+            string expectedReason)
+        {
+            var runtime = new ThrowingBimRuntime();
+            RookBimRuntimeRegistry.Install(runtime, source);
+
+            try
+            {
+                var domains = CapabilityDomainStatusBuilder.BuildCompanionDomains(
+                    rhinoInside: true,
+                    startupComplete: true,
+                    bridgeRegistered: true,
+                    panelsRegistered: true);
+
+                var bim = domains.Single(domain =>
+                    domain.DomainId == "bim.rhino_inside_revit");
+                Assert.False(runtime.StatusCalled);
+                Assert.Equal(expectedState, bim.State);
+                Assert.Equal(expectedReason, bim.ReasonCode);
+            }
+            finally
+            {
+                RookBimRuntimeRegistry.ResetForTests();
+            }
+        }
+
+        private sealed class ThrowingBimRuntime : IRookBimRuntime
+        {
+            public bool StatusCalled { get; private set; }
+
+            public BimStatusResponse Status()
+            {
+                StatusCalled = true;
+                throw new InvalidOperationException("Status must not be probed by capability status builder.");
+            }
+
+            public BimApiResponse ActiveDocument()
+            {
+                throw new NotSupportedException();
+            }
+
+            public BimApiResponse ListCategories()
+            {
+                throw new NotSupportedException();
+            }
+
+            public BimApiResponse QueryElements(BimQueryElementsRequest request)
+            {
+                throw new NotSupportedException();
+            }
+
+            public BimApiResponse ElementInfo(BimElementRequest request)
+            {
+                throw new NotSupportedException();
+            }
+
+            public BimApiResponse ElementParameters(BimElementRequest request)
+            {
+                throw new NotSupportedException();
+            }
+
+            public BimApiResponse SelectElements(BimSelectElementsRequest request)
+            {
+                throw new NotSupportedException();
+            }
+
+            public BimApiResponse ClearSelection()
+            {
+                throw new NotSupportedException();
+            }
         }
     }
 }
