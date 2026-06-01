@@ -148,7 +148,7 @@ reserved
 - Modify `src/RookNative/RookServer.h`
   - Add `HandleCapabilities`.
 - Modify `src/RookNative/RookServer.cpp`
-  - Add capability document helpers in the existing file, register `GET /capabilities`, and add compact discovery fields.
+  - Register `GET /capabilities`, add capability document helpers near the existing discovery helpers, and add compact discovery fields.
 - Create `src/Rook/Capabilities/CapabilityDomainStatus.cs`
   - Managed internal capability domain record and builder helpers.
 - Modify `src/Rook/Startup/CompanionRuntimeStatus.cs`
@@ -507,7 +507,9 @@ void HandleCapabilities(const httplib::Request& req, httplib::Response& res);
 
 - [ ] **Step 2: Add capability helper functions in `RookServer.cpp`**
 
-In `src/RookNative/RookServer.cpp`, add these helpers inside the existing anonymous namespace after the route-set declarations and before `CRookServer::RegisterRoutes()`:
+In `src/RookNative/RookServer.cpp`, add these helpers inside the existing anonymous namespace immediately after the existing `GetNativeGrasshopperRoutes()` definition and before `CRookServer::WriteDiscoveryFile()`.
+
+Do not place these helpers before `CRookServer::RegisterRoutes()`. `BuildRookCapabilitiesDocument()` calls `GetNativeGrasshopperRoutes()`, and the helper must be defined after that function unless a separate forward declaration is added. This plan uses placement after `GetNativeGrasshopperRoutes()` to avoid extra declarations.
 
 ```cpp
 nlohmann::json MakeCapabilityEvidence(
@@ -935,16 +937,20 @@ m_server->Get("/capabilities", [this](const httplib::Request& req, httplib::Resp
 
 - [ ] **Step 4: Implement the route handler**
 
-In `src/RookNative/RookServer.cpp`, immediately below `HandlePing`, add:
+In `src/RookNative/RookServer.cpp`, add this member function after the capability helpers from Step 2 and before `CRookServer::WriteDiscoveryFile()`:
 
 ```cpp
 void CRookServer::HandleCapabilities(const httplib::Request& /*req*/, httplib::Response& res)
 {
     const DiscoveryRootInfo rootInfo = ResolveDiscoveryRootInfo();
     const auto companionStatus = ReadCompanionRuntimeStatus(rootInfo, ::GetCurrentProcessId());
-    SendSuccess(res, BuildRookCapabilitiesDocument(m_port, rootInfo, companionStatus));
+    const auto document = BuildRookCapabilitiesDocument(m_port, rootInfo, companionStatus);
+    res.status = 200;
+    res.set_content(document.dump(), "application/json");
 }
 ```
+
+`/capabilities` intentionally returns the capability document directly, not the standard `{ "success": true, "data": ... }` envelope. This keeps `schemaVersion`, `generatedUtc`, and `domains` at the top level for schema/discovery consumers.
 
 - [ ] **Step 5: Add the compact summary to discovery without removing legacy fields**
 
@@ -995,7 +1001,15 @@ Expected: commit succeeds.
 
 - [ ] **Step 1: Add managed tests for companion status JSON**
 
-Modify `src/Rook.Tests/Plugin/CompanionRuntimeStatusTests.cs`. In the snapshot construction inside `BuildJson_IncludesRuntimeSelfReportFields`, add `PanelsRegistered: true` and assert the new JSON fields:
+Modify `src/Rook.Tests/Plugin/CompanionRuntimeStatusTests.cs`.
+
+First, add the missing namespace import at the top of the file:
+
+```csharp
+using Rook.Capabilities;
+```
+
+Then, in the snapshot construction inside `BuildJson_IncludesRuntimeSelfReportFields`, add `PanelsRegistered: true` and assert the new JSON fields:
 
 ```csharp
 var snapshot = new CompanionRuntimeStatusSnapshot(
