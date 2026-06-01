@@ -129,13 +129,15 @@ namespace Rook.Tests.Diagnostics
         [Fact]
         public void SliceOne_DoesNotAdoptDiagnosticsAcrossAllVisionRoutes()
         {
-            var source = ReadSourceFile("src", "RookNative", "Handlers", "VisionHandler.cpp");
+            var visionSource = ReadSourceFile("src", "RookNative", "Handlers", "VisionHandler.cpp");
+            var header = ReadSourceFile("src", "RookNative", "Infrastructure", "RouteDiagnostics.h");
+            var catalogAndSource = visionSource + header;
 
-            Assert.Single(FindAll(source, "BuildVisionDispatchCallbackUnavailable("));
-            Assert.DoesNotContain("viewport_capture_callback_unavailable", source);
-            Assert.DoesNotContain("block_mutation_callback_unavailable", source);
-            Assert.DoesNotContain("bim_dispatch_callback_unavailable", source);
-            Assert.DoesNotContain("gh_bridge_callback_unavailable", source);
+            Assert.Single(FindAll(visionSource, "BuildVisionDispatchCallbackUnavailable("));
+            Assert.DoesNotContain("viewport_capture_callback_unavailable", catalogAndSource);
+            Assert.DoesNotContain("block_mutation_callback_unavailable", catalogAndSource);
+            Assert.DoesNotContain("bim_dispatch_callback_unavailable", catalogAndSource);
+            Assert.DoesNotContain("gh_bridge_callback_unavailable", catalogAndSource);
         }
 
         private static string ExtractFunction(string source, string functionName)
