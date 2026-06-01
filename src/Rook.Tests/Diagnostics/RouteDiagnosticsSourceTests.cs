@@ -126,6 +126,18 @@ namespace Rook.Tests.Diagnostics
             Assert.DoesNotContain("/capabilities", helper);
         }
 
+        [Fact]
+        public void SliceOne_DoesNotAdoptDiagnosticsAcrossAllVisionRoutes()
+        {
+            var source = ReadSourceFile("src", "RookNative", "Handlers", "VisionHandler.cpp");
+
+            Assert.Single(FindAll(source, "BuildVisionDispatchCallbackUnavailable("));
+            Assert.DoesNotContain("viewport_capture_callback_unavailable", source);
+            Assert.DoesNotContain("block_mutation_callback_unavailable", source);
+            Assert.DoesNotContain("bim_dispatch_callback_unavailable", source);
+            Assert.DoesNotContain("gh_bridge_callback_unavailable", source);
+        }
+
         private static string ExtractFunction(string source, string functionName)
         {
             var signatureStart = source.IndexOf(functionName + "(", StringComparison.Ordinal);
@@ -165,6 +177,20 @@ namespace Rook.Tests.Diagnostics
             }
 
             return count;
+        }
+
+        private static string[] FindAll(string source, string needle)
+        {
+            var matches = new System.Collections.Generic.List<string>();
+            var index = 0;
+            while (true)
+            {
+                index = source.IndexOf(needle, index, StringComparison.Ordinal);
+                if (index < 0)
+                    return matches.ToArray();
+                matches.Add(needle);
+                index += needle.Length;
+            }
         }
 
         private static string ReadSourceFile(params string[] pathParts)
