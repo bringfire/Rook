@@ -12,6 +12,7 @@
 #include "Handlers/ViewportHandler.h"
 #include "Handlers/GrasshopperProxyHandler.h"
 #include "Infrastructure/JsonHelpers.h"
+#include "Infrastructure/RouteDiagnostics.h"
 #include "Models/DocumentHelpers.h"
 #include "Threading/MainThreadDispatcher.h"
 #include "RookServer.h"
@@ -114,12 +115,19 @@ void HandleViewport(const httplib::Request& req, httplib::Response& res)
             res.set_header("X-Rook-Viewport-Backend", "tier3");
             return;
         case ManagedCreateInvokeResult::Unavailable:
-            CRookServer::SendError(res,
+        {
+            const auto unavailableDiagnostic =
+                Rook::Diagnostics::BuildViewportCaptureCallbackUnavailable(
+                    "POST /viewport",
+                    "viewport_capture_tier3");
+            CRookServer::SendErrorWithDiagnostic(res,
                 "Tier 3 viewport capture requires the Rook companion plugin. "
-                "Ensure Rook.rhp is loaded in Rhino, then retry.");
+                "Ensure Rook.rhp is loaded in Rhino, then retry.",
+                unavailableDiagnostic);
             res.status = 503;
             res.set_header("X-Rook-Viewport-Backend", "tier3-unavailable");
             return;
+        }
         case ManagedCreateInvokeResult::Failed:
         default:
             CRookServer::SendError(res,
