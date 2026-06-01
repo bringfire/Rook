@@ -331,7 +331,7 @@ void CRookServer::SendErrorWithDiagnostic(
     res.set_content(envelope.dump(), "application/json");
 }
 
-void CRookServer::SendErrorWithDiagnostic(
+void CRookServer::SendErrorDataWithDiagnostic(
     httplib::Response& res,
     const nlohmann::json& data,
     const nlohmann::json& diagnostic)

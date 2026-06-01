@@ -69,14 +69,23 @@ namespace Rook.Tests.Diagnostics
         {
             var header = ReadSourceFile("src", "RookNative", "RookServer.h");
             var source = ReadSourceFile("src", "RookNative", "RookServer.cpp");
-            var helper = ExtractFunction(source, "CRookServer::SendErrorWithDiagnostic");
+            var stringHelper = ExtractFunction(source, "CRookServer::SendErrorWithDiagnostic");
+            var structuredDataHelper = ExtractFunction(source, "CRookServer::SendErrorDataWithDiagnostic");
 
             Assert.Contains("SendErrorWithDiagnostic", header);
-            Assert.Contains("envelope[\"success\"] = false;", helper);
-            Assert.Contains("envelope[\"data\"] = message;", helper);
-            Assert.Contains("envelope[\"diagnostic\"] = diagnostic;", helper);
-            Assert.DoesNotContain("envelope[\"data\"] = diagnostic;", helper);
-            Assert.DoesNotContain("legacyMessage", helper);
+            Assert.Contains("SendErrorDataWithDiagnostic", header);
+            Assert.Equal(1, CountOccurrences(header, "static void SendErrorWithDiagnostic("));
+            Assert.Equal(1, CountOccurrences(source, "void CRookServer::SendErrorWithDiagnostic("));
+            Assert.Contains("envelope[\"success\"] = false;", stringHelper);
+            Assert.Contains("envelope[\"data\"] = message;", stringHelper);
+            Assert.Contains("envelope[\"diagnostic\"] = diagnostic;", stringHelper);
+            Assert.DoesNotContain("envelope[\"data\"] = diagnostic;", stringHelper);
+            Assert.DoesNotContain("legacyMessage", stringHelper);
+
+            Assert.Contains("envelope[\"success\"] = false;", structuredDataHelper);
+            Assert.Contains("envelope[\"data\"] = data;", structuredDataHelper);
+            Assert.Contains("envelope[\"diagnostic\"] = diagnostic;", structuredDataHelper);
+            Assert.DoesNotContain("envelope[\"data\"] = diagnostic;", structuredDataHelper);
         }
 
         [Fact]
@@ -143,6 +152,19 @@ namespace Rook.Tests.Diagnostics
             }
 
             throw new InvalidOperationException("Function body did not close: " + functionName);
+        }
+
+        private static int CountOccurrences(string source, string value)
+        {
+            var count = 0;
+            var index = 0;
+            while ((index = source.IndexOf(value, index, StringComparison.Ordinal)) >= 0)
+            {
+                count++;
+                index += value.Length;
+            }
+
+            return count;
         }
 
         private static string ReadSourceFile(params string[] pathParts)

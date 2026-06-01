@@ -35,14 +35,16 @@ public:
     // SendErrorData: like SendError but preserves structured JSON data in the envelope.
     // Use this when the error response contains structured data (not just a message string).
     static void SendErrorData(httplib::Response& res, const nlohmann::json& data);
-    // SendErrorWithDiagnostic: preserves legacy data while adding the
+    // SendErrorWithDiagnostic: preserves legacy string data while adding the
     // additive Phase 2 route diagnostic sibling. Callers may override
     // res.status after this helper to preserve established route status.
     static void SendErrorWithDiagnostic(
         httplib::Response& res,
         const std::string& message,
         const nlohmann::json& diagnostic);
-    static void SendErrorWithDiagnostic(
+    // SendErrorDataWithDiagnostic: preserves structured JSON data while adding
+    // the additive Phase 2 route diagnostic sibling.
+    static void SendErrorDataWithDiagnostic(
         httplib::Response& res,
         const nlohmann::json& data,
         const nlohmann::json& diagnostic);

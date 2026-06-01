@@ -40,10 +40,10 @@ Not allowed:
   - Defines catalog-backed builders for Slice 1 reason codes.
 
 - Modify `src/RookNative/RookServer.h`
-  - Add `SendErrorWithDiagnostic(...)` overloads next to existing response helpers.
+  - Add `SendErrorWithDiagnostic(...)` and `SendErrorDataWithDiagnostic(...)` next to existing response helpers.
 
 - Modify `src/RookNative/RookServer.cpp`
-  - Implement `SendErrorWithDiagnostic(...)`.
+  - Implement `SendErrorWithDiagnostic(...)` and `SendErrorDataWithDiagnostic(...)`.
   - Preserve `success:false` and legacy `data`.
   - Add only a top-level `diagnostic` sibling.
 
@@ -168,14 +168,23 @@ namespace Rook.Tests.Diagnostics
         {
             var header = ReadSourceFile("src", "RookNative", "RookServer.h");
             var source = ReadSourceFile("src", "RookNative", "RookServer.cpp");
-            var helper = ExtractFunction(source, "CRookServer::SendErrorWithDiagnostic");
+            var stringHelper = ExtractFunction(source, "CRookServer::SendErrorWithDiagnostic");
+            var structuredDataHelper = ExtractFunction(source, "CRookServer::SendErrorDataWithDiagnostic");
 
             Assert.Contains("SendErrorWithDiagnostic", header);
-            Assert.Contains("envelope[\"success\"] = false;", helper);
-            Assert.Contains("envelope[\"data\"] = message;", helper);
-            Assert.Contains("envelope[\"diagnostic\"] = diagnostic;", helper);
-            Assert.DoesNotContain("envelope[\"data\"] = diagnostic;", helper);
-            Assert.DoesNotContain("legacyMessage", helper);
+            Assert.Contains("SendErrorDataWithDiagnostic", header);
+            Assert.Equal(1, CountOccurrences(header, "static void SendErrorWithDiagnostic("));
+            Assert.Equal(1, CountOccurrences(source, "void CRookServer::SendErrorWithDiagnostic("));
+            Assert.Contains("envelope[\"success\"] = false;", stringHelper);
+            Assert.Contains("envelope[\"data\"] = message;", stringHelper);
+            Assert.Contains("envelope[\"diagnostic\"] = diagnostic;", stringHelper);
+            Assert.DoesNotContain("envelope[\"data\"] = diagnostic;", stringHelper);
+            Assert.DoesNotContain("legacyMessage", stringHelper);
+
+            Assert.Contains("envelope[\"success\"] = false;", structuredDataHelper);
+            Assert.Contains("envelope[\"data\"] = data;", structuredDataHelper);
+            Assert.Contains("envelope[\"diagnostic\"] = diagnostic;", structuredDataHelper);
+            Assert.DoesNotContain("envelope[\"data\"] = diagnostic;", structuredDataHelper);
         }
 
         [Fact]
@@ -242,6 +251,19 @@ namespace Rook.Tests.Diagnostics
             }
 
             throw new InvalidOperationException("Function body did not close: " + functionName);
+        }
+
+        private static int CountOccurrences(string source, string value)
+        {
+            var count = 0;
+            var index = 0;
+            while ((index = source.IndexOf(value, index, StringComparison.Ordinal)) >= 0)
+            {
+                count++;
+                index += value.Length;
+            }
+
+            return count;
         }
 
         private static string ReadSourceFile(params string[] pathParts)
@@ -460,14 +482,16 @@ git commit -m "feat: add native route diagnostic helper"
 Add these declarations immediately after `SendErrorData(...)`:
 
 ```cpp
-    // SendErrorWithDiagnostic: preserves legacy data while adding the
+    // SendErrorWithDiagnostic: preserves legacy string data while adding the
     // additive Phase 2 route diagnostic sibling. Callers may override
     // res.status after this helper to preserve established route status.
     static void SendErrorWithDiagnostic(
         httplib::Response& res,
         const std::string& message,
         const nlohmann::json& diagnostic);
-    static void SendErrorWithDiagnostic(
+    // SendErrorDataWithDiagnostic: preserves structured JSON data while adding
+    // the additive Phase 2 route diagnostic sibling.
+    static void SendErrorDataWithDiagnostic(
         httplib::Response& res,
         const nlohmann::json& data,
         const nlohmann::json& diagnostic);
@@ -492,7 +516,7 @@ void CRookServer::SendErrorWithDiagnostic(
     res.set_content(envelope.dump(), "application/json");
 }
 
-void CRookServer::SendErrorWithDiagnostic(
+void CRookServer::SendErrorDataWithDiagnostic(
     httplib::Response& res,
     const nlohmann::json& data,
     const nlohmann::json& diagnostic)
@@ -518,10 +542,12 @@ dotnet test src/Rook.Tests/Rook.Tests.csproj --no-restore --filter FullyQualifie
 Expected:
 
 ```text
-Failed!
+Passed! - Passed: 7, Failed: 0
 ```
 
-Only the route-adoption assertions should remain failing.
+The helper-related assertions should pass, including the guard that the structured
+diagnostic helper uses `SendErrorDataWithDiagnostic` instead of a second
+`SendErrorWithDiagnostic` overload.
 
 - [ ] **Step 4: Commit the server helper**
 
