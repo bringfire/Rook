@@ -1,9 +1,11 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Collections.Generic;
 using System.Reflection;
 using System.Runtime.Versioning;
 using System.Text.Json;
+using Rook.Capabilities;
 
 namespace Rook.Startup
 {
@@ -17,6 +19,8 @@ namespace Rook.Startup
         bool DeferredLocalStartupComplete,
         bool StartupComplete,
         bool BridgeRegistered,
+        bool PanelsRegistered,
+        IReadOnlyList<CapabilityDomainStatus> CapabilityDomains,
         DateTimeOffset OnLoadUtc,
         DateTimeOffset? StartupCompleteUtc);
 
@@ -74,6 +78,7 @@ namespace Rook.Startup
             bool deferredLocalStartupComplete,
             bool startupComplete,
             bool bridgeRegistered,
+            bool panelsRegistered,
             DateTimeOffset onLoadUtc,
             DateTimeOffset? startupCompleteUtc)
         {
@@ -89,6 +94,12 @@ namespace Rook.Startup
                 DeferredLocalStartupComplete: deferredLocalStartupComplete,
                 StartupComplete: startupComplete,
                 BridgeRegistered: bridgeRegistered,
+                PanelsRegistered: panelsRegistered,
+                CapabilityDomains: CapabilityDomainStatusBuilder.BuildCompanionDomains(
+                    rhinoInside,
+                    startupComplete,
+                    bridgeRegistered,
+                    panelsRegistered),
                 OnLoadUtc: onLoadUtc,
                 StartupCompleteUtc: startupCompleteUtc);
         }
@@ -108,6 +119,8 @@ namespace Rook.Startup
                 deferredLocalStartupComplete = snapshot.DeferredLocalStartupComplete,
                 startupComplete = snapshot.StartupComplete,
                 bridgeRegistered = snapshot.BridgeRegistered,
+                panelsRegistered = snapshot.PanelsRegistered,
+                capabilityDomains = snapshot.CapabilityDomains,
                 onLoadUtc = snapshot.OnLoadUtc.ToUniversalTime().ToString("O"),
                 startupCompleteUtc = snapshot.StartupCompleteUtc?.ToUniversalTime().ToString("O"),
                 statusUpdatedUtc = DateTimeOffset.UtcNow.ToString("O"),
@@ -118,6 +131,7 @@ namespace Rook.Startup
                 new JsonSerializerOptions
                 {
                     WriteIndented = true,
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
                 });
         }
 

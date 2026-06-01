@@ -1,5 +1,7 @@
 using System;
+using System.Linq;
 using System.Text.Json;
+using Rook.Capabilities;
 using Rook.Startup;
 using Xunit;
 
@@ -36,6 +38,12 @@ namespace Rook.Tests.Plugin
                 DeferredLocalStartupComplete: true,
                 StartupComplete: true,
                 BridgeRegistered: true,
+                PanelsRegistered: true,
+                CapabilityDomains: CapabilityDomainStatusBuilder.BuildCompanionDomains(
+                    rhinoInside: true,
+                    startupComplete: true,
+                    bridgeRegistered: true,
+                    panelsRegistered: true),
                 OnLoadUtc: onLoadUtc,
                 StartupCompleteUtc: startupCompleteUtc);
 
@@ -54,8 +62,44 @@ namespace Rook.Tests.Plugin
             Assert.True(root.GetProperty("deferredLocalStartupComplete").GetBoolean());
             Assert.True(root.GetProperty("startupComplete").GetBoolean());
             Assert.True(root.GetProperty("bridgeRegistered").GetBoolean());
+            Assert.True(root.GetProperty("panelsRegistered").GetBoolean());
             Assert.Equal("2026-05-26T18:00:00.0000000+00:00", root.GetProperty("onLoadUtc").GetString());
             Assert.Equal("2026-05-26T18:00:05.0000000+00:00", root.GetProperty("startupCompleteUtc").GetString());
+
+            var capabilityDomains = root.GetProperty("capabilityDomains").EnumerateArray().ToArray();
+            var chatUi = capabilityDomains.Single(domain =>
+                domain.GetProperty("domainId").GetString() == "chat.ui");
+            Assert.Equal("managed_companion_runtime", chatUi.GetProperty("stateSource").GetString());
+
+            var bim = capabilityDomains.Single(domain =>
+                domain.GetProperty("domainId").GetString() == "bim.rhino_inside_revit");
+            Assert.Equal("managed_rookbim_status_provider", bim.GetProperty("stateSource").GetString());
+        }
+
+        [Fact]
+        public void BuildCompanionDomains_ReportsBimHostAndBridgeState()
+        {
+            var outsideRhinoInside = CapabilityDomainStatusBuilder.BuildCompanionDomains(
+                rhinoInside: false,
+                startupComplete: true,
+                bridgeRegistered: false,
+                panelsRegistered: true);
+            var outsideBim = outsideRhinoInside.Single(domain =>
+                domain.DomainId == "bim.rhino_inside_revit");
+            Assert.Equal("blocked_by_host", outsideBim.State);
+            Assert.Equal("not_rhino_inside", outsideBim.ReasonCode);
+            Assert.Equal("managed_rookbim_status_provider", outsideBim.StateSource);
+
+            var missingBridge = CapabilityDomainStatusBuilder.BuildCompanionDomains(
+                rhinoInside: true,
+                startupComplete: false,
+                bridgeRegistered: false,
+                panelsRegistered: true);
+            var missingBridgeBim = missingBridge.Single(domain =>
+                domain.DomainId == "bim.rhino_inside_revit");
+            Assert.Equal("not_loaded", missingBridgeBim.State);
+            Assert.Equal("bim_dispatch_callback_not_registered", missingBridgeBim.ReasonCode);
+            Assert.Equal("managed_rookbim_status_provider", missingBridgeBim.StateSource);
         }
     }
 }
