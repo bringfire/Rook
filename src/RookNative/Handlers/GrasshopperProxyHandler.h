@@ -10,6 +10,11 @@ namespace Handlers {
 
 void ClearGrasshopperBridgeRegistration();
 bool HasGrasshopperBridgeRegistration();
+bool HasGrasshopperCoreRegistration();
+bool HasVisionDispatchRegistration();
+bool HasBimDispatchRegistration();
+bool HasViewportCaptureTier3Registration();
+bool HasBlockDefinitionMutationRegistration();
 bool HasCanvasGraphProtocol();
 bool HasCanvasGraphNavigation();
 bool TryHandleManagedCreate(const httplib::Request& req, httplib::Response& res);

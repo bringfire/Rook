@@ -221,10 +221,8 @@ std::string BuildRequestJson(const httplib::Request& req)
     return body.dump();
 }
 
-bool HasGhBridgeRegistration()
+bool HasGrasshopperCoreRegistrationLocked(const GhBridgeRegistration& registration)
 {
-    std::lock_guard<std::mutex> lock(g_ghBridgeMutex);
-    const auto& registration = g_ghBridgeRegistration;
     return registration.version == kGhBridgeAbiVersion
         && registration.gh_status != nullptr
         && registration.gh_document != nullptr
@@ -261,7 +259,26 @@ bool HasGhBridgeRegistration()
         && registration.gh_set_value != nullptr
         && registration.gh_delete != nullptr
         && registration.gh_solve != nullptr
-        && registration.gh_bake_output != nullptr
+        && registration.gh_bake_output != nullptr;
+}
+
+bool HasBlockDefinitionMutationRegistrationLocked(const GhBridgeRegistration& registration)
+{
+    return registration.version == kGhBridgeAbiVersion
+        && registration.block_set_layers != nullptr
+        && registration.block_set_materials != nullptr
+        && registration.block_set_object_colors != nullptr
+        && registration.block_set_object_names != nullptr
+        && registration.block_set_object_user_strings != nullptr
+        && registration.block_replace_object_geometry != nullptr
+        && registration.block_transform_object != nullptr;
+}
+
+bool HasGhBridgeRegistration()
+{
+    std::lock_guard<std::mutex> lock(g_ghBridgeMutex);
+    const auto& registration = g_ghBridgeRegistration;
+    return HasGrasshopperCoreRegistrationLocked(registration)
         && registration.vision_dispatch != nullptr
         && registration.bim_dispatch != nullptr;
 }
@@ -857,6 +874,39 @@ void ClearGrasshopperBridgeRegistration()
 bool HasGrasshopperBridgeRegistration()
 {
     return HasGhBridgeRegistration();
+}
+
+bool HasGrasshopperCoreRegistration()
+{
+    std::lock_guard<std::mutex> lock(g_ghBridgeMutex);
+    return HasGrasshopperCoreRegistrationLocked(g_ghBridgeRegistration);
+}
+
+bool HasVisionDispatchRegistration()
+{
+    std::lock_guard<std::mutex> lock(g_ghBridgeMutex);
+    return g_ghBridgeRegistration.version == kGhBridgeAbiVersion
+        && g_ghBridgeRegistration.vision_dispatch != nullptr;
+}
+
+bool HasBimDispatchRegistration()
+{
+    std::lock_guard<std::mutex> lock(g_ghBridgeMutex);
+    return g_ghBridgeRegistration.version == kGhBridgeAbiVersion
+        && g_ghBridgeRegistration.bim_dispatch != nullptr;
+}
+
+bool HasViewportCaptureTier3Registration()
+{
+    std::lock_guard<std::mutex> lock(g_ghBridgeMutex);
+    return g_ghBridgeRegistration.version == kGhBridgeAbiVersion
+        && g_ghBridgeRegistration.viewport_capture_tier3 != nullptr;
+}
+
+bool HasBlockDefinitionMutationRegistration()
+{
+    std::lock_guard<std::mutex> lock(g_ghBridgeMutex);
+    return HasBlockDefinitionMutationRegistrationLocked(g_ghBridgeRegistration);
 }
 
 bool HasCanvasGraphProtocol()
