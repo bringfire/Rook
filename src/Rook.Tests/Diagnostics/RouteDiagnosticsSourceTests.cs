@@ -54,6 +54,23 @@ namespace Rook.Tests.Diagnostics
         }
 
         [Fact]
+        public void ViewportCaptureCallbackUnavailableDiagnostic_UsesReviewedCatalogMetadata()
+        {
+            var header = ReadSourceFile("src", "RookNative", "Infrastructure", "RouteDiagnostics.h");
+            var helper = ExtractFunction(header, "BuildViewportCaptureCallbackUnavailable");
+
+            Assert.Contains("\"viewport.capture\"", helper);
+            Assert.Contains("\"viewport_capture_callback_unavailable\"", helper);
+            Assert.Contains("FailureKind::DomainUnavailable", helper);
+            Assert.Contains("\"native\"", helper);
+            Assert.Contains("\"native_callback_registration\"", helper);
+            Assert.Contains("\"native_route\"", helper);
+            Assert.Contains("\"not_loaded\"", helper);
+            Assert.Contains("diagnostic.retryable = true;", helper);
+            Assert.Contains("diagnostic.userActionRequired = false;", helper);
+        }
+
+        [Fact]
         public void RouteDiagnosticsHelper_KeepsSchemaVersionIndependentFromCapabilitiesSchema()
         {
             var header = ReadSourceFile("src", "RookNative", "Infrastructure", "RouteDiagnostics.h");
@@ -127,17 +144,63 @@ namespace Rook.Tests.Diagnostics
         }
 
         [Fact]
-        public void SliceOne_DoesNotAdoptDiagnosticsAcrossAllVisionRoutes()
+        public void Phase2A_DoesNotAdoptBlockBimOrGhDiagnostics()
         {
             var visionSource = ReadSourceFile("src", "RookNative", "Handlers", "VisionHandler.cpp");
+            var viewportSource = ReadSourceFile("src", "RookNative", "Handlers", "ViewportHandler.cpp");
             var header = ReadSourceFile("src", "RookNative", "Infrastructure", "RouteDiagnostics.h");
-            var catalogAndSource = visionSource + header;
+            var catalogAndSource = visionSource + viewportSource + header;
 
-            Assert.Single(FindAll(visionSource, "BuildVisionDispatchCallbackUnavailable("));
-            Assert.DoesNotContain("viewport_capture_callback_unavailable", catalogAndSource);
+            Assert.Contains("vision_dispatch_callback_unavailable", catalogAndSource);
+            Assert.Contains("viewport_capture_callback_unavailable", catalogAndSource);
             Assert.DoesNotContain("block_mutation_callback_unavailable", catalogAndSource);
             Assert.DoesNotContain("bim_dispatch_callback_unavailable", catalogAndSource);
             Assert.DoesNotContain("gh_bridge_callback_unavailable", catalogAndSource);
+        }
+
+        [Fact]
+        public void BlockMutationDiagnostics_DoNotBypassManagedProxyFallback()
+        {
+            var source = ReadSourceFile("src", "RookNative", "Handlers", "GrasshopperProxyHandler.cpp");
+            var helper = ExtractFunction(source, "DispatchManagedCompanionRouteOrProxy");
+
+            Assert.Contains("callback != nullptr", helper);
+            Assert.Contains("DispatchGrasshopperRoute(req, res, path, callback);", helper);
+            Assert.Contains("ProxyManagedRequest(req, res, path, isPost);", helper);
+
+            var proxyIndex = helper.IndexOf("ProxyManagedRequest(req, res, path, isPost);", StringComparison.Ordinal);
+            Assert.True(proxyIndex >= 0, "Managed proxy fallback must remain present.");
+
+            var beforeProxy = helper.Substring(0, proxyIndex);
+            Assert.DoesNotContain("SendErrorWithDiagnostic", beforeProxy);
+            Assert.DoesNotContain("SendErrorDataWithDiagnostic", beforeProxy);
+        }
+
+        [Theory]
+        [InlineData("HandleManagedBlockSetLayers", "\"/block/set-layers\"")]
+        [InlineData("HandleManagedBlockSetLayersBatch", "\"/block/set-layers-batch\"")]
+        [InlineData("HandleManagedBlockSetMaterials", "\"/block/set-materials\"")]
+        [InlineData("HandleManagedBlockSetMaterialsBatch", "\"/block/set-materials-batch\"")]
+        [InlineData("HandleManagedBlockSetObjectColors", "\"/block/set-object-colors\"")]
+        [InlineData("HandleManagedBlockSetObjectColorsBatch", "\"/block/set-object-colors-batch\"")]
+        [InlineData("HandleManagedBlockSetObjectNames", "\"/block/set-object-names\"")]
+        [InlineData("HandleManagedBlockSetObjectNamesBatch", "\"/block/set-object-names-batch\"")]
+        [InlineData("HandleManagedBlockSetObjectUserStrings", "\"/block/set-object-user-strings\"")]
+        [InlineData("HandleManagedBlockSetObjectUserStringsBatch", "\"/block/set-object-user-strings-batch\"")]
+        [InlineData("HandleManagedBlockReplaceObjectGeometry", "\"/block/replace-object-geometry\"")]
+        [InlineData("HandleManagedBlockReplaceObjectGeometryBatch", "\"/block/replace-object-geometry-batch\"")]
+        [InlineData("HandleManagedBlockTransformObject", "\"/block/transform-object\"")]
+        [InlineData("HandleManagedBlockTransformObjectBatch", "\"/block/transform-object-batch\"")]
+        [InlineData("HandleManagedBlockTransformInstanceBatch", "\"/block/transform-instance-batch\"")]
+        public void BlockMutationHandlers_KeepManagedProxyFallbackOwnership(string handlerName, string route)
+        {
+            var source = ReadSourceFile("src", "RookNative", "Handlers", "GrasshopperProxyHandler.cpp");
+            var handler = ExtractFunction(source, handlerName);
+
+            Assert.Contains("DispatchManagedCompanionRouteOrProxy(req, res,", handler);
+            Assert.Contains(route, handler);
+            Assert.DoesNotContain("SendErrorWithDiagnostic", handler);
+            Assert.DoesNotContain("SendErrorDataWithDiagnostic", handler);
         }
 
         private static string ExtractFunction(string source, string functionName)
