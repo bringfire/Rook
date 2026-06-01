@@ -87,6 +87,28 @@ namespace Rook.Tests.Handlers
             Assert.Contains("BuildVisionDispatchCallbackUnavailable", modelsHandler);
         }
 
+        [Fact]
+        public void VisionDispatchDiagnostic_PreservesUnavailableTransportContract()
+        {
+            var source = ReadSourceFile("src", "RookNative", "Handlers", "VisionHandler.cpp");
+            var helper = ExtractFunction(source, "ForwardVisionDispatch");
+            var unavailableStart = helper.IndexOf("case ManagedCreateInvokeResult::Unavailable:", StringComparison.Ordinal);
+            var failedStart = helper.IndexOf("case ManagedCreateInvokeResult::Failed:", unavailableStart, StringComparison.Ordinal);
+            var unavailableCase = helper.Substring(unavailableStart, failedStart - unavailableStart);
+
+            Assert.Contains("CRookServer::SendErrorWithDiagnostic", unavailableCase);
+            Assert.Contains("res.status = 503;", unavailableCase);
+            Assert.Contains("res.set_header(\"X-Rook-Vision-Op\", op);", unavailableCase);
+
+            var diagnosticIndex = unavailableCase.IndexOf("CRookServer::SendErrorWithDiagnostic", StringComparison.Ordinal);
+            var statusIndex = unavailableCase.IndexOf("res.status = 503;", StringComparison.Ordinal);
+            var headerIndex = unavailableCase.IndexOf("res.set_header(\"X-Rook-Vision-Op\", op);", StringComparison.Ordinal);
+
+            Assert.True(diagnosticIndex >= 0, "Diagnostic response helper was not found.");
+            Assert.True(statusIndex > diagnosticIndex, "Unavailable status must be restored after the diagnostic helper call.");
+            Assert.True(headerIndex > statusIndex, "Vision operation header must be preserved after restoring 503 status.");
+        }
+
         private static string ExtractFunction(string source, string functionName)
         {
             var signature = "void " + functionName + "(";
