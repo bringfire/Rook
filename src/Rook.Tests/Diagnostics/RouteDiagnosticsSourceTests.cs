@@ -58,11 +58,10 @@ namespace Rook.Tests.Diagnostics
         {
             var header = ReadSourceFile("src", "RookNative", "Infrastructure", "RouteDiagnostics.h");
             var serverSource = ReadSourceFile("src", "RookNative", "RookServer.cpp");
+            var capabilitiesDocument = ExtractFunction(serverSource, "BuildRookCapabilitiesDocument");
 
             Assert.Contains("kRouteDiagnosticSchemaVersion = 1", header);
-            Assert.Contains("BuildRookCapabilitiesDocument", serverSource);
-            Assert.DoesNotContain("kRouteDiagnosticSchemaVersion", serverSource.Substring(
-                serverSource.IndexOf("BuildRookCapabilitiesDocument", StringComparison.Ordinal)));
+            Assert.DoesNotContain("kRouteDiagnosticSchemaVersion", capabilitiesDocument);
         }
 
         [Fact]

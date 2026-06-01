@@ -273,10 +273,11 @@ dotnet test src/Rook.Tests/Rook.Tests.csproj --no-restore --filter FullyQualifie
 Expected:
 
 ```text
-Failed!  - Failed: 7
+Failed!  - Failed:     5, Passed:     2, Skipped:     0, Total:     7
 ```
 
 The failures should be missing `RouteDiagnostics.h` and missing `SendErrorWithDiagnostic`.
+The two passing tests are anti-drift guards that should pass before implementation.
 
 - [ ] **Step 3: Commit the failing tests**
 
