@@ -7,7 +7,9 @@ namespace Rook.Capabilities
     internal sealed record CapabilityEvidence(
         string StateSource,
         string? ReasonCode = null,
-        string? Message = null);
+        string? Message = null,
+        string? Name = null,
+        bool? Value = null);
 
     internal sealed record CapabilityDomainStatus(
         string DomainId,
@@ -105,7 +107,9 @@ namespace Rook.Capabilities
                     "bim.rhino_inside_revit",
                     "not_loaded",
                     ManagedRookBimStatusProvider,
-                    "bim_dispatch_callback_not_registered");
+                    "bim_dispatch_callback_not_registered",
+                    evidenceName: "bimDispatch",
+                    evidenceValue: false);
             }
 
             if (!rhinoInside)
@@ -167,7 +171,9 @@ namespace Rook.Capabilities
             string state,
             string stateSource,
             string? reasonCode,
-            string? message = null)
+            string? message = null,
+            string? evidenceName = null,
+            bool? evidenceValue = null)
         {
             return new CapabilityDomainStatus(
                 domainId,
@@ -176,7 +182,7 @@ namespace Rook.Capabilities
                 reasonCode,
                 new[]
                 {
-                    new CapabilityEvidence(stateSource, reasonCode, message),
+                    new CapabilityEvidence(stateSource, reasonCode, message, evidenceName, evidenceValue),
                 });
         }
 

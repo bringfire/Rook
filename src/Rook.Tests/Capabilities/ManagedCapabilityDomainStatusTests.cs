@@ -44,6 +44,8 @@ namespace Rook.Tests.Capabilities
             Assert.DoesNotContain(bim.State, new[] { "available", "ready" });
             Assert.Contains(bim.Evidence, evidence =>
                 evidence.ReasonCode == "bim_dispatch_callback_not_registered");
+            Assert.Contains(bim.Evidence, evidence =>
+                evidence.Name == "bimDispatch" && evidence.Value == false);
         }
 
         [Fact]
