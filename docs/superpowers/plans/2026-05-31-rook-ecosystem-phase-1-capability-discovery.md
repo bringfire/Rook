@@ -1825,6 +1825,11 @@ Expected:
 - `native.core` is `ready`.
 - `bim.rhino_inside_revit` is discoverable and is not hidden outside Revit.
 - Existing discovery still contains `capabilities.ghProvider` and `capabilities.ghRoutes`.
+- Discovery metadata includes `capabilities.liveEndpoint: "/capabilities"`,
+  `capabilities.summaryKind: "bootstrap_snapshot"`, and
+  `capabilities.authoritative: false`.
+- MCP live capability resolution reports `source: "live"`, `stale: false`,
+  and `authoritative: true` when `/capabilities` is reachable.
 
 - [ ] **Step 7: Live validate no startup regression**
 
@@ -1837,6 +1842,42 @@ Expected:
 - `/ping` responds.
 - `/capabilities` responds.
 - Companion deferred startup behavior is unchanged.
+
+## Phase 1 Validation Closeout
+
+Recorded on June 1, 2026 after the live-state authority correction:
+
+- Automated managed/source suite:
+  `dotnet test src/Rook.Tests/Rook.Tests.csproj --no-restore --filter "FullyQualifiedName~CapabilityDiscoverySourceTests|FullyQualifiedName~CompanionRuntimeStatusTests|FullyQualifiedName~ManagedCapabilityDomainStatusTests|FullyQualifiedName~BimHandlerTests"`
+  passed 37/37 with existing warnings.
+- MCP bridge suite:
+  `python -m pytest mcp_server/tests/test_bridge.py -q` passed 54/54.
+- Native MSVC build:
+  `msbuild src\RookNative\RookNative.vcxproj /t:Build /p:Configuration=Debug /p:Platform=x64 /p:VCToolsVersion=14.44.35207`
+  passed with MSVC 14.44 and the documented `RookServer.cpp` `/bigobj`
+  exception.
+- Whitespace check:
+  `git diff --check origin/main...HEAD` passed.
+- Local deploy:
+  native plugin rebuilt/deployed to
+  `%APPDATA%\McNeel\Rhinoceros\8.0\Plug-ins\RookNative`; MCP payload synced
+  with `-PayloadOnly -AllowRunning`.
+- Owned Rhino smoke:
+  passed with discovery `summaryKind: "bootstrap_snapshot"`,
+  `authoritative: false`, 13 bootstrap domains, and 13 live `/capabilities`
+  domains.
+- Manual live recent-file startup gate:
+  user opened Rhino and loaded a file from the recent-files UI successfully.
+  RookVision, RookChat, and RookKnowledge Graph were live.
+- Manual live contract smoke against that Rhino instance:
+  `/ping` returned `pong`; discovery had `liveEndpoint: "/capabilities"`,
+  `summaryKind: "bootstrap_snapshot"`, `authoritative: false`, and 13
+  bootstrap domains; live `/capabilities` returned schema version 1 without a
+  `{ success, data }` wrapper and 13 live domains; `chat.ui` resolved as
+  `state: "unknown"`, `ready: false`,
+  `reasonCode: "chat_service_state_not_probed_phase1"`, with two companion
+  evidence records; MCP `resolve_capabilities()` returned `source: "live"`,
+  `stale: false`, and `authoritative: true`.
 
 - [ ] **Step 8: Commit validation notes if any docs changed**
 
