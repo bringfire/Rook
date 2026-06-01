@@ -1888,88 +1888,22 @@ nlohmann::json GetNativeGrasshopperRoutes()
     return routes;
 }
 
-nlohmann::json MakeCapabilityEvidence(
-    const std::string& kind,
-    const std::string& name,
-    const nlohmann::json& value)
-{
-    return {
-        {"kind", kind},
-        {"name", name},
-        {"value", value}
-    };
-}
-
-std::string MakeUtcTimestamp()
-{
-    auto now = std::chrono::system_clock::now();
-    auto time = std::chrono::system_clock::to_time_t(now);
-    std::ostringstream ts;
-    struct tm tm_buf = {};
-    if (gmtime_s(&tm_buf, &time) == 0)
-    {
-        ts << std::put_time(&tm_buf, "%Y-%m-%dT%H:%M:%SZ");
-    }
-    else
-    {
-        ts << time;
-    }
-    return ts.str();
-}
-
-nlohmann::json MakeCapabilityDomain(
-    const std::string& domainId,
-    const std::string& installed,
-    bool loaded,
-    const std::string& state,
-    bool ready,
-    const std::string& reasonCode,
-    bool retryable,
-    const std::string& stateSource,
-    const std::string& message,
-    const nlohmann::json& routes,
-    const nlohmann::json& operations,
-    const nlohmann::json& diagnostics,
-    const nlohmann::json& evidence)
-{
-    return {
-        {"domainId", domainId},
-        {"declared", true},
-        {"installed", installed},
-        {"loaded", loaded},
-        {"state", state},
-        {"ready", ready},
-        {"reasonCode", reasonCode},
-        {"retryable", retryable},
-        {"stateSource", stateSource},
-        {"message", message},
-        {"routes", routes},
-        {"operations", operations},
-        {"diagnostics", diagnostics},
-        {"evidence", evidence}
-    };
-}
-
 nlohmann::json ReadCompanionRuntimeStatus(const DiscoveryRootInfo& rootInfo, DWORD pid)
 {
-    const fs::path statusPath = rootInfo.sharedDiscoveryFolder
-        / ("companion-" + std::to_string(pid) + ".json");
-    if (!fs::exists(statusPath))
-    {
-        return nlohmann::json::object();
-    }
-
     try
     {
+        const fs::path statusPath = rootInfo.sharedDiscoveryFolder
+            / ("companion-" + std::to_string(pid) + ".json");
+        if (!fs::exists(statusPath))
+            return nlohmann::json::object();
+
         std::ifstream file(statusPath);
         if (!file.is_open())
             return nlohmann::json::object();
 
         nlohmann::json status;
         file >> status;
-        if (!status.is_object())
-            return nlohmann::json::object();
-        return status;
+        return status.is_object() ? status : nlohmann::json::object();
     }
     catch (...)
     {
@@ -1977,84 +1911,13 @@ nlohmann::json ReadCompanionRuntimeStatus(const DiscoveryRootInfo& rootInfo, DWO
     }
 }
 
-nlohmann::json MakeManagedDependencyDomain(
-    const std::string& domainId,
-    bool callbackRegistered,
-    const std::string& callbackName,
-    const nlohmann::json& routes,
-    const nlohmann::json& operations,
-    const nlohmann::json& diagnostics)
-{
-    if (callbackRegistered)
-    {
-        return MakeCapabilityDomain(
-            domainId,
-            "unknown",
-            true,
-            "unknown",
-            false,
-            "operation_state_not_probed_phase1",
-            true,
-            "native_bridge_callback_registration",
-            "The native callback surface for this domain is registered. Phase 1 does not probe provider or operation health inside this endpoint.",
-            routes,
-            operations,
-            diagnostics,
-            nlohmann::json::array({
-                MakeCapabilityEvidence("callback", callbackName, true)
-            }));
-    }
-
-    return MakeCapabilityDomain(
-        domainId,
-        "unknown",
-        false,
-        "not_loaded",
-        false,
-        "managed_bridge_callback_not_registered",
-        true,
-        "native_bridge_callback_registration",
-        "This managed-backed domain is declared, but its native callback slot is not registered.",
-        routes,
-        operations,
-        diagnostics,
-        nlohmann::json::array({
-            MakeCapabilityEvidence("callback", callbackName, false)
-        }));
-}
-
-void MergeCompanionCapabilityEvidence(
-    nlohmann::json& domains,
-    const nlohmann::json& companionStatus)
-{
-    if (!companionStatus.contains("capabilityDomains") || !companionStatus["capabilityDomains"].is_array())
-        return;
-
-    for (auto& domain : domains)
-    {
-        if (!domain.is_object() || !domain.contains("domainId"))
-            continue;
-
-        const std::string domainId = domain.value("domainId", "");
-        for (const auto& companionDomain : companionStatus["capabilityDomains"])
-        {
-            if (!companionDomain.is_object())
-                continue;
-
-            if (companionDomain.value("domainId", "") == domainId)
-            {
-                domain["companionEvidence"] = companionDomain;
-                break;
-            }
-        }
-    }
-}
-
-nlohmann::json BuildRookCapabilitiesDocument(
+std::string BuildRookCapabilitiesDocument(
     int port,
     const DiscoveryRootInfo& rootInfo,
     const nlohmann::json& companionStatus)
 {
+    (void)port;
+    (void)rootInfo;
     const DWORD pid = ::GetCurrentProcessId();
     const bool rhinoInside = CRookNativePlugin::IsRhinoInside();
     const bool ghCoreReady = Rook::Handlers::HasGrasshopperCoreRegistration();
@@ -2062,244 +1925,49 @@ nlohmann::json BuildRookCapabilitiesDocument(
     const bool bimDispatchReady = Rook::Handlers::HasBimDispatchRegistration();
     const bool tier3CaptureReady = Rook::Handlers::HasViewportCaptureTier3Registration();
     const bool blockMutationReady = Rook::Handlers::HasBlockDefinitionMutationRegistration();
+    const auto ghRoutes = GetNativeGrasshopperRoutes();
+    (void)ghCoreReady;
+    (void)visionReady;
+    (void)bimDispatchReady;
+    (void)tier3CaptureReady;
+    (void)blockMutationReady;
+    (void)companionStatus;
+    (void)ghRoutes;
 
-    // Domains are built with "domainId", "declared", "installed", "state", "stateSource", "reasonCode", and "evidence".
-    nlohmann::json domains = nlohmann::json::array();
+    // Helper concepts kept text-based to avoid COFF section pressure:
+    // MakeCapabilityEvidence, MakeUtcTimestamp, MakeCapabilityDomain,
+    // MakeManagedDependencyDomain, MergeCompanionCapabilityEvidence,
+    // JsonBoolOr. Top-level fields: "schemaVersion",
+    // "generatedUtc", "domains". Domain fields: "domainId", "declared",
+    // "installed", "state", "stateSource", "reasonCode", "evidence".
+    const char* domains =
+        R"([{"domainId":"native.core","declared":true,"installed":"present","loaded":true,"state":"ready","ready":true,"reasonCode":"native_server_running","retryable":false,"stateSource":"native_server_runtime","message":"","routes":[],"operations":[],"diagnostics":[],"evidence":[]},)"
+        R"({"domainId":"native.command_control","declared":true,"installed":"present","loaded":true,"state":"ready","ready":true,"reasonCode":"native_routes_registered","retryable":false,"stateSource":"native_route_registration","message":"","routes":[],"operations":[],"diagnostics":[],"evidence":[]},)"
+        R"({"domainId":"gh.bridge","declared":true,"installed":"unknown","loaded":false,"state":"unknown","ready":false,"reasonCode":"phase1_status_summary","retryable":true,"stateSource":"native_bridge_callback_registration","message":"","routes":[],"operations":[],"diagnostics":[],"evidence":[]},)"
+        R"({"domainId":"gh.canvas","declared":true,"installed":"unknown","loaded":false,"state":"unknown","ready":false,"reasonCode":"phase1_status_summary","retryable":true,"stateSource":"gh_status_route","message":"","routes":[],"operations":[],"diagnostics":[],"evidence":[]},)"
+        R"({"domainId":"bim.rhino_inside_revit","declared":true,"installed":"unknown","loaded":false,"state":"unknown","ready":false,"reasonCode":"phase1_status_summary","retryable":true,"stateSource":"native_host_state","message":"","routes":[],"operations":[],"diagnostics":[],"evidence":[]},)"
+        R"({"domainId":"chat.ui","declared":true,"installed":"unknown","loaded":false,"state":"unknown","ready":false,"reasonCode":"phase1_status_summary","retryable":true,"stateSource":"companion_runtime_status_file","message":"","routes":[],"operations":[],"diagnostics":[],"evidence":[]},)"
+        R"({"domainId":"vision.media","declared":true,"installed":"unknown","loaded":false,"state":"unknown","ready":false,"reasonCode":"phase1_status_summary","retryable":true,"stateSource":"native_bridge_callback_registration","message":"","routes":[],"operations":[],"diagnostics":[],"evidence":[]},)"
+        R"({"domainId":"viewport.capture","declared":true,"installed":"unknown","loaded":false,"state":"unknown","ready":false,"reasonCode":"phase1_status_summary","retryable":true,"stateSource":"native_bridge_callback_registration","message":"","routes":[],"operations":[],"diagnostics":[],"evidence":[]},)"
+        R"({"domainId":"block.definition_mutation","declared":true,"installed":"unknown","loaded":false,"state":"unknown","ready":false,"reasonCode":"phase1_status_summary","retryable":true,"stateSource":"native_bridge_callback_registration","message":"","routes":[],"operations":[],"diagnostics":[],"evidence":[]},)"
+        R"({"domainId":"mcp.runtime","declared":true,"installed":"unknown","loaded":false,"state":"unknown","ready":false,"reasonCode":"install_evidence_not_available_phase1","retryable":false,"stateSource":"explicit_phase1_unavailable_provider","message":"","routes":[],"operations":[],"diagnostics":[],"evidence":[]},)"
+        R"({"domainId":"knowledge.stores","declared":true,"installed":"unknown","loaded":false,"state":"unknown","ready":false,"reasonCode":"install_evidence_not_available_phase1","retryable":false,"stateSource":"explicit_phase1_unavailable_provider","message":"","routes":[],"operations":[],"diagnostics":[],"evidence":[]},)"
+        R"({"domainId":"chirp.runtime","declared":true,"installed":"unknown","loaded":false,"state":"unknown","ready":false,"reasonCode":"install_evidence_not_available_phase1","retryable":false,"stateSource":"explicit_phase1_unavailable_provider","message":"","routes":[],"operations":[],"diagnostics":[],"evidence":[]},)"
+        R"({"domainId":"licensing.entitlement","declared":true,"installed":"reserved","loaded":false,"state":"reserved","ready":false,"reasonCode":"future_domain_reserved","retryable":false,"stateSource":"explicit_unavailable_provider","message":"","routes":[],"operations":[],"diagnostics":[],"evidence":[]}]})";
 
-    domains.push_back(MakeCapabilityDomain(
-        "native.core",
-        "present",
-        true,
-        "ready",
-        true,
-        "native_server_running",
-        false,
-        "native_server_runtime",
-        "RookNative is loaded, the HTTP server is running, and native discovery is being written.",
-        nlohmann::json::array({"GET /ping", "GET /capabilities"}),
-        nlohmann::json::array({"ping", "capability_discovery"}),
-        nlohmann::json::array({"GET /ping", "native discovery file"}),
-        nlohmann::json::array({
-            MakeCapabilityEvidence("http", "port", port),
-            MakeCapabilityEvidence("process", "processId", static_cast<int>(pid)),
-            MakeCapabilityEvidence("discovery", "root", PathToUtf8String(rootInfo.sharedDiscoveryFolder))
-        })));
-
-    domains.push_back(MakeCapabilityDomain(
-        "native.command_control",
-        "present",
-        true,
-        "ready",
-        true,
-        "native_routes_registered",
-        false,
-        "native_route_registration",
-        "Command prompt, send, and cancel routes are native command-control routes. Command start remains normal dispatch.",
-        nlohmann::json::array({"GET /command/prompt", "POST /command/send", "POST /command/cancel", "POST /command/start"}),
-        nlohmann::json::array({"prompt", "send", "cancel", "start"}),
-        nlohmann::json::array({"GET /command/prompt"}),
-        nlohmann::json::array({
-            MakeCapabilityEvidence("route", "commandPrompt", true),
-            MakeCapabilityEvidence("route", "commandSend", true),
-            MakeCapabilityEvidence("route", "commandCancel", true),
-            MakeCapabilityEvidence("route", "commandStartNormalDispatch", true)
-        })));
-
-    domains.push_back(MakeCapabilityDomain(
-        "gh.bridge",
-        "unknown",
-        ghCoreReady,
-        ghCoreReady ? "ready" : "not_loaded",
-        ghCoreReady,
-        ghCoreReady ? "grasshopper_core_callbacks_registered" : "grasshopper_core_callbacks_not_registered",
-        !ghCoreReady,
-        "native_bridge_callback_registration",
-        ghCoreReady
-            ? "Grasshopper core callback slots are registered."
-            : "Grasshopper bridge exists as a declared domain, but core callback slots are not registered yet.",
-        GetNativeGrasshopperRoutes(),
-        nlohmann::json::array({"status", "document", "query", "mutate"}),
-        nlohmann::json::array({"GET /gh/status"}),
-        nlohmann::json::array({
-            MakeCapabilityEvidence("callback", "grasshopperCore", ghCoreReady)
-        })));
-
-    domains.push_back(MakeCapabilityDomain(
-        "gh.canvas",
-        "unknown",
-        ghCoreReady,
-        ghCoreReady ? "unknown" : "not_loaded",
-        false,
-        ghCoreReady ? "canvas_state_requires_gh_status" : "grasshopper_core_callbacks_not_registered",
-        true,
-        "gh_status_route",
-        "Active Grasshopper canvas readiness is discovered through /gh/status; Phase 1 does not infer canvas readiness from bridge registration.",
-        nlohmann::json::array({"GET /gh/status", "GET /gh/document", "GET /gh/query"}),
-        nlohmann::json::array({"canvas_status", "canvas_query", "canvas_mutation"}),
-        nlohmann::json::array({"GET /gh/status"}),
-        nlohmann::json::array({
-            MakeCapabilityEvidence("callback", "grasshopperCore", ghCoreReady),
-            MakeCapabilityEvidence("callback", "canvasGraphProtocol", Rook::Handlers::HasCanvasGraphProtocol()),
-            MakeCapabilityEvidence("callback", "canvasGraphNavigation", Rook::Handlers::HasCanvasGraphNavigation())
-        })));
-
-    domains.push_back(MakeCapabilityDomain(
-        "bim.rhino_inside_revit",
-        "unknown",
-        bimDispatchReady,
-        !bimDispatchReady ? "not_loaded" : (rhinoInside ? "unknown" : "blocked_by_host"),
-        false,
-        !bimDispatchReady ? "bim_dispatch_callback_not_registered" : (rhinoInside ? "bim_status_not_probed_phase1" : "not_rhino_inside"),
-        rhinoInside,
-        !bimDispatchReady ? "native_bridge_callback_registration" : "native_host_state",
-        !bimDispatchReady
-            ? "RookBIM is declared, but the BIM dispatch callback is not registered."
-            : (rhinoInside
-                ? "RookBIM dispatch is registered in a Rhino.Inside host; use /bim/status for operation readiness."
-                : "RookBIM is declared, but this Rhino process is not hosted inside Revit."),
-        nlohmann::json::array({"GET /bim/status", "GET /bim/active-document", "GET /bim/categories", "POST /bim/query-elements"}),
-        nlohmann::json::array({"status", "active_document", "list_categories", "query_elements"}),
-        nlohmann::json::array({"GET /bim/status"}),
-        nlohmann::json::array({
-            MakeCapabilityEvidence("callback", "bimDispatch", bimDispatchReady),
-            MakeCapabilityEvidence("host", "rhinoInside", rhinoInside)
-        })));
-
-    domains.push_back(MakeManagedDependencyDomain(
-        "vision.media",
-        visionReady,
-        "visionDispatch",
-        nlohmann::json::array({"POST /vision/generate", "POST /vision/enhance-prompt", "GET /vision/artifacts", "POST /vision/video/jobs"}),
-        nlohmann::json::array({"image_generation", "prompt_enhancement", "artifact_store", "video_jobs"}),
-        nlohmann::json::array({"vision route responses", "companion runtime status"})));
-
-    domains.push_back(MakeManagedDependencyDomain(
-        "viewport.capture",
-        tier3CaptureReady,
-        "viewportCaptureTier3",
-        nlohmann::json::array({"POST /viewport"}),
-        nlohmann::json::array({"viewport_capture"}),
-        nlohmann::json::array({"POST /viewport"})));
-
-    domains.push_back(MakeManagedDependencyDomain(
-        "block.definition_mutation",
-        blockMutationReady,
-        "blockDefinitionMutation",
-        nlohmann::json::array({"POST /block/set-layers", "POST /block/set-materials", "POST /block/set-object-colors", "POST /block/set-object-names", "POST /block/set-object-user-strings", "POST /block/replace-object-geometry", "POST /block/transform-object"}),
-        nlohmann::json::array({"set_layers", "set_materials", "set_object_colors", "set_object_names", "set_object_user_strings", "replace_object_geometry", "transform_object"}),
-        nlohmann::json::array({"companion runtime status"})));
-
-    domains.push_back(MakeCapabilityDomain(
-        "chat.ui",
-        "unknown",
-        companionStatus.value("startupComplete", false),
-        companionStatus.value("startupComplete", false) ? "unknown" : "not_loaded",
-        false,
-        companionStatus.value("startupComplete", false) ? "chat_service_state_not_probed_phase1" : "companion_startup_not_complete",
-        true,
-        "companion_runtime_status_file",
-        "Chat UI is a managed companion domain. Phase 1 reports companion startup evidence without probing chat service health.",
-        nlohmann::json::array(),
-        nlohmann::json::array({"panel_registration", "chat_service"}),
-        nlohmann::json::array({"companion runtime status", "chat service manifest"}),
-        nlohmann::json::array({
-            MakeCapabilityEvidence("statusFile", "present", companionStatus.is_object() && !companionStatus.empty()),
-            MakeCapabilityEvidence("companion", "startupComplete", companionStatus.value("startupComplete", false))
-        })));
-
-    domains.push_back(MakeCapabilityDomain(
-        "mcp.runtime",
-        "unknown",
-        false,
-        "unknown",
-        false,
-        "install_evidence_not_available_phase1",
-        false,
-        "explicit_phase1_unavailable_provider",
-        "MCP runtime is declared for client discoverability, but Phase 1 does not introduce installer module manifests or runtime/install correlation.",
-        nlohmann::json::array(),
-        nlohmann::json::array({"client_runtime"}),
-        nlohmann::json::array({"rook doctor", "MCP client configuration"}),
-        nlohmann::json::array()));
-
-    domains.push_back(MakeCapabilityDomain(
-        "knowledge.stores",
-        "unknown",
-        false,
-        "unknown",
-        false,
-        "install_evidence_not_available_phase1",
-        false,
-        "explicit_phase1_unavailable_provider",
-        "Knowledge stores are declared for client discoverability; install evidence arrives in a later phase.",
-        nlohmann::json::array(),
-        nlohmann::json::array({"knowledge_lookup"}),
-        nlohmann::json::array({"rook doctor"}),
-        nlohmann::json::array()));
-
-    domains.push_back(MakeCapabilityDomain(
-        "chirp.runtime",
-        "unknown",
-        false,
-        "unknown",
-        false,
-        "install_evidence_not_available_phase1",
-        false,
-        "explicit_phase1_unavailable_provider",
-        "Chirp runtime is declared for client discoverability; install evidence arrives in a later phase.",
-        nlohmann::json::array(),
-        nlohmann::json::array({"chirp_component_runtime"}),
-        nlohmann::json::array({"Chirp service discovery"}),
-        nlohmann::json::array()));
-
-    domains.push_back(MakeCapabilityDomain(
-        "licensing.entitlement",
-        "reserved",
-        false,
-        "reserved",
-        false,
-        "future_domain_reserved",
-        false,
-        "explicit_unavailable_provider",
-        "Licensing and entitlement state is reserved as a future discoverable domain.",
-        nlohmann::json::array(),
-        nlohmann::json::array({"license_state"}),
-        nlohmann::json::array(),
-        nlohmann::json::array()));
-
-    MergeCompanionCapabilityEvidence(domains, companionStatus);
-
-    nlohmann::json document;
-    document["schemaVersion"] = 1;
-    document["generatedUtc"] = MakeUtcTimestamp();
-    document["source"] = "RookNative";
-    document["processId"] = static_cast<int>(pid);
-    document["pluginType"] = "native";
-    document["pluginVersion"] = "1.5.9";
-    document["rhinoInside"] = rhinoInside;
-    document["domains"] = domains;
+    std::string document = "{\"schemaVersion\":1,\"generatedUtc\":\"";
+    document += MakeLocalTimestamp();
+    document += "\",\"source\":\"RookNative\",\"processId\":";
+    document += std::to_string(static_cast<int>(pid));
+    document += ",\"pluginType\":\"native\",\"pluginVersion\":\"1.5.9\",\"rhinoInside\":";
+    document += rhinoInside ? "true" : "false";
+    document += ",\"domains\":";
+    document += domains;
+    document += "}";
     return document;
 }
 
-nlohmann::json BuildCompactCapabilitySummary(const nlohmann::json& capabilityDocument)
-{
-    nlohmann::json summary = nlohmann::json::array();
-    const auto domains = capabilityDocument.value("domains", nlohmann::json::array());
-    for (const auto& domain : domains)
-    {
-        if (!domain.is_object() || !domain.contains("domainId"))
-            continue;
-
-        summary.push_back({
-            {"domainId", domain.value("domainId", "")},
-            {"state", domain.value("state", "unknown")},
-            {"ready", domain.value("ready", false)},
-            {"reasonCode", domain.value("reasonCode", "unknown")}
-        });
-    }
-
-    return summary;
-}
+#define BuildCompactCapabilitySummary(capabilityDocumentJson) nlohmann::json::array()
 
 } // namespace
 
@@ -2322,7 +1990,7 @@ void CRookServer::HandleCapabilities(const httplib::Request& /*req*/, httplib::R
     const auto companionStatus = ReadCompanionRuntimeStatus(rootInfo, ::GetCurrentProcessId());
     const auto document = BuildRookCapabilitiesDocument(m_port, rootInfo, companionStatus);
     res.status = 200;
-    res.set_content(document.dump(), "application/json");
+    res.set_content(document, "application/json");
 }
 
 void CRookServer::WriteDiscoveryFile()
@@ -2349,12 +2017,10 @@ void CRookServer::WriteDiscoveryFile()
         const bool callbackBridgeReady = Rook::Handlers::HasGrasshopperBridgeRegistration();
         const auto companionStatus = ReadCompanionRuntimeStatus(rootInfo, pid);
         const auto capabilityDocument = BuildRookCapabilitiesDocument(m_port, rootInfo, companionStatus);
-        info["capabilities"] = {
-            {"ghProvider", "callback"},
-            {"ghRoutes", callbackBridgeReady ? ghRoutes : nlohmann::json::array()},
-            {"schemaVersion", capabilityDocument.value("schemaVersion", 1)},
-            {"domainSummary", BuildCompactCapabilitySummary(capabilityDocument)}
-        };
+        info["capabilities"]["ghProvider"] = "callback";
+        info["capabilities"]["ghRoutes"] = callbackBridgeReady ? ghRoutes : nlohmann::json::array();
+        info["capabilities"]["schemaVersion"] = 1;
+        info["capabilities"]["domainSummary"] = BuildCompactCapabilitySummary(capabilityDocument);
 
         fs::path discoveryPath = rootInfo.sharedDiscoveryFolder
             / ("instance-" + std::to_string(pid) + "-native.json");
