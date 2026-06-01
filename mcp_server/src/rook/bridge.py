@@ -168,6 +168,101 @@ def _normalize_instance(data: dict[str, Any]) -> dict[str, Any]:
     return data
 
 
+def get_bootstrap_capability_domain_summary(
+    instance: dict[str, Any],
+    domain_id: str,
+) -> dict[str, Any] | None:
+    """Return a discovery bootstrap domain summary.
+
+    This reads stale/non-authoritative discovery metadata. It is suitable for
+    bootstrap fallback only and must not drive readiness decisions when live
+    ``/capabilities`` can be reached.
+    """
+    capabilities = instance.get("capabilities") or {}
+    domain_summary = capabilities.get("domainSummary")
+    if not isinstance(domain_summary, list):
+        return None
+
+    for domain in domain_summary:
+        if isinstance(domain, dict) and domain.get("domainId") == domain_id:
+            return domain
+
+    return None
+
+
+async def _fetch_live_capabilities(
+    instance: dict[str, Any],
+    timeout: httpx.Timeout | float | None = None,
+) -> dict[str, Any]:
+    capabilities = instance.get("capabilities") or {}
+    endpoint = capabilities.get("liveEndpoint") or "/capabilities"
+    if not isinstance(endpoint, str) or not endpoint.startswith("/"):
+        endpoint = "/capabilities"
+
+    host = instance.get("host") or DEFAULT_HOST
+    port = instance.get("port")
+    if not port:
+        raise RuntimeError("discovery instance has no port")
+
+    url = f"http://{host}:{port}{endpoint}"
+    async with httpx.AsyncClient(timeout=timeout or TIMEOUT) as client:
+        response = await client.get(url)
+        response.raise_for_status()
+        payload = response.json()
+
+    if not isinstance(payload, dict) or not isinstance(payload.get("domains"), list):
+        raise RuntimeError("live capabilities response is missing domains")
+    return payload
+
+
+async def resolve_capabilities(
+    instance: dict[str, Any],
+    timeout: httpx.Timeout | float | None = None,
+) -> dict[str, Any]:
+    """Resolve authoritative live capabilities, with explicit bootstrap fallback."""
+    try:
+        payload = await _fetch_live_capabilities(instance, timeout=timeout)
+        return {
+            "source": "live",
+            "stale": False,
+            "authoritative": True,
+            "liveEndpoint": (instance.get("capabilities") or {}).get("liveEndpoint", "/capabilities"),
+            "capabilities": payload,
+        }
+    except Exception as exc:
+        capabilities = instance.get("capabilities") or {}
+        return {
+            "source": "discovery_bootstrap_fallback",
+            "stale": True,
+            "authoritative": False,
+            "summaryKind": capabilities.get("summaryKind", "bootstrap_snapshot"),
+            "generatedUtc": capabilities.get("generatedUtc"),
+            "liveEndpoint": capabilities.get("liveEndpoint", "/capabilities"),
+            "fallbackReason": str(exc),
+            "capabilities": capabilities,
+        }
+
+
+def get_resolved_capability_domain(
+    resolved: dict[str, Any],
+    domain_id: str,
+) -> dict[str, Any] | None:
+    capabilities = resolved.get("capabilities") or {}
+    domains = capabilities.get("domains")
+    if isinstance(domains, list):
+        for domain in domains:
+            if isinstance(domain, dict) and domain.get("domainId") == domain_id:
+                return domain
+
+    domain_summary = capabilities.get("domainSummary")
+    if isinstance(domain_summary, list):
+        for domain in domain_summary:
+            if isinstance(domain, dict) and domain.get("domainId") == domain_id:
+                return domain
+
+    return None
+
+
 def _supports_endpoint(instance: dict[str, Any], endpoint: str | None) -> bool:
     """Check whether a discovered instance advertises a route."""
     if not endpoint or not endpoint.startswith(GH_ROUTE_PREFIX):

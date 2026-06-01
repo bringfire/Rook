@@ -45,6 +45,7 @@ private:
 
     // Route handlers — Phase 1
     void HandlePing(const httplib::Request& req, httplib::Response& res);
+    void HandleCapabilities(const httplib::Request& req, httplib::Response& res);
 
     // Route handlers — Grasshopper and companion-backed boundary
     void HandleMake2d(const httplib::Request& req, httplib::Response& res);

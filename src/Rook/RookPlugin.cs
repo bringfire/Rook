@@ -37,6 +37,7 @@ namespace Rook
         private bool _deferredLocalStartupComplete = false;
         private bool _startupComplete = false;
         private bool _bridgeRegistered = false;
+        private bool _panelsRegistered = false;
         private DateTimeOffset _onLoadUtc = DateTimeOffset.MinValue;
         private DateTimeOffset? _startupCompleteUtc;
         private string? _lastStartupGateTraceKey;
@@ -117,9 +118,11 @@ namespace Rook
                 Panels.RegisterPanel(this, kgPanelType, "Knowledge Graph",
                     System.Drawing.SystemIcons.Information,
                     PanelType.PerDoc);
+                _panelsRegistered = true;
             }
             catch (Exception ex)
             {
+                _panelsRegistered = false;
                 TraceStartup($"Panel registration failed (non-fatal): {ex.GetType().Name}: {ex.Message}");
                 RhinoApp.WriteLine(
                     "Rook: panel registration failed; continuing without companion panels. " +
@@ -487,6 +490,7 @@ namespace Rook
                     deferredLocalStartupComplete: _deferredLocalStartupComplete,
                     startupComplete: _startupComplete,
                     bridgeRegistered: _bridgeRegistered,
+                    panelsRegistered: _panelsRegistered,
                     onLoadUtc: _onLoadUtc,
                     startupCompleteUtc: _startupCompleteUtc);
                 CompanionRuntimeStatus.Write(snapshot);

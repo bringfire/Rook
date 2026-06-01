@@ -681,6 +681,9 @@ void CRookServer::RegisterRoutes()
     m_server->Get("/ping", [this](const httplib::Request& req, httplib::Response& res) {
         HandlePing(req, res);
     });
+    m_server->Get("/capabilities", [this](const httplib::Request& req, httplib::Response& res) {
+        HandleCapabilities(req, res);
+    });
     m_server->Post("/make2d", [this](const httplib::Request& req, httplib::Response& res) {
         HandleMake2d(req, res);
     });
@@ -1885,6 +1888,246 @@ nlohmann::json GetNativeGrasshopperRoutes()
     return routes;
 }
 
+constexpr const char* kRookNativePluginVersion = "1.5.9";
+
+bool JsonBoolOr(const nlohmann::json& object, const char* name, bool fallback)
+{
+    if (!object.is_object())
+        return fallback;
+
+    const auto it = object.find(name);
+    if (it == object.end() || !it->is_boolean())
+        return fallback;
+
+    return it->get<bool>();
+}
+
+std::string MakeUtcTimestamp()
+{
+    auto now = std::chrono::system_clock::now();
+    auto time = std::chrono::system_clock::to_time_t(now);
+    std::ostringstream ts;
+    struct tm tm_buf = {};
+    if (gmtime_s(&tm_buf, &time) == 0)
+        ts << std::put_time(&tm_buf, "%Y-%m-%dT%H:%M:%SZ");
+    else
+        ts << time;
+    return ts.str();
+}
+
+nlohmann::json ReadCompanionRuntimeStatus(const DiscoveryRootInfo& rootInfo, DWORD pid)
+{
+    try
+    {
+        const fs::path statusPath = rootInfo.sharedDiscoveryFolder
+            / ("companion-" + std::to_string(pid) + ".json");
+        if (!fs::exists(statusPath))
+            return nlohmann::json::object();
+
+        std::ifstream file(statusPath);
+        if (!file.is_open())
+            return nlohmann::json::object();
+
+        nlohmann::json status;
+        file >> status;
+        return status.is_object() ? status : nlohmann::json::object();
+    }
+    catch (...)
+    {
+        return nlohmann::json::object();
+    }
+}
+
+nlohmann::json CompanionEvidenceFor(
+    const nlohmann::json& companionStatus,
+    const char* domainId)
+{
+    if (!companionStatus.is_object())
+        return nlohmann::json::array();
+
+    const auto companionDomains = companionStatus.find("capabilityDomains");
+    if (companionDomains == companionStatus.end() || !companionDomains->is_array())
+        return nlohmann::json::array();
+
+    for (const auto& companionDomain : *companionDomains)
+    {
+        if (!companionDomain.is_object())
+            continue;
+
+        const auto companionDomainId = companionDomain.find("domainId");
+        if (companionDomainId == companionDomain.end() || !companionDomainId->is_string()
+            || companionDomainId->get<std::string>() != domainId)
+        {
+            continue;
+        }
+
+        const auto companionEvidence = companionDomain.find("evidence");
+        return companionEvidence != companionDomain.end() && companionEvidence->is_array()
+            ? *companionEvidence
+            : nlohmann::json::array();
+    }
+
+    return nlohmann::json::array();
+}
+
+nlohmann::json StringArray(std::initializer_list<const char*> values)
+{
+    nlohmann::json array = nlohmann::json::array();
+    for (const auto* value : values)
+        array.push_back(value);
+    return array;
+}
+
+nlohmann::json Evidence(const char* kind, const char* name, const nlohmann::json& value)
+{
+    nlohmann::json evidence;
+    evidence["kind"] = kind;
+    evidence["name"] = name;
+    evidence["value"] = value;
+    return evidence;
+}
+
+nlohmann::json Domain(
+    const char* domainId,
+    const char* installed,
+    bool loaded,
+    const char* state,
+    bool ready,
+    const char* reasonCode,
+    bool retryable,
+    const char* stateSource,
+    const nlohmann::json& routes,
+    const nlohmann::json& operations,
+    const nlohmann::json& diagnostics,
+    const nlohmann::json& evidence,
+    const nlohmann::json& companionEvidence)
+{
+    nlohmann::json domain;
+    domain["domainId"] = domainId;
+    domain["declared"] = true;
+    domain["installed"] = installed;
+    domain["loaded"] = loaded;
+    domain["state"] = state;
+    domain["ready"] = ready;
+    domain["reasonCode"] = reasonCode;
+    domain["retryable"] = retryable;
+    domain["stateSource"] = stateSource;
+    domain["message"] = "";
+    domain["routes"] = routes;
+    domain["operations"] = operations;
+    domain["diagnostics"] = diagnostics;
+    domain["evidence"] = evidence;
+    domain["companionEvidence"] = companionEvidence;
+    return domain;
+}
+
+nlohmann::json BuildRookCapabilitiesDocument(
+    int port,
+    const DiscoveryRootInfo& /*rootInfo*/,
+    const nlohmann::json& companionStatus)
+{
+    const DWORD pid = ::GetCurrentProcessId();
+    const bool rhinoInside = CRookNativePlugin::IsRhinoInside();
+    const bool ghCoreReady = Rook::Handlers::HasGrasshopperCoreRegistration();
+    const bool visionReady = Rook::Handlers::HasVisionDispatchRegistration();
+    const bool bimDispatchReady = Rook::Handlers::HasBimDispatchRegistration();
+    const bool tier3CaptureReady = Rook::Handlers::HasViewportCaptureTier3Registration();
+    const bool blockMutationReady = Rook::Handlers::HasBlockDefinitionMutationRegistration();
+    const bool canvasGraphProtocolReady = Rook::Handlers::HasCanvasGraphProtocol();
+    const bool canvasGraphNavigationReady = Rook::Handlers::HasCanvasGraphNavigation();
+    const bool companionStatusPresent = companionStatus.is_object() && !companionStatus.empty();
+    const bool companionStartupComplete = JsonBoolOr(companionStatus, "startupComplete", false);
+
+    nlohmann::json domains = nlohmann::json::array();
+    domains.push_back(Domain("native.core", "present", true, "ready", true, "native_server_running", false, "native_server_runtime",
+        StringArray({ "GET /ping", "GET /capabilities" }), StringArray({ "ping", "capability_discovery" }), StringArray({ "native discovery file" }),
+        nlohmann::json::array({ Evidence("http", "port", static_cast<int>(port)) }), nlohmann::json::array()));
+    domains.push_back(Domain("native.command_control", "present", true, "ready", true, "native_routes_registered", false, "native_route_registration",
+        StringArray({ "GET /command/prompt", "POST /command/send", "POST /command/cancel", "POST /command/start" }), StringArray({ "prompt", "send", "cancel", "start" }), StringArray({ "GET /command/prompt" }),
+        nlohmann::json::array({ Evidence("route", "commandControl", true) }), nlohmann::json::array()));
+    domains.push_back(Domain("gh.bridge", "unknown", ghCoreReady, ghCoreReady ? "ready" : "not_loaded", ghCoreReady,
+        ghCoreReady ? "grasshopper_core_callbacks_registered" : "grasshopper_core_callbacks_not_registered", !ghCoreReady, "native_bridge_callback_registration",
+        nlohmann::json::array(), StringArray({ "status", "document", "query", "mutate" }), StringArray({ "GET /gh/status" }),
+        nlohmann::json::array({ Evidence("callback", "grasshopperCore", ghCoreReady) }), CompanionEvidenceFor(companionStatus, "gh.bridge")));
+    domains.push_back(Domain("gh.canvas", "unknown", ghCoreReady, ghCoreReady ? "unknown" : "not_loaded", false,
+        ghCoreReady ? "canvas_state_requires_gh_status" : "grasshopper_core_callbacks_not_registered", true, "gh_status_route",
+        StringArray({ "GET /gh/status", "GET /gh/document", "GET /gh/query" }), StringArray({ "canvas_status", "canvas_query", "canvas_mutation" }), StringArray({ "GET /gh/status" }),
+        nlohmann::json::array({
+            Evidence("callback", "grasshopperCore", ghCoreReady),
+            Evidence("callback", "canvasGraphProtocol", canvasGraphProtocolReady),
+            Evidence("callback", "canvasGraphNavigation", canvasGraphNavigationReady) }),
+        CompanionEvidenceFor(companionStatus, "gh.canvas")));
+    domains.push_back(Domain("bim.rhino_inside_revit", "unknown", bimDispatchReady,
+        !bimDispatchReady ? "not_loaded" : (rhinoInside ? "unknown" : "blocked_by_host"), false,
+        !bimDispatchReady ? "bim_dispatch_callback_not_registered" : (rhinoInside ? "bim_status_not_probed_phase1" : "not_rhino_inside"),
+        rhinoInside, !bimDispatchReady ? "native_bridge_callback_registration" : "native_host_state",
+        StringArray({ "GET /bim/status", "GET /bim/active-document", "GET /bim/categories", "POST /bim/query-elements" }),
+        StringArray({ "status", "active_document", "list_categories", "query_elements" }), StringArray({ "GET /bim/status" }),
+        nlohmann::json::array({ Evidence("callback", "bimDispatch", bimDispatchReady), Evidence("host", "rhinoInside", rhinoInside) }),
+        CompanionEvidenceFor(companionStatus, "bim.rhino_inside_revit")));
+    domains.push_back(Domain("chat.ui", "unknown", companionStartupComplete, companionStartupComplete ? "unknown" : "not_loaded", false,
+        companionStartupComplete ? "chat_service_state_not_probed_phase1" : "companion_startup_not_complete", true, "companion_runtime_status_file",
+        nlohmann::json::array(), StringArray({ "panel_registration", "chat_service" }), StringArray({ "companion runtime status" }),
+        nlohmann::json::array({ Evidence("statusFile", "present", companionStatusPresent), Evidence("companion", "startupComplete", companionStartupComplete) }),
+        CompanionEvidenceFor(companionStatus, "chat.ui")));
+    domains.push_back(Domain("vision.media", "unknown", visionReady, visionReady ? "unknown" : "not_loaded", false,
+        visionReady ? "operation_state_not_probed_phase1" : "managed_bridge_callback_not_registered", true, "native_bridge_callback_registration",
+        StringArray({ "POST /vision/generate", "POST /vision/enhance-prompt", "GET /vision/artifacts", "POST /vision/video/jobs" }),
+        StringArray({ "image_generation", "prompt_enhancement", "artifact_store", "video_jobs" }), StringArray({ "companion runtime status" }),
+        nlohmann::json::array({ Evidence("callback", "visionDispatch", visionReady) }), CompanionEvidenceFor(companionStatus, "vision.media")));
+    domains.push_back(Domain("viewport.capture", "unknown", tier3CaptureReady, tier3CaptureReady ? "unknown" : "not_loaded", false,
+        tier3CaptureReady ? "operation_state_not_probed_phase1" : "managed_bridge_callback_not_registered", true, "native_bridge_callback_registration",
+        StringArray({ "POST /viewport" }), StringArray({ "viewport_capture" }), StringArray({ "POST /viewport" }),
+        nlohmann::json::array({ Evidence("callback", "viewportCaptureTier3", tier3CaptureReady) }), CompanionEvidenceFor(companionStatus, "viewport.capture")));
+    domains.push_back(Domain("block.definition_mutation", "unknown", blockMutationReady, blockMutationReady ? "unknown" : "not_loaded", false,
+        blockMutationReady ? "operation_state_not_probed_phase1" : "managed_bridge_callback_not_registered", true, "native_bridge_callback_registration",
+        StringArray({ "POST /block/set-layers", "POST /block/set-materials", "POST /block/set-object-colors", "POST /block/set-object-names", "POST /block/set-object-user-strings", "POST /block/replace-object-geometry", "POST /block/transform-object" }),
+        StringArray({ "set_layers", "set_materials", "set_object_colors", "set_object_names", "set_object_user_strings", "replace_object_geometry", "transform_object" }), StringArray({ "companion runtime status" }),
+        nlohmann::json::array({ Evidence("callback", "blockDefinitionMutation", blockMutationReady) }), CompanionEvidenceFor(companionStatus, "block.definition_mutation")));
+    domains.push_back(Domain("mcp.runtime", "unknown", false, "unknown", false, "install_evidence_not_available_phase1", false, "explicit_phase1_unavailable_provider",
+        nlohmann::json::array(), StringArray({ "client_runtime" }), StringArray({ "rook doctor" }), nlohmann::json::array(), nlohmann::json::array()));
+    domains.push_back(Domain("knowledge.stores", "unknown", false, "unknown", false, "install_evidence_not_available_phase1", false, "explicit_phase1_unavailable_provider",
+        nlohmann::json::array(), StringArray({ "knowledge_lookup" }), StringArray({ "rook doctor" }), nlohmann::json::array(), nlohmann::json::array()));
+    domains.push_back(Domain("chirp.runtime", "unknown", false, "unknown", false, "install_evidence_not_available_phase1", false, "explicit_phase1_unavailable_provider",
+        nlohmann::json::array(), StringArray({ "chirp_component_runtime" }), StringArray({ "Chirp service discovery" }), nlohmann::json::array(), nlohmann::json::array()));
+    domains.push_back(Domain("licensing.entitlement", "reserved", false, "reserved", false, "future_domain_reserved", false, "explicit_unavailable_provider",
+        nlohmann::json::array(), StringArray({ "license_state" }), nlohmann::json::array(), nlohmann::json::array(), nlohmann::json::array()));
+
+    nlohmann::json document;
+    document["schemaVersion"] = 1;
+    document["generatedUtc"] = MakeUtcTimestamp();
+    document["source"] = "RookNative";
+    document["processId"] = static_cast<int>(pid);
+    document["pluginType"] = "native";
+    document["pluginVersion"] = kRookNativePluginVersion;
+    document["rhinoInside"] = rhinoInside;
+    document["domains"] = domains;
+    return document;
+}
+
+nlohmann::json BuildCompactCapabilitySummary(const nlohmann::json& capabilityDocument)
+{
+    nlohmann::json summary = nlohmann::json::array();
+    const auto domains = capabilityDocument.find("domains");
+    if (domains == capabilityDocument.end() || !domains->is_array())
+        return summary;
+
+    for (const auto& domain : *domains)
+    {
+        if (!domain.is_object())
+            continue;
+
+        nlohmann::json item;
+        item["domainId"] = domain.value("domainId", "");
+        item["state"] = domain.value("state", "");
+        item["ready"] = domain.value("ready", false);
+        item["reasonCode"] = domain.value("reasonCode", "");
+        summary.push_back(item);
+    }
+
+    return summary;
+}
+
 } // namespace
 
 std::string CRookServer::GetDiscoveryFolder()
@@ -1898,6 +2141,15 @@ std::string CRookServer::GetDiscoveryFilePath()
     const fs::path discoveryPath = ResolveDiscoveryRootInfo().sharedDiscoveryFolder
         / ("instance-" + std::to_string(pid) + "-native.json");
     return PathToUtf8String(discoveryPath);
+}
+
+void CRookServer::HandleCapabilities(const httplib::Request& /*req*/, httplib::Response& res)
+{
+    const DiscoveryRootInfo rootInfo = ResolveDiscoveryRootInfo();
+    const auto companionStatus = ReadCompanionRuntimeStatus(rootInfo, ::GetCurrentProcessId());
+    const auto document = BuildRookCapabilitiesDocument(m_port, rootInfo, companionStatus);
+    res.status = 200;
+    res.set_content(document.dump(), "application/json");
 }
 
 void CRookServer::WriteDiscoveryFile()
@@ -1918,14 +2170,20 @@ void CRookServer::WriteDiscoveryFile()
         info["pluginType"] = "native";
         info["processId"] = ::GetCurrentProcessId();
         info["startTime"] = MakeLocalTimestamp();
-        info["pluginVersion"] = "1.5.9";
+        info["pluginVersion"] = kRookNativePluginVersion;
         info["rhinoInside"] = CRookNativePlugin::IsRhinoInside();
         const auto ghRoutes = GetNativeGrasshopperRoutes();
         const bool callbackBridgeReady = Rook::Handlers::HasGrasshopperBridgeRegistration();
-        info["capabilities"] = {
-            {"ghProvider", "callback"},
-            {"ghRoutes", callbackBridgeReady ? ghRoutes : nlohmann::json::array()}
-        };
+        const auto companionStatus = ReadCompanionRuntimeStatus(rootInfo, pid);
+        const auto capabilityDocument = BuildRookCapabilitiesDocument(m_port, rootInfo, companionStatus);
+        info["capabilities"]["ghProvider"] = "callback";
+        info["capabilities"]["ghRoutes"] = callbackBridgeReady ? ghRoutes : nlohmann::json::array();
+        info["capabilities"]["schemaVersion"] = 1;
+        info["capabilities"]["liveEndpoint"] = "/capabilities";
+        info["capabilities"]["summaryKind"] = "bootstrap_snapshot";
+        info["capabilities"]["authoritative"] = false;
+        info["capabilities"]["generatedUtc"] = MakeUtcTimestamp();
+        info["capabilities"]["domainSummary"] = BuildCompactCapabilitySummary(capabilityDocument);
 
         fs::path discoveryPath = rootInfo.sharedDiscoveryFolder
             / ("instance-" + std::to_string(pid) + "-native.json");

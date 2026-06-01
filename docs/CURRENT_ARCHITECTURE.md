@@ -23,7 +23,7 @@ RookNative (C++ plugin)           ← sole HTTP server, 242 routes, 35 handlers
        │
        │ P/Invoke callbacks
        ▼
-Rook Companion (C# plugin)       ← GH bridge + chat panel only, no HTTP server
+Rook Companion (C# plugin)       ← GH bridge + chat/panel UI + internal status evidence, no HTTP server
        │
        ▼
 Rhino 3D / Grasshopper
@@ -53,7 +53,7 @@ The companion is **internal** — not a separate public plugin surface.
 | Fact | Value |
 |------|-------|
 | HTTP server | **None** |
-| Role | GH callback bridge + chat panel + 4 Rhino commands |
+| Role | GH callback bridge, chat/panel UI, managed capability evidence, and 4 Rhino commands |
 | Commands | AIGumball, ShowRookChat, RestartRookChatService, UVBoxMapping |
 | GH bridge | P/Invoke callbacks registered via `NativeGhBridgeRegistrar.cs` |
 | Load mode | WhenNeeded (loaded by RookNative on demand) |
@@ -67,6 +67,14 @@ The companion is **internal** — not a separate public plugin surface.
 - `/block/set-layers`, `/block/set-materials`, `/block/set-object-colors`, `/block/set-object-names`, `/block/set-object-user-strings`, `/block/replace-object-geometry`, `/block/transform-object`
 
 Everything else is native-owned.
+
+## Runtime Capability Discovery
+
+`RookNative` exposes `GET /capabilities` as the public runtime capability discovery surface. The endpoint reports declared capability domains, current runtime state, reason codes, routes, operations, diagnostics, and evidence. It is descriptive in Phase 1: it does not move route ownership, change companion loading, change installer layout, or make the managed companion public.
+
+Native discovery JSON keeps the legacy `capabilities.ghProvider` and `capabilities.ghRoutes` fields for compatibility. It also includes `capabilities.liveEndpoint`, `capabilities.summaryKind: "bootstrap_snapshot"`, `capabilities.authoritative: false`, `capabilities.generatedUtc`, and `capabilities.domainSummary`. This summary is bootstrap/fallback metadata only. Clients use discovery to find `RookNative`, then call `GET /capabilities` for authoritative live readiness.
+
+Managed companion domain evidence is internal. The companion writes it to its existing per-process runtime status file under the shared discovery root; `RookNative` remains the only public HTTP/discovery surface.
 
 ## Python MCP Server (`mcp_server/src/rook/`)
 
