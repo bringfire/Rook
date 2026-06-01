@@ -17,6 +17,8 @@ namespace Rook.Tests.Handlers
                 "case ManagedCreateInvokeResult::Failed:");
 
             Assert.Contains("BuildViewportCaptureCallbackUnavailable", unavailableBranch);
+            Assert.Contains("\"viewport_capture\"", unavailableBranch);
+            Assert.DoesNotContain("viewport_capture_tier3", unavailableBranch);
             Assert.Contains("CRookServer::SendErrorWithDiagnostic", unavailableBranch);
             Assert.Contains("res.status = 503;", unavailableBranch);
             Assert.Contains("res.set_header(\"X-Rook-Viewport-Backend\", \"tier3-unavailable\");", unavailableBranch);

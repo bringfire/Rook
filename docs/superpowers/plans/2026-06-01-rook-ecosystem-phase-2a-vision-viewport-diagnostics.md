@@ -676,7 +676,7 @@ case ManagedCreateInvokeResult::Unavailable:
     const auto unavailableDiagnostic =
         Rook::Diagnostics::BuildViewportCaptureCallbackUnavailable(
             "POST /viewport",
-            "viewport_capture_tier3");
+            "viewport_capture");
     CRookServer::SendErrorWithDiagnostic(
         res,
         "Tier 3 viewport capture requires the Rook companion plugin. Ensure Rook.rhp is loaded in Rhino, then retry.",
