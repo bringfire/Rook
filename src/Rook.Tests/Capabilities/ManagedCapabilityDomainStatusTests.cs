@@ -3,10 +3,12 @@ using System.IO;
 using System.Linq;
 using Rook.Bim;
 using Rook.Capabilities;
+using Rook.Tests.Bim;
 using Xunit;
 
 namespace Rook.Tests.Capabilities
 {
+    [Collection(RookBimRuntimeRegistryCollection.Name)]
     public class ManagedCapabilityDomainStatusTests
     {
         [Fact]

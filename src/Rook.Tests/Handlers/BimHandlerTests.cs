@@ -4,10 +4,12 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Rook.Bim;
 using Rook.Handlers;
+using Rook.Tests.Bim;
 using Xunit;
 
 namespace Rook.Tests.Handlers
 {
+    [Collection(RookBimRuntimeRegistryCollection.Name)]
     public class BimHandlerTests
     {
         private static readonly string[] Phase1Ops =

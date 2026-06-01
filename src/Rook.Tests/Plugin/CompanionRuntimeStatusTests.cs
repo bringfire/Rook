@@ -4,10 +4,12 @@ using System.Text.Json;
 using Rook.Bim;
 using Rook.Capabilities;
 using Rook.Startup;
+using Rook.Tests.Bim;
 using Xunit;
 
 namespace Rook.Tests.Plugin
 {
+    [Collection(RookBimRuntimeRegistryCollection.Name)]
     public class CompanionRuntimeStatusTests
     {
         [Theory]
