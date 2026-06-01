@@ -76,6 +76,13 @@ namespace Rook.Tests.Capabilities
             Assert.Contains("\"ghProvider\"", writeDiscovery);
             Assert.Contains("\"ghRoutes\"", writeDiscovery);
             Assert.Contains("\"domainSummary\"", writeDiscovery);
+            Assert.Contains("\"liveEndpoint\"", writeDiscovery);
+            Assert.Contains("\"/capabilities\"", writeDiscovery);
+            Assert.Contains("\"summaryKind\"", writeDiscovery);
+            Assert.Contains("\"bootstrap_snapshot\"", writeDiscovery);
+            Assert.Contains("\"authoritative\"", writeDiscovery);
+            Assert.Contains("false", writeDiscovery);
+            Assert.Contains("\"generatedUtc\"", writeDiscovery);
             Assert.Contains("BuildCompactCapabilitySummary", writeDiscovery);
         }
 

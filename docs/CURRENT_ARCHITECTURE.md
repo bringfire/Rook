@@ -72,7 +72,7 @@ Everything else is native-owned.
 
 `RookNative` exposes `GET /capabilities` as the public runtime capability discovery surface. The endpoint reports declared capability domains, current runtime state, reason codes, routes, operations, diagnostics, and evidence. It is descriptive in Phase 1: it does not move route ownership, change companion loading, change installer layout, or make the managed companion public.
 
-Native discovery JSON keeps the legacy `capabilities.ghProvider` and `capabilities.ghRoutes` fields for compatibility. It also includes `capabilities.schemaVersion` and `capabilities.domainSummary` so clients can discover domains before invoking domain routes.
+Native discovery JSON keeps the legacy `capabilities.ghProvider` and `capabilities.ghRoutes` fields for compatibility. It also includes `capabilities.liveEndpoint`, `capabilities.summaryKind: "bootstrap_snapshot"`, `capabilities.authoritative: false`, `capabilities.generatedUtc`, and `capabilities.domainSummary`. This summary is bootstrap/fallback metadata only. Clients use discovery to find `RookNative`, then call `GET /capabilities` for authoritative live readiness.
 
 Managed companion domain evidence is internal. The companion writes it to its existing per-process runtime status file under the shared discovery root; `RookNative` remains the only public HTTP/discovery surface.
 

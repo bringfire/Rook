@@ -251,6 +251,102 @@ def test_get_capability_domain_summary_handles_older_discovery() -> None:
     assert bridge.get_capability_domain_summary(instance, "native.core") is None
 
 
+@pytest.mark.asyncio
+async def test_resolve_capabilities_prefers_live_endpoint_over_bootstrap_summary(monkeypatch):
+    instance = {
+        "host": "127.0.0.1",
+        "port": 9950,
+        "processId": 7101,
+        "pluginType": "native",
+        "capabilities": {
+            "liveEndpoint": "/capabilities",
+            "summaryKind": "bootstrap_snapshot",
+            "authoritative": False,
+            "domainSummary": [
+                {
+                    "domainId": "chat.ui",
+                    "state": "not_loaded",
+                    "ready": False,
+                    "reasonCode": "companion_startup_not_complete",
+                }
+            ],
+        },
+    }
+
+    async def fake_fetch_live_capabilities(target, timeout=None):
+        assert target is instance
+        return {
+            "schemaVersion": 1,
+            "domains": [
+                {
+                    "domainId": "chat.ui",
+                    "state": "unknown",
+                    "ready": False,
+                    "reasonCode": "chat_service_state_not_probed_phase1",
+                    "companionEvidence": [
+                        {
+                            "kind": "managed_companion_runtime",
+                            "name": "panelsRegistered",
+                            "value": True,
+                        }
+                    ],
+                }
+            ],
+        }
+
+    monkeypatch.setattr(bridge, "_fetch_live_capabilities", fake_fetch_live_capabilities)
+
+    resolved = await bridge.resolve_capabilities(instance)
+    chat = bridge.get_resolved_capability_domain(resolved, "chat.ui")
+
+    assert resolved["source"] == "live"
+    assert resolved["stale"] is False
+    assert chat["state"] == "unknown"
+    assert chat["reasonCode"] == "chat_service_state_not_probed_phase1"
+    assert len(chat["companionEvidence"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_resolve_capabilities_marks_bootstrap_fallback_when_live_endpoint_unavailable(monkeypatch):
+    instance = {
+        "capabilities": {
+            "schemaVersion": 1,
+            "liveEndpoint": "/capabilities",
+            "summaryKind": "bootstrap_snapshot",
+            "authoritative": False,
+            "generatedUtc": "2026-06-01T13:35:27Z",
+            "domainSummary": [
+                {
+                    "domainId": "chat.ui",
+                    "state": "not_loaded",
+                    "ready": False,
+                    "reasonCode": "companion_startup_not_complete",
+                }
+            ],
+        }
+    }
+
+    async def fake_fetch_live_capabilities(target, timeout=None):
+        raise RuntimeError("connection refused")
+
+    monkeypatch.setattr(bridge, "_fetch_live_capabilities", fake_fetch_live_capabilities)
+
+    resolved = await bridge.resolve_capabilities(instance)
+    chat = bridge.get_resolved_capability_domain(resolved, "chat.ui")
+
+    assert resolved["source"] == "discovery_bootstrap_fallback"
+    assert resolved["stale"] is True
+    assert resolved["fallbackReason"] == "connection refused"
+    assert resolved["summaryKind"] == "bootstrap_snapshot"
+    assert resolved["authoritative"] is False
+    assert chat == {
+        "domainId": "chat.ui",
+        "state": "not_loaded",
+        "ready": False,
+        "reasonCode": "companion_startup_not_complete",
+    }
+
+
 def test_cleanup_keeps_live_rhino_inside_native_record(
     discovery_dir: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -4,7 +4,7 @@
 
 **Goal:** Add a versioned, evidence-backed runtime capability discovery surface through RookNative without changing route ownership, companion loading, installer layout, or existing availability semantics.
 
-**Architecture:** RookNative remains the only public HTTP/discovery surface and exposes `GET /capabilities` plus an additive discovery summary. Native state is built from current server/runtime facts, granular bridge callback registration, host state, and the existing companion runtime status file. Managed code only enriches the internal status file with domain evidence; it does not become a public HTTP surface and does not change startup or loading policy.
+**Architecture:** RookNative remains the only public HTTP/discovery surface and exposes `GET /capabilities` plus additive discovery metadata. Discovery JSON is locator/bootstrap metadata; `GET /capabilities` is the authoritative live runtime capability state. Native state is built from current server/runtime facts, granular bridge callback registration, host state, and the existing companion runtime status file. Managed code only enriches the internal status file with domain evidence; it does not become a public HTTP surface and does not change startup or loading policy.
 
 **Tech Stack:** Rhino 8 C++ SDK, MFC/v143, cpp-httplib, nlohmann/json, C# net48 managed companion, xUnit source/contract tests, Python MCP pytest tests.
 
@@ -31,12 +31,12 @@ Phase 1 is descriptive. It reports current behavior and known dependencies; it d
 Allowed:
 
 - Add `GET /capabilities` to RookNative.
-- Add a compact, additive capability summary to existing native discovery JSON.
+- Add a compact, additive bootstrap capability summary to existing native discovery JSON.
 - Keep existing discovery fields `capabilities.ghProvider` and `capabilities.ghRoutes`.
 - Split capability state by domain.
 - Add granular callback-registration evidence helpers.
 - Extend the existing companion runtime status file with internal domain evidence.
-- Teach MCP discovery normalization to preserve and read the new capability domains.
+- Teach MCP discovery normalization to preserve bootstrap domain data and resolve live domain state from `GET /capabilities`.
 
 Forbidden:
 
@@ -980,6 +980,10 @@ info["capabilities"] = {
     {"ghProvider", "callback"},
     {"ghRoutes", callbackBridgeReady ? ghRoutes : nlohmann::json::array()},
     {"schemaVersion", capabilityDocument.value("schemaVersion", 1)},
+    {"liveEndpoint", "/capabilities"},
+    {"summaryKind", "bootstrap_snapshot"},
+    {"authoritative", false},
+    {"generatedUtc", MakeUtcTimestamp()},
     {"domainSummary", BuildCompactCapabilitySummary(capabilityDocument)}
 };
 ```
@@ -1553,7 +1557,7 @@ git commit -m "test: pin managed capability domain boundaries"
 
 Expected: commit succeeds.
 
-## Task 6: MCP Discovery Normalization For Capability Domains
+## Task 6: MCP Discovery Normalization And Live Capability Resolution
 
 **Files:**
 
@@ -1622,7 +1626,18 @@ def test_get_capability_domain_summary_handles_older_discovery() -> None:
     instance = {"capabilities": {"ghProvider": "callback", "ghRoutes": []}}
 
     assert bridge.get_capability_domain_summary(instance, "native.core") is None
+
+
 ```
+
+Also add async tests proving:
+
+- `resolve_capabilities(instance)` returns live `/capabilities` data when the
+  live endpoint is reachable, even if `domainSummary` has stale state.
+- `resolve_capabilities(instance)` falls back to discovery metadata only when
+  the live endpoint fails, and the fallback result is marked
+  `source: "discovery_bootstrap_fallback"`, `stale: true`, and
+  `authoritative: false`.
 
 - [ ] **Step 2: Run failing MCP tests**
 
@@ -1632,11 +1647,11 @@ Run:
 python -m pytest mcp_server/tests/test_bridge.py -k "capability_domain" -q
 ```
 
-Expected: FAIL because `get_capability_domain_summary` does not exist.
+Expected: FAIL because live capability resolution helpers do not exist.
 
-- [ ] **Step 3: Add MCP helper**
+- [ ] **Step 3: Add MCP helpers**
 
-In `mcp_server/src/rook/bridge.py`, add this helper immediately after `_normalize_instance`:
+In `mcp_server/src/rook/bridge.py`, add helpers immediately after `_normalize_instance`:
 
 ```python
 def get_capability_domain_summary(
@@ -1658,7 +1673,19 @@ def get_capability_domain_summary(
             return domain
 
     return None
+
+
 ```
+
+MCP must use discovery to locate Rook and `GET /capabilities` to understand
+current readiness. `capabilities.domainSummary` is only bootstrap/fallback
+metadata and must be marked stale/non-authoritative when used after a live
+capabilities request fails.
+
+Add `resolve_capabilities(instance, timeout=None)` to return an envelope with
+`source`, `stale`, `authoritative`, `liveEndpoint`, and `capabilities`. Add
+`get_resolved_capability_domain(resolved, domain_id)` to read a domain from
+live `domains` first and bootstrap `domainSummary` only as fallback.
 
 - [ ] **Step 4: Run MCP tests**
 
@@ -1696,7 +1723,7 @@ In `docs/CURRENT_ARCHITECTURE.md`, add a short section near the native discovery
 
 RookNative exposes `GET /capabilities` as the public runtime capability discovery surface. The endpoint reports declared capability domains, current runtime state, reason codes, routes, operations, diagnostics, and evidence. It is descriptive in Phase 1: it does not move route ownership, change companion loading, change installer layout, or make managed companion public.
 
-Native discovery JSON keeps the legacy `capabilities.ghProvider` and `capabilities.ghRoutes` fields for compatibility. It also includes `capabilities.schemaVersion` and `capabilities.domainSummary` so clients can discover domains before invoking domain routes.
+Native discovery JSON keeps the legacy `capabilities.ghProvider` and `capabilities.ghRoutes` fields for compatibility. It also includes `capabilities.liveEndpoint`, `capabilities.summaryKind: "bootstrap_snapshot"`, `capabilities.authoritative: false`, `capabilities.generatedUtc`, and `capabilities.domainSummary`. This summary is bootstrap/fallback metadata only. Clients should use discovery to find Rook, then call `GET /capabilities` for authoritative live readiness.
 
 Managed companion domain evidence is internal. The companion writes it to its existing per-process runtime status file under the shared discovery root; RookNative remains the only public HTTP/discovery surface.
 ```
@@ -1828,6 +1855,10 @@ Before asking for review, confirm:
 - `GET /capabilities` exists only on RookNative.
 - Native discovery still includes `capabilities.ghProvider` and `capabilities.ghRoutes`.
 - Native discovery adds only additive fields.
+- Native discovery marks `capabilities.domainSummary` as `bootstrap_snapshot`
+  and non-authoritative, with `capabilities.liveEndpoint: "/capabilities"`.
+- MCP resolves live readiness from `GET /capabilities` and uses
+  `domainSummary` only as explicit stale/bootstrap fallback.
 - Capability state is split by domain.
 - `bim.rhino_inside_revit` is separate from GH.
 - `chat.ui`, `vision.media`, `viewport.capture`, and `block.definition_mutation` are not collapsed into `gh.bridge`.
@@ -1889,4 +1920,5 @@ Type consistency:
 
 - Native JSON uses `schemaVersion`, `domainId`, `stateSource`, `reasonCode`, `domainSummary`, and `capabilityDomains`.
 - Managed records use PascalCase property names and serialize to camelCase through the existing `JsonSerializerOptions`.
-- MCP helper reads `domainSummary`, matching native discovery.
+- MCP helper preserves `domainSummary` but resolves live readiness through
+  `GET /capabilities` when available.

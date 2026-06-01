@@ -2179,6 +2179,10 @@ void CRookServer::WriteDiscoveryFile()
         info["capabilities"]["ghProvider"] = "callback";
         info["capabilities"]["ghRoutes"] = callbackBridgeReady ? ghRoutes : nlohmann::json::array();
         info["capabilities"]["schemaVersion"] = 1;
+        info["capabilities"]["liveEndpoint"] = "/capabilities";
+        info["capabilities"]["summaryKind"] = "bootstrap_snapshot";
+        info["capabilities"]["authoritative"] = false;
+        info["capabilities"]["generatedUtc"] = MakeUtcTimestamp();
         info["capabilities"]["domainSummary"] = BuildCompactCapabilitySummary(capabilityDocument);
 
         fs::path discoveryPath = rootInfo.sharedDiscoveryFolder
