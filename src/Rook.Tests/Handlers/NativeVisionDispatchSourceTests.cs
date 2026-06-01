@@ -55,6 +55,37 @@ namespace Rook.Tests.Handlers
                 handler);
         }
 
+        [Fact]
+        public void VisionVideoModelsRoute_IsSliceOneDiagnosticExample()
+        {
+            var source = ReadSourceFile("src", "RookNative", "Handlers", "VisionHandler.cpp");
+            var handler = ExtractFunction(source, "HandleVisionVideoModelsList");
+
+            Assert.Contains("BuildVisionDispatchCallbackUnavailable", source);
+            Assert.Contains("\"GET /vision/video/models\"", handler);
+            Assert.Contains("\"list_video_models\"", handler);
+            Assert.Contains("ForwardVisionDispatch", handler);
+            Assert.DoesNotContain("CMainThreadDispatcher::Instance().Dispatch", handler);
+            Assert.DoesNotContain("CRhinoDoc::", handler);
+            Assert.DoesNotContain("RunScript", handler);
+        }
+
+        [Fact]
+        public void VisionDispatchDiagnostic_IsOnlyEmittedForOptedInUnavailablePath()
+        {
+            var source = ReadSourceFile("src", "RookNative", "Handlers", "VisionHandler.cpp");
+            var helper = ExtractFunction(source, "ForwardVisionDispatch");
+            var generateHandler = ExtractFunction(source, "HandleVisionGenerate");
+            var modelsHandler = ExtractFunction(source, "HandleVisionVideoModelsList");
+
+            Assert.Contains("const nlohmann::json* unavailableDiagnostic", helper);
+            Assert.Contains("if (unavailableDiagnostic != nullptr)", helper);
+            Assert.Contains("CRookServer::SendErrorWithDiagnostic", helper);
+            Assert.Contains("CRookServer::SendError(", helper);
+            Assert.DoesNotContain("BuildVisionDispatchCallbackUnavailable", generateHandler);
+            Assert.Contains("BuildVisionDispatchCallbackUnavailable", modelsHandler);
+        }
+
         private static string ExtractFunction(string source, string functionName)
         {
             var signature = "void " + functionName + "(";
