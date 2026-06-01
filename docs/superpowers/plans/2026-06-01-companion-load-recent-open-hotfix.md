@@ -754,6 +754,70 @@ Expected: commit succeeds only if validation notes were added.
 
 ## Self-Review
 
+## Hotfix Validation Closeout
+
+Recorded on 2026-06-01.
+
+Automated validation:
+
+- `dotnet test src/Rook.Tests/Rook.Tests.csproj --no-restore --filter FullyQualifiedName~MainThreadDispatcherSourceTests`: passed 14/14.
+- `dotnet test src/Rook.Tests/Rook.Tests.csproj --no-restore --filter "FullyQualifiedName~CapabilityDiscoverySourceTests|FullyQualifiedName~CompanionRuntimeStatusTests|FullyQualifiedName~ManagedCapabilityDomainStatusTests|FullyQualifiedName~BimHandlerTests"`: passed 37/37.
+- Native MSVC 14.44 Debug x64 build: passed with 0 warnings and 0 errors.
+- `git diff --check origin/main...HEAD`: passed.
+
+Local deploy:
+
+- `scripts/deploy-local-testing.ps1 -NativeOnly`: passed.
+- Installed native path: `%APPDATA%\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\RookNative.rhp`.
+- Native-only deploy preserved companion registration.
+
+Recent-file `_Open` live validation:
+
+- Rhino PID: 33280.
+- Native discovery file: `%LOCALAPPDATA%\Rook\discovery\instance-33280-native.json`.
+- Native discovery last write: `2026-06-01T12:00:13.6195594-04:00`.
+- Recent-file `_Open` path was used by the user; no Rook command was typed before evidence capture.
+- Companion-load diagnostic log: `%LOCALAPPDATA%\Rook\discovery\companion-load-33280.log`.
+- Deferral during `_Open`: `2026-06-01T16:00:07.644Z pid=33280 RookNative: managed companion load deferred; Rhino command is active`.
+- Later load success: `2026-06-01T16:00:09.727Z pid=33280 RookNative: managed companion LoadPlugIn succeeded`.
+- Companion `OnLoadUtc`: `2026-06-01T12:00:09.6583178-04:00`.
+- `startupComplete`: true at `2026-06-01T12:00:13.6432688-04:00`.
+- `panelsRegistered`: true.
+- `bridgeRegistered`: true.
+- `/ping`: `pong`.
+- `/capabilities`: schemaVersion 1, 13 domains.
+- `gh.bridge`: `ready: true`, `state: ready`.
+- `chat.ui`: `ready: false`, `state: unknown`, `reasonCode: chat_service_state_not_probed_phase1`, companion evidence count 2.
+- MCP resolver: `source: live`, `stale: false`, `authoritative: true`, `domainCount: 13`, `chat.ui` companion evidence count 2.
+- `ShowRookChat`: opened cleanly after startup per user confirmation; the old "panel could not be shown" message did not recur.
+
+Required proof:
+
+```text
+NotSafeYet deferrals happened during recent-file _Open,
+the native activation thread stayed alive,
+LoadPlugIn succeeded later,
+and managed companion readiness became visible without command-triggered loading.
+```
+
+Secondary direct-open regression:
+
+- Rhino PID: 51616.
+- Rhino process start time: `2026-06-01T12:05:34.4623689-04:00`.
+- Native discovery file: `%LOCALAPPDATA%\Rook\discovery\instance-51616-native.json`.
+- Native discovery last write: `2026-06-01T12:05:57.3114775-04:00`.
+- Companion-load diagnostic log: `%LOCALAPPDATA%\Rook\discovery\companion-load-51616.log`.
+- Direct-open load success: `2026-06-01T16:05:53.321Z pid=51616 RookNative: managed companion LoadPlugIn succeeded`.
+- No command-active deferral was needed on the direct-open path.
+- Companion `OnLoadUtc`: `2026-06-01T12:05:51.2825411-04:00`.
+- `startupComplete`: true at `2026-06-01T12:05:57.3269346-04:00`.
+- `panelsRegistered`: true.
+- `bridgeRegistered`: true.
+- `/capabilities`: schemaVersion 1, 13 domains.
+- `gh.bridge`: `ready: true`, `state: ready`.
+- `chat.ui`: `ready: false`, `state: unknown`, `reasonCode: chat_service_state_not_probed_phase1`, companion evidence count 2.
+- MCP resolver: `source: live`, `stale: false`, `authoritative: true`, `domainCount: 13`, `gh.bridge ready: true`, `chat.ui` companion evidence count 2.
+
 Spec coverage:
 
 - Recent-file `_Open` repro boundary is captured.
