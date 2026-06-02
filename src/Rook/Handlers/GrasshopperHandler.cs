@@ -14,7 +14,7 @@ namespace Rook.Handlers
     /// Handler for direct Grasshopper canvas manipulation via reflection.
     /// Provides MCP tools for creating and managing GH components without external dependencies.
     /// </summary>
-    public class GrasshopperHandler
+    public partial class GrasshopperHandler
     {
         private readonly IGrasshopperCore _bridgeCore = new GrasshopperCore();
         private Assembly? _ghAssembly;
