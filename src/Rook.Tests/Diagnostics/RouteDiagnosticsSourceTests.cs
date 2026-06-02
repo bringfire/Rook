@@ -258,6 +258,47 @@ namespace Rook.Tests.Diagnostics
         }
 
         [Fact]
+        public void NonBlockProxyFailures_KeepLegacyEnvelopeWhenContextAbsent()
+        {
+            var source = ReadSourceFile("src", "RookNative", "Handlers", "GrasshopperProxyHandler.cpp");
+            var proxyCompanion = ExtractFunction(source, "ProxyManagedCompanionRequest");
+            var normalized = source.Replace("\r\n", "\n");
+            const string marker =
+                "void SendProxyFailure(\n" +
+                "    httplib::Response& res,\n" +
+                "    int status,\n" +
+                "    const std::string& message,\n" +
+                "    const nlohmann::json* diagnostic)\n" +
+                "{";
+            var start = normalized.IndexOf(marker, StringComparison.Ordinal);
+            Assert.True(start >= 0, "SendProxyFailure implementation must use the reviewed diagnostic-aware signature.");
+            var end = normalized.IndexOf("\nvoid CopyManagedResponse", start, StringComparison.Ordinal);
+            Assert.True(end > start, "SendProxyFailure implementation must remain before CopyManagedResponse.");
+            var sendProxyFailure = normalized.Substring(start, end - start);
+
+            Assert.Contains("if (diagnostic != nullptr)", sendProxyFailure);
+            Assert.Contains("CRookServer::SendErrorWithDiagnostic(res, message, *diagnostic);", sendProxyFailure);
+            Assert.Contains("envelope[\"success\"] = false;", sendProxyFailure);
+            Assert.Contains("envelope[\"data\"] = message;", sendProxyFailure);
+            Assert.Contains("res.status = status;", sendProxyFailure);
+            Assert.Contains("res.set_content(envelope.dump(), \"application/json\");", sendProxyFailure);
+
+            Assert.Contains("ProxyManagedRequest(req, res, path, isPost);", proxyCompanion);
+            Assert.DoesNotContain("&diagnosticContext", proxyCompanion);
+        }
+
+        [Fact]
+        public void ManagedBlockHandlers_DoNotMintPhase2BReasonCodes()
+        {
+            var blocks = ReadSourceFile("src", "Rook", "Handlers", "BlocksHandler.cs");
+
+            Assert.DoesNotContain("block_mutation_managed_proxy_unavailable", blocks);
+            Assert.DoesNotContain("block_mutation_managed_proxy_forward_failed", blocks);
+            Assert.DoesNotContain("RouteDiagnostic", blocks);
+            Assert.Contains("new ApiResponse { Success = false, Data =", blocks);
+        }
+
+        [Fact]
         public void BlockMutationDiagnostics_DoNotInspectSuccessfulManagedProxyResponses()
         {
             var source = ReadSourceFile("src", "RookNative", "Handlers", "GrasshopperProxyHandler.cpp");
