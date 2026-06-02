@@ -853,99 +853,36 @@ git commit -m "fix(gh): gh_update_script honors solver-locked deferral instead o
 
 ---
 
-## Task 9: Python — bounded settle for the scheduled solve (unit-tested)
+## Task 9: Python — bounded best-effort settle (LANDED AS FLOOR)
 
-> **SUPERSEDED — landed as the bounded best-effort *floor*, not the edge-detector below.**
-> The edge-detected busy->idle poll was implemented, then reverted (commit `c8a17d2`): trivial
-> scripts solve instantly, so there is no observable "busy" window — the poll burned the full
-> timeout on the common fast path and broke 5 `gh_update_script` contract tests (unexpected
-> `/gh/status` route). PR1 ships `_await_gh_solve_settle` as a fixed ~0.3 s best-effort wait;
-> non-deferred error checks are best-effort until the live **U3** probe establishes a real
-> solve-completion token (a focused follow-up). The edge-detector design below is retained for
-> reference only; `test_gh_solve_settle.py` was removed.
+> **History (non-executable):** an edge-detected busy->idle `/gh/status` poll was implemented
+> and reverted (commit `c8a17d2`). Trivial scripts solve instantly, so there is no observable
+> "busy" window; the poll burned the full timeout on the common fast path and broke 5
+> `gh_update_script` contract tests (unexpected `/gh/status` route). PR1 ships the bounded
+> best-effort floor below instead.
 
 **Files:**
-- Modify: `mcp_server/src/rook/server.py` (replace the `_await_gh_solve_settle` stub; add a pure edge-detector)
-- Test: `mcp_server/tests/test_gh_solve_settle.py`
+- Modify: `mcp_server/src/rook/server.py` (`_await_gh_solve_settle`)
+- `mcp_server/tests/test_gh_solve_settle.py` (the edge-detector test) was **removed**.
 
-Use the U3 outcome: if a monotonic solve marker exists, prefer it; otherwise implement the **edge-detected** settle below (acceptable per spec §8.2). This plan codes the edge-detected baseline.
-
-- [ ] **Step 1: Write the failing test for the pure edge-detector:**
-
-```python
-from rook.server import _gh_solve_settle_step
-
-
-def test_settle_requires_busy_then_idle():
-    # idle observed before any busy -> NOT settled (avoids pre-solve-idle bug)
-    settled, saw_busy = _gh_solve_settle_step(prev_saw_busy=False, solution_state="Off")
-    assert settled is False and saw_busy is False
-
-    # busy observed -> arm
-    settled, saw_busy = _gh_solve_settle_step(prev_saw_busy=False, solution_state="Computing")
-    assert settled is False and saw_busy is True
-
-    # idle after busy -> settled
-    settled, saw_busy = _gh_solve_settle_step(prev_saw_busy=True, solution_state="Complete")
-    assert settled is True and saw_busy is True
-```
-
-- [ ] **Step 2: Run, verify it fails.**
-
-Run: `mcp_server/.venv/Scripts/python -m pytest mcp_server/tests/test_gh_solve_settle.py -v`
-Expected: ImportError.
-
-- [ ] **Step 3: Implement the edge-detector and the bounded poller:**
+**Landed implementation.** A fixed delay has nothing to unit-test; its behavior is exercised
+by the live regression in Task 10.
 
 ```python
-def _gh_solve_settle_step(prev_saw_busy: bool, solution_state: Any) -> tuple[bool, bool]:
-    """Edge-detect a solve: settled only after observing a non-idle state and THEN idle.
-    Idle states are 'Off'/'Complete'/'Empty'/None; anything else counts as busy."""
-    state = str(solution_state or "").strip().lower()
-    is_idle = state in ("", "off", "complete", "empty")
-    saw_busy = prev_saw_busy or not is_idle
-    settled = saw_busy and is_idle
-    return settled, saw_busy
-
-
-async def _await_gh_solve_settle(port: int, scheduled_delay_ms: int = 50, timeout_s: float = 5.0) -> None:
-    """Bounded wait for a scheduled GH solve to start and finish. Initial delay >=
-    the scheduled delay so we cannot satisfy on the pre-solve idle; then edge-detect."""
-    await asyncio.sleep(max(scheduled_delay_ms / 1000.0, 0.05))
-    loop = asyncio.get_event_loop()
-    deadline = loop.time() + timeout_s
-    saw_busy = False
-    while loop.time() < deadline:
-        status = await call_rhino("/gh/status", "GET", {}, port=port)
-        state = None
-        if isinstance(status, dict):
-            data = status.get("data") if isinstance(status.get("data"), dict) else status
-            # gh_status serializes camelCase (solutionState); accept all casings.
-            state = (
-                (data or {}).get("solutionState")
-                or (data or {}).get("solution_state")
-                or (data or {}).get("SolutionState")
-            )
-        settled, saw_busy = _gh_solve_settle_step(saw_busy, state)
-        if settled:
-            return
-        await asyncio.sleep(0.05)
-    # timeout: best-effort, return and let the error check run against whatever state exists
+async def _await_gh_solve_settle(port: int, scheduled_delay_ms: int = 50) -> None:
+    """Best-effort bounded wait for a scheduled GH solve before reading /gh/errors.
+    PR1 uses a fixed delay; a precise wait needs a real solve-completion marker (U3),
+    so NON-DEFERRED error checks are best-effort until then."""
+    await asyncio.sleep(0.3)
 ```
 
-> `gh_status` serializes camelCase, so the field arrives as `solutionState`; the reader also accepts `solution_state`/`SolutionState` defensively. Confirm the actual key once during Task 10's live run.
+Called from `_execute_gh_update_script`'s non-deferred `elif check_errors` branch (Task 8),
+in place of the prior inline `asyncio.sleep(0.3)`. No new route is introduced, so the 5
+`gh_update_script` contract tests stay green.
 
-- [ ] **Step 4: Run tests, verify pass.**
-
-Run: `mcp_server/.venv/Scripts/python -m pytest mcp_server/tests/test_gh_solve_settle.py -v`
-Expected: 3 passed.
-
-- [ ] **Step 5: Commit:**
-
-```bash
-git add mcp_server/src/rook/server.py mcp_server/tests/test_gh_solve_settle.py
-git commit -m "fix(gh): bounded edge-detected settle for async solve (no pre-solve-idle race)"
-```
+**Follow-up (post-U3, NOT PR1):** if the U3 probe finds a monotonic solve-completion marker on
+`GH_Document`, replace the fixed delay with — read the marker before the write, then poll
+`gh_status` until it advances (bounded timeout). Precise, race-free verification.
 
 ---
 
