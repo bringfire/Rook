@@ -855,6 +855,15 @@ git commit -m "fix(gh): gh_update_script honors solver-locked deferral instead o
 
 ## Task 9: Python — bounded settle for the scheduled solve (unit-tested)
 
+> **SUPERSEDED — landed as the bounded best-effort *floor*, not the edge-detector below.**
+> The edge-detected busy->idle poll was implemented, then reverted (commit `c8a17d2`): trivial
+> scripts solve instantly, so there is no observable "busy" window — the poll burned the full
+> timeout on the common fast path and broke 5 `gh_update_script` contract tests (unexpected
+> `/gh/status` route). PR1 ships `_await_gh_solve_settle` as a fixed ~0.3 s best-effort wait;
+> non-deferred error checks are best-effort until the live **U3** probe establishes a real
+> solve-completion token (a focused follow-up). The edge-detector design below is retained for
+> reference only; `test_gh_solve_settle.py` was removed.
+
 **Files:**
 - Modify: `mcp_server/src/rook/server.py` (replace the `_await_gh_solve_settle` stub; add a pure edge-detector)
 - Test: `mcp_server/tests/test_gh_solve_settle.py`
