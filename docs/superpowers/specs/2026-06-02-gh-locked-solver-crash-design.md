@@ -1,7 +1,7 @@
 # GH Locked-Solver Crash — Durable Safe-Solve Policy
 
 - **Date:** 2026-06-02
-- **Status:** Design approved; implementation pending (probe → PR1 → PR2)
+- **Status:** PR1 implemented and **live-verified 2026-06-02** — no crash, deferral correct across the full lock×enabled matrix, no pin-metadata regression (so the gated Task 6 one-shot restore was confirmed unnecessary). See `docs/superpowers/2026-06-02-gh-locked-solver-live-test-findings.md`. PR2 (sibling `ExpireSolution(true)` migration) and the U3 solve-token settle remain as follow-ups.
 - **Author:** Claude (with senior-reviewer corrections folded in)
 - **Area:** C# companion (`src/Rook/Handlers/GrasshopperHandler.cs`), `GrasshopperCore`, Python MCP wrapper (`mcp_server/src/rook/server.py`)
 - **Reported by:** field user — "locked the GH canvas, asked Rook to update a GH script, Rhino crashed completely and instantly; reproduced multiple times."
