@@ -99,6 +99,23 @@ namespace Rook.Tests.Diagnostics
         }
 
         [Fact]
+        public void BimDispatchCallbackUnavailableDiagnostic_UsesReviewedCatalogMetadata()
+        {
+            var header = ReadSourceFile("src", "RookNative", "Infrastructure", "RouteDiagnostics.h");
+            var helper = ExtractFunction(header, "BuildBimDispatchCallbackUnavailable");
+
+            Assert.Contains("\"bim.rhino_inside_revit\"", helper);
+            Assert.Contains("\"bim_dispatch_callback_unavailable\"", helper);
+            Assert.Contains("FailureKind::DomainUnavailable", helper);
+            Assert.Contains("\"native\"", helper);
+            Assert.Contains("\"native_callback_registration\"", helper);
+            Assert.Contains("\"native_route\"", helper);
+            Assert.Contains("\"not_loaded\"", helper);
+            Assert.Contains("diagnostic.retryable = true;", helper);
+            Assert.Contains("diagnostic.userActionRequired = false;", helper);
+        }
+
+        [Fact]
         public void RouteDiagnosticsHelper_KeepsSchemaVersionIndependentFromCapabilitiesSchema()
         {
             var header = ReadSourceFile("src", "RookNative", "Infrastructure", "RouteDiagnostics.h");
@@ -181,9 +198,32 @@ namespace Rook.Tests.Diagnostics
 
             Assert.Contains("vision_dispatch_callback_unavailable", catalogAndSource);
             Assert.Contains("viewport_capture_callback_unavailable", catalogAndSource);
+            Assert.Contains("bim_dispatch_callback_unavailable", catalogAndSource);
             Assert.DoesNotContain("block_mutation_callback_unavailable", catalogAndSource);
-            Assert.DoesNotContain("bim_dispatch_callback_unavailable", catalogAndSource);
             Assert.DoesNotContain("gh_bridge_callback_unavailable", catalogAndSource);
+            Assert.DoesNotContain("\"bim_unavailable\"", catalogAndSource);
+            Assert.DoesNotContain("\"bridge_unavailable\"", catalogAndSource);
+            Assert.DoesNotContain("\"managed_dependency_unavailable\"", catalogAndSource);
+        }
+
+        [Fact]
+        public void Phase2C_DoesNotIntroduceBroadOrAliasBimDiagnosticReasonCodes()
+        {
+            var header = ReadSourceFile("src", "RookNative", "Infrastructure", "RouteDiagnostics.h");
+            var bimHandler = ReadSourceFile("src", "Rook", "Handlers", "BimHandler.cs");
+            var nativeBim = ExtractFunction(header, "BuildBimDispatchCallbackUnavailable");
+            var managedBim = ExtractFunctionBySignature(
+                bimHandler,
+                "private static JsonObject? BuildDiagnosticForReason(");
+            var catalog = nativeBim + managedBim;
+
+            Assert.DoesNotContain("\"rookbim_unavailable\"", catalog);
+            Assert.DoesNotContain("\"bim_unavailable\"", catalog);
+            Assert.DoesNotContain("\"bridge_unavailable\"", catalog);
+            Assert.DoesNotContain("\"managed_dependency_unavailable\"", catalog);
+            Assert.DoesNotContain("\"rookbim_module_not_activated\"", catalog);
+            Assert.DoesNotContain("\"no_active_revit_document\"", catalog);
+            Assert.DoesNotContain("\"missing_revit_api\"", catalog);
         }
 
         [Fact]
@@ -344,6 +384,31 @@ namespace Rook.Tests.Diagnostics
             }
 
             throw new InvalidOperationException("Function body did not close: " + functionName);
+        }
+
+        private static string ExtractFunctionBySignature(string source, string signature)
+        {
+            var signatureStart = source.IndexOf(signature, StringComparison.Ordinal);
+            if (signatureStart < 0)
+                throw new InvalidOperationException("Function not found: " + signature);
+
+            var bodyStart = source.IndexOf('{', signatureStart);
+            if (bodyStart < 0)
+                throw new InvalidOperationException("Function body not found: " + signature);
+
+            var depth = 0;
+            for (var i = bodyStart; i < source.Length; i++)
+            {
+                if (source[i] == '{') depth++;
+                else if (source[i] == '}')
+                {
+                    depth--;
+                    if (depth == 0)
+                        return source.Substring(signatureStart, i - signatureStart + 1);
+                }
+            }
+
+            throw new InvalidOperationException("Function body did not close: " + signature);
         }
 
         private static int CountOccurrences(string source, string value)

@@ -1155,7 +1155,8 @@ void SendBimDispatchError(
     const std::string& op,
     int status,
     const std::string& errorCode,
-    const std::string& message)
+    const std::string& message,
+    const nlohmann::json* diagnostic = nullptr)
 {
     nlohmann::json envelope;
     nlohmann::json data;
@@ -1163,6 +1164,8 @@ void SendBimDispatchError(
     data["message"] = message;
     envelope["success"] = false;
     envelope["data"] = data;
+    if (diagnostic != nullptr)
+        envelope["diagnostic"] = *diagnostic;
 
     res.status = status;
     res.set_content(envelope.dump(), "application/json");
@@ -1215,6 +1218,7 @@ bool ParseBimPostBody(
 void ForwardBimDispatch(
     const httplib::Request& /*req*/,
     httplib::Response& res,
+    const std::string& route,
     const std::string& op,
     nlohmann::json body)
 {
@@ -1233,13 +1237,18 @@ void ForwardBimDispatch(
         res.set_header("X-Rook-Bim-Op", op);
         return;
     case ManagedCreateInvokeResult::Unavailable:
+    {
+        const auto diagnostic =
+            Rook::Diagnostics::BuildBimDispatchCallbackUnavailable(route, op);
         SendBimDispatchError(
             res,
             op,
             503,
             "rookbim_unavailable",
-            error.empty() ? "BIM dispatch callback is not registered." : error);
+            error.empty() ? "BIM dispatch callback is not registered." : error,
+            &diagnostic);
         return;
+    }
     case ManagedCreateInvokeResult::Failed:
     default:
         SendBimDispatchError(
@@ -1254,52 +1263,52 @@ void ForwardBimDispatch(
 
 void HandleBimStatus(const httplib::Request& req, httplib::Response& res)
 {
-    ForwardBimDispatch(req, res, "status", nlohmann::json::object());
+    ForwardBimDispatch(req, res, "GET /bim/status", "status", nlohmann::json::object());
 }
 
 void HandleBimActiveDocument(const httplib::Request& req, httplib::Response& res)
 {
-    ForwardBimDispatch(req, res, "active_document", nlohmann::json::object());
+    ForwardBimDispatch(req, res, "GET /bim/active-document", "active_document", nlohmann::json::object());
 }
 
 void HandleBimCategories(const httplib::Request& req, httplib::Response& res)
 {
-    ForwardBimDispatch(req, res, "list_categories", nlohmann::json::object());
+    ForwardBimDispatch(req, res, "GET /bim/categories", "list_categories", nlohmann::json::object());
 }
 
 void HandleBimQueryElements(const httplib::Request& req, httplib::Response& res)
 {
     nlohmann::json body;
     if (ParseBimPostBody(req, res, "query_elements", body))
-        ForwardBimDispatch(req, res, "query_elements", body);
+        ForwardBimDispatch(req, res, "POST /bim/query-elements", "query_elements", body);
 }
 
 void HandleBimElementInfo(const httplib::Request& req, httplib::Response& res)
 {
     nlohmann::json body;
     if (ParseBimPostBody(req, res, "element_info", body))
-        ForwardBimDispatch(req, res, "element_info", body);
+        ForwardBimDispatch(req, res, "POST /bim/element-info", "element_info", body);
 }
 
 void HandleBimElementParameters(const httplib::Request& req, httplib::Response& res)
 {
     nlohmann::json body;
     if (ParseBimPostBody(req, res, "element_parameters", body))
-        ForwardBimDispatch(req, res, "element_parameters", body);
+        ForwardBimDispatch(req, res, "POST /bim/element-parameters", "element_parameters", body);
 }
 
 void HandleBimSelectElements(const httplib::Request& req, httplib::Response& res)
 {
     nlohmann::json body;
     if (ParseBimPostBody(req, res, "select_elements", body))
-        ForwardBimDispatch(req, res, "select_elements", body);
+        ForwardBimDispatch(req, res, "POST /bim/select-elements", "select_elements", body);
 }
 
 void HandleBimClearSelection(const httplib::Request& req, httplib::Response& res)
 {
     nlohmann::json body;
     if (ParseBimPostBody(req, res, "clear_selection", body))
-        ForwardBimDispatch(req, res, "clear_selection", body);
+        ForwardBimDispatch(req, res, "POST /bim/clear-selection", "clear_selection", body);
 }
 
 void HandleManagedUvPlanar(const httplib::Request& req, httplib::Response& res)

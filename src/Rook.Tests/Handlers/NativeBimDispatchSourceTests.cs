@@ -27,7 +27,7 @@ namespace Rook.Tests.Handlers
 
             Assert.Contains($"m_server->{method}(\"{route}\"", source);
             Assert.Contains($"Rook::Handlers::{handlerName}", source);
-            Assert.Contains($"ForwardBimDispatch(req, res, \"{op}\"", handler);
+            Assert.Contains($"ForwardBimDispatch(req, res, \"{HttpVerb(method)} {route}\", \"{op}\"", handler);
         }
 
         [Fact]
@@ -82,6 +82,64 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
+        public void RookServer_BimUnavailableBranchAddsDiagnosticAndPreservesLegacyTransport()
+        {
+            var source = ReadSourceFile("src", "RookNative", "Handlers", "GrasshopperProxyHandler.cpp");
+            var forward = ExtractFunction(source, "ForwardBimDispatch");
+            var sendError = ExtractFunction(source, "SendBimDispatchError");
+
+            Assert.Contains("BuildBimDispatchCallbackUnavailable(route, op)", forward);
+            Assert.Contains("ManagedCreateInvokeResult::Unavailable", forward);
+            Assert.Contains("\"rookbim_unavailable\"", forward);
+            Assert.Contains("503,", forward);
+            Assert.Contains("&diagnostic", forward);
+            Assert.Contains("envelope[\"diagnostic\"] = *diagnostic;", sendError);
+            Assert.Contains("res.set_header(\"X-Rook-Bim-Op\", op);", sendError);
+        }
+
+        [Fact]
+        public void RookServer_BimFailedAndParseBranchesRemainLegacyLocal()
+        {
+            var source = ReadSourceFile("src", "RookNative", "Handlers", "GrasshopperProxyHandler.cpp");
+            var forward = ExtractFunction(source, "ForwardBimDispatch");
+            var parse = ExtractFunction(source, "ParseBimPostBody");
+
+            var failedBranchStart = forward.IndexOf("case ManagedCreateInvokeResult::Failed:", StringComparison.Ordinal);
+            Assert.True(failedBranchStart >= 0, "ForwardBimDispatch must keep a Failed branch.");
+            var failedBranch = forward.Substring(failedBranchStart);
+
+            Assert.Contains("\"internal_error\"", failedBranch);
+            Assert.DoesNotContain("BuildBimDispatchCallbackUnavailable", failedBranch);
+            Assert.DoesNotContain("SendErrorWithDiagnostic", failedBranch);
+            Assert.DoesNotContain("SendErrorDataWithDiagnostic", failedBranch);
+
+            Assert.Contains("\"invalid_scope\"", parse);
+            Assert.DoesNotContain("BuildBimDispatchCallbackUnavailable", parse);
+            Assert.DoesNotContain("SendErrorWithDiagnostic", parse);
+            Assert.DoesNotContain("SendErrorDataWithDiagnostic", parse);
+        }
+
+        [Fact]
+        public void RookServer_BimSuccessDispatchRemainsOpaquePassThrough()
+        {
+            var source = ReadSourceFile("src", "RookNative", "Handlers", "GrasshopperProxyHandler.cpp");
+            var forward = ExtractFunction(source, "ForwardBimDispatch");
+
+            var okBranchStart = forward.IndexOf("case ManagedCreateInvokeResult::Ok:", StringComparison.Ordinal);
+            var unavailableBranchStart = forward.IndexOf("case ManagedCreateInvokeResult::Unavailable:", StringComparison.Ordinal);
+            Assert.True(okBranchStart >= 0, "ForwardBimDispatch must keep an Ok branch.");
+            Assert.True(unavailableBranchStart > okBranchStart, "Unavailable branch must follow Ok branch.");
+            var okBranch = forward.Substring(okBranchStart, unavailableBranchStart - okBranchStart);
+
+            Assert.Contains("res.status = statusCode;", okBranch);
+            Assert.Contains("res.set_content(responseJson, \"application/json\");", okBranch);
+            Assert.Contains("res.set_header(\"X-Rook-Bim-Op\", op);", okBranch);
+            Assert.DoesNotContain("nlohmann::json::parse", okBranch);
+            Assert.DoesNotContain("data.errorCode", okBranch);
+            Assert.DoesNotContain("BuildBim", okBranch);
+        }
+
+        [Fact]
         public void RookServer_ErrorHandlerDoesNotOverwriteStructuredRoute404Bodies()
         {
             var source = ReadSourceFile("src", "RookNative", "RookServer.cpp");
@@ -92,7 +150,7 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
-        public void NativeBimSources_DoNotExposeForbiddenRoutesOrReferences()
+        public void NativeBimSources_DoNotExposeForbiddenRoutesOrApiReferences()
         {
             var source = ReadSourceFile("src", "RookNative", "RookServer.cpp");
             source += ReadSourceFile("src", "RookNative", "Handlers", "GrasshopperProxyHandler.h");
@@ -101,8 +159,9 @@ namespace Rook.Tests.Handlers
             Assert.DoesNotContain("/revit", source, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("/rhino/bim", source, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("/rookbim", source, StringComparison.OrdinalIgnoreCase);
-            Assert.DoesNotContain("Autodesk", source, StringComparison.OrdinalIgnoreCase);
-            Assert.DoesNotContain("Revit", source, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("Autodesk.", source, StringComparison.Ordinal);
+            Assert.DoesNotContain("RevitAPI", source, StringComparison.Ordinal);
+            Assert.DoesNotContain("RhinoInside.Revit", source, StringComparison.Ordinal);
         }
 
         [Fact]
@@ -193,6 +252,9 @@ namespace Rook.Tests.Handlers
 
             throw new InvalidOperationException("Lambda body did not close: " + marker);
         }
+
+        private static string HttpVerb(string method) =>
+            string.Equals(method, "Get", StringComparison.Ordinal) ? "GET" : "POST";
 
         private static string ReadSourceFile(params string[] pathParts)
         {

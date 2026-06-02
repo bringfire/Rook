@@ -9,6 +9,19 @@ namespace Rook.Handlers
 {
     public sealed class BimHandler
     {
+        private readonly Func<bool> rhinoInsideProvider;
+
+        public BimHandler()
+            : this(() => Rhino.Runtime.HostUtils.RunningAsRhinoInside)
+        {
+        }
+
+        internal BimHandler(Func<bool> rhinoInsideProvider)
+        {
+            this.rhinoInsideProvider = rhinoInsideProvider
+                ?? throw new ArgumentNullException(nameof(rhinoInsideProvider));
+        }
+
         internal static readonly IReadOnlyList<string> ExpectedBimOps = new[]
         {
             "status",
@@ -59,6 +72,11 @@ namespace Rook.Handlers
                     400);
             }
 
+            if (string.Equals(op, "status", StringComparison.Ordinal) && !IsRunningAsRhinoInside())
+            {
+                return DispatchStandaloneStatus();
+            }
+
             RookBimModuleLoader.TryActivate();
 
             try
@@ -66,17 +84,20 @@ namespace Rook.Handlers
                 var runtime = RookBimRuntimeRegistry.Current;
                 return op switch
                 {
-                    "status" => Ok(runtime.Status()),
-                    "active_document" => FromBimResponse(runtime.ActiveDocument()),
-                    "list_categories" => FromBimResponse(runtime.ListCategories()),
+                    "status" => DispatchStatus(runtime),
+                    "active_document" => FromBimResponse("active_document", runtime.ActiveDocument()),
+                    "list_categories" => FromBimResponse("list_categories", runtime.ListCategories()),
                     "query_elements" => DispatchQueryElements(runtime, body),
                     "element_info" => FromBimResponse(
+                        "element_info",
                         runtime.ElementInfo(DeserializeRequest<BimElementRequest>(body))),
                     "element_parameters" => FromBimResponse(
+                        "element_parameters",
                         runtime.ElementParameters(DeserializeRequest<BimElementRequest>(body))),
                     "select_elements" => FromBimResponse(
+                        "select_elements",
                         runtime.SelectElements(DeserializeRequest<BimSelectElementsRequest>(body))),
-                    "clear_selection" => FromBimResponse(runtime.ClearSelection()),
+                    "clear_selection" => FromBimResponse("clear_selection", runtime.ClearSelection()),
                     _ => Fail(BimErrorCode.InvalidScope, $"Unknown BIM op '{op}'.", 400),
                 };
             }
@@ -106,7 +127,7 @@ namespace Rook.Handlers
                     400);
             }
 
-            return FromBimResponse(runtime.QueryElements(request));
+            return FromBimResponse("query_elements", runtime.QueryElements(request));
         }
 
         private static T DeserializeRequest<T>(string? body)
@@ -152,7 +173,46 @@ namespace Rook.Handlers
             return value.GetString();
         }
 
-        private static ApiResponse FromBimResponse(BimApiResponse response)
+        private static ApiResponse DispatchStatus(IRookBimRuntime runtime)
+        {
+            var status = runtime.Status();
+            var diagnostic = BuildDiagnosticForReason(
+                DiagnosticReasonFromStatus(status),
+                "status");
+
+            return Ok(status, diagnostic);
+        }
+
+        private ApiResponse DispatchStandaloneStatus()
+        {
+            var status = new BimStatusResponse
+            {
+                Available = false,
+                Runtime = "unavailable",
+                ErrorCode = "not_rhino_inside",
+                Message = "RookBIM requires Rhino.Inside.Revit host state.",
+                Host = "standalone",
+                Module = "core",
+            };
+
+            return Ok(
+                status,
+                BuildDiagnosticForReason("not_rhino_inside", "status"));
+        }
+
+        private bool IsRunningAsRhinoInside()
+        {
+            try
+            {
+                return rhinoInsideProvider();
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static ApiResponse FromBimResponse(string op, BimApiResponse response)
         {
             if (response.Success)
             {
@@ -168,16 +228,20 @@ namespace Rook.Handlers
                 response.ErrorCode,
                 response.Message ?? "BIM operation failed.",
                 response.HttpStatus,
-                response.Data);
+                response.Data,
+                BuildDiagnosticForReason(
+                    DiagnosticReasonFromResponse(response),
+                    op));
         }
 
-        private static ApiResponse Ok(object? data)
+        private static ApiResponse Ok(object? data, JsonObject? diagnostic = null)
         {
             return new ApiResponse
             {
                 Success = true,
                 Data = ToWireData(data),
                 HttpStatus = 200,
+                Diagnostic = diagnostic,
             };
         }
 
@@ -185,7 +249,8 @@ namespace Rook.Handlers
             BimErrorCode code,
             string message,
             int httpStatus,
-            object? details = null)
+            object? details = null,
+            JsonObject? diagnostic = null)
         {
             var data = new JsonObject
             {
@@ -203,6 +268,7 @@ namespace Rook.Handlers
                 Success = false,
                 Data = data,
                 HttpStatus = httpStatus,
+                Diagnostic = diagnostic,
             };
         }
 
@@ -240,6 +306,142 @@ namespace Rook.Handlers
                 BimErrorCode.InternalError => "internal_error",
                 BimErrorCode.None => "internal_error",
                 _ => "internal_error",
+            };
+        }
+
+        private static string? DiagnosticReasonFromStatus(BimStatusResponse status)
+        {
+            if (string.Equals(status.ErrorCode, "rookbim_unavailable", StringComparison.Ordinal))
+            {
+                return DiagnosticReasonFromRegistrySource(RookBimRuntimeRegistry.Source);
+            }
+
+            return status.ErrorCode;
+        }
+
+        private static string? DiagnosticReasonFromResponse(BimApiResponse response)
+        {
+            var errorCode = MapErrorCode(response.ErrorCode);
+            if (string.Equals(errorCode, "rookbim_unavailable", StringComparison.Ordinal))
+            {
+                return DiagnosticReasonFromRegistrySource(RookBimRuntimeRegistry.Source);
+            }
+
+            return errorCode;
+        }
+
+        private static string? DiagnosticReasonFromRegistrySource(string source)
+        {
+            return source switch
+            {
+                "core-fallback" => "rookbim_runtime_not_activated",
+                "module-not-found" => "rookbim_module_not_found",
+                "module-load-failed" => "rookbim_module_load_failed",
+                _ => null,
+            };
+        }
+
+        private static JsonObject? BuildDiagnosticForReason(string? reasonCode, string op)
+        {
+            if (string.IsNullOrWhiteSpace(reasonCode))
+            {
+                return null;
+            }
+
+            string failureKind;
+            string ownedBy;
+            string evidenceSource;
+            bool retryable;
+            bool userActionRequired;
+            string recommendedNextStep;
+
+            switch (reasonCode)
+            {
+                case "not_rhino_inside":
+                    failureKind = "host_blocked";
+                    ownedBy = "rookbim";
+                    evidenceSource = "rookbim_host_runtime";
+                    retryable = false;
+                    userActionRequired = true;
+                    recommendedNextStep = "Open Rhino through Rhino.Inside.Revit, then retry.";
+                    break;
+                case "rookbim_runtime_not_activated":
+                    failureKind = "dependency_unavailable";
+                    ownedBy = "managed";
+                    evidenceSource = "managed_rookbim_runtime_registry";
+                    retryable = true;
+                    userActionRequired = false;
+                    recommendedNextStep = "Wait for RookBIM runtime activation, then retry.";
+                    break;
+                case "rookbim_module_not_found":
+                    failureKind = "dependency_unavailable";
+                    ownedBy = "managed";
+                    evidenceSource = "managed_rookbim_module_loader";
+                    retryable = false;
+                    userActionRequired = true;
+                    recommendedNextStep = "Verify the RookBIM module payload is present, then restart Rhino.";
+                    break;
+                case "rookbim_module_load_failed":
+                    failureKind = "dependency_degraded";
+                    ownedBy = "managed";
+                    evidenceSource = "managed_rookbim_module_loader";
+                    retryable = true;
+                    userActionRequired = true;
+                    recommendedNextStep = "Inspect RookBIM module load diagnostics, then restart Rhino.";
+                    break;
+                case "no_active_document":
+                    failureKind = "operation_unavailable";
+                    ownedBy = "rookbim";
+                    evidenceSource = "rookbim_revit_runtime";
+                    retryable = true;
+                    userActionRequired = true;
+                    recommendedNextStep = "Open an active Revit document, then retry.";
+                    break;
+                default:
+                    return null;
+            }
+
+            return new JsonObject
+            {
+                ["schemaVersion"] = 1,
+                ["domainId"] = "bim.rhino_inside_revit",
+                ["route"] = RouteForOp(op),
+                ["operation"] = op,
+                ["reasonCode"] = reasonCode,
+                ["failureKind"] = failureKind,
+                ["retryable"] = retryable,
+                ["userActionRequired"] = userActionRequired,
+                ["diagnosticRoute"] = DiagnosticRoute(),
+                ["recommendedNextStep"] = recommendedNextStep,
+                ["ownedBy"] = ownedBy,
+                ["evidenceSource"] = evidenceSource,
+                ["emittedBy"] = "managed_route",
+            };
+        }
+
+        private static JsonObject DiagnosticRoute()
+        {
+            return new JsonObject
+            {
+                ["method"] = "GET",
+                ["path"] = "/capabilities",
+                ["domainId"] = "bim.rhino_inside_revit",
+            };
+        }
+
+        private static string RouteForOp(string op)
+        {
+            return op switch
+            {
+                "status" => "GET /bim/status",
+                "active_document" => "GET /bim/active-document",
+                "list_categories" => "GET /bim/categories",
+                "query_elements" => "POST /bim/query-elements",
+                "element_info" => "POST /bim/element-info",
+                "element_parameters" => "POST /bim/element-parameters",
+                "select_elements" => "POST /bim/select-elements",
+                "clear_selection" => "POST /bim/clear-selection",
+                _ => "POST /bim",
             };
         }
 

@@ -137,6 +137,27 @@ inline nlohmann::json BuildViewportCaptureCallbackUnavailable(
     return ToJson(diagnostic);
 }
 
+inline nlohmann::json BuildBimDispatchCallbackUnavailable(
+    const std::string& route,
+    const std::string& operation)
+{
+    RouteDiagnostic diagnostic;
+    diagnostic.domainId = "bim.rhino_inside_revit";
+    diagnostic.route = route;
+    diagnostic.operation = operation;
+    diagnostic.reasonCode = "bim_dispatch_callback_unavailable";
+    diagnostic.failureKind = FailureKind::DomainUnavailable;
+    diagnostic.state = "not_loaded";
+    diagnostic.retryable = true;
+    diagnostic.userActionRequired = false;
+    diagnostic.ownedBy = "native";
+    diagnostic.evidenceSource = "native_callback_registration";
+    diagnostic.emittedBy = "native_route";
+    diagnostic.recommendedNextStep =
+        "Wait for companion startup, then retry. If BIM remains unavailable, inspect /capabilities.";
+    return ToJson(diagnostic);
+}
+
 inline nlohmann::json BuildBlockMutationManagedProxyUnavailable(
     const std::string& route,
     const std::string& operation)

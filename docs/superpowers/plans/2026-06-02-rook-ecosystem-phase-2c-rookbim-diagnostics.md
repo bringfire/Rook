@@ -771,13 +771,14 @@ Add this theory after the `not_rhino_inside` test.
 
 ```csharp
 [Theory]
-[InlineData("module-not-found", "rookbim_module_not_found", "dependency_unavailable", "managed_rookbim_module_loader", true)]
-[InlineData("module-load-failed", "rookbim_module_load_failed", "dependency_degraded", "managed_rookbim_module_loader", true)]
+[InlineData("module-not-found", "rookbim_module_not_found", "dependency_unavailable", "managed_rookbim_module_loader", false, true)]
+[InlineData("module-load-failed", "rookbim_module_load_failed", "dependency_degraded", "managed_rookbim_module_loader", true, true)]
 public void Dispatch_DocumentOperation_AddsModuleReadinessDiagnosticsFromRegistrySource(
     string source,
     string reasonCode,
     string failureKind,
     string evidenceSource,
+    bool retryable,
     bool userActionRequired)
 {
     RookBimRuntimeRegistry.Install(
@@ -802,6 +803,7 @@ public void Dispatch_DocumentOperation_AddsModuleReadinessDiagnosticsFromRegistr
         Assert.Equal("managed", diagnostic.GetProperty("ownedBy").GetString());
         Assert.Equal(evidenceSource, diagnostic.GetProperty("evidenceSource").GetString());
         Assert.Equal("managed_route", diagnostic.GetProperty("emittedBy").GetString());
+        Assert.Equal(retryable, diagnostic.GetProperty("retryable").GetBoolean());
         Assert.Equal(userActionRequired, diagnostic.GetProperty("userActionRequired").GetBoolean());
         Assert.Equal("active_document", diagnostic.GetProperty("operation").GetString());
         Assert.False(diagnostic.TryGetProperty("state", out _));
