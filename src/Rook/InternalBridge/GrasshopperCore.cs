@@ -112,6 +112,9 @@ namespace Rook.InternalBridge
             if (string.IsNullOrEmpty(documentName) && !string.IsNullOrEmpty(documentPath))
                 documentName = System.IO.Path.GetFileName(documentPath);
 
+            // Solver state for gh_status (report only — NEVER gates ReadyForEdit). See spec §7.
+            var solver = document != null ? GhSolverState.Inspect(document) : default;
+
             return new GrasshopperStatusDto
             {
                 Available = available,
@@ -129,6 +132,9 @@ namespace Rook.InternalBridge
                 ReadyForEdit = available && canvas != null && document != null && canvasVisible != false,
                 ObjectCount = objectCount,
                 Warnings = warnings,
+                SolverEnabled = solver.Enabled,
+                SolverStateKnown = solver.Known,
+                SolutionState = solver.SolutionState,
             };
         }
 
@@ -461,6 +467,9 @@ namespace Rook.InternalBridge
         public bool ReadyForEdit { get; set; }
         public int ObjectCount { get; set; }
         public IReadOnlyList<string> Warnings { get; set; } = Array.Empty<string>();
+        public bool? SolverEnabled { get; set; }
+        public bool SolverStateKnown { get; set; }
+        public string? SolutionState { get; set; }
     }
 
     public sealed class GrasshopperDocumentInfoDto
