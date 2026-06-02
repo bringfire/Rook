@@ -172,7 +172,7 @@ namespace Rook.Tests.Diagnostics
         }
 
         [Fact]
-        public void Phase2A_DoesNotAdoptBlockBimOrGhDiagnostics()
+        public void RouteDiagnostics_DoNotMintUnsafeCallbackBimOrGhReasonCodes()
         {
             var visionSource = ReadSourceFile("src", "RookNative", "Handlers", "VisionHandler.cpp");
             var viewportSource = ReadSourceFile("src", "RookNative", "Handlers", "ViewportHandler.cpp");
