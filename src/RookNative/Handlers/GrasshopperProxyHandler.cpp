@@ -1898,13 +1898,10 @@ void HandleManagedBlockSetObjectUserStringsBatch(const httplib::Request& req, ht
 void HandleManagedBlockTransformInstanceBatch(const httplib::Request& req, httplib::Response& res)
 {
     const auto registration = GetGhBridgeRegistrationSnapshot();
-    const auto diagnosticContext =
-        BuildBlockMutationProxyDiagnosticContext("POST /block/transform-instance-batch", "transform_object");
     DispatchManagedCompanionRouteOrProxy(req, res,
         "/block/transform-instance-batch",
         registration.block_transform_instance_batch,
-        true,
-        &diagnosticContext);
+        true);
 }
 
 void HandleManagedBlockSetObjectUserStrings(const httplib::Request& req, httplib::Response& res)

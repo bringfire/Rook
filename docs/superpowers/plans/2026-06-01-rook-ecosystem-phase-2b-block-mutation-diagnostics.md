@@ -56,9 +56,10 @@ Use `/capabilities` operation vocabulary. Batch routes reuse the base operation 
 | `/block/replace-object-geometry-batch` | `POST /block/replace-object-geometry-batch` | `replace_object_geometry` |
 | `/block/transform-object` | `POST /block/transform-object` | `transform_object` |
 | `/block/transform-object-batch` | `POST /block/transform-object-batch` | `transform_object` |
-| `/block/transform-instance-batch` | `POST /block/transform-instance-batch` | `transform_object` |
 
-`/block/transform-instance-batch` remains companion-backed and uses the closest existing `block.definition_mutation` operation vocabulary. Do not add `transform_instance_batch` to `/capabilities` in this slice.
+`/block/transform-instance-batch` remains companion-backed but is not advertised
+as a `block.definition_mutation` route in `/capabilities`, so Phase 2B must not
+attach `block.definition_mutation` diagnostics to it.
 
 ---
 
@@ -530,7 +531,7 @@ void HandleManagedBlockSetLayers(const httplib::Request& req, httplib::Response&
 }
 ```
 
-Apply the same pattern to all 15 companion-backed block mutation handlers using the operation mapping table in this plan.
+Apply the same pattern to all 14 companion-backed block definition mutation handlers using the operation mapping table in this plan.
 
 - [ ] **Step 3: Do not update non-block proxy call sites**
 

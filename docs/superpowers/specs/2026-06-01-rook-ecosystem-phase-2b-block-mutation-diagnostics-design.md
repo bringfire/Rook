@@ -48,7 +48,6 @@ The companion-backed block definition mutation route family includes:
 - `POST /block/replace-object-geometry-batch`
 - `POST /block/transform-object`
 - `POST /block/transform-object-batch`
-- `POST /block/transform-instance-batch`
 
 The native handler path is:
 

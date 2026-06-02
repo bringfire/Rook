@@ -223,7 +223,6 @@ namespace Rook.Tests.Diagnostics
         [InlineData("HandleManagedBlockReplaceObjectGeometryBatch", "\"/block/replace-object-geometry-batch\"")]
         [InlineData("HandleManagedBlockTransformObject", "\"/block/transform-object\"")]
         [InlineData("HandleManagedBlockTransformObjectBatch", "\"/block/transform-object-batch\"")]
-        [InlineData("HandleManagedBlockTransformInstanceBatch", "\"/block/transform-instance-batch\"")]
         public void BlockMutationHandlers_KeepManagedProxyFallbackOwnership(string handlerName, string route)
         {
             var source = ReadSourceFile("src", "RookNative", "Handlers", "GrasshopperProxyHandler.cpp");
@@ -248,6 +247,7 @@ namespace Rook.Tests.Diagnostics
             var uvPlanar = ExtractFunction(source, "HandleManagedUvPlanar");
             var gameExport = ExtractFunction(source, "HandleManagedGameExportPrepare");
             var proxyCompanion = ExtractFunction(source, "ProxyManagedCompanionRequest");
+            var transformInstanceBatch = ExtractFunction(source, "HandleManagedBlockTransformInstanceBatch");
 
             Assert.DoesNotContain("BuildBlockMutationProxyDiagnosticContext", uvPlanar);
             Assert.DoesNotContain("&diagnosticContext", uvPlanar);
@@ -255,6 +255,10 @@ namespace Rook.Tests.Diagnostics
             Assert.DoesNotContain("&diagnosticContext", gameExport);
             Assert.DoesNotContain("BuildBlockMutationProxyDiagnosticContext", proxyCompanion);
             Assert.DoesNotContain("&diagnosticContext", proxyCompanion);
+            Assert.Contains("DispatchManagedCompanionRouteOrProxy(req, res,", transformInstanceBatch);
+            Assert.Contains("\"/block/transform-instance-batch\"", transformInstanceBatch);
+            Assert.DoesNotContain("BuildBlockMutationProxyDiagnosticContext", transformInstanceBatch);
+            Assert.DoesNotContain("&diagnosticContext", transformInstanceBatch);
         }
 
         [Fact]
