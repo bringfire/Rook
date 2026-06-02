@@ -71,6 +71,34 @@ namespace Rook.Tests.Diagnostics
         }
 
         [Fact]
+        public void BlockMutationProxyDiagnostics_UseReviewedCatalogMetadata()
+        {
+            var header = ReadSourceFile("src", "RookNative", "Infrastructure", "RouteDiagnostics.h");
+            var unavailable = ExtractFunction(header, "BuildBlockMutationManagedProxyUnavailable");
+            var forwardFailed = ExtractFunction(header, "BuildBlockMutationManagedProxyForwardFailed");
+
+            Assert.Contains("\"block.definition_mutation\"", unavailable);
+            Assert.Contains("\"block_mutation_managed_proxy_unavailable\"", unavailable);
+            Assert.Contains("FailureKind::DependencyUnavailable", unavailable);
+            Assert.Contains("\"native\"", unavailable);
+            Assert.Contains("\"native_managed_proxy_discovery\"", unavailable);
+            Assert.Contains("\"native_route\"", unavailable);
+            Assert.Contains("diagnostic.retryable = true;", unavailable);
+            Assert.Contains("diagnostic.userActionRequired = false;", unavailable);
+            Assert.DoesNotContain("diagnostic.state", unavailable);
+
+            Assert.Contains("\"block.definition_mutation\"", forwardFailed);
+            Assert.Contains("\"block_mutation_managed_proxy_forward_failed\"", forwardFailed);
+            Assert.Contains("FailureKind::DependencyDegraded", forwardFailed);
+            Assert.Contains("\"native\"", forwardFailed);
+            Assert.Contains("\"native_managed_proxy_transport\"", forwardFailed);
+            Assert.Contains("\"native_route\"", forwardFailed);
+            Assert.Contains("diagnostic.retryable = true;", forwardFailed);
+            Assert.Contains("diagnostic.userActionRequired = false;", forwardFailed);
+            Assert.DoesNotContain("diagnostic.state", forwardFailed);
+        }
+
+        [Fact]
         public void RouteDiagnosticsHelper_KeepsSchemaVersionIndependentFromCapabilitiesSchema()
         {
             var header = ReadSourceFile("src", "RookNative", "Infrastructure", "RouteDiagnostics.h");
@@ -144,7 +172,7 @@ namespace Rook.Tests.Diagnostics
         }
 
         [Fact]
-        public void Phase2A_DoesNotAdoptBlockBimOrGhDiagnostics()
+        public void RouteDiagnostics_DoNotMintUnsafeCallbackBimOrGhReasonCodes()
         {
             var visionSource = ReadSourceFile("src", "RookNative", "Handlers", "VisionHandler.cpp");
             var viewportSource = ReadSourceFile("src", "RookNative", "Handlers", "ViewportHandler.cpp");
@@ -159,17 +187,21 @@ namespace Rook.Tests.Diagnostics
         }
 
         [Fact]
-        public void BlockMutationDiagnostics_DoNotBypassManagedProxyFallback()
+        public void BlockMutationDiagnostics_DoNotBypassManagedProxyFallbackWithOptionalContext()
         {
             var source = ReadSourceFile("src", "RookNative", "Handlers", "GrasshopperProxyHandler.cpp");
             var helper = ExtractFunction(source, "DispatchManagedCompanionRouteOrProxy");
 
+            Assert.Contains("const ProxyDiagnosticContext* diagnosticContext", helper);
             Assert.Contains("callback != nullptr", helper);
             Assert.Contains("DispatchGrasshopperRoute(req, res, path, callback);", helper);
-            Assert.Contains("ProxyManagedRequest(req, res, path, isPost);", helper);
+            Assert.Contains("ProxyManagedRequest(req, res, path, isPost", helper);
+            Assert.Contains("ProxyManagedRequest(req, res, path, isPost, diagnosticContext);", helper);
 
-            var proxyIndex = helper.IndexOf("ProxyManagedRequest(req, res, path, isPost);", StringComparison.Ordinal);
-            Assert.True(proxyIndex >= 0, "Managed proxy fallback must remain present.");
+            var callbackIndex = helper.IndexOf("DispatchGrasshopperRoute(req, res, path, callback);", StringComparison.Ordinal);
+            var proxyIndex = helper.IndexOf("ProxyManagedRequest(req, res, path, isPost", StringComparison.Ordinal);
+            Assert.True(callbackIndex >= 0, "Callback dispatch branch must remain present.");
+            Assert.True(proxyIndex > callbackIndex, "Managed proxy fallback must remain after callback selection.");
 
             var beforeProxy = helper.Substring(0, proxyIndex);
             Assert.DoesNotContain("SendErrorWithDiagnostic", beforeProxy);
@@ -191,16 +223,99 @@ namespace Rook.Tests.Diagnostics
         [InlineData("HandleManagedBlockReplaceObjectGeometryBatch", "\"/block/replace-object-geometry-batch\"")]
         [InlineData("HandleManagedBlockTransformObject", "\"/block/transform-object\"")]
         [InlineData("HandleManagedBlockTransformObjectBatch", "\"/block/transform-object-batch\"")]
-        [InlineData("HandleManagedBlockTransformInstanceBatch", "\"/block/transform-instance-batch\"")]
         public void BlockMutationHandlers_KeepManagedProxyFallbackOwnership(string handlerName, string route)
         {
             var source = ReadSourceFile("src", "RookNative", "Handlers", "GrasshopperProxyHandler.cpp");
             var handler = ExtractFunction(source, handlerName);
 
+            Assert.Contains("BuildBlockMutationProxyDiagnosticContext(", handler);
             Assert.Contains("DispatchManagedCompanionRouteOrProxy(req, res,", handler);
             Assert.Contains(route, handler);
+            Assert.Contains("&diagnosticContext", handler);
             Assert.DoesNotContain("SendErrorWithDiagnostic", handler);
             Assert.DoesNotContain("SendErrorDataWithDiagnostic", handler);
+        }
+
+        [Fact]
+        public void BlockMutationDiagnostics_OnlyBlockHandlersPassDiagnosticContext()
+        {
+            var source = ReadSourceFile("src", "RookNative", "Handlers", "GrasshopperProxyHandler.cpp");
+
+            Assert.Contains("struct ProxyDiagnosticContext", source);
+            Assert.Contains("BuildBlockMutationProxyDiagnosticContext", source);
+
+            var uvPlanar = ExtractFunction(source, "HandleManagedUvPlanar");
+            var gameExport = ExtractFunction(source, "HandleManagedGameExportPrepare");
+            var proxyCompanion = ExtractFunction(source, "ProxyManagedCompanionRequest");
+            var transformInstanceBatch = ExtractFunction(source, "HandleManagedBlockTransformInstanceBatch");
+
+            Assert.DoesNotContain("BuildBlockMutationProxyDiagnosticContext", uvPlanar);
+            Assert.DoesNotContain("&diagnosticContext", uvPlanar);
+            Assert.DoesNotContain("BuildBlockMutationProxyDiagnosticContext", gameExport);
+            Assert.DoesNotContain("&diagnosticContext", gameExport);
+            Assert.DoesNotContain("BuildBlockMutationProxyDiagnosticContext", proxyCompanion);
+            Assert.DoesNotContain("&diagnosticContext", proxyCompanion);
+            Assert.Contains("DispatchManagedCompanionRouteOrProxy(req, res,", transformInstanceBatch);
+            Assert.Contains("\"/block/transform-instance-batch\"", transformInstanceBatch);
+            Assert.DoesNotContain("BuildBlockMutationProxyDiagnosticContext", transformInstanceBatch);
+            Assert.DoesNotContain("&diagnosticContext", transformInstanceBatch);
+        }
+
+        [Fact]
+        public void NonBlockProxyFailures_KeepLegacyEnvelopeWhenContextAbsent()
+        {
+            var source = ReadSourceFile("src", "RookNative", "Handlers", "GrasshopperProxyHandler.cpp");
+            var proxyCompanion = ExtractFunction(source, "ProxyManagedCompanionRequest");
+            var normalized = source.Replace("\r\n", "\n");
+            const string marker =
+                "void SendProxyFailure(\n" +
+                "    httplib::Response& res,\n" +
+                "    int status,\n" +
+                "    const std::string& message,\n" +
+                "    const nlohmann::json* diagnostic)\n" +
+                "{";
+            var start = normalized.IndexOf(marker, StringComparison.Ordinal);
+            Assert.True(start >= 0, "SendProxyFailure implementation must use the reviewed diagnostic-aware signature.");
+            var end = normalized.IndexOf("\nvoid CopyManagedResponse", start, StringComparison.Ordinal);
+            Assert.True(end > start, "SendProxyFailure implementation must remain before CopyManagedResponse.");
+            var sendProxyFailure = normalized.Substring(start, end - start);
+
+            Assert.Contains("if (diagnostic != nullptr)", sendProxyFailure);
+            Assert.Contains("CRookServer::SendErrorWithDiagnostic(res, message, *diagnostic);", sendProxyFailure);
+            Assert.Contains("envelope[\"success\"] = false;", sendProxyFailure);
+            Assert.Contains("envelope[\"data\"] = message;", sendProxyFailure);
+            Assert.Contains("res.status = status;", sendProxyFailure);
+            Assert.Contains("res.set_content(envelope.dump(), \"application/json\");", sendProxyFailure);
+
+            Assert.Contains("ProxyManagedRequest(req, res, path, isPost);", proxyCompanion);
+            Assert.DoesNotContain("&diagnosticContext", proxyCompanion);
+        }
+
+        [Fact]
+        public void ManagedBlockHandlers_DoNotMintPhase2BReasonCodes()
+        {
+            var blocks = ReadSourceFile("src", "Rook", "Handlers", "BlocksHandler.cs");
+
+            Assert.DoesNotContain("block_mutation_managed_proxy_unavailable", blocks);
+            Assert.DoesNotContain("block_mutation_managed_proxy_forward_failed", blocks);
+            Assert.DoesNotContain("RouteDiagnostic", blocks);
+            Assert.Contains("new ApiResponse { Success = false, Data =", blocks);
+        }
+
+        [Fact]
+        public void BlockMutationDiagnostics_DoNotInspectSuccessfulManagedProxyResponses()
+        {
+            var source = ReadSourceFile("src", "RookNative", "Handlers", "GrasshopperProxyHandler.cpp");
+            var forward = ExtractFunction(source, "TryForwardGrasshopperRequest");
+
+            Assert.Contains("res.status = statusCode;", forward);
+            Assert.Contains("res.set_content(responseBody, contentType.empty() ? \"application/json\" : contentType.c_str());", forward);
+
+            Assert.DoesNotContain("SendErrorWithDiagnostic", forward);
+            Assert.DoesNotContain("SendErrorDataWithDiagnostic", forward);
+            Assert.DoesNotContain("BuildBlockMutationManagedProxyUnavailable", forward);
+            Assert.DoesNotContain("BuildBlockMutationManagedProxyForwardFailed", forward);
+            Assert.DoesNotContain("nlohmann::json::parse", forward);
         }
 
         private static string ExtractFunction(string source, string functionName)

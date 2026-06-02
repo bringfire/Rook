@@ -7,6 +7,7 @@
 #include "stdafx.h"
 #include "Handlers/GrasshopperProxyHandler.h"
 #include "Infrastructure/JsonHelpers.h"
+#include "Infrastructure/RouteDiagnostics.h"
 #include "Infrastructure/UndoScope.h"
 #include "Infrastructure/WriteResult.h"
 #include "Models/DocumentHelpers.h"
@@ -188,6 +189,12 @@ enum class BridgeInvokeResult
     Failed,
 };
 
+struct ProxyDiagnosticContext
+{
+    std::string route;
+    std::string operation;
+};
+
 std::mutex g_ghBridgeMutex;
 GhBridgeRegistration g_ghBridgeRegistration;
 
@@ -195,9 +202,14 @@ void ProxyManagedRequest(
     const httplib::Request& req,
     httplib::Response& res,
     const std::string& path,
-    bool isPost);
+    bool isPost,
+    const ProxyDiagnosticContext* diagnosticContext = nullptr);
 
-void SendProxyFailure(httplib::Response& res, int status, const std::string& message);
+void SendProxyFailure(
+    httplib::Response& res,
+    int status,
+    const std::string& message,
+    const nlohmann::json* diagnostic = nullptr);
 
 GhBridgeRegistration GetGhBridgeRegistrationSnapshot()
 {
@@ -454,8 +466,19 @@ void DispatchGrasshopperRoute(
     res.set_header("X-Rook-Gh-Bridge", "unavailable");
 }
 
-void SendProxyFailure(httplib::Response& res, int status, const std::string& message)
+void SendProxyFailure(
+    httplib::Response& res,
+    int status,
+    const std::string& message,
+    const nlohmann::json* diagnostic)
 {
+    if (diagnostic != nullptr)
+    {
+        CRookServer::SendErrorWithDiagnostic(res, message, *diagnostic);
+        res.status = status;
+        return;
+    }
+
     nlohmann::json envelope;
     envelope["success"] = false;
     envelope["data"] = message;
@@ -809,23 +832,52 @@ bool TryForwardGrasshopperRequest(
     return true;
 }
 
+nlohmann::json BuildProxyUnavailableDiagnostic(const ProxyDiagnosticContext& context)
+{
+    return Rook::Diagnostics::BuildBlockMutationManagedProxyUnavailable(
+        context.route,
+        context.operation);
+}
+
+nlohmann::json BuildProxyForwardFailedDiagnostic(const ProxyDiagnosticContext& context)
+{
+    return Rook::Diagnostics::BuildBlockMutationManagedProxyForwardFailed(
+        context.route,
+        context.operation);
+}
+
 void ProxyManagedRequest(
     const httplib::Request& req,
     httplib::Response& res,
     const std::string& path,
-    bool isPost)
+    bool isPost,
+    const ProxyDiagnosticContext* diagnosticContext)
 {
     int managedPort = 0;
     std::string managedHost = "127.0.0.1";
     std::string error;
     if (!TryGetManagedPort(managedPort, managedHost, error))
     {
+        if (diagnosticContext != nullptr)
+        {
+            const auto diagnostic = BuildProxyUnavailableDiagnostic(*diagnosticContext);
+            SendProxyFailure(res, 503, error, &diagnostic);
+            return;
+        }
+
         SendProxyFailure(res, 503, error);
         return;
     }
 
     if (!TryForwardGrasshopperRequest(managedPort, managedHost, req, res, path, isPost, error))
     {
+        if (diagnosticContext != nullptr)
+        {
+            const auto diagnostic = BuildProxyForwardFailedDiagnostic(*diagnosticContext);
+            SendProxyFailure(res, 502, error, &diagnostic);
+            return;
+        }
+
         SendProxyFailure(res, 502, error);
     }
 }
@@ -925,12 +977,23 @@ bool HasCanvasGraphNavigation()
         && g_ghBridgeRegistration.gh_canvas_image != nullptr;
 }
 
+ProxyDiagnosticContext BuildBlockMutationProxyDiagnosticContext(
+    const std::string& route,
+    const std::string& operation)
+{
+    ProxyDiagnosticContext context;
+    context.route = route;
+    context.operation = operation;
+    return context;
+}
+
 void DispatchManagedCompanionRouteOrProxy(
     const httplib::Request& req,
     httplib::Response& res,
     const std::string& path,
     GhBridgeCallbackFn callback,
-    bool isPost)
+    bool isPost,
+    const ProxyDiagnosticContext* diagnosticContext = nullptr)
 {
     if (callback != nullptr)
     {
@@ -938,7 +1001,7 @@ void DispatchManagedCompanionRouteOrProxy(
         return;
     }
 
-    ProxyManagedRequest(req, res, path, isPost);
+    ProxyManagedRequest(req, res, path, isPost, diagnosticContext);
 }
 
 void ProxyManagedCompanionRequest(
@@ -1727,91 +1790,178 @@ void HandleGrasshopperBakeOutput(const httplib::Request& req, httplib::Response&
 void HandleManagedBlockSetLayers(const httplib::Request& req, httplib::Response& res)
 {
     const auto registration = GetGhBridgeRegistrationSnapshot();
-    DispatchManagedCompanionRouteOrProxy(req, res, "/block/set-layers", registration.block_set_layers, true);
+    const auto diagnosticContext =
+        BuildBlockMutationProxyDiagnosticContext("POST /block/set-layers", "set_layers");
+    DispatchManagedCompanionRouteOrProxy(req, res,
+        "/block/set-layers",
+        registration.block_set_layers,
+        true,
+        &diagnosticContext);
 }
 
 void HandleManagedBlockSetLayersBatch(const httplib::Request& req, httplib::Response& res)
 {
     const auto registration = GetGhBridgeRegistrationSnapshot();
-    DispatchManagedCompanionRouteOrProxy(req, res, "/block/set-layers-batch", registration.block_set_layers_batch, true);
+    const auto diagnosticContext =
+        BuildBlockMutationProxyDiagnosticContext("POST /block/set-layers-batch", "set_layers");
+    DispatchManagedCompanionRouteOrProxy(req, res,
+        "/block/set-layers-batch",
+        registration.block_set_layers_batch,
+        true,
+        &diagnosticContext);
 }
 
 void HandleManagedBlockSetMaterials(const httplib::Request& req, httplib::Response& res)
 {
     const auto registration = GetGhBridgeRegistrationSnapshot();
-    DispatchManagedCompanionRouteOrProxy(req, res, "/block/set-materials", registration.block_set_materials, true);
+    const auto diagnosticContext =
+        BuildBlockMutationProxyDiagnosticContext("POST /block/set-materials", "set_materials");
+    DispatchManagedCompanionRouteOrProxy(req, res,
+        "/block/set-materials",
+        registration.block_set_materials,
+        true,
+        &diagnosticContext);
 }
 
 void HandleManagedBlockSetMaterialsBatch(const httplib::Request& req, httplib::Response& res)
 {
     const auto registration = GetGhBridgeRegistrationSnapshot();
-    DispatchManagedCompanionRouteOrProxy(req, res, "/block/set-materials-batch", registration.block_set_materials_batch, true);
+    const auto diagnosticContext =
+        BuildBlockMutationProxyDiagnosticContext("POST /block/set-materials-batch", "set_materials");
+    DispatchManagedCompanionRouteOrProxy(req, res,
+        "/block/set-materials-batch",
+        registration.block_set_materials_batch,
+        true,
+        &diagnosticContext);
 }
 
 void HandleManagedBlockSetObjectColors(const httplib::Request& req, httplib::Response& res)
 {
     const auto registration = GetGhBridgeRegistrationSnapshot();
-    DispatchManagedCompanionRouteOrProxy(req, res, "/block/set-object-colors", registration.block_set_object_colors, true);
+    const auto diagnosticContext =
+        BuildBlockMutationProxyDiagnosticContext("POST /block/set-object-colors", "set_object_colors");
+    DispatchManagedCompanionRouteOrProxy(req, res,
+        "/block/set-object-colors",
+        registration.block_set_object_colors,
+        true,
+        &diagnosticContext);
 }
 
 void HandleManagedBlockSetObjectColorsBatch(const httplib::Request& req, httplib::Response& res)
 {
     const auto registration = GetGhBridgeRegistrationSnapshot();
-    DispatchManagedCompanionRouteOrProxy(req, res, "/block/set-object-colors-batch", registration.block_set_object_colors_batch, true);
+    const auto diagnosticContext =
+        BuildBlockMutationProxyDiagnosticContext("POST /block/set-object-colors-batch", "set_object_colors");
+    DispatchManagedCompanionRouteOrProxy(req, res,
+        "/block/set-object-colors-batch",
+        registration.block_set_object_colors_batch,
+        true,
+        &diagnosticContext);
 }
 
 void HandleManagedBlockSetObjectNames(const httplib::Request& req, httplib::Response& res)
 {
     const auto registration = GetGhBridgeRegistrationSnapshot();
-    DispatchManagedCompanionRouteOrProxy(req, res, "/block/set-object-names", registration.block_set_object_names, true);
+    const auto diagnosticContext =
+        BuildBlockMutationProxyDiagnosticContext("POST /block/set-object-names", "set_object_names");
+    DispatchManagedCompanionRouteOrProxy(req, res,
+        "/block/set-object-names",
+        registration.block_set_object_names,
+        true,
+        &diagnosticContext);
 }
 
 void HandleManagedBlockSetObjectNamesBatch(const httplib::Request& req, httplib::Response& res)
 {
     const auto registration = GetGhBridgeRegistrationSnapshot();
-    DispatchManagedCompanionRouteOrProxy(req, res, "/block/set-object-names-batch", registration.block_set_object_names_batch, true);
+    const auto diagnosticContext =
+        BuildBlockMutationProxyDiagnosticContext("POST /block/set-object-names-batch", "set_object_names");
+    DispatchManagedCompanionRouteOrProxy(req, res,
+        "/block/set-object-names-batch",
+        registration.block_set_object_names_batch,
+        true,
+        &diagnosticContext);
 }
 
 void HandleManagedBlockSetObjectUserStringsBatch(const httplib::Request& req, httplib::Response& res)
 {
     const auto registration = GetGhBridgeRegistrationSnapshot();
-    DispatchManagedCompanionRouteOrProxy(req, res, "/block/set-object-user-strings-batch", registration.block_set_object_user_strings_batch, true);
+    const auto diagnosticContext =
+        BuildBlockMutationProxyDiagnosticContext("POST /block/set-object-user-strings-batch", "set_object_user_strings");
+    DispatchManagedCompanionRouteOrProxy(req, res,
+        "/block/set-object-user-strings-batch",
+        registration.block_set_object_user_strings_batch,
+        true,
+        &diagnosticContext);
 }
 
 void HandleManagedBlockTransformInstanceBatch(const httplib::Request& req, httplib::Response& res)
 {
     const auto registration = GetGhBridgeRegistrationSnapshot();
-    DispatchManagedCompanionRouteOrProxy(req, res, "/block/transform-instance-batch", registration.block_transform_instance_batch, true);
+    DispatchManagedCompanionRouteOrProxy(req, res,
+        "/block/transform-instance-batch",
+        registration.block_transform_instance_batch,
+        true);
 }
 
 void HandleManagedBlockSetObjectUserStrings(const httplib::Request& req, httplib::Response& res)
 {
     const auto registration = GetGhBridgeRegistrationSnapshot();
-    DispatchManagedCompanionRouteOrProxy(req, res, "/block/set-object-user-strings", registration.block_set_object_user_strings, true);
+    const auto diagnosticContext =
+        BuildBlockMutationProxyDiagnosticContext("POST /block/set-object-user-strings", "set_object_user_strings");
+    DispatchManagedCompanionRouteOrProxy(req, res,
+        "/block/set-object-user-strings",
+        registration.block_set_object_user_strings,
+        true,
+        &diagnosticContext);
 }
 
 void HandleManagedBlockReplaceObjectGeometry(const httplib::Request& req, httplib::Response& res)
 {
     const auto registration = GetGhBridgeRegistrationSnapshot();
-    DispatchManagedCompanionRouteOrProxy(req, res, "/block/replace-object-geometry", registration.block_replace_object_geometry, true);
+    const auto diagnosticContext =
+        BuildBlockMutationProxyDiagnosticContext("POST /block/replace-object-geometry", "replace_object_geometry");
+    DispatchManagedCompanionRouteOrProxy(req, res,
+        "/block/replace-object-geometry",
+        registration.block_replace_object_geometry,
+        true,
+        &diagnosticContext);
 }
 
 void HandleManagedBlockReplaceObjectGeometryBatch(const httplib::Request& req, httplib::Response& res)
 {
     const auto registration = GetGhBridgeRegistrationSnapshot();
-    DispatchManagedCompanionRouteOrProxy(req, res, "/block/replace-object-geometry-batch", registration.block_replace_object_geometry_batch, true);
+    const auto diagnosticContext =
+        BuildBlockMutationProxyDiagnosticContext("POST /block/replace-object-geometry-batch", "replace_object_geometry");
+    DispatchManagedCompanionRouteOrProxy(req, res,
+        "/block/replace-object-geometry-batch",
+        registration.block_replace_object_geometry_batch,
+        true,
+        &diagnosticContext);
 }
 
 void HandleManagedBlockTransformObjectBatch(const httplib::Request& req, httplib::Response& res)
 {
     const auto registration = GetGhBridgeRegistrationSnapshot();
-    DispatchManagedCompanionRouteOrProxy(req, res, "/block/transform-object-batch", registration.block_transform_object_batch, true);
+    const auto diagnosticContext =
+        BuildBlockMutationProxyDiagnosticContext("POST /block/transform-object-batch", "transform_object");
+    DispatchManagedCompanionRouteOrProxy(req, res,
+        "/block/transform-object-batch",
+        registration.block_transform_object_batch,
+        true,
+        &diagnosticContext);
 }
 
 void HandleManagedBlockTransformObject(const httplib::Request& req, httplib::Response& res)
 {
     const auto registration = GetGhBridgeRegistrationSnapshot();
-    DispatchManagedCompanionRouteOrProxy(req, res, "/block/transform-object", registration.block_transform_object, true);
+    const auto diagnosticContext =
+        BuildBlockMutationProxyDiagnosticContext("POST /block/transform-object", "transform_object");
+    DispatchManagedCompanionRouteOrProxy(req, res,
+        "/block/transform-object",
+        registration.block_transform_object,
+        true,
+        &diagnosticContext);
 }
 
 } // namespace Handlers
