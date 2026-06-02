@@ -36,13 +36,27 @@ namespace RookBim.Tests
         {
             var text = Read("src/Rook/Rook.csproj");
             var project = XDocument.Parse(text);
+            var sourceFiles = Directory
+                .GetFiles(Path.Combine(RepoRoot, "src", "Rook"), "*.cs", SearchOption.AllDirectories)
+                .Where(path =>
+                {
+                    var normalized = path.Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
+                    return normalized.IndexOf(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) < 0
+                        && normalized.IndexOf(Path.DirectorySeparatorChar + "bin" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) < 0;
+                })
+                .ToArray();
+            var source = string.Join(Environment.NewLine, sourceFiles.Select(File.ReadAllText));
 
             Assert.DoesNotContain("RookBim.csproj", text, StringComparison.OrdinalIgnoreCase);
-            Assert.DoesNotContain("Autodesk.Revit", text, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("<Reference Include=\"Autodesk.Revit", text, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("<Reference Include=\"RevitAPI", text, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain(
                 project.Descendants("ProjectReference"),
                 reference => AttributeValue(reference, "Include").IndexOf("RookBim", StringComparison.OrdinalIgnoreCase) >= 0);
+            Assert.DoesNotContain("using Autodesk.", source, StringComparison.Ordinal);
+            Assert.DoesNotContain("Autodesk.Revit.", source, StringComparison.Ordinal);
+            Assert.DoesNotContain("Type.GetType(\"RhinoInside.Revit", source, StringComparison.Ordinal);
+            Assert.DoesNotContain("Assembly.Load(\"RhinoInside.Revit", source, StringComparison.Ordinal);
         }
 
         [Fact]

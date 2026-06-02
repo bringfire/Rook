@@ -5,6 +5,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using Rhino;
@@ -1794,11 +1795,7 @@ namespace Rook.InternalBridge
             {
                 var requestJson = ReadUtf8(requestJsonUtf8, requestJsonLength);
                 var result = Bim.Dispatch(requestJson);
-                var responseJson = JsonSerializer.Serialize(new
-                {
-                    success = result.Success,
-                    data = result.Data,
-                }, JsonOptions);
+                var responseJson = SerializeBimDispatchEnvelope(result);
 
                 return WriteUtf8Response(
                     responseJsonUtf8,
@@ -1826,6 +1823,37 @@ namespace Rook.InternalBridge
                     }, JsonOptions),
                     500);
             }
+        }
+
+        private static string SerializeBimDispatchEnvelope(ApiResponse result)
+        {
+            var envelope = new JsonObject
+            {
+                ["success"] = result.Success,
+                ["data"] = CloneToJsonNode(result.Data),
+            };
+
+            if (result.Diagnostic != null)
+            {
+                envelope["diagnostic"] = CloneToJsonNode(result.Diagnostic);
+            }
+
+            return envelope.ToJsonString(JsonOptions);
+        }
+
+        private static JsonNode? CloneToJsonNode(object? value)
+        {
+            if (value == null)
+            {
+                return null;
+            }
+
+            if (value is JsonNode node)
+            {
+                return node.DeepClone();
+            }
+
+            return JsonSerializer.SerializeToNode(value, JsonOptions);
         }
 
         /// <summary>

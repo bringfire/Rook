@@ -17,5 +17,12 @@ namespace Rook
         /// it has no HTTP-status concept.
         /// </summary>
         public int? HttpStatus { get; set; }
+
+        /// <summary>
+        /// Optional Phase 2 route diagnostic payload. Bridge executors
+        /// must opt in to serializing this field; it is intentionally not
+        /// emitted by the shared legacy API response paths by default.
+        /// </summary>
+        public object? Diagnostic { get; set; }
     }
 }

@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Rook.Bim;
@@ -59,6 +60,154 @@ namespace Rook.Tests.Handlers
             Assert.Contains(
                 data.GetProperty("errorCode").GetString(),
                 new[] { "rookbim_unavailable", "not_rhino_inside" });
+        }
+
+        [Fact]
+        public void Dispatch_Status_AddsNotRhinoInsideDiagnosticFromRuntimeStatus()
+        {
+            RookBimRuntimeRegistry.Install(
+                new StatusRuntime("not_rhino_inside", "RookBIM requires RhinoInside.Revit and RevitAPIUI to be loaded."),
+                "RookBim.dll");
+
+            try
+            {
+                var handler = new BimHandler(() => true);
+                var response = handler.Dispatch("{\"op\":\"status\"}");
+                var data = ToJsonElement(response.Data);
+
+                Assert.Equal(200, response.HttpStatus);
+                Assert.True(response.Success);
+                Assert.Equal("not_rhino_inside", data.GetProperty("errorCode").GetString());
+                AssertDiagnostic(
+                    response,
+                    "not_rhino_inside",
+                    "host_blocked",
+                    "rookbim",
+                    "rookbim_host_runtime",
+                    "managed_route",
+                    "status");
+            }
+            finally
+            {
+                RookBimRuntimeRegistry.ResetForTests();
+            }
+        }
+
+        [Fact]
+        public void Dispatch_Status_UsesStandaloneHostEvidenceBeforeModuleActivation()
+        {
+            RookBimRuntimeRegistry.ResetForTests();
+            var handler = new BimHandler(() => false);
+
+            var response = handler.Dispatch("{\"op\":\"status\"}");
+            var data = ToJsonElement(response.Data);
+
+            Assert.Equal("core-fallback", RookBimRuntimeRegistry.Source);
+            Assert.Equal(200, response.HttpStatus);
+            Assert.True(response.Success);
+            Assert.Equal("not_rhino_inside", data.GetProperty("errorCode").GetString());
+            Assert.Equal("standalone", data.GetProperty("host").GetString());
+            Assert.Equal("core", data.GetProperty("module").GetString());
+            AssertDiagnostic(
+                response,
+                "not_rhino_inside",
+                "host_blocked",
+                "rookbim",
+                "rookbim_host_runtime",
+                "managed_route",
+                "status");
+        }
+
+        [Fact]
+        public void Dispatch_NonStatusSuccessDoesNotEmitFailureDiagnostic()
+        {
+            RookBimRuntimeRegistry.Install(new DetailFailureRuntime(), "test-list-categories");
+            try
+            {
+                var handler = new BimHandler();
+                var response = handler.Dispatch("{\"op\":\"list_categories\"}");
+
+                Assert.True(response.Success);
+                Assert.Null(response.Diagnostic);
+                Assert.Contains("document_category_table", ((JsonNode)response.Data!).ToJsonString());
+            }
+            finally
+            {
+                RookBimRuntimeRegistry.ResetForTests();
+            }
+        }
+
+        [Theory]
+        [InlineData("module-not-found", "rookbim_module_not_found", "dependency_unavailable", "managed_rookbim_module_loader", false, true)]
+        [InlineData("module-load-failed", "rookbim_module_load_failed", "dependency_degraded", "managed_rookbim_module_loader", true, true)]
+        public void Dispatch_DocumentOperation_AddsModuleReadinessDiagnosticsFromRegistrySource(
+            string source,
+            string reasonCode,
+            string failureKind,
+            string evidenceSource,
+            bool retryable,
+            bool userActionRequired)
+        {
+            RookBimRuntimeRegistry.Install(
+                new RookBimUnavailableRuntime(
+                    "rookbim_unavailable",
+                    "Configured unavailable runtime message.",
+                    "module-loader"),
+                source);
+
+            try
+            {
+                var handler = new BimHandler();
+                var response = handler.Dispatch("{\"op\":\"active_document\"}");
+                var data = ToJsonElement(response.Data);
+                var diagnostic = Diagnostic(response);
+
+                Assert.Equal(503, response.HttpStatus);
+                Assert.False(response.Success);
+                Assert.Equal("rookbim_unavailable", data.GetProperty("errorCode").GetString());
+                Assert.Equal(reasonCode, diagnostic.GetProperty("reasonCode").GetString());
+                Assert.Equal(failureKind, diagnostic.GetProperty("failureKind").GetString());
+                Assert.Equal("managed", diagnostic.GetProperty("ownedBy").GetString());
+                Assert.Equal(evidenceSource, diagnostic.GetProperty("evidenceSource").GetString());
+                Assert.Equal("managed_route", diagnostic.GetProperty("emittedBy").GetString());
+                Assert.Equal(retryable, diagnostic.GetProperty("retryable").GetBoolean());
+                Assert.Equal(userActionRequired, diagnostic.GetProperty("userActionRequired").GetBoolean());
+                Assert.Equal("active_document", diagnostic.GetProperty("operation").GetString());
+                Assert.False(diagnostic.TryGetProperty("state", out _));
+            }
+            finally
+            {
+                RookBimRuntimeRegistry.ResetForTests();
+            }
+        }
+
+        [Fact]
+        public void Dispatch_DocumentOperation_AddsNoActiveDocumentDiagnosticFromRuntimeResponse()
+        {
+            RookBimRuntimeRegistry.Install(new NoActiveDocumentRuntime(), "RookBim.dll");
+
+            try
+            {
+                var handler = new BimHandler();
+                var response = handler.Dispatch("{\"op\":\"active_document\"}");
+                var data = ToJsonElement(response.Data);
+
+                Assert.Equal(409, response.HttpStatus);
+                Assert.False(response.Success);
+                Assert.Equal("no_active_document", data.GetProperty("errorCode").GetString());
+                AssertDiagnostic(
+                    response,
+                    "no_active_document",
+                    "operation_unavailable",
+                    "rookbim",
+                    "rookbim_revit_runtime",
+                    "managed_route",
+                    "active_document");
+            }
+            finally
+            {
+                RookBimRuntimeRegistry.ResetForTests();
+            }
         }
 
         [Fact]
@@ -181,6 +330,109 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
+        public void Dispatch_ValidationAndOperationTaxonomyErrorsDoNotEmitPhase2CDiagnostics()
+        {
+            var handler = new BimHandler();
+
+            var unknownOp = handler.Dispatch("{\"op\":\"write_wall\"}");
+            Assert.Null(unknownOp.Diagnostic);
+            Assert.Equal("invalid_scope", ToJsonElement(unknownOp.Data).GetProperty("errorCode").GetString());
+
+            var malformed = handler.Dispatch("{");
+            Assert.Null(malformed.Diagnostic);
+            Assert.Equal("invalid_scope", ToJsonElement(malformed.Data).GetProperty("errorCode").GetString());
+
+            var unbounded = handler.Dispatch(
+                "{\"op\":\"query_elements\",\"scope\":\"document\",\"filters\":[{\"parameter\":\"Fire Rating\",\"operation\":\"not_equals\",\"value\":\"2HR\"}]}");
+            Assert.Null(unbounded.Diagnostic);
+            Assert.Equal("unbounded_document_query", ToJsonElement(unbounded.Data).GetProperty("errorCode").GetString());
+
+            RookBimRuntimeRegistry.Install(new CategoryFailureRuntime(), "test-category-failure");
+            try
+            {
+                var invalidCategory = handler.Dispatch("{\"op\":\"query_elements\",\"scope\":\"document\",\"category\":\"Pipe Accessoryz\"}");
+                Assert.Null(invalidCategory.Diagnostic);
+                Assert.Equal("invalid_category", ToJsonElement(invalidCategory.Data).GetProperty("errorCode").GetString());
+            }
+            finally
+            {
+                RookBimRuntimeRegistry.ResetForTests();
+            }
+        }
+
+        [Fact]
+        public void ApiResponse_DiagnosticIsOptionalAndBridgeStatusIgnoresIt()
+        {
+            var response = new ApiResponse
+            {
+                Success = false,
+                Data = "legacy data",
+                HttpStatus = 418,
+                Diagnostic = new
+                {
+                    reasonCode = "not_rhino_inside",
+                },
+            };
+
+            Assert.NotNull(response.Diagnostic);
+
+            var source = ReadSourceFile("src", "Rook", "InternalBridge", "NativeGhBridgeRegistrar.cs");
+            var mapBridgeStatusLine = source
+                .Split(new[] { "\r\n", "\n" }, StringSplitOptions.None)
+                .Single(line => line.IndexOf("MapBridgeStatus(ApiResponse result) =>", StringComparison.Ordinal) >= 0);
+
+            Assert.Contains("result.HttpStatus ?? (result.Success ? 200 : 400)", source);
+            Assert.DoesNotContain("Diagnostic", mapBridgeStatusLine);
+        }
+
+        [Fact]
+        public void ManagedBridge_OnlyBimDispatchSerializesApiResponseDiagnostic()
+        {
+            var source = ReadSourceFile("src", "Rook", "InternalBridge", "NativeGhBridgeRegistrar.cs");
+            var bimDispatch = ExtractFunctionBySignature(source, "private static int ExecuteBimDispatchCallback(");
+            var bimEnvelope = ExtractFunctionBySignature(source, "private static string SerializeBimDispatchEnvelope(");
+            var apiResponse = ExtractFunctionBySignature(source, "private static int ExecuteApiResponseCallback(");
+            var asyncApiResponse = ExtractFunctionBySignature(source, "private static int ExecuteAsyncApiResponseCallback(");
+            var offUiApiResponse = ExtractFunctionBySignature(source, "private static int ExecuteOffUiApiResponseCallback(");
+
+            Assert.Contains("SerializeBimDispatchEnvelope(result)", bimDispatch);
+            Assert.Contains("result.Diagnostic", bimEnvelope);
+            Assert.Contains("envelope[\"diagnostic\"]", bimEnvelope);
+
+            Assert.DoesNotContain("Diagnostic", apiResponse);
+            Assert.DoesNotContain("Diagnostic", asyncApiResponse);
+            Assert.DoesNotContain("Diagnostic", offUiApiResponse);
+            Assert.DoesNotContain("SerializeBimDispatchEnvelope", apiResponse);
+            Assert.DoesNotContain("SerializeBimDispatchEnvelope", asyncApiResponse);
+            Assert.DoesNotContain("SerializeBimDispatchEnvelope", offUiApiResponse);
+        }
+
+        [Fact]
+        public void BimHandler_PreservesRookBimUnavailableAsLegacyDataErrorCodeOnly()
+        {
+            var source = ReadSourceFile("src", "Rook", "Handlers", "BimHandler.cs");
+            var mapErrorCode = ExtractFunctionBySignature(source, "internal static string MapErrorCode(");
+            var diagnosticBuilder = ExtractFunctionBySignature(source, "private static JsonObject? BuildDiagnosticForReason(");
+
+            Assert.Contains("\"rookbim_unavailable\"", mapErrorCode);
+            Assert.DoesNotContain("\"rookbim_unavailable\"", diagnosticBuilder);
+        }
+
+        [Fact]
+        public void BimHandler_MapsCoreFallbackRegistrySourceToRuntimeNotActivatedDiagnostic()
+        {
+            var source = ReadSourceFile("src", "Rook", "Handlers", "BimHandler.cs");
+            var helper = ExtractFunctionBySignature(source, "private static string? DiagnosticReasonFromRegistrySource(");
+
+            Assert.Contains("\"core-fallback\"", helper);
+            Assert.Contains("\"rookbim_runtime_not_activated\"", helper);
+            Assert.Contains("\"module-not-found\"", helper);
+            Assert.Contains("\"rookbim_module_not_found\"", helper);
+            Assert.Contains("\"module-load-failed\"", helper);
+            Assert.Contains("\"rookbim_module_load_failed\"", helper);
+        }
+
+        [Fact]
         public void NativeRegistrar_SourceDeclaresBimDispatchCallback()
         {
             var source = ReadSourceFile("src", "Rook", "InternalBridge", "NativeGhBridgeRegistrar.cs");
@@ -191,6 +443,35 @@ namespace Rook.Tests.Handlers
             Assert.Contains("private static int ExecuteBimDispatchCallback(", source);
             Assert.Contains("public IntPtr BimDispatch;", source);
             Assert.Contains("BimDispatch = Marshal.GetFunctionPointerForDelegate(BimDispatchCallback)", source);
+        }
+
+        private static JsonElement Diagnostic(ApiResponse response)
+        {
+            Assert.NotNull(response.Diagnostic);
+            return ToJsonElement(response.Diagnostic);
+        }
+
+        private static void AssertDiagnostic(
+            ApiResponse response,
+            string reasonCode,
+            string failureKind,
+            string ownedBy,
+            string evidenceSource,
+            string emittedBy,
+            string operation)
+        {
+            var diagnostic = Diagnostic(response);
+            Assert.Equal(1, diagnostic.GetProperty("schemaVersion").GetInt32());
+            Assert.Equal("bim.rhino_inside_revit", diagnostic.GetProperty("domainId").GetString());
+            Assert.Equal(reasonCode, diagnostic.GetProperty("reasonCode").GetString());
+            Assert.Equal(failureKind, diagnostic.GetProperty("failureKind").GetString());
+            Assert.Equal(ownedBy, diagnostic.GetProperty("ownedBy").GetString());
+            Assert.Equal(evidenceSource, diagnostic.GetProperty("evidenceSource").GetString());
+            Assert.Equal(emittedBy, diagnostic.GetProperty("emittedBy").GetString());
+            Assert.Equal(operation, diagnostic.GetProperty("operation").GetString());
+            Assert.Equal("/capabilities", diagnostic.GetProperty("diagnosticRoute").GetProperty("path").GetString());
+            Assert.Equal("bim.rhino_inside_revit", diagnostic.GetProperty("diagnosticRoute").GetProperty("domainId").GetString());
+            Assert.False(diagnostic.TryGetProperty("state", out _));
         }
 
         private static JsonElement ToJsonElement(object? value)
@@ -213,6 +494,97 @@ namespace Rook.Tests.Handlers
 
             throw new FileNotFoundException(
                 "Could not locate source file " + string.Join("/", pathParts));
+        }
+
+        private static string ExtractFunctionBySignature(string source, string signature)
+        {
+            var signatureStart = source.IndexOf(signature, StringComparison.Ordinal);
+            Assert.True(signatureStart >= 0, $"Could not find signature '{signature}'.");
+            var bodyStart = source.IndexOf('{', signatureStart);
+            Assert.True(bodyStart >= 0, $"Could not find function body for '{signature}'.");
+
+            var depth = 0;
+            for (var i = bodyStart; i < source.Length; i++)
+            {
+                if (source[i] == '{')
+                {
+                    depth++;
+                }
+                else if (source[i] == '}')
+                {
+                    depth--;
+                    if (depth == 0)
+                    {
+                        return source.Substring(signatureStart, i - signatureStart + 1);
+                    }
+                }
+            }
+
+            throw new InvalidOperationException($"Could not extract function '{signature}'.");
+        }
+
+        private sealed class StatusRuntime : IRookBimRuntime
+        {
+            private readonly string errorCode;
+            private readonly string message;
+
+            public StatusRuntime(string errorCode, string message)
+            {
+                this.errorCode = errorCode;
+                this.message = message;
+            }
+
+            public BimStatusResponse Status()
+            {
+                return new BimStatusResponse
+                {
+                    Available = false,
+                    Runtime = "rookbim",
+                    ErrorCode = errorCode,
+                    Message = message,
+                    Host = "unknown",
+                    Module = "RookBim.dll"
+                };
+            }
+
+            public BimApiResponse ActiveDocument() => BimApiResponse.Ok(null);
+            public BimApiResponse ListCategories() => BimApiResponse.Ok(null);
+            public BimApiResponse QueryElements(BimQueryElementsRequest request) => BimApiResponse.Ok(null);
+            public BimApiResponse ElementInfo(BimElementRequest request) => BimApiResponse.Ok(null);
+            public BimApiResponse ElementParameters(BimElementRequest request) => BimApiResponse.Ok(null);
+            public BimApiResponse SelectElements(BimSelectElementsRequest request) => BimApiResponse.Ok(null);
+            public BimApiResponse ClearSelection() => BimApiResponse.Ok(null);
+        }
+
+        private sealed class NoActiveDocumentRuntime : IRookBimRuntime
+        {
+            public BimStatusResponse Status()
+            {
+                return new BimStatusResponse
+                {
+                    Available = false,
+                    Runtime = "rookbim",
+                    ErrorCode = "no_active_document",
+                    Message = "RookBIM is connected to Revit, but no active document is open.",
+                    Host = "revit",
+                    Module = "RookBim.dll"
+                };
+            }
+
+            public BimApiResponse ActiveDocument()
+            {
+                return BimApiResponse.Fail(
+                    BimErrorCode.NoActiveDocument,
+                    "No active Revit document is open.",
+                    409);
+            }
+
+            public BimApiResponse ListCategories() => BimApiResponse.Ok(null);
+            public BimApiResponse QueryElements(BimQueryElementsRequest request) => BimApiResponse.Ok(null);
+            public BimApiResponse ElementInfo(BimElementRequest request) => BimApiResponse.Ok(null);
+            public BimApiResponse ElementParameters(BimElementRequest request) => BimApiResponse.Ok(null);
+            public BimApiResponse SelectElements(BimSelectElementsRequest request) => BimApiResponse.Ok(null);
+            public BimApiResponse ClearSelection() => BimApiResponse.Ok(null);
         }
 
         private sealed class DetailFailureRuntime : IRookBimRuntime
