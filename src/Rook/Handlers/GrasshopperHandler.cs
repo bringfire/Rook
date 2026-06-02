@@ -14,7 +14,7 @@ namespace Rook.Handlers
     /// Handler for direct Grasshopper canvas manipulation via reflection.
     /// Provides MCP tools for creating and managing GH components without external dependencies.
     /// </summary>
-    public class GrasshopperHandler
+    public partial class GrasshopperHandler
     {
         private readonly IGrasshopperCore _bridgeCore = new GrasshopperCore();
         private Assembly? _ghAssembly;
@@ -794,9 +794,9 @@ namespace Rook.Handlers
                         return new ApiResponse { Success = false, Data = $"SetSource not available on {typeName}" };
                     }
 
-                    // Expire solution to trigger update
-                    var expireMethod = obj.GetType().GetMethod("ExpireSolution", new[] { typeof(bool) });
-                    expireMethod?.Invoke(obj, new object[] { true });
+                    // Safe-solve policy: mark dirty (no sync recompute) + async schedule when enabled.
+                    // NEVER ExpireSolution(true) here — that re-enters the solver and crashes a locked canvas.
+                    var solveOutcome = RequestPostMutationSolve(gh.Document!, obj, requestSolve: true);
 
                     // Restore saved descriptions — must happen AFTER recompile + ExpireSolution
                     // or they get clobbered back to framework defaults.
@@ -827,7 +827,8 @@ namespace Rook.Handlers
                             skipFirstN: 1); // skip 'out' print stream
                     }
 
-                    RefreshCanvas(gh.Canvas!);
+                    // Repaint only — the safe-solve helper already owns scheduling (avoid a second solve).
+                    RefreshCanvas(gh.Canvas!, scheduleSolution: false);
 
                     return new ApiResponse
                     {
@@ -842,7 +843,12 @@ namespace Rook.Handlers
                             DroppedInputDescriptions = droppedInputDescriptions,
                             RestoredOutputDescriptions = restoredOutputDescriptions,
                             DroppedOutputDescriptions = droppedOutputDescriptions,
-                            Warnings = restoreWarnings
+                            Warnings = restoreWarnings,
+                            solve_scheduled = solveOutcome.SolveScheduled,
+                            solver_locked = solveOutcome.SolverLocked,
+                            solver_state_known = solveOutcome.SolverStateKnown,
+                            verification_deferred = solveOutcome.VerificationDeferred,
+                            solve_warnings = solveOutcome.Warnings
                         }
                     };
                 }
