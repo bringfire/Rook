@@ -584,7 +584,10 @@ The later implementation plan should require source guards proving:
 
 The later implementation plan should require source guards proving:
 
-- `src/Rook` still has no Autodesk/Revit references;
+- `src/Rook` has no Autodesk/Revit assembly references,
+  `using Autodesk.*`, direct Revit API type references, or
+  `RhinoInside.Revit` runtime binding. Plain user-facing BIM/Revit strings are
+  allowed;
 - Revit API references remain isolated to `src/RookBim`;
 - no `.vcxproj` or `.vcxproj.filters` changes;
 - no route registration changes;
