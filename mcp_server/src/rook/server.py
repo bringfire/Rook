@@ -1809,10 +1809,40 @@ def _gh_update_script_should_defer(write_data: Any) -> tuple[bool, dict[str, Any
     return bool(flags.get("verification_deferred")), flags
 
 
+def _gh_solve_settle_step(prev_saw_busy: bool, solution_state: Any) -> tuple[bool, bool]:
+    """Edge-detect a solve: settled only after observing a non-idle state and THEN idle.
+    Idle states are 'Off'/'Complete'/'Empty'/None; anything else counts as busy."""
+    state = str(solution_state or "").strip().lower()
+    is_idle = state in ("", "off", "complete", "empty")
+    saw_busy = prev_saw_busy or not is_idle
+    settled = saw_busy and is_idle
+    return settled, saw_busy
+
+
 async def _await_gh_solve_settle(port: int, scheduled_delay_ms: int = 50, timeout_s: float = 5.0) -> None:
-    """Bounded wait for a scheduled GH solve to settle. Task 9 replaces this stub
-    with an edge-detected poll; for now keep the prior fixed delay as the floor."""
-    await asyncio.sleep(0.3)
+    """Bounded wait for a scheduled GH solve to start and finish. Initial delay >=
+    the scheduled delay so we cannot satisfy on the pre-solve idle; then edge-detect
+    a non-idle -> idle transition. On timeout, return best-effort."""
+    await asyncio.sleep(max(scheduled_delay_ms / 1000.0, 0.05))
+    loop = asyncio.get_event_loop()
+    deadline = loop.time() + timeout_s
+    saw_busy = False
+    while loop.time() < deadline:
+        status = await call_rhino("/gh/status", "GET", {}, port=port)
+        state = None
+        if isinstance(status, dict):
+            data = status.get("data") if isinstance(status.get("data"), dict) else status
+            # gh_status serializes camelCase (solutionState); accept all casings.
+            state = (
+                (data or {}).get("solutionState")
+                or (data or {}).get("solution_state")
+                or (data or {}).get("SolutionState")
+            )
+        settled, saw_busy = _gh_solve_settle_step(saw_busy, state)
+        if settled:
+            return
+        await asyncio.sleep(0.05)
+    # timeout: best-effort — let the error check run against whatever state exists
 
 
 async def _execute_gh_update_script(arguments: dict[str, Any], port: int) -> dict[str, Any]:
