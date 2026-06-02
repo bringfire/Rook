@@ -137,5 +137,45 @@ inline nlohmann::json BuildViewportCaptureCallbackUnavailable(
     return ToJson(diagnostic);
 }
 
+inline nlohmann::json BuildBlockMutationManagedProxyUnavailable(
+    const std::string& route,
+    const std::string& operation)
+{
+    RouteDiagnostic diagnostic;
+    diagnostic.domainId = "block.definition_mutation";
+    diagnostic.route = route;
+    diagnostic.operation = operation;
+    diagnostic.reasonCode = "block_mutation_managed_proxy_unavailable";
+    diagnostic.failureKind = FailureKind::DependencyUnavailable;
+    diagnostic.retryable = true;
+    diagnostic.userActionRequired = false;
+    diagnostic.recommendedNextStep =
+        "Wait for managed companion startup, then retry. If the route remains unavailable, inspect /capabilities.";
+    diagnostic.ownedBy = "native";
+    diagnostic.evidenceSource = "native_managed_proxy_discovery";
+    diagnostic.emittedBy = "native_route";
+    return ToJson(diagnostic);
+}
+
+inline nlohmann::json BuildBlockMutationManagedProxyForwardFailed(
+    const std::string& route,
+    const std::string& operation)
+{
+    RouteDiagnostic diagnostic;
+    diagnostic.domainId = "block.definition_mutation";
+    diagnostic.route = route;
+    diagnostic.operation = operation;
+    diagnostic.reasonCode = "block_mutation_managed_proxy_forward_failed";
+    diagnostic.failureKind = FailureKind::DependencyDegraded;
+    diagnostic.retryable = true;
+    diagnostic.userActionRequired = false;
+    diagnostic.recommendedNextStep =
+        "Retry after companion startup has stabilized. If forwarding continues to fail, inspect native and managed logs.";
+    diagnostic.ownedBy = "native";
+    diagnostic.evidenceSource = "native_managed_proxy_transport";
+    diagnostic.emittedBy = "native_route";
+    return ToJson(diagnostic);
+}
+
 } // namespace Diagnostics
 } // namespace Rook
