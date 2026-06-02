@@ -1069,7 +1069,7 @@ git commit -m "test(gh): static guard that SetScript never forces a synchronous 
 
 ## Self-Review (run against the spec)
 
-**Spec coverage:** §4 invariant → Tasks 4/5 (ExpireSolution(false) + async only). §5 helper/outcome/predicate → Tasks 2/3/4. §6 pin strategy → Task 5 (immediate) + Task 6 (gated one-shot). §7 status surface → Task 7. §8.1 deferral → Task 8. §8.2 settling → Task 9. §9 inventory/PR1 split → Task 5 (sites 2-6 are PR2, out of scope here). §10 probes → Task 1. §11 tests → Tasks 2/3/4/7/8/9/10/11 (the "unknown reflection-miss" test is covered by Task 2's `Unknown_*` + Task 3's fail-open and is non-blocking). 
+**Spec coverage:** §4 invariant → Tasks 4/5 (ExpireSolution(false) + async only). §5 helper/outcome/predicate → Tasks 2/3/4. §6 pin strategy → Task 5 (immediate) + Task 6 (gated one-shot). §7 status surface → Task 7. §8.1 deferral → Task 8. §8.2 settling → Task 9. §9 inventory/PR1 split → Task 5 (sites 2-6 are PR2, out of scope here). §10 probes → Task 1. §11 tests → Tasks 2/3/4/7/8/9/10/11 (the "unknown reflection-miss" test is covered by Task 2's `Unknown_*` + Task 3's fail-open and is non-blocking).
 
 **Placeholder scan:** the two "stub then replace" notes (Task 8 `_await_gh_solve_settle`, Task 9) are explicit, ordered, and self-resolving — not vague TODOs. The conditional Task 6 and the U1-dependent read list in Task 3 are gated on recorded probe results, with concrete most-likely code provided.
 
