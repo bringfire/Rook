@@ -1,7 +1,7 @@
 # Rook ⇄ RhinoMCP — Architecture Assessment & External/Local-Orchestration Plane
 
 - **Date:** 2026-06-02
-- **Status:** Draft / under review; Prototype 1 *recommended* (not yet approved)
+- **Status:** Architecture stance approved (reviewer sign-off after wording/safety edits). Prototype 1 approved as the next step — implementation plan pending. Phase 2C standalone smoke: **passed** (PR #207).
 - **Author:** Claude (synthesis of a Rook ⇄ Codex deliberation; senior-reviewer corrections folded in)
 - **Area:** `mcp_server/src/rook/bridge.py`, `mcp_server/src/rook/server.py`, agent runtime (`mcp_server/src/rook/agent/`), install/connector; reference: `C:\Users\aryan\source\repos\RhinoMCP` (cloned `main`)
 - **Prompted by:** McNeel's public release of RhinoMCP (mcneel/RhinoMCP) — a first-party Rhino MCP server with a stdio **router**, multi-instance slots, auto-launch, and crash recovery.
@@ -14,7 +14,7 @@ RhinoMCP is **not** a threat to Rook's center of gravity, but it exposes a **mis
 
 The correct response is **not a panic-pivot to "another Rhino MCP server."** McNeel will own the generic-Rhino-control lane as the platform vendor. Rook's durable bet is **local-first intelligence + persistent knowledge graph + coordinated multi-agent behavior**, with Rhino as *one* attached capability provider. The local-first lens *sharpens* this: it makes the slot/session layer **critical-path substrate for the coordinator**, not a peripheral access concern.
 
-This document defines a **fourth plane** (external/local-orchestration), **amends one invariant**, maps the **two operating modes** (Workbench vs Attached) onto Rook's existing earned-autonomy model, and commits to a **lowest-risk Prototype 1: read-only multi-session adoption + liveness envelope** — no spawning, no killing, no mutation routing.
+This document defines a **fourth plane** (external/local-orchestration), **amends one invariant**, maps the **two operating modes** (Workbench vs Attached) onto Rook's existing earned-autonomy model, and **recommends a lowest-risk Prototype 1** (read-only named sessions + liveness envelope) — no spawning, no killing, no mutation routing.
 
 ---
 
@@ -22,7 +22,7 @@ This document defines a **fourth plane** (external/local-orchestration), **amend
 
 Read locally from the clone, not from docs. The system is three pieces, all C#/.NET (cross-platform):
 
-### 2.1 In-Rhino plugin — *near-identical to RookNative*
+### 2.1 In-Rhino plugin — *same broad substrate, different implementation shape*
 `rhino/plugin/` runs an **HTTP MCP server** per document, on a private port (base `10500`, walks forward), with `Stateless = true` so each `tools/call` is a self-contained JSON-RPC POST (no initialize handshake). On start it drops a **one-shot announcement** JSON `{v, pid, port, version}` into `%LOCALAPPDATA%/McNeel/rhino-mcp/listeners/` (`RhMcpHost.WriteAnnouncement`).
 
 > This is the **same broad substrate** as RookNative's HTTP server + discovery record. RookNative writes its record to `%LOCALAPPDATA%\Rook\discovery\instance-<pid>-native.json` (primary; `%TEMP%/rook` retained only as legacy fallback — `RookServer.cpp:160,165`), carrying `processId`, `pluginVersion`, `rhinoInside`, port, and a capability snapshot (`RookServer.cpp:2195-2214`). **The router→Rhino hop is still localhost HTTP** — McNeel did *not* invent a new transport. The substrate matches; the implementations (C# vs C++) do not.
@@ -158,8 +158,10 @@ The `adopted` flag in the slot model is the enforcement primitive: **adopted ses
 - A thin **session registry** (in-process dict first; SQLite only if/when concurrent routers are real).
 - New read-only tools: `list_sessions`, `get_session_capabilities`.
 - **Read-only session targeting only** — an optional `session` arg permitted **only** on an explicitly reviewed read-only allowlist (`/ping`, `/capabilities`, and other vetted read/status calls). Mutating-route targeting is **out of scope until P3.** Default preserves today's single-session behavior.
-- **Liveness checks** — pid alive **AND** port listening (both, per RhinoMCP's lesson: a Mac listener can die while the app lives; a Windows zombie can leave the socket bound).
-- **Structured stale/dead-session errors** — `{code: rhino_session_dead, session, pid, next_action}`; reap stale discovery files.
+- **Liveness checks** — probe pid-alive and port-listening **independently**, and treat the two failure cases **differently**. RhinoMCP probes both, but Rook's Attached mode demands a more conservative deletion policy than "any probe fails ⇒ reap":
+  - **PID dead** → the session is genuinely gone. Return `{code: rhino_session_dead, session, pid, next_action}` and **reap** the stale discovery record (safe — the process no longer exists).
+  - **PID alive but port not listening** → do **NOT** reap. This can mean the plugin unloaded, the listener is restarting, a firewall/socket transient, or a startup/shutdown edge — and the live process may be the **user's document**. Return `{code: rook_native_listener_unreachable, session, pid, next_action}` and **leave the discovery record in place**.
+- **Conservative stale-file deletion** — in P1 only dead-PID records are deleted; unreachable-but-alive records are reported, never removed. (Deletion policy for the alive-but-persistently-unreachable case is deferred — it needs a debounce/age threshold, out of scope here.)
 
 ### 8.2 Explicitly out of scope (this prototype)
 - No spawning / auto-launch.
@@ -178,7 +180,7 @@ Validates the substrate before taking lifecycle ownership; protects attached use
 Discipline (mirrors the rest of the Rook roadmap): **name and observe → report liveness → route safely → own lifecycle.**
 
 ```
-P0 (now)   Finish Phase 2C iff standalone Rhino smoke passes. Pause new route diagnostics.
+P0 (done)  Phase 2C standalone smoke PASSED (PR #207). New route diagnostics paused.
 P1         Read-only named sessions + liveness/stale-session errors (recommended)   (§8)
 P2         Crash / dead-session wrapper for the adopted-session path
              (structured rhino_session_dead, crash-report surfacing, reaping)
@@ -237,5 +239,5 @@ McNeel = clean reference for **tool access**. Rook = the **local reasoning + pro
 - **Invariant amended** (§6): RookNative = sole *in-Rhino* surface; a Rook router may be the *public MCP* surface.
 - **Fourth plane added** (§7): external/local-orchestration.
 - **Two modes** (§7.2): Workbench (owned, may kill/respawn) vs Attached (adopted, never kill) = earned-autonomy substrate.
-- **Prototype 1 recommended** (§8), pending approval: read-only named sessions + liveness envelope; read-only targeting allowlist only; no spawn/kill/mutation.
+- **Prototype 1 approved as next step** (§8): read-only named sessions + liveness envelope; read-only targeting allowlist only; conservative deletion (reap dead-PID only, report alive-but-unreachable); no spawn/kill/mutation. Implementation plan pending.
 - **Mac is a separate XL go/no-go**, never bundled with P1–P5.
