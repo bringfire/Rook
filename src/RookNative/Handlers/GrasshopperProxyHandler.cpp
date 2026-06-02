@@ -7,6 +7,7 @@
 #include "stdafx.h"
 #include "Handlers/GrasshopperProxyHandler.h"
 #include "Infrastructure/JsonHelpers.h"
+#include "Infrastructure/RouteDiagnostics.h"
 #include "Infrastructure/UndoScope.h"
 #include "Infrastructure/WriteResult.h"
 #include "Models/DocumentHelpers.h"
@@ -188,6 +189,12 @@ enum class BridgeInvokeResult
     Failed,
 };
 
+struct ProxyDiagnosticContext
+{
+    std::string route;
+    std::string operation;
+};
+
 std::mutex g_ghBridgeMutex;
 GhBridgeRegistration g_ghBridgeRegistration;
 
@@ -195,9 +202,14 @@ void ProxyManagedRequest(
     const httplib::Request& req,
     httplib::Response& res,
     const std::string& path,
-    bool isPost);
+    bool isPost,
+    const ProxyDiagnosticContext* diagnosticContext = nullptr);
 
-void SendProxyFailure(httplib::Response& res, int status, const std::string& message);
+void SendProxyFailure(
+    httplib::Response& res,
+    int status,
+    const std::string& message,
+    const nlohmann::json* diagnostic = nullptr);
 
 GhBridgeRegistration GetGhBridgeRegistrationSnapshot()
 {
@@ -454,8 +466,19 @@ void DispatchGrasshopperRoute(
     res.set_header("X-Rook-Gh-Bridge", "unavailable");
 }
 
-void SendProxyFailure(httplib::Response& res, int status, const std::string& message)
+void SendProxyFailure(
+    httplib::Response& res,
+    int status,
+    const std::string& message,
+    const nlohmann::json* diagnostic)
 {
+    if (diagnostic != nullptr)
+    {
+        CRookServer::SendErrorWithDiagnostic(res, message, *diagnostic);
+        res.status = status;
+        return;
+    }
+
     nlohmann::json envelope;
     envelope["success"] = false;
     envelope["data"] = message;
@@ -809,23 +832,52 @@ bool TryForwardGrasshopperRequest(
     return true;
 }
 
+nlohmann::json BuildProxyUnavailableDiagnostic(const ProxyDiagnosticContext& context)
+{
+    return Rook::Diagnostics::BuildBlockMutationManagedProxyUnavailable(
+        context.route,
+        context.operation);
+}
+
+nlohmann::json BuildProxyForwardFailedDiagnostic(const ProxyDiagnosticContext& context)
+{
+    return Rook::Diagnostics::BuildBlockMutationManagedProxyForwardFailed(
+        context.route,
+        context.operation);
+}
+
 void ProxyManagedRequest(
     const httplib::Request& req,
     httplib::Response& res,
     const std::string& path,
-    bool isPost)
+    bool isPost,
+    const ProxyDiagnosticContext* diagnosticContext)
 {
     int managedPort = 0;
     std::string managedHost = "127.0.0.1";
     std::string error;
     if (!TryGetManagedPort(managedPort, managedHost, error))
     {
+        if (diagnosticContext != nullptr)
+        {
+            const auto diagnostic = BuildProxyUnavailableDiagnostic(*diagnosticContext);
+            SendProxyFailure(res, 503, error, &diagnostic);
+            return;
+        }
+
         SendProxyFailure(res, 503, error);
         return;
     }
 
     if (!TryForwardGrasshopperRequest(managedPort, managedHost, req, res, path, isPost, error))
     {
+        if (diagnosticContext != nullptr)
+        {
+            const auto diagnostic = BuildProxyForwardFailedDiagnostic(*diagnosticContext);
+            SendProxyFailure(res, 502, error, &diagnostic);
+            return;
+        }
+
         SendProxyFailure(res, 502, error);
     }
 }
@@ -930,7 +982,8 @@ void DispatchManagedCompanionRouteOrProxy(
     httplib::Response& res,
     const std::string& path,
     GhBridgeCallbackFn callback,
-    bool isPost)
+    bool isPost,
+    const ProxyDiagnosticContext* diagnosticContext = nullptr)
 {
     if (callback != nullptr)
     {
@@ -938,7 +991,7 @@ void DispatchManagedCompanionRouteOrProxy(
         return;
     }
 
-    ProxyManagedRequest(req, res, path, isPost);
+    ProxyManagedRequest(req, res, path, isPost, diagnosticContext);
 }
 
 void ProxyManagedCompanionRequest(
