@@ -1797,6 +1797,24 @@ def _summarize_gh_update_script_snapshot(snapshot_response: Any, short_id: str) 
     return summary
 
 
+def _gh_update_script_should_defer(write_data: Any) -> tuple[bool, dict[str, Any]]:
+    """Read the safe-solve flags off the /gh/script write response. Returns
+    (deferred, flags). Deferred => no fresh solve ran, so the caller must NOT
+    claim a compile/error verification."""
+    flags: dict[str, Any] = {}
+    if isinstance(write_data, dict):
+        for key in ("verification_deferred", "solver_locked", "solver_state_known", "solve_scheduled"):
+            if key in write_data:
+                flags[key] = write_data[key]
+    return bool(flags.get("verification_deferred")), flags
+
+
+async def _await_gh_solve_settle(port: int, scheduled_delay_ms: int = 50, timeout_s: float = 5.0) -> None:
+    """Bounded wait for a scheduled GH solve to settle. Task 9 replaces this stub
+    with an edge-detected poll; for now keep the prior fixed delay as the floor."""
+    await asyncio.sleep(0.3)
+
+
 async def _execute_gh_update_script(arguments: dict[str, Any], port: int) -> dict[str, Any]:
     guid = arguments.get("guid")
     if not guid:
@@ -1864,8 +1882,16 @@ async def _execute_gh_update_script(arguments: dict[str, Any], port: int) -> dic
             write_data=write_data,
         )
 
-        if bool(arguments.get("check_errors", True)):
-            await asyncio.sleep(0.3)
+        deferred, solver_flags = _gh_update_script_should_defer(write_data)
+        if deferred:
+            error_summary = _empty_gh_update_script_error_summary()
+            error_summary["verification_deferred"] = True   # stays boolean
+            error_summary["verification_note"] = (
+                "Grasshopper solver is locked or its state is unknown; the script source was "
+                "written but not recompiled. Unlock the solver and run gh_solve to verify."
+            )
+        elif bool(arguments.get("check_errors", True)):
+            await _await_gh_solve_settle(port, scheduled_delay_ms=50)
             error_summary = _summarize_gh_update_script_errors(
                 await call_rhino("/gh/errors", "GET", {}, port=port),
                 resolved_guid,
@@ -1904,6 +1930,7 @@ async def _execute_gh_update_script(arguments: dict[str, Any], port: int) -> dic
             "script_length": len(prepared["source"]),
             **error_summary,
         }
+        data.update(solver_flags)
         if resolved_guid != guid:
             data["target_guid"] = guid
 
