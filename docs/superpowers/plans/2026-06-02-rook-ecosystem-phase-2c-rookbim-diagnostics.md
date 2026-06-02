@@ -702,6 +702,11 @@ private static void AssertDiagnostic(
 
 Add this test after `Dispatch_Status_ReturnsStructuredUnavailableRuntime`.
 
+`/bim/status` is a status-reporting route, so it may return `success: true`
+while carrying a readiness diagnostic that describes the reported BIM state.
+This is the only Phase 2C success-with-failure-diagnostic exception.
+Non-status successful BIM operations must not emit failure diagnostics.
+
 ```csharp
 [Fact]
 public void Dispatch_Status_AddsNotRhinoInsideDiagnosticFromRuntimeStatus()
@@ -727,6 +732,31 @@ public void Dispatch_Status_AddsNotRhinoInsideDiagnosticFromRuntimeStatus()
             "rookbim_host_runtime",
             "managed_route",
             "status");
+    }
+    finally
+    {
+        RookBimRuntimeRegistry.ResetForTests();
+    }
+}
+```
+
+- [ ] **Step 2a: Add guard that non-status successes do not emit diagnostics**
+
+Add this test after `Dispatch_Status_AddsNotRhinoInsideDiagnosticFromRuntimeStatus`.
+
+```csharp
+[Fact]
+public void Dispatch_NonStatusSuccessDoesNotEmitFailureDiagnostic()
+{
+    RookBimRuntimeRegistry.Install(new DetailFailureRuntime(), "test-list-categories");
+    try
+    {
+        var handler = new BimHandler();
+        var response = handler.Dispatch("{\"op\":\"list_categories\"}");
+
+        Assert.True(response.Success);
+        Assert.Null(response.Diagnostic);
+        Assert.Contains("document_category_table", ((JsonNode)response.Data!).ToJsonString());
     }
     finally
     {
@@ -1290,7 +1320,12 @@ public void RookProject_DoesNotReferenceAutodeskOrBindRhinoInsideRevitRuntime()
     var project = Read("src/Rook/Rook.csproj");
     var sourceFiles = Directory
         .GetFiles(Path.Combine(RepoRoot, "src", "Rook"), "*.cs", SearchOption.AllDirectories)
-        .Where(path => !path.EndsWith(Path.Combine("obj", ""), StringComparison.OrdinalIgnoreCase))
+        .Where(path =>
+        {
+            var normalized = path.Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
+            return !normalized.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                && !normalized.Contains(Path.DirectorySeparatorChar + "bin" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+        })
         .ToArray();
     var source = string.Join("\n", sourceFiles.Select(File.ReadAllText));
 
@@ -1315,9 +1350,11 @@ public void Phase2C_DoesNotIntroduceBroadOrAliasBimDiagnosticReasonCodes()
 {
     var header = ReadSourceFile("src", "RookNative", "Infrastructure", "RouteDiagnostics.h");
     var bimHandler = ReadSourceFile("src", "Rook", "Handlers", "BimHandler.cs");
-    var catalog = header + bimHandler;
+    var nativeBim = ExtractFunction(header, "BuildBimDispatchCallbackUnavailable");
+    var managedBim = ExtractFunction(bimHandler, "BuildDiagnosticForReason");
+    var catalog = nativeBim + managedBim;
 
-    Assert.DoesNotContain("\"rookbim_unavailable\"", header);
+    Assert.DoesNotContain("\"rookbim_unavailable\"", catalog);
     Assert.DoesNotContain("\"bim_unavailable\"", catalog);
     Assert.DoesNotContain("\"bridge_unavailable\"", catalog);
     Assert.DoesNotContain("\"managed_dependency_unavailable\"", catalog);
@@ -1327,7 +1364,25 @@ public void Phase2C_DoesNotIntroduceBroadOrAliasBimDiagnosticReasonCodes()
 }
 ```
 
-Note: this checks catalog/diagnostic source, not arbitrary legacy `data.errorCode` text across the repo.
+Note: this checks catalog/diagnostic builder source only, not arbitrary legacy
+`data.errorCode` text across the repo.
+
+- [ ] **Step 2a: Add positive guard for legacy `rookbim_unavailable` compatibility**
+
+Add this test to `BimHandlerTests`.
+
+```csharp
+[Fact]
+public void BimHandler_PreservesRookBimUnavailableAsLegacyDataErrorCodeOnly()
+{
+    var source = ReadSourceFile("src", "Rook", "Handlers", "BimHandler.cs");
+    var mapErrorCode = ExtractFunction(source, "MapErrorCode");
+    var diagnosticBuilder = ExtractFunction(source, "BuildDiagnosticForReason");
+
+    Assert.Contains("\"rookbim_unavailable\"", mapErrorCode);
+    Assert.DoesNotContain("\"rookbim_unavailable\"", diagnosticBuilder);
+}
+```
 
 - [ ] **Step 3: Add source guard for runtime-not-activated mapping**
 
@@ -1550,6 +1605,10 @@ DiagnosticFailureKind: host_blocked
 DiagnosticOwnedBy: rookbim
 DiagnosticEmittedBy: managed_route
 ```
+
+This success-with-diagnostic shape is allowed only for `/bim/status` because it
+is a status-reporting route. Non-status successful BIM operations must not emit
+failure diagnostics.
 
 - [ ] **Step 6: Verify parse failure stays legacy/local**
 
