@@ -66,7 +66,7 @@ Diagnosis keys on the **exception category** first, then the **liveness probe**:
 
 | `httpx` exception | probe | → `code` | `retryable` |
 |---|---|---|---|
-| `ReadTimeout` / `WriteTimeout` / `PoolTimeout` | — | `rook_native_request_timeout` | `true` |
+| `ReadTimeout` / `WriteTimeout` / `PoolTimeout` | **PID only** — known dead? | dead → `rhino_session_dead` (+ `crash_artifact`); else `rook_native_request_timeout` | `false` / `true` |
 | `ConnectError` / `ConnectTimeout` / `ReadError` / `WriteError` / `CloseError` | `classify_session_liveness` → **dead** | `rhino_session_dead` (+ `crash_artifact`) | `false` |
 | same connectivity group | → **unreachable** (PID alive, port down) | `rook_native_listener_unreachable` | `true` |
 | same connectivity group | → **live** (listener returned; race/transient) | `rook_native_transport_error` | `true` |
@@ -79,6 +79,7 @@ Notes:
 - `ReadError`/`WriteError` (connection dropped mid-request) are the *crashed-mid-call* shape — captured as `rhino_session_dead` + `crash_artifact` when the PID probe confirms death. **No separate `rhino_crashed` code** — "dead with a fresh artifact" carries that meaning without overclaiming confidence P2 doesn't have.
 - **`rhino_session_dead` requires a *known* PID confirmed not-alive.** A target whose PID cannot be resolved yields `rook_native_transport_error` (incomplete diagnosis), **never** a guessed `rhino_session_dead` (§3).
 - **Check order (implementation).** `ConnectTimeout` subclasses `httpx.TimeoutException`, so the **connectivity group must be tested before the broad timeout bucket** — otherwise `ConnectTimeout` falls into `rook_native_request_timeout` instead of the PID-probe path. Order: connectivity (`ConnectError` / `ConnectTimeout` / `ReadError` / `WriteError`) → remaining `TimeoutException` (`ReadTimeout` / `WriteTimeout` / `PoolTimeout`) → other `RequestError`.
+- **Timeout ≠ guaranteed-alive.** A death can surface as a *timeout* (the read stalls instead of erroring) rather than `ReadError`/`WriteError`, so timeout exceptions do a **PID-only** check first: a **known dead** PID → `rhino_session_dead` (`retryable:false`, `crash_artifact` if found); otherwise `rook_native_request_timeout` (`retryable:true`). The check is PID-only (not a port probe) — that keeps timeout distinct from `unreachable`, since a busy-but-alive Rhino (port still listening) stays a timeout. **Global invariant: never return `retryable:true` when the target PID is known dead.**
 
 ---
 
@@ -177,6 +178,6 @@ diagnose_bridge_failure(target, exc) -> dict                       # call_rhino'
 - **Crash artifacts are located, not parsed**, and carry a **confidence tag** (`match` / `pidMatched`). Parsing is a later slice.
 - **Softer timeout semantics** — `PoolTimeout`/`WriteTimeout` aren't necessarily Rhino behavior; describe as "request did not complete before timeout."
 - **HTTP-response-received stays out** of transport diagnosis — semantic route/tool failure is not a bridge failure; only `httpx.RequestError` is diagnosed, so `response.json()` decode failures keep existing behavior.
-- **`retryable` on every bridge error** — the one field agents read to decide whether to retry the same session.
+- **`retryable` on every bridge error** — the one field agents read to decide whether to retry the same session. **Invariant: never `retryable:true` when the PID is known dead** — even a timeout PID-probes first, so a death masked as a timeout returns `rhino_session_dead`, not a retryable timeout.
 - **Two split helpers** — `diagnose_bridge_failure` (exception path) and `build_session_liveness_error` (shared builder, also used by `get_session_capabilities`); no fabricated exceptions.
 - **Reaping unchanged from P1**; persistently-unreachable debounce stays deferred.
