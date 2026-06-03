@@ -597,6 +597,41 @@ def classify_session_liveness(instance: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def list_sessions() -> list[dict[str, Any]]:
+    """Project discovered Rhino instances into named sessions with liveness.
+
+    Read-only: reads discovery (which already reaps dead-PID files) and probes
+    liveness. Never spawns, kills, or mutates. Instances without a processId are
+    skipped (no stable session id).
+    """
+    sessions: list[dict[str, Any]] = []
+    for instance in discover_instances():
+        # A session == a Rhino window, keyed by its native listener. The
+        # roadcreator adapter shares the Rhino PID (bridge.py:379-381); including
+        # it would emit a duplicate rhino-<pid> session. Native only.
+        if instance.get("pluginType") != "native":
+            continue
+        pid = instance.get("processId")
+        if not pid:
+            continue
+        sessions.append({
+            "session": session_id_for_instance(instance),
+            "processId": pid,
+            "port": instance.get("port"),
+            "host": instance.get("host") or DEFAULT_HOST,
+            "pluginType": instance.get("pluginType"),
+            "pluginVersion": instance.get("pluginVersion"),
+            "rhinoInside": instance.get("rhinoInside"),
+            "liveness": classify_session_liveness(instance),
+        })
+    return sessions
+
+
+def list_sessions_result() -> dict[str, Any]:
+    """MCP-facing envelope for list_sessions."""
+    return {"success": True, "data": {"sessions": list_sessions()}}
+
+
 def get_rhino_host(
     port: int | None = None,
     endpoint: str | None = None,
