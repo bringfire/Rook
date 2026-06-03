@@ -677,46 +677,35 @@ async def get_session_capabilities(session_id: Any) -> dict[str, Any]:
         None,
     )
     if instance is None:
-        return {
-            "success": False,
-            "data": {
-                "code": "rhino_session_dead",
-                "session": session_id,
-                "processId": process_id,
-                "next_action": "The session is gone. Call list_sessions to see live sessions.",
-            },
+        # No native record. Probe the PID before claiming dead (P2): the record may
+        # be gone while the process lives (listener unloaded/reloading).
+        gone_target = {
+            "session": session_id, "processId": process_id, "port": None,
+            "endpoint": "/capabilities", "method": "GET",
         }
+        if _is_pid_alive(int(process_id)):
+            return build_session_liveness_error(
+                gone_target,
+                {"state": "unreachable", "pidAlive": True, "portListening": False},
+                reason="capability_query",
+            )
+        return build_session_liveness_error(
+            gone_target,
+            {"state": "dead", "pidAlive": False, "portListening": False},
+            reason="capability_query",
+        )
 
     liveness = classify_session_liveness(instance)
-    if liveness["state"] == "dead":
-        # Race: the record matched during discovery (pid alive at cleanup) but the
-        # process died before classification. Truth contract — report dead, never
-        # resolve stale capabilities for a gone process.
-        return {
-            "success": False,
-            "data": {
-                "code": "rhino_session_dead",
-                "session": session_id,
-                "processId": process_id,
-                "liveness": liveness,
-                "next_action": "The session is gone. Call list_sessions to see live sessions.",
-            },
+    if liveness["state"] in ("dead", "unreachable"):
+        # `dead` can be the TOCTOU race (record matched at discovery, process died
+        # before classification); either way report truthfully via the shared builder
+        # (gains crash_artifact on dead + retryable). Never resolve stale capabilities
+        # for a gone/unreachable process.
+        err_target = {
+            "session": session_id, "processId": process_id,
+            "port": instance.get("port"), "endpoint": "/capabilities", "method": "GET",
         }
-    if liveness["state"] == "unreachable":
-        return {
-            "success": False,
-            "data": {
-                "code": "rook_native_listener_unreachable",
-                "session": session_id,
-                "processId": process_id,
-                "liveness": liveness,
-                "next_action": (
-                    "The Rhino process is alive but its RookNative listener is not "
-                    "responding (plugin reload, listener restart, or a transient). "
-                    "The session was left in place; retry shortly."
-                ),
-            },
-        }
+        return build_session_liveness_error(err_target, liveness, reason="capability_query")
 
     # Read-only: PIN the effective endpoint to a vetted, allow-listed route.
     # resolve_capabilities() otherwise honors capabilities.liveEndpoint straight

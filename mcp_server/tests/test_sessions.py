@@ -156,8 +156,11 @@ async def test_get_session_capabilities_invalid_id(sessions_dir):
 
 @pytest.mark.asyncio
 async def test_get_session_capabilities_dead_when_absent(sessions_dir, monkeypatch):
-    # No discovery file for pid 999 => treated as dead/gone.
-    monkeypatch.setattr(bridge, "_is_pid_alive", lambda pid: True)
+    # No discovery file AND the pid is gone => dead. (P2: absence alone no longer
+    # implies dead — the pid is probed; an alive pid with no record is unreachable.)
+    monkeypatch.setattr(bridge, "_is_pid_alive", lambda pid: False)
+    monkeypatch.setattr(bridge, "find_recent_rhino_crash_artifact",
+                        lambda process_id=None, since_utc=None: None)
     out = await bridge.get_session_capabilities("rhino-999")
     assert out["success"] is False
     assert out["data"]["code"] == "rhino_session_dead"

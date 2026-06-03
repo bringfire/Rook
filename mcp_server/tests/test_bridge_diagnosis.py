@@ -181,3 +181,31 @@ async def test_call_rhino_post_response_decode_error_is_not_transport(monkeypatc
     assert out["success"] is False
     assert "code" not in out["data"]  # not a structured bridge error
     assert "not json" in out["data"]
+
+
+@pytest.fixture
+def diag_sessions_dir(tmp_path, monkeypatch):
+    monkeypatch.setattr(bridge, "DISCOVERY_FOLDER", tmp_path)
+    monkeypatch.setattr(bridge, "DISCOVERY_FOLDERS", [tmp_path])
+    return tmp_path
+
+
+@pytest.mark.asyncio
+async def test_gsc_no_record_alive_pid_is_unreachable_not_dead(diag_sessions_dir, monkeypatch):
+    # No native record for the pid, but the pid is alive -> unreachable, NOT dead.
+    monkeypatch.setattr(bridge, "_is_pid_alive", lambda pid: True)
+    out = await bridge.get_session_capabilities("rhino-888")
+    assert out["success"] is False
+    assert out["data"]["code"] == "rook_native_listener_unreachable"
+    assert out["data"]["retryable"] is True
+
+
+@pytest.mark.asyncio
+async def test_gsc_no_record_dead_pid_is_dead(diag_sessions_dir, monkeypatch):
+    monkeypatch.setattr(bridge, "_is_pid_alive", lambda pid: False)
+    monkeypatch.setattr(bridge, "find_recent_rhino_crash_artifact",
+                        lambda process_id=None, since_utc=None: None)
+    out = await bridge.get_session_capabilities("rhino-889")
+    assert out["success"] is False
+    assert out["data"]["code"] == "rhino_session_dead"
+    assert out["data"]["retryable"] is False
