@@ -228,3 +228,37 @@ async def test_get_session_capabilities_live(sessions_dir, monkeypatch):
     assert out["data"]["processId"] == 42
     assert out["data"]["liveness"]["state"] == "live"
     assert out["data"]["capabilities"]["source"] == "live"
+
+
+@pytest.mark.asyncio
+async def test_get_session_capabilities_dead_after_discovery_race(sessions_dir, monkeypatch):
+    # The record survives discovery cleanup (pid alive then) but the process dies
+    # before classification. Truth contract: report dead, and never resolve stale
+    # capabilities for a gone process. _is_pid_alive is called once during cleanup
+    # (alive) and once during classification (dead).
+    _write_instance(sessions_dir, {
+        "host": "127.0.0.1", "port": 10500, "pluginType": "native", "processId": 333,
+    })
+
+    calls = {"n": 0}
+
+    def flaky_pid_alive(pid):
+        calls["n"] += 1
+        return calls["n"] == 1  # alive during cleanup, dead during classification
+
+    monkeypatch.setattr(bridge, "_is_pid_alive", flaky_pid_alive)
+    monkeypatch.setattr(bridge, "_is_port_listening", lambda host, port: False)
+
+    resolved_called = {"hit": False}
+
+    async def must_not_resolve(inst, timeout=None):
+        resolved_called["hit"] = True
+        return {"source": "bootstrap", "capabilities": {"domains": []}}
+
+    monkeypatch.setattr(bridge, "resolve_capabilities", must_not_resolve)
+
+    out = await bridge.get_session_capabilities("rhino-333")
+
+    assert out["success"] is False
+    assert out["data"]["code"] == "rhino_session_dead"
+    assert resolved_called["hit"] is False  # never resolved a dead session

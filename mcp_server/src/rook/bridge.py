@@ -686,6 +686,20 @@ async def get_session_capabilities(session_id: Any) -> dict[str, Any]:
         }
 
     liveness = classify_session_liveness(instance)
+    if liveness["state"] == "dead":
+        # Race: the record matched during discovery (pid alive at cleanup) but the
+        # process died before classification. Truth contract — report dead, never
+        # resolve stale capabilities for a gone process.
+        return {
+            "success": False,
+            "data": {
+                "code": "rhino_session_dead",
+                "session": session_id,
+                "processId": process_id,
+                "liveness": liveness,
+                "next_action": "The session is gone. Call list_sessions to see live sessions.",
+            },
+        }
     if liveness["state"] == "unreachable":
         return {
             "success": False,
