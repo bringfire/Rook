@@ -156,3 +156,59 @@ def test_rhino_session_not_found_envelope(monkeypatch):
     assert result["data"]["error"] == "rhino_session_not_found"
     assert result["data"]["session"] == "rhino-9999"
     assert result["data"]["discoveryFolder"] == r"C:\disc"
+
+
+def test_session_plus_same_pid_port_session_wins(monkeypatch):
+    monkeypatch.setattr(targeting, "discover_instances", lambda: [
+        _inst(9950, 7101, "A.3dm"),
+    ])
+    route = targeting.resolve_tool_route(
+        "rhino_execute", explicit_session="rhino-7101", explicit_port=9950,
+        has_explicit_session=True,
+    )
+    assert route.success is True
+    assert route.selection == "session"
+    assert route.target == targeting.InstanceRef(9950, 7101)
+
+
+def test_session_plus_different_pid_port_is_conflict(monkeypatch):
+    monkeypatch.setattr(targeting, "discover_instances", lambda: [
+        _inst(9950, 7101, "A.3dm"),
+        _inst(9951, 7102, "B.3dm"),
+    ])
+    route = targeting.resolve_tool_route(
+        "rhino_execute", explicit_session="rhino-7101", explicit_port=9951,
+        has_explicit_session=True,
+    )
+    assert route.success is False
+    assert route.error == "selector_conflict"
+
+
+def test_session_plus_undiscovered_port_is_port_not_found(monkeypatch):
+    # Conflict requires both selectors to resolve; an unknown port is a port error.
+    monkeypatch.setattr(targeting, "discover_instances", lambda: [
+        _inst(9950, 7101, "A.3dm"),
+    ])
+    route = targeting.resolve_tool_route(
+        "rhino_execute", explicit_session="rhino-7101", explicit_port=9999,
+        has_explicit_session=True,
+    )
+    assert route.error == "requested_port_not_discovered"
+
+
+def test_selector_conflict_envelope(monkeypatch):
+    monkeypatch.setattr(targeting, "discover_instances", lambda: [
+        _inst(9950, 7101, "A.3dm"),
+        _inst(9951, 7102, "B.3dm"),
+    ])
+    route = targeting.resolve_tool_route(
+        "rhino_execute", explicit_session="rhino-7101", explicit_port=9951,
+        has_explicit_session=True,
+    )
+    result = targeting.route_error_result(route)
+    d = result["data"]
+    assert d["error"] == "selector_conflict"
+    assert d["session"] == "rhino-7101"
+    assert d["requestedPort"] == 9951
+    assert d["sessionProcessId"] == 7101
+    assert d["portProcessId"] == 7102

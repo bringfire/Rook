@@ -991,6 +991,28 @@ def resolve_tool_route(
                 requested_session=explicit_session,
                 instances=instances,
             )
+        if explicit_port is not None:
+            owner = next(
+                (instance for instance in instances if instance.get("port") == explicit_port),
+                None,
+            )
+            if owner is None:
+                return ToolRoute(
+                    success=False,
+                    error="requested_port_not_discovered",
+                    requested_port=explicit_port,
+                    instances=instances,
+                )
+            if owner.get("processId") != pid_s:
+                return ToolRoute(
+                    success=False,
+                    error="selector_conflict",
+                    requested_session=explicit_session,
+                    requested_port=explicit_port,
+                    session_process_id=pid_s,
+                    port_process_id=owner.get("processId"),
+                    instances=instances,
+                )
         ref = instance_ref_from_instance(inst_s)
         return ToolRoute(
             success=True,
@@ -1376,6 +1398,19 @@ def route_error_result(route: ToolRoute) -> dict[str, Any]:
             session=route.requested_session,
             discoveryFolder=diagnostics.get("discoveryFolder"),
             discoveryFolders=diagnostics.get("discoveryFolders"),
+            instances=route.instances or [],
+        )
+    if route.error == "selector_conflict":
+        return _error_result(
+            "selector_conflict",
+            message=(
+                "session and port name different Rhino processes. Pass one selector, "
+                "or a port on the same process as the session."
+            ),
+            session=route.requested_session,
+            requestedPort=route.requested_port,
+            sessionProcessId=route.session_process_id,
+            portProcessId=route.port_process_id,
             instances=route.instances or [],
         )
     return _error_result(route.error or "rhino_target_error", instances=route.instances or [])
