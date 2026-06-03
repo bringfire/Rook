@@ -19290,6 +19290,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
     policy = targeting.policy_for_tool(name)
     explicit_port = arguments.get("port")
+    has_explicit_session = "session" in arguments
+    explicit_session = arguments.get("session")
 
     if targeting.get_panel_target_config_error() is not None and (
         policy.requires_rhino or name == "rhino_launch"
@@ -19311,10 +19313,17 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             return _format_tool_result(targeting.route_error_result(lock_route))
 
     if not policy.requires_rhino:
+        if has_explicit_session and not targeting.allows_non_routed_session_argument(name):
+            return _format_tool_result(targeting.session_not_targetable_result(name))
         raw_result = await _call_tool_dispatch(name, arguments)
         return _format_tool_result(raw_result)
 
-    route = targeting.resolve_tool_route(name, explicit_port=explicit_port)
+    route = targeting.resolve_tool_route(
+        name,
+        explicit_port=explicit_port,
+        explicit_session=explicit_session,
+        has_explicit_session=has_explicit_session,
+    )
     if not route.success:
         return _format_tool_result(targeting.route_error_result(route))
     if route.target is None:
@@ -19335,6 +19344,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     dispatch_arguments = doc_applied
     if explicit_port is not None:
         dispatch_arguments["port"] = route.target.port
+    dispatch_arguments.pop("session", None)
 
     with rhino_request_context(
         port=route.target.port,

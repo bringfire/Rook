@@ -70,6 +70,14 @@ def _smoke_command(name: str, repo_root: Path) -> tuple[list[str], Path]:
             ],
             repo_root,
         )
+    if name == "p3-session-mutation":
+        return (
+            [
+                sys.executable,
+                "mcp_server/tools/p3_session_mutation_live_harness.py",
+            ],
+            repo_root,
+        )
     if name == "runscript-safety":
         return (
             [
@@ -165,6 +173,7 @@ def build_parser() -> argparse.ArgumentParser:
             "gh-readiness",
             "gh-python-geometry-output",
             "p2-bridge-diagnosis",
+            "p3-session-mutation",
             "runscript-safety",
             "runscript-safety-hooks",
             "command-control-saturation",

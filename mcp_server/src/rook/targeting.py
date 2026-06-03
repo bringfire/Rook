@@ -6,7 +6,12 @@ import os
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from .bridge import call_rhino, discover_instances, discovery_diagnostics
+from .bridge import (
+    call_rhino,
+    discover_instances,
+    discovery_diagnostics,
+    _process_id_from_session_id,
+)
 
 
 @dataclass(frozen=True)
@@ -30,7 +35,7 @@ class ToolRoute:
     success: bool
     target: InstanceRef | None = None
     instance: dict[str, Any] | None = None
-    selection: Literal["explicit", "active", "auto", "panel_locked", "none"] = "none"
+    selection: Literal["explicit", "active", "auto", "panel_locked", "session", "none"] = "none"
     warning: str | None = None
     error: str | None = None
     stale_target: InstanceRef | None = None
@@ -39,6 +44,10 @@ class ToolRoute:
     document_serial_number: int | None = None
     requested_port: int | None = None
     invalid_port: object | None = None
+    invalid_session: object | None = None
+    requested_session: object | None = None
+    session_process_id: int | None = None
+    port_process_id: int | None = None
 
 
 Risk = Literal["read", "mutate", "meta"]
@@ -686,6 +695,29 @@ def policy_for_tool(name: str) -> RhinoToolPolicy:
     return TOOL_POLICIES.get(name, UNKNOWN_TOOL_POLICY)
 
 
+# Non-routed tools never execute against a Rhino session, so a `session` argument
+# on them is a contract error (rejected, not silently ignored) — EXCEPT tools that
+# legitimately own a non-routing `session` argument. This is an explicit exception
+# list, NOT a second routing-policy surface; it grows only by intentional addition.
+_NON_ROUTED_SESSION_ARGUMENT_TOOLS = {"rhino_session_capabilities"}
+
+
+def session_not_targetable_result(name: str) -> dict[str, Any]:
+    return _error_result(
+        "session_not_targetable",
+        message=(
+            "This tool does not execute against a Rhino session; remove the "
+            "'session' argument. Session targeting applies only to Rhino-routed tools."
+        ),
+        tool=name,
+    )
+
+
+def allows_non_routed_session_argument(name: str) -> bool:
+    """Whether a non-routed tool legitimately owns its own `session` argument."""
+    return name in _NON_ROUTED_SESSION_ARGUMENT_TOOLS
+
+
 def get_active_target() -> InstanceRef | None:
     return _ACTIVE_TARGET
 
@@ -870,7 +902,13 @@ def resolve_active_target() -> ActiveTargetResolution:
     )
 
 
-def resolve_tool_route(name: str, *, explicit_port: object | None = None) -> ToolRoute:
+def resolve_tool_route(
+    name: str,
+    *,
+    explicit_port: object | None = None,
+    explicit_session: object | None = None,
+    has_explicit_session: bool = False,
+) -> ToolRoute:
     policy = policy_for_tool(name)
     if not policy.requires_rhino:
         return ToolRoute(success=True, selection="none")
@@ -882,6 +920,19 @@ def resolve_tool_route(name: str, *, explicit_port: object | None = None) -> Too
             error="panel_target_config_error",
             instances=instances,
         )
+
+    pid_s: int | None = None
+    if has_explicit_session:
+        pid_s = _process_id_from_session_id(explicit_session)
+        # _process_id_from_session_id is lenient: "rhino-0" -> 0, "rhino--5" -> -5.
+        # A real PID is positive, so reject None OR non-positive as malformed.
+        if pid_s is None or pid_s <= 0:
+            return ToolRoute(
+                success=False,
+                error="invalid_session_id",
+                invalid_session=explicit_session,
+                instances=instances,
+            )
 
     if explicit_port is not None:
         normalized_port = _valid_explicit_port(explicit_port)
@@ -904,6 +955,12 @@ def resolve_tool_route(name: str, *, explicit_port: object | None = None) -> Too
                 instances=instances,
             )
         ref, canonical = locked_target
+        if has_explicit_session and pid_s != lock.process_id:
+            return ToolRoute(
+                success=False,
+                error="panel_target_locked",
+                instances=instances,
+            )
         if explicit_port is not None:
             explicit = next(
                 (instance for instance in instances if instance.get("port") == explicit_port),
@@ -925,6 +982,55 @@ def resolve_tool_route(name: str, *, explicit_port: object | None = None) -> Too
             selection="panel_locked",
             instances=instances,
             document_serial_number=lock.document_serial_number,
+        )
+
+    if has_explicit_session:
+        inst_s = next(
+            (
+                instance
+                for instance in instances
+                if instance.get("processId") == pid_s
+                and instance.get("pluginType") == "native"
+                and instance_ref_from_instance(instance) is not None
+            ),
+            None,
+        )
+        if inst_s is None:
+            return ToolRoute(
+                success=False,
+                error="rhino_session_not_found",
+                requested_session=explicit_session,
+                instances=instances,
+            )
+        if explicit_port is not None:
+            owner = next(
+                (instance for instance in instances if instance.get("port") == explicit_port),
+                None,
+            )
+            if owner is None:
+                return ToolRoute(
+                    success=False,
+                    error="requested_port_not_discovered",
+                    requested_port=explicit_port,
+                    instances=instances,
+                )
+            if owner.get("processId") != pid_s:
+                return ToolRoute(
+                    success=False,
+                    error="selector_conflict",
+                    requested_session=explicit_session,
+                    requested_port=explicit_port,
+                    session_process_id=pid_s,
+                    port_process_id=owner.get("processId"),
+                    instances=instances,
+                )
+        ref = instance_ref_from_instance(inst_s)
+        return ToolRoute(
+            success=True,
+            target=ref,
+            instance=inst_s,
+            selection="session",
+            instances=instances,
         )
 
     targets = _process_targets(instances)
@@ -1280,6 +1386,42 @@ def route_error_result(route: ToolRoute) -> dict[str, Any]:
         return _error_result(
             "rhino_target_unavailable",
             message="The requested Rhino target is not available.",
+            instances=route.instances or [],
+        )
+    if route.error == "invalid_session_id":
+        return _error_result(
+            "invalid_session_id",
+            message=(
+                "Session selector must be a string like 'rhino-<pid>' from "
+                "rhino_sessions; null or malformed is invalid."
+            ),
+            invalidSession=repr(route.invalid_session),
+            instances=route.instances or [],
+        )
+    if route.error == "rhino_session_not_found":
+        diagnostics = discovery_diagnostics()
+        return _error_result(
+            "rhino_session_not_found",
+            message=(
+                "No discovered RookNative session owns that id. "
+                "Call rhino_sessions for live sessions."
+            ),
+            session=route.requested_session,
+            discoveryFolder=diagnostics.get("discoveryFolder"),
+            discoveryFolders=diagnostics.get("discoveryFolders"),
+            instances=route.instances or [],
+        )
+    if route.error == "selector_conflict":
+        return _error_result(
+            "selector_conflict",
+            message=(
+                "session and port name different Rhino processes. Pass one selector, "
+                "or a port on the same process as the session."
+            ),
+            session=route.requested_session,
+            requestedPort=route.requested_port,
+            sessionProcessId=route.session_process_id,
+            portProcessId=route.port_process_id,
             instances=route.instances or [],
         )
     return _error_result(route.error or "rhino_target_error", instances=route.instances or [])
