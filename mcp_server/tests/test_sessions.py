@@ -46,3 +46,30 @@ def test_process_id_from_session_id_rejects_bad_input():
     assert bridge._process_id_from_session_id("rhino-") is None
     assert bridge._process_id_from_session_id("rhino-abc") is None
     assert bridge._process_id_from_session_id(None) is None
+
+
+def test_classify_live(monkeypatch):
+    monkeypatch.setattr(bridge, "_is_pid_alive", lambda pid: True)
+    monkeypatch.setattr(bridge, "_is_port_listening", lambda host, port: True)
+    out = bridge.classify_session_liveness({"processId": 1, "host": "127.0.0.1", "port": 10500})
+    assert out["state"] == "live"
+    assert out["pidAlive"] is True
+    assert out["portListening"] is True
+    assert out["code"] is None
+
+
+def test_classify_unreachable_keeps_session(monkeypatch):
+    # PID alive but port down => unreachable, NOT dead. Must never imply reaping.
+    monkeypatch.setattr(bridge, "_is_pid_alive", lambda pid: True)
+    monkeypatch.setattr(bridge, "_is_port_listening", lambda host, port: False)
+    out = bridge.classify_session_liveness({"processId": 2, "host": "127.0.0.1", "port": 10500})
+    assert out["state"] == "unreachable"
+    assert out["code"] == "rook_native_listener_unreachable"
+
+
+def test_classify_dead(monkeypatch):
+    monkeypatch.setattr(bridge, "_is_pid_alive", lambda pid: False)
+    monkeypatch.setattr(bridge, "_is_port_listening", lambda host, port: False)
+    out = bridge.classify_session_liveness({"processId": 3, "host": "127.0.0.1", "port": 10500})
+    assert out["state"] == "dead"
+    assert out["code"] == "rhino_session_dead"

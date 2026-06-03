@@ -568,6 +568,35 @@ def _process_id_from_session_id(session_id: Any) -> int | None:
         return None
 
 
+def classify_session_liveness(instance: dict[str, Any]) -> dict[str, Any]:
+    """Classify a discovered session's liveness without ever reaping it.
+
+    Probes PID and port INDEPENDENTLY so the two failure modes can be told
+    apart: a dead process (safe to reap, elsewhere) vs. an alive process whose
+    listener is unreachable (must be left alone — may be the user's live doc).
+    """
+    pid = instance.get("processId")
+    host = instance.get("host") or DEFAULT_HOST
+    port = instance.get("port")
+
+    pid_alive = bool(pid) and _is_pid_alive(int(pid))
+    port_listening = bool(port) and _is_port_listening(host, int(port))
+
+    if not pid_alive:
+        state, code = "dead", "rhino_session_dead"
+    elif not port_listening:
+        state, code = "unreachable", "rook_native_listener_unreachable"
+    else:
+        state, code = "live", None
+
+    return {
+        "state": state,
+        "pidAlive": pid_alive,
+        "portListening": port_listening,
+        "code": code,
+    }
+
+
 def get_rhino_host(
     port: int | None = None,
     endpoint: str | None = None,
