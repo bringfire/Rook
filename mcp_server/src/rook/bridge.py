@@ -30,6 +30,10 @@ DEFAULT_HOST = "127.0.0.1"
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost"})
 TIMEOUT = httpx.Timeout(connect=5.0, read=120.0, write=60.0, pool=5.0)
 
+# A session is a stable, legible name over a discovered Rhino process.
+_SESSION_ID_PREFIX = "rhino-"
+
+
 def resolve_discovery_folder(
     *,
     env: Mapping[str, str] | None = None,
@@ -546,6 +550,22 @@ def discover_instances() -> list[dict[str, Any]]:
     return [
         inst for inst in instances if inst.get("pluginType") in ("native", "roadcreator")
     ]
+
+
+def session_id_for_instance(instance: dict[str, Any]) -> str:
+    """Stable, human/agent-legible session id over a discovered Rhino process."""
+    return f"{_SESSION_ID_PREFIX}{instance.get('processId')}"
+
+
+def _process_id_from_session_id(session_id: Any) -> int | None:
+    """Parse a session id back to its process id, or None if malformed."""
+    if not isinstance(session_id, str) or not session_id.startswith(_SESSION_ID_PREFIX):
+        return None
+    raw = session_id[len(_SESSION_ID_PREFIX):]
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
 
 
 def get_rhino_host(

@@ -32,3 +32,17 @@ def test_is_port_listening_true_for_open_socket():
 
 def test_is_port_listening_false_for_zero_port():
     assert bridge._is_port_listening("127.0.0.1", 0) is False
+
+
+def test_session_id_round_trip():
+    instance = {"processId": 12345, "port": 10500, "pluginType": "native"}
+    sid = bridge.session_id_for_instance(instance)
+    assert sid == "rhino-12345"
+    assert bridge._process_id_from_session_id(sid) == 12345
+
+
+def test_process_id_from_session_id_rejects_bad_input():
+    assert bridge._process_id_from_session_id("bogus") is None
+    assert bridge._process_id_from_session_id("rhino-") is None
+    assert bridge._process_id_from_session_id("rhino-abc") is None
+    assert bridge._process_id_from_session_id(None) is None
