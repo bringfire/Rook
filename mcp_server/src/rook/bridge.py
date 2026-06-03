@@ -23,6 +23,8 @@ from typing import Any, Iterator, Mapping
 
 import httpx
 
+from .crash_artifacts import find_recent_rhino_crash_artifact
+
 logger = logging.getLogger(__name__)
 
 # Rhino bridge connection settings
@@ -675,46 +677,35 @@ async def get_session_capabilities(session_id: Any) -> dict[str, Any]:
         None,
     )
     if instance is None:
-        return {
-            "success": False,
-            "data": {
-                "code": "rhino_session_dead",
-                "session": session_id,
-                "processId": process_id,
-                "next_action": "The session is gone. Call list_sessions to see live sessions.",
-            },
+        # No native record. Probe the PID before claiming dead (P2): the record may
+        # be gone while the process lives (listener unloaded/reloading).
+        gone_target = {
+            "session": session_id, "processId": process_id, "port": None,
+            "endpoint": "/capabilities", "method": "GET",
         }
+        if _is_pid_alive(int(process_id)):
+            return build_session_liveness_error(
+                gone_target,
+                {"state": "unreachable", "pidAlive": True, "portListening": False},
+                reason="capability_query",
+            )
+        return build_session_liveness_error(
+            gone_target,
+            {"state": "dead", "pidAlive": False, "portListening": False},
+            reason="capability_query",
+        )
 
     liveness = classify_session_liveness(instance)
-    if liveness["state"] == "dead":
-        # Race: the record matched during discovery (pid alive at cleanup) but the
-        # process died before classification. Truth contract — report dead, never
-        # resolve stale capabilities for a gone process.
-        return {
-            "success": False,
-            "data": {
-                "code": "rhino_session_dead",
-                "session": session_id,
-                "processId": process_id,
-                "liveness": liveness,
-                "next_action": "The session is gone. Call list_sessions to see live sessions.",
-            },
+    if liveness["state"] in ("dead", "unreachable"):
+        # `dead` can be the TOCTOU race (record matched at discovery, process died
+        # before classification); either way report truthfully via the shared builder
+        # (gains crash_artifact on dead + retryable). Never resolve stale capabilities
+        # for a gone/unreachable process.
+        err_target = {
+            "session": session_id, "processId": process_id,
+            "port": instance.get("port"), "endpoint": "/capabilities", "method": "GET",
         }
-    if liveness["state"] == "unreachable":
-        return {
-            "success": False,
-            "data": {
-                "code": "rook_native_listener_unreachable",
-                "session": session_id,
-                "processId": process_id,
-                "liveness": liveness,
-                "next_action": (
-                    "The Rhino process is alive but its RookNative listener is not "
-                    "responding (plugin reload, listener restart, or a transient). "
-                    "The session was left in place; retry shortly."
-                ),
-            },
-        }
+        return build_session_liveness_error(err_target, liveness, reason="capability_query")
 
     # Read-only: PIN the effective endpoint to a vetted, allow-listed route.
     # resolve_capabilities() otherwise honors capabilities.liveEndpoint straight
@@ -738,6 +729,141 @@ async def get_session_capabilities(session_id: Any) -> dict[str, Any]:
             "capabilities": resolved,
         },
     }
+
+
+# Per-code policy: (retryable, next_action). The single source of truth for how a
+# bridge-failure code maps to agent-facing guidance. Only rhino_session_dead is
+# non-retryable, and the only path to it is a PID confirmed not-alive.
+_BRIDGE_ERROR_POLICY: dict[str, tuple[bool, str]] = {
+    "rhino_session_dead": (
+        False,
+        "The Rhino process is gone. Inspect crash_artifact if present, then call "
+        "rhino_sessions; do not retry this session.",
+    ),
+    "rook_native_listener_unreachable": (
+        True,
+        "The Rhino process is alive but its RookNative listener is not responding "
+        "(plugin reload, listener restart, or a transient). Retry shortly.",
+    ),
+    "rook_native_request_timeout": (
+        True,
+        "The request did not complete before the timeout — Rhino may be busy (a long "
+        "command or a modal dialog) or a client-side stall. Retry shortly.",
+    ),
+    "rook_native_transport_error": (
+        True,
+        "The bridge request failed at the transport layer and the cause could not be "
+        "confirmed. Call rhino_sessions to check live sessions, then retry.",
+    ),
+}
+
+
+def _assemble_bridge_error(
+    code: str,
+    target: dict[str, Any],
+    liveness: dict[str, Any] | None = None,
+    reason: str | None = None,
+) -> dict[str, Any]:
+    """Assemble the structured `{success:False, data:{...}}` bridge-error envelope.
+
+    Attaches a locate-only `crash_artifact` only for `rhino_session_dead`.
+    """
+    retryable, next_action = _BRIDGE_ERROR_POLICY[code]
+    data: dict[str, Any] = {
+        "code": code,
+        "session": target.get("session"),
+        "processId": target.get("processId"),
+        "port": target.get("port"),
+        "endpoint": target.get("endpoint"),
+        "method": target.get("method"),
+        "retryable": retryable,
+        "next_action": next_action,
+    }
+    if liveness is not None:
+        data["liveness"] = liveness
+    if reason:
+        data["reason"] = reason
+    if code == "rhino_session_dead":
+        artifact = find_recent_rhino_crash_artifact(process_id=target.get("processId"))
+        if artifact is not None:
+            data["crash_artifact"] = artifact
+    return {"success": False, "data": data}
+
+
+def build_session_liveness_error(
+    target: dict[str, Any],
+    liveness: dict[str, Any],
+    reason: str | None = None,
+) -> dict[str, Any]:
+    """Build the bridge-error envelope from a resolved liveness state.
+
+    Used by both `diagnose_bridge_failure` (connectivity branch) and
+    `get_session_capabilities`. `live`/indeterminate is not a liveness *error* and
+    maps to `rook_native_transport_error` (callers normally pass dead/unreachable).
+    """
+    code = {
+        "dead": "rhino_session_dead",
+        "unreachable": "rook_native_listener_unreachable",
+    }.get(liveness.get("state"), "rook_native_transport_error")
+    return _assemble_bridge_error(code, target, liveness=liveness, reason=reason)
+
+
+# Connectivity failures: the connection could not be established or was dropped.
+# ConnectTimeout is listed here on purpose (it subclasses TimeoutException) so it is
+# diagnosed by probing liveness, not bucketed as a request timeout.
+_CONNECTIVITY_ERRORS = (
+    httpx.ConnectError,
+    httpx.ConnectTimeout,
+    httpx.ReadError,
+    httpx.WriteError,
+    httpx.CloseError,
+)
+
+
+def _resolve_target_liveness(target: dict[str, Any]) -> dict[str, Any]:
+    """Liveness for a target, resolving a missing PID by port. Never guesses death.
+
+    With a known PID, classify directly. Without one, look up the port in a fresh
+    discover; if a native record owns it, classify that. If nothing owns the port,
+    return 'indeterminate' — the caller maps that to a transport error, never a
+    fabricated rhino_session_dead.
+    """
+    if target.get("processId"):
+        return classify_session_liveness(target)
+    port = target.get("port")
+    inst = next(
+        (i for i in discover_instances()
+         if i.get("port") == port and i.get("pluginType") == "native"),
+        None,
+    )
+    if inst is not None:
+        return classify_session_liveness(inst)
+    return {"state": "indeterminate", "pidAlive": None, "portListening": None}
+
+
+def diagnose_bridge_failure(target: dict[str, Any], exc: Exception) -> dict[str, Any]:
+    """Classify an httpx transport failure into a structured bridge-error envelope.
+
+    Order matters: connectivity errors (incl. ConnectTimeout) are tested before the
+    broad TimeoutException bucket. Timeouts PID-probe first so a death masked as a
+    timeout returns rhino_session_dead, never a retryable timeout.
+    """
+    if isinstance(exc, _CONNECTIVITY_ERRORS):
+        liveness = _resolve_target_liveness(target)
+        if liveness["state"] in ("dead", "unreachable"):
+            return build_session_liveness_error(target, liveness, reason="tool_call")
+        return _assemble_bridge_error(
+            "rook_native_transport_error", target, liveness=liveness, reason="tool_call"
+        )
+
+    if isinstance(exc, httpx.TimeoutException):  # ReadTimeout / WriteTimeout / PoolTimeout
+        pid = target.get("processId")
+        if pid and not _is_pid_alive(int(pid)):
+            liveness = {"state": "dead", "pidAlive": False, "portListening": None}
+            return build_session_liveness_error(target, liveness, reason="tool_call")
+        return _assemble_bridge_error("rook_native_request_timeout", target, reason="tool_call")
+
+    return _assemble_bridge_error("rook_native_transport_error", target, reason="tool_call")
 
 
 def get_rhino_host(
@@ -960,12 +1086,12 @@ async def call_rhino(
             ),
         }
 
-    host = get_rhino_host(
-        resolved_port,
-        endpoint=endpoint,
-        process_id=resolved_process_id,
-    )
-    if host is None:
+    # Capture the resolved target ONCE — the single source of truth for both the
+    # request URL and failure diagnosis. Do NOT call get_rhino_host() here: it
+    # re-runs select_rhino_instance and, under discovery churn, could resolve a
+    # different instance than the one we captured, splitting the URL's target from
+    # the diagnosed PID.
+    if selected_instance is None or not selected_instance.get("port"):
         return {
             "success": False,
             "data": (
@@ -973,7 +1099,18 @@ async def call_rhino(
                 "Ensure Rhino is running with RookNative loaded."
             ),
         }
-    url = f"{host}{endpoint}"
+    target = {
+        "host": selected_instance.get("host") or DEFAULT_HOST,
+        "port": selected_instance.get("port"),
+        "processId": selected_instance.get("processId"),
+        "session": (
+            session_id_for_instance(selected_instance)
+            if selected_instance.get("processId") else None
+        ),
+        "endpoint": endpoint,
+        "method": method,
+    }
+    url = f"http://{target['host']}:{target['port']}{endpoint}"
 
     async with httpx.AsyncClient(timeout=timeout or TIMEOUT) as client:
         try:
@@ -998,24 +1135,11 @@ async def call_rhino(
 
             result = response.json()
             return result
-        except httpx.ConnectError:
-            instances = discover_instances()
-            if instances:
-                ports_info = ", ".join(str(i["port"]) for i in instances)
-                return {
-                    "success": False,
-                    "data": (
-                        f"Cannot connect to Rhino on {host}. "
-                        f"Available instances on ports: {ports_info}. "
-                        f"Use rhino_instances tool to see all instances."
-                    ),
-                }
-            return {
-                "success": False,
-                "data": (
-                    "Cannot connect to Rhino. "
-                    "Is Rhino running with RookNative loaded?"
-                ),
-            }
+        except httpx.RequestError as exc:
+            # Transport-level failure (connect / timeout / network) — diagnose it.
+            return diagnose_bridge_failure(target, exc)
         except Exception as e:
+            # A response was received but post-processing failed (e.g. response.json()
+            # decode / body shape). NOT a bridge transport failure — preserve the
+            # existing non-P2 behavior.
             return {"success": False, "data": str(e)}

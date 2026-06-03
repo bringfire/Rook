@@ -885,7 +885,9 @@ git commit -m "feat(bridge): get_session_capabilities probes PID before claiming
 
 ---
 
-## Task 6: Live smoke verification (manual, against a real Rhino)
+## Task 6: Live smoke verification (against a real Rhino)
+
+> **Implemented as a repeatable harness smoke (corrected post-review):** built `mcp_server/tools/p2_bridge_diagnosis_live_harness.py`, run via `scripts/run_rhino_runtime_harness.py --smoke p2-bridge-diagnosis` (the harness launches an OWNED throwaway Rhino, sets `ROOK_RHINO_PROCESS_ID`/`ROOK_RHINO_PORT`, runs the smoke, shuts the Rhino down gracefully — never touches the user's session). Covers **all four codes** against real OS state: `live` baseline, `rook_native_listener_unreachable` (real alive pid + real dead port, record retained), `rook_native_request_timeout` (ReadTimeout + real alive pid), and `rhino_session_dead` (a real throwaway-process dead pid, via both ConnectError and timeout-masking) with and without a `crash_artifact`. **Honesty boundaries:** the dead path uses a *throwaway* dead pid (not a killed Rhino — killing it defeats the harness's graceful cleanup); the crash artifact is a **synthetic** `RhinoDotNetCrash.txt` validating the finder's filesystem-location + freshness logic (a real Rhino crash is non-deterministic to induce). Result: **7/7 PASS, harness `graceful_exit`/`success`.** The manual Steps 1–6 below were the original sketch; the harness tool supersedes them.
 
 Per the project's "live smoke catches what mocks miss" rule, verify end-to-end before opening the PR. No code — a gate. (Bridge-level Python smoke is sufficient; no MCP redeploy required.)
 
