@@ -89,3 +89,19 @@ async def test_call_tool_rhino_sessions_multiple_rhinos_lists_all(monkeypatch):
     assert not text.startswith("Error:")
     sessions = {s["session"] for s in json.loads(text)["sessions"]}
     assert sessions == {"rhino-111", "rhino-222"}
+
+
+@pytest.mark.asyncio
+async def test_call_tool_rhino_session_capabilities_unrouted_not_routing_error(monkeypatch):
+    # Symmetry with rhino_sessions: the real call_tool path must reach the meta
+    # dispatch (get_session_capabilities), not resolve_tool_route. With zero
+    # discovered Rhinos, asking for a session returns the structured
+    # rhino_session_dead -- never a no_rhino_instance/multiple_rhino_instances
+    # routing error.
+    monkeypatch.setattr(bridge, "discover_instances", lambda: [])
+    out = await server.call_tool("rhino_session_capabilities", {"session": "rhino-404"})
+    text = out[0].text
+    assert "no_rhino_instance" not in text
+    assert "multiple_rhino_instances" not in text
+    assert "rhino_session_dead" in text
+    assert "rhino-404" in text
