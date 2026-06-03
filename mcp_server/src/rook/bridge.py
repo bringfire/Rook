@@ -23,6 +23,8 @@ from typing import Any, Iterator, Mapping
 
 import httpx
 
+from .crash_artifacts import find_recent_rhino_crash_artifact
+
 logger = logging.getLogger(__name__)
 
 # Rhino bridge connection settings
@@ -738,6 +740,83 @@ async def get_session_capabilities(session_id: Any) -> dict[str, Any]:
             "capabilities": resolved,
         },
     }
+
+
+# Per-code policy: (retryable, next_action). The single source of truth for how a
+# bridge-failure code maps to agent-facing guidance. Only rhino_session_dead is
+# non-retryable, and the only path to it is a PID confirmed not-alive.
+_BRIDGE_ERROR_POLICY: dict[str, tuple[bool, str]] = {
+    "rhino_session_dead": (
+        False,
+        "The Rhino process is gone. Inspect crash_artifact if present, then call "
+        "rhino_sessions; do not retry this session.",
+    ),
+    "rook_native_listener_unreachable": (
+        True,
+        "The Rhino process is alive but its RookNative listener is not responding "
+        "(plugin reload, listener restart, or a transient). Retry shortly.",
+    ),
+    "rook_native_request_timeout": (
+        True,
+        "The request did not complete before the timeout — Rhino may be busy (a long "
+        "command or a modal dialog) or a client-side stall. Retry shortly.",
+    ),
+    "rook_native_transport_error": (
+        True,
+        "The bridge request failed at the transport layer and the cause could not be "
+        "confirmed. Call rhino_sessions to check live sessions, then retry.",
+    ),
+}
+
+
+def _assemble_bridge_error(
+    code: str,
+    target: dict[str, Any],
+    liveness: dict[str, Any] | None = None,
+    reason: str | None = None,
+) -> dict[str, Any]:
+    """Assemble the structured `{success:False, data:{...}}` bridge-error envelope.
+
+    Attaches a locate-only `crash_artifact` only for `rhino_session_dead`.
+    """
+    retryable, next_action = _BRIDGE_ERROR_POLICY[code]
+    data: dict[str, Any] = {
+        "code": code,
+        "session": target.get("session"),
+        "processId": target.get("processId"),
+        "port": target.get("port"),
+        "endpoint": target.get("endpoint"),
+        "method": target.get("method"),
+        "retryable": retryable,
+        "next_action": next_action,
+    }
+    if liveness is not None:
+        data["liveness"] = liveness
+    if reason:
+        data["reason"] = reason
+    if code == "rhino_session_dead":
+        artifact = find_recent_rhino_crash_artifact(process_id=target.get("processId"))
+        if artifact is not None:
+            data["crash_artifact"] = artifact
+    return {"success": False, "data": data}
+
+
+def build_session_liveness_error(
+    target: dict[str, Any],
+    liveness: dict[str, Any],
+    reason: str | None = None,
+) -> dict[str, Any]:
+    """Build the bridge-error envelope from a resolved liveness state.
+
+    Used by both `diagnose_bridge_failure` (connectivity branch) and
+    `get_session_capabilities`. `live`/indeterminate is not a liveness *error* and
+    maps to `rook_native_transport_error` (callers normally pass dead/unreachable).
+    """
+    code = {
+        "dead": "rhino_session_dead",
+        "unreachable": "rook_native_listener_unreachable",
+    }.get(liveness.get("state"), "rook_native_transport_error")
+    return _assemble_bridge_error(code, target, liveness=liveness, reason=reason)
 
 
 def get_rhino_host(
