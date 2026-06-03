@@ -2,18 +2,32 @@
 
 Run via `scripts/run_rhino_runtime_harness.py --smoke p2-bridge-diagnosis`, which
 launches an OWNED throwaway Rhino and sets ROOK_RHINO_PROCESS_ID / ROOK_RHINO_PORT.
-This exercises P2's structured diagnosis against that owned process (including
-killing it), verifying the things mocks cannot: a real OS pid-alive check, a real
-TCP probe, real crash-file location. It never touches any other Rhino session.
+It exercises P2's structured diagnosis against real OS state — a real OS pid-alive
+check, a real TCP probe, real crash-file location — and never touches any other
+Rhino session.
+
+What is and isn't "real" here (so the PR claim stays honest):
+  - The owned Rhino is left ALIVE and shut down gracefully by the harness. The
+    dead / timeout-masking paths use a *throwaway* process's genuinely-dead PID,
+    not a killed Rhino (killing the owned Rhino works too but defeats the harness's
+    graceful cleanup).
+  - The crash-artifact check writes a SYNTHETIC RhinoDotNetCrash.txt in a temp dir
+    and points the finder at it, so it validates the finder's real-filesystem
+    location + freshness logic — not an artifact from an actual Rhino crash.
+  - Inducing a real ReadTimeout or a real crash is non-deterministic, so the
+    timeout and dead paths feed the real classifier a real httpx exception against
+    real (alive/dead) PIDs.
 
 Scenarios (in order):
-  1. live_baseline        — call_rhino /ping against the owned Rhino succeeds.
-  2. unreachable          — synthetic dead-port record (owned alive pid) ->
-                            rook_native_listener_unreachable, record retained.
-  3. kill_owned_rhino     — force-kill the owned Rhino (taskkill /F).
-  4. dead_with_crash      — diagnose with the now-dead pid + a fresh crash file ->
-                            rhino_session_dead + crash_artifact pointer.
-  5. dead_no_crash        — same, no crash file -> rhino_session_dead, no artifact.
+  1. live_baseline          — call_rhino /ping against the owned Rhino succeeds.
+  2. unreachable            — synthetic dead-port record (owned ALIVE pid) ->
+                              rook_native_listener_unreachable, record retained.
+  3. timeout_alive          — ReadTimeout + owned alive pid -> request_timeout.
+  4. dead_pid_ready         — spawn a throwaway process; confirm its PID is dead.
+  5. timeout_masking_death  — ReadTimeout + dead pid -> rhino_session_dead.
+  6. dead_with_crash        — ConnectError + dead pid + synthetic crash file ->
+                              rhino_session_dead + crash_artifact pointer.
+  7. dead_no_crash          — same, no crash file -> rhino_session_dead, no artifact.
 """
 
 from __future__ import annotations
@@ -109,6 +123,24 @@ def make_dead_pid() -> int:
     return proc.pid
 
 
+def scenario_timeout_alive(pid: int, port: int) -> None:
+    # Owned Rhino is alive: a read timeout means busy/slow, not dead.
+    out = bridge.diagnose_bridge_failure(_target(pid, port), httpx.ReadTimeout("slow"))
+    d = out.get("data", {})
+    ok = d.get("code") == "rook_native_request_timeout" and d.get("retryable") is True
+    _record("timeout_alive", ok, f"code={d.get('code')}, retryable={d.get('retryable')}")
+
+
+def scenario_timeout_masking_death(dead_pid: int, port: int) -> None:
+    # A death can surface as a read timeout: known-dead pid => rhino_session_dead.
+    crash_artifacts._desktop_dirs = lambda: []
+    crash_artifacts._dump_dirs = lambda: []
+    out = bridge.diagnose_bridge_failure(_target(dead_pid, port), httpx.ReadTimeout("slow"))
+    d = out.get("data", {})
+    ok = d.get("code") == "rhino_session_dead" and d.get("retryable") is False
+    _record("timeout_masking_death", ok, f"code={d.get('code')}, retryable={d.get('retryable')}")
+
+
 def scenario_dead_with_crash(pid: int, port: int) -> None:
     tmp = Path(tempfile.mkdtemp(prefix="p2smoke-desktop-"))
     (tmp / "RhinoDotNetCrash.txt").write_text(
@@ -142,7 +174,9 @@ async def main() -> int:
           flush=True)
     await scenario_live(pid, port)
     await scenario_unreachable(pid, port)
+    scenario_timeout_alive(pid, port)
     dead_pid = make_dead_pid()
+    scenario_timeout_masking_death(dead_pid, port)
     scenario_dead_with_crash(dead_pid, port)
     scenario_dead_no_crash(dead_pid, port)
 
