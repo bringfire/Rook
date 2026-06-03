@@ -49,7 +49,7 @@ if logger.isEnabledFor(logging.DEBUG):
         LOADED_ENV_PATH or "<none>",
     )
 
-from .bridge import call_rhino, get_rhino_host, discover_instances, TIMEOUT, DISCOVERY_FOLDER, rhino_request_context
+from .bridge import call_rhino, get_rhino_host, discover_instances, TIMEOUT, DISCOVERY_FOLDER, rhino_request_context, list_sessions_result, get_session_capabilities
 from . import director, director_publish, director_video, script_library, targeting
 targeting.initialize_from_environment()
 from .knowledge import query_knowledge, query_knowledge_tiered, record_knowledge, invalidate_condensed_command_cache
@@ -2766,6 +2766,25 @@ async def list_tools() -> list[Tool]:
             name="rhino_instances",
             description="List all active Rhino instances running the Rook plugin. Returns port, process ID, start time, and document name for each instance. Use this when working with multiple Rhino windows.",
             inputSchema={"type": "object", "properties": {}, "required": []}
+        ),
+        Tool(
+            name="rhino_sessions",
+            description="List discovered Rhino sessions (one per open Rhino window) with a liveness envelope (live / unreachable / dead). Read-only: does NOT launch, target, mutate, or close anything. Distinguishes a dead process from an alive process whose RookNative listener is temporarily unreachable. Use before targeting a specific Rhino window. NOTE: distinct from `session_list`, which lists past recording sessions for replay.",
+            inputSchema={"type": "object", "properties": {}, "required": []},
+        ),
+        Tool(
+            name="rhino_session_capabilities",
+            description="Resolve the live capability document for one Rhino session by its `session` id (from rhino_sessions, e.g. 'rhino-12345'). Read-only: touches only /capabilities. Returns a structured error if the session is dead (rhino_session_dead) or its listener is unreachable (rook_native_listener_unreachable).",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "session": {
+                        "type": "string",
+                        "description": "Session id from rhino_sessions, e.g. 'rhino-12345'.",
+                    }
+                },
+                "required": ["session"],
+            },
         ),
         Tool(
             name="rhino_set_active_instance",
@@ -12704,6 +12723,12 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
     match name:
         case "rhino_instances":
             result = await targeting.instances_result()
+
+        case "rhino_sessions":
+            result = list_sessions_result()
+
+        case "rhino_session_capabilities":
+            result = await get_session_capabilities(arguments.get("session"))
 
         case "rhino_set_active_instance":
             result = await targeting.bind_active_instance(
