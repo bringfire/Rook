@@ -1,5 +1,6 @@
 import os
 import sys
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -245,3 +246,89 @@ def test_panel_lock_rejects_out_of_lock_session(monkeypatch):
     )
     assert route.success is False
     assert route.error == "panel_target_locked"
+
+
+@pytest.mark.asyncio
+async def test_call_tool_routes_by_session_sets_context(monkeypatch):
+    # Mirrors the proven context-capture pattern (a read tool that reaches
+    # call_rhino without per-tool preprocessing). Session=rhino-7102 must route to
+    # 7102 even though it is NOT the auto-first instance.
+    from rook import bridge, server
+    insts = [_inst(9950, 7101, "A.3dm"), _inst(9951, 7102, "B.3dm")]
+    monkeypatch.setattr(server, "discover_instances", lambda: insts)
+    monkeypatch.setattr(targeting, "discover_instances", lambda: insts)
+    targeting.clear_active_target()
+
+    captured = {}
+
+    async def fake_call_rhino(*a, **k):
+        captured.update(bridge.get_rhino_request_context())
+        return {"success": True, "data": []}
+
+    with patch.object(server, "call_rhino", new_callable=AsyncMock) as mock:
+        mock.side_effect = fake_call_rhino
+        await server.call_tool("rhino_layers", {"session": "rhino-7102"})
+    assert captured["port"] == 9951
+    assert captured["process_id"] == 7102
+
+
+@pytest.mark.asyncio
+async def test_call_tool_session_bypasses_mutate_ambiguity(monkeypatch):
+    # Two instances: a bare mutate refuses (multiple_rhino_instances); naming a
+    # session disambiguates and dispatches.
+    from rook import server
+    insts = [_inst(9950, 7101, "A.3dm"), _inst(9951, 7102, "B.3dm")]
+    monkeypatch.setattr(server, "discover_instances", lambda: insts)
+    monkeypatch.setattr(targeting, "discover_instances", lambda: insts)
+    targeting.clear_active_target()
+
+    with patch.object(server, "call_rhino", new_callable=AsyncMock) as mock:
+        mock.return_value = {"success": True, "data": {"ok": True}}
+        result = await server.call_tool(
+            "rhino_execute", {"session": "rhino-7102", "code": "print(1)"}
+        )
+    assert "multiple_rhino_instances" not in result[0].text
+    mock.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_call_tool_strips_session_from_dispatch(monkeypatch):
+    from rook import server
+    insts = [_inst(9950, 7101, "A.3dm")]
+    monkeypatch.setattr(server, "discover_instances", lambda: insts)
+    monkeypatch.setattr(targeting, "discover_instances", lambda: insts)
+    targeting.clear_active_target()
+
+    captured = {}
+
+    async def fake_dispatch(name, arguments):
+        captured["arguments"] = arguments
+        return {"success": True, "data": {}}
+
+    with patch.object(server, "_call_tool_dispatch", new_callable=AsyncMock) as mock:
+        mock.side_effect = fake_dispatch
+        await server.call_tool(
+            "rhino_execute", {"session": "rhino-7101", "code": "print(1)"}
+        )
+    assert "session" not in captured["arguments"]
+    assert captured["arguments"]["code"] == "print(1)"
+
+
+@pytest.mark.asyncio
+async def test_call_tool_rejects_session_on_non_routed_tool(monkeypatch):
+    from rook import server
+    result = await server.call_tool(
+        "knowledge_query", {"session": "rhino-7101", "intent": "x"}
+    )
+    assert "session_not_targetable" in result[0].text
+
+
+@pytest.mark.asyncio
+async def test_call_tool_allows_session_on_capabilities(monkeypatch):
+    from rook import server
+    monkeypatch.setattr(
+        server, "get_session_capabilities",
+        AsyncMock(return_value={"success": True, "data": {"session": "rhino-1"}}),
+    )
+    result = await server.call_tool("rhino_session_capabilities", {"session": "rhino-1"})
+    assert "session_not_targetable" not in result[0].text
