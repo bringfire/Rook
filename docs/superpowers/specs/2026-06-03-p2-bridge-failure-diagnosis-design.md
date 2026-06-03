@@ -35,7 +35,7 @@ No `code`, no PID confirmation, no distinction between *gone* / *unreachable* / 
 - Crash-artifact **parsing** (minidump/WER internals, managed-exception frames) — a later focused forensics slice.
 - Any new reaping policy, including the deferred persistently-unreachable debounce (stays deferred).
 - RookNative (C++) changes; any session selector in the general routing path.
-- **Reclassifying HTTP-response-received failures.** If a response arrives (any HTTP status, JSON body or not), that is a route/tool/plugin outcome and passes through existing behavior — it is **never** turned into `rook_native_transport_error`. P2 diagnoses *connection/request* failure around the bridge, not *semantic* route failure.
+- **Reclassifying HTTP-response-received failures.** If a response arrives (any HTTP status, JSON body or not), that is a route/tool/plugin outcome and passes through existing behavior — it is **never** turned into `rook_native_transport_error`. This includes a `response.json()` **decode / body-shape failure**: a response *was* received, so it stays on the existing (non-P2) path. P2 diagnoses *connection/request* failure around the bridge, not *semantic* route failure.
 
 ---
 
@@ -54,8 +54,9 @@ Before issuing the request, `call_rhino` binds a structured target and uses it i
 }
 ```
 
-- `processId` / `session` may be `null` when the target was resolved by **port only** (no explicit PID/session and `select_rhino_instance` returned `None`). Diagnosis degrades gracefully **but never *guesses* death**: when `processId` is null, P2 resolves the PID by looking up `target.port` in a fresh `discover_instances()`. If a record owns that port, its PID is probed normally. If **no** record does, P2 cannot confirm that a specific process died — it returns `rook_native_transport_error` (incomplete diagnosis; `retryable:true`) pointing the caller at `rhino_sessions`, rather than fabricating a `rhino_session_dead`. (Naively handing a PID-less target to `classify_session_liveness` would compute `pidAlive=False` and *falsely* report `dead` — this resolution step exists to prevent that.)
-- **Rationale:** at the `except`, `selected_instance` (which carries the PID) can be `None`, while `host`/port are reliable. Capturing the target up front makes diagnosis reliable instead of "guess from discovery-by-port after the fact" (fragile exactly when a dead PID's record is gone or a port was reused). It also doubles as the instance dict fed to `classify_session_liveness`, and enriches the envelope (the agent sees the attempted `endpoint`/`method`).
+- **Capture once; build the URL from the capture.** `call_rhino` selects the target a single time (`select_rhino_instance`), captures that instance, and builds the request URL **from the captured instance** — it does **not** call `get_rhino_host()` again. Today `call_rhino` selects via `select_rhino_instance` *and then separately* builds the host via `get_rhino_host`, which **re-runs the same selector** (`bridge.py:762`); under discovery churn the two selections can resolve *different* instances, splitting the URL's target from the diagnosed PID. P2 unifies them: one capture is the single source of truth for both the request and its diagnosis.
+- **`processId` comes from the captured instance.** Native discovery records carry it, so the PID is reliably present at the `except` (the load-bearing fix — `select_rhino_instance`'s result is otherwise not retained to the failure point). In the degenerate case where a record lacks `processId`, diagnosis falls back to a port probe plus the no-guess rule below, and enriches the envelope with the attempted `endpoint`/`method`.
+- **Never guess death.** `rhino_session_dead` is confirmed only from a **known PID probed not-alive**. If the PID is unknown/unresolvable, P2 returns `rook_native_transport_error` (incomplete diagnosis; `retryable:true`) pointing at `rhino_sessions` — it does **not** hand a PID-less target to `classify_session_liveness`, which would compute `pidAlive=False` and *falsely* report `dead`.
 
 ---
 
@@ -76,7 +77,8 @@ Notes:
 - **Timeout wording is deliberately soft.** `ReadTimeout` usually means *connected, no response*, but `PoolTimeout` is **client-side pool exhaustion** and `WriteTimeout` may be a request-body/socket stall. So the `next_action` says *"the request did not complete before the timeout — Rhino may be busy (a long command or a modal dialog) or a client-side stall; retry shortly,"* not "Rhino is showing a modal dialog."
 - **`ConnectTimeout`** sits with the connectivity group (the connect phase did not complete) and is resolved by the same `classify_session_liveness` probe.
 - `ReadError`/`WriteError` (connection dropped mid-request) are the *crashed-mid-call* shape — captured as `rhino_session_dead` + `crash_artifact` when the PID probe confirms death. **No separate `rhino_crashed` code** — "dead with a fresh artifact" carries that meaning without overclaiming confidence P2 doesn't have.
-- **`rhino_session_dead` requires a *known* PID confirmed not-alive.** A port-only target whose owning record cannot be found in a fresh `discover_instances()` yields `rook_native_transport_error` (incomplete diagnosis), **never** a guessed `rhino_session_dead` (§3).
+- **`rhino_session_dead` requires a *known* PID confirmed not-alive.** A target whose PID cannot be resolved yields `rook_native_transport_error` (incomplete diagnosis), **never** a guessed `rhino_session_dead` (§3).
+- **Check order (implementation).** `ConnectTimeout` subclasses `httpx.TimeoutException`, so the **connectivity group must be tested before the broad timeout bucket** — otherwise `ConnectTimeout` falls into `rook_native_request_timeout` instead of the PID-probe path. Order: connectivity (`ConnectError` / `ConnectTimeout` / `ReadError` / `WriteError`) → remaining `TimeoutException` (`ReadTimeout` / `WriteTimeout` / `PoolTimeout`) → other `RequestError`.
 
 ---
 
@@ -143,8 +145,8 @@ diagnose_bridge_failure(target, exc) -> dict                       # call_rhino'
 
 - **`build_session_liveness_error`** is pure (probes already done): assembles `code` / `session` / `processId` / `port` / `endpoint` / `method` / `liveness` / `retryable` / `next_action`, and attaches `crash_artifact` when `liveness.state == "dead"`. It owns the code→retryable→next_action mapping. (`reason` is a short caller-context tag — e.g. `"tool_call"` vs `"capability_query"` — that tunes only the `next_action` wording, not the `code`.)
 - **`diagnose_bridge_failure`** classifies `exc` (§4): for the timeout and other-transport branches it builds the envelope directly; for the connectivity branch it runs `classify_session_liveness(target)` and delegates to `build_session_liveness_error`.
-- **`get_session_capabilities` reuses `build_session_liveness_error`** for its dead/unreachable branches — it already holds the `liveness`, so it calls the builder directly and **does not fabricate an `httpx` exception**. This is the symmetry win (its dead branch gains `crash_artifact` + `retryable`), and it is **additive** to P1's contract (no field removed/renamed).
-- `call_rhino` captures the target (§3), then its `except` blocks call `diagnose_bridge_failure(target, exc)`. The current free-text `ConnectError`/`Exception` returns are replaced; **HTTP-response-received paths are untouched** (§2 boundary).
+- **`get_session_capabilities` reuses `build_session_liveness_error`** — but it must **probe before it claims dead**. Its P1 *no-record* branch (no native instance found) currently returns `rhino_session_dead` *without* a PID probe; P2 tightens it: probe `_is_pid_alive(process_id)` first — **dead → `rhino_session_dead`**; **alive but no native record → `rook_native_listener_unreachable`** (do not claim dead). The *has-record* branch already holds a `classify_session_liveness` result and passes it to the builder. It never fabricates an `httpx` exception. *(This modifies a P1 branch — additive: the dead branch gains `crash_artifact` + `retryable`; the no-record branch stops over-claiming `dead`.)*
+- `call_rhino` captures the target (§3), then routes **only `httpx.RequestError` / transport exceptions** to `diagnose_bridge_failure(target, exc)`. **Post-response failures are not P2:** `response.json()` runs inside the `try`, so a decode / body-shape error means a response *was* received — it keeps existing behavior and is **never** turned into `rook_native_transport_error`. The free-text `httpx.ConnectError` return is replaced; the broad `except Exception` is **narrowed** so it stops swallowing transport errors into a generic string while still preserving the post-response path.
 
 ---
 
@@ -170,10 +172,11 @@ diagnose_bridge_failure(target, exc) -> dict                       # call_rhino'
 
 - **P2 = structured bridge-failure diagnosis + locate-only crash-artifact metadata.** Diagnosis, not recovery (no spawn/relaunch/allocation).
 - **Four codes, no `rhino_crashed`:** `rhino_session_dead` / `rook_native_listener_unreachable` / `rook_native_request_timeout` / `rook_native_transport_error`. Dead + fresh `crash_artifact` conveys "crashed" without overclaiming.
-- **Capture the target before the call** (host/port/processId/session/endpoint/method) — the load-bearing fix so PID is reliably available at diagnosis and the envelope is stable for agents.
+- **Capture the target once; build the URL from the capture** (host/port/processId/session/endpoint/method) — no second `get_rhino_host()` call, so the diagnosed PID always matches the URL that failed. Load-bearing for reliable diagnosis + a stable envelope.
+- **`get_session_capabilities` probes the PID before claiming dead** — P2 tightens P1's no-record branch (alive PID + no native record → unreachable, not dead).
 - **Crash artifacts are located, not parsed**, and carry a **confidence tag** (`match` / `pidMatched`). Parsing is a later slice.
 - **Softer timeout semantics** — `PoolTimeout`/`WriteTimeout` aren't necessarily Rhino behavior; describe as "request did not complete before timeout."
-- **HTTP-response-received stays out** of transport diagnosis — semantic route/tool failure is not a bridge failure.
+- **HTTP-response-received stays out** of transport diagnosis — semantic route/tool failure is not a bridge failure; only `httpx.RequestError` is diagnosed, so `response.json()` decode failures keep existing behavior.
 - **`retryable` on every bridge error** — the one field agents read to decide whether to retry the same session.
 - **Two split helpers** — `diagnose_bridge_failure` (exception path) and `build_session_liveness_error` (shared builder, also used by `get_session_capabilities`); no fabricated exceptions.
 - **Reaping unchanged from P1**; persistently-unreachable debounce stays deferred.
