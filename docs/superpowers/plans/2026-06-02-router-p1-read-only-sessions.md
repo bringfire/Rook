@@ -510,6 +510,8 @@ git commit -m "feat(bridge): fail-closed read-only allowlist for session-targete
 - Modify: `mcp_server/src/rook/bridge.py` (add `get_session_capabilities` after `list_sessions_result`)
 - Test: `mcp_server/tests/test_sessions.py`
 
+> **Correction (added in review at Checkpoint 1 — shipped in `fc7e2c3`):** A **dead-state branch** was added to `get_session_capabilities`, placed **before** the `unreachable` branch. After a record matches in discovery, the process can die before `classify_session_liveness` returns `state="dead"`; the function must then return `success=False, code="rhino_session_dead"` and **never** call `resolve_capabilities` (whose bootstrap fallback would otherwise return a false `success=true` — a liveness lie P1 exists to prevent). Regression test `test_get_session_capabilities_dead_after_discovery_race` (stateful `_is_pid_alive`: alive at cleanup, dead at classification; asserts resolve is never called) brings this task's suite to **18** passing.
+
 Contract (returns the `{"success", "data"}` envelope):
 - Malformed `session` id → `success=False`, `data.code="invalid_session_id"`.
 - No matching live instance → `success=False`, `data.code="rhino_session_dead"`.
