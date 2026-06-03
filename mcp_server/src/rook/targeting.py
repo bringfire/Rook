@@ -973,6 +973,33 @@ def resolve_tool_route(
             document_serial_number=lock.document_serial_number,
         )
 
+    if has_explicit_session:
+        inst_s = next(
+            (
+                instance
+                for instance in instances
+                if instance.get("processId") == pid_s
+                and instance.get("pluginType") == "native"
+                and instance_ref_from_instance(instance) is not None
+            ),
+            None,
+        )
+        if inst_s is None:
+            return ToolRoute(
+                success=False,
+                error="rhino_session_not_found",
+                requested_session=explicit_session,
+                instances=instances,
+            )
+        ref = instance_ref_from_instance(inst_s)
+        return ToolRoute(
+            success=True,
+            target=ref,
+            instance=inst_s,
+            selection="session",
+            instances=instances,
+        )
+
     targets = _process_targets(instances)
 
     if explicit_port is not None:
@@ -1336,6 +1363,19 @@ def route_error_result(route: ToolRoute) -> dict[str, Any]:
                 "rhino_sessions; null or malformed is invalid."
             ),
             invalidSession=repr(route.invalid_session),
+            instances=route.instances or [],
+        )
+    if route.error == "rhino_session_not_found":
+        diagnostics = discovery_diagnostics()
+        return _error_result(
+            "rhino_session_not_found",
+            message=(
+                "No discovered RookNative session owns that id. "
+                "Call rhino_sessions for live sessions."
+            ),
+            session=route.requested_session,
+            discoveryFolder=diagnostics.get("discoveryFolder"),
+            discoveryFolders=diagnostics.get("discoveryFolders"),
             instances=route.instances or [],
         )
     return _error_result(route.error or "rhino_target_error", instances=route.instances or [])

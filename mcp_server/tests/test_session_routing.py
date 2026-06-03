@@ -93,3 +93,66 @@ def test_invalid_session_id_envelope(monkeypatch):
     assert result["data"]["error"] == "invalid_session_id"
     assert result["data"]["invalidSession"] == repr("bogus")
     assert "instances" in result["data"]
+
+
+def test_session_selects_named_target_among_multiple(monkeypatch):
+    monkeypatch.setattr(targeting, "discover_instances", lambda: [
+        _inst(9950, 7101, "A.3dm"),
+        _inst(9951, 7102, "B.3dm"),
+    ])
+    route = targeting.resolve_tool_route(
+        "rhino_execute", explicit_session="rhino-7102", has_explicit_session=True
+    )
+    assert route.success is True
+    assert route.selection == "session"
+    assert route.target == targeting.InstanceRef(9951, 7102)
+
+
+def test_session_bypasses_multiple_instance_mutate_refusal(monkeypatch):
+    # Bare mutate with 2 instances would be multiple_rhino_instances; naming a
+    # session disambiguates.
+    monkeypatch.setattr(targeting, "discover_instances", lambda: [
+        _inst(9950, 7101, "A.3dm"),
+        _inst(9951, 7102, "B.3dm"),
+    ])
+    route = targeting.resolve_tool_route(
+        "rhino_execute", explicit_session="rhino-7101", has_explicit_session=True
+    )
+    assert route.success is True
+    assert route.target == targeting.InstanceRef(9950, 7101)
+
+
+def test_session_not_found_when_no_native_record(monkeypatch):
+    monkeypatch.setattr(targeting, "discover_instances", lambda: [_inst(9950, 7101)])
+    route = targeting.resolve_tool_route(
+        "rhino_execute", explicit_session="rhino-9999", has_explicit_session=True
+    )
+    assert route.success is False
+    assert route.error == "rhino_session_not_found"
+
+
+def test_session_not_found_when_only_roadcreator_for_pid(monkeypatch):
+    # A session is the NATIVE listener; a pid with only a roadcreator record is not
+    # a session.
+    monkeypatch.setattr(targeting, "discover_instances", lambda: [
+        _inst(9960, 7101, "A.3dm", plugin_type="roadcreator"),
+    ])
+    route = targeting.resolve_tool_route(
+        "rhino_execute", explicit_session="rhino-7101", has_explicit_session=True
+    )
+    assert route.error == "rhino_session_not_found"
+
+
+def test_rhino_session_not_found_envelope(monkeypatch):
+    monkeypatch.setattr(targeting, "discover_instances", lambda: [_inst(9950, 7101)])
+    monkeypatch.setattr(targeting, "discovery_diagnostics", lambda: {
+        "discoveryFolder": r"C:\disc", "discoveryFolders": [r"C:\disc"],
+        "selection": "localappdata", "tempRoot": r"C:\t", "legacyTempDiscoveryFolder": r"C:\t\rook",
+    })
+    route = targeting.resolve_tool_route(
+        "rhino_execute", explicit_session="rhino-9999", has_explicit_session=True
+    )
+    result = targeting.route_error_result(route)
+    assert result["data"]["error"] == "rhino_session_not_found"
+    assert result["data"]["session"] == "rhino-9999"
+    assert result["data"]["discoveryFolder"] == r"C:\disc"
