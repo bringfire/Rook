@@ -99,6 +99,21 @@ def test_wer_dump_pid_match(tmp_path, monkeypatch):
     assert out["match"] == "pid_exact"
 
 
+def test_ignores_stale_pid_exact_dump(tmp_path, monkeypatch):
+    # A stale PID-exact dump (e.g. a reused PID from a prior session) must NOT be
+    # attached — the freshness gate applies even to PID matches.
+    dumps = tmp_path / "CrashDumps"
+    dumps.mkdir()
+    dump = dumps / "Rhino.exe.4321.dmp"
+    dump.write_bytes(b"MDMP____")
+    old = time.time() - 3600  # 1 hour ago, outside the 5-min window
+    os.utime(dump, (old, old))
+    monkeypatch.setattr(crash_artifacts, "_desktop_dirs", lambda: [])
+    monkeypatch.setattr(crash_artifacts, "_dump_dirs", lambda: [dumps])
+
+    assert crash_artifacts.find_recent_rhino_crash_artifact(process_id=4321) is None
+
+
 def test_ignores_stale_artifact(tmp_path, monkeypatch):
     desktop = tmp_path / "Desktop"
     desktop.mkdir()
@@ -151,11 +166,23 @@ _WER_PID_RE = re.compile(r"Rhino\.exe\.(\d+)\.dmp$", re.IGNORECASE)
 
 
 def _desktop_dirs() -> list[Path]:
-    """Desktop locations Rhino may write RhinoDotNetCrash.txt to."""
+    """Desktop locations Rhino may write RhinoDotNetCrash.txt to (incl. OneDrive)."""
     dirs: list[Path] = []
+    seen: set[str] = set()
+
+    def _add(p: Path) -> None:
+        key = str(p).lower()
+        if key not in seen:
+            seen.add(key)
+            dirs.append(p)
+
     profile = os.environ.get("USERPROFILE")
     if profile:
-        dirs.append(Path(profile) / "Desktop")
+        _add(Path(profile) / "Desktop")
+        _add(Path(profile) / "OneDrive" / "Desktop")
+    onedrive = os.environ.get("ONEDRIVE")
+    if onedrive:
+        _add(Path(onedrive) / "Desktop")
     return dirs
 
 
@@ -189,8 +216,9 @@ def _candidates() -> list[tuple[Path, str]]:
         try:
             for p in d.glob("Rhino*.dmp"):
                 if p.is_file():
-                    kind = "wer" if _WER_PID_RE.search(p.name) else "minidump"
-                    found.append((p, kind))
+                    # All .dmp are kind "minidump"; PID confidence is carried by
+                    # match/pidMatched (WER filenames embed the pid).
+                    found.append((p, "minidump"))
         except OSError:
             continue
     found.sort(key=lambda pk: _safe_mtime(pk[0]), reverse=True)
@@ -215,7 +243,7 @@ def _metadata(path: Path, kind: str, process_id: int | None) -> dict[str, Any]:
         match = "pid_exact"
     return {
         "available": True,
-        "kind": "minidump" if kind == "wer" and not pid_matched else kind,
+        "kind": kind,
         "path": str(path),
         "modifiedUtc": mtime.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "ageSeconds": max(0, int((datetime.now(timezone.utc) - mtime).total_seconds())),
@@ -246,17 +274,22 @@ def find_recent_rhino_crash_artifact(
         now.timestamp() - _FRESH_WINDOW_SECONDS, tz=timezone.utc
     )
 
-    # 1) PID-exact match wins regardless of order.
+    def _fresh(path: Path) -> bool:
+        return datetime.fromtimestamp(_safe_mtime(path), tz=timezone.utc) >= cutoff
+
+    # 1) PID-exact match — but ONLY within the freshness window. A stale dump whose
+    #    embedded PID happens to match a reused PID must not be attached.
     if process_id is not None:
-        for path, kind in candidates:
+        for path, kind in candidates:  # newest first
+            if not _fresh(path):
+                break
             m = _WER_PID_RE.search(path.name)
             if m is not None and int(m.group(1)) == process_id:
                 return _metadata(path, kind, process_id)
 
     # 2) Otherwise the most recent artifact within the window.
     for path, kind in candidates:
-        mtime = datetime.fromtimestamp(_safe_mtime(path), tz=timezone.utc)
-        if mtime < cutoff:
+        if not _fresh(path):
             break
         return _metadata(path, kind, process_id)
 
@@ -266,7 +299,7 @@ def find_recent_rhino_crash_artifact(
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_crash_artifacts.py -v`
-Expected: PASS (4 passed). *(The finder has no OS guard — it relies on `USERPROFILE`/`LOCALAPPDATA`, so the tests monkeypatch the dir accessors and pass on any runner.)*
+Expected: PASS (5 passed). *(The finder has no OS guard — it relies on `USERPROFILE`/`LOCALAPPDATA`, so the tests monkeypatch the dir accessors and pass on any runner.)*
 
 - [ ] **Step 5: Commit**
 
@@ -509,6 +542,13 @@ def test_connect_error_live_race_is_transport(monkeypatch):
     assert out["data"]["code"] == "rook_native_transport_error"
 
 
+def test_close_error_probes_liveness(monkeypatch):
+    # CloseError (connection dropped) is connectivity — probe liveness, don't fall
+    # through to a generic transport error.
+    out = _diag(httpx.CloseError("closed"), monkeypatch, pid_alive=True, port_listening=False)
+    assert out["data"]["code"] == "rook_native_listener_unreachable"
+
+
 def test_connect_timeout_uses_connectivity_not_timeout(monkeypatch):
     # ConnectTimeout subclasses TimeoutException but must be treated as connectivity.
     out = _diag(httpx.ConnectTimeout("slow"), monkeypatch, pid_alive=False, port_listening=False)
@@ -546,6 +586,7 @@ _CONNECTIVITY_ERRORS = (
     httpx.ConnectTimeout,
     httpx.ReadError,
     httpx.WriteError,
+    httpx.CloseError,
 )
 
 
@@ -598,7 +639,7 @@ def diagnose_bridge_failure(target: dict[str, Any], exc: Exception) -> dict[str,
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_bridge_diagnosis.py -v`
-Expected: PASS (11 passed — 3 from Task 2 + 8 here).
+Expected: PASS (12 passed — 3 from Task 2 + 9 here).
 
 - [ ] **Step 5: Commit**
 
@@ -733,7 +774,7 @@ Then replace the two `except` clauses (currently `except httpx.ConnectError:` �
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_bridge_diagnosis.py -v`
-Expected: PASS (13 passed).
+Expected: PASS (14 passed).
 
 - [ ] **Step 5: Commit**
 
