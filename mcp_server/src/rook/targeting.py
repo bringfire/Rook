@@ -897,7 +897,13 @@ def resolve_active_target() -> ActiveTargetResolution:
     )
 
 
-def resolve_tool_route(name: str, *, explicit_port: object | None = None) -> ToolRoute:
+def resolve_tool_route(
+    name: str,
+    *,
+    explicit_port: object | None = None,
+    explicit_session: object | None = None,
+    has_explicit_session: bool = False,
+) -> ToolRoute:
     policy = policy_for_tool(name)
     if not policy.requires_rhino:
         return ToolRoute(success=True, selection="none")
@@ -909,6 +915,19 @@ def resolve_tool_route(name: str, *, explicit_port: object | None = None) -> Too
             error="panel_target_config_error",
             instances=instances,
         )
+
+    pid_s: int | None = None
+    if has_explicit_session:
+        pid_s = _process_id_from_session_id(explicit_session)
+        # _process_id_from_session_id is lenient: "rhino-0" -> 0, "rhino--5" -> -5.
+        # A real PID is positive, so reject None OR non-positive as malformed.
+        if pid_s is None or pid_s <= 0:
+            return ToolRoute(
+                success=False,
+                error="invalid_session_id",
+                invalid_session=explicit_session,
+                instances=instances,
+            )
 
     if explicit_port is not None:
         normalized_port = _valid_explicit_port(explicit_port)
@@ -1307,6 +1326,16 @@ def route_error_result(route: ToolRoute) -> dict[str, Any]:
         return _error_result(
             "rhino_target_unavailable",
             message="The requested Rhino target is not available.",
+            instances=route.instances or [],
+        )
+    if route.error == "invalid_session_id":
+        return _error_result(
+            "invalid_session_id",
+            message=(
+                "Session selector must be a string like 'rhino-<pid>' from "
+                "rhino_sessions; null or malformed is invalid."
+            ),
+            invalidSession=repr(route.invalid_session),
             instances=route.instances or [],
         )
     return _error_result(route.error or "rhino_target_error", instances=route.instances or [])
