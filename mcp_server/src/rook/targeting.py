@@ -6,7 +6,12 @@ import os
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from .bridge import call_rhino, discover_instances, discovery_diagnostics
+from .bridge import (
+    call_rhino,
+    discover_instances,
+    discovery_diagnostics,
+    _process_id_from_session_id,
+)
 
 
 @dataclass(frozen=True)
@@ -30,7 +35,7 @@ class ToolRoute:
     success: bool
     target: InstanceRef | None = None
     instance: dict[str, Any] | None = None
-    selection: Literal["explicit", "active", "auto", "panel_locked", "none"] = "none"
+    selection: Literal["explicit", "active", "auto", "panel_locked", "session", "none"] = "none"
     warning: str | None = None
     error: str | None = None
     stale_target: InstanceRef | None = None
@@ -39,6 +44,10 @@ class ToolRoute:
     document_serial_number: int | None = None
     requested_port: int | None = None
     invalid_port: object | None = None
+    invalid_session: object | None = None
+    requested_session: object | None = None
+    session_process_id: int | None = None
+    port_process_id: int | None = None
 
 
 Risk = Literal["read", "mutate", "meta"]
@@ -684,6 +693,24 @@ TOOL_POLICIES: dict[str, RhinoToolPolicy] = {
 
 def policy_for_tool(name: str) -> RhinoToolPolicy:
     return TOOL_POLICIES.get(name, UNKNOWN_TOOL_POLICY)
+
+
+# Non-routed tools never execute against a Rhino session, so a `session` argument
+# on them is a contract error (rejected, not silently ignored) — EXCEPT tools that
+# legitimately own a non-routing `session` argument. This is an explicit exception
+# list, NOT a second routing-policy surface; it grows only by intentional addition.
+_NON_ROUTED_SESSION_ARGUMENT_TOOLS = {"rhino_session_capabilities"}
+
+
+def session_not_targetable_result(name: str) -> dict[str, Any]:
+    return _error_result(
+        "session_not_targetable",
+        message=(
+            "This tool does not execute against a Rhino session; remove the "
+            "'session' argument. Session targeting applies only to Rhino-routed tools."
+        ),
+        tool=name,
+    )
 
 
 def get_active_target() -> InstanceRef | None:
