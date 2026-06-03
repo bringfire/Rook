@@ -48,7 +48,7 @@ mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_sessions.py 
 - **Create** `mcp_server/tests/test_sessions.py` — unit tests for the bridge layer.
 - **Create** `mcp_server/tests/test_session_tools.py` — tests for tool registration + dispatch wiring.
 
-**Not touched:** `src/RookNative/**` (no C++), `targeting.py`, any mutation route, any spawn/kill path.
+**Not touched:** `src/RookNative/**` (no C++), any mutation route, any spawn/kill path. (**Correction — shipped in `795f5e5`:** `targeting.py` **is** modified in Task 7 to meta-classify the two new tools; see the Task 7 correction note. This adds *no* mutation routing and *no* session selector to the general routing path, so the P1 invariant holds.)
 
 ---
 
@@ -708,6 +708,8 @@ git commit -m "feat(bridge): get_session_capabilities — read-only, conservativ
 ---
 
 ## Task 7: Wire the two read-only MCP tools
+
+> **Correction (found at Checkpoint 1, approved in review — shipped in `795f5e5`):** This task also modifies **`targeting.py`** (contrary to the original "Not touched" note). The two tools must be added to `_ALL_KNOWN_TOOLS` + `_META_TOOLS` so `policy_for_tool` returns `RhinoToolPolicy(False, "meta")`. Otherwise they fall to `UNKNOWN_TOOL_POLICY` (`requires_rhino=True, mutate`) and the outer `call_tool` routes them through `resolve_tool_route`, which fails at **zero** discovered Rhinos (`no_rhino_instance`) and **multiple** (`multiple_rhino_instances`) — the exact cases these tools exist to handle. The `_call_tool_dispatch` unit tests bypass routing and miss this, so the suite adds **real `call_tool` tests** for the zero- and multi-Rhino paths plus a meta-policy regression test. Classifying as `meta` (not `read`) keeps them off the active-target routing path — protecting the P1 invariant (no mutation routing, no session selector in the general path).
 
 **Files:**
 - Modify: `mcp_server/src/rook/server.py` (extend bridge import at line 52; add two `Tool(...)` in `list_tools()` after the `rhino_instances` Tool at ~line 2769; add two `case` handlers in `_call_tool_dispatch` next to `case "rhino_instances":` at ~line 12705)
