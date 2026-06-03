@@ -54,3 +54,72 @@ def test_build_dead_envelope_no_artifact_when_none(monkeypatch):
     out = bridge.build_session_liveness_error(_target(), liveness, reason="tool_call")
     assert out["data"]["code"] == "rhino_session_dead"
     assert "crash_artifact" not in out["data"]
+
+
+import httpx
+
+
+def _diag(exc, monkeypatch, pid_alive=True, port_listening=True, target=None):
+    monkeypatch.setattr(bridge, "_is_pid_alive", lambda pid: pid_alive)
+    monkeypatch.setattr(bridge, "_is_port_listening", lambda host, port: port_listening)
+    monkeypatch.setattr(
+        bridge, "find_recent_rhino_crash_artifact",
+        lambda process_id=None, since_utc=None: None,
+    )
+    return bridge.diagnose_bridge_failure(target or _target(), exc)
+
+
+def test_read_timeout_is_request_timeout(monkeypatch):
+    out = _diag(httpx.ReadTimeout("slow"), monkeypatch, pid_alive=True)
+    assert out["data"]["code"] == "rook_native_request_timeout"
+    assert out["data"]["retryable"] is True
+
+
+def test_timeout_masking_death_is_dead(monkeypatch):
+    # A death can surface as a ReadTimeout. PID known-dead => rhino_session_dead.
+    out = _diag(httpx.ReadTimeout("slow"), monkeypatch, pid_alive=False)
+    assert out["data"]["code"] == "rhino_session_dead"
+    assert out["data"]["retryable"] is False
+
+
+def test_connect_error_dead(monkeypatch):
+    out = _diag(httpx.ConnectError("refused"), monkeypatch, pid_alive=False, port_listening=False)
+    assert out["data"]["code"] == "rhino_session_dead"
+    assert out["data"]["retryable"] is False
+
+
+def test_connect_error_unreachable(monkeypatch):
+    out = _diag(httpx.ConnectError("refused"), monkeypatch, pid_alive=True, port_listening=False)
+    assert out["data"]["code"] == "rook_native_listener_unreachable"
+    assert out["data"]["retryable"] is True
+
+
+def test_connect_error_live_race_is_transport(monkeypatch):
+    out = _diag(httpx.ConnectError("refused"), monkeypatch, pid_alive=True, port_listening=True)
+    assert out["data"]["code"] == "rook_native_transport_error"
+
+
+def test_close_error_probes_liveness(monkeypatch):
+    # CloseError (connection dropped) is connectivity — probe liveness, don't fall
+    # through to a generic transport error.
+    out = _diag(httpx.CloseError("closed"), monkeypatch, pid_alive=True, port_listening=False)
+    assert out["data"]["code"] == "rook_native_listener_unreachable"
+
+
+def test_connect_timeout_uses_connectivity_not_timeout(monkeypatch):
+    # ConnectTimeout subclasses TimeoutException but must be treated as connectivity.
+    out = _diag(httpx.ConnectTimeout("slow"), monkeypatch, pid_alive=False, port_listening=False)
+    assert out["data"]["code"] == "rhino_session_dead"
+
+
+def test_protocol_error_is_transport(monkeypatch):
+    out = _diag(httpx.ProtocolError("bad"), monkeypatch)
+    assert out["data"]["code"] == "rook_native_transport_error"
+
+
+def test_port_only_target_unresolvable_is_transport(monkeypatch):
+    # No processId and no record owning the port => cannot confirm dead.
+    monkeypatch.setattr(bridge, "discover_instances", lambda: [])
+    out = _diag(httpx.ConnectError("refused"), monkeypatch,
+                target=_target(processId=None, session=None))
+    assert out["data"]["code"] == "rook_native_transport_error"

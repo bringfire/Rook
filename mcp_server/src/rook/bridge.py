@@ -819,6 +819,64 @@ def build_session_liveness_error(
     return _assemble_bridge_error(code, target, liveness=liveness, reason=reason)
 
 
+# Connectivity failures: the connection could not be established or was dropped.
+# ConnectTimeout is listed here on purpose (it subclasses TimeoutException) so it is
+# diagnosed by probing liveness, not bucketed as a request timeout.
+_CONNECTIVITY_ERRORS = (
+    httpx.ConnectError,
+    httpx.ConnectTimeout,
+    httpx.ReadError,
+    httpx.WriteError,
+    httpx.CloseError,
+)
+
+
+def _resolve_target_liveness(target: dict[str, Any]) -> dict[str, Any]:
+    """Liveness for a target, resolving a missing PID by port. Never guesses death.
+
+    With a known PID, classify directly. Without one, look up the port in a fresh
+    discover; if a native record owns it, classify that. If nothing owns the port,
+    return 'indeterminate' — the caller maps that to a transport error, never a
+    fabricated rhino_session_dead.
+    """
+    if target.get("processId"):
+        return classify_session_liveness(target)
+    port = target.get("port")
+    inst = next(
+        (i for i in discover_instances()
+         if i.get("port") == port and i.get("pluginType") == "native"),
+        None,
+    )
+    if inst is not None:
+        return classify_session_liveness(inst)
+    return {"state": "indeterminate", "pidAlive": None, "portListening": None}
+
+
+def diagnose_bridge_failure(target: dict[str, Any], exc: Exception) -> dict[str, Any]:
+    """Classify an httpx transport failure into a structured bridge-error envelope.
+
+    Order matters: connectivity errors (incl. ConnectTimeout) are tested before the
+    broad TimeoutException bucket. Timeouts PID-probe first so a death masked as a
+    timeout returns rhino_session_dead, never a retryable timeout.
+    """
+    if isinstance(exc, _CONNECTIVITY_ERRORS):
+        liveness = _resolve_target_liveness(target)
+        if liveness["state"] in ("dead", "unreachable"):
+            return build_session_liveness_error(target, liveness, reason="tool_call")
+        return _assemble_bridge_error(
+            "rook_native_transport_error", target, liveness=liveness, reason="tool_call"
+        )
+
+    if isinstance(exc, httpx.TimeoutException):  # ReadTimeout / WriteTimeout / PoolTimeout
+        pid = target.get("processId")
+        if pid and not _is_pid_alive(int(pid)):
+            liveness = {"state": "dead", "pidAlive": False, "portListening": None}
+            return build_session_liveness_error(target, liveness, reason="tool_call")
+        return _assemble_bridge_error("rook_native_request_timeout", target, reason="tool_call")
+
+    return _assemble_bridge_error("rook_native_transport_error", target, reason="tool_call")
+
+
 def get_rhino_host(
     port: int | None = None,
     endpoint: str | None = None,
