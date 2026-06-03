@@ -212,3 +212,36 @@ def test_selector_conflict_envelope(monkeypatch):
     assert d["requestedPort"] == 9951
     assert d["sessionProcessId"] == 7101
     assert d["portProcessId"] == 7102
+
+
+def _lock_to(pid: int):
+    targeting.initialize_from_environment({
+        "ROOK_MCP_TARGET_MODE": "panel_locked",
+        "ROOK_MCP_TARGET_PROCESS_ID": str(pid),
+    })
+
+
+def test_panel_lock_allows_in_lock_session(monkeypatch):
+    monkeypatch.setattr(targeting, "discover_instances", lambda: [
+        _inst(9950, 7101, "A.3dm"),
+    ])
+    _lock_to(7101)
+    route = targeting.resolve_tool_route(
+        "rhino_execute", explicit_session="rhino-7101", has_explicit_session=True
+    )
+    assert route.success is True
+    assert route.selection == "panel_locked"
+    assert route.target == targeting.InstanceRef(9950, 7101)
+
+
+def test_panel_lock_rejects_out_of_lock_session(monkeypatch):
+    monkeypatch.setattr(targeting, "discover_instances", lambda: [
+        _inst(9950, 7101, "A.3dm"),
+        _inst(9951, 7102, "B.3dm"),
+    ])
+    _lock_to(7101)
+    route = targeting.resolve_tool_route(
+        "rhino_execute", explicit_session="rhino-7102", has_explicit_session=True
+    )
+    assert route.success is False
+    assert route.error == "panel_target_locked"

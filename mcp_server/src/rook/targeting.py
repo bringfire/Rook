@@ -950,6 +950,12 @@ def resolve_tool_route(
                 instances=instances,
             )
         ref, canonical = locked_target
+        if has_explicit_session and pid_s != lock.process_id:
+            return ToolRoute(
+                success=False,
+                error="panel_target_locked",
+                instances=instances,
+            )
         if explicit_port is not None:
             explicit = next(
                 (instance for instance in instances if instance.get("port") == explicit_port),
