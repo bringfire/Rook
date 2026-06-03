@@ -459,6 +459,8 @@ _ALL_KNOWN_TOOLS = {
     "rhino_select_invert",
     "rhino_select_none",
     "rhino_selection",
+    "rhino_session_capabilities",
+    "rhino_sessions",
     "rhino_set_active_instance",
     "rhino_split_brep",
     "rhino_split_disjoint_breps",
@@ -533,6 +535,8 @@ _META_TOOLS = {
     "rhino_get_active_instance",
     "rhino_instances",
     "rhino_launch",
+    "rhino_session_capabilities",
+    "rhino_sessions",
     "rhino_set_active_instance",
 }
 
