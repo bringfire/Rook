@@ -14,6 +14,7 @@ import ctypes
 import json
 import logging
 import os
+import socket
 import tempfile
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -113,6 +114,22 @@ def _is_pid_alive(pid: int) -> bool:
         return exit_code.value == 259  # STILL_ACTIVE
     finally:
         ctypes.windll.kernel32.CloseHandle(handle)
+
+
+def _is_port_listening(host: str, port: int, timeout: float = 0.2) -> bool:
+    """Return True iff a TCP connection to host:port succeeds.
+
+    Probed independently of PID liveness: a Rhino process can be alive while
+    its RookNative listener is down (plugin reload, restart, transient). The
+    caller MUST treat that case conservatively (report, do not reap).
+    """
+    if not port or port <= 0:
+        return False
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
 
 
 def _normalize_endpoint(endpoint: str | None) -> str | None:
