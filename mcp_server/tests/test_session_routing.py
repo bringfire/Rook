@@ -46,6 +46,12 @@ def test_non_routed_session_argument_tools_is_capabilities_only():
     assert targeting._NON_ROUTED_SESSION_ARGUMENT_TOOLS == {"rhino_session_capabilities"}
 
 
+def test_allows_non_routed_session_argument():
+    assert targeting.allows_non_routed_session_argument("rhino_session_capabilities") is True
+    assert targeting.allows_non_routed_session_argument("knowledge_query") is False
+    assert targeting.allows_non_routed_session_argument("rhino_sessions") is False
+
+
 def test_session_not_targetable_result_shape():
     out = targeting.session_not_targetable_result("knowledge_query")
     assert out["success"] is False

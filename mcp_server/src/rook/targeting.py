@@ -713,6 +713,11 @@ def session_not_targetable_result(name: str) -> dict[str, Any]:
     )
 
 
+def allows_non_routed_session_argument(name: str) -> bool:
+    """Whether a non-routed tool legitimately owns its own `session` argument."""
+    return name in _NON_ROUTED_SESSION_ARGUMENT_TOOLS
+
+
 def get_active_target() -> InstanceRef | None:
     return _ACTIVE_TARGET
 

@@ -19313,7 +19313,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             return _format_tool_result(targeting.route_error_result(lock_route))
 
     if not policy.requires_rhino:
-        if has_explicit_session and name not in targeting._NON_ROUTED_SESSION_ARGUMENT_TOOLS:
+        if has_explicit_session and not targeting.allows_non_routed_session_argument(name):
             return _format_tool_result(targeting.session_not_targetable_result(name))
         raw_result = await _call_tool_dispatch(name, arguments)
         return _format_tool_result(raw_result)
