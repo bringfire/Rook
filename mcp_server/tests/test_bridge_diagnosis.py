@@ -183,6 +183,31 @@ async def test_call_rhino_post_response_decode_error_is_not_transport(monkeypatc
     assert "not json" in out["data"]
 
 
+@pytest.mark.asyncio
+async def test_call_rhino_does_not_reselect_via_get_rhino_host(monkeypatch):
+    # Tripwire for the capture-once invariant: call_rhino must build the URL from the
+    # already-captured selected_instance, never re-select through get_rhino_host (a
+    # second selection could diverge from the diagnosed PID under discovery churn).
+    inst = {"host": "127.0.0.1", "port": 59306, "processId": 4242, "pluginType": "native"}
+    monkeypatch.setattr(bridge, "select_rhino_instance", lambda **k: inst)
+    monkeypatch.setattr(bridge, "discover_instances", lambda: [inst])
+    monkeypatch.setattr(bridge, "_is_pid_alive", lambda pid: False)
+    monkeypatch.setattr(bridge, "_is_port_listening", lambda host, port: False)
+    monkeypatch.setattr(bridge, "find_recent_rhino_crash_artifact",
+                        lambda process_id=None, since_utc=None: None)
+
+    def _boom(*a, **k):
+        raise AssertionError("call_rhino must not call get_rhino_host (re-selection)")
+    monkeypatch.setattr(bridge, "get_rhino_host", _boom)
+    monkeypatch.setattr(bridge.httpx, "AsyncClient",
+                        lambda *a, **k: _RaisingClient(httpx.ConnectError("refused")))
+
+    out = await bridge.call_rhino("/objects", method="GET", port=59306, process_id=4242)
+
+    # Reached diagnosis (not the AssertionError) => get_rhino_host was never called.
+    assert out["data"]["code"] == "rhino_session_dead"
+
+
 @pytest.fixture
 def diag_sessions_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(bridge, "DISCOVERY_FOLDER", tmp_path)
