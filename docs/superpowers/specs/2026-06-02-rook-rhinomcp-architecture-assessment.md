@@ -177,6 +177,8 @@ Validates the substrate before taking lifecycle ownership; protects attached use
 
 ## 9. Roadmap — the external/local-orchestration plane
 
+> **Superseded numbering (note added 2026-06-03):** This P0–P5 + PC/PX roadmap is the original RhinoMCP-response framing. The North-Star Topology spec (`docs/superpowers/specs/2026-06-03-rook-north-star-topology.md`) **extends and supersedes** it into a unified **P1–P7** roadmap (P6–P7 add the document/artifact graph + fan-in/recomposition track) for the larger multi-file push. Plan new work against the north-star numbering; this section is retained for historical context.
+
 Discipline (mirrors the rest of the Rook roadmap): **name and observe → report liveness → route safely → own lifecycle.**
 
 ```

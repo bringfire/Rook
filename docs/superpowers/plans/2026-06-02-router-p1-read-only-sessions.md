@@ -10,6 +10,8 @@
 
 **Tech Stack:** Python 3.13, `httpx` (already used), `socket` (stdlib, new import), `pytest` + `pytest-asyncio` (already configured).
 
+> **Forward-compatibility note** (north-star: `docs/superpowers/specs/2026-06-03-rook-north-star-topology.md`): P1 remains **session-only**. It must **not** add work-unit or merge-contract state to session payloads. If document metadata is surfaced later, treat it as optional **document seed data**, not session identity. The P1 tasks below are unchanged by this note.
+
 ---
 
 ## Source-of-truth facts (verified against current code)
@@ -884,6 +886,7 @@ Per the project's "live smoke catches what mocks miss" rule, verify end-to-end a
 
 ## Notes / risks for the executor
 
+- **Liveness probe ≠ readiness probe:** `_is_port_listening` / `classify_session_liveness` establish *transport liveness only* (the TCP port accepts a connection). They must **not** be read as semantic readiness — a listener can accept a socket mid-startup before it can serve. `/capabilities` (via `resolve_capabilities` in Task 6, with its bootstrap-fallback envelope) remains the authoritative capability/readiness check. Keep the two concerns separate.
 - **Import weight:** `tests/test_session_tools.py` imports `rook.server`, which is large and pulls in agent/knowledge modules. It should import cleanly (tools are defined at module scope; the server only runs under `__main__`). If import is too slow/heavy in CI, the registration assertions can move to a thinner harness, but keep the dispatch tests.
 - **`_call_tool_dispatch` shape:** Confirmed it sets `result` per case and returns the raw `{"success","data"}` envelope (caller wraps via `_format_tool_result`). If the local copy differs, place the two cases wherever the other `rhino_*` cases set `result` and ensure the same return path.
 - **Patch the import site, not the source module:** `server.py:52` binds the bridge callables into the `server` namespace at import time, and dispatch calls the *local* name (`list_sessions_result()`, `get_session_capabilities(...)`). The Task 7 dispatch tests therefore monkeypatch `server.list_sessions_result` / `server.get_session_capabilities` — patching `bridge.*` would not intercept. (`from rook import bridge` in that test file is now only needed if you add bridge-level assertions; keep or drop as you see fit.)
