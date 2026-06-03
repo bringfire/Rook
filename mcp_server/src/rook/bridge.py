@@ -1097,12 +1097,12 @@ async def call_rhino(
             ),
         }
 
-    host = get_rhino_host(
-        resolved_port,
-        endpoint=endpoint,
-        process_id=resolved_process_id,
-    )
-    if host is None:
+    # Capture the resolved target ONCE — the single source of truth for both the
+    # request URL and failure diagnosis. Do NOT call get_rhino_host() here: it
+    # re-runs select_rhino_instance and, under discovery churn, could resolve a
+    # different instance than the one we captured, splitting the URL's target from
+    # the diagnosed PID.
+    if selected_instance is None or not selected_instance.get("port"):
         return {
             "success": False,
             "data": (
@@ -1110,7 +1110,18 @@ async def call_rhino(
                 "Ensure Rhino is running with RookNative loaded."
             ),
         }
-    url = f"{host}{endpoint}"
+    target = {
+        "host": selected_instance.get("host") or DEFAULT_HOST,
+        "port": selected_instance.get("port"),
+        "processId": selected_instance.get("processId"),
+        "session": (
+            session_id_for_instance(selected_instance)
+            if selected_instance.get("processId") else None
+        ),
+        "endpoint": endpoint,
+        "method": method,
+    }
+    url = f"http://{target['host']}:{target['port']}{endpoint}"
 
     async with httpx.AsyncClient(timeout=timeout or TIMEOUT) as client:
         try:
@@ -1135,24 +1146,11 @@ async def call_rhino(
 
             result = response.json()
             return result
-        except httpx.ConnectError:
-            instances = discover_instances()
-            if instances:
-                ports_info = ", ".join(str(i["port"]) for i in instances)
-                return {
-                    "success": False,
-                    "data": (
-                        f"Cannot connect to Rhino on {host}. "
-                        f"Available instances on ports: {ports_info}. "
-                        f"Use rhino_instances tool to see all instances."
-                    ),
-                }
-            return {
-                "success": False,
-                "data": (
-                    "Cannot connect to Rhino. "
-                    "Is Rhino running with RookNative loaded?"
-                ),
-            }
+        except httpx.RequestError as exc:
+            # Transport-level failure (connect / timeout / network) — diagnose it.
+            return diagnose_bridge_failure(target, exc)
         except Exception as e:
+            # A response was received but post-processing failed (e.g. response.json()
+            # decode / body shape). NOT a bridge transport failure — preserve the
+            # existing non-P2 behavior.
             return {"success": False, "data": str(e)}

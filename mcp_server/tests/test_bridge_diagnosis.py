@@ -123,3 +123,61 @@ def test_port_only_target_unresolvable_is_transport(monkeypatch):
     out = _diag(httpx.ConnectError("refused"), monkeypatch,
                 target=_target(processId=None, session=None))
     assert out["data"]["code"] == "rook_native_transport_error"
+
+
+class _RaisingClient:
+    """Async context manager whose request methods raise a chosen exception."""
+    def __init__(self, exc):
+        self._exc = exc
+    async def __aenter__(self):
+        return self
+    async def __aexit__(self, *a):
+        return False
+    async def get(self, *a, **k):
+        raise self._exc
+    async def post(self, *a, **k):
+        raise self._exc
+    async def request(self, *a, **k):
+        raise self._exc
+
+
+@pytest.mark.asyncio
+async def test_call_rhino_connect_error_returns_structured_dead(monkeypatch):
+    inst = {"host": "127.0.0.1", "port": 59306, "processId": 4242, "pluginType": "native"}
+    monkeypatch.setattr(bridge, "select_rhino_instance", lambda **k: inst)
+    monkeypatch.setattr(bridge, "discover_instances", lambda: [inst])
+    monkeypatch.setattr(bridge, "_is_pid_alive", lambda pid: False)
+    monkeypatch.setattr(bridge, "_is_port_listening", lambda host, port: False)
+    monkeypatch.setattr(bridge, "find_recent_rhino_crash_artifact",
+                        lambda process_id=None, since_utc=None: None)
+    monkeypatch.setattr(bridge.httpx, "AsyncClient",
+                        lambda *a, **k: _RaisingClient(httpx.ConnectError("refused")))
+
+    out = await bridge.call_rhino("/objects", method="GET", port=59306, process_id=4242)
+
+    assert out["success"] is False
+    assert out["data"]["code"] == "rhino_session_dead"
+    assert out["data"]["session"] == "rhino-4242"
+    assert out["data"]["endpoint"] == "/objects"
+
+
+@pytest.mark.asyncio
+async def test_call_rhino_post_response_decode_error_is_not_transport(monkeypatch):
+    # A response WAS received but .json() fails -> must NOT become a bridge transport
+    # error; existing behavior (success:False, data=str(error)) is preserved.
+    class _BadJsonClient(_RaisingClient):
+        async def get(self, *a, **k):
+            class _R:
+                def json(self_inner):
+                    raise ValueError("not json")
+            return _R()
+    inst = {"host": "127.0.0.1", "port": 59306, "processId": 7, "pluginType": "native"}
+    monkeypatch.setattr(bridge, "select_rhino_instance", lambda **k: inst)
+    monkeypatch.setattr(bridge, "discover_instances", lambda: [inst])
+    monkeypatch.setattr(bridge.httpx, "AsyncClient", lambda *a, **k: _BadJsonClient(None))
+
+    out = await bridge.call_rhino("/objects", method="GET", port=59306, process_id=7)
+
+    assert out["success"] is False
+    assert "code" not in out["data"]  # not a structured bridge error
+    assert "not json" in out["data"]
