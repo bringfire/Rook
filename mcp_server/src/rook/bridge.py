@@ -33,6 +33,23 @@ TIMEOUT = httpx.Timeout(connect=5.0, read=120.0, write=60.0, pool=5.0)
 # A session is a stable, legible name over a discovered Rhino process.
 _SESSION_ID_PREFIX = "rhino-"
 
+# P1 session targeting may touch ONLY these read-only endpoints. Mutating-route
+# targeting is deliberately out of scope until a later phase; this guard fails
+# closed so nothing else can be routed through a session in the meantime.
+_READONLY_SESSION_ENDPOINTS = frozenset({"/ping", "/capabilities"})
+
+
+class SessionEndpointNotAllowed(Exception):
+    """Raised when a non-read-only endpoint is requested for a session call."""
+
+
+def assert_session_readonly_endpoint(endpoint: str) -> None:
+    if endpoint not in _READONLY_SESSION_ENDPOINTS:
+        raise SessionEndpointNotAllowed(
+            f"Endpoint {endpoint!r} is not in the P1 read-only session allowlist "
+            f"{sorted(_READONLY_SESSION_ENDPOINTS)}."
+        )
+
 
 def resolve_discovery_folder(
     *,

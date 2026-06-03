@@ -132,3 +132,16 @@ def test_list_sessions_result_envelope(sessions_dir, monkeypatch):
 
     assert envelope["success"] is True
     assert [s["session"] for s in envelope["data"]["sessions"]] == ["rhino-7"]
+
+
+def test_assert_session_readonly_endpoint_allows_vetted():
+    # Must not raise.
+    bridge.assert_session_readonly_endpoint("/ping")
+    bridge.assert_session_readonly_endpoint("/capabilities")
+
+
+def test_assert_session_readonly_endpoint_rejects_others():
+    with pytest.raises(bridge.SessionEndpointNotAllowed):
+        bridge.assert_session_readonly_endpoint("/objects")
+    with pytest.raises(bridge.SessionEndpointNotAllowed):
+        bridge.assert_session_readonly_endpoint("/gh/add")
