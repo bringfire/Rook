@@ -145,3 +145,86 @@ def test_assert_session_readonly_endpoint_rejects_others():
         bridge.assert_session_readonly_endpoint("/objects")
     with pytest.raises(bridge.SessionEndpointNotAllowed):
         bridge.assert_session_readonly_endpoint("/gh/add")
+
+
+@pytest.mark.asyncio
+async def test_get_session_capabilities_invalid_id(sessions_dir):
+    out = await bridge.get_session_capabilities("not-a-session")
+    assert out["success"] is False
+    assert out["data"]["code"] == "invalid_session_id"
+
+
+@pytest.mark.asyncio
+async def test_get_session_capabilities_dead_when_absent(sessions_dir, monkeypatch):
+    # No discovery file for pid 999 => treated as dead/gone.
+    monkeypatch.setattr(bridge, "_is_pid_alive", lambda pid: True)
+    out = await bridge.get_session_capabilities("rhino-999")
+    assert out["success"] is False
+    assert out["data"]["code"] == "rhino_session_dead"
+    assert out["data"]["session"] == "rhino-999"
+    assert "next_action" in out["data"]
+
+
+@pytest.mark.asyncio
+async def test_get_session_capabilities_unreachable_does_not_reap(sessions_dir, monkeypatch):
+    _write_instance(sessions_dir, {
+        "host": "127.0.0.1", "port": 10500, "pluginType": "native", "processId": 555,
+    })
+    monkeypatch.setattr(bridge, "_is_pid_alive", lambda pid: True)
+    monkeypatch.setattr(bridge, "_is_port_listening", lambda host, port: False)
+
+    out = await bridge.get_session_capabilities("rhino-555")
+
+    assert out["success"] is False
+    assert out["data"]["code"] == "rook_native_listener_unreachable"
+    # The discovery file must still be present (we never reap an alive process).
+    assert (sessions_dir / "instance-555-native.json").exists()
+
+
+@pytest.mark.asyncio
+async def test_get_session_capabilities_pins_endpoint_to_allowlist(sessions_dir, monkeypatch):
+    # A forged/malformed discovery record must NOT be able to redirect resolution
+    # off the read-only allowlist. liveEndpoint="/objects" must be forced back to
+    # "/capabilities" on the instance actually handed to resolve_capabilities.
+    _write_instance(sessions_dir, {
+        "host": "127.0.0.1", "port": 10500, "pluginType": "native", "processId": 77,
+        "capabilities": {"liveEndpoint": "/objects"},
+    })
+    monkeypatch.setattr(bridge, "_is_pid_alive", lambda pid: True)
+    monkeypatch.setattr(bridge, "_is_port_listening", lambda host, port: True)
+
+    seen = {}
+
+    async def capture_resolve(instance, timeout=None):
+        seen["endpoint"] = (instance.get("capabilities") or {}).get("liveEndpoint")
+        return {"source": "live", "capabilities": {"domains": []}}
+
+    monkeypatch.setattr(bridge, "resolve_capabilities", capture_resolve)
+
+    out = await bridge.get_session_capabilities("rhino-77")
+
+    assert out["success"] is True
+    assert seen["endpoint"] == "/capabilities"  # never "/objects"
+
+
+@pytest.mark.asyncio
+async def test_get_session_capabilities_live(sessions_dir, monkeypatch):
+    _write_instance(sessions_dir, {
+        "host": "127.0.0.1", "port": 10500, "pluginType": "native", "processId": 42,
+    })
+    monkeypatch.setattr(bridge, "_is_pid_alive", lambda pid: True)
+    monkeypatch.setattr(bridge, "_is_port_listening", lambda host, port: True)
+
+    async def fake_resolve(instance, timeout=None):
+        return {"source": "live", "stale": False, "authoritative": True,
+                "capabilities": {"domains": []}}
+
+    monkeypatch.setattr(bridge, "resolve_capabilities", fake_resolve)
+
+    out = await bridge.get_session_capabilities("rhino-42")
+
+    assert out["success"] is True
+    assert out["data"]["session"] == "rhino-42"
+    assert out["data"]["processId"] == 42
+    assert out["data"]["liveness"]["state"] == "live"
+    assert out["data"]["capabilities"]["source"] == "live"

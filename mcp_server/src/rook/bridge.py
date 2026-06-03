@@ -649,6 +649,83 @@ def list_sessions_result() -> dict[str, Any]:
     return {"success": True, "data": {"sessions": list_sessions()}}
 
 
+async def get_session_capabilities(session_id: Any) -> dict[str, Any]:
+    """Resolve live capabilities for one named session. Read-only.
+
+    Touches only /capabilities (asserted via the read-only allowlist). Never
+    spawns, kills, mutates, or reaps. Returns a structured error envelope for
+    malformed ids, dead sessions, and unreachable-but-alive listeners.
+    """
+    process_id = _process_id_from_session_id(session_id)
+    if process_id is None:
+        return {
+            "success": False,
+            "data": {
+                "code": "invalid_session_id",
+                "session": session_id,
+                "next_action": "Call list_sessions to get a valid session id (e.g. 'rhino-12345').",
+            },
+        }
+
+    instance = next(
+        (
+            inst for inst in discover_instances()
+            if inst.get("processId") == process_id and inst.get("pluginType") == "native"
+        ),
+        None,
+    )
+    if instance is None:
+        return {
+            "success": False,
+            "data": {
+                "code": "rhino_session_dead",
+                "session": session_id,
+                "processId": process_id,
+                "next_action": "The session is gone. Call list_sessions to see live sessions.",
+            },
+        }
+
+    liveness = classify_session_liveness(instance)
+    if liveness["state"] == "unreachable":
+        return {
+            "success": False,
+            "data": {
+                "code": "rook_native_listener_unreachable",
+                "session": session_id,
+                "processId": process_id,
+                "liveness": liveness,
+                "next_action": (
+                    "The Rhino process is alive but its RookNative listener is not "
+                    "responding (plugin reload, listener restart, or a transient). "
+                    "The session was left in place; retry shortly."
+                ),
+            },
+        }
+
+    # Read-only: PIN the effective endpoint to a vetted, allow-listed route.
+    # resolve_capabilities() otherwise honors capabilities.liveEndpoint straight
+    # from the discovery record (bridge.py:197-207). A malformed/forged record
+    # could point liveEndpoint at any slash-prefixed route (e.g. "/objects"), so
+    # asserting a literal here is not enough — we must force it on the instance
+    # we actually pass down. Sanitize a copy, then assert, then resolve.
+    endpoint = "/capabilities"
+    assert_session_readonly_endpoint(endpoint)
+    safe_instance = dict(instance)
+    safe_capabilities = dict(safe_instance.get("capabilities") or {})
+    safe_capabilities["liveEndpoint"] = endpoint
+    safe_instance["capabilities"] = safe_capabilities
+    resolved = await resolve_capabilities(safe_instance)
+    return {
+        "success": True,
+        "data": {
+            "session": session_id,
+            "processId": process_id,
+            "liveness": liveness,
+            "capabilities": resolved,
+        },
+    }
+
+
 def get_rhino_host(
     port: int | None = None,
     endpoint: str | None = None,
