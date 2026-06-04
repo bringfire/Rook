@@ -271,18 +271,18 @@ class OwnedSessionRegistry:
             # version skew -> fail closed, leave rows intact, touch owned_sessions no further.
             self.schema_unsupported = stored[0]
             return
-        if stored is None:
-            table_exists = c.execute(
-                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='owned_sessions';"
-            ).fetchone() is not None
-            if table_exists:
-                # meta lost but a table exists: adopt ONLY if its shape is the P5 shape;
-                # otherwise fail closed (foreign/older table) — never index/read blindly.
-                cols = {row[1] for row in c.execute("PRAGMA table_info(owned_sessions);").fetchall()}
-                required = {col.strip() for col in _COLUMNS.split(",")}
-                if not required.issubset(cols):
-                    self.schema_unsupported = "unknown"
-                    return
+        # If owned_sessions already exists, its SHAPE must match P5 before we index/read it —
+        # REGARDLESS of what meta says. A current-version stamp over a foreign/corrupt table is
+        # still incompatible and must fail closed, not raise on CREATE INDEX (Codex finding).
+        table_exists = c.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='owned_sessions';"
+        ).fetchone() is not None
+        if table_exists:
+            cols = {row[1] for row in c.execute("PRAGMA table_info(owned_sessions);").fetchall()}
+            required = {col.strip() for col in _COLUMNS.split(",")}
+            if not required.issubset(cols):
+                self.schema_unsupported = "unknown"
+                return
 
         # Fresh db, or a current-version / compatible-shape db -> safe to create + index + stamp.
         c.execute("""
