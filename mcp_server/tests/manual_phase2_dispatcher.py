@@ -8,6 +8,11 @@ B: Local tool smoke tests (4 new tools)
 C: Tier 0 agent_mode check
 D: Seam 3 correction_detected and attempt_number
 E: Coverage re-audit
+
+NOTE: Legacy standalone script, NOT a pytest module. The `@test(...)`
+decorator runs each check at import and the module calls `sys.exit()` on
+failure, which aborts pytest collection. Renamed `manual_*` (not `test_*`)
+so pytest does not collect it. Run directly: `python manual_phase2_dispatcher.py`.
 """
 
 import asyncio

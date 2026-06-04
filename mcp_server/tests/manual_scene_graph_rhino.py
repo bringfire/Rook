@@ -6,12 +6,16 @@ Run this via Rhino's Python editor or via the MCP execute tool.
 It creates a simple architectural scene, then queries the scene graph
 endpoints to verify classification, relationships, and the overlay.
 
+NOTE: Legacy/manual script, NOT a pytest module. It performs live Rhino
+calls at import time. Renamed `manual_*` (not `test_*`) so pytest does not
+collect it. Run it directly, not via the test suite.
+
 Prerequisites:
   - Rhino 8 running with Rook plugin loaded
   - Empty document (or clear first)
 
 Usage from MCP:
-  rhino_command("_-RunPythonScript test_scene_graph_rhino.py")
+  rhino_command("_-RunPythonScript manual_scene_graph_rhino.py")
 
 Usage from Rhino Python editor:
   Paste and run.

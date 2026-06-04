@@ -8,6 +8,11 @@ B: spawn.py cache loading integration (actual run_task path, not tautologies)
 C: WORKER.md structural validation (sections, ordering, exclusions)
 D: Full dispatch coverage with catalog (Tier 0 enforcement, group mechanics)
 E: Dynamic system prompt (_build_worker_prompt correctness)
+
+NOTE: Legacy standalone script, NOT a pytest module. The `@test(...)`
+decorator runs each check at import and the module calls `sys.exit()` on
+failure, which aborts pytest collection. Renamed `manual_*` (not `test_*`)
+so pytest does not collect it. Run directly: `python manual_phase3_catalog.py`.
 """
 
 import asyncio
