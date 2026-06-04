@@ -8,8 +8,13 @@ and apply the result transactionally.
 
 from __future__ import annotations
 
+import os
+import tempfile
+import time
+import uuid
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
 
 LAUNCHING = "launching"
 BOUND = "bound"
@@ -106,3 +111,45 @@ def decide(obs: Observation) -> Decision:
                         next_status=(BOUND if obs.rebind_available else LAUNCHING))
 
     raise ValueError(f"unhandled event: {e}")
+
+
+# =====================================================================================
+# Layer 2: runtime identity (stable) and the registry file path.
+# =====================================================================================
+
+
+@dataclass(frozen=True)
+class RuntimeOwner:
+    """Stable lineage identity for this MCP runtime. Minted ONCE per process.
+    The token survives nothing but disambiguates a restarted same-PID process."""
+    pid: int
+    token: str
+    started_at: int
+
+
+def mint_runtime_owner() -> RuntimeOwner:
+    return RuntimeOwner(pid=int(os.getpid()), token=uuid.uuid4().hex, started_at=int(time.time()))
+
+
+_RUNTIME_OWNER: RuntimeOwner | None = None
+
+
+def get_runtime_owner() -> RuntimeOwner:
+    """Process-global stable identity. Scope is NOT here — it is computed live
+    per call by workbench.current_owner_scope() (spec §7)."""
+    global _RUNTIME_OWNER
+    if _RUNTIME_OWNER is None:
+        _RUNTIME_OWNER = mint_runtime_owner()
+    return _RUNTIME_OWNER
+
+
+def resolve_registry_path() -> Path:
+    """Mirror bridge.resolve_discovery_folder: %LOCALAPPDATA%\\Rook\\registry\\owned_sessions.db,
+    falling back to %TEMP%\\rook\\registry\\owned_sessions.db when LOCALAPPDATA is absent.
+    Computes the path directly from LOCALAPPDATA to keep registry.py decoupled from bridge."""
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if local_app_data:
+        root = Path(local_app_data) / "Rook" / "registry"
+    else:
+        root = Path(tempfile.gettempdir()) / "rook" / "registry"
+    return root / "owned_sessions.db"

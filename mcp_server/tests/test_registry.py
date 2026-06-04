@@ -98,3 +98,32 @@ def test_decide_total_and_invariant_over_full_product():
                 assert d.action is Action.NOOP, o          # panel_locked cannot reclaim
             else:
                 assert d.action is Action.RECLAIM, o
+
+
+# ---- Task 2: runtime identity + registry path ----
+from pathlib import Path
+from rook.registry import (
+    RuntimeOwner, get_runtime_owner, mint_runtime_owner, resolve_registry_path,
+)
+
+
+def test_mint_runtime_owner_has_stable_fields():
+    owner = mint_runtime_owner()
+    assert isinstance(owner.pid, int) and owner.pid > 0
+    assert isinstance(owner.token, str) and len(owner.token) >= 8
+    assert isinstance(owner.started_at, int)
+
+
+def test_get_runtime_owner_is_cached(monkeypatch):
+    import rook.registry as reg
+    monkeypatch.setattr(reg, "_RUNTIME_OWNER", None)
+    a = get_runtime_owner()
+    b = get_runtime_owner()
+    assert a is b   # minted once, cached for the process
+
+
+def test_resolve_registry_path_under_localappdata(monkeypatch):
+    monkeypatch.setenv("LOCALAPPDATA", str(Path("C:/Users/x/AppData/Local")))
+    p = resolve_registry_path()
+    assert p.name == "owned_sessions.db"
+    assert "Rook" in p.parts and "registry" in p.parts
