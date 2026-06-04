@@ -131,3 +131,93 @@ async def test_discovery_invalid_has_no_window_hint(monkeypatch):
     out = await workbench.launch_owned_workbench()
     assert out["data"]["code"] == "workbench_discovery_invalid"
     assert "blockingWindows" not in out["data"]
+
+
+class _ClosableProc:
+    def __init__(self, pid, poll_value=None):
+        self.pid = pid
+        self._poll = poll_value
+    def poll(self):
+        return self._poll
+
+
+def _register(pid, proc):
+    workbench._OWNED[pid] = workbench.OwnedWorkbench(
+        record=_record(pid), process=proc, session=f"rhino-{pid}", launched_at=1.0)
+
+
+@pytest.mark.asyncio
+async def test_list_projects_owned_with_liveness(monkeypatch):
+    _register(7001, _ClosableProc(7001))
+    monkeypatch.setattr(workbench, "classify_session_liveness",
+                        lambda inst: {"state": "live", "pidAlive": True, "portListening": True})
+    out = await workbench.list_owned_workbenches()
+    assert out["success"] is True
+    wbs = out["data"]["workbenches"]
+    assert len(wbs) == 1
+    assert wbs[0]["session"] == "rhino-7001"
+    assert wbs[0]["mode"] == "workbench"
+    assert wbs[0]["liveness"]["state"] == "live"
+
+
+@pytest.mark.asyncio
+async def test_close_not_owned(monkeypatch):
+    out = await workbench.close_owned_workbench("rhino-9999")
+    assert out["success"] is False
+    assert out["data"]["code"] == "not_owned"
+    assert out["data"]["retryable"] is False
+
+
+@pytest.mark.asyncio
+async def test_close_invalid_session():
+    out = await workbench.close_owned_workbench("bogus")
+    assert out["success"] is False
+    assert out["data"]["code"] == "invalid_session_id"
+    assert out["data"]["retryable"] is False
+
+
+@pytest.mark.asyncio
+async def test_close_already_exited(monkeypatch):
+    _register(7002, _ClosableProc(7002, poll_value=0))  # already exited
+    monkeypatch.setattr(workbench.asyncio, "to_thread", _sync_to_thread)
+    out = await workbench.close_owned_workbench("rhino-7002")
+    assert out["success"] is True
+    assert out["data"]["cleanupStatus"] == "already_exited"
+    assert 7002 not in workbench._OWNED
+
+
+@pytest.mark.asyncio
+async def test_close_default_force(monkeypatch):
+    _register(7003, _ClosableProc(7003))
+    monkeypatch.setattr(workbench, "force_owned_process_cleanup", lambda p, d: True)
+    monkeypatch.setattr(workbench.asyncio, "to_thread", _sync_to_thread)
+    out = await workbench.close_owned_workbench("rhino-7003")
+    assert out["success"] is True
+    assert out["data"]["cleanupStatus"] == "forced_kill"
+    assert out["data"]["discardedUnsavedChanges"] is True
+    assert 7003 not in workbench._OWNED
+
+
+@pytest.mark.asyncio
+async def test_close_force_failed_keeps_entry(monkeypatch):
+    _register(7004, _ClosableProc(7004))
+    monkeypatch.setattr(workbench, "force_owned_process_cleanup", lambda p, d: False)
+    monkeypatch.setattr(workbench.asyncio, "to_thread", _sync_to_thread)
+    out = await workbench.close_owned_workbench("rhino-7004")
+    assert out["success"] is False
+    assert out["data"]["code"] == "force_kill_failed"
+    assert out["data"]["retryable"] is True
+    assert 7004 in workbench._OWNED  # retained on failure
+
+
+@pytest.mark.asyncio
+async def test_close_graceful_clean_exit(monkeypatch):
+    _register(7005, _ClosableProc(7005, poll_value=None))
+    # request_external_graceful_close returns False => WM_CLOSE exited cleanly.
+    monkeypatch.setattr(workbench, "request_external_graceful_close",
+                        lambda p, timeout_seconds, diagnostics=None: False)
+    monkeypatch.setattr(workbench.asyncio, "to_thread", _sync_to_thread)
+    out = await workbench.close_owned_workbench("rhino-7005", graceful=True)
+    assert out["data"]["cleanupStatus"] == "graceful_exit"
+    assert out["data"]["discardedUnsavedChanges"] is False
+    assert 7005 not in workbench._OWNED

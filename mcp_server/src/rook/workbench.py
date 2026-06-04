@@ -26,6 +26,7 @@ from .runtime_harness import (
     ping_native,
     request_external_graceful_close,
 )
+from .bridge import _process_id_from_session_id, classify_session_liveness
 
 DEFAULT_RHINO_EXE = Path(r"C:\Program Files\Rhino 8\System\Rhino.exe")
 _GRACEFUL_TIMEOUT_SECONDS = 10.0
@@ -129,5 +130,71 @@ async def launch_owned_workbench(readiness_timeout_seconds: int = 90) -> dict[st
             "owned": True,
             "mode": "workbench",
             "boundInSeconds": round(time.monotonic() - started, 2),
+        },
+    }
+
+
+async def list_owned_workbenches() -> dict[str, Any]:
+    async with _LOCK:
+        snapshot = list(_OWNED.values())
+    workbenches = []
+    for wb in snapshot:
+        inst = {"processId": wb.record.pid, "host": wb.record.host, "port": wb.record.port}
+        workbenches.append({
+            "session": wb.session,
+            "processId": wb.record.pid,
+            "port": wb.record.port,
+            "mode": "workbench",
+            "launchedAt": wb.launched_at,
+            "liveness": classify_session_liveness(inst),
+        })
+    return {"success": True, "data": {"workbenches": workbenches}}
+
+
+def _terminate(process, graceful: bool) -> tuple[str, bool]:
+    """Return (cleanupStatus, discardedUnsavedChanges). Caller handles set pruning.
+
+    Runs blocking primitives (WM_CLOSE wait, taskkill) — invoke via asyncio.to_thread.
+    """
+    if process.poll() is not None:
+        return ("already_exited", False)
+    if graceful:
+        # request_external_graceful_close GUARANTEES termination (WM_CLOSE, then kill on
+        # timeout); trust its return rather than re-polling the process.
+        had_to_force = request_external_graceful_close(
+            process, _GRACEFUL_TIMEOUT_SECONDS, diagnostics=[])
+        return ("forced_kill" if had_to_force else "graceful_exit", bool(had_to_force))
+    if force_owned_process_cleanup(process, []):
+        return ("forced_kill", True)
+    return ("force_kill_failed", True)
+
+
+async def close_owned_workbench(session: str, graceful: bool = False) -> dict[str, Any]:
+    pid = _process_id_from_session_id(session)
+    if pid is None or pid <= 0:
+        return _err("invalid_session_id", f"Not a valid session id: {session!r}")
+    async with _LOCK:
+        wb = _OWNED.pop(pid, None)
+    if wb is None:
+        return _err("not_owned",
+                    f"Session {session} is not an owned Workbench of this runtime; "
+                    "only sessions launched here can be closed.")
+
+    # _terminate runs blocking primitives off the event loop.
+    status, discarded = await asyncio.to_thread(_terminate, wb.process, graceful)
+    if status == "force_kill_failed":
+        async with _LOCK:
+            _OWNED[pid] = wb  # retain — still owned, retry-able
+        return _err("force_kill_failed", f"Failed to terminate owned Workbench {session}.",
+                    session=session)
+    return {
+        "success": True,
+        "data": {
+            "session": session,
+            "owned": True,
+            "mode": "workbench",
+            "closed": True,
+            "cleanupStatus": status,
+            "discardedUnsavedChanges": discarded,
         },
     }
