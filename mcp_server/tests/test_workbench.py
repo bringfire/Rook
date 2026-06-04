@@ -221,3 +221,17 @@ async def test_close_graceful_clean_exit(monkeypatch):
     assert out["data"]["cleanupStatus"] == "graceful_exit"
     assert out["data"]["discardedUnsavedChanges"] is False
     assert 7005 not in workbench._OWNED
+
+
+def test_workbench_tools_are_meta():
+    from rook import targeting
+    for name in ("rhino_workbench_launch", "rhino_workbench_list", "rhino_workbench_close"):
+        policy = targeting.policy_for_tool(name)
+        assert policy.requires_rhino is False
+        assert policy.risk == "meta"
+
+
+def test_workbench_close_allows_non_routed_session():
+    from rook import targeting
+    assert targeting.allows_non_routed_session_argument("rhino_workbench_close") is True
+    assert targeting.allows_non_routed_session_argument("rhino_workbench_launch") is False
