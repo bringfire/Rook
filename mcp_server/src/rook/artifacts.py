@@ -50,6 +50,10 @@ _ARTIFACT_COLUMNS = ("artifact_id, path, file_state, source, origin_session_id, 
                      "document_name, size_bytes, mtime, label, created_at, "
                      "last_verified_at, last_missing_at")
 
+# Source precedence: explicit (deliberate campaign membership) outranks
+# owned_workbench (automatic perception). upsert PROMOTES, never DOWNGRADES.
+_SOURCE_RANK = {"owned_workbench": 0, "explicit": 1}
+
 
 @dataclass(frozen=True)
 class ArtifactRow:
@@ -215,13 +219,15 @@ class ArtifactRegistry:
                 return "created"
             last_verified = now if file_state in ("present", "missing") else existing.last_verified_at
             last_missing = now if file_state == "missing" else existing.last_missing_at
+            effective_source = (source if _SOURCE_RANK.get(source, 0) > _SOURCE_RANK.get(existing.source, 0)
+                                else existing.source)
             self._conn.execute(
-                "UPDATE artifacts SET file_state=?, size_bytes=?, mtime=?, last_verified_at=?, "
+                "UPDATE artifacts SET file_state=?, source=?, size_bytes=?, mtime=?, last_verified_at=?, "
                 "last_missing_at=?, document_name=COALESCE(document_name, ?), "
                 "origin_session_id=COALESCE(origin_session_id, ?), label=COALESCE(label, ?) "
                 "WHERE path=?;",
-                (file_state, size, mtime, last_verified, last_missing, document_name, origin_session_id,
-                 label, norm_path))
+                (file_state, effective_source, size, mtime, last_verified, last_missing, document_name,
+                 origin_session_id, label, norm_path))
             return "updated"
 
     def set_state(self, norm_path: str, *, file_state: str, size: int | None,

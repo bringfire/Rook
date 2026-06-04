@@ -286,3 +286,27 @@ def test_server_dispatches_artifact_tools(tmp_path, monkeypatch, _isolated_artif
     assert got["data"]["artifact"]["fileExists"] is True
     dereg = asyncio.run(server._call_tool_dispatch("rhino_artifact_deregister", {"path": str(f)}))
     assert dereg["data"]["fileUntouched"] is True and f.exists()
+
+
+def test_source_precedence_explicit_outranks_owned(tmp_path):
+    # explicit (deliberate campaign membership) outranks owned_workbench (automatic
+    # perception) and NEVER downgrades (Codex finding).
+    reg = _reg(tmp_path)
+    reg.upsert("/p/a.3dm", source="owned_workbench", file_state="present", size=1, mtime=1,
+               document_name=None, origin_session_id="rhino-1", label=None, now=1)
+    reg.upsert("/p/a.3dm", source="explicit", file_state="present", size=1, mtime=1,
+               document_name=None, origin_session_id=None, label=None, now=2)
+    assert reg.get(path="/p/a.3dm").source == "explicit"  # observed -> explicit promotes
+    reg.upsert("/p/a.3dm", source="owned_workbench", file_state="present", size=1, mtime=1,
+               document_name=None, origin_session_id=None, label=None, now=3)
+    assert reg.get(path="/p/a.3dm").source == "explicit"  # never downgrades
+    reg.close()
+
+
+def test_register_promotes_observed_row(tmp_path, _isolated_artifact_db):
+    f = tmp_path / "wb.3dm"; f.write_bytes(b"x")
+    norm = artifacts.normalize_path(str(f))
+    artifacts.artifact_registry().upsert(norm, source="owned_workbench", file_state="present",
+        size=1, mtime=1, document_name=None, origin_session_id="rhino-1", label=None, now=1)
+    res = asyncio.run(artifacts.register_artifact(str(f)))
+    assert res["data"]["artifact"]["source"] == "explicit"

@@ -229,6 +229,20 @@ async def _best_effort_observe_owned_artifact(inst: dict[str, Any], session_id: 
         return
 
 
+async def _observe_owned_artifacts(owned_rows) -> None:
+    """Concurrently observe all owned, LIVE workbenches (best-effort). Caps delay at
+    ~one observe timeout regardless of fleet size (Codex finding): each per-row attempt
+    is already timeout-bounded; gather runs them in parallel, return_exceptions guards
+    the gather (each task also swallows internally)."""
+    tasks = [
+        _best_effort_observe_owned_artifact(
+            {"processId": row.rhino_pid, "host": DEFAULT_HOST, "port": row.port}, row.session_id)
+        for row in owned_rows if row.port
+    ]
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+
 async def launch_owned_workbench(readiness_timeout_seconds: int = 90) -> dict[str, Any]:
     timeout = _validate_timeout(readiness_timeout_seconds)
     if timeout is None:
@@ -413,11 +427,9 @@ async def list_owned_workbenches() -> dict[str, Any]:
                 "portListening": False, "code": None},
         })
     # Post-list side effect: durable artifact perception for owned, LIVE workbenches
-    # only (I8 structural — this is the owned path). The returned list is unaffected.
-    for row in owned_rows:
-        if row.port:
-            await _best_effort_observe_owned_artifact(
-                {"processId": row.rhino_pid, "host": DEFAULT_HOST, "port": row.port}, row.session_id)
+    # only (I8 structural — this is the owned path). Run CONCURRENTLY so a busy fleet
+    # caps the delay at ~one observe timeout, not N. The returned list is unaffected.
+    await _observe_owned_artifacts(owned_rows)
     return {"success": True, "data": {"workbenches": workbenches}}
 
 

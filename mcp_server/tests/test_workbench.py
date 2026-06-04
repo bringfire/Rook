@@ -150,6 +150,30 @@ def test_observe_transitions_existing_row_to_missing(tmp_path, monkeypatch):
     artifacts._reset_artifact_registry_singleton()
 
 
+def test_observe_owned_runs_concurrently(tmp_path, monkeypatch):
+    # A busy fleet must cap delay at ~one observe timeout, not N (Codex finding).
+    import time as _time
+    from types import SimpleNamespace
+    monkeypatch.setattr(artifacts, "resolve_artifact_db_path", lambda: tmp_path / "artifacts.db")
+    artifacts._reset_artifact_registry_singleton()
+    monkeypatch.setattr(workbench, "_OBSERVE_TIMEOUT_SECONDS", 0.3)
+
+    async def slow(inst):
+        await asyncio.sleep(1.0)  # longer than the per-row timeout
+        return {"documentPath": "/x.3dm"}
+    monkeypatch.setattr(targeting, "fetch_document_metadata", slow)
+
+    rows = [SimpleNamespace(rhino_pid=1, port=1001, session_id="rhino-1"),
+            SimpleNamespace(rhino_pid=2, port=1002, session_id="rhino-2")]
+    start = _time.monotonic()
+    asyncio.run(workbench._observe_owned_artifacts(rows))
+    elapsed = _time.monotonic() - start
+    # Concurrent: ~one timeout (~0.3s), NOT two (~0.6s). Generous bound for CI jitter.
+    assert elapsed < 0.55
+    assert artifacts.artifact_registry().list_all() == []  # all timed out -> swallowed
+    artifacts._reset_artifact_registry_singleton()
+
+
 class _FakeProc:
     def __init__(self, pid):
         self.pid = pid
