@@ -9,12 +9,15 @@ and apply the result transactionally.
 from __future__ import annotations
 
 import os
+import sqlite3
 import tempfile
+import threading
 import time
 import uuid
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+from typing import Any
 
 LAUNCHING = "launching"
 BOUND = "bound"
@@ -153,3 +156,117 @@ def resolve_registry_path() -> Path:
     else:
         root = Path(tempfile.gettempdir()) / "rook" / "registry"
     return root / "owned_sessions.db"
+
+
+# =====================================================================================
+# Layer 3: the SQLite ownership ledger. Liveness is NEVER stored — only claims + last
+# observations (spec §3). All load-bearing writes use BEGIN IMMEDIATE (§12).
+# =====================================================================================
+
+REGISTRY_VERSION = "p5.1"
+
+
+@dataclass(frozen=True)
+class OwnedRow:
+    session_id: str
+    rhino_pid: int
+    port: int | None
+    status: str
+    owner_pid: int
+    owner_token: str
+    owner_started_at: int
+    owner_scope: str
+    launched_at: int
+    # Non-authoritative document snapshot — the reserved P6 seam (spec §2/§6).
+    # P5 has no writer, so these stay NULL; they exist so P6 needs no migration.
+    last_document_path: str | None
+    last_document_serial_number: int | None
+    last_document_name: str | None
+    last_port_up: int | None
+    observed_at: int | None
+
+
+_COLUMNS = ("session_id, rhino_pid, port, status, owner_pid, owner_token, "
+            "owner_started_at, owner_scope, launched_at, last_document_path, "
+            "last_document_serial_number, last_document_name, last_port_up, observed_at")
+
+
+def _row(raw: "sqlite3.Row | tuple | None") -> "OwnedRow | None":
+    if raw is None:
+        return None
+    return OwnedRow(*raw)
+
+
+class OwnedSessionRegistry:
+    """SQLite ownership ledger. Liveness is NEVER stored — only claims + last
+    observations (spec §3). All load-bearing writes use BEGIN IMMEDIATE (§12)."""
+
+    def __init__(self, db_path: Path):
+        db_path = Path(db_path)
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        # A reentrant lock serialises all connection access WITHIN this process —
+        # methods run on asyncio.to_thread worker threads, so check_same_thread must
+        # be False and we must serialise ourselves (sqlite3 Connection objects are not
+        # safe for concurrent use). RLock so a write-txn helper can call a read (get)
+        # without self-deadlock. Cross-PROCESS concurrency is handled by WAL +
+        # busy_timeout, not this lock.
+        self._lock = threading.RLock()
+        # isolation_level=None -> we drive BEGIN IMMEDIATE / COMMIT explicitly.
+        self._conn = sqlite3.connect(str(db_path), isolation_level=None, check_same_thread=False)
+        self._conn.execute("PRAGMA journal_mode=WAL;")
+        self._conn.execute("PRAGMA synchronous=NORMAL;")
+        self._conn.execute("PRAGMA busy_timeout=5000;")
+        self._ensure_schema()
+
+    def close(self) -> None:
+        try:
+            self._conn.close()
+        except Exception:
+            pass
+
+    def _ensure_schema(self) -> None:
+        c = self._conn
+        c.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);")
+        stored = c.execute("SELECT value FROM meta WHERE key='registry_version';").fetchone()
+        if stored is None or stored[0] != REGISTRY_VERSION:
+            c.execute("DROP TABLE IF EXISTS owned_sessions;")
+            c.execute("DELETE FROM meta;")
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS owned_sessions (
+                session_id   TEXT PRIMARY KEY,
+                rhino_pid    INTEGER NOT NULL,
+                port         INTEGER,
+                status       TEXT NOT NULL,
+                owner_pid    INTEGER NOT NULL,
+                owner_token  TEXT NOT NULL,
+                owner_started_at INTEGER NOT NULL,
+                owner_scope  TEXT NOT NULL,
+                launched_at  INTEGER NOT NULL,
+                last_document_path TEXT,
+                last_document_serial_number INTEGER,
+                last_document_name TEXT,
+                last_port_up INTEGER,
+                observed_at  INTEGER);""")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_owned_rhino_pid ON owned_sessions(rhino_pid);")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_owned_owner_pid ON owned_sessions(owner_pid);")
+        c.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('registry_version', ?);",
+                  (REGISTRY_VERSION,))
+
+    # ----- reads (RLock-guarded; reentrant so write-txns can call get()) -----
+    def get(self, session_id: str) -> "OwnedRow | None":
+        with self._lock:
+            raw = self._conn.execute(
+                f"SELECT {_COLUMNS} FROM owned_sessions WHERE session_id=?;", (session_id,)).fetchone()
+        return _row(raw)
+
+    def snapshot_all(self) -> "list[OwnedRow]":
+        with self._lock:
+            rows = self._conn.execute(f"SELECT {_COLUMNS} FROM owned_sessions;").fetchall()
+        return [_row(r) for r in rows]
+
+    def list_owned(self, owner_pid: int, owner_token: str) -> "list[OwnedRow]":
+        with self._lock:
+            rows = self._conn.execute(
+                f"SELECT {_COLUMNS} FROM owned_sessions WHERE owner_pid=? AND owner_token=?;",
+                (owner_pid, owner_token)).fetchall()
+        return [_row(r) for r in rows]

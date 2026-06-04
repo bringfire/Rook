@@ -127,3 +127,47 @@ def test_resolve_registry_path_under_localappdata(monkeypatch):
     p = resolve_registry_path()
     assert p.name == "owned_sessions.db"
     assert "Rook" in p.parts and "registry" in p.parts
+
+
+# ---- Task 3: OwnedSessionRegistry connection + schema + version-wipe ----
+import sqlite3
+from rook.registry import OwnedSessionRegistry, REGISTRY_VERSION
+
+
+def _reg(tmp_path):
+    return OwnedSessionRegistry(tmp_path / "owned.db")
+
+
+def _owner(pid=4242, token="tok-a", started_at=900):
+    return RuntimeOwner(pid=pid, token=token, started_at=started_at)
+
+
+def test_schema_created_and_empty(tmp_path):
+    r = _reg(tmp_path)
+    try:
+        assert r.snapshot_all() == []
+        assert r.get("rhino-1") is None
+    finally:
+        r.close()
+
+
+def test_version_mismatch_wipes(tmp_path):
+    r = _reg(tmp_path)
+    # raw insert (insert_launching arrives in Task 4) so this task is self-contained
+    r._conn.execute(
+        "INSERT INTO owned_sessions(session_id, rhino_pid, status, owner_pid, owner_token, "
+        "owner_started_at, owner_scope, launched_at) "
+        "VALUES('rhino-5', 5, 'launching', 1, 't', 1, 'external', 1000);")
+    assert r.get("rhino-5") is not None
+    r.close()
+
+    conn = sqlite3.connect(tmp_path / "owned.db")
+    conn.execute("UPDATE meta SET value='0.0.0-old' WHERE key='registry_version';")
+    conn.commit()
+    conn.close()
+
+    r2 = _reg(tmp_path)
+    try:
+        assert r2.get("rhino-5") is None    # wiped because stored version != REGISTRY_VERSION
+    finally:
+        r2.close()
