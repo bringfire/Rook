@@ -859,6 +859,41 @@ def test_observe_bounds_slow_fetch_and_swallows(tmp_path, monkeypatch):
         {"processId": 42, "host": "127.0.0.1", "port": 1234}, "rhino-42"))  # ~0.05s, no raise
     assert artifacts.artifact_registry().list_all() == []
     artifacts._reset_artifact_registry_singleton()
+
+
+def test_observe_saved_but_missing_makes_no_row(tmp_path, monkeypatch):
+    # Stat-gate at the HOOK: Rhino reports a saved path, but the file isn't on disk
+    # → born-present means NO phantom row (spec §7.1 case 2, Codex Finding 1).
+    monkeypatch.setattr(artifacts, "resolve_artifact_db_path", lambda: tmp_path / "artifacts.db")
+    artifacts._reset_artifact_registry_singleton()
+    ghost = str(tmp_path / "ghost.3dm")  # a documentPath that is not on disk
+
+    async def fake_md(inst):
+        return {"documentPath": ghost, "documentName": "ghost.3dm"}
+    monkeypatch.setattr(targeting, "fetch_document_metadata", fake_md)
+    asyncio.run(workbench._best_effort_observe_owned_artifact(
+        {"processId": 42, "host": "127.0.0.1", "port": 1234}, "rhino-42"))
+    assert artifacts.artifact_registry().list_all() == []
+    artifacts._reset_artifact_registry_singleton()
+
+
+def test_observe_transitions_existing_row_to_missing(tmp_path, monkeypatch):
+    # Stat-gate at the HOOK: an EXISTING row whose file later vanishes transitions
+    # to 'missing' (history kept), not deleted (spec §7.1 case 3 + I1).
+    monkeypatch.setattr(artifacts, "resolve_artifact_db_path", lambda: tmp_path / "artifacts.db")
+    artifacts._reset_artifact_registry_singleton()
+    f = tmp_path / "wb.3dm"; f.write_bytes(b"abc")
+    asyncio.run(artifacts.register_artifact(str(f)))   # seed a present row
+    f.unlink()                                          # file vanishes
+
+    async def fake_md(inst):
+        return {"documentPath": str(f), "documentName": "wb.3dm"}
+    monkeypatch.setattr(targeting, "fetch_document_metadata", fake_md)
+    asyncio.run(workbench._best_effort_observe_owned_artifact(
+        {"processId": 42, "host": "127.0.0.1", "port": 1234}, "rhino-42"))
+    row = artifacts.artifact_registry().get(path=artifacts.normalize_path(str(f)))
+    assert row is not None and row.file_state == "missing"
+    artifacts._reset_artifact_registry_singleton()
 ```
 
 - [ ] **Step 2: Run — expect failure** (`AttributeError: _best_effort_observe_owned_artifact`).
@@ -1007,7 +1042,7 @@ Add the same four names to the `_ALL_KNOWN_TOOLS` set (find it near `targeting.p
         ),
 ```
 
-- [ ] **Step 3c: Add 4 dispatch `case`s to `server.py`** (after the `rhino_workbench_close` case at ~12834). Add `from rook import artifacts` near the top imports if not present (alongside `workbench`).
+- [ ] **Step 3c: Add 4 dispatch `case`s to `server.py`** (after the `rhino_workbench_close` case at ~12834). Add `artifacts` to the existing **relative** import line that already pulls in `workbench` (e.g. `from . import ..., artifacts, workbench`) — match the repo's relative-import style (server.py:52 region); do NOT introduce a `from rook import ...` line in server.py.
 
 ```python
         case "rhino_artifacts":
@@ -1049,6 +1084,7 @@ git commit -m "feat(p6): wire artifact meta tools + rhino_sessions-no-observe re
 **Pattern:** mirror `mcp_server/tools/p5_registry_reclaim_live_harness.py` exactly (owned-Rhino launch, `ROOK_RHINO_PORT`/`ROOK_RHINO_PROCESS_ID` scoping, results to `manifest.json`, `--readiness-timeout 120`, retry-once on a transient plugin modal). Restore `knowledge/` + remove `knowledge/selectors/` after (the import side-effect cleanup).
 
 - [ ] **Step 1: Write the harness** with these PASS assertions (each printed PASS/FAIL, overall `success`):
+  0. **Isolate the artifact DB** so assertions can't see stale rows from prior local runs or manual registrations: at harness start, set `artifacts.resolve_artifact_db_path = lambda: Path(tempfile.gettempdir()) / "rook-p6-smoke" / "artifacts.db"` (a fresh dir, removed first) and call `artifacts._reset_artifact_registry_singleton()`; reset again in a `finally` at the end. **Keep P5's `owned_sessions.db` REAL** — the harness launches real owned Workbenches; isolate ONLY the new artifact registry.
   1. Launch an owned Workbench (`workbench.launch_owned_workbench`).
   2. In that Workbench, create a box and **save** to a throwaway temp path (`document/save` to `%TEMP%/rook-p6-smoke-<n>.3dm`). **Confirm in chat before any `document_ops(new)`/save on a real doc.**
   3. `workbench.list_owned_workbenches()` (fires observe) → `artifacts.list_artifacts()` shows the row, `source=owned_workbench`, `fileState=present`. **(headline)**
