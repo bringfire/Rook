@@ -18,21 +18,33 @@ def clear_owned():
     workbench._OWNED.clear()
 
 
+def _reset_registry_singleton():
+    if workbench._REGISTRY is not None:
+        try:
+            workbench._REGISTRY.close()
+        except Exception:
+            pass
+    workbench._REGISTRY = None
+
+
 @pytest.fixture(autouse=True)
 def fresh_registry(tmp_path, monkeypatch):
     # Isolate every workbench test's registry to a throwaway db + a fixed runtime
     # identity + external scope. Autouse so the P5 refactor of launch/list/close
     # (now registry-backed) never touches the real %LOCALAPPDATA% registry.
     db = tmp_path / "owned.db"
-    monkeypatch.setattr(workbench, "_REGISTRY", None)
-    monkeypatch.setattr(registry, "resolve_registry_path", lambda: db)
+    # workbench did `from .registry import resolve_registry_path`, so it holds a LOCAL
+    # name — patch the name workbench actually calls, not registry's module attribute.
+    monkeypatch.setattr(workbench, "resolve_registry_path", lambda: db)
     monkeypatch.setattr(registry, "_RUNTIME_OWNER",
                         registry.RuntimeOwner(pid=4242, token="me-tok", started_at=1))
     monkeypatch.setattr(workbench, "current_owner_scope", lambda: "external")
+    # Manage _REGISTRY MANUALLY (not via monkeypatch): monkeypatch would restore a
+    # stale closed connection at teardown, so _registry() would reopen the prior
+    # (real) db on the next test -> UNIQUE-constraint contamination across tests.
+    _reset_registry_singleton()
     yield
-    r = workbench._REGISTRY
-    if r is not None:
-        r.close()
+    _reset_registry_singleton()
 
 
 class _FakeProc:
@@ -167,15 +179,22 @@ def _register(pid, proc):
 
 @pytest.mark.asyncio
 async def test_list_projects_owned_with_liveness(monkeypatch):
-    _register(7001, _ClosableProc(7001))
+    # P5: list is registry-backed (reconcile-at-entry + read rows), not _OWNED.
+    monkeypatch.setattr(workbench.asyncio, "to_thread", _sync_to_thread)
+    monkeypatch.setattr(workbench, "_is_pid_alive", lambda pid: True)
+    monkeypatch.setattr(workbench, "_is_port_listening", lambda host, port: True)
     monkeypatch.setattr(workbench, "classify_session_liveness",
                         lambda inst: {"state": "live", "pidAlive": True, "portListening": True})
+    reg = workbench._registry()
+    reg.insert_launching("rhino-7001", 7001, registry.get_runtime_owner(), "external", 1000)
+    reg.bind("rhino-7001", 64001)
     out = await workbench.list_owned_workbenches()
     assert out["success"] is True
     wbs = out["data"]["workbenches"]
     assert len(wbs) == 1
     assert wbs[0]["session"] == "rhino-7001"
     assert wbs[0]["mode"] == "workbench"
+    assert wbs[0]["lifecycleStatus"] == "bound"
     assert wbs[0]["liveness"]["state"] == "live"
 
 
@@ -531,3 +550,21 @@ async def test_launch_panel_locked_does_not_popen(monkeypatch, fresh_registry):
     assert out["success"] is False
     assert out["data"]["code"] == "workbench_requires_external_scope"
     assert popened == []   # Popen NEVER called under panel lock
+
+
+# ==== P5 Task 9: list includes launching/closing + lifecycleStatus ====
+@pytest.mark.asyncio
+async def test_list_includes_launching_and_bound(monkeypatch, fresh_registry):
+    monkeypatch.setattr(workbench.asyncio, "to_thread", _sync_to_thread)
+    monkeypatch.setattr(workbench, "_is_pid_alive", lambda pid: True)
+    monkeypatch.setattr(workbench, "_is_port_listening", lambda host, port: True)
+    owner = registry.get_runtime_owner()
+    reg = workbench._registry()
+    reg.insert_launching("rhino-7100", 7100, owner, "external", 1000)
+    reg.insert_launching("rhino-7101", 7101, owner, "external", 1000)
+    reg.bind("rhino-7101", 64511)
+
+    out = await workbench.list_owned_workbenches()
+    by = {w["session"]: w for w in out["data"]["workbenches"]}
+    assert by["rhino-7100"]["lifecycleStatus"] == "launching" and by["rhino-7100"]["port"] is None
+    assert by["rhino-7101"]["lifecycleStatus"] == "bound" and by["rhino-7101"]["port"] == 64511

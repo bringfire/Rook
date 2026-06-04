@@ -336,18 +336,28 @@ async def _handle_launch_failure(exc: DiscoveryError, process, pid: int, session
 
 
 async def list_owned_workbenches() -> dict[str, Any]:
+    owner = get_runtime_owner()
+    scope = current_owner_scope()
+    owned_rows = await asyncio.to_thread(_reconcile_sync, owner, scope)
     async with _LOCK:
-        snapshot = list(_OWNED.values())
+        _rebuild_owned(owned_rows)
     workbenches = []
-    for wb in snapshot:
-        inst = {"processId": wb.record.pid, "host": wb.record.host, "port": wb.record.port}
+    for row in owned_rows:
+        inst = {"processId": row.rhino_pid, "host": DEFAULT_HOST, "port": row.port}
         workbenches.append({
-            "session": wb.session,
-            "processId": wb.record.pid,
-            "port": wb.record.port,
+            "session": row.session_id,
+            "processId": row.rhino_pid,
+            "port": row.port,
+            "lifecycleStatus": row.status,
             "mode": "workbench",
-            "launchedAt": wb.launched_at,
-            "liveness": classify_session_liveness(inst),
+            "launchedAt": row.launched_at,
+            "lastPortUp": (None if row.last_port_up is None else bool(row.last_port_up)),
+            # lifecycleStatus carries the lifecycle truth; for a port-less row (launching,
+            # or a launching-derived closing) there is no listener to probe, so liveness
+            # uses a NEUTRAL state, not a lifecycle word (finding 5).
+            "liveness": classify_session_liveness(inst) if row.port else {
+                "state": "not_bound", "pidAlive": _is_pid_alive(row.rhino_pid),
+                "portListening": False, "code": None},
         })
     return {"success": True, "data": {"workbenches": workbenches}}
 
