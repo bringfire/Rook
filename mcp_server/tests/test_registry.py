@@ -300,3 +300,98 @@ def test_reap_dead(tmp_path):
         assert r.get("rhino-25") is None
     finally:
         r.close()
+
+
+# ---- Task 6: reconcile_owned_registry driver ----
+from rook.registry import reconcile_owned_registry
+
+
+def _reconcile(r, owner, scope, *, alive_pids, listening_ports=(), rebind_pids=(), rebind_port=64999):
+    return reconcile_owned_registry(
+        r, owner, scope,
+        is_pid_alive=lambda pid: pid in alive_pids,
+        is_port_listening=lambda host, port: port in listening_ports,
+        rebind_probe=lambda pid: rebind_port if pid in rebind_pids else None,
+        now=lambda: 5000,
+    )
+
+
+def test_reconcile_reaps_dead_rhino(tmp_path):
+    r = _reg(tmp_path)
+    try:
+        me = _owner(pid=100, token="me")
+        _bound(r, "rhino-30", 30, owner=me, port=64300)
+        owned = _reconcile(r, me, "external", alive_pids={100})  # rhino 30 dead
+        assert r.get("rhino-30") is None and owned == []
+    finally:
+        r.close()
+
+
+def test_reconcile_reclaims_dead_owner_external(tmp_path):
+    r = _reg(tmp_path)
+    try:
+        dead = RuntimeOwner(9001, "dead", 1)
+        me = _owner(pid=100, token="me")
+        _bound(r, "rhino-31", 31, owner=dead, port=64301)
+        owned = _reconcile(r, me, "external", alive_pids={31})  # rhino alive, owner 9001 dead
+        row = r.get("rhino-31")
+        assert row.owner_pid == 100 and row.status == BOUND
+        assert [o.session_id for o in owned] == ["rhino-31"]
+    finally:
+        r.close()
+
+
+def test_reconcile_panel_locked_no_reclaim(tmp_path):
+    r = _reg(tmp_path)
+    try:
+        dead = RuntimeOwner(9001, "dead", 1)
+        me = _owner(pid=100, token="me")
+        _bound(r, "rhino-32", 32, owner=dead, port=64302)
+        owned = _reconcile(r, me, "panel_locked", alive_pids={32})
+        assert r.get("rhino-32").owner_pid == 9001   # untouched
+        assert owned == []
+    finally:
+        r.close()
+
+
+def test_reconcile_live_peer_no_steal(tmp_path):
+    r = _reg(tmp_path)
+    try:
+        peer = RuntimeOwner(9001, "peer", 1)
+        me = _owner(pid=100, token="me")
+        _bound(r, "rhino-33", 33, owner=peer, port=64303)
+        owned = _reconcile(r, me, "external", alive_pids={33, 9001})  # peer alive
+        assert r.get("rhino-33").owner_pid == 9001   # not stolen
+        assert owned == []
+    finally:
+        r.close()
+
+
+def test_reconcile_port_down_still_reclaims(tmp_path):
+    r = _reg(tmp_path)
+    try:
+        dead = RuntimeOwner(9001, "dead", 1)
+        me = _owner(pid=100, token="me")
+        _bound(r, "rhino-34", 34, owner=dead, port=64304)
+        # rhino alive, owner dead, port NOT listening -> reclaim anyway + record port down
+        owned = _reconcile(r, me, "external", alive_pids={34}, listening_ports=set())
+        row = r.get("rhino-34")
+        assert row.owner_pid == 100 and row.status == BOUND
+        assert row.last_port_up == 0
+        assert [o.session_id for o in owned] == ["rhino-34"]
+    finally:
+        r.close()
+
+
+def test_reconcile_launching_late_bind_promotes(tmp_path):
+    r = _reg(tmp_path)
+    try:
+        dead = RuntimeOwner(9001, "dead", 1)
+        me = _owner(pid=100, token="me")
+        r.insert_launching("rhino-35", 35, dead, "external", 1000)
+        owned = _reconcile(r, me, "external", alive_pids={35}, rebind_pids={35}, rebind_port=64950)
+        row = r.get("rhino-35")
+        assert row.status == BOUND and row.port == 64950   # promoted WITH discovered port (L3)
+        assert [o.session_id for o in owned] == ["rhino-35"]
+    finally:
+        r.close()

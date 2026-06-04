@@ -17,7 +17,7 @@ import uuid
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 LAUNCHING = "launching"
 BOUND = "bound"
@@ -403,3 +403,64 @@ class OwnedSessionRegistry:
     def reap(self, session_id: str) -> None:
         with self._immediate():
             self._conn.execute("DELETE FROM owned_sessions WHERE session_id=?;", (session_id,))
+
+
+# =====================================================================================
+# Layer 4: the reconcile driver (probe outside, decide, apply under CAS). NEVER kills.
+# =====================================================================================
+
+DEFAULT_HOST = "127.0.0.1"
+
+
+def reconcile_owned_registry(
+    registry: OwnedSessionRegistry,
+    owner: "RuntimeOwner",
+    scope: str,
+    *,
+    is_pid_alive: Callable[[int], bool],
+    is_port_listening: Callable[[str, int], bool],
+    rebind_probe: Callable[[int], "int | None"],
+    now: Callable[[], int],
+) -> "list[OwnedRow]":
+    """Snapshot rows, probe liveness OUTSIDE transactions, decide per row, apply
+    each under its own BEGIN IMMEDIATE with a CAS recheck (spec §9). Returns the
+    rows now owned by `owner` (caller rebuilds _OWNED). NEVER terminates a process.
+    `rebind_probe(pid) -> port | None`: the discovered port if a launching row bound
+    after its owner died (used to promote launching->bound WITH the port), else None."""
+    for row in registry.snapshot_all():
+        rhino_alive = is_pid_alive(row.rhino_pid)
+        owner_alive = is_pid_alive(row.owner_pid)
+        # port_up is an OBSERVATION, tri-state: None = "no port probed" (a launching row,
+        # or a late-bind promotion whose new port we haven't probed) — NEVER conflate that
+        # with 0 = "real port probed and down" (findings 3 & 4). 0/1 only for a real probe.
+        if row.port and rhino_alive:
+            port_up = is_port_listening(DEFAULT_HOST, row.port)
+        else:
+            port_up = None
+        rebind_port = None
+        if row.status == LAUNCHING and rhino_alive and not owner_alive and scope == "external":
+            rebind_port = rebind_probe(row.rhino_pid)
+
+        d = decide(Observation(status=row.status, port_is_null=row.port is None,
+                               event=Event.RECONCILE, rhino_alive=rhino_alive,
+                               owner_alive=owner_alive, scope=scope,
+                               rebind_available=rebind_port is not None))
+
+        if d.action is Action.DELETE:
+            registry.reap(row.session_id)
+        elif d.action is Action.RECLAIM:
+            # A promoted launching row carries the discovered port; every other
+            # reclaim keeps the row's existing port (§8.2 L3: a bound row is never NULL).
+            next_port = rebind_port if (row.status == LAUNCHING and rebind_port is not None) else row.port
+            registry.reclaim(row.session_id, expected=_owner_of(row), expected_status=row.status,
+                             new_owner=owner, next_status=d.next_status, next_port=next_port,
+                             port_up=port_up, observed_at=now())
+        elif d.action is Action.RETAIN:
+            registry.record_observation(row.session_id, port_up, now())
+        # NOOP -> leave untouched
+
+    return registry.list_owned(owner.pid, owner.token)
+
+
+def _owner_of(row: OwnedRow) -> "RuntimeOwner":
+    return RuntimeOwner(pid=row.owner_pid, token=row.owner_token, started_at=row.owner_started_at)
