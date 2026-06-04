@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import signal
 import subprocess
 import time
 from dataclasses import dataclass
@@ -26,9 +27,49 @@ from .runtime_harness import (
     ping_native,
     request_external_graceful_close,
 )
-from .bridge import _process_id_from_session_id, classify_session_liveness
+from .bridge import (_process_id_from_session_id, classify_session_liveness,
+                     _is_pid_alive, _is_port_listening, DEFAULT_HOST)
+from . import registry as _reg
+from .registry import get_runtime_owner, reconcile_owned_registry, resolve_registry_path
+from . import targeting
 
 DEFAULT_RHINO_EXE = Path(r"C:\Program Files\Rhino 8\System\Rhino.exe")
+
+
+class PidProcessHandle:
+    """A pid-backed stand-in for a subprocess.Popen lost across an MCP restart.
+    Implements exactly the surface P4's close path touches: .pid/.poll/.wait/.kill
+    (spec §13). Reclaimed Workbenches close as cleanly as freshly-launched ones."""
+
+    def __init__(self, pid: int):
+        self.pid = int(pid)
+        self.returncode: int | None = None
+
+    def poll(self) -> int | None:
+        if _is_pid_alive(self.pid):
+            return None
+        if self.returncode is None:
+            self.returncode = 0
+        return self.returncode
+
+    def wait(self, timeout: float | None = None) -> int:
+        deadline = None if timeout is None else time.monotonic() + timeout
+        while _is_pid_alive(self.pid):
+            if deadline is not None and time.monotonic() >= deadline:
+                raise subprocess.TimeoutExpired(cmd=f"pid {self.pid}", timeout=timeout)
+            time.sleep(0.05)
+        self.returncode = 0
+        return 0
+
+    def kill(self) -> None:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/PID", str(self.pid), "/F"],
+                           capture_output=True, text=True, check=False)
+        else:
+            try:
+                os.kill(self.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
 _GRACEFUL_TIMEOUT_SECONDS = 10.0
 
 _REASON_TO_CODE: dict[DiscoveryFailureReason, str] = {

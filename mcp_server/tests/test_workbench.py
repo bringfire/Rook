@@ -348,3 +348,23 @@ async def test_close_invalid_graceful_flag(bad):
     assert out["success"] is False
     assert out["data"]["code"] == "invalid_graceful_flag"
     assert out["data"]["retryable"] is False
+
+
+# ==== P5 Task 7: PidProcessHandle surrogate ====
+def test_pid_process_handle(monkeypatch):
+    alive = {555}
+    monkeypatch.setattr(workbench, "_is_pid_alive", lambda pid: pid in alive)
+    h = workbench.PidProcessHandle(555)
+    assert h.pid == 555
+    assert h.poll() is None            # alive
+    alive.discard(555)
+    assert h.poll() == 0               # dead -> exit sentinel
+    assert h.returncode == 0
+
+
+def test_pid_process_handle_wait_timeout(monkeypatch):
+    import subprocess
+    monkeypatch.setattr(workbench, "_is_pid_alive", lambda pid: True)
+    h = workbench.PidProcessHandle(556)
+    with pytest.raises(subprocess.TimeoutExpired):
+        h.wait(timeout=0.05)
