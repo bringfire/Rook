@@ -426,6 +426,7 @@ Append to `mcp_server/src/rook/registry.py`:
 
 ```python
 import sqlite3
+import threading
 from typing import Any
 
 REGISTRY_VERSION = "p5.1"
@@ -463,8 +464,15 @@ class OwnedSessionRegistry:
     def __init__(self, db_path: Path):
         db_path = Path(db_path)
         db_path.parent.mkdir(parents=True, exist_ok=True)
+        # A reentrant lock serialises all connection access WITHIN this process —
+        # methods run on asyncio.to_thread worker threads, so check_same_thread
+        # must be False and we must serialise ourselves (sqlite3 Connection objects
+        # are not safe for concurrent use). RLock so a write-txn helper can call a
+        # read (get) without self-deadlock. Cross-PROCESS concurrency is handled by
+        # WAL + busy_timeout, not this lock.
+        self._lock = threading.RLock()
         # isolation_level=None -> we drive BEGIN IMMEDIATE / COMMIT explicitly.
-        self._conn = sqlite3.connect(str(db_path), isolation_level=None)
+        self._conn = sqlite3.connect(str(db_path), isolation_level=None, check_same_thread=False)
         self._conn.execute("PRAGMA journal_mode=WAL;")
         self._conn.execute("PRAGMA synchronous=NORMAL;")
         self._conn.execute("PRAGMA busy_timeout=5000;")
@@ -501,20 +509,23 @@ class OwnedSessionRegistry:
         c.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('registry_version', ?);",
                   (REGISTRY_VERSION,))
 
-    # ----- reads (no transaction needed) -----
+    # ----- reads (RLock-guarded; reentrant so write-txns can call get()) -----
     def get(self, session_id: str) -> OwnedRow | None:
-        raw = self._conn.execute(
-            f"SELECT {_COLUMNS} FROM owned_sessions WHERE session_id=?;", (session_id,)).fetchone()
+        with self._lock:
+            raw = self._conn.execute(
+                f"SELECT {_COLUMNS} FROM owned_sessions WHERE session_id=?;", (session_id,)).fetchone()
         return _row(raw)
 
     def snapshot_all(self) -> list[OwnedRow]:
-        rows = self._conn.execute(f"SELECT {_COLUMNS} FROM owned_sessions;").fetchall()
+        with self._lock:
+            rows = self._conn.execute(f"SELECT {_COLUMNS} FROM owned_sessions;").fetchall()
         return [_row(r) for r in rows]
 
     def list_owned(self, owner_pid: int, owner_token: str) -> list[OwnedRow]:
-        rows = self._conn.execute(
-            f"SELECT {_COLUMNS} FROM owned_sessions WHERE owner_pid=? AND owner_token=?;",
-            (owner_pid, owner_token)).fetchall()
+        with self._lock:
+            rows = self._conn.execute(
+                f"SELECT {_COLUMNS} FROM owned_sessions WHERE owner_pid=? AND owner_token=?;",
+                (owner_pid, owner_token)).fetchall()
         return [_row(r) for r in rows]
 ```
 
@@ -593,8 +604,8 @@ Append to the `OwnedSessionRegistry` class in `mcp_server/src/rook/registry.py`:
 ```python
     # ----- transaction helper -----
     def _immediate(self):
-        """Context-manager: BEGIN IMMEDIATE ... COMMIT (ROLLBACK on error)."""
-        return _ImmediateTx(self._conn)
+        """Context-manager: acquire the RLock, BEGIN IMMEDIATE ... COMMIT (ROLLBACK on error)."""
+        return _ImmediateTx(self._conn, self._lock)
 
     # ----- lifecycle writes -----
     def insert_launching(self, session_id: str, rhino_pid: int, owner: "RuntimeOwner",
@@ -633,18 +644,27 @@ And add the transaction context manager near the top of the module body (after t
 
 ```python
 class _ImmediateTx:
-    def __init__(self, conn: sqlite3.Connection):
+    def __init__(self, conn: sqlite3.Connection, lock: "threading.RLock"):
         self._conn = conn
+        self._lock = lock
 
     def __enter__(self):
-        self._conn.execute("BEGIN IMMEDIATE;")
+        self._lock.acquire()
+        try:
+            self._conn.execute("BEGIN IMMEDIATE;")
+        except Exception:
+            self._lock.release()
+            raise
         return self
 
     def __exit__(self, exc_type, exc, tb):
-        if exc_type is None:
-            self._conn.execute("COMMIT;")
-        else:
-            self._conn.execute("ROLLBACK;")
+        try:
+            if exc_type is None:
+                self._conn.execute("COMMIT;")
+            else:
+                self._conn.execute("ROLLBACK;")
+        finally:
+            self._lock.release()
         return False
 ```
 
