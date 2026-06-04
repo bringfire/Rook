@@ -66,7 +66,7 @@ CREATE TABLE owned_sessions (
   session_id   TEXT PRIMARY KEY,        -- 'rhino-<pid>' (the P1/P3 handle)
   rhino_pid    INTEGER NOT NULL,
   port         INTEGER,                 -- NULL while 'launching'
-  status       TEXT NOT NULL,           -- 'launching' | 'bound'
+  status       TEXT NOT NULL,           -- 'launching' | 'bound' | 'closing'
   owner_pid    INTEGER NOT NULL,        -- the coordinator runtime that owns the claim
   owner_token  TEXT NOT NULL,           -- uuid minted once per runtime at startup
   owner_started_at INTEGER NOT NULL,    -- runtime start (epoch); PID-reuse seam, see §10
@@ -87,21 +87,28 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- 'registry_ver
 
 **No `adopted` column — deliberately.** Every P5 row is owned. SlotStore's `adopted` flag is the *Attached-master-document* distinction (never auto-close the user's doc) — that is P6/fan-in, not here. "Owned-by-me vs peer-owned" is **derived at read time** by comparing the row's owner identity to the current `RuntimeOwner`; it is not a stored flag.
 
-## 7. Runtime identity (`get_runtime_owner()`)
+## 7. Runtime identity (stable) vs. scope (live)
 
-A process-global `RuntimeOwner`, minted **once** at first use and cached for the process lifetime:
+These are two different things and must not be conflated (Codex finding 3): the **lineage identity** is stable for the process and may be cached; the **permission scope** is a live safety gate and must be recomputed every call, never read from a cached value.
+
+**Stable identity — `get_runtime_owner()`,** a process-global minted **once** at first use:
 
 ```
-RuntimeOwner:
+RuntimeOwner:                          # cached for the process lifetime
   pid         = os.getpid()
-  token       = uuid4().hex          # changes every restart — lineage identity beyond PID
+  token       = uuid4().hex            # changes every restart — lineage identity beyond PID
   started_at  = int(time.time())
-  scope       = 'panel_locked' if targeting.get_panel_target_lock() is not None
-                   or targeting.get_panel_target_config_error() is not None
-                else 'external'
 ```
 
-Every `launch` / `reconcile` / `close` reads the same `get_runtime_owner()`. The token is what lets a restarted coordinator tell "a row I own" from "a row a same-PID-but-different-process owns."
+**Live scope — `current_owner_scope()`,** computed fresh at **every** Workbench-tool entry (lives in `workbench.py`, the only place that imports `targeting`):
+
+```
+current_owner_scope() -> 'panel_locked' if targeting.get_panel_target_lock() is not None
+                            or targeting.get_panel_target_config_error() is not None
+                         else 'external'
+```
+
+Each tool call builds a per-call claim `(identity = get_runtime_owner(), scope = current_owner_scope())` and passes it into `registry.py` (which never imports `targeting`). The **live scope** is the reclaim/close permission gate; the scope written onto a row at claim time is **provenance only** (`owner_scope`), never the live permission source. The token is what lets a restarted coordinator tell "a row I own" from "a row a same-PID-but-different-process owns."
 
 ## 8. Row lifecycle
 
@@ -110,13 +117,19 @@ launch ──INSERT──▶ launching (rhino_pid known, port NULL, owner = me)
                       │ wait_for_ready binds PID-correlated discovery
                       ▼
                     bound (rhino_pid + port observed)   ◀── reclaim: rewrite owner identity; status stays 'bound'
-                      │
-   close / reconcile-reap ──DELETE──▶ (gone)
+                      │ close: claim-by-UPDATE
+                      ▼
+                    closing (terminate in flight; row PERSISTS across the off-thread kill)
+                      │ process confirmed dead
+   ──DELETE──▶ (gone)
 ```
 
+**The invariant behind every transition: a row is deleted only when its process is confirmed dead.** A row must never disappear while its Rhino might still be alive — that recreates the exact orphan P5 exists to prevent (Codex findings 1 & 2).
+
 - **Launch binds** → `UPDATE status='bound', port=<observed>`.
-- **Launch fails to bind** → `DELETE` the launching row **and** reap the process (P4 behavior, now also drops the row).
-- **Runtime crashes mid-launch** → a stale `launching` row remains; reconciliation cleans it (§9).
+- **Launch fails to bind** → attempt reap; **`DELETE` the launching row only if the process is confirmed dead.** If reap fails (`force_kill_failed`), **retain** the `launching` row and keep its real handle in `_OWNED`, surface `cleanupStatus: force_kill_failed` (retryable) — a live process is never left without a durable claim. (Symmetric with P4's close `force_kill_failed`.)
+- **Runtime crashes mid-launch / mid-close** → a `launching` or `closing` row remains; reconciliation reclaims or reaps it by truth (§9), so the live Workbench stays reclaimable.
+- **Known residual (irreducible to pid-first identity):** a crash in the microsecond window *between* `Popen` returning and the `launching` `INSERT` leaves a live Rhino with no row (an un-closable orphan, visible only via perception). This is fundamental to a `rhino-<pid>` key — the claim cannot precede the pid. The `INSERT` is the very first statement after `Popen` to keep the window minimal; fully closing it requires name-first slots (durable aliases), deferred. Same risk class as the PID-reuse residual (§10).
 
 ## 9. `reconcile_owned_registry(current_owner)` — the one narrow contract
 
@@ -144,15 +157,27 @@ reconcile_owned_registry(current_owner):
                                             never steal another's row. (My own rows are picked up by the
                                             _OWNED rebuild below; a peer's are left untouched.)
 
+      # status == 'closing'  (a close was interrupted — by this or a predecessor runtime)
+      rhino dead                         -> DELETE                  (the close completed, or the Rhino died)
+      rhino alive, owner_pid dead        -> RECLAIM, reset status='bound'  (live Workbench again; re-closable)
+      rhino alive, owner_pid alive       -> leave (a live owner is mid-close)
+
       # status == 'launching'
       rhino dead                         -> DELETE
-      rhino alive, owner_pid dead        -> DELETE the abandoned claim; do NOT kill the half-bound Rhino
+      rhino alive, owner_pid dead        -> re-probe discovery ONCE:
+                                              bound now  -> RECLAIM + promote status='bound' (reclaim a late bind)
+                                              not bound  -> RECLAIM as owned 'launching' (a closable zombie this
+                                                            runtime can finish via an explicit close)
       rhino alive, owner_pid alive       -> leave (an in-flight launch, mine or a peer's)
 
-  rebuild/refresh _OWNED to exactly the 'bound' rows owned by current_owner after this pass
+  rebuild/refresh _OWNED: for every row owned by current_owner with a LIVE rhino_pid (any status),
+    ensure _OWNED[rhino_pid] has a handle — PRESERVE an existing real Popen if present
+    (this-process launch, or a force_kill_failed retain); otherwise synthesize PidProcessHandle(rhino_pid)
 ```
 
-**RECLAIM** = under `BEGIN IMMEDIATE`: re-read the row; verify it still shows the dead predecessor observed in the snapshot (compare-and-set on owner identity/status); if so, `UPDATE owner_pid/owner_token/owner_started_at/owner_scope = current_owner`; `COMMIT`; then build `_OWNED[rhino_pid] = PidProcessHandle(rhino_pid)`. If the recheck fails (a peer reclaimed first → owner now live), back off and treat as peer-owned.
+**Reconcile never terminates a process.** It deletes rows whose Rhino is confirmed dead, reclaims dead-owner rows (restoring this runtime's authority so a later explicit `close` can finish the job), and leaves live-owner rows untouched. Actual termination only ever happens on the explicit `close` path or the inline launch-failure path — so a mere `rhino_workbench_list` can never kill anything.
+
+**RECLAIM** = under `BEGIN IMMEDIATE`: re-read the row; verify it still shows the dead predecessor observed in the snapshot (compare-and-set on owner identity/status); if so, `UPDATE owner identity = current_owner` (+ status transition where noted); `COMMIT`; then ensure `_OWNED[rhino_pid]` holds a handle (real Popen preserved, else `PidProcessHandle`). If the recheck fails (a peer reclaimed first → owner now live), back off and treat as peer-owned. **Reclaim requires the live `current_owner_scope() == 'external'`** (§7, §10).
 
 **Why per-row transactions are sufficient (not one giant transaction):** the authoritative act is the *write*, and every write re-reads and re-validates its precondition inside `BEGIN IMMEDIATE`. Two runtimes racing to reclaim the same dead-owner row: the first commits `owner→itself`; the second's in-transaction recheck now sees a live owner and aborts. No read/probe/write split can cross an ownership boundary, because the commit decision re-validates atomically against current row state.
 
@@ -177,36 +202,39 @@ owned row + Rhino pid alive + owner_pid alive     -> do NOT reclaim; peer (or se
 - **Live peer owner:** never stolen.
 - **Adopted / user Rhino:** never closed (not in this registry at all).
 
-**Two distinct "scopes," kept separate:** the *current runtime's* scope (`get_runtime_owner().scope`) is the live permission gate (panel-locked ⇒ no reclaim). The row's stored `owner_scope` is provenance/audit and a future safety check — not the live permission source. (Rows from `rhino_workbench_launch` are normally `owner_scope='external'` because P4 blocks the launch tool under panel lock; storing it prevents future regressions.)
+**Two distinct "scopes," kept separate (Codex finding 3):** the **live** current-runtime scope from `current_owner_scope()` — recomputed every Workbench-tool entry, never a cached value — is the permission gate (panel-locked ⇒ no reclaim/close). The row's stored `owner_scope` is provenance/audit and a future safety check — not the live permission source. (Rows from `rhino_workbench_launch` are normally `owner_scope='external'` because P4 blocks the launch tool under panel lock; storing it prevents future regressions.)
 
 **Conservative owner-liveness:** "owner_pid alive" means "a process with that PID exists and we must not steal," *not* "we verified it is a Rook MCP." If a PID is reused by an unrelated process, the row stays peer-owned longer than ideal — safer than closing the wrong Rhino. The dead-Rhino path still reaps it once its Rhino dies. (`owner_started_at` is stored as the seam for a future creation-time discriminator that would close this hole; not built in P5.)
 
 ## 11. Close semantics (transaction-guarded by owner identity)
 
-`rhino_workbench_close(session)` does **not** trust `_OWNED` alone for authority. It is **claim-by-delete**, because terminate is a ≤10s off-thread WM_CLOSE/taskkill and we must not hold a transaction across it:
+`rhino_workbench_close(session)` does **not** trust `_OWNED` alone for authority. It is **claim-by-update** — we must not hold a transaction across the ≤10s off-thread WM_CLOSE/taskkill, *and* (Codex finding 1) the durable row must persist through the kill so a crash mid-close cannot strand a live Workbench:
 
 ```
-1. reconcile_owned_registry(current_owner)              # rebuild cache, settle ownership
+1. scope = current_owner_scope(); require scope == 'external'   # defense in depth (P4 guard already blocks pre-dispatch)
+   reconcile_owned_registry(get_runtime_owner(), scope)          # rebuild cache, settle ownership
 2. validate graceful is a real bool (P4: invalid_graceful_flag)
 3. parse pid from session (P4: invalid_session_id)
-4. BEGIN IMMEDIATE:
+4. Tx1  BEGIN IMMEDIATE:
      row = SELECT * FROM owned_sessions WHERE session_id = ?
-     if row is None or (row.owner_pid, row.owner_token) != (current_owner.pid, current_owner.token):
+     if row is None or (row.owner_pid, row.owner_token) != (get_runtime_owner().pid, .token):
          ROLLBACK -> return not_owned        # stale cache / concurrent reclaim cannot cross the boundary
-     DELETE FROM owned_sessions WHERE session_id = ?     # the DELETE *is* the claim
+     UPDATE status='closing' WHERE session_id = ?     # claim-by-UPDATE; the row PERSISTS across the kill
    COMMIT
 5. terminate the handle off-thread (asyncio.to_thread):  # P4 _terminate: direct-force default / graceful opt-in
-     handle = _OWNED.pop(pid)  (or PidProcessHandle(pid) if cache missing)
-6. on force_kill_failed: re-INSERT the row verbatim (retain ownership), restore _OWNED[pid],
-     return force_kill_failed (retryable)
-   else: drop _OWNED[pid]; return closed + cleanupStatus
+     handle = _OWNED.get(pid)  (or PidProcessHandle(pid) if cache missing)
+6. Tx2  BEGIN IMMEDIATE:
+     process confirmed dead -> DELETE row; drop _OWNED[pid]; return closed + cleanupStatus
+     else (force_kill_failed) -> leave status='closing' (retain ownership), keep _OWNED[pid];
+                                 return force_kill_failed (retryable)
+   COMMIT
 ```
 
-The brief window between step 4 (row deleted) and step 5 completing (Rhino still alive) is provably safe: a concurrent reconcile sees a live Rhino with no owned row → an un-owned live Rhino that perception reports and nobody auto-closes.
+If this process **crashes between Tx1 and Tx2**, a `closing` row remains with a now-dead owner; a later external runtime reclaims it (§9: `closing` + Rhino alive + owner dead → reset `bound`, re-closable) — no orphan. During a normal close, the window between Tx1 (`closing`) and Tx2 is safe against peers: a concurrent reconcile sees `closing` + Rhino alive + owner **alive** (me) → leave.
 
 ## 12. Concurrency & durability
 
-- **`BEGIN IMMEDIATE`** on every load-bearing write (launch INSERT, bind UPDATE, reclaim UPDATE, close DELETE) — the SlotStore lesson, adopted from day one.
+- **`BEGIN IMMEDIATE`** on every load-bearing write (launch INSERT, bind UPDATE, reclaim UPDATE, close UPDATE→DELETE) — the SlotStore lesson, adopted from day one. **A row is deleted only when its process is confirmed dead** (§8); transient/terminal intent is durable (`launching`/`closing`) so a crash never strands a live process.
 - **WAL** + **`busy_timeout`** (5s) for multi-process reader/writer concurrency.
 - **Per-row compare-and-set** in reconcile (§9) — the explicit reason single-pass transactions aren't needed.
 - **Ephemeral wipe-on-version:** a `registry_version` constant in `meta`; on mismatch, `DROP TABLE owned_sessions` + rebuild. The registry is runtime state, never user data — wiping on upgrade is correct (SlotStore parity).
@@ -229,14 +257,14 @@ Reclaimed Workbenches therefore close as cleanly as freshly-launched ones. The `
 ## 14. Cross-phase seams
 
 - **P1 reuse:** reaping reuses `bridge.classify_session_liveness`'s independent pid/port probes (`_is_pid_alive`, `_is_port_listening`). Dead pid → delete; alive pid + port down → retain. Never reap a live pid.
-- **P3/P4 panel guard:** unchanged. `server.py:19351` returns `panel_target_locked` / `config_error` for all three Workbench tools before dispatch; `reconcile_owned_registry` additionally self-gates on `scope == 'external'`.
+- **P3/P4 panel guard:** unchanged. `server.py:19351` returns `panel_target_locked` / `config_error` for all three Workbench tools before dispatch; `reconcile_owned_registry` and `close` additionally self-gate on the live `current_owner_scope() == 'external'`.
 - **P4 `_OWNED` refactor:** `launch_owned_workbench` / `list_owned_workbenches` / `close_owned_workbench` keep their public result shapes (`{success, data:{…}}`, `retryable` on failures) but route ownership through `registry.py`; the in-memory dict becomes the derived cache.
 - **Result envelope:** all new codes carry `retryable`; close-on-not-owned stays `not_owned` (now registry-backed).
 
 ## 15. Components / files
 
-- **New `mcp_server/src/rook/registry.py`** — SQLite store (schema/version, INSERT/bind/reclaim/delete under `BEGIN IMMEDIATE`) + `reconcile_owned_registry` + `resolve_registry_path` + `get_runtime_owner` + `RuntimeOwner`. Pure storage/logic; does not import `targeting` (scope is supplied via `RuntimeOwner`).
-- **Modified `mcp_server/src/rook/workbench.py`** — `_OWNED` becomes derived; `PidProcessHandle`; builds `RuntimeOwner` (reading scope from `targeting`); launch/list/close call reconcile and route ownership through `registry.py`.
+- **New `mcp_server/src/rook/registry.py`** — SQLite store (schema/version, INSERT / bind-UPDATE / reclaim-UPDATE / close-UPDATE→DELETE under `BEGIN IMMEDIATE`) + `reconcile_owned_registry` + `resolve_registry_path` + `get_runtime_owner` + `RuntimeOwner` (stable identity). Pure storage/logic; does not import `targeting` (the live scope is passed in per call).
+- **Modified `mcp_server/src/rook/workbench.py`** — `_OWNED` becomes derived; `PidProcessHandle`; owns `current_owner_scope()` (the only place that imports `targeting`); builds the per-call claim (`get_runtime_owner()` identity + live scope); launch/list/close call reconcile and route ownership through `registry.py`.
 - **`mcp_server/src/rook/bridge.py`** — expose `_is_pid_alive` / `_is_port_listening` for registry reuse (already module-level).
 - **`mcp_server/src/rook/server.py`** — no dispatch change (panel guard already fences the tools).
 - **Tests:** new `mcp_server/tests/test_registry.py`; extend `mcp_server/tests/test_workbench.py`. New live smoke `mcp_server/tools/p5_registry_reclaim_live_harness.py` + a `p5-registry-reclaim` choice in `scripts/run_rhino_runtime_harness.py`.
@@ -248,17 +276,21 @@ Reclaimed Workbenches therefore close as cleanly as freshly-launched ones. The `
 - No creation-time PID-reuse discrimination (seam only).
 - No mirroring of discovered/Attached Rhinos into the registry (perception stays `rhino_sessions`).
 - No new MCP tool surface — reconciliation is internal to the existing three Workbench tools; reclaimed Workbenches reappear in `rhino_workbench_list`.
-- No mid-launch rescue of a half-bound Rhino abandoned by a dead owner (drop the claim, leave the Rhino to perception).
+- No process termination inside `reconcile_owned_registry` — reconcile restores ownership and reaps only confirmed-dead rows; all killing happens on the explicit `close` path or the inline launch-failure path.
 
 ## 17. Testing
 
 **Unit — `test_registry.py` + extended `test_workbench.py`:**
 - schema creation; `registry_version` mismatch wipes + rebuilds.
-- launch INSERT (`launching`) → bind UPDATE (`bound`); launch-fail drops the row.
-- the four `bound` reconcile branches + the three `launching` branches.
-- reclaim rewrites owner identity and rebuilds `_OWNED`; compare-and-set aborts a reclaim when a peer won the race.
-- **Required safety tests (Codex):** (a) **panel-locked-no-reclaim** — a panel-locked runtime, given a registry row for another session, claims nothing, rebuilds no `_OWNED`, and close returns `panel_target_locked`/`not_owned`; (b) **external-live-peer-no-steal** — an external runtime, given a row owned by a live peer, observes but never claims.
-- close requires an owned row post-reconcile (transaction-guarded `not_owned` on owner mismatch); `force_kill_failed` re-inserts the row and stays retryable.
+- launch INSERT (`launching`) → bind UPDATE (`bound`).
+- **Durability invariant — a row is deleted only on confirmed death:**
+  - launch-fail + process confirmed dead → row deleted; launch-fail + `force_kill_failed` → `launching` row **retained** with its handle, `cleanupStatus: force_kill_failed`, retryable.
+  - close uses claim-by-**update** to `closing`; process confirmed dead → row deleted; `force_kill_failed` → `closing` row **retained**, retryable (never re-creates an orphan).
+  - **crash-mid-close** — a `closing` row whose owner is dead and Rhino alive is reclaimed by an external runtime and reset to `bound` (re-closable); a `closing` row whose Rhino is dead is reaped.
+- reconcile branches: the four `bound` + three `closing` + three `launching` cases, incl. **late-bind promotion** (a `launching` dead-owner row whose Rhino bound after the owner died → re-probe promotes to `bound` + reclaim).
+- reclaim rewrites owner identity and rebuilds `_OWNED`, **preserving an existing real `Popen`** over synthesizing a surrogate; compare-and-set aborts a reclaim when a peer won the race.
+- **Required safety tests (Codex):** (a) **panel-locked-no-reclaim** — a panel-locked runtime (live scope computed at call time, not a cached value), given a registry row for another session, claims nothing, rebuilds no `_OWNED`, and close returns `panel_target_locked`/`not_owned`; (b) **external-live-peer-no-steal** — an external runtime, given a row owned by a live peer, observes but never claims.
+- close requires an owned row post-reconcile (transaction-guarded `not_owned` on owner mismatch).
 - `PidProcessHandle` poll/wait/kill semantics against a fake pid.
 
 **Live smoke — `--smoke p5-registry-reclaim`:** launch a real owned Workbench → assert a `bound` registry row → **simulate restart** (construct a fresh `RuntimeOwner` + new connection over the *same* db while the Rhino stays alive) → run `reconcile_owned_registry` → assert reclaim, `_OWNED` rebuilt with a `PidProcessHandle`, and that **close still works** via the surrogate → and that a dead-Rhino row is reaped. Verify against `manifest.json`; readiness timeout ≥120s. (Honesty boundary: the "restart" is a fresh runtime identity over the same DB and the same live Rhino — not a real process kill of the MCP; the dead-Rhino reap uses a real dead pid.)
@@ -272,7 +304,9 @@ Reclaimed Workbenches therefore close as cleanly as freshly-launched ones. The `
 - **Shared workstation ledger,** not per-lineage and not a discovery mirror; ownership boundaries enforced by close/reclaim rules; `rhino_workbench_list` = my rows only (§4, §16).
 - **Owner-liveness reclaim (Option A)** with `(owner_pid, owner_token, owner_started_at, owner_scope)` identity; conservative "alive PID ⇒ don't steal"; creation-time discriminator deferred (§10).
 - **Panel scope is a HARD INVARIANT:** only `external` runtimes reclaim; panel-locked runtimes touch nothing here (§10).
-- **Close is transaction-guarded by owner identity** via claim-by-delete; no transaction held across the off-thread kill; re-insert on force-kill failure (§11).
-- **Per-row `BEGIN IMMEDIATE` with compare-and-set** in reconcile; probe outside, validate-and-write inside (§9, §12).
+- **Durability invariant (Codex findings 1 & 2): a row is deleted only when its process is confirmed dead.** Transient/terminal intent is durable — `launching` and `closing` are persisted statuses — so a crash mid-launch or mid-close never strands a live Workbench without a reclaimable record (§8).
+- **Close is transaction-guarded by owner identity** via **claim-by-update** (set `closing`, kill off-thread, delete only on confirmed death; retain `closing` on `force_kill_failed`); no transaction held across the off-thread kill (§11).
+- **Live scope, not cached (Codex finding 3):** lineage identity (`pid/token/started_at`) is cached; the panel-scope permission gate is recomputed every Workbench-tool entry via `current_owner_scope()` and passed into registry ops (§7).
+- **Per-row `BEGIN IMMEDIATE` with compare-and-set** in reconcile; probe outside, validate-and-write inside; reconcile never terminates a process (§9, §12).
 - **`reconcile_owned_registry` is one narrow function** called at every Workbench-tool entry after the panel guard (§9).
 - **Adopt SlotStore patterns:** `BEGIN IMMEDIATE` + WAL + `busy_timeout`, persist-intent-probe-truth (DELETE dead, never mark dead), ephemeral wipe-on-version. **Diverge** on: PID-first lifecycle (no port reservation — RookNative self-assigns), no `adopted` column (owned-only ledger), reclaim keyed on owner-liveness for same-coordinator restart continuity (§6, §12).
