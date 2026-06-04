@@ -1,3 +1,4 @@
+import asyncio
 import os
 import sys
 from pathlib import Path
@@ -150,3 +151,21 @@ def test_different_path_same_id_fails_closed(tmp_path, monkeypatch):
     assert reg.upsert("/p/b.3dm", source="explicit", file_state="present", size=1, mtime=1,
                       document_name=None, origin_session_id=None, label=None, now=2) == "id_collision"
     assert len(reg.list_all()) == 1  # second never inserted
+
+
+def test_registry_unusable_returns_structured_error(tmp_path, monkeypatch):
+    db = tmp_path / "artifacts.db"
+    r = artifacts.ArtifactRegistry(db)
+    r._conn.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('artifact_registry_version','p99.9');")
+    r.close()
+    monkeypatch.setattr(artifacts, "resolve_artifact_db_path", lambda: db)
+    artifacts._reset_artifact_registry_singleton()
+    err = asyncio.run(artifacts._artifact_registry_unusable())
+    assert err is not None and err["success"] is False
+    assert err["data"]["code"] == "artifact_registry_unavailable"
+    artifacts._reset_artifact_registry_singleton()
+
+
+def test_err_sets_retryable_from_map():
+    assert artifacts._err("artifact_not_found", "x")["data"]["retryable"] is False
+    assert artifacts._err("artifact_registry_unavailable", "x")["data"]["retryable"] is True

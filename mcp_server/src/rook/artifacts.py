@@ -245,3 +245,61 @@ class ArtifactRegistry:
         with self._immediate():
             cur = self._conn.execute("DELETE FROM artifacts WHERE path=?;", (norm_path,))
             return cur.rowcount > 0
+
+
+_RETRYABLE = {
+    "artifact_file_not_found": False,
+    "artifact_not_found": False,
+    "artifact_selector_conflict": False,
+    "artifact_selector_required": False,
+    "invalid_path": False,
+    "artifact_id_collision": False,
+    "artifact_file_unreachable": True,
+    "artifact_registry_unavailable": True,
+}
+
+
+def _err(code: str, message: str, **extra: Any) -> dict[str, Any]:
+    return {"success": False, "data": {
+        "code": code, "message": message, "retryable": _RETRYABLE.get(code, True), **extra}}
+
+
+_ARTIFACT_REGISTRY: "ArtifactRegistry | None" = None
+
+
+def artifact_registry() -> "ArtifactRegistry":
+    global _ARTIFACT_REGISTRY
+    if _ARTIFACT_REGISTRY is None:
+        _ARTIFACT_REGISTRY = ArtifactRegistry(resolve_artifact_db_path())
+    return _ARTIFACT_REGISTRY
+
+
+def _reset_artifact_registry_singleton() -> None:
+    """Test-only: drop the process-global registry so a fixture can repoint the db path."""
+    global _ARTIFACT_REGISTRY
+    if _ARTIFACT_REGISTRY is not None:
+        _ARTIFACT_REGISTRY.close()
+    _ARTIFACT_REGISTRY = None
+
+
+async def _artifact_registry_unusable() -> "dict[str, Any] | None":
+    reg = await asyncio.to_thread(artifact_registry)
+    bad = getattr(reg, "schema_unsupported", None)
+    if bad is not None:
+        return _err("artifact_registry_unavailable",
+                    f"Artifact registry was written by an incompatible version {bad!r}; "
+                    "rows are left intact. Resolve the version skew before using artifact tools.")
+    return None
+
+
+def _project(row: "ArtifactRow") -> dict[str, Any]:
+    """Tool projection. fileExists is DERIVED here, never stored (single source of truth)."""
+    return {
+        "artifactId": row.artifact_id, "path": row.path, "fileState": row.file_state,
+        "fileExists": (True if row.file_state == "present"
+                       else False if row.file_state == "missing" else None),
+        "source": row.source, "originSessionId": row.origin_session_id,
+        "documentName": row.document_name, "sizeBytes": row.size_bytes, "mtime": row.mtime,
+        "label": row.label, "createdAt": row.created_at,
+        "lastVerifiedAt": row.last_verified_at, "lastMissingAt": row.last_missing_at,
+    }
