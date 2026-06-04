@@ -75,7 +75,8 @@ CREATE TABLE owned_sessions (
   last_document_path TEXT,              -- non-authoritative document snapshot
   last_document_serial_number INTEGER,  --   (reserved seam toward P6; never load-bearing)
   last_document_name TEXT,
-  observed_at  INTEGER
+  last_port_up INTEGER,                 -- last probe: 1 up / 0 down / NULL unprobed — OBSERVATION ONLY, never liveness truth
+  observed_at  INTEGER                  -- epoch of the last probe that refreshed last_port_up / the doc snapshot
 );
 CREATE INDEX idx_owned_sessions_rhino_pid ON owned_sessions(rhino_pid);
 CREATE INDEX idx_owned_sessions_owner_pid ON owned_sessions(owner_pid);
@@ -154,9 +155,10 @@ reconcile_owned_registry(current_owner):
       # port_up is a pure OBSERVATION — it gates neither (Codex finding 1).
       rhino dead                         -> DELETE                        (persist-intent, probe-truth)
       rhino alive:
-          refresh observed_at; record port_up   # down = listener unreachable (plugin reload / the user's
-                                                 # live doc); NEVER a reap or reclaim signal — a live pid is
-                                                 # never deleted, and ownership is independent of listener health
+          set last_port_up + observed_at         # down = listener unreachable (plugin reload / the user's
+                                                 # live doc); OBSERVATION ONLY — NEVER a reap or reclaim signal;
+                                                 # a live pid is never deleted, and ownership is independent of
+                                                 # listener health
           owner_pid dead                 -> RECLAIM (if current_owner.scope == 'external')  — REGARDLESS of port_up
           owner_pid alive                -> no ownership change (mine -> _OWNED rebuild below; a peer's -> untouched)
 
@@ -221,8 +223,12 @@ owned row + Rhino pid alive + owner_pid alive     -> do NOT reclaim; peer (or se
 4. Tx1  BEGIN IMMEDIATE:
      row = SELECT * FROM owned_sessions WHERE session_id = ?
      if row is None or (row.owner_pid, row.owner_token) != (get_runtime_owner().pid, .token):
-         ROLLBACK -> return not_owned        # stale cache / concurrent reclaim cannot cross the boundary
-     UPDATE status='closing' WHERE session_id = ?     # claim-by-UPDATE; the row PERSISTS across the kill
+         ROLLBACK -> return not_owned          # stale cache / concurrent reclaim cannot cross the boundary
+     if row.status == 'closing':
+         ROLLBACK -> return workbench_close_in_progress (retryable)   # a concurrent close already claimed it;
+                                                                      # never start a SECOND terminate (finding 2)
+     # status is 'bound' or 'launching'
+     UPDATE status='closing' WHERE session_id = ? AND status IN ('bound','launching')   # claim-by-UPDATE (CAS); row PERSISTS across the kill
    COMMIT
 5. terminate the handle off-thread (asyncio.to_thread):  # P4 _terminate: direct-force default / graceful opt-in
      handle = _OWNED.get(pid)  (or PidProcessHandle(pid) if cache missing)
@@ -295,6 +301,8 @@ Reclaimed Workbenches therefore close as cleanly as freshly-launched ones. The `
 - **Port-down does not block reclaim (Codex finding 1):** `owner dead + Rhino pid alive + port down` → the row is **reclaimed** (not merely retained), `port_up=false` is recorded as an observation, and the Workbench is **closable by pid** via the surrogate.
 - **Required safety tests (Codex):** (a) **panel-locked-no-reclaim** — a panel-locked runtime (live scope computed at call time, not a cached value), given a registry row for another session, claims nothing, rebuilds no `_OWNED`, and close returns `panel_target_locked`/`not_owned`; (b) **external-live-peer-no-steal** — an external runtime, given a row owned by a live peer, observes but never claims.
 - close requires an owned row post-reconcile (transaction-guarded `not_owned` on owner mismatch).
+- **Same-runtime double close (Codex finding 2):** a second `close` on a row already `status='closing'` (same owner, Rhino alive) returns `workbench_close_in_progress` (retryable) and starts **no second terminate**.
+- **`last_port_up` is recorded as an observation** (1/0/NULL) and is never read as a reclaim/close gate.
 - `PidProcessHandle` poll/wait/kill semantics against a fake pid.
 
 **Live smoke — `--smoke p5-registry-reclaim`:** launch a real owned Workbench → assert a `bound` registry row. To exercise reclaim **honestly without killing the smoke's own MCP** (Codex finding 2): spawn a throwaway process, let it exit, confirm `_is_pid_alive` is false for its pid, then rewrite the row's `owner_pid`/`owner_token` to that **real dead pid + stale token** — the exact precondition of a now-dead predecessor MCP that launched this Workbench. Then run `reconcile_owned_registry` with the smoke's own (alive, external) `RuntimeOwner` → assert **reclaim** (owner rewritten to the smoke identity, `_OWNED` rebuilt with a `PidProcessHandle`) and that **close still works** via the surrogate → and separately that a dead-Rhino row is reaped. Verify against `manifest.json`; readiness timeout ≥120s. **Honesty boundary:** the predecessor's death is real (a genuinely exited pid), the Rhino is real, and the reclaim path runs end-to-end — we do not pretend the smoke's own MCP died, and we never fabricate the owner pid. (A naive "fresh `RuntimeOwner` over the same DB while the original MCP still runs" would *correctly refuse* to reclaim — the owner pid would still be alive — so it would prove no-steal, not reclaim.)
@@ -311,6 +319,7 @@ Reclaimed Workbenches therefore close as cleanly as freshly-launched ones. The `
 - **Ownership and listener health are orthogonal (Codex finding 1):** reaping keys on the Rhino pid; reclaim keys on the owner pid; `port_up` is a recorded observation that blocks neither. A live-pid / down-listener Workbench with a dead owner is reclaimable and closable by pid (§9, §14).
 - **Durability invariant (Codex findings 1 & 2): a row is deleted only when its process is confirmed dead.** Transient/terminal intent is durable — `launching` and `closing` are persisted statuses — so a crash mid-launch or mid-close never strands a live Workbench without a reclaimable record (§8).
 - **Close is transaction-guarded by owner identity** via **claim-by-update** (set `closing`, kill off-thread, delete only on confirmed death; retain `closing` on `force_kill_failed`); no transaction held across the off-thread kill (§11).
+- **Concurrent-close guard (Codex finding 2):** close Tx1 requires `status IN ('bound','launching')`; a second close on a `closing` row (owner alive) returns retryable `workbench_close_in_progress` and starts no second terminate (§11). `last_port_up` is observational telemetry (1/0/NULL), never liveness truth (§6).
 - **Live scope, not cached (Codex finding 3):** lineage identity (`pid/token/started_at`) is cached; the panel-scope permission gate is recomputed every Workbench-tool entry via `current_owner_scope()` and passed into registry ops (§7).
 - **Per-row `BEGIN IMMEDIATE` with compare-and-set** in reconcile; probe outside, validate-and-write inside; reconcile never terminates a process (§9, §12).
 - **`reconcile_owned_registry` is one narrow function** called at every Workbench-tool entry after the panel guard (§9).
