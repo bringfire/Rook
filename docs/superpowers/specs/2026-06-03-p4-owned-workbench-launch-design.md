@@ -46,28 +46,30 @@ P4 **promotes** the harness's primitives into a coordinator-facing capability an
 
 ## 4. The three tools (all **meta**, `requires_rhino=False`)
 
+> **Result envelope (all three tools).** Every function returns the house `{ success, data: {…} }` shape (matching P1/P3). `_format_tool_result` renders `json.dumps(data)` on success and `Error: {data}` on failure, so the agent sees the **`data` payload**. The fields shown below are that payload.
+
 ### 4.1 `rhino_workbench_launch`
 ```
-args:  { readinessTimeoutSeconds?: int = 90, rhinoExe?: str }
-ok:    { success: true, session: "rhino-<pid>", processId: <pid>, port: <int>,
-         owned: true, mode: "workbench", boundInSeconds: <float> }
-fail:  { success: false, data: { code: <§7>, message, ...hint } }
+args:  { readinessTimeoutSeconds?: int = 90 }
+ok:    { success: true, data: { session: "rhino-<pid>", processId: <pid>, port: <int>,
+                                owned: true, mode: "workbench", boundInSeconds: <float> } }
+fail:  { success: false, data: { code: <§7>, message, processId, ...hint } }
 ```
-Launches a **blank** owned Rhino, waits for `instance-<pid>-native.json` + `/ping`, registers it in the owned-set, returns its session. Default readiness **90s** (the P3 live smoke proved 30s flakes on a cold start). `rhinoExe` defaults to `C:/Program Files/Rhino 8/System/Rhino.exe` (override exists for tests/non-default installs).
+Launches a **blank** owned Rhino, waits for `instance-<pid>-native.json` + `/ping`, registers it in the owned-set, returns its session. Default readiness **90s** (the P3 live smoke proved 30s flakes on a cold start). **The Rhino executable is resolved server-side** — `ROOK_RHINO_EXE` env override, else `C:/Program Files/Rhino 8/System/Rhino.exe` — and is **not** a tool argument: an agent-callable tool must never `Popen` an arbitrary path supplied by the coordinator (that is an arbitrary-executable-launch hole). Unit tests monkeypatch the resolver.
 
 ### 4.2 `rhino_workbench_list`
 ```
-ok:    { success: true, workbenches: [ { session, processId, port, mode: "workbench",
-                                         launchedAt, liveness: {state,pidAlive,portListening} } ] }
+ok:    { success: true, data: { workbenches: [ { session, processId, port, mode: "workbench",
+                                                 launchedAt, liveness: {state,pidAlive,portListening} } ] } }
 ```
 Lists **only** sessions this MCP runtime owns, each annotated with P1 liveness so orphaned/dead owned sessions are visible. **Not** a replacement for `rhino_sessions` (which remains the full fleet/perception surface); `rhino_workbench_list` answers the narrower "what can this coordinator close?"
 
 ### 4.3 `rhino_workbench_close`
 ```
 args:  { session: "rhino-<pid>", graceful?: bool = false }
-ok:    { success: true, session, owned: true, mode: "workbench", closed: true,
-         cleanupStatus: "graceful_exit" | "forced_kill" | "already_exited",
-         discardedUnsavedChanges: <bool> }
+ok:    { success: true, data: { session, owned: true, mode: "workbench", closed: true,
+                                cleanupStatus: "graceful_exit" | "forced_kill" | "already_exited",
+                                discardedUnsavedChanges: <bool> } }
 fail:  { success: false, data: { code: "not_owned" | "invalid_session_id" | "force_kill_failed", message } }
 ```
 Closes/reaps **only** owned sessions. A session not in the owned-set → **`not_owned`** (fail closed), even if it is discovered and alive. Default terminates directly (§8).
@@ -89,7 +91,7 @@ Closes/reaps **only** owned sessions. A session not in the owned-set → **`not_
 ## 6. Launch + wait-for-bind (reused, made async)
 
 ```
-Popen([rhinoExe])  →  pid = process.pid
+Popen([resolved exe])  →  pid = process.pid          (exe resolved server-side; never a tool arg)
        │
        ▼  await asyncio.to_thread( OwnedRhinoDiscovery().wait_for_ready, pid, process, ping_native,
        │                          timeout_seconds=readinessTimeoutSeconds )
@@ -122,16 +124,18 @@ OwnedRhinoRecord(pid, host, port, …)   →  register under the lock  →  sess
   "code": "workbench_bind_timeout",
   "blockingWindows": [ { "hwnd": "0x...", "title": "...", "visible": true } ],
   "diagnosticConfidence": "window_present_no_discovery",
-  "next_action": "The owned Rhino is alive but RookNative never published discovery — likely a modal startup window (license/activation, 'another instance', or template chooser). Inspect and dismiss, then retry with a longer readinessTimeoutSeconds."
+  "next_action": "RookNative never published discovery before the timeout and a startup window was open — likely a modal (license/activation, 'another instance', or template chooser). The launch was cleaned up; resolve the underlying condition (e.g., activate Rhino) and retry."
 }
 ```
 It is a **hint, not a diagnosis** — window titles are frequently empty, so the field is `diagnosticConfidence: "window_present_no_discovery"`, never `licenseDialogDetected`. (This is the P2-`crash_artifact` discipline: surface a confidence-tagged pointer, don't over-claim.)
+
+**Every failed launch is reaped (the ownership invariant).** Regardless of reason, a launch that does not bind is **never** registered in the owned-set, and its process is **force-cleaned** (`force_owned_process_cleanup`) before the failure envelope returns — on `workbench_bind_timeout` the `blockingWindows` snapshot is collected *first*, then the process is killed. This holds P4's core invariant: **if Rook launched it, Rook either owns it (bound) or cleans it up (failed) — never an untracked orphan.** The window hint is therefore *diagnostic* ("a modal blocked startup; resolve it and retry"), not an instruction to go dismiss a still-running dialog.
 
 ---
 
 ## 8. Close semantics
 
-- **Default = direct force.** `close` terminates the owned process via `force_owned_process_cleanup` (`taskkill /F /T /PID`, then a `process.kill()` fallback) — no `WM_CLOSE` attempt, so no dirty-document modal stall. `discardedUnsavedChanges: true`. This aligns with discard-by-design: Workbench *compute* is disposable; keeping a result is the explicit Save step (P6).
+- **Default = direct force.** `close` terminates the owned process via `force_owned_process_cleanup` (`taskkill /PID <pid> /F`, then a `process.kill()` fallback) — no `WM_CLOSE` attempt, so no dirty-document modal stall. `discardedUnsavedChanges: true`. This aligns with discard-by-design: Workbench *compute* is disposable; keeping a result is the explicit Save step (P6).
 - **`graceful:true` escape hatch.** Attempts `request_external_graceful_close` (WM_CLOSE) first, falling back to force on timeout. Documented to possibly stall on a dirty document. `discardedUnsavedChanges` reflects whether a forced fallback occurred.
 - **`cleanupStatus` — explicit mapping** from the harness `CleanupStatus` primitives to the public surface (P4 does **not** leak the raw enum):
 
@@ -197,6 +201,9 @@ Benign race (accepted for P4's single-coordinator, deliberate-close model): a co
 - **P4 = owned process lifecycle, not document lifecycle.** Launch a disposable owned Workbench; Save/fan-in is the membrane (P6); the durable registry is P5.
 - **Three new `rhino_workbench_*` meta tools** (`launch`/`list`/`close`); `rhino_launch` untouched; `rhino_sessions` remains the perception surface, `rhino_workbench_list` the narrower ownership surface.
 - **Owned = in-process only** (retains the `Popen` handle); MCP restart drops ownership → orphans become safe/adopted (never auto-reaped). Explicit P4/P5 boundary.
+- **Executable resolved server-side** (`ROOK_RHINO_EXE` env / default), never a tool argument — an agent-callable tool must not launch an arbitrary path.
+- **Every failed launch is reaped and untracked** — ownership invariant: own-it-if-bound, clean-it-up-if-failed; no launched-but-orphaned middle ground.
+- **All results use the house `{success, data:{…}}` envelope** (the agent sees the `data` payload via `_format_tool_result`).
 - **Close guard:** only owned sessions are closable; adopted/panel/user → `not_owned` (fail closed).
 - **Bind = PID-correlated discovery** (reuse `wait_for_ready` off-thread), not McNeel's port-env.
 - **Typed failure taxonomy** via `DiscoveryFailureReason` on `DiscoveryError` — no substring matching in production; seven public codes (incl. `workbench_discovery_invalid` for a present-but-invalid discovery file, distinct from the no-file `workbench_bind_timeout`).
