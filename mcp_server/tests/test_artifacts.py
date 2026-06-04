@@ -3,6 +3,7 @@ import os
 import sys
 from pathlib import Path
 
+import pytest
 import sqlite3
 
 _SRC = Path(__file__).resolve().parents[1] / "src"
@@ -169,3 +170,78 @@ def test_registry_unusable_returns_structured_error(tmp_path, monkeypatch):
 def test_err_sets_retryable_from_map():
     assert artifacts._err("artifact_not_found", "x")["data"]["retryable"] is False
     assert artifacts._err("artifact_registry_unavailable", "x")["data"]["retryable"] is True
+
+
+@pytest.fixture
+def _isolated_artifact_db(tmp_path, monkeypatch):
+    # Patch the artifacts-LOCAL name and manage the singleton MANUALLY, or tool fns
+    # open the REAL %LOCALAPPDATA% db (the P5 from-import local-name trap).
+    monkeypatch.setattr(artifacts, "resolve_artifact_db_path", lambda: tmp_path / "artifacts.db")
+    artifacts._reset_artifact_registry_singleton()
+    yield
+    artifacts._reset_artifact_registry_singleton()
+
+
+def test_register_requires_existing_file(tmp_path, _isolated_artifact_db):
+    missing = str(tmp_path / "ghost.3dm")
+    res = asyncio.run(artifacts.register_artifact(missing))
+    assert res["success"] is False and res["data"]["code"] == "artifact_file_not_found"
+
+
+def test_register_present_then_list(tmp_path, _isolated_artifact_db):
+    f = tmp_path / "site.3dm"; f.write_bytes(b"abc")
+    res = asyncio.run(artifacts.register_artifact(str(f)))
+    assert res["success"] is True and res["data"]["artifact"]["source"] == "explicit"
+    assert res["data"]["artifact"]["fileExists"] is True
+    listing = asyncio.run(artifacts.list_artifacts())
+    assert len(listing["data"]["artifacts"]) == 1
+
+
+def test_selector_required_and_conflict(tmp_path, _isolated_artifact_db):
+    none = asyncio.run(artifacts.refresh_artifact())
+    assert none["data"]["code"] == "artifact_selector_required"
+    f = tmp_path / "a.3dm"; f.write_bytes(b"x")
+    conflict = asyncio.run(artifacts.refresh_artifact(artifact_id="deadbeef", path=str(f)))
+    assert conflict["data"]["code"] == "artifact_selector_conflict"
+
+
+def test_refresh_transitions_to_missing_after_delete(tmp_path, _isolated_artifact_db):
+    f = tmp_path / "a.3dm"; f.write_bytes(b"x")
+    asyncio.run(artifacts.register_artifact(str(f)))
+    os.remove(f)
+    res = asyncio.run(artifacts.refresh_artifact(path=str(f)))
+    assert res["success"] is True and res["data"]["artifact"]["fileState"] == "missing"
+
+
+def test_deregister_removes_row_but_not_file(tmp_path, _isolated_artifact_db):
+    f = tmp_path / "a.3dm"; f.write_bytes(b"x")
+    asyncio.run(artifacts.register_artifact(str(f)))
+    res = asyncio.run(artifacts.deregister_artifact(path=str(f)))
+    assert res["success"] is True and res["data"]["fileUntouched"] is True
+    assert f.exists()  # I5: the .3dm is never touched
+    assert asyncio.run(artifacts.list_artifacts())["data"]["artifacts"] == []
+
+
+def test_get_artifact_by_path_and_unknown(tmp_path, _isolated_artifact_db):
+    f = tmp_path / "a.3dm"; f.write_bytes(b"x")
+    asyncio.run(artifacts.register_artifact(str(f)))
+    got = asyncio.run(artifacts.get_artifact(path=str(f)))
+    assert got["success"] is True and got["data"]["artifact"]["fileExists"] is True
+    miss = asyncio.run(artifacts.get_artifact(path=str(tmp_path / "nope.3dm")))
+    assert miss["data"]["code"] == "artifact_not_found"
+
+
+def test_register_unreachable_is_not_not_found(tmp_path, monkeypatch, _isolated_artifact_db):
+    # Tri-state honesty: permission-denied / unreachable is NOT "not found".
+    monkeypatch.setattr(artifacts, "stat_file_state", lambda p: ("unreachable", None, None))
+    res = asyncio.run(artifacts.register_artifact(str(tmp_path / "x.3dm")))
+    assert res["data"]["code"] == "artifact_file_unreachable" and res["data"]["retryable"] is True
+
+
+def test_register_id_collision_returns_house_envelope(tmp_path, monkeypatch, _isolated_artifact_db):
+    monkeypatch.setattr(artifacts, "artifact_id_for", lambda p: "collide")
+    a = tmp_path / "a.3dm"; a.write_bytes(b"x")
+    b = tmp_path / "b.3dm"; b.write_bytes(b"y")
+    assert asyncio.run(artifacts.register_artifact(str(a)))["success"] is True
+    res = asyncio.run(artifacts.register_artifact(str(b)))
+    assert res["data"]["code"] == "artifact_id_collision"

@@ -303,3 +303,87 @@ def _project(row: "ArtifactRow") -> dict[str, Any]:
         "label": row.label, "createdAt": row.created_at,
         "lastVerifiedAt": row.last_verified_at, "lastMissingAt": row.last_missing_at,
     }
+
+
+async def _resolve_row(artifact_id: str | None, path: str | None):
+    """Selector rules (§10.1): one-of, or both-agree, → resolve a row. Returns
+    (row, None) or (None, error_envelope)."""
+    has_id = isinstance(artifact_id, str) and artifact_id.strip() != ""
+    has_path = isinstance(path, str) and path.strip() != ""
+    if not has_id and not has_path:
+        return None, _err("artifact_selector_required", "Provide 'id' or 'path'.")
+    norm = normalize_path(path) if has_path else None
+    if has_id and has_path and artifact_id_for(norm) != artifact_id:
+        return None, _err("artifact_selector_conflict", "'id' and 'path' refer to different artifacts.")
+    reg = artifact_registry()
+    row = await asyncio.to_thread(
+        lambda: reg.get(path=norm) if norm is not None else reg.get(artifact_id=artifact_id))
+    if row is None:
+        return None, _err("artifact_not_found", "No registered artifact for that id/path.")
+    return row, None
+
+
+async def list_artifacts() -> dict[str, Any]:
+    if (unusable := await _artifact_registry_unusable()) is not None:
+        return unusable
+    rows = await asyncio.to_thread(lambda: artifact_registry().list_all())
+    return {"success": True, "data": {"artifacts": [_project(r) for r in rows]}}
+
+
+async def register_artifact(path: str) -> dict[str, Any]:
+    """Explicit registration = a coordinator/user ASSERTION the artifact is in
+    scope. Requires the file to exist now. NEVER deletes or edits the file."""
+    if (unusable := await _artifact_registry_unusable()) is not None:
+        return unusable
+    if not isinstance(path, str) or not path.strip():
+        return _err("invalid_path", f"'path' must be a non-empty string, got {path!r}.")
+    norm = normalize_path(path)
+    state, size, mtime = await asyncio.to_thread(stat_file_state, norm)
+    if state == "missing":
+        return _err("artifact_file_not_found",
+                    f"No file at {norm!r}; register only existing files.")
+    if state == "unreachable":
+        return _err("artifact_file_unreachable",
+                    f"Could not verify {norm!r} (permission denied / unreachable drive); not registered.")
+    result = await asyncio.to_thread(lambda: artifact_registry().upsert(
+        norm, source="explicit", file_state="present", size=size, mtime=mtime,
+        document_name=None, origin_session_id=None, label=None, now=int(time.time())))
+    if result == "id_collision":
+        return _err("artifact_id_collision",
+                    f"The artifact id for {norm!r} collides with a different registered path; not registered.")
+    row = await asyncio.to_thread(lambda: artifact_registry().get(path=norm))
+    return {"success": True, "data": {"artifact": _project(row)}}
+
+
+async def refresh_artifact(artifact_id: str | None = None, path: str | None = None) -> dict[str, Any]:
+    if (unusable := await _artifact_registry_unusable()) is not None:
+        return unusable
+    row, err = await _resolve_row(artifact_id, path)
+    if err is not None:
+        return err
+    state, size, mtime = await asyncio.to_thread(stat_file_state, row.path)
+    await asyncio.to_thread(lambda: artifact_registry().set_state(
+        row.path, file_state=state, size=size, mtime=mtime, now=int(time.time())))
+    updated = await asyncio.to_thread(lambda: artifact_registry().get(path=row.path))
+    return {"success": True, "data": {"artifact": _project(updated)}}
+
+
+async def deregister_artifact(artifact_id: str | None = None, path: str | None = None) -> dict[str, Any]:
+    if (unusable := await _artifact_registry_unusable()) is not None:
+        return unusable
+    row, err = await _resolve_row(artifact_id, path)
+    if err is not None:
+        return err
+    await asyncio.to_thread(lambda: artifact_registry().delete(row.path))
+    return {"success": True, "data": {
+        "deregistered": row.artifact_id, "path": row.path, "fileUntouched": True}}
+
+
+async def get_artifact(artifact_id: str | None = None, path: str | None = None) -> dict[str, Any]:
+    """Single-artifact lookup used by rhino_artifacts when given id/path."""
+    if (unusable := await _artifact_registry_unusable()) is not None:
+        return unusable
+    row, err = await _resolve_row(artifact_id, path)
+    if err is not None:
+        return err
+    return {"success": True, "data": {"artifact": _project(row)}}
