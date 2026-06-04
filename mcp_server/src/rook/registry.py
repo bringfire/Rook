@@ -258,12 +258,33 @@ class OwnedSessionRegistry:
 
     def _ensure_schema(self) -> None:
         # NEVER DROP owned_sessions — dropping would erase durable ownership for LIVE
-        # Rhinos, bypassing the delete-only-when-confirmed-dead invariant (Codex finding).
-        # Schema evolution is ADDITIVE (CREATE IF NOT EXISTS now; ALTER ADD COLUMN later)
-        # or FAIL-CLOSED, never destructive. A corrupted/missing meta row or a version
-        # skew must leave ownership rows intact.
+        # Rhinos (delete-only-when-confirmed-dead). Schema bootstrap is ADDITIVE or
+        # FAIL-CLOSED, never destructive. Decide compatibility BEFORE touching the table:
+        # a CREATE INDEX / read on a foreign-or-older schema would RAISE instead of failing
+        # closed (Codex finding). So: create+read meta, branch on version AND column shape,
+        # and only then create the table + indexes + stamp.
         c = self._conn
         c.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);")
+        stored = c.execute("SELECT value FROM meta WHERE key='registry_version';").fetchone()
+
+        if stored is not None and stored[0] != REGISTRY_VERSION:
+            # version skew -> fail closed, leave rows intact, touch owned_sessions no further.
+            self.schema_unsupported = stored[0]
+            return
+        if stored is None:
+            table_exists = c.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='owned_sessions';"
+            ).fetchone() is not None
+            if table_exists:
+                # meta lost but a table exists: adopt ONLY if its shape is the P5 shape;
+                # otherwise fail closed (foreign/older table) — never index/read blindly.
+                cols = {row[1] for row in c.execute("PRAGMA table_info(owned_sessions);").fetchall()}
+                required = {col.strip() for col in _COLUMNS.split(",")}
+                if not required.issubset(cols):
+                    self.schema_unsupported = "unknown"
+                    return
+
+        # Fresh db, or a current-version / compatible-shape db -> safe to create + index + stamp.
         c.execute("""
             CREATE TABLE IF NOT EXISTS owned_sessions (
                 session_id   TEXT PRIMARY KEY,
@@ -282,14 +303,9 @@ class OwnedSessionRegistry:
                 observed_at  INTEGER);""")
         c.execute("CREATE INDEX IF NOT EXISTS idx_owned_rhino_pid ON owned_sessions(rhino_pid);")
         c.execute("CREATE INDEX IF NOT EXISTS idx_owned_owner_pid ON owned_sessions(owner_pid);")
-        stored = c.execute("SELECT value FROM meta WHERE key='registry_version';").fetchone()
         if stored is None:
-            # fresh db (or a lost meta row) -> adopt the current version WITHOUT touching rows.
             c.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('registry_version', ?);",
                       (REGISTRY_VERSION,))
-        elif stored[0] != REGISTRY_VERSION:
-            # Written by a different/incompatible registry version -> fail CLOSED, rows intact.
-            self.schema_unsupported = stored[0]
 
     # ----- reads (RLock-guarded; reentrant so write-txns can call get()) -----
     def get(self, session_id: str) -> "OwnedRow | None":

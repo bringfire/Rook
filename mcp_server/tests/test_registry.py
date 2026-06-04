@@ -198,6 +198,41 @@ def test_missing_meta_does_not_drop_rows(tmp_path):
         r2.close()
 
 
+def test_incompatible_table_skewed_version_fails_closed(tmp_path):
+    # FOREIGN owned_sessions (no rhino_pid) + skewed version: must fail CLOSED, not raise
+    # an OperationalError on CREATE INDEX (Codex finding — compatibility before touch).
+    db = tmp_path / "owned.db"
+    conn = sqlite3.connect(db)
+    conn.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);")
+    conn.execute("INSERT INTO meta VALUES('registry_version', '0.0.0-future');")
+    conn.execute("CREATE TABLE owned_sessions (foo TEXT);")
+    conn.execute("INSERT INTO owned_sessions VALUES('x');")
+    conn.commit()
+    conn.close()
+    r = OwnedSessionRegistry(db)   # must NOT raise
+    try:
+        assert r.schema_unsupported == "0.0.0-future"
+        assert r._conn.execute("SELECT COUNT(*) FROM owned_sessions;").fetchone()[0] == 1
+    finally:
+        r.close()
+
+
+def test_incompatible_table_missing_meta_fails_closed(tmp_path):
+    # FOREIGN owned_sessions + lost meta: adopt ONLY if shape matches; else fail closed.
+    db = tmp_path / "owned.db"
+    conn = sqlite3.connect(db)
+    conn.execute("CREATE TABLE owned_sessions (foo TEXT);")
+    conn.execute("INSERT INTO owned_sessions VALUES('x');")
+    conn.commit()
+    conn.close()
+    r = OwnedSessionRegistry(db)   # must NOT raise
+    try:
+        assert r.schema_unsupported == "unknown"
+        assert r._conn.execute("SELECT COUNT(*) FROM owned_sessions;").fetchone()[0] == 1
+    finally:
+        r.close()
+
+
 # ---- Task 4: insert_launching / bind (CAS) / record_observation ----
 def test_insert_then_bind(tmp_path):
     r = _reg(tmp_path)
