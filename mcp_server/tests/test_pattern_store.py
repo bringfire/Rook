@@ -18,7 +18,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from rook.learning.pattern_memory import PatternNote, PatternIndex
-from rook.learning.pattern_store import PatternStore, PATTERNS_DIR, INDEX_PATH, KNOWLEDGE_DIR
+from rook.learning.pattern_store import PatternStore
 
 
 # =============================================================================
@@ -38,9 +38,8 @@ def temp_knowledge_dir(tmp_path):
 def store(temp_knowledge_dir, monkeypatch):
     """Create a PatternStore with temporary storage."""
     # Patch the storage paths to use temp directory
-    monkeypatch.setattr("rook.learning.pattern_store.KNOWLEDGE_DIR", temp_knowledge_dir)
-    monkeypatch.setattr("rook.learning.pattern_store.PATTERNS_DIR", temp_knowledge_dir / "patterns")
-    monkeypatch.setattr("rook.learning.pattern_store.INDEX_PATH", temp_knowledge_dir / "pattern_index.json")
+    monkeypatch.setattr("rook.learning.pattern_store.DEFAULT_PATTERNS_DIR", temp_knowledge_dir / "patterns")
+    monkeypatch.setattr("rook.learning.pattern_store.DEFAULT_INDEX_PATH", temp_knowledge_dir / "pattern_index.json")
 
     # Disable evolution for unit tests - evolution uses DSPy and adds unpredictable links
     return PatternStore(auto_save=True, enable_evolution=False)
@@ -72,6 +71,23 @@ def another_pattern():
         trigger_symptoms=["different symptom", "test symptom"],
         tags=["test", "different"],
         components_needed=["OtherComponent"],
+    )
+
+
+@pytest.fixture(autouse=True)
+def _isolate_bundled_patterns(tmp_path, monkeypatch):
+    """Neutralize the read-only bundled-patterns source so unit tests see
+    only their temp store.
+
+    PatternStore._load_all() merges patterns from _bundled_patterns_dir()
+    (the shipped knowledge/gh/patterns, ~520 notes) in addition to the
+    writable dir. Without this, the count/stats/search assertions below
+    would be polluted by shipped patterns. Point the bundled dir at a
+    non-existent path so the .exists() guard in _load_all skips it.
+    """
+    monkeypatch.setattr(
+        "rook.learning.pattern_store._bundled_patterns_dir",
+        lambda: tmp_path / "_no_bundled_source",
     )
 
 
@@ -504,9 +520,8 @@ class TestPatternStorePersistence:
             json.dump(pattern_data, f)
 
         # Patch and create store
-        monkeypatch.setattr("rook.learning.pattern_store.KNOWLEDGE_DIR", temp_knowledge_dir)
-        monkeypatch.setattr("rook.learning.pattern_store.PATTERNS_DIR", patterns_dir)
-        monkeypatch.setattr("rook.learning.pattern_store.INDEX_PATH", temp_knowledge_dir / "pattern_index.json")
+        monkeypatch.setattr("rook.learning.pattern_store.DEFAULT_PATTERNS_DIR", patterns_dir)
+        monkeypatch.setattr("rook.learning.pattern_store.DEFAULT_INDEX_PATH", temp_knowledge_dir / "pattern_index.json")
 
         store = PatternStore()
 
@@ -525,9 +540,8 @@ class TestPatternStorePersistence:
 
     def test_manual_save(self, temp_knowledge_dir, monkeypatch, sample_pattern, another_pattern):
         """Manual save persists all patterns."""
-        monkeypatch.setattr("rook.learning.pattern_store.KNOWLEDGE_DIR", temp_knowledge_dir)
-        monkeypatch.setattr("rook.learning.pattern_store.PATTERNS_DIR", temp_knowledge_dir / "patterns")
-        monkeypatch.setattr("rook.learning.pattern_store.INDEX_PATH", temp_knowledge_dir / "pattern_index.json")
+        monkeypatch.setattr("rook.learning.pattern_store.DEFAULT_PATTERNS_DIR", temp_knowledge_dir / "patterns")
+        monkeypatch.setattr("rook.learning.pattern_store.DEFAULT_INDEX_PATH", temp_knowledge_dir / "pattern_index.json")
 
         store = PatternStore(auto_save=False)
         store.add(sample_pattern)
@@ -712,9 +726,8 @@ class TestPatternStoreV2Recipes:
         assert len(data["recipe"]["graph"]["subgraphs"]) == 1
 
         # Create a fresh store that loads from disk
-        monkeypatch.setattr("rook.learning.pattern_store.KNOWLEDGE_DIR", temp_knowledge_dir)
-        monkeypatch.setattr("rook.learning.pattern_store.PATTERNS_DIR", temp_knowledge_dir / "patterns")
-        monkeypatch.setattr("rook.learning.pattern_store.INDEX_PATH", temp_knowledge_dir / "pattern_index.json")
+        monkeypatch.setattr("rook.learning.pattern_store.DEFAULT_PATTERNS_DIR", temp_knowledge_dir / "patterns")
+        monkeypatch.setattr("rook.learning.pattern_store.DEFAULT_INDEX_PATH", temp_knowledge_dir / "pattern_index.json")
 
         fresh_store = PatternStore(enable_evolution=False)
 
@@ -769,9 +782,8 @@ class TestPatternStoreV2Recipes:
             json.dump(v1_data, f)
 
         # Create store that loads from disk
-        monkeypatch.setattr("rook.learning.pattern_store.KNOWLEDGE_DIR", temp_knowledge_dir)
-        monkeypatch.setattr("rook.learning.pattern_store.PATTERNS_DIR", patterns_dir)
-        monkeypatch.setattr("rook.learning.pattern_store.INDEX_PATH", temp_knowledge_dir / "pattern_index.json")
+        monkeypatch.setattr("rook.learning.pattern_store.DEFAULT_PATTERNS_DIR", patterns_dir)
+        monkeypatch.setattr("rook.learning.pattern_store.DEFAULT_INDEX_PATH", temp_knowledge_dir / "pattern_index.json")
 
         fresh_store = PatternStore(enable_evolution=False)
 
