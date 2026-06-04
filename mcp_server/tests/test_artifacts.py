@@ -38,3 +38,33 @@ def test_stat_file_state_present_missing(tmp_path):
     missing = artifacts.normalize_path(str(tmp_path / "nope.3dm"))
     state2, size2, mtime2 = artifacts.stat_file_state(missing)
     assert state2 == "missing" and size2 is None and mtime2 is None
+
+
+def test_fresh_db_creates_table_and_persists_version(tmp_path):
+    reg = artifacts.ArtifactRegistry(tmp_path / "artifacts.db")
+    assert reg.schema_unsupported is None
+    reg.close()
+    reg2 = artifacts.ArtifactRegistry(tmp_path / "artifacts.db")  # reopen, no error
+    assert reg2.schema_unsupported is None
+    reg2.close()
+
+
+def test_version_skew_fails_closed_without_dropping(tmp_path):
+    db = tmp_path / "artifacts.db"
+    reg = artifacts.ArtifactRegistry(db)
+    reg._conn.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('artifact_registry_version','p99.9');")
+    reg.close()
+    reg2 = artifacts.ArtifactRegistry(db)
+    assert reg2.schema_unsupported == "p99.9"   # fail closed, rows intact, table not dropped
+    assert reg2._conn.execute("SELECT 1 FROM sqlite_master WHERE name='artifacts';").fetchone() is not None
+    reg2.close()
+
+
+def test_foreign_table_shape_fails_closed(tmp_path):
+    db = tmp_path / "artifacts.db"
+    conn = sqlite3.connect(str(db))
+    conn.execute("CREATE TABLE artifacts (wrong TEXT);")
+    conn.commit(); conn.close()
+    reg = artifacts.ArtifactRegistry(db)
+    assert reg.schema_unsupported == "unknown"
+    reg.close()
