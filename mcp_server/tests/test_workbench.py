@@ -1,5 +1,6 @@
 import os
 import sys
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -235,3 +236,56 @@ def test_workbench_close_allows_non_routed_session():
     from rook import targeting
     assert targeting.allows_non_routed_session_argument("rhino_workbench_close") is True
     assert targeting.allows_non_routed_session_argument("rhino_workbench_launch") is False
+
+
+@pytest.mark.asyncio
+async def test_call_tool_dispatches_launch(monkeypatch):
+    from rook import server, targeting
+    targeting.reset_targeting_state_for_tests()
+    with patch.object(server.workbench, "launch_owned_workbench",
+                      new_callable=AsyncMock) as mock:
+        mock.return_value = {"success": True, "data": {
+            "session": "rhino-5", "processId": 5, "port": 64000,
+            "owned": True, "mode": "workbench", "boundInSeconds": 1.0}}
+        result = await server.call_tool("rhino_workbench_launch", {})
+    assert "rhino-5" in result[0].text
+    mock.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_call_tool_close_not_rejected_by_p3_guard(monkeypatch):
+    # rhino_workbench_close is non-routed + takes `session`; must NOT be
+    # session_not_targetable.
+    from rook import server, targeting
+    targeting.reset_targeting_state_for_tests()
+    with patch.object(server.workbench, "close_owned_workbench",
+                      new_callable=AsyncMock) as mock:
+        mock.return_value = {"success": False, "data": {"code": "not_owned", "message": "x"}}
+        result = await server.call_tool("rhino_workbench_close", {"session": "rhino-5"})
+    assert "session_not_targetable" not in result[0].text
+    mock.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_workbench_tools_fail_closed_under_panel_lock(monkeypatch):
+    from rook import server, targeting
+    targeting.reset_targeting_state_for_tests()
+    targeting.initialize_from_environment({
+        "ROOK_MCP_TARGET_MODE": "panel_locked", "ROOK_MCP_TARGET_PROCESS_ID": "4242"})
+    try:
+        result = await server.call_tool("rhino_workbench_launch", {})
+        assert "panel_target_locked" in result[0].text
+    finally:
+        targeting.reset_targeting_state_for_tests()
+
+
+@pytest.mark.asyncio
+async def test_workbench_tools_fail_closed_under_panel_config_error(monkeypatch):
+    from rook import server, targeting
+    targeting.reset_targeting_state_for_tests()
+    targeting.initialize_from_environment({"ROOK_MCP_TARGET_MODE": "bogus_mode"})
+    try:
+        result = await server.call_tool("rhino_workbench_launch", {})
+        assert "panel_target_config_error" in result[0].text
+    finally:
+        targeting.reset_targeting_state_for_tests()

@@ -42,8 +42,11 @@ def test_toolroute_supports_session_selection_and_fields():
     assert route.port_process_id == 9
 
 
-def test_non_routed_session_argument_tools_is_capabilities_only():
-    assert targeting._NON_ROUTED_SESSION_ARGUMENT_TOOLS == {"rhino_session_capabilities"}
+def test_non_routed_session_argument_tools_membership():
+    # rhino_session_capabilities (P1) + rhino_workbench_close (P4) own a non-routing
+    # `session` argument — the set grows only by intentional addition.
+    assert targeting._NON_ROUTED_SESSION_ARGUMENT_TOOLS == {
+        "rhino_session_capabilities", "rhino_workbench_close"}
 
 
 def test_allows_non_routed_session_argument():
