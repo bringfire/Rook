@@ -635,3 +635,41 @@ async def test_close_force_kill_failed_reverts_to_resting_and_retries(monkeypatc
     monkeypatch.setattr(workbench, "_terminate", lambda proc, graceful: ("forced_kill", True))
     out2 = await workbench.close_owned_workbench("rhino-7201")
     assert out2["success"] is True and reg.get("rhino-7201") is None
+
+
+# ==== P5 review round 5: schema fail-closed + guarded launch-failure cleanup ====
+@pytest.mark.asyncio
+async def test_workbench_tools_fail_closed_on_schema_skew(monkeypatch, fresh_registry):
+    # An incompatible registry version -> launch/list/close fail CLOSED with a
+    # structured error, never touching/orphaning rows (Codex finding 1).
+    monkeypatch.setattr(workbench.asyncio, "to_thread", _sync_to_thread)
+    workbench._registry().schema_unsupported = "0.0.0-future"
+    for out in (await workbench.list_owned_workbenches(),
+                await workbench.close_owned_workbench("rhino-1"),
+                await workbench.launch_owned_workbench()):
+        assert out["success"] is False
+        assert out["data"]["code"] == "registry_schema_unsupported"
+        assert out["data"]["retryable"] is False
+
+
+@pytest.mark.asyncio
+async def test_launch_failure_registry_reap_error_is_structured(monkeypatch, fresh_registry):
+    # _handle_launch_failure: process confirmed dead, but registry.reap raises -> must
+    # return the structured launch-failure envelope, not escape (Codex finding 2).
+    monkeypatch.setattr(workbench.subprocess, "Popen", lambda *a, **k: _FakeProc(7300))
+    monkeypatch.setattr(workbench.Path, "exists", lambda self: True)
+    monkeypatch.setattr(workbench, "describe_windows_for_pid", lambda pid: [])
+    monkeypatch.setattr(workbench, "force_owned_process_cleanup", lambda p, d: True)  # reaped
+    monkeypatch.setattr(workbench.asyncio, "to_thread", _sync_to_thread)
+    monkeypatch.setattr(workbench.OwnedRhinoDiscovery, "wait_for_ready",
+                        lambda self, *a, **k: (_ for _ in ()).throw(
+                            DiscoveryError("boom", reason=DiscoveryFailureReason.EXITED_BEFORE_BIND)))
+    monkeypatch.setattr(workbench._reg.OwnedSessionRegistry, "reap",
+                        lambda self, sid: (_ for _ in ()).throw(RuntimeError("db locked")))
+
+    out = await workbench.launch_owned_workbench()
+    d = out["data"]
+    assert out["success"] is False
+    assert d["code"] == "workbench_exited_before_bind"   # original structured failure preserved
+    assert d["cleanupStatus"] == "forced_kill"
+    assert d["registryCleanupError"] == "db locked"

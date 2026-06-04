@@ -305,7 +305,7 @@ If this process **crashes between Tx1 and Tx2**, a `closing` row remains with a 
 - **`BEGIN IMMEDIATE`** on every load-bearing write (launch INSERT, bind UPDATE, reclaim UPDATE, close UPDATE→DELETE) — the SlotStore lesson, adopted from day one. **A row is deleted only when its process is confirmed dead** (§8); transient/terminal intent is durable (`launching`/`closing`) so a crash never strands a live process.
 - **WAL** + **`busy_timeout`** (5s) for multi-process reader/writer concurrency.
 - **Per-row compare-and-set** in reconcile (§9) — the explicit reason single-pass transactions aren't needed.
-- **Ephemeral wipe-on-version:** a `registry_version` constant in `meta`; on mismatch, `DROP TABLE owned_sessions` + rebuild. The registry is runtime state, never user data — wiping on upgrade is correct (SlotStore parity).
+- **Never DROP ownership rows (Codex review):** schema bootstrap is **additive** (`CREATE TABLE IF NOT EXISTS`; future changes via `ALTER ADD COLUMN`). A missing/corrupt `registry_version` re-adopts the current version *without touching rows*; a true version skew **fails closed** (`schema_unsupported`) and the tool surface returns a structured `registry_schema_unsupported`, leaving rows intact. Unlike a SlotStore *slot cache*, this is the ownership ledger — `DROP`ping a live Rhino's row would orphan it (bypassing delete-only-when-confirmed-dead). *(This overturns the earlier "ephemeral wipe-on-version / SlotStore parity" decision, which was unsafe for an ownership ledger.)*
 - **Blocking primitives off-thread:** all SQLite calls and the terminate path run via `asyncio.to_thread` (never block the MCP event loop) — the established cross-phase seam.
 
 ## 13. `PidProcessHandle` — the reclaim surrogate
@@ -350,7 +350,7 @@ Reclaimed Workbenches therefore close as cleanly as freshly-launched ones. The `
 ## 17. Testing
 
 **Unit — `test_registry.py` + extended `test_workbench.py`:**
-- schema creation; `registry_version` mismatch wipes + rebuilds.
+- schema creation; a `registry_version` skew / missing-or-corrupt meta **preserves rows** (never drops) and marks `schema_unsupported`; the tool surface (launch/list/close) then fails closed with a structured `registry_schema_unsupported`, and a guarded launch-failure reap returns the structured envelope (never escapes) even if SQLite errors.
 - launch INSERT (`launching`) → bind UPDATE (`bound`).
 - **Durability invariant — a row is deleted only on confirmed death:**
   - launch-fail + process confirmed dead → row deleted; launch-fail + `force_kill_failed` → `launching` row **retained** with its handle, `cleanupStatus: force_kill_failed`, retryable.
@@ -391,4 +391,4 @@ Reclaimed Workbenches therefore close as cleanly as freshly-launched ones. The `
 - **Live scope, not cached (Codex finding 3):** lineage identity (`pid/token/started_at`) is cached; the panel-scope permission gate is recomputed every Workbench-tool entry via `current_owner_scope()` and passed into registry ops (§7).
 - **Per-row `BEGIN IMMEDIATE` with compare-and-set** in reconcile; probe outside, validate-and-write inside; reconcile never terminates a process (§9, §12).
 - **`reconcile_owned_registry` is one narrow function** called at every Workbench-tool entry after the panel guard (§9).
-- **Adopt SlotStore patterns:** `BEGIN IMMEDIATE` + WAL + `busy_timeout`, persist-intent-probe-truth (DELETE dead, never mark dead), ephemeral wipe-on-version. **Diverge** on: PID-first lifecycle (no port reservation — RookNative self-assigns), no `adopted` column (owned-only ledger), reclaim keyed on owner-liveness for same-coordinator restart continuity (§6, §12).
+- **Adopt SlotStore patterns:** `BEGIN IMMEDIATE` + WAL + `busy_timeout`, persist-intent-probe-truth (DELETE dead, never mark dead). **Diverge** on: PID-first lifecycle (no port reservation — RookNative self-assigns), no `adopted` column (owned-only ledger), reclaim keyed on owner-liveness for same-coordinator restart continuity, and **additive/fail-closed schema (NEVER drop ownership rows)** rather than SlotStore's ephemeral cache-wipe — this is an ownership ledger, not a disposable slot cache (§6, §12).

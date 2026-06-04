@@ -151,13 +151,18 @@ def test_schema_created_and_empty(tmp_path):
         r.close()
 
 
-def test_version_mismatch_wipes(tmp_path):
-    r = _reg(tmp_path)
-    # raw insert (insert_launching arrives in Task 4) so this task is self-contained
+def _raw_insert(r, session_id, pid):
     r._conn.execute(
         "INSERT INTO owned_sessions(session_id, rhino_pid, status, owner_pid, owner_token, "
         "owner_started_at, owner_scope, launched_at) "
-        "VALUES('rhino-5', 5, 'launching', 1, 't', 1, 'external', 1000);")
+        f"VALUES('{session_id}', {pid}, 'bound', 1, 't', 1, 'external', 1000);")
+
+
+def test_version_mismatch_preserves_rows_and_marks_unsupported(tmp_path):
+    # A version skew must NEVER drop ownership rows (that would orphan live Rhinos);
+    # fail CLOSED instead, leaving rows intact (Codex finding 1).
+    r = _reg(tmp_path)
+    _raw_insert(r, "rhino-5", 5)
     assert r.get("rhino-5") is not None
     r.close()
 
@@ -168,7 +173,27 @@ def test_version_mismatch_wipes(tmp_path):
 
     r2 = _reg(tmp_path)
     try:
-        assert r2.get("rhino-5") is None    # wiped because stored version != REGISTRY_VERSION
+        assert r2.schema_unsupported == "0.0.0-old"   # fail closed
+        assert r2.get("rhino-5") is not None           # row PRESERVED, not dropped
+    finally:
+        r2.close()
+
+
+def test_missing_meta_does_not_drop_rows(tmp_path):
+    # A corrupted/lost meta row must not erase durable ownership (Codex finding 1).
+    r = _reg(tmp_path)
+    _raw_insert(r, "rhino-6", 6)
+    r.close()
+
+    conn = sqlite3.connect(tmp_path / "owned.db")
+    conn.execute("DELETE FROM meta;")
+    conn.commit()
+    conn.close()
+
+    r2 = _reg(tmp_path)
+    try:
+        assert r2.schema_unsupported is None    # re-adopts the current version
+        assert r2.get("rhino-6") is not None     # row PRESERVED, not orphaned
     finally:
         r2.close()
 

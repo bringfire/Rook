@@ -239,6 +239,10 @@ class OwnedSessionRegistry:
         # without self-deadlock. Cross-PROCESS concurrency is handled by WAL +
         # busy_timeout, not this lock.
         self._lock = threading.RLock()
+        # Set to the stored version string when the db was written by an INCOMPATIBLE
+        # registry version. Operations then fail CLOSED (structured error) instead of
+        # touching/destroying rows — a schema skew must never orphan a live Rhino.
+        self.schema_unsupported: str | None = None
         # isolation_level=None -> we drive BEGIN IMMEDIATE / COMMIT explicitly.
         self._conn = sqlite3.connect(str(db_path), isolation_level=None, check_same_thread=False)
         self._conn.execute("PRAGMA journal_mode=WAL;")
@@ -253,12 +257,13 @@ class OwnedSessionRegistry:
             pass
 
     def _ensure_schema(self) -> None:
+        # NEVER DROP owned_sessions — dropping would erase durable ownership for LIVE
+        # Rhinos, bypassing the delete-only-when-confirmed-dead invariant (Codex finding).
+        # Schema evolution is ADDITIVE (CREATE IF NOT EXISTS now; ALTER ADD COLUMN later)
+        # or FAIL-CLOSED, never destructive. A corrupted/missing meta row or a version
+        # skew must leave ownership rows intact.
         c = self._conn
         c.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);")
-        stored = c.execute("SELECT value FROM meta WHERE key='registry_version';").fetchone()
-        if stored is None or stored[0] != REGISTRY_VERSION:
-            c.execute("DROP TABLE IF EXISTS owned_sessions;")
-            c.execute("DELETE FROM meta;")
         c.execute("""
             CREATE TABLE IF NOT EXISTS owned_sessions (
                 session_id   TEXT PRIMARY KEY,
@@ -277,8 +282,14 @@ class OwnedSessionRegistry:
                 observed_at  INTEGER);""")
         c.execute("CREATE INDEX IF NOT EXISTS idx_owned_rhino_pid ON owned_sessions(rhino_pid);")
         c.execute("CREATE INDEX IF NOT EXISTS idx_owned_owner_pid ON owned_sessions(owner_pid);")
-        c.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('registry_version', ?);",
-                  (REGISTRY_VERSION,))
+        stored = c.execute("SELECT value FROM meta WHERE key='registry_version';").fetchone()
+        if stored is None:
+            # fresh db (or a lost meta row) -> adopt the current version WITHOUT touching rows.
+            c.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('registry_version', ?);",
+                      (REGISTRY_VERSION,))
+        elif stored[0] != REGISTRY_VERSION:
+            # Written by a different/incompatible registry version -> fail CLOSED, rows intact.
+            self.schema_unsupported = stored[0]
 
     # ----- reads (RLock-guarded; reentrant so write-txns can call get()) -----
     def get(self, session_id: str) -> "OwnedRow | None":

@@ -99,6 +99,7 @@ _RETRYABLE: dict[str, bool] = {
     "workbench_launch_retained_after_registry_error": True,
     "workbench_launch_superseded": False,
     "workbench_close_in_progress": True,
+    "registry_schema_unsupported": False,
 }
 
 
@@ -153,6 +154,20 @@ def _registry() -> "_reg.OwnedSessionRegistry":
     return _REGISTRY
 
 
+async def _registry_unusable() -> dict[str, Any] | None:
+    """Open the registry off-thread and fail CLOSED if its db was written by an
+    incompatible version: return a structured error so we never operate on (or
+    orphan) ownership rows we can't safely read. Returns None when usable."""
+    reg = await asyncio.to_thread(_registry)
+    bad = getattr(reg, "schema_unsupported", None)
+    if bad is not None:
+        return _err("registry_schema_unsupported",
+                    f"Owned-session registry was written by an incompatible version {bad!r}; "
+                    "ownership rows are left intact. Resolve the version skew before launching "
+                    "or closing Workbenches.")
+    return None
+
+
 def _rebind_probe(pid: int) -> int | None:
     """Single discovery re-probe for a launching dead-owner row: did it bind after
     its owner died? Returns the discovered port (PID-correlated) so reconcile can
@@ -200,6 +215,10 @@ async def launch_owned_workbench(readiness_timeout_seconds: int = 90) -> dict[st
     if scope != "external":
         return _err("workbench_requires_external_scope",
                     "Only an external coordinator runtime may launch Workbenches.")
+    # Fail closed BEFORE Popen if the registry db is an incompatible version — never
+    # launch a Rhino we then cannot durably claim (Codex finding 1).
+    if (unusable := await _registry_unusable()) is not None:
+        return unusable
     exe = _resolve_rhino_exe()
     if not exe.exists():
         return _err("rhino_executable_not_found", f"Rhino executable not found: {exe}")
@@ -319,8 +338,14 @@ async def _handle_launch_failure(exc: DiscoveryError, process, pid: int, session
                 "condition (e.g., activate Rhino) and retry.")
     reaped = await asyncio.to_thread(force_owned_process_cleanup, process, [])
     if reaped:
-        # confirmed dead -> drop the durable row (§8 L1)
-        await asyncio.to_thread(lambda: _registry().reap(session))
+        # confirmed dead -> drop the durable row (§8 L1). The process is ALREADY dead,
+        # so a registry hiccup here must NOT escape as an unstructured exception
+        # (finding 2): return the structured launch-failure envelope; the stale dead
+        # row is reaped later by reconcile (rhino pid dead -> DELETE).
+        try:
+            await asyncio.to_thread(lambda: _registry().reap(session))
+        except Exception as reap_exc:
+            data["registryCleanupError"] = str(reap_exc)
         data["cleanupStatus"] = "forced_kill"
     else:
         # process alive but unkillable -> RETAIN the launching row + return a handle (§8.4)
@@ -336,6 +361,8 @@ async def _handle_launch_failure(exc: DiscoveryError, process, pid: int, session
 
 
 async def list_owned_workbenches() -> dict[str, Any]:
+    if (unusable := await _registry_unusable()) is not None:
+        return unusable
     owner = get_runtime_owner()
     scope = current_owner_scope()
     owned_rows = await asyncio.to_thread(_reconcile_sync, owner, scope)
@@ -391,6 +418,8 @@ async def close_owned_workbench(session: str, graceful: bool = False) -> dict[st
     if scope != "external":
         return _err("workbench_requires_external_scope",
                     "Only an external coordinator runtime may close Workbenches.")
+    if (unusable := await _registry_unusable()) is not None:
+        return unusable
     owner = get_runtime_owner()
     owned_rows = await asyncio.to_thread(_reconcile_sync, owner, scope)
     async with _LOCK:
