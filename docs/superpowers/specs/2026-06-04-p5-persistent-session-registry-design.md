@@ -150,12 +150,15 @@ reconcile_owned_registry(current_owner):
       owner_alive = _is_pid_alive(row.owner_pid)
 
       # status == 'bound'
+      # Two ORTHOGONAL axes. Reaping keys on the RHINO pid; reclaim keys on the OWNER pid.
+      # port_up is a pure OBSERVATION — it gates neither (Codex finding 1).
       rhino dead                         -> DELETE                        (persist-intent, probe-truth)
-      rhino alive, port down             -> RETAIN, refresh observed_at   (P1 safety: never reap a live pid)
-      rhino alive, owner_pid dead        -> RECLAIM (only if current_owner.scope == 'external')
-      rhino alive, owner_pid alive       -> no ownership change (already owned — mine or a live peer's);
-                                            never steal another's row. (My own rows are picked up by the
-                                            _OWNED rebuild below; a peer's are left untouched.)
+      rhino alive:
+          refresh observed_at; record port_up   # down = listener unreachable (plugin reload / the user's
+                                                 # live doc); NEVER a reap or reclaim signal — a live pid is
+                                                 # never deleted, and ownership is independent of listener health
+          owner_pid dead                 -> RECLAIM (if current_owner.scope == 'external')  — REGARDLESS of port_up
+          owner_pid alive                -> no ownership change (mine -> _OWNED rebuild below; a peer's -> untouched)
 
       # status == 'closing'  (a close was interrupted — by this or a predecessor runtime)
       rhino dead                         -> DELETE                  (the close completed, or the Rhino died)
@@ -256,7 +259,7 @@ Reclaimed Workbenches therefore close as cleanly as freshly-launched ones. The `
 
 ## 14. Cross-phase seams
 
-- **P1 reuse:** reaping reuses `bridge.classify_session_liveness`'s independent pid/port probes (`_is_pid_alive`, `_is_port_listening`). Dead pid → delete; alive pid + port down → retain. Never reap a live pid.
+- **P1 reuse:** reaping reuses `bridge`'s independent pid/port probes (`_is_pid_alive`, `_is_port_listening`). **Reaping keys on the Rhino pid only:** dead pid → delete; live pid → never deleted. **Port-down never blocks reclaim or close** — ownership (owner-pid liveness) and listener health are independent, and `close` terminates **by pid** (`taskkill`/WM_CLOSE), not via the native port — so a reclaimed Workbench with a down listener is still closable (Codex finding 1).
 - **P3/P4 panel guard:** unchanged. `server.py:19351` returns `panel_target_locked` / `config_error` for all three Workbench tools before dispatch; `reconcile_owned_registry` and `close` additionally self-gate on the live `current_owner_scope() == 'external'`.
 - **P4 `_OWNED` refactor:** `launch_owned_workbench` / `list_owned_workbenches` / `close_owned_workbench` keep their public result shapes (`{success, data:{…}}`, `retryable` on failures) but route ownership through `registry.py`; the in-memory dict becomes the derived cache.
 - **Result envelope:** all new codes carry `retryable`; close-on-not-owned stays `not_owned` (now registry-backed).
@@ -289,11 +292,12 @@ Reclaimed Workbenches therefore close as cleanly as freshly-launched ones. The `
   - **crash-mid-close** — a `closing` row whose owner is dead and Rhino alive is reclaimed by an external runtime and reset to `bound` (re-closable); a `closing` row whose Rhino is dead is reaped.
 - reconcile branches: the four `bound` + three `closing` + three `launching` cases, incl. **late-bind promotion** (a `launching` dead-owner row whose Rhino bound after the owner died → re-probe promotes to `bound` + reclaim).
 - reclaim rewrites owner identity and rebuilds `_OWNED`, **preserving an existing real `Popen`** over synthesizing a surrogate; compare-and-set aborts a reclaim when a peer won the race.
+- **Port-down does not block reclaim (Codex finding 1):** `owner dead + Rhino pid alive + port down` → the row is **reclaimed** (not merely retained), `port_up=false` is recorded as an observation, and the Workbench is **closable by pid** via the surrogate.
 - **Required safety tests (Codex):** (a) **panel-locked-no-reclaim** — a panel-locked runtime (live scope computed at call time, not a cached value), given a registry row for another session, claims nothing, rebuilds no `_OWNED`, and close returns `panel_target_locked`/`not_owned`; (b) **external-live-peer-no-steal** — an external runtime, given a row owned by a live peer, observes but never claims.
 - close requires an owned row post-reconcile (transaction-guarded `not_owned` on owner mismatch).
 - `PidProcessHandle` poll/wait/kill semantics against a fake pid.
 
-**Live smoke — `--smoke p5-registry-reclaim`:** launch a real owned Workbench → assert a `bound` registry row → **simulate restart** (construct a fresh `RuntimeOwner` + new connection over the *same* db while the Rhino stays alive) → run `reconcile_owned_registry` → assert reclaim, `_OWNED` rebuilt with a `PidProcessHandle`, and that **close still works** via the surrogate → and that a dead-Rhino row is reaped. Verify against `manifest.json`; readiness timeout ≥120s. (Honesty boundary: the "restart" is a fresh runtime identity over the same DB and the same live Rhino — not a real process kill of the MCP; the dead-Rhino reap uses a real dead pid.)
+**Live smoke — `--smoke p5-registry-reclaim`:** launch a real owned Workbench → assert a `bound` registry row. To exercise reclaim **honestly without killing the smoke's own MCP** (Codex finding 2): spawn a throwaway process, let it exit, confirm `_is_pid_alive` is false for its pid, then rewrite the row's `owner_pid`/`owner_token` to that **real dead pid + stale token** — the exact precondition of a now-dead predecessor MCP that launched this Workbench. Then run `reconcile_owned_registry` with the smoke's own (alive, external) `RuntimeOwner` → assert **reclaim** (owner rewritten to the smoke identity, `_OWNED` rebuilt with a `PidProcessHandle`) and that **close still works** via the surrogate → and separately that a dead-Rhino row is reaped. Verify against `manifest.json`; readiness timeout ≥120s. **Honesty boundary:** the predecessor's death is real (a genuinely exited pid), the Rhino is real, and the reclaim path runs end-to-end — we do not pretend the smoke's own MCP died, and we never fabricate the owner pid. (A naive "fresh `RuntimeOwner` over the same DB while the original MCP still runs" would *correctly refuse* to reclaim — the owner pid would still be alive — so it would prove no-steal, not reclaim.)
 
 **Baseline parity:** prove `failed`/`errors` unchanged vs `main` (pre-existing pollution is not P5's).
 
@@ -304,6 +308,7 @@ Reclaimed Workbenches therefore close as cleanly as freshly-launched ones. The `
 - **Shared workstation ledger,** not per-lineage and not a discovery mirror; ownership boundaries enforced by close/reclaim rules; `rhino_workbench_list` = my rows only (§4, §16).
 - **Owner-liveness reclaim (Option A)** with `(owner_pid, owner_token, owner_started_at, owner_scope)` identity; conservative "alive PID ⇒ don't steal"; creation-time discriminator deferred (§10).
 - **Panel scope is a HARD INVARIANT:** only `external` runtimes reclaim; panel-locked runtimes touch nothing here (§10).
+- **Ownership and listener health are orthogonal (Codex finding 1):** reaping keys on the Rhino pid; reclaim keys on the owner pid; `port_up` is a recorded observation that blocks neither. A live-pid / down-listener Workbench with a dead owner is reclaimable and closable by pid (§9, §14).
 - **Durability invariant (Codex findings 1 & 2): a row is deleted only when its process is confirmed dead.** Transient/terminal intent is durable — `launching` and `closing` are persisted statuses — so a crash mid-launch or mid-close never strands a live Workbench without a reclaimable record (§8).
 - **Close is transaction-guarded by owner identity** via **claim-by-update** (set `closing`, kill off-thread, delete only on confirmed death; retain `closing` on `force_kill_failed`); no transaction held across the off-thread kill (§11).
 - **Live scope, not cached (Codex finding 3):** lineage identity (`pid/token/started_at`) is cached; the panel-scope permission gate is recomputed every Workbench-tool entry via `current_owner_scope()` and passed into registry ops (§7).
