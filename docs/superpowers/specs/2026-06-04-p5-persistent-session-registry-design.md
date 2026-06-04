@@ -136,7 +136,8 @@ This is the heart of P5 and the single source of truth for every status transiti
 | From | Event | → To | Action |
 |---|---|---|---|
 | *(none)* | launch: `Popen` + `INSERT` | `launching` | insert row, owner = me, `port=NULL` (INSERT is the first statement after `Popen`) |
-| `launching` | bind ok | `bound` | **CAS** `UPDATE port=<observed>, status='bound' WHERE status='launching'` — if a concurrent close already moved the row to `closing`, bind no-ops and yields to the close |
+| `launching` | bind ok | `bound` | **CAS** `UPDATE port=<observed>, status='bound' WHERE status='launching'` |
+| `launching` | bind ok but **CAS matches 0 rows** (a concurrent close won → row is `closing`) | *(unchanged — `closing`)* | launch returns `workbench_launch_superseded` (retryable:false); does **not** reap (close owns it); does **not** report success (§8.5) |
 | `launching` | bind fails, proc **dead** | *(deleted)* | `DELETE` |
 | `launching` | bind fails, proc **alive** (`force_kill_failed`) | `launching` | **retain** row + keep real handle; return `force_kill_failed` (retryable) |
 | `bound` / `launching` | close start (owner = me, external) | `closing` | `UPDATE status='closing'` **CAS:** `WHERE status IN ('bound','launching')` |
@@ -152,7 +153,35 @@ This is the heart of P5 and the single source of truth for every status transiti
 
 Reading the table top-to-bottom proves the four invariants hold and every cell is defined: `closing` has exactly three exits (delete / back-to-resting-on-failure / reclaim-to-resting-on-crash) and none of them is "stay `closing`."
 
-### 8.4 Known residual (irreducible to pid-first identity)
+### 8.4 Surfacing the machine through `launch` / `list` / `close` (Codex finding)
+
+**A machine that is internally total but invisible through the tools still leaves the coordinator stuck.** Every reachable state must be *discoverable* via `rhino_workbench_list` and *actionable* via `rhino_workbench_close`. The internal `status` is surfaced as the public field **`lifecycleStatus`** (distinct from `liveness.state`, which is the fresh pid/port probe).
+
+**`rhino_workbench_list`** (post-reconcile) lists **all current-owner rows — `launching`, `bound`, and `closing` — not only bound ones.** Each entry:
+```
+{ session: "rhino-<pid>", processId, port: <int|null>, lifecycleStatus: "launching"|"bound"|"closing",
+  mode: "workbench", launchedAt, liveness: {...P1 probe...}, lastPortUp: <bool|null> }
+```
+(`port` is `null` for `launching`.) It reads the registry rows owned by `current_owner`, not just `_OWNED`.
+
+**`rhino_workbench_launch`** result envelopes — one per reachable launch outcome:
+
+| Outcome | Shape |
+|---|---|
+| success (`bound`) | `{success:true, data:{ session, processId, port, owned:true, mode:"workbench", boundInSeconds }}` |
+| fail, **reaped** (process confirmed dead) | `{success:false, data:{ code:<bind-reason>, message, processId, cleanupStatus:"forced_kill", retryable }}` — **no `session`** (no durable row) |
+| fail, **retained** (`force_kill_failed`) | `{success:false, data:{ code:<bind-reason>, message, **session:"rhino-<pid>"**, processId, **lifecycleStatus:"launching"**, **port:null**, cleanupStatus:"force_kill_failed", retryable:true }}` — a live owned row the coordinator can now `list`/`close` |
+| **superseded** (bind CAS lost to a concurrent close) | `{success:false, data:{ code:"workbench_launch_superseded", message, processId, retryable:false }}` (§8.5) |
+
+The load-bearing fix (finding 1): a `force_kill_failed` launch **returns the `session` handle + `lifecycleStatus:"launching"`**, and `list` includes `launching` rows — otherwise the coordinator owns a durable live row it can neither see nor close.
+
+**`rhino_workbench_close(session)`** is the actuator for every resting state (`bound` *and* retained `launching` zombies): `{closed, cleanupStatus}` / `not_owned` / `workbench_close_in_progress` / `force_kill_failed` (§11).
+
+### 8.5 The `bind`-superseded contract (Codex finding)
+
+When `launch`'s bind CAS (`UPDATE … WHERE status='launching'`) matches **0 rows** — a concurrent close already moved the row to `closing` — `launch` must **not** report success and must **not** reap the process (the close owns termination). It returns `workbench_launch_superseded` (`retryable:false` — the launch was deliberately superseded; the coordinator decides whether to launch anew). The `closing` row is never resurrected to `bound`.
+
+### 8.6 Known residual (irreducible to pid-first identity)
 
 A crash in the microsecond window *between* `Popen` returning and the `launching` `INSERT` leaves a live Rhino with no row — an un-closable orphan, visible only via perception. This is fundamental to a `rhino-<pid>` key (the claim cannot precede the pid). The `INSERT` is the first statement after `Popen` to keep the window minimal; fully closing it needs name-first slots (durable aliases), deferred. Same risk class as the PID-reuse residual (§10).
 
@@ -301,6 +330,7 @@ Reclaimed Workbenches therefore close as cleanly as freshly-launched ones. The `
 ## 15. Components / files
 
 - **New `mcp_server/src/rook/registry.py`** — SQLite store (schema/version, INSERT / bind-UPDATE / reclaim-UPDATE / close-UPDATE→DELETE under `BEGIN IMMEDIATE`) + `reconcile_owned_registry` + `resolve_registry_path` + `get_runtime_owner` + `RuntimeOwner` (stable identity). Pure storage/logic; does not import `targeting` (the live scope is passed in per call).
+  - **Encodes §8.3 as a single PURE transition function** — `decide(observation) -> Decision{action, next_status, code, retryable}`, where `observation = (status, port_is_null, event, rhino_alive, owner_alive, scope, rebind_available)`. This function *is* the machine; `launch` / `list` / `close` / `reconcile` are thin transactional drivers that gather observations (probe liveness; for a `launching` reclaim, do the single discovery re-probe to fill `rebind_available`), call `decide`, and apply the result under `BEGIN IMMEDIATE` with CAS. The totality test (§17) enumerates `decide`'s input space directly.
 - **Modified `mcp_server/src/rook/workbench.py`** — `_OWNED` becomes derived; `PidProcessHandle`; owns `current_owner_scope()` (the only place that imports `targeting`); builds the per-call claim (`get_runtime_owner()` identity + live scope); launch/list/close call reconcile and route ownership through `registry.py`.
 - **`mcp_server/src/rook/bridge.py`** — expose `_is_pid_alive` / `_is_port_listening` for registry reuse (already module-level).
 - **`mcp_server/src/rook/server.py`** — no dispatch change (panel guard already fences the tools).
@@ -326,13 +356,15 @@ Reclaimed Workbenches therefore close as cleanly as freshly-launched ones. The `
   - **Retry actually retries (Codex finding, round 4):** after a `force_kill_failed`, a **second close re-enters Tx1 and starts a second terminate**; but a *concurrent* close *during* an in-flight terminate still returns `workbench_close_in_progress` and starts no second terminate. (These two must both hold — the bug was that the round-1 "retryable" and round-3 "in-progress" rules deadlocked.)
   - **crash-mid-close** — a `closing` row whose owner is dead and Rhino alive is reclaimed by an external runtime and reset to its resting state (`bound`/`launching` per `port`, re-closable); a `closing` row whose Rhino is dead is reaped.
 - reconcile branches: the four `bound` + three `closing` + three `launching` cases, incl. **late-bind promotion** (a `launching` dead-owner row whose Rhino bound after the owner died → re-probe promotes to `bound` + reclaim).
-- **Lifecycle totality (§8.2 L4):** parametrized over the §8.3 transition table — every `(status, event)` has a defined edge, and **no terminate-failure or crash-reclaim ever leaves a row at rest in `closing`** (post-state ∈ {`bound`, `launching`, deleted}). This is the regression guard against the whole class of P1s these rounds surfaced.
+- **Lifecycle totality as EXECUTABLE data (Codex finding 3):** a table test enumerates the full input space of the pure `decide(...)` function — `(status × port_is_null × event × rhino_alive × owner_alive × scope × rebind_available)` — against an **expected `Decision` table written as Python data, not scraped from this markdown.** Asserts every input maps to a defined `Decision` and that **no `Decision` leaves a row at rest in `closing`** (post-state ∈ {`bound`, `launching`, deleted}). This is the single regression guard against the whole P1 class; the markdown §8.3 is the human mirror of the same table.
 - reclaim rewrites owner identity and rebuilds `_OWNED`, **preserving an existing real `Popen`** over synthesizing a surrogate; compare-and-set aborts a reclaim when a peer won the race.
 - **Port-down does not block reclaim (Codex finding 1):** `owner dead + Rhino pid alive + port down` → the row is **reclaimed** (not merely retained), `port_up=false` is recorded as an observation, and the Workbench is **closable by pid** via the surrogate.
 - **Required safety tests (Codex):** (a) **panel-locked-no-reclaim** — a panel-locked runtime (live scope computed at call time, not a cached value), given a registry row for another session, claims nothing, rebuilds no `_OWNED`, and close returns `panel_target_locked`/`not_owned`; (b) **external-live-peer-no-steal** — an external runtime, given a row owned by a live peer, observes but never claims.
 - close requires an owned row post-reconcile (transaction-guarded `not_owned` on owner mismatch).
 - **Same-runtime double close (Codex finding 2):** a second `close` on a row already `status='closing'` (same owner, Rhino alive) returns `workbench_close_in_progress` (retryable) and starts **no second terminate**.
 - **`last_port_up` is recorded as an observation** (1/0/NULL) and is never read as a reclaim/close gate.
+- **Surface reachability (Codex finding 1):** a `force_kill_failed` launch returns `session:"rhino-<pid>"` + `lifecycleStatus:"launching"` + `port:null` + `cleanupStatus:"force_kill_failed"`; `rhino_workbench_list` then **includes that `launching` row** (not only bound rows); and `rhino_workbench_close(session)` closes it. (Proves a retained zombie is both discoverable and actionable.)
+- **`bind` superseded (Codex finding 2):** when the bind CAS matches 0 rows (a concurrent close moved the row to `closing`), `launch` returns `workbench_launch_superseded` (retryable:false), does **not** report success, does **not** reap, and does **not** resurrect the `closing` row to `bound`.
 - `PidProcessHandle` poll/wait/kill semantics against a fake pid.
 
 **Live smoke — `--smoke p5-registry-reclaim`:** launch a real owned Workbench → assert a `bound` registry row. To exercise reclaim **honestly without killing the smoke's own MCP** (Codex finding 2): spawn a throwaway process, let it exit, confirm `_is_pid_alive` is false for its pid, then rewrite the row's `owner_pid`/`owner_token` to that **real dead pid + stale token** — the exact precondition of a now-dead predecessor MCP that launched this Workbench. Then run `reconcile_owned_registry` with the smoke's own (alive, external) `RuntimeOwner` → assert **reclaim** (owner rewritten to the smoke identity, `_OWNED` rebuilt with a `PidProcessHandle`) and that **close still works** via the surrogate → and separately that a dead-Rhino row is reaped. Verify against `manifest.json`; readiness timeout ≥120s. **Honesty boundary:** the predecessor's death is real (a genuinely exited pid), the Rhino is real, and the reclaim path runs end-to-end — we do not pretend the smoke's own MCP died, and we never fabricate the owner pid. (A naive "fresh `RuntimeOwner` over the same DB while the original MCP still runs" would *correctly refuse* to reclaim — the owner pid would still be alive — so it would prove no-steal, not reclaim.)
@@ -343,11 +375,14 @@ Reclaimed Workbenches therefore close as cleanly as freshly-launched ones. The `
 
 - **Sessions-only (Option A).** Durable ownership + reclaim is the purpose; documents stay discovery/session metadata with a non-authoritative snapshot on the row; the `documents` table waits for P6 when Save/fan-in gives it a job (§2, §6).
 - **Approach 1:** registry is ownership truth; `_OWNED` is a derived process-handle cache, never authoritative (§5).
-- **Shared workstation ledger,** not per-lineage and not a discovery mirror; ownership boundaries enforced by close/reclaim rules; `rhino_workbench_list` = my rows only (§4, §16).
+- **Shared workstation ledger,** not per-lineage and not a discovery mirror; ownership boundaries enforced by close/reclaim rules; `rhino_workbench_list` = my rows only, **all `lifecycleStatus` (`launching`/`bound`/`closing`)** with nullable `port` (§4, §8.4, §16).
 - **Owner-liveness reclaim (Option A)** with `(owner_pid, owner_token, owner_started_at, owner_scope)` identity; conservative "alive PID ⇒ don't steal"; creation-time discriminator deferred (§10).
 - **Panel scope is a HARD INVARIANT:** only `external` runtimes reclaim; panel-locked runtimes touch nothing here (§10).
 - **Ownership and listener health are orthogonal (Codex finding 1):** reaping keys on the Rhino pid; reclaim keys on the owner pid; `port_up` is a recorded observation that blocks neither. A live-pid / down-listener Workbench with a dead owner is reclaimable and closable by pid (§9, §14).
 - **The lifecycle is a single TOTAL, CONVERGENT state machine (§8), not a set of ad-hoc transitions.** Two resting states (`bound`, `launching`) and one strictly-transient state (`closing`); every `(status, event)` has a defined edge; no edge strands a live process. Specifying it as one machine — rather than patching edges — is what makes the whole P1 class (orphan / un-reclaimable / double-terminate / stuck-closing) structurally impossible. In the coordination vision, this machine *is* the per-session control logic; a dead-end state is a file the coordinator gets stuck on.
+- **The machine must be VISIBLE through the tool surface, not just internally total (Codex):** every reachable state is discoverable via `rhino_workbench_list` (which lists `launching`/`bound`/`closing` rows with `lifecycleStatus`) and actionable via `rhino_workbench_close`. A `force_kill_failed` launch returns the `session` handle + `lifecycleStatus:"launching"` so a retained zombie can be found and closed — internal correctness that isn't reachable through `launch/list/close` still leaves the coordinator stuck (§8.4).
+- **The machine is implemented as one PURE transition function** `decide(observation) -> Decision` (the executable form of §8.3); `launch/list/close/reconcile` are thin transactional drivers; the totality test enumerates `decide`'s input space as Python data, not a markdown scrape (Codex finding 3; §15, §17).
+- **`bind` superseded contract (Codex):** a bind CAS that loses to a concurrent close returns `workbench_launch_superseded` (retryable:false) — never reports success, never reaps (close owns it), never resurrects the `closing` row (§8.5).
 - **Durability invariant (Codex findings 1 & 2): a row is deleted only when its process is confirmed dead.** Transient intent is durable — `launching`/`closing` are persisted statuses — so a crash mid-launch or mid-close never strands a live Workbench without a reclaimable record (§8).
 - **`closing` is strictly transient (Codex finding, round 4):** it never rests. A failed terminate returns the row to its resting state (`bound`/`launching`, inferred from `port`), so retry re-terminates instead of deadlocking against the concurrent-close guard. Close is transaction-guarded by owner identity via claim-by-update; no transaction held across the off-thread kill (§8.2, §11).
 - **Concurrent-close guard (Codex finding 2):** close Tx1 requires `status IN ('bound','launching')`; a second close on a `closing` row (owner alive) returns retryable `workbench_close_in_progress` and starts no second terminate (§11). `last_port_up` is observational telemetry (1/0/NULL), never liveness truth (§6).
