@@ -68,3 +68,85 @@ def test_foreign_table_shape_fails_closed(tmp_path):
     reg = artifacts.ArtifactRegistry(db)
     assert reg.schema_unsupported == "unknown"
     reg.close()
+
+
+def _reg(tmp_path):
+    return artifacts.ArtifactRegistry(tmp_path / "artifacts.db")
+
+
+def test_upsert_born_present_creates_only_when_present(tmp_path):
+    reg = _reg(tmp_path)
+    assert reg.upsert("/p/a.3dm", source="owned_workbench", file_state="missing",
+                      size=None, mtime=None, document_name=None, origin_session_id=None,
+                      label=None, now=100) == "skipped_absent"
+    assert reg.get(path="/p/a.3dm") is None
+    assert reg.upsert("/p/a.3dm", source="owned_workbench", file_state="present",
+                      size=5, mtime=9, document_name="a", origin_session_id="rhino-1",
+                      label=None, now=101) == "created"
+    row = reg.get(path="/p/a.3dm")
+    assert row.file_state == "present" and row.source == "owned_workbench" and row.size_bytes == 5
+    assert row.artifact_id == artifacts.artifact_id_for("/p/a.3dm")
+    reg.close()
+
+
+def test_upsert_existing_transitions_state_and_is_idempotent(tmp_path):
+    reg = _reg(tmp_path)
+    reg.upsert("/p/a.3dm", source="explicit", file_state="present", size=5, mtime=9,
+               document_name=None, origin_session_id=None, label=None, now=100)
+    assert reg.upsert("/p/a.3dm", source="owned_workbench", file_state="missing",
+                      size=None, mtime=None, document_name=None, origin_session_id=None,
+                      label=None, now=200) == "updated"
+    row = reg.get(path="/p/a.3dm")
+    assert row.file_state == "missing" and row.last_missing_at == 200 and row.size_bytes is None
+    assert row.source == "explicit"  # source is NOT overwritten on update
+    assert len(reg.list_all()) == 1
+    reg.close()
+
+
+def test_set_state_updates_existing_only(tmp_path):
+    reg = _reg(tmp_path)
+    assert reg.set_state("/p/missing.3dm", file_state="present", size=1, mtime=1, now=1) is False
+    reg.upsert("/p/a.3dm", source="explicit", file_state="present", size=5, mtime=9,
+               document_name=None, origin_session_id=None, label=None, now=100)
+    assert reg.set_state("/p/a.3dm", file_state="unreachable", size=None, mtime=None, now=300) is True
+    assert reg.get(path="/p/a.3dm").file_state == "unreachable"
+    reg.close()
+
+
+def test_delete_removes_row_only(tmp_path):
+    reg = _reg(tmp_path)
+    reg.upsert("/p/a.3dm", source="explicit", file_state="present", size=5, mtime=9,
+               document_name=None, origin_session_id=None, label=None, now=100)
+    assert reg.delete("/p/a.3dm") is True
+    assert reg.delete("/p/a.3dm") is False
+    assert reg.get(path="/p/a.3dm") is None
+    reg.close()
+
+
+def test_get_by_id_and_path_agree(tmp_path):
+    reg = _reg(tmp_path)
+    reg.upsert("/p/a.3dm", source="explicit", file_state="present", size=5, mtime=9,
+               document_name=None, origin_session_id=None, label=None, now=100)
+    by_path = reg.get(path="/p/a.3dm")
+    by_id = reg.get(artifact_id=artifacts.artifact_id_for("/p/a.3dm"))
+    assert by_path == by_id
+    reg.close()
+
+
+def test_unreachable_does_not_advance_last_verified(tmp_path):
+    reg = _reg(tmp_path)
+    reg.upsert("/p/a.3dm", source="explicit", file_state="present", size=5, mtime=9,
+               document_name=None, origin_session_id=None, label=None, now=100)
+    assert reg.set_state("/p/a.3dm", file_state="unreachable", size=None, mtime=None, now=200) is True
+    row = reg.get(path="/p/a.3dm")
+    assert row.file_state == "unreachable" and row.last_verified_at == 100  # NOT bumped to 200
+
+
+def test_different_path_same_id_fails_closed(tmp_path, monkeypatch):
+    reg = _reg(tmp_path)
+    monkeypatch.setattr(artifacts, "artifact_id_for", lambda p: "collide")
+    assert reg.upsert("/p/a.3dm", source="explicit", file_state="present", size=1, mtime=1,
+                      document_name=None, origin_session_id=None, label=None, now=1) == "created"
+    assert reg.upsert("/p/b.3dm", source="explicit", file_state="present", size=1, mtime=1,
+                      document_name=None, origin_session_id=None, label=None, now=2) == "id_collision"
+    assert len(reg.list_all()) == 1  # second never inserted
