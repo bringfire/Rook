@@ -12,6 +12,7 @@ import pytest
 from rook.runtime_harness import (
     CleanupStatus,
     DiscoveryError,
+    DiscoveryFailureReason,
     HarnessStatus,
     OwnedRhinoDiscovery,
     OwnedRhinoRecord,
@@ -520,6 +521,54 @@ def test_wait_for_ready_reports_process_exit_after_discovery_before_ping(tmp_pat
             timeout_seconds=1.0,
             poll_seconds=0,
         )
+
+
+def test_wait_for_ready_reason_exited_before_bind(tmp_path: Path):
+    with pytest.raises(DiscoveryError) as exc:
+        OwnedRhinoDiscovery(tmp_path).wait_for_ready(
+            1234, FakeProcess(1234, [None, 17]), PingRecorder([True]),
+            timeout_seconds=1.0, poll_seconds=0,
+        )
+    assert exc.value.reason is DiscoveryFailureReason.EXITED_BEFORE_BIND
+
+
+def test_wait_for_ready_reason_exited_before_ready(tmp_path: Path):
+    _write_record(tmp_path, 1234, _native_record(1234, port=9821))
+    with pytest.raises(DiscoveryError) as exc:
+        OwnedRhinoDiscovery(tmp_path).wait_for_ready(
+            1234, FakeProcess(1234, [None, 9]), PingRecorder([False]),
+            timeout_seconds=1.0, poll_seconds=0,
+        )
+    assert exc.value.reason is DiscoveryFailureReason.EXITED_BEFORE_READY
+
+
+def test_wait_for_ready_reason_bind_timeout_no_discovery(tmp_path: Path):
+    with pytest.raises(DiscoveryError) as exc:
+        OwnedRhinoDiscovery(tmp_path).wait_for_ready(
+            1234, FakeProcess(1234, [None, None, None]), PingRecorder([]),
+            timeout_seconds=0.01, poll_seconds=0,
+        )
+    assert exc.value.reason is DiscoveryFailureReason.BIND_TIMEOUT_NO_DISCOVERY
+
+
+def test_wait_for_ready_reason_invalid_discovery_record(tmp_path: Path):
+    _write_record(tmp_path, 1234, _native_record(1234, processId=999))
+    with pytest.raises(DiscoveryError) as exc:
+        OwnedRhinoDiscovery(tmp_path).wait_for_ready(
+            1234, FakeProcess(1234, [None, None, None]), PingRecorder([]),
+            timeout_seconds=0.01, poll_seconds=0,
+        )
+    assert exc.value.reason is DiscoveryFailureReason.INVALID_DISCOVERY_RECORD
+
+
+def test_wait_for_ready_reason_bind_timeout_no_ping(tmp_path: Path):
+    _write_record(tmp_path, 1234, _native_record(1234, port=9821))
+    with pytest.raises(DiscoveryError) as exc:
+        OwnedRhinoDiscovery(tmp_path).wait_for_ready(
+            1234, FakeProcess(1234, [None, None, None]), PingRecorder([False, False, False]),
+            timeout_seconds=0.01, poll_seconds=0,
+        )
+    assert exc.value.reason is DiscoveryFailureReason.BIND_TIMEOUT_NO_PING
 
 
 @pytest.mark.asyncio

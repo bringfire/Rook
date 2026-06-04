@@ -63,8 +63,20 @@ FINAL_SMOKE_DRAIN_TIMEOUT_SECONDS = 1.0
 WM_CLOSE = 0x0010
 
 
+class DiscoveryFailureReason(Enum):
+    FILE_NOT_FOUND = "file_not_found"
+    INVALID_RECORD = "invalid_record"
+    EXITED_BEFORE_BIND = "exited_before_bind"
+    EXITED_BEFORE_READY = "exited_before_ready"
+    BIND_TIMEOUT_NO_DISCOVERY = "bind_timeout_no_discovery"
+    BIND_TIMEOUT_NO_PING = "bind_timeout_no_ping"
+    INVALID_DISCOVERY_RECORD = "invalid_discovery_record"
+
+
 class DiscoveryError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, reason: "DiscoveryFailureReason | None" = None):
+        super().__init__(message)
+        self.reason = reason
 
 
 @dataclass(frozen=True)
@@ -944,36 +956,60 @@ class OwnedRhinoDiscovery:
     def read_owned_record(self, pid: int) -> OwnedRhinoRecord:
         path = self.owned_path(pid)
         if not path.exists():
-            raise DiscoveryError(f"owned Rhino discovery file not found: {path}")
+            raise DiscoveryError(
+                f"owned Rhino discovery file not found: {path}",
+                reason=DiscoveryFailureReason.FILE_NOT_FOUND,
+            )
 
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
         except json.JSONDecodeError as exc:
-            raise DiscoveryError(f"malformed JSON in owned Rhino discovery file: {path}") from exc
+            raise DiscoveryError(
+                f"malformed JSON in owned Rhino discovery file: {path}",
+                reason=DiscoveryFailureReason.INVALID_RECORD,
+            ) from exc
         if not isinstance(raw, dict):
-            raise DiscoveryError(f"owned Rhino discovery JSON must be an object: {path}")
+            raise DiscoveryError(
+                f"owned Rhino discovery JSON must be an object: {path}",
+                reason=DiscoveryFailureReason.INVALID_RECORD,
+            )
 
         process_id = raw.get("processId")
         if not isinstance(process_id, int) or isinstance(process_id, bool) or process_id != pid:
-            raise DiscoveryError(f"wrong processId in owned Rhino discovery file: {process_id}")
+            raise DiscoveryError(
+                f"wrong processId in owned Rhino discovery file: {process_id}",
+                reason=DiscoveryFailureReason.INVALID_RECORD,
+            )
 
         plugin_type = raw.get("pluginType")
         if plugin_type != "native":
-            raise DiscoveryError(f"unexpected pluginType in owned Rhino discovery file: {plugin_type}")
+            raise DiscoveryError(
+                f"unexpected pluginType in owned Rhino discovery file: {plugin_type}",
+                reason=DiscoveryFailureReason.INVALID_RECORD,
+            )
 
         raw_host = raw.get("host")
         if raw_host is None or raw_host == "":
             host = "127.0.0.1"
         elif not isinstance(raw_host, str):
-            raise DiscoveryError(f"owned Rhino discovery host must be loopback: {raw_host}")
+            raise DiscoveryError(
+                f"owned Rhino discovery host must be loopback: {raw_host}",
+                reason=DiscoveryFailureReason.INVALID_RECORD,
+            )
         else:
             host = raw_host.strip().lower()
         if host not in LOOPBACK_HOSTS:
-            raise DiscoveryError(f"owned Rhino discovery host must be loopback: {host}")
+            raise DiscoveryError(
+                f"owned Rhino discovery host must be loopback: {host}",
+                reason=DiscoveryFailureReason.INVALID_RECORD,
+            )
 
         port = raw.get("port")
         if not isinstance(port, int) or isinstance(port, bool) or port <= 0:
-            raise DiscoveryError(f"invalid port in owned Rhino discovery file: {port}")
+            raise DiscoveryError(
+                f"invalid port in owned Rhino discovery file: {port}",
+                reason=DiscoveryFailureReason.INVALID_RECORD,
+            )
 
         return OwnedRhinoRecord(pid=pid, host=host, port=port, path=path, raw=raw)
 
@@ -1003,10 +1039,12 @@ class OwnedRhinoDiscovery:
             if exit_code is not None:
                 if saw_discovery:
                     raise DiscoveryError(
-                        f"Rhino exited with code {exit_code} before RookNative became pingable"
+                        f"Rhino exited with code {exit_code} before RookNative became pingable",
+                        reason=DiscoveryFailureReason.EXITED_BEFORE_READY,
                     )
                 raise DiscoveryError(
-                    f"Rhino exited with code {exit_code} before RookNative discovery appeared"
+                    f"Rhino exited with code {exit_code} before RookNative discovery appeared",
+                    reason=DiscoveryFailureReason.EXITED_BEFORE_BIND,
                 )
 
             try:
@@ -1025,11 +1063,23 @@ class OwnedRhinoDiscovery:
             if now >= deadline:
                 if saw_discovery:
                     raise DiscoveryError(
-                        f"owned RookNative discovery for Rhino pid {pid} did not become pingable"
+                        f"owned RookNative discovery for Rhino pid {pid} did not become pingable",
+                        reason=DiscoveryFailureReason.BIND_TIMEOUT_NO_PING,
                     )
-                if last_discovery_error is not None:
-                    raise DiscoveryError(str(last_discovery_error)) from last_discovery_error
-                raise DiscoveryError(f"owned Rhino discovery file not found for pid {pid}")
+                if (
+                    last_discovery_error is not None
+                    and last_discovery_error.reason is DiscoveryFailureReason.INVALID_RECORD
+                ):
+                    raise DiscoveryError(
+                        str(last_discovery_error),
+                        reason=DiscoveryFailureReason.INVALID_DISCOVERY_RECORD,
+                    ) from last_discovery_error
+                raise DiscoveryError(
+                    str(last_discovery_error)
+                    if last_discovery_error is not None
+                    else f"owned Rhino discovery file not found for pid {pid}",
+                    reason=DiscoveryFailureReason.BIND_TIMEOUT_NO_DISCOVERY,
+                )
 
             wait_seconds = poll_seconds if poll_seconds > 0 else MIN_POLL_SECONDS
             _sleep(min(wait_seconds, deadline - now))
