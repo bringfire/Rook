@@ -471,6 +471,9 @@ _ALL_KNOWN_TOOLS = {
     "rhino_session_capabilities",
     "rhino_sessions",
     "rhino_set_active_instance",
+    "rhino_workbench_close",
+    "rhino_workbench_launch",
+    "rhino_workbench_list",
     "rhino_split_brep",
     "rhino_split_disjoint_breps",
     "rhino_split_face",
@@ -547,6 +550,9 @@ _META_TOOLS = {
     "rhino_session_capabilities",
     "rhino_sessions",
     "rhino_set_active_instance",
+    "rhino_workbench_close",
+    "rhino_workbench_launch",
+    "rhino_workbench_list",
 }
 
 _RHINO_INDEPENDENT_READ_TOOLS = {
@@ -699,7 +705,7 @@ def policy_for_tool(name: str) -> RhinoToolPolicy:
 # on them is a contract error (rejected, not silently ignored) — EXCEPT tools that
 # legitimately own a non-routing `session` argument. This is an explicit exception
 # list, NOT a second routing-policy surface; it grows only by intentional addition.
-_NON_ROUTED_SESSION_ARGUMENT_TOOLS = {"rhino_session_capabilities"}
+_NON_ROUTED_SESSION_ARGUMENT_TOOLS = {"rhino_session_capabilities", "rhino_workbench_close"}
 
 
 def session_not_targetable_result(name: str) -> dict[str, Any]:

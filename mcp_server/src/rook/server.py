@@ -50,7 +50,7 @@ if logger.isEnabledFor(logging.DEBUG):
     )
 
 from .bridge import call_rhino, get_rhino_host, discover_instances, TIMEOUT, DISCOVERY_FOLDER, rhino_request_context, list_sessions_result, get_session_capabilities
-from . import director, director_publish, director_video, script_library, targeting
+from . import director, director_publish, director_video, script_library, targeting, workbench
 targeting.initialize_from_environment()
 from .knowledge import query_knowledge, query_knowledge_tiered, record_knowledge, invalidate_condensed_command_cache
 from .learning.command_observer import (
@@ -2824,6 +2824,28 @@ Use this before any Rhino operations to ensure Rhino is available. Safe to call 
                 },
                 "required": []
             }
+        ),
+        Tool(
+            name="rhino_workbench_launch",
+            description="Launch an OWNED, disposable Workbench Rhino and wait for it to bind. "
+                        "Returns a session id you can route work to. Owned by this runtime only.",
+            inputSchema={"type": "object", "properties": {
+                "readinessTimeoutSeconds": {"type": "integer", "description": "Bind wait (default 90)."}}},
+        ),
+        Tool(
+            name="rhino_workbench_list",
+            description="List the Workbench sessions this MCP runtime owns (with liveness). "
+                        "Use rhino_sessions for the full discovered fleet.",
+            inputSchema={"type": "object", "properties": {}},
+        ),
+        Tool(
+            name="rhino_workbench_close",
+            description="Close/dispose an OWNED Workbench session (discards unsaved document "
+                        "state by design). Only sessions launched by this runtime can be closed.",
+            inputSchema={"type": "object", "properties": {
+                "session": {"type": "string", "description": "Session id from rhino_workbench_list."},
+                "graceful": {"type": "boolean", "description": "Attempt WM_CLOSE first (may stall on a dirty doc)."}},
+                "required": ["session"]},
         ),
         Tool(
             name="rhino_ping",
@@ -12797,6 +12819,20 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                         else:
                             result = {"success": False, "data": f"Rhino failed to start within {timeout}s"}
 
+        case "rhino_workbench_launch":
+            result = await workbench.launch_owned_workbench(
+                readiness_timeout_seconds=arguments.get("readinessTimeoutSeconds", 90),
+            )
+
+        case "rhino_workbench_list":
+            result = await workbench.list_owned_workbenches()
+
+        case "rhino_workbench_close":
+            result = await workbench.close_owned_workbench(
+                session=arguments.get("session"),
+                graceful=arguments.get("graceful", False),
+            )
+
         case "rhino_ping":
             result = await call_rhino("/ping", port=port)
 
@@ -19311,6 +19347,14 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         lock_route = targeting.resolve_tool_route("rhino_ping")
         if not lock_route.success:
             return _format_tool_result(targeting.route_error_result(lock_route))
+
+    if name in {"rhino_workbench_launch", "rhino_workbench_list", "rhino_workbench_close"}:
+        if targeting.get_panel_target_config_error() is not None:
+            return _format_tool_result(
+                {"success": False, "data": targeting.get_panel_target_config_error()})
+        if targeting.get_panel_target_lock() is not None:
+            return _format_tool_result(targeting.panel_target_locked_result(
+                message="Workbench lifecycle tools are disabled in the panel-locked Claude Code tab."))
 
     if not policy.requires_rhino:
         if has_explicit_session and not targeting.allows_non_routed_session_argument(name):
