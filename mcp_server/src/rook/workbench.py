@@ -32,6 +32,7 @@ from .bridge import (_process_id_from_session_id, classify_session_liveness,
 from . import registry as _reg
 from .registry import get_runtime_owner, reconcile_owned_registry, resolve_registry_path
 from . import targeting
+from . import artifacts
 
 DEFAULT_RHINO_EXE = Path(r"C:\Program Files\Rhino 8\System\Rhino.exe")
 
@@ -201,6 +202,31 @@ def _rebuild_owned(owned_rows) -> None:
     for pid in list(_OWNED):
         if pid not in keep:
             _OWNED.pop(pid, None)
+
+
+_OBSERVE_TIMEOUT_SECONDS = 2.0
+
+
+async def _best_effort_observe_owned_artifact(inst: dict[str, Any], session_id: str) -> None:
+    """Stat-gated durable observe for ONE owned, live Workbench. EVERY failure
+    (metadata fetch / stat / SQLite / TIMEOUT) is swallowed — perception must never
+    fail OR STALL listing (spec I4). The metadata fetch is BOUNDED so a busy/modal
+    Workbench cannot hang rhino_workbench_list. source is hard-coded 'owned_workbench'
+    because this is the ONLY caller, reached only from the owned path (I8 is structural)."""
+    try:
+        md = await asyncio.wait_for(
+            targeting.fetch_document_metadata(inst), timeout=_OBSERVE_TIMEOUT_SECONDS)
+        path = md.get("documentPath")
+        if not isinstance(path, str) or not path.strip():
+            return  # unsaved / no durable path
+        norm = artifacts.normalize_path(path)
+        state, size, mtime = await asyncio.to_thread(artifacts.stat_file_state, norm)
+        await asyncio.to_thread(lambda: artifacts.artifact_registry().upsert(
+            norm, source="owned_workbench", file_state=state, size=size, mtime=mtime,
+            document_name=md.get("documentName"), origin_session_id=session_id,
+            label=None, now=int(time.time())))
+    except Exception:
+        return
 
 
 async def launch_owned_workbench(readiness_timeout_seconds: int = 90) -> dict[str, Any]:
@@ -386,6 +412,12 @@ async def list_owned_workbenches() -> dict[str, Any]:
                 "state": "not_bound", "pidAlive": _is_pid_alive(row.rhino_pid),
                 "portListening": False, "code": None},
         })
+    # Post-list side effect: durable artifact perception for owned, LIVE workbenches
+    # only (I8 structural — this is the owned path). The returned list is unaffected.
+    for row in owned_rows:
+        if row.port:
+            await _best_effort_observe_owned_artifact(
+                {"processId": row.rhino_pid, "host": DEFAULT_HOST, "port": row.port}, row.session_id)
     return {"success": True, "data": {"workbenches": workbenches}}
 
 
