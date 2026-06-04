@@ -156,7 +156,7 @@ Meta tools (session-agnostic; none accept a `session` argument — artifacts do 
 
 - Observe upsert / metadata fetch raises → swallowed; listing unaffected (I4).
 - Registry unusable (version skew / fail-closed bootstrap) → tools return a structured `artifact_registry_unavailable` (`retryable: true`); the observe side-effect is swallowed so listing still succeeds.
-- `register`: absent file → `artifact_file_not_found` (`retryable: false`); malformed path → `invalid_path`.
+- `register`: missing file → `artifact_file_not_found` (`retryable: false`); unreachable / permission-denied → `artifact_file_unreachable` (`retryable: true`) — tri-state honesty, not the same as not-found; malformed path → `invalid_path`.
 - `refresh` / `deregister` on unknown id/path → `artifact_not_found` (`retryable: false`).
 - selector ambiguity → `artifact_selector_conflict` (both disagree) / `artifact_selector_required` (none where required) — both `retryable: false`.
 - `artifact_id` collision on insert (not expected with full SHA-256) → fail closed, `artifact_id_collision`, never overwrite.

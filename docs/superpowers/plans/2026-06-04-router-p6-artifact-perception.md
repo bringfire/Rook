@@ -388,6 +388,25 @@ def test_get_by_id_and_path_agree(tmp_path):
     by_id = reg.get(artifact_id=artifacts.artifact_id_for("/p/a.3dm"))
     assert by_path == by_id
     reg.close()
+
+
+def test_unreachable_does_not_advance_last_verified(tmp_path):
+    reg = _reg(tmp_path)
+    reg.upsert("/p/a.3dm", source="explicit", file_state="present", size=5, mtime=9,
+               document_name=None, origin_session_id=None, label=None, now=100)
+    assert reg.set_state("/p/a.3dm", file_state="unreachable", size=None, mtime=None, now=200) is True
+    row = reg.get(path="/p/a.3dm")
+    assert row.file_state == "unreachable" and row.last_verified_at == 100  # NOT bumped to 200
+
+
+def test_different_path_same_id_fails_closed(tmp_path, monkeypatch):
+    reg = _reg(tmp_path)
+    monkeypatch.setattr(artifacts, "artifact_id_for", lambda p: "collide")
+    assert reg.upsert("/p/a.3dm", source="explicit", file_state="present", size=1, mtime=1,
+                      document_name=None, origin_session_id=None, label=None, now=1) == "created"
+    assert reg.upsert("/p/b.3dm", source="explicit", file_state="present", size=1, mtime=1,
+                      document_name=None, origin_session_id=None, label=None, now=2) == "id_collision"
+    assert len(reg.list_all()) == 1  # second never inserted
 ```
 
 - [ ] **Step 2: Run — expect failure** (`AttributeError: upsert`).
@@ -427,20 +446,27 @@ def test_get_by_id_and_path_agree(tmp_path):
             if existing is None:
                 if file_state != "present":
                     return "skipped_absent"
-                self._conn.execute(
-                    "INSERT INTO artifacts(artifact_id, path, file_state, source, origin_session_id, "
-                    "document_name, size_bytes, mtime, label, created_at, last_verified_at, last_missing_at) "
-                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,NULL);",
-                    (artifact_id_for(norm_path), norm_path, "present", source, origin_session_id,
-                     document_name, size, mtime, label, now, now))
+                try:
+                    self._conn.execute(
+                        "INSERT INTO artifacts(artifact_id, path, file_state, source, origin_session_id, "
+                        "document_name, size_bytes, mtime, label, created_at, last_verified_at, last_missing_at) "
+                        "VALUES(?,?,?,?,?,?,?,?,?,?,?,NULL);",
+                        (artifact_id_for(norm_path), norm_path, "present", source, origin_session_id,
+                         document_name, size, mtime, label, now, now))
+                except sqlite3.IntegrityError:
+                    # path was absent (checked above) → a UNIQUE violation means a
+                    # DIFFERENT path produced the same artifact_id. Fail closed; never
+                    # overwrite a different artifact's row (spec §5/§6).
+                    return "id_collision"
                 return "created"
+            last_verified = now if file_state in ("present", "missing") else existing.last_verified_at
             last_missing = now if file_state == "missing" else existing.last_missing_at
             self._conn.execute(
                 "UPDATE artifacts SET file_state=?, size_bytes=?, mtime=?, last_verified_at=?, "
                 "last_missing_at=?, document_name=COALESCE(document_name, ?), "
                 "origin_session_id=COALESCE(origin_session_id, ?), label=COALESCE(label, ?) "
                 "WHERE path=?;",
-                (file_state, size, mtime, now, last_missing, document_name, origin_session_id,
+                (file_state, size, mtime, last_verified, last_missing, document_name, origin_session_id,
                  label, norm_path))
             return "updated"
 
@@ -451,10 +477,11 @@ def test_get_by_id_and_path_agree(tmp_path):
             existing = self.get(path=norm_path)
             if existing is None:
                 return False
+            last_verified = now if file_state in ("present", "missing") else existing.last_verified_at
             last_missing = now if file_state == "missing" else existing.last_missing_at
             self._conn.execute(
                 "UPDATE artifacts SET file_state=?, size_bytes=?, mtime=?, last_verified_at=?, "
-                "last_missing_at=? WHERE path=?;", (file_state, size, mtime, now, last_missing, norm_path))
+                "last_missing_at=? WHERE path=?;", (file_state, size, mtime, last_verified, last_missing, norm_path))
             return True
 
     def delete(self, norm_path: str) -> bool:
@@ -515,6 +542,7 @@ _RETRYABLE = {
     "artifact_selector_required": False,
     "invalid_path": False,
     "artifact_id_collision": False,
+    "artifact_file_unreachable": True,
     "artifact_registry_unavailable": True,
 }
 
@@ -645,6 +673,22 @@ def test_get_artifact_by_path_and_unknown(tmp_path):
     assert got["success"] is True and got["data"]["artifact"]["fileExists"] is True
     miss = asyncio.run(artifacts.get_artifact(path=str(tmp_path / "nope.3dm")))
     assert miss["data"]["code"] == "artifact_not_found"
+
+
+def test_register_unreachable_is_not_not_found(tmp_path, monkeypatch):
+    # Tri-state honesty: permission-denied / unreachable is NOT "not found".
+    monkeypatch.setattr(artifacts, "stat_file_state", lambda p: ("unreachable", None, None))
+    res = asyncio.run(artifacts.register_artifact(str(tmp_path / "x.3dm")))
+    assert res["data"]["code"] == "artifact_file_unreachable" and res["data"]["retryable"] is True
+
+
+def test_register_id_collision_returns_house_envelope(tmp_path, monkeypatch):
+    monkeypatch.setattr(artifacts, "artifact_id_for", lambda p: "collide")
+    a = tmp_path / "a.3dm"; a.write_bytes(b"x")
+    b = tmp_path / "b.3dm"; b.write_bytes(b"y")
+    assert asyncio.run(artifacts.register_artifact(str(a)))["success"] is True
+    res = asyncio.run(artifacts.register_artifact(str(b)))
+    assert res["data"]["code"] == "artifact_id_collision"
 ```
 
 - [ ] **Step 2: Run — expect failure** (`AttributeError: register_artifact`).
@@ -686,12 +730,18 @@ async def register_artifact(path: str) -> dict[str, Any]:
         return _err("invalid_path", f"'path' must be a non-empty string, got {path!r}.")
     norm = normalize_path(path)
     state, size, mtime = await asyncio.to_thread(stat_file_state, norm)
-    if state != "present":
+    if state == "missing":
         return _err("artifact_file_not_found",
-                    f"No durable file at {norm!r} (state={state}); register only existing files.")
-    await asyncio.to_thread(lambda: artifact_registry().upsert(
+                    f"No file at {norm!r}; register only existing files.")
+    if state == "unreachable":
+        return _err("artifact_file_unreachable",
+                    f"Could not verify {norm!r} (permission denied / unreachable drive); not registered.")
+    result = await asyncio.to_thread(lambda: artifact_registry().upsert(
         norm, source="explicit", file_state="present", size=size, mtime=mtime,
         document_name=None, origin_session_id=None, label=None, now=int(time.time())))
+    if result == "id_collision":
+        return _err("artifact_id_collision",
+                    f"The artifact id for {norm!r} collides with a different registered path; not registered.")
     row = await asyncio.to_thread(lambda: artifact_registry().get(path=norm))
     return {"success": True, "data": {"artifact": _project(row)}}
 
@@ -793,6 +843,22 @@ def test_observe_swallows_failure(tmp_path, monkeypatch):
     asyncio.run(workbench._best_effort_observe_owned_artifact(
         {"processId": 42, "host": "127.0.0.1", "port": 1234}, "rhino-42"))
     artifacts._reset_artifact_registry_singleton()
+
+
+def test_observe_bounds_slow_fetch_and_swallows(tmp_path, monkeypatch):
+    # A busy/modal Workbench must not stall listing (Codex Finding 4).
+    monkeypatch.setattr(artifacts, "resolve_artifact_db_path", lambda: tmp_path / "artifacts.db")
+    artifacts._reset_artifact_registry_singleton()
+    monkeypatch.setattr(workbench, "_OBSERVE_TIMEOUT_SECONDS", 0.05)
+
+    async def slow(inst):
+        await asyncio.sleep(1.0)
+        return {"documentPath": "/x.3dm"}
+    monkeypatch.setattr(targeting, "fetch_document_metadata", slow)
+    asyncio.run(workbench._best_effort_observe_owned_artifact(
+        {"processId": 42, "host": "127.0.0.1", "port": 1234}, "rhino-42"))  # ~0.05s, no raise
+    assert artifacts.artifact_registry().list_all() == []
+    artifacts._reset_artifact_registry_singleton()
 ```
 
 - [ ] **Step 2: Run — expect failure** (`AttributeError: _best_effort_observe_owned_artifact`).
@@ -806,13 +872,18 @@ from . import artifacts
 
 Add the helper (place after `_rebuild_owned`):
 ```python
+_OBSERVE_TIMEOUT_SECONDS = 2.0
+
+
 async def _best_effort_observe_owned_artifact(inst: dict[str, Any], session_id: str) -> None:
     """Stat-gated durable observe for ONE owned, live Workbench. EVERY failure
-    (metadata fetch / stat / SQLite) is swallowed — perception must never fail
-    listing (spec I4). source is hard-coded 'owned_workbench' because this is the
-    ONLY caller and it is reached only from the owned path (I8 is structural)."""
+    (metadata fetch / stat / SQLite / TIMEOUT) is swallowed — perception must never
+    fail OR STALL listing (spec I4). The metadata fetch is BOUNDED so a busy/modal
+    Workbench cannot hang rhino_workbench_list. source is hard-coded 'owned_workbench'
+    because this is the ONLY caller, reached only from the owned path (I8 is structural)."""
     try:
-        md = await targeting.fetch_document_metadata(inst)
+        md = await asyncio.wait_for(
+            targeting.fetch_document_metadata(inst), timeout=_OBSERVE_TIMEOUT_SECONDS)
         path = md.get("documentPath")
         if not isinstance(path, str) or not path.strip():
             return  # unsaved / no durable path
@@ -857,7 +928,7 @@ git commit -m "feat(p6): owned-Workbench observe hook as post-list side effect"
 
 ```python
 # in test_artifacts.py
-from rook import targeting, server
+from rook import targeting, server, workbench
 
 
 def test_artifact_tools_are_meta_and_known():
@@ -865,24 +936,26 @@ def test_artifact_tools_are_meta_and_known():
                  "rhino_artifact_refresh", "rhino_artifact_deregister"):
         assert name in targeting._META_TOOLS
         assert name in targeting._ALL_KNOWN_TOOLS
-        assert targeting.policy_for_tool(name).requires_rhino is False
+        p = targeting.policy_for_tool(name)
+        assert p.requires_rhino is False and p.risk == "meta"
 
 
 def test_rhino_sessions_does_not_call_artifact_observer(monkeypatch):
     # Regression guard for the structural boundary (spec Finding 2): listing the
-    # FLEET must never auto-persist artifacts.
+    # FLEET must never auto-persist artifacts. Mirrors test_session_tools.py:27 —
+    # dispatch calls server.list_sessions_result(), so patch THAT name.
     called = {"n": 0}
+
     async def spy(inst, session_id):
         called["n"] += 1
+
     monkeypatch.setattr(workbench, "_best_effort_observe_owned_artifact", spy)
-    async def fake_list_sessions():
-        return {"success": True, "data": {"sessions": []}}
-    monkeypatch.setattr(server, "list_sessions", fake_list_sessions, raising=False)
-    asyncio.run(server._mcp_tool_executor("rhino_sessions", {}))
+    monkeypatch.setattr(server, "list_sessions_result",
+                        lambda: {"success": True, "data": {"sessions": []}})
+    result = asyncio.run(server._call_tool_dispatch("rhino_sessions", {}))
+    assert result["success"] is True
     assert called["n"] == 0
 ```
-
-(If `policy_for_tool` is named differently, check `targeting.py` for the public accessor used by P1's `test_session_tools.py`; reuse that exact symbol. If `rhino_sessions` dispatch needs a different stub, mirror `test_session_tools.py`'s existing approach — the assertion that matters is `called["n"] == 0`.)
 
 - [ ] **Step 2: Run — expect failure** (tools not in `_META_TOOLS`).
 
