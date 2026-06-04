@@ -171,3 +171,42 @@ def test_version_mismatch_wipes(tmp_path):
         assert r2.get("rhino-5") is None    # wiped because stored version != REGISTRY_VERSION
     finally:
         r2.close()
+
+
+# ---- Task 4: insert_launching / bind (CAS) / record_observation ----
+def test_insert_then_bind(tmp_path):
+    r = _reg(tmp_path)
+    try:
+        r.insert_launching("rhino-10", 10, _owner(), "external", 1000)
+        row = r.get("rhino-10")
+        assert row.status == LAUNCHING and row.port is None
+        assert r.bind("rhino-10", 64100) == "set_bound"
+        row = r.get("rhino-10")
+        assert row.status == BOUND and row.port == 64100
+    finally:
+        r.close()
+
+
+def test_bind_supersedes_when_closing(tmp_path):
+    r = _reg(tmp_path)
+    try:
+        r.insert_launching("rhino-11", 11, _owner(), "external", 1000)
+        # simulate a concurrent close having claimed the row
+        r._conn.execute("UPDATE owned_sessions SET status='closing' WHERE session_id='rhino-11';")
+        assert r.bind("rhino-11", 64101) == "superseded"
+        row = r.get("rhino-11")
+        assert row.status == CLOSING and row.port is None   # not resurrected to bound
+    finally:
+        r.close()
+
+
+def test_record_observation(tmp_path):
+    r = _reg(tmp_path)
+    try:
+        r.insert_launching("rhino-12", 12, _owner(), "external", 1000)
+        r.bind("rhino-12", 64102)
+        r.record_observation("rhino-12", port_up=False, observed_at=2000)
+        row = r.get("rhino-12")
+        assert row.last_port_up == 0 and row.observed_at == 2000
+    finally:
+        r.close()

@@ -197,6 +197,34 @@ def _row(raw: "sqlite3.Row | tuple | None") -> "OwnedRow | None":
     return OwnedRow(*raw)
 
 
+class _ImmediateTx:
+    """BEGIN IMMEDIATE ... COMMIT (ROLLBACK on error), holding the registry's RLock
+    for the whole transaction so connection access is serialised across worker threads."""
+
+    def __init__(self, conn: sqlite3.Connection, lock: "threading.RLock"):
+        self._conn = conn
+        self._lock = lock
+
+    def __enter__(self):
+        self._lock.acquire()
+        try:
+            self._conn.execute("BEGIN IMMEDIATE;")
+        except Exception:
+            self._lock.release()
+            raise
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        try:
+            if exc_type is None:
+                self._conn.execute("COMMIT;")
+            else:
+                self._conn.execute("ROLLBACK;")
+        finally:
+            self._lock.release()
+        return False
+
+
 class OwnedSessionRegistry:
     """SQLite ownership ledger. Liveness is NEVER stored — only claims + last
     observations (spec §3). All load-bearing writes use BEGIN IMMEDIATE (§12)."""
@@ -270,3 +298,41 @@ class OwnedSessionRegistry:
                 f"SELECT {_COLUMNS} FROM owned_sessions WHERE owner_pid=? AND owner_token=?;",
                 (owner_pid, owner_token)).fetchall()
         return [_row(r) for r in rows]
+
+    # ----- transaction helper -----
+    def _immediate(self) -> "_ImmediateTx":
+        """Context-manager: acquire the RLock, BEGIN IMMEDIATE ... COMMIT (ROLLBACK on error)."""
+        return _ImmediateTx(self._conn, self._lock)
+
+    # ----- lifecycle writes -----
+    def insert_launching(self, session_id: str, rhino_pid: int, owner: "RuntimeOwner",
+                         scope: str, launched_at: int) -> None:
+        with self._immediate():
+            self._conn.execute(
+                "INSERT INTO owned_sessions(session_id, rhino_pid, port, status, owner_pid, "
+                "owner_token, owner_started_at, owner_scope, launched_at, last_document_path, "
+                "last_document_serial_number, last_document_name, last_port_up, observed_at) "
+                "VALUES(?,?,NULL,'launching',?,?,?,?,?,NULL,NULL,NULL,NULL,NULL);",
+                (session_id, rhino_pid, owner.pid, owner.token, owner.started_at, scope, launched_at))
+
+    def bind(self, session_id: str, port: int) -> str:
+        """Decide BIND_OK against the in-txn status, then apply. Returns 'set_bound'
+        or 'superseded'. CAS: a concurrent close (status=='closing') yields superseded."""
+        with self._immediate():
+            cur = self.get(session_id)
+            if cur is None:
+                return "superseded"
+            d = decide(Observation(status=cur.status, port_is_null=cur.port is None,
+                                   event=Event.BIND_OK))
+            if d.action is Action.SET_BOUND:
+                self._conn.execute(
+                    "UPDATE owned_sessions SET port=?, status='bound' "
+                    "WHERE session_id=? AND status='launching';", (port, session_id))
+                return "set_bound"
+            return "superseded"
+
+    def record_observation(self, session_id: str, port_up: "bool | None", observed_at: int) -> None:
+        with self._immediate():
+            self._conn.execute(
+                "UPDATE owned_sessions SET last_port_up=?, observed_at=? WHERE session_id=?;",
+                (None if port_up is None else int(bool(port_up)), observed_at, session_id))
