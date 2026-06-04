@@ -44,14 +44,14 @@ So Slice 1 is the artifact registry **only**. It mirrors P1 (see sessions → la
 A **durable artifact** is a saved `.3dm` (or other produced file) addressable by path, independent of any live session.
 
 - **Dedup key = the normalized absolute path.** Normalization is `os.path` `normcase` + `normpath` + `realpath` (Windows is case-insensitive, so `C:/A.3dm` and `c:/a.3dm` are one artifact). Upsert is keyed on this path.
-- **`artifact_id` = a deterministic stable handle derived from the normalized path** (e.g. a truncated SHA-256). Deterministic so re-observation is idempotent and a later slice can reference an artifact by stable id. Tools accept either `id` or `path`.
+- **`artifact_id` = the full SHA-256 hex of the normalized path** — a deterministic, collision-free stable handle (re-observation is idempotent; a later slice can reference an artifact by stable id). It is **`UNIQUE`** in the schema; because it is a pure function of `path`, the two unique constraints always agree, and any (astronomically unlikely) collision **fails closed** — the conflicting insert is rejected, never overwriting a different artifact's row. Tools accept `id` or `path` (selector rules, §10.1).
 - **Identity is NOT `document_serial_number`.** Serial is a live-session snapshot, not durable identity. A save-as to a new path is a *new* artifact in Slice 1 (logical-artifact-across-renames is a later concern).
 
 ## 6. Schema — `artifacts` table
 
 | Column | Type | Notes |
 |---|---|---|
-| `artifact_id` | TEXT | stable handle (hash of normalized path) |
+| `artifact_id` | TEXT **UNIQUE** | full SHA-256 of the normalized path; pure function of `path`; collision fails closed, never overwrites |
 | `path` | TEXT **UNIQUE** | normalized absolute path — the dedup identity |
 | `file_state` | TEXT | **single canonical tri-state**: `present` \| `missing` \| `unreachable`. `fileExists` (true/false/null) is **derived in the tool projection**, never stored — two fields encoding one truth can disagree (a P5 lesson). |
 | `source` | TEXT | **single field** collapsing provenance + scope: `owned_workbench` \| `explicit`. Extensible to `adopted`/`attached` only if auto-observe is *consciously* broadened later. One source of truth ⇒ I8 is trivially testable. |
@@ -73,20 +73,24 @@ A **durable artifact** is a saved `.3dm` (or other produced file) addressable by
 The registry is fed two ways. **`ArtifactRegistry` never knows or infers ownership; callers pass `source`.** The owned-Workbench gate is a **policy gate that lives outside the registry.**
 
 ### 7.1 Observed (owned Workbench only)
-Rides the existing session/workbench listing path. For each discovered instance, the **calling tool handler** (which already holds ownership context via the owned-set) decides:
+The observe hook lives **inside the owned-Workbench listing/reconcile path** — `workbench.list_owned_workbenches()`, where ownership has **already been reconciled**, so the path *structurally* yields only owned Workbenches. **It does NOT live in `rhino_sessions`** (the fleet-perception surface, which also enumerates adopted/user sessions): keeping durable writes off that surface makes the ownership boundary **structural**, not a conditional that could leak (I8). For each owned, live Workbench:
 
 ```
-if instance is an OWNED WORKBENCH            (policy gate, in the caller)
-   and the live document has a SAVED PATH    (documentPath present & non-empty)
-   → observe_document(path, document_name, origin_session_id, source="owned_workbench")
+for each OWNED, LIVE workbench             (structurally owned — no per-row ownership test)
+   best-effort fetch_document_metadata
+   if the live document has a SAVED PATH   (documentPath present & non-empty)
+      and os.stat(path) SUCCEEDS           (existence proven on disk, not just open in Rhino)
+   → observe_document(path, document_name, size, mtime, origin_session_id, source="owned_workbench")
 ```
 
-- The gate **reads** the existing owned-Workbench set (a read of P5 state — never a write; zero blast radius). It does **not** live inside `ArtifactRegistry`, and likely lives in the `rhino_sessions` / `rhino_workbench_list` handlers rather than buried in shared enrichment (exact hook resolved in the plan).
-- **Best-effort, off-thread (`asyncio.to_thread`), failure-swallowed.** If metadata fetch or the upsert fails, **session listing must not fail** (I4).
-- The upsert creates/updates the row as `file_state = present` (the owning session has the file open from that path) with best-effort `size_bytes`/`mtime`; `refresh` (§8) maintains the tri-state thereafter.
-- Unsaved documents (no path) are **not** persisted as artifacts — they produce no durable row.
-- **Adopted / attached / user / panel sessions are visible but never auto-persisted** (I8).
-- **No P5 `last_document_*` write** (Fix 2). The artifact's document snapshot lives only in `artifacts.db`.
+- **Stat-gated, honest `file_state`** — a row is only ever *born* `present`, with existence proven by `os.stat`. Rhino holding a path open does **not** prove the durable file is on disk (it may have been moved/deleted/permission-blocked, or sit on a flaky drive):
+  - no existing row + stat succeeds → create `present`.
+  - no existing row + stat missing/unreachable → **no row** (swallow; never fabricate a phantom durable artifact).
+  - existing row + stat missing/unreachable → transition to `missing`/`unreachable` (same rule as `refresh`, §8).
+- **Best-effort, off-thread (`asyncio.to_thread`), failure-swallowed.** If metadata fetch / stat / upsert fails, **listing must not fail** (I4).
+- Unsaved documents (no path) are **not** persisted — no durable row.
+- **Adopted / attached / user / panel sessions are never auto-persisted** (I8) — structurally, because this hook never sees them.
+- **No P5 `last_document_*` write** (Fix 2). The artifact snapshot lives only in `artifacts.db`; `ArtifactRegistry` receives `source` as a parameter and never infers ownership.
 
 ### 7.2 Explicit (any existing file)
 `rhino_artifact_register(path)`:
@@ -106,11 +110,20 @@ if instance is an OWNED WORKBENCH            (policy gate, in the caller)
   - cannot check (permission / unreachable drive / OneDrive flap) → `file_state = unreachable`. **Never assert `missing` on a flap** (the "never refresh a stale reference" half of the invariant).
 - `rhino_artifact_deregister(id | path)` removes the **registry row only**. **Tool doc, load-bearing:** *deregister means "forget this registry row," NOT "delete the `.3dm`."* Row deletion is semantically separate from file deletion and is the **only** destructive row operation.
 
+**Born-present rule:** a row is only ever *created* in `present` (creation requires a successful `os.stat` — via observe §7.1 or explicit register §7.2). `missing` and `unreachable` are only ever *transitions* of an existing row, never initial states. A perceived artifact never silently un-exists — its history persists as a tombstone.
+
 ## 9. Codex review corrections folded in
 
 1. **Serial not implied** — dropped from Slice 1; observe seam only supplies name/path (§6).
 2. **No P5 writes** — observe writes only `artifacts.db`; P5 columns untouched; a snapshot writer is a separately-scoped P5 PR (§7.1).
 3. **Ownership boundary** — auto-observe is owned-Workbench-only and the gate lives **outside** `ArtifactRegistry`; everything else needs explicit registration (§7, I8).
+
+Round 2:
+
+4. **Observed rows are stat-gated** — born `present` only on a successful `os.stat`; Rhino holding a path open is not proof of disk existence (§7.1).
+5. **Observe hook is the owned-Workbench path** (`list_owned_workbenches`), never `rhino_sessions` — the ownership boundary becomes structural (§7.1, I8).
+6. **`id`/`path` selector conflict defined** — `artifact_selector_conflict` / `artifact_selector_required` (§10.1), mirroring P3's `session`/`port` lesson.
+7. **`artifact_id` is full SHA-256, `UNIQUE`, fail-closed** on collision (§5, §6).
 
 ## 10. Tool surface
 
@@ -122,6 +135,16 @@ Meta tools (session-agnostic; none accept a `session` argument — artifacts do 
 | `rhino_artifact_register` | explicit registration (§7.2). |
 | `rhino_artifact_refresh` | re-verify a row's file state (§8). |
 | `rhino_artifact_deregister` | forget a row; never touches the file (§8). |
+
+### 10.1 Selector rules (`id` / `path`)
+
+`rhino_artifacts` (get mode), `rhino_artifact_refresh`, and `rhino_artifact_deregister` resolve a single row by `id` or `path`, mirroring P3's `session`/`port` discipline:
+
+- exactly one of `id` / `path`, **or** both supplied and resolving to the **same** row → valid.
+- both supplied and **disagree** → `artifact_selector_conflict` (`retryable: false`).
+- neither supplied where a selector is required → `artifact_selector_required` (`retryable: false`).
+
+`path` is normalized before resolution. `rhino_artifacts` with **no** selector is a full list (not an error).
 
 **Cross-phase seams (must match the house contract):**
 - Register all four in `targeting._META_TOOLS` **and** `_ALL_KNOWN_TOOLS`.
@@ -135,6 +158,8 @@ Meta tools (session-agnostic; none accept a `session` argument — artifacts do 
 - Registry unusable (version skew / fail-closed bootstrap) → tools return a structured `artifact_registry_unavailable` (`retryable: true`); the observe side-effect is swallowed so listing still succeeds.
 - `register`: absent file → `artifact_file_not_found` (`retryable: false`); malformed path → `invalid_path`.
 - `refresh` / `deregister` on unknown id/path → `artifact_not_found` (`retryable: false`).
+- selector ambiguity → `artifact_selector_conflict` (both disagree) / `artifact_selector_required` (none where required) — both `retryable: false`.
+- `artifact_id` collision on insert (not expected with full SHA-256) → fail closed, `artifact_id_collision`, never overwrite.
 
 ## 12. Invariants
 
@@ -152,7 +177,7 @@ Meta tools (session-agnostic; none accept a `session` argument — artifacts do 
 Mirrors P5's discipline (the now-stable non-live gate makes baseline parity trustworthy).
 
 - **`ArtifactRegistry` unit tests:** CRUD; path-normalization dedup (case-insensitive); upsert idempotency (same path → one row, updated); refresh transitions `present`↔`missing`↔`unreachable`; schema fail-closed on version skew (never drops rows); **registry accepts `source` as a parameter and never infers ownership** (I8 at the unit level).
-- **Observe-glue tests** (mocked `fetch_document_metadata` + ownership): owned + saved → row `source=owned_workbench`; owned + unsaved → no row; **not-owned (adopted/attached/user) + saved → no row (I8)**; fetch raises → swallowed, no row, listing OK (I4).
+- **Observe-glue tests** (mocked `fetch_document_metadata` + `os.stat`): saved + **stat succeeds** → row `present`, `source=owned_workbench`; saved + **stat missing/unreachable** → no *new* row, and an *existing* row transitions to `missing`/`unreachable`; unsaved (no path) → no row; fetch/stat raises → swallowed, listing OK (I4). The owned-only boundary is **structural** (the hook lives in `list_owned_workbenches`), so it is verified by the live smoke rather than a per-row ownership branch.
 - **Tool-surface tests** with an autouse isolated `artifacts.db` fixture — patch the **module-local** `resolve_artifact_db_path` name and manage the singleton manually (the P5 T9 monkeypatch-local-name lesson).
 - **Live smoke `p6-artifact-perception`** (owned-Rhino harness): owned Workbench saves a `.3dm` → row `present` → close the session → **row persists as `present`** (the headline); **a non-owned session's saved doc is NOT auto-persisted** (I8 live); `deregister` removes the row while the file remains on disk (I5 live).
 - **Baseline parity** vs `main` on `python -m pytest mcp_server/tests -m "not requires_rhino"` — prove failed/errors unchanged.
@@ -160,7 +185,7 @@ Mirrors P5's discipline (the now-stable non-live gate makes baseline parity trus
 ## 14. Files
 
 - **Create:** `mcp_server/src/rook/artifacts.py`, `mcp_server/tests/test_artifacts.py`, `mcp_server/tools/p6_artifact_perception_live_harness.py` (+ a `p6-artifact-perception` choice in `scripts/run_rhino_runtime_harness.py`).
-- **Modify:** `mcp_server/src/rook/server.py` (tool decls + handlers + the owned-Workbench observe gate in the listing handlers), `mcp_server/src/rook/targeting.py` (`_META_TOOLS` + `_ALL_KNOWN_TOOLS` membership).
+- **Modify:** `mcp_server/src/rook/server.py` (4 tool decls + handlers); `mcp_server/src/rook/workbench.py` (the stat-gated observe hook inside `list_owned_workbenches` — owned-only by construction; imports `ArtifactRegistry`, never the reverse); `mcp_server/src/rook/targeting.py` (`_META_TOOLS` + `_ALL_KNOWN_TOOLS` membership).
 - **Untouched:** `mcp_server/src/rook/registry.py` (zero P5 edits).
 
 ## 15. Decision log
