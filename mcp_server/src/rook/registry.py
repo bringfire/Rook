@@ -336,3 +336,70 @@ class OwnedSessionRegistry:
             self._conn.execute(
                 "UPDATE owned_sessions SET last_port_up=?, observed_at=? WHERE session_id=?;",
                 (None if port_up is None else int(bool(port_up)), observed_at, session_id))
+
+    # ----- close / reclaim / reap writes -----
+    def claim_for_close(self, session_id: str, owner: "RuntimeOwner") -> "tuple[str, OwnedRow | None]":
+        """Verify owner identity, then decide CLOSE_START against in-txn status.
+        Returns ('not_owned'|'set_closing'|'close_in_progress', row|None)."""
+        with self._immediate():
+            cur = self.get(session_id)
+            if cur is None or cur.owner_pid != owner.pid or cur.owner_token != owner.token:
+                return ("not_owned", None)
+            d = decide(Observation(status=cur.status, port_is_null=cur.port is None,
+                                   event=Event.CLOSE_START))
+            if d.action is Action.CLOSE_IN_PROGRESS:
+                return ("close_in_progress", cur)
+            self._conn.execute(
+                "UPDATE owned_sessions SET status='closing' "
+                "WHERE session_id=? AND status IN ('bound','launching');", (session_id,))
+            return ("set_closing", cur)
+
+    def finish_close(self, session_id: str, owner: "RuntimeOwner", *, success: bool) -> None:
+        """Finish a close that THIS owner holds in 'closing'. TERMINATE_OK -> delete;
+        TERMINATE_FAIL -> revert to resting per port (§8.3). Both writes guard on owner
+        identity AND status='closing', so a stray/late call can never delete a live owned
+        row or touch a row owned by someone else (finding 5)."""
+        with self._immediate():
+            cur = self._conn.execute(
+                "SELECT status, port FROM owned_sessions "
+                "WHERE session_id=? AND owner_pid=? AND owner_token=? AND status='closing';",
+                (session_id, owner.pid, owner.token)).fetchone()
+            if cur is None:
+                return
+            status, port = cur
+            d = decide(Observation(status=status, port_is_null=port is None,
+                                   event=(Event.TERMINATE_OK if success else Event.TERMINATE_FAIL)))
+            guard = "WHERE session_id=? AND owner_pid=? AND owner_token=? AND status='closing'"
+            args = (session_id, owner.pid, owner.token)
+            if d.action is Action.DELETE:
+                self._conn.execute(f"DELETE FROM owned_sessions {guard};", args)
+            else:  # REVERT_TO_RESTING
+                self._conn.execute(
+                    f"UPDATE owned_sessions SET status=? {guard};", (d.next_status, *args))
+
+    def reclaim(self, session_id: str, *, expected: "RuntimeOwner", expected_status: str,
+                new_owner: "RuntimeOwner", next_status: str, next_port: "int | None",
+                port_up: "bool | None", observed_at: int) -> bool:
+        """CAS reclaim on owner identity AND status (spec §9), in ONE transaction.
+        Applies only if the row still shows the expected dead owner AND the expected
+        status. The status guard matters because the Decision was computed for the
+        snapshot status: without `AND status=?`, a stale-status decision could apply
+        to a row whose status changed (e.g. downgrade a just-bound row to launching,
+        losing its port). `next_port` carries the discovered port for a late-bind
+        promotion (launching->bound) so a bound row never has a NULL port (§8.2 L3);
+        for every other reclaim it is the row's unchanged port. `last_port_up`/
+        `observed_at` are recorded here so a port-down reclaim still updates telemetry
+        (findings 1 & 2). Returns True if committed."""
+        with self._immediate():
+            cur = self._conn.execute(
+                "UPDATE owned_sessions SET owner_pid=?, owner_token=?, owner_started_at=?, "
+                "owner_scope='external', status=?, port=?, last_port_up=?, observed_at=? "
+                "WHERE session_id=? AND owner_pid=? AND owner_token=? AND status=?;",
+                (new_owner.pid, new_owner.token, new_owner.started_at, next_status, next_port,
+                 None if port_up is None else int(bool(port_up)), observed_at,
+                 session_id, expected.pid, expected.token, expected_status))
+            return cur.rowcount == 1
+
+    def reap(self, session_id: str) -> None:
+        with self._immediate():
+            self._conn.execute("DELETE FROM owned_sessions WHERE session_id=?;", (session_id,))

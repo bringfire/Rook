@@ -210,3 +210,93 @@ def test_record_observation(tmp_path):
         assert row.last_port_up == 0 and row.observed_at == 2000
     finally:
         r.close()
+
+
+# ---- Task 5: close (claim/finish) + reclaim CAS + reap ----
+def _bound(r, session_id="rhino-20", pid=20, owner=None, port=64200):
+    owner = owner or _owner()
+    r.insert_launching(session_id, pid, owner, "external", 1000)
+    r.bind(session_id, port)
+    return owner
+
+
+def test_claim_for_close_paths(tmp_path):
+    r = _reg(tmp_path)
+    try:
+        owner = _bound(r)
+        # not owned (wrong token)
+        assert r.claim_for_close("rhino-20", RuntimeOwner(owner.pid, "other", 1))[0] == "not_owned"
+        # absent
+        assert r.claim_for_close("rhino-404", owner)[0] == "not_owned"
+        # success -> closing
+        result, row = r.claim_for_close("rhino-20", owner)
+        assert result == "set_closing"
+        assert r.get("rhino-20").status == CLOSING
+        # second claim while closing -> in progress
+        assert r.claim_for_close("rhino-20", owner)[0] == "close_in_progress"
+    finally:
+        r.close()
+
+
+def test_finish_close_delete_vs_revert(tmp_path):
+    r = _reg(tmp_path)
+    try:
+        owner = _bound(r, "rhino-21", 21, port=64201)
+        r.claim_for_close("rhino-21", owner)
+        # terminate ok -> delete
+        r.finish_close("rhino-21", owner, success=True)
+        assert r.get("rhino-21") is None
+
+        # bound row, claim, terminate fail -> revert to bound (port set)
+        owner = _bound(r, "rhino-22", 22, port=64202)
+        r.claim_for_close("rhino-22", owner)
+        r.finish_close("rhino-22", owner, success=False)
+        assert r.get("rhino-22").status == BOUND
+
+        # launching zombie, claim, terminate fail -> revert to launching (port NULL)
+        r.insert_launching("rhino-23", 23, owner, "external", 1000)
+        r.claim_for_close("rhino-23", owner)
+        r.finish_close("rhino-23", owner, success=False)
+        assert r.get("rhino-23").status == LAUNCHING
+
+        # a finish_close on a NON-closing row this owner holds is a no-op (finding 5)
+        owner2 = _bound(r, "rhino-27", 27, port=64207)   # status == bound, never claimed
+        r.finish_close("rhino-27", owner2, success=True)
+        assert r.get("rhino-27").status == BOUND          # NOT deleted
+    finally:
+        r.close()
+
+
+def test_reclaim_cas(tmp_path):
+    r = _reg(tmp_path)
+    try:
+        old = RuntimeOwner(9001, "dead-tok", 1)
+        new = RuntimeOwner(9002, "new-tok", 2)
+        _bound(r, "rhino-24", 24, owner=old, port=64204)
+        # reclaim succeeds against the observed old owner AND status
+        assert r.reclaim("rhino-24", expected=old, expected_status=BOUND, new_owner=new,
+                         next_status=BOUND, next_port=64204, port_up=True, observed_at=5000) is True
+        row = r.get("rhino-24")
+        assert row.owner_pid == 9002 and row.owner_token == "new-tok" and row.status == BOUND
+        assert row.port == 64204 and row.last_port_up == 1 and row.observed_at == 5000
+        # a stale expected OWNER -> CAS loses
+        assert r.reclaim("rhino-24", expected=old, expected_status=BOUND, new_owner=new,
+                         next_status=BOUND, next_port=64204, port_up=True, observed_at=5000) is False
+        # a stale expected STATUS (owner correct, status changed) -> CAS loses, row untouched
+        dead2 = RuntimeOwner(9003, "dead2", 1)
+        r.insert_launching("rhino-26", 26, dead2, "external", 1000)   # status == launching
+        assert r.reclaim("rhino-26", expected=dead2, expected_status=BOUND, new_owner=new,
+                         next_status=BOUND, next_port=64206, port_up=True, observed_at=5000) is False
+        assert r.get("rhino-26").status == LAUNCHING
+    finally:
+        r.close()
+
+
+def test_reap_dead(tmp_path):
+    r = _reg(tmp_path)
+    try:
+        _bound(r, "rhino-25", 25, port=64205)
+        r.reap("rhino-25")
+        assert r.get("rhino-25") is None
+    finally:
+        r.close()
