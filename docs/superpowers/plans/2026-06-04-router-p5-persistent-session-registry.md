@@ -1336,11 +1336,39 @@ async def test_launch_claim_failure_reap_fails_retains(monkeypatch, fresh_regist
 
     out = await workbench.launch_owned_workbench()
     d = out["data"]
-    assert out["success"] is False and d["code"] == "workbench_registry_claim_failed"
-    assert d["cleanupStatus"] == "force_kill_failed"
+    assert out["success"] is False
+    assert d["code"] == "workbench_launch_retained_after_registry_error"   # recovered, not "failed" (finding 1)
+    assert d["cleanupStatus"] == "force_kill_failed" and d["retryable"] is True
     assert d["session"] == "rhino-7004" and d["lifecycleStatus"] == "launching"
     assert workbench._registry().get("rhino-7004").status == registry.LAUNCHING  # RETAINED, not deleted
     assert 7004 in workbench._OWNED   # real handle kept for a retry-close
+
+
+@pytest.mark.asyncio
+async def test_launch_insert_failure_rescue_insert(monkeypatch, fresh_registry):
+    # initial insert raises, cleanup FAILS (alive), rescue insert succeeds -> a durable
+    # launching row is created so the live process is listable/closable (finding 2).
+    monkeypatch.setattr(workbench.subprocess, "Popen", lambda *a, **k: _FakeProc(7005))
+    monkeypatch.setattr(workbench.Path, "exists", lambda self: True)
+    monkeypatch.setattr(workbench.asyncio, "to_thread", _sync_to_thread)
+    monkeypatch.setattr(workbench, "force_owned_process_cleanup", lambda p, d: False)  # reap fails
+
+    real_insert = workbench._reg.OwnedSessionRegistry.insert_launching
+    calls = {"n": 0}
+    def flaky_insert(self, *a, **k):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("db locked")     # initial claim fails
+        return real_insert(self, *a, **k)       # rescue succeeds
+    monkeypatch.setattr(workbench._reg.OwnedSessionRegistry, "insert_launching", flaky_insert)
+
+    out = await workbench.launch_owned_workbench()
+    d = out["data"]
+    assert out["success"] is False
+    assert d["code"] == "workbench_launch_retained_after_registry_error"
+    assert d["session"] == "rhino-7005" and d["lifecycleStatus"] == "launching"
+    assert workbench._registry().get("rhino-7005").status == registry.LAUNCHING  # rescue row exists
+    assert 7005 in workbench._OWNED   # listable + closable
 
 
 @pytest.mark.asyncio
@@ -1359,7 +1387,7 @@ async def test_launch_panel_locked_does_not_popen(monkeypatch, fresh_registry):
 
 - [ ] **Step 2: Run to confirm RED**
 
-Run: `cd mcp_server && python -m pytest tests/test_workbench.py -k "writes_bound or force_kill_failed_retains or superseded or registry_claim_failure or reap_fails_retains or panel_locked_does_not_popen" -v`
+Run: `cd mcp_server && python -m pytest tests/test_workbench.py -k "writes_bound or force_kill_failed_retains or superseded or registry_claim_failure or reap_fails_retains or insert_failure_rescue or panel_locked_does_not_popen" -v`
 Expected: FAIL — `AttributeError: ... '_registry'` / `current_owner_scope`.
 
 - [ ] **Step 3: Implement wiring + launch refactor**
@@ -1506,25 +1534,25 @@ async def _reap_unclaimable(process, pid: int, exc: Exception, *,
     its row ONLY if death is confirmed (§8 L1). If reap FAILS the process is alive, so
     keep a durable claim — retain the existing launching row, or best-effort rescue-
     insert one — so the live process stays reclaimable. Never silently orphan (finding 1)."""
-    data: dict[str, Any] = {
-        "code": "workbench_registry_claim_failed", "processId": pid,
-        "message": f"Failed to record the launch in the registry: {exc}"}
+    data: dict[str, Any] = {"processId": pid}
     reaped = await asyncio.to_thread(force_owned_process_cleanup, process, [])
     if reaped:
-        # confirmed dead -> safe to drop any row that exists
+        # confirmed dead -> drop any row that exists; the claim genuinely FAILED.
         if session is not None:
             try:
                 await asyncio.to_thread(lambda: _registry().reap(session))
             except Exception:
                 pass
+        data["code"] = "workbench_registry_claim_failed"
+        data["message"] = f"Failed to record the launch in the registry: {exc}"
         data["cleanupStatus"] = "forced_kill"
         data["retryable"] = True
         return {"success": False, "data": data}
 
     # reap FAILED: the process is ALIVE -> we MUST keep a durable claim, never delete.
     data["cleanupStatus"] = "force_kill_failed"
-    if session is None and owner is not None:
-        # insert never landed a row: best-effort RESCUE insert so the orphan is tracked (finding 2).
+    if session is None and owner is not None and scope is not None:   # finding 3: scope required to rescue
+        # insert never landed a row: best-effort RESCUE insert so the live process is tracked (finding 2).
         candidate = f"rhino-{pid}"
         try:
             await asyncio.to_thread(lambda: _registry().insert_launching(
@@ -1533,16 +1561,22 @@ async def _reap_unclaimable(process, pid: int, exc: Exception, *,
         except Exception:
             session = None
     if session is not None:
-        # a durable launching row exists -> the live process is listable + closable
+        # A durable launching row exists -> the live process is listable + closable. This is
+        # RECOVERED, NOT "claim failed": the agent can act on `session`, so the code says so (finding 1).
         async with _LOCK:
             _OWNED[pid] = OwnedWorkbench(record=None, process=process, session=session,
                                          launched_at=time.time())
+        data["code"] = "workbench_launch_retained_after_registry_error"
+        data["message"] = (f"Registry error during launch, but the live Workbench was retained "
+                           f"and is listable/closable via its session: {exc}")
         data["session"] = session
         data["lifecycleStatus"] = "launching"
         data["port"] = None
         data["retryable"] = True
     else:
-        # live, unkillable, AND untracked (registry fully unavailable) -> reported residual
+        # live, unkillable, AND untracked (registry fully unavailable) -> a true failure residual.
+        data["code"] = "workbench_registry_claim_failed"
+        data["message"] = f"Failed to record the launch in the registry: {exc}"
         data["unclaimableResidual"] = True
         data["retryable"] = False
     return {"success": False, "data": data}
@@ -1584,13 +1618,14 @@ Finally, add these codes to the `_RETRYABLE` dict in `workbench.py` (the first t
 ```python
     "workbench_requires_external_scope": False,
     "workbench_registry_claim_failed": True,
+    "workbench_launch_retained_after_registry_error": True,
     "workbench_launch_superseded": False,
 ```
 
 - [ ] **Step 4: Run to confirm GREEN**
 
-Run: `cd mcp_server && python -m pytest tests/test_workbench.py -k "writes_bound or force_kill_failed_retains or superseded or registry_claim_failure or reap_fails_retains or panel_locked_does_not_popen" -v`
-Expected: PASS (6 tests).
+Run: `cd mcp_server && python -m pytest tests/test_workbench.py -k "writes_bound or force_kill_failed_retains or superseded or registry_claim_failure or reap_fails_retains or insert_failure_rescue or panel_locked_does_not_popen" -v`
+Expected: PASS (7 tests).
 
 - [ ] **Step 5: Commit**
 
