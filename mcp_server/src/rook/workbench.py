@@ -385,31 +385,50 @@ async def close_owned_workbench(session: str, graceful: bool = False) -> dict[st
     # (bool("false") is True — a string must never silently flip into the WM_CLOSE path).
     if not isinstance(graceful, bool):
         return _err("invalid_graceful_flag", f"graceful must be a boolean, got {graceful!r}.")
+    # Panel-scope defense-in-depth (same gate as launch): a panel-scoped runtime
+    # closes nothing. Distinct code from not_owned (which is "no owned row for you").
+    scope = current_owner_scope()
+    if scope != "external":
+        return _err("workbench_requires_external_scope",
+                    "Only an external coordinator runtime may close Workbenches.")
+    owner = get_runtime_owner()
+    owned_rows = await asyncio.to_thread(_reconcile_sync, owner, scope)
+    async with _LOCK:
+        _rebuild_owned(owned_rows)
+
     pid = _process_id_from_session_id(session)
     if pid is None or pid <= 0:
         return _err("invalid_session_id", f"Not a valid session id: {session!r}")
-    async with _LOCK:
-        wb = _OWNED.pop(pid, None)
-    if wb is None:
-        return _err("not_owned",
-                    f"Session {session} is not an owned Workbench of this runtime; "
-                    "only sessions launched here can be closed.")
 
-    # _terminate runs blocking primitives off the event loop.
-    status, discarded = await asyncio.to_thread(_terminate, wb.process, graceful)
-    if status == "force_kill_failed":
+    # Tx1: verify owner + claim-by-update to 'closing' (or in_progress / not_owned).
+    result, row = await asyncio.to_thread(lambda: _registry().claim_for_close(session, owner))
+    if result == "not_owned":
+        return _err("not_owned",
+                    f"Session {session} is not an owned Workbench of this runtime.")
+    if result == "close_in_progress":
+        return _err("workbench_close_in_progress",
+                    f"A close of {session} is already in progress.", session=session)
+
+    async with _LOCK:
+        wb = _OWNED.get(pid)
+    handle = wb.process if wb is not None else PidProcessHandle(pid)
+
+    # terminate off the event loop
+    status, discarded = await asyncio.to_thread(_terminate, handle, graceful)
+    success = status in ("forced_kill", "graceful_exit", "already_exited")
+
+    # Tx2: delete on confirmed death, else revert to RESTING (§8.3) — never rest in 'closing'.
+    await asyncio.to_thread(lambda: _registry().finish_close(session, owner, success=success))
+
+    if not success:   # force_kill_failed
         async with _LOCK:
-            _OWNED[pid] = wb  # retain — still owned, retry-able
+            _OWNED[pid] = wb or OwnedWorkbench(record=None, process=handle, session=session,
+                                               launched_at=time.time())
         return _err("force_kill_failed", f"Failed to terminate owned Workbench {session}.",
                     session=session)
-    return {
-        "success": True,
-        "data": {
-            "session": session,
-            "owned": True,
-            "mode": "workbench",
-            "closed": True,
-            "cleanupStatus": status,
-            "discardedUnsavedChanges": discarded,
-        },
-    }
+
+    async with _LOCK:
+        _OWNED.pop(pid, None)
+    return {"success": True, "data": {
+        "session": session, "owned": True, "mode": "workbench", "closed": True,
+        "cleanupStatus": status, "discardedUnsavedChanges": discarded}}

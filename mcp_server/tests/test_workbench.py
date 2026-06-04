@@ -214,21 +214,35 @@ async def test_close_invalid_session():
     assert out["data"]["retryable"] is False
 
 
+def _seed_registry_owned(pid, port=64700):
+    # P5 close is registry-backed: seed a bound row owned by the fixed runtime owner.
+    reg = workbench._registry()
+    reg.insert_launching(f"rhino-{pid}", pid, registry.get_runtime_owner(), "external", 1000)
+    reg.bind(f"rhino-{pid}", port)
+
+
 @pytest.mark.asyncio
 async def test_close_already_exited(monkeypatch):
-    _register(7002, _ClosableProc(7002, poll_value=0))  # already exited
     monkeypatch.setattr(workbench.asyncio, "to_thread", _sync_to_thread)
+    monkeypatch.setattr(workbench, "_is_pid_alive", lambda pid: True)
+    monkeypatch.setattr(workbench, "_is_port_listening", lambda host, port: True)
+    _seed_registry_owned(7002)
+    _register(7002, _ClosableProc(7002, poll_value=0))  # already exited
     out = await workbench.close_owned_workbench("rhino-7002")
     assert out["success"] is True
     assert out["data"]["cleanupStatus"] == "already_exited"
     assert 7002 not in workbench._OWNED
+    assert workbench._registry().get("rhino-7002") is None   # row deleted on success
 
 
 @pytest.mark.asyncio
 async def test_close_default_force(monkeypatch):
-    _register(7003, _ClosableProc(7003))
-    monkeypatch.setattr(workbench, "force_owned_process_cleanup", lambda p, d: True)
     monkeypatch.setattr(workbench.asyncio, "to_thread", _sync_to_thread)
+    monkeypatch.setattr(workbench, "_is_pid_alive", lambda pid: True)
+    monkeypatch.setattr(workbench, "_is_port_listening", lambda host, port: True)
+    monkeypatch.setattr(workbench, "force_owned_process_cleanup", lambda p, d: True)
+    _seed_registry_owned(7003)
+    _register(7003, _ClosableProc(7003))
     out = await workbench.close_owned_workbench("rhino-7003")
     assert out["success"] is True
     assert out["data"]["cleanupStatus"] == "forced_kill"
@@ -238,23 +252,30 @@ async def test_close_default_force(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_close_force_failed_keeps_entry(monkeypatch):
-    _register(7004, _ClosableProc(7004))
-    monkeypatch.setattr(workbench, "force_owned_process_cleanup", lambda p, d: False)
     monkeypatch.setattr(workbench.asyncio, "to_thread", _sync_to_thread)
+    monkeypatch.setattr(workbench, "_is_pid_alive", lambda pid: True)
+    monkeypatch.setattr(workbench, "_is_port_listening", lambda host, port: True)
+    monkeypatch.setattr(workbench, "force_owned_process_cleanup", lambda p, d: False)
+    _seed_registry_owned(7004)
+    _register(7004, _ClosableProc(7004))
     out = await workbench.close_owned_workbench("rhino-7004")
     assert out["success"] is False
     assert out["data"]["code"] == "force_kill_failed"
     assert out["data"]["retryable"] is True
     assert 7004 in workbench._OWNED  # retained on failure
+    assert workbench._registry().get("rhino-7004").status == registry.BOUND  # reverted to resting
 
 
 @pytest.mark.asyncio
 async def test_close_graceful_clean_exit(monkeypatch):
-    _register(7005, _ClosableProc(7005, poll_value=None))
+    monkeypatch.setattr(workbench.asyncio, "to_thread", _sync_to_thread)
+    monkeypatch.setattr(workbench, "_is_pid_alive", lambda pid: True)
+    monkeypatch.setattr(workbench, "_is_port_listening", lambda host, port: True)
     # request_external_graceful_close returns False => WM_CLOSE exited cleanly.
     monkeypatch.setattr(workbench, "request_external_graceful_close",
                         lambda p, timeout_seconds, diagnostics=None: False)
-    monkeypatch.setattr(workbench.asyncio, "to_thread", _sync_to_thread)
+    _seed_registry_owned(7005)
+    _register(7005, _ClosableProc(7005, poll_value=None))
     out = await workbench.close_owned_workbench("rhino-7005", graceful=True)
     assert out["data"]["cleanupStatus"] == "graceful_exit"
     assert out["data"]["discardedUnsavedChanges"] is False
@@ -568,3 +589,49 @@ async def test_list_includes_launching_and_bound(monkeypatch, fresh_registry):
     by = {w["session"]: w for w in out["data"]["workbenches"]}
     assert by["rhino-7100"]["lifecycleStatus"] == "launching" and by["rhino-7100"]["port"] is None
     assert by["rhino-7101"]["lifecycleStatus"] == "bound" and by["rhino-7101"]["port"] == 64511
+
+
+# ==== P5 Task 10: registry-backed close ====
+def _OWNED_set(pid, session):
+    workbench._OWNED[pid] = workbench.OwnedWorkbench(
+        record=None, process=workbench.PidProcessHandle(pid), session=session, launched_at=1.0)
+
+
+@pytest.mark.asyncio
+async def test_close_success_deletes_row(monkeypatch, fresh_registry):
+    monkeypatch.setattr(workbench.asyncio, "to_thread", _sync_to_thread)
+    monkeypatch.setattr(workbench, "_is_pid_alive", lambda pid: True)
+    monkeypatch.setattr(workbench, "_is_port_listening", lambda host, port: True)
+    owner = registry.get_runtime_owner()
+    reg = workbench._registry()
+    reg.insert_launching("rhino-7200", 7200, owner, "external", 1000)
+    reg.bind("rhino-7200", 64600)
+    _OWNED_set(7200, "rhino-7200")
+    monkeypatch.setattr(workbench, "_terminate", lambda proc, graceful: ("forced_kill", True))
+
+    out = await workbench.close_owned_workbench("rhino-7200")
+    assert out["success"] is True and out["data"]["closed"] is True
+    assert reg.get("rhino-7200") is None
+
+
+@pytest.mark.asyncio
+async def test_close_force_kill_failed_reverts_to_resting_and_retries(monkeypatch, fresh_registry):
+    monkeypatch.setattr(workbench.asyncio, "to_thread", _sync_to_thread)
+    monkeypatch.setattr(workbench, "_is_pid_alive", lambda pid: True)
+    monkeypatch.setattr(workbench, "_is_port_listening", lambda host, port: True)
+    owner = registry.get_runtime_owner()
+    reg = workbench._registry()
+    reg.insert_launching("rhino-7201", 7201, owner, "external", 1000)
+    reg.bind("rhino-7201", 64601)
+    _OWNED_set(7201, "rhino-7201")
+
+    monkeypatch.setattr(workbench, "_terminate", lambda proc, graceful: ("force_kill_failed", True))
+    out = await workbench.close_owned_workbench("rhino-7201")
+    assert out["success"] is False and out["data"]["code"] == "force_kill_failed"
+    assert out["data"]["retryable"] is True
+    assert reg.get("rhino-7201").status == registry.BOUND   # back to RESTING, not stuck closing
+
+    # a SECOND close re-enters Tx1 and starts another terminate (now succeeds)
+    monkeypatch.setattr(workbench, "_terminate", lambda proc, graceful: ("forced_kill", True))
+    out2 = await workbench.close_owned_workbench("rhino-7201")
+    assert out2["success"] is True and reg.get("rhino-7201") is None
