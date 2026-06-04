@@ -111,26 +111,50 @@ current_owner_scope() -> 'panel_locked' if targeting.get_panel_target_lock() is 
 
 Each tool call builds a per-call claim `(identity = get_runtime_owner(), scope = current_owner_scope())` and passes it into `registry.py` (which never imports `targeting`). The **live scope** is the reclaim/close permission gate; the scope written onto a row at claim time is **provenance only** (`owner_scope`), never the live permission source. The token is what lets a restarted coordinator tell "a row I own" from "a row a same-PID-but-different-process owns."
 
-## 8. Row lifecycle
+## 8. The session lifecycle state machine (authoritative)
 
-```
-launch ──INSERT──▶ launching (rhino_pid known, port NULL, owner = me)
-                      │ wait_for_ready binds PID-correlated discovery
-                      ▼
-                    bound (rhino_pid + port observed)   ◀── reclaim: rewrite owner identity; status stays 'bound'
-                      │ close: claim-by-UPDATE
-                      ▼
-                    closing (terminate in flight; row PERSISTS across the off-thread kill)
-                      │ process confirmed dead
-   ──DELETE──▶ (gone)
-```
+This is the heart of P5 and the single source of truth for every status transition; §9 (reconcile) and §11 (close) are *implementations* of edges defined here. In the coordination vision — a room of Rhino files the coordinator orchestrates — **this machine is the per-session control logic, and a dead-end state is a file the coordinator gets permanently stuck on.** It must therefore be **total** (every `state × event` has a defined edge) and **convergent** (no edge strands a live process without a retryable path). Each prior P1 was a violation of exactly that.
 
-**The invariant behind every transition: a row is deleted only when its process is confirmed dead.** A row must never disappear while its Rhino might still be alive — that recreates the exact orphan P5 exists to prevent (Codex findings 1 & 2).
+### 8.1 States — two resting, one strictly transient
 
-- **Launch binds** → `UPDATE status='bound', port=<observed>`.
-- **Launch fails to bind** → attempt reap; **`DELETE` the launching row only if the process is confirmed dead.** If reap fails (`force_kill_failed`), **retain** the `launching` row and keep its real handle in `_OWNED`, surface `cleanupStatus: force_kill_failed` (retryable) — a live process is never left without a durable claim. (Symmetric with P4's close `force_kill_failed`.)
-- **Runtime crashes mid-launch / mid-close** → a `launching` or `closing` row remains; reconciliation reclaims or reaps it by truth (§9), so the live Workbench stays reclaimable.
-- **Known residual (irreducible to pid-first identity):** a crash in the microsecond window *between* `Popen` returning and the `launching` `INSERT` leaves a live Rhino with no row (an un-closable orphan, visible only via perception). This is fundamental to a `rhino-<pid>` key — the claim cannot precede the pid. The `INSERT` is the very first statement after `Popen` to keep the window minimal; fully closing it requires name-first slots (durable aliases), deferred. Same risk class as the PID-reuse residual (§10).
+| `status` | class | meaning | `port` |
+|---|---|---|---|
+| `launching` | **resting** | pid known; not yet bound (an in-flight launch, a retained failed-launch, or a reclaimed pre-bind zombie) | `NULL` |
+| `bound` | **resting** | pid + port observed; a healthy owned Workbench | set |
+| `closing` | **transient (never at rest)** | a terminate is *actively in flight by a live owner*, or was *interrupted by a crash* | NULL or set |
+| *(row absent)* | terminal | the process is confirmed dead | — |
+
+### 8.2 Invariants (the properties each prior P1 broke)
+
+- **L1 — delete ⟺ confirmed dead.** A row is removed iff its Rhino pid is probed dead. A live process's row is *never* deleted. *(broke in round 1)*
+- **L2 — `closing` is strictly transient.** It is never a resting state. Every exit from `closing` resolves to **DELETE** (confirmed dead) or back to a **resting** state. A *failed* terminate returns the row to its resting state — it must not rest in `closing`, or the round-3 concurrency guard (§11) makes the round-1 retry promise unreachable. *(broke in round 4 — this finding)*
+- **L3 — the resting state is recovered from `port`.** When a `closing` row must fall back to rest, the target is inferred from `port`: `port IS NULL → launching`, `port set → bound`. No extra column — `port` already records "did it ever bind."
+- **L4 — no dead-ends / convergence.** From every state there is a path to a healthy resting owned state (reclaim/retry) or to deletion (confirmed death). Ownership is independent of listener health (`port_up` is observation only — §9). *(broke in round 2)*
+
+### 8.3 The total transition table
+
+| From | Event | → To | Action |
+|---|---|---|---|
+| *(none)* | launch: `Popen` + `INSERT` | `launching` | insert row, owner = me, `port=NULL` (INSERT is the first statement after `Popen`) |
+| `launching` | bind ok | `bound` | **CAS** `UPDATE port=<observed>, status='bound' WHERE status='launching'` — if a concurrent close already moved the row to `closing`, bind no-ops and yields to the close |
+| `launching` | bind fails, proc **dead** | *(deleted)* | `DELETE` |
+| `launching` | bind fails, proc **alive** (`force_kill_failed`) | `launching` | **retain** row + keep real handle; return `force_kill_failed` (retryable) |
+| `bound` / `launching` | close start (owner = me, external) | `closing` | `UPDATE status='closing'` **CAS:** `WHERE status IN ('bound','launching')` |
+| `closing` | close start (concurrent, same owner) | `closing` | **no terminate;** return `workbench_close_in_progress` (retryable) |
+| `closing` | terminate **ok** | *(deleted)* | `DELETE` |
+| `closing` | terminate **fails** (`force_kill_failed`) | `bound` *or* `launching` | **L2/L3:** `UPDATE status = (port IS NULL ? 'launching' : 'bound')`; retain handle; return `force_kill_failed` (retryable) |
+| *any* | reconcile: **rhino dead** | *(deleted)* | `DELETE` |
+| `bound` | reconcile: rhino alive, owner dead, **external** | `bound` | reclaim (rewrite owner identity) |
+| `launching` | reconcile: rhino alive, owner dead, **external** | `bound` *or* `launching` | re-probe discovery once: bound now → promote + reclaim; else reclaim as `launching` |
+| `closing` | reconcile: rhino alive, owner dead, **external** | `bound` *or* `launching` | reclaim → reset to resting per `port` (the closer crashed mid-terminate) |
+| *any* | reconcile: rhino alive, owner **alive** | *unchanged* | leave (mine → `_OWNED` rebuild; peer → untouched) |
+| *any* | reconcile: rhino alive, owner dead, **panel_locked** | *unchanged* | no-op (only an external runtime reclaims; converges when one reconciles, or the Rhino dies) |
+
+Reading the table top-to-bottom proves the four invariants hold and every cell is defined: `closing` has exactly three exits (delete / back-to-resting-on-failure / reclaim-to-resting-on-crash) and none of them is "stay `closing`."
+
+### 8.4 Known residual (irreducible to pid-first identity)
+
+A crash in the microsecond window *between* `Popen` returning and the `launching` `INSERT` leaves a live Rhino with no row — an un-closable orphan, visible only via perception. This is fundamental to a `rhino-<pid>` key (the claim cannot precede the pid). The `INSERT` is the first statement after `Popen` to keep the window minimal; fully closing it needs name-first slots (durable aliases), deferred. Same risk class as the PID-reuse residual (§10).
 
 ## 9. `reconcile_owned_registry(current_owner)` — the one narrow contract
 
@@ -164,7 +188,8 @@ reconcile_owned_registry(current_owner):
 
       # status == 'closing'  (a close was interrupted — by this or a predecessor runtime)
       rhino dead                         -> DELETE                  (the close completed, or the Rhino died)
-      rhino alive, owner_pid dead        -> RECLAIM, reset status='bound'  (live Workbench again; re-closable)
+      rhino alive, owner_pid dead        -> RECLAIM, reset to resting per port (§8.3: NULL->launching, set->bound;
+                                            live Workbench again, re-closable — closing never rests)
       rhino alive, owner_pid alive       -> leave (a live owner is mid-close)
 
       # status == 'launching'
@@ -234,12 +259,15 @@ owned row + Rhino pid alive + owner_pid alive     -> do NOT reclaim; peer (or se
      handle = _OWNED.get(pid)  (or PidProcessHandle(pid) if cache missing)
 6. Tx2  BEGIN IMMEDIATE:
      process confirmed dead -> DELETE row; drop _OWNED[pid]; return closed + cleanupStatus
-     else (force_kill_failed) -> leave status='closing' (retain ownership), keep _OWNED[pid];
-                                 return force_kill_failed (retryable)
+     else (force_kill_failed) -> UPDATE status = (port IS NULL ? 'launching' : 'bound')   # L2/L3: return to RESTING,
+                                 keep _OWNED[pid] (retain ownership + handle)              # NEVER rest in 'closing'
+                                 return force_kill_failed (retryable)   # a later close re-enters Tx1 and RE-terminates
    COMMIT
 ```
 
-If this process **crashes between Tx1 and Tx2**, a `closing` row remains with a now-dead owner; a later external runtime reclaims it (§9: `closing` + Rhino alive + owner dead → reset `bound`, re-closable) — no orphan. During a normal close, the window between Tx1 (`closing`) and Tx2 is safe against peers: a concurrent reconcile sees `closing` + Rhino alive + owner **alive** (me) → leave.
+**Why the resting return is mandatory (Codex finding):** if a failed terminate left `status='closing'`, the round-3 concurrency guard (Tx1 refuses any `closing` row with `workbench_close_in_progress`) would make every retry bounce off the guard and never re-terminate — a live owned Workbench stuck in `closing` until the MCP dies. `closing` is strictly transient (§8.2 L2); a failure returns it to the resting state it came from (§8.3), where retry works.
+
+If this process **crashes between Tx1 and Tx2**, a `closing` row remains with a now-dead owner; a later external runtime reclaims it (§9: `closing` + Rhino alive + owner dead → reset to its resting state, `bound`/`launching` per `port`, re-closable) — no orphan. During a normal close, the window between Tx1 (`closing`) and Tx2 is safe against peers: a concurrent reconcile sees `closing` + Rhino alive + owner **alive** (me) → leave.
 
 ## 12. Concurrency & durability
 
@@ -294,9 +322,11 @@ Reclaimed Workbenches therefore close as cleanly as freshly-launched ones. The `
 - launch INSERT (`launching`) → bind UPDATE (`bound`).
 - **Durability invariant — a row is deleted only on confirmed death:**
   - launch-fail + process confirmed dead → row deleted; launch-fail + `force_kill_failed` → `launching` row **retained** with its handle, `cleanupStatus: force_kill_failed`, retryable.
-  - close uses claim-by-**update** to `closing`; process confirmed dead → row deleted; `force_kill_failed` → `closing` row **retained**, retryable (never re-creates an orphan).
-  - **crash-mid-close** — a `closing` row whose owner is dead and Rhino alive is reclaimed by an external runtime and reset to `bound` (re-closable); a `closing` row whose Rhino is dead is reaped.
+  - close uses claim-by-**update** (CAS) to `closing`; terminate ok → row deleted; **terminate fail (`force_kill_failed`) → the row returns to its RESTING state** (`bound`/`launching` per `port`), retained + retryable — *never rests in `closing`*.
+  - **Retry actually retries (Codex finding, round 4):** after a `force_kill_failed`, a **second close re-enters Tx1 and starts a second terminate**; but a *concurrent* close *during* an in-flight terminate still returns `workbench_close_in_progress` and starts no second terminate. (These two must both hold — the bug was that the round-1 "retryable" and round-3 "in-progress" rules deadlocked.)
+  - **crash-mid-close** — a `closing` row whose owner is dead and Rhino alive is reclaimed by an external runtime and reset to its resting state (`bound`/`launching` per `port`, re-closable); a `closing` row whose Rhino is dead is reaped.
 - reconcile branches: the four `bound` + three `closing` + three `launching` cases, incl. **late-bind promotion** (a `launching` dead-owner row whose Rhino bound after the owner died → re-probe promotes to `bound` + reclaim).
+- **Lifecycle totality (§8.2 L4):** parametrized over the §8.3 transition table — every `(status, event)` has a defined edge, and **no terminate-failure or crash-reclaim ever leaves a row at rest in `closing`** (post-state ∈ {`bound`, `launching`, deleted}). This is the regression guard against the whole class of P1s these rounds surfaced.
 - reclaim rewrites owner identity and rebuilds `_OWNED`, **preserving an existing real `Popen`** over synthesizing a surrogate; compare-and-set aborts a reclaim when a peer won the race.
 - **Port-down does not block reclaim (Codex finding 1):** `owner dead + Rhino pid alive + port down` → the row is **reclaimed** (not merely retained), `port_up=false` is recorded as an observation, and the Workbench is **closable by pid** via the surrogate.
 - **Required safety tests (Codex):** (a) **panel-locked-no-reclaim** — a panel-locked runtime (live scope computed at call time, not a cached value), given a registry row for another session, claims nothing, rebuilds no `_OWNED`, and close returns `panel_target_locked`/`not_owned`; (b) **external-live-peer-no-steal** — an external runtime, given a row owned by a live peer, observes but never claims.
@@ -317,8 +347,9 @@ Reclaimed Workbenches therefore close as cleanly as freshly-launched ones. The `
 - **Owner-liveness reclaim (Option A)** with `(owner_pid, owner_token, owner_started_at, owner_scope)` identity; conservative "alive PID ⇒ don't steal"; creation-time discriminator deferred (§10).
 - **Panel scope is a HARD INVARIANT:** only `external` runtimes reclaim; panel-locked runtimes touch nothing here (§10).
 - **Ownership and listener health are orthogonal (Codex finding 1):** reaping keys on the Rhino pid; reclaim keys on the owner pid; `port_up` is a recorded observation that blocks neither. A live-pid / down-listener Workbench with a dead owner is reclaimable and closable by pid (§9, §14).
-- **Durability invariant (Codex findings 1 & 2): a row is deleted only when its process is confirmed dead.** Transient/terminal intent is durable — `launching` and `closing` are persisted statuses — so a crash mid-launch or mid-close never strands a live Workbench without a reclaimable record (§8).
-- **Close is transaction-guarded by owner identity** via **claim-by-update** (set `closing`, kill off-thread, delete only on confirmed death; retain `closing` on `force_kill_failed`); no transaction held across the off-thread kill (§11).
+- **The lifecycle is a single TOTAL, CONVERGENT state machine (§8), not a set of ad-hoc transitions.** Two resting states (`bound`, `launching`) and one strictly-transient state (`closing`); every `(status, event)` has a defined edge; no edge strands a live process. Specifying it as one machine — rather than patching edges — is what makes the whole P1 class (orphan / un-reclaimable / double-terminate / stuck-closing) structurally impossible. In the coordination vision, this machine *is* the per-session control logic; a dead-end state is a file the coordinator gets stuck on.
+- **Durability invariant (Codex findings 1 & 2): a row is deleted only when its process is confirmed dead.** Transient intent is durable — `launching`/`closing` are persisted statuses — so a crash mid-launch or mid-close never strands a live Workbench without a reclaimable record (§8).
+- **`closing` is strictly transient (Codex finding, round 4):** it never rests. A failed terminate returns the row to its resting state (`bound`/`launching`, inferred from `port`), so retry re-terminates instead of deadlocking against the concurrent-close guard. Close is transaction-guarded by owner identity via claim-by-update; no transaction held across the off-thread kill (§8.2, §11).
 - **Concurrent-close guard (Codex finding 2):** close Tx1 requires `status IN ('bound','launching')`; a second close on a `closing` row (owner alive) returns retryable `workbench_close_in_progress` and starts no second terminate (§11). `last_port_up` is observational telemetry (1/0/NULL), never liveness truth (§6).
 - **Live scope, not cached (Codex finding 3):** lineage identity (`pid/token/started_at`) is cached; the panel-scope permission gate is recomputed every Workbench-tool entry via `current_owner_scope()` and passed into registry ops (§7).
 - **Per-row `BEGIN IMMEDIATE` with compare-and-set** in reconcile; probe outside, validate-and-write inside; reconcile never terminates a process (§9, §12).
