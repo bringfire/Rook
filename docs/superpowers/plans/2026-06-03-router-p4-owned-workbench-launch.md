@@ -245,14 +245,21 @@ def _record(pid, port=9010):
                             path=Path(f"instance-{pid}-native.json"), raw={})
 
 
+async def _sync_to_thread(fn, *a, **k):
+    # Deterministic stand-in for asyncio.to_thread in unit tests: run fn inline.
+    # (Launch + close now route BOTH wait_for_ready and the cleanup primitives
+    # through to_thread, so we control behaviour by monkeypatching those, not by
+    # replacing to_thread wholesale.)
+    return fn(*a, **k)
+
+
 @pytest.mark.asyncio
 async def test_launch_success_registers_owned(monkeypatch):
     monkeypatch.setattr(workbench.subprocess, "Popen", lambda *a, **k: _FakeProc(7777))
     monkeypatch.setattr(workbench.Path, "exists", lambda self: True)
-
-    async def fake_to_thread(fn, *a, **k):
-        return _record(7777, port=64000)
-    monkeypatch.setattr(workbench.asyncio, "to_thread", fake_to_thread)
+    monkeypatch.setattr(workbench.asyncio, "to_thread", _sync_to_thread)
+    monkeypatch.setattr(workbench.OwnedRhinoDiscovery, "wait_for_ready",
+                        lambda self, *a, **k: _record(7777, port=64000))
 
     out = await workbench.launch_owned_workbench(readiness_timeout_seconds=5)
 
@@ -272,6 +279,7 @@ async def test_launch_exe_missing(monkeypatch):
     out = await workbench.launch_owned_workbench()
     assert out["success"] is False
     assert out["data"]["code"] == "rhino_executable_not_found"
+    assert out["data"]["retryable"] is False
 
 
 @pytest.mark.asyncio
@@ -289,16 +297,18 @@ async def test_launch_failure_maps_reason_to_code(monkeypatch, reason, code):
     reaped = []
     monkeypatch.setattr(workbench, "force_owned_process_cleanup",
                         lambda p, d: reaped.append(p.pid) or True)
+    monkeypatch.setattr(workbench.asyncio, "to_thread", _sync_to_thread)
 
-    async def raising(fn, *a, **k):
+    def raise_wfr(self, *a, **k):
         raise DiscoveryError("boom", reason=reason)
-    monkeypatch.setattr(workbench.asyncio, "to_thread", raising)
+    monkeypatch.setattr(workbench.OwnedRhinoDiscovery, "wait_for_ready", raise_wfr)
 
     out = await workbench.launch_owned_workbench()
     assert out["success"] is False
     assert out["data"]["code"] == code
-    assert 8888 not in workbench._OWNED   # failed launch never registered
-    assert reaped == [8888]               # EVERY failed launch is reaped (incl. bind timeout)
+    assert out["data"]["retryable"] is True   # all launch DiscoveryError reasons are retryable
+    assert 8888 not in workbench._OWNED        # failed launch never registered
+    assert reaped == [8888]                    # EVERY failed launch is reaped (incl. bind timeout)
 
 
 @pytest.mark.asyncio
@@ -308,10 +318,11 @@ async def test_bind_timeout_attaches_window_hint(monkeypatch):
     monkeypatch.setattr(workbench, "describe_windows_for_pid",
                         lambda pid: [{"hwnd": "0x1", "visible": True, "title": ""}])
     monkeypatch.setattr(workbench, "force_owned_process_cleanup", lambda p, d: True)
+    monkeypatch.setattr(workbench.asyncio, "to_thread", _sync_to_thread)
 
-    async def raising(fn, *a, **k):
+    def raise_wfr(self, *a, **k):
         raise DiscoveryError("timeout", reason=DiscoveryFailureReason.BIND_TIMEOUT_NO_DISCOVERY)
-    monkeypatch.setattr(workbench.asyncio, "to_thread", raising)
+    monkeypatch.setattr(workbench.OwnedRhinoDiscovery, "wait_for_ready", raise_wfr)
 
     out = await workbench.launch_owned_workbench()
     d = out["data"]
@@ -327,10 +338,11 @@ async def test_discovery_invalid_has_no_window_hint(monkeypatch):
     monkeypatch.setattr(workbench, "describe_windows_for_pid",
                         lambda pid: [{"hwnd": "0x1", "visible": True, "title": ""}])
     monkeypatch.setattr(workbench, "force_owned_process_cleanup", lambda p, d: True)
+    monkeypatch.setattr(workbench.asyncio, "to_thread", _sync_to_thread)
 
-    async def raising(fn, *a, **k):
+    def raise_wfr(self, *a, **k):
         raise DiscoveryError("bad", reason=DiscoveryFailureReason.INVALID_DISCOVERY_RECORD)
-    monkeypatch.setattr(workbench.asyncio, "to_thread", raising)
+    monkeypatch.setattr(workbench.OwnedRhinoDiscovery, "wait_for_ready", raise_wfr)
 
     out = await workbench.launch_owned_workbench()
     assert out["data"]["code"] == "workbench_discovery_invalid"
@@ -387,6 +399,20 @@ _REASON_TO_CODE: dict[DiscoveryFailureReason, str] = {
     DiscoveryFailureReason.INVALID_DISCOVERY_RECORD: "workbench_discovery_invalid",
 }
 
+# Per-code retryability — the single field an agent reads to decide retry vs abandon.
+_RETRYABLE: dict[str, bool] = {
+    "rhino_executable_not_found": False,
+    "workbench_launch_failed": False,
+    "workbench_exited_before_bind": True,
+    "workbench_exited_before_ready": True,
+    "workbench_bind_timeout": True,
+    "workbench_discovery_invalid": True,
+    "workbench_listener_unreachable": True,
+    "invalid_session_id": False,
+    "not_owned": False,
+    "force_kill_failed": True,
+}
+
 
 @dataclass
 class OwnedWorkbench:
@@ -401,7 +427,8 @@ _LOCK = asyncio.Lock()
 
 
 def _err(code: str, message: str, **extra: Any) -> dict[str, Any]:
-    return {"success": False, "data": {"code": code, "message": message, **extra}}
+    return {"success": False, "data": {
+        "code": code, "message": message, "retryable": _RETRYABLE.get(code, True), **extra}}
 
 
 def _resolve_rhino_exe() -> Path:
@@ -430,7 +457,8 @@ async def launch_owned_workbench(readiness_timeout_seconds: int = 90) -> dict[st
         )
     except DiscoveryError as exc:
         code = _REASON_TO_CODE.get(exc.reason, "workbench_launch_failed")
-        data: dict[str, Any] = {"code": code, "message": str(exc), "processId": pid}
+        data: dict[str, Any] = {"code": code, "message": str(exc), "processId": pid,
+                                "retryable": _RETRYABLE.get(code, True)}
         if exc.reason is DiscoveryFailureReason.BIND_TIMEOUT_NO_DISCOVERY:
             windows = describe_windows_for_pid(pid)  # collect BEFORE reaping
             if windows:
@@ -444,7 +472,8 @@ async def launch_owned_workbench(readiness_timeout_seconds: int = 90) -> dict[st
                 )
         # Ownership invariant: a failed launch is NEVER tracked and ALWAYS reaped
         # (own-it-if-bound, clean-it-up-if-failed) — no launched-but-orphaned middle ground.
-        force_owned_process_cleanup(process, [])
+        # Run the blocking taskkill/wait OFF the event loop.
+        await asyncio.to_thread(force_owned_process_cleanup, process, [])
         return {"success": False, "data": data}
 
     session = f"rhino-{pid}"
@@ -522,6 +551,7 @@ async def test_close_not_owned(monkeypatch):
     out = await workbench.close_owned_workbench("rhino-9999")
     assert out["success"] is False
     assert out["data"]["code"] == "not_owned"
+    assert out["data"]["retryable"] is False
 
 
 @pytest.mark.asyncio
@@ -529,11 +559,13 @@ async def test_close_invalid_session():
     out = await workbench.close_owned_workbench("bogus")
     assert out["success"] is False
     assert out["data"]["code"] == "invalid_session_id"
+    assert out["data"]["retryable"] is False
 
 
 @pytest.mark.asyncio
 async def test_close_already_exited(monkeypatch):
     _register(7002, _ClosableProc(7002, poll_value=0))  # already exited
+    monkeypatch.setattr(workbench.asyncio, "to_thread", _sync_to_thread)
     out = await workbench.close_owned_workbench("rhino-7002")
     assert out["success"] is True
     assert out["data"]["cleanupStatus"] == "already_exited"
@@ -544,6 +576,7 @@ async def test_close_already_exited(monkeypatch):
 async def test_close_default_force(monkeypatch):
     _register(7003, _ClosableProc(7003))
     monkeypatch.setattr(workbench, "force_owned_process_cleanup", lambda p, d: True)
+    monkeypatch.setattr(workbench.asyncio, "to_thread", _sync_to_thread)
     out = await workbench.close_owned_workbench("rhino-7003")
     assert out["success"] is True
     assert out["data"]["cleanupStatus"] == "forced_kill"
@@ -555,9 +588,11 @@ async def test_close_default_force(monkeypatch):
 async def test_close_force_failed_keeps_entry(monkeypatch):
     _register(7004, _ClosableProc(7004))
     monkeypatch.setattr(workbench, "force_owned_process_cleanup", lambda p, d: False)
+    monkeypatch.setattr(workbench.asyncio, "to_thread", _sync_to_thread)
     out = await workbench.close_owned_workbench("rhino-7004")
     assert out["success"] is False
     assert out["data"]["code"] == "force_kill_failed"
+    assert out["data"]["retryable"] is True
     assert 7004 in workbench._OWNED  # retained on failure
 
 
@@ -567,6 +602,7 @@ async def test_close_graceful_clean_exit(monkeypatch):
     # request_external_graceful_close returns False => WM_CLOSE exited cleanly.
     monkeypatch.setattr(workbench, "request_external_graceful_close",
                         lambda p, timeout_seconds, diagnostics=None: False)
+    monkeypatch.setattr(workbench.asyncio, "to_thread", _sync_to_thread)
     out = await workbench.close_owned_workbench("rhino-7005", graceful=True)
     assert out["data"]["cleanupStatus"] == "graceful_exit"
     assert out["data"]["discardedUnsavedChanges"] is False
@@ -601,14 +637,18 @@ async def list_owned_workbenches() -> dict[str, Any]:
 
 
 def _terminate(process, graceful: bool) -> tuple[str, bool]:
-    """Return (cleanupStatus, discardedUnsavedChanges). Caller handles set pruning."""
+    """Return (cleanupStatus, discardedUnsavedChanges). Caller handles set pruning.
+
+    Runs blocking primitives (WM_CLOSE wait, taskkill) — invoke via asyncio.to_thread.
+    """
     if process.poll() is not None:
         return ("already_exited", False)
     if graceful:
+        # request_external_graceful_close GUARANTEES termination (WM_CLOSE, then kill on
+        # timeout); trust its return rather than re-polling the process.
         had_to_force = request_external_graceful_close(
             process, _GRACEFUL_TIMEOUT_SECONDS, diagnostics=[])
-        if process.poll() is not None:
-            return ("forced_kill" if had_to_force else "graceful_exit", bool(had_to_force))
+        return ("forced_kill" if had_to_force else "graceful_exit", bool(had_to_force))
     if force_owned_process_cleanup(process, []):
         return ("forced_kill", True)
     return ("force_kill_failed", True)
@@ -625,7 +665,8 @@ async def close_owned_workbench(session: str, graceful: bool = False) -> dict[st
                     f"Session {session} is not an owned Workbench of this runtime; "
                     "only sessions launched here can be closed.")
 
-    status, discarded = _terminate(wb.process, graceful)
+    # _terminate runs blocking primitives off the event loop.
+    status, discarded = await asyncio.to_thread(_terminate, wb.process, graceful)
     if status == "force_kill_failed":
         async with _LOCK:
             _OWNED[pid] = wb  # retain — still owned, retry-able

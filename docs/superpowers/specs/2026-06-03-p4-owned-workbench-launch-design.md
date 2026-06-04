@@ -53,7 +53,7 @@ P4 **promotes** the harness's primitives into a coordinator-facing capability an
 args:  { readinessTimeoutSeconds?: int = 90 }
 ok:    { success: true, data: { session: "rhino-<pid>", processId: <pid>, port: <int>,
                                 owned: true, mode: "workbench", boundInSeconds: <float> } }
-fail:  { success: false, data: { code: <§7>, message, processId, ...hint } }
+fail:  { success: false, data: { code: <§7>, message, processId, retryable, ...hint } }
 ```
 Launches a **blank** owned Rhino, waits for `instance-<pid>-native.json` + `/ping`, registers it in the owned-set, returns its session. Default readiness **90s** (the P3 live smoke proved 30s flakes on a cold start). **The Rhino executable is resolved server-side** — `ROOK_RHINO_EXE` env override, else `C:/Program Files/Rhino 8/System/Rhino.exe` — and is **not** a tool argument: an agent-callable tool must never `Popen` an arbitrary path supplied by the coordinator (that is an arbitrary-executable-launch hole). Unit tests monkeypatch the resolver.
 
@@ -70,7 +70,8 @@ args:  { session: "rhino-<pid>", graceful?: bool = false }
 ok:    { success: true, data: { session, owned: true, mode: "workbench", closed: true,
                                 cleanupStatus: "graceful_exit" | "forced_kill" | "already_exited",
                                 discardedUnsavedChanges: <bool> } }
-fail:  { success: false, data: { code: "not_owned" | "invalid_session_id" | "force_kill_failed", message } }
+fail:  { success: false, data: { code: "not_owned" | "invalid_session_id" | "force_kill_failed", message, retryable } }
+       ( retryable: not_owned → false, invalid_session_id → false, force_kill_failed → true )
 ```
 Closes/reaps **only** owned sessions. A session not in the owned-set → **`not_owned`** (fail closed), even if it is discovered and alive. Default terminates directly (§8).
 
@@ -163,7 +164,7 @@ It is a **hint, not a diagnosis** — window titles are frequently empty, so the
 A **module-level `asyncio.Lock`** in `workbench.py` guards owned-set **reads and writes** — not the long I/O. Granularity:
 - **launch:** `Popen` + `wait_for_ready` run **outside** the lock (a 90s wait must not serialize `list`/`close`); only the final owned-set insert is taken under the lock.
 - **list:** snapshot the set under the lock, then classify liveness outside it.
-- **close:** under the lock, check membership and **pop** the entry (claiming it); run cleanup outside the lock; on `force_kill_failed`, re-insert under the lock.
+- **close:** under the lock, check membership and **pop** the entry (claiming it); run cleanup **off-thread** (`await asyncio.to_thread(_terminate, …)`, since the WM_CLOSE wait and `taskkill` block) and outside the lock; on `force_kill_failed`, re-insert under the lock.
 
 Benign race (accepted for P4's single-coordinator, deliberate-close model): a concurrent second `close` of the same session during cleanup sees it already popped → `not_owned`. A `close` racing a not-yet-bound `launch` sees `not_owned` (you cannot close what has not bound) — correct.
 
@@ -207,6 +208,8 @@ Benign race (accepted for P4's single-coordinator, deliberate-close model): a co
 - **Close guard:** only owned sessions are closable; adopted/panel/user → `not_owned` (fail closed).
 - **Bind = PID-correlated discovery** (reuse `wait_for_ready` off-thread), not McNeel's port-env.
 - **Typed failure taxonomy** via `DiscoveryFailureReason` on `DiscoveryError` — no substring matching in production; seven public codes (incl. `workbench_discovery_invalid` for a present-but-invalid discovery file, distinct from the no-file `workbench_bind_timeout`).
+- **`retryable` on every failure envelope** (launch + close), per-code: `rhino_executable_not_found` / `workbench_launch_failed` / `invalid_session_id` / `not_owned` → `false`; the bind/exit/timeout/discovery codes and `force_kill_failed` → `true`.
+- **All blocking harness primitives run off-thread** (`asyncio.to_thread`): `wait_for_ready` (launch), `force_owned_process_cleanup` (failed-launch reap + close), and the graceful WM_CLOSE wait — never on the MCP event loop.
 - **License/window detection is a hint, not a diagnosis** — `blockingWindows` + `diagnosticConfidence: "window_present_no_discovery"`, never `licenseDialogDetected`.
 - **Close defaults to direct force** (discard-by-design, no dirty-doc stall); `graceful:true` opt-in WM_CLOSE ladder; explicit `cleanupStatus` mapping from the harness enum; entry pruned only on confirmed termination.
 - **Panel-lock fail-closed on all three tools.** Meta-classification + the P3 non-routed-`session` exception are required wiring.
