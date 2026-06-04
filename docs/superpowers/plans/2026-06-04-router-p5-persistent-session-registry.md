@@ -767,20 +767,25 @@ def test_finish_close_delete_vs_revert(tmp_path):
         owner = _bound(r, "rhino-21", 21, port=64201)
         r.claim_for_close("rhino-21", owner)
         # terminate ok -> delete
-        r.finish_close("rhino-21", success=True)
+        r.finish_close("rhino-21", owner, success=True)
         assert r.get("rhino-21") is None
 
         # bound row, claim, terminate fail -> revert to bound (port set)
         owner = _bound(r, "rhino-22", 22, port=64202)
         r.claim_for_close("rhino-22", owner)
-        r.finish_close("rhino-22", success=False)
+        r.finish_close("rhino-22", owner, success=False)
         assert r.get("rhino-22").status == BOUND
 
         # launching zombie, claim, terminate fail -> revert to launching (port NULL)
         r.insert_launching("rhino-23", 23, owner, "external", 1000)
         r.claim_for_close("rhino-23", owner)
-        r.finish_close("rhino-23", success=False)
+        r.finish_close("rhino-23", owner, success=False)
         assert r.get("rhino-23").status == LAUNCHING
+
+        # a finish_close on a NON-closing row this owner holds is a no-op (finding 5)
+        owner2 = _bound(r, "rhino-27", 27, port=64207)   # status == bound, never claimed
+        r.finish_close("rhino-27", owner2, success=True)
+        assert r.get("rhino-27").status == BOUND          # NOT deleted
     finally:
         r.close()
 
@@ -846,20 +851,28 @@ Append to the `OwnedSessionRegistry` class:
                 "WHERE session_id=? AND status IN ('bound','launching');", (session_id,))
             return ("set_closing", cur)
 
-    def finish_close(self, session_id: str, *, success: bool) -> None:
-        """TERMINATE_OK -> delete; TERMINATE_FAIL -> revert to resting per port (§8.3)."""
+    def finish_close(self, session_id: str, owner: "RuntimeOwner", *, success: bool) -> None:
+        """Finish a close that THIS owner holds in 'closing'. TERMINATE_OK -> delete;
+        TERMINATE_FAIL -> revert to resting per port (§8.3). Both writes guard on owner
+        identity AND status='closing', so a stray/late call can never delete a live owned
+        row or touch a row owned by someone else (finding 5)."""
         with self._immediate():
-            cur = self.get(session_id)
+            cur = self._conn.execute(
+                "SELECT status, port FROM owned_sessions "
+                "WHERE session_id=? AND owner_pid=? AND owner_token=? AND status='closing';",
+                (session_id, owner.pid, owner.token)).fetchone()
             if cur is None:
                 return
-            event = Event.TERMINATE_OK if success else Event.TERMINATE_FAIL
-            d = decide(Observation(status=cur.status, port_is_null=cur.port is None, event=event))
+            status, port = cur
+            d = decide(Observation(status=status, port_is_null=port is None,
+                                   event=(Event.TERMINATE_OK if success else Event.TERMINATE_FAIL)))
+            guard = "WHERE session_id=? AND owner_pid=? AND owner_token=? AND status='closing'"
+            args = (session_id, owner.pid, owner.token)
             if d.action is Action.DELETE:
-                self._conn.execute("DELETE FROM owned_sessions WHERE session_id=?;", (session_id,))
+                self._conn.execute(f"DELETE FROM owned_sessions {guard};", args)
             else:  # REVERT_TO_RESTING
                 self._conn.execute(
-                    "UPDATE owned_sessions SET status=? WHERE session_id=? AND status='closing';",
-                    (d.next_status, session_id))
+                    f"UPDATE owned_sessions SET status=? {guard};", (d.next_status, *args))
 
     def reclaim(self, session_id: str, *, expected: "RuntimeOwner", expected_status: str,
                 new_owner: "RuntimeOwner", next_status: str, next_port: int | None,
@@ -1043,7 +1056,13 @@ def reconcile_owned_registry(
     for row in registry.snapshot_all():
         rhino_alive = is_pid_alive(row.rhino_pid)
         owner_alive = is_pid_alive(row.owner_pid)
-        port_up = bool(row.port) and rhino_alive and is_port_listening(DEFAULT_HOST, row.port)
+        # port_up is an OBSERVATION, tri-state: None = "no port probed" (a launching row,
+        # or a late-bind promotion whose new port we haven't probed) — NEVER conflate that
+        # with 0 = "real port probed and down" (findings 3 & 4). 0/1 only for a real probe.
+        if row.port and rhino_alive:
+            port_up = is_port_listening(DEFAULT_HOST, row.port)
+        else:
+            port_up = None
         rebind_port = None
         if row.status == LAUNCHING and rhino_alive and not owner_alive and scope == "external":
             rebind_port = rebind_probe(row.rhino_pid)
@@ -1301,6 +1320,30 @@ async def test_launch_registry_claim_failure_reaps(monkeypatch, fresh_registry):
 
 
 @pytest.mark.asyncio
+async def test_launch_claim_failure_reap_fails_retains(monkeypatch, fresh_registry):
+    # bind throws AND cleanup fails -> the live Rhino's launching row must be RETAINED
+    # (not deleted), with a session handle returned (finding 1 — delete only when dead).
+    monkeypatch.setattr(workbench.subprocess, "Popen", lambda *a, **k: _FakeProc(7004))
+    monkeypatch.setattr(workbench.Path, "exists", lambda self: True)
+    monkeypatch.setattr(workbench.asyncio, "to_thread", _sync_to_thread)
+    monkeypatch.setattr(workbench, "force_owned_process_cleanup", lambda p, d: False)  # reap fails
+    monkeypatch.setattr(workbench.OwnedRhinoDiscovery, "wait_for_ready",
+                        lambda self, *a, **k: _record(7004, port=64504))
+
+    def boom_bind(self, *a, **k):
+        raise RuntimeError("db locked during bind")
+    monkeypatch.setattr(workbench._reg.OwnedSessionRegistry, "bind", boom_bind)
+
+    out = await workbench.launch_owned_workbench()
+    d = out["data"]
+    assert out["success"] is False and d["code"] == "workbench_registry_claim_failed"
+    assert d["cleanupStatus"] == "force_kill_failed"
+    assert d["session"] == "rhino-7004" and d["lifecycleStatus"] == "launching"
+    assert workbench._registry().get("rhino-7004").status == registry.LAUNCHING  # RETAINED, not deleted
+    assert 7004 in workbench._OWNED   # real handle kept for a retry-close
+
+
+@pytest.mark.asyncio
 async def test_launch_panel_locked_does_not_popen(monkeypatch, fresh_registry):
     # Panel-scope defense-in-depth (finding 2): refuse BEFORE Popen; never launch a Rhino.
     monkeypatch.setattr(workbench, "current_owner_scope", lambda: "panel_locked")
@@ -1316,7 +1359,7 @@ async def test_launch_panel_locked_does_not_popen(monkeypatch, fresh_registry):
 
 - [ ] **Step 2: Run to confirm RED**
 
-Run: `cd mcp_server && python -m pytest tests/test_workbench.py -k "writes_bound or force_kill_failed_retains or superseded or registry_claim_failure or panel_locked_does_not_popen" -v`
+Run: `cd mcp_server && python -m pytest tests/test_workbench.py -k "writes_bound or force_kill_failed_retains or superseded or registry_claim_failure or reap_fails_retains or panel_locked_does_not_popen" -v`
 Expected: FAIL — `AttributeError: ... '_registry'` / `current_owner_scope`.
 
 - [ ] **Step 3: Implement wiring + launch refactor**
@@ -1424,7 +1467,7 @@ async def launch_owned_workbench(readiness_timeout_seconds: int = 90) -> dict[st
         await asyncio.to_thread(
             lambda: _registry().insert_launching(session, pid, owner, scope, int(time.time())))
     except Exception as exc:
-        return await _reap_unclaimable(process, pid, exc)
+        return await _reap_unclaimable(process, pid, exc, owner=owner, scope=scope)
 
     discovery = OwnedRhinoDiscovery()
     started = time.monotonic()
@@ -1455,21 +1498,54 @@ async def launch_owned_workbench(readiness_timeout_seconds: int = 90) -> dict[st
         "mode": "workbench", "boundInSeconds": round(time.monotonic() - started, 2)}}
 
 
-async def _reap_unclaimable(process, pid: int, exc: Exception, *, session: str | None = None) -> dict[str, Any]:
-    """A live Rhino we could not durably claim (a registry failure) — reap it rather
-    than orphan it (§8 / finding 1). Best-effort drop of any stranded launching row."""
+async def _reap_unclaimable(process, pid: int, exc: Exception, *,
+                            session: str | None = None,
+                            owner: "RuntimeOwner | None" = None,
+                            scope: str | None = None) -> dict[str, Any]:
+    """A live Rhino we could not durably claim (a registry failure). Reap it; delete
+    its row ONLY if death is confirmed (§8 L1). If reap FAILS the process is alive, so
+    keep a durable claim — retain the existing launching row, or best-effort rescue-
+    insert one — so the live process stays reclaimable. Never silently orphan (finding 1)."""
+    data: dict[str, Any] = {
+        "code": "workbench_registry_claim_failed", "processId": pid,
+        "message": f"Failed to record the launch in the registry: {exc}"}
     reaped = await asyncio.to_thread(force_owned_process_cleanup, process, [])
-    if session is not None:
+    if reaped:
+        # confirmed dead -> safe to drop any row that exists
+        if session is not None:
+            try:
+                await asyncio.to_thread(lambda: _registry().reap(session))
+            except Exception:
+                pass
+        data["cleanupStatus"] = "forced_kill"
+        data["retryable"] = True
+        return {"success": False, "data": data}
+
+    # reap FAILED: the process is ALIVE -> we MUST keep a durable claim, never delete.
+    data["cleanupStatus"] = "force_kill_failed"
+    if session is None and owner is not None:
+        # insert never landed a row: best-effort RESCUE insert so the orphan is tracked (finding 2).
+        candidate = f"rhino-{pid}"
         try:
-            await asyncio.to_thread(lambda: _registry().reap(session))
+            await asyncio.to_thread(lambda: _registry().insert_launching(
+                candidate, pid, owner, scope, int(time.time())))
+            session = candidate
         except Exception:
-            pass
-    return {"success": False, "data": {
-        "code": "workbench_registry_claim_failed",
-        "message": f"Failed to record the launch in the registry: {exc}",
-        "processId": pid,
-        "cleanupStatus": "forced_kill" if reaped else "force_kill_failed",
-        "retryable": bool(reaped)}}
+            session = None
+    if session is not None:
+        # a durable launching row exists -> the live process is listable + closable
+        async with _LOCK:
+            _OWNED[pid] = OwnedWorkbench(record=None, process=process, session=session,
+                                         launched_at=time.time())
+        data["session"] = session
+        data["lifecycleStatus"] = "launching"
+        data["port"] = None
+        data["retryable"] = True
+    else:
+        # live, unkillable, AND untracked (registry fully unavailable) -> reported residual
+        data["unclaimableResidual"] = True
+        data["retryable"] = False
+    return {"success": False, "data": data}
 
 
 async def _handle_launch_failure(exc: DiscoveryError, process, pid: int, session: str) -> dict[str, Any]:
@@ -1513,8 +1589,8 @@ Finally, add these codes to the `_RETRYABLE` dict in `workbench.py` (the first t
 
 - [ ] **Step 4: Run to confirm GREEN**
 
-Run: `cd mcp_server && python -m pytest tests/test_workbench.py -k "writes_bound or force_kill_failed_retains or superseded or registry_claim_failure or panel_locked_does_not_popen" -v`
-Expected: PASS (5 tests).
+Run: `cd mcp_server && python -m pytest tests/test_workbench.py -k "writes_bound or force_kill_failed_retains or superseded or registry_claim_failure or reap_fails_retains or panel_locked_does_not_popen" -v`
+Expected: PASS (6 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -1721,7 +1797,7 @@ async def close_owned_workbench(session: str, graceful: bool = False) -> dict[st
     success = status in ("forced_kill", "graceful_exit", "already_exited")
 
     # Tx2: delete on confirmed death, else revert to RESTING (§8.3) — never rest in 'closing'.
-    await asyncio.to_thread(lambda: _registry().finish_close(session, success=success))
+    await asyncio.to_thread(lambda: _registry().finish_close(session, owner, success=success))
 
     if not success:   # force_kill_failed
         async with _LOCK:
