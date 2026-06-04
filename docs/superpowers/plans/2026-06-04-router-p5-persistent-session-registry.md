@@ -26,7 +26,7 @@
 |---|---|
 | `mcp_server/src/rook/registry.py` (new) | pure `decide` machine; `RuntimeOwner`/`get_runtime_owner`/`resolve_registry_path`; `OwnedSessionRegistry` (SQLite); `reconcile_owned_registry` driver |
 | `mcp_server/src/rook/workbench.py` (modify) | `PidProcessHandle`; `current_owner_scope()`; `_OWNED` derived cache; launch/list/close drivers |
-| `mcp_server/tests/test_registry.py` (new) | pure-machine totality table; registry CRUD; reconcile branches |
+| `mcp_server/tests/test_registry.py` (new) | pure-machine canonical decision table + full-product invariant sweep; registry CRUD; reconcile branches |
 | `mcp_server/tests/test_workbench.py` (modify) | launch/list/close behavior incl. retained-launching, superseded, resting-return-retry |
 | `mcp_server/tools/p5_registry_reclaim_live_harness.py` (new) | live reclaim smoke (real dead owner pid) |
 | `scripts/run_rhino_runtime_harness.py` (modify) | add `p5-registry-reclaim` smoke choice |
@@ -40,7 +40,7 @@ git checkout -b feature/router-p5-persistent-session-registry
 
 ---
 
-## Task 1: The pure `decide()` transition machine (§8.3) + exhaustive totality table
+## Task 1: The pure `decide()` transition machine (§8.3) + canonical decision table + invariant sweep
 
 **Files:**
 - Create: `mcp_server/src/rook/registry.py`
@@ -791,15 +791,21 @@ def test_reclaim_cas(tmp_path):
         old = RuntimeOwner(9001, "dead-tok", 1)
         new = RuntimeOwner(9002, "new-tok", 2)
         _bound(r, "rhino-24", 24, owner=old, port=64204)
-        # reclaim succeeds against the observed old owner
-        assert r.reclaim("rhino-24", expected=old, new_owner=new, next_status=BOUND,
-                         next_port=64204, port_up=True, observed_at=5000) is True
+        # reclaim succeeds against the observed old owner AND status
+        assert r.reclaim("rhino-24", expected=old, expected_status=BOUND, new_owner=new,
+                         next_status=BOUND, next_port=64204, port_up=True, observed_at=5000) is True
         row = r.get("rhino-24")
         assert row.owner_pid == 9002 and row.owner_token == "new-tok" and row.status == BOUND
         assert row.port == 64204 and row.last_port_up == 1 and row.observed_at == 5000
-        # reclaim with a stale expected owner -> CAS loses
-        assert r.reclaim("rhino-24", expected=old, new_owner=new, next_status=BOUND,
-                         next_port=64204, port_up=True, observed_at=5000) is False
+        # a stale expected OWNER -> CAS loses
+        assert r.reclaim("rhino-24", expected=old, expected_status=BOUND, new_owner=new,
+                         next_status=BOUND, next_port=64204, port_up=True, observed_at=5000) is False
+        # a stale expected STATUS (owner correct, status changed) -> CAS loses, row untouched
+        dead2 = RuntimeOwner(9003, "dead2", 1)
+        r.insert_launching("rhino-26", 26, dead2, "external", 1000)   # status == launching
+        assert r.reclaim("rhino-26", expected=dead2, expected_status=BOUND, new_owner=new,
+                         next_status=BOUND, next_port=64206, port_up=True, observed_at=5000) is False
+        assert r.get("rhino-26").status == LAUNCHING
     finally:
         r.close()
 
@@ -855,23 +861,27 @@ Append to the `OwnedSessionRegistry` class:
                     "UPDATE owned_sessions SET status=? WHERE session_id=? AND status='closing';",
                     (d.next_status, session_id))
 
-    def reclaim(self, session_id: str, *, expected: "RuntimeOwner", new_owner: "RuntimeOwner",
-                next_status: str, next_port: int | None,
+    def reclaim(self, session_id: str, *, expected: "RuntimeOwner", expected_status: str,
+                new_owner: "RuntimeOwner", next_status: str, next_port: int | None,
                 port_up: bool | None, observed_at: int) -> bool:
-        """CAS reclaim: rewrite owner + status + port + observation in ONE transaction,
-        only if the row still shows the expected (dead) owner. `next_port` carries the
-        discovered port for a late-bind promotion (launching->bound) so a bound row
-        never has a NULL port (§8.2 L3); for every other reclaim it is the row's
-        unchanged port. `last_port_up`/`observed_at` are recorded here so a port-down
-        reclaim still updates telemetry (Codex findings 1 & 2). Returns True if committed."""
+        """CAS reclaim on owner identity AND status (spec §9), in ONE transaction.
+        Applies only if the row still shows the expected dead owner AND the expected
+        status. The status guard matters because the Decision was computed for the
+        snapshot status: without `AND status=?`, a stale-status decision could apply
+        to a row whose status changed (e.g. downgrade a just-bound row to launching,
+        losing its port). `next_port` carries the discovered port for a late-bind
+        promotion (launching->bound) so a bound row never has a NULL port (§8.2 L3);
+        for every other reclaim it is the row's unchanged port. `last_port_up`/
+        `observed_at` are recorded here so a port-down reclaim still updates telemetry
+        (findings 1 & 2). Returns True if committed."""
         with self._immediate():
             cur = self._conn.execute(
                 "UPDATE owned_sessions SET owner_pid=?, owner_token=?, owner_started_at=?, "
                 "owner_scope='external', status=?, port=?, last_port_up=?, observed_at=? "
-                "WHERE session_id=? AND owner_pid=? AND owner_token=?;",
+                "WHERE session_id=? AND owner_pid=? AND owner_token=? AND status=?;",
                 (new_owner.pid, new_owner.token, new_owner.started_at, next_status, next_port,
                  None if port_up is None else int(bool(port_up)), observed_at,
-                 session_id, expected.pid, expected.token))
+                 session_id, expected.pid, expected.token, expected_status))
             return cur.rowcount == 1
 
     def reap(self, session_id: str) -> None:
@@ -1049,8 +1059,8 @@ def reconcile_owned_registry(
             # A promoted launching row carries the discovered port; every other
             # reclaim keeps the row's existing port (§8.2 L3: a bound row is never NULL).
             next_port = rebind_port if (row.status == LAUNCHING and rebind_port is not None) else row.port
-            registry.reclaim(row.session_id, expected=_owner_of(row), new_owner=owner,
-                             next_status=d.next_status, next_port=next_port,
+            registry.reclaim(row.session_id, expected=_owner_of(row), expected_status=row.status,
+                             new_owner=owner, next_status=d.next_status, next_port=next_port,
                              port_up=port_up, observed_at=now())
         elif d.action is Action.RETAIN:
             registry.record_observation(row.session_id, port_up, now())
@@ -1266,11 +1276,47 @@ async def test_launch_superseded_when_bind_loses_to_close(monkeypatch, fresh_reg
     assert out["data"]["code"] == "workbench_launch_superseded"
     assert out["data"]["retryable"] is False
     assert workbench._registry().get("rhino-7002").status == registry.CLOSING  # not resurrected
+
+
+@pytest.mark.asyncio
+async def test_launch_registry_claim_failure_reaps(monkeypatch, fresh_registry):
+    # insert_launching raises after Popen -> the live Rhino must be REAPED, not orphaned (finding 1).
+    monkeypatch.setattr(workbench.subprocess, "Popen", lambda *a, **k: _FakeProc(7003))
+    monkeypatch.setattr(workbench.Path, "exists", lambda self: True)
+    monkeypatch.setattr(workbench.asyncio, "to_thread", _sync_to_thread)
+    reaped = []
+    monkeypatch.setattr(workbench, "force_owned_process_cleanup",
+                        lambda p, d: reaped.append(p.pid) or True)
+
+    class _BoomReg:
+        def insert_launching(self, *a, **k):
+            raise RuntimeError("db locked")
+    monkeypatch.setattr(workbench, "_registry", lambda: _BoomReg())
+
+    out = await workbench.launch_owned_workbench()
+    assert out["success"] is False
+    assert out["data"]["code"] == "workbench_registry_claim_failed"
+    assert out["data"]["cleanupStatus"] == "forced_kill"
+    assert reaped == [7003]   # the live Rhino was reaped, not orphaned
+
+
+@pytest.mark.asyncio
+async def test_launch_panel_locked_does_not_popen(monkeypatch, fresh_registry):
+    # Panel-scope defense-in-depth (finding 2): refuse BEFORE Popen; never launch a Rhino.
+    monkeypatch.setattr(workbench, "current_owner_scope", lambda: "panel_locked")
+    popened = []
+    monkeypatch.setattr(workbench.subprocess, "Popen",
+                        lambda *a, **k: popened.append(1) or _FakeProc(1))
+
+    out = await workbench.launch_owned_workbench()
+    assert out["success"] is False
+    assert out["data"]["code"] == "workbench_requires_external_scope"
+    assert popened == []   # Popen NEVER called under panel lock
 ```
 
 - [ ] **Step 2: Run to confirm RED**
 
-Run: `cd mcp_server && python -m pytest tests/test_workbench.py -k "writes_bound or force_kill_failed_retains or superseded" -v`
+Run: `cd mcp_server && python -m pytest tests/test_workbench.py -k "writes_bound or force_kill_failed_retains or superseded or registry_claim_failure or panel_locked_does_not_popen" -v`
 Expected: FAIL — `AttributeError: ... '_registry'` / `current_owner_scope`.
 
 - [ ] **Step 3: Implement wiring + launch refactor**
@@ -1352,6 +1398,13 @@ async def launch_owned_workbench(readiness_timeout_seconds: int = 90) -> dict[st
         return _err("invalid_readiness_timeout",
                     f"readinessTimeoutSeconds must be a positive number, got "
                     f"{readiness_timeout_seconds!r}.")
+    # Panel-scope defense-in-depth (finding 2): a panel-scoped runtime acquires
+    # NOTHING. Check BEFORE Popen so we never even launch a Rhino we may not own.
+    # (The server guard already blocks the tool pre-dispatch; this is belt-and-suspenders.)
+    scope = current_owner_scope()
+    if scope != "external":
+        return _err("workbench_requires_external_scope",
+                    "Only an external coordinator runtime may launch Workbenches.")
     exe = _resolve_rhino_exe()
     if not exe.exists():
         return _err("rhino_executable_not_found", f"Rhino executable not found: {exe}")
@@ -1363,12 +1416,15 @@ async def launch_owned_workbench(readiness_timeout_seconds: int = 90) -> dict[st
     pid = int(process.pid)
     session = f"rhino-{pid}"
     owner = get_runtime_owner()
-    scope = current_owner_scope()
-    # INSERT the launching claim FIRST (first statement after Popen) so a crash
-    # leaves a reclaimable row, not an orphan (§8 durability invariant). The lambda
-    # defers _registry() INTO the worker thread — the first call opens SQLite +
-    # builds the schema, which must not run on the event loop (Codex finding 5).
-    await asyncio.to_thread(lambda: _registry().insert_launching(session, pid, owner, scope, int(time.time())))
+    # Durably claim the launch FIRST (first statement after Popen). insert_launching
+    # can THROW (DB lock / schema build / disk error) — a CATCHABLE failure that would
+    # otherwise leave a live Rhino with no row. Reap-and-report rather than orphan it
+    # (finding 1). The lambda defers _registry() into the worker thread (finding 5).
+    try:
+        await asyncio.to_thread(
+            lambda: _registry().insert_launching(session, pid, owner, scope, int(time.time())))
+    except Exception as exc:
+        return await _reap_unclaimable(process, pid, exc)
 
     discovery = OwnedRhinoDiscovery()
     started = time.monotonic()
@@ -1378,8 +1434,13 @@ async def launch_owned_workbench(readiness_timeout_seconds: int = 90) -> dict[st
     except DiscoveryError as exc:
         return await _handle_launch_failure(exc, process, pid, session)
 
-    # bind CAS — a concurrent close may have superseded us.
-    outcome = await asyncio.to_thread(lambda: _registry().bind(session, record.port))
+    # bind CAS — a concurrent close may have superseded us. bind() can also THROW
+    # (DB error) while the Rhino is already live + bound: reap it and drop the
+    # stranded launching claim rather than orphan it (finding 1).
+    try:
+        outcome = await asyncio.to_thread(lambda: _registry().bind(session, record.port))
+    except Exception as exc:
+        return await _reap_unclaimable(process, pid, exc, session=session)
     if outcome == "superseded":
         return {"success": False, "data": {
             "code": "workbench_launch_superseded", "processId": pid, "retryable": False,
@@ -1392,6 +1453,23 @@ async def launch_owned_workbench(readiness_timeout_seconds: int = 90) -> dict[st
     return {"success": True, "data": {
         "session": session, "processId": pid, "port": record.port, "owned": True,
         "mode": "workbench", "boundInSeconds": round(time.monotonic() - started, 2)}}
+
+
+async def _reap_unclaimable(process, pid: int, exc: Exception, *, session: str | None = None) -> dict[str, Any]:
+    """A live Rhino we could not durably claim (a registry failure) — reap it rather
+    than orphan it (§8 / finding 1). Best-effort drop of any stranded launching row."""
+    reaped = await asyncio.to_thread(force_owned_process_cleanup, process, [])
+    if session is not None:
+        try:
+            await asyncio.to_thread(lambda: _registry().reap(session))
+        except Exception:
+            pass
+    return {"success": False, "data": {
+        "code": "workbench_registry_claim_failed",
+        "message": f"Failed to record the launch in the registry: {exc}",
+        "processId": pid,
+        "cleanupStatus": "forced_kill" if reaped else "force_kill_failed",
+        "retryable": bool(reaped)}}
 
 
 async def _handle_launch_failure(exc: DiscoveryError, process, pid: int, session: str) -> dict[str, Any]:
@@ -1425,16 +1503,24 @@ async def _handle_launch_failure(exc: DiscoveryError, process, pid: int, session
     return {"success": False, "data": data}
 ```
 
+Finally, add these codes to the `_RETRYABLE` dict in `workbench.py` (the first task that introduces them; `_err` and `_handle_launch_failure` read this map):
+
+```python
+    "workbench_requires_external_scope": False,
+    "workbench_registry_claim_failed": True,
+    "workbench_launch_superseded": False,
+```
+
 - [ ] **Step 4: Run to confirm GREEN**
 
-Run: `cd mcp_server && python -m pytest tests/test_workbench.py -k "writes_bound or force_kill_failed_retains or superseded" -v`
-Expected: PASS (3 tests).
+Run: `cd mcp_server && python -m pytest tests/test_workbench.py -k "writes_bound or force_kill_failed_retains or superseded or registry_claim_failure or panel_locked_does_not_popen" -v`
+Expected: PASS (5 tests).
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add mcp_server/src/rook/workbench.py mcp_server/tests/test_workbench.py
-git commit -m "feat(p5): registry-backed launch — insert/bind CAS, superseded, retained-launching session"
+git commit -m "feat(p5): registry-backed launch — scope guard, claim-failure reap, insert/bind CAS, superseded"
 ```
 
 ---
@@ -1494,8 +1580,11 @@ async def list_owned_workbenches() -> dict[str, Any]:
             "mode": "workbench",
             "launchedAt": row.launched_at,
             "lastPortUp": (None if row.last_port_up is None else bool(row.last_port_up)),
+            # lifecycleStatus carries the lifecycle truth; for a port-less row
+            # (launching, or a launching-derived closing) there is no listener to
+            # probe, so liveness uses a NEUTRAL state, not a lifecycle word (finding 5).
             "liveness": classify_session_liveness(inst) if row.port else {
-                "state": "launching", "pidAlive": _is_pid_alive(row.rhino_pid),
+                "state": "not_bound", "pidAlive": _is_pid_alive(row.rhino_pid),
                 "portListening": False, "code": None},
         })
     return {"success": True, "data": {"workbenches": workbenches}}
@@ -1599,9 +1688,12 @@ Replace the body of `close_owned_workbench` (keep the `_terminate` helper from P
 async def close_owned_workbench(session: str, graceful: bool = False) -> dict[str, Any]:
     if not isinstance(graceful, bool):
         return _err("invalid_graceful_flag", f"graceful must be a boolean, got {graceful!r}.")
+    # Panel-scope defense-in-depth (same gate as launch): a panel-scoped runtime
+    # closes nothing. Distinct code from not_owned (which is "no owned row for you").
     scope = current_owner_scope()
     if scope != "external":
-        return _err("not_owned", "Only an external coordinator runtime may close Workbenches.")
+        return _err("workbench_requires_external_scope",
+                    "Only an external coordinator runtime may close Workbenches.")
     owner = get_runtime_owner()
     owned_rows = await asyncio.to_thread(_reconcile_sync, owner, scope)
     async with _LOCK:
@@ -1645,11 +1737,10 @@ async def close_owned_workbench(session: str, graceful: bool = False) -> dict[st
         "cleanupStatus": status, "discardedUnsavedChanges": discarded}}
 ```
 
-Add `"workbench_close_in_progress": True` and `"workbench_launch_superseded": False` to the `_RETRYABLE` dict in `workbench.py`:
+Add `"workbench_close_in_progress": True` to the `_RETRYABLE` dict in `workbench.py` (the launch codes `workbench_requires_external_scope` / `workbench_registry_claim_failed` / `workbench_launch_superseded` were already added in Task 8):
 
 ```python
     "workbench_close_in_progress": True,
-    "workbench_launch_superseded": False,
 ```
 
 - [ ] **Step 4: Run to confirm GREEN**
@@ -1877,7 +1968,7 @@ Announce: "I'm using the finishing-a-development-branch skill to complete this w
 
 ## Self-review notes (author)
 
-- **Spec coverage:** §3 ownership-not-liveness (registry stores claims only) ✓ T3–T5; §6 schema incl. `last_port_up` ✓ T3; §7 stable identity + live scope ✓ T2/T8; §8.1–8.3 machine ✓ T1; §8.4 surface reachability (session on retained launch, list all statuses) ✓ T8/T9; §8.5 superseded ✓ T1/T8; §9 reconcile probe-outside/CAS-inside ✓ T6; §10 reclaim + panel-scope ✓ T6; §11 close claim-by-update + resting-return ✓ T10; §12 BEGIN IMMEDIATE/WAL/busy_timeout/ephemeral ✓ T3–T5; §13 PidProcessHandle ✓ T7; §17 totality table + safety tests + live smoke ✓ T1/T6/T11.
+- **Spec coverage:** §3 ownership-not-liveness (registry stores claims only) ✓ T3–T5; §6 schema incl. `last_port_up` ✓ T3; §7 stable identity + live scope ✓ T2/T8; §8.1–8.3 machine ✓ T1; §8.4 surface reachability (session on retained launch, list all statuses) ✓ T8/T9; §8.5 superseded ✓ T1/T8; §9 reconcile probe-outside/CAS-inside ✓ T6; §10 reclaim + panel-scope ✓ T6; §11 close claim-by-update + resting-return ✓ T10; §12 BEGIN IMMEDIATE/WAL/busy_timeout/ephemeral ✓ T3–T5; §13 PidProcessHandle ✓ T7; §17 canonical decision table + full-product invariant sweep + safety tests + live smoke ✓ T1/T6/T11.
 - **decide() purity:** the only callers that pass probe results are the drivers (T6/T8/T10); `decide` itself imports nothing and touches no I/O ✓.
 - **Type consistency:** `OwnedRow`, `RuntimeOwner`, `Observation`, `Decision`, `Action`, `Event`, `decide`, `OwnedSessionRegistry.{insert_launching,bind,claim_for_close,finish_close,reclaim,reap,record_observation,get,list_owned,snapshot_all}`, `reconcile_owned_registry`, `workbench.{current_owner_scope,_registry,_reconcile_sync,_rebuild_owned,_rebind_available,PidProcessHandle}` are referenced consistently across tasks.
 - **Cross-phase seams:** `{success,data}` + `retryable` everywhere; blocking calls via `asyncio.to_thread`; no server.py dispatch change (P4 already wired the three tools; result shapes flow through `_format_tool_result`).
