@@ -245,3 +245,44 @@ def test_register_id_collision_returns_house_envelope(tmp_path, monkeypatch, _is
     assert asyncio.run(artifacts.register_artifact(str(a)))["success"] is True
     res = asyncio.run(artifacts.register_artifact(str(b)))
     assert res["data"]["code"] == "artifact_id_collision"
+
+
+def test_artifact_tools_are_meta_and_known():
+    from rook import targeting
+    for name in ("rhino_artifacts", "rhino_artifact_register",
+                 "rhino_artifact_refresh", "rhino_artifact_deregister"):
+        assert name in targeting._META_TOOLS
+        assert name in targeting._ALL_KNOWN_TOOLS
+        p = targeting.policy_for_tool(name)
+        assert p.requires_rhino is False and p.risk == "meta"
+
+
+def test_rhino_sessions_does_not_call_artifact_observer(monkeypatch):
+    # Regression guard for the structural boundary (spec Finding 2): listing the
+    # FLEET must never auto-persist artifacts. Mirrors test_session_tools.py:27 —
+    # dispatch calls server.list_sessions_result(), so patch THAT name.
+    from rook import server, workbench
+    called = {"n": 0}
+
+    async def spy(inst, session_id):
+        called["n"] += 1
+
+    monkeypatch.setattr(workbench, "_best_effort_observe_owned_artifact", spy)
+    monkeypatch.setattr(server, "list_sessions_result",
+                        lambda: {"success": True, "data": {"sessions": []}})
+    result = asyncio.run(server._call_tool_dispatch("rhino_sessions", {}))
+    assert result["success"] is True
+    assert called["n"] == 0
+
+
+def test_server_dispatches_artifact_tools(tmp_path, monkeypatch, _isolated_artifact_db):
+    from rook import server
+    f = tmp_path / "a.3dm"; f.write_bytes(b"x")
+    reg = asyncio.run(server._call_tool_dispatch("rhino_artifact_register", {"path": str(f)}))
+    assert reg["success"] is True and reg["data"]["artifact"]["source"] == "explicit"
+    listing = asyncio.run(server._call_tool_dispatch("rhino_artifacts", {}))
+    assert len(listing["data"]["artifacts"]) == 1
+    got = asyncio.run(server._call_tool_dispatch("rhino_artifacts", {"path": str(f)}))
+    assert got["data"]["artifact"]["fileExists"] is True
+    dereg = asyncio.run(server._call_tool_dispatch("rhino_artifact_deregister", {"path": str(f)}))
+    assert dereg["data"]["fileUntouched"] is True and f.exists()

@@ -50,7 +50,7 @@ if logger.isEnabledFor(logging.DEBUG):
     )
 
 from .bridge import call_rhino, get_rhino_host, discover_instances, TIMEOUT, DISCOVERY_FOLDER, rhino_request_context, list_sessions_result, get_session_capabilities
-from . import director, director_publish, director_video, script_library, targeting, workbench
+from . import artifacts, director, director_publish, director_video, script_library, targeting, workbench
 targeting.initialize_from_environment()
 from .knowledge import query_knowledge, query_knowledge_tiered, record_knowledge, invalidate_condensed_command_cache
 from .learning.command_observer import (
@@ -2846,6 +2846,38 @@ Use this before any Rhino operations to ensure Rhino is available. Safe to call 
                 "session": {"type": "string", "description": "Session id from rhino_workbench_list."},
                 "graceful": {"type": "boolean", "description": "Attempt WM_CLOSE first (may stall on a dirty doc)."}},
                 "required": ["session"]},
+        ),
+        Tool(
+            name="rhino_artifacts",
+            description="List durable artifacts this runtime has perceived or registered "
+                        "(saved files that persist after their producing session is gone). "
+                        "Optional 'id' or 'path' returns a single artifact.",
+            inputSchema={"type": "object", "properties": {
+                "id": {"type": "string", "description": "artifact id"},
+                "path": {"type": "string", "description": "file path"}}},
+        ),
+        Tool(
+            name="rhino_artifact_register",
+            description="Register an EXISTING durable file as an artifact in scope "
+                        "(a coordinator/user assertion). Records a registry row; never "
+                        "deletes or edits the file.",
+            inputSchema={"type": "object", "properties": {
+                "path": {"type": "string", "description": "path to an existing file"}},
+                "required": ["path"]},
+        ),
+        Tool(
+            name="rhino_artifact_refresh",
+            description="Re-check an artifact's file state (present/missing/unreachable). "
+                        "Never touches the file. Select by 'id' or 'path'.",
+            inputSchema={"type": "object", "properties": {
+                "id": {"type": "string"}, "path": {"type": "string"}}},
+        ),
+        Tool(
+            name="rhino_artifact_deregister",
+            description="Forget an artifact's registry row. Does NOT delete the .3dm. "
+                        "Select by 'id' or 'path'.",
+            inputSchema={"type": "object", "properties": {
+                "id": {"type": "string"}, "path": {"type": "string"}}},
         ),
         Tool(
             name="rhino_ping",
@@ -12832,6 +12864,24 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                 session=arguments.get("session"),
                 graceful=arguments.get("graceful", False),
             )
+
+        case "rhino_artifacts":
+            if arguments and (arguments.get("id") or arguments.get("path")):
+                result = await artifacts.get_artifact(
+                    artifact_id=arguments.get("id"), path=arguments.get("path"))
+            else:
+                result = await artifacts.list_artifacts()
+
+        case "rhino_artifact_register":
+            result = await artifacts.register_artifact(path=arguments.get("path"))
+
+        case "rhino_artifact_refresh":
+            result = await artifacts.refresh_artifact(
+                artifact_id=arguments.get("id"), path=arguments.get("path"))
+
+        case "rhino_artifact_deregister":
+            result = await artifacts.deregister_artifact(
+                artifact_id=arguments.get("id"), path=arguments.get("path"))
 
         case "rhino_ping":
             result = await call_rhino("/ping", port=port)
