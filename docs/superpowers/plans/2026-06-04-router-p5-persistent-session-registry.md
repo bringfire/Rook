@@ -51,6 +51,7 @@ git checkout -b feature/router-p5-persistent-session-registry
 Create `mcp_server/tests/test_registry.py`:
 
 ```python
+import itertools
 import os
 import sys
 
@@ -113,11 +114,43 @@ def test_closing_never_rests_L2():
             assert expected.next_status != CLOSING, f"L2 violated by {observation}"
 
 
-def test_decide_is_total_over_events():
-    # Every Event is handled for at least the resting/transient statuses it can occur in.
-    for event in Event:
-        for status in (LAUNCHING, BOUND, CLOSING):
-            decide(obs(status, event))  # must not raise
+def test_decide_total_and_invariant_over_full_product():
+    # Truly exhaustive: enumerate status × port_is_null × event × rhino_alive ×
+    # owner_alive × scope × rebind_available (672 tuples) and assert decide is total
+    # and every load-bearing invariant holds for EVERY input — not just the canonical
+    # rows. A wrong edge anywhere in the space fails here.
+    statuses = (LAUNCHING, BOUND, CLOSING)
+    bools = (True, False)
+    scopes = ("external", "panel_locked")
+    resting = {LAUNCHING, BOUND}
+
+    for status, port_null, event, rhino_alive, owner_alive, scope, rebind in itertools.product(
+            statuses, bools, Event, bools, bools, scopes, bools):
+        o = Observation(status=status, port_is_null=port_null, event=event,
+                        rhino_alive=rhino_alive, owner_alive=owner_alive,
+                        scope=scope, rebind_available=rebind)
+        d = decide(o)                                   # totality: must never raise
+        assert d.action in set(Action)
+        assert d.next_status in (None, LAUNCHING, BOUND, CLOSING)
+
+        # L2: a failure/crash transition never leaves a row at rest in 'closing'.
+        if event in (Event.TERMINATE_FAIL, Event.RECONCILE):
+            assert d.next_status != CLOSING, o
+
+        # Reclaim is gated: only an external runtime, only a dead owner over a live rhino.
+        if d.action is Action.RECLAIM:
+            assert rhino_alive and not owner_alive and scope == "external", o
+            assert d.next_status in resting, o
+
+        if event is Event.RECONCILE:
+            if not rhino_alive:
+                assert d.action is Action.DELETE, o
+            elif owner_alive:
+                assert d.action is Action.RETAIN, o
+            elif scope != "external":
+                assert d.action is Action.NOOP, o          # panel_locked cannot reclaim
+            else:
+                assert d.action is Action.RECLAIM, o
 ```
 
 - [ ] **Step 2: Run it to confirm RED**
@@ -443,12 +476,18 @@ class OwnedRow:
     owner_started_at: int
     owner_scope: str
     launched_at: int
+    # Non-authoritative document snapshot — the reserved P6 seam (spec §2/§6).
+    # P5 has no writer, so these stay NULL; they exist so P6 needs no migration.
+    last_document_path: str | None
+    last_document_serial_number: int | None
+    last_document_name: str | None
     last_port_up: int | None
     observed_at: int | None
 
 
 _COLUMNS = ("session_id, rhino_pid, port, status, owner_pid, owner_token, "
-            "owner_started_at, owner_scope, launched_at, last_port_up, observed_at")
+            "owner_started_at, owner_scope, launched_at, last_document_path, "
+            "last_document_serial_number, last_document_name, last_port_up, observed_at")
 
 
 def _row(raw: sqlite3.Row | None) -> OwnedRow | None:
@@ -502,6 +541,9 @@ class OwnedSessionRegistry:
                 owner_started_at INTEGER NOT NULL,
                 owner_scope  TEXT NOT NULL,
                 launched_at  INTEGER NOT NULL,
+                last_document_path TEXT,
+                last_document_serial_number INTEGER,
+                last_document_name TEXT,
                 last_port_up INTEGER,
                 observed_at  INTEGER);""")
         c.execute("CREATE INDEX IF NOT EXISTS idx_owned_rhino_pid ON owned_sessions(rhino_pid);")
@@ -613,8 +655,9 @@ Append to the `OwnedSessionRegistry` class in `mcp_server/src/rook/registry.py`:
         with self._immediate():
             self._conn.execute(
                 "INSERT INTO owned_sessions(session_id, rhino_pid, port, status, owner_pid, "
-                "owner_token, owner_started_at, owner_scope, launched_at, last_port_up, observed_at) "
-                "VALUES(?,?,NULL,'launching',?,?,?,?,?,NULL,NULL);",
+                "owner_token, owner_started_at, owner_scope, launched_at, last_document_path, "
+                "last_document_serial_number, last_document_name, last_port_up, observed_at) "
+                "VALUES(?,?,NULL,'launching',?,?,?,?,?,NULL,NULL,NULL,NULL,NULL);",
                 (session_id, rhino_pid, owner.pid, owner.token, owner.started_at, scope, launched_at))
 
     def bind(self, session_id: str, port: int) -> str:
@@ -749,11 +792,14 @@ def test_reclaim_cas(tmp_path):
         new = RuntimeOwner(9002, "new-tok", 2)
         _bound(r, "rhino-24", 24, owner=old, port=64204)
         # reclaim succeeds against the observed old owner
-        assert r.reclaim("rhino-24", expected=old, new_owner=new, next_status=BOUND) is True
+        assert r.reclaim("rhino-24", expected=old, new_owner=new, next_status=BOUND,
+                         next_port=64204, port_up=True, observed_at=5000) is True
         row = r.get("rhino-24")
         assert row.owner_pid == 9002 and row.owner_token == "new-tok" and row.status == BOUND
+        assert row.port == 64204 and row.last_port_up == 1 and row.observed_at == 5000
         # reclaim with a stale expected owner -> CAS loses
-        assert r.reclaim("rhino-24", expected=old, new_owner=new, next_status=BOUND) is False
+        assert r.reclaim("rhino-24", expected=old, new_owner=new, next_status=BOUND,
+                         next_port=64204, port_up=True, observed_at=5000) is False
     finally:
         r.close()
 
@@ -810,15 +856,21 @@ Append to the `OwnedSessionRegistry` class:
                     (d.next_status, session_id))
 
     def reclaim(self, session_id: str, *, expected: "RuntimeOwner", new_owner: "RuntimeOwner",
-                next_status: str) -> bool:
-        """CAS reclaim: rewrite owner + set status only if the row still shows the
-        expected (dead) owner. Returns True if the reclaim committed."""
+                next_status: str, next_port: int | None,
+                port_up: bool | None, observed_at: int) -> bool:
+        """CAS reclaim: rewrite owner + status + port + observation in ONE transaction,
+        only if the row still shows the expected (dead) owner. `next_port` carries the
+        discovered port for a late-bind promotion (launching->bound) so a bound row
+        never has a NULL port (§8.2 L3); for every other reclaim it is the row's
+        unchanged port. `last_port_up`/`observed_at` are recorded here so a port-down
+        reclaim still updates telemetry (Codex findings 1 & 2). Returns True if committed."""
         with self._immediate():
             cur = self._conn.execute(
                 "UPDATE owned_sessions SET owner_pid=?, owner_token=?, owner_started_at=?, "
-                "owner_scope='external', status=? "
+                "owner_scope='external', status=?, port=?, last_port_up=?, observed_at=? "
                 "WHERE session_id=? AND owner_pid=? AND owner_token=?;",
-                (new_owner.pid, new_owner.token, new_owner.started_at, next_status,
+                (new_owner.pid, new_owner.token, new_owner.started_at, next_status, next_port,
+                 None if port_up is None else int(bool(port_up)), observed_at,
                  session_id, expected.pid, expected.token))
             return cur.rowcount == 1
 
@@ -857,12 +909,12 @@ Append to `mcp_server/tests/test_registry.py`:
 from rook.registry import reconcile_owned_registry
 
 
-def _reconcile(r, owner, scope, *, alive_pids, listening_ports=(), rebind_pids=()):
+def _reconcile(r, owner, scope, *, alive_pids, listening_ports=(), rebind_pids=(), rebind_port=64999):
     return reconcile_owned_registry(
         r, owner, scope,
         is_pid_alive=lambda pid: pid in alive_pids,
         is_port_listening=lambda host, port: port in listening_ports,
-        rebind_available=lambda pid: pid in rebind_pids,
+        rebind_probe=lambda pid: rebind_port if pid in rebind_pids else None,
         now=lambda: 5000,
     )
 
@@ -940,8 +992,9 @@ def test_reconcile_launching_late_bind_promotes(tmp_path):
         dead = RuntimeOwner(9001, "dead", 1)
         me = _owner(pid=100, token="me")
         r.insert_launching("rhino-35", 35, dead, "external", 1000)
-        owned = _reconcile(r, me, "external", alive_pids={35}, rebind_pids={35})
-        assert r.get("rhino-35").status == BOUND   # promoted via rebind
+        owned = _reconcile(r, me, "external", alive_pids={35}, rebind_pids={35}, rebind_port=64950)
+        row = r.get("rhino-35")
+        assert row.status == BOUND and row.port == 64950   # promoted WITH discovered port (L3)
         assert [o.session_id for o in owned] == ["rhino-35"]
     finally:
         r.close()
@@ -969,31 +1022,38 @@ def reconcile_owned_registry(
     *,
     is_pid_alive: Callable[[int], bool],
     is_port_listening: Callable[[str, int], bool],
-    rebind_available: Callable[[int], bool],
+    rebind_probe: Callable[[int], int | None],
     now: Callable[[], int],
 ) -> list[OwnedRow]:
     """Snapshot rows, probe liveness OUTSIDE transactions, decide per row, apply
     each under its own BEGIN IMMEDIATE with a CAS recheck (spec §9). Returns the
-    rows now owned by `owner` (caller rebuilds _OWNED). NEVER terminates a process."""
+    rows now owned by `owner` (caller rebuilds _OWNED). NEVER terminates a process.
+    `rebind_probe(pid) -> port | None`: the discovered port if a launching row bound
+    after its owner died (used to promote launching->bound WITH the port), else None."""
     for row in registry.snapshot_all():
         rhino_alive = is_pid_alive(row.rhino_pid)
         owner_alive = is_pid_alive(row.owner_pid)
         port_up = bool(row.port) and rhino_alive and is_port_listening(DEFAULT_HOST, row.port)
-        rebind = (row.status == LAUNCHING and rhino_alive and not owner_alive
-                  and scope == "external" and rebind_available(row.rhino_pid))
+        rebind_port = None
+        if row.status == LAUNCHING and rhino_alive and not owner_alive and scope == "external":
+            rebind_port = rebind_probe(row.rhino_pid)
 
         d = decide(Observation(status=row.status, port_is_null=row.port is None,
                                event=Event.RECONCILE, rhino_alive=rhino_alive,
-                               owner_alive=owner_alive, scope=scope, rebind_available=rebind))
+                               owner_alive=owner_alive, scope=scope,
+                               rebind_available=rebind_port is not None))
 
         if d.action is Action.DELETE:
             registry.reap(row.session_id)
         elif d.action is Action.RECLAIM:
-            registry.reclaim(row.session_id, expected=_owner_of(row),
-                             new_owner=owner, next_status=d.next_status)
+            # A promoted launching row carries the discovered port; every other
+            # reclaim keeps the row's existing port (§8.2 L3: a bound row is never NULL).
+            next_port = rebind_port if (row.status == LAUNCHING and rebind_port is not None) else row.port
+            registry.reclaim(row.session_id, expected=_owner_of(row), new_owner=owner,
+                             next_status=d.next_status, next_port=next_port,
+                             port_up=port_up, observed_at=now())
         elif d.action is Action.RETAIN:
-            if rhino_alive:
-                registry.record_observation(row.session_id, port_up, now())
+            registry.record_observation(row.session_id, port_up, now())
         # NOOP -> leave untouched
 
     return registry.list_owned(owner.pid, owner.token)
@@ -1246,14 +1306,14 @@ def _registry() -> "_reg.OwnedSessionRegistry":
     return _REGISTRY
 
 
-def _rebind_available(pid: int) -> bool:
+def _rebind_probe(pid: int) -> int | None:
     """Single discovery re-probe for a launching dead-owner row: did it bind after
-    its owner died? Reuses the owned-discovery reader (PID-correlated)."""
+    its owner died? Returns the discovered port (PID-correlated) so reconcile can
+    promote launching->bound WITH the port (§8.2 L3), else None."""
     try:
-        OwnedRhinoDiscovery().read_owned_record(pid)
-        return True
+        return OwnedRhinoDiscovery().read_owned_record(pid).port
     except DiscoveryError:
-        return False
+        return None
 
 
 def _reconcile_sync(owner, scope) -> list:
@@ -1261,7 +1321,7 @@ def _reconcile_sync(owner, scope) -> list:
         _registry(), owner, scope,
         is_pid_alive=_is_pid_alive,
         is_port_listening=_is_port_listening,
-        rebind_available=_rebind_available,
+        rebind_probe=_rebind_probe,
         now=lambda: int(time.time()),
     )
 
@@ -1305,8 +1365,10 @@ async def launch_owned_workbench(readiness_timeout_seconds: int = 90) -> dict[st
     owner = get_runtime_owner()
     scope = current_owner_scope()
     # INSERT the launching claim FIRST (first statement after Popen) so a crash
-    # leaves a reclaimable row, not an orphan (§8 durability invariant).
-    await asyncio.to_thread(_registry().insert_launching, session, pid, owner, scope, int(time.time()))
+    # leaves a reclaimable row, not an orphan (§8 durability invariant). The lambda
+    # defers _registry() INTO the worker thread — the first call opens SQLite +
+    # builds the schema, which must not run on the event loop (Codex finding 5).
+    await asyncio.to_thread(lambda: _registry().insert_launching(session, pid, owner, scope, int(time.time())))
 
     discovery = OwnedRhinoDiscovery()
     started = time.monotonic()
@@ -1317,7 +1379,7 @@ async def launch_owned_workbench(readiness_timeout_seconds: int = 90) -> dict[st
         return await _handle_launch_failure(exc, process, pid, session)
 
     # bind CAS — a concurrent close may have superseded us.
-    outcome = await asyncio.to_thread(_registry().bind, session, record.port)
+    outcome = await asyncio.to_thread(lambda: _registry().bind(session, record.port))
     if outcome == "superseded":
         return {"success": False, "data": {
             "code": "workbench_launch_superseded", "processId": pid, "retryable": False,
@@ -1348,7 +1410,7 @@ async def _handle_launch_failure(exc: DiscoveryError, process, pid: int, session
     reaped = await asyncio.to_thread(force_owned_process_cleanup, process, [])
     if reaped:
         # confirmed dead -> drop the durable row (§8 L1)
-        await asyncio.to_thread(_registry().reap, session)
+        await asyncio.to_thread(lambda: _registry().reap(session))
         data["cleanupStatus"] = "forced_kill"
     else:
         # process alive but unkillable -> RETAIN the launching row + return a handle (§8.4)
@@ -1550,7 +1612,7 @@ async def close_owned_workbench(session: str, graceful: bool = False) -> dict[st
         return _err("invalid_session_id", f"Not a valid session id: {session!r}")
 
     # Tx1: verify owner + claim-by-update to 'closing' (or in_progress / not_owned).
-    result, row = await asyncio.to_thread(_registry().claim_for_close, session, owner)
+    result, row = await asyncio.to_thread(lambda: _registry().claim_for_close(session, owner))
     if result == "not_owned":
         return _err("not_owned",
                     f"Session {session} is not an owned Workbench of this runtime.")
@@ -1567,7 +1629,7 @@ async def close_owned_workbench(session: str, graceful: bool = False) -> dict[st
     success = status in ("forced_kill", "graceful_exit", "already_exited")
 
     # Tx2: delete on confirmed death, else revert to RESTING (§8.3) — never rest in 'closing'.
-    await asyncio.to_thread(_registry().finish_close, session, success=success)
+    await asyncio.to_thread(lambda: _registry().finish_close(session, success=success))
 
     if not success:   # force_kill_failed
         async with _LOCK:
