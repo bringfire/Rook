@@ -12830,7 +12830,7 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
         case "rhino_workbench_close":
             result = await workbench.close_owned_workbench(
                 session=arguments.get("session"),
-                graceful=bool(arguments.get("graceful", False)),
+                graceful=arguments.get("graceful", False),
             )
 
         case "rhino_ping":

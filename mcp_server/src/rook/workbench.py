@@ -51,6 +51,8 @@ _RETRYABLE: dict[str, bool] = {
     "invalid_session_id": False,
     "not_owned": False,
     "force_kill_failed": True,
+    "invalid_readiness_timeout": False,
+    "invalid_graceful_flag": False,
 }
 
 
@@ -78,7 +80,21 @@ def _resolve_rhino_exe() -> Path:
     return Path(override) if override else DEFAULT_RHINO_EXE
 
 
+def _validate_timeout(value: Any) -> float | None:
+    """A positive number → float; bool / null / string / non-positive → None (invalid)."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value) if value > 0 else None
+
+
 async def launch_owned_workbench(readiness_timeout_seconds: int = 90) -> dict[str, Any]:
+    # Validate the caller input BEFORE launching anything — a malformed timeout must
+    # never spawn an orphan Rhino that the except-block cannot reach.
+    timeout = _validate_timeout(readiness_timeout_seconds)
+    if timeout is None:
+        return _err("invalid_readiness_timeout",
+                    f"readinessTimeoutSeconds must be a positive number, got "
+                    f"{readiness_timeout_seconds!r}.")
     exe = _resolve_rhino_exe()
     if not exe.exists():
         return _err("rhino_executable_not_found", f"Rhino executable not found: {exe}")
@@ -92,8 +108,7 @@ async def launch_owned_workbench(readiness_timeout_seconds: int = 90) -> dict[st
     started = time.monotonic()
     try:
         record = await asyncio.to_thread(
-            discovery.wait_for_ready, pid, process, ping_native,
-            float(readiness_timeout_seconds), 0.25,
+            discovery.wait_for_ready, pid, process, ping_native, timeout, 0.25,
         )
     except DiscoveryError as exc:
         code = _REASON_TO_CODE.get(exc.reason, "workbench_launch_failed")
@@ -112,8 +127,10 @@ async def launch_owned_workbench(readiness_timeout_seconds: int = 90) -> dict[st
                 )
         # Ownership invariant: a failed launch is NEVER tracked and ALWAYS reaped
         # (own-it-if-bound, clean-it-up-if-failed) — no launched-but-orphaned middle ground.
-        # Run the blocking taskkill/wait OFF the event loop.
-        await asyncio.to_thread(force_owned_process_cleanup, process, [])
+        # Run the blocking taskkill/wait OFF the event loop, and surface a reap failure
+        # honestly (an orphan would otherwise be invisible to the coordinator).
+        reaped = await asyncio.to_thread(force_owned_process_cleanup, process, [])
+        data["cleanupStatus"] = "forced_kill" if reaped else "force_kill_failed"
         return {"success": False, "data": data}
 
     session = f"rhino-{pid}"
@@ -170,6 +187,10 @@ def _terminate(process, graceful: bool) -> tuple[str, bool]:
 
 
 async def close_owned_workbench(session: str, graceful: bool = False) -> dict[str, Any]:
+    # Validate inside the module so it protects itself regardless of caller coercion
+    # (bool("false") is True — a string must never silently flip into the WM_CLOSE path).
+    if not isinstance(graceful, bool):
+        return _err("invalid_graceful_flag", f"graceful must be a boolean, got {graceful!r}.")
     pid = _process_id_from_session_id(session)
     if pid is None or pid <= 0:
         return _err("invalid_session_id", f"Not a valid session id: {session!r}")

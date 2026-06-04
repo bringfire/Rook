@@ -289,3 +289,62 @@ async def test_workbench_tools_fail_closed_under_panel_config_error(monkeypatch)
         assert "panel_target_config_error" in result[0].text
     finally:
         targeting.reset_targeting_state_for_tests()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad", [None, "abc", 0, -5, True, False])
+async def test_launch_invalid_timeout_rejected_before_popen(monkeypatch, bad):
+    called = []
+    monkeypatch.setattr(workbench.subprocess, "Popen",
+                        lambda *a, **k: called.append(1) or _FakeProc(1))
+    monkeypatch.setattr(workbench.Path, "exists", lambda self: True)
+    out = await workbench.launch_owned_workbench(readiness_timeout_seconds=bad)
+    assert out["success"] is False
+    assert out["data"]["code"] == "invalid_readiness_timeout"
+    assert out["data"]["retryable"] is False
+    assert called == []  # Rhino must NOT be launched for a malformed timeout
+
+
+@pytest.mark.asyncio
+async def test_launch_failure_surfaces_cleanup_failure(monkeypatch):
+    monkeypatch.setattr(workbench.subprocess, "Popen", lambda *a, **k: _FakeProc(9001))
+    monkeypatch.setattr(workbench.Path, "exists", lambda self: True)
+    monkeypatch.setattr(workbench, "describe_windows_for_pid", lambda pid: [])
+    monkeypatch.setattr(workbench, "force_owned_process_cleanup", lambda p, d: False)  # reap FAILS
+    monkeypatch.setattr(workbench.asyncio, "to_thread", _sync_to_thread)
+
+    def raise_wfr(self, *a, **k):
+        raise DiscoveryError("boom", reason=DiscoveryFailureReason.EXITED_BEFORE_BIND)
+    monkeypatch.setattr(workbench.OwnedRhinoDiscovery, "wait_for_ready", raise_wfr)
+
+    out = await workbench.launch_owned_workbench()
+    d = out["data"]
+    assert d["code"] == "workbench_exited_before_bind"
+    assert d["cleanupStatus"] == "force_kill_failed"   # orphan honestly surfaced
+    assert d["processId"] == 9001
+    assert d["retryable"] is True
+
+
+@pytest.mark.asyncio
+async def test_launch_failure_reports_forced_kill_when_reaped(monkeypatch):
+    monkeypatch.setattr(workbench.subprocess, "Popen", lambda *a, **k: _FakeProc(9002))
+    monkeypatch.setattr(workbench.Path, "exists", lambda self: True)
+    monkeypatch.setattr(workbench, "describe_windows_for_pid", lambda pid: [])
+    monkeypatch.setattr(workbench, "force_owned_process_cleanup", lambda p, d: True)
+    monkeypatch.setattr(workbench.asyncio, "to_thread", _sync_to_thread)
+
+    def raise_wfr(self, *a, **k):
+        raise DiscoveryError("boom", reason=DiscoveryFailureReason.EXITED_BEFORE_BIND)
+    monkeypatch.setattr(workbench.OwnedRhinoDiscovery, "wait_for_ready", raise_wfr)
+
+    out = await workbench.launch_owned_workbench()
+    assert out["data"]["cleanupStatus"] == "forced_kill"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad", ["false", "true", 1, 0, None])
+async def test_close_invalid_graceful_flag(bad):
+    out = await workbench.close_owned_workbench("rhino-7001", graceful=bad)
+    assert out["success"] is False
+    assert out["data"]["code"] == "invalid_graceful_flag"
+    assert out["data"]["retryable"] is False
