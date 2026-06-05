@@ -28,6 +28,12 @@ def _ensure_import_path() -> None:
 _ensure_import_path()
 
 from rook import server  # noqa: E402
+from rook.tool_result import (  # noqa: E402
+    is_error_result,
+    parse_call_tool_data,
+    parse_call_tool_error,
+    text_from_call_tool_result,
+)
 
 _RESULTS: list[tuple[str, bool, str]] = []
 
@@ -37,22 +43,6 @@ def _record(name: str, ok: bool, detail: str) -> None:
     print(f"[{'PASS' if ok else 'FAIL'}] {name}: {detail}", flush=True)
 
 
-def _text(result) -> str:
-    return result[0].text if result else ""
-
-
-def _json(text: str) -> dict:
-    # call_tool renders success as json.dumps(data) and failures as "Error: {data}".
-    # Strip the prefix so both yield the data payload directly.
-    t = text.strip()
-    if t.startswith("Error:"):
-        t = t[len("Error:"):].strip()
-    try:
-        return json.loads(t)
-    except Exception:
-        return {}
-
-
 async def main() -> int:
     runner_pid = int(os.environ["ROOK_RHINO_PROCESS_ID"])
     print(f"Runner-owned Rhino pid={runner_pid}", flush=True)
@@ -60,32 +50,33 @@ async def main() -> int:
     launched_session = None
     try:
         # 1. launch a real owned Workbench
-        out = _json(_text(await server.call_tool("rhino_workbench_launch",
-                                                 {"readinessTimeoutSeconds": 120})))
+        out = parse_call_tool_data(await server.call_tool("rhino_workbench_launch",
+                                                 {"readinessTimeoutSeconds": 120}))
         launched_session = out.get("session")
         ok = out.get("owned") is True and out.get("mode") == "workbench" and bool(launched_session)
         _record("workbench_launch", ok, f"session={launched_session} port={out.get('port')}")
 
         # 2. list shows it
-        lst = _json(_text(await server.call_tool("rhino_workbench_list", {})))
+        lst = parse_call_tool_data(await server.call_tool("rhino_workbench_list", {}))
         sessions = [w.get("session") for w in lst.get("workbenches", [])]
         _record("workbench_list", launched_session in sessions, f"owned={sessions}")
 
         # 3. a P3-routed mutation lands in it (P3<->P4 compose)
-        mut = _text(await server.call_tool(
+        mut = text_from_call_tool_result(await server.call_tool(
             "rhino_execute",
             {"session": launched_session, "code": "import rhinoscriptsyntax as rs\nrs.AddPoint(0,0,0)"}))
         _record("p3_route_into_workbench", not mut.startswith("Error:"), mut[:120])
 
         # 4. closing the RUNNER's Rhino (not owned here) fails closed; does NOT kill it
-        not_owned = _json(_text(await server.call_tool(
-            "rhino_workbench_close", {"session": f"rhino-{runner_pid}"})))
+        r = await server.call_tool("rhino_workbench_close", {"session": f"rhino-{runner_pid}"})
+        not_owned = parse_call_tool_error(r) if is_error_result(r) else parse_call_tool_data(r)
+        not_owned = not_owned if isinstance(not_owned, dict) else {}
         _record("close_adopted_is_not_owned",
                 not_owned.get("code") == "not_owned", json.dumps(not_owned)[:120])
 
         # 5. close the owned Workbench
-        closed = _json(_text(await server.call_tool(
-            "rhino_workbench_close", {"session": launched_session})))
+        closed = parse_call_tool_data(await server.call_tool(
+            "rhino_workbench_close", {"session": launched_session}))
         if closed.get("closed"):
             launched_session = None
         _record("workbench_close",
@@ -94,7 +85,7 @@ async def main() -> int:
                 f"cleanupStatus={closed.get('cleanupStatus')}")
 
         # 6. list no longer shows it
-        lst2 = _json(_text(await server.call_tool("rhino_workbench_list", {})))
+        lst2 = parse_call_tool_data(await server.call_tool("rhino_workbench_list", {}))
         remaining = [w.get("session") for w in lst2.get("workbenches", [])]
         _record("workbench_pruned", closed.get("session") not in remaining, f"remaining={remaining}")
     finally:
