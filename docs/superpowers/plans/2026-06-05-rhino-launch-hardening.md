@@ -16,7 +16,7 @@
 
 The first draft (`5500f53`) used a monolithic async `launch_rhino()` that hid the `Popen` handle and waited internally (claiming the registry too late). Codex flagged six blockers; **this revision folds all six into the task bodies below**. They are recorded here as the reviewer's invariants-preserved checklist:
 
-1. **`Popen` handle is exposed.** Split primitive: `start_rhino_process(...) -> StartedRhino(process, pid, argv, requestedScheme, activeScheme, isolationMode, started_at)` then `wait_for_rook_readiness(started, ...) -> LaunchOutcome`. Both callers hold `started.process` for cleanup / `_OWNED` / `_reap_unclaimable`. (Tasks 6/7/8.)
+1. **`Popen` handle is exposed.** Split primitive: `start_rhino_process(...) -> StartedRhino(process, pid, argv, requestedScheme, activeScheme, isolationMode, started_at, started_wall)` then `wait_for_rook_readiness(started, ...) -> ReadinessResult(outcome, record)`. Both callers hold `started.process` for cleanup / `_OWNED` / `_reap_unclaimable`. (Tasks 6/7/8.)
 2. **P5 durable-claim ordering preserved.** In `workbench.py`: `start_rhino_process()` → **immediately `insert_launching(...)`** (first statement after start) → `wait_for_rook_readiness()` → `bind`. The wait never happens before the claim. (Task 8.)
 3. **`{success,data}` envelope honored** (the #220 lesson). `launch_owned_workbench` never returns `LaunchOutcome.to_dict()` raw; it merges `outcome.reason`/`outcome.evidence` into the existing P4/P5 `{"success": False, "data": {code, message, reason, evidence, retryable, …}}` envelope. (Task 8.)
 4. **Evidence never claims isolation it didn't use.** `resolve_requested_scheme()` (what was asked) is separate from `resolve_active_scheme()` (what argv used). `LaunchEvidence` carries **both `requestedScheme` and `activeScheme`**; `isolationMode` derives from `activeScheme`. With `SCHEME_ISOLATION_AVAILABLE=False`, `activeScheme=None` / `isolationMode="default"` even when `requestedScheme="RookWorkbench"`. argv keys off `activeScheme`, never the request. (Tasks 3/4/6.)
@@ -24,6 +24,11 @@ The first draft (`5500f53`) used a monolithic async `launch_rhino()` that hid th
 6. **`WM_CLOSE` coherence.** `close_windows_for_pid()` (cleanup) and `WM_CLOSE` **stay** in `runtime_harness.py`. Only the window-**read** group moves (`describe_windows_for_pid`, `_window_title`, **and the shared `_windows_user32`**). Because `_windows_user32` is shared by close (stays) and read (moves) and `rhino_launch` must not import back from `runtime_harness`, `_windows_user32` **moves to `rhino_launch`** and `close_windows_for_pid` re-imports it via the re-export. Read = launch-evidence; close = cleanup.
 
 **Corrected shape:** `rhino_launch.py` owns low-level primitives (argv, scheme resolution, `start_rhino_process`, `wait_for_rook_readiness`, evidence builder, capability flags, the moved discovery/window-read helpers); **callers own the lifecycle**. No monolithic orchestrator. The reason on any failure is **passed through** from the existing `DiscoveryError.reason` (reconcile, don't fork) — the evidence builder never re-derives a reason from window state.
+
+**Round 2 (2026-06-05, second Codex pass on the revised plan) — two more fixes folded:**
+
+7. **Exec failure must NOT silently become retryable.** `_RETRYABLE["workbench_launch_failed"]` is `False` (workbench.py:85). The first revision hard-coded `"retryable": True` on the exec-failure branch — a public retry-contract regression. Fixed: Task 8 Step 2 reuses `_err("workbench_launch_failed", …)`, which derives `retryable` from `_RETRYABLE` (the single source of truth). Discovery/readiness codes stay retryable via `_REASON_TO_CODE`; exec failure does not.
+8. **`discoveryLogSeen` must be real evidence, not a mirror of ok/not-ok.** The first revision set it `True` on success / `False` on failure — misleading. Fixed: a best-effort `_discovery_log_seen(discovery_dir, pid, since_wall)` helper checks for the real `native-discovery-<pid>.log` (`RookServer.cpp::WriteDiscoveryDiagnostic`, same folder as the instance JSON), guarded by `mtime >= since_wall` against PID reuse; `StartedRhino` carries a `started_wall` anchor; `wait_for_rook_readiness` computes the field on BOTH paths via an injectable `log_seen` predicate. This is the load-bearing failure discriminator — *log seen + no record* (plugin loaded, didn't bind) vs *no log* (plugin never loaded). Exactly the non-control signal #222 exists to surface. (Task 6.)
 
 ---
 
@@ -390,7 +395,7 @@ The heart of the reshaping (findings #1/#2). `start_rhino_process` returns the l
 ```python
 from rook.rhino_launch import (
     StartedRhino, LaunchExecError, start_rhino_process, wait_for_rook_readiness,
-    exec_failure_outcome, DiscoveryError, DiscoveryFailureReason as R,
+    exec_failure_outcome, _discovery_log_seen, DiscoveryError, DiscoveryFailureReason as R,
 )
 
 class _FakeProc:
@@ -420,33 +425,51 @@ def test_start_exec_failure_raises_launchexecerror_with_evidence():
 def test_wait_success_bundles_outcome_and_raw_record():
     started = StartedRhino(process=_FakeProc(pid=111), pid=111, argv=["R.exe", "/nosplash"],
                            requestedScheme=None, activeScheme=None, isolationMode="default",
-                           started_at=0.0)
+                           started_at=0.0, started_wall=0.0)
     class _Rec:
         pid, port = 111, 4567
         path = "rec.json"
     class _Disc:
         def wait_for_ready(self, *a, **k): return _Rec()
     rr = wait_for_rook_readiness(started, discovery=_Disc(), ping=lambda h, p: True,
-                                 describe_windows=lambda pid: [], now=lambda: 1.0)
+                                 describe_windows=lambda pid: [], log_seen=lambda: True, now=lambda: 1.0)
     assert rr.outcome.ok is True and rr.outcome.pid == 111 and rr.outcome.port == 4567
     assert rr.outcome.discoveryRecordPath == "rec.json" and rr.outcome.reason is None
+    assert rr.outcome.evidence.discoveryLogSeen is True       # reflects the log predicate, not ok
     assert rr.record.port == 4567            # the live OwnedRhinoRecord, for in-process bind/_OWNED
 
 def test_wait_passes_through_reason_and_window_is_only_evidence():
     started = StartedRhino(process=_FakeProc(pid=111), pid=111, argv=["R.exe", "/nosplash"],
                            requestedScheme="RookHarness", activeScheme=None, isolationMode="default",
-                           started_at=0.0)
+                           started_at=0.0, started_wall=0.0)
     class _Disc:
         def wait_for_ready(self, *a, **k):
             raise DiscoveryError("no disc", reason=R.BIND_TIMEOUT_NO_DISCOVERY)
     wins = [{"hwnd": "0x1", "title": "", "visible": True}]
     rr = wait_for_rook_readiness(started, discovery=_Disc(), ping=lambda h, p: False,
-                                 describe_windows=lambda pid: wins, now=lambda: 2.0)
+                                 describe_windows=lambda pid: wins, log_seen=lambda: False, now=lambda: 2.0)
     assert rr.outcome.ok is False and rr.record is None
     assert rr.outcome.reason is R.BIND_TIMEOUT_NO_DISCOVERY   # FROM the exception, NOT the window
     assert rr.outcome.evidence.emptyTitleWindowPresent is True
+    assert rr.outcome.evidence.discoveryLogSeen is False      # no native-discovery log -> plugin likely never started
     assert rr.outcome.evidence.diagnosticHint == "startup_window_present_no_discovery"
     assert rr.outcome.message == "no disc"
+
+def test_discovery_log_seen_true_for_fresh_pid_log(tmp_path):
+    import time as _t
+    (tmp_path / "native-discovery-4321.log").write_text("x")      # just written -> fresh mtime
+    assert _discovery_log_seen(tmp_path, 4321, _t.time() - 5.0) is True
+
+def test_discovery_log_seen_false_when_missing(tmp_path):
+    assert _discovery_log_seen(tmp_path, 9999, 0.0) is False
+
+def test_discovery_log_seen_false_for_stale_log_guards_pid_reuse(tmp_path):
+    import os as _os, time as _t
+    p = tmp_path / "native-discovery-4321.log"
+    p.write_text("x")
+    old = _t.time() - 3600
+    _os.utime(p, (old, old))                                     # stale -> a recycled PID's old log
+    assert _discovery_log_seen(tmp_path, 4321, _t.time() - 60.0) is False
 ```
 
 - [ ] **Step 2: Run → FAIL.**
@@ -462,7 +485,8 @@ class StartedRhino:
     requestedScheme: str | None
     activeScheme: str | None
     isolationMode: str
-    started_at: float             # time.monotonic() at Popen
+    started_at: float             # time.monotonic() at Popen — elapsed timing
+    started_wall: float           # time.time() at Popen — native-discovery log freshness (PID-reuse guard)
 
 
 class LaunchExecError(RuntimeError):
@@ -483,6 +507,7 @@ def start_rhino_process(rhino_exe, *, requested_scheme: str | None, env,
     argv = build_rhino_argv(rhino_exe, active_scheme=active_scheme)
     popen = popen or (lambda a: subprocess.Popen(a, env=dict(env) if env is not None else None))
     started_at = time.monotonic()
+    started_wall = time.time()
     try:
         proc = popen(argv)
     except OSError as exc:
@@ -490,7 +515,7 @@ def start_rhino_process(rhino_exe, *, requested_scheme: str | None, env,
                               active_scheme=active_scheme, isolation_mode=isolation_mode) from exc
     return StartedRhino(process=proc, pid=int(proc.pid), argv=argv,
                         requestedScheme=requested_scheme, activeScheme=active_scheme,
-                        isolationMode=isolation_mode, started_at=started_at)
+                        isolationMode=isolation_mode, started_at=started_at, started_wall=started_wall)
 
 
 def exec_failure_outcome(exc: LaunchExecError) -> LaunchOutcome:
@@ -508,15 +533,39 @@ class ReadinessResult:
     record: OwnedRhinoRecord | None     # the live OwnedRhinoRecord on success; None on failure
 
 
+def _discovery_log_seen(discovery_dir, pid: int, since_wall: float) -> bool:
+    """Best-effort: did RookNative write its `native-discovery-<pid>.log` for THIS launch?
+
+    `RookServer.cpp::WriteDiscoveryDiagnostic` appends to
+    `<sharedDiscoveryFolder>/native-discovery-<pid>.log` (the SAME folder the instance JSON lands in)
+    as it resolves the discovery folder — so a fresh log is evidence the plugin BEGAN its discovery
+    sequence, distinct from publishing a valid instance record. This is the load-bearing failure
+    discriminator: `discoveryLogSeen=False` + no record ⇒ RookNative likely never loaded (disabled /
+    wrong scheme / crashed pre-init); `discoveryLogSeen=True` + no record ⇒ it started but didn't bind.
+
+    `mtime >= since_wall - 2.0s` guards PID reuse (a recycled PID's stale log; 2s tolerates FS timestamp
+    coarseness). Pure signal, NOT a gate — any error returns False, never throws."""
+    try:
+        if discovery_dir is None:
+            return False
+        log_path = Path(discovery_dir) / f"native-discovery-{pid}.log"
+        return log_path.is_file() and os.stat(log_path).st_mtime >= since_wall - 2.0
+    except OSError:
+        return False
+
+
 def wait_for_rook_readiness(started: StartedRhino, *, discovery, ping=None,
                             timeout_seconds: float = 30.0, poll_seconds: float = 0.25,
-                            describe_windows=None, now=time.monotonic) -> ReadinessResult:
+                            describe_windows=None, log_seen=None, now=time.monotonic) -> ReadinessResult:
     """SYNC (mirrors OwnedRhinoDiscovery.wait_for_ready). Workbench wraps this in asyncio.to_thread;
     the harness calls it directly. The failure reason is PASSED THROUGH from DiscoveryError.reason —
-    never re-derived from window state. Returns ReadinessResult so the caller gets BOTH the serializable
-    outcome AND the live record (no re-read, no lossy reconstruction)."""
+    never re-derived from window state. `discoveryLogSeen` is computed for REAL (the native-discovery
+    log predicate), not inferred from ok/not-ok. Returns ReadinessResult so the caller gets BOTH the
+    serializable outcome AND the live record (no re-read, no lossy reconstruction)."""
     ping = ping or ping_native
     describe_windows = describe_windows or describe_windows_for_pid
+    log_seen = log_seen or (lambda: _discovery_log_seen(
+        getattr(discovery, "discovery_dir", None), started.pid, started.started_wall))
     try:
         record = discovery.wait_for_ready(started.pid, started.process, ping,
                                           timeout_seconds, poll_seconds)
@@ -524,7 +573,7 @@ def wait_for_rook_readiness(started: StartedRhino, *, discovery, ping=None,
         windows = list(describe_windows(started.pid) or [])
         ev = _build_evidence(requested_scheme=started.requestedScheme, active_scheme=started.activeScheme,
                              isolation_mode=started.isolationMode, discovery_record_path=None,
-                             discovery_log_seen=False, windows=windows, exit_code=started.process.poll(),
+                             discovery_log_seen=log_seen(), windows=windows, exit_code=started.process.poll(),
                              argv=started.argv, elapsed=now() - started.started_at)
         outcome = LaunchOutcome(ok=False, schemeIsolationAvailable=SCHEME_ISOLATION_AVAILABLE,
                                 canResetSchemeRecoveryState=CAN_RESET_SCHEME_RECOVERY_STATE, evidence=ev,
@@ -533,7 +582,7 @@ def wait_for_rook_readiness(started: StartedRhino, *, discovery, ping=None,
         return ReadinessResult(outcome=outcome, record=None)
     ev = _build_evidence(requested_scheme=started.requestedScheme, active_scheme=started.activeScheme,
                          isolation_mode=started.isolationMode, discovery_record_path=str(record.path),
-                         discovery_log_seen=True, windows=[], exit_code=None, argv=started.argv,
+                         discovery_log_seen=log_seen(), windows=[], exit_code=None, argv=started.argv,
                          elapsed=now() - started.started_at)
     outcome = LaunchOutcome(ok=True, schemeIsolationAvailable=SCHEME_ISOLATION_AVAILABLE,
                             canResetSchemeRecoveryState=CAN_RESET_SCHEME_RECOVERY_STATE, evidence=ev,
@@ -546,8 +595,8 @@ def wait_for_rook_readiness(started: StartedRhino, *, discovery, ping=None,
   > outcome, record)` shape, realized across the start/wait split) so neither caller re-reads the discovery
   > file or reconstructs a lossy record.
 
-- [ ] **Step 4: Run → PASS** (4 tests).
-- [ ] **Step 5: Commit** `feat(rhino-launch): start_rhino_process + wait_for_rook_readiness split primitives (handle exposed; reason passthrough)`
+- [ ] **Step 4: Run → PASS** (7 tests: 2 start + 2 wait + 3 `_discovery_log_seen`).
+- [ ] **Step 5: Commit** `feat(rhino-launch): start_rhino_process + wait_for_rook_readiness split primitives (handle exposed; reason passthrough; real discoveryLogSeen)`
 
 ---
 
@@ -646,9 +695,11 @@ from .rhino_launch import (
         started = start_rhino_process(exe, requested_scheme=requested, env=os.environ)
     except LaunchExecError as exc:
         out = exec_failure_outcome(exc)
-        return {"success": False, "data": {
-            "code": "workbench_launch_failed", "message": out.message,
-            "reason": out.reason.value, "evidence": out.evidence.to_dict(), "retryable": True}}
+        # Reuse _err so `retryable` comes from _RETRYABLE (workbench_launch_failed -> False) — the single
+        # source of truth. Do NOT hard-code retryable:True; exec failure is non-retryable by existing
+        # policy (only discovery/readiness codes retry, via _REASON_TO_CODE). Add the structured fields.
+        return _err("workbench_launch_failed", out.message,
+                    reason=out.reason.value, evidence=out.evidence.to_dict())
 
     process = started.process
     pid = int(started.pid)
