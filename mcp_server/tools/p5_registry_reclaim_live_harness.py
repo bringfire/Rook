@@ -11,7 +11,6 @@ asserts reclaim + close-via-surrogate. No fabricated pids.
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import subprocess
 import sys
@@ -29,6 +28,7 @@ _ensure_import_path()
 
 from rook import server, workbench  # noqa: E402
 from rook import registry as reg    # noqa: E402
+from rook.tool_result import parse_call_tool_data  # noqa: E402
 
 _RESULTS: list[tuple[str, bool, str]] = []
 
@@ -36,20 +36,6 @@ _RESULTS: list[tuple[str, bool, str]] = []
 def _record(name: str, ok: bool, detail: str) -> None:
     _RESULTS.append((name, ok, detail))
     print(f"[{'PASS' if ok else 'FAIL'}] {name}: {detail}", flush=True)
-
-
-def _text(result) -> str:
-    return result[0].text if result else ""
-
-
-def _json(text: str) -> dict:
-    t = text.strip()
-    if t.startswith("Error:"):
-        t = t[len("Error:"):].strip()
-    try:
-        return json.loads(t)
-    except Exception:
-        return {}
 
 
 def _real_dead_pid() -> int:
@@ -70,8 +56,8 @@ async def main() -> int:
     session = None
     try:
         # 1. launch a real owned Workbench through the registry-backed path
-        out = _json(_text(await server.call_tool("rhino_workbench_launch",
-                                                 {"readinessTimeoutSeconds": 120})))
+        out = parse_call_tool_data(await server.call_tool("rhino_workbench_launch",
+                                                 {"readinessTimeoutSeconds": 120}))
         session = out.get("session")
         _record("launch", out.get("owned") is True and bool(session), f"session={session}")
 
@@ -99,7 +85,7 @@ async def main() -> int:
                 f"owner_pid={row.owner_pid if row else None}")
 
         # 4. close still works via the surrogate
-        closed = _json(_text(await server.call_tool("rhino_workbench_close", {"session": session})))
+        closed = parse_call_tool_data(await server.call_tool("rhino_workbench_close", {"session": session}))
         if closed.get("closed"):
             session = None
         _record("close_after_reclaim", closed.get("closed") is True,

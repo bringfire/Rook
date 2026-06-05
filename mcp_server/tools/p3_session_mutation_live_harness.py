@@ -31,7 +31,6 @@ Scenarios:
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import sys
 from pathlib import Path
@@ -46,6 +45,7 @@ def _ensure_import_path() -> None:
 _ensure_import_path()
 
 from rook import bridge, server, targeting  # noqa: E402
+from rook.tool_result import parse_call_tool_data, text_from_call_tool_result  # noqa: E402
 
 _RESULTS: list[tuple[str, bool, str]] = []
 
@@ -59,43 +59,30 @@ def _owned() -> tuple[int, int]:
     return int(os.environ["ROOK_RHINO_PROCESS_ID"]), int(os.environ["ROOK_RHINO_PORT"])
 
 
-def _text(result) -> str:
-    return result[0].text if result else ""
-
-
-def _object_count(text: str) -> int:
-    try:
-        d = json.loads(text)
-        if isinstance(d, dict):
-            inner = d.get("data") if isinstance(d.get("data"), dict) else {}
-            return int(d.get("objectCount") or inner.get("objectCount") or 0)
-    except Exception:
-        pass
-    return -1
-
-
 async def scenario_session_routes_mutation(pid: int) -> None:
     # Prove a mutation actually LANDS in the named session: read the object count
     # before and after, through the SAME session. call_tool success returns just
     # `data` and failures are prefixed "Error:", so the honest signal is
     # "not an Error" + a concrete count delta — never a '"success": true' substring.
     sess = f"rhino-{pid}"
-    before = _text(await server.call_tool("rhino_document", {"session": sess}))
-    create = _text(await server.call_tool(
+    before = parse_call_tool_data(await server.call_tool("rhino_document", {"session": sess}))
+    create = text_from_call_tool_result(await server.call_tool(
         "rhino_execute",
         {"session": sess, "code": "import rhinoscriptsyntax as rs\nrs.AddPoint(0,0,0)"},
     ))
-    after = _text(await server.call_tool("rhino_document", {"session": sess}))
+    after = parse_call_tool_data(await server.call_tool("rhino_document", {"session": sess}))
     created_ok = not create.startswith("Error:")
-    readback_ok = _object_count(after) > _object_count(before) >= 0
+    before_n = int(before.get("objectCount") or 0)
+    after_n = int(after.get("objectCount") or 0)
+    readback_ok = after_n > before_n
     _record(
         "session_routes_mutation", created_ok and readback_ok,
-        f"created_ok={created_ok}, before={_object_count(before)}, after={_object_count(after)}",
+        f"created_ok={created_ok}, before={before_n}, after={after_n}",
     )
 
 
 async def scenario_bogus_session(pid: int) -> None:
-    txt = _text(await server.call_tool(
+    txt = text_from_call_tool_result(await server.call_tool(
         "rhino_execute", {"session": "rhino-99999999", "code": "print(1)"}
     ))
     _record("bogus_session_not_found", "rhino_session_not_found" in txt, txt[:160])
@@ -122,9 +109,9 @@ async def scenario_disambiguates(pid: int) -> None:
     # target. The second instance is a SYNTHETIC discovery record, not a 2nd Rhino.
     _patch_discover_with_synthetic(bridge.discover_instances())
     try:
-        bare = _text(await server.call_tool("rhino_execute", {"code": "1+1"}))
+        bare = text_from_call_tool_result(await server.call_tool("rhino_execute", {"code": "1+1"}))
         refused = "multiple_rhino_instances" in bare
-        named = _text(await server.call_tool(
+        named = text_from_call_tool_result(await server.call_tool(
             "rhino_execute", {"session": f"rhino-{pid}", "code": "1+1"}
         ))
         routed = (
@@ -141,7 +128,7 @@ async def scenario_disambiguates(pid: int) -> None:
 async def scenario_conflict(pid: int) -> None:
     _patch_discover_with_synthetic(bridge.discover_instances())
     try:
-        txt = _text(await server.call_tool(
+        txt = text_from_call_tool_result(await server.call_tool(
             "rhino_execute", {"session": f"rhino-{pid}", "port": 1, "code": "print(1)"}
         ))
         _record("selector_conflict", "selector_conflict" in txt, txt[:160])
@@ -150,7 +137,7 @@ async def scenario_conflict(pid: int) -> None:
 
 
 async def scenario_non_routed_reject(pid: int) -> None:
-    txt = _text(await server.call_tool(
+    txt = text_from_call_tool_result(await server.call_tool(
         "knowledge_query", {"session": f"rhino-{pid}", "intent": "x"}
     ))
     _record("non_routed_reject", "session_not_targetable" in txt, txt[:160])
