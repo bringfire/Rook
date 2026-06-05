@@ -1,3 +1,4 @@
+import asyncio
 import os
 import sys
 from unittest.mock import AsyncMock, patch
@@ -8,6 +9,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from rook import workbench
 from rook import registry
+from rook import artifacts
+from rook import targeting
 from rook.runtime_harness import DiscoveryError, DiscoveryFailureReason, OwnedRhinoRecord
 
 
@@ -39,12 +42,136 @@ def fresh_registry(tmp_path, monkeypatch):
     monkeypatch.setattr(registry, "_RUNTIME_OWNER",
                         registry.RuntimeOwner(pid=4242, token="me-tok", started_at=1))
     monkeypatch.setattr(workbench, "current_owner_scope", lambda: "external")
-    # Manage _REGISTRY MANUALLY (not via monkeypatch): monkeypatch would restore a
-    # stale closed connection at teardown, so _registry() would reopen the prior
+    # Also isolate the P6 artifact registry: the list_owned_workbenches observe hook
+    # could otherwise touch the real %LOCALAPPDATA% artifacts.db. Defense in depth.
+    monkeypatch.setattr(artifacts, "resolve_artifact_db_path", lambda: tmp_path / "artifacts.db")
+    # Manage singletons MANUALLY (not via monkeypatch): monkeypatch would restore a
+    # stale closed connection at teardown, so the accessor would reopen the prior
     # (real) db on the next test -> UNIQUE-constraint contamination across tests.
     _reset_registry_singleton()
+    artifacts._reset_artifact_registry_singleton()
     yield
     _reset_registry_singleton()
+    artifacts._reset_artifact_registry_singleton()
+
+
+# --- P6 observe hook (stat-gated, owned-only, post-list side effect) -------------
+
+def test_observe_owned_saved_present_upserts(tmp_path, monkeypatch):
+    monkeypatch.setattr(artifacts, "resolve_artifact_db_path", lambda: tmp_path / "artifacts.db")
+    artifacts._reset_artifact_registry_singleton()
+    f = tmp_path / "wb.3dm"; f.write_bytes(b"abc")
+
+    async def fake_md(inst):
+        return {"documentPath": str(f), "documentName": "wb.3dm"}
+    monkeypatch.setattr(targeting, "fetch_document_metadata", fake_md)
+
+    asyncio.run(workbench._best_effort_observe_owned_artifact(
+        {"processId": 42, "host": "127.0.0.1", "port": 1234}, "rhino-42"))
+    row = artifacts.artifact_registry().get(path=artifacts.normalize_path(str(f)))
+    assert row is not None and row.source == "owned_workbench" and row.file_state == "present"
+    artifacts._reset_artifact_registry_singleton()
+
+
+def test_observe_unsaved_makes_no_row(tmp_path, monkeypatch):
+    monkeypatch.setattr(artifacts, "resolve_artifact_db_path", lambda: tmp_path / "artifacts.db")
+    artifacts._reset_artifact_registry_singleton()
+
+    async def fake_md(inst):
+        return {"documentName": "Untitled"}  # no documentPath
+    monkeypatch.setattr(targeting, "fetch_document_metadata", fake_md)
+    asyncio.run(workbench._best_effort_observe_owned_artifact(
+        {"processId": 42, "host": "127.0.0.1", "port": 1234}, "rhino-42"))
+    assert artifacts.artifact_registry().list_all() == []
+    artifacts._reset_artifact_registry_singleton()
+
+
+def test_observe_swallows_failure(tmp_path, monkeypatch):
+    monkeypatch.setattr(artifacts, "resolve_artifact_db_path", lambda: tmp_path / "artifacts.db")
+    artifacts._reset_artifact_registry_singleton()
+
+    async def boom(inst):
+        raise RuntimeError("bridge down")
+    monkeypatch.setattr(targeting, "fetch_document_metadata", boom)
+    # Must NOT raise (I4).
+    asyncio.run(workbench._best_effort_observe_owned_artifact(
+        {"processId": 42, "host": "127.0.0.1", "port": 1234}, "rhino-42"))
+    artifacts._reset_artifact_registry_singleton()
+
+
+def test_observe_bounds_slow_fetch_and_swallows(tmp_path, monkeypatch):
+    # A busy/modal Workbench must not stall listing (Codex Finding 4).
+    monkeypatch.setattr(artifacts, "resolve_artifact_db_path", lambda: tmp_path / "artifacts.db")
+    artifacts._reset_artifact_registry_singleton()
+    monkeypatch.setattr(workbench, "_OBSERVE_TIMEOUT_SECONDS", 0.05)
+
+    async def slow(inst):
+        await asyncio.sleep(1.0)
+        return {"documentPath": "/x.3dm"}
+    monkeypatch.setattr(targeting, "fetch_document_metadata", slow)
+    asyncio.run(workbench._best_effort_observe_owned_artifact(
+        {"processId": 42, "host": "127.0.0.1", "port": 1234}, "rhino-42"))  # ~0.05s, no raise
+    assert artifacts.artifact_registry().list_all() == []
+    artifacts._reset_artifact_registry_singleton()
+
+
+def test_observe_saved_but_missing_makes_no_row(tmp_path, monkeypatch):
+    # Stat-gate at the HOOK: Rhino reports a saved path, but the file isn't on disk
+    # -> born-present means NO phantom row (spec section 7.1 case 2, Codex Finding 1).
+    monkeypatch.setattr(artifacts, "resolve_artifact_db_path", lambda: tmp_path / "artifacts.db")
+    artifacts._reset_artifact_registry_singleton()
+    ghost = str(tmp_path / "ghost.3dm")
+
+    async def fake_md(inst):
+        return {"documentPath": ghost, "documentName": "ghost.3dm"}
+    monkeypatch.setattr(targeting, "fetch_document_metadata", fake_md)
+    asyncio.run(workbench._best_effort_observe_owned_artifact(
+        {"processId": 42, "host": "127.0.0.1", "port": 1234}, "rhino-42"))
+    assert artifacts.artifact_registry().list_all() == []
+    artifacts._reset_artifact_registry_singleton()
+
+
+def test_observe_transitions_existing_row_to_missing(tmp_path, monkeypatch):
+    # Stat-gate at the HOOK: an EXISTING row whose file later vanishes transitions
+    # to 'missing' (history kept), not deleted (spec section 7.1 case 3 + I1).
+    monkeypatch.setattr(artifacts, "resolve_artifact_db_path", lambda: tmp_path / "artifacts.db")
+    artifacts._reset_artifact_registry_singleton()
+    f = tmp_path / "wb.3dm"; f.write_bytes(b"abc")
+    asyncio.run(artifacts.register_artifact(str(f)))   # seed a present row
+    f.unlink()                                          # file vanishes
+
+    async def fake_md(inst):
+        return {"documentPath": str(f), "documentName": "wb.3dm"}
+    monkeypatch.setattr(targeting, "fetch_document_metadata", fake_md)
+    asyncio.run(workbench._best_effort_observe_owned_artifact(
+        {"processId": 42, "host": "127.0.0.1", "port": 1234}, "rhino-42"))
+    row = artifacts.artifact_registry().get(path=artifacts.normalize_path(str(f)))
+    assert row is not None and row.file_state == "missing"
+    artifacts._reset_artifact_registry_singleton()
+
+
+def test_observe_owned_runs_concurrently(tmp_path, monkeypatch):
+    # A busy fleet must cap delay at ~one observe timeout, not N (Codex finding).
+    import time as _time
+    from types import SimpleNamespace
+    monkeypatch.setattr(artifacts, "resolve_artifact_db_path", lambda: tmp_path / "artifacts.db")
+    artifacts._reset_artifact_registry_singleton()
+    monkeypatch.setattr(workbench, "_OBSERVE_TIMEOUT_SECONDS", 0.3)
+
+    async def slow(inst):
+        await asyncio.sleep(1.0)  # longer than the per-row timeout
+        return {"documentPath": "/x.3dm"}
+    monkeypatch.setattr(targeting, "fetch_document_metadata", slow)
+
+    rows = [SimpleNamespace(rhino_pid=1, port=1001, session_id="rhino-1"),
+            SimpleNamespace(rhino_pid=2, port=1002, session_id="rhino-2")]
+    start = _time.monotonic()
+    asyncio.run(workbench._observe_owned_artifacts(rows))
+    elapsed = _time.monotonic() - start
+    # Concurrent: ~one timeout (~0.3s), NOT two (~0.6s). Generous bound for CI jitter.
+    assert elapsed < 0.55
+    assert artifacts.artifact_registry().list_all() == []  # all timed out -> swallowed
+    artifacts._reset_artifact_registry_singleton()
 
 
 class _FakeProc:

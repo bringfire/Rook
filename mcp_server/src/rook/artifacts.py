@@ -1,0 +1,395 @@
+"""P6 Slice 1 — durable artifact perception (orchestration plane).
+
+A saved work product is addressable by its normalized path, independent of any
+live session. This module is a dumb store: it accepts `source` from callers and
+NEVER infers ownership (spec I8). See
+docs/superpowers/specs/2026-06-04-p6-artifact-perception-design.md.
+"""
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import os
+import sqlite3
+import tempfile
+import threading
+import time
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+
+def normalize_path(path: str) -> str:
+    """Absolute, symlink-resolved, case-folded (os.normcase) — so C:/A.3dm and
+    c:/a.3dm are ONE artifact on Windows. The durable dedup identity."""
+    return os.path.normcase(os.path.normpath(os.path.realpath(os.path.abspath(path))))
+
+
+def artifact_id_for(norm_path: str) -> str:
+    """Deterministic, collision-free stable handle = full SHA-256 hex of the
+    normalized path (idempotent re-observation; UNIQUE in the schema)."""
+    return hashlib.sha256(norm_path.encode("utf-8")).hexdigest()
+
+
+def stat_file_state(norm_path: str) -> "tuple[str, int | None, int | None]":
+    """(file_state, size_bytes, mtime). present iff os.stat succeeds; missing on
+    FileNotFound/NotADirectory; unreachable on any other OSError (permission /
+    unreachable drive / OneDrive flap) — NEVER assert missing on a flap (I2)."""
+    try:
+        st = os.stat(norm_path)
+        return ("present", int(st.st_size), int(st.st_mtime))
+    except (FileNotFoundError, NotADirectoryError):
+        return ("missing", None, None)
+    except OSError:
+        return ("unreachable", None, None)
+
+
+ARTIFACT_REGISTRY_VERSION = "p6.1"
+
+_ARTIFACT_COLUMNS = ("artifact_id, path, file_state, source, origin_session_id, "
+                     "document_name, size_bytes, mtime, label, created_at, "
+                     "last_verified_at, last_missing_at")
+
+# Source precedence: explicit (deliberate campaign membership) outranks
+# owned_workbench (automatic perception). upsert PROMOTES, never DOWNGRADES.
+_SOURCE_RANK = {"owned_workbench": 0, "explicit": 1}
+
+
+@dataclass(frozen=True)
+class ArtifactRow:
+    artifact_id: str
+    path: str
+    file_state: str            # present | missing | unreachable
+    source: str                # owned_workbench | explicit
+    origin_session_id: str | None
+    document_name: str | None
+    size_bytes: int | None
+    mtime: int | None
+    label: str | None
+    created_at: int
+    last_verified_at: int | None
+    last_missing_at: int | None
+
+
+def _artifact_row(raw: "sqlite3.Row | tuple | None") -> "ArtifactRow | None":
+    return None if raw is None else ArtifactRow(*raw)
+
+
+def resolve_artifact_db_path() -> Path:
+    """%LOCALAPPDATA%/Rook/registry/artifacts.db, falling back to %TEMP%/rook/registry.
+    Separate file from P5's owned_sessions.db (Approach A, zero blast radius)."""
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    root = (Path(local_app_data) / "Rook" / "registry") if local_app_data \
+        else (Path(tempfile.gettempdir()) / "rook" / "registry")
+    return root / "artifacts.db"
+
+
+class _ImmediateTx:
+    """BEGIN IMMEDIATE ... COMMIT (ROLLBACK on error) holding the RLock — verbatim
+    from registry.py (duplication accepted; no shared base class in Slice 1)."""
+
+    def __init__(self, conn: sqlite3.Connection, lock: "threading.RLock"):
+        self._conn = conn
+        self._lock = lock
+
+    def __enter__(self):
+        self._lock.acquire()
+        try:
+            self._conn.execute("BEGIN IMMEDIATE;")
+        except Exception:
+            self._lock.release()
+            raise
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        try:
+            self._conn.execute("COMMIT;" if exc_type is None else "ROLLBACK;")
+        finally:
+            self._lock.release()
+        return False
+
+
+class ArtifactRegistry:
+    """SQLite durable-artifact store. Mark-never-auto-delete; born-present. The
+    registry accepts `source` from callers and never infers ownership (I8)."""
+
+    def __init__(self, db_path: Path):
+        db_path = Path(db_path)
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._lock = threading.RLock()
+        self.schema_unsupported: str | None = None
+        self._conn = sqlite3.connect(str(db_path), isolation_level=None, check_same_thread=False)
+        self._conn.execute("PRAGMA journal_mode=WAL;")
+        self._conn.execute("PRAGMA synchronous=NORMAL;")
+        self._conn.execute("PRAGMA busy_timeout=5000;")
+        self._ensure_schema()
+
+    def close(self) -> None:
+        try:
+            self._conn.close()
+        except Exception:
+            pass
+
+    def _immediate(self) -> "_ImmediateTx":
+        return _ImmediateTx(self._conn, self._lock)
+
+    def _ensure_schema(self) -> None:
+        # NEVER DROP artifacts — a missing file is a tombstone, not a reason to forget
+        # history (I1/I7). Additive or fail-closed, never destructive. Decide
+        # compatibility BEFORE touching the table (mirror registry.py:259).
+        c = self._conn
+        c.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);")
+        stored = c.execute("SELECT value FROM meta WHERE key='artifact_registry_version';").fetchone()
+        if stored is not None and stored[0] != ARTIFACT_REGISTRY_VERSION:
+            self.schema_unsupported = stored[0]
+            return
+        table_exists = c.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='artifacts';").fetchone() is not None
+        if table_exists:
+            cols = {row[1] for row in c.execute("PRAGMA table_info(artifacts);").fetchall()}
+            required = {col.strip() for col in _ARTIFACT_COLUMNS.split(",")}
+            if not required.issubset(cols):
+                self.schema_unsupported = "unknown"
+                return
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS artifacts (
+                artifact_id      TEXT NOT NULL UNIQUE,
+                path             TEXT PRIMARY KEY,
+                file_state       TEXT NOT NULL,
+                source           TEXT NOT NULL,
+                origin_session_id TEXT,
+                document_name    TEXT,
+                size_bytes       INTEGER,
+                mtime            INTEGER,
+                label            TEXT,
+                created_at       INTEGER NOT NULL,
+                last_verified_at INTEGER,
+                last_missing_at  INTEGER);""")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_artifact_source ON artifacts(source);")
+        if stored is None:
+            c.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('artifact_registry_version', ?);",
+                      (ARTIFACT_REGISTRY_VERSION,))
+
+    # ----- reads (RLock-guarded) -----
+    def get(self, *, artifact_id: str | None = None, path: str | None = None) -> "ArtifactRow | None":
+        with self._lock:
+            if path is not None:
+                raw = self._conn.execute(
+                    f"SELECT {_ARTIFACT_COLUMNS} FROM artifacts WHERE path=?;", (path,)).fetchone()
+            elif artifact_id is not None:
+                raw = self._conn.execute(
+                    f"SELECT {_ARTIFACT_COLUMNS} FROM artifacts WHERE artifact_id=?;", (artifact_id,)).fetchone()
+            else:
+                return None
+            return _artifact_row(raw)
+
+    def list_all(self) -> "list[ArtifactRow]":
+        with self._lock:
+            rows = self._conn.execute(
+                f"SELECT {_ARTIFACT_COLUMNS} FROM artifacts ORDER BY created_at, path;").fetchall()
+            return [_artifact_row(r) for r in rows]
+
+    # ----- writes (BEGIN IMMEDIATE) -----
+    def upsert(self, norm_path: str, *, source: str, file_state: str, size: int | None,
+               mtime: int | None, document_name: str | None, origin_session_id: str | None,
+               label: str | None, now: int) -> str:
+        """Born-present rule: a NEW row is created only when file_state == 'present';
+        a new+absent observe is 'skipped_absent' (no phantom). An EXISTING row is
+        updated (state transition); source/created_at are NOT overwritten, and
+        document_name/origin/label backfill only when currently NULL. last_verified_at
+        advances only on a SUCCESSFUL check (present/missing), never on 'unreachable'.
+        A different-path/same-id INSERT fails closed → 'id_collision'."""
+        with self._immediate():
+            existing = self.get(path=norm_path)
+            if existing is None:
+                if file_state != "present":
+                    return "skipped_absent"
+                try:
+                    self._conn.execute(
+                        "INSERT INTO artifacts(artifact_id, path, file_state, source, origin_session_id, "
+                        "document_name, size_bytes, mtime, label, created_at, last_verified_at, last_missing_at) "
+                        "VALUES(?,?,?,?,?,?,?,?,?,?,?,NULL);",
+                        (artifact_id_for(norm_path), norm_path, "present", source, origin_session_id,
+                         document_name, size, mtime, label, now, now))
+                except sqlite3.IntegrityError:
+                    # path was absent (checked above) → a UNIQUE violation means a
+                    # DIFFERENT path produced the same artifact_id. Fail closed; never
+                    # overwrite a different artifact's row (spec §5/§6).
+                    return "id_collision"
+                return "created"
+            last_verified = now if file_state in ("present", "missing") else existing.last_verified_at
+            last_missing = now if file_state == "missing" else existing.last_missing_at
+            effective_source = (source if _SOURCE_RANK.get(source, 0) > _SOURCE_RANK.get(existing.source, 0)
+                                else existing.source)
+            self._conn.execute(
+                "UPDATE artifacts SET file_state=?, source=?, size_bytes=?, mtime=?, last_verified_at=?, "
+                "last_missing_at=?, document_name=COALESCE(document_name, ?), "
+                "origin_session_id=COALESCE(origin_session_id, ?), label=COALESCE(label, ?) "
+                "WHERE path=?;",
+                (file_state, effective_source, size, mtime, last_verified, last_missing, document_name,
+                 origin_session_id, label, norm_path))
+            return "updated"
+
+    def set_state(self, norm_path: str, *, file_state: str, size: int | None,
+                  mtime: int | None, now: int) -> bool:
+        """Refresh: update an EXISTING row's tri-state; never creates. False if absent.
+        last_verified_at advances only on a successful check (present/missing), not on
+        'unreachable'."""
+        with self._immediate():
+            existing = self.get(path=norm_path)
+            if existing is None:
+                return False
+            last_verified = now if file_state in ("present", "missing") else existing.last_verified_at
+            last_missing = now if file_state == "missing" else existing.last_missing_at
+            self._conn.execute(
+                "UPDATE artifacts SET file_state=?, size_bytes=?, mtime=?, last_verified_at=?, "
+                "last_missing_at=? WHERE path=?;", (file_state, size, mtime, last_verified, last_missing, norm_path))
+            return True
+
+    def delete(self, norm_path: str) -> bool:
+        """Deregister: forget the registry row. NEVER touches the file (I5)."""
+        with self._immediate():
+            cur = self._conn.execute("DELETE FROM artifacts WHERE path=?;", (norm_path,))
+            return cur.rowcount > 0
+
+
+_RETRYABLE = {
+    "artifact_file_not_found": False,
+    "artifact_not_found": False,
+    "artifact_selector_conflict": False,
+    "artifact_selector_required": False,
+    "invalid_path": False,
+    "artifact_id_collision": False,
+    "artifact_file_unreachable": True,
+    "artifact_registry_unavailable": True,
+}
+
+
+def _err(code: str, message: str, **extra: Any) -> dict[str, Any]:
+    return {"success": False, "data": {
+        "code": code, "message": message, "retryable": _RETRYABLE.get(code, True), **extra}}
+
+
+_ARTIFACT_REGISTRY: "ArtifactRegistry | None" = None
+
+
+def artifact_registry() -> "ArtifactRegistry":
+    global _ARTIFACT_REGISTRY
+    if _ARTIFACT_REGISTRY is None:
+        _ARTIFACT_REGISTRY = ArtifactRegistry(resolve_artifact_db_path())
+    return _ARTIFACT_REGISTRY
+
+
+def _reset_artifact_registry_singleton() -> None:
+    """Test-only: drop the process-global registry so a fixture can repoint the db path."""
+    global _ARTIFACT_REGISTRY
+    if _ARTIFACT_REGISTRY is not None:
+        _ARTIFACT_REGISTRY.close()
+    _ARTIFACT_REGISTRY = None
+
+
+async def _artifact_registry_unusable() -> "dict[str, Any] | None":
+    reg = await asyncio.to_thread(artifact_registry)
+    bad = getattr(reg, "schema_unsupported", None)
+    if bad is not None:
+        return _err("artifact_registry_unavailable",
+                    f"Artifact registry was written by an incompatible version {bad!r}; "
+                    "rows are left intact. Resolve the version skew before using artifact tools.")
+    return None
+
+
+def _project(row: "ArtifactRow") -> dict[str, Any]:
+    """Tool projection. fileExists is DERIVED here, never stored (single source of truth)."""
+    return {
+        "artifactId": row.artifact_id, "path": row.path, "fileState": row.file_state,
+        "fileExists": (True if row.file_state == "present"
+                       else False if row.file_state == "missing" else None),
+        "source": row.source, "originSessionId": row.origin_session_id,
+        "documentName": row.document_name, "sizeBytes": row.size_bytes, "mtime": row.mtime,
+        "label": row.label, "createdAt": row.created_at,
+        "lastVerifiedAt": row.last_verified_at, "lastMissingAt": row.last_missing_at,
+    }
+
+
+async def _resolve_row(artifact_id: str | None, path: str | None):
+    """Selector rules (§10.1): one-of, or both-agree, → resolve a row. Returns
+    (row, None) or (None, error_envelope)."""
+    has_id = isinstance(artifact_id, str) and artifact_id.strip() != ""
+    has_path = isinstance(path, str) and path.strip() != ""
+    if not has_id and not has_path:
+        return None, _err("artifact_selector_required", "Provide 'id' or 'path'.")
+    norm = normalize_path(path) if has_path else None
+    if has_id and has_path and artifact_id_for(norm) != artifact_id:
+        return None, _err("artifact_selector_conflict", "'id' and 'path' refer to different artifacts.")
+    reg = artifact_registry()
+    row = await asyncio.to_thread(
+        lambda: reg.get(path=norm) if norm is not None else reg.get(artifact_id=artifact_id))
+    if row is None:
+        return None, _err("artifact_not_found", "No registered artifact for that id/path.")
+    return row, None
+
+
+async def list_artifacts() -> dict[str, Any]:
+    if (unusable := await _artifact_registry_unusable()) is not None:
+        return unusable
+    rows = await asyncio.to_thread(lambda: artifact_registry().list_all())
+    return {"success": True, "data": {"artifacts": [_project(r) for r in rows]}}
+
+
+async def register_artifact(path: str) -> dict[str, Any]:
+    """Explicit registration = a coordinator/user ASSERTION the artifact is in
+    scope. Requires the file to exist now. NEVER deletes or edits the file."""
+    if (unusable := await _artifact_registry_unusable()) is not None:
+        return unusable
+    if not isinstance(path, str) or not path.strip():
+        return _err("invalid_path", f"'path' must be a non-empty string, got {path!r}.")
+    norm = normalize_path(path)
+    state, size, mtime = await asyncio.to_thread(stat_file_state, norm)
+    if state == "missing":
+        return _err("artifact_file_not_found",
+                    f"No file at {norm!r}; register only existing files.")
+    if state == "unreachable":
+        return _err("artifact_file_unreachable",
+                    f"Could not verify {norm!r} (permission denied / unreachable drive); not registered.")
+    result = await asyncio.to_thread(lambda: artifact_registry().upsert(
+        norm, source="explicit", file_state="present", size=size, mtime=mtime,
+        document_name=None, origin_session_id=None, label=None, now=int(time.time())))
+    if result == "id_collision":
+        return _err("artifact_id_collision",
+                    f"The artifact id for {norm!r} collides with a different registered path; not registered.")
+    row = await asyncio.to_thread(lambda: artifact_registry().get(path=norm))
+    return {"success": True, "data": {"artifact": _project(row)}}
+
+
+async def refresh_artifact(artifact_id: str | None = None, path: str | None = None) -> dict[str, Any]:
+    if (unusable := await _artifact_registry_unusable()) is not None:
+        return unusable
+    row, err = await _resolve_row(artifact_id, path)
+    if err is not None:
+        return err
+    state, size, mtime = await asyncio.to_thread(stat_file_state, row.path)
+    await asyncio.to_thread(lambda: artifact_registry().set_state(
+        row.path, file_state=state, size=size, mtime=mtime, now=int(time.time())))
+    updated = await asyncio.to_thread(lambda: artifact_registry().get(path=row.path))
+    return {"success": True, "data": {"artifact": _project(updated)}}
+
+
+async def deregister_artifact(artifact_id: str | None = None, path: str | None = None) -> dict[str, Any]:
+    if (unusable := await _artifact_registry_unusable()) is not None:
+        return unusable
+    row, err = await _resolve_row(artifact_id, path)
+    if err is not None:
+        return err
+    await asyncio.to_thread(lambda: artifact_registry().delete(row.path))
+    return {"success": True, "data": {
+        "deregistered": row.artifact_id, "path": row.path, "fileUntouched": True}}
+
+
+async def get_artifact(artifact_id: str | None = None, path: str | None = None) -> dict[str, Any]:
+    """Single-artifact lookup used by rhino_artifacts when given id/path."""
+    if (unusable := await _artifact_registry_unusable()) is not None:
+        return unusable
+    row, err = await _resolve_row(artifact_id, path)
+    if err is not None:
+        return err
+    return {"success": True, "data": {"artifact": _project(row)}}
