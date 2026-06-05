@@ -26,3 +26,23 @@ def text_from_call_tool_result(result: Any) -> str:
 def is_error_result(result: Any) -> bool:
     """True iff the wire text is a failure. Text-based only — no JSON, no inference."""
     return text_from_call_tool_result(result).startswith(_ERROR_PREFIX)
+
+
+def parse_call_tool_data(result: Any) -> dict[str, Any]:
+    """SUCCESS-only: the parsed ``data`` dict.
+
+    Raises ``ValueError`` if the result is an error, the text is not JSON, or the parsed
+    JSON is not a dict. Never returns ``{}`` silently.
+    """
+    text = text_from_call_tool_result(result)
+    if text.startswith(_ERROR_PREFIX):
+        raise ValueError(f"expected a success result, got an error: {text!r}")
+    try:
+        data = json.loads(text)
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise ValueError(f"success text is not JSON: {text!r}") from exc
+    if not isinstance(data, dict):
+        raise ValueError(
+            f"success data is not a dict (got {type(data).__name__}): {text!r}"
+        )
+    return data
