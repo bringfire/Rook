@@ -19294,6 +19294,26 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
 
 
 def _format_tool_result(result: dict[str, Any]) -> list[TextContent]:
+    """Render an internal ``{success, data}`` envelope into the public MCP wire text.
+
+    THIS IS THE ONE PLACE the internal dispatcher envelope becomes public tool output,
+    and the two shapes are NOT interchangeable:
+
+      - success -> the text is ``json.dumps(data)`` -- the ``data`` ONLY (the
+        ``{success, data}`` envelope is dropped).
+      - failure -> the text is ``"Error: " + json.dumps(data)`` (or ``str(data)``).
+
+    So a test or live harness reading ``call_tool()`` output must parse the success text
+    as the data itself (e.g. ``json.loads(text)["artifacts"]``), NOT
+    ``["data"]["artifacts"]``; for failures, strip the leading ``"Error: "`` then parse.
+    Mistaking the internal envelope for the wire shape is a recurring footgun (it cost a
+    ~13-run debugging detour in P6 Slice 1).
+
+    Do NOT change the success shape casually: agents in the wild may already depend on the
+    success text being ``data`` rather than the whole envelope. See
+    ``docs/CURRENT_ARCHITECTURE.md`` ("Tool Result Surface") and issue #218 (shared parse
+    helpers + a contract test that pins this function).
+    """
     # For failures, preserve structured dict payloads as JSON instead of
     # stringifying via Python's default `str(dict)` repr.
     if result.get("success"):
