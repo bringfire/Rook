@@ -41,18 +41,33 @@ classes — and must NEVER rely on a human clearing Rhino startup state.
 
 ## 5. Architecture — shared launch primitive
 
-New leaf module **`mcp_server/src/rook/rhino_launch.py`**, imported by BOTH `runtime_harness.py`
-and `workbench.py:launch_owned_workbench` (the two current bare-`Popen` sites). It:
+New leaf module **`mcp_server/src/rook/rhino_launch.py`** that **owns the launch + readiness
+primitives**, imported by BOTH `runtime_harness.py` and `workbench.py:launch_owned_workbench` (the
+two current bare-`Popen` sites).
 
-- Builds **explicit** argv — `/nosplash` always; `/scheme=<scheme>` only when isolation is both
-  *requested* and *available* — instead of inheriting ambient profile state.
-- **Reuses** the existing readiness machinery (`discovery.wait_for_ready`, `ping_native`); it does
-  not reinvent the wait.
-- Returns a structured `LaunchOutcome` (§8).
-- Exposes capability flags (§7).
+**Ownership move (avoids a circular import).** These primitives are currently defined *in*
+`runtime_harness.py` — `DiscoveryFailureReason` (l.66), `DiscoveryError` (l.76), `OwnedRhinoRecord`
+(l.83), `OwnedRhinoDiscovery` (l.949) — and `runtime_harness.py` will import `rhino_launch.py`. If
+`rhino_launch.py` imported these *back* from `runtime_harness.py`, that's a cycle. So they **move
+into `rhino_launch.py`**:
 
-It stays a leaf: subprocess + the existing discovery/ping primitives; no session/registry/artifact
-imports.
+- `rhino_launch.py` owns: the discovery record types, the readiness wait + ping orchestration, the
+  launch (argv / scheme / `/nosplash`), the structured `LaunchOutcome`, the capability flags.
+- `runtime_harness.py` keeps **harness orchestration** (`RhinoHarnessResult` (l.134) / manifest,
+  smoke run, artifact copy, cleanup) and imports the moved primitives from `rhino_launch.py`.
+- **`ping_native`**: confirm its home in the plan — if it already lives in a leaf (e.g.
+  `bridge.py`), `rhino_launch.py` imports it from there (no move); if in `runtime_harness.py`, it
+  moves too.
+- **Blast-radius control:** `runtime_harness.py` keeps **thin re-exports**
+  (`from .rhino_launch import DiscoveryError, DiscoveryFailureReason, OwnedRhinoRecord, OwnedRhinoDiscovery`)
+  so the current importers — `workbench.py` and the four tests (`test_workbench`,
+  `test_runtime_harness`, `test_native_command_control_live`, `test_runscript_safety_live`) — keep
+  working unchanged.
+
+The module builds **explicit** argv (`/nosplash` always; `/scheme=<scheme>` only when isolation is
+both *requested* and *available*), runs the readiness wait it now owns, and returns a structured
+`LaunchOutcome` (§8). It stays a leaf: subprocess + its own discovery/ping primitives; no
+session/registry/artifact imports.
 
 ## 6. Scheme model — "prefer isolated *when validated*" (NOT unconditional isolated-by-default)
 
@@ -102,11 +117,14 @@ Both flags are explicit so no one ships a half-proven isolation/reset under pres
 - `bind_timeout_no_discovery` — process alive, timeout, no discovery record.
 - `bind_timeout_no_ping` — discovery record appeared but `/ping` never succeeded before timeout.
 - `invalid_discovery_record` — a record appeared but is malformed / wrong-pid.
-- `readiness_blocked_by_startup_window` — used **only when window evidence exists** (a visible
-  top-level Rhino window present during a no-discovery timeout). Absent window evidence, the reason
-  stays `bind_timeout_no_discovery` and the windows go in evidence.
 - `scheme_autoload_not_validated` — a **preflight/config-validation** failure (the requested
   isolated scheme has not been validated to autoload RookNative). NOT a runtime wait result.
+
+There is deliberately **no window-causal reason** (e.g. no `readiness_blocked_by_startup_window`): a
+window is *evidence*, not proof of causation (it could be a normal startup window, disabled
+autoload, a modal, a profile issue, or a plugin-load failure). A no-discovery timeout with a window
+present stays `bind_timeout_no_discovery`, with the window facts carried as evidence + a non-causal
+hint (below).
 
 These reason codes **reconcile with / extend the existing `DiscoveryFailureReason` taxonomy
 introduced in P4** — the implementation maps to or extends that enum rather than inventing a
@@ -114,8 +132,11 @@ parallel taxonomy.
 
 **Evidence** (attached to every outcome, success or failure): `scheme`, `isolationMode`,
 `discoveryRecordPath`, `discoveryLogSeen`, `windows` (hwnd/title/class/visible when cheaply
-available), `exitCode`, `argv`, `elapsedSeconds`. (Window enumeration already exists at cleanup —
-reuse it at readiness-failure time.)
+available), `visibleWindowCount`, `emptyTitleWindowPresent`, `exitCode`, `argv`, `elapsedSeconds`,
+and a **non-causal** `diagnosticHint` (e.g. `"startup_window_present_no_discovery"` when a visible
+or empty-title window coincides with a no-discovery timeout). A window is **evidence, not proof** —
+Rook reports what it saw and never infers that a window *caused* the failure. (Window enumeration
+already exists at cleanup — reuse it at readiness-failure time.)
 
 ## 9. Loop-break — Option 1 + safety clause, capability-gated
 
@@ -167,8 +188,9 @@ Each **fails closed** if not safely identifiable.
 ## 13. Testing
 
 - **Unit (no Rhino):** argv/env construction (nosplash always; `/scheme=` only when
-  available+requested; opt-out env); the classifier (mock signals → correct reason;
-  `readiness_blocked_by_startup_window` only with window evidence); the reset logic (dry-run;
+  available+requested; opt-out env); the classifier (mock signals → correct reason; a window during
+  a no-discovery timeout yields `bind_timeout_no_discovery` + `emptyTitleWindowPresent` /
+  `diagnosticHint`, never a window-causal reason); the reset logic (dry-run;
   **fail-closed** when the marker isn't provably scheme-local; `canResetSchemeRecoveryState:false` →
   no mutation); capability-flag gating.
 - **Live (gated — and literally the #218 unblock):** re-run p3–p6 through the hardened harness.
@@ -188,9 +210,15 @@ Each **fails closed** if not safely identifiable.
 - "Prefer isolated *when validated*," NOT unconditional isolated-default; 4-state scheme machine;
   no silent fallback; don't claim isolated-default operational until autoload seeding (Phase 2) is
   real. [user]
-- Reason codes **separate** from evidence; specific taxonomy; `readiness_blocked_by_startup_window`
-  only with window evidence; `scheme_autoload_not_validated` is preflight, not a wait result; no
-  vague `plugin_not_ready_under_scheme` bucket; reconcile with the P4 `DiscoveryFailureReason`. [user]
+- Reason codes **separate** from evidence; a window is **evidence, not proof** — no window-causal
+  reason; a no-discovery timeout with a window stays `bind_timeout_no_discovery` + non-causal
+  `diagnosticHint` / `emptyTitleWindowPresent` / `visibleWindowCount`. `scheme_autoload_not_validated`
+  is preflight, not a wait result; no vague `plugin_not_ready_under_scheme` bucket; reconcile with
+  the P4 `DiscoveryFailureReason`. [user]
+- `rhino_launch.py` **owns** the moved discovery/readiness primitives (`DiscoveryFailureReason` /
+  `DiscoveryError` / `OwnedRhinoRecord` / `OwnedRhinoDiscovery`); `runtime_harness.py` imports them
+  back via thin re-exports (bounding blast radius) and keeps harness orchestration — avoids the
+  circular import. [user]
 - Phased **capability flags** (`schemeIsolationAvailable`, `canResetSchemeRecoveryState`), default
   false + visible; Phase 1 ships regardless, Phase 2 only if proven. [user]
 - `canResetSchemeRecoveryState` gates all reset; default false until the exact scheme-local marker
