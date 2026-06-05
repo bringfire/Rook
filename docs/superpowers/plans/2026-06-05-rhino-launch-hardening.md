@@ -12,6 +12,21 @@
 
 ---
 
+## ⚠️ Pre-execution revisions REQUIRED (Codex review 2026-06-05 — fold in before executing)
+
+Do **not** execute as-written. Six blockers:
+
+1. **Don't hide the `Popen` handle.** Both callers need the live process object (harness cleanup; `workbench.py` `_OWNED` / `_reap_unclaimable` / close). **Split the primitive** instead of a black box: `build_rhino_argv(...)` → `start_rhino_process(...) -> StartedRhino(process, pid, argv, evidence_base)` → `wait_for_rook_readiness(started, ...) -> LaunchOutcome`. (Or `launch_rhino(..., on_started=callback) -> LaunchAttempt(process, outcome, record)`.) Tasks 6/7/8 use the split.
+2. **Preserve P5's durable-claim ordering.** Current `workbench.py:266` is `Popen` → **immediately `insert_launching`** → then wait readiness. The split MUST keep that order: `start_rhino_process()` → `registry.insert_launching(...)` (claim) → `wait_for_rook_readiness()` → bind. A primitive that waits internally claims too late and reopens P5's orphan window. (Task 8.)
+3. **Honor the `{success,data}` envelope** (the #220 lesson). `launch_owned_workbench` must NOT return `outcome.to_dict()` raw (won't format through `_format_tool_result`). Return `{"success": False, "data": {"code", "reason", "evidence", "retryable"}}` on failure / `{"success": True, "data": {...}}` on success — the P4/P5 envelope. (Task 8.)
+4. **Evidence must not claim isolation it didn't use.** Add **`requestedScheme` AND `activeScheme`** to `LaunchEvidence`; when `SCHEME_ISOLATION_AVAILABLE=False`, `activeScheme=None` / `isolationMode="default"` even if `requestedScheme="RookWorkbench"`. `isolationMode` derives from `activeScheme`, never the request. (Tasks 3/4/5.)
+5. **Task 1 move list is incomplete — move the full transitive set.** `OwnedRhinoDiscovery` also needs `LOOPBACK_HOSTS`, `MIN_POLL_SECONDS`, `_run_awaitable_sync`, `ProcessLike`, `PingFunction`, `resolve_discovery_folder`, and imports `tempfile`/`httpx`/`inspect`. `describe_windows_for_pid` also needs `_windows_user32`, `_window_title`, `ctypes`/`wintypes`. After moving, grep both modules for every now-unresolved name and fix imports/re-exports until each imports clean.
+6. **`WM_CLOSE` coherence.** `close_windows_for_pid()` (cleanup) STAYS in `runtime_harness.py` and uses `WM_CLOSE` → keep `WM_CLOSE` there. Move only the window-**read** group (`describe_windows_for_pid`, `_windows_user32`, `_window_title`) to `rhino_launch.py`; `close_windows_for_pid` imports `describe_windows_for_pid` back via the re-export. Read = launch-evidence; close = cleanup.
+
+**Corrected shape:** `rhino_launch.py` owns low-level primitives (argv, `start_rhino_process`, `wait_for_rook_readiness`, `classify`, evidence, the moved discovery/window-read helpers); **callers own the lifecycle** (start → insert/claim → wait → bind/smoke → cleanup). The task bodies below predate this review and must be reshaped accordingly before execution.
+
+---
+
 ## Setup
 
 - [ ] **Branch off main:**
