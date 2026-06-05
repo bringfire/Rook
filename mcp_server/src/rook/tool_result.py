@@ -62,3 +62,15 @@ def parse_call_tool_error(result: Any) -> dict[str, Any] | str:
     except (json.JSONDecodeError, ValueError):
         return payload
     return parsed if isinstance(parsed, dict) else payload
+
+
+async def call_tool_data(
+    call_tool: Callable[[str, dict[str, Any]], Awaitable[Any]],
+    name: str,
+    arguments: dict[str, Any],
+) -> dict[str, Any]:
+    """``await call_tool(name, arguments)`` then ``parse_call_tool_data``. Strict —
+    propagates ``ValueError`` if the tool returned an error result. ``call_tool`` is
+    injected (callers pass ``server.call_tool``) so this module never imports ``server``.
+    """
+    return parse_call_tool_data(await call_tool(name, arguments))

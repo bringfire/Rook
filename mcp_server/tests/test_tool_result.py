@@ -1,9 +1,11 @@
+import asyncio
 import json
 
 import pytest
 from mcp.types import TextContent
 
 from rook.tool_result import (
+    call_tool_data,
     is_error_result,
     parse_call_tool_data,
     parse_call_tool_error,
@@ -69,3 +71,19 @@ def test_parse_error_returns_raw_string_for_brace_non_json():
 def test_parse_error_raises_on_success_result():
     with pytest.raises(ValueError):
         parse_call_tool_error(_wire(json.dumps({"ok": 1})))
+
+
+def test_call_tool_data_returns_success_dict():
+    async def fake_call_tool(name, arguments):
+        assert name == "some_tool" and arguments == {"x": 1}
+        return _wire(json.dumps({"ok": True}))
+
+    assert asyncio.run(call_tool_data(fake_call_tool, "some_tool", {"x": 1})) == {"ok": True}
+
+
+def test_call_tool_data_propagates_error_as_valueerror():
+    async def fake_call_tool(name, arguments):
+        return _wire("Error: boom")
+
+    with pytest.raises(ValueError):
+        asyncio.run(call_tool_data(fake_call_tool, "some_tool", {}))
