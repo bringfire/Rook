@@ -24,6 +24,7 @@ from .bridge import resolve_discovery_folder
 from .rhino_launch import (  # noqa: F401  canonical home is rhino_launch; re-exported for back-compat
     DiscoveryError,
     DiscoveryFailureReason,
+    LaunchExecError,
     OwnedRhinoDiscovery,
     OwnedRhinoRecord,
     PingFunction,
@@ -31,7 +32,11 @@ from .rhino_launch import (  # noqa: F401  canonical home is rhino_launch; re-ex
     _windows_user32,
     default_discovery_dir,
     describe_windows_for_pid,
+    exec_failure_outcome,
     ping_native,
+    resolve_requested_scheme,
+    start_rhino_process,
+    wait_for_rook_readiness,
 )
 
 
@@ -120,6 +125,7 @@ class RhinoHarnessResult:
     runscript_safety_unrecovered_path: Path | None = None
     run_started_at: float = field(default_factory=time.time)
     warnings: list[str] = field(default_factory=list)
+    launch_outcome: dict[str, Any] | None = None
 
     @property
     def success(self) -> bool:
@@ -160,6 +166,7 @@ class RhinoHarnessResult:
                 ),
             },
             "warnings": self.warnings,
+            "launch_outcome": self.launch_outcome,
             "status": self.status.value,
             "success": self.success,
         }
@@ -649,12 +656,20 @@ def run_rhino_runtime_harness(
         return result
 
     discovery = discovery or OwnedRhinoDiscovery()
+    requested_scheme = resolve_requested_scheme("RookHarness", os.environ, env_var="ROOK_HARNESS_SCHEME")
+    launch_env = _apply_env_overrides(os.environ, launch_env_overrides)
     try:
-        process = subprocess.Popen(
-            [str(rhino_exe)],
-            env=_apply_env_overrides(os.environ, launch_env_overrides),
+        started = start_rhino_process(
+            rhino_exe,
+            requested_scheme=requested_scheme,
+            env=launch_env,
+            # Launch via THIS module's subprocess.Popen so harness tests that patch
+            # rook.runtime_harness.subprocess.Popen still intercept the owned-Rhino launch.
+            # start_rhino_process still owns argv (/nosplash) + scheme; the primitive's own
+            # popen-injection path is exercised directly in test_rhino_launch.
+            popen=lambda argv: subprocess.Popen(argv, env=launch_env),
         )
-    except OSError as exc:
+    except LaunchExecError as exc:
         result = RhinoHarnessResult(
             run_id=run_id,
             artifact_dir=artifact_dir,
@@ -662,11 +677,13 @@ def run_rhino_runtime_harness(
             port=0,
             run_started_at=run_started_at,
             warnings=[f"Rhino launch failed: {exc}"],
+            launch_outcome=exec_failure_outcome(exc).to_dict(),
         )
         copy_rook_artifacts(result, artifact_roots, "launch-failure")
         result.write_manifest()
         return result
-    pid = int(process.pid)
+    process = started.process
+    pid = int(started.pid)
     port = 0
     before_shutdown_copied = False
     result = RhinoHarnessResult(
@@ -679,18 +696,21 @@ def run_rhino_runtime_harness(
     )
 
     try:
-        try:
-            record = discovery.wait_for_ready(
-                pid=pid,
-                process=process,
-                ping=ping_native,
-                timeout_seconds=readiness_timeout_seconds,
-                poll_seconds=readiness_poll_seconds,
-            )
-        except DiscoveryError as exc:
-            warnings.append(f"Rhino readiness failed: {exc}")
+        readiness = wait_for_rook_readiness(
+            started,
+            discovery=discovery,
+            ping=ping_native,
+            timeout_seconds=readiness_timeout_seconds,
+            poll_seconds=readiness_poll_seconds,
+        )
+        result = replace(result, launch_outcome=readiness.outcome.to_dict())
+        if not readiness.outcome.ok:
+            # Preserve the original warning text (full DiscoveryError message); the structured
+            # reason/evidence ride in result.launch_outcome.
+            warnings.append(f"Rhino readiness failed: {readiness.outcome.message}")
             copy_rook_artifacts(result, artifact_roots, "readiness-failure")
         else:
+            record = readiness.record
             try:
                 confirmed_record = discovery.read_owned_record(pid)
             except DiscoveryError as exc:

@@ -1039,6 +1039,7 @@ def test_harness_manifest_contains_future_cleanup_and_readiness_fields(tmp_path:
             "sentinel_path": None,
         },
         "warnings": ["artifact copy skipped"],
+        "launch_outcome": None,
         "status": "non_green",
         "success": False,
     }
@@ -1419,7 +1420,7 @@ def test_runtime_harness_successful_flow_uses_exact_owned_discovery_and_scoped_s
         cleanup_timeout_seconds=2.5,
     )
 
-    assert popen_calls == [[str(rhino_exe)]]
+    assert popen_calls == [[str(rhino_exe), "/nosplash"]]
     assert len(discovery.wait_calls) == 1
     assert discovery.wait_calls[0]["pid"] == 4321
     assert discovery.wait_calls[0]["process"] is process
@@ -1471,7 +1472,7 @@ def test_runtime_harness_passes_artifact_dir_and_timeout_to_smoke(
     )
 
     def fake_popen(command, **kwargs):
-        if command == [str(rhino_exe)]:
+        if command == [str(rhino_exe), "/nosplash"]:
             launch_calls.append((command, kwargs))
             return process
         return original_popen(command, **kwargs)

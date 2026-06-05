@@ -482,8 +482,9 @@ def wait_for_rook_readiness(started: StartedRhino, *, discovery, ping=None,
     log_seen = log_seen or (lambda: _discovery_log_seen(
         getattr(discovery, "discovery_dir", None), started.pid, started.started_wall))
     try:
-        record = discovery.wait_for_ready(started.pid, started.process, ping,
-                                          timeout_seconds, poll_seconds)
+        record = discovery.wait_for_ready(
+            pid=started.pid, process=started.process, ping=ping,
+            timeout_seconds=timeout_seconds, poll_seconds=poll_seconds)
     except DiscoveryError as exc:
         windows = list(describe_windows(started.pid) or [])
         ev = _build_evidence(requested_scheme=started.requestedScheme, active_scheme=started.activeScheme,
