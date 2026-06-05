@@ -4,6 +4,7 @@ import json
 import pytest
 from mcp.types import TextContent
 
+from rook import server
 from rook.tool_result import (
     call_tool_data,
     is_error_result,
@@ -87,3 +88,37 @@ def test_call_tool_data_propagates_error_as_valueerror():
 
     with pytest.raises(ValueError):
         asyncio.run(call_tool_data(fake_call_tool, "some_tool", {}))
+
+
+# --- Contract: parsers are the inverse of server._format_tool_result -----------------
+
+def test_contract_success_dict_roundtrips():
+    data = {"artifacts": [{"path": "p"}], "n": 1}
+    rendered = server._format_tool_result({"success": True, "data": data})
+    assert not is_error_result(rendered)
+    assert parse_call_tool_data(rendered) == data
+
+
+def test_contract_error_dict_roundtrips():
+    data = {"code": "rhino_session_not_found", "retryable": False}
+    rendered = server._format_tool_result({"success": False, "data": data})
+    assert is_error_result(rendered)
+    assert parse_call_tool_error(rendered) == data
+
+
+def test_contract_error_string_roundtrips():
+    rendered = server._format_tool_result({"success": False, "data": "boom"})
+    assert is_error_result(rendered)
+    assert parse_call_tool_error(rendered) == "boom"
+
+
+def test_contract_success_parser_rejects_error_envelope():
+    rendered = server._format_tool_result({"success": False, "data": {"code": "x"}})
+    with pytest.raises(ValueError):
+        parse_call_tool_data(rendered)
+
+
+def test_contract_error_parser_rejects_success_envelope():
+    rendered = server._format_tool_result({"success": True, "data": {"k": 1}})
+    with pytest.raises(ValueError):
+        parse_call_tool_error(rendered)
