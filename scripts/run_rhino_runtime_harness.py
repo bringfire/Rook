@@ -11,6 +11,14 @@ RUNSCRIPT_SAFETY_TIMEOUT_SECONDS = 120.0
 RUNSCRIPT_SAFETY_READINESS_TIMEOUT_SECONDS = 90.0
 COMMAND_CONTROL_SATURATION_TIMEOUT_SECONDS = 45.0
 COMMAND_CONTROL_SATURATION_READINESS_TIMEOUT_SECONDS = 45.0
+ROUTER_PLANE_READINESS_TIMEOUT_SECONDS = 90.0
+ROUTER_PLANE_SMOKES = {
+    "p2-bridge-diagnosis",
+    "p3-session-mutation",
+    "p4-workbench-lifecycle",
+    "p5-registry-reclaim",
+    "p6-artifact-perception",
+}
 
 
 def _repo_root() -> Path:
@@ -159,6 +167,11 @@ def _readiness_timeout_seconds(name: str, requested: float | None) -> float:
         return RUNSCRIPT_SAFETY_READINESS_TIMEOUT_SECONDS
     if name == "command-control-saturation":
         return COMMAND_CONTROL_SATURATION_READINESS_TIMEOUT_SECONDS
+    if name in ROUTER_PLANE_SMOKES:
+        # This is a maximum wait for RookNative startup readiness
+        # (PID-correlated discovery + /ping), not document/file-open readiness.
+        # Fast launches proceed immediately; cold Rhino starts have room to bind.
+        return ROUTER_PLANE_READINESS_TIMEOUT_SECONDS
     return 30.0
 
 

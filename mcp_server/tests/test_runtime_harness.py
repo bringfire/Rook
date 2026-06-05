@@ -1039,6 +1039,7 @@ def test_harness_manifest_contains_future_cleanup_and_readiness_fields(tmp_path:
             "sentinel_path": None,
         },
         "warnings": ["artifact copy skipped"],
+        "launch_outcome": None,
         "status": "non_green",
         "success": False,
     }
@@ -1419,7 +1420,7 @@ def test_runtime_harness_successful_flow_uses_exact_owned_discovery_and_scoped_s
         cleanup_timeout_seconds=2.5,
     )
 
-    assert popen_calls == [[str(rhino_exe)]]
+    assert popen_calls == [[str(rhino_exe), "/nosplash"]]
     assert len(discovery.wait_calls) == 1
     assert discovery.wait_calls[0]["pid"] == 4321
     assert discovery.wait_calls[0]["process"] is process
@@ -1471,7 +1472,7 @@ def test_runtime_harness_passes_artifact_dir_and_timeout_to_smoke(
     )
 
     def fake_popen(command, **kwargs):
-        if command == [str(rhino_exe)]:
+        if command == [str(rhino_exe), "/nosplash"]:
             launch_calls.append((command, kwargs))
             return process
         return original_popen(command, **kwargs)
@@ -2310,6 +2311,20 @@ def test_runtime_harness_maps_command_control_saturation_smoke():
     assert module._launch_env_overrides("command-control-saturation") == {
         "ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING": "1",
     }
+
+
+def test_runtime_harness_router_plane_smokes_use_cold_start_readiness_ceiling():
+    module = _load_harness_cli_module()
+
+    for smoke in (
+        "p2-bridge-diagnosis",
+        "p3-session-mutation",
+        "p4-workbench-lifecycle",
+        "p5-registry-reclaim",
+        "p6-artifact-perception",
+    ):
+        assert module._readiness_timeout_seconds(smoke, None) == 90.0
+        assert module._readiness_timeout_seconds(smoke, 12.5) == 12.5
 
 
 def test_runtime_harness_uses_legacy_default_readiness_for_other_smoke():

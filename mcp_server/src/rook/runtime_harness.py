@@ -16,19 +16,28 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from enum import Enum
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Protocol
+from typing import Any, Callable
 
 import httpx
 
 from .bridge import resolve_discovery_folder
-
-
-LOOPBACK_HOSTS = {"127.0.0.1", "localhost"}
-
-
-def default_discovery_dir() -> Path:
-    folder, _, _ = resolve_discovery_folder(temp_root=Path(tempfile.gettempdir()))
-    return folder
+from .rhino_launch import (  # noqa: F401  canonical home is rhino_launch; re-exported for back-compat
+    DiscoveryError,
+    DiscoveryFailureReason,
+    LaunchExecError,
+    OwnedRhinoDiscovery,
+    OwnedRhinoRecord,
+    PingFunction,
+    _run_awaitable_sync,
+    _windows_user32,
+    default_discovery_dir,
+    describe_windows_for_pid,
+    exec_failure_outcome,
+    ping_native,
+    resolve_requested_scheme,
+    start_rhino_process,
+    wait_for_rook_readiness,
+)
 
 
 def default_temp_rook_dir() -> Path:
@@ -51,7 +60,6 @@ def default_artifact_roots() -> list[ArtifactRoot]:
 
 
 DEFAULT_DISCOVERY_DIR = default_discovery_dir()
-MIN_POLL_SECONDS = 0.001
 HARNESS_ENV_KEYS = (
     "ROOK_RHINO_PORT",
     "ROOK_RHINO_PROCESS_ID",
@@ -61,31 +69,6 @@ HARNESS_ENV_KEYS = (
 RUNSCRIPT_SAFETY_UNRECOVERED_SENTINEL = "runscript_safety_unrecovered.json"
 FINAL_SMOKE_DRAIN_TIMEOUT_SECONDS = 1.0
 WM_CLOSE = 0x0010
-
-
-class DiscoveryFailureReason(Enum):
-    FILE_NOT_FOUND = "file_not_found"
-    INVALID_RECORD = "invalid_record"
-    EXITED_BEFORE_BIND = "exited_before_bind"
-    EXITED_BEFORE_READY = "exited_before_ready"
-    BIND_TIMEOUT_NO_DISCOVERY = "bind_timeout_no_discovery"
-    BIND_TIMEOUT_NO_PING = "bind_timeout_no_ping"
-    INVALID_DISCOVERY_RECORD = "invalid_discovery_record"
-
-
-class DiscoveryError(RuntimeError):
-    def __init__(self, message: str, *, reason: "DiscoveryFailureReason | None" = None):
-        super().__init__(message)
-        self.reason = reason
-
-
-@dataclass(frozen=True)
-class OwnedRhinoRecord:
-    pid: int
-    host: str
-    port: int
-    path: Path
-    raw: dict[str, Any]
 
 
 class CleanupStatus(Enum):
@@ -142,6 +125,7 @@ class RhinoHarnessResult:
     runscript_safety_unrecovered_path: Path | None = None
     run_started_at: float = field(default_factory=time.time)
     warnings: list[str] = field(default_factory=list)
+    launch_outcome: dict[str, Any] | None = None
 
     @property
     def success(self) -> bool:
@@ -182,6 +166,7 @@ class RhinoHarnessResult:
                 ),
             },
             "warnings": self.warnings,
+            "launch_outcome": self.launch_outcome,
             "status": self.status.value,
             "success": self.success,
         }
@@ -194,16 +179,6 @@ class RhinoHarnessResult:
             encoding="utf-8",
         )
         return manifest_path
-
-
-class ProcessLike(Protocol):
-    pid: int
-    returncode: int | None
-
-    def poll(self) -> int | None: ...
-
-
-PingFunction = Callable[[str, int], bool | Awaitable[bool]]
 
 
 def _scoped_env_subset(env_additions: dict[str, str]) -> dict[str, str]:
@@ -246,22 +221,6 @@ def _smoke_popen_kwargs() -> dict[str, Any]:
     return {"start_new_session": True}
 
 
-def _windows_user32() -> ctypes.WinDLL:
-    user32 = ctypes.WinDLL("user32", use_last_error=True)
-    user32.EnumWindows.restype = wintypes.BOOL
-    user32.IsWindowVisible.argtypes = [wintypes.HWND]
-    user32.IsWindowVisible.restype = wintypes.BOOL
-    user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
-    user32.GetWindowTextLengthW.restype = ctypes.c_int
-    user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
-    user32.GetWindowTextW.restype = ctypes.c_int
-    user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
-    user32.GetWindowThreadProcessId.restype = wintypes.DWORD
-    user32.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
-    user32.PostMessageW.restype = wintypes.BOOL
-    return user32
-
-
 def close_windows_for_pid(pid: int) -> int:
     if os.name != "nt":
         return 0
@@ -283,46 +242,6 @@ def close_windows_for_pid(pid: int) -> int:
     enum_windows_proc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
     user32.EnumWindows(enum_windows_proc(enum_window), 0)
     return posted_count
-
-
-def _window_title(user32: ctypes.WinDLL, hwnd: int) -> str:
-    length = user32.GetWindowTextLengthW(hwnd)
-    if length <= 0:
-        return ""
-    buffer = ctypes.create_unicode_buffer(length + 1)
-    copied = user32.GetWindowTextW(hwnd, buffer, length + 1)
-    if copied <= 0:
-        return ""
-    return buffer.value
-
-
-def describe_windows_for_pid(pid: int) -> list[dict[str, Any]]:
-    if os.name != "nt":
-        return []
-
-    user32 = _windows_user32()
-    windows: list[dict[str, Any]] = []
-
-    def enum_window(hwnd, lparam):
-        visible = bool(user32.IsWindowVisible(hwnd))
-        if not visible:
-            return True
-
-        window_pid = wintypes.DWORD()
-        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(window_pid))
-        if window_pid.value == pid:
-            windows.append(
-                {
-                    "hwnd": f"0x{int(hwnd):x}",
-                    "visible": visible,
-                    "title": _window_title(user32, hwnd),
-                }
-            )
-        return True
-
-    enum_windows_proc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
-    user32.EnumWindows(enum_windows_proc(enum_window), 0)
-    return windows
 
 
 def request_external_graceful_close(
@@ -737,12 +656,20 @@ def run_rhino_runtime_harness(
         return result
 
     discovery = discovery or OwnedRhinoDiscovery()
+    requested_scheme = resolve_requested_scheme("RookHarness", os.environ, env_var="ROOK_HARNESS_SCHEME")
+    launch_env = _apply_env_overrides(os.environ, launch_env_overrides)
     try:
-        process = subprocess.Popen(
-            [str(rhino_exe)],
-            env=_apply_env_overrides(os.environ, launch_env_overrides),
+        started = start_rhino_process(
+            rhino_exe,
+            requested_scheme=requested_scheme,
+            env=launch_env,
+            # Launch via THIS module's subprocess.Popen so harness tests that patch
+            # rook.runtime_harness.subprocess.Popen still intercept the owned-Rhino launch.
+            # start_rhino_process still owns argv (/nosplash) + scheme; the primitive's own
+            # popen-injection path is exercised directly in test_rhino_launch.
+            popen=lambda argv: subprocess.Popen(argv, env=launch_env),
         )
-    except OSError as exc:
+    except LaunchExecError as exc:
         result = RhinoHarnessResult(
             run_id=run_id,
             artifact_dir=artifact_dir,
@@ -750,11 +677,13 @@ def run_rhino_runtime_harness(
             port=0,
             run_started_at=run_started_at,
             warnings=[f"Rhino launch failed: {exc}"],
+            launch_outcome=exec_failure_outcome(exc).to_dict(),
         )
         copy_rook_artifacts(result, artifact_roots, "launch-failure")
         result.write_manifest()
         return result
-    pid = int(process.pid)
+    process = started.process
+    pid = int(started.pid)
     port = 0
     before_shutdown_copied = False
     result = RhinoHarnessResult(
@@ -767,18 +696,21 @@ def run_rhino_runtime_harness(
     )
 
     try:
-        try:
-            record = discovery.wait_for_ready(
-                pid=pid,
-                process=process,
-                ping=ping_native,
-                timeout_seconds=readiness_timeout_seconds,
-                poll_seconds=readiness_poll_seconds,
-            )
-        except DiscoveryError as exc:
-            warnings.append(f"Rhino readiness failed: {exc}")
+        readiness = wait_for_rook_readiness(
+            started,
+            discovery=discovery,
+            ping=ping_native,
+            timeout_seconds=readiness_timeout_seconds,
+            poll_seconds=readiness_poll_seconds,
+        )
+        result = replace(result, launch_outcome=readiness.outcome.to_dict())
+        if not readiness.outcome.ok:
+            # Preserve the original warning text (full DiscoveryError message); the structured
+            # reason/evidence ride in result.launch_outcome.
+            warnings.append(f"Rhino readiness failed: {readiness.outcome.message}")
             copy_rook_artifacts(result, artifact_roots, "readiness-failure")
         else:
+            record = readiness.record
             try:
                 confirmed_record = discovery.read_owned_record(pid)
             except DiscoveryError as exc:
@@ -917,169 +849,3 @@ def classify_cleanup_status(
     if discovery_leftover:
         return CleanupStatus.GRACEFUL_EXIT_DISCOVERY_LEFTOVER
     return CleanupStatus.GRACEFUL_EXIT
-
-
-def _run_awaitable_sync(awaitable: Awaitable[bool]) -> bool:
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        return bool(asyncio.run(awaitable))
-    if inspect.iscoroutine(awaitable):
-        awaitable.close()
-    raise DiscoveryError("async ping function cannot be used from a running event loop")
-
-
-async def ping_native(host: str, port: int) -> bool:
-    async with httpx.AsyncClient(timeout=3.0) as client:
-        try:
-            response = await client.get(f"http://{host}:{port}/ping")
-        except httpx.HTTPError:
-            return False
-    if response.text.strip() == "pong":
-        return True
-    try:
-        data = response.json()
-    except ValueError:
-        return False
-    if data == "pong":
-        return True
-    return isinstance(data, dict) and (data.get("data") == "pong" or data.get("success") is True)
-
-
-class OwnedRhinoDiscovery:
-    def __init__(self, discovery_dir: Path | None = None):
-        self.discovery_dir = discovery_dir or default_discovery_dir()
-
-    def owned_path(self, pid: int) -> Path:
-        return self.discovery_dir / f"instance-{pid}-native.json"
-
-    def read_owned_record(self, pid: int) -> OwnedRhinoRecord:
-        path = self.owned_path(pid)
-        if not path.exists():
-            raise DiscoveryError(
-                f"owned Rhino discovery file not found: {path}",
-                reason=DiscoveryFailureReason.FILE_NOT_FOUND,
-            )
-
-        try:
-            raw = json.loads(path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError as exc:
-            raise DiscoveryError(
-                f"malformed JSON in owned Rhino discovery file: {path}",
-                reason=DiscoveryFailureReason.INVALID_RECORD,
-            ) from exc
-        if not isinstance(raw, dict):
-            raise DiscoveryError(
-                f"owned Rhino discovery JSON must be an object: {path}",
-                reason=DiscoveryFailureReason.INVALID_RECORD,
-            )
-
-        process_id = raw.get("processId")
-        if not isinstance(process_id, int) or isinstance(process_id, bool) or process_id != pid:
-            raise DiscoveryError(
-                f"wrong processId in owned Rhino discovery file: {process_id}",
-                reason=DiscoveryFailureReason.INVALID_RECORD,
-            )
-
-        plugin_type = raw.get("pluginType")
-        if plugin_type != "native":
-            raise DiscoveryError(
-                f"unexpected pluginType in owned Rhino discovery file: {plugin_type}",
-                reason=DiscoveryFailureReason.INVALID_RECORD,
-            )
-
-        raw_host = raw.get("host")
-        if raw_host is None or raw_host == "":
-            host = "127.0.0.1"
-        elif not isinstance(raw_host, str):
-            raise DiscoveryError(
-                f"owned Rhino discovery host must be loopback: {raw_host}",
-                reason=DiscoveryFailureReason.INVALID_RECORD,
-            )
-        else:
-            host = raw_host.strip().lower()
-        if host not in LOOPBACK_HOSTS:
-            raise DiscoveryError(
-                f"owned Rhino discovery host must be loopback: {host}",
-                reason=DiscoveryFailureReason.INVALID_RECORD,
-            )
-
-        port = raw.get("port")
-        if not isinstance(port, int) or isinstance(port, bool) or port <= 0:
-            raise DiscoveryError(
-                f"invalid port in owned Rhino discovery file: {port}",
-                reason=DiscoveryFailureReason.INVALID_RECORD,
-            )
-
-        return OwnedRhinoRecord(pid=pid, host=host, port=port, path=path, raw=raw)
-
-    def snapshot_owned_record(self, record: OwnedRhinoRecord, artifact_dir: Path) -> Path:
-        artifact_dir.mkdir(parents=True, exist_ok=True)
-        snapshot_path = artifact_dir / f"owned-discovery-{record.path.name}"
-        snapshot_path.write_text(json.dumps(record.raw, indent=2), encoding="utf-8")
-        return snapshot_path
-
-    def wait_for_ready(
-        self,
-        pid: int,
-        process: ProcessLike,
-        ping: PingFunction = ping_native,
-        timeout_seconds: float = 30.0,
-        poll_seconds: float = 0.25,
-        *,
-        _monotonic: Callable[[], float] = time.monotonic,
-        _sleep: Callable[[float], None] = time.sleep,
-    ) -> OwnedRhinoRecord:
-        deadline = _monotonic() + timeout_seconds
-        last_discovery_error: DiscoveryError | None = None
-        saw_discovery = False
-
-        while True:
-            exit_code = process.poll()
-            if exit_code is not None:
-                if saw_discovery:
-                    raise DiscoveryError(
-                        f"Rhino exited with code {exit_code} before RookNative became pingable",
-                        reason=DiscoveryFailureReason.EXITED_BEFORE_READY,
-                    )
-                raise DiscoveryError(
-                    f"Rhino exited with code {exit_code} before RookNative discovery appeared",
-                    reason=DiscoveryFailureReason.EXITED_BEFORE_BIND,
-                )
-
-            try:
-                record = self.read_owned_record(pid)
-            except DiscoveryError as exc:
-                last_discovery_error = exc
-            else:
-                saw_discovery = True
-                ping_result = ping(record.host, record.port)
-                if inspect.isawaitable(ping_result):
-                    ping_result = _run_awaitable_sync(ping_result)
-                if ping_result:
-                    return record
-
-            now = _monotonic()
-            if now >= deadline:
-                if saw_discovery:
-                    raise DiscoveryError(
-                        f"owned RookNative discovery for Rhino pid {pid} did not become pingable",
-                        reason=DiscoveryFailureReason.BIND_TIMEOUT_NO_PING,
-                    )
-                if (
-                    last_discovery_error is not None
-                    and last_discovery_error.reason is DiscoveryFailureReason.INVALID_RECORD
-                ):
-                    raise DiscoveryError(
-                        str(last_discovery_error),
-                        reason=DiscoveryFailureReason.INVALID_DISCOVERY_RECORD,
-                    ) from last_discovery_error
-                raise DiscoveryError(
-                    str(last_discovery_error)
-                    if last_discovery_error is not None
-                    else f"owned Rhino discovery file not found for pid {pid}",
-                    reason=DiscoveryFailureReason.BIND_TIMEOUT_NO_DISCOVERY,
-                )
-
-            wait_seconds = poll_seconds if poll_seconds > 0 else MIN_POLL_SECONDS
-            _sleep(min(wait_seconds, deadline - now))

@@ -27,6 +27,14 @@ from .runtime_harness import (
     ping_native,
     request_external_graceful_close,
 )
+from .rhino_launch import (
+    LaunchExecError,
+    LaunchOutcome,
+    exec_failure_outcome,
+    resolve_requested_scheme,
+    start_rhino_process,
+    wait_for_rook_readiness,
+)
 from .bridge import (_process_id_from_session_id, classify_session_liveness,
                      _is_pid_alive, _is_port_listening, DEFAULT_HOST)
 from . import registry as _reg
@@ -262,12 +270,22 @@ async def launch_owned_workbench(readiness_timeout_seconds: int = 90) -> dict[st
     exe = _resolve_rhino_exe()
     if not exe.exists():
         return _err("rhino_executable_not_found", f"Rhino executable not found: {exe}")
+    requested = resolve_requested_scheme("RookWorkbench", os.environ, env_var="ROOK_WORKBENCH_SCHEME")
     try:
-        process = subprocess.Popen([str(exe)])
-    except OSError as exc:
-        return _err("workbench_launch_failed", f"Rhino launch failed: {exc}")
+        started = start_rhino_process(
+            exe, requested_scheme=requested, env=None,
+            # Launch via THIS module's subprocess.Popen so tests patching
+            # workbench.subprocess.Popen still intercept; start_rhino_process owns argv (/nosplash).
+            popen=lambda argv: subprocess.Popen(argv))
+    except LaunchExecError as exc:
+        # _err derives retryable from _RETRYABLE (workbench_launch_failed -> False); add the
+        # structured reason/evidence. NOT retryable by existing policy.
+        out = exec_failure_outcome(exc)
+        return _err("workbench_launch_failed", out.message,
+                    reason=out.reason.value, evidence=out.evidence.to_dict())
 
-    pid = int(process.pid)
+    process = started.process
+    pid = int(started.pid)
     session = f"rhino-{pid}"
     owner = get_runtime_owner()
     # Durably claim the launch FIRST (first statement after Popen). insert_launching
@@ -281,12 +299,13 @@ async def launch_owned_workbench(readiness_timeout_seconds: int = 90) -> dict[st
         return await _reap_unclaimable(process, pid, exc, owner=owner, scope=scope)
 
     discovery = OwnedRhinoDiscovery()
-    started = time.monotonic()
-    try:
-        record = await asyncio.to_thread(
-            discovery.wait_for_ready, pid, process, ping_native, timeout, 0.25)
-    except DiscoveryError as exc:
-        return await _handle_launch_failure(exc, process, pid, session)
+    started_at = time.monotonic()
+    rr = await asyncio.to_thread(
+        wait_for_rook_readiness, started, discovery=discovery, ping=ping_native,
+        timeout_seconds=timeout, poll_seconds=0.25, describe_windows=describe_windows_for_pid)
+    if not rr.outcome.ok:
+        return await _handle_launch_failure(rr.outcome, process, pid, session)
+    record = rr.record   # the live OwnedRhinoRecord — no re-read, no new failure path
 
     # bind CAS — a concurrent close may have superseded us. bind() can also THROW
     # (DB error) while the Rhino is already live + bound: reap it and drop the
@@ -306,7 +325,7 @@ async def launch_owned_workbench(readiness_timeout_seconds: int = 90) -> dict[st
                                      launched_at=time.time())
     return {"success": True, "data": {
         "session": session, "processId": pid, "port": record.port, "owned": True,
-        "mode": "workbench", "boundInSeconds": round(time.monotonic() - started, 2)}}
+        "mode": "workbench", "boundInSeconds": round(time.monotonic() - started_at, 2)}}
 
 
 async def _reap_unclaimable(process, pid: int, exc: Exception, *,
@@ -362,12 +381,14 @@ async def _reap_unclaimable(process, pid: int, exc: Exception, *,
     return {"success": False, "data": data}
 
 
-async def _handle_launch_failure(exc: DiscoveryError, process, pid: int, session: str) -> dict[str, Any]:
-    code = _REASON_TO_CODE.get(exc.reason, "workbench_launch_failed")
-    data: dict[str, Any] = {"code": code, "message": str(exc), "processId": pid,
-                            "retryable": _RETRYABLE.get(code, True)}
-    if exc.reason is DiscoveryFailureReason.BIND_TIMEOUT_NO_DISCOVERY:
-        windows = describe_windows_for_pid(pid)  # collect BEFORE reaping
+async def _handle_launch_failure(outcome: LaunchOutcome, process, pid: int, session: str) -> dict[str, Any]:
+    code = _REASON_TO_CODE.get(outcome.reason, "workbench_launch_failed")
+    data: dict[str, Any] = {"code": code, "message": outcome.message, "processId": pid,
+                            "retryable": _RETRYABLE.get(code, True),
+                            "reason": outcome.reason.value if outcome.reason else None,
+                            "evidence": outcome.evidence.to_dict()}
+    if outcome.reason is DiscoveryFailureReason.BIND_TIMEOUT_NO_DISCOVERY:
+        windows = outcome.evidence.windows  # captured at readiness-failure time (no re-enum)
         if windows:
             data["blockingWindows"] = windows
             data["diagnosticConfidence"] = "window_present_no_discovery"
