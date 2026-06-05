@@ -57,9 +57,11 @@ Semantics:
   `text_from_call_tool_result(result).startswith("Error: ")`. No JSON, no semantic inference —
   boring and trustworthy by construction.
 - **`parse_call_tool_data(result) -> dict`** — **SUCCESS-only.** Raises `ValueError` if
-  `is_error_result(result)` is true or the text is not JSON. Never returns `{}` silently. (This
-  is the function the issue tentatively called `parse_call_tool_text`; renamed for clarity and
-  to parallel `parse_call_tool_error` / `call_tool_data`. Docstring states "success-only".)
+  `is_error_result(result)` is true, the text is not JSON, **or the parsed JSON is not a dict**
+  (the `dict` return type is part of the contract — a list / str / null / number success payload
+  is a violation, raised as `ValueError`, not returned). Never returns `{}` silently. (This is the
+  function the issue tentatively called `parse_call_tool_text`; renamed for clarity and to
+  parallel `parse_call_tool_error` / `call_tool_data`. Docstring states "success-only".)
 - **`parse_call_tool_error(result) -> dict | str`** — **FAILURE-only.** Raises `ValueError` if
   the result is **not** an error. Strips the leading `"Error: "`, returns the parsed dict when
   the remainder is JSON, otherwise the raw remaining string.
@@ -104,9 +106,11 @@ a blind swap — there are three site types:
 - `text_from_call_tool_result`: returns the payload; `""` for an empty list.
 - `is_error_result`: true for `"Error: ..."`, false for success text.
 - `parse_call_tool_data`: returns the data dict on success; raises `ValueError` on an error
-  envelope; raises `ValueError` on non-JSON success text.
+  envelope; raises `ValueError` on non-JSON success text; raises `ValueError` when the success
+  JSON is **not a dict** (e.g. a JSON list).
 - `parse_call_tool_error`: returns the dict for an error-dict; returns the raw string for an
-  error-string; raises `ValueError` on a success envelope.
+  error-string; returns the **raw string for a non-JSON error remainder that contains braces**
+  (e.g. `Error: {not json` → `"{not json"`, no raise); raises `ValueError` on a success envelope.
 - `call_tool_data`: with a fake async `call_tool`, returns the data on success and propagates
   `ValueError` on an error result.
 
@@ -164,3 +168,6 @@ updated in lockstep — that is the anti-drift pin.
   docstring states "success-only". Supersedes the issue's tentative name. [user suggestion]
 - **Surgical breadth** — p3–p6 only; p2 and the ~52 test files out. [user]
 - **No formatter move** in this slice. [user]
+- **`parse_call_tool_data` requires a dict** success payload (non-dict → `ValueError`, since the
+  return type is `dict`); **`parse_call_tool_error` returns the raw string** for non-JSON error
+  remainders even when they contain braces (robustness for `Error: {not json`). [user]
