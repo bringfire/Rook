@@ -94,6 +94,14 @@ def _smoke_command(name: str, repo_root: Path) -> tuple[list[str], Path]:
             ],
             repo_root,
         )
+    if name == "p6-artifact-perception":
+        return (
+            [
+                sys.executable,
+                "mcp_server/tools/p6_artifact_perception_live_harness.py",
+            ],
+            repo_root,
+        )
     if name == "runscript-safety":
         return (
             [
@@ -192,6 +200,7 @@ def build_parser() -> argparse.ArgumentParser:
             "p3-session-mutation",
             "p4-workbench-lifecycle",
             "p5-registry-reclaim",
+            "p6-artifact-perception",
             "runscript-safety",
             "runscript-safety-hooks",
             "command-control-saturation",
