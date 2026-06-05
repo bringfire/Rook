@@ -23,7 +23,6 @@ owned_sessions.db stays real. Nothing touches the user's session.
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import shutil
 import sys
@@ -41,6 +40,7 @@ _ensure_import_path()
 
 from rook import server, artifacts  # noqa: E402
 from rook import workbench as _wb    # noqa: E402
+from rook.tool_result import is_error_result, parse_call_tool_data  # noqa: E402
 
 _RESULTS: list[tuple[str, bool, str]] = []
 _MAX_ATTEMPTS = 3
@@ -51,23 +51,8 @@ def _record(name: str, ok: bool, detail: str) -> None:
     print(f"[{'PASS' if ok else 'FAIL'}] {name}: {detail}", flush=True)
 
 
-def _text(result) -> str:
-    return result[0].text if result else ""
-
-
-def _json(text: str) -> dict:
-    t = text.strip()
-    if t.startswith("Error:"):
-        t = t[len("Error:"):].strip()
-    try:
-        return json.loads(t)
-    except Exception:
-        return {}
-
-
 def _rows_by_path(listing: dict) -> dict:
-    # _format_tool_result renders a SUCCESS envelope as json.dumps(data), so the tool
-    # text is the DATA itself ({"artifacts": [...]}), NOT {"data": {"artifacts": [...]}}.
+    # `listing` is the parsed success data ({"artifacts": [...]}) from parse_call_tool_data.
     return {a["path"]: a for a in listing.get("artifacts", [])}
 
 
@@ -80,7 +65,7 @@ def _owned_alive(session: str) -> bool:
 
 
 async def _artifacts() -> dict:
-    return _rows_by_path(_json(_text(await server.call_tool("rhino_artifacts", {}))))
+    return _rows_by_path(parse_call_tool_data(await server.call_tool("rhino_artifacts", {})))
 
 
 async def _attempt(smoke_doc: Path) -> "tuple[str, str | None, dict | None]":
@@ -90,8 +75,10 @@ async def _attempt(smoke_doc: Path) -> "tuple[str, str | None, dict | None]":
       died           -> the Workbench exited before/while observing (retry)
       observe_failed -> the Workbench stayed alive but the artifact never appeared
     """
-    out = _json(_text(await server.call_tool(
-        "rhino_workbench_launch", {"readinessTimeoutSeconds": 120})))
+    r = await server.call_tool("rhino_workbench_launch", {"readinessTimeoutSeconds": 120})
+    if is_error_result(r):
+        return ("launch_failed", None, None)
+    out = parse_call_tool_data(r)
     session = out.get("session")
     if not (out.get("owned") and session):
         return ("launch_failed", session, None)
@@ -177,7 +164,7 @@ async def main() -> int:
                 f"runner_in_list={runner_norm in rows}")
 
         # Close the owned Workbench -> the artifact row must PERSIST.
-        closed = _json(_text(await server.call_tool("rhino_workbench_close", {"session": session})))
+        closed = parse_call_tool_data(await server.call_tool("rhino_workbench_close", {"session": session}))
         if closed.get("closed"):
             session = None
         still = (await _artifacts()).get(want)
