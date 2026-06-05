@@ -1,6 +1,6 @@
 # Current Architecture
 
-Updated: 2026-05-24
+Updated: 2026-06-04
 
 This file is the short canonical description of the live runtime architecture.
 
@@ -111,6 +111,17 @@ IntentPlanner (P1) → ExecutionPlan → SmartExecutor (P2) → ExecutionResult 
 - **CapabilityRouter:** Maps ~95 operations directly to HTTP endpoints (fast path, no LLM)
 - **Execution cascade:** direct_api → known_command → interactive (auto-escalation)
 - **Failure layers:** 7 typed failure categories for targeted knowledge recording
+
+### Tool Result Surface
+
+Two result shapes exist and **are not interchangeable**. The seam lives in exactly one function — `_format_tool_result()` in `server.py`:
+
+| Layer | Shape |
+|-------|-------|
+| **Internal** — `_call_tool_dispatch()` and every `*_result()` helper | envelope dict `{ "success": bool, "data": {...} }` |
+| **Public wire** — `call_tool()` → `list[TextContent]` | success: `json.dumps(data)` — the **`data` only**; failure: `"Error: " + json.dumps(data)` for a dict payload, else `"Error: " + str(data)` |
+
+A test or live harness reading `call_tool()` output therefore parses the success text as the **data itself** (e.g. `json.loads(text)["artifacts"]`), **not** `["data"]["artifacts"]`; for failures, strip the leading `Error: `, then parse the remainder as JSON when the payload is a dict, otherwise treat it as raw error text. Mistaking the internal envelope for the wire shape is a recurring footgun (it cost a ~13-run debugging detour in P6 Slice 1). The public success shape is load-bearing — agents may depend on success-text-being-`data` — so the contract is documented and centralized rather than changed. Shared parse helpers + a contract test that pins the formatter are tracked in issue #218.
 
 ## Knowledge Stores
 
