@@ -2313,6 +2313,20 @@ def test_runtime_harness_maps_command_control_saturation_smoke():
     }
 
 
+def test_runtime_harness_router_plane_smokes_use_cold_start_readiness_ceiling():
+    module = _load_harness_cli_module()
+
+    for smoke in (
+        "p2-bridge-diagnosis",
+        "p3-session-mutation",
+        "p4-workbench-lifecycle",
+        "p5-registry-reclaim",
+        "p6-artifact-perception",
+    ):
+        assert module._readiness_timeout_seconds(smoke, None) == 90.0
+        assert module._readiness_timeout_seconds(smoke, 12.5) == 12.5
+
+
 def test_runtime_harness_uses_legacy_default_readiness_for_other_smoke():
     module = _load_harness_cli_module()
 
