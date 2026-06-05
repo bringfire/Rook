@@ -6,6 +6,7 @@ from mcp.types import TextContent
 from rook.tool_result import (
     is_error_result,
     parse_call_tool_data,
+    parse_call_tool_error,
     text_from_call_tool_result,
 )
 
@@ -49,3 +50,22 @@ def test_parse_data_raises_on_non_dict_json():
     # success text that parses to a JSON list/str/number is a contract violation
     with pytest.raises(ValueError):
         parse_call_tool_data(_wire(json.dumps([1, 2, 3])))
+
+
+def test_parse_error_returns_dict_for_json_error():
+    res = _wire("Error: " + json.dumps({"code": "rhino_session_not_found", "retryable": False}))
+    assert parse_call_tool_error(res) == {"code": "rhino_session_not_found", "retryable": False}
+
+
+def test_parse_error_returns_raw_string_for_plain_error():
+    assert parse_call_tool_error(_wire("Error: boom")) == "boom"
+
+
+def test_parse_error_returns_raw_string_for_brace_non_json():
+    # the tricky case: looks JSON-ish (has a brace) but is not valid JSON -> raw, no raise
+    assert parse_call_tool_error(_wire("Error: {not json")) == "{not json"
+
+
+def test_parse_error_raises_on_success_result():
+    with pytest.raises(ValueError):
+        parse_call_tool_error(_wire(json.dumps({"ok": 1})))

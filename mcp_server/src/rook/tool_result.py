@@ -46,3 +46,19 @@ def parse_call_tool_data(result: Any) -> dict[str, Any]:
             f"success data is not a dict (got {type(data).__name__}): {text!r}"
         )
     return data
+
+
+def parse_call_tool_error(result: Any) -> dict[str, Any] | str:
+    """FAILURE-only: the error payload — a dict when JSON, else the raw string.
+
+    Raises ``ValueError`` if the result is actually a success.
+    """
+    text = text_from_call_tool_result(result)
+    if not text.startswith(_ERROR_PREFIX):
+        raise ValueError(f"expected an error result, got a success: {text!r}")
+    payload = text[len(_ERROR_PREFIX):]
+    try:
+        parsed = json.loads(payload)
+    except (json.JSONDecodeError, ValueError):
+        return payload
+    return parsed if isinstance(parsed, dict) else payload
