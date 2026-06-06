@@ -141,8 +141,17 @@ work_unit_id?)` — **every check runs BEFORE any write; the write is one atomic
    **no partial contract row or source rows exist** (the transaction never opens).
 
 Re-recording the same logical contract creates a **new `contract_id`** — Slice 1 invents **no
-idempotency key** (add one later only if a caller actually needs dedupe). **Acyclicity is NOT checked
-at record** — a cycle is an emergent property of the whole graph and is a `validate`-time concern.
+idempotency key** (add one later only if a caller actually needs dedupe).
+
+**A candidate cycle pre-check runs at record (no invalid graph is ever persisted).** Inside the same
+`BEGIN IMMEDIATE` transaction, the candidate is staged against the existing contracts and the **same**
+cycle detector `validate` uses runs over `existing + candidate`; if it would introduce a cycle, `record`
+rejects atomically with `merge_cycle_detected` and the transaction rolls back — **no contract or source
+rows are written**. This gives `record` and `validate` one posture: a persisted graph is always acyclic.
+The cycle-detection logic is **shared, never reimplemented** — `insert_contract`'s atomic pre-check and
+`validate`'s whole-graph check call one helper (`_contract_cycle`). (`insert_contract` enforces only the
+atomic write + this cycle pre-check; the present-bar / duplicate / enum / self-reference / work-unit-
+existence checks live in the `record` tool layer and run *before* it.)
 
 ## 8. `validate` — pure, on-demand; returns the recompose order
 
@@ -251,3 +260,8 @@ coverage needs **no Rhino**:
 - **Deterministic topo order:** precedence is "A precedes B when `target(A)` ∈ `sources(B)`";
   independent contracts tiebreak on `(created_at, contract_id)` so `contractOrder` is reproducible
   (non-flaky tests). [user]
+- **Record runs an atomic candidate cycle pre-check** (overrides the earlier "acyclicity not checked at
+  record"): no graph-invalidating contract is ever persisted. The cycle detector is **shared** between
+  `insert_contract` (the in-transaction pre-check) and `validate` — `insert_contract` calls it, never
+  reimplements graph/topo logic. Boundary: `insert_contract` = atomic write + cycle pre-check;
+  present-bar/duplicate/enum/self-reference/work-unit-existence stay in the `record` tool layer. [user, plan review]

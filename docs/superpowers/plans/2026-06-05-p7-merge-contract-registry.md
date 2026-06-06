@@ -401,42 +401,102 @@ def _is_registered(artifact_id: str) -> bool:
 
 ---
 
-## Task 4: `insert_contract` — atomic, all-or-nothing write
+## Task 4: contract-graph helpers + `insert_contract` (atomic write + candidate cycle pre-check)
 
-The registry-level atomic write. **Validation is the tool layer's job (Task 6); this method only writes, in one transaction.**
+The **shared** cycle detector (`_contract_cycle`, reused by `validate` in Task 5) + the atomic registry write. `insert_contract` stages the candidate against the existing graph **inside the transaction** and rejects a cycle-introducing contract atomically (`ContractCycleError` → rollback → **nothing written**) — so no invalid graph is ever persisted. Present-bar / duplicate / enum / self-reference / work-unit checks stay in the tool layer (Task 6) and run *before* this; `insert_contract` never reimplements graph logic — it calls `_contract_cycle`.
 
 **Files:** Modify `work_units.py`; Test `test_work_units.py`
 
 - [ ] **Step 1: Write the failing test** (append):
 
 ```python
-def test_insert_contract_atomic_and_dedup_join(tmp_path):
+import pytest
+
+
+def test_contract_cycle_helper():
+    # pairs: (contract_id, target, sources). Edge A->B iff target(A) in sources(B).
+    assert work_units._contract_cycle([("c1", "M1", ["A", "B"]), ("c2", "MASTER", ["M1", "C"])]) is None
+    cyc = work_units._contract_cycle([("cX", "A", ["B"]), ("cY", "B", ["A"])])
+    assert cyc is not None and set(cyc) == {"cX", "cY"}
+
+
+def test_insert_contract_atomic_and_rejects_cycle(tmp_path):
     reg = _fresh_registry(tmp_path)
     reg.register_work_unit("wu", label="W", role=None, metadata=None, now=1)
-    cid = reg.insert_contract("c1", target="M", sources=["A", "B"], merge_kind="linked_block",
-                              refresh_policy="refresh_after_save", work_unit_id="wu", now=10)
-    assert cid == "c1"
+    reg.insert_contract("c1", target="M", sources=["A", "B"], merge_kind="linked_block",
+                        refresh_policy="refresh_after_save", work_unit_id="wu", now=10)
     assert reg.get_contract("c1").target_artifact_id == "M"
     assert set(reg.sources_for("c1")) == {"A", "B"}
     assert reg.contracts_for("wu") == ["c1"]
-    # a second insert with a fresh id (no idempotency) coexists
-    reg.insert_contract("c2", target="M", sources=["A"], merge_kind="reference",
-                        refresh_policy="refresh_on_demand", work_unit_id=None, now=11)
-    assert {r.contract_id for r in reg.list_contracts()} == {"c1", "c2"}
+    # candidate c2: A <- [M]. With c1 (M <- [A,B]): edge c1->c2 (M in c2 sources) AND c2->c1 (A in c1 sources) = cycle
+    with pytest.raises(work_units.ContractCycleError):
+        reg.insert_contract("c2", target="A", sources=["M"], merge_kind="reference",
+                            refresh_policy="refresh_on_demand", work_unit_id=None, now=11)
+    # atomic: the rejected contract wrote NOTHING
+    assert {r.contract_id for r in reg.list_contracts()} == {"c1"}
+    assert reg.sources_for("c2") == []
+    # a non-cyclic second contract (FINAL <- [M]) coexists, fresh id, no idempotency
+    reg.insert_contract("c3", target="FINAL", sources=["M"], merge_kind="import",
+                        refresh_policy="refresh_on_demand", work_unit_id=None, now=12)
+    assert {r.contract_id for r in reg.list_contracts()} == {"c1", "c3"}
     reg.close()
 ```
 
 - [ ] **Step 2: Run → FAIL.**
 
-- [ ] **Step 3: Implement** (append to `WorkUnitRegistry`):
+- [ ] **Step 3a: Add the shared contract-graph helpers** (module level — used by `insert_contract` AND `validate`; `networkx as nx` is already imported at the top from Task 1):
 
 ```python
-    # ----- merge contracts (atomic, all-or-nothing) -----
+class ContractCycleError(RuntimeError):
+    """insert_contract's atomic pre-check: the candidate would make the contract graph cyclic.
+    Raised inside the transaction -> ROLLBACK -> nothing written."""
+    def __init__(self, cycle: "list[str]"):
+        super().__init__("merge_cycle_detected")
+        self.cycle = cycle
+
+
+def _contract_graph(pairs):
+    """pairs: list of (contract_id, target_artifact_id, sources_list). Directed edge A->B iff
+    target(A) appears in sources(B). Returns (graph, target_of, sources_of)."""
+    target_of = {cid: t for cid, t, _ in pairs}
+    sources_of = {cid: list(s) for cid, _, s in pairs}
+    g = nx.DiGraph()
+    g.add_nodes_from(target_of)
+    for a_cid, a_t, _ in pairs:
+        for b_cid in target_of:
+            if a_cid != b_cid and a_t in sources_of[b_cid]:
+                g.add_edge(a_cid, b_cid, viaArtifact=a_t)
+    return g, target_of, sources_of
+
+
+def _contract_cycle(pairs) -> "list[str] | None":
+    """Return a cycle (list of contract_ids) if the contract graph has one, else None. SHARED by
+    insert_contract's atomic pre-check and validate's whole-graph check."""
+    g, _, _ = _contract_graph(pairs)
+    try:
+        cyc = nx.find_cycle(g)
+    except nx.NetworkXNoCycle:
+        return None
+    return [u for u, _, _ in cyc] + [cyc[-1][1]]
+```
+
+- [ ] **Step 3b: Implement the contract methods** (append to `WorkUnitRegistry`). `insert_contract` calls `self.list_contracts()`/`self.sources_for()` inside `self._immediate()` — safe because `_lock` is a re-entrant `RLock`:
+
+```python
+    # ----- merge contracts (atomic write + in-transaction candidate cycle pre-check) -----
     def insert_contract(self, contract_id: str, *, target: str, sources: "list[str]",
                         merge_kind: str, refresh_policy: str, work_unit_id: str | None, now: int) -> str:
-        """ONE transaction: contract row + every source row + the optional work-unit join.
-        Caller (the tool layer) has already validated; this method only persists."""
+        """ONE transaction: stage the candidate against existing contracts, run the SHARED cycle
+        detector over existing+candidate; if it would introduce a cycle, raise ContractCycleError
+        (ROLLBACK -> nothing written); else insert the contract + every source + the optional join.
+        The record tool has already run present-bar / structural / work-unit checks."""
         with self._immediate():
+            pairs = [(c.contract_id, c.target_artifact_id, self.sources_for(c.contract_id))
+                     for c in self.list_contracts()]
+            pairs.append((contract_id, target, list(sources)))
+            cycle = _contract_cycle(pairs)
+            if cycle is not None:
+                raise ContractCycleError(cycle)
             self._conn.execute(
                 "INSERT INTO merge_contracts(contract_id, target_artifact_id, merge_kind, "
                 "refresh_policy, created_at) VALUES(?,?,?,?,?);",
@@ -506,12 +566,18 @@ def test_validate_graph_order_determinism_and_cycle(tmp_path, monkeypatch):
     # determinism: run twice -> identical
     assert work_units._validate_graph(reg)["contractOrder"] == res["contractOrder"]
 
-    # a cycle: target(cX)=X used by cY, target(cY)=Y used by cX
+    # _validate_graph DEFENDS against a cyclic graph even though insert_contract's pre-check prevents
+    # creating one normally (e.g. an externally-edited db). Insert cyclic rows RAW to bypass the pre-check.
     reg2 = _fresh_registry(tmp_path / "two")
-    reg2.insert_contract("cX", target=A, sources=[B], merge_kind="reference",
-                         refresh_policy="refresh_on_demand", work_unit_id=None, now=1)
-    reg2.insert_contract("cY", target=B, sources=[A], merge_kind="reference",
-                         refresh_policy="refresh_on_demand", work_unit_id=None, now=2)
+    with reg2._immediate():
+        for cid, tgt, src in [("cX", A, B), ("cY", B, A)]:
+            reg2._conn.execute(
+                "INSERT INTO merge_contracts(contract_id, target_artifact_id, merge_kind, "
+                "refresh_policy, created_at) VALUES(?,?,?,?,?);",
+                (cid, tgt, "reference", "refresh_on_demand", 1))
+            reg2._conn.execute(
+                "INSERT INTO merge_contract_sources(contract_id, source_artifact_id) VALUES(?,?);",
+                (cid, src))
     res2 = work_units._validate_graph(reg2)
     assert res2["ok"] is False
     assert any(p["code"] == "merge_cycle_detected" for p in res2["problems"])
@@ -556,21 +622,15 @@ def _validate_graph(reg: "WorkUnitRegistry") -> "dict[str, Any]":
         problems += [{**p, "contractId": ct.contract_id} for p in
                      _resolve_present(srcs + [ct.target_artifact_id])]
 
-    # Contract dependency graph: edge A -> B iff target(A) is a source of B.
-    g = nx.DiGraph()
-    g.add_nodes_from(order_key)
-    for a in contracts:
-        for b in contracts:
-            if a.contract_id != b.contract_id and target_of[a.contract_id] in sources_of[b.contract_id]:
-                g.add_edge(a.contract_id, b.contract_id, viaArtifact=target_of[a.contract_id])
+    # Contract dependency graph via the SHARED builder (Task 4): edge A -> B iff target(A) in sources(B).
+    pairs = [(ct.contract_id, target_of[ct.contract_id], sources_of[ct.contract_id]) for ct in contracts]
+    g, _, _ = _contract_graph(pairs)
 
     contract_order: list[str] | None = None
     try:
         contract_order = list(nx.lexicographical_topological_sort(g, key=lambda n: order_key[n]))
     except nx.NetworkXUnfeasible:
-        cycle = nx.find_cycle(g)
-        problems.append({"code": "merge_cycle_detected",
-                         "cycle": [u for u, _, _ in cycle] + [cycle[-1][1]]})
+        problems.append({"code": "merge_cycle_detected", "cycle": _contract_cycle(pairs)})
 
     if problems:
         return {"ok": False, "problems": problems}
@@ -644,6 +704,13 @@ def test_tools_record_rejects_and_validates(tmp_path, monkeypatch):
     assert ok["success"] is True
     cid = ok["data"]["contractId"]
 
+    # recording a cycle-introducing contract (A <- [M], with M <- [A,B]) is rejected atomically
+    cyc = asyncio.run(work_units.record_merge_contract(target_artifact_id=A,
+        source_artifact_ids=[M], merge_kind="reference", refresh_policy="refresh_on_demand",
+        work_unit_id=None))
+    assert cyc["success"] is False and cyc["data"]["code"] == "merge_cycle_detected"
+    assert {r.contract_id for r in work_units.work_units_registry().list_contracts()} == {cid}  # atomic
+
     # validate whole graph -> ok + contractOrder
     val = asyncio.run(work_units.validate_merge_contract(contract_id=None))
     assert val["success"] is True and val["data"]["ok"] is True
@@ -667,7 +734,7 @@ _RETRYABLE = {
     "artifact_not_registered": False, "artifact_not_present": True,
     "empty_sources": False, "duplicate_contract_source": False,
     "unknown_merge_kind": False, "unknown_refresh_policy": False,
-    "merge_self_reference": False, "work_unit_not_found": False,
+    "merge_self_reference": False, "work_unit_not_found": False, "merge_cycle_detected": False,
     "contract_not_found": False, "invalid_relation": False, "invalid_argument": False,
     "work_units_registry_unavailable": True,
 }
@@ -756,11 +823,17 @@ async def record_merge_contract(*, target_artifact_id: str, source_artifact_ids:
     if work_unit_id is not None:
         if await asyncio.to_thread(lambda: work_units_registry().get_work_unit(work_unit_id)) is None:
             return _err("work_unit_not_found", f"No work unit {work_unit_id!r}.")
-    # 4. atomic write (only after ALL checks pass)
+    # 4. atomic write + in-transaction candidate cycle pre-check (insert_contract rejects a
+    #    graph-invalidating contract atomically -> nothing written).
     contract_id = f"mc-{uuid.uuid4().hex[:12]}"
-    await asyncio.to_thread(lambda: work_units_registry().insert_contract(
-        contract_id, target=target_artifact_id, sources=sources, merge_kind=merge_kind,
-        refresh_policy=refresh_policy, work_unit_id=work_unit_id, now=int(time.time())))
+    try:
+        await asyncio.to_thread(lambda: work_units_registry().insert_contract(
+            contract_id, target=target_artifact_id, sources=sources, merge_kind=merge_kind,
+            refresh_policy=refresh_policy, work_unit_id=work_unit_id, now=int(time.time())))
+    except ContractCycleError as exc:
+        return _err("merge_cycle_detected",
+                    "Recording this contract would introduce a cycle into the merge graph; nothing was written.",
+                    cycle=exc.cycle)
     return {"success": True, "data": {"contractId": contract_id, "target": target_artifact_id,
                                       "sources": sources, "mergeKind": merge_kind,
                                       "refreshPolicy": refresh_policy}}
@@ -967,7 +1040,7 @@ comm -13 /tmp/p7_fails.txt /tmp/main_fails.txt   # only-in-main: MUST be empty
 - **`knowledge/` hygiene before every commit:** if `git status` shows `knowledge/` changes (importing `rook.server` dirties `knowledge/contextual_mab.pkl` + `knowledge/gh/component_observations.json`), `git checkout -- knowledge/ && rm -rf knowledge/selectors`.
 - **P7 → P6 is reference-only.** `work_units.py` reads P6 via `_artifacts.artifact_registry().get(...)`; it MUST NEVER write `artifacts.db`. There is no FK across the db files — `artifact_id`s are validated at record/validate time only.
 - **Two bars, by intent:** a provenance *link* needs only `_is_registered` (historical); a merge *reference* (record/validate) needs `_resolve_present` (present). Don't conflate them.
-- **`record` is atomic:** every check runs before `insert_contract`; on any problem return `_err` and never open the transaction.
+- **`record` is atomic + no-invalid-graph:** present-bar / structural / work-unit checks run in the tool layer *before* `insert_contract`; the candidate **cycle pre-check** runs *inside* `insert_contract`'s `BEGIN IMMEDIATE` (stage existing+candidate → `_contract_cycle` → `ContractCycleError` → rollback). On any problem `_err` is returned and **no rows are written**. The cycle detector is shared with `validate` — never reimplemented.
 - **Determinism:** `contractOrder` uses `nx.lexicographical_topological_sort(g, key=order_key)` with `order_key=(created_at, contract_id)` — never the unordered `nx.topological_sort` (flaky).
 - **Rhino-independence:** Tasks 1–8 need no Rhino. Tests use a real P6 `ArtifactRegistry` over a temp `artifacts.db` + real temp files; repoint `artifacts.resolve_artifact_db_path` / `work_units.resolve_work_units_db_path` and reset the singletons (per the test helpers).
 - **Non-goals:** no merge execution; no geometry into Rhino; no P6 mutation; no planned/declared artifacts; no changes to P3 routing / P5 registry / P6 perception / P4 launch.
