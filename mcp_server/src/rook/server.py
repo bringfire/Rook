@@ -50,7 +50,7 @@ if logger.isEnabledFor(logging.DEBUG):
     )
 
 from .bridge import call_rhino, get_rhino_host, discover_instances, TIMEOUT, DISCOVERY_FOLDER, rhino_request_context, list_sessions_result, get_session_capabilities
-from . import artifacts, director, director_publish, director_video, script_library, targeting, workbench
+from . import artifacts, director, director_publish, director_video, script_library, targeting, workbench, work_units
 targeting.initialize_from_environment()
 from .knowledge import query_knowledge, query_knowledge_tiered, record_knowledge, invalidate_condensed_command_cache
 from .learning.command_observer import (
@@ -2878,6 +2878,51 @@ Use this before any Rhino operations to ensure Rhino is available. Safe to call 
                         "Select by 'id' or 'path'.",
             inputSchema={"type": "object", "properties": {
                 "id": {"type": "string"}, "path": {"type": "string"}}},
+        ),
+        Tool(
+            name="rhino_work_unit_register",
+            description="Register a coordinator Work Unit (an assignment: role/constraints/expected "
+                        "output). Coordinator-plane intent; no Rhino. Returns its workUnitId.",
+            inputSchema={"type": "object", "properties": {
+                "label": {"type": "string"}, "role": {"type": "string"},
+                "metadata": {"type": "object"}, "workUnitId": {"type": "string"}},
+                "required": ["label"]},
+        ),
+        Tool(
+            name="rhino_work_unit_link_artifact",
+            description="Link a registered P6 artifact to a Work Unit as produced/consumed "
+                        "(provenance). Requires the artifact be REGISTERED (present not required).",
+            inputSchema={"type": "object", "properties": {
+                "workUnitId": {"type": "string"}, "artifactId": {"type": "string"},
+                "relation": {"type": "string", "enum": ["produced", "consumed"]}},
+                "required": ["workUnitId", "artifactId", "relation"]},
+        ),
+        Tool(
+            name="rhino_merge_contract_record",
+            description="Record fan-in INTENT: a merge contract (sources -> target, declared "
+                        "strategy). Records only; executes nothing. All referenced artifacts must be "
+                        "registered + present in P6.",
+            inputSchema={"type": "object", "properties": {
+                "targetArtifactId": {"type": "string"},
+                "sourceArtifactIds": {"type": "array", "items": {"type": "string"}},
+                "mergeKind": {"type": "string",
+                              "enum": ["worksession", "import", "linked_block", "reference", "block", "report"]},
+                "refreshPolicy": {"type": "string", "enum": ["refresh_after_save", "refresh_on_demand"]},
+                "workUnitId": {"type": "string"}},
+                "required": ["targetArtifactId", "sourceArtifactIds", "mergeKind", "refreshPolicy"]},
+        ),
+        Tool(
+            name="rhino_merge_contract_validate",
+            description="Validate merge contracts (well-formed + every artifact registered+present + "
+                        "acyclic) and return the topological CONTRACT recompose order. Pure / on-demand; "
+                        "no execution. Omit contractId to validate the whole graph.",
+            inputSchema={"type": "object", "properties": {"contractId": {"type": "string"}}},
+        ),
+        Tool(
+            name="rhino_work_units",
+            description="List Work Units with their linked artifacts AND merge contracts "
+                        "(what fan-in intent belongs to each assignment). Optional workUnitId.",
+            inputSchema={"type": "object", "properties": {"workUnitId": {"type": "string"}}},
         ),
         Tool(
             name="rhino_ping",
@@ -12882,6 +12927,29 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
         case "rhino_artifact_deregister":
             result = await artifacts.deregister_artifact(
                 artifact_id=arguments.get("id"), path=arguments.get("path"))
+
+        case "rhino_work_unit_register":
+            result = await work_units.register_work_unit_tool(
+                label=arguments.get("label"), role=arguments.get("role"),
+                metadata=arguments.get("metadata"), work_unit_id=arguments.get("workUnitId"))
+
+        case "rhino_work_unit_link_artifact":
+            result = await work_units.link_artifact_tool(
+                work_unit_id=arguments.get("workUnitId"), artifact_id=arguments.get("artifactId"),
+                relation=arguments.get("relation"))
+
+        case "rhino_merge_contract_record":
+            result = await work_units.record_merge_contract(
+                target_artifact_id=arguments.get("targetArtifactId"),
+                source_artifact_ids=arguments.get("sourceArtifactIds"),
+                merge_kind=arguments.get("mergeKind"), refresh_policy=arguments.get("refreshPolicy"),
+                work_unit_id=arguments.get("workUnitId"))
+
+        case "rhino_merge_contract_validate":
+            result = await work_units.validate_merge_contract(contract_id=arguments.get("contractId"))
+
+        case "rhino_work_units":
+            result = await work_units.list_work_units_tool(work_unit_id=arguments.get("workUnitId"))
 
         case "rhino_ping":
             result = await call_rhino("/ping", port=port)
