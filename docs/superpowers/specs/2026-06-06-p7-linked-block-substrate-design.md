@@ -69,7 +69,7 @@ static void DecorateLinkedBlockFields(nlohmann::json& j,
 
     j["blockType"]     = blockType;
     j["isLinked"]      = isLinked;
-    j["sourcePath"]    = rawPath;   // canonical (matches /block/link, /block/refresh)
+    j["sourcePath"]    = rawPath;   // preferred raw field (matches /block/link, /block/refresh)
     j["sourceArchive"] = rawPath;   // backward-compatible alias, identical value
 }
 ```
@@ -80,7 +80,7 @@ static void DecorateLinkedBlockFields(nlohmann::json& j,
 |-------|------|-------|
 | `blockType` | string | exactly `"Embedded"` \| `"Linked"` \| `"EmbeddedAndLinked"` (else → `"Embedded"`) |
 | `isLinked` | bool | `(blockType ∈ {Linked, EmbeddedAndLinked}) ∧ LinkedFilePath() non-empty` |
-| `sourcePath` | string | raw `LinkedFilePath()` (canonical key) — **always populated**, `""` when not linked |
+| `sourcePath` | string | raw `LinkedFilePath()` (**preferred raw linked-path field**; matches `/block/link`, `/block/refresh`) — **always populated**, `""` when not linked |
 | `sourceArchive` | string | identical raw value (compat alias) — **always populated** |
 
 **Mismatch contract (precise):** `isLinked` is the **conjunction** of type-is-linked AND path-present. In an anomalous state — a linked-ish `blockType` with an empty path, or a non-linked type carrying a path — `isLinked` resolves `false`, but `blockType` and `sourcePath`/`sourceArchive` still carry the **raw facts** so Python can *detect* the anomaly rather than have it hidden. The Python comparator treats `isLinked` as authoritative and ignores the path aliases when it is `false`.
@@ -90,7 +90,7 @@ static void DecorateLinkedBlockFields(nlohmann::json& j,
 - `SerializeBlockDef` (the `/blocks` list serializer, one caller) — call `DecorateLinkedBlockFields(j, pIdef)` before `return j;`. Net: **+4 fields**.
 - `HandleBlockInfo` (`/block/info`) — replace its inline `blockType` block (lines ~1771–1777) and inline `sourceArchive` assignment (line ~1788) with a `DecorateLinkedBlockFields` call. Net: **+2 fields** (`isLinked`, `sourcePath`); `blockType` and `sourceArchive` keep identical values; all other fields (`url`, `urlDescription`, `objects`, counts) unchanged.
 
-**Safety:** purely additive; both responses become supersets, nothing removed or re-spelled. The **write path is not touched** — `/block/link` and `/block/refresh` already emit `sourcePath`, so they are already consistent with the new canonical key.
+**Safety:** purely additive; both responses become supersets, nothing removed or re-spelled. The **write path is not touched** — `/block/link` and `/block/refresh` already emit `sourcePath`, so they are already consistent with this preferred raw field.
 
 ---
 
@@ -103,6 +103,7 @@ import hashlib
 
 # Versioned/purpose prefix so the scheme can evolve unambiguously.
 _SCHEME = "rook_p7lb"
+_HEX_DIGITS = frozenset("0123456789abcdef")
 
 
 def block_def_name(contract_id: str, source_artifact_id: str) -> str:
@@ -113,12 +114,19 @@ def block_def_name(contract_id: str, source_artifact_id: str) -> str:
 
     - contract_id is HASHED first (generated ids may not be restricted-alphabet).
     - source_artifact_id is the canonical SHA-256 hex from artifacts.artifact_id_for;
-      it is already lowercase hex, so slicing 16 chars is safe.
+      it is already lowercase hex, so slicing 16 chars is safe. It is validated
+      fail-closed (>=16 lowercase-hex chars) so a malformed id raises rather than
+      silently producing a wrong-but-valid durable address.
     - Output is lowercase [a-z0-9_-] only; ~35 chars, far under Rhino limits.
     """
+    sid = source_artifact_id.lower()
+    if len(sid) < 16 or any(c not in _HEX_DIGITS for c in sid):
+        raise ValueError(
+            "source_artifact_id must be SHA-256 hex (>=16 hex chars); "
+            f"got {source_artifact_id!r}"
+        )
     contract_hash = hashlib.sha256(contract_id.encode("utf-8")).hexdigest()[:8]
-    artifact_hash = source_artifact_id.lower()[:16]
-    return f"{_SCHEME}_{contract_hash}_{artifact_hash}"
+    return f"{_SCHEME}_{contract_hash}_{sid[:16]}"
 ```
 
 Example: `block_def_name("mc-...", "a1b2c3d4e5f67890...")` → `rook_p7lb_3f9a1c0b_a1b2c3d4e5f67890`.
@@ -162,7 +170,8 @@ The recorded post-save form is the input to the future executor's relative→abs
 - case stability — output is lowercase regardless of input case;
 - restricted alphabet under an **illegal-looking `contract_id`** (spaces / unicode / path-like) → output still `[a-z0-9_-]` (contract id is hashed);
 - distinct `(contract, source)` pairs → distinct names; same pair → same name;
-- versioned prefix `rook_p7lb_` present; expected length.
+- versioned prefix `rook_p7lb_` present; expected length;
+- **input validation** — a too-short or non-hex `source_artifact_id` raises `ValueError` (fail-closed; protects the durable address).
 
 **Native:** field decoration verified by a live-Rhino test (assert the four fields on both `/blocks` and `/block/info` for a linked and a non-linked def). **Build** with the known-good MFC toolset (AGENTS.md): `cmd /c "scripts\build-native.bat Debug 14.44.35207"` (bare `v143` may resolve to `14.38.33130`, which has an incomplete MFC payload). Do not claim build verification without the Rhino/MFC toolchain.
 
@@ -187,5 +196,5 @@ Additive native fields and a new pure Python module must not move the Python sui
 - [ ] `/block/link` and `/block/refresh` are unmodified.
 - [ ] `linked_blocks.block_def_name` is pure (no `server`/Rhino/registry imports) and passes all §7 unit tests.
 - [ ] Baseline parity holds both directions (64 failed / 41 errors unchanged).
-- [ ] Live observation attempted with honest blocked/green reporting; post-save `LinkedFilePath()` form recorded when it runs.
+- [ ] Live observation **either** runs and records the post-save `LinkedFilePath()` form, **or** is explicitly reported as blocked with a reason (#218/#222 honesty discipline).
 - [ ] No change to `work_units.py` or any P7 registry/schema.
