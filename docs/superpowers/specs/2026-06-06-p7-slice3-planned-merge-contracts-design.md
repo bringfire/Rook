@@ -39,9 +39,10 @@ the planned row activated.
   ("the row is the lock" — the P4/P5 discipline).
 - **Validity is recomputed, never stored.** Record persists only a structurally-valid, acyclic planned
   graph; *activatability* (present/materialized) is recomputed on demand because the world changes.
-- **Read-only over P6.** Slice 3 makes **zero** P6 writes: `record` uses the read-only link-bar,
-  `activate`/inspect use the read-only present-bar. The only P7→P6 write in the subsystem remains Slice
-  2's `promote`. Invariant intact: P7 references P6 by artifact_id; **P6 never references P7.**
+- **Read-only over P6.** Slice 3 makes **zero** P6 writes: `record` uses the read-only link-bar (only when
+  `artifact:` refs are present — §7), `activate`/inspect use the read-only present-bar. The only P7→P6 write
+  in the subsystem remains Slice 2's `promote`. Invariant intact: P7 references P6 by artifact_id; **P6 never
+  references P7.**
 
 **Main invariant:**
 
@@ -129,7 +130,10 @@ fills in — materialization only flips a node from not-activatable to activatab
 ## 7. `record` — the front door (two bars, atomic, acyclic)
 
 `rhino_planned_contract_record(target, sources[], merge_kind, refresh_policy, work_unit_id?)` — every check
-before any write; one `BEGIN IMMEDIATE`. Guards P7-unusable + P6-unusable (it reads P6 for the link-bar).
+before any write; one `BEGIN IMMEDIATE`. Guards P7-unusable always. **P6 is guarded conditionally:** if any
+`artifact:` ref is present, P6 must be usable and each `artifact:` ref must be registered (the link-bar); if
+**every** ref is `declared_target:`, record proceeds **P7-only** — declared-only future planning is not
+blocked by P6 skew. (Activation still always requires P6 usable.)
 
 1. **Well-formed typed refs:** target + each source is `{kind ∈ REF_KINDS, id: non-empty str}` →
    `invalid_argument` / `invalid_ref_kind`.
@@ -153,11 +157,19 @@ Re-recording yields a new `planned_contract_id` (no idempotency key at record; S
 
 `rhino_planned_contract_activate(plannedContractId)`. Guards P7-unusable + P6-unusable.
 
+**Stored-state invariant** (the idempotency key is `activated_contract_id`, NOT the `status` string):
+*valid planned* = `status='planned'` ∧ `activated_contract_id IS NULL` ∧ `activated_at IS NULL`;
+*valid activated* = `status='activated'` ∧ `activated_contract_id IS NOT NULL` ∧ `activated_at IS NOT NULL`;
+any other combination → `planned_contract_already_invalid` (retryable false). Both the preflight AND the
+in-tx CAS classify the row by this invariant — never by `status` alone.
+
 ```
 load planned (else planned_contract_not_found)
-if status == 'activated':                                            # rule 1: already-activated is success
-    return {success:true, data:{plannedContractId, status:'activated',
-            contractId: activated_contract_id, alreadyActivated:true}}
+classify(row) by the stored-state invariant:
+  valid activated -> return {success:true, data:{plannedContractId, status:'activated',   # rule 1
+                              contractId: activated_contract_id, alreadyActivated:true}}
+  invalid         -> return {success:false, data:{code:'planned_contract_already_invalid', retryable:false}}
+  valid planned   -> continue
 
 blockers = _activation_blockers(reg, planned, p6_available)          # rule 2: ALL blockers, not first-error
   for each ref (target + sources), resolve to a PRESENT P6 artifact id:
@@ -187,9 +199,11 @@ return {success:true, data:{plannedContractId, status:'activated', contractId,
 
 `activate_planned_contract` (the atomic registry method) — **one `BEGIN IMMEDIATE` with a durable CAS:**
 ```
-re-read planned_merge_contracts.{status, activated_contract_id} WHERE planned_contract_id=?
-if activated_contract_id is not NULL:  return (activated_contract_id, True)   # CAS: a peer already activated
-# still planned:
+re-read planned_merge_contracts.{status, activated_contract_id, activated_at} WHERE planned_contract_id=?
+classify(row) by the stored-state invariant:
+  valid activated -> return (activated_contract_id, True)   # CAS: a peer already activated
+  invalid         -> raise PlannedContractInvalid           # -> planned_contract_already_invalid; rollback
+  valid planned   -> proceed:
 strict-graph cycle pre-check (existing merge_contracts + candidate) -> ContractCycleError -> rollback
 INSERT merge_contracts + merge_contract_sources                              # rule 4: pure resolved artifact ids
 for wu in work_unit_ids: INSERT OR IGNORE work_unit_merge_contracts          # copy ALL ownership links
@@ -199,8 +213,12 @@ return (candidate, False)
 The resulting strict row is **indistinguishable from a `record_merge_contract` row**: resolved P6 artifact
 ids only, no planned refs (rule 4). The P6 present-check is *before* the tx (cross-db); the P7 transition —
 strict insert + ownership copy + planned stamp — is one atomic unit guarded by the in-tx CAS so two
-concurrent activations never create two strict contracts (rule 5 + must-fix). `ContractCycleError` from the
-in-tx guard maps to `strict_merge_cycle_detected`.
+concurrent activations never create two strict contracts (rule 5 + must-fix). The in-tx guard's
+`ContractCycleError` is caught by the tool and returned in the **same** `planned_contract_not_activatable`
+wrapper as the preflight strict-cycle blocker — `blockers:[{code:"strict_merge_cycle_detected", ...}]`,
+`retryable:false`. **`activate`'s failure surface is stable:** an existing planned contract that cannot
+activate ALWAYS returns the blocker envelope; the only other failures are `planned_contract_not_found`,
+`planned_contract_already_invalid`, and registry-unavailable.
 
 ## 9. `rhino_planned_contracts` — the inspector (explicit shape; transitions nothing)
 
@@ -214,7 +232,13 @@ Guards P7-unusable; degrades (not fail-closed) on P6 skew like Slice 2. Shares t
   `plannedContractOrder` (topo over the canonical planned graph, deterministic tiebreak
   `(created_at, planned_contract_id)` via `lexicographical_topological_sort`), `edges`
   (`{from, to, viaArtifactKey}`), `graphOk`, `graphProblems` (structural + cycle over the whole planned
-  graph). On P6 skew, P6-derived `observed` fields are null and `p6Available:false`.
+  graph). `plannedContractOrder` includes **both `planned` and `activated`** rows (each row's `status` is
+  shown), so the coordinator walks one stable graph and `activate` stays idempotent for already-bridged rows.
+
+**On P6 skew (either call shape):** `p6Available:false`, the P6-derived `observed` fields are null, AND every
+row reports `observed.activatable=false` with `observed.blockers` including
+`{code:"artifact_registry_unavailable", retryable:true}` — the coordinator sees the *reason* activation is
+impossible, not just null fields (mirroring Slice 2's `promotionBlockedReason:"artifact_registry_unavailable"`).
 
 ## 10. Two bars, by ref kind
 
@@ -244,7 +268,7 @@ Guards P7-unusable; degrades (not fail-closed) on P6 skew like Slice 2. Shares t
 | `planned_contract_not_found` | activate/inspect unknown id | no |
 | `planned_contract_cycle_detected` | cycle in the **planned** graph (record) | no |
 | `strict_merge_cycle_detected` | candidate cycles the **strict** graph (activate) | no |
-| `planned_contract_already_invalid` | persisted planned row structurally corrupt (defensive) | no |
+| `planned_contract_already_invalid` | persisted row violates the stored-state invariant (§8) or is structurally corrupt (defensive) | no |
 | `planned_contract_not_activatable` | activate with ≥1 blocker — wraps `blockers[]`; `retryable = all(b.retryable)` | (aggregate) |
 | `work_units_registry_unavailable` / `artifact_registry_unavailable` | version skew (reused) | yes |
 
@@ -305,6 +329,16 @@ no Rhino (the `_p6_with` / `_repoint_p7` / autouse-reset fixtures):
   nothing (a planned row stays `planned` after inspection); degrades on P6 skew.
 - **work-unit join:** record with `work_unit_id` → `rhino_work_units` shows `plannedContracts`; after
   activation the strict contract carries the same ownership in `work_unit_merge_contracts`.
+- **conditional P6 guard at record:** an all-`declared_target:` planned contract records successfully under a
+  version-skewed P6 (P7-only); a planned contract with any `artifact:` ref under skewed P6 →
+  `artifact_registry_unavailable`.
+- **invalid stored-state guard:** a raw-inserted row violating the invariant (e.g. `status='activated'` with
+  `activated_contract_id` NULL) → both `activate` and the inspector report `planned_contract_already_invalid`
+  (never a null-contract "success").
+- **inspector P6 skew:** under skewed P6 every row's `observed.activatable=false` with a
+  `{code:"artifact_registry_unavailable", retryable:true}` blocker and `p6Available:false`.
+- **order includes activated rows:** after activating one contract, whole-graph `plannedContractOrder` still
+  lists it (with `status:'activated'`) in stable position.
 - **Baseline parity** vs `main`: named failed/error sets unchanged both directions (current main **64 failed /
   41 errors**) — the #220 discipline, blessed non-live gate.
 
@@ -339,4 +373,15 @@ required for Slice 3 correctness.
   `promote`. [Claude]
 - **Additive `p7.3` migration** (supported-set `{p7.1, p7.2}`); a `p7.1` db gains both declared_targets and
   the planned tables; existing-tables-only shape guard, never drops. [user]
+- **Stored-state invariant** (`planned` = all-null activation fields; `activated` = all-set) classifies rows
+  at preflight AND in-tx CAS; any other combination → `planned_contract_already_invalid`. The idempotency key
+  is `activated_contract_id`, never `status` alone. [user, spec review]
+- **`activate` failure surface is stable:** an existing-but-unactivatable contract ALWAYS returns the
+  `planned_contract_not_activatable` blocker envelope — including the in-tx TOCTOU strict cycle. [user, spec review]
+- **Inspector surfaces the P6-skew reason:** `observed.activatable=false` + an `artifact_registry_unavailable`
+  blocker, not just null fields (Slice-2 parity). [user, spec review]
+- **Record's P6 guard is conditional:** required only when `artifact:` refs are present; all-`declared_target:`
+  planning proceeds P7-only under P6 skew. [user, spec review]
+- **`plannedContractOrder` includes both `planned` and `activated` rows** (status per row) — one stable graph;
+  `activate` idempotent for bridged rows. [user, spec review]
 - **No delete/supersede/batch/demotion** (YAGNI). [Claude]
