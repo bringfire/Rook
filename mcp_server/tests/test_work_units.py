@@ -763,3 +763,35 @@ def test_record_conditional_p6_guard(tmp_path, monkeypatch):
     bad = asyncio.run(work_units.record_planned_contract(target={"kind": "declared_target", "id": dts[0]},
         sources=[{"kind": "artifact", "id": "some-id"}], merge_kind="import", refresh_policy="refresh_on_demand"))
     assert bad["success"] is False and bad["data"]["code"] == "artifact_registry_unavailable"
+
+
+# ----- P7 Slice 3: activation helpers -----
+def test_classify_planned_state(tmp_path):
+    Row = work_units.PlannedContractRow
+    assert work_units._classify_planned_state(Row("p", "artifact", "M", "import", "refresh_on_demand", "planned", None, None, 1)) == "planned"
+    assert work_units._classify_planned_state(Row("p", "artifact", "M", "import", "refresh_on_demand", "activated", "mc-1", 5, 1)) == "activated"
+    assert work_units._classify_planned_state(Row("p", "artifact", "M", "import", "refresh_on_demand", "activated", None, None, 1)) == "invalid"
+
+
+def test_activation_blockers_matrix(tmp_path, monkeypatch):
+    ids, files = _p6_with(tmp_path, monkeypatch, ["A.3dm", "M.3dm"])
+    _repoint_p7(tmp_path, monkeypatch)
+    reg = work_units.work_units_registry()
+    reg.insert_declared_target("dt-x", work_unit_id=None, intended_path=str(tmp_path / "X.3dm"),
+        normalized_path=artifacts.normalize_path(str(tmp_path / "X.3dm")),
+        predicted_artifact_id="pred-x", label=None, now=1)
+    reg.insert_planned_contract("pc1", target_ref_kind="artifact", target_ref_id=ids["M.3dm"],
+        sources=[("declared_target", "dt-x")], merge_kind="import", refresh_policy="refresh_on_demand",
+        work_unit_id=None, now=2)
+    blockers, resolved = work_units._activation_blockers(reg, reg.get_planned_contract("pc1"), True)
+    assert resolved is None
+    assert any(b["code"] == "declared_target_not_materialized" for b in blockers)
+    # bound identity changed -> retryable false (NOT a retryable file-state issue)
+    reg.set_declared_target_materialized("dt-x", bound_artifact_id="DIFFERENT", now=3)
+    blockers2, _ = work_units._activation_blockers(reg, reg.get_planned_contract("pc1"), True)
+    bad = [b for b in blockers2 if b["code"] == "declared_target_bound_identity_changed"]
+    assert bad and bad[0]["retryable"] is False
+    # P6 unavailable -> single artifact_registry_unavailable blocker
+    blockers3, _ = work_units._activation_blockers(reg, reg.get_planned_contract("pc1"), False)
+    assert blockers3 == [{"code": "artifact_registry_unavailable", "retryable": True}]
+    reg.close()

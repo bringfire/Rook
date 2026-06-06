@@ -584,6 +584,84 @@ def _parse_ref(ref) -> "tuple[tuple[str, str] | None, dict | None]":
     return (kind, rid), None
 
 
+def _classify_planned_state(row: "PlannedContractRow") -> str:
+    """'planned' | 'activated' | 'invalid' by the FULL stored-state invariant (never status alone)."""
+    if row.status == "planned" and row.activated_contract_id is None and row.activated_at is None:
+        return "planned"
+    if row.status == "activated" and row.activated_contract_id is not None and row.activated_at is not None:
+        return "activated"
+    return "invalid"
+
+
+def _blk(code: str, **extra: Any) -> "dict[str, Any]":
+    """A blocker dict carrying its retryable flag (derived from _RETRYABLE)."""
+    return {"code": code, "retryable": _RETRYABLE.get(code, False), **extra}
+
+
+def _resolve_planned_ref_present(reg, ref_kind: str, ref_id: str) -> "tuple[str | None, dict | None]":
+    """Resolve a typed ref to a PRESENT P6 artifact id, or return a (bare) blocker. Assumes P6 is usable
+    (the caller guards p6_available). declared_target -> materialized, bound==predicted, bound present."""
+    ref = {"kind": ref_kind, "id": ref_id}
+    if ref_kind == "artifact":
+        row = _p6_row(ref_id)
+        if row is None:
+            return None, {"code": "artifact_not_registered", "ref": ref}
+        if row.file_state != "present":
+            return None, {"code": "artifact_not_present", "ref": ref}
+        return ref_id, None
+    if ref_kind == "declared_target":
+        dt = reg.get_declared_target(ref_id)
+        if dt is None:
+            return None, {"code": "declared_target_not_found", "ref": ref}
+        if dt.status != "materialized":
+            return None, {"code": "declared_target_not_materialized", "ref": ref}
+        if dt.bound_artifact_id is None:
+            return None, {"code": "declared_target_bound_missing", "ref": ref}
+        if dt.bound_artifact_id != dt.predicted_artifact_id:
+            return None, {"code": "declared_target_bound_identity_changed", "ref": ref}
+        b = _p6_row(dt.bound_artifact_id)
+        if b is None or b.file_state != "present":
+            return None, {"code": "declared_target_bound_not_present", "ref": ref}
+        return dt.bound_artifact_id, None
+    return None, {"code": "invalid_ref_kind", "ref": ref}
+
+
+def _activation_blockers(reg, planned: "PlannedContractRow",
+                         p6_available: bool) -> "tuple[list[dict], dict | None]":
+    """ALL blockers for activating `planned` (each carrying retryable), plus {target, sources} resolved
+    artifact ids when fully clear. Stored-state-invalid -> one blocker. P6 skew -> one blocker. Strict-graph
+    cycle blocker ONLY when every ref resolves."""
+    if _classify_planned_state(planned) == "invalid":
+        return [_blk("planned_contract_already_invalid")], None
+    if not p6_available:
+        return [_blk("artifact_registry_unavailable")], None
+    raw: list[dict] = []
+    tkey = _planned_key_or_sentinel(reg, planned.target_ref_kind, planned.target_ref_id)
+    src_refs = reg.sources_for_planned(planned.planned_contract_id)
+    skeys = [_planned_key_or_sentinel(reg, k, i) for k, i in src_refs]
+    raw += _planned_structural_problems(tkey, skeys, planned.merge_kind, planned.refresh_policy)
+    rt, pt = _resolve_planned_ref_present(reg, planned.target_ref_kind, planned.target_ref_id)
+    if pt is not None:
+        raw.append(pt)
+    resolved_sources: list[str] = []
+    for k, i in src_refs:
+        r, p = _resolve_planned_ref_present(reg, k, i)
+        if p is not None:
+            raw.append(p)
+        else:
+            resolved_sources.append(r)
+    # strict-graph cycle ONLY when everything resolved
+    if not raw and rt is not None and len(resolved_sources) == len(src_refs):
+        pairs = [(c.contract_id, c.target_artifact_id, reg.sources_for(c.contract_id)) for c in reg.list_contracts()]
+        pairs.append((planned.planned_contract_id, rt, resolved_sources))
+        cyc = _contract_cycle(pairs)
+        if cyc is not None:
+            raw.append({"code": "strict_merge_cycle_detected", "cycle": cyc})
+    blockers = [_blk(b["code"], **{k: v for k, v in b.items() if k != "code"}) for b in raw]
+    resolved = None if blockers else {"target": rt, "sources": resolved_sources}
+    return blockers, resolved
+
+
 def _structural_problems(target: str, sources: "list[str]", merge_kind: str,
                          refresh_policy: str) -> "list[dict[str, Any]]":
     """Local well-formedness shared by record + validate (NOT present, NOT acyclicity)."""
