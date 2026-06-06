@@ -19,3 +19,21 @@ def test_call_tool_dispatches_register(tmp_path, monkeypatch):
     data = parse_call_tool_data(out)
     assert data["workUnitId"].startswith("wu-")
     work_units._reset_work_units_registry_singleton()
+
+
+def test_p7_slice2_tools_are_meta_no_rhino():
+    for name in ("rhino_declared_target_declare", "rhino_declared_target_promote", "rhino_declared_targets"):
+        assert name in targeting._ALL_KNOWN_TOOLS
+        assert name in targeting._META_TOOLS
+        assert targeting.policy_for_tool(name).requires_rhino is False
+
+
+def test_call_tool_dispatches_declare(tmp_path, monkeypatch):
+    monkeypatch.setattr(work_units, "resolve_work_units_db_path", lambda: tmp_path / "work_units.db")
+    work_units._reset_work_units_registry_singleton()
+    out = asyncio.run(server.call_tool("rhino_declared_target_declare",
+        {"intendedPath": str(tmp_path / "m.3dm"), "label": "M"}))
+    from rook.tool_result import parse_call_tool_data
+    data = parse_call_tool_data(out)
+    assert data["declaredTargetId"].startswith("dt-")
+    work_units._reset_work_units_registry_singleton()

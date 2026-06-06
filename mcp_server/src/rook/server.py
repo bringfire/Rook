@@ -2925,6 +2925,31 @@ Use this before any Rhino operations to ensure Rhino is available. Safe to call 
             inputSchema={"type": "object", "properties": {"workUnitId": {"type": "string"}}},
         ),
         Tool(
+            name="rhino_declared_target_declare",
+            description="Declare coordinator intent toward a master/anchor file BEFORE it exists "
+                        "(intendedPath -> predicted artifact id). Records intent only; no P6 write, "
+                        "no Rhino. Optional workUnitId links it to an assignment.",
+            inputSchema={"type": "object", "properties": {
+                "intendedPath": {"type": "string"}, "label": {"type": "string"},
+                "workUnitId": {"type": "string"}},
+                "required": ["intendedPath"]},
+        ),
+        Tool(
+            name="rhino_declared_target_promote",
+            description="Materialize a declared target: register the now-saved file through P6, "
+                        "verify path identity, and bind it. The ONLY state transition; idempotent. No Rhino.",
+            inputSchema={"type": "object", "properties": {
+                "declaredTargetId": {"type": "string"}},
+                "required": ["declaredTargetId"]},
+        ),
+        Tool(
+            name="rhino_declared_targets",
+            description="List/inspect declared targets with computed observations (fileState, "
+                        "promotable, promotionBlockedReason, ...). Read-only; never transitions. "
+                        "Optional declaredTargetId.",
+            inputSchema={"type": "object", "properties": {"declaredTargetId": {"type": "string"}}},
+        ),
+        Tool(
             name="rhino_ping",
             description="Check if Rhino bridge is running and responsive. Optional 'port' parameter to ping a specific instance.",
             inputSchema={
@@ -12950,6 +12975,19 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
 
         case "rhino_work_units":
             result = await work_units.list_work_units_tool(work_unit_id=arguments.get("workUnitId"))
+
+        case "rhino_declared_target_declare":
+            result = await work_units.declared_target_declare_tool(
+                intended_path=arguments.get("intendedPath"), label=arguments.get("label"),
+                work_unit_id=arguments.get("workUnitId"))
+
+        case "rhino_declared_target_promote":
+            result = await work_units.declared_target_promote_tool(
+                declared_target_id=arguments.get("declaredTargetId"))
+
+        case "rhino_declared_targets":
+            result = await work_units.list_declared_targets_tool(
+                declared_target_id=arguments.get("declaredTargetId"))
 
         case "rhino_ping":
             result = await call_rhino("/ping", port=port)
