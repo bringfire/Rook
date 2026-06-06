@@ -398,3 +398,110 @@ def test_declare_validates_work_unit_and_path(tmp_path, monkeypatch):
     assert bad_wu["success"] is False and bad_wu["data"]["code"] == "work_unit_not_found"
     bad_path = asyncio.run(work_units.declared_target_declare_tool(intended_path="   "))
     assert bad_path["success"] is False and bad_path["data"]["code"] == "invalid_path"
+
+
+# ----- P7 Slice 2: promote tool -----
+def _point_p6_empty(tmp_path, monkeypatch):
+    """Point P6 at a throwaway empty artifacts.db (real registry, no rows)."""
+    monkeypatch.setattr(artifacts, "resolve_artifact_db_path", lambda: tmp_path / "artifacts.db")
+    artifacts._reset_artifact_registry_singleton()
+
+
+def test_promote_registers_and_binds(tmp_path, monkeypatch):
+    _point_p6_empty(tmp_path, monkeypatch)
+    _repoint_p7(tmp_path, monkeypatch)
+    f = tmp_path / "master.3dm"; f.write_text("x")
+    predicted = artifacts.artifact_id_for(artifacts.normalize_path(str(f)))
+    dt = asyncio.run(work_units.declared_target_declare_tool(intended_path=str(f)))["data"]["declaredTargetId"]
+    prom = asyncio.run(work_units.declared_target_promote_tool(declared_target_id=dt))
+    assert prom["success"] is True and prom["data"]["status"] == "materialized"
+    assert prom["data"]["boundArtifactId"] == predicted
+    assert artifacts.artifact_registry().get(artifact_id=predicted).file_state == "present"
+
+
+def test_promote_not_materialized_when_file_absent(tmp_path, monkeypatch):
+    _point_p6_empty(tmp_path, monkeypatch)
+    _repoint_p7(tmp_path, monkeypatch)
+    ghost = tmp_path / "ghost.3dm"  # never created
+    dt = asyncio.run(work_units.declared_target_declare_tool(intended_path=str(ghost)))["data"]["declaredTargetId"]
+    prom = asyncio.run(work_units.declared_target_promote_tool(declared_target_id=dt))
+    assert prom["success"] is False and prom["data"]["code"] == "declared_target_not_materialized"
+    assert prom["data"]["retryable"] is True
+    assert work_units.work_units_registry().get_declared_target(dt).status == "declared"
+
+
+def test_promote_drift_fails_closed(tmp_path, monkeypatch):
+    _point_p6_empty(tmp_path, monkeypatch)
+    _repoint_p7(tmp_path, monkeypatch)
+    f = tmp_path / "drift.3dm"; f.write_text("x")
+    reg = work_units.work_units_registry()
+    with reg._immediate():  # raw-insert a WRONG predicted id but the correct real path
+        reg._conn.execute(
+            "INSERT INTO declared_targets(declared_target_id, work_unit_id, intended_path, "
+            "normalized_path, predicted_artifact_id, status, bound_artifact_id, label, "
+            "created_at, materialized_at) VALUES('dt-wrong',NULL,?,?,'wrong-pid','declared',NULL,NULL,1,NULL);",
+            (str(f), artifacts.normalize_path(str(f))))
+    prom = asyncio.run(work_units.declared_target_promote_tool(declared_target_id="dt-wrong"))
+    assert prom["success"] is False and prom["data"]["code"] == "declared_target_path_identity_changed"
+    assert work_units.work_units_registry().get_declared_target("dt-wrong").status == "declared"
+
+
+def test_promote_idempotent_and_not_found(tmp_path, monkeypatch):
+    _point_p6_empty(tmp_path, monkeypatch)
+    _repoint_p7(tmp_path, monkeypatch)
+    f = tmp_path / "anchor.3dm"; f.write_text("x")
+    predicted = artifacts.artifact_id_for(artifacts.normalize_path(str(f)))
+    dt = asyncio.run(work_units.declared_target_declare_tool(intended_path=str(f)))["data"]["declaredTargetId"]
+    asyncio.run(work_units.declared_target_promote_tool(declared_target_id=dt))
+    again = asyncio.run(work_units.declared_target_promote_tool(declared_target_id=dt))  # idempotent
+    assert again["success"] is True and again["data"]["status"] == "materialized"
+    assert again["data"]["boundArtifactId"] == predicted
+    nf = asyncio.run(work_units.declared_target_promote_tool(declared_target_id="dt-none"))
+    assert nf["success"] is False and nf["data"]["code"] == "declared_target_not_found"
+
+
+def test_promote_completes_after_p6_already_registered(tmp_path, monkeypatch):
+    # §6.1 cross-DB window: P6 row already present, P7 target still 'declared' -> retry completes the bind.
+    ids, files = _p6_with(tmp_path, monkeypatch, ["anchor.3dm"])  # registers anchor present in P6
+    _repoint_p7(tmp_path, monkeypatch)
+    path = str(files["anchor.3dm"])
+    dt = asyncio.run(work_units.declared_target_declare_tool(intended_path=path))["data"]["declaredTargetId"]
+    prom = asyncio.run(work_units.declared_target_promote_tool(declared_target_id=dt))
+    assert prom["success"] is True and prom["data"]["status"] == "materialized"
+    assert prom["data"]["boundArtifactId"] == ids["anchor.3dm"]
+    norm = artifacts.normalize_path(path)
+    assert len([r for r in artifacts.artifact_registry().list_all() if r.path == norm]) == 1  # no duplicate row
+
+
+def test_promote_fails_closed_on_p6_skew(tmp_path, monkeypatch):
+    # P6 hard guard: a version-skewed P6 -> promote dies at its artifact_registry_unavailable guard,
+    # NO P7 transition (declare is pure P7, so it still succeeds).
+    raw = sqlite3.connect(str(tmp_path / "artifacts.db"))
+    raw.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);")
+    raw.execute("INSERT INTO meta(key,value) VALUES('artifact_registry_version','p0.legacy');")
+    raw.commit(); raw.close()
+    monkeypatch.setattr(artifacts, "resolve_artifact_db_path", lambda: tmp_path / "artifacts.db")
+    artifacts._reset_artifact_registry_singleton()
+    _repoint_p7(tmp_path, monkeypatch)
+    f = tmp_path / "anchor.3dm"; f.write_text("x")
+    dt = asyncio.run(work_units.declared_target_declare_tool(intended_path=str(f)))["data"]["declaredTargetId"]
+    out = asyncio.run(work_units.declared_target_promote_tool(declared_target_id=dt))
+    assert out["success"] is False and out["data"]["code"] == "artifact_registry_unavailable"
+    assert work_units.work_units_registry().get_declared_target(dt).status == "declared"
+
+
+def test_promote_maps_unreachable_envelope(tmp_path, monkeypatch):
+    # envelope-by-data.code: register_artifact -> artifact_file_unreachable maps to
+    # declared_target_unreachable (retryable), with NO bind. Monkeypatch P6's register to force it.
+    _point_p6_empty(tmp_path, monkeypatch)
+    _repoint_p7(tmp_path, monkeypatch)
+    f = tmp_path / "locked.3dm"  # need not exist; register is monkeypatched
+    dt = asyncio.run(work_units.declared_target_declare_tool(intended_path=str(f)))["data"]["declaredTargetId"]
+    async def fake_register(path):
+        return {"success": False, "data": {"code": "artifact_file_unreachable",
+                                           "message": "unreachable", "retryable": True}}
+    monkeypatch.setattr(artifacts, "register_artifact", fake_register)
+    out = asyncio.run(work_units.declared_target_promote_tool(declared_target_id=dt))
+    assert out["success"] is False and out["data"]["code"] == "declared_target_unreachable"
+    assert out["data"]["retryable"] is True
+    assert work_units.work_units_registry().get_declared_target(dt).status == "declared"

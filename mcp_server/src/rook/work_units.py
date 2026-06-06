@@ -664,3 +664,54 @@ async def declared_target_declare_tool(*, intended_path: str, label: str | None 
     return {"success": True, "data": {
         "declaredTargetId": dt_id, "intendedPath": intended_path, "normalizedPath": norm,
         "predictedArtifactId": predicted, "status": "declared", "workUnitId": work_unit_id}}
+
+
+async def declared_target_promote_tool(*, declared_target_id: str) -> "dict[str, Any]":
+    """The ONLY transition to 'materialized'. Drift-check, register the real file through P6's public
+    api, verify the bind, flip. Idempotent + re-entrant (safe to retry after a cross-DB crash window)."""
+    if (u := await _registry_unusable()) is not None:
+        return u
+    if (p6u := await _p6_unusable()) is not None:
+        return p6u
+    row = await asyncio.to_thread(lambda: work_units_registry().get_declared_target(declared_target_id))
+    if row is None:
+        return _err("declared_target_not_found", f"No declared target {declared_target_id!r}.")
+    if row.status == "materialized":   # idempotent: bind already done
+        return {"success": True, "data": {"declaredTargetId": row.declared_target_id,
+                "status": "materialized", "boundArtifactId": row.bound_artifact_id,
+                "normalizedPath": row.normalized_path}}
+    # (a) declared-path drift — pure recompute, no P6/disk write
+    cur_norm = await asyncio.to_thread(_artifacts.normalize_path, row.intended_path)
+    cur_id = await asyncio.to_thread(_artifacts.artifact_id_for, cur_norm)
+    if cur_id != row.predicted_artifact_id:
+        return _err("declared_target_path_identity_changed",
+                    "The declared path now normalizes to a different artifact id; not promoted.",
+                    predictedArtifactId=row.predicted_artifact_id, currentArtifactId=cur_id)
+    # register through P6's PUBLIC api — parse the {success, data} envelope by data.code (never generic)
+    r = await _artifacts.register_artifact(row.intended_path)
+    if r["success"] is False:
+        code = r["data"]["code"]
+        if code == "artifact_file_not_found":
+            return _err("declared_target_not_materialized",
+                        f"No file at the declared path yet; cannot materialize {declared_target_id!r}.")
+        if code == "artifact_file_unreachable":
+            return _err("declared_target_unreachable",
+                        f"The declared path is unreachable; cannot materialize {declared_target_id!r}.")
+        if code == "artifact_id_collision":
+            return _err("declared_target_path_conflict",
+                        "A different registered path already owns this artifact id; not promoted.")
+        if code == "artifact_registry_unavailable":
+            return r  # pass the P6 envelope through unchanged
+        return _err("declared_target_promotion_failed",
+                    f"P6 registration failed unexpectedly: {code}.", p6Code=code)
+    artifact = r["data"]["artifact"]
+    # (b) bind verification — the real P6 row must match the prediction and be present
+    if artifact["artifactId"] != row.predicted_artifact_id or artifact["fileState"] != "present":
+        return _err("declared_target_path_identity_changed",
+                    "The registered artifact does not match the prediction; not promoted.",
+                    predictedArtifactId=row.predicted_artifact_id,
+                    registeredArtifactId=artifact["artifactId"], fileState=artifact["fileState"])
+    await asyncio.to_thread(lambda: work_units_registry().set_declared_target_materialized(
+        declared_target_id, bound_artifact_id=row.predicted_artifact_id, now=int(time.time())))
+    return {"success": True, "data": {"declaredTargetId": declared_target_id, "status": "materialized",
+            "boundArtifactId": row.predicted_artifact_id, "normalizedPath": row.normalized_path}}
