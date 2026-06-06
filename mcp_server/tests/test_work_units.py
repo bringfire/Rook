@@ -295,7 +295,7 @@ def test_declared_targets_table_created_at_p72(tmp_path):
     assert "declared_targets" in names
     ver = reg._conn.execute(
         "SELECT value FROM meta WHERE key='work_units_registry_version';").fetchone()
-    assert ver[0] == "p7.2" == work_units.WORK_UNITS_REGISTRY_VERSION
+    assert ver[0] == work_units.WORK_UNITS_REGISTRY_VERSION   # current version (robust to future bumps)
     reg.close()
 
 
@@ -325,7 +325,7 @@ def test_additive_migration_p71_to_p72_preserves_data(tmp_path):
     assert "declared_targets" in names                       # additively created
     ver = reg._conn.execute(
         "SELECT value FROM meta WHERE key='work_units_registry_version';").fetchone()
-    assert ver[0] == "p7.2"                                   # upgraded forward
+    assert ver[0] == work_units.WORK_UNITS_REGISTRY_VERSION   # upgraded forward to current
     assert reg.get_work_unit("wu-keep").label == "Keep"       # existing data intact
     reg.close()
 
@@ -574,3 +574,386 @@ def test_declared_targets_unknown_id_is_not_found(tmp_path, monkeypatch):
     _repoint_p7(tmp_path, monkeypatch)
     out = asyncio.run(work_units.list_declared_targets_tool(declared_target_id="dt-nope"))
     assert out["success"] is False and out["data"]["code"] == "declared_target_not_found"
+
+
+# ----- P7 Slice 3: planned-contract schema + migration -----
+def test_planned_tables_created_at_p73(tmp_path):
+    reg = _fresh_registry(tmp_path)
+    names = {r[0] for r in reg._conn.execute("SELECT name FROM sqlite_master WHERE type='table';").fetchall()}
+    assert {"planned_merge_contracts", "planned_merge_contract_sources",
+            "work_unit_planned_merge_contracts"}.issubset(names)
+    ver = reg._conn.execute("SELECT value FROM meta WHERE key='work_units_registry_version';").fetchone()
+    assert ver[0] == "p7.3" == work_units.WORK_UNITS_REGISTRY_VERSION
+    reg.close()
+
+
+def test_additive_migration_p72_to_p73(tmp_path):
+    db = tmp_path / "work_units.db"
+    raw = sqlite3.connect(str(db))
+    raw.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);")
+    raw.execute("INSERT INTO meta(key,value) VALUES('work_units_registry_version','p7.2');")
+    for ddl in (
+        "CREATE TABLE work_units (work_unit_id TEXT PRIMARY KEY, label TEXT NOT NULL, role TEXT, metadata TEXT, created_at INTEGER NOT NULL)",
+        "CREATE TABLE work_unit_artifacts (work_unit_id TEXT NOT NULL, artifact_id TEXT NOT NULL, relation TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY(work_unit_id, artifact_id, relation))",
+        "CREATE TABLE merge_contracts (contract_id TEXT PRIMARY KEY, target_artifact_id TEXT NOT NULL, merge_kind TEXT NOT NULL, refresh_policy TEXT NOT NULL, created_at INTEGER NOT NULL)",
+        "CREATE TABLE merge_contract_sources (contract_id TEXT NOT NULL, source_artifact_id TEXT NOT NULL, PRIMARY KEY(contract_id, source_artifact_id))",
+        "CREATE TABLE work_unit_merge_contracts (work_unit_id TEXT NOT NULL, contract_id TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY(work_unit_id, contract_id))",
+        "CREATE TABLE declared_targets (declared_target_id TEXT PRIMARY KEY, work_unit_id TEXT, intended_path TEXT NOT NULL, normalized_path TEXT NOT NULL, predicted_artifact_id TEXT NOT NULL UNIQUE, status TEXT NOT NULL, bound_artifact_id TEXT, label TEXT, created_at INTEGER NOT NULL, materialized_at INTEGER)",
+    ):
+        raw.execute(ddl)
+    raw.execute("INSERT INTO merge_contracts VALUES('mc-keep','A','import','refresh_on_demand',1);")
+    raw.commit(); raw.close()
+    reg = work_units.WorkUnitRegistry(db)
+    assert reg.schema_unsupported is None
+    names = {r[0] for r in reg._conn.execute("SELECT name FROM sqlite_master WHERE type='table';").fetchall()}
+    assert "planned_merge_contracts" in names
+    assert reg._conn.execute("SELECT value FROM meta WHERE key='work_units_registry_version';").fetchone()[0] == "p7.3"
+    assert reg.get_contract("mc-keep").target_artifact_id == "A"
+    reg.close()
+
+
+def test_additive_migration_p71_to_p73_creates_slice2_and_slice3(tmp_path):
+    db = tmp_path / "work_units.db"
+    raw = sqlite3.connect(str(db))
+    raw.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);")
+    raw.execute("INSERT INTO meta(key,value) VALUES('work_units_registry_version','p7.1');")
+    raw.execute("CREATE TABLE work_units (work_unit_id TEXT PRIMARY KEY, label TEXT NOT NULL, role TEXT, metadata TEXT, created_at INTEGER NOT NULL);")
+    raw.commit(); raw.close()
+    reg = work_units.WorkUnitRegistry(db)
+    assert reg.schema_unsupported is None
+    names = {r[0] for r in reg._conn.execute("SELECT name FROM sqlite_master WHERE type='table';").fetchall()}
+    assert "declared_targets" in names and "planned_merge_contracts" in names
+    assert reg._conn.execute("SELECT value FROM meta WHERE key='work_units_registry_version';").fetchone()[0] == "p7.3"
+    reg.close()
+
+
+def test_malformed_planned_table_fails_closed(tmp_path):
+    db = tmp_path / "work_units.db"
+    raw = sqlite3.connect(str(db))
+    raw.execute("CREATE TABLE planned_merge_contracts (id TEXT, junk TEXT);")
+    raw.commit(); raw.close()
+    reg = work_units.WorkUnitRegistry(db)
+    assert reg.schema_unsupported == "unknown"
+    reg.close()
+
+
+# ----- P7 Slice 3: canonical key + record-side registry -----
+def test_planned_artifact_key_projection(tmp_path):
+    reg = _fresh_registry(tmp_path)
+    reg.insert_declared_target("dt-m", work_unit_id=None, intended_path="C:/m.3dm",
+        normalized_path="c:\\m.3dm", predicted_artifact_id="pred-m", label=None, now=1)
+    assert work_units._planned_artifact_key(reg, "artifact", "aid-1") == ("aid-1", None)
+    assert work_units._planned_artifact_key(reg, "declared_target", "dt-m") == ("pred-m", None)
+    key, prob = work_units._planned_artifact_key(reg, "declared_target", "dt-nope")
+    assert key is None and prob["code"] == "declared_target_not_found"
+    reg.close()
+
+
+def test_insert_planned_contract_and_reads(tmp_path):
+    reg = _fresh_registry(tmp_path)
+    reg.register_work_unit("wu", label="W", role=None, metadata=None, now=1)
+    reg.insert_planned_contract("pc1", target_ref_kind="artifact", target_ref_id="M",
+        sources=[("artifact", "A"), ("declared_target", "dt-x")], merge_kind="import",
+        refresh_policy="refresh_on_demand", work_unit_id="wu", now=10)
+    row = reg.get_planned_contract("pc1")
+    assert row.status == "planned" and row.activated_contract_id is None and row.activated_at is None
+    assert reg.sources_for_planned("pc1") == [("artifact", "A"), ("declared_target", "dt-x")]
+    assert reg.planned_contracts_for("wu") == ["pc1"]
+    assert reg.work_units_for_planned_contract("pc1") == ["wu"]
+    assert [r.planned_contract_id for r in reg.list_planned_contracts()] == ["pc1"]
+    reg.close()
+
+
+def test_insert_planned_contract_rejects_canonical_cycle(tmp_path):
+    reg = _fresh_registry(tmp_path)
+    reg.insert_planned_contract("pc1", target_ref_kind="artifact", target_ref_id="M",
+        sources=[("artifact", "A")], merge_kind="import", refresh_policy="refresh_on_demand",
+        work_unit_id=None, now=1)
+    with pytest.raises(work_units.PlannedContractCycle):
+        reg.insert_planned_contract("pc2", target_ref_kind="artifact", target_ref_id="A",
+            sources=[("artifact", "M")], merge_kind="import", refresh_policy="refresh_on_demand",
+            work_unit_id=None, now=2)
+    assert [r.planned_contract_id for r in reg.list_planned_contracts()] == ["pc1"]
+    reg.close()
+
+
+# ----- P7 Slice 3: record tool -----
+def test_record_planned_contract_happy(tmp_path, monkeypatch):
+    ids, _ = _p6_with(tmp_path, monkeypatch, ["A.3dm"])
+    _repoint_p7(tmp_path, monkeypatch)
+    asyncio.run(work_units.declared_target_declare_tool(intended_path=str(tmp_path / "M.3dm")))
+    dt = asyncio.run(work_units.list_declared_targets_tool())["data"]["declaredTargets"][0]["declaredTargetId"]
+    out = asyncio.run(work_units.record_planned_contract(
+        target={"kind": "declared_target", "id": dt},
+        sources=[{"kind": "artifact", "id": ids["A.3dm"]}],
+        merge_kind="import", refresh_policy="refresh_on_demand"))
+    assert out["success"] is True and out["data"]["status"] == "planned"
+    assert out["data"]["plannedContractId"].startswith("pc-")
+
+
+def test_record_rejects_bad_refs_and_structural(tmp_path, monkeypatch):
+    _p6_with(tmp_path, monkeypatch, [])
+    _repoint_p7(tmp_path, monkeypatch)
+    bad_kind = asyncio.run(work_units.record_planned_contract(target={"kind": "bogus", "id": "x"},
+        sources=[{"kind": "artifact", "id": "a"}], merge_kind="import", refresh_policy="refresh_on_demand"))
+    assert bad_kind["success"] is False and bad_kind["data"]["code"] == "invalid_ref_kind"
+    empty = asyncio.run(work_units.record_planned_contract(target={"kind": "artifact", "id": "a"},
+        sources=[], merge_kind="import", refresh_policy="refresh_on_demand"))
+    assert empty["success"] is False and empty["data"]["code"] == "empty_sources"
+    dangling = asyncio.run(work_units.record_planned_contract(target={"kind": "declared_target", "id": "dt-nope"},
+        sources=[{"kind": "declared_target", "id": "dt-nope2"}], merge_kind="import", refresh_policy="refresh_on_demand"))
+    assert dangling["success"] is False and dangling["data"]["code"] == "declared_target_not_found"
+
+
+def test_record_canonical_self_reference_cross_kind(tmp_path, monkeypatch):
+    ids, files = _p6_with(tmp_path, monkeypatch, ["M.3dm"])
+    _repoint_p7(tmp_path, monkeypatch)
+    asyncio.run(work_units.declared_target_declare_tool(intended_path=str(files["M.3dm"])))
+    dtm = asyncio.run(work_units.list_declared_targets_tool())["data"]["declaredTargets"][0]["declaredTargetId"]
+    out = asyncio.run(work_units.record_planned_contract(target={"kind": "declared_target", "id": dtm},
+        sources=[{"kind": "artifact", "id": ids["M.3dm"]}], merge_kind="import", refresh_policy="refresh_on_demand"))
+    assert out["success"] is False and out["data"]["code"] == "planned_self_reference"
+
+
+def test_record_canonical_duplicate_source_cross_kind(tmp_path, monkeypatch):
+    ids, files = _p6_with(tmp_path, monkeypatch, ["M.3dm", "F.3dm"])
+    _repoint_p7(tmp_path, monkeypatch)
+    asyncio.run(work_units.declared_target_declare_tool(intended_path=str(files["M.3dm"])))
+    asyncio.run(work_units.declared_target_declare_tool(intended_path=str(files["F.3dm"])))
+    dts = {d["intendedPath"]: d["declaredTargetId"]
+           for d in asyncio.run(work_units.list_declared_targets_tool())["data"]["declaredTargets"]}
+    dtm = [v for k, v in dts.items() if k.endswith("M.3dm")][0]
+    dtf = [v for k, v in dts.items() if k.endswith("F.3dm")][0]
+    out = asyncio.run(work_units.record_planned_contract(target={"kind": "declared_target", "id": dtf},
+        sources=[{"kind": "declared_target", "id": dtm}, {"kind": "artifact", "id": ids["M.3dm"]}],
+        merge_kind="import", refresh_policy="refresh_on_demand"))
+    assert out["success"] is False and out["data"]["code"] == "duplicate_planned_source"
+
+
+def test_record_artifact_linkbar_registered_not_present(tmp_path, monkeypatch):
+    ids, files = _p6_with(tmp_path, monkeypatch, ["A.3dm"])
+    _repoint_p7(tmp_path, monkeypatch)
+    files["A.3dm"].unlink()
+    artifacts.artifact_registry().set_state(artifacts.normalize_path(str(files["A.3dm"])),
+        file_state="missing", size=None, mtime=None, now=1)
+    asyncio.run(work_units.declared_target_declare_tool(intended_path=str(tmp_path / "M.3dm")))
+    dt = asyncio.run(work_units.list_declared_targets_tool())["data"]["declaredTargets"][0]["declaredTargetId"]
+    ok = asyncio.run(work_units.record_planned_contract(target={"kind": "declared_target", "id": dt},
+        sources=[{"kind": "artifact", "id": ids["A.3dm"]}], merge_kind="import", refresh_policy="refresh_on_demand"))
+    assert ok["success"] is True
+    bad = asyncio.run(work_units.record_planned_contract(target={"kind": "declared_target", "id": dt},
+        sources=[{"kind": "artifact", "id": "ghost-id"}], merge_kind="import", refresh_policy="refresh_on_demand"))
+    assert bad["success"] is False and bad["data"]["code"] == "artifact_not_registered"
+
+
+def test_record_conditional_p6_guard(tmp_path, monkeypatch):
+    raw = sqlite3.connect(str(tmp_path / "artifacts.db"))
+    raw.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);")
+    raw.execute("INSERT INTO meta(key,value) VALUES('artifact_registry_version','p0.legacy');")
+    raw.commit(); raw.close()
+    monkeypatch.setattr(artifacts, "resolve_artifact_db_path", lambda: tmp_path / "artifacts.db")
+    artifacts._reset_artifact_registry_singleton()
+    _repoint_p7(tmp_path, monkeypatch)
+    asyncio.run(work_units.declared_target_declare_tool(intended_path=str(tmp_path / "M.3dm")))
+    asyncio.run(work_units.declared_target_declare_tool(intended_path=str(tmp_path / "L.3dm")))
+    dts = [d["declaredTargetId"] for d in asyncio.run(work_units.list_declared_targets_tool())["data"]["declaredTargets"]]
+    ok = asyncio.run(work_units.record_planned_contract(target={"kind": "declared_target", "id": dts[0]},
+        sources=[{"kind": "declared_target", "id": dts[1]}], merge_kind="import", refresh_policy="refresh_on_demand"))
+    assert ok["success"] is True   # all-declared_target proceeds under P6 skew
+    bad = asyncio.run(work_units.record_planned_contract(target={"kind": "declared_target", "id": dts[0]},
+        sources=[{"kind": "artifact", "id": "some-id"}], merge_kind="import", refresh_policy="refresh_on_demand"))
+    assert bad["success"] is False and bad["data"]["code"] == "artifact_registry_unavailable"
+
+
+# ----- P7 Slice 3: activation helpers -----
+def test_classify_planned_state(tmp_path):
+    Row = work_units.PlannedContractRow
+    assert work_units._classify_planned_state(Row("p", "artifact", "M", "import", "refresh_on_demand", "planned", None, None, 1)) == "planned"
+    assert work_units._classify_planned_state(Row("p", "artifact", "M", "import", "refresh_on_demand", "activated", "mc-1", 5, 1)) == "activated"
+    assert work_units._classify_planned_state(Row("p", "artifact", "M", "import", "refresh_on_demand", "activated", None, None, 1)) == "invalid"
+
+
+def test_activation_blockers_matrix(tmp_path, monkeypatch):
+    ids, files = _p6_with(tmp_path, monkeypatch, ["A.3dm", "M.3dm"])
+    _repoint_p7(tmp_path, monkeypatch)
+    reg = work_units.work_units_registry()
+    reg.insert_declared_target("dt-x", work_unit_id=None, intended_path=str(tmp_path / "X.3dm"),
+        normalized_path=artifacts.normalize_path(str(tmp_path / "X.3dm")),
+        predicted_artifact_id="pred-x", label=None, now=1)
+    reg.insert_planned_contract("pc1", target_ref_kind="artifact", target_ref_id=ids["M.3dm"],
+        sources=[("declared_target", "dt-x")], merge_kind="import", refresh_policy="refresh_on_demand",
+        work_unit_id=None, now=2)
+    blockers, resolved = work_units._activation_blockers(reg, reg.get_planned_contract("pc1"), True)
+    assert resolved is None
+    assert any(b["code"] == "declared_target_not_materialized" for b in blockers)
+    # bound identity changed -> retryable false (NOT a retryable file-state issue)
+    reg.set_declared_target_materialized("dt-x", bound_artifact_id="DIFFERENT", now=3)
+    blockers2, _ = work_units._activation_blockers(reg, reg.get_planned_contract("pc1"), True)
+    bad = [b for b in blockers2 if b["code"] == "declared_target_bound_identity_changed"]
+    assert bad and bad[0]["retryable"] is False
+    # P6 unavailable -> single artifact_registry_unavailable blocker
+    blockers3, _ = work_units._activation_blockers(reg, reg.get_planned_contract("pc1"), False)
+    assert blockers3 == [{"code": "artifact_registry_unavailable", "retryable": True}]
+    reg.close()
+
+
+# ----- P7 Slice 3: activate -----
+def _materialize_dt(tmp_path, monkeypatch, name):
+    """Declare + materialize a declared target at tmp_path/name; return (dt_id, bound_artifact_id)."""
+    f = tmp_path / name; f.write_text("x")
+    dt = asyncio.run(work_units.declared_target_declare_tool(intended_path=str(f)))["data"]["declaredTargetId"]
+    prom = asyncio.run(work_units.declared_target_promote_tool(declared_target_id=dt))
+    return dt, prom["data"]["boundArtifactId"]
+
+
+def test_activate_happy_creates_strict_contract(tmp_path, monkeypatch):
+    _p6_with(tmp_path, monkeypatch, [])
+    _repoint_p7(tmp_path, monkeypatch)
+    dt_m, aid_m = _materialize_dt(tmp_path, monkeypatch, "M.3dm")
+    dt_a, aid_a = _materialize_dt(tmp_path, monkeypatch, "A.3dm")
+    pc = asyncio.run(work_units.record_planned_contract(target={"kind": "declared_target", "id": dt_m},
+        sources=[{"kind": "declared_target", "id": dt_a}], merge_kind="import",
+        refresh_policy="refresh_on_demand"))["data"]["plannedContractId"]
+    out = asyncio.run(work_units.activate_planned_contract_tool(planned_contract_id=pc))
+    assert out["success"] is True and out["data"]["alreadyActivated"] is False
+    cid = out["data"]["contractId"]
+    strict = work_units.work_units_registry().get_contract(cid)
+    assert strict.target_artifact_id == aid_m
+    assert work_units.work_units_registry().sources_for(cid) == [aid_a]
+    assert work_units.work_units_registry().get_planned_contract(pc).status == "activated"
+
+
+def test_activate_idempotent_no_second_contract(tmp_path, monkeypatch):
+    _p6_with(tmp_path, monkeypatch, [])
+    _repoint_p7(tmp_path, monkeypatch)
+    dt_m, _ = _materialize_dt(tmp_path, monkeypatch, "M.3dm")
+    dt_a, _ = _materialize_dt(tmp_path, monkeypatch, "A.3dm")
+    pc = asyncio.run(work_units.record_planned_contract(target={"kind": "declared_target", "id": dt_m},
+        sources=[{"kind": "declared_target", "id": dt_a}], merge_kind="import",
+        refresh_policy="refresh_on_demand"))["data"]["plannedContractId"]
+    first = asyncio.run(work_units.activate_planned_contract_tool(planned_contract_id=pc))
+    again = asyncio.run(work_units.activate_planned_contract_tool(planned_contract_id=pc))
+    assert again["success"] is True and again["data"]["alreadyActivated"] is True
+    assert again["data"]["contractId"] == first["data"]["contractId"]
+    assert len(work_units.work_units_registry().list_contracts()) == 1
+
+
+def test_activate_not_activatable_all_blockers(tmp_path, monkeypatch):
+    _p6_with(tmp_path, monkeypatch, [])
+    _repoint_p7(tmp_path, monkeypatch)
+    asyncio.run(work_units.declared_target_declare_tool(intended_path=str(tmp_path / "M.3dm")))
+    asyncio.run(work_units.declared_target_declare_tool(intended_path=str(tmp_path / "A.3dm")))
+    dts = [d["declaredTargetId"] for d in asyncio.run(work_units.list_declared_targets_tool())["data"]["declaredTargets"]]
+    pc = asyncio.run(work_units.record_planned_contract(target={"kind": "declared_target", "id": dts[0]},
+        sources=[{"kind": "declared_target", "id": dts[1]}], merge_kind="import",
+        refresh_policy="refresh_on_demand"))["data"]["plannedContractId"]
+    out = asyncio.run(work_units.activate_planned_contract_tool(planned_contract_id=pc))
+    assert out["success"] is False and out["data"]["code"] == "planned_contract_not_activatable"
+    codes = {b["code"] for b in out["data"]["blockers"]}
+    assert "declared_target_not_materialized" in codes
+    assert out["data"]["retryable"] is True
+    assert len(work_units.work_units_registry().list_contracts()) == 0
+
+
+def test_activate_not_found_and_invalid_state(tmp_path, monkeypatch):
+    _p6_with(tmp_path, monkeypatch, [])
+    _repoint_p7(tmp_path, monkeypatch)
+    nf = asyncio.run(work_units.activate_planned_contract_tool(planned_contract_id="pc-nope"))
+    assert nf["success"] is False and nf["data"]["code"] == "planned_contract_not_found"
+    reg = work_units.work_units_registry()
+    with reg._immediate():
+        reg._conn.execute("INSERT INTO planned_merge_contracts(planned_contract_id, target_ref_kind, "
+            "target_ref_id, merge_kind, refresh_policy, status, activated_contract_id, activated_at, created_at) "
+            "VALUES('pc-bad','artifact','M','import','refresh_on_demand','activated',NULL,NULL,1);")
+    bad = asyncio.run(work_units.activate_planned_contract_tool(planned_contract_id="pc-bad"))
+    assert bad["success"] is False and bad["data"]["code"] == "planned_contract_already_invalid"
+
+
+# ----- P7 Slice 3: inspector + work-unit join -----
+def test_planned_inspector_single_and_graph(tmp_path, monkeypatch):
+    _p6_with(tmp_path, monkeypatch, [])
+    _repoint_p7(tmp_path, monkeypatch)
+    dt_m, aid_m = _materialize_dt(tmp_path, monkeypatch, "M.3dm")
+    dt_f, aid_f = _materialize_dt(tmp_path, monkeypatch, "F.3dm")
+    asyncio.run(work_units.declared_target_declare_tool(intended_path=str(tmp_path / "A.3dm")))
+    dt_a = [d["declaredTargetId"] for d in asyncio.run(work_units.list_declared_targets_tool())["data"]["declaredTargets"]
+            if d["intendedPath"].endswith("A.3dm")][0]
+    pc1 = asyncio.run(work_units.record_planned_contract(target={"kind": "declared_target", "id": dt_m},
+        sources=[{"kind": "declared_target", "id": dt_a}], merge_kind="import",
+        refresh_policy="refresh_on_demand"))["data"]["plannedContractId"]
+    pc2 = asyncio.run(work_units.record_planned_contract(target={"kind": "declared_target", "id": dt_f},
+        sources=[{"kind": "artifact", "id": aid_m}], merge_kind="import",
+        refresh_policy="refresh_on_demand"))["data"]["plannedContractId"]
+    one = asyncio.run(work_units.list_planned_contracts_tool(planned_contract_id=pc1))
+    obs = one["data"]["plannedContracts"][0]["observed"]
+    assert obs["activatable"] is False
+    assert any(b["code"] == "declared_target_not_materialized" for b in obs["blockers"])
+    whole = asyncio.run(work_units.list_planned_contracts_tool())["data"]
+    assert whole["plannedContractOrder"].index(pc1) < whole["plannedContractOrder"].index(pc2)
+    assert any(e["from"] == pc1 and e["to"] == pc2 for e in whole["edges"])
+
+
+def test_planned_inspector_includes_activated_rows_and_skew(tmp_path, monkeypatch):
+    _p6_with(tmp_path, monkeypatch, [])
+    _repoint_p7(tmp_path, monkeypatch)
+    dt_m, _ = _materialize_dt(tmp_path, monkeypatch, "M.3dm")
+    dt_a, _ = _materialize_dt(tmp_path, monkeypatch, "A.3dm")
+    pc = asyncio.run(work_units.record_planned_contract(target={"kind": "declared_target", "id": dt_m},
+        sources=[{"kind": "declared_target", "id": dt_a}], merge_kind="import",
+        refresh_policy="refresh_on_demand"))["data"]["plannedContractId"]
+    asyncio.run(work_units.activate_planned_contract_tool(planned_contract_id=pc))
+    whole = asyncio.run(work_units.list_planned_contracts_tool())["data"]
+    assert pc in whole["plannedContractOrder"]
+    assert whole["plannedContracts"][0]["status"] == "activated"
+    nf = asyncio.run(work_units.list_planned_contracts_tool(planned_contract_id="pc-nope"))
+    assert nf["success"] is False and nf["data"]["code"] == "planned_contract_not_found"
+
+
+def test_planned_inspector_activated_row_ignores_drift(tmp_path, monkeypatch):
+    _p6_with(tmp_path, monkeypatch, [])
+    _repoint_p7(tmp_path, monkeypatch)
+    dt_m, _ = _materialize_dt(tmp_path, monkeypatch, "M.3dm")
+    dt_a, _ = _materialize_dt(tmp_path, monkeypatch, "A.3dm")
+    pc = asyncio.run(work_units.record_planned_contract(target={"kind": "declared_target", "id": dt_m},
+        sources=[{"kind": "declared_target", "id": dt_a}], merge_kind="import",
+        refresh_policy="refresh_on_demand"))["data"]["plannedContractId"]
+    asyncio.run(work_units.activate_planned_contract_tool(planned_contract_id=pc))
+    artifacts.artifact_registry().set_state(artifacts.normalize_path(str(tmp_path / "A.3dm")),
+        file_state="missing", size=None, mtime=None, now=9)   # drift AFTER activation
+    obs = asyncio.run(work_units.list_planned_contracts_tool(
+        planned_contract_id=pc))["data"]["plannedContracts"][0]["observed"]
+    assert obs["alreadyActivated"] is True and obs["activatable"] is False and obs["blockers"] == []
+
+
+def test_planned_inspector_p6_skew_blocker(tmp_path, monkeypatch):
+    _p6_with(tmp_path, monkeypatch, [])
+    _repoint_p7(tmp_path, monkeypatch)
+    asyncio.run(work_units.declared_target_declare_tool(intended_path=str(tmp_path / "M.3dm")))
+    asyncio.run(work_units.declared_target_declare_tool(intended_path=str(tmp_path / "A.3dm")))
+    dts = [d["declaredTargetId"] for d in asyncio.run(work_units.list_declared_targets_tool())["data"]["declaredTargets"]]
+    asyncio.run(work_units.record_planned_contract(target={"kind": "declared_target", "id": dts[0]},
+        sources=[{"kind": "declared_target", "id": dts[1]}], merge_kind="import", refresh_policy="refresh_on_demand"))
+    raw = sqlite3.connect(str(tmp_path / "artifacts.db"))
+    raw.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);")
+    raw.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('artifact_registry_version','p0.legacy');")
+    raw.commit(); raw.close()
+    artifacts._reset_artifact_registry_singleton()
+    out = asyncio.run(work_units.list_planned_contracts_tool())
+    assert out["data"]["p6Available"] is False
+    obs = out["data"]["plannedContracts"][0]["observed"]
+    assert obs["activatable"] is False
+    assert any(b["code"] == "artifact_registry_unavailable" for b in obs["blockers"])
+
+
+def test_work_unit_planned_join(tmp_path, monkeypatch):
+    _p6_with(tmp_path, monkeypatch, [])
+    _repoint_p7(tmp_path, monkeypatch)
+    asyncio.run(work_units.register_work_unit_tool(label="W", work_unit_id="wu"))
+    asyncio.run(work_units.declared_target_declare_tool(intended_path=str(tmp_path / "M.3dm")))
+    asyncio.run(work_units.declared_target_declare_tool(intended_path=str(tmp_path / "A.3dm")))
+    dts = [d["declaredTargetId"] for d in asyncio.run(work_units.list_declared_targets_tool())["data"]["declaredTargets"]]
+    pc = asyncio.run(work_units.record_planned_contract(target={"kind": "declared_target", "id": dts[0]},
+        sources=[{"kind": "declared_target", "id": dts[1]}], merge_kind="import",
+        refresh_policy="refresh_on_demand", work_unit_id="wu"))["data"]["plannedContractId"]
+    wu = asyncio.run(work_units.list_work_units_tool(work_unit_id="wu"))
+    assert wu["data"]["workUnits"][0]["plannedContracts"] == [pc]

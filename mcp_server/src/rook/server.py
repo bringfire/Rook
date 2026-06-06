@@ -2950,6 +2950,36 @@ Use this before any Rhino operations to ensure Rhino is available. Safe to call 
             inputSchema={"type": "object", "properties": {"declaredTargetId": {"type": "string"}}},
         ),
         Tool(
+            name="rhino_planned_contract_record",
+            description="Record a PLANNED merge contract over typed refs ({kind:'artifact'|'declared_target', "
+                        "id}) — future fan-in intent before every artifact exists. Records intent only; no "
+                        "execution, no Rhino. P6 needed only when an artifact ref is present.",
+            inputSchema={"type": "object", "properties": {
+                "target": {"type": "object", "properties": {"kind": {"type": "string"}, "id": {"type": "string"}}},
+                "sources": {"type": "array", "items": {"type": "object",
+                            "properties": {"kind": {"type": "string"}, "id": {"type": "string"}}}},
+                "mergeKind": {"type": "string",
+                              "enum": ["worksession", "import", "linked_block", "reference", "block", "report"]},
+                "refreshPolicy": {"type": "string", "enum": ["refresh_after_save", "refresh_on_demand"]},
+                "workUnitId": {"type": "string"}},
+                "required": ["target", "sources", "mergeKind", "refreshPolicy"]},
+        ),
+        Tool(
+            name="rhino_planned_contract_activate",
+            description="Activate ONE planned contract into a strict present-only merge_contract — idempotent, "
+                        "fail-closed with all blockers, one atomic P7 transaction. Requires every ref present/"
+                        "materialized. No Rhino.",
+            inputSchema={"type": "object", "properties": {"plannedContractId": {"type": "string"}},
+                "required": ["plannedContractId"]},
+        ),
+        Tool(
+            name="rhino_planned_contracts",
+            description="List/inspect planned contracts with computed observations (activatable, blockers, "
+                        "resolved ids) and, whole-graph, plannedContractOrder/edges/graphOk. Read-only; never "
+                        "transitions. Optional plannedContractId.",
+            inputSchema={"type": "object", "properties": {"plannedContractId": {"type": "string"}}},
+        ),
+        Tool(
             name="rhino_ping",
             description="Check if Rhino bridge is running and responsive. Optional 'port' parameter to ping a specific instance.",
             inputSchema={
@@ -12988,6 +13018,20 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
         case "rhino_declared_targets":
             result = await work_units.list_declared_targets_tool(
                 declared_target_id=arguments.get("declaredTargetId"))
+
+        case "rhino_planned_contract_record":
+            result = await work_units.record_planned_contract(
+                target=arguments.get("target"), sources=arguments.get("sources"),
+                merge_kind=arguments.get("mergeKind"), refresh_policy=arguments.get("refreshPolicy"),
+                work_unit_id=arguments.get("workUnitId"))
+
+        case "rhino_planned_contract_activate":
+            result = await work_units.activate_planned_contract_tool(
+                planned_contract_id=arguments.get("plannedContractId"))
+
+        case "rhino_planned_contracts":
+            result = await work_units.list_planned_contracts_tool(
+                planned_contract_id=arguments.get("plannedContractId"))
 
         case "rhino_ping":
             result = await call_rhino("/ping", port=port)
