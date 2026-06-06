@@ -555,6 +555,35 @@ def _planned_graph_pairs(reg) -> "list[tuple]":
     return pairs
 
 
+def _planned_structural_problems(target_key: str, source_keys: "list[str]", merge_kind: str,
+                                 refresh_policy: str) -> "list[dict[str, Any]]":
+    """Local well-formedness over CANONICAL keys (not ref-row identity)."""
+    problems: list[dict[str, Any]] = []
+    if not source_keys:
+        problems.append({"code": "empty_sources"})
+    if len(source_keys) != len(set(source_keys)):
+        problems.append({"code": "duplicate_planned_source"})
+    if merge_kind not in MERGE_KINDS:
+        problems.append({"code": "unknown_merge_kind", "value": merge_kind})
+    if refresh_policy not in REFRESH_POLICIES:
+        problems.append({"code": "unknown_refresh_policy", "value": refresh_policy})
+    if target_key in source_keys:
+        problems.append({"code": "planned_self_reference"})
+    return problems
+
+
+def _parse_ref(ref) -> "tuple[tuple[str, str] | None, dict | None]":
+    """Validate a typed-ref object {kind, id}. Returns ((kind, id), None) or (None, {code, message})."""
+    if not isinstance(ref, dict):
+        return None, {"code": "invalid_argument", "message": "ref must be an object {kind, id}."}
+    kind, rid = ref.get("kind"), ref.get("id")
+    if not isinstance(rid, str) or not rid.strip():
+        return None, {"code": "invalid_argument", "message": "ref 'id' must be a non-empty string."}
+    if kind not in REF_KINDS:
+        return None, {"code": "invalid_ref_kind", "message": f"ref 'kind' must be one of {REF_KINDS}.", "value": kind}
+    return (kind, rid), None
+
+
 def _structural_problems(target: str, sources: "list[str]", merge_kind: str,
                          refresh_policy: str) -> "list[dict[str, Any]]":
     """Local well-formedness shared by record + validate (NOT present, NOT acyclicity)."""
@@ -652,6 +681,12 @@ _RETRYABLE = {
     "declared_target_not_found": False, "declared_target_path_conflict": False,
     "declared_target_not_materialized": True, "declared_target_unreachable": True,
     "declared_target_path_identity_changed": False, "declared_target_promotion_failed": False,
+    "invalid_ref_kind": False, "duplicate_planned_source": False, "planned_self_reference": False,
+    "declared_target_bound_missing": False, "declared_target_bound_identity_changed": False,
+    "declared_target_bound_not_present": True,
+    "planned_contract_not_found": False, "planned_contract_cycle_detected": False,
+    "strict_merge_cycle_detected": False, "planned_contract_already_invalid": False,
+    "planned_contract_not_activatable": False, "artifact_registry_unavailable": True,
 }
 
 
@@ -921,3 +956,79 @@ async def list_declared_targets_tool(*, declared_target_id: str | None = None) -
                  "observed": _observe_declared_target(r, p6_available)} for r in rows]
     return {"success": True, "data": {"declaredTargets": await asyncio.to_thread(_build),
                                       "p6Available": p6_available}}
+
+
+async def record_planned_contract(*, target, sources, merge_kind: str, refresh_policy: str,
+                                  work_unit_id: str | None = None) -> "dict[str, Any]":
+    """Record future fan-in intent over typed refs. Conditional P6 guard: refs are parsed FIRST, then P6
+    is required ONLY if an artifact ref is present (all-declared_target planning works under P6 skew)."""
+    if (u := await _registry_unusable()) is not None:
+        return u
+    # 1. parse refs FIRST (before any P6 guard)
+    tref, terr = _parse_ref(target)
+    if terr is not None:
+        return _err(terr["code"], terr.get("message", "bad target ref"),
+                    **{k: v for k, v in terr.items() if k not in ("code", "message")})
+    if not isinstance(sources, list) or not sources:
+        return _err("empty_sources", "'sources' must be a non-empty list of typed refs.")
+    parsed_sources: list[tuple[str, str]] = []
+    for s in sources:
+        sref, serr = _parse_ref(s)
+        if serr is not None:
+            return _err(serr["code"], serr.get("message", "bad source ref"),
+                        **{k: v for k, v in serr.items() if k not in ("code", "message")})
+        parsed_sources.append(sref)
+    all_refs = [tref] + parsed_sources
+    has_artifact_ref = any(k == "artifact" for k, _ in all_refs)
+    # 2. CONDITIONAL P6 guard — only when an artifact ref exists
+    if has_artifact_ref:
+        if (p6u := await _p6_unusable()) is not None:
+            return p6u
+    # 3. resolution (declared_target exists) + structural over canonical keys
+    def _checks():
+        reg = work_units_registry()
+        keys, res_probs = [], []
+        for (k, i) in all_refs:
+            key, prob = _planned_artifact_key(reg, k, i)
+            if prob is not None:
+                res_probs.append(prob)
+            keys.append(key)
+        if res_probs:
+            return res_probs, []
+        return [], _planned_structural_problems(keys[0], keys[1:], merge_kind, refresh_policy)
+    res_probs, struct = await asyncio.to_thread(_checks)
+    if res_probs:
+        p = res_probs[0]
+        return _err(p["code"], f"Reference does not resolve: {p['code']}.",
+                    **{k: v for k, v in p.items() if k != "code"})
+    if struct:
+        p = struct[0]
+        return _err(p["code"], f"Planned contract is not well-formed: {p['code']}.",
+                    **{k: v for k, v in p.items() if k != "code"})
+    # 4. artifact link-bar (registered; present NOT required) — only reachable when P6 usable
+    if has_artifact_ref:
+        def _linkbar():
+            return [i for k, i in all_refs if k == "artifact" and not _is_registered(i)]
+        unregistered = await asyncio.to_thread(_linkbar)
+        if unregistered:
+            return _err("artifact_not_registered", "An artifact ref is not registered in P6.",
+                        ref={"kind": "artifact", "id": unregistered[0]})
+    # 5. optional work unit exists
+    if work_unit_id is not None:
+        if await asyncio.to_thread(lambda: work_units_registry().get_work_unit(work_unit_id)) is None:
+            return _err("work_unit_not_found", f"No work unit {work_unit_id!r}.")
+    # 6. atomic insert + canonical cycle pre-check
+    pc_id = f"pc-{uuid.uuid4().hex[:12]}"
+    try:
+        await asyncio.to_thread(lambda: work_units_registry().insert_planned_contract(
+            pc_id, target_ref_kind=tref[0], target_ref_id=tref[1], sources=parsed_sources,
+            merge_kind=merge_kind, refresh_policy=refresh_policy, work_unit_id=work_unit_id, now=int(time.time())))
+    except PlannedContractCycle as exc:
+        return _err("planned_contract_cycle_detected",
+                    "Recording this planned contract would introduce a cycle into the planned graph; nothing written.",
+                    cycle=exc.cycle)
+    return {"success": True, "data": {"plannedContractId": pc_id,
+            "target": {"kind": tref[0], "id": tref[1]},
+            "sources": [{"kind": k, "id": i} for k, i in parsed_sources],
+            "mergeKind": merge_kind, "refreshPolicy": refresh_policy, "status": "planned",
+            "workUnitId": work_unit_id}}

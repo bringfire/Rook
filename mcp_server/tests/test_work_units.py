@@ -675,3 +675,91 @@ def test_insert_planned_contract_rejects_canonical_cycle(tmp_path):
             work_unit_id=None, now=2)
     assert [r.planned_contract_id for r in reg.list_planned_contracts()] == ["pc1"]
     reg.close()
+
+
+# ----- P7 Slice 3: record tool -----
+def test_record_planned_contract_happy(tmp_path, monkeypatch):
+    ids, _ = _p6_with(tmp_path, monkeypatch, ["A.3dm"])
+    _repoint_p7(tmp_path, monkeypatch)
+    asyncio.run(work_units.declared_target_declare_tool(intended_path=str(tmp_path / "M.3dm")))
+    dt = asyncio.run(work_units.list_declared_targets_tool())["data"]["declaredTargets"][0]["declaredTargetId"]
+    out = asyncio.run(work_units.record_planned_contract(
+        target={"kind": "declared_target", "id": dt},
+        sources=[{"kind": "artifact", "id": ids["A.3dm"]}],
+        merge_kind="import", refresh_policy="refresh_on_demand"))
+    assert out["success"] is True and out["data"]["status"] == "planned"
+    assert out["data"]["plannedContractId"].startswith("pc-")
+
+
+def test_record_rejects_bad_refs_and_structural(tmp_path, monkeypatch):
+    _p6_with(tmp_path, monkeypatch, [])
+    _repoint_p7(tmp_path, monkeypatch)
+    bad_kind = asyncio.run(work_units.record_planned_contract(target={"kind": "bogus", "id": "x"},
+        sources=[{"kind": "artifact", "id": "a"}], merge_kind="import", refresh_policy="refresh_on_demand"))
+    assert bad_kind["success"] is False and bad_kind["data"]["code"] == "invalid_ref_kind"
+    empty = asyncio.run(work_units.record_planned_contract(target={"kind": "artifact", "id": "a"},
+        sources=[], merge_kind="import", refresh_policy="refresh_on_demand"))
+    assert empty["success"] is False and empty["data"]["code"] == "empty_sources"
+    dangling = asyncio.run(work_units.record_planned_contract(target={"kind": "declared_target", "id": "dt-nope"},
+        sources=[{"kind": "declared_target", "id": "dt-nope2"}], merge_kind="import", refresh_policy="refresh_on_demand"))
+    assert dangling["success"] is False and dangling["data"]["code"] == "declared_target_not_found"
+
+
+def test_record_canonical_self_reference_cross_kind(tmp_path, monkeypatch):
+    ids, files = _p6_with(tmp_path, monkeypatch, ["M.3dm"])
+    _repoint_p7(tmp_path, monkeypatch)
+    asyncio.run(work_units.declared_target_declare_tool(intended_path=str(files["M.3dm"])))
+    dtm = asyncio.run(work_units.list_declared_targets_tool())["data"]["declaredTargets"][0]["declaredTargetId"]
+    out = asyncio.run(work_units.record_planned_contract(target={"kind": "declared_target", "id": dtm},
+        sources=[{"kind": "artifact", "id": ids["M.3dm"]}], merge_kind="import", refresh_policy="refresh_on_demand"))
+    assert out["success"] is False and out["data"]["code"] == "planned_self_reference"
+
+
+def test_record_canonical_duplicate_source_cross_kind(tmp_path, monkeypatch):
+    ids, files = _p6_with(tmp_path, monkeypatch, ["M.3dm", "F.3dm"])
+    _repoint_p7(tmp_path, monkeypatch)
+    asyncio.run(work_units.declared_target_declare_tool(intended_path=str(files["M.3dm"])))
+    asyncio.run(work_units.declared_target_declare_tool(intended_path=str(files["F.3dm"])))
+    dts = {d["intendedPath"]: d["declaredTargetId"]
+           for d in asyncio.run(work_units.list_declared_targets_tool())["data"]["declaredTargets"]}
+    dtm = [v for k, v in dts.items() if k.endswith("M.3dm")][0]
+    dtf = [v for k, v in dts.items() if k.endswith("F.3dm")][0]
+    out = asyncio.run(work_units.record_planned_contract(target={"kind": "declared_target", "id": dtf},
+        sources=[{"kind": "declared_target", "id": dtm}, {"kind": "artifact", "id": ids["M.3dm"]}],
+        merge_kind="import", refresh_policy="refresh_on_demand"))
+    assert out["success"] is False and out["data"]["code"] == "duplicate_planned_source"
+
+
+def test_record_artifact_linkbar_registered_not_present(tmp_path, monkeypatch):
+    ids, files = _p6_with(tmp_path, monkeypatch, ["A.3dm"])
+    _repoint_p7(tmp_path, monkeypatch)
+    files["A.3dm"].unlink()
+    artifacts.artifact_registry().set_state(artifacts.normalize_path(str(files["A.3dm"])),
+        file_state="missing", size=None, mtime=None, now=1)
+    asyncio.run(work_units.declared_target_declare_tool(intended_path=str(tmp_path / "M.3dm")))
+    dt = asyncio.run(work_units.list_declared_targets_tool())["data"]["declaredTargets"][0]["declaredTargetId"]
+    ok = asyncio.run(work_units.record_planned_contract(target={"kind": "declared_target", "id": dt},
+        sources=[{"kind": "artifact", "id": ids["A.3dm"]}], merge_kind="import", refresh_policy="refresh_on_demand"))
+    assert ok["success"] is True
+    bad = asyncio.run(work_units.record_planned_contract(target={"kind": "declared_target", "id": dt},
+        sources=[{"kind": "artifact", "id": "ghost-id"}], merge_kind="import", refresh_policy="refresh_on_demand"))
+    assert bad["success"] is False and bad["data"]["code"] == "artifact_not_registered"
+
+
+def test_record_conditional_p6_guard(tmp_path, monkeypatch):
+    raw = sqlite3.connect(str(tmp_path / "artifacts.db"))
+    raw.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);")
+    raw.execute("INSERT INTO meta(key,value) VALUES('artifact_registry_version','p0.legacy');")
+    raw.commit(); raw.close()
+    monkeypatch.setattr(artifacts, "resolve_artifact_db_path", lambda: tmp_path / "artifacts.db")
+    artifacts._reset_artifact_registry_singleton()
+    _repoint_p7(tmp_path, monkeypatch)
+    asyncio.run(work_units.declared_target_declare_tool(intended_path=str(tmp_path / "M.3dm")))
+    asyncio.run(work_units.declared_target_declare_tool(intended_path=str(tmp_path / "L.3dm")))
+    dts = [d["declaredTargetId"] for d in asyncio.run(work_units.list_declared_targets_tool())["data"]["declaredTargets"]]
+    ok = asyncio.run(work_units.record_planned_contract(target={"kind": "declared_target", "id": dts[0]},
+        sources=[{"kind": "declared_target", "id": dts[1]}], merge_kind="import", refresh_policy="refresh_on_demand"))
+    assert ok["success"] is True   # all-declared_target proceeds under P6 skew
+    bad = asyncio.run(work_units.record_planned_contract(target={"kind": "declared_target", "id": dts[0]},
+        sources=[{"kind": "artifact", "id": "some-id"}], merge_kind="import", refresh_policy="refresh_on_demand"))
+    assert bad["success"] is False and bad["data"]["code"] == "artifact_registry_unavailable"
