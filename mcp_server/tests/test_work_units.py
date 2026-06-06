@@ -505,3 +505,72 @@ def test_promote_maps_unreachable_envelope(tmp_path, monkeypatch):
     assert out["success"] is False and out["data"]["code"] == "declared_target_unreachable"
     assert out["data"]["retryable"] is True
     assert work_units.work_units_registry().get_declared_target(dt).status == "declared"
+
+
+# ----- P7 Slice 2: declared_targets listing + observations -----
+def test_declared_targets_observation_transitions_nothing(tmp_path, monkeypatch):
+    _point_p6_empty(tmp_path, monkeypatch)
+    _repoint_p7(tmp_path, monkeypatch)
+    f = tmp_path / "later.3dm"
+    dt = asyncio.run(work_units.declared_target_declare_tool(intended_path=str(f)))["data"]["declaredTargetId"]
+    obs = asyncio.run(work_units.list_declared_targets_tool(
+        declared_target_id=dt))["data"]["declaredTargets"][0]["observed"]
+    assert obs["promotable"] is False and obs["promotionBlockedReason"] == "declared_target_not_materialized"
+    assert obs["artifactRegistered"] is False
+    f.write_text("x")  # file appears
+    row = asyncio.run(work_units.list_declared_targets_tool(
+        declared_target_id=dt))["data"]["declaredTargets"][0]
+    assert row["observed"]["promotable"] is True and row["status"] == "declared"  # listing never promotes
+    assert work_units.work_units_registry().get_declared_target(dt).status == "declared"
+
+
+def test_declared_targets_promotable_honors_p6_availability(tmp_path, monkeypatch):
+    raw = sqlite3.connect(str(tmp_path / "artifacts.db"))
+    raw.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);")
+    raw.execute("INSERT INTO meta(key,value) VALUES('artifact_registry_version','p0.legacy');")
+    raw.commit(); raw.close()
+    monkeypatch.setattr(artifacts, "resolve_artifact_db_path", lambda: tmp_path / "artifacts.db")
+    artifacts._reset_artifact_registry_singleton()
+    _repoint_p7(tmp_path, monkeypatch)
+    f = tmp_path / "blocked.3dm"; f.write_text("x")  # present + path-stable
+    dt = asyncio.run(work_units.declared_target_declare_tool(intended_path=str(f)))["data"]["declaredTargetId"]
+    out = asyncio.run(work_units.list_declared_targets_tool(declared_target_id=dt))
+    assert out["success"] is True and out["data"]["p6Available"] is False
+    obs = out["data"]["declaredTargets"][0]["observed"]
+    assert obs["promotable"] is False and obs["promotionBlockedReason"] == "artifact_registry_unavailable"
+    assert obs["p6Available"] is False and obs["artifactRegistered"] is None
+
+
+def test_materialized_is_non_authoritative(tmp_path, monkeypatch):
+    _point_p6_empty(tmp_path, monkeypatch)
+    _repoint_p7(tmp_path, monkeypatch)
+    f = tmp_path / "anchor.3dm"; f.write_text("x")
+    dt = asyncio.run(work_units.declared_target_declare_tool(intended_path=str(f)))["data"]["declaredTargetId"]
+    asyncio.run(work_units.declared_target_promote_tool(declared_target_id=dt))
+    norm = artifacts.normalize_path(str(f)); f.unlink()
+    artifacts.artifact_registry().set_state(norm, file_state="missing", size=None, mtime=None, now=1)
+    row = asyncio.run(work_units.list_declared_targets_tool(
+        declared_target_id=dt))["data"]["declaredTargets"][0]
+    assert row["status"] == "materialized"  # NO demotion
+    assert row["observed"]["boundArtifactPresent"] is False
+    assert row["observed"]["fileState"] == "missing"
+
+
+def test_declared_target_work_unit_join(tmp_path, monkeypatch):
+    _point_p6_empty(tmp_path, monkeypatch)  # isolation: list_declared_targets_tool reads P6 for observations
+    _repoint_p7(tmp_path, monkeypatch)
+    asyncio.run(work_units.register_work_unit_tool(label="W", work_unit_id="wu"))
+    dt = asyncio.run(work_units.declared_target_declare_tool(
+        intended_path=str(tmp_path / "x.3dm"), work_unit_id="wu"))["data"]["declaredTargetId"]
+    wu = asyncio.run(work_units.list_work_units_tool(work_unit_id="wu"))
+    assert wu["data"]["workUnits"][0]["declaredTargets"] == [dt]
+    one = asyncio.run(work_units.list_declared_targets_tool(
+        declared_target_id=dt))["data"]["declaredTargets"][0]
+    assert one["workUnitId"] == "wu"
+
+
+def test_declared_targets_unknown_id_is_not_found(tmp_path, monkeypatch):
+    _point_p6_empty(tmp_path, monkeypatch)
+    _repoint_p7(tmp_path, monkeypatch)
+    out = asyncio.run(work_units.list_declared_targets_tool(declared_target_id="dt-nope"))
+    assert out["success"] is False and out["data"]["code"] == "declared_target_not_found"

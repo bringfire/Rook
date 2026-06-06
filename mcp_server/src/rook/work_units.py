@@ -634,7 +634,8 @@ async def list_work_units_tool(*, work_unit_id: str | None = None) -> "dict[str,
                         "createdAt": r.created_at,
                         "artifacts": [{"artifactId": a, "relation": rel}
                                       for a, rel in reg.artifacts_for(r.work_unit_id)],
-                        "contracts": reg.contracts_for(r.work_unit_id)})
+                        "contracts": reg.contracts_for(r.work_unit_id),
+                        "declaredTargets": reg.declared_targets_for(r.work_unit_id)})
         return out
     return {"success": True, "data": {"workUnits": await asyncio.to_thread(_build)}}
 
@@ -715,3 +716,63 @@ async def declared_target_promote_tool(*, declared_target_id: str) -> "dict[str,
         declared_target_id, bound_artifact_id=row.predicted_artifact_id, now=int(time.time())))
     return {"success": True, "data": {"declaredTargetId": declared_target_id, "status": "materialized",
             "boundArtifactId": row.predicted_artifact_id, "normalizedPath": row.normalized_path}}
+
+
+def _observe_declared_target(row: "DeclaredTargetRow", p6_available: bool) -> "dict[str, Any]":
+    """Read-only observations computed at call time — NEVER a transition. fileState is a fresh disk
+    stat; P6-derived fields are null when P6 is unavailable. promotable INCLUDES p6_available, so it
+    never claims promotion can work when promote would die at its artifact_registry_unavailable guard.
+    promotionBlockedReason is the first failing precondition in promote's own order."""
+    cur_norm = _artifacts.normalize_path(row.intended_path)
+    file_state, _, _ = _artifacts.stat_file_state(cur_norm)
+    path_identity_stable = (_artifacts.artifact_id_for(cur_norm) == row.predicted_artifact_id)
+    artifact_registered: bool | None = None
+    bound_present: bool | None = None
+    if p6_available:
+        artifact_registered = _p6_row(row.predicted_artifact_id) is not None
+        if row.status == "materialized" and row.bound_artifact_id is not None:
+            b = _p6_row(row.bound_artifact_id)
+            bound_present = (b is not None and b.file_state == "present")
+    promotable = (row.status == "declared" and p6_available
+                  and path_identity_stable and file_state == "present")
+    reason: str | None = None
+    if not promotable:
+        if row.status == "materialized":
+            reason = "already_materialized"
+        elif not p6_available:
+            reason = "artifact_registry_unavailable"
+        elif not path_identity_stable:
+            reason = "declared_target_path_identity_changed"
+        elif file_state == "unreachable":
+            reason = "declared_target_unreachable"
+        elif file_state == "missing":
+            reason = "declared_target_not_materialized"
+    return {"fileState": file_state, "pathIdentityStable": path_identity_stable,
+            "p6Available": p6_available, "artifactRegistered": artifact_registered,
+            "boundArtifactPresent": bound_present, "promotable": promotable,
+            "promotionBlockedReason": reason}
+
+
+async def list_declared_targets_tool(*, declared_target_id: str | None = None) -> "dict[str, Any]":
+    """List/inspect declared targets with a computed 'observed' block. Guards P7-unusable; DEGRADES
+    (does not fail closed) on a P6 skew so perception is never fully blocked by the lower plane.
+    An explicit unknown declared_target_id is a malformed request -> declared_target_not_found."""
+    if (u := await _registry_unusable()) is not None:
+        return u
+    if declared_target_id is not None:
+        if await asyncio.to_thread(lambda: work_units_registry().get_declared_target(declared_target_id)) is None:
+            return _err("declared_target_not_found", f"No declared target {declared_target_id!r}.")
+    p6_available = (await _p6_unusable()) is None
+    def _build() -> "list[dict[str, Any]]":
+        reg = work_units_registry()
+        rows = ([reg.get_declared_target(declared_target_id)] if declared_target_id
+                else reg.list_declared_targets())
+        rows = [r for r in rows if r is not None]
+        return [{"declaredTargetId": r.declared_target_id, "workUnitId": r.work_unit_id,
+                 "intendedPath": r.intended_path, "normalizedPath": r.normalized_path,
+                 "predictedArtifactId": r.predicted_artifact_id, "status": r.status,
+                 "boundArtifactId": r.bound_artifact_id, "label": r.label,
+                 "createdAt": r.created_at, "materializedAt": r.materialized_at,
+                 "observed": _observe_declared_target(r, p6_available)} for r in rows]
+    return {"success": True, "data": {"declaredTargets": await asyncio.to_thread(_build),
+                                      "p6Available": p6_available}}
