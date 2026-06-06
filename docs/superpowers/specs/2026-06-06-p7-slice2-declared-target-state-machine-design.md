@@ -116,16 +116,22 @@ if row.status == 'materialized':                                  # idempotent: 
 if artifact_id_for(normalize_path(row.intended_path)) != row.predicted_artifact_id:
     → declared_target_path_identity_changed                       # symlink/realpath drift — FAIL CLOSED
 
-# register the real file through P6's PUBLIC api (reuse; do not reinvent stat/upsert)
+# register the real file through P6's PUBLIC api (reuse; do not reinvent stat/upsert).
+# register_artifact returns a {success, data} ENVELOPE, not an exception — promote MUST branch on
+# r["success"] and map by r["data"]["code"]; a P6 failure is never treated as generic/opaque:
 r = await artifacts.register_artifact(row.intended_path)
-    artifact_file_not_found    → declared_target_not_materialized (retryable)   # file not saved yet
-    artifact_file_unreachable  → declared_target_unreachable      (retryable)   # perm / drive flap
-    artifact_id_collision      → declared_target_path_conflict    (fail closed) # a DIFFERENT path owns this id
-    artifact_registry_unavailable → returned as-is (already guarded above)
-    success → r.data.artifact = { artifactId, fileState:'present', … }
+if r["success"] is False:
+    code = r["data"]["code"]
+    artifact_file_not_found        → declared_target_not_materialized (retryable)   # file not saved yet
+    artifact_file_unreachable      → declared_target_unreachable      (retryable)   # perm / drive flap
+    artifact_id_collision          → declared_target_path_conflict    (fail closed) # a DIFFERENT path owns this id
+    artifact_registry_unavailable  → return r unchanged (already guarded above; pass through)
+    <any other code>               → fail closed PRESERVING the P6 code: declared_target_promotion_failed
+                                      with p6Code=code (never collapse an unknown P6 failure to generic)
+artifact = r["data"]["artifact"]   # success → { artifactId, fileState:'present', … }
 
 # (b) bind verification — the real P6 row must match the prediction and be present
-if r.artifactId != row.predicted_artifact_id or r.fileState != 'present':
+if artifact["artifactId"] != row.predicted_artifact_id or artifact["fileState"] != 'present':
     → declared_target_path_identity_changed                       # defensive; shared hash ⇒ ~impossible
 
 # P7 bind (single work_units.db transaction)
@@ -167,8 +173,12 @@ must honor:
 4. Compute `normalized_path = normalize_path(intended_path)` and
    `predicted_artifact_id = artifact_id_for(normalized_path)`; generate `declared_target_id = dt-<uuid12>`.
 5. Insert `status='declared'`. A `UNIQUE(predicted_artifact_id)` violation (the path is already declared)
-   fails closed with `declared_target_path_conflict`, returning the **existing** `declaredTargetId` so the
-   coordinator can find it (reject-never-silently-dedupe, the Slice 1 `duplicate_contract_source` posture).
+   fails closed — and a conflict is **not** a successful declaration. On the violation, look up the
+   existing row's id and return the explicit envelope:
+   `{ success:false, data:{ code:"declared_target_path_conflict", existingDeclaredTargetId:<id>,
+   retryable:false } }`. **Never return `success:true` for the pre-existing row** — an agent must not read
+   a conflict as a fresh declaration. (Reject-never-silently-dedupe, the Slice 1 `duplicate_contract_source`
+   posture.)
 
 **State machine (monotonic, two states):**
 
@@ -196,27 +206,38 @@ path (no P6 write) and a read-only P6 lookup:
 |---|---|---|
 | `fileState` | `present` / `missing` / `unreachable` of the intended path **right now** | fresh `stat_file_state` (read-only) |
 | `pathIdentityStable` | `artifact_id_for(normalize_path(intended_path)) == predicted_artifact_id` | pure recompute (drift detector) |
-| `artifactRegistered` | a P6 row exists for `predicted_artifact_id` | read-only `_p6_row` |
-| `boundArtifactPresent` | for `materialized`: is `bound_artifact_id` a `present` P6 row now? (else `null`) | read-only `_p6_row` |
-| `promotable` | `status=='declared' ∧ pathIdentityStable ∧ fileState=='present'` (a `promote` would now succeed) | computed |
+| `p6Available` | the P6 registry is usable (not version-skewed) — promotion's hard precondition | read-only P6 guard |
+| `artifactRegistered` | a P6 row exists for `predicted_artifact_id` (`null` if `p6Available` is false) | read-only `_p6_row` |
+| `boundArtifactPresent` | for `materialized`: is `bound_artifact_id` a `present` P6 row now? (`null` while `declared`, or if P6 unavailable) | read-only `_p6_row` |
+| `promotable` | `status=='declared' ∧ p6Available ∧ pathIdentityStable ∧ fileState=='present'` (a `promote` would now succeed) | computed |
+| `promotionBlockedReason` | when `promotable` is false, the first failing precondition (token, in promote's own order); `null` when promotable | computed |
+
+`promotionBlockedReason` is computed in promote's own precondition order, so it predicts what `promote`
+would return right now: `already_materialized` (status is `materialized`) → `artifact_registry_unavailable`
+(`p6Available` false) → `declared_target_path_identity_changed` (drift) → `declared_target_unreachable`
+(`fileState=='unreachable'`) → `declared_target_not_materialized` (`fileState=='missing'`) → else `null`
+(promotable). **`promotable` deliberately includes `p6Available`** — a version-skewed P6 makes `promote`
+fail at its `artifact_registry_unavailable` guard, so reporting `promotable:true` then would be a lie.
 
 This answers both coordinator questions — *"which declared anchors are ready to promote?"* and *"is my
-materialized anchor still on disk?"* — without mutating anything. If the P6 registry is version-skewed,
-the P6-derived fields (`artifactRegistered`, `boundArtifactPresent`) degrade to `null` with a top-level
-`p6Available:false`; the P7 rows and disk-stat fields still return (perception is not fully blocked by a
-P6-side skew). The work-unit join (`idx_declared_targets_work_unit`) also lets
-`rhino_work_units(work_unit_id)` surface "future outputs of this assignment" alongside its existing
-artifacts/contracts.
+materialized anchor still on disk?"* — without mutating anything. **Degrade, not fail-closed, on P6 skew:**
+if the P6 registry is version-skewed, `declared_targets` still returns (perception is not blocked by a
+P6-side skew), but `p6Available` is false, the P6-derived fields (`artifactRegistered`,
+`boundArtifactPresent`) are `null`, and every `declared` row reports `promotable:false` with
+`promotionBlockedReason:"artifact_registry_unavailable"`. The work-unit join
+(`idx_declared_targets_work_unit`) also lets `rhino_work_units(work_unit_id)` surface "future outputs of
+this assignment" alongside its existing artifacts/contracts.
 
 ## 9. Failure taxonomy (Slice 2 additions)
 
 | Code | Raised when | `retryable` |
 |---|---|---|
 | `declared_target_not_found` | `promote`/inspect an unknown `declared_target_id` | `false` |
-| `declared_target_path_conflict` | `declare` a path already declared (`UNIQUE`); or P6 `artifact_id_collision` at `promote` | `false` |
+| `declared_target_path_conflict` | `declare` a path already declared (`UNIQUE`; returns `existingDeclaredTargetId`); or P6 `artifact_id_collision` at `promote` | `false` |
 | `declared_target_not_materialized` | `promote`, but the file is not present yet (P6 `artifact_file_not_found`) | **`true`** |
 | `declared_target_unreachable` | `promote`, file unreachable (permission / drive flap; P6 `artifact_file_unreachable`) | **`true`** |
 | `declared_target_path_identity_changed` | `promote`-time recompute ≠ stored prediction, or bind verification mismatch | `false` (fail closed) |
+| `declared_target_promotion_failed` | `promote`, an **unmapped** P6 `success:false` code — surfaced verbatim as `p6Code`, never masked | `false` |
 | `work_unit_not_found` | `declare` with a `work_unit_id` that does not exist | `false` (reused) |
 | `invalid_path` / `invalid_argument` | malformed inputs | `false` |
 | `work_units_registry_unavailable` / `artifact_registry_unavailable` | P7 / P6 schema version skew | `true` (reused) |
@@ -275,13 +296,15 @@ Pure logic over SQLite + a real `ArtifactRegistry` over a throwaway temp `artifa
   `meta` upgraded to `p7.2`, and `schema_unsupported is None`; malformed existing `declared_targets`
   (missing required columns) → `schema_unsupported`; unknown version → fail closed.
 - **declare:** `predicted_artifact_id == artifact_id_for(normalize_path(path))`; `status='declared'`;
-  `UNIQUE` second-declare → `declared_target_path_conflict` returning the existing id; `work_unit_id`
-  validated (`work_unit_not_found`); `invalid_path`.
+  `UNIQUE` second-declare → `success:false` + `declared_target_path_conflict` + `existingDeclaredTargetId`
+  (the first row's id; **never** `success:true`); `work_unit_id` validated (`work_unit_not_found`);
+  `invalid_path`.
 - **promote happy path:** a real temp file at the intended path that is **not** pre-registered → `promote`
   registers it in P6, binds, `status='materialized'`, `bound_artifact_id == predicted`; the P6 registry
   now holds a `present` row for that id.
 - **promote not-materialized / unreachable:** declare a path with no file → `promote` →
-  `declared_target_not_materialized` (`retryable=true`); status stays `declared`, nothing bound.
+  `declared_target_not_materialized` (`retryable=true`); status stays `declared`, nothing bound. (Asserts
+  promote maps P6's `{success, data}` envelope by `data.code`, not exceptions.)
 - **promote drift (deterministic, no symlink):** raw-insert a `declared_targets` row with a deliberately
   **wrong** `predicted_artifact_id`, create the real file, `promote` → `declared_target_path_identity_changed`;
   status stays `declared`.
@@ -291,6 +314,10 @@ Pure logic over SQLite + a real `ArtifactRegistry` over a throwaway temp `artifa
 - **materialized non-authoritative:** after materialize, delete the file + `set_state(missing)` in P6 →
   `declared_targets` reports `observed.boundArtifactPresent=false` / `fileState='missing'` while `status`
   stays `materialized` (no demotion).
+- **`promotable` honors P6 availability:** with a version-skewed P6, a `declared` row whose file is present
+  and path-stable returns `observed.promotable=false`,
+  `promotionBlockedReason='artifact_registry_unavailable'`, `p6Available=false` (never a `promotable:true`
+  lie); the row still lists (degrade, not fail-closed).
 - **declared_targets transitions nothing:** declare (no file) → `observed.promotable=false`,
   `artifactRegistered=false`; create the file → `promotable=true` but `status` still `declared` (proves
   listing never promotes); then `promote` → `materialized`.
@@ -339,3 +366,11 @@ this proves the P4→P6→P7 chain end-to-end but is **not** required for Slice 
 - **`merge_contracts` untouched; no `declared_contracts` table in Slice 2.** [user]
 - **Tool name `promote` retained** (action = "materialize this declaration"), defined explicitly in §6;
   `materialize` was the considered alternative to mirror the state name. [user suggestion]
+- **`promotable` includes `p6Available`; `promotionBlockedReason` names the first failing precondition** in
+  promote's own order — a computed observation must never imply promotion can succeed when a version-skewed
+  P6 would block it at the `artifact_registry_unavailable` guard. [user, spec review]
+- **Promotion parses P6's `{success, data}` envelope by `data.code`** (not exceptions): the three known
+  codes map to P7 codes; an unmapped P6 failure is surfaced verbatim (`declared_target_promotion_failed` +
+  `p6Code`), never collapsed to generic. [user, spec review]
+- **Second-declare returns `success:false` + `declared_target_path_conflict` + `existingDeclaredTargetId`**
+  (`retryable:false`) — a conflict is never a successful declaration. [user, spec review]
