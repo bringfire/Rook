@@ -1,10 +1,16 @@
-"""P7 Slice 1 — coordinator-plane merge-contract registry.
+"""P7 — coordinator-plane registry (merge contracts + declared targets).
 
-Records Work Units + their P6 artifact provenance and Merge Contracts (a sources->target
-dependency DAG), and validates fan-in intent. Records intent ONLY — no merge executes, no
-geometry enters Rhino. Reads P6 artifacts READ-ONLY; never writes artifacts.db.
+Slice 1: Work Units + their P6 artifact provenance + Merge Contracts (a sources->target
+dependency DAG); records and validates fan-in INTENT only — read-only over P6.
+Slice 2: declared targets — declare intent toward a master/anchor file BEFORE it exists, then
+promote it once it materializes.
+
+Records intent ONLY — no merge executes, no geometry enters Rhino. P6 is read-only EXCEPT the one
+explicit Slice-2 write: declared_target_promote_tool registers the now-materialized file through
+P6's PUBLIC register_artifact() — a plain artifact row carrying NO P7 vocabulary.
 Invariant: P7 references P6 by artifact_id; P6 never references P7.
-See docs/superpowers/specs/2026-06-05-p7-slice1-merge-contract-registry-design.md.
+See docs/superpowers/specs/2026-06-05-p7-slice1-merge-contract-registry-design.md
+and  docs/superpowers/specs/2026-06-06-p7-slice2-declared-target-state-machine-design.md.
 """
 from __future__ import annotations
 
