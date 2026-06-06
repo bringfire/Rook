@@ -30,6 +30,16 @@ MERGE_KINDS = ("worksession", "import", "linked_block", "reference", "block", "r
 REFRESH_POLICIES = ("refresh_after_save", "refresh_on_demand")
 RELATIONS = ("produced", "consumed")
 
+# Required columns per table — a foreign/malformed existing table (current-version or missing-meta
+# db) fails closed to schema_unsupported BEFORE any index/use (mirror P5/P6).
+_REQUIRED_COLUMNS = {
+    "work_units": {"work_unit_id", "label", "role", "metadata", "created_at"},
+    "work_unit_artifacts": {"work_unit_id", "artifact_id", "relation", "created_at"},
+    "merge_contracts": {"contract_id", "target_artifact_id", "merge_kind", "refresh_policy", "created_at"},
+    "merge_contract_sources": {"contract_id", "source_artifact_id"},
+    "work_unit_merge_contracts": {"work_unit_id", "contract_id", "created_at"},
+}
+
 
 def resolve_work_units_db_path() -> Path:
     """%LOCALAPPDATA%/Rook/registry/work_units.db, falling back to %TEMP%/rook/registry.
@@ -113,6 +123,15 @@ class WorkUnitRegistry:
         if stored is not None and stored[0] != WORK_UNITS_REGISTRY_VERSION:
             self.schema_unsupported = stored[0]
             return
+        # Fail closed on a foreign/malformed existing table before indexing or normal use.
+        for table, required in _REQUIRED_COLUMNS.items():
+            exists = c.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?;", (table,)).fetchone() is not None
+            if exists:
+                cols = {row[1] for row in c.execute(f"PRAGMA table_info({table});").fetchall()}
+                if not required.issubset(cols):
+                    self.schema_unsupported = "unknown"
+                    return
         c.execute("""CREATE TABLE IF NOT EXISTS work_units (
             work_unit_id TEXT PRIMARY KEY, label TEXT NOT NULL, role TEXT,
             metadata TEXT, created_at INTEGER NOT NULL);""")
@@ -369,6 +388,26 @@ def _validate_graph(reg: "WorkUnitRegistry") -> "dict[str, Any]":
     }
 
 
+def _validate_one(reg: "WorkUnitRegistry", contract_id: str) -> "dict[str, Any]":
+    """Validate ONE contract: its own structural + present-bar problems, plus a cycle problem ONLY
+    if THIS contract participates in the cycle. Unrelated contracts' problems are NOT reported
+    (so a valid contract is not failed by an unrelated one's missing artifact)."""
+    ct = reg.get_contract(contract_id)
+    srcs = reg.sources_for(contract_id)
+    problems = [{**p, "contractId": contract_id} for p in
+                _structural_problems(ct.target_artifact_id, srcs, ct.merge_kind, ct.refresh_policy)]
+    problems += [{**p, "contractId": contract_id} for p in
+                 _resolve_present(srcs + [ct.target_artifact_id])]
+    pairs = [(c.contract_id, c.target_artifact_id, reg.sources_for(c.contract_id))
+             for c in reg.list_contracts()]
+    cycle = _contract_cycle(pairs)
+    if cycle is not None and contract_id in cycle:
+        problems.append({"code": "merge_cycle_detected", "cycle": cycle, "contractId": contract_id})
+    if problems:
+        return {"ok": False, "contractId": contract_id, "problems": problems}
+    return {"ok": True, "contractId": contract_id}
+
+
 # ----- tool layer ({success, data} envelopes) -----
 _RETRYABLE = {
     "artifact_not_registered": False, "artifact_not_present": True,
@@ -395,6 +434,13 @@ async def _registry_unusable() -> "dict[str, Any] | None":
     return None
 
 
+async def _p6_unusable() -> "dict[str, Any] | None":
+    """P7 depends on P6 as the authority — fail closed (structured artifact_registry_unavailable)
+    if P6's registry is version-skewed, rather than crash inside a P6 read. Used by the tools that
+    resolve artifacts against P6 (link / record / validate), NOT by the pure-P7 register / list."""
+    return await _artifacts._artifact_registry_unusable()
+
+
 async def register_work_unit_tool(*, label: str, role: str | None = None,
                                   metadata: Any = None, work_unit_id: str | None = None) -> "dict[str, Any]":
     if (u := await _registry_unusable()) is not None:
@@ -411,6 +457,8 @@ async def register_work_unit_tool(*, label: str, role: str | None = None,
 async def link_artifact_tool(*, work_unit_id: str, artifact_id: str, relation: str) -> "dict[str, Any]":
     if (u := await _registry_unusable()) is not None:
         return u
+    if (p6u := await _p6_unusable()) is not None:
+        return p6u
     if relation not in RELATIONS:
         return _err("invalid_relation", f"'relation' must be one of {RELATIONS}, got {relation!r}.")
     if await asyncio.to_thread(lambda: work_units_registry().get_work_unit(work_unit_id)) is None:
@@ -428,9 +476,14 @@ async def record_merge_contract(*, target_artifact_id: str, source_artifact_ids:
                                 work_unit_id: str | None = None) -> "dict[str, Any]":
     if (u := await _registry_unusable()) is not None:
         return u
+    if (p6u := await _p6_unusable()) is not None:
+        return p6u
     if not isinstance(target_artifact_id, str) or not target_artifact_id.strip():
         return _err("invalid_argument", "'target_artifact_id' must be a non-empty string.")
-    sources = list(source_artifact_ids or [])
+    if not isinstance(source_artifact_ids, list) or not all(
+            isinstance(s, str) and s.strip() for s in source_artifact_ids):
+        return _err("invalid_argument", "'source_artifact_ids' must be a list of non-empty strings.")
+    sources = list(source_artifact_ids)
     # 1. local structural
     structural = _structural_problems(target_artifact_id, sources, merge_kind, refresh_policy)
     if structural:
@@ -465,12 +518,14 @@ async def record_merge_contract(*, target_artifact_id: str, source_artifact_ids:
 async def validate_merge_contract(*, contract_id: str | None = None) -> "dict[str, Any]":
     if (u := await _registry_unusable()) is not None:
         return u
+    if (p6u := await _p6_unusable()) is not None:
+        return p6u
     if contract_id is not None:
         if await asyncio.to_thread(lambda: work_units_registry().get_contract(contract_id)) is None:
             return _err("contract_not_found", f"No merge contract {contract_id!r}.")
-    data = await asyncio.to_thread(lambda: _validate_graph(work_units_registry()))
-    if contract_id is not None and data["ok"]:
-        data = {**data, "contractId": contract_id}
+        data = await asyncio.to_thread(lambda: _validate_one(work_units_registry(), contract_id))
+    else:
+        data = await asyncio.to_thread(lambda: _validate_graph(work_units_registry()))
     return {"success": True, "data": data}
 
 

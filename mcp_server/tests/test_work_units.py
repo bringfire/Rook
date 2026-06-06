@@ -200,3 +200,71 @@ def test_tools_record_rejects_and_validates(tmp_path, monkeypatch):
 
     nf = asyncio.run(work_units.validate_merge_contract(contract_id="nope"))
     assert nf["success"] is False and nf["data"]["code"] == "contract_not_found"
+
+
+# ----- review-fix round (Codex findings) -----
+def test_malformed_existing_table_fails_closed(tmp_path):
+    # Finding 1: a foreign 'work_units' table (missing required columns) with NO version meta must
+    # fail closed to schema_unsupported, not crash later reads.
+    db = tmp_path / "work_units.db"
+    raw = sqlite3.connect(str(db))
+    raw.execute("CREATE TABLE work_units (id TEXT, junk TEXT);")
+    raw.commit(); raw.close()
+    reg = work_units.WorkUnitRegistry(db)
+    assert reg.schema_unsupported == "unknown"
+    reg.close()
+
+
+def test_p6_unusable_fails_closed(tmp_path, monkeypatch):
+    # Finding 2: a version-skewed P6 registry -> P7 tools that resolve artifacts fail closed
+    # structured (artifact_registry_unavailable), never crash.
+    monkeypatch.setattr(artifacts, "resolve_artifact_db_path", lambda: tmp_path / "artifacts.db")
+    raw = sqlite3.connect(str(tmp_path / "artifacts.db"))
+    raw.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);")
+    raw.execute("INSERT INTO meta(key,value) VALUES('artifact_registry_version','p0.legacy');")
+    raw.commit(); raw.close()
+    artifacts._reset_artifact_registry_singleton()
+    _repoint_p7(tmp_path, monkeypatch)
+    out = asyncio.run(work_units.record_merge_contract(target_artifact_id="x", source_artifact_ids=["y"],
+        merge_kind="import", refresh_policy="refresh_on_demand", work_unit_id=None))
+    assert out["success"] is False and out["data"]["code"] == "artifact_registry_unavailable"
+    val = asyncio.run(work_units.validate_merge_contract(contract_id=None))
+    assert val["success"] is False and val["data"]["code"] == "artifact_registry_unavailable"
+
+
+def test_record_rejects_non_list_sources(tmp_path, monkeypatch):
+    # Finding 3: a bare string must NOT be coerced into character sources.
+    ids, _ = _p6_with(tmp_path, monkeypatch, ["A.3dm"])
+    _repoint_p7(tmp_path, monkeypatch)
+    out = asyncio.run(work_units.record_merge_contract(target_artifact_id=ids["A.3dm"],
+        source_artifact_ids="abc", merge_kind="import", refresh_policy="refresh_on_demand", work_unit_id=None))
+    assert out["success"] is False and out["data"]["code"] == "invalid_argument"
+    out2 = asyncio.run(work_units.record_merge_contract(target_artifact_id=ids["A.3dm"],
+        source_artifact_ids=["", "x"], merge_kind="import", refresh_policy="refresh_on_demand", work_unit_id=None))
+    assert out2["success"] is False and out2["data"]["code"] == "invalid_argument"
+
+
+def test_validate_scoped_to_one_contract(tmp_path, monkeypatch):
+    # Finding 4: validate(contractId) scopes to that contract; an unrelated broken contract must not
+    # fail a valid one.
+    ids, files = _p6_with(tmp_path, monkeypatch, ["A.3dm", "B.3dm", "M.3dm", "X.3dm", "Y.3dm"])
+    _repoint_p7(tmp_path, monkeypatch)
+    A, B, M, X, Y = (ids[n] for n in ["A.3dm", "B.3dm", "M.3dm", "X.3dm", "Y.3dm"])
+    good = asyncio.run(work_units.record_merge_contract(target_artifact_id=M, source_artifact_ids=[A, B],
+        merge_kind="linked_block", refresh_policy="refresh_after_save", work_unit_id=None))["data"]["contractId"]
+    other = asyncio.run(work_units.record_merge_contract(target_artifact_id=Y, source_artifact_ids=[X],
+        merge_kind="import", refresh_policy="refresh_on_demand", work_unit_id=None))["data"]["contractId"]
+    # break the OTHER contract: X goes missing in P6
+    files["X.3dm"].unlink()
+    artifacts.artifact_registry().set_state(artifacts.normalize_path(str(files["X.3dm"])),
+        file_state="missing", size=None, mtime=None, now=int(_time.time()))
+    # whole-graph -> ok:false (the OTHER contract's source is missing)
+    whole = asyncio.run(work_units.validate_merge_contract(contract_id=None))
+    assert whole["data"]["ok"] is False
+    # scoped to the GOOD contract -> ok:true (NOT polluted by the other)
+    one = asyncio.run(work_units.validate_merge_contract(contract_id=good))
+    assert one["data"]["ok"] is True and one["data"]["contractId"] == good
+    # scoped to the OTHER -> ok:false with its own present-bar problem
+    bad = asyncio.run(work_units.validate_merge_contract(contract_id=other))
+    assert bad["data"]["ok"] is False
+    assert any(p["code"] == "artifact_not_present" for p in bad["data"]["problems"])
