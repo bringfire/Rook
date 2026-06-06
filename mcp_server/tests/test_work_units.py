@@ -635,3 +635,43 @@ def test_malformed_planned_table_fails_closed(tmp_path):
     reg = work_units.WorkUnitRegistry(db)
     assert reg.schema_unsupported == "unknown"
     reg.close()
+
+
+# ----- P7 Slice 3: canonical key + record-side registry -----
+def test_planned_artifact_key_projection(tmp_path):
+    reg = _fresh_registry(tmp_path)
+    reg.insert_declared_target("dt-m", work_unit_id=None, intended_path="C:/m.3dm",
+        normalized_path="c:\\m.3dm", predicted_artifact_id="pred-m", label=None, now=1)
+    assert work_units._planned_artifact_key(reg, "artifact", "aid-1") == ("aid-1", None)
+    assert work_units._planned_artifact_key(reg, "declared_target", "dt-m") == ("pred-m", None)
+    key, prob = work_units._planned_artifact_key(reg, "declared_target", "dt-nope")
+    assert key is None and prob["code"] == "declared_target_not_found"
+    reg.close()
+
+
+def test_insert_planned_contract_and_reads(tmp_path):
+    reg = _fresh_registry(tmp_path)
+    reg.register_work_unit("wu", label="W", role=None, metadata=None, now=1)
+    reg.insert_planned_contract("pc1", target_ref_kind="artifact", target_ref_id="M",
+        sources=[("artifact", "A"), ("declared_target", "dt-x")], merge_kind="import",
+        refresh_policy="refresh_on_demand", work_unit_id="wu", now=10)
+    row = reg.get_planned_contract("pc1")
+    assert row.status == "planned" and row.activated_contract_id is None and row.activated_at is None
+    assert reg.sources_for_planned("pc1") == [("artifact", "A"), ("declared_target", "dt-x")]
+    assert reg.planned_contracts_for("wu") == ["pc1"]
+    assert reg.work_units_for_planned_contract("pc1") == ["wu"]
+    assert [r.planned_contract_id for r in reg.list_planned_contracts()] == ["pc1"]
+    reg.close()
+
+
+def test_insert_planned_contract_rejects_canonical_cycle(tmp_path):
+    reg = _fresh_registry(tmp_path)
+    reg.insert_planned_contract("pc1", target_ref_kind="artifact", target_ref_id="M",
+        sources=[("artifact", "A")], merge_kind="import", refresh_policy="refresh_on_demand",
+        work_unit_id=None, now=1)
+    with pytest.raises(work_units.PlannedContractCycle):
+        reg.insert_planned_contract("pc2", target_ref_kind="artifact", target_ref_id="A",
+            sources=[("artifact", "M")], merge_kind="import", refresh_policy="refresh_on_demand",
+            work_unit_id=None, now=2)
+    assert [r.planned_contract_id for r in reg.list_planned_contracts()] == ["pc1"]
+    reg.close()

@@ -364,6 +364,67 @@ class WorkUnitRegistry:
                 "SELECT declared_target_id FROM declared_targets WHERE work_unit_id=? "
                 "ORDER BY created_at, declared_target_id;", (work_unit_id,)).fetchall()]
 
+    # ----- planned merge contracts (P7 Slice 3) -----
+    def insert_planned_contract(self, planned_contract_id: str, *, target_ref_kind: str, target_ref_id: str,
+                                sources: "list[tuple[str, str]]", merge_kind: str, refresh_policy: str,
+                                work_unit_id: str | None, now: int) -> str:
+        """ONE tx: canonical cycle pre-check over existing + candidate (shared _contract_cycle) ->
+        PlannedContractCycle (ROLLBACK, nothing written); else insert planned row + sources + optional
+        ownership link. Re-entrant reads (list_planned_contracts/sources_for_planned) are RLock-safe."""
+        with self._immediate():
+            pairs = _planned_graph_pairs(self)
+            cand_tkey = _planned_key_or_sentinel(self, target_ref_kind, target_ref_id)
+            cand_skeys = [_planned_key_or_sentinel(self, k, i) for k, i in sources]
+            pairs.append((planned_contract_id, cand_tkey, cand_skeys))
+            cycle = _contract_cycle(pairs)
+            if cycle is not None:
+                raise PlannedContractCycle(cycle)
+            self._conn.execute(
+                "INSERT INTO planned_merge_contracts(planned_contract_id, target_ref_kind, target_ref_id, "
+                "merge_kind, refresh_policy, status, activated_contract_id, activated_at, created_at) "
+                "VALUES(?,?,?,?,?,'planned',NULL,NULL,?);",
+                (planned_contract_id, target_ref_kind, target_ref_id, merge_kind, refresh_policy, now))
+            self._conn.executemany(
+                "INSERT INTO planned_merge_contract_sources(planned_contract_id, source_ref_kind, source_ref_id) "
+                "VALUES(?,?,?);", [(planned_contract_id, k, i) for k, i in sources])
+            if work_unit_id is not None:
+                self._conn.execute(
+                    "INSERT OR IGNORE INTO work_unit_planned_merge_contracts(work_unit_id, planned_contract_id, "
+                    "created_at) VALUES(?,?,?);", (work_unit_id, planned_contract_id, now))
+        return planned_contract_id
+
+    def get_planned_contract(self, planned_contract_id: str) -> "PlannedContractRow | None":
+        with self._lock:
+            raw = self._conn.execute(
+                f"SELECT {_PLANNED_CONTRACT_COLUMNS} FROM planned_merge_contracts WHERE planned_contract_id=?;",
+                (planned_contract_id,)).fetchone()
+            return None if raw is None else PlannedContractRow(*raw)
+
+    def list_planned_contracts(self) -> "list[PlannedContractRow]":
+        with self._lock:
+            return [PlannedContractRow(*r) for r in self._conn.execute(
+                f"SELECT {_PLANNED_CONTRACT_COLUMNS} FROM planned_merge_contracts "
+                "ORDER BY created_at, planned_contract_id;").fetchall()]
+
+    def sources_for_planned(self, planned_contract_id: str) -> "list[tuple[str, str]]":
+        with self._lock:
+            return [(k, i) for k, i in self._conn.execute(
+                "SELECT source_ref_kind, source_ref_id FROM planned_merge_contract_sources "
+                "WHERE planned_contract_id=? ORDER BY source_ref_kind, source_ref_id;",
+                (planned_contract_id,)).fetchall()]
+
+    def planned_contracts_for(self, work_unit_id: str) -> "list[str]":
+        with self._lock:
+            return [p for (p,) in self._conn.execute(
+                "SELECT planned_contract_id FROM work_unit_planned_merge_contracts WHERE work_unit_id=? "
+                "ORDER BY created_at, planned_contract_id;", (work_unit_id,)).fetchall()]
+
+    def work_units_for_planned_contract(self, planned_contract_id: str) -> "list[str]":
+        with self._lock:
+            return [w for (w,) in self._conn.execute(
+                "SELECT work_unit_id FROM work_unit_planned_merge_contracts WHERE planned_contract_id=? "
+                "ORDER BY work_unit_id;", (planned_contract_id,)).fetchall()]
+
 
 _WORK_UNITS_REGISTRY: "WorkUnitRegistry | None" = None
 
@@ -425,6 +486,18 @@ class DeclaredTargetConflict(RuntimeError):
         self.existing_id = existing_id
 
 
+class PlannedContractCycle(RuntimeError):
+    """insert_planned_contract's atomic pre-check: the candidate would make the canonical planned graph cyclic."""
+    def __init__(self, cycle: "list[str]"):
+        super().__init__("planned_contract_cycle_detected")
+        self.cycle = cycle
+
+
+class PlannedContractInvalid(RuntimeError):
+    """activate_planned_contract's in-tx CAS: the planned row violates the stored-state invariant."""
+    pass
+
+
 def _contract_graph(pairs):
     """pairs: list of (contract_id, target_artifact_id, sources_list). Directed edge A->B iff
     target(A) appears in sources(B). Returns (graph, target_of, sources_of)."""
@@ -448,6 +521,38 @@ def _contract_cycle(pairs) -> "list[str] | None":
     except nx.NetworkXNoCycle:
         return None
     return [u for u, _ in cyc] + [cyc[-1][1]]
+
+
+# ----- planned-contract canonical-key helpers (P7 Slice 3) -----
+def _planned_artifact_key(reg, ref_kind: str, ref_id: str) -> "tuple[str | None, dict | None]":
+    """Project a typed ref to its canonical FUTURE-ARTIFACT key: artifact -> the artifact id itself;
+    declared_target -> its predicted_artifact_id. Returns (key, None) or (None, problem)."""
+    if ref_kind == "artifact":
+        return ref_id, None
+    if ref_kind == "declared_target":
+        dt = reg.get_declared_target(ref_id)
+        if dt is None:
+            return None, {"code": "declared_target_not_found", "ref": {"kind": ref_kind, "id": ref_id}}
+        return dt.predicted_artifact_id, None
+    return None, {"code": "invalid_ref_kind", "ref": {"kind": ref_kind, "id": ref_id}}
+
+
+def _planned_key_or_sentinel(reg, ref_kind: str, ref_id: str) -> str:
+    """Canonical key for graph building; an unresolvable ref gets a unique sentinel so it never falsely
+    unifies with another node (defensive — record validates resolution before persisting)."""
+    key, _ = _planned_artifact_key(reg, ref_kind, ref_id)
+    return key if key is not None else f"__unresolved__:{ref_kind}:{ref_id}"
+
+
+def _planned_graph_pairs(reg) -> "list[tuple]":
+    """(planned_contract_id, target_key, [source_keys]) over canonical keys, for ALL planned rows
+    (planned AND activated)."""
+    pairs = []
+    for pc in reg.list_planned_contracts():
+        tkey = _planned_key_or_sentinel(reg, pc.target_ref_kind, pc.target_ref_id)
+        skeys = [_planned_key_or_sentinel(reg, k, i) for k, i in reg.sources_for_planned(pc.planned_contract_id)]
+        pairs.append((pc.planned_contract_id, tkey, skeys))
+    return pairs
 
 
 def _structural_problems(target: str, sources: "list[str]", merge_kind: str,
