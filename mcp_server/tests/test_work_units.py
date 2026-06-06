@@ -338,3 +338,33 @@ def test_malformed_declared_targets_fails_closed(tmp_path):
     reg = work_units.WorkUnitRegistry(db)
     assert reg.schema_unsupported == "unknown"
     reg.close()
+
+
+# ----- P7 Slice 2: declared-target registry methods -----
+def test_declared_target_insert_get_list_and_conflict(tmp_path):
+    reg = _fresh_registry(tmp_path)
+    reg.insert_declared_target("dt1", work_unit_id=None, intended_path="C:/p/m.3dm",
+        normalized_path="c:\\p\\m.3dm", predicted_artifact_id="pid1", label="M", now=5)
+    row = reg.get_declared_target("dt1")
+    assert row.status == "declared" and row.predicted_artifact_id == "pid1" and row.bound_artifact_id is None
+    assert [r.declared_target_id for r in reg.list_declared_targets()] == ["dt1"]
+    with pytest.raises(work_units.DeclaredTargetConflict) as ei:
+        reg.insert_declared_target("dt2", work_unit_id=None, intended_path="C:/p/m.3dm",
+            normalized_path="c:\\p\\m.3dm", predicted_artifact_id="pid1", label=None, now=6)
+    assert ei.value.existing_id == "dt1"
+    assert [r.declared_target_id for r in reg.list_declared_targets()] == ["dt1"]  # atomic: dt2 not written
+    reg.set_declared_target_materialized("dt1", bound_artifact_id="pid1", now=7)
+    m = reg.get_declared_target("dt1")
+    assert m.status == "materialized" and m.bound_artifact_id == "pid1" and m.materialized_at == 7
+    reg.close()
+
+
+def test_declared_targets_for_work_unit(tmp_path):
+    reg = _fresh_registry(tmp_path)
+    reg.register_work_unit("wu", label="W", role=None, metadata=None, now=1)
+    reg.insert_declared_target("dtA", work_unit_id="wu", intended_path="a", normalized_path="a",
+        predicted_artifact_id="pa", label=None, now=2)
+    reg.insert_declared_target("dtB", work_unit_id="wu", intended_path="b", normalized_path="b",
+        predicted_artifact_id="pb", label=None, now=3)
+    assert reg.declared_targets_for("wu") == ["dtA", "dtB"]
+    reg.close()

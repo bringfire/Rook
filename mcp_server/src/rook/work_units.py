@@ -277,6 +277,53 @@ class WorkUnitRegistry:
                 "SELECT contract_id FROM work_unit_merge_contracts WHERE work_unit_id=? "
                 "ORDER BY created_at, contract_id;", (work_unit_id,)).fetchall()]
 
+    # ----- declared targets (P7 Slice 2) -----
+    def insert_declared_target(self, declared_target_id: str, *, work_unit_id: str | None,
+                               intended_path: str, normalized_path: str, predicted_artifact_id: str,
+                               label: str | None, now: int) -> str:
+        """Insert a 'declared' row. UNIQUE(predicted_artifact_id) => one declaration per path; an
+        existing one raises DeclaredTargetConflict (ROLLBACK, nothing written)."""
+        with self._immediate():
+            existing = self._conn.execute(
+                "SELECT declared_target_id FROM declared_targets WHERE predicted_artifact_id=?;",
+                (predicted_artifact_id,)).fetchone()
+            if existing is not None:
+                raise DeclaredTargetConflict(existing[0])
+            self._conn.execute(
+                "INSERT INTO declared_targets(declared_target_id, work_unit_id, intended_path, "
+                "normalized_path, predicted_artifact_id, status, bound_artifact_id, label, "
+                "created_at, materialized_at) VALUES(?,?,?,?,?,'declared',NULL,?,?,NULL);",
+                (declared_target_id, work_unit_id, intended_path, normalized_path,
+                 predicted_artifact_id, label, now))
+        return declared_target_id
+
+    def set_declared_target_materialized(self, declared_target_id: str, *, bound_artifact_id: str,
+                                         now: int) -> None:
+        with self._immediate():
+            self._conn.execute(
+                "UPDATE declared_targets SET status='materialized', bound_artifact_id=?, "
+                "materialized_at=? WHERE declared_target_id=?;",
+                (bound_artifact_id, now, declared_target_id))
+
+    def get_declared_target(self, declared_target_id: str) -> "DeclaredTargetRow | None":
+        with self._lock:
+            raw = self._conn.execute(
+                f"SELECT {_DECLARED_TARGET_COLUMNS} FROM declared_targets WHERE declared_target_id=?;",
+                (declared_target_id,)).fetchone()
+            return None if raw is None else DeclaredTargetRow(*raw)
+
+    def list_declared_targets(self) -> "list[DeclaredTargetRow]":
+        with self._lock:
+            return [DeclaredTargetRow(*r) for r in self._conn.execute(
+                f"SELECT {_DECLARED_TARGET_COLUMNS} FROM declared_targets "
+                "ORDER BY created_at, declared_target_id;").fetchall()]
+
+    def declared_targets_for(self, work_unit_id: str) -> "list[str]":
+        with self._lock:
+            return [d for (d,) in self._conn.execute(
+                "SELECT declared_target_id FROM declared_targets WHERE work_unit_id=? "
+                "ORDER BY created_at, declared_target_id;", (work_unit_id,)).fetchall()]
+
 
 _WORK_UNITS_REGISTRY: "WorkUnitRegistry | None" = None
 
@@ -328,6 +375,14 @@ class ContractCycleError(RuntimeError):
     def __init__(self, cycle: "list[str]"):
         super().__init__("merge_cycle_detected")
         self.cycle = cycle
+
+
+class DeclaredTargetConflict(RuntimeError):
+    """insert_declared_target: the intended path (predicted_artifact_id) is already declared.
+    Carries the existing declaration id so the tool layer can surface it."""
+    def __init__(self, existing_id: str):
+        super().__init__("declared_target_path_conflict")
+        self.existing_id = existing_id
 
 
 def _contract_graph(pairs):
