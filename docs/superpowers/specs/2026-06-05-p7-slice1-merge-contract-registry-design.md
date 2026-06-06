@@ -125,21 +125,24 @@ Validation checks only that the value is in the declared set (`unknown_merge_kin
 ## 7. `record` — present-bar enforced at write
 
 `rhino_merge_contract_record(target_artifact_id, source_artifact_ids[], merge_kind, refresh_policy,
-work_unit_id?)`:
+work_unit_id?)` — **every check runs BEFORE any write; the write is one atomic transaction:**
 
-1. **Local well-formedness:** `source_artifact_ids` non-empty (`empty_sources`); `merge_kind` /
-   `refresh_policy` in vocabulary; target ∉ sources (`merge_self_reference`).
+1. **Local well-formedness:** `source_artifact_ids` non-empty (`empty_sources`); **no duplicate source
+   ids — duplicates are rejected, never silently deduped (`duplicate_contract_source`)**; `merge_kind` /
+   `refresh_policy` in vocabulary (`unknown_merge_kind` / `unknown_refresh_policy`); target ∉ sources
+   (`merge_self_reference`).
 2. **Present-bar (same as validate):** every source AND the target resolves to a P6 row
    (`artifact_not_registered` else) currently `present` (`artifact_not_present` else). A shared
    `_resolve_present(artifact_ids) -> problems[]` helper backs both `record` and `validate`.
-3. If `work_unit_id` is given, it must exist (`work_unit_not_found`); the `work_unit_merge_contracts`
-   join row is written in the same transaction.
-4. Only on a clean pass is the contract persisted (atomic `BEGIN IMMEDIATE`): `merge_contracts` +
-   `merge_contract_sources` (+ the optional join).
+3. If `work_unit_id` is given, it must exist (`work_unit_not_found`).
+4. **Atomic, all-or-nothing:** only after ALL of 1–3 pass clean does a single `BEGIN IMMEDIATE`
+   transaction insert the `merge_contracts` row + every `merge_contract_sources` row + the optional
+   `work_unit_merge_contracts` join. On ANY failure the `_err(<code>, …)` envelope is returned and
+   **no partial contract row or source rows exist** (the transaction never opens).
 
-A rejected record returns the structured `_err(<code>, …)` envelope; nothing is written.
-**Acyclicity is NOT checked at record** — a cycle is an emergent property of the whole graph and is a
-`validate`-time concern (record is per-contract local + present-bar).
+Re-recording the same logical contract creates a **new `contract_id`** — Slice 1 invents **no
+idempotency key** (add one later only if a caller actually needs dedupe). **Acyclicity is NOT checked
+at record** — a cycle is an emergent property of the whole graph and is a `validate`-time concern.
 
 ## 8. `validate` — pure, on-demand; returns the recompose order
 
@@ -153,9 +156,13 @@ A rejected record returns the structured `_err(<code>, …)` envelope; nothing i
 - Present-bar re-check on every contract's sources + target (`artifact_not_registered` /
   `artifact_not_present`).
 - Structural: `empty_sources`, `merge_self_reference`, `unknown_merge_kind`, `unknown_refresh_policy`.
-- **Acyclicity over the CONTRACT dependency graph:** nodes = contracts; edge `C → C'` iff
-  `target(C)` ∈ `sources(C')`. A cycle → `merge_cycle_detected` with the contract cycle path.
-  (Cycle detection + topological sort via the existing `networkx` dependency.)
+- **Acyclicity + ordering over the CONTRACT dependency graph.** The precedence rule is explicit:
+  **Contract A precedes Contract B when `target_artifact_id(A)` appears in `sources(B)`** (nodes =
+  contracts; directed edge `A → B`). A cycle → `merge_cycle_detected` with the contract cycle path.
+  The topological sort is **deterministic**: contracts with no path between them are independent and
+  ordered by a stable tiebreak `(created_at, contract_id)`, so `contractOrder` is reproducible and
+  tests are not flaky. (Cycle detection + a stable topological sort via the existing `networkx`
+  dependency — e.g. `lexicographical_topological_sort` keyed by the `(created_at, contract_id)` tiebreak.)
 
 **Success output** (`{success: True, data: {…}}`):
 ```jsonc
@@ -196,11 +203,14 @@ coverage needs **no Rhino**:
 - **Unit (`test_work_units.py`):** schema bootstrap (additive / version-gated / fail-closed, mirroring
   P5/P6 tests); work-unit register + many-to-many artifact/contract links; `record` present-bar
   (reject not_registered / not_present at write); `record` local structural rejects (empty_sources,
-  self_reference, unknown kind/policy); `validate` matrix — valid graph; not_registered / not_present
-  re-check after the world changes; `merge_self_reference`; `merge_cycle_detected` (two- and
-  three-contract cycles); **`contractOrder` correctness** for a multi-stage fan-in (A,B → M1; M1,C →
-  master); the work-unit-centric query returns the right artifacts + contracts. Uses a real
-  `ArtifactRegistry` over a throwaway temp `artifacts.db` + real temp files (no Rhino).
+  `duplicate_contract_source`, self_reference, unknown kind/policy); **`record` atomicity — a failing
+  record (e.g. one missing source) leaves NO contract/source/join rows**; `validate` matrix — valid
+  graph; not_registered / not_present re-check after the world changes; `merge_self_reference`;
+  `merge_cycle_detected` (two- and three-contract cycles); **`contractOrder` correctness AND
+  determinism** for a multi-stage fan-in (A,B → M1; M1,C → master) **including independent contracts
+  ordered by the `(created_at, contract_id)` tiebreak (run twice → identical order)**; the
+  work-unit-centric query returns the right artifacts + contracts. Uses a real `ArtifactRegistry` over
+  a throwaway temp `artifacts.db` + real temp files (no Rhino).
 - **Baseline parity** vs `main` (named failed/error sets unchanged) — the #220 discipline.
 - **Optional end-to-end live smoke (deferrable):** `--smoke p7-merge-contract` through the now-reliable
   harness — launch an owned Workbench, save 2 real source `.3dm` + 1 master, register them in P6,
@@ -234,3 +244,10 @@ coverage needs **no Rhino**:
 - **Two bars, by intent:** a *provenance link* (`work_unit_artifacts`) requires only that the artifact
   is **registered** (provenance is historical — a since-missing artifact was still produced); a *merge
   reference* (`record`/`validate`) requires **present** (you cannot merge a missing file). [Claude, self-review]
+- **`record` is atomic / all-or-nothing:** all checks run before any write; one `BEGIN IMMEDIATE`
+  transaction inserts contract + sources + optional join; no partial rows on failure. Duplicate source
+  ids in one contract are **rejected** (`duplicate_contract_source`), never silently deduped.
+  Re-recording creates a new `contract_id`; no idempotency key in Slice 1. [user]
+- **Deterministic topo order:** precedence is "A precedes B when `target(A)` ∈ `sources(B)`";
+  independent contracts tiebreak on `(created_at, contract_id)` so `contractOrder` is reproducible
+  (non-flaky tests). [user]
