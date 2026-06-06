@@ -522,6 +522,40 @@ def test_promote_completes_after_p6_already_registered(tmp_path, monkeypatch):
     assert prom["data"]["boundArtifactId"] == ids["anchor.3dm"]
     norm = artifacts.normalize_path(path)
     assert len([r for r in artifacts.artifact_registry().list_all() if r.path == norm]) == 1  # no duplicate row
+
+
+def test_promote_fails_closed_on_p6_skew(tmp_path, monkeypatch):
+    # P6 hard guard: a version-skewed P6 -> promote dies at its artifact_registry_unavailable guard,
+    # NO P7 transition (declare is pure P7, so it still succeeds).
+    raw = sqlite3.connect(str(tmp_path / "artifacts.db"))
+    raw.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);")
+    raw.execute("INSERT INTO meta(key,value) VALUES('artifact_registry_version','p0.legacy');")
+    raw.commit(); raw.close()
+    monkeypatch.setattr(artifacts, "resolve_artifact_db_path", lambda: tmp_path / "artifacts.db")
+    artifacts._reset_artifact_registry_singleton()
+    _repoint_p7(tmp_path, monkeypatch)
+    f = tmp_path / "anchor.3dm"; f.write_text("x")
+    dt = asyncio.run(work_units.declared_target_declare_tool(intended_path=str(f)))["data"]["declaredTargetId"]
+    out = asyncio.run(work_units.declared_target_promote_tool(declared_target_id=dt))
+    assert out["success"] is False and out["data"]["code"] == "artifact_registry_unavailable"
+    assert work_units.work_units_registry().get_declared_target(dt).status == "declared"
+
+
+def test_promote_maps_unreachable_envelope(tmp_path, monkeypatch):
+    # envelope-by-data.code: register_artifact -> artifact_file_unreachable maps to
+    # declared_target_unreachable (retryable), with NO bind. Monkeypatch P6's register to force it.
+    _point_p6_empty(tmp_path, monkeypatch)
+    _repoint_p7(tmp_path, monkeypatch)
+    f = tmp_path / "locked.3dm"  # need not exist; register is monkeypatched
+    dt = asyncio.run(work_units.declared_target_declare_tool(intended_path=str(f)))["data"]["declaredTargetId"]
+    async def fake_register(path):
+        return {"success": False, "data": {"code": "artifact_file_unreachable",
+                                           "message": "unreachable", "retryable": True}}
+    monkeypatch.setattr(artifacts, "register_artifact", fake_register)
+    out = asyncio.run(work_units.declared_target_promote_tool(declared_target_id=dt))
+    assert out["success"] is False and out["data"]["code"] == "declared_target_unreachable"
+    assert out["data"]["retryable"] is True
+    assert work_units.work_units_registry().get_declared_target(dt).status == "declared"
 ```
 
 - [ ] **Step 2: Run to verify failure**
@@ -586,7 +620,7 @@ async def declared_target_promote_tool(*, declared_target_id: str) -> "dict[str,
 - [ ] **Step 4: Run to verify pass**
 
 Run: `mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_work_units.py -k "test_promote_" -v`
-Expected: PASS (5 tests).
+Expected: PASS (7 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -657,6 +691,7 @@ def test_materialized_is_non_authoritative(tmp_path, monkeypatch):
 
 
 def test_declared_target_work_unit_join(tmp_path, monkeypatch):
+    _point_p6_empty(tmp_path, monkeypatch)  # isolation: list_declared_targets_tool reads P6 for observations
     _repoint_p7(tmp_path, monkeypatch)
     asyncio.run(work_units.register_work_unit_tool(label="W", work_unit_id="wu"))
     dt = asyncio.run(work_units.declared_target_declare_tool(
@@ -666,11 +701,18 @@ def test_declared_target_work_unit_join(tmp_path, monkeypatch):
     one = asyncio.run(work_units.list_declared_targets_tool(
         declared_target_id=dt))["data"]["declaredTargets"][0]
     assert one["workUnitId"] == "wu"
+
+
+def test_declared_targets_unknown_id_is_not_found(tmp_path, monkeypatch):
+    _point_p6_empty(tmp_path, monkeypatch)
+    _repoint_p7(tmp_path, monkeypatch)
+    out = asyncio.run(work_units.list_declared_targets_tool(declared_target_id="dt-nope"))
+    assert out["success"] is False and out["data"]["code"] == "declared_target_not_found"
 ```
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_work_units.py -k "test_declared_targets_observation or promotable_honors or non_authoritative or work_unit_join" -v`
+Run: `mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_work_units.py -k "test_declared_targets_observation or promotable_honors or non_authoritative or work_unit_join or unknown_id_is_not_found" -v`
 Expected: FAIL — `list_declared_targets_tool` does not exist; `workUnits[0]` has no `declaredTargets` key.
 
 - [ ] **Step 3: Add the observation helper + listing tool**
@@ -713,9 +755,13 @@ def _observe_declared_target(row: "DeclaredTargetRow", p6_available: bool) -> "d
 
 async def list_declared_targets_tool(*, declared_target_id: str | None = None) -> "dict[str, Any]":
     """List/inspect declared targets with a computed 'observed' block. Guards P7-unusable; DEGRADES
-    (does not fail closed) on a P6 skew so perception is never fully blocked by the lower plane."""
+    (does not fail closed) on a P6 skew so perception is never fully blocked by the lower plane.
+    An explicit unknown declared_target_id is a malformed request -> declared_target_not_found."""
     if (u := await _registry_unusable()) is not None:
         return u
+    if declared_target_id is not None:
+        if await asyncio.to_thread(lambda: work_units_registry().get_declared_target(declared_target_id)) is None:
+            return _err("declared_target_not_found", f"No declared target {declared_target_id!r}.")
     p6_available = (await _p6_unusable()) is None
     def _build() -> "list[dict[str, Any]]":
         reg = work_units_registry()
@@ -745,8 +791,8 @@ In `list_work_units_tool`'s `_build`, add `"declaredTargets"` to each unit's dic
 
 - [ ] **Step 5: Run to verify pass**
 
-Run: `mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_work_units.py -k "test_declared_targets_observation or promotable_honors or non_authoritative or work_unit_join" -v`
-Expected: PASS (4 tests). Then the whole file: `... -m pytest mcp_server/tests/test_work_units.py -q` (all green).
+Run: `mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_work_units.py -k "test_declared_targets_observation or promotable_honors or non_authoritative or work_unit_join or unknown_id_is_not_found" -v`
+Expected: PASS (5 tests). Then the whole file: `... -m pytest mcp_server/tests/test_work_units.py -q` (all green).
 
 - [ ] **Step 6: Commit**
 
@@ -890,15 +936,28 @@ Expected: ALL PASS (Slice 1 + the ~17 new Slice 2 tests).
 git checkout -- knowledge/ 2>/dev/null; rm -rf knowledge/selectors 2>/dev/null; true
 ```
 
-- [ ] **Step 3: Full-suite baseline parity vs main**
+- [ ] **Step 3: Full-suite baseline parity vs main (blessed non-live gate, named sets both directions)**
 
-Run the full suite and compare the **named** failed/error sets to the main baseline (**64 failed / 41 errors**):
+The gate is **named-set parity**, not counts. Use the blessed non-live command (scoped to `tests`,
+stable collection, no cache, names only) on BOTH the branch and `main`, then `comm` the sorted
+failed/error name sets both directions:
 
 ```bash
-mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/ -q 2>&1 | tail -40
+# on the branch:
+mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests -m "not requires_rhino" \
+    -p no:cacheprovider -q -rfE --tb=no > /tmp/p7s2_branch.txt 2>&1
+grep -E "^(FAILED|ERROR)" /tmp/p7s2_branch.txt | awk '{print $1, $2}' | sort > /tmp/p7s2_branch_named.txt
+
+# on main (git stash or a second worktree), the SAME command -> /tmp/p7s2_main_named.txt
+# then compare BOTH directions:
+comm -23 /tmp/p7s2_branch_named.txt /tmp/p7s2_main_named.txt   # NEW failures on branch — MUST be empty
+comm -13 /tmp/p7s2_branch_named.txt /tmp/p7s2_main_named.txt   # failures that vanished — MUST be empty
 ```
 
-Verify: failed+error **count is unchanged** AND the **named** failed/error test ids are identical to main both directions (no NEW failure introduced; all new P7-S2 tests pass). If any new failure appears, it is a real regression — fix before proceeding (do not rationalize a count that "looks close").
+Baseline reference: main is **64 failed / 41 errors** under this exact command. The gate passes only when
+the branch's named failed/error set is **identical** to main's (empty `comm` both directions) AND every
+new P7-S2 test PASSES (absent from both named sets). A non-empty `comm -23` is a real regression — fix
+before proceeding; never accept a count that merely "looks close."
 
 - [ ] **Step 4: Finish the branch**
 
@@ -928,9 +987,9 @@ EOF
 
 **Spec coverage (against `2026-06-06-p7-slice2-...-design.md`):**
 - §5 schema + `_REQUIRED_COLUMNS` shape guard → Task 1. §10 additive `p7.1→p7.2` (existing-tables-only guard, meta upgrade) → Task 1 Steps 3–5 + `test_additive_migration_p71_to_p72_preserves_data`.
-- §6 promote (drift check, P6 envelope-by-`data.code`, bind verification, idempotency) → Task 4. §6.1 cross-DB window → `test_promote_completes_after_p6_already_registered`.
+- §6 promote (drift check, P6 envelope-by-`data.code`, bind verification, idempotency) → Task 4, incl. the P6 hard guard (`test_promote_fails_closed_on_p6_skew`) and the unreachable mapping (`test_promote_maps_unreachable_envelope`). §6.1 cross-DB window → `test_promote_completes_after_p6_already_registered`.
 - §7 declare + conflict envelope (`success:false` + `existingDeclaredTargetId`) → Task 3. `materialized` non-authoritative → `test_materialized_is_non_authoritative`.
-- §8 observations + `promotable` includes `p6Available` + `promotionBlockedReason` ordering → Task 5 (`_observe_declared_target`, `test_declared_targets_promotable_honors_p6_availability`, `test_declared_targets_observation_transitions_nothing`). Work-unit join → Task 5 Step 4.
+- §8 observations + `promotable` includes `p6Available` + `promotionBlockedReason` ordering → Task 5 (`_observe_declared_target`, `test_declared_targets_promotable_honors_p6_availability`, `test_declared_targets_observation_transitions_nothing`); inspect-unknown-id → `declared_target_not_found` (`test_declared_targets_unknown_id_is_not_found`). Work-unit join → Task 5 Step 4.
 - §9 failure taxonomy → `_RETRYABLE` (Task 3) + raised across Tasks 3–4. §11 tool surface + non-routed/no-Rhino → Task 6.
 - §12 testing incl. baseline parity → Tasks 1–7.
 
