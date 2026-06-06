@@ -268,3 +268,20 @@ def test_validate_scoped_to_one_contract(tmp_path, monkeypatch):
     bad = asyncio.run(work_units.validate_merge_contract(contract_id=other))
     assert bad["data"]["ok"] is False
     assert any(p["code"] == "artifact_not_present" for p in bad["data"]["problems"])
+
+
+def test_validate_independent_contracts_tiebreak_order(tmp_path, monkeypatch):
+    # Two INDEPENDENT contracts (no shared artifact -> no edge). contractOrder must follow the
+    # (created_at, contract_id) tiebreak, NOT insertion order — the deterministic-ordering guarantee.
+    ids, _ = _p6_with(tmp_path, monkeypatch, ["P.3dm", "Q.3dm", "R.3dm", "S.3dm"])
+    reg = _fresh_registry(tmp_path)
+    P, Q, R, S = (ids[n] for n in ["P.3dm", "Q.3dm", "R.3dm", "S.3dm"])
+    reg.insert_contract("c_late", target=Q, sources=[P], merge_kind="import",
+                        refresh_policy="refresh_on_demand", work_unit_id=None, now=200)
+    reg.insert_contract("c_early", target=S, sources=[R], merge_kind="import",
+                        refresh_policy="refresh_on_demand", work_unit_id=None, now=100)
+    res = work_units._validate_graph(reg)
+    assert res["ok"] is True
+    assert res["edges"] == []                                  # independent: no edges between them
+    assert res["contractOrder"] == ["c_early", "c_late"]       # created_at 100 before 200, not insert order
+    reg.close()
