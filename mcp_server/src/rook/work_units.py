@@ -696,6 +696,53 @@ def _activation_blockers(reg, planned: "PlannedContractRow",
     return blockers, resolved
 
 
+def _observe_planned_contract(reg, row: "PlannedContractRow", p6_available: bool) -> "dict[str, Any]":
+    """Per-row observations; transitions nothing. An ACTIVATED row is classified FIRST and short-circuits
+    — it never re-enters the activation-blocker path (post-activation artifact drift is Slice-1
+    validate_merge_contract's concern, not the planned inspector's). A planned/invalid row reports its
+    activation blockers; partial resolved ids are best-effort (planned + P6-usable only)."""
+    state = _classify_planned_state(row)
+    if state == "activated":
+        return {"activatable": False, "alreadyActivated": True,
+                "activatedContractId": row.activated_contract_id, "blockers": []}
+    blockers, _ = _activation_blockers(reg, row, p6_available)   # 'planned' or 'invalid'
+    obs: dict[str, Any] = {"activatable": (len(blockers) == 0), "alreadyActivated": False, "blockers": blockers}
+    if state == "planned" and p6_available:
+        rt, _pt = _resolve_planned_ref_present(reg, row.target_ref_kind, row.target_ref_id)
+        if rt is not None:
+            obs["resolvedTargetArtifactId"] = rt
+        rs = []
+        for k, i in reg.sources_for_planned(row.planned_contract_id):
+            r, _p = _resolve_planned_ref_present(reg, k, i)
+            if r is not None:
+                rs.append(r)
+        obs["resolvedSourceArtifactIds"] = rs
+    else:
+        obs["resolvedSourceArtifactIds"] = []
+    return obs
+
+
+def _planned_graph_view(reg) -> "dict[str, Any]":
+    """Whole-graph view over canonical keys: plannedContractOrder (incl. activated rows), edges, graphOk,
+    graphProblems. Never stored."""
+    contracts = reg.list_planned_contracts()
+    pairs = _planned_graph_pairs(reg)
+    g, target_of, sources_of = _contract_graph(pairs)
+    problems: list[dict[str, Any]] = []
+    for pc in contracts:
+        problems += [{**p, "plannedContractId": pc.planned_contract_id} for p in _planned_structural_problems(
+            target_of[pc.planned_contract_id], sources_of[pc.planned_contract_id], pc.merge_kind, pc.refresh_policy)]
+    order: list[str] | None = None
+    okey = {pc.planned_contract_id: (pc.created_at, pc.planned_contract_id) for pc in contracts}
+    try:
+        order = list(nx.lexicographical_topological_sort(g, key=lambda n: okey[n]))
+    except nx.NetworkXUnfeasible:
+        problems.append({"code": "planned_contract_cycle_detected", "cycle": _contract_cycle(pairs)})
+    return {"plannedContractOrder": order,
+            "edges": [{"from": u, "to": v, "viaArtifactKey": d["viaArtifact"]} for u, v, d in g.edges(data=True)],
+            "graphOk": (len(problems) == 0), "graphProblems": problems}
+
+
 def _structural_problems(target: str, sources: "list[str]", merge_kind: str,
                          refresh_policy: str) -> "list[dict[str, Any]]":
     """Local well-formedness shared by record + validate (NOT present, NOT acyclicity)."""
@@ -927,7 +974,8 @@ async def list_work_units_tool(*, work_unit_id: str | None = None) -> "dict[str,
                         "artifacts": [{"artifactId": a, "relation": rel}
                                       for a, rel in reg.artifacts_for(r.work_unit_id)],
                         "contracts": reg.contracts_for(r.work_unit_id),
-                        "declaredTargets": reg.declared_targets_for(r.work_unit_id)})
+                        "declaredTargets": reg.declared_targets_for(r.work_unit_id),
+                        "plannedContracts": reg.planned_contracts_for(r.work_unit_id)})
         return out
     return {"success": True, "data": {"workUnits": await asyncio.to_thread(_build)}}
 
@@ -1189,3 +1237,35 @@ async def activate_planned_contract_tool(*, planned_contract_id: str) -> "dict[s
             "contractId": final_contract_id, "alreadyActivated": already,
             "target": resolved["target"], "sources": resolved["sources"],
             "mergeKind": row.merge_kind, "refreshPolicy": row.refresh_policy}}
+
+
+async def list_planned_contracts_tool(*, planned_contract_id: str | None = None) -> "dict[str, Any]":
+    """Inspect one (with observations) or the whole graph (+ order/edges/graphOk). Transitions nothing;
+    DEGRADES on P6 skew (every row activatable=false + an artifact_registry_unavailable blocker)."""
+    if (u := await _registry_unusable()) is not None:
+        return u
+    if planned_contract_id is not None:
+        if await asyncio.to_thread(lambda: work_units_registry().get_planned_contract(planned_contract_id)) is None:
+            return _err("planned_contract_not_found", f"No planned contract {planned_contract_id!r}.")
+    p6_available = (await _p6_unusable()) is None
+    def _build():
+        reg = work_units_registry()
+        if planned_contract_id is not None:
+            rows, graph = [reg.get_planned_contract(planned_contract_id)], None
+        else:
+            rows, graph = reg.list_planned_contracts(), _planned_graph_view(reg)
+        out_rows = []
+        for r in [r for r in rows if r is not None]:
+            out_rows.append({"plannedContractId": r.planned_contract_id,
+                             "target": {"kind": r.target_ref_kind, "id": r.target_ref_id},
+                             "sources": [{"kind": k, "id": i} for k, i in reg.sources_for_planned(r.planned_contract_id)],
+                             "mergeKind": r.merge_kind, "refreshPolicy": r.refresh_policy, "status": r.status,
+                             "activatedContractId": r.activated_contract_id, "activatedAt": r.activated_at,
+                             "createdAt": r.created_at,
+                             "observed": _observe_planned_contract(reg, r, p6_available)})
+        return out_rows, graph
+    out_rows, graph = await asyncio.to_thread(_build)
+    data: dict[str, Any] = {"plannedContracts": out_rows, "p6Available": p6_available}
+    if graph is not None:
+        data.update(graph)
+    return {"success": True, "data": data}

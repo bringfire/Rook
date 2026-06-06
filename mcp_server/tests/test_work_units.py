@@ -867,3 +867,93 @@ def test_activate_not_found_and_invalid_state(tmp_path, monkeypatch):
             "VALUES('pc-bad','artifact','M','import','refresh_on_demand','activated',NULL,NULL,1);")
     bad = asyncio.run(work_units.activate_planned_contract_tool(planned_contract_id="pc-bad"))
     assert bad["success"] is False and bad["data"]["code"] == "planned_contract_already_invalid"
+
+
+# ----- P7 Slice 3: inspector + work-unit join -----
+def test_planned_inspector_single_and_graph(tmp_path, monkeypatch):
+    _p6_with(tmp_path, monkeypatch, [])
+    _repoint_p7(tmp_path, monkeypatch)
+    dt_m, aid_m = _materialize_dt(tmp_path, monkeypatch, "M.3dm")
+    dt_f, aid_f = _materialize_dt(tmp_path, monkeypatch, "F.3dm")
+    asyncio.run(work_units.declared_target_declare_tool(intended_path=str(tmp_path / "A.3dm")))
+    dt_a = [d["declaredTargetId"] for d in asyncio.run(work_units.list_declared_targets_tool())["data"]["declaredTargets"]
+            if d["intendedPath"].endswith("A.3dm")][0]
+    pc1 = asyncio.run(work_units.record_planned_contract(target={"kind": "declared_target", "id": dt_m},
+        sources=[{"kind": "declared_target", "id": dt_a}], merge_kind="import",
+        refresh_policy="refresh_on_demand"))["data"]["plannedContractId"]
+    pc2 = asyncio.run(work_units.record_planned_contract(target={"kind": "declared_target", "id": dt_f},
+        sources=[{"kind": "artifact", "id": aid_m}], merge_kind="import",
+        refresh_policy="refresh_on_demand"))["data"]["plannedContractId"]
+    one = asyncio.run(work_units.list_planned_contracts_tool(planned_contract_id=pc1))
+    obs = one["data"]["plannedContracts"][0]["observed"]
+    assert obs["activatable"] is False
+    assert any(b["code"] == "declared_target_not_materialized" for b in obs["blockers"])
+    whole = asyncio.run(work_units.list_planned_contracts_tool())["data"]
+    assert whole["plannedContractOrder"].index(pc1) < whole["plannedContractOrder"].index(pc2)
+    assert any(e["from"] == pc1 and e["to"] == pc2 for e in whole["edges"])
+
+
+def test_planned_inspector_includes_activated_rows_and_skew(tmp_path, monkeypatch):
+    _p6_with(tmp_path, monkeypatch, [])
+    _repoint_p7(tmp_path, monkeypatch)
+    dt_m, _ = _materialize_dt(tmp_path, monkeypatch, "M.3dm")
+    dt_a, _ = _materialize_dt(tmp_path, monkeypatch, "A.3dm")
+    pc = asyncio.run(work_units.record_planned_contract(target={"kind": "declared_target", "id": dt_m},
+        sources=[{"kind": "declared_target", "id": dt_a}], merge_kind="import",
+        refresh_policy="refresh_on_demand"))["data"]["plannedContractId"]
+    asyncio.run(work_units.activate_planned_contract_tool(planned_contract_id=pc))
+    whole = asyncio.run(work_units.list_planned_contracts_tool())["data"]
+    assert pc in whole["plannedContractOrder"]
+    assert whole["plannedContracts"][0]["status"] == "activated"
+    nf = asyncio.run(work_units.list_planned_contracts_tool(planned_contract_id="pc-nope"))
+    assert nf["success"] is False and nf["data"]["code"] == "planned_contract_not_found"
+
+
+def test_planned_inspector_activated_row_ignores_drift(tmp_path, monkeypatch):
+    _p6_with(tmp_path, monkeypatch, [])
+    _repoint_p7(tmp_path, monkeypatch)
+    dt_m, _ = _materialize_dt(tmp_path, monkeypatch, "M.3dm")
+    dt_a, _ = _materialize_dt(tmp_path, monkeypatch, "A.3dm")
+    pc = asyncio.run(work_units.record_planned_contract(target={"kind": "declared_target", "id": dt_m},
+        sources=[{"kind": "declared_target", "id": dt_a}], merge_kind="import",
+        refresh_policy="refresh_on_demand"))["data"]["plannedContractId"]
+    asyncio.run(work_units.activate_planned_contract_tool(planned_contract_id=pc))
+    artifacts.artifact_registry().set_state(artifacts.normalize_path(str(tmp_path / "A.3dm")),
+        file_state="missing", size=None, mtime=None, now=9)   # drift AFTER activation
+    obs = asyncio.run(work_units.list_planned_contracts_tool(
+        planned_contract_id=pc))["data"]["plannedContracts"][0]["observed"]
+    assert obs["alreadyActivated"] is True and obs["activatable"] is False and obs["blockers"] == []
+
+
+def test_planned_inspector_p6_skew_blocker(tmp_path, monkeypatch):
+    _p6_with(tmp_path, monkeypatch, [])
+    _repoint_p7(tmp_path, monkeypatch)
+    asyncio.run(work_units.declared_target_declare_tool(intended_path=str(tmp_path / "M.3dm")))
+    asyncio.run(work_units.declared_target_declare_tool(intended_path=str(tmp_path / "A.3dm")))
+    dts = [d["declaredTargetId"] for d in asyncio.run(work_units.list_declared_targets_tool())["data"]["declaredTargets"]]
+    asyncio.run(work_units.record_planned_contract(target={"kind": "declared_target", "id": dts[0]},
+        sources=[{"kind": "declared_target", "id": dts[1]}], merge_kind="import", refresh_policy="refresh_on_demand"))
+    raw = sqlite3.connect(str(tmp_path / "artifacts.db"))
+    raw.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);")
+    raw.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('artifact_registry_version','p0.legacy');")
+    raw.commit(); raw.close()
+    artifacts._reset_artifact_registry_singleton()
+    out = asyncio.run(work_units.list_planned_contracts_tool())
+    assert out["data"]["p6Available"] is False
+    obs = out["data"]["plannedContracts"][0]["observed"]
+    assert obs["activatable"] is False
+    assert any(b["code"] == "artifact_registry_unavailable" for b in obs["blockers"])
+
+
+def test_work_unit_planned_join(tmp_path, monkeypatch):
+    _p6_with(tmp_path, monkeypatch, [])
+    _repoint_p7(tmp_path, monkeypatch)
+    asyncio.run(work_units.register_work_unit_tool(label="W", work_unit_id="wu"))
+    asyncio.run(work_units.declared_target_declare_tool(intended_path=str(tmp_path / "M.3dm")))
+    asyncio.run(work_units.declared_target_declare_tool(intended_path=str(tmp_path / "A.3dm")))
+    dts = [d["declaredTargetId"] for d in asyncio.run(work_units.list_declared_targets_tool())["data"]["declaredTargets"]]
+    pc = asyncio.run(work_units.record_planned_contract(target={"kind": "declared_target", "id": dts[0]},
+        sources=[{"kind": "declared_target", "id": dts[1]}], merge_kind="import",
+        refresh_policy="refresh_on_demand", work_unit_id="wu"))["data"]["plannedContractId"]
+    wu = asyncio.run(work_units.list_work_units_tool(work_unit_id="wu"))
+    assert wu["data"]["workUnits"][0]["plannedContracts"] == [pc]
