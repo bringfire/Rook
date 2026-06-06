@@ -503,6 +503,10 @@ _RETRYABLE = {
     "merge_self_reference": False, "work_unit_not_found": False, "merge_cycle_detected": False,
     "contract_not_found": False, "invalid_relation": False, "invalid_argument": False,
     "work_units_registry_unavailable": True,
+    "invalid_path": False,
+    "declared_target_not_found": False, "declared_target_path_conflict": False,
+    "declared_target_not_materialized": True, "declared_target_unreachable": True,
+    "declared_target_path_identity_changed": False, "declared_target_promotion_failed": False,
 }
 
 
@@ -633,3 +637,30 @@ async def list_work_units_tool(*, work_unit_id: str | None = None) -> "dict[str,
                         "contracts": reg.contracts_for(r.work_unit_id)})
         return out
     return {"success": True, "data": {"workUnits": await asyncio.to_thread(_build)}}
+
+
+async def declared_target_declare_tool(*, intended_path: str, label: str | None = None,
+                                       work_unit_id: str | None = None) -> "dict[str, Any]":
+    """Declare intent toward a not-yet-existing anchor. Pure P7 + a path hash — does NOT touch P6
+    and does NOT require the file to exist. The predicted id is a prediction, verified at promote."""
+    if (u := await _registry_unusable()) is not None:
+        return u
+    if not isinstance(intended_path, str) or not intended_path.strip():
+        return _err("invalid_path", "'intended_path' must be a non-empty string.")
+    if work_unit_id is not None:
+        if await asyncio.to_thread(lambda: work_units_registry().get_work_unit(work_unit_id)) is None:
+            return _err("work_unit_not_found", f"No work unit {work_unit_id!r}.")
+    norm = await asyncio.to_thread(_artifacts.normalize_path, intended_path)
+    predicted = await asyncio.to_thread(_artifacts.artifact_id_for, norm)
+    dt_id = f"dt-{uuid.uuid4().hex[:12]}"
+    try:
+        await asyncio.to_thread(lambda: work_units_registry().insert_declared_target(
+            dt_id, work_unit_id=work_unit_id, intended_path=intended_path, normalized_path=norm,
+            predicted_artifact_id=predicted, label=label, now=int(time.time())))
+    except DeclaredTargetConflict as exc:
+        return _err("declared_target_path_conflict",
+                    f"Intended path is already declared by {exc.existing_id!r}.",
+                    existingDeclaredTargetId=exc.existing_id)
+    return {"success": True, "data": {
+        "declaredTargetId": dt_id, "intendedPath": intended_path, "normalizedPath": norm,
+        "predictedArtifactId": predicted, "status": "declared", "workUnitId": work_unit_id}}

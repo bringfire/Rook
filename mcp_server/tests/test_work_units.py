@@ -368,3 +368,33 @@ def test_declared_targets_for_work_unit(tmp_path):
         predicted_artifact_id="pb", label=None, now=3)
     assert reg.declared_targets_for("wu") == ["dtA", "dtB"]
     reg.close()
+
+
+# ----- P7 Slice 2: declare tool -----
+def test_declare_computes_predicted_id_and_status(tmp_path, monkeypatch):
+    _repoint_p7(tmp_path, monkeypatch)
+    f = tmp_path / "m.3dm"
+    out = asyncio.run(work_units.declared_target_declare_tool(intended_path=str(f), label="Master"))
+    assert out["success"] is True
+    assert out["data"]["predictedArtifactId"] == artifacts.artifact_id_for(artifacts.normalize_path(str(f)))
+    assert out["data"]["status"] == "declared"
+
+
+def test_declare_conflict_returns_existing_id(tmp_path, monkeypatch):
+    _repoint_p7(tmp_path, monkeypatch)
+    f = tmp_path / "dup.3dm"
+    first = asyncio.run(work_units.declared_target_declare_tool(intended_path=str(f)))
+    assert first["success"] is True
+    second = asyncio.run(work_units.declared_target_declare_tool(intended_path=str(f)))
+    assert second["success"] is False and second["data"]["code"] == "declared_target_path_conflict"
+    assert second["data"]["existingDeclaredTargetId"] == first["data"]["declaredTargetId"]
+    assert second["data"]["retryable"] is False
+
+
+def test_declare_validates_work_unit_and_path(tmp_path, monkeypatch):
+    _repoint_p7(tmp_path, monkeypatch)
+    bad_wu = asyncio.run(work_units.declared_target_declare_tool(
+        intended_path=str(tmp_path / "a.3dm"), work_unit_id="nope"))
+    assert bad_wu["success"] is False and bad_wu["data"]["code"] == "work_unit_not_found"
+    bad_path = asyncio.run(work_units.declared_target_declare_tool(intended_path="   "))
+    assert bad_path["success"] is False and bad_path["data"]["code"] == "invalid_path"
