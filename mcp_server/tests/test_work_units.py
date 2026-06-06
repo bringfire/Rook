@@ -285,3 +285,56 @@ def test_validate_independent_contracts_tiebreak_order(tmp_path, monkeypatch):
     assert res["edges"] == []                                  # independent: no edges between them
     assert res["contractOrder"] == ["c_early", "c_late"]       # created_at 100 before 200, not insert order
     reg.close()
+
+
+# ----- P7 Slice 2: declared_targets schema + additive migration -----
+def test_declared_targets_table_created_at_p72(tmp_path):
+    reg = _fresh_registry(tmp_path)
+    names = {r[0] for r in reg._conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table';").fetchall()}
+    assert "declared_targets" in names
+    ver = reg._conn.execute(
+        "SELECT value FROM meta WHERE key='work_units_registry_version';").fetchone()
+    assert ver[0] == "p7.2" == work_units.WORK_UNITS_REGISTRY_VERSION
+    reg.close()
+
+
+def test_additive_migration_p71_to_p72_preserves_data(tmp_path):
+    db = tmp_path / "work_units.db"
+    raw = sqlite3.connect(str(db))
+    raw.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);")
+    raw.execute("INSERT INTO meta(key,value) VALUES('work_units_registry_version','p7.1');")
+    raw.execute("CREATE TABLE work_units (work_unit_id TEXT PRIMARY KEY, label TEXT NOT NULL, "
+                "role TEXT, metadata TEXT, created_at INTEGER NOT NULL);")
+    raw.execute("CREATE TABLE work_unit_artifacts (work_unit_id TEXT NOT NULL, artifact_id TEXT NOT NULL, "
+                "relation TEXT NOT NULL, created_at INTEGER NOT NULL, "
+                "PRIMARY KEY(work_unit_id, artifact_id, relation));")
+    raw.execute("CREATE TABLE merge_contracts (contract_id TEXT PRIMARY KEY, target_artifact_id TEXT NOT NULL, "
+                "merge_kind TEXT NOT NULL, refresh_policy TEXT NOT NULL, created_at INTEGER NOT NULL);")
+    raw.execute("CREATE TABLE merge_contract_sources (contract_id TEXT NOT NULL, "
+                "source_artifact_id TEXT NOT NULL, PRIMARY KEY(contract_id, source_artifact_id));")
+    raw.execute("CREATE TABLE work_unit_merge_contracts (work_unit_id TEXT NOT NULL, contract_id TEXT NOT NULL, "
+                "created_at INTEGER NOT NULL, PRIMARY KEY(work_unit_id, contract_id));")
+    raw.execute("INSERT INTO work_units VALUES('wu-keep','Keep',NULL,NULL,1);")
+    raw.commit(); raw.close()
+
+    reg = work_units.WorkUnitRegistry(db)
+    assert reg.schema_unsupported is None
+    names = {r[0] for r in reg._conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table';").fetchall()}
+    assert "declared_targets" in names                       # additively created
+    ver = reg._conn.execute(
+        "SELECT value FROM meta WHERE key='work_units_registry_version';").fetchone()
+    assert ver[0] == "p7.2"                                   # upgraded forward
+    assert reg.get_work_unit("wu-keep").label == "Keep"       # existing data intact
+    reg.close()
+
+
+def test_malformed_declared_targets_fails_closed(tmp_path):
+    db = tmp_path / "work_units.db"
+    raw = sqlite3.connect(str(db))
+    raw.execute("CREATE TABLE declared_targets (id TEXT, junk TEXT);")  # wrong shape, no version meta
+    raw.commit(); raw.close()
+    reg = work_units.WorkUnitRegistry(db)
+    assert reg.schema_unsupported == "unknown"
+    reg.close()

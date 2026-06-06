@@ -24,7 +24,10 @@ import networkx as nx
 
 from . import artifacts as _artifacts   # read-only P6 access (resolve + present check)
 
-WORK_UNITS_REGISTRY_VERSION = "p7.1"
+WORK_UNITS_REGISTRY_VERSION = "p7.2"
+# Additive-compatible predecessors: an older db at one of these is migrated FORWARD (new tables
+# created, meta upgraded), never failed closed. Unknown/newer versions still fail closed.
+_SUPPORTED_PRIOR_VERSIONS = frozenset({"p7.1"})
 
 MERGE_KINDS = ("worksession", "import", "linked_block", "reference", "block", "report")
 REFRESH_POLICIES = ("refresh_after_save", "refresh_on_demand")
@@ -38,6 +41,9 @@ _REQUIRED_COLUMNS = {
     "merge_contracts": {"contract_id", "target_artifact_id", "merge_kind", "refresh_policy", "created_at"},
     "merge_contract_sources": {"contract_id", "source_artifact_id"},
     "work_unit_merge_contracts": {"work_unit_id", "contract_id", "created_at"},
+    "declared_targets": {"declared_target_id", "work_unit_id", "intended_path", "normalized_path",
+                         "predicted_artifact_id", "status", "bound_artifact_id", "label",
+                         "created_at", "materialized_at"},
 }
 
 
@@ -92,6 +98,25 @@ class ContractRow:
     created_at: int
 
 
+_DECLARED_TARGET_COLUMNS = ("declared_target_id, work_unit_id, intended_path, normalized_path, "
+                            "predicted_artifact_id, status, bound_artifact_id, label, "
+                            "created_at, materialized_at")
+
+
+@dataclass(frozen=True)
+class DeclaredTargetRow:
+    declared_target_id: str
+    work_unit_id: str | None
+    intended_path: str
+    normalized_path: str
+    predicted_artifact_id: str
+    status: str
+    bound_artifact_id: str | None
+    label: str | None
+    created_at: int
+    materialized_at: int | None
+
+
 class WorkUnitRegistry:
     """Durable coordinator-plane store. Additive / version-gated / fail-closed (NEVER DROP)."""
 
@@ -120,7 +145,8 @@ class WorkUnitRegistry:
         c.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);")
         stored = c.execute(
             "SELECT value FROM meta WHERE key='work_units_registry_version';").fetchone()
-        if stored is not None and stored[0] != WORK_UNITS_REGISTRY_VERSION:
+        if stored is not None and stored[0] != WORK_UNITS_REGISTRY_VERSION \
+                and stored[0] not in _SUPPORTED_PRIOR_VERSIONS:
             self.schema_unsupported = stored[0]
             return
         # Fail closed on a foreign/malformed existing table before indexing or normal use.
@@ -148,10 +174,16 @@ class WorkUnitRegistry:
         c.execute("""CREATE TABLE IF NOT EXISTS work_unit_merge_contracts (
             work_unit_id TEXT NOT NULL, contract_id TEXT NOT NULL, created_at INTEGER NOT NULL,
             PRIMARY KEY (work_unit_id, contract_id));""")
+        c.execute("""CREATE TABLE IF NOT EXISTS declared_targets (
+            declared_target_id TEXT PRIMARY KEY, work_unit_id TEXT, intended_path TEXT NOT NULL,
+            normalized_path TEXT NOT NULL, predicted_artifact_id TEXT NOT NULL UNIQUE,
+            status TEXT NOT NULL, bound_artifact_id TEXT, label TEXT,
+            created_at INTEGER NOT NULL, materialized_at INTEGER);""")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_declared_targets_work_unit ON declared_targets(work_unit_id);")
         c.execute("CREATE INDEX IF NOT EXISTS idx_wua_wu ON work_unit_artifacts(work_unit_id);")
         c.execute("CREATE INDEX IF NOT EXISTS idx_mcs_contract ON merge_contract_sources(contract_id);")
         c.execute("CREATE INDEX IF NOT EXISTS idx_wumc_wu ON work_unit_merge_contracts(work_unit_id);")
-        if stored is None:
+        if stored is None or stored[0] != WORK_UNITS_REGISTRY_VERSION:
             c.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('work_units_registry_version', ?);",
                       (WORK_UNITS_REGISTRY_VERSION,))
 
