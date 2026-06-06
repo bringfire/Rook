@@ -30,14 +30,15 @@ import networkx as nx
 
 from . import artifacts as _artifacts   # read-only P6 access (resolve + present check)
 
-WORK_UNITS_REGISTRY_VERSION = "p7.2"
+WORK_UNITS_REGISTRY_VERSION = "p7.3"
 # Additive-compatible predecessors: an older db at one of these is migrated FORWARD (new tables
 # created, meta upgraded), never failed closed. Unknown/newer versions still fail closed.
-_SUPPORTED_PRIOR_VERSIONS = frozenset({"p7.1"})
+_SUPPORTED_PRIOR_VERSIONS = frozenset({"p7.1", "p7.2"})
 
 MERGE_KINDS = ("worksession", "import", "linked_block", "reference", "block", "report")
 REFRESH_POLICIES = ("refresh_after_save", "refresh_on_demand")
 RELATIONS = ("produced", "consumed")
+REF_KINDS = ("artifact", "declared_target")
 
 # Required columns per table — a foreign/malformed existing table (current-version or missing-meta
 # db) fails closed to schema_unsupported BEFORE any index/use (mirror P5/P6).
@@ -50,6 +51,10 @@ _REQUIRED_COLUMNS = {
     "declared_targets": {"declared_target_id", "work_unit_id", "intended_path", "normalized_path",
                          "predicted_artifact_id", "status", "bound_artifact_id", "label",
                          "created_at", "materialized_at"},
+    "planned_merge_contracts": {"planned_contract_id", "target_ref_kind", "target_ref_id", "merge_kind",
+                                "refresh_policy", "status", "activated_contract_id", "activated_at", "created_at"},
+    "planned_merge_contract_sources": {"planned_contract_id", "source_ref_kind", "source_ref_id"},
+    "work_unit_planned_merge_contracts": {"work_unit_id", "planned_contract_id", "created_at"},
 }
 
 
@@ -123,6 +128,23 @@ class DeclaredTargetRow:
     materialized_at: int | None
 
 
+_PLANNED_CONTRACT_COLUMNS = ("planned_contract_id, target_ref_kind, target_ref_id, merge_kind, "
+                             "refresh_policy, status, activated_contract_id, activated_at, created_at")
+
+
+@dataclass(frozen=True)
+class PlannedContractRow:
+    planned_contract_id: str
+    target_ref_kind: str
+    target_ref_id: str
+    merge_kind: str
+    refresh_policy: str
+    status: str
+    activated_contract_id: str | None
+    activated_at: int | None
+    created_at: int
+
+
 class WorkUnitRegistry:
     """Durable coordinator-plane store. Additive / version-gated / fail-closed (NEVER DROP)."""
 
@@ -186,6 +208,18 @@ class WorkUnitRegistry:
             status TEXT NOT NULL, bound_artifact_id TEXT, label TEXT,
             created_at INTEGER NOT NULL, materialized_at INTEGER);""")
         c.execute("CREATE INDEX IF NOT EXISTS idx_declared_targets_work_unit ON declared_targets(work_unit_id);")
+        c.execute("""CREATE TABLE IF NOT EXISTS planned_merge_contracts (
+            planned_contract_id TEXT PRIMARY KEY, target_ref_kind TEXT NOT NULL, target_ref_id TEXT NOT NULL,
+            merge_kind TEXT NOT NULL, refresh_policy TEXT NOT NULL, status TEXT NOT NULL,
+            activated_contract_id TEXT, activated_at INTEGER, created_at INTEGER NOT NULL);""")
+        c.execute("""CREATE TABLE IF NOT EXISTS planned_merge_contract_sources (
+            planned_contract_id TEXT NOT NULL, source_ref_kind TEXT NOT NULL, source_ref_id TEXT NOT NULL,
+            PRIMARY KEY (planned_contract_id, source_ref_kind, source_ref_id));""")
+        c.execute("""CREATE TABLE IF NOT EXISTS work_unit_planned_merge_contracts (
+            work_unit_id TEXT NOT NULL, planned_contract_id TEXT NOT NULL, created_at INTEGER NOT NULL,
+            PRIMARY KEY (work_unit_id, planned_contract_id));""")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_pmcs_contract ON planned_merge_contract_sources(planned_contract_id);")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_wupmc_wu ON work_unit_planned_merge_contracts(work_unit_id);")
         c.execute("CREATE INDEX IF NOT EXISTS idx_wua_wu ON work_unit_artifacts(work_unit_id);")
         c.execute("CREATE INDEX IF NOT EXISTS idx_mcs_contract ON merge_contract_sources(contract_id);")
         c.execute("CREATE INDEX IF NOT EXISTS idx_wumc_wu ON work_unit_merge_contracts(work_unit_id);")
