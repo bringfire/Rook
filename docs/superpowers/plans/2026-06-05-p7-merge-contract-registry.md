@@ -474,10 +474,10 @@ def _contract_cycle(pairs) -> "list[str] | None":
     insert_contract's atomic pre-check and validate's whole-graph check."""
     g, _, _ = _contract_graph(pairs)
     try:
-        cyc = nx.find_cycle(g)
+        cyc = nx.find_cycle(g)   # list of (u, v) edges (2-tuples; no orientation)
     except nx.NetworkXNoCycle:
         return None
-    return [u for u, _, _ in cyc] + [cyc[-1][1]]
+    return [u for u, _ in cyc] + [cyc[-1][1]]
 ```
 
 - [ ] **Step 3b: Implement the contract methods** (append to `WorkUnitRegistry`). `insert_contract` calls `self.list_contracts()`/`self.sources_for()` inside `self._immediate()` — safe because `_lock` is a re-entrant `RLock`:
