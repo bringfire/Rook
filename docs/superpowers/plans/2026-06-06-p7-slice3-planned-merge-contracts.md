@@ -406,18 +406,35 @@ def test_record_rejects_bad_refs_and_structural(tmp_path, monkeypatch):
     assert dangling["success"] is False and dangling["data"]["code"] == "declared_target_not_found"
 
 
-def test_record_self_reference_by_canonical_key(tmp_path, monkeypatch):
-    # declared_target target and an artifact source with the SAME predicted id -> planned_self_reference.
-    _p6_with(tmp_path, monkeypatch, [])
+def test_record_canonical_self_reference_cross_kind(tmp_path, monkeypatch):
+    # LOAD-BEARING: target declared_target:dtM and source artifact:<dtM.predicted_artifact_id> collapse to
+    # the SAME canonical key -> planned_self_reference. An impl that compared (kind,id) instead of the
+    # canonical artifact key would WRONGLY accept this. Register the artifact first so the link-bar passes
+    # and the only possible rejection is the canonical self-reference.
+    ids, files = _p6_with(tmp_path, monkeypatch, ["M.3dm"])    # M registered+present; id == hash(M path)
     _repoint_p7(tmp_path, monkeypatch)
-    f = tmp_path / "M.3dm"
-    pred = artifacts.artifact_id_for(artifacts.normalize_path(str(f)))
-    asyncio.run(work_units.declared_target_declare_tool(intended_path=str(f)))
-    dt = asyncio.run(work_units.list_declared_targets_tool())["data"]["declaredTargets"][0]["declaredTargetId"]
-    # an artifact ref with id == pred would need P6; use two declared_target refs to the same dt instead:
-    out = asyncio.run(work_units.record_planned_contract(target={"kind": "declared_target", "id": dt},
-        sources=[{"kind": "declared_target", "id": dt}], merge_kind="import", refresh_policy="refresh_on_demand"))
+    asyncio.run(work_units.declared_target_declare_tool(intended_path=str(files["M.3dm"])))  # predicted == ids["M.3dm"]
+    dtm = asyncio.run(work_units.list_declared_targets_tool())["data"]["declaredTargets"][0]["declaredTargetId"]
+    out = asyncio.run(work_units.record_planned_contract(target={"kind": "declared_target", "id": dtm},
+        sources=[{"kind": "artifact", "id": ids["M.3dm"]}], merge_kind="import", refresh_policy="refresh_on_demand"))
     assert out["success"] is False and out["data"]["code"] == "planned_self_reference"
+
+
+def test_record_canonical_duplicate_source_cross_kind(tmp_path, monkeypatch):
+    # sources [declared_target:dtM, artifact:<dtM.predicted>] resolve to the SAME canonical key under a
+    # DIFFERENT target -> duplicate_planned_source (again pins canonical-key, not (kind,id), comparison).
+    ids, files = _p6_with(tmp_path, monkeypatch, ["M.3dm", "F.3dm"])
+    _repoint_p7(tmp_path, monkeypatch)
+    asyncio.run(work_units.declared_target_declare_tool(intended_path=str(files["M.3dm"])))
+    asyncio.run(work_units.declared_target_declare_tool(intended_path=str(files["F.3dm"])))
+    dts = {d["intendedPath"]: d["declaredTargetId"]
+           for d in asyncio.run(work_units.list_declared_targets_tool())["data"]["declaredTargets"]}
+    dtm = [v for k, v in dts.items() if k.endswith("M.3dm")][0]
+    dtf = [v for k, v in dts.items() if k.endswith("F.3dm")][0]
+    out = asyncio.run(work_units.record_planned_contract(target={"kind": "declared_target", "id": dtf},
+        sources=[{"kind": "declared_target", "id": dtm}, {"kind": "artifact", "id": ids["M.3dm"]}],
+        merge_kind="import", refresh_policy="refresh_on_demand"))
+    assert out["success"] is False and out["data"]["code"] == "duplicate_planned_source"
 
 
 def test_record_artifact_linkbar_registered_not_present(tmp_path, monkeypatch):
@@ -587,7 +604,7 @@ async def record_planned_contract(*, target, sources, merge_kind: str, refresh_p
 - [ ] **Step 5: Run to verify pass**
 
 Run: `mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_work_units.py -k "test_record_" -v`
-Expected: PASS (5 tests).
+Expected: PASS (6 tests).
 
 - [ ] **Step 6: Commit**
 
@@ -1016,6 +1033,25 @@ def test_work_unit_planned_join(tmp_path, monkeypatch):
         refresh_policy="refresh_on_demand", work_unit_id="wu"))["data"]["plannedContractId"]
     wu = asyncio.run(work_units.list_work_units_tool(work_unit_id="wu"))
     assert wu["data"]["workUnits"][0]["plannedContracts"] == [pc]
+
+
+def test_planned_inspector_activated_row_ignores_drift(tmp_path, monkeypatch):
+    # an ACTIVATED planned row whose source artifact later goes missing in P6 stays 'activated' in the
+    # inspector — NOT "not activatable: artifact_not_present". Drift after activation is Slice-1
+    # validate_merge_contract's concern, never the planned inspector's.
+    _p6_with(tmp_path, monkeypatch, [])
+    _repoint_p7(tmp_path, monkeypatch)
+    dt_m, _ = _materialize_dt(tmp_path, monkeypatch, "M.3dm")
+    dt_a, _ = _materialize_dt(tmp_path, monkeypatch, "A.3dm")
+    pc = asyncio.run(work_units.record_planned_contract(target={"kind": "declared_target", "id": dt_m},
+        sources=[{"kind": "declared_target", "id": dt_a}], merge_kind="import",
+        refresh_policy="refresh_on_demand"))["data"]["plannedContractId"]
+    asyncio.run(work_units.activate_planned_contract_tool(planned_contract_id=pc))
+    artifacts.artifact_registry().set_state(artifacts.normalize_path(str(tmp_path / "A.3dm")),
+        file_state="missing", size=None, mtime=None, now=9)   # drift AFTER activation
+    obs = asyncio.run(work_units.list_planned_contracts_tool(
+        planned_contract_id=pc))["data"]["plannedContracts"][0]["observed"]
+    assert obs["alreadyActivated"] is True and obs["activatable"] is False and obs["blockers"] == []
 ```
 
 - [ ] **Step 2: Run to verify failure**
@@ -1027,11 +1063,17 @@ Expected: FAIL — `list_planned_contracts_tool` undefined; `workUnits[0]` has n
 
 ```python
 def _observe_planned_contract(reg, row: "PlannedContractRow", p6_available: bool) -> "dict[str, Any]":
-    """Per-row observations; transitions nothing. activatable = no blockers; best-effort partial resolved
-    ids for visibility (only when P6 usable)."""
-    blockers, _ = _activation_blockers(reg, row, p6_available)
-    obs: dict[str, Any] = {"activatable": (len(blockers) == 0), "blockers": blockers}
-    if p6_available:
+    """Per-row observations; transitions nothing. An ACTIVATED row is classified FIRST and short-circuits
+    — it never re-enters the activation-blocker path (post-activation artifact drift is Slice-1
+    validate_merge_contract's concern, not the planned inspector's). A planned/invalid row reports its
+    activation blockers; partial resolved ids are best-effort (planned + P6-usable only)."""
+    state = _classify_planned_state(row)
+    if state == "activated":
+        return {"activatable": False, "alreadyActivated": True,
+                "activatedContractId": row.activated_contract_id, "blockers": []}
+    blockers, _ = _activation_blockers(reg, row, p6_available)   # 'planned' or 'invalid'
+    obs: dict[str, Any] = {"activatable": (len(blockers) == 0), "alreadyActivated": False, "blockers": blockers}
+    if state == "planned" and p6_available:
         rt, _pt = _resolve_planned_ref_present(reg, row.target_ref_kind, row.target_ref_id)
         if rt is not None:
             obs["resolvedTargetArtifactId"] = rt
@@ -1253,43 +1295,54 @@ Expected: ALL PASS (Slice 1 + 2 + 3).
 
 - [ ] **Step 2: knowledge/ hygiene**
 
-```bash
-git checkout -- knowledge/ 2>/dev/null; rm -rf knowledge/selectors 2>/dev/null; true
+```powershell
+git checkout -- knowledge/
+if (Test-Path knowledge\selectors) { Remove-Item -Recurse -Force knowledge\selectors }
 ```
 
 - [ ] **Step 3: Baseline parity vs main (blessed non-live gate, named sets both directions)**
 
-```bash
-# branch:
-mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests -m "not requires_rhino" \
-    -p no:cacheprovider -q -rfE --tb=no > /tmp/p7s3_branch.txt 2>&1
-grep -E "^(FAILED|ERROR)" /tmp/p7s3_branch.txt | awk '{print $1, $2}' | sort > /tmp/p7s3_branch_named.txt
-# main (git stash or worktree), SAME command -> /tmp/p7s3_main_named.txt
-comm -23 /tmp/p7s3_branch_named.txt /tmp/p7s3_main_named.txt   # NEW failures — MUST be empty
-comm -13 /tmp/p7s3_branch_named.txt /tmp/p7s3_main_named.txt   # vanished failures — MUST be empty
+```powershell
+# Helper: run the blessed non-live gate and write a SORTED named FAILED/ERROR set to a file.
+function Get-NamedSet($outFile) {
+    mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests -m "not requires_rhino" `
+        -p no:cacheprovider -q -rfE --tb=no *> "$env:TEMP\p7s3_run.txt"
+    Select-String -Path "$env:TEMP\p7s3_run.txt" -Pattern '^(FAILED|ERROR)' |
+        ForEach-Object { ($_.Line -split '\s+')[0..1] -join ' ' } | Sort-Object | Set-Content $outFile
+}
+
+# 1. On the branch:
+Get-NamedSet "$env:TEMP\p7s3_branch.txt"
+# 2. On main (commit/stash the branch first, then `git checkout main`), SAME helper:
+#    Get-NamedSet "$env:TEMP\p7s3_main.txt"   ; then `git checkout feature/p7-slice3-planned-contracts`
+# 3. Compare BOTH directions — EMPTY output == identical named sets (parity holds):
+Compare-Object (Get-Content "$env:TEMP\p7s3_branch.txt") (Get-Content "$env:TEMP\p7s3_main.txt")
 ```
-Baseline reference: main is **64 failed / 41 errors**. The gate passes only when the named failed/error set is identical both directions AND every new Slice-3 test passes (absent from both sets).
+Baseline reference: main is **64 failed / 41 errors**. The gate passes only when `Compare-Object` prints
+nothing (named failed/error sets identical both directions) AND every new Slice-3 test passes (absent from
+both named sets). A non-empty `Compare-Object` (`SideIndicator =>` = new branch failure, `<=` = vanished)
+is a real regression — fix before proceeding.
 
 - [ ] **Step 4: Finish the branch**
 
 Announce: "I'm using the finishing-a-development-branch skill to complete this work." Verify tests pass, then push + open PR (per project workflow; user pulls the squash-merge trigger):
 
-```bash
+```powershell
 git push -u origin feature/p7-slice3-planned-contracts
-gh pr create --title "P7 Slice 3: planned merge contracts — record future fan-in, activate into strict contracts" --body "$(cat <<'EOF'
+$body = @'
 ## Summary
 - Adds a `planned_merge_contracts` family (3 tables) recording future fan-in intent over typed refs (`artifact:`/`declared_target:`), with topology over a canonical future-artifact key.
 - `rhino_planned_contract_activate` is the idempotent, fail-closed-with-all-blockers bridge: one atomic P7 transaction (in-tx CAS) inserts a strict Slice-1 `merge_contract` (indistinguishable from `record_merge_contract`) + copies ownership + stamps the planned row. `merge_contracts` untouched; zero P6 writes.
-- Record's P6 guard is conditional (refs parsed first → P6 only when an `artifact:` ref is present). Additive `p7.2 -> p7.3` migration (a `p7.1` db gains both declared_targets and the planned tables).
+- Record's P6 guard is conditional (refs parsed first -> P6 only when an `artifact:` ref is present). Additive `p7.2 -> p7.3` migration (a `p7.1` db gains both declared_targets and the planned tables).
 
 ## Test Plan
 - [ ] `test_work_units.py` + `test_work_units_tools.py` green (Slice 1 + 2 + 3)
 - [ ] Baseline parity vs main: 64 failed / 41 errors unchanged, named sets identical both directions
-- [ ] (Optional) live smoke deferrable — P7 never touches Rhino
+- [ ] (Optional) live smoke deferrable - P7 never touches Rhino
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
-EOF
-)"
+'@
+gh pr create --title "P7 Slice 3: planned merge contracts — record future fan-in, activate into strict contracts" --body $body
 ```
 
 ---
