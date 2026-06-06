@@ -425,6 +425,40 @@ class WorkUnitRegistry:
                 "SELECT work_unit_id FROM work_unit_planned_merge_contracts WHERE planned_contract_id=? "
                 "ORDER BY work_unit_id;", (planned_contract_id,)).fetchall()]
 
+    def activate_planned_contract(self, planned_contract_id: str, *, candidate_contract_id: str,
+                                  target: str, sources: "list[str]", merge_kind: str, refresh_policy: str,
+                                  work_unit_ids: "list[str]", now: int) -> "tuple[str, bool]":
+        """ONE tx with a durable CAS. Re-read + classify by the stored-state invariant: valid-activated ->
+        (existing_id, True); invalid -> PlannedContractInvalid (rollback); valid-planned -> strict cycle
+        pre-check + insert merge_contracts/sources/ownership + stamp planned -> (candidate, False). Two
+        concurrent activations serialize on BEGIN IMMEDIATE; the loser returns the existing id."""
+        with self._immediate():
+            row = self.get_planned_contract(planned_contract_id)
+            if row is None or _classify_planned_state(row) == "invalid":
+                raise PlannedContractInvalid()
+            if _classify_planned_state(row) == "activated":
+                return row.activated_contract_id, True
+            pairs = [(c.contract_id, c.target_artifact_id, self.sources_for(c.contract_id))
+                     for c in self.list_contracts()]
+            pairs.append((candidate_contract_id, target, list(sources)))
+            cyc = _contract_cycle(pairs)
+            if cyc is not None:
+                raise ContractCycleError(cyc)
+            self._conn.execute(
+                "INSERT INTO merge_contracts(contract_id, target_artifact_id, merge_kind, refresh_policy, "
+                "created_at) VALUES(?,?,?,?,?);", (candidate_contract_id, target, merge_kind, refresh_policy, now))
+            self._conn.executemany(
+                "INSERT INTO merge_contract_sources(contract_id, source_artifact_id) VALUES(?,?);",
+                [(candidate_contract_id, s) for s in sources])
+            for wu in work_unit_ids:
+                self._conn.execute(
+                    "INSERT OR IGNORE INTO work_unit_merge_contracts(work_unit_id, contract_id, created_at) "
+                    "VALUES(?,?,?);", (wu, candidate_contract_id, now))
+            self._conn.execute(
+                "UPDATE planned_merge_contracts SET status='activated', activated_contract_id=?, "
+                "activated_at=? WHERE planned_contract_id=?;", (candidate_contract_id, now, planned_contract_id))
+        return candidate_contract_id, False
+
 
 _WORK_UNITS_REGISTRY: "WorkUnitRegistry | None" = None
 
@@ -1110,3 +1144,48 @@ async def record_planned_contract(*, target, sources, merge_kind: str, refresh_p
             "sources": [{"kind": k, "id": i} for k, i in parsed_sources],
             "mergeKind": merge_kind, "refreshPolicy": refresh_policy, "status": "planned",
             "workUnitId": work_unit_id}}
+
+
+async def activate_planned_contract_tool(*, planned_contract_id: str) -> "dict[str, Any]":
+    """One-at-a-time, idempotent (in-tx CAS), fail-closed-with-all-blockers bridge from a planned contract
+    to a strict merge_contract. The only failures that escape the blocker envelope are not_found,
+    already_invalid, and registry-unavailable."""
+    if (u := await _registry_unusable()) is not None:
+        return u
+    if (p6u := await _p6_unusable()) is not None:
+        return p6u
+    row = await asyncio.to_thread(lambda: work_units_registry().get_planned_contract(planned_contract_id))
+    if row is None:
+        return _err("planned_contract_not_found", f"No planned contract {planned_contract_id!r}.")
+    state = _classify_planned_state(row)
+    if state == "activated":
+        return {"success": True, "data": {"plannedContractId": planned_contract_id, "status": "activated",
+                "contractId": row.activated_contract_id, "alreadyActivated": True}}
+    if state == "invalid":
+        return _err("planned_contract_already_invalid",
+                    f"Planned contract {planned_contract_id!r} violates the stored-state invariant.")
+    blockers, resolved = await asyncio.to_thread(
+        lambda: _activation_blockers(work_units_registry(), row, True))
+    if blockers:
+        return {"success": False, "data": {"code": "planned_contract_not_activatable",
+                "blockers": blockers, "retryable": all(b["retryable"] for b in blockers)}}
+    contract_id = f"mc-{uuid.uuid4().hex[:12]}"
+    def _activate():
+        reg = work_units_registry()
+        return reg.activate_planned_contract(
+            planned_contract_id, candidate_contract_id=contract_id, target=resolved["target"],
+            sources=resolved["sources"], merge_kind=row.merge_kind, refresh_policy=row.refresh_policy,
+            work_unit_ids=reg.work_units_for_planned_contract(planned_contract_id), now=int(time.time()))
+    try:
+        final_contract_id, already = await asyncio.to_thread(_activate)
+    except ContractCycleError as exc:
+        return {"success": False, "data": {"code": "planned_contract_not_activatable",
+                "blockers": [{"code": "strict_merge_cycle_detected", "retryable": False, "cycle": exc.cycle}],
+                "retryable": False}}
+    except PlannedContractInvalid:
+        return _err("planned_contract_already_invalid",
+                    f"Planned contract {planned_contract_id!r} violates the stored-state invariant.")
+    return {"success": True, "data": {"plannedContractId": planned_contract_id, "status": "activated",
+            "contractId": final_contract_id, "alreadyActivated": already,
+            "target": resolved["target"], "sources": resolved["sources"],
+            "mergeKind": row.merge_kind, "refreshPolicy": row.refresh_policy}}

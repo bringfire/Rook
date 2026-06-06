@@ -795,3 +795,75 @@ def test_activation_blockers_matrix(tmp_path, monkeypatch):
     blockers3, _ = work_units._activation_blockers(reg, reg.get_planned_contract("pc1"), False)
     assert blockers3 == [{"code": "artifact_registry_unavailable", "retryable": True}]
     reg.close()
+
+
+# ----- P7 Slice 3: activate -----
+def _materialize_dt(tmp_path, monkeypatch, name):
+    """Declare + materialize a declared target at tmp_path/name; return (dt_id, bound_artifact_id)."""
+    f = tmp_path / name; f.write_text("x")
+    dt = asyncio.run(work_units.declared_target_declare_tool(intended_path=str(f)))["data"]["declaredTargetId"]
+    prom = asyncio.run(work_units.declared_target_promote_tool(declared_target_id=dt))
+    return dt, prom["data"]["boundArtifactId"]
+
+
+def test_activate_happy_creates_strict_contract(tmp_path, monkeypatch):
+    _p6_with(tmp_path, monkeypatch, [])
+    _repoint_p7(tmp_path, monkeypatch)
+    dt_m, aid_m = _materialize_dt(tmp_path, monkeypatch, "M.3dm")
+    dt_a, aid_a = _materialize_dt(tmp_path, monkeypatch, "A.3dm")
+    pc = asyncio.run(work_units.record_planned_contract(target={"kind": "declared_target", "id": dt_m},
+        sources=[{"kind": "declared_target", "id": dt_a}], merge_kind="import",
+        refresh_policy="refresh_on_demand"))["data"]["plannedContractId"]
+    out = asyncio.run(work_units.activate_planned_contract_tool(planned_contract_id=pc))
+    assert out["success"] is True and out["data"]["alreadyActivated"] is False
+    cid = out["data"]["contractId"]
+    strict = work_units.work_units_registry().get_contract(cid)
+    assert strict.target_artifact_id == aid_m
+    assert work_units.work_units_registry().sources_for(cid) == [aid_a]
+    assert work_units.work_units_registry().get_planned_contract(pc).status == "activated"
+
+
+def test_activate_idempotent_no_second_contract(tmp_path, monkeypatch):
+    _p6_with(tmp_path, monkeypatch, [])
+    _repoint_p7(tmp_path, monkeypatch)
+    dt_m, _ = _materialize_dt(tmp_path, monkeypatch, "M.3dm")
+    dt_a, _ = _materialize_dt(tmp_path, monkeypatch, "A.3dm")
+    pc = asyncio.run(work_units.record_planned_contract(target={"kind": "declared_target", "id": dt_m},
+        sources=[{"kind": "declared_target", "id": dt_a}], merge_kind="import",
+        refresh_policy="refresh_on_demand"))["data"]["plannedContractId"]
+    first = asyncio.run(work_units.activate_planned_contract_tool(planned_contract_id=pc))
+    again = asyncio.run(work_units.activate_planned_contract_tool(planned_contract_id=pc))
+    assert again["success"] is True and again["data"]["alreadyActivated"] is True
+    assert again["data"]["contractId"] == first["data"]["contractId"]
+    assert len(work_units.work_units_registry().list_contracts()) == 1
+
+
+def test_activate_not_activatable_all_blockers(tmp_path, monkeypatch):
+    _p6_with(tmp_path, monkeypatch, [])
+    _repoint_p7(tmp_path, monkeypatch)
+    asyncio.run(work_units.declared_target_declare_tool(intended_path=str(tmp_path / "M.3dm")))
+    asyncio.run(work_units.declared_target_declare_tool(intended_path=str(tmp_path / "A.3dm")))
+    dts = [d["declaredTargetId"] for d in asyncio.run(work_units.list_declared_targets_tool())["data"]["declaredTargets"]]
+    pc = asyncio.run(work_units.record_planned_contract(target={"kind": "declared_target", "id": dts[0]},
+        sources=[{"kind": "declared_target", "id": dts[1]}], merge_kind="import",
+        refresh_policy="refresh_on_demand"))["data"]["plannedContractId"]
+    out = asyncio.run(work_units.activate_planned_contract_tool(planned_contract_id=pc))
+    assert out["success"] is False and out["data"]["code"] == "planned_contract_not_activatable"
+    codes = {b["code"] for b in out["data"]["blockers"]}
+    assert "declared_target_not_materialized" in codes
+    assert out["data"]["retryable"] is True
+    assert len(work_units.work_units_registry().list_contracts()) == 0
+
+
+def test_activate_not_found_and_invalid_state(tmp_path, monkeypatch):
+    _p6_with(tmp_path, monkeypatch, [])
+    _repoint_p7(tmp_path, monkeypatch)
+    nf = asyncio.run(work_units.activate_planned_contract_tool(planned_contract_id="pc-nope"))
+    assert nf["success"] is False and nf["data"]["code"] == "planned_contract_not_found"
+    reg = work_units.work_units_registry()
+    with reg._immediate():
+        reg._conn.execute("INSERT INTO planned_merge_contracts(planned_contract_id, target_ref_kind, "
+            "target_ref_id, merge_kind, refresh_policy, status, activated_contract_id, activated_at, created_at) "
+            "VALUES('pc-bad','artifact','M','import','refresh_on_demand','activated',NULL,NULL,1);")
+    bad = asyncio.run(work_units.activate_planned_contract_tool(planned_contract_id="pc-bad"))
+    assert bad["success"] is False and bad["data"]["code"] == "planned_contract_already_invalid"
