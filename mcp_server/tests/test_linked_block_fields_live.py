@@ -58,11 +58,12 @@ async def test_blocks_and_info_expose_linked_fields(fresh_document):
             "rhino_create",
             {"type": "BOX", "corner1": [0, 0, 0], "corner2": [1, 1, 1], "name": "embbox"},
         )
-        await _mcp_tool_executor(
+        emb = await _mcp_tool_executor(
             "rhino_block_create",
             {"name": "lb_embedded", "ids": [box["id"]], "basePoint": [0, 0, 0],
              "replaceWithInstance": True},
         )
+        assert emb.get("success") is not False, f"block_create failed: {emb!r}"
 
         blocks = (await _mcp_tool_executor("rhino_blocks", {}))["blocks"]
         linked = _find_block(blocks, "lb_linked")
