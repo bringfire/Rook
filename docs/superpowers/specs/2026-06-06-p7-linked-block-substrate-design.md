@@ -115,14 +115,15 @@ def block_def_name(contract_id: str, source_artifact_id: str) -> str:
     - contract_id is HASHED first (generated ids may not be restricted-alphabet).
     - source_artifact_id is the canonical SHA-256 hex from artifacts.artifact_id_for;
       it is already lowercase hex, so slicing 16 chars is safe. It is validated
-      fail-closed (>=16 lowercase-hex chars) so a malformed id raises rather than
-      silently producing a wrong-but-valid durable address.
+      fail-closed (exactly 64 lowercase-hex chars — a full SHA-256) so a
+      truncated/malformed id raises rather than silently producing a
+      wrong-but-valid durable address (a 16-hex prefix must not alias the full id).
     - Output is lowercase [a-z0-9_-] only; ~35 chars, far under Rhino limits.
     """
     sid = source_artifact_id.lower()
-    if len(sid) < 16 or any(c not in _HEX_DIGITS for c in sid):
+    if len(sid) != 64 or any(c not in _HEX_DIGITS for c in sid):
         raise ValueError(
-            "source_artifact_id must be SHA-256 hex (>=16 hex chars); "
+            "source_artifact_id must be a full SHA-256 hex (64 hex chars); "
             f"got {source_artifact_id!r}"
         )
     contract_hash = hashlib.sha256(contract_id.encode("utf-8")).hexdigest()[:8]
@@ -171,7 +172,7 @@ The recorded post-save form is the input to the future executor's relative→abs
 - restricted alphabet under an **illegal-looking `contract_id`** (spaces / unicode / path-like) → output still `[a-z0-9_-]` (contract id is hashed);
 - distinct `(contract, source)` pairs → distinct names; same pair → same name;
 - versioned prefix `rook_p7lb_` present; expected length;
-- **input validation** — a too-short or non-hex `source_artifact_id` raises `ValueError` (fail-closed; protects the durable address).
+- **input validation** — a non-64-length (incl. a 16-hex prefix) or non-hex `source_artifact_id` raises `ValueError` (full SHA-256 required; protects the durable address).
 
 **Native:** field decoration verified by a live-Rhino test (assert the four fields on both `/blocks` and `/block/info` for a linked and a non-linked def). **Build** with the known-good MFC toolset (AGENTS.md): `cmd /c "scripts\build-native.bat Debug 14.44.35207"` (bare `v143` may resolve to `14.38.33130`, which has an incomplete MFC payload). Do not claim build verification without the Rhino/MFC toolchain.
 

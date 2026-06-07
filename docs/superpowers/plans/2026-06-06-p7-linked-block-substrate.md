@@ -106,6 +106,14 @@ def test_rejects_too_short_source_artifact_id():
         block_def_name("mc-abc", "a1b2c3")
 
 
+def test_rejects_16_hex_prefix_requires_full_sha256():
+    # A 16-hex prefix must NOT be accepted: only a full 64-char SHA-256
+    # artifact id. Else a truncated prefix would alias the full id to the
+    # same durable block name.
+    with pytest.raises(ValueError):
+        block_def_name("mc-abc", "a1b2c3d4e5f67890")  # exactly 16 hex, not 64
+
+
 def test_rejects_non_hex_source_artifact_id():
     with pytest.raises(ValueError):
         block_def_name("mc-abc", "z" * 64)
@@ -144,16 +152,17 @@ def block_def_name(contract_id: str, source_artifact_id: str) -> str:
 
     contract_id is HASHED (generated ids may not be restricted-alphabet).
     source_artifact_id is the canonical SHA-256 hex from
-    artifacts.artifact_id_for and is validated fail-closed (>=16 lowercase-hex
-    chars) so a malformed id raises rather than silently minting a
-    wrong-but-valid durable address.
+    artifacts.artifact_id_for and is validated fail-closed (exactly 64
+    lowercase-hex chars — a full SHA-256) so a truncated/malformed id raises
+    rather than silently minting a wrong-but-valid durable address (a 16-hex
+    prefix must not alias the full id to the same name).
 
     Output: lowercase [a-z0-9_-], ~35 chars, far under Rhino name limits.
     """
     sid = source_artifact_id.lower()
-    if len(sid) < 16 or any(c not in _HEX_DIGITS for c in sid):
+    if len(sid) != 64 or any(c not in _HEX_DIGITS for c in sid):
         raise ValueError(
-            "source_artifact_id must be SHA-256 hex (>=16 hex chars); "
+            "source_artifact_id must be a full SHA-256 hex (64 hex chars); "
             f"got {source_artifact_id!r}"
         )
     contract_hash = hashlib.sha256(contract_id.encode("utf-8")).hexdigest()[:8]
@@ -410,6 +419,12 @@ async def test_blocks_and_info_expose_linked_fields(fresh_document):
         assert info["isLinked"] is True, info
         assert info["sourcePath"] == info["sourceArchive"] and info["sourcePath"], info
         assert info["blockType"] == linked["blockType"], info
+
+        # /block/info parity for the embedded def — both surfaces x both cases.
+        einfo = await _mcp_tool_executor("rhino_block_info", {"name": "lb_embedded"})
+        assert einfo["blockType"] == "Embedded", einfo
+        assert einfo["isLinked"] is False, einfo
+        assert einfo["sourcePath"] == "" and einfo["sourceArchive"] == "", einfo
     finally:
         try:
             os.remove(src)
