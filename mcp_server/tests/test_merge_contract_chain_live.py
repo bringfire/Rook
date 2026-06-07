@@ -78,13 +78,19 @@ async def _assert_linked(session, names):
         assert info.get("isLinked") is True, f"{nm}: {info!r}"
 
 
-async def _rook_block_names(session):
+async def _rook_block_names(session, *, top_level_only=False):
     """Set of Rook deterministic linked-block names (rook_p7lb_*) in the active doc. Successful
-    _mcp_tool_executor payloads are data-only, so rhino_blocks is {'blocks': [...]} (not wrapped)."""
+    _mcp_tool_executor payloads are data-only, so rhino_blocks is {'blocks': [...]} (not wrapped).
+    top_level_only drops Rhino's nested-presentation names (which contain '>'), leaving only the
+    top-level defs Rook owns — the correct surface for a no-dup check (nested names churn on
+    refresh; that is observed, not asserted)."""
     blocks = await _mcp_tool_executor("rhino_blocks", {"session": session})
     assert blocks.get("success") is not False, f"rhino_blocks failed: {blocks!r}"
     rows = (blocks.get("data") or blocks).get("blocks") or []
-    return {b.get("name") for b in rows if str(b.get("name") or "").startswith(_PREFIX)}
+    names = {b.get("name") for b in rows if str(b.get("name") or "").startswith(_PREFIX)}
+    if top_level_only:
+        names = {n for n in names if ">" not in n}
+    return names
 
 
 async def test_chain_recomposition_end_to_end(hermetic_registries):
@@ -139,9 +145,17 @@ async def test_chain_recomposition_end_to_end(hermetic_registries):
         assert exB.get("executed") is True and exB.get("saved") is True, exB
         assert exB["perSource"][0]["outcome"] == lb.CREATED_LINK, exB
         await _assert_linked(session, [name_B])   # master consumes the intermediate id, not s1/s2
-        master_names_1 = await _rook_block_names(session)
+        # No-dup binds to Rook-owned TOP-LEVEL defs only; Rhino's nested presentation (names with
+        # '>') is observed, not asserted (it churns on refresh — see step 6).
+        assert await _rook_block_names(session, top_level_only=True) == {name_B}
         infoB = await _mcp_tool_executor("rhino_block_info", {"name": name_B, "session": session})
-        print("OBSERVE master name_B sourcePath:", infoB.get("sourcePath"))
+        src = infoB.get("sourcePath")
+        print("OBSERVE master name_B sourcePath:", src)
+        # name_B's link source resolves (normalize_path + artifact_id_for) to the intermediate's
+        # P6 artifact id — Rook-owned identity, not Rhino's path-string presentation.
+        assert artifacts.artifact_id_for(artifacts.normalize_path(src)) == inter_id, src
+        print("OBSERVE master full rook set (incl nested), pass 1:",
+              sorted(await _rook_block_names(session)))
 
         # 5. idempotent re-run: refreshed_existing, saved, deterministic names still resolve
         await _open(inter)
@@ -156,18 +170,35 @@ async def test_chain_recomposition_end_to_end(hermetic_registries):
         assert exB2.get("saved") is True, exB2
         assert exB2["perSource"][0]["outcome"] == lb.REFRESHED_EXISTING, exB2
         await _assert_linked(session, [name_B])
-        assert await _rook_block_names(session) == master_names_1, "master rook-def set changed"
+        # No NEW top-level rook def on refresh (the no-dup guarantee). The full set (incl nested)
+        # is recorded as an observation below, NOT asserted — nested names rewrite on refresh.
+        assert await _rook_block_names(session, top_level_only=True) == {name_B}
+        print("OBSERVE master full rook set (incl nested), pass 2:",
+              sorted(await _rook_block_names(session)))
 
-        # 6. OBSERVATIONS (non-failing): evict master from the single active slot, reopen, and
-        # record sourcePath + whether /blocks surfaces nested source defs. Nested-refresh
-        # propagation is observed, not asserted (spec §6).
+        # 6. OBSERVATIONS (non-failing, spec §6): nested-refresh propagation is observed, not asserted.
+        # (a) evict master from the single active slot, reopen, record persisted nested presentation.
         await _mcp_tool_executor("rhino_document_ops", {"action": "new"})  # evict master
         await _open(master)
         reopened = await _mcp_tool_executor("rhino_block_info", {"name": name_B, "session": session})
         print("OBSERVE master name_B after evict+reopen:", reopened)
-        print("OBSERVE master rook_p7lb_* names (nested presentation?):",
+        print("OBSERVE master rook set after evict+reopen:",
               sorted(await _rook_block_names(session)))
+        # (b) one more refresh — does the nested ' 01' suffix accumulate to ' 02'? (observation only)
+        exB3 = await _execute(cid_B, session)
+        print("OBSERVE third-refresh outcome:", exB3.get("perSource", exB3))
+        print("OBSERVE master rook set after 3rd refresh:",
+              sorted(await _rook_block_names(session)))
+        # The top-level no-dup guarantee still holds after a 3rd refresh (nested churn aside).
+        assert await _rook_block_names(session, top_level_only=True) == {name_B}
     finally:
+        # Release Rhino's handles on the linked source files BEFORE deleting them: removing a
+        # still-linked-open .3dm out from under the active document can destabilize Rhino. Open a
+        # fresh blank doc first (best-effort), then remove the temp files.
+        try:
+            await _mcp_tool_executor("rhino_document_ops", {"action": "new"})
+        except Exception:
+            pass
         for p in paths:
             try:
                 os.remove(p)
