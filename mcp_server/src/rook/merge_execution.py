@@ -145,6 +145,22 @@ def _blockers_of(per_source):
             for e in per_source if e["plannedAction"] in _HARD_BLOCKERS]
 
 
+async def _apply_one(call_tool: CallTool, entry: dict):
+    """Mutate one source per its planned action; return the outcome string."""
+    action, name = entry["plannedAction"], entry["blockName"]
+    if action == _lb.ALREADY_LINKED:
+        return _lb.ALREADY_LINKED
+    if action == _lb.WOULD_CREATE_LINK:
+        resp = await call_tool("rhino_block_link", {
+            "path": entry["sourcePath"], "name": name,
+            "updateType": "linked", "insertionPoint": [0, 0, 0]})
+        return _lb.CREATED_LINK if resp.get("success") is not False else _lb.BLOCK_LINK_FAILED
+    if action == _lb.WOULD_REFRESH_EXISTING:
+        resp = await call_tool("rhino_block_refresh", {"name": name})
+        return _lb.REFRESHED_EXISTING if resp.get("success") is not False else _lb.BLOCK_REFRESH_FAILED
+    return action  # unreachable for an all-clear plan
+
+
 async def execute_merge_contract(*, contract_id: str, session: str, expected_merge_kind: str,
                                  dry_run: bool, call_tool: CallTool) -> dict[str, Any]:
     # 1-2. lower-plane guards (reuse work_units' shared guards → identical codes)
@@ -198,5 +214,31 @@ async def execute_merge_contract(*, contract_id: str, session: str, expected_mer
             return {"success": True, "data": {
                 "dryRun": True, "executable": (len(blockers) == 0),
                 "blockers": blockers, "perSource": per_source}}
-        # (Task 6 continues here: pre-flight gate, apply, re-verify, save.)
-        raise NotImplementedError("apply + save lands in Task 6")
+        # pre-flight gate — any hard blocker → no mutation, no save
+        if blockers:
+            return {"success": False, "data": {
+                "code": "merge_contract_not_executable",
+                "retryable": all(b["retryable"] for b in blockers),
+                "blockers": blockers, "perSource": per_source}}
+        # apply the all-clear plan, in deterministic source order
+        for entry in per_source:
+            entry["outcome"] = await _apply_one(call_tool, entry)
+            if entry["outcome"] in (_lb.BLOCK_LINK_FAILED, _lb.BLOCK_REFRESH_FAILED):
+                return _err("merge_contract_execution_incomplete",
+                            "A block op failed mid-apply; the live target holds unsaved partial "
+                            "changes (close-without-save discards them).",
+                            executed=False, saved=False, perSource=per_source)
+        # re-verify identity immediately before the save membrane
+        recheck_path, rerr = await _read_active_doc_path(call_tool)
+        if rerr is not None or _verify_target_identity(recheck_path, contract.target_artifact_id) is not None:
+            return _err("target_document_mismatch",
+                        "The active document changed before save; not saved.",
+                        executed=True, saved=False, perSource=per_source)
+        save = await call_tool("rhino_document_ops", {"action": "save", "path": active_path})
+        if save.get("success") is False:
+            return _err("document_save_failed",
+                        "All links applied but the save failed; the live target holds complete "
+                        "unsaved changes.",
+                        executed=True, saved=False, perSource=per_source)
+        return {"success": True, "data": {
+            "executed": True, "saved": True, "perSource": per_source}}

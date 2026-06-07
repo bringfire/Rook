@@ -248,3 +248,95 @@ def test_block_table_read_failure_fails_closed(temp_registries, monkeypatch):
     assert out["data"]["retryable"] is True
     assert "rhino_block_link" not in [n for n, _ in fake.calls]    # never mutated
     assert "rhino_document_ops" not in [n for n, _ in fake.calls]  # never saved
+
+
+def test_execute_full_success_creates_and_saves(temp_registries, monkeypatch):
+    cid, tgt_id, src_id, tgt_path, src_path = _make_contract(temp_registries)
+    _pin_route(monkeypatch)
+    fake = FakeRhino(doc_path=tgt_path, blocks=[])
+    out = _run(merge_execution.execute_merge_contract(
+        contract_id=cid, session="rhino-1", expected_merge_kind="linked_block",
+        dry_run=False, call_tool=fake))
+    assert out["success"] is True
+    assert out["data"]["executed"] is True and out["data"]["saved"] is True
+    assert out["data"]["perSource"][0]["outcome"] == lb.CREATED_LINK
+    names = [n for n, _ in fake.calls]
+    assert "rhino_block_link" in names and names[-1] == "rhino_document_ops"
+    assert all(p == _PINNED for p in fake.seen_ports)
+
+
+def test_execute_preflight_blocker_no_mutation(temp_registries, monkeypatch):
+    cid, tgt_id, src_id, tgt_path, src_path = _make_contract(temp_registries)
+    _pin_route(monkeypatch)
+    name = lb.block_def_name(cid, src_id)
+    fake = FakeRhino(doc_path=tgt_path, blocks=[
+        {"name": name, "isLinked": False, "sourcePath": "", "blockType": "Embedded"}])
+    out = _run(merge_execution.execute_merge_contract(
+        contract_id=cid, session="rhino-1", expected_merge_kind="linked_block",
+        dry_run=False, call_tool=fake))
+    assert out["success"] is False
+    assert out["data"]["code"] == "merge_contract_not_executable"
+    assert out["data"]["blockers"][0]["code"] == lb.CONFLICT_NONLINKED
+    assert "rhino_block_link" not in [n for n, _ in fake.calls]  # no mutation
+    assert "rhino_document_ops" not in [n for n, _ in fake.calls]  # no save
+
+
+def test_execute_save_failure(temp_registries, monkeypatch):
+    cid, tgt_id, src_id, tgt_path, src_path = _make_contract(temp_registries)
+    _pin_route(monkeypatch)
+    fake = FakeRhino(doc_path=tgt_path, blocks=[], save_ok=False)
+    out = _run(merge_execution.execute_merge_contract(
+        contract_id=cid, session="rhino-1", expected_merge_kind="linked_block",
+        dry_run=False, call_tool=fake))
+    assert out["success"] is False
+    assert out["data"]["code"] == "document_save_failed"
+    assert out["data"]["executed"] is True and out["data"]["saved"] is False
+    assert out["data"]["retryable"] is True  # Finding 4: failure envelopes carry retryable
+
+
+def test_execute_mid_apply_failure(temp_registries, monkeypatch):
+    cid, tgt_id, src_id, tgt_path, src_path = _make_contract(temp_registries)
+    _pin_route(monkeypatch)
+    fake = FakeRhino(doc_path=tgt_path, blocks=[], link_ok=False)
+    out = _run(merge_execution.execute_merge_contract(
+        contract_id=cid, session="rhino-1", expected_merge_kind="linked_block",
+        dry_run=False, call_tool=fake))
+    assert out["success"] is False
+    assert out["data"]["code"] == "merge_contract_execution_incomplete"
+    assert out["data"]["executed"] is False and out["data"]["saved"] is False
+    assert out["data"]["retryable"] is True  # Finding 4: failure envelopes carry retryable
+    assert out["data"]["perSource"][0]["outcome"] == lb.BLOCK_LINK_FAILED
+    assert "rhino_document_ops" not in [n for n, _ in fake.calls]  # never saved
+
+
+def test_execute_idempotent_rerun_already_linked(temp_registries, monkeypatch):
+    cid, tgt_id, src_id, tgt_path, src_path = _make_contract(
+        temp_registries, refresh="refresh_after_save")
+    _pin_route(monkeypatch)
+    name = lb.block_def_name(cid, src_id)
+    # Source IS present (still registered); the def already exists, correctly linked.
+    norm_src = artifacts.normalize_path(src_path)
+    fake = FakeRhino(doc_path=tgt_path, blocks=[
+        {"name": name, "isLinked": True, "sourcePath": norm_src, "blockType": "Linked"}])
+    out = _run(merge_execution.execute_merge_contract(
+        contract_id=cid, session="rhino-1", expected_merge_kind="linked_block",
+        dry_run=False, call_tool=fake))
+    assert out["success"] is True and out["data"]["saved"] is True
+    assert out["data"]["perSource"][0]["outcome"] == lb.ALREADY_LINKED
+    assert "rhino_block_link" not in [n for n, _ in fake.calls]  # no duplicate def
+
+
+def test_execute_target_drift_before_save(temp_registries, monkeypatch):
+    # Finding 4: pre-save drift (active doc changed under us) → target_document_mismatch, no save,
+    # with executed:true/saved:false and an explicit retryable.
+    cid, tgt_id, src_id, tgt_path, src_path = _make_contract(temp_registries)
+    _pin_route(monkeypatch)
+    # 1st rhino_document read == target (verify passes); 2nd (pre-save re-verify) drifts.
+    fake = FakeRhino(doc_path=tgt_path, blocks=[], doc_path_after="C:/swapped-under-us.3dm")
+    out = _run(merge_execution.execute_merge_contract(
+        contract_id=cid, session="rhino-1", expected_merge_kind="linked_block",
+        dry_run=False, call_tool=fake))
+    assert out["success"] is False and out["data"]["code"] == "target_document_mismatch"
+    assert out["data"]["executed"] is True and out["data"]["saved"] is False
+    assert out["data"]["retryable"] is True
+    assert "rhino_document_ops" not in [n for n, _ in fake.calls]  # never saved
