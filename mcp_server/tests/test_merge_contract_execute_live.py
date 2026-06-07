@@ -83,9 +83,10 @@ async def test_execute_linked_block_contract_end_to_end(fresh_document):
         assert ex.get("executed") is True and ex.get("saved") is True, ex
         assert ex["perSource"][0]["outcome"] == lb.CREATED_LINK
 
-        # the linked def is present + correct
+        # the linked def is present + correct — verify on the SAME pinned session (the smoke
+        # proves explicit-session execution, so verification must not route to active/auto).
         name = lb.block_def_name(cid, src_id)
-        info = await _mcp_tool_executor("rhino_block_info", {"name": name})
+        info = await _mcp_tool_executor("rhino_block_info", {"name": name, "session": session})
         assert info.get("isLinked") is True, info
 
         # idempotent re-run: refreshed_existing (refresh_on_demand), no duplicate
