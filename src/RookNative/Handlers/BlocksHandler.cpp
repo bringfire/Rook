@@ -257,6 +257,36 @@ static std::string GetObjectTypeName(const CRhinoObject* obj)
     return "Other";
 }
 
+// Decorate a block-definition JSON with raw linked-block facts. No
+// normalization, no identity — those belong to the Python coordinator.
+// Shared by SerializeBlockDef (/blocks) and HandleBlockInfo (/block/info)
+// so the two surfaces can never drift. Additive: callers keep their fields.
+static void DecorateLinkedBlockFields(nlohmann::json& j,
+                                      const CRhinoInstanceDefinition* pIdef)
+{
+    ON_InstanceDefinition::IDEF_UPDATE_TYPE updateType = pIdef->InstanceDefinitionType();
+
+    // EXACT strings — preserve the existing /block/info contract. Default "Embedded".
+    std::string blockType = "Embedded";
+    if (updateType == ON_InstanceDefinition::IDEF_UPDATE_TYPE::Linked)
+        blockType = "Linked";
+    else if (updateType == ON_InstanceDefinition::IDEF_UPDATE_TYPE::LinkedAndEmbedded)
+        blockType = "EmbeddedAndLinked";
+
+    ON_wString linked = pIdef->LinkedFilePath();   // raw — no normalization
+    bool isLinked =
+        (updateType == ON_InstanceDefinition::IDEF_UPDATE_TYPE::Linked ||
+         updateType == ON_InstanceDefinition::IDEF_UPDATE_TYPE::LinkedAndEmbedded)
+        && !linked.IsEmpty();
+
+    std::string rawPath = WideToUtf8(linked);   // "" when not linked
+
+    j["blockType"]     = blockType;
+    j["isLinked"]      = isLinked;
+    j["sourcePath"]    = rawPath;   // preferred raw field (matches /block/link, /block/refresh)
+    j["sourceArchive"] = rawPath;   // backward-compatible alias, identical value
+}
+
 static nlohmann::json SerializeBlockDef(CRhinoDoc* pDoc,
     const CRhinoInstanceDefinition* pIdef)
 {
@@ -272,6 +302,7 @@ static nlohmann::json SerializeBlockDef(CRhinoDoc* pDoc,
     j["description"] = WideToUtf8(pIdef->Description());
     j["objectCount"] = pIdef->ObjectCount();
     j["instanceCount"] = refs.Count();
+    DecorateLinkedBlockFields(j, pIdef);
     return j;
 }
 
@@ -1768,14 +1799,6 @@ void HandleBlockInfo(const httplib::Request& req, httplib::Response& res)
             objectInfos.push_back(oi);
         }
 
-        // Block type
-        std::string blockType = "Embedded";
-        ON_InstanceDefinition::IDEF_UPDATE_TYPE updateType = pIdef->InstanceDefinitionType();
-        if (updateType == ON_InstanceDefinition::IDEF_UPDATE_TYPE::Linked)
-            blockType = "Linked";
-        else if (updateType == ON_InstanceDefinition::IDEF_UPDATE_TYPE::LinkedAndEmbedded)
-            blockType = "EmbeddedAndLinked";
-
         WriteResult wr;
         wr.success = true;
         wr.data["index"] = pIdef->Index();
@@ -1784,8 +1807,7 @@ void HandleBlockInfo(const httplib::Request& req, httplib::Response& res)
         wr.data["description"] = WideToUtf8(pIdef->Description());
         wr.data["url"] = WideToUtf8(pIdef->URL());
         wr.data["urlDescription"] = WideToUtf8(pIdef->URL_Tag());
-        wr.data["blockType"] = blockType;
-        wr.data["sourceArchive"] = WideToUtf8(pIdef->LinkedFilePath());
+        DecorateLinkedBlockFields(wr.data, pIdef);  // blockType, isLinked, sourcePath, sourceArchive
         wr.data["objectCount"] = pIdef->ObjectCount();
         wr.data["instanceCount"] = refs.Count();
         wr.data["objects"] = std::move(objectInfos);
