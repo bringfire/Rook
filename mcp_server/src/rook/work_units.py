@@ -843,6 +843,49 @@ def _validate_one(reg: "WorkUnitRegistry", contract_id: str) -> "dict[str, Any]"
     return {"ok": True, "contractId": contract_id}
 
 
+_PLANNABLE_MERGE_KIND = "linked_block"
+
+
+def plan_linked_block_execution(reg, contract_ids):
+    """Pure, Rhino-free. Derive the deterministic linked-block execution plan for a requested
+    subset of strict contracts. Consumes contract ids, not sessions. Does NOT execute, inspect
+    Rhino, check the present-bar, or define any execution-result envelope.
+
+    Omitted-producer policy: ALLOW. A requested contract may depend on a contract not in the
+    request; ordering still holds and no problem is raised. Artifact availability is the
+    executor's runtime present-bar, not a pure planner's call.
+
+    Returns {"ok": True, "plan": [{"contractId", "targetArtifactId"}, ...]} in execution order,
+    or {"ok": False, "problems": [{"code", ...}]}.
+    """
+    requested = list(dict.fromkeys(contract_ids))   # dedupe, preserve first-seen
+    requested_set = set(requested)
+
+    problems: list[dict[str, Any]] = []
+    target_of: dict[str, str] = {}
+    for cid in requested:
+        ct = reg.get_contract(cid)
+        if ct is None:
+            problems.append({"code": "contract_not_found", "contractId": cid})
+        elif ct.merge_kind != _PLANNABLE_MERGE_KIND:
+            problems.append({"code": "unsupported_merge_kind", "contractId": cid,
+                             "mergeKind": ct.merge_kind})
+        else:
+            target_of[cid] = ct.target_artifact_id
+    if problems:
+        return {"ok": False, "problems": problems}
+
+    pairs = [(cid, target_of[cid], reg.sources_for(cid)) for cid in requested]
+    order_key = {cid: (reg.get_contract(cid).created_at, cid) for cid in requested}
+    order, cycle = _ordered_contract_ids(pairs, order_key)
+    if cycle is not None:
+        return {"ok": False, "problems": [{"code": "merge_cycle_detected", "cycle": cycle}]}
+
+    plan = [{"contractId": cid, "targetArtifactId": target_of[cid]}
+            for cid in order if cid in requested_set]
+    return {"ok": True, "plan": plan}
+
+
 # ----- tool layer ({success, data} envelopes) -----
 _RETRYABLE = {
     "artifact_not_registered": False, "artifact_not_present": True,

@@ -983,3 +983,33 @@ def test_ordered_contract_ids_reports_cycle():
     order, cycle = work_units._ordered_contract_ids(pairs, order_key)
     assert order is None
     assert cycle is not None and set(cycle) >= {"A", "B"}
+
+
+def test_plan_linked_block_execution_chain(tmp_path):
+    reg = _fresh_registry(tmp_path)
+    reg.insert_contract("A", target="X", sources=["s1", "s2"], merge_kind="linked_block",
+                        refresh_policy="refresh_on_demand", work_unit_id=None, now=1)
+    reg.insert_contract("B", target="M", sources=["X"], merge_kind="linked_block",
+                        refresh_policy="refresh_on_demand", work_unit_id=None, now=2)
+    out = work_units.plan_linked_block_execution(reg, ["A", "B"])
+    assert out == {"ok": True, "plan": [
+        {"contractId": "A", "targetArtifactId": "X"},
+        {"contractId": "B", "targetArtifactId": "M"}]}
+    reg.close()
+
+
+def test_plan_rejects_unknown_contract_id(tmp_path):
+    reg = _fresh_registry(tmp_path)
+    out = work_units.plan_linked_block_execution(reg, ["mc-nope"])
+    assert out == {"ok": False, "problems": [{"code": "contract_not_found", "contractId": "mc-nope"}]}
+    reg.close()
+
+
+def test_plan_rejects_unsupported_merge_kind(tmp_path):
+    reg = _fresh_registry(tmp_path)
+    reg.insert_contract("A", target="X", sources=["s1"], merge_kind="import",
+                        refresh_policy="refresh_on_demand", work_unit_id=None, now=1)
+    out = work_units.plan_linked_block_execution(reg, ["A"])
+    assert out == {"ok": False, "problems": [
+        {"code": "unsupported_merge_kind", "contractId": "A", "mergeKind": "import"}]}
+    reg.close()
