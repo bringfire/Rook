@@ -957,3 +957,93 @@ def test_work_unit_planned_join(tmp_path, monkeypatch):
         refresh_policy="refresh_on_demand", work_unit_id="wu"))["data"]["plannedContractId"]
     wu = asyncio.run(work_units.list_work_units_tool(work_unit_id="wu"))
     assert wu["data"]["workUnits"][0]["plannedContracts"] == [pc]
+
+
+# ----- P7 Slice 5: shared ordering factor + scoped linked-block plan -----
+def test_ordered_contract_ids_orders_a_chain(tmp_path):
+    reg = _fresh_registry(tmp_path)
+    # edge A->B iff target(A) in sources(B): target(A)=X in sources(B)=[X]
+    reg.insert_contract("A", target="X", sources=["w"], merge_kind="linked_block",
+                        refresh_policy="refresh_on_demand", work_unit_id=None, now=1)
+    reg.insert_contract("B", target="Y", sources=["X"], merge_kind="linked_block",
+                        refresh_policy="refresh_on_demand", work_unit_id=None, now=2)
+    pairs = [(c.contract_id, c.target_artifact_id, reg.sources_for(c.contract_id))
+             for c in reg.list_contracts()]
+    order_key = {c.contract_id: (c.created_at, c.contract_id) for c in reg.list_contracts()}
+    order, cycle = work_units._ordered_contract_ids(pairs, order_key)
+    assert cycle is None
+    assert order == ["A", "B"]
+    reg.close()
+
+
+def test_ordered_contract_ids_reports_cycle():
+    # Built directly (insert_contract would reject a cycle): A<->B.
+    pairs = [("A", "X", ["Y"]), ("B", "Y", ["X"])]
+    order_key = {"A": (1, "A"), "B": (2, "B")}
+    order, cycle = work_units._ordered_contract_ids(pairs, order_key)
+    assert order is None
+    assert cycle is not None and set(cycle) >= {"A", "B"}
+
+
+def test_plan_linked_block_execution_chain(tmp_path):
+    reg = _fresh_registry(tmp_path)
+    reg.insert_contract("A", target="X", sources=["s1", "s2"], merge_kind="linked_block",
+                        refresh_policy="refresh_on_demand", work_unit_id=None, now=1)
+    reg.insert_contract("B", target="M", sources=["X"], merge_kind="linked_block",
+                        refresh_policy="refresh_on_demand", work_unit_id=None, now=2)
+    out = work_units.plan_linked_block_execution(reg, ["A", "B"])
+    assert out == {"ok": True, "plan": [
+        {"contractId": "A", "targetArtifactId": "X"},
+        {"contractId": "B", "targetArtifactId": "M"}]}
+    reg.close()
+
+
+def test_plan_rejects_unknown_contract_id(tmp_path):
+    reg = _fresh_registry(tmp_path)
+    out = work_units.plan_linked_block_execution(reg, ["mc-nope"])
+    assert out == {"ok": False, "problems": [{"code": "contract_not_found", "contractId": "mc-nope"}]}
+    reg.close()
+
+
+def test_plan_rejects_unsupported_merge_kind(tmp_path):
+    reg = _fresh_registry(tmp_path)
+    reg.insert_contract("A", target="X", sources=["s1"], merge_kind="import",
+                        refresh_policy="refresh_on_demand", work_unit_id=None, now=1)
+    out = work_units.plan_linked_block_execution(reg, ["A"])
+    assert out == {"ok": False, "problems": [
+        {"code": "unsupported_merge_kind", "contractId": "A", "mergeKind": "import"}]}
+    reg.close()
+
+
+def test_plan_unrelated_contract_does_not_affect_subchain(tmp_path):
+    reg = _fresh_registry(tmp_path)
+    reg.insert_contract("A", target="X", sources=["s1"], merge_kind="linked_block",
+                        refresh_policy="refresh_on_demand", work_unit_id=None, now=1)
+    reg.insert_contract("B", target="M", sources=["X"], merge_kind="linked_block",
+                        refresh_policy="refresh_on_demand", work_unit_id=None, now=2)
+    # Unrelated contract D whose source 'ghost' is never produced/registered.
+    reg.insert_contract("D", target="Z", sources=["ghost"], merge_kind="linked_block",
+                        refresh_policy="refresh_on_demand", work_unit_id=None, now=3)
+    out = work_units.plan_linked_block_execution(reg, ["A", "B"])
+    assert out["ok"] is True
+    assert [p["contractId"] for p in out["plan"]] == ["A", "B"]
+    reg.close()
+
+
+def test_plan_transitive_omitted_dependency_orders_over_full_graph(tmp_path):
+    """Regression for the scoped-subgraph inverted-order bug. Full graph: A -> C -> B
+    (C.sources=[target(A)], B.sources=[target(C)]). Requesting [A, B] (omitting C) must yield
+    [A, B], not [B, A]. created_at is chosen so key(B) < key(A): a scoped-only subgraph over
+    {A, B} has no edge and tie-breaks to [B, A]; whole-graph order then filter yields [A, B]."""
+    reg = _fresh_registry(tmp_path)
+    reg.insert_contract("B", target="M", sources=["Y"], merge_kind="linked_block",
+                        refresh_policy="refresh_on_demand", work_unit_id=None, now=1)  # earliest
+    reg.insert_contract("A", target="X", sources=["s1"], merge_kind="linked_block",
+                        refresh_policy="refresh_on_demand", work_unit_id=None, now=2)
+    reg.insert_contract("C", target="Y", sources=["X"], merge_kind="linked_block",
+                        refresh_policy="refresh_on_demand", work_unit_id=None, now=3)
+    out = work_units.plan_linked_block_execution(reg, ["A", "B"])
+    assert out["ok"] is True
+    assert [p["contractId"] for p in out["plan"]] == ["A", "B"]   # NOT ["B", "A"]
+    # Omitting the producer C raises no problem (allow-omitted policy).
+    reg.close()

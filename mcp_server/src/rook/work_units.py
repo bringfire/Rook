@@ -561,6 +561,19 @@ def _contract_cycle(pairs) -> "list[str] | None":
     return [u for u, _ in cyc] + [cyc[-1][1]]
 
 
+def _ordered_contract_ids(pairs, order_key):
+    """The ONE source of truth for strict-contract execution order. pairs: list of
+    (contract_id, target_artifact_id, sources_list); order_key: cid -> (created_at, contract_id).
+    Returns (order, None) on success or (None, cycle) on a cyclic graph. Reused by
+    _validate_graph (whole graph) and plan_linked_block_execution (whole-graph order, then
+    filtered to a requested subset)."""
+    g, _, _ = _contract_graph(pairs)
+    try:
+        return list(nx.lexicographical_topological_sort(g, key=lambda n: order_key[n])), None
+    except nx.NetworkXUnfeasible:
+        return None, _contract_cycle(pairs)
+
+
 # ----- planned-contract canonical-key helpers (P7 Slice 3) -----
 def _planned_artifact_key(reg, ref_kind: str, ref_id: str) -> "tuple[str | None, dict | None]":
     """Project a typed ref to its canonical FUTURE-ARTIFACT key: artifact -> the artifact id itself;
@@ -785,11 +798,9 @@ def _validate_graph(reg: "WorkUnitRegistry") -> "dict[str, Any]":
     pairs = [(ct.contract_id, target_of[ct.contract_id], sources_of[ct.contract_id]) for ct in contracts]
     g, _, _ = _contract_graph(pairs)
 
-    contract_order: list[str] | None = None
-    try:
-        contract_order = list(nx.lexicographical_topological_sort(g, key=lambda n: order_key[n]))
-    except nx.NetworkXUnfeasible:
-        problems.append({"code": "merge_cycle_detected", "cycle": _contract_cycle(pairs)})
+    contract_order, cycle = _ordered_contract_ids(pairs, order_key)
+    if cycle is not None:
+        problems.append({"code": "merge_cycle_detected", "cycle": cycle})
 
     if problems:
         return {"ok": False, "problems": problems}
@@ -830,6 +841,52 @@ def _validate_one(reg: "WorkUnitRegistry", contract_id: str) -> "dict[str, Any]"
     if problems:
         return {"ok": False, "contractId": contract_id, "problems": problems}
     return {"ok": True, "contractId": contract_id}
+
+
+_PLANNABLE_MERGE_KIND = "linked_block"
+
+
+def plan_linked_block_execution(reg, contract_ids):
+    """Pure, Rhino-free. Derive the deterministic linked-block execution plan for a requested
+    subset of strict contracts. Consumes contract ids, not sessions. Does NOT execute, inspect
+    Rhino, check the present-bar, or define any execution-result envelope.
+
+    Omitted-producer policy: ALLOW. A requested contract may depend on a contract not in the
+    request; ordering still holds and no problem is raised. Artifact availability is the
+    executor's runtime present-bar, not a pure planner's call.
+
+    Returns {"ok": True, "plan": [{"contractId", "targetArtifactId"}, ...]} in execution order,
+    or {"ok": False, "problems": [{"code", ...}]}.
+    """
+    requested = list(dict.fromkeys(contract_ids))   # dedupe, preserve first-seen
+    requested_set = set(requested)
+
+    problems: list[dict[str, Any]] = []
+    for cid in requested:
+        ct = reg.get_contract(cid)
+        if ct is None:
+            problems.append({"code": "contract_not_found", "contractId": cid})
+        elif ct.merge_kind != _PLANNABLE_MERGE_KIND:
+            problems.append({"code": "unsupported_merge_kind", "contractId": cid,
+                             "mergeKind": ct.merge_kind})
+    if problems:
+        return {"ok": False, "problems": problems}
+
+    # Order over the WHOLE contract graph (one source of truth), then filter to the requested
+    # ids — a scoped subgraph drops transitive edges through omitted contracts and can invert
+    # order. target_of/order_key/pairs must cover every node, so build them across all contracts.
+    contracts = reg.list_contracts()
+    target_of = {ct.contract_id: ct.target_artifact_id for ct in contracts}
+    order_key = {ct.contract_id: (ct.created_at, ct.contract_id) for ct in contracts}
+    pairs = [(ct.contract_id, ct.target_artifact_id, reg.sources_for(ct.contract_id))
+             for ct in contracts]
+    order, cycle = _ordered_contract_ids(pairs, order_key)
+    if cycle is not None:   # defensive: insert_contract prevents cycles atomically
+        return {"ok": False, "problems": [{"code": "merge_cycle_detected", "cycle": cycle}]}
+
+    plan = [{"contractId": cid, "targetArtifactId": target_of[cid]}
+            for cid in order if cid in requested_set]
+    return {"ok": True, "plan": plan}
 
 
 # ----- tool layer ({success, data} envelopes) -----
