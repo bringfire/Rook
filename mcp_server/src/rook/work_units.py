@@ -561,6 +561,19 @@ def _contract_cycle(pairs) -> "list[str] | None":
     return [u for u, _ in cyc] + [cyc[-1][1]]
 
 
+def _ordered_contract_ids(pairs, order_key):
+    """The ONE source of truth for strict-contract execution order. pairs: list of
+    (contract_id, target_artifact_id, sources_list); order_key: cid -> (created_at, contract_id).
+    Returns (order, None) on success or (None, cycle) on a cyclic graph. Reused by
+    _validate_graph (whole graph) and plan_linked_block_execution (whole-graph order, then
+    filtered to a requested subset)."""
+    g, _, _ = _contract_graph(pairs)
+    try:
+        return list(nx.lexicographical_topological_sort(g, key=lambda n: order_key[n])), None
+    except nx.NetworkXUnfeasible:
+        return None, _contract_cycle(pairs)
+
+
 # ----- planned-contract canonical-key helpers (P7 Slice 3) -----
 def _planned_artifact_key(reg, ref_kind: str, ref_id: str) -> "tuple[str | None, dict | None]":
     """Project a typed ref to its canonical FUTURE-ARTIFACT key: artifact -> the artifact id itself;
@@ -785,11 +798,9 @@ def _validate_graph(reg: "WorkUnitRegistry") -> "dict[str, Any]":
     pairs = [(ct.contract_id, target_of[ct.contract_id], sources_of[ct.contract_id]) for ct in contracts]
     g, _, _ = _contract_graph(pairs)
 
-    contract_order: list[str] | None = None
-    try:
-        contract_order = list(nx.lexicographical_topological_sort(g, key=lambda n: order_key[n]))
-    except nx.NetworkXUnfeasible:
-        problems.append({"code": "merge_cycle_detected", "cycle": _contract_cycle(pairs)})
+    contract_order, cycle = _ordered_contract_ids(pairs, order_key)
+    if cycle is not None:
+        problems.append({"code": "merge_cycle_detected", "cycle": cycle})
 
     if problems:
         return {"ok": False, "problems": problems}

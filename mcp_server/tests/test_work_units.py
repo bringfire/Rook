@@ -957,3 +957,29 @@ def test_work_unit_planned_join(tmp_path, monkeypatch):
         refresh_policy="refresh_on_demand", work_unit_id="wu"))["data"]["plannedContractId"]
     wu = asyncio.run(work_units.list_work_units_tool(work_unit_id="wu"))
     assert wu["data"]["workUnits"][0]["plannedContracts"] == [pc]
+
+
+# ----- P7 Slice 5: shared ordering factor + scoped linked-block plan -----
+def test_ordered_contract_ids_orders_a_chain(tmp_path):
+    reg = _fresh_registry(tmp_path)
+    # edge A->B iff target(A) in sources(B): target(A)=X in sources(B)=[X]
+    reg.insert_contract("A", target="X", sources=["w"], merge_kind="linked_block",
+                        refresh_policy="refresh_on_demand", work_unit_id=None, now=1)
+    reg.insert_contract("B", target="Y", sources=["X"], merge_kind="linked_block",
+                        refresh_policy="refresh_on_demand", work_unit_id=None, now=2)
+    pairs = [(c.contract_id, c.target_artifact_id, reg.sources_for(c.contract_id))
+             for c in reg.list_contracts()]
+    order_key = {c.contract_id: (c.created_at, c.contract_id) for c in reg.list_contracts()}
+    order, cycle = work_units._ordered_contract_ids(pairs, order_key)
+    assert cycle is None
+    assert order == ["A", "B"]
+    reg.close()
+
+
+def test_ordered_contract_ids_reports_cycle():
+    # Built directly (insert_contract would reject a cycle): A<->B.
+    pairs = [("A", "X", ["Y"]), ("B", "Y", ["X"])]
+    order_key = {"A": (1, "A"), "B": (2, "B")}
+    order, cycle = work_units._ordered_contract_ids(pairs, order_key)
+    assert order is None
+    assert cycle is not None and set(cycle) >= {"A", "B"}
