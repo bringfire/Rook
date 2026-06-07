@@ -64,3 +64,30 @@ def test_call_tool_dispatches_planned_record(tmp_path, monkeypatch):
     assert parse_call_tool_data(out)["plannedContractId"].startswith("pc-")
     work_units._reset_work_units_registry_singleton()
     artifacts._reset_artifact_registry_singleton()
+
+
+def test_merge_contract_execute_is_non_routed_mutate():
+    # Finding 1: it MUTATES Rhino via internal subcalls, so it is NOT meta — but it is
+    # non-routed (resolves its own session) and owns a non-routing `session` argument.
+    name = "rhino_merge_contract_execute"
+    assert name in targeting._ALL_KNOWN_TOOLS
+    assert name not in targeting._META_TOOLS
+    assert targeting.policy_for_tool(name) == targeting.RhinoToolPolicy(False, "mutate")
+    assert targeting.allows_non_routed_session_argument(name) is True
+
+
+def test_call_tool_dispatches_execute_session_required(tmp_path, monkeypatch):
+    # End-to-end through public call_tool: a non-routed tool that owns `session`, dispatching
+    # to merge_execution; with no session it returns the executor's session_required.
+    from rook import artifacts
+    monkeypatch.setattr(work_units, "resolve_work_units_db_path", lambda: tmp_path / "work_units.db")
+    monkeypatch.setattr(artifacts, "resolve_artifact_db_path", lambda: tmp_path / "artifacts.db")
+    work_units._reset_work_units_registry_singleton()
+    artifacts._reset_artifact_registry_singleton()
+    out = asyncio.run(server.call_tool(
+        "rhino_merge_contract_execute",
+        {"contractId": "mc-x", "expectedMergeKind": "linked_block"}))
+    # session_required surfaces as a failure envelope → "Error: {...}".
+    assert "session_required" in out[0].text
+    work_units._reset_work_units_registry_singleton()
+    artifacts._reset_artifact_registry_singleton()

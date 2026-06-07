@@ -164,6 +164,7 @@ _ALL_KNOWN_TOOLS = {
     "rhino_planned_contract_record",
     "rhino_planned_contract_activate",
     "rhino_planned_contracts",
+    "rhino_merge_contract_execute",
     "capture_script_artifact",
     "chirp_create",
     "gh_add_pattern",
@@ -603,6 +604,10 @@ _RHINO_INDEPENDENT_READ_TOOLS = {
 }
 
 _RHINO_INDEPENDENT_MUTATE_TOOLS = {
+    # rhino_merge_contract_execute MUTATES Rhino (via internal pinned sub-calls) but is non-routed
+    # at the dispatcher so it can own `session` + pin its own port. (False, "mutate") is the
+    # load-bearing policy; the set name is imperfect for a Rhino-mutating tool. See P7 Slice 4.
+    "rhino_merge_contract_execute",
     "capture_script_artifact",
     "gh_end_exploration",
     "gh_knowledge_reload",
@@ -735,7 +740,8 @@ def policy_for_tool(name: str) -> RhinoToolPolicy:
 # on them is a contract error (rejected, not silently ignored) — EXCEPT tools that
 # legitimately own a non-routing `session` argument. This is an explicit exception
 # list, NOT a second routing-policy surface; it grows only by intentional addition.
-_NON_ROUTED_SESSION_ARGUMENT_TOOLS = {"rhino_session_capabilities", "rhino_workbench_close"}
+_NON_ROUTED_SESSION_ARGUMENT_TOOLS = {
+    "rhino_session_capabilities", "rhino_workbench_close", "rhino_merge_contract_execute"}
 
 
 def session_not_targetable_result(name: str) -> dict[str, Any]:

@@ -50,7 +50,7 @@ if logger.isEnabledFor(logging.DEBUG):
     )
 
 from .bridge import call_rhino, get_rhino_host, discover_instances, TIMEOUT, DISCOVERY_FOLDER, rhino_request_context, list_sessions_result, get_session_capabilities
-from . import artifacts, director, director_publish, director_video, script_library, targeting, workbench, work_units
+from . import artifacts, director, director_publish, director_video, merge_execution, script_library, targeting, workbench, work_units
 targeting.initialize_from_environment()
 from .knowledge import query_knowledge, query_knowledge_tiered, record_knowledge, invalidate_condensed_command_cache
 from .learning.command_observer import (
@@ -2978,6 +2978,23 @@ Use this before any Rhino operations to ensure Rhino is available. Safe to call 
                         "resolved ids) and, whole-graph, plannedContractOrder/edges/graphOk. Read-only; never "
                         "transitions. Optional plannedContractId.",
             inputSchema={"type": "object", "properties": {"plannedContractId": {"type": "string"}}},
+        ),
+        Tool(
+            name="rhino_merge_contract_execute",
+            description="EXECUTE a strict linked_block merge contract into a Rhino document: ensure "
+                        "each source artifact is a deterministic linked block in the target, then save. "
+                        "Requires an explicit `session` whose active document IS the contract target "
+                        "(verified); no ambient routing. Slice 4 supports merge_kind='linked_block' only; "
+                        "other kinds return unsupported_merge_kind. `expectedMergeKind` is a required "
+                        "caller-intent guard. dryRun=true previews per-source actions + blockers with no "
+                        "mutation and no save. Idempotent; writes nothing durable.",
+            inputSchema={"type": "object", "properties": {
+                "contractId": {"type": "string"},
+                "session": {"type": "string", "description": "rhino-<pid> from rhino_sessions"},
+                "expectedMergeKind": {"type": "string",
+                    "enum": ["worksession", "import", "linked_block", "reference", "block", "report"]},
+                "dryRun": {"type": "boolean", "default": False}},
+                "required": ["contractId", "session", "expectedMergeKind"]},
         ),
         Tool(
             name="rhino_ping",
@@ -13032,6 +13049,14 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
         case "rhino_planned_contracts":
             result = await work_units.list_planned_contracts_tool(
                 planned_contract_id=arguments.get("plannedContractId"))
+
+        case "rhino_merge_contract_execute":
+            result = await merge_execution.execute_merge_contract(
+                contract_id=arguments.get("contractId"),
+                session=arguments.get("session"),
+                expected_merge_kind=arguments.get("expectedMergeKind"),
+                dry_run=bool(arguments.get("dryRun", False)),
+                call_tool=_call_tool_dispatch)
 
         case "rhino_ping":
             result = await call_rhino("/ping", port=port)

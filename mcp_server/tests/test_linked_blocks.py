@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from rook.linked_blocks import block_def_name
+from rook import linked_blocks as lb
 
 # A valid canonical artifact id is 64 lowercase hex chars (SHA-256). These
 # fixtures pad a recognizable 16-hex prefix out to full length.
@@ -60,3 +61,76 @@ def test_rejects_16_hex_prefix_requires_full_sha256():
 def test_rejects_non_hex_source_artifact_id():
     with pytest.raises(ValueError):
         block_def_name("mc-abc", "z" * 64)
+
+
+# ----- P7 Slice 4: plan_source_action decision table -----
+_AID_A = "a" * 64          # a valid-looking 64-hex source artifact id
+_AID_B = "b" * 64          # a different one
+
+
+def _facts(is_linked, source_path, block_type="Linked"):
+    return {"isLinked": is_linked, "sourcePath": source_path, "blockType": block_type}
+
+
+def test_plan_absent_block_present_source_creates():
+    assert lb.plan_source_action(
+        block_facts=None, expected_source_artifact_id=_AID_A,
+        observed_source_artifact_id=None, source_present=True,
+        refresh_policy="refresh_on_demand") == lb.WOULD_CREATE_LINK
+
+
+def test_plan_absent_block_missing_source_not_present():
+    assert lb.plan_source_action(
+        block_facts=None, expected_source_artifact_id=_AID_A,
+        observed_source_artifact_id=None, source_present=False,
+        refresh_policy="refresh_on_demand") == lb.SOURCE_ARTIFACT_NOT_PRESENT
+
+
+def test_plan_existing_nonlinked_is_conflict():
+    assert lb.plan_source_action(
+        block_facts=_facts(False, ""), expected_source_artifact_id=_AID_A,
+        observed_source_artifact_id=None, source_present=True,
+        refresh_policy="refresh_on_demand") == lb.CONFLICT_NONLINKED
+
+
+def test_plan_linked_unparseable_path_is_unresolvable():
+    assert lb.plan_source_action(
+        block_facts=_facts(True, "??"), expected_source_artifact_id=_AID_A,
+        observed_source_artifact_id=None, source_present=True,
+        refresh_policy="refresh_on_demand") == lb.SOURCE_PATH_UNRESOLVABLE
+
+
+def test_plan_linked_different_source_is_conflict():
+    assert lb.plan_source_action(
+        block_facts=_facts(True, "C:/x.3dm"), expected_source_artifact_id=_AID_A,
+        observed_source_artifact_id=_AID_B, source_present=True,
+        refresh_policy="refresh_on_demand") == lb.CONFLICT_DIFFERENT_SOURCE
+
+
+def test_plan_same_source_on_demand_refreshes():
+    assert lb.plan_source_action(
+        block_facts=_facts(True, "C:/a.3dm"), expected_source_artifact_id=_AID_A,
+        observed_source_artifact_id=_AID_A, source_present=True,
+        refresh_policy="refresh_on_demand") == lb.WOULD_REFRESH_EXISTING
+
+
+def test_plan_same_source_after_save_is_already_linked():
+    assert lb.plan_source_action(
+        block_facts=_facts(True, "C:/a.3dm"), expected_source_artifact_id=_AID_A,
+        observed_source_artifact_id=_AID_A, source_present=True,
+        refresh_policy="refresh_after_save") == lb.ALREADY_LINKED
+
+
+def test_plan_same_source_absent_present_bar_blocks_already_linked():
+    # Finding 2: present-bar applies to already_linked too.
+    assert lb.plan_source_action(
+        block_facts=_facts(True, "C:/a.3dm"), expected_source_artifact_id=_AID_A,
+        observed_source_artifact_id=_AID_A, source_present=False,
+        refresh_policy="refresh_after_save") == lb.SOURCE_ARTIFACT_NOT_PRESENT
+
+
+def test_plan_same_source_absent_present_bar_blocks_refresh():
+    assert lb.plan_source_action(
+        block_facts=_facts(True, "C:/a.3dm"), expected_source_artifact_id=_AID_A,
+        observed_source_artifact_id=_AID_A, source_present=False,
+        refresh_policy="refresh_on_demand") == lb.SOURCE_ARTIFACT_NOT_PRESENT

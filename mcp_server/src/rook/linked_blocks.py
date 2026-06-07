@@ -36,3 +36,48 @@ def block_def_name(contract_id: str, source_artifact_id: str) -> str:
         )
     contract_hash = hashlib.sha256(contract_id.encode("utf-8")).hexdigest()[:8]
     return f"{_SCHEME}_{contract_hash}_{sid[:16]}"
+
+
+# ----- P7 Slice 4: per-source planned actions (dry-run) + outcomes (execute) -----
+# Planned actions (also the dry-run plannedAction values):
+WOULD_CREATE_LINK = "would_create_link"
+WOULD_REFRESH_EXISTING = "would_refresh_existing"
+ALREADY_LINKED = "already_linked"
+CONFLICT_NONLINKED = "conflict_nonlinked"
+CONFLICT_DIFFERENT_SOURCE = "conflict_different_source"
+SOURCE_ARTIFACT_NOT_PRESENT = "source_artifact_not_present"
+SOURCE_PATH_UNRESOLVABLE = "source_path_unresolvable"
+# Execute-mode outcomes for the actionable plans:
+CREATED_LINK = "created_link"
+REFRESHED_EXISTING = "refreshed_existing"
+BLOCK_LINK_FAILED = "block_link_failed"
+BLOCK_REFRESH_FAILED = "block_refresh_failed"
+
+
+def plan_source_action(*, block_facts, expected_source_artifact_id,
+                       observed_source_artifact_id, source_present, refresh_policy):
+    """PURE classification of one source against the target document's block table.
+
+    block_facts: the /blocks entry for the deterministic block name, or None if absent.
+        When present: {"isLinked": bool, "sourcePath": str, "blockType": str}.
+    observed_source_artifact_id: artifact_id_for(resolved observed sourcePath), or None
+        if the observed linked path can't be resolved.
+    source_present: True iff the contract source resolves to a P6 row file_state=='present'.
+
+    Hard conflicts dominate (the name is taken by the wrong thing — a blocker regardless).
+    The strict present-bar (Finding 2) gates EVERY success-eligible action, including
+    already_linked: refresh_policy chooses refresh-vs-no-op only AFTER presence is proven.
+    """
+    if block_facts is None:
+        return WOULD_CREATE_LINK if source_present else SOURCE_ARTIFACT_NOT_PRESENT
+    if not block_facts.get("isLinked"):
+        return CONFLICT_NONLINKED
+    if observed_source_artifact_id is None:
+        return SOURCE_PATH_UNRESOLVABLE
+    if observed_source_artifact_id != expected_source_artifact_id:
+        return CONFLICT_DIFFERENT_SOURCE
+    if not source_present:                       # present-bar before refresh-vs-no-op
+        return SOURCE_ARTIFACT_NOT_PRESENT
+    if refresh_policy == "refresh_on_demand":
+        return WOULD_REFRESH_EXISTING
+    return ALREADY_LINKED
