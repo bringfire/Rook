@@ -45,6 +45,43 @@ def _err(code: str, message: str, **extra: Any) -> dict[str, Any]:
         "code": code, "message": message, "retryable": _RETRYABLE.get(code, True), **extra}}
 
 
+def _resolve_session(session: str):
+    """Resolve the explicit selector to a concrete route. has_explicit_session=True is
+    load-bearing — without it resolve_tool_route ignores the selector and falls through to
+    ambient routing (the very thing this slice forbids)."""
+    route = _targeting.resolve_tool_route(
+        "rhino_document", explicit_session=session, has_explicit_session=True)
+    if not route.success:
+        return None, _err(route.error or "rhino_target_unavailable",
+                          f"Could not resolve session {session!r}: {route.error}.")
+    if route.target is None:
+        return None, _err("rhino_target_unavailable",
+                          f"Session {session!r} resolved to no live instance.")
+    return route, None
+
+
+async def _read_active_doc_path(call_tool: CallTool):
+    """(path, err). path is the active document's OS path; target_not_open when absent/unsaved."""
+    resp = await call_tool("rhino_document", {})
+    if resp.get("success") is False:
+        return None, _err("target_not_open", "Could not read the active document on the session.")
+    data = resp.get("data") or {}
+    path = data.get("documentPath") or data.get("path")
+    if not path:
+        return None, _err("target_not_open",
+                          "The selected session has no saved active document (no path).")
+    return path, None
+
+
+def _verify_target_identity(active_path: str, target_artifact_id: str):
+    norm = _artifacts.normalize_path(active_path)
+    if _artifacts.artifact_id_for(norm) != target_artifact_id:
+        return _err("target_document_mismatch",
+                    "The selected session's active document is not the contract target.",
+                    activeDocumentPath=active_path, targetArtifactId=target_artifact_id)
+    return None
+
+
 async def execute_merge_contract(*, contract_id: str, session: str, expected_merge_kind: str,
                                  dry_run: bool, call_tool: CallTool) -> dict[str, Any]:
     # 1-2. lower-plane guards (reuse work_units' shared guards → identical codes)
@@ -74,5 +111,19 @@ async def execute_merge_contract(*, contract_id: str, session: str, expected_mer
         return _err("unsupported_merge_kind",
                     f"Slice 4 executes only {list(_SUPPORTED_MERGE_KINDS)}.",
                     supportedMergeKinds=list(_SUPPORTED_MERGE_KINDS))
-    # (Task 4 continues here: session resolution + Rhino-facing work.)
-    raise NotImplementedError("session + apply path lands in Task 4-6")
+    sources = await asyncio.to_thread(lambda: reg.sources_for(contract_id))
+    # 7. resolve + pin the session
+    route, serr = _resolve_session(session)
+    if serr is not None:
+        return serr
+    # 8+. all Rhino-facing work inside the pinned routing context (Finding 1)
+    with _bridge.rhino_request_context(
+            port=route.target.port, process_id=route.target.process_id,
+            document_serial_number=route.document_serial_number):
+        active_path, terr = await _read_active_doc_path(call_tool)
+        if terr is not None:
+            return terr
+        if (merr := _verify_target_identity(active_path, contract.target_artifact_id)) is not None:
+            return merr
+        # (Task 5 continues here: classify; Task 6: apply + save.)
+        raise NotImplementedError("classify + apply lands in Task 5-6")
