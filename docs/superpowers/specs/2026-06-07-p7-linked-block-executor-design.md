@@ -61,7 +61,7 @@ The tool must be non-routed at the public dispatcher so it can own `session`, re
 
 **`merge_execution.py` (CREATE) — the I/O shell**, the first Rhino-touching P7 module:
 - `async execute_merge_contract(*, contract_id, session, expected_merge_kind, dry_run, call_tool)`.
-- Imports `work_units` (contract + sources read), `artifacts` (P6 read + `normalize_path`/`artifact_id_for`), `linked_blocks` (pure core), `targeting` (route resolution for the pin).
+- Imports `work_units` (contract + sources read), `artifacts` (P6 read + `normalize_path`/`artifact_id_for`), `linked_blocks` (pure core), `targeting` (route resolution for the pin), `bridge` (`rhino_request_context` for the routing-context wrapper).
 - Computes `observed_source_artifact_id`/`source_present` from P6 + raw Rhino `sourcePath`, feeds plain strings into the pure planner.
 - Builds the dry-run and execute envelopes. **No durable writes.**
 
@@ -69,15 +69,24 @@ The tool must be non-routed at the public dispatcher so it can own `session`, re
 - Declare `rhino_merge_contract_execute` in the tool list.
 - Dispatch `case "rhino_merge_contract_execute":` calls `merge_execution.execute_merge_contract(..., call_tool=_call_tool_dispatch)`.
 
-**The injected `call_tool` seam (confirmed):**
-Inject **`_call_tool_dispatch`** (server.py:12864) — the *internal* dispatcher that returns `{success, data}` dicts directly. Do **not** inject `_mcp_tool_executor` or the public `call_tool`; both go through `_format_tool_result` (server.py:19496), which flattens the envelope to public text (`success → data only`; `failure → "Error: "+json`). Re-parsing that text is the recurring footgun that cost a ~13-run detour in P6 and motivated the #220 cleanup. Internal contract of the injected callable:
+**The injected `call_tool` seam + the routing-context wrapper (Finding 1):**
+Inject **`_call_tool_dispatch`** (server.py:12864) — the *internal* dispatcher that returns `{success, data}` dicts directly. Do **not** inject `_mcp_tool_executor` or the public `call_tool`; both flatten the envelope to public text via `_format_tool_result` (server.py:19496) (`success → data only`; `failure → "Error: "+json`), and re-parsing that text is the recurring footgun that cost a ~13-run detour in P6 / motivated #220. Internal contract:
 
 ```python
-async def call_tool(name: str, args: dict) -> dict:
-    """Returns the internal {success, data} envelope dict. Never public MCP text."""
+async def call_tool(name: str, args: dict) -> dict:   # returns internal {success, data}; never MCP text
 ```
 
-Because `_call_tool_dispatch` pops `port` from `args` and threads it into `call_rhino(..., port=port)`, the executor pins by passing `{**args, "port": pinned_port}` to every Rhino sub-call. One routing resolution; concrete port everywhere; internal dict surface throughout.
+**Pinning is via the routing context, NOT via an args `port`.** `_call_tool_dispatch` pops `port` into a local, but the dispatch cases the executor uses (`rhino_blocks`, `rhino_block_info`, `rhino_block_link`, `rhino_block_refresh`, `rhino_document`, `rhino_document_ops`) call `call_rhino(...)` **without forwarding it**; `call_rhino` resolves its port from a contextvar — `resolved_port = port if port is not None else _RHINO_CONTEXT_PORT.get()` (bridge.py:992). Public `call_tool` works only because it wraps dispatch in `rhino_request_context(...)` (server.py:19613) — and for a **non-routed** tool like the executor it binds **no context at all** (server.py:19579-19583 dispatches directly, then `call_rhino` would auto-pick an instance). So the executor MUST bind the context itself: after resolving the route once (§8), it wraps **every** sub-call in
+
+```python
+with bridge.rhino_request_context(
+        port=route.target.port,
+        process_id=route.target.process_id,
+        document_serial_number=route.document_serial_number):   # None on a session route; harmless
+    ...   # all `await call_tool(name, args)` sub-calls live inside this block
+```
+
+Sub-call `args` carry only the tool's domain params (e.g. `{name, path}`) — never `port`/`session`; routing comes from the bound context. One route resolution, one context, the concrete pinned instance for every sub-call, internal dict surface throughout.
 
 **Unit tests** inject a fake `call_tool` returning canned `{success, data}` dicts — the orchestrator is fully testable with zero Rhino.
 
@@ -118,15 +127,17 @@ if observed_source_artifact_id is None:
     return source_path_unresolvable                # linked, but sourcePath unparseable
 if observed_source_artifact_id != expected_source_artifact_id:
     return conflict_different_source               # linked to the WRONG source
-# linked to the SAME source:
+# linked to the SAME source — prove source presence BEFORE refresh-vs-no-op (Finding 2):
+if not source_present:
+    return source_artifact_not_present            # present-bar applies to already_linked too
 if refresh_policy == "refresh_on_demand":
-    return would_refresh_existing if source_present else source_artifact_not_present
+    return would_refresh_existing
 return already_linked                              # refresh_after_save → presence-only no-op
 ```
 
 Notes:
-- Hard conflicts (`conflict_nonlinked`, `conflict_different_source`) dominate — source presence is irrelevant when the name is already taken by the wrong thing.
-- Source presence gates anything that must *read the source file* (create, on-demand refresh). `already_linked` (a no-op) does not require source presence.
+- Hard conflicts (`conflict_nonlinked`, `conflict_different_source`) dominate — source presence is irrelevant when the name is already taken by the wrong thing, and a conflict is a blocker regardless. (Reporting the non-retryable structural conflict before the retryable presence problem avoids a two-round-trip discovery.)
+- **Present-bar invariant (Finding 2):** source presence gates EVERY success-eligible action — `would_create_link`, `would_refresh_existing`, **and** `already_linked`. No success path admits a source that is not P6-present; `refresh_policy` chooses refresh-vs-no-op only *after* presence is proven. This preserves the strict present-bar that Slice 1's `record`/`validate` enforce (sources must resolve to a P6 row with `file_state == "present"`).
 - `source_path_unresolvable` is the defensive edge: a def marked `isLinked` whose `sourcePath` can't be normalized/compared, so same-vs-different cannot be decided. Fail closed rather than guess.
 
 **Policy mapping (Q4):** new/missing link is created under *both* policies; `refresh_policy` only governs the already-correct case. `refresh_on_demand` → `would_refresh_existing` (an explicit execute *is* the demand). `refresh_after_save` → `already_linked` (no watcher exists; presence guaranteed, freshness not forced). On-demand refresh is **unconditional** (no mtime/hash detection); `block_refresh` is an idempotent reload.
@@ -158,7 +169,7 @@ route = targeting.resolve_tool_route(
 
 `resolve_tool_route` gates the session rung on `if has_explicit_session:` (targeting.py:961). Passing `explicit_session` alone silently resolves as if no session was given — the exact ambient fallback this slice forbids. Use the routed-read tool name `"rhino_document"` as the resolution proxy (the executor's own name is non-routed, so it would resolve to `selection="none"`).
 
-On success, pin `port = route.target.port` and thread it into every Rhino sub-call. On failure, map `route.error` → the executor's session codes:
+On success, **bind** `bridge.rhino_request_context(port=route.target.port, process_id=route.target.process_id, document_serial_number=route.document_serial_number)` around every Rhino sub-call (§4 — pinning is via the context, not an args `port`; `document_serial_number` is `None` on a session route, which is harmless — port + process_id pin the instance, and §7 re-verifies active-doc identity before save). On failure, map `route.error` → the executor's session codes:
 
 | `route.error` | executor code | retryable |
 |---|---|---|
@@ -232,12 +243,13 @@ Per-source blocker codes inside `merge_contract_not_executable.blockers`: `confl
 ## 12. Idempotency & atomicity
 
 - **Idempotency** is structural: the deterministic `block_def_name` makes the *definition* the idempotency key, and `block_link` is create-only. A re-run sees each def already present and correct → `refreshed_existing` (on_demand) or `already_linked` (after_save) — never a duplicate def or instance. The saved target document is the source of truth; a re-run re-derives state from it and converges. **No durable execution status is written.**
+- **Present-bar (Finding 2):** every contract source must resolve to a P6 row with `file_state == "present"` for *any* success outcome — including `already_linked`. A success path never admits a since-missing source, preserving the Slice-1 invariant; a source that has gone missing yields `source_artifact_not_present` (retryable) at the pre-flight gate.
 - **Atomicity** is honest-not-transactional: Rhino mutation can't be DB-atomic. The pre-flight gate makes the realistic failure (conflicts) fully non-mutating. The only path to a partial document is an unexpected mid-apply native/race error, which is reported as `merge_contract_execution_incomplete` with the live doc left dirty-but-unsaved. No registry state ever claims success the document doesn't back.
 
 ## 13. Testing
 
-- **Pure planner** (`test_linked_blocks.py`, MODIFY): a decision table over every §6 row — both policies, source present/absent, absolute vs relative observed path, the `None`/unparseable edges. Zero Rhino, zero mocking.
-- **Orchestrator** (`test_merge_execution.py`, CREATE): inject a fake `call_tool` returning canned `{success, data}` dicts; repoint `work_units`/`artifacts` singletons to temp dbs (existing fixtures). Cover: precondition ladder (each code), `dryRun` plan, pre-flight gate (no mutation), full success + save, `document_save_failed`, mid-apply failure, **idempotent re-run** (second execute → all `already_linked`/`refreshed_existing`, no dup), `target_document_mismatch`, `session_required` (and `has_explicit_session=True` resolution), kind gates (`merge_kind_mismatch`, `unsupported_merge_kind`).
+- **Pure planner** (`test_linked_blocks.py`, MODIFY): a decision table over every §6 row — both policies, source present/absent, absolute vs relative observed path, the `None`/unparseable edges. Includes the **present-bar branch (Finding 2): same-source + source absent → `source_artifact_not_present`, never `already_linked`/`would_refresh_existing`.** Zero Rhino, zero mocking.
+- **Orchestrator** (`test_merge_execution.py`, CREATE): inject a fake `call_tool` returning canned `{success, data}` dicts + monkeypatch `targeting.resolve_tool_route` to return a canned `ToolRoute`; repoint `work_units`/`artifacts` singletons to temp dbs (existing fixtures). Cover: precondition ladder (each code), `dryRun` plan, pre-flight gate (no mutation), full success + save, `document_save_failed`, mid-apply failure, **idempotent re-run** (second execute → all `already_linked`/`refreshed_existing`, no dup), `target_document_mismatch`, `session_required` (and the `has_explicit_session=True` resolution call), kind gates (`merge_kind_mismatch`, `unsupported_merge_kind`), the **present-bar on `already_linked`** (source not P6-present but a matching link already exists → `source_artifact_not_present`, never a save), and the **routing-context binding (Finding 1): the fake `call_tool` asserts `bridge.get_rhino_request_context()["port"] == route.target.port` on every sub-call.**
 - **Targeting policy** (`test_work_units_tools.py` + `test_session_routing.py`, MODIFY/ADD): new test asserts `policy_for_tool("rhino_merge_contract_execute") == RhinoToolPolicy(False, "mutate")` and `allows_non_routed_session_argument(...) is True`; update the exact-set assertion in `test_non_routed_session_argument_tools_membership`. The executor must **not** be added to any `_are_meta_no_rhino` list.
 - **Live smoke** (`test_merge_contract_execute_live.py`, CREATE; `requires_rhino`, throwaway session): build a target + two source `.3dm`; register all three as P6 artifacts; record a `linked_block` `merge_contract`; open the target in the selected session; execute → assert both linked defs present + isLinked + correct sourcePath, `saved:true`; re-run → assert idempotent (`already_linked`/`refreshed_existing`, no duplication).
 
@@ -252,5 +264,7 @@ Per-source blocker codes inside `merge_contract_not_executable.blockers`: `confl
 
 - Outcome names `created_link` / `refreshed_existing`, top-level `merge_contract_execution_incomplete`: confirmed.
 - Inject `_call_tool_dispatch` (internal dict surface), never `_mcp_tool_executor`/public `call_tool`: confirmed.
-- Executor is a **non-routed mutating** tool (`RhinoToolPolicy(False, "mutate")`), not `meta`: confirmed (Finding 1).
-- Route resolution must pass `has_explicit_session=True`: confirmed (Finding 2).
+- Executor is a **non-routed mutating** tool (`RhinoToolPolicy(False, "mutate")`), not `meta`.
+- **Finding 1 (P1):** pinning is via `bridge.rhino_request_context(port=route.target.port, process_id=route.target.process_id, document_serial_number=route.document_serial_number)` wrapping the sub-calls — NOT an args `port`. Verified: block dispatch cases don't forward the popped local `port`; `call_rhino` reads `_RHINO_CONTEXT_PORT` (bridge.py:992); and the non-routed dispatch path (server.py:19579-19583) binds no context. Corrected in §4/§8/§13.
+- **Finding 2 (P1):** the strict present-bar applies to every success outcome including `already_linked`; the planner proves source presence *before* `refresh_policy` chooses refresh-vs-no-op. Corrected in §6/§12/§13.
+- Route resolution must pass `has_explicit_session=True` (else `resolve_tool_route` ignores `explicit_session` and falls through to ambient): §8.
