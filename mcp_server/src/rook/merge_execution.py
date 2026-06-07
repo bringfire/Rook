@@ -82,6 +82,69 @@ def _verify_target_identity(active_path: str, target_artifact_id: str):
     return None
 
 
+async def _resolve_source(source_artifact_id: str):
+    """(path, present). path is the normalized P6 path or None; present iff a P6 row exists
+    and file_state == 'present'."""
+    row = await asyncio.to_thread(
+        lambda: _artifacts.artifact_registry().get(artifact_id=source_artifact_id))
+    if row is None:
+        return None, False
+    return row.path, (row.file_state == "present")
+
+
+def _observed_source_artifact_id(block_facts: dict, target_dir: str):
+    """artifact id of an existing linked block's sourcePath; relative paths resolve against the
+    target document's directory first. None when empty/unparseable."""
+    raw = (block_facts or {}).get("sourcePath") or ""
+    if not raw:
+        return None
+    try:
+        p = raw if os.path.isabs(raw) else os.path.join(target_dir, raw)
+        return _artifacts.artifact_id_for(_artifacts.normalize_path(p))
+    except Exception:
+        return None
+
+
+async def _read_blocks(call_tool: CallTool):
+    """Read the target document's block table ONCE. (by_name, None) on success — a SUCCESSFUL read
+    of an empty table is {}; a FAILED read is fail-closed to (None, err) so a read failure is NEVER
+    mistaken for 'no existing defs' (which would let mutation proceed past a failed pre-flight read)."""
+    resp = await call_tool("rhino_blocks", {})
+    if resp.get("success") is False:
+        return None, _err("block_table_read_failed",
+                          "Could not read the target document's block table; not mutating.")
+    blocks = (resp.get("data") or {}).get("blocks") or []
+    return {b.get("name"): b for b in blocks if isinstance(b, dict)}, None
+
+
+async def _classify(by_name: dict, contract_id: str, sources, refresh_policy: str, target_dir: str):
+    """Classify every source via the PURE planner over an already-read block snapshot. Returns the
+    perSource list."""
+    per_source = []
+    for sid in sources:
+        name = _lb.block_def_name(contract_id, sid)
+        facts = by_name.get(name)
+        src_path, present = await _resolve_source(sid)
+        observed = _observed_source_artifact_id(facts, target_dir) if facts else None
+        action = _lb.plan_source_action(
+            block_facts=facts, expected_source_artifact_id=sid,
+            observed_source_artifact_id=observed, source_present=present,
+            refresh_policy=refresh_policy)
+        per_source.append({
+            "sourceArtifactId": sid, "blockName": name, "plannedAction": action,
+            "sourcePath": src_path, "observedSourcePath": (facts or {}).get("sourcePath"),
+            "observedSourceArtifactId": observed, "isLinked": (facts or {}).get("isLinked"),
+            "blockType": (facts or {}).get("blockType")})
+    return per_source
+
+
+def _blockers_of(per_source):
+    return [{"sourceArtifactId": e["sourceArtifactId"], "blockName": e["blockName"],
+             "code": e["plannedAction"],
+             "retryable": e["plannedAction"] == _lb.SOURCE_ARTIFACT_NOT_PRESENT}
+            for e in per_source if e["plannedAction"] in _HARD_BLOCKERS]
+
+
 async def execute_merge_contract(*, contract_id: str, session: str, expected_merge_kind: str,
                                  dry_run: bool, call_tool: CallTool) -> dict[str, Any]:
     # 1-2. lower-plane guards (reuse work_units' shared guards → identical codes)
@@ -125,5 +188,15 @@ async def execute_merge_contract(*, contract_id: str, session: str, expected_mer
             return terr
         if (merr := _verify_target_identity(active_path, contract.target_artifact_id)) is not None:
             return merr
-        # (Task 5 continues here: classify; Task 6: apply + save.)
-        raise NotImplementedError("classify + apply lands in Task 5-6")
+        target_dir = os.path.dirname(active_path)
+        by_name, berr = await _read_blocks(call_tool)   # fail closed on a failed pre-flight read
+        if berr is not None:
+            return berr
+        per_source = await _classify(by_name, contract_id, sources, contract.refresh_policy, target_dir)
+        blockers = _blockers_of(per_source)
+        if dry_run:
+            return {"success": True, "data": {
+                "dryRun": True, "executable": (len(blockers) == 0),
+                "blockers": blockers, "perSource": per_source}}
+        # (Task 6 continues here: pre-flight gate, apply, re-verify, save.)
+        raise NotImplementedError("apply + save lands in Task 6")

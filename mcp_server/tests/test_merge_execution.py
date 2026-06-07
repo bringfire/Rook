@@ -2,6 +2,7 @@ from __future__ import annotations
 import asyncio
 import pytest
 from rook import merge_execution, work_units, artifacts, targeting, bridge
+from rook import linked_blocks as lb
 
 
 @pytest.fixture
@@ -186,3 +187,64 @@ def test_session_resolution_passes_has_explicit_session(temp_registries, monkeyp
         dry_run=True, call_tool=fake))
     assert seen == {"name": "rhino_document", "explicit_session": "rhino-1",
                     "has_explicit_session": True}
+
+
+def test_dry_run_absent_block_is_executable_create(temp_registries, monkeypatch):
+    cid, tgt_id, src_id, tgt_path, src_path = _make_contract(temp_registries)
+    _pin_route(monkeypatch)
+    fake = FakeRhino(doc_path=tgt_path, blocks=[])  # no defs yet
+    out = _run(merge_execution.execute_merge_contract(
+        contract_id=cid, session="rhino-1", expected_merge_kind="linked_block",
+        dry_run=True, call_tool=fake))
+    assert out["success"] is True
+    assert out["data"]["dryRun"] is True and out["data"]["executable"] is True
+    assert out["data"]["blockers"] == []
+    ps = out["data"]["perSource"]
+    assert len(ps) == 1 and ps[0]["plannedAction"] == lb.WOULD_CREATE_LINK
+    assert ps[0]["blockName"] == lb.block_def_name(cid, src_id)
+    # dry-run mutates nothing
+    assert [n for n, _ in fake.calls] == ["rhino_document", "rhino_blocks"]
+
+
+def test_dry_run_present_bar_blocks_already_linked(temp_registries, monkeypatch):
+    # Existing correct link, but the source file is deregistered → not P6-present.
+    cid, tgt_id, src_id, tgt_path, src_path = _make_contract(
+        temp_registries, refresh="refresh_after_save")
+    _run(artifacts.deregister_artifact(artifact_id=src_id))  # source no longer present
+    _pin_route(monkeypatch)
+    name = lb.block_def_name(cid, src_id)
+    fake = FakeRhino(doc_path=tgt_path, blocks=[
+        {"name": name, "isLinked": True, "sourcePath": src_path, "blockType": "Linked"}])
+    out = _run(merge_execution.execute_merge_contract(
+        contract_id=cid, session="rhino-1", expected_merge_kind="linked_block",
+        dry_run=True, call_tool=fake))
+    assert out["data"]["executable"] is False
+    assert out["data"]["perSource"][0]["plannedAction"] == lb.SOURCE_ARTIFACT_NOT_PRESENT
+
+
+def test_dry_run_conflict_different_source(temp_registries, monkeypatch):
+    cid, tgt_id, src_id, tgt_path, src_path = _make_contract(temp_registries)
+    _pin_route(monkeypatch)
+    name = lb.block_def_name(cid, src_id)
+    fake = FakeRhino(doc_path=tgt_path, blocks=[
+        {"name": name, "isLinked": True, "sourcePath": "C:/different/other.3dm", "blockType": "Linked"}])
+    out = _run(merge_execution.execute_merge_contract(
+        contract_id=cid, session="rhino-1", expected_merge_kind="linked_block",
+        dry_run=True, call_tool=fake))
+    assert out["data"]["executable"] is False
+    assert out["data"]["perSource"][0]["plannedAction"] == lb.CONFLICT_DIFFERENT_SOURCE
+    assert out["data"]["blockers"][0]["code"] == lb.CONFLICT_DIFFERENT_SOURCE
+
+
+def test_block_table_read_failure_fails_closed(temp_registries, monkeypatch):
+    # Finding 1: a FAILED /blocks read must NOT look like an empty table; fail closed, no mutation.
+    cid, tgt_id, src_id, tgt_path, src_path = _make_contract(temp_registries)
+    _pin_route(monkeypatch)
+    fake = FakeRhino(doc_path=tgt_path, blocks_ok=False)  # /blocks returns success:false
+    out = _run(merge_execution.execute_merge_contract(
+        contract_id=cid, session="rhino-1", expected_merge_kind="linked_block",
+        dry_run=False, call_tool=fake))
+    assert out["success"] is False and out["data"]["code"] == "block_table_read_failed"
+    assert out["data"]["retryable"] is True
+    assert "rhino_block_link" not in [n for n, _ in fake.calls]    # never mutated
+    assert "rhino_document_ops" not in [n for n, _ in fake.calls]  # never saved
