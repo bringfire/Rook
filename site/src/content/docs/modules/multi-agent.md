@@ -40,6 +40,13 @@ makes sure they stay on track and within budget.
 A fleet doesn't mean a black box — you can watch progress, answer questions the
 agents raise, and stop the run at any time.
 
+:::tip[Try it — paste to your agent]
+```text
+I have a set of unit footprints selected. Spin up a fleet to lay them all out in
+parallel, and keep me posted on progress as it goes.
+```
+:::
+
 ## Related
 
 - [Knowledge Graph](/Rook/modules/knowledge-graph/) — keeps the lean worker agents competent

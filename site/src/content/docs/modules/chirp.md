@@ -52,6 +52,13 @@ You don't configure Chirp by hand. Describe what the component should do:
 
 Rook places and configures it.
 
+:::tip[Try it — paste to your agent]
+```text
+Add a Chirp critic to my Grasshopper definition that reviews each layout option
+against my brief and flags the weak ones.
+```
+:::
+
 ## Related
 
 - [Rook in Grasshopper](/Rook/modules/grasshopper/)

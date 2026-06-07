@@ -34,6 +34,13 @@ Each frame is one atomic Rhino transaction, so nothing leaks between frames:
 - **Curve-follow target** — sample a Rhino curve as the camera path, hold a focus
   point, and the film authors itself.
 
+:::tip[Try it — paste to your agent]
+```text
+Author a camera move that follows this curve while holding focus on the tower,
+render the frames, and assemble an MP4.
+```
+:::
+
 ## Related
 
 - [RookVision](/Rook/modules/rookvision/) — stills, where Director does motion

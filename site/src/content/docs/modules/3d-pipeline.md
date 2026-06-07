@@ -35,6 +35,13 @@ These steps are what make a generated volume genuinely useful in Rhino —
 quad topology you can SubD, parts you can organize onto layers, and materials you
 can render. Ask for the ones you need.
 
+:::tip[Try it — paste to your agent]
+```text
+Take this generated mesh, retopologize it to clean quads, then split it into
+named parts I can sort onto layers.
+```
+:::
+
 ## Related
 
 - [Hunyuan 3D](/Rook/modules/hunyuan-3d/) — where the raw mesh comes from

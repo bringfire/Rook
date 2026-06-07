@@ -28,6 +28,13 @@ artifact — shared by reference, not re-derived each time.
 Each result is a durable artifact with an id. You share it by reference rather than
 regenerating it — so a good image stays put and can be reused downstream.
 
+:::tip[Try it — paste to your agent]
+```text
+Capture my current view, turn it into a watercolour at dawn across a couple of
+image models, and bring the one I pick back into the document.
+```
+:::
+
 ## Related
 
 - [RookVision](/Rook/modules/rookvision/) — the capability this belongs to
