@@ -1,7 +1,7 @@
 # P7 Slice 5 — Chained Linked-Block Recomposition (proof/harness)
 
 - **Date:** 2026-06-07
-- **Status:** Design — converged through a Rook ⇄ user ⇄ Codex brainstorm. Pending spec review before plan.
+- **Status:** Implemented + **live-verified** (2026-06-07, owned Workbench, harness PASSED). Converged through a Rook ⇄ user ⇄ Codex brainstorm; §5 no-dup was corrected post-live to bind to the top-level Rook def (Rhino's nested presentation churns — see §6.1).
 - **Author:** Claude (synthesis of the brainstorm; the full-graph-filtered ordering correction is the user's, verified at source).
 - **Area:** `mcp_server/src/rook/work_units.py` (one pure helper + one shared-ordering factor); `mcp_server/tests/` (offline unit tests + one `requires_rhino` live harness). **No native, no `server.py`, no `targeting.py`, no new tool.**
 - **Relationship to other docs:**
@@ -122,7 +122,9 @@ Let `name(cid, sid) = linked_blocks.block_def_name(cid, sid)`.
 - Scoped plan/order `== [cid_A, cid_B]` (Component 1, offline-independent of Rhino).
 - **Execute A:** outcome `created_link`; intermediate `saved`. On session `S` (active doc = intermediate): `rhino_block_info(name(cid_A, s1_id))` and `rhino_block_info(name(cid_A, s2_id))` each exist and report `isLinked == True`.
 - **Execute B:** outcome `created_link`; master `saved`. On session `S` (active doc = master): `rhino_block_info(name(cid_B, intermediate_id))` exists and `isLinked == True`. The master's deterministic def is keyed on **B's source = the intermediate's artifact id**, never on `s1`/`s2` — this asserts master consumes the intermediate, not the raw sources.
-- **Idempotent re-run:** outcomes `refreshed_existing` (both contracts, `refresh_on_demand`); both `saved`. **No duplicate definitions, via our naming, not table counts:** the expected names resolve + `isLinked` (present), **and** the active target doc's full Rook deterministic-name set (`rook_p7lb_*`, read from `/blocks`) is **identical before vs. after the re-run** — the nesting-agnostic no-dup property (the set must not grow). Asserted for **both** target docs; for `master` this is set-unchanged + expected-present (a **subset**, not equality), because `master`'s `/blocks` may additionally surface the intermediate's nested `rook_p7lb_*` defs — that nested presentation is an observation (§6), not a hard value. Total `/blocks` counts are **not** asserted.
+- **Idempotent re-run:** outcomes `refreshed_existing` (both contracts, `refresh_on_demand`); both `saved`. **No duplicate definitions, on Rook-owned identity (not Rhino's nested presentation):**
+  - **Intermediate** (no linked-block source above it): the full `rook_p7lb_*` set is **identical before vs. after** the re-run (`{name(A,s1), name(A,s2)}`).
+  - **Master:** the **top-level** `rook_p7lb_*` set (names *without* `>`) is exactly `{name(B,intermediate_id)}` before and after — no new top-level def on refresh. `name(B,…)` is `isLinked` and its `sourcePath` resolves (`normalize_path` + `artifact_id_for`) to the intermediate's artifact id. Master's **full** `/blocks` set is **NOT** asserted: empirically (§6.1) Rhino expands the intermediate's nested defs on refresh with `‹parent›>‹file› : ‹child›` naming plus a *transient* ` 01` duplicate — that nested churn is an observation, not a hard value. The no-dup guarantee binds to the top-level def Rook owns. Total `/blocks` counts are **not** asserted.
 
 Rationale: deterministic `block_def_name` is a contract Rook owns; the flat-vs-nested `/blocks` presentation is exactly the quirk this slice exists to observe. Hard assertions bind to the former.
 
@@ -134,6 +136,19 @@ Captured into the test output / spec follow-up / memory; they do **not** fail th
 - Whether master's nested view reflects A's re-refresh of the intermediate on the idempotent pass — **nested-refresh propagation is observed, not asserted.** We have never watched Rhino do nested linked-block refresh-after-save; asserting a specific propagation outcome now risks encoding a wrong expectation, which is the over-freezing this slice exists to avoid.
 - Whether `/blocks` surfaces nested source defs globally (flat table includes `name(A,s1)` etc. when master is active).
 - Any file-lock / stale-read symptom across the save→consume handoff.
+
+### 6.1 Live findings (2026-06-07, RookNative 1.5.9, owned Workbench — harness PASSED)
+
+The chained recomposition composed end-to-end; the membrane behaviour was characterized (master = `name_B`, nested children = `name(A,s1)/name(A,s2)`):
+
+1. **First create (execute B):** master's `/blocks` shows **only** the top-level `name_B`; the intermediate's nested defs are not yet expanded.
+2. **On refresh:** Rhino expands the nested defs into master's block table as `‹name_B›>‹inter.3dm› : ‹child›`, **and creates a transient ` 01` duplicate** of each nested def (base + ` 01` both present in-session).
+3. **The ` 01` is in-session only:** after an **evict+reopen** of master (reload from disk), the ` 01` variants are **gone** — the persisted/reloaded state is clean (base nested names only).
+4. **No accumulation:** a third refresh re-creates ` 01` but does **not** advance to ` 02`. Repeated refresh is **bounded** — no nested-def bloat (relevant to the north-star's repeated fan-in refresh).
+5. **Top-level identity holds:** exactly one top-level `name_B` across create→refresh→refresh; `isLinked`; outcome `refreshed_existing`; `sourcePath` absolute (`…\inter.3dm`) and resolving (`normalize_path`+`artifact_id_for`) to the intermediate's P6 artifact id. `block_info`: `objectCount: 3` = the inter box + 2 nested InstanceReferences.
+6. **Cleanup hazard (fixed in harness):** deleting a linked-open `.3dm` out from under the active document destabilized Rhino (the process exited between runs). The harness now opens a blank document before deleting temp files; the workbench then survived through a graceful `rhino_workbench_close`.
+
+**Input to the future graph-execution tool / reference-refresh ordering:** the no-dup contract must bind to Rook's **top-level deterministic name**, never to Rhino's nested presentation; repeated reference-refresh is bounded (non-accumulating) and therefore safe to drive in a loop; and the Save→consume cleanup path must release handles before unlinking.
 
 ## 7. Scope notes and explicit deferrals
 
