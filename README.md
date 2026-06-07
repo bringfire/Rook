@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  264 MCP tools &bull; Intent-based execution &bull; Self-improving knowledge graph &bull; Model-agnostic
+  390+ MCP tools &bull; Intent-based execution &bull; Self-improving knowledge graph &bull; Model-agnostic
 </p>
 
 <p align="center">
@@ -25,7 +25,7 @@
 > VS Code extension) — not the older Claude Desktop chat app which lacks hooks,
 > plugins, and skills support.
 
-Rook connects any MCP-compatible AI client to Rhino 3D and Grasshopper, enabling conversational CAD workflows. Create geometry, build parametric Grasshopper definitions, run analysis, capture viewports, and manage documents — all through natural language.
+Rook connects any MCP-compatible AI client to Rhino 3D and Grasshopper, enabling conversational CAD workflows. Create geometry, build parametric Grasshopper definitions, design road networks, inspect BIM models, generate images and video, run analysis, capture viewports, and manage documents — all through natural language.
 
 ## Quick Start
 
@@ -47,11 +47,11 @@ MCP Client (Claude Code, Claude Desktop, Codex CLI, Cursor, etc.)
        │
        │  MCP Protocol (stdio)
        ▼
-Rook MCP Server (Python)          ← 264 tools, knowledge graph, agent system
+Rook MCP Server (Python)          ← 392 tools, knowledge graph, agent system
        │
        │  HTTP (127.0.0.1, OS-assigned port via discovery)
        ▼
-RookNative (C++ plugin)           ← sole HTTP server, 198 routes, 34 handlers
+RookNative (C++ plugin)           ← sole HTTP server, 263 routes, 42 handlers
        │
        │  P/Invoke callbacks
        ▼
@@ -63,40 +63,44 @@ Rhino 3D / Grasshopper
 
 | Layer | Role |
 |-------|------|
-| **RookNative (C++)** | The sole Rhino plugin and sole HTTP server. 198 routes across 34 handlers covering geometry, documents, scene graph, gumball, export, blocks, analysis, curves, meshes, SubD, and more. OS-assigned port discovered via `%LOCALAPPDATA%/Rook/discovery` JSON files, with legacy `%TEMP%/rook` compatibility reads. |
+| **RookNative (C++)** | The sole Rhino plugin and sole HTTP server. 263 routes across 42 handlers covering geometry, documents, scene graph, gumball, export, blocks, analysis, curves, meshes, SubD, annotations, materials, vision/media, BIM, and more. OS-assigned port discovered via `%LOCALAPPDATA%/Rook/discovery` JSON files, with legacy `%TEMP%/rook` compatibility reads. |
 | **Managed Companion (C#)** | Loaded by RookNative. Grasshopper routes pass through a P/Invoke callback bridge — no separate HTTP server. Also hosts the embedded chat panel. |
-| **MCP Server (Python)** | Translates 264 MCP tool calls into HTTP requests. Houses the knowledge graph, DSPy-based intent runtime (plan → route → execute → reflect), session recording, and the multi-agent system. Works with any MCP client. |
-| **Knowledge Graph** | Self-improving store of 196 Rhino command patterns (543+ observations) and 924 Grasshopper components (1,400+ intents). Powers intent-based execution and correction detection. |
+| **MCP Server (Python)** | Translates 392 MCP tool calls into HTTP requests. Houses the knowledge graph, DSPy-based intent runtime (plan → route → execute → reflect), session recording, and the multi-agent system. Works with any MCP client. |
+| **Knowledge Graph** | Self-improving store of 197 Rhino commands (543 observations) and 945 Grasshopper component notes (942 GUIDs, 1,533 intents) within ~1,230 total GH notes. Powers intent-based execution and correction detection. |
 | **Scene Graph** | Real-time spatial intelligence — shadow graph of all Rhino objects with shape classification, bounding-box metrics, and 8 spatial relationship types. Background thread with lock-free immutable snapshots. |
 
 ## Key Features
 
-### Rhino Geometry (90+ tools)
+### Rhino Geometry (~250 tools)
 
 Full programmatic control over Rhino's geometry engine:
 
 | Category | Capabilities |
 |----------|-------------|
-| **Creation** | Point, Line, Polyline, Curve, Circle, Arc, Ellipse, Rectangle, Box, Sphere, Cylinder, Cone, Torus, Surface, Extrusion, Loft, Sweep |
-| **Transforms** | Move, Rotate, Scale, Mirror, Copy |
-| **Booleans** | Union, Difference, Intersection |
-| **Topology** | Fillet, Chamfer, Offset, Trim, Split, Project, Pull |
+| **Creation** | Point, Line, Polyline, Curve, Circle, Arc, Ellipse, Rectangle, Box, Sphere, Cylinder, Cone, Torus, Surface, Extrusion, Loft, Sweep, Revolve, Pipe, Patch, Edge surface |
+| **Transforms** | Move, Rotate, Scale, Mirror, Copy, Arrays (linear, polar, rectangular) |
+| **Booleans** | Union, Difference, Intersection (Brep, mesh, and curve booleans) |
+| **Topology** | Fillet, Chamfer, Offset, Trim, Split, Project, Pull, Blend |
 | **SubD** | Box, Sphere, Cylinder, from Mesh/Surface, Subdivide, Crease, convert to Brep/Mesh |
 | **Mesh** | From Brep, primitives, Boolean, Reduce, QuadRemesh, Repair, Smooth, Weld/Unweld |
-| **Blocks** | 19 tools — Create, Insert, Explode, Delete, Rename, Link/Unlink, Nested queries |
+| **Blocks** | 49 tools — Create, Insert, Explode, Delete, Rename, Link/Unlink, Nested queries, batch transform/replace/restyle, layer census, instance distribution |
+| **Annotation** | Dimensions (linear, aligned, angular, radius, diameter), text, leaders, dots |
+| **Layers & Materials** | Full layer CRUD + properties/visibility/locking; create, assign, modify materials and textures |
 | **Analysis** | Area, Volume, Length, Curvature, Draft angle, Closest point, Normals, Topology queries |
-| **Materials** | Create, assign, modify materials and textures |
-| **Import/Export** | DWG, DXF, OBJ, STL, 3DM, STEP, IGES |
+| **Import/Export** | DWG, DXF, OBJ, STL, 3DM, STEP, IGES; Datasmith game export to Unreal |
 
-### Grasshopper Automation (70+ tools)
+### Grasshopper Automation (69 tools)
 
 Build and manipulate parametric definitions entirely through AI:
 
-- **Intent-based creation** — Describe what you want; Rook resolves component GUIDs from a catalog of 924 components and auto-wires inputs
-- **Full canvas control** — Create, connect, disconnect, delete, move, group, cluster components
-- **Value manipulation** — Set slider values, panel text, and Python 3 script source code
+- **Intent-based creation** — Describe what you want; Rook resolves component GUIDs from a catalog of 945 components and auto-wires inputs
+- **Full canvas control** — Create, connect, disconnect, delete, move, align, distribute, group, cluster components
+- **Scripting** — Create and edit Python 3 and C# script components, set pins, manage source
+- **Value manipulation** — Set slider values, panel text, and parameter properties (flatten/graft/reverse)
 - **References** — Set and clear geometry references from Rhino to GH
+- **Canvas capture** — Focus, zoom-to-fit, and render the canvas to an image the AI can see
 - **Inspection** — Query canvas state, component I/O, connections, errors, solution status
+- **Recipes & patterns** — Save, replay, and learn reusable definitions from real `.gh` files
 - **Session recording** — Track every GH operation with success/failure for learning
 
 ### Grasshopper Design Cascade (Claude Code Plugin)
@@ -111,10 +115,43 @@ A 4-skill workflow for building complex Grasshopper definitions:
 |-------|-------|-------------|
 | **Design** | `/design-grasshopper` | Explores knowledge store + scene, asks clarifying questions, produces a validated design doc |
 | **Plan** | `/plan-grasshopper` | Converts design to exact MCP tool call batches with GUID lookups and canvas positions |
-| **Execute** | `/execute-grasshopper` | Runs tool calls with `gh_solve` + `gh_errors` checkpoints every 3-5 components |
+| **Execute** | `/execute-grasshopper` | Runs tool calls with `gh_status` + `gh_errors` checkpoints every 3-5 components |
 | **Learn** | `/consolidate` | Updates the knowledge graph with patterns discovered during construction |
 
 Each phase auto-cascades into the next. The design doc is the boundary object — it survives context windows and makes commitment explicit before any tool touches the canvas.
+
+### Chirp — LLM-Powered Grasshopper Components
+
+Chirp components are native Grasshopper nodes with a language model embedded inside. They take data in, run LLM reasoning, and emit structured results — wiring into a definition like any other component.
+
+- **7 categories** — `planner`, `interpreter`, `critic`, `narrator`, `classifier`, `gate`, `editor`
+- **Single component** — `chirp_create` or the `/chirp` skill drops one reasoning node on the canvas
+- **Reasoning cascades** — `/chirp-cascade` builds multi-component chains that fan out shared reasoning context across disciplines, including Wasp aggregation grammars
+
+### Road Design (RoadCreator)
+
+A full road-network design pipeline — 42 `rc_*` / `road_*` tools bridging Rook's Rhino geometry with the RoadCreator plugin's computation:
+
+- **Alignment** — Centerlines, clothoids, cubic parabolas, vertical curves, widening
+- **Cross-sections & profiles** — Build, validate, and store road profiles; verges, shoulders, medians, barriers
+- **Surfaces** — 3D road surfaces, longitudinal/slope/terrain profiles, footprints
+- **Accessories** — Sidewalks, crossings, guardrails, concrete/DeltaBlok barriers, pole spacing
+- **Networks** — Intersection resolution, roundabouts, sidewalk corners, ownership assignment
+
+Drive it conversationally with the `/design-road` skill (single road) or `/masterplan-roads` (a connected network from multiple centerline curves).
+
+### RookBIM — Revit / BIM Inspection
+
+Agentic inspection of live BIM models via RhinoInside. 8 `rookbim_*` tools let an agent query the active Revit document, list categories, inspect element parameters, and select/highlight elements — element-identity-aware, read-first.
+
+### Image & Video Generation
+
+Rook can both *see* and *generate* visual content:
+
+- **Viewport capture** — Render any named view or display mode to an image the AI can reason over
+- **RookVision artifacts** — Generated and captured images stored in an artifact store with roles, approval workflow, and a gallery
+- **Video** — Render viewport/turntable video, Director-based camera animation along curves, job queue with status/estimate/cancel
+- **Model-agnostic generation** — A provider framework routes image/video generation across backends rather than hard-coding a single model
 
 ### Multi-Agent System
 
@@ -127,7 +164,7 @@ Spawn background AI agents that operate Rhino and Grasshopper autonomously:
 | `agent_status` | Monitor running agents (turn count, cost, active tools) |
 | `agent_abort` | Cancel a running agent |
 
-**Architecture:** Planner (Sonnet) decomposes → Workers (Haiku) execute → Guardian monitors for stuck loops / drift / budget → Conductor coordinates the fleet.
+**Architecture:** Planner (a stronger model, e.g. Opus) decomposes → Workers (a faster model, e.g. Sonnet) execute → Guardian monitors for stuck loops / drift / budget → Conductor coordinates the fleet. Models are configurable per role via profiles or `ROOK_PLANNER_MODEL` / `ROOK_WORKER_MODEL`.
 
 **Model-agnostic:** Agents use [litellm](https://github.com/BerriAI/litellm) — supports Anthropic, OpenAI, Ollama, LM Studio, and 100+ other providers.
 
@@ -137,8 +174,9 @@ Spawn background AI agents that operate Rhino and Grasshopper autonomously:
 
 A self-improving system that learns from every interaction:
 
-- **196 Rhino commands** with 543+ observations — correct syntax, modes, gotchas, and antipatterns
-- **924 Grasshopper components** cataloged with full I/O parameters and GUIDs
+- **197 Rhino commands** with 543 observations — correct syntax, modes, gotchas, and antipatterns
+- **945 Grasshopper components** cataloged with full I/O parameters and GUIDs (1,533 indexed intents)
+- **~1,230 GH knowledge notes** — components, recipes, teaching units, and recorded struggles, ~520 raw extracted patterns
 - **DSPy + MABWiser** — Intent resolution ranked by success rate; 97% token reduction vs raw patterns
 - **Correction detection** — Automatically detects when you fix a mistake and records the learning
 - **Tiered retrieval** — `quick` (20 tokens), `context` (50), `errors` (30), `raw` (500+)
@@ -161,7 +199,6 @@ Real-time spatial intelligence that gives AI agents a structured understanding o
 | **UV Mapping** | 4 tools (box, planar, cylinder, sphere) with auto-orientation and unit-aware scale |
 | **Game Export** | Rhino-to-Unreal pipeline via Datasmith — semantic tagging, validation, manifest export |
 | **AI Gumball** | Persistent transform tracker that hooks into Rhino's selection system |
-| **Viewport Capture** | AI can "see" the model — any named view, any display mode, configurable resolution |
 | **Session Recording** | Every command and GH operation recorded with full parameters — export as JSON or Markdown |
 | **Embedded Chat** | Dockable chat panel inside Rhino with streaming responses and full tool access |
 
@@ -195,7 +232,7 @@ The installer automatically:
   - Claude Code: `~/.claude/agents/`
 
 3. **Restart Rhino** and your MCP client
-5. In your MCP client, type `/mcp` — you should see `rook` with 264 tools
+5. In your MCP client, type `/mcp` — you should see `rook` with ~390 tools
 
 ### Bootstrap from Source
 
@@ -257,7 +294,7 @@ See [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) for more.
 ```
 Rook/
 ├── src/RookNative/              # C++ Rhino plugin (sole HTTP server)
-│   ├── Handlers/                # 34 handler files (198 routes)
+│   ├── Handlers/                # 42 handler files (263 routes)
 │   ├── RookServer.cpp           # HTTP server (cpp-httplib, OS-assigned port)
 │   └── CMainThreadDispatcher.*  # Rhino UI thread serialization
 │
@@ -266,19 +303,22 @@ Rook/
 │   └── UI/Chat/                 # Embedded chat panel (Eto)
 │
 ├── mcp_server/src/rook/         # Python MCP server
-│   ├── server.py                # 264 MCP tool definitions
+│   ├── server.py                # 392 MCP tool definitions
 │   ├── agent/                   # Multi-agent system (Planner/Worker/Guardian)
 │   └── learning/                # Knowledge stores + DSPy evolution
 │
 ├── knowledge/                   # Persistent knowledge stores
-│   ├── gh/                      # 924 GH components, 231 patterns
-│   └── commands/                # 196 Rhino commands, 543+ observations
+│   ├── gh/                      # 945 GH components, ~1,230 notes, ~520 patterns
+│   └── commands/                # 197 Rhino commands, 543 observations
 │
-├── .claude/skills/              # Skills (copied to user skill dirs for both Claude Code and Codex on release install)
-│   ├── design-grasshopper/      # Phase 1: Collaborative design
-│   ├── plan-grasshopper/        # Phase 2: Tactical tool call plan
-│   ├── execute-grasshopper/     # Phase 3: Batched execution
-│   └── consolidate/             # Phase 4: Knowledge consolidation
+├── .claude/skills/              # 16 skills (copied to user skill dirs for Claude Code and Codex on release install)
+│   ├── design-grasshopper/      # GH cascade phase 1: Collaborative design
+│   ├── plan-grasshopper/        # GH cascade phase 2: Tactical tool call plan
+│   ├── execute-grasshopper/     # GH cascade phase 3: Batched execution
+│   ├── consolidate/             # GH cascade phase 4: Knowledge consolidation
+│   ├── chirp/ chirp-cascade/    # LLM-embedded GH components
+│   ├── design-road/ masterplan-roads/  # Road design & networks
+│   └── ...                      # capture-convention, clean-layers, twisted-column, etc.
 │
 ├── installer/                   # Inno Setup installer source
 ├── install.ps1                  # PowerShell installer (Windows)
@@ -286,13 +326,25 @@ Rook/
 └── docs/                        # Documentation
 ```
 
-## Contributing
+## Support & Feedback
 
-Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for the contributor guide and [CLAUDE.md](CLAUDE.md) for architecture details.
+Rook is proprietary software and its source is not open for outside contributions —
+but your bug reports, questions, and feature ideas are very welcome. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for how to reach us.
+
+- **Bugs & feature requests** — [GitHub Issues](https://github.com/bringfire/Rook/issues)
+- **Security** — [SECURITY.md](SECURITY.md) (please don't file public issues for vulnerabilities)
+- **Email** — bringfiregames@gmail.com
 
 ## License
 
-MIT License
+Rook is proprietary software, licensed (not sold) under the
+**[Rook End User License Agreement](LICENSE)**. By installing or using Rook you
+agree to that Agreement. The source code is not licensed for redistribution or
+derivative works.
+
+Bundled third-party open-source components remain governed by their own licenses
+(see the accompanying notices and the `third_party/` directory).
 
 ## Acknowledgments
 

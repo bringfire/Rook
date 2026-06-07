@@ -1,6 +1,6 @@
 # Current Architecture
 
-Updated: 2026-06-04
+Updated: 2026-06-05
 
 This file is the short canonical description of the live runtime architecture.
 
@@ -11,7 +11,7 @@ MCP Client (Claude Code, Claude Desktop, Codex CLI, Cursor, etc.)
        │
        │  MCP Protocol (stdio)
        ▼
-Rook MCP Server (Python)          ← 300 MCP tools, knowledge graph, agent system
+Rook MCP Server (Python)          ← 392 MCP tools, knowledge graph, agent system
   │         │
   │         │ HTTP (127.0.0.1, OS-assigned port via discovery file)
   │         ▼
@@ -19,7 +19,7 @@ Rook MCP Server (Python)          ← 300 MCP tools, knowledge graph, agent syst
   │
   │ HTTP (127.0.0.1, OS-assigned port via bridge.py instance discovery)
   ▼
-RookNative (C++ plugin)           ← sole HTTP server, 242 routes, 35 handlers
+RookNative (C++ plugin)           ← sole HTTP server, 263 routes, 42 handlers
        │
        │ P/Invoke callbacks
        ▼
@@ -39,7 +39,7 @@ Rhino 3D / Grasshopper
 
 | Fact | Value |
 |------|-------|
-| HTTP routes | 242 registrations across 35 handler files |
+| HTTP routes | 292 registrations (263 unique paths) across 42 handler files |
 | HTTP library | cpp-httplib, port 0 (OS-assigned) |
 | Thread pool | 8 threads (capped) |
 | Thread dispatch | CMainThreadDispatcher — all Rhino API calls serialize through UI thread |
@@ -80,7 +80,7 @@ Managed companion domain evidence is internal. The companion writes it to its ex
 
 | Fact | Value |
 |------|-------|
-| MCP tools | 300 registered in `server.py` |
+| MCP tools | 392 registered in `server.py` |
 | Entry point | `python -m rook` (stdio transport) |
 | HTTP bridge | `bridge.py` — discovers native plugin via `%LOCALAPPDATA%\Rook\discovery` by default and legacy `%TEMP%\rook` compatibility files |
 | Key subsystems | Intent runtime, Knowledge stores, Agent system, Chat service, DSPy consolidation, Chirp manager |
@@ -129,8 +129,8 @@ A test or live harness reading `call_tool()` output therefore parses the success
 |-------|----------|------|
 | UnifiedStore (GH) | `knowledge/gh/notes/` | ~1,230 notes (component, recipe, teaching, struggle) |
 | PatternStore (GH) | `knowledge/gh/patterns/` | ~520 raw patterns |
-| CommandKnowledgeStore | `knowledge/commands/` | 196 Rhino commands, 543+ observations |
-| Sparse Index | `knowledge/gh/sparse_index.json` | ~940 GUIDs, ~1,530 intents |
+| CommandKnowledgeStore | `knowledge/commands/` | 197 Rhino commands, 543 observations |
+| Sparse Index | `knowledge/gh/sparse_index.json` | 942 GUIDs, 1,533 intents |
 
 ## Port Discovery
 

@@ -1,6 +1,6 @@
 # Agent Architecture
 
-Updated: 2026-04-03
+Updated: 2026-06-05
 
 This document describes the agent system as it exists today.
 
@@ -115,9 +115,9 @@ Task execution runners. Three entry points:
 
 | Function | Purpose | Model |
 |----------|---------|-------|
-| `run_task(task)` | Single autonomous agent with Guardian | Haiku (configurable) |
-| `run_swarm(tasks)` | Parallel multi-task with Conductor + asset exclusivity | Haiku workers |
-| `run_plan(request)` | Planner decomposes, then dispatches via run_task/run_swarm | Opus planner → Haiku workers |
+| `run_task(task)` | Single autonomous agent with Guardian | Sonnet (configurable) |
+| `run_swarm(tasks)` | Parallel multi-task with Conductor + asset exclusivity | Sonnet workers |
+| `run_plan(request)` | Planner decomposes, then dispatches via run_task/run_swarm | Opus planner → Sonnet workers |
 
 **Asset exclusivity:** When running a swarm, tasks with overlapping `workspace_assets` are never scheduled concurrently. This prevents two workers from modifying the same layer simultaneously.
 
@@ -125,7 +125,7 @@ Task execution runners. Three entry points:
 
 ## Progressive Tool Disclosure
 
-With 300 MCP tools, showing everything to an agent wastes context and confuses the LLM. The system uses three tiers:
+With 392 MCP tools, showing everything to an agent wastes context and confuses the LLM. The system uses three tiers:
 
 ### Tier 0: Always Active (~12 tools, ~1,800 tokens)
 
@@ -146,7 +146,7 @@ Groups like `gh_canvas`, `rhino_transform`, `curves`, `analysis`, `layers_readon
 
 ### Tier 2: Individual Tools (search)
 
-Any of the 300 tools can be found via `search_tools("boolean")`. Returns matching tools with descriptions.
+Any of the 392 tools can be found via `search_tools("boolean")`. Returns matching tools with descriptions.
 
 ### Stale Tool Deactivation
 
