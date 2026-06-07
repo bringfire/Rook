@@ -862,7 +862,6 @@ def plan_linked_block_execution(reg, contract_ids):
     requested_set = set(requested)
 
     problems: list[dict[str, Any]] = []
-    target_of: dict[str, str] = {}
     for cid in requested:
         ct = reg.get_contract(cid)
         if ct is None:
@@ -870,15 +869,19 @@ def plan_linked_block_execution(reg, contract_ids):
         elif ct.merge_kind != _PLANNABLE_MERGE_KIND:
             problems.append({"code": "unsupported_merge_kind", "contractId": cid,
                              "mergeKind": ct.merge_kind})
-        else:
-            target_of[cid] = ct.target_artifact_id
     if problems:
         return {"ok": False, "problems": problems}
 
-    pairs = [(cid, target_of[cid], reg.sources_for(cid)) for cid in requested]
-    order_key = {cid: (reg.get_contract(cid).created_at, cid) for cid in requested}
+    # Order over the WHOLE contract graph (one source of truth), then filter to the requested
+    # ids — a scoped subgraph drops transitive edges through omitted contracts and can invert
+    # order. target_of/order_key/pairs must cover every node, so build them across all contracts.
+    contracts = reg.list_contracts()
+    target_of = {ct.contract_id: ct.target_artifact_id for ct in contracts}
+    order_key = {ct.contract_id: (ct.created_at, ct.contract_id) for ct in contracts}
+    pairs = [(ct.contract_id, ct.target_artifact_id, reg.sources_for(ct.contract_id))
+             for ct in contracts]
     order, cycle = _ordered_contract_ids(pairs, order_key)
-    if cycle is not None:
+    if cycle is not None:   # defensive: insert_contract prevents cycles atomically
         return {"ok": False, "problems": [{"code": "merge_cycle_detected", "cycle": cycle}]}
 
     plan = [{"contractId": cid, "targetArtifactId": target_of[cid]}

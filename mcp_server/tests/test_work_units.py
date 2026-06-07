@@ -1013,3 +1013,37 @@ def test_plan_rejects_unsupported_merge_kind(tmp_path):
     assert out == {"ok": False, "problems": [
         {"code": "unsupported_merge_kind", "contractId": "A", "mergeKind": "import"}]}
     reg.close()
+
+
+def test_plan_unrelated_contract_does_not_affect_subchain(tmp_path):
+    reg = _fresh_registry(tmp_path)
+    reg.insert_contract("A", target="X", sources=["s1"], merge_kind="linked_block",
+                        refresh_policy="refresh_on_demand", work_unit_id=None, now=1)
+    reg.insert_contract("B", target="M", sources=["X"], merge_kind="linked_block",
+                        refresh_policy="refresh_on_demand", work_unit_id=None, now=2)
+    # Unrelated contract D whose source 'ghost' is never produced/registered.
+    reg.insert_contract("D", target="Z", sources=["ghost"], merge_kind="linked_block",
+                        refresh_policy="refresh_on_demand", work_unit_id=None, now=3)
+    out = work_units.plan_linked_block_execution(reg, ["A", "B"])
+    assert out["ok"] is True
+    assert [p["contractId"] for p in out["plan"]] == ["A", "B"]
+    reg.close()
+
+
+def test_plan_transitive_omitted_dependency_orders_over_full_graph(tmp_path):
+    """Regression for the scoped-subgraph inverted-order bug. Full graph: A -> C -> B
+    (C.sources=[target(A)], B.sources=[target(C)]). Requesting [A, B] (omitting C) must yield
+    [A, B], not [B, A]. created_at is chosen so key(B) < key(A): a scoped-only subgraph over
+    {A, B} has no edge and tie-breaks to [B, A]; whole-graph order then filter yields [A, B]."""
+    reg = _fresh_registry(tmp_path)
+    reg.insert_contract("B", target="M", sources=["Y"], merge_kind="linked_block",
+                        refresh_policy="refresh_on_demand", work_unit_id=None, now=1)  # earliest
+    reg.insert_contract("A", target="X", sources=["s1"], merge_kind="linked_block",
+                        refresh_policy="refresh_on_demand", work_unit_id=None, now=2)
+    reg.insert_contract("C", target="Y", sources=["X"], merge_kind="linked_block",
+                        refresh_policy="refresh_on_demand", work_unit_id=None, now=3)
+    out = work_units.plan_linked_block_execution(reg, ["A", "B"])
+    assert out["ok"] is True
+    assert [p["contractId"] for p in out["plan"]] == ["A", "B"]   # NOT ["B", "A"]
+    # Omitting the producer C raises no problem (allow-omitted policy).
+    reg.close()
