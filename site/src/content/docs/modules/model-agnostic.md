@@ -33,6 +33,13 @@ giving you a hundred-odd providers, local or cloud.
 
 You choose the mind; Rook provides the hands.
 
+:::tip[Try it — paste to your agent]
+```text
+Which AI model are you using through Rook right now, and what would I change to
+run a local model via Ollama instead?
+```
+:::
+
 ## Related
 
 - [Many Providers](/Rook/modules/multi-provider/) — the same openness for image, video, and 3D generation

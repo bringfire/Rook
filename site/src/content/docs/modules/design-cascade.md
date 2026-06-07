@@ -33,3 +33,10 @@ confirm the plan, and only then does Rook build — checking itself as it goes.
 
 For quick, one-off canvas work, just ask directly — see
 [Grasshopper](/Rook/modules/grasshopper/).
+
+:::tip[Try it — paste to your agent]
+```text
+Walk me through the design cascade for a parametric façade driven by attractor
+points — start with /design-grasshopper and ask me questions before you plan.
+```
+:::

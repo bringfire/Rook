@@ -40,6 +40,13 @@ adding a model is routine.
 BYOK throughout — one keyring, separate vaults. You use your own provider accounts;
 Rook just routes to them.
 
+:::tip[Try it — paste to your agent]
+```text
+Which image, video, and 3D providers can Rook use, and which ones do I currently
+have API keys configured for?
+```
+:::
+
 ## Related
 
 - [Image Round-Trip](/Rook/modules/image-round-trip/) · [RookVision](/Rook/modules/rookvision/) · [Hunyuan 3D](/Rook/modules/hunyuan-3d/)

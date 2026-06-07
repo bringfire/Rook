@@ -43,6 +43,13 @@ versus reading raw patterns.
 You get the benefit of accumulated expertise — the patterns experienced users
 rely on — without having to learn or maintain any of it yourself.
 
+:::tip[Try it — paste to your agent]
+```text
+Before you build anything, query Rook's knowledge for how to create a cone and
+tell me the gotchas it has on record.
+```
+:::
+
 ## Related
 
 - [The Design Cascade](/Rook/modules/design-cascade/) — its *Consolidate* phase feeds the graph
