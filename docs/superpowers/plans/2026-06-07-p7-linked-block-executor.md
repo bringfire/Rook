@@ -474,6 +474,9 @@ class FakeRhino:
 
     async def __call__(self, name, args):
         self.seen_ports.append(bridge.get_rhino_request_context()["port"])
+        # Pin the "routing via context, not args" rule (the stale-port correction):
+        assert "port" not in args and "session" not in args, \
+            f"sub-call {name!r} must not carry routing selectors: {args!r}"
         self.calls.append((name, args))
         if name == "rhino_document":
             self._doc_reads += 1
@@ -716,7 +719,7 @@ The `_read_blocks` failure check sits before the `dry_run`/execute branch, so it
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_merge_execution.py -k dry_run -q`
+Run: `mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_merge_execution.py -k "dry_run or block_table_read_failure" -q`
 Expected: FAIL — `NotImplementedError` ("classify + apply lands in Task 5-6").
 
 - [ ] **Step 3: Implement** — in `mcp_server/src/rook/merge_execution.py`, add the classify helpers above `execute_merge_contract`:
@@ -804,7 +807,7 @@ Then replace the `raise NotImplementedError("classify + apply lands in Task 5-6"
 
 - [ ] **Step 4: Run to verify it passes**
 
-Run: `mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_merge_execution.py -k dry_run -q`
+Run: `mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_merge_execution.py -k "dry_run or block_table_read_failure" -q`
 Expected: PASS (3 dry-run tests).
 
 - [ ] **Step 5: Commit**
