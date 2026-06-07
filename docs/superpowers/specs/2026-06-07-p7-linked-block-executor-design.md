@@ -144,7 +144,7 @@ Notes:
 
 ## 7. Apply + save (execute mode, `dryRun:false`)
 
-1. **Pre-flight gate.** Classify *all* sources against one `/blocks` snapshot. If any source is a hard blocker (`conflict_nonlinked`, `conflict_different_source`, `source_artifact_not_present`, `source_path_unresolvable`), return `merge_contract_not_executable` with the full per-source plan + blockers — **zero mutation, zero save**. Conflicts are caught before the document is touched.
+1. **Pre-flight gate.** Read the `/blocks` snapshot *once*; if that read itself fails, return `block_table_read_failed` — **zero mutation, zero save** (a failed read must never be mistaken for an empty block table, which would let mutation proceed past a failed pre-flight; this fail-closed check precedes the `dryRun`/execute branch, so it holds in both modes). Otherwise classify *all* sources against the snapshot. If any source is a hard blocker (`conflict_nonlinked`, `conflict_different_source`, `source_artifact_not_present`, `source_path_unresolvable`), return `merge_contract_not_executable` with the full per-source plan + blockers — **zero mutation, zero save**. Conflicts are caught before the document is touched.
 2. **Apply** only an all-clear plan (every source ∈ {`would_create_link`, `would_refresh_existing`, `already_linked`}), in deterministic source order. **Every sub-call below runs inside the §4 `bridge.rhino_request_context(...)`; args carry only domain params — never `port`/`session` (routing comes from the bound context):**
    - `would_create_link` → `call_tool("rhino_block_link", {"path": source_row.path, "name": name, "updateType": "linked", "insertionPoint": [0, 0, 0]})`. Passing `insertionPoint` also places one instance at origin (native behavior), so the merged source is visible. Idempotent: link is never re-called once the def exists, so the single instance is created exactly once.
    - `would_refresh_existing` → `call_tool("rhino_block_refresh", {"name": name})`.
@@ -234,6 +234,7 @@ Two-layer naming: dry-run `plannedAction` → execute `outcome` (`would_create_l
 | `unsupported_merge_kind` | false | kind not `linked_block` (+ `supportedMergeKinds`) |
 | `target_not_open` | true | active doc absent / unsaved (no path) |
 | `target_document_mismatch` | true | active doc artifact id ≠ contract target |
+| `block_table_read_failed` | true | the `/blocks` snapshot read itself failed — fail closed (a failed read must NOT be mistaken for an empty block table); no mutation, no save, in both modes |
 | `merge_contract_not_executable` | false | pre-flight blockers present (carries `blockers` + `perSource`) |
 | `document_save_failed` | true | full apply ok, save errored (`executed:true, saved:false`) |
 | `merge_contract_execution_incomplete` | true | mid-apply native/race failure (`executed:false, saved:false`) |

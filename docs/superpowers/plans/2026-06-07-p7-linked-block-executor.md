@@ -384,6 +384,7 @@ _RETRYABLE = {
     "panel_target_config_error": False, "rhino_target_unavailable": True,
     "contract_not_found": False, "merge_kind_mismatch": False, "unsupported_merge_kind": False,
     "target_not_open": True, "target_document_mismatch": True,
+    "block_table_read_failed": True,
     "merge_contract_not_executable": False,
     "document_save_failed": True, "merge_contract_execution_incomplete": True,
 }
@@ -460,9 +461,13 @@ from rook import targeting, bridge
 
 class FakeRhino:
     """Records context port on every call; returns canned envelopes by tool name."""
-    def __init__(self, doc_path, blocks=None, link_ok=True, refresh_ok=True, save_ok=True):
+    def __init__(self, doc_path, blocks=None, blocks_ok=True,
+                 link_ok=True, refresh_ok=True, save_ok=True, doc_path_after=None):
         self.doc_path = doc_path
+        self.doc_path_after = doc_path_after  # if set, returned on the 2nd+ rhino_document read (drift)
+        self._doc_reads = 0
         self.blocks = blocks if blocks is not None else []
+        self.blocks_ok = blocks_ok
         self.link_ok, self.refresh_ok, self.save_ok = link_ok, refresh_ok, save_ok
         self.seen_ports = []
         self.calls = []
@@ -471,9 +476,12 @@ class FakeRhino:
         self.seen_ports.append(bridge.get_rhino_request_context()["port"])
         self.calls.append((name, args))
         if name == "rhino_document":
-            return {"success": True, "data": {"documentPath": self.doc_path}}
+            self._doc_reads += 1
+            p = (self.doc_path if (self._doc_reads == 1 or self.doc_path_after is None)
+                 else self.doc_path_after)
+            return {"success": True, "data": {"documentPath": p}}
         if name == "rhino_blocks":
-            return {"success": True, "data": {"blocks": self.blocks}}
+            return {"success": self.blocks_ok, "data": {"blocks": self.blocks}}
         if name == "rhino_block_link":
             return {"success": self.link_ok, "data": {"name": args["name"]}}
         if name == "rhino_block_refresh":
@@ -526,11 +534,34 @@ def test_target_not_open(temp_registries, monkeypatch):
         contract_id=cid, session="rhino-1", expected_merge_kind="linked_block",
         dry_run=False, call_tool=fake))
     assert out["success"] is False and out["data"]["code"] == "target_not_open"
+
+
+def test_session_resolution_passes_has_explicit_session(temp_registries, monkeypatch):
+    # Finding 3 (load-bearing spec correction): a broken impl that omits has_explicit_session=True
+    # would silently fall through to ambient routing. A dedicated fake resolver records the kwargs
+    # so omission FAILS this test (has_explicit_session would default to False).
+    cid, *_ = _make_contract(temp_registries)
+    seen = {}
+
+    def _fake(name, *, explicit_port=None, explicit_session=None, has_explicit_session=False):
+        seen.update(name=name, explicit_session=explicit_session,
+                    has_explicit_session=has_explicit_session)
+        return targeting.ToolRoute(
+            success=True, target=targeting.InstanceRef(port=_PINNED, process_id=4242),
+            selection="session")
+
+    monkeypatch.setattr(targeting, "resolve_tool_route", _fake)
+    fake = FakeRhino(doc_path="C:/wrong.3dm")  # mismatch → returns early after resolution
+    _run(merge_execution.execute_merge_contract(
+        contract_id=cid, session="rhino-1", expected_merge_kind="linked_block",
+        dry_run=True, call_tool=fake))
+    assert seen == {"name": "rhino_document", "explicit_session": "rhino-1",
+                    "has_explicit_session": True}
 ```
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_merge_execution.py -k "session_not_found or target_" -q`
+Run: `mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_merge_execution.py -k "session_not_found or target_ or has_explicit" -q`
 Expected: FAIL — `NotImplementedError` (the session/apply path isn't built).
 
 - [ ] **Step 3: Implement** — in `mcp_server/src/rook/merge_execution.py`, add the helpers above `execute_merge_contract`:
@@ -596,8 +627,8 @@ Then replace the `raise NotImplementedError(...)` tail of `execute_merge_contrac
 
 - [ ] **Step 4: Run to verify it passes**
 
-Run: `mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_merge_execution.py -k "session_not_found or target_" -q`
-Expected: PASS. The full file still has 3 tests reaching `NotImplementedError` only via the not-yet-built classify path — none of the current tests trigger it.
+Run: `mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_merge_execution.py -k "session_not_found or target_ or has_explicit" -q`
+Expected: PASS. (The Task-5/6 classify+apply path is still a `NotImplementedError` stub, but none of these tests reach it — each returns at session resolution or the target-identity check.)
 
 - [ ] **Step 5: Commit**
 
@@ -665,7 +696,23 @@ def test_dry_run_conflict_different_source(temp_registries, monkeypatch):
     assert out["data"]["executable"] is False
     assert out["data"]["perSource"][0]["plannedAction"] == lb.CONFLICT_DIFFERENT_SOURCE
     assert out["data"]["blockers"][0]["code"] == lb.CONFLICT_DIFFERENT_SOURCE
+
+
+def test_block_table_read_failure_fails_closed(temp_registries, monkeypatch):
+    # Finding 1: a FAILED /blocks read must NOT look like an empty table; fail closed, no mutation.
+    cid, tgt_id, src_id, tgt_path, src_path = _make_contract(temp_registries)
+    _pin_route(monkeypatch)
+    fake = FakeRhino(doc_path=tgt_path, blocks_ok=False)  # /blocks returns success:false
+    out = _run(merge_execution.execute_merge_contract(
+        contract_id=cid, session="rhino-1", expected_merge_kind="linked_block",
+        dry_run=False, call_tool=fake))
+    assert out["success"] is False and out["data"]["code"] == "block_table_read_failed"
+    assert out["data"]["retryable"] is True
+    assert "rhino_block_link" not in [n for n, _ in fake.calls]    # never mutated
+    assert "rhino_document_ops" not in [n for n, _ in fake.calls]  # never saved
 ```
+
+The `_read_blocks` failure check sits before the `dry_run`/execute branch, so it fails closed in **both** modes (a dry-run over an unreadable table must not report a fake `would_create_link` plan either).
 
 - [ ] **Step 2: Run to verify it fails**
 
@@ -698,12 +745,21 @@ def _observed_source_artifact_id(block_facts: dict, target_dir: str):
         return None
 
 
-async def _classify(call_tool: CallTool, contract_id: str, sources, refresh_policy: str,
-                    target_dir: str):
-    """Read /blocks ONCE; classify every source via the PURE planner. Returns the perSource list."""
+async def _read_blocks(call_tool: CallTool):
+    """Read the target document's block table ONCE. (by_name, None) on success — a SUCCESSFUL read
+    of an empty table is {}; a FAILED read is fail-closed to (None, err) so a read failure is NEVER
+    mistaken for 'no existing defs' (which would let mutation proceed past a failed pre-flight read)."""
     resp = await call_tool("rhino_blocks", {})
-    blocks = ((resp.get("data") or {}).get("blocks") or []) if resp.get("success") is not False else []
-    by_name = {b.get("name"): b for b in blocks if isinstance(b, dict)}
+    if resp.get("success") is False:
+        return None, _err("block_table_read_failed",
+                          "Could not read the target document's block table; not mutating.")
+    blocks = (resp.get("data") or {}).get("blocks") or []
+    return {b.get("name"): b for b in blocks if isinstance(b, dict)}, None
+
+
+async def _classify(by_name: dict, contract_id: str, sources, refresh_policy: str, target_dir: str):
+    """Classify every source via the PURE planner over an already-read block snapshot. Returns the
+    perSource list."""
     per_source = []
     for sid in sources:
         name = _lb.block_def_name(contract_id, sid)
@@ -733,7 +789,10 @@ Then replace the `raise NotImplementedError("classify + apply lands in Task 5-6"
 
 ```python
         target_dir = os.path.dirname(active_path)
-        per_source = await _classify(call_tool, contract_id, sources, contract.refresh_policy, target_dir)
+        by_name, berr = await _read_blocks(call_tool)   # fail closed on a failed pre-flight read
+        if berr is not None:
+            return berr
+        per_source = await _classify(by_name, contract_id, sources, contract.refresh_policy, target_dir)
         blockers = _blockers_of(per_source)
         if dry_run:
             return {"success": True, "data": {
@@ -807,6 +866,7 @@ def test_execute_save_failure(temp_registries, monkeypatch):
     assert out["success"] is False
     assert out["data"]["code"] == "document_save_failed"
     assert out["data"]["executed"] is True and out["data"]["saved"] is False
+    assert out["data"]["retryable"] is True  # Finding 4: failure envelopes carry retryable
 
 
 def test_execute_mid_apply_failure(temp_registries, monkeypatch):
@@ -819,6 +879,7 @@ def test_execute_mid_apply_failure(temp_registries, monkeypatch):
     assert out["success"] is False
     assert out["data"]["code"] == "merge_contract_execution_incomplete"
     assert out["data"]["executed"] is False and out["data"]["saved"] is False
+    assert out["data"]["retryable"] is True  # Finding 4: failure envelopes carry retryable
     assert out["data"]["perSource"][0]["outcome"] == lb.BLOCK_LINK_FAILED
     assert "rhino_document_ops" not in [n for n, _ in fake.calls]  # never saved
 
@@ -838,6 +899,22 @@ def test_execute_idempotent_rerun_already_linked(temp_registries, monkeypatch):
     assert out["success"] is True and out["data"]["saved"] is True
     assert out["data"]["perSource"][0]["outcome"] == lb.ALREADY_LINKED
     assert "rhino_block_link" not in [n for n, _ in fake.calls]  # no duplicate def
+
+
+def test_execute_target_drift_before_save(temp_registries, monkeypatch):
+    # Finding 4: pre-save drift (active doc changed under us) → target_document_mismatch, no save,
+    # with executed:true/saved:false and an explicit retryable.
+    cid, tgt_id, src_id, tgt_path, src_path = _make_contract(temp_registries)
+    _pin_route(monkeypatch)
+    # 1st rhino_document read == target (verify passes); 2nd (pre-save re-verify) drifts.
+    fake = FakeRhino(doc_path=tgt_path, blocks=[], doc_path_after="C:/swapped-under-us.3dm")
+    out = _run(merge_execution.execute_merge_contract(
+        contract_id=cid, session="rhino-1", expected_merge_kind="linked_block",
+        dry_run=False, call_tool=fake))
+    assert out["success"] is False and out["data"]["code"] == "target_document_mismatch"
+    assert out["data"]["executed"] is True and out["data"]["saved"] is False
+    assert out["data"]["retryable"] is True
+    assert "rhino_document_ops" not in [n for n, _ in fake.calls]  # never saved
 ```
 
 - [ ] **Step 2: Run to verify it fails**
@@ -877,25 +954,22 @@ Then replace the `raise NotImplementedError("apply + save lands in Task 6")` wit
         for entry in per_source:
             entry["outcome"] = await _apply_one(call_tool, entry)
             if entry["outcome"] in (_lb.BLOCK_LINK_FAILED, _lb.BLOCK_REFRESH_FAILED):
-                return {"success": False, "data": {
-                    "code": "merge_contract_execution_incomplete",
-                    "executed": False, "saved": False, "perSource": per_source,
-                    "message": "A block op failed mid-apply; the live target holds unsaved "
-                               "partial changes (close-without-save discards them)."}}
+                return _err("merge_contract_execution_incomplete",
+                            "A block op failed mid-apply; the live target holds unsaved partial "
+                            "changes (close-without-save discards them).",
+                            executed=False, saved=False, perSource=per_source)
         # re-verify identity immediately before the save membrane
         recheck_path, rerr = await _read_active_doc_path(call_tool)
         if rerr is not None or _verify_target_identity(recheck_path, contract.target_artifact_id) is not None:
-            return {"success": False, "data": {
-                "code": "target_document_mismatch", "executed": True, "saved": False,
-                "perSource": per_source,
-                "message": "The active document changed before save; not saved."}}
+            return _err("target_document_mismatch",
+                        "The active document changed before save; not saved.",
+                        executed=True, saved=False, perSource=per_source)
         save = await call_tool("rhino_document_ops", {"action": "save", "path": active_path})
         if save.get("success") is False:
-            return {"success": False, "data": {
-                "code": "document_save_failed", "executed": True, "saved": False,
-                "perSource": per_source,
-                "message": "All links applied but the save failed; live target holds complete "
-                           "unsaved changes."}}
+            return _err("document_save_failed",
+                        "All links applied but the save failed; the live target holds complete "
+                        "unsaved changes.",
+                        executed=True, saved=False, perSource=per_source)
         return {"success": True, "data": {
             "executed": True, "saved": True, "perSource": per_source}}
 ```
@@ -1043,12 +1117,24 @@ async def _save_box_source(path):
     assert s.get("success") is not False, f"save source failed: {s!r}"
 
 
-async def _session_id():
+async def _session_for_doc(target_path):
+    """Select the session whose active document IS our target — the explicit-session contract.
+    rhino_sessions entries carry a 'session' id (e.g. 'rhino-<pid>'); pick by document identity,
+    NOT ordering ('first live' would be wrong on a multi-Rhino machine). A dead session won't
+    return a matching doc, so the match also filters liveness implicitly."""
     sess = await _mcp_tool_executor("rhino_sessions", {})
     items = (sess.get("data") or {}).get("sessions") or sess.get("sessions") or []
-    live = [s for s in items if s.get("lifecycleStatus", s.get("status")) in ("live", "running", None)]
-    assert live, f"no live session in {sess!r}"
-    return live[0].get("sessionId") or live[0].get("id")
+    target_norm = artifacts.normalize_path(target_path)
+    for s in items:
+        sid = s.get("session") or s.get("sessionId") or s.get("id")
+        if not sid:
+            continue
+        doc = await _mcp_tool_executor("rhino_document", {"session": sid})
+        path = (doc.get("documentPath") or doc.get("path")
+                or (doc.get("data") or {}).get("documentPath"))
+        if path and artifacts.normalize_path(path) == target_norm:
+            return sid
+    raise AssertionError(f"no session's active doc == {target_path!r}; sessions={items!r}")
 
 
 async def test_execute_linked_block_contract_end_to_end(fresh_document):
@@ -1072,7 +1158,7 @@ async def test_execute_linked_block_contract_end_to_end(fresh_document):
             target_artifact_id=tgt_id, source_artifact_ids=[src_id],
             merge_kind="linked_block", refresh_policy="refresh_on_demand")
         cid = rec["data"]["contractId"]
-        session = await _session_id()
+        session = await _session_for_doc(tgt)  # explicit-session contract: pick by document identity
 
         # dry-run: executable, would_create_link
         dry = await _mcp_tool_executor("rhino_merge_contract_execute",
