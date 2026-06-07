@@ -64,3 +64,13 @@ def test_call_tool_dispatches_planned_record(tmp_path, monkeypatch):
     assert parse_call_tool_data(out)["plannedContractId"].startswith("pc-")
     work_units._reset_work_units_registry_singleton()
     artifacts._reset_artifact_registry_singleton()
+
+
+def test_merge_contract_execute_is_non_routed_mutate():
+    # Finding 1: it MUTATES Rhino via internal subcalls, so it is NOT meta — but it is
+    # non-routed (resolves its own session) and owns a non-routing `session` argument.
+    name = "rhino_merge_contract_execute"
+    assert name in targeting._ALL_KNOWN_TOOLS
+    assert name not in targeting._META_TOOLS
+    assert targeting.policy_for_tool(name) == targeting.RhinoToolPolicy(False, "mutate")
+    assert targeting.allows_non_routed_session_argument(name) is True
