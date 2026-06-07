@@ -145,12 +145,12 @@ Notes:
 ## 7. Apply + save (execute mode, `dryRun:false`)
 
 1. **Pre-flight gate.** Classify *all* sources against one `/blocks` snapshot. If any source is a hard blocker (`conflict_nonlinked`, `conflict_different_source`, `source_artifact_not_present`, `source_path_unresolvable`), return `merge_contract_not_executable` with the full per-source plan + blockers — **zero mutation, zero save**. Conflicts are caught before the document is touched.
-2. **Apply** only an all-clear plan (every source ∈ {`would_create_link`, `would_refresh_existing`, `already_linked`}), in deterministic source order:
-   - `would_create_link` → `call_tool("rhino_block_link", {path: source_row.path, name, updateType:"linked", insertionPoint:[0,0,0], port})`. Passing `insertionPoint` also places one instance at origin (native behavior), so the merged source is visible. Idempotent: link is never re-called once the def exists, so the single instance is created exactly once.
-   - `would_refresh_existing` → `call_tool("rhino_block_refresh", {name, port})`.
+2. **Apply** only an all-clear plan (every source ∈ {`would_create_link`, `would_refresh_existing`, `already_linked`}), in deterministic source order. **Every sub-call below runs inside the §4 `bridge.rhino_request_context(...)`; args carry only domain params — never `port`/`session` (routing comes from the bound context):**
+   - `would_create_link` → `call_tool("rhino_block_link", {"path": source_row.path, "name": name, "updateType": "linked", "insertionPoint": [0, 0, 0]})`. Passing `insertionPoint` also places one instance at origin (native behavior), so the merged source is visible. Idempotent: link is never re-called once the def exists, so the single instance is created exactly once.
+   - `would_refresh_existing` → `call_tool("rhino_block_refresh", {"name": name})`.
    - `already_linked` → no-op.
 3. **Re-verify** active-doc identity == target (§9) immediately before save; drift → `target_document_mismatch`, no save.
-4. **Save** once → `call_tool("rhino_document_ops", {action:"save", path: <active documentPath>, port})`. Save to the path Rhino reported for the active doc (the OS path), not the case-folded normalized form. (Save is always performed on full success, including an all-`already_linked` run; a skip-when-no-mutation optimization is deferred.)
+4. **Save** once → `call_tool("rhino_document_ops", {"action": "save", "path": active_document_path})`. Save to the path Rhino reported for the active doc (the OS path), not the case-folded normalized form. (Save is always performed on full success, including an all-`already_linked` run; a skip-when-no-mutation optimization is deferred.)
 
 Mutations occur on the pinned port (the verified target document). The executor writes nothing durable; the saved `.3dm` is the execution artifact.
 
