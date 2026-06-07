@@ -4,9 +4,9 @@ The Vision WebView2 surface pins `font-src 'self'` (see [VisionWebSurface.cs](..
 so external font hosts (Google Fonts, etc.) are blocked. These files are vendored
 in so the panel renders in its intended typography rather than system fallbacks.
 
-Both families are licensed under the SIL Open Font License 1.1, compatible with
-Rook's MIT license. The OFL text from each upstream is preserved verbatim
-alongside the fonts.
+Both families are licensed under the SIL Open Font License 1.1, which permits
+bundling and redistribution within Rook's proprietary distribution. The OFL text
+from each upstream is preserved verbatim alongside the fonts.
 
 ## Provenance
 

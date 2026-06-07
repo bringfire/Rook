@@ -2,7 +2,7 @@
 
 > **One sentence:** Rook is the layer that makes LLMs reliable in Rhino.
 
-> **One paragraph:** Rhino is an object editor. Rook is the layer that lets an LLM operate on the *building* — query columns by facade, find walls by orientation, rebase Revit-imported blocks atomically, and recover from modal-dialog deadlocks before they crash the session. Open source. Bring your own model.
+> **One paragraph:** Rhino is an object editor. Rook is the layer that lets an LLM operate on the *building* — query columns by facade, find walls by orientation, rebase Revit-imported blocks atomically, and recover from modal-dialog deadlocks before they crash the session. Bring your own model.
 
 ---
 
@@ -43,7 +43,7 @@ These are real, shipped, and defensible today. Each is anchored to a specific fi
 
 **Why it matters:** A naked LLM with Rhino access cannot answer *"find all the structural columns on the south facade."* It can match object names if you happen to have named them, but it has no concept of what a column *is* spatially. An LLM with Rook can. The classification is heuristic, not ML — that doesn't matter. What matters is that the question becomes answerable in natural language.
 
-**How unique:** Rhino does not ship spatial reasoning. Revit has BIM semantics, but the Rhino ecosystem does not. The closest analogues are commercial BIM-overlay plugins, none of which expose their graph to an LLM via MCP. As far as we know, no open-source tool in the Rhino ecosystem does this.
+**How unique:** Rhino does not ship spatial reasoning. Revit has BIM semantics, but the Rhino ecosystem does not. The closest analogues are commercial BIM-overlay plugins, none of which expose their graph to an LLM via MCP. As far as we know, no tool in the Rhino ecosystem does this.
 
 **Why it's the moat:** It's the precondition that makes everything else feel like reasoning instead of automation. A demo that opens with a scene-graph query frames Rook as understanding the model. A demo without it frames Rook as scripting the model. The difference is the entire pitch.
 
@@ -64,7 +64,7 @@ These are real, shipped, and defensible today. Each is anchored to a specific fi
 
 **Why it matters:** Architects spend days fighting this manually after a Revit-to-Rhino handoff. The blocks aren't reusable, the bounding boxes are wrong, instancing is broken, and there's no clean way to fix it without moving every floor in world space. Rook does it atomically.
 
-**How unique:** No other open-source Rhino tool does this. It's the kind of operation that makes a senior practitioner stop and ask *"wait, you have what?"* — which is the reaction worth designing the demo around.
+**How unique:** No other Rhino tool does this. It's the kind of operation that makes a senior practitioner stop and ask *"wait, you have what?"* — which is the reaction worth designing the demo around.
 
 ### 3. Knowledge store with hard-won gotchas
 
@@ -215,15 +215,15 @@ Use these verbatim or as starting points. All three are derived from the thesis 
 
 ### A. The "operates on the building" pitch (recommended for launch)
 
-> Rhino is an object editor. Rook is the layer that lets an LLM operate on the building — query columns by facade, find walls by orientation, rebase Revit-imported blocks atomically, and recover from modal-dialog deadlocks before they crash the session. Open source. Bring your own model.
+> Rhino is an object editor. Rook is the layer that lets an LLM operate on the building — query columns by facade, find walls by orientation, rebase Revit-imported blocks atomically, and recover from modal-dialog deadlocks before they crash the session. Bring your own model.
 
 ### B. The "infrastructure not vibes" pitch (for technical audiences)
 
 > Most "AI in CAD" demos are an LLM piping commands at the host application and hoping. Rook is 242 typed routes, a queryable spatial scene graph, atomic block-rebase operations, and a 196-command knowledge store of real failure modes — the boring infrastructure that makes "Claude, fix this Revit import" actually work instead of crash.
 
-### C. The "open-source counterweight" pitch (for the AEC + open-source crowd)
+### C. The "local & private counterweight" pitch (for the AEC + privacy-minded crowd)
 
-> The AI-for-CAD category is going closed. Rook is open source, runs in your Rhino, with your model provider, on your knowledge store. We built it because architects shouldn't have to send their site models to someone else's GPU cluster.
+> The AI-for-CAD category is going cloud-bound. Rook runs in your Rhino, with your model provider, on your knowledge store — nothing leaves your machine unless you choose to send it. We built it because architects shouldn't have to upload their site models to someone else's GPU cluster.
 
 **Recommended default:** A. It is the most defensible against "but can it actually do that?" because every clause in it maps to a specific differentiator above.
 

@@ -1,7 +1,7 @@
 # Rook — AI Agents for Rhino & Grasshopper
 
-> An open-source agent platform that lets AI operate directly inside Rhino 3D
-> and Grasshopper. 300 MCP tools. Works with any LLM provider.
+> An agent platform that lets AI operate directly inside Rhino 3D
+> and Grasshopper. 392 MCP tools. Works with any LLM provider.
 
 ---
 
@@ -43,36 +43,53 @@ When `correction_detected: true` appears in tool output, call `knowledge_record`
 
 ## Primary Tools
 
-There are 300 MCP tools available. You only need to know two:
+There are 392 MCP tools available. Two paths matter most.
 
-### For Rhino Geometry: `rhino_execute_intent`
+### For Grasshopper: prefer the batch path — `gh_snapshot` → `gh_edit`
+
+**This is the default, fastest, most reliable way to work on the canvas.**
+
+1. `gh_snapshot` — read the entire canvas in ONE call (components, wires, groups,
+   errors, data previews) and get back an `epoch`.
+2. `gh_edit` — apply every change in ONE atomic call, passing that `epoch`:
+   create → disconnect → delete → set_values → connect → groups.
+
+```python
+snap = gh_snapshot()                       # batch read; returns epoch + short IDs
+gh_edit(epoch=snap["epoch"], create=[...], connect=["T1.O0>C2.I1"], set_values=[...])
+```
+
+One read, one atomic write — deterministic, minimal round trips, no GUID guessing.
+Use this by default for creating, wiring, and editing definitions. `gh_undo`
+reverses the last edit.
+
+**Viable alternative — `gh_execute_intent`:** natural-language component creation
+(`gh_execute_intent(intent="create a sphere with a radius slider")`). It works and
+is handy for quick one-offs, but it is **slower** (DSPy resolution + per-operation
+round trips + heuristic auto-wiring) and is **not the default**. Reach for it when
+you want NL convenience, not for real definition work. (Background worker agents
+don't get it at all — they use the batch path.)
+
+### For Rhino Geometry: prefer typed routes; `rhino_execute_intent` as NL convenience
+
+Typed routes — `rhino_create`, `rhino_transform`, `rhino_boolean`, `rhino_extrude`,
+`rhino_loft`, `rhino_sweep`, … — are the preferred, validated, deterministic path.
+
+`rhino_execute_intent` is the natural-language convenience that resolves intent and
+routes to those typed routes automatically:
 
 ```python
 rhino_execute_intent(intent="create a box from 0,0,0 to 10,10,0 with height 5")
 ```
 
-Automatically queries the knowledge store, resolves intent to best command + syntax, executes.
-
-**Use this for all geometry creation and manipulation.** Lower-level tools like `rhino_command` have built-in validation but `rhino_execute_intent` handles routing automatically.
-
-### For Grasshopper: `gh_execute_intent`
-
-```python
-gh_execute_intent(intent="create a sphere with radius slider")
-```
-
-Automatically queries the knowledge store for component GUIDs, creates components, auto-wires inputs.
-
-**Use this for all component creation.** Don't guess component names — GUIDs differ across installs.
+It's viable and convenient, but **not the default** when you can call the typed
+route directly.
 
 ### Everything Else
 
 | Need | Tool |
 |------|------|
 | Query objects | `rhino_objects`, `rhino_geometry` |
-| Read GH canvas | `gh_snapshot` |
-| Mutate GH canvas | `gh_edit` |
-| Undo GH edit | `gh_undo` |
 | Direct knowledge lookup | `knowledge_query`, `gh_knowledge_query` |
 | See what's failing | `gh_errors` |
 
@@ -200,8 +217,8 @@ GH operations are an exception: C++ native proxies GH routes through P/Invoke ca
 |-------|----------|----------|
 | UnifiedStore | ~1,230 notes (components, recipes, teaching, struggles) | `knowledge/gh/notes/` |
 | PatternStore | ~520 raw extracted patterns | `knowledge/gh/patterns/` |
-| SparseIndex | ~940 GUIDs, ~1,530 intents | `knowledge/gh/sparse_index.json` |
-| CommandKnowledgeStore | 196 Rhino commands, 543+ observations | `knowledge/commands/` |
+| SparseIndex | ~942 GUIDs, ~1,533 intents | `knowledge/gh/sparse_index.json` |
+| CommandKnowledgeStore | 197 Rhino commands, 543 observations | `knowledge/commands/` |
 
 ### Key Files
 
@@ -233,7 +250,9 @@ report it — the typed route for that operation may be missing.
 Invalid inputs. Check coordinates, units, required options.
 
 ### GH component not found
-Use `gh_execute_intent` — it queries the knowledge store for correct GUIDs. Don't guess component names.
+Don't guess component names — GUIDs differ across installs. Look up the correct
+GUID with `gh_knowledge_query` and pass it to `gh_edit` (or use `gh_execute_intent`
+for a quick natural-language create).
 
 ### Still stuck?
 File an issue at https://github.com/bringfire/Rook/issues

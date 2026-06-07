@@ -53,10 +53,10 @@ The A-MEM knowledge graph is **active and linked**:
 | Total notes | ~1,230 (component, recipe, teaching, struggle) |
 | Linked notes | ~95% |
 | Graph edges | ~9,100 |
-| GH Components cataloged | ~940 (full I/O params) |
-| GUIDs in sparse index | ~940 |
+| GH Components cataloged | ~945 (full I/O params) |
+| GUIDs in sparse index | ~942 |
 | Component families | ~90 |
-| Intent mappings | ~1,530 |
+| Intent mappings | ~1,533 |
 
 Follow links between notes to discover related primitives and composable patterns.
 
@@ -174,4 +174,4 @@ Something FAILED?
 
 ---
 
-*Last updated: 2026-04-03*
+*Last updated: 2026-06-05*
