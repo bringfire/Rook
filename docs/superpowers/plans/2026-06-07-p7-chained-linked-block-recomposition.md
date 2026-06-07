@@ -384,9 +384,10 @@ import pytest
 
 from rook import artifacts, work_units, linked_blocks as lb
 from rook.server import _mcp_tool_executor
-from .conftest import fresh_document  # noqa: F401
 
 pytestmark = [pytest.mark.requires_rhino, pytest.mark.asyncio]
+
+_PREFIX = lb._SCHEME + "_"   # "rook_p7lb_" — Rook's deterministic linked-block name prefix
 
 
 @pytest.fixture
@@ -407,22 +408,25 @@ def _tmp(tag):
 
 
 async def _single_live_session():
-    """Single-Rhino harness contract: exactly one live Rhino. More than one is a harness
-    safety refusal (close extras / use an owned Workbench later), not a product failure."""
+    """The single-Rhino harness contract, enforced as the FIRST operation (read-only) so no
+    mutation can hit an ambiguous instance: skip on zero live; fail on more than one."""
     sess = await _mcp_tool_executor("rhino_sessions", {})
-    items = (sess.get("data") or {}).get("sessions") or sess.get("sessions") or []
+    items = (sess.get("data") or sess).get("sessions") or []
     live = [s for s in items if (s.get("liveness") or {}).get("state") == "live"]
+    if not live:
+        pytest.skip("no live Rhino; held live test")
     assert len(live) == 1, (
-        f"expected exactly one live Rhino; got {len(live)}. Multiple live Rhino sessions: "
-        "close the extras, or run under an owned Workbench in a later slice. "
-        "Harness safety guard, not a product failure.")
+        f"multiple live Rhino sessions ({len(live)}): close the extras, or run under an owned "
+        "Workbench in a later slice. Harness safety guard, not a product failure.")
     return live[0]["session"]
 
 
 async def _new_doc_with_box(name, c1, c2, path):
-    await _mcp_tool_executor("rhino_document_ops", {"action": "new"})
-    await _mcp_tool_executor("rhino_create",
+    n = await _mcp_tool_executor("rhino_document_ops", {"action": "new"})
+    assert n.get("success") is not False, f"new for {name} failed: {n!r}"
+    c = await _mcp_tool_executor("rhino_create",
         {"type": "BOX", "corner1": c1, "corner2": c2, "name": name})
+    assert c.get("success") is not False, f"create {name} failed: {c!r}"
     s = await _mcp_tool_executor("rhino_document_ops", {"action": "save", "path": path})
     assert s.get("success") is not False, f"save {name} failed: {s!r}"
 
@@ -444,11 +448,22 @@ async def _assert_linked(session, names):
         assert info.get("isLinked") is True, f"{nm}: {info!r}"
 
 
-async def test_chain_recomposition_end_to_end(fresh_document, hermetic_registries):
+async def _rook_block_names(session):
+    """Set of Rook deterministic linked-block names (rook_p7lb_*) in the active doc. Successful
+    _mcp_tool_executor payloads are data-only, so rhino_blocks is {'blocks': [...]} (not wrapped)."""
+    blocks = await _mcp_tool_executor("rhino_blocks", {"session": session})
+    assert blocks.get("success") is not False, f"rhino_blocks failed: {blocks!r}"
+    rows = (blocks.get("data") or blocks).get("blocks") or []
+    return {b.get("name") for b in rows if str(b.get("name") or "").startswith(_PREFIX)}
+
+
+async def test_chain_recomposition_end_to_end(hermetic_registries):
+    # 0. SESSION GUARD FIRST (read-only) — before any document mutation.
+    session = await _single_live_session()
     s1 = _tmp("s1"); s2 = _tmp("s2"); inter = _tmp("inter"); master = _tmp("master")
     paths = [s1, s2, inter, master]
     try:
-        # 1. four saved docs, each registered in P6 (temp registry)
+        # 1. four saved docs (asserted), each registered in P6 (temp registry)
         await _new_doc_with_box("s1box", [0, 0, 0], [1, 1, 1], s1)
         await _new_doc_with_box("s2box", [2, 0, 0], [3, 1, 1], s2)
         await _new_doc_with_box("interbox", [0, 2, 0], [1, 3, 1], inter)
@@ -475,7 +490,6 @@ async def test_chain_recomposition_end_to_end(fresh_document, hermetic_registrie
         assert plan["plan"] == [{"contractId": cid_A, "targetArtifactId": inter_id},
                                 {"contractId": cid_B, "targetArtifactId": master_id}], plan
 
-        session = await _single_live_session()
         name_A1 = lb.block_def_name(cid_A, s1_id)
         name_A2 = lb.block_def_name(cid_A, s2_id)
         name_B = lb.block_def_name(cid_B, inter_id)
@@ -487,6 +501,7 @@ async def test_chain_recomposition_end_to_end(fresh_document, hermetic_registrie
         assert {e["sourceArtifactId"]: e["outcome"] for e in exA["perSource"]} == {
             s1_id: lb.CREATED_LINK, s2_id: lb.CREATED_LINK}, exA
         await _assert_linked(session, [name_A1, name_A2])
+        inter_names_1 = await _rook_block_names(session)
 
         # step B: open master, execute, assert WHILE master is active
         await _open(master)
@@ -494,6 +509,7 @@ async def test_chain_recomposition_end_to_end(fresh_document, hermetic_registrie
         assert exB.get("executed") is True and exB.get("saved") is True, exB
         assert exB["perSource"][0]["outcome"] == lb.CREATED_LINK, exB
         await _assert_linked(session, [name_B])   # master consumes the intermediate id, not s1/s2
+        master_names_1 = await _rook_block_names(session)
         infoB = await _mcp_tool_executor("rhino_block_info", {"name": name_B, "session": session})
         print("OBSERVE master name_B sourcePath:", infoB.get("sourcePath"))
 
@@ -503,12 +519,14 @@ async def test_chain_recomposition_end_to_end(fresh_document, hermetic_registrie
         assert exA2.get("saved") is True, exA2
         assert {e["outcome"] for e in exA2["perSource"]} == {lb.REFRESHED_EXISTING}, exA2
         await _assert_linked(session, [name_A1, name_A2])
+        assert await _rook_block_names(session) == inter_names_1, "intermediate rook-def set changed"
 
         await _open(master)
         exB2 = await _execute(cid_B, session)
         assert exB2.get("saved") is True, exB2
         assert exB2["perSource"][0]["outcome"] == lb.REFRESHED_EXISTING, exB2
         await _assert_linked(session, [name_B])
+        assert await _rook_block_names(session) == master_names_1, "master rook-def set changed"
 
         # 6. OBSERVATIONS (non-failing): evict master from the single active slot, reopen, and
         # record sourcePath + whether /blocks surfaces nested source defs. Nested-refresh
@@ -517,9 +535,8 @@ async def test_chain_recomposition_end_to_end(fresh_document, hermetic_registrie
         await _open(master)
         reopened = await _mcp_tool_executor("rhino_block_info", {"name": name_B, "session": session})
         print("OBSERVE master name_B after evict+reopen:", reopened)
-        blocks = await _mcp_tool_executor("rhino_blocks", {"session": session})
-        names_in_master = [b.get("name") for b in (blocks.get("data") or {}).get("blocks") or []]
-        print("OBSERVE master /blocks names (nested presentation?):", names_in_master)
+        print("OBSERVE master rook_p7lb_* names (nested presentation?):",
+              sorted(await _rook_block_names(session)))
     finally:
         for p in paths:
             try:
