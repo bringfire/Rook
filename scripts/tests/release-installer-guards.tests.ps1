@@ -144,6 +144,39 @@ function Test-InstallerPackagesBundledFfmpegPayload {
     }
 }
 
+function Test-InstallerPackagesBundledPythonRuntime {
+    $content = Get-Content -Path $InstallerScript -Raw
+
+    Assert-Contains -Text $content -Expected '#define PythonRuntimeDir RepoRoot + "\installer\runtime\python\cpython-3.11.9"' -Message 'Installer must define staged private Python runtime directory.'
+    Assert-Contains -Text $content -Expected '#define PythonWheelhouseDir RepoRoot + "\installer\runtime\python-wheelhouse"' -Message 'Installer must define staged wheelhouse directory.'
+    Assert-Contains -Text $content -Expected 'Source: "{#PythonRuntimeDir}\*"; DestDir: "{localappdata}\Rook\python\cpython-3.11.9"' -Message 'Installer must package private Python runtime.'
+    Assert-Contains -Text $content -Expected 'Source: "{#PythonWheelhouseDir}\*"; DestDir: "{app}\python-wheelhouse"' -Message 'Installer must package offline wheelhouse.'
+    Assert-Contains -Text $content -Expected 'requirements-rook-lock.txt' -Message 'Installer must package Rook lockfile.'
+    Assert-Contains -Text $content -Expected 'requirements-chirp-lock.txt' -Message 'Installer must package Chirp lockfile.'
+    Assert-Contains -Text $content -Expected 'python-runtime-manifest.json' -Message 'Installer must package Python runtime manifest.'
+    Assert-Contains -Text $content -Expected 'python_runtime_install.py' -Message 'Installer must package runtime install helper.'
+}
+
+function Test-PublicInstallerDoesNotRequireUserPython {
+    $content = Get-Content -Path $InstallerScript -Raw
+
+    Assert-NotContains -Text $content -Unexpected 'Python MCP Server (requires Python 3.10+)' -Message 'Public MCP component must not require user Python.'
+    Assert-NotContains -Text $content -Unexpected 'Chirp — LLM-powered Grasshopper components (requires MCP + Python 3.10+)' -Message 'Public Chirp component must not require user Python.'
+    Assert-NotContains -Text $content -Unexpected 'Python 3.10+ is required for the MCP server and Chirp but was not found.' -Message 'Installer must not block public MCP/Chirp install on user Python.'
+    Assert-NotContains -Text $content -Unexpected 'Filename: "{code:GetPythonPath}"' -Message 'Post-install must not be launched through user Python discovery.'
+    Assert-Contains -Text $content -Expected 'Filename: "{localappdata}\Rook\python\cpython-3.11.9\python.exe"' -Message 'Post-install must run on bundled private Python.'
+}
+
+function Test-UninstallUsesRecordedPrivatePython {
+    $content = Get-Content -Path $InstallerScript -Raw
+
+    Assert-Contains -Text $content -Expected 'python_path.txt' -Message 'Installer must record private Python path for uninstall cleanup.'
+    Assert-Contains -Text $content -Expected '{localappdata}\Rook\python\cpython-3.11.9\python.exe' -Message 'Uninstall must have a deterministic private Python fallback path.'
+    Assert-Contains -Text $content -Expected 'CurUninstallStepChanged' -Message 'Installer must run uninstall cleanup from the uninstall hook.'
+    Assert-Contains -Text $content -Expected '--uninstall' -Message 'Uninstall cleanup must invoke post_install.py --uninstall.'
+    Assert-NotContains -Text $content -Unexpected 'PythonExe := GetPythonPath()' -Message 'Uninstall must not depend on user Python discovery.'
+}
+
 function Test-FfmpegValidatorRequiresReleaseSourceBundleArgument {
     Assert-True -Condition (Test-Path $FfmpegValidationScript) -Message "FFmpeg validation script is missing: $FfmpegValidationScript"
 
@@ -261,6 +294,7 @@ function Test-UninstallRemovesGeneratedRuntimeArtifacts {
 
     foreach ($path in @(
         '{localappdata}\Rook\app',
+        '{localappdata}\Rook\python',
         '{localappdata}\Rook\venv',
         '{localappdata}\Rook\data',
         '{localappdata}\Rook\logs',
@@ -272,6 +306,7 @@ function Test-UninstallRemovesGeneratedRuntimeArtifacts {
     }
 
     Assert-Contains -Text $postInstallContent -Expected 'Path(tempfile.gettempdir()) / "rook"' -Message 'Uninstall cleanup must remove the actual user temp Rook diagnostics directory.'
+    Assert-Contains -Text $postInstallContent -Expected 'runtime_root / "python"' -Message 'Uninstall cleanup must remove the private Python runtime installed by the public installer.'
     Assert-Contains -Text $postInstallContent -Expected 'runtime_root / "venv"' -Message 'Uninstall cleanup must remove the managed Python venv created by post_install.py.'
     Assert-Contains -Text $postInstallContent -Expected 'runtime_root / "data"' -Message 'Uninstall cleanup must remove runtime data for a fresh reinstall surface.'
     Assert-Contains -Text $postInstallContent -Expected 'runtime_root / "discovery"' -Message 'Uninstall cleanup must remove shared Rook discovery metadata for a fresh reinstall surface.'
@@ -492,6 +527,9 @@ function Test-LegacyGitHubReleaseWorkflowIsDisabled {
     Assert-NotContains -Text $content -Unexpected 'Compress-Archive' -Message 'Legacy GitHub release workflow must not package the old ZIP release.'
 }
 
+Test-InstallerPackagesBundledPythonRuntime
+Test-PublicInstallerDoesNotRequireUserPython
+Test-UninstallUsesRecordedPrivatePython
 Test-InstallerPackagesMultiRuntimeCompanionPayloads
 Test-BuiltCompanionPayloadsExist
 Test-InstallerPackagesBundledFfmpegPayload

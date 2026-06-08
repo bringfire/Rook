@@ -693,6 +693,7 @@ def uninstall_cleanup() -> None:
 
     for path, label in [
         (runtime_root / "app", "runtime app payload"),
+        (runtime_root / "python", "private Python runtime"),
         (runtime_root / "venv", "managed Python venv"),
         (runtime_root / "data", "runtime data"),
         (runtime_root / "logs", "runtime logs"),
