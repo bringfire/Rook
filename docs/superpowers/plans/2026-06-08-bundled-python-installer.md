@@ -19,7 +19,7 @@ The worktree currently contains unrelated uncommitted installer timeout work:
 - `scripts/tests/release-installer-guards.tests.ps1`
 - `mcp_server/tests/test_post_install.py`
 
-Before executing this plan, either commit those timeout fixes separately or start from a clean worktree/worktree branch. Do not mix those changes into the bundled Python commits unless the user explicitly asks to combine them.
+Before executing this plan, complete Task 0 and run Tasks 1 through 12 from a clean bundled-Python worktree. Do not mix those timeout changes into the bundled Python commits unless the user explicitly asks to combine them.
 
 The approved design spec is:
 
@@ -74,6 +74,44 @@ Modify:
 
 - `.agents/skills/build-release/references/iss-source-paths.md` and `.claude/skills/build-release/references/iss-source-paths.md`  
   Add staged Python runtime, wheelhouse, lockfiles, manifest, and helper module to the source checklist.
+
+---
+
+### Task 0: Prepare Clean Worktree For Bundled Python Execution
+
+**Files:** None
+
+- [ ] **Step 1: Confirm the current workspace contains unrelated timeout work**
+
+Run from `C:\Users\aryan\source\repos\Rook`:
+
+```powershell
+git status --short
+```
+
+Expected: output may include only the unrelated timeout files already listed in the pre-execution notes. Do not stage those files for this plan.
+
+- [ ] **Step 2: Create and enter a clean worktree for this plan**
+
+Run:
+
+```powershell
+git worktree add ..\Rook-bundled-python -b codex/bundled-python-installer HEAD
+cd ..\Rook-bundled-python
+git status --short
+```
+
+Expected: `git status --short` prints no files. If it prints any files, stop and resolve the worktree before Task 1.
+
+- [ ] **Step 3: Treat the clean worktree as the execution root**
+
+All Task 1 through Task 12 commands in this plan assume the working directory is:
+
+```text
+C:\Users\aryan\source\repos\Rook-bundled-python
+```
+
+Task commits must be made from this clean worktree. The original `C:\Users\aryan\source\repos\Rook` workspace remains available for the separate timeout work.
 
 ---
 
@@ -315,6 +353,9 @@ function Test-WheelhouseBuilderEnforcesReleaseContracts {
     Assert-Contains -Text $content -Expected 'pip check' -Message 'Wheelhouse builder must run pip check.'
     Assert-Contains -Text $content -Expected 'pip-audit' -Message 'Wheelhouse builder must run pip-audit against temp installed venvs.'
     Assert-Contains -Text $content -Expected 'packaging.tags' -Message 'Wheelhouse builder must validate wheel tags against interpreter accepted tags.'
+    Assert-Contains -Text $content -Expected 'rook.__file__' -Message 'Wheelhouse builder must record rook import origin evidence.'
+    Assert-Contains -Text $content -Expected 'chirp.__file__' -Message 'Wheelhouse builder must record chirp import origin evidence.'
+    Assert-Contains -Text $content -Expected 'cv2' -Message 'Wheelhouse builder must run shipped vision stack import smokes.'
     Assert-Contains -Text $content -Expected 'chirp_git_sha' -Message 'Manifest must include Chirp sibling repo git SHA.'
     Assert-Contains -Text $content -Expected 'chirp_source_archive_sha256' -Message 'Manifest must include Chirp source archive hash.'
     Assert-Contains -Text $content -Expected 'python-runtime-manifest.json' -Message 'Wheelhouse builder must write the runtime manifest.'
@@ -433,7 +474,7 @@ if (-not $chirpWheel) { Fail 'chirp wheel was not produced' }
 Copy-Item -LiteralPath $rookWheel.FullName -Destination $wheelhouse
 Copy-Item -LiteralPath $chirpWheel.FullName -Destination $wheelhouse
 
-& $pythonExe -m pip download --dest $wheelhouse --only-binary=:all: --implementation cp --python-version 3.11 --abi cp311 --platform win_amd64 (Join-Path $RepoRoot 'mcp_server') $ChirpRoot
+& $pythonExe -m pip download --dest $wheelhouse --only-binary=:all: --implementation cp --python-version 3.11 --abi cp311 --platform win_amd64 $rookWheel.FullName $chirpWheel.FullName
 if ($LASTEXITCODE -ne 0) { Fail 'dependency wheel download failed' }
 
 $sdists = @(Get-ChildItem -Path $wheelhouse -Include *.tar.gz,*.zip -File -Recurse)
@@ -455,6 +496,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from pip._vendor.packaging import tags as packaging_tags
 from pip._vendor.packaging.utils import canonicalize_name, parse_wheel_filename
 
 
@@ -564,19 +606,191 @@ if ($LASTEXITCODE -ne 0) { Fail 'Rook hash lock generation failed' }
 & $pythonExe $lockScript --base-python $pythonExe --wheelhouse $wheelhouse --package 'chirp==0.1.0' --output $lockChirp --work-dir $BuildRoot
 if ($LASTEXITCODE -ne 0) { Fail 'Chirp hash lock generation failed' }
 
+$verificationScript = Join-Path $BuildRoot 'verify_temp_runtime_install.py'
+@'
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import shutil
+import subprocess
+import sysconfig
+from pathlib import Path
+
+
+def run(cmd: list[str], env: dict[str, str] | None = None) -> str:
+    result = subprocess.run(cmd, text=True, capture_output=True, env=env)
+    if result.returncode != 0:
+        raise SystemExit(result.stdout + result.stderr)
+    return result.stdout
+
+
+def clean_env() -> dict[str, str]:
+    env = os.environ.copy()
+    env.pop("PYTHONHOME", None)
+    env.pop("PYTHONPATH", None)
+    env["PIP_NO_INDEX"] = "1"
+    env["PIP_DISABLE_PIP_VERSION_CHECK"] = "1"
+    env["PIP_REQUIRE_VIRTUALENV"] = "1"
+    return env
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--base-python", required=True)
+    parser.add_argument("--wheelhouse", required=True)
+    parser.add_argument("--lockfile", required=True)
+    parser.add_argument("--venv-dir", required=True)
+    parser.add_argument("--module", required=True)
+    parser.add_argument("--output", required=True)
+    parser.add_argument("--vision-smoke", action="store_true")
+    args = parser.parse_args()
+
+    venv_dir = Path(args.venv_dir)
+    if venv_dir.exists():
+        shutil.rmtree(venv_dir)
+    run([args.base_python, "-m", "venv", str(venv_dir)])
+
+    venv_python = venv_dir / "Scripts" / "python.exe"
+    env = clean_env()
+    env["PIP_REQUIRE_VIRTUALENV"] = "1"
+    install_output = run([
+        str(venv_python),
+        "-m",
+        "pip",
+        "--isolated",
+        "install",
+        "--no-index",
+        "--find-links",
+        args.wheelhouse,
+        "--require-hashes",
+        "-r",
+        args.lockfile,
+    ], env=env)
+    if "Looking in indexes:" in install_output:
+        raise SystemExit("pip used an index during offline verification")
+    if "Looking in links:" not in install_output:
+        raise SystemExit("pip did not report local wheelhouse links during offline verification")
+
+    pip_check = run([str(venv_python), "-m", "pip", "check"], env=env)
+    module_expr = (
+        "import json, pathlib, {module}; "
+        "p = pathlib.Path({module}.__file__).resolve(); "
+        "print(json.dumps({{'module': '{module}', '{module}.__file__': str(p)}}))"
+    ).format(module=args.module)
+    import_record = json.loads(run([str(venv_python), "-c", module_expr], env=env))
+    import_file = Path(import_record[f"{args.module}.__file__"]).resolve()
+    site_packages = Path(run([
+        str(venv_python),
+        "-c",
+        "import sysconfig; print(sysconfig.get_paths()['purelib'])",
+    ], env=env).strip()).resolve()
+    if site_packages not in import_file.parents:
+        raise SystemExit(f"{args.module} imported outside site-packages: {import_file}")
+
+    vision = {}
+    if args.vision_smoke:
+        vision_expr = (
+            "import cv2, PIL, numpy, skimage, json; "
+            "print(json.dumps({'cv2': cv2.__file__, 'PIL': PIL.__file__, "
+            "'numpy': numpy.__file__, 'skimage': skimage.__file__}))"
+        )
+        vision = json.loads(run([str(venv_python), "-c", vision_expr], env=env))
+
+    Path(args.output).write_text(json.dumps({
+        "venv_python": str(venv_python.resolve()),
+        "site_packages": str(site_packages),
+        "pip_check": pip_check.strip(),
+        "pip_install_no_index": True,
+        "pip_install_output_sample": install_output[:2000],
+        "import_record": import_record,
+        "vision_imports": vision,
+    }, indent=2), encoding="utf-8")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+'@ | Set-Content -LiteralPath $verificationScript -Encoding UTF8
+
+$rookVerification = Join-Path $BuildRoot 'verification-rook.json'
+$chirpVerification = Join-Path $BuildRoot 'verification-chirp.json'
+$rookTempVenv = Join-Path $BuildRoot 'verify-rook-venv'
+$chirpTempVenv = Join-Path $BuildRoot 'verify-chirp-venv'
+
+& $pythonExe $verificationScript --base-python $pythonExe --wheelhouse $wheelhouse --lockfile $lockRook --venv-dir $rookTempVenv --module rook --vision-smoke --output $rookVerification
+if ($LASTEXITCODE -ne 0) { Fail 'Rook temp install verification failed' }
+& $pythonExe $verificationScript --base-python $pythonExe --wheelhouse $wheelhouse --lockfile $lockChirp --venv-dir $chirpTempVenv --module chirp --output $chirpVerification
+if ($LASTEXITCODE -ne 0) { Fail 'Chirp temp install verification failed' }
+
+$auditVenv = Join-Path $BuildRoot 'pip-audit-venv'
+& $pythonExe -m venv $auditVenv
+if ($LASTEXITCODE -ne 0) { Fail 'pip-audit venv creation failed' }
+$auditPython = Join-Path $auditVenv 'Scripts\python.exe'
+& $auditPython -m pip install pip-audit
+if ($LASTEXITCODE -ne 0) { Fail 'pip-audit install failed' }
+$pipAudit = Join-Path $auditVenv 'Scripts\pip-audit.exe'
+$rookVerificationObject = Get-Content -LiteralPath $rookVerification -Raw | ConvertFrom-Json
+$chirpVerificationObject = Get-Content -LiteralPath $chirpVerification -Raw | ConvertFrom-Json
+$rookAuditJson = Join-Path $BuildRoot 'pip-audit-rook.json'
+$chirpAuditJson = Join-Path $BuildRoot 'pip-audit-chirp.json'
+& $pipAudit --path $rookVerificationObject.site_packages --format json --output $rookAuditJson
+if ($LASTEXITCODE -ne 0) { Fail 'pip-audit failed for Rook temp venv' }
+& $pipAudit --path $chirpVerificationObject.site_packages --format json --output $chirpAuditJson
+if ($LASTEXITCODE -ne 0) { Fail 'pip-audit failed for Chirp temp venv' }
+
+$wheelTagScript = Join-Path $BuildRoot 'collect_wheel_metadata.py'
+@'
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+from pathlib import Path
+
+from pip._vendor.packaging import tags as packaging_tags
+from pip._vendor.packaging.utils import parse_wheel_filename
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--wheelhouse", required=True)
+    args = parser.parse_args()
+    wheelhouse = Path(args.wheelhouse)
+    accepted_tags = {str(tag) for tag in packaging_tags.sys_tags()}
+    records = []
+    for wheel in sorted(wheelhouse.glob("*.whl")):
+        name, version, _build, wheel_tags = parse_wheel_filename(wheel.name)
+        tag_strings = sorted(str(tag) for tag in wheel_tags)
+        if accepted_tags.isdisjoint(tag_strings):
+            raise SystemExit(f"wheel is not compatible with this interpreter tag set: {wheel.name}")
+        records.append({
+            "file": wheel.name,
+            "project": str(name),
+            "version": str(version),
+            "sha256": hashlib.sha256(wheel.read_bytes()).hexdigest().upper(),
+            "tags": tag_strings,
+        })
+    print(json.dumps({
+        "interpreter_accepted_tags_sample": sorted(accepted_tags)[:100],
+        "wheels": records,
+    }))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+'@ | Set-Content -LiteralPath $wheelTagScript -Encoding UTF8
+
+$wheelMetadata = (& $pythonExe $wheelTagScript --wheelhouse $wheelhouse | ConvertFrom-Json)
+if ($LASTEXITCODE -ne 0) { Fail 'wheel tag metadata collection failed' }
+
 $sourceRoot = Join-Path $BuildRoot 'source-archives'
 $rookSourceArchive = Join-Path $sourceRoot "rook-$rookGitSha.tar"
 $chirpSourceArchive = Join-Path $sourceRoot "chirp-$chirpGitSha.tar"
 $rookSourceSha = New-SourceArchive -Root $RepoRoot -GitSha $rookGitSha -OutPath $rookSourceArchive
 $chirpSourceSha = New-SourceArchive -Root $ChirpRoot -GitSha $chirpGitSha -OutPath $chirpSourceArchive
-
-$wheels = @(Get-ChildItem -Path $wheelhouse -Filter '*.whl' | Sort-Object Name | ForEach-Object {
-    [ordered]@{
-        file = $_.Name
-        sha256 = Get-Sha256 -Path $_.FullName
-        tags = @()
-    }
-})
 
 $manifest = [ordered]@{
     schema_version = 1
@@ -594,11 +808,20 @@ $manifest = [ordered]@{
     }
     wheelhouse = [ordered]@{
         path = $wheelhouse
-        wheels = $wheels
+        accepted_tag_sample = $wheelMetadata.interpreter_accepted_tags_sample
+        wheels = $wheelMetadata.wheels
     }
     lockfiles = [ordered]@{
         rook = [ordered]@{ path = $lockRook; sha256 = Get-Sha256 -Path $lockRook }
         chirp = [ordered]@{ path = $lockChirp; sha256 = Get-Sha256 -Path $lockChirp }
+    }
+    verification = [ordered]@{
+        rook = $rookVerificationObject
+        chirp = $chirpVerificationObject
+        pip_audit = [ordered]@{
+            rook = [ordered]@{ path = $rookAuditJson; sha256 = Get-Sha256 -Path $rookAuditJson }
+            chirp = [ordered]@{ path = $chirpAuditJson; sha256 = Get-Sha256 -Path $chirpAuditJson }
+        }
     }
 }
 
@@ -1237,9 +1460,19 @@ function Test-PublicInstallerDoesNotRequireUserPython {
     Assert-NotContains -Text $content -Unexpected 'Filename: "{code:GetPythonPath}"' -Message 'Post-install must not be launched through user Python discovery.'
     Assert-Contains -Text $content -Expected 'Filename: "{localappdata}\Rook\python\cpython-3.11.9\python.exe"' -Message 'Post-install must run on bundled private Python.'
 }
+
+function Test-UninstallUsesRecordedPrivatePython {
+    $content = Get-Content -Path $InstallerScript -Raw
+
+    Assert-Contains -Text $content -Expected 'python_path.txt' -Message 'Installer must record private Python path for uninstall cleanup.'
+    Assert-Contains -Text $content -Expected '{localappdata}\Rook\python\cpython-3.11.9\python.exe' -Message 'Uninstall must have a deterministic private Python fallback path.'
+    Assert-Contains -Text $content -Expected 'CurUninstallStepChanged' -Message 'Installer must run uninstall cleanup from the uninstall hook.'
+    Assert-Contains -Text $content -Expected '--uninstall' -Message 'Uninstall cleanup must invoke post_install.py --uninstall.'
+    Assert-NotContains -Text $content -Unexpected 'PythonExe := GetPythonPath()' -Message 'Uninstall must not depend on user Python discovery.'
+}
 ```
 
-Call both functions near the other installer tests.
+Call all three functions near the other installer tests.
 
 - [ ] **Step 2: Run guard test and verify it fails**
 
@@ -1296,7 +1529,57 @@ begin
 end;
 ```
 
-Remove the public MCP/Chirp `PythonFound` prerequisite block from `PrepareToInstall`. Keep Python discovery code only if still needed for uninstall support during migration; otherwise remove dead Pascal functions in a later cleanup task.
+Record the private Python path before post-install cleanup can need it:
+
+```iss
+procedure RecordPrivatePythonPath();
+begin
+  SaveStringToFile(
+    ExpandConstant('{app}') + '\python_path.txt',
+    ExpandConstant('{localappdata}\Rook\python\cpython-3.11.9\python.exe'),
+    False);
+end;
+```
+
+Call `RecordPrivatePythonPath()` from `CurStepChanged(ssPostInstall)` before the `[Run]` post-install command can be needed by later maintenance/uninstall flows.
+
+Use the recorded path for uninstall, with deterministic private-runtime fallback:
+
+```iss
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  PythonExe: String;
+  PythonPathFile: String;
+  Lines: TArrayOfString;
+  ResultCode: Integer;
+begin
+  if CurUninstallStep = usUninstall then
+  begin
+    PythonExe := ExpandConstant('{localappdata}\Rook\python\cpython-3.11.9\python.exe');
+    PythonPathFile := ExpandConstant('{app}') + '\python_path.txt';
+    if LoadStringsFromFile(PythonPathFile, Lines) then
+    begin
+      if GetArrayLength(Lines) > 0 then
+      begin
+        PythonExe := Lines[0];
+      end;
+    end;
+
+    if FileExists(PythonExe) then
+    begin
+      Exec(
+        PythonExe,
+        '"' + ExpandConstant('{app}') + '\post_install.py" --uninstall',
+        '',
+        SW_HIDE,
+        ewWaitUntilTerminated,
+        ResultCode);
+    end;
+  end;
+end;
+```
+
+Remove the public MCP/Chirp `PythonFound` prerequisite block from `PrepareToInstall`. Public/full install and uninstall must not depend on user Python discovery. Existing user-Python discovery functions may remain only for explicitly gated dev/support paths; they must not be called by the public MCP/Chirp install or uninstall flow.
 
 - [ ] **Step 4: Run guard test**
 
