@@ -4,25 +4,29 @@ param(
     [string]$ChirpRoot = '',
     [string]$RuntimeRoot = '',
     [string]$OutputRoot = '',
-    [string]$BuildRoot = ''
+    [string]$BuildRoot = '',
+    [int]$CommandTimeoutSeconds = 1800
 )
 
 $ErrorActionPreference = 'Stop'
-
-# Release contract markers used by scripts/tests/python-runtime-packaging.tests.ps1:
-# pip wheel, pip download, pip check, rook.__file__, chirp.__file__
 
 function Fail {
     param([string]$Message)
     throw "Rook Python wheelhouse build failed: $Message"
 }
 
-function Require-CleanGitRepo {
+function Get-GitHeadSha {
     param([string]$Root, [string]$Label)
     $head = ((& git -C $Root rev-parse HEAD 2>$null) -join '').Trim().ToLowerInvariant()
     if ($LASTEXITCODE -ne 0 -or $head -notmatch '^[0-9a-f]{40}$') {
         Fail "Could not resolve $Label git SHA"
     }
+    return $head
+}
+
+function Require-CleanGitRepo {
+    param([string]$Root, [string]$Label)
+    $head = Get-GitHeadSha -Root $Root -Label $Label
     $dirty = (& git -C $Root status --porcelain)
     if ($dirty) {
         $dirty | ForEach-Object { Write-Host $_ }
@@ -31,9 +35,38 @@ function Require-CleanGitRepo {
     return $head
 }
 
+function Require-CleanGitSource {
+    param([string]$Root, [string]$Label, [string[]]$ExcludedPathSpecs = @())
+    $head = Get-GitHeadSha -Root $Root -Label $Label
+    $pathSpecs = @(':/')
+    foreach ($pathSpec in $ExcludedPathSpecs) {
+        $pathSpecs += ":(exclude)$pathSpec"
+    }
+    $dirty = (& git -C $Root status --porcelain --untracked-files=all -- $pathSpecs)
+    if ($dirty) {
+        $dirty | ForEach-Object { Write-Host $_ }
+        Fail "$Label source worktree is dirty"
+    }
+    return $head
+}
+
 function Get-Sha256 {
     param([string]$Path)
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToUpperInvariant()
+}
+
+function ConvertTo-ForwardSlashPath {
+    param([string]$Path)
+    return $Path.Replace('\', '/')
+}
+
+function Get-RepoRelativePath {
+    param([string]$Root, [string]$Path)
+    $relativePath = [System.IO.Path]::GetRelativePath((Resolve-Path -LiteralPath $Root).Path, (Resolve-Path -LiteralPath $Path).Path)
+    if ($relativePath -eq '.' -or $relativePath.StartsWith('..')) {
+        return ConvertTo-ForwardSlashPath -Path (Resolve-Path -LiteralPath $Path).Path
+    }
+    return ConvertTo-ForwardSlashPath -Path $relativePath
 }
 
 function New-SourceArchive {
@@ -60,6 +93,9 @@ if ([string]::IsNullOrWhiteSpace($OutputRoot)) {
 if ([string]::IsNullOrWhiteSpace($BuildRoot)) {
     $BuildRoot = Join-Path $RepoRoot 'artifacts\python-wheelhouse'
 }
+if ($CommandTimeoutSeconds -le 0) {
+    Fail '-CommandTimeoutSeconds must be greater than zero'
+}
 
 $pythonExe = Join-Path $RuntimeRoot 'python.exe'
 if (-not (Test-Path -LiteralPath $pythonExe -PathType Leaf)) {
@@ -74,7 +110,10 @@ if (-not (Test-Path -LiteralPath $runtimeConfigPath -PathType Leaf)) {
 }
 $runtimeConfig = Get-Content -LiteralPath $runtimeConfigPath -Raw | ConvertFrom-Json
 
-$rookGitSha = Require-CleanGitRepo -Root $RepoRoot -Label 'Rook'
+$rookGitSha = Require-CleanGitSource -Root $RepoRoot -Label 'Rook' -ExcludedPathSpecs @(
+    'installer/runtime/**',
+    'artifacts/**'
+)
 $chirpGitSha = Require-CleanGitRepo -Root $ChirpRoot -Label 'Chirp'
 
 if (Test-Path -LiteralPath $BuildRoot) { Remove-Item -LiteralPath $BuildRoot -Recurse -Force }
@@ -124,8 +163,15 @@ from pathlib import Path
 from pip._vendor.packaging.utils import canonicalize_name, parse_wheel_filename
 
 
-def run(cmd: list[str], cwd: Path | None = None) -> str:
-    result = subprocess.run(cmd, cwd=cwd, text=True, capture_output=True)
+def run(cmd: list[str], cwd: Path | None = None, *, timeout: int) -> str:
+    try:
+        result = subprocess.run(cmd, cwd=cwd, text=True, capture_output=True, timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        stdout = exc.stdout or ""
+        stderr = exc.stderr or ""
+        raise SystemExit(
+            f"subprocess timed out after {timeout} seconds: {' '.join(cmd)}\n{stdout}{stderr}"
+        )
     if result.returncode != 0:
         raise SystemExit(result.stdout + result.stderr)
     return result.stdout
@@ -140,9 +186,9 @@ def wheel_index(wheelhouse: Path) -> dict[tuple[str, str], tuple[Path, str]]:
     return index
 
 
-def freeze_env(python: Path) -> list[tuple[str, str]]:
+def freeze_env(python: Path, timeout: int) -> list[tuple[str, str]]:
     rows: list[tuple[str, str]] = []
-    output = run([str(python), "-m", "pip", "freeze", "--all", "--exclude-editable"])
+    output = run([str(python), "-m", "pip", "freeze", "--all", "--exclude-editable"], timeout=timeout)
     for line in output.splitlines():
         if "==" not in line:
             continue
@@ -179,7 +225,10 @@ def main() -> int:
     parser.add_argument("--package", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--work-dir", required=True)
+    parser.add_argument("--command-timeout-seconds", type=int, default=1800)
     args = parser.parse_args()
+    if args.command_timeout_seconds <= 0:
+        raise SystemExit("--command-timeout-seconds must be greater than zero")
 
     base_python = Path(args.base_python)
     wheelhouse = Path(args.wheelhouse)
@@ -187,7 +236,7 @@ def main() -> int:
     venv_dir = work_dir / ("venv-" + args.package.replace("-", "_").replace("==", "_"))
     if venv_dir.exists():
         shutil.rmtree(venv_dir)
-    run([str(base_python), "-m", "venv", str(venv_dir)])
+    run([str(base_python), "-m", "venv", str(venv_dir)], timeout=args.command_timeout_seconds)
     venv_python = venv_dir / "Scripts" / "python.exe"
     run([
         str(venv_python),
@@ -199,8 +248,8 @@ def main() -> int:
         "--find-links",
         str(wheelhouse),
         args.package,
-    ])
-    rows = freeze_env(venv_python)
+    ], timeout=args.command_timeout_seconds)
+    rows = freeze_env(venv_python, args.command_timeout_seconds)
     index = wheel_index(wheelhouse)
     write_lock(rows, index, Path(args.output))
     run([
@@ -216,8 +265,8 @@ def main() -> int:
         "--require-hashes",
         "-r",
         str(Path(args.output)),
-    ])
-    run([str(venv_python), "-m", "pip", "check"])
+    ], timeout=args.command_timeout_seconds)
+    run([str(venv_python), "-m", "pip", "check"], timeout=args.command_timeout_seconds)
     return 0
 
 
@@ -225,9 +274,9 @@ if __name__ == "__main__":
     raise SystemExit(main())
 '@ | Set-Content -LiteralPath $lockScript -Encoding UTF8
 
-& $pythonExe $lockScript --base-python $pythonExe --wheelhouse $wheelhouse --package "rook-mcp==$Version" --output $lockRook --work-dir $BuildRoot
+& $pythonExe $lockScript --base-python $pythonExe --wheelhouse $wheelhouse --package "rook-mcp==$Version" --output $lockRook --work-dir $BuildRoot --command-timeout-seconds $CommandTimeoutSeconds
 if ($LASTEXITCODE -ne 0) { Fail 'Rook hash lock generation failed' }
-& $pythonExe $lockScript --base-python $pythonExe --wheelhouse $wheelhouse --package 'chirp==0.1.0' --output $lockChirp --work-dir $BuildRoot
+& $pythonExe $lockScript --base-python $pythonExe --wheelhouse $wheelhouse --package 'chirp==0.1.0' --output $lockChirp --work-dir $BuildRoot --command-timeout-seconds $CommandTimeoutSeconds
 if ($LASTEXITCODE -ne 0) { Fail 'Chirp hash lock generation failed' }
 
 $verificationScript = Join-Path $BuildRoot 'verify_temp_runtime_install.py'
@@ -242,8 +291,15 @@ import subprocess
 from pathlib import Path
 
 
-def run(cmd: list[str], env: dict[str, str] | None = None) -> str:
-    result = subprocess.run(cmd, text=True, capture_output=True, env=env)
+def run(cmd: list[str], env: dict[str, str] | None = None, *, timeout: int) -> str:
+    try:
+        result = subprocess.run(cmd, text=True, capture_output=True, env=env, timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        stdout = exc.stdout or ""
+        stderr = exc.stderr or ""
+        raise SystemExit(
+            f"subprocess timed out after {timeout} seconds: {' '.join(cmd)}\n{stdout}{stderr}"
+        )
     if result.returncode != 0:
         raise SystemExit(result.stdout + result.stderr)
     return result.stdout
@@ -268,12 +324,15 @@ def main() -> int:
     parser.add_argument("--module", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--vision-smoke", action="store_true")
+    parser.add_argument("--command-timeout-seconds", type=int, default=1800)
     args = parser.parse_args()
+    if args.command_timeout_seconds <= 0:
+        raise SystemExit("--command-timeout-seconds must be greater than zero")
 
     venv_dir = Path(args.venv_dir)
     if venv_dir.exists():
         shutil.rmtree(venv_dir)
-    run([args.base_python, "-m", "venv", str(venv_dir)])
+    run([args.base_python, "-m", "venv", str(venv_dir)], timeout=args.command_timeout_seconds)
 
     venv_python = venv_dir / "Scripts" / "python.exe"
     env = clean_env()
@@ -289,25 +348,25 @@ def main() -> int:
         "--require-hashes",
         "-r",
         args.lockfile,
-    ], env=env)
+    ], env=env, timeout=args.command_timeout_seconds)
     if "Looking in indexes:" in install_output:
         raise SystemExit("pip used an index during offline verification")
     if "Looking in links:" not in install_output:
         raise SystemExit("pip did not report local wheelhouse links during offline verification")
 
-    pip_check = run([str(venv_python), "-m", "pip", "check"], env=env)
+    pip_check = run([str(venv_python), "-m", "pip", "check"], env=env, timeout=args.command_timeout_seconds)
     module_expr = (
         "import json, pathlib, {module}; "
         "p = pathlib.Path({module}.__file__).resolve(); "
         "print(json.dumps({{'module': '{module}', '{module}.__file__': str(p)}}))"
     ).format(module=args.module)
-    import_record = json.loads(run([str(venv_python), "-c", module_expr], env=env))
+    import_record = json.loads(run([str(venv_python), "-c", module_expr], env=env, timeout=args.command_timeout_seconds))
     import_file = Path(import_record[f"{args.module}.__file__"]).resolve()
     site_packages = Path(run([
         str(venv_python),
         "-c",
         "import sysconfig; print(sysconfig.get_paths()['purelib'])",
-    ], env=env).strip()).resolve()
+    ], env=env, timeout=args.command_timeout_seconds).strip()).resolve()
     if site_packages not in import_file.parents:
         raise SystemExit(f"{args.module} imported outside site-packages: {import_file}")
 
@@ -318,7 +377,7 @@ def main() -> int:
             "print(json.dumps({'cv2': cv2.__file__, 'PIL': PIL.__file__, "
             "'numpy': numpy.__file__, 'skimage': skimage.__file__}))"
         )
-        vision = json.loads(run([str(venv_python), "-c", vision_expr], env=env))
+        vision = json.loads(run([str(venv_python), "-c", vision_expr], env=env, timeout=args.command_timeout_seconds))
 
     Path(args.output).write_text(json.dumps({
         "venv_python": str(venv_python.resolve()),
@@ -341,9 +400,9 @@ $chirpVerification = Join-Path $BuildRoot 'verification-chirp.json'
 $rookTempVenv = Join-Path $BuildRoot 'verify-rook-venv'
 $chirpTempVenv = Join-Path $BuildRoot 'verify-chirp-venv'
 
-& $pythonExe $verificationScript --base-python $pythonExe --wheelhouse $wheelhouse --lockfile $lockRook --venv-dir $rookTempVenv --module rook --vision-smoke --output $rookVerification
+& $pythonExe $verificationScript --base-python $pythonExe --wheelhouse $wheelhouse --lockfile $lockRook --venv-dir $rookTempVenv --module rook --vision-smoke --output $rookVerification --command-timeout-seconds $CommandTimeoutSeconds
 if ($LASTEXITCODE -ne 0) { Fail 'Rook temp install verification failed' }
-& $pythonExe $verificationScript --base-python $pythonExe --wheelhouse $wheelhouse --lockfile $lockChirp --venv-dir $chirpTempVenv --module chirp --output $chirpVerification
+& $pythonExe $verificationScript --base-python $pythonExe --wheelhouse $wheelhouse --lockfile $lockChirp --venv-dir $chirpTempVenv --module chirp --output $chirpVerification --command-timeout-seconds $CommandTimeoutSeconds
 if ($LASTEXITCODE -ne 0) { Fail 'Chirp temp install verification failed' }
 
 $auditVenv = Join-Path $BuildRoot 'pip-audit-venv'
@@ -351,7 +410,7 @@ $pipAuditPackage = 'pip-audit==2.10.0'
 & $pythonExe -m venv $auditVenv
 if ($LASTEXITCODE -ne 0) { Fail 'pip-audit venv creation failed' }
 $auditPython = Join-Path $auditVenv 'Scripts\python.exe'
-& $auditPython -m pip install $pipAuditPackage
+& $auditPython -m pip --isolated --disable-pip-version-check install $pipAuditPackage
 if ($LASTEXITCODE -ne 0) { Fail 'pip-audit install failed' }
 $pipAudit = Join-Path $auditVenv 'Scripts\pip-audit.exe'
 $rookVerificationObject = Get-Content -LiteralPath $rookVerification -Raw | ConvertFrom-Json
@@ -479,7 +538,7 @@ $manifest = [ordered]@{
     chirp_source_archive_sha256 = $chirpSourceSha
     python = [ordered]@{
         version = '3.11.9'
-        executable = $pythonExe
+        executable = Get-RepoRelativePath -Root $RepoRoot -Path $pythonExe
         abi = 'cp311'
         platform = 'win_amd64'
     }
@@ -496,21 +555,21 @@ $manifest = [ordered]@{
         third_party_wheels = $wheelLicenseProvenance.third_party_wheels
     }
     wheelhouse = [ordered]@{
-        path = $wheelhouse
+        path = Get-RepoRelativePath -Root $RepoRoot -Path $wheelhouse
         accepted_tag_sample = $wheelMetadata.interpreter_accepted_tags_sample
         wheels = $wheelMetadata.wheels
     }
     lockfiles = [ordered]@{
-        rook = [ordered]@{ path = $lockRook; sha256 = Get-Sha256 -Path $lockRook }
-        chirp = [ordered]@{ path = $lockChirp; sha256 = Get-Sha256 -Path $lockChirp }
+        rook = [ordered]@{ path = Get-RepoRelativePath -Root $RepoRoot -Path $lockRook; sha256 = Get-Sha256 -Path $lockRook }
+        chirp = [ordered]@{ path = Get-RepoRelativePath -Root $RepoRoot -Path $lockChirp; sha256 = Get-Sha256 -Path $lockChirp }
     }
     verification = [ordered]@{
         rook = $rookVerificationObject
         chirp = $chirpVerificationObject
         pip_audit = [ordered]@{
             tool = $pipAuditPackage
-            rook = [ordered]@{ path = $rookAuditJson; sha256 = Get-Sha256 -Path $rookAuditJson }
-            chirp = [ordered]@{ path = $chirpAuditJson; sha256 = Get-Sha256 -Path $chirpAuditJson }
+            rook = [ordered]@{ path = Get-RepoRelativePath -Root $RepoRoot -Path $rookAuditJson; sha256 = Get-Sha256 -Path $rookAuditJson }
+            chirp = [ordered]@{ path = Get-RepoRelativePath -Root $RepoRoot -Path $chirpAuditJson; sha256 = Get-Sha256 -Path $chirpAuditJson }
         }
     }
 }
