@@ -52,8 +52,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=lowest
 SetupIconFile=rook-icon.ico
 UninstallDisplayIcon={app}\rook-icon.ico
-LicenseFile={#RepoRoot}\LICENSE
-InfoBeforeFile=pre-install-readme.txt
+InfoBeforeFile={#RepoRoot}\installer\NOTICES.txt
 
 ; Don't create an uninstall entry in Add/Remove Programs — we handle it ourselves
 ; Actually, DO create it so users can uninstall normally:
@@ -143,8 +142,6 @@ Source: "rook-icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 ; --- Docs ---
 Source: "{#RepoRoot}\QUICK_START.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#RepoRoot}\AGENT_SETUP.md"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#RepoRoot}\BUILDING.md"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#RepoRoot}\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 
 ; --- Agent-facing documentation (referenced by CLAUDE.md) ---
 Source: "{#RepoRoot}\docs\ONBOARDING_NEW_CLAUDE.md"; DestDir: "{localappdata}\Rook\docs"; Flags: ignoreversion
