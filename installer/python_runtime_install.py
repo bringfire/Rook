@@ -88,3 +88,36 @@ def write_install_state(path: Path, payload: dict) -> None:
     state.update(payload)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+
+
+def _slash(path: Path) -> str:
+    return str(path).replace("\\", "/")
+
+
+def build_release_mcp_env(
+    install_dir: Path, data_dir: Path, chirp_dir: Path | None
+) -> dict[str, str]:
+    env_vars = {
+        "PYTHONPATH": "",
+        "PYTHONHOME": "",
+        "ROOK_INSTALL_ROOT": _slash(install_dir),
+        "ROOK_DATA_DIR": _slash(data_dir),
+        "ROOK_MODE": "release",
+    }
+    if chirp_dir is not None:
+        env_vars["CHIRP_HOME"] = _slash(chirp_dir)
+    return env_vars
+
+
+def build_chat_service_manifest(
+    mcp_server_dir: Path,
+    rook_venv_python: Path,
+    release_mode: bool,
+) -> dict:
+    return {
+        "pythonPath": str(rook_venv_python),
+        "workingDirectory": str(mcp_server_dir),
+        "module": "rook.agent.chat.service_main",
+        "owner": "rhino-panel",
+        "pythonPathEntries": [] if release_mode else [str(mcp_server_dir / "src")],
+    }

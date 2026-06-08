@@ -23,6 +23,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+import python_runtime_install
+
 
 MANAGED_COMPANION_RUNTIMES = ("net8.0", "net7.0", "net48")
 
@@ -149,16 +151,9 @@ def _build_mcp_env(
     chirp_dir: Path | None,
 ) -> dict[str, str]:
     """Build deterministic env vars for generated MCP entries."""
-    env_vars = {
-        "PYTHONPATH": "",
-        "PYTHONHOME": "",
-        "ROOK_INSTALL_ROOT": str(install_dir).replace("\\", "/"),
-        "ROOK_DATA_DIR": str(data_dir).replace("\\", "/"),
-        "ROOK_MODE": mode,
-    }
-    if chirp_dir and chirp_dir.exists():
-        env_vars["CHIRP_HOME"] = str(chirp_dir).replace("\\", "/")
-    return env_vars
+    if mode != "release":
+        raise ValueError(f"unsupported installer MCP mode: {mode}")
+    return python_runtime_install.build_release_mcp_env(install_dir, data_dir, chirp_dir)
 
 
 def _register_mcp_via_file(
@@ -221,16 +216,11 @@ def write_chat_service_manifest(mcp_server_dir: Path, python_path: str) -> bool:
         print(f"Plugin directory not found: {plugin_dir} - skipping chat manifest")
         return False
 
-    src_dir = mcp_server_dir / "src"
-    python_path_entries = [str(src_dir)] if src_dir.exists() else []
-
-    manifest = {
-        "pythonPath": python_path,
-        "workingDirectory": str(mcp_server_dir),
-        "module": "rook.agent.chat.service_main",
-        "owner": "rhino-panel",
-        "pythonPathEntries": python_path_entries,
-    }
+    manifest = python_runtime_install.build_chat_service_manifest(
+        mcp_server_dir=mcp_server_dir,
+        rook_venv_python=Path(python_path),
+        release_mode=True,
+    )
 
     manifest_path = plugin_dir / "RookChatService.json"
     manifest_path.write_text(json.dumps(manifest, indent=2))

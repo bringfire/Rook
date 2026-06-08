@@ -93,3 +93,34 @@ def test_install_state_has_schema_version(tmp_path: Path) -> None:
     payload = json.loads(path.read_text(encoding="utf-8"))
     assert payload["schema_version"] == 1
     assert payload["python"]["path"].endswith("python.exe")
+
+
+def test_release_chat_manifest_has_no_source_pythonpath_entries(tmp_path: Path) -> None:
+    runtime = load_runtime_install()
+    manifest = runtime.build_chat_service_manifest(
+        mcp_server_dir=tmp_path / "app" / "mcp_server",
+        rook_venv_python=tmp_path / "venv" / "Scripts" / "python.exe",
+        release_mode=True,
+    )
+
+    assert manifest["pythonPath"].endswith("venv\\Scripts\\python.exe") or manifest[
+        "pythonPath"
+    ].endswith("venv/Scripts/python.exe")
+    assert manifest["workingDirectory"].endswith("mcp_server")
+    assert manifest["pythonPathEntries"] == []
+
+
+def test_mcp_env_points_to_chirp_home_and_clears_python_paths(tmp_path: Path) -> None:
+    runtime = load_runtime_install()
+    env = runtime.build_release_mcp_env(
+        install_dir=tmp_path / "app",
+        data_dir=tmp_path / "data",
+        chirp_dir=tmp_path / "app" / "chirp",
+    )
+
+    assert env["ROOK_INSTALL_ROOT"].endswith("app")
+    assert env["ROOK_DATA_DIR"].endswith("data")
+    assert env["ROOK_MODE"] == "release"
+    assert env["PYTHONHOME"] == ""
+    assert env["PYTHONPATH"] == ""
+    assert env["CHIRP_HOME"].endswith("app/chirp")
