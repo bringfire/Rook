@@ -291,7 +291,7 @@ Expected: `unified`.
 cd /c/UDEV/rook-release && git add site/astro.config.mjs README.md site/src/content/docs/start/what-is-rook.md && git commit -m "docs: unify tool count to 'nearly 400 MCP tools'"
 ```
 
-### Task A8: Docs reflect "skills come from the marketplace plugin" (installer = Rhino + MCP only)
+### Task A8: Docs reflect the client skill paths (Claude → marketplace skills+hook; Codex → curated skills via installer)
 
 > Required because Task B0 stops the installer from shipping skills/hooks. The docs
 > currently imply the installer copies skills/agents/hooks — that becomes false.
