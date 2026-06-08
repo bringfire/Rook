@@ -5,7 +5,7 @@ Get AI controlling Rhino 3D in 5 minutes.
 ## Prerequisites
 
 - **Rhino 8** (Windows)
-- **Python 3.10+** (for the Inno Setup installer) or network access (for the script installer which uses [uv](https://docs.astral.sh/uv/))
+- **Python 3.10+** (the installer detects `python`, `python3`, or `py -3` automatically)
 - **[Claude Code](https://code.claude.com)** (recommended) — CLI, [Desktop app](https://code.claude.com/docs/en/desktop), or [VS Code extension](https://code.claude.com/docs/en/vs-code). All three support Rook's full feature set including hooks, plugins, and skills.
 
 > **Note:** The older "Claude Desktop" chat app (claude.ai/download) only supports
@@ -16,52 +16,15 @@ Other MCP clients ([Codex CLI](https://developers.openai.com/codex/cli), Cursor,
 
 ## Installation
 
-### Option A: Installer (Recommended)
-
-1. Download the latest **Rook-Setup** installer from [GitHub Releases](https://github.com/bringfire/Rook/releases).
+1. Download the latest **Rook-Setup** installer from [GitHub Releases](https://github.com/bringfire/rook-release/releases).
 2. Run the installer. Select components:
    - **Plugins** — Rhino 8 plugins (always installed)
    - **MCP Server** — Python MCP server + knowledge stores
    - **Chirp** — LLM-powered Grasshopper components (optional)
    - **Claude** — Auto-configure Claude Code & Claude Desktop
    - **Codex** — Auto-configure OpenAI Codex CLI (optional)
-3. The installer requires Python 3.10+ on your system. It will detect `python`, `python3`, or `py -3` automatically.
+3. The installer requires Python 3.10+ on your system.
 4. Restart Rhino.
-
-### Option B: Script Install (from source)
-
-```bash
-git clone https://github.com/bringfire/Rook.git
-cd Rook
-```
-
-**Windows:**
-```powershell
-powershell -ExecutionPolicy Bypass -File install.ps1
-```
-
-Or double-click `install.bat` from Explorer.
-
-**macOS/Linux** (MCP server only — Rhino plugins are Windows-specific):
-```bash
-chmod +x install.sh
-./install.sh
-```
-
-The script installer uses [uv](https://docs.astral.sh/uv/) and does not require a pre-installed Python — uv downloads it automatically.
-
-Building plugins from source requires Visual Studio 2022 (C++ Desktop workload + .NET Framework 4.8).
-
-### Step: Enable DSPy (Optional)
-
-For AI-powered intent resolution, add your Anthropic API key:
-
-```bash
-cp mcp_server/.env.example mcp_server/.env
-# Edit mcp_server/.env and add your ANTHROPIC_API_KEY
-```
-
-Without this, Rook still works but uses simpler command lookup.
 
 ## Verify Installation
 
@@ -89,9 +52,9 @@ Test with:
 |-----------|----------|---------|
 | RookNative Plugin | `%APPDATA%\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\` | C++ HTTP server inside Rhino |
 | Rook Companion | Same directory | C# Grasshopper bridge + chat panel |
-| MCP Server | `%LOCALAPPDATA%\Rook\app\mcp_server\` (installer) or `./mcp_server/.venv/` (source) | Python MCP server — Claude ↔ Rhino bridge |
-| Knowledge Stores | `%LOCALAPPDATA%\Rook\app\knowledge\` (installer) or `./knowledge/` (source) | 1,200+ GH component notes, 500+ patterns, command knowledge |
-| Skills | Claude: `./.claude/skills/`; Codex: `./.agents/skills/`; installer copies to `~/.claude/skills/`, `~/.codex/skills/`, and `~/.claude/agents/` | Skills and Claude agents for design, planning, execution, chirp components |
+| MCP Server | `%LOCALAPPDATA%\Rook\app\mcp_server\` | Python MCP server — Claude ↔ Rhino bridge |
+| Knowledge Stores | `%LOCALAPPDATA%\Rook\app\knowledge\` | 1,200+ GH component notes, 500+ patterns, command knowledge |
+| Skills (Codex) | `%LOCALAPPDATA%\Rook\app\skills\` (copied to `~/.codex/skills/`) | Curated Rook skill set for Codex CLI |
 | Chirp Adapter | `%LOCALAPPDATA%\Rook\app\chirp\` (installer) | LLM-powered Grasshopper components (optional) |
 | Claude Code Config | `~/.claude.json` | Global MCP configuration (auto-generated) |
 | Claude Desktop Config | `%APPDATA%\Claude\claude_desktop_config.json` | Desktop MCP configuration (auto-generated) |
@@ -122,18 +85,10 @@ Test with:
 ### Installer says "Python not found"
 - Install Python 3.10+ from [python.org](https://www.python.org/downloads/)
 - Make sure "Add to PATH" is checked during Python installation
-- Or use Option B (script install) which downloads Python automatically via uv
 
 ## Uninstall
 
-**Installer:** Use Add/Remove Programs (Windows Settings → Apps).
-
-**Manual (source install):**
-1. Delete `%APPDATA%\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\`
-2. Delete `mcp_server/.venv/`
-3. Remove `rook` entry from `~/.claude.json`
-4. Remove `rook` entry from `%APPDATA%\Claude\claude_desktop_config.json`
-5. Restart Rhino
+Use Add/Remove Programs (Windows Settings → Apps).
 
 ## Next Steps
 

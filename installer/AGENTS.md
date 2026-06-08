@@ -196,4 +196,4 @@ GUID with `gh_knowledge_query` and pass it to `gh_edit` (or use `gh_execute_inte
 for a quick natural-language create).
 
 ### Still stuck?
-File an issue at https://github.com/bringfire/Rook/issues
+File an issue at https://github.com/bringfire/rook-release/issues

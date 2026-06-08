@@ -69,7 +69,7 @@ A Rhino command prompted for input via a modal dialog box. This typically happen
 
 3. **Install uv manually via PowerShell:**
    ```powershell
-   powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+   powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install | iex"
    ```
 
 4. **Check if uv is already installed:**
@@ -77,7 +77,7 @@ A Rhino command prompted for input via a modal dialog box. This typically happen
    uv --version
    ```
 
-After manual installation, run `install.bat` again.
+After manual installation, re-run the Rook installer.
 
 ---
 
@@ -94,8 +94,8 @@ After manual installation, run `install.bat` again.
 2. **Clear uv cache and retry:**
    ```bash
    uv cache clean
-   install.bat
    ```
+   Then re-run the Rook installer.
 
 3. **Check disk space** - The virtual environment needs ~6GB
 
@@ -112,13 +112,11 @@ After manual installation, run `install.bat` again.
 **Solutions:**
 
 1. **Retry installation:**
-   ```bash
-   cd mcp_server
-   uv pip install -e . --verbose
-   ```
 
-   Source bootstrap installs into `mcp_server/.venv`.
-   Release installs use the managed runtime under `%LOCALAPPDATA%\Rook\venv`.
+   The managed runtime is at `%LOCALAPPDATA%\Rook\venv`. To reinstall dependencies:
+   ```bash
+   %LOCALAPPDATA%\Rook\venv\Scripts\python.exe -m pip install --force-reinstall rook-mcp
+   ```
 
 2. **Check for firewall/proxy issues** - uv needs to download packages from PyPI
 
@@ -181,14 +179,9 @@ After manual installation, run `install.bat` again.
    ```
    Should show `rook`
 
-   Release install writes Claude Code config to:
+   The installer writes Claude Code config to:
    ```
    ~/.claude.json
-   ```
-
-   Source bootstrap writes repo-scoped Claude Code config to:
-   ```
-   .mcp.json
    ```
 
    For Claude Desktop, check:
@@ -197,19 +190,11 @@ After manual installation, run `install.bat` again.
    ```
    Should contain `rook` in `mcpServers`
 
-3. **Re-run installer:**
-   ```bash
-   install.bat
-   ```
+3. **Re-run the Rook installer** from [GitHub Releases](https://github.com/bringfire/rook-release/releases)
 
 4. **Manual configuration for Claude Code:**
    ```bash
-   claude mcp add --scope user rook "C:/path/to/mcp_server/.venv/Scripts/python.exe" -- -m rook
-   ```
-
-   For release installs, use the managed runtime at:
-   ```
-   %LOCALAPPDATA%\Rook\venv\Scripts\python.exe
+   claude mcp add --scope user rook "%LOCALAPPDATA%\Rook\venv\Scripts\python.exe" -- -m rook
    ```
 
 ---
@@ -224,20 +209,17 @@ After manual installation, run `install.bat` again.
 
 1. **Verify MCP server can load:**
    ```bash
-   cd mcp_server
-   .venv\Scripts\python -m rook
+   "%LOCALAPPDATA%\Rook\venv\Scripts\python.exe" -m rook
    ```
    Press Ctrl+C to exit. Should not show import errors.
 
 2. **Check Python path in config:**
-   - Source bootstrap must point to `mcp_server/.venv`
-   - Release install must point to `%LOCALAPPDATA%\Rook\venv`
+   - Must point to `%LOCALAPPDATA%\Rook\venv\Scripts\python.exe`
    - Path should use forward slashes: `C:/Users/...`
 
 3. **Reinstall dependencies:**
    ```bash
-   cd mcp_server
-   uv pip install -e . --force-reinstall
+   "%LOCALAPPDATA%\Rook\venv\Scripts\python.exe" -m pip install --force-reinstall rook-mcp
    ```
 
 ---
@@ -264,10 +246,7 @@ Both are deployed to the same directory. RookNative loads first and loads the co
    ```
    Should contain both `RookNative.rhp` and `Rook.rhp`
 
-2. **Re-run installer to copy plugin:**
-   ```bash
-   install.bat
-   ```
+2. **Re-run the Rook installer** to re-deploy the plugin files.
 
 3. **Manually load plugin:**
    - In Rhino: `PlugInManager`
@@ -328,22 +307,13 @@ Both are deployed to the same directory. RookNative loads first and loads the co
 
 1. **Verify virtual environment:**
    ```bash
-   cd mcp_server
-   .venv\Scripts\python -c "import rook; print('OK')"
+   "%LOCALAPPDATA%\Rook\venv\Scripts\python.exe" -c "import rook; print('OK')"
    ```
 
-   For release installs:
+2. **Reinstall:**
    ```bash
-   %LOCALAPPDATA%\Rook\venv\Scripts\python.exe -c "import rook; print('OK')"
+   "%LOCALAPPDATA%\Rook\venv\Scripts\python.exe" -m pip install --force-reinstall rook-mcp
    ```
-
-2. **Reinstall in editable mode:**
-   ```bash
-   cd mcp_server
-   uv pip install -e .
-   ```
-
-3. **Check `pyproject.toml` exists in `mcp_server/`**
 
 ---
 
@@ -382,15 +352,11 @@ Both are deployed to the same directory. RookNative loads first and loads the co
    knowledge/commands/command_knowledge.json
    ```
 
-   Release installs package `knowledge/` alongside the installed payload and register:
-   - `ROOK_INSTALL_ROOT=<install root>`
+   The installer registers:
+   - `ROOK_INSTALL_ROOT=%LOCALAPPDATA%\Rook\app`
    - `ROOK_DATA_DIR=%LOCALAPPDATA%\Rook\data`
 
-   Dev bootstrap registers:
-   - `ROOK_INSTALL_ROOT=<repo root>`
-   - `ROOK_DATA_DIR=<repo root>\knowledge`
-
-2. **Re-download release** - Knowledge might be missing from extraction
+2. **Re-run the installer** — the knowledge store may not have been extracted correctly
 
 3. **Check path structure:**
    ```
@@ -413,19 +379,17 @@ Both are deployed to the same directory. RookNative loads first and loads the co
 
 1. **Test loading manually:**
    ```bash
-   cd mcp_server
-   .venv\Scripts\python -c "from rook.learning.command_learner import command_learner; print(len(command_learner.knowledge_store.patterns))"
+   "%LOCALAPPDATA%\Rook\venv\Scripts\python.exe" -c "from rook.learning.command_learner import command_learner; print(len(command_learner.knowledge_store.patterns))"
    ```
    Should print a number (e.g., 89)
 
 2. **Check for JSON syntax errors:**
-   - Open `knowledge/commands/command_knowledge.json` in a text editor
+   - Open `%LOCALAPPDATA%\Rook\data\commands\command_knowledge.json` in a text editor
    - Look for parsing errors
 
 3. **Rebuild knowledge:**
    ```bash
-   cd mcp_server
-   .venv\Scripts\python -c "from rook.learning.command_learner import command_learner; command_learner.consolidate_knowledge()"
+   "%LOCALAPPDATA%\Rook\venv\Scripts\python.exe" -c "from rook.learning.command_learner import command_learner; command_learner.consolidate_knowledge()"
    ```
 
 ---
@@ -474,16 +438,15 @@ claude mcp list
 
 **Python environment:**
 ```bash
-cd mcp_server
-.venv\Scripts\python --version
-.venv\Scripts\pip list
+"%LOCALAPPDATA%\Rook\venv\Scripts\python.exe" --version
+"%LOCALAPPDATA%\Rook\venv\Scripts\pip.exe" list
 ```
 
 ---
 
 ## Still Having Issues?
 
-1. **Check GitHub Issues:** [github.com/bringfire/Rook/issues](https://github.com/bringfire/Rook/issues)
+1. **Check GitHub Issues:** [github.com/bringfire/rook-release/issues](https://github.com/bringfire/rook-release/issues)
 
 2. **Collect diagnostic info:**
    - Rhino version (`Help > About Rhinoceros`)
@@ -500,26 +463,18 @@ cd mcp_server
 
 If all else fails, do a clean reinstall:
 
-1. **Remove existing installation:**
-   ```bash
-   # Delete the venv
-   rmdir /s /q mcp_server\.venv
+1. **Uninstall via Add/Remove Programs** (Windows Settings → Apps → Rook)
 
-   # Remove Claude Code config
-   claude mcp remove rook --scope user
-
-   # Backup and remove Claude Desktop config entry manually
-   notepad %APPDATA%\Claude\claude_desktop_config.json
-   ```
-
-2. **Remove Rhino plugin:**
+2. **Remove the Rhino plugin manually** (if it remains):
    ```bash
    rmdir /s /q "%APPDATA%\McNeel\Rhinoceros\8.0\Plug-ins\RookNative"
    ```
 
-3. **Re-run installer:**
+3. **Remove the Claude Code config entry:**
    ```bash
-   install.bat
+   claude mcp remove rook --scope user
    ```
 
-4. **Restart Rhino and Claude clients**
+4. **Download and re-run the installer** from [GitHub Releases](https://github.com/bringfire/rook-release/releases)
+
+5. **Restart Rhino and Claude clients**
