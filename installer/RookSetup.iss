@@ -29,11 +29,7 @@
 #define KnowledgeDir RepoRoot + "\knowledge"
 #define ScriptsDir   RepoRoot + "\scripts"
 #define FfmpegDir   RepoRoot + "\third_party\ffmpeg"
-#define ClaudeSkillsDir RepoRoot + "\.claude\skills"
-#define CodexSkillsDir  RepoRoot + "\.agents\skills"
-#define ClaudeAgentsDir RepoRoot + "\.claude\agents"
-#define PluginDir    RepoRoot + "\.claude-plugin"
-#define HooksDir     RepoRoot + "\hooks"
+#define CodexCuratedSkillsDir RepoRoot + "\installer\agent-assets\codex-skills"
 #define ChirpDir     RepoRoot + "\..\Chirp"
 
 [Setup]
@@ -76,8 +72,8 @@ Name: "plugins"; Description: "Rhino 8 Plugins (RookNative + Companion)"; Types:
 Name: "mcp"; Description: "Python MCP Server (requires Python 3.10+)"; Types: full custom
 Name: "chirp"; Description: "Chirp — LLM-powered Grasshopper components (requires MCP + Python 3.10+)"; Types: full custom
 Name: "knowledge"; Description: "Knowledge Stores (commands + Grasshopper)"; Types: full custom
-Name: "claude"; Description: "Claude Code / Desktop Configuration + user skills/agents (requires MCP)"; Types: full custom
-Name: "codex"; Description: "OpenAI Codex CLI Configuration + user skills (requires MCP)"; Types: full custom
+Name: "claude"; Description: "Claude Code / Claude Desktop MCP configuration (requires MCP)"; Types: full custom
+Name: "codex"; Description: "OpenAI Codex CLI MCP configuration + curated skills (requires MCP)"; Types: full custom
 
 ; ---------------------------------------------------------------------------
 ; Files
@@ -135,14 +131,10 @@ Source: "{#KnowledgeDir}\gh\*"; DestDir: "{app}\knowledge\gh"; Components: knowl
 ; --- Durable Script Library ---
 Source: "{#ScriptsDir}\rook-library\*"; DestDir: "{app}\scripts\rook-library"; Components: mcp; Flags: ignoreversion recursesubdirs createallsubdirs
 
-; --- Optional Claude/Codex agent payloads ---
-Source: "{#PluginDir}\plugin.json"; DestDir: "{app}\.claude-plugin"; Components: claude; Flags: ignoreversion
-Source: "{#PluginDir}\marketplace.json"; DestDir: "{app}\.claude-plugin"; Components: claude; Flags: ignoreversion
-Source: "{#ClaudeSkillsDir}\*"; DestDir: "{app}\.claude\skills"; Components: claude; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "{#CodexSkillsDir}\*"; DestDir: "{app}\.agents\skills"; Components: codex; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "{#ClaudeAgentsDir}\*"; DestDir: "{app}\.claude\agents"; Components: claude; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "{#HooksDir}\hooks.json"; DestDir: "{app}\hooks"; Components: claude; Flags: ignoreversion
-Source: "{#RepoRoot}\scripts\session-start.sh"; DestDir: "{app}\scripts"; Components: claude; Flags: ignoreversion
+; --- Curated Codex skill payload + post-install prompts ---
+Source: "{#CodexCuratedSkillsDir}\*"; DestDir: "{app}\.agents\skills"; Components: codex; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#RepoRoot}\installer\agent-assets\ROOK_CLAUDE_POST_INSTALL.md"; DestDir: "{localappdata}\Rook"; Flags: ignoreversion
+Source: "{#RepoRoot}\installer\agent-assets\ROOK_CODEX_POST_INSTALL.md"; DestDir: "{localappdata}\Rook"; Flags: ignoreversion
 
 ; --- Post-install setup script (always included, used by [Run]) ---
 Source: "post_install.py"; DestDir: "{app}"; Flags: ignoreversion

@@ -407,20 +407,8 @@ def _copy_children(source_root: Path, target_root: Path, label: str) -> bool:
 
 
 def install_user_assets(install_dir: Path, install_claude: bool, install_codex: bool) -> bool:
-    """Copy Claude/Codex skills plus Claude agents to their user-level homes."""
+    """Copy curated Codex skills to the user-level Codex home."""
     installed_any = False
-
-    if install_claude:
-        installed_any |= _copy_children(
-            install_dir / ".claude" / "skills",
-            Path.home() / ".claude" / "skills",
-            "Claude skills",
-        )
-        installed_any |= _copy_children(
-            install_dir / ".claude" / "agents",
-            Path.home() / ".claude" / "agents",
-            "Claude agents",
-        )
 
     if install_codex:
         installed_any |= _copy_children(
