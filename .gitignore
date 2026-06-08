@@ -170,3 +170,6 @@ drafts/
 
 # Scratch / spike runtime trees (raw evidence stays out of the repo)
 .scratch/
+
+# Docs website now lives in the public rook-release repo, not here
+/site/
