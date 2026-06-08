@@ -130,7 +130,7 @@ Getting set up is a one-time thing. Afterwards, you just talk to your assistant.
 
 You don't need to be a programmer, and you don't need to know any Rhino commands.
 
-## Step 1 — Install the plugin
+## Step 1 — Install Rook (the Rhino plug-in)
 
 <Steps>
 
@@ -349,7 +349,7 @@ Expected: `clean` (or only the corrected Codex line).
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /c/UDEV/rook-release && git add site/src/content/docs/plugin/overview.md site/src/content/docs/plugin/claude.md site/src/content/docs/plugin/codex.md site/src/content/docs/start/install.mdx site/src/content/docs/start/setup-verify.md && git commit -m "docs: skills/hooks come from the marketplace plugin; installer = Rhino + MCP only"
+cd /c/UDEV/rook-release && git add site/src/content/docs/plugin/overview.md site/src/content/docs/plugin/claude.md site/src/content/docs/plugin/codex.md site/src/content/docs/start/install.mdx site/src/content/docs/start/setup-verify.md && git commit -m "docs: clarify Claude marketplace and Codex installer skill paths"
 ```
 
 ### Task A9: Post-install agent prompts (the "installer in the new world")
@@ -359,7 +359,14 @@ cd /c/UDEV/rook-release && git add site/src/content/docs/plugin/overview.md site
 > canonical source; Task B0 ships byte-identical copies via the installer.
 
 **Files:**
-- Create: `C:\UDEV\rook-release\site\src\content\docs\start\agent-post-install.md`
+- Create: `C:\UDEV\rook-release\agent-prompts\ROOK_CLAUDE_POST_INSTALL.md` (canonical raw prompt body)
+- Create: `C:\UDEV\rook-release\agent-prompts\ROOK_CODEX_POST_INSTALL.md` (canonical raw prompt body)
+- Create: `C:\UDEV\rook-release\site\src\content\docs\start\agent-post-install.md` (docs mirror)
+
+> The raw files under `agent-prompts/` are the **single canonical source**. The docs
+> page embeds their exact bodies in `:::tip` blocks, and Task B0 copies the raw files
+> into the installer payload (byte-identical, diff-verified). Write the raw files
+> first, then paste their bodies into the docs page's tip blocks.
 
 - [ ] **Step 1: Create the docs page with BOTH prompts**
 
@@ -420,7 +427,7 @@ In `start/setup-verify.md`, add a line near the top pointing to the new page:
 
 ```bash
 cd /c/UDEV/rook-release/site && npm run build   # expect Complete!
-cd /c/UDEV/rook-release && git add site/src/content/docs/start/agent-post-install.md site/astro.config.mjs site/src/content/docs/start/setup-verify.md && git commit -m "docs: post-install agent prompts (Claude + Codex)"
+cd /c/UDEV/rook-release && git add agent-prompts site/src/content/docs/start/agent-post-install.md site/astro.config.mjs site/src/content/docs/start/setup-verify.md && git commit -m "docs: post-install agent prompts (Claude + Codex), canonical + docs mirror"
 ```
 
 ### Task A7: Build + public-repo grep gate; push
@@ -470,7 +477,7 @@ cd /c/UDEV/rook-release && git push
 - Modify: `C:\UDEV\Rook\installer\RookSetup.iss` (components 79-80; remove 138-145; add curated-Codex + post-install-doc Source lines)
 - Modify: `C:\UDEV\Rook\installer\post_install.py` (copy ONLY curated Codex skills)
 - Create: `C:\UDEV\Rook\installer\agent-assets\codex-skills\` (curated 11, from `rook-release/.claude/skills`)
-- Create: `C:\UDEV\Rook\installer\agent-assets\ROOK_CLAUDE_POST_INSTALL.md`, `ROOK_CODEX_POST_INSTALL.md` (byte-identical to Task A9's prompts)
+- Copy into `C:\UDEV\Rook\installer\agent-assets\` from `rook-release/agent-prompts/`: `ROOK_CLAUDE_POST_INSTALL.md`, `ROOK_CODEX_POST_INSTALL.md` (byte-identical, diff-verified in Step 4)
 
 - [ ] **Step 1: Remove the agent-payload Source lines from the `.iss`**
 
@@ -528,11 +535,15 @@ Source: "{#RepoRoot}\installer\agent-assets\ROOK_CLAUDE_POST_INSTALL.md"; DestDi
 Source: "{#RepoRoot}\installer\agent-assets\ROOK_CODEX_POST_INSTALL.md"; DestDir: "{localappdata}\Rook"; Flags: ignoreversion
 ```
 
-- [ ] **Step 3d: Create the two post-install agent docs (byte-identical to Task A9)**
+- [ ] **Step 3d: Copy the post-install agent docs from the public canonical files**
 
-Create `installer/agent-assets/ROOK_CLAUDE_POST_INSTALL.md` and
-`ROOK_CODEX_POST_INSTALL.md` containing the exact prompt bodies from Task A9 (Claude
-and Codex respectively), as plain `.md` (no Starlight `:::tip` wrapper).
+```bash
+cd /c/UDEV/Rook
+cp /c/UDEV/rook-release/agent-prompts/ROOK_CLAUDE_POST_INSTALL.md installer/agent-assets/ROOK_CLAUDE_POST_INSTALL.md
+cp /c/UDEV/rook-release/agent-prompts/ROOK_CODEX_POST_INSTALL.md installer/agent-assets/ROOK_CODEX_POST_INSTALL.md
+```
+Byte-identical to the public canonical files (Task A9) by construction; Step 4
+diff-verifies.
 
 - [ ] **Step 4: Verify — private payload gone, curated payload correct, runtime intact**
 
@@ -540,8 +551,12 @@ Run:
 ```bash
 cd /c/UDEV/Rook
 grep -nE 'PluginDir\}|ClaudeSkillsDir|ClaudeAgentsDir|HooksDir|session-start\.sh' installer/RookSetup.iss | grep -i 'Source:' || echo "iss: private plugin/skill/hook payload removed"
-ls installer/agent-assets/codex-skills
+# curated payload == the public 11, by name (exact set equality):
+diff <(ls /c/UDEV/rook-release/.claude/skills | sort) <(ls installer/agent-assets/codex-skills | sort) && echo "codex skills == public 11" || echo "SKILL SET MISMATCH — fix"
 grep -rilE 'build-release|/test|validate-security|consolidate|_template|deploy-local-testing' installer/agent-assets/codex-skills && echo "MAINTAINER LEAK — fix" || echo "curated: no maintainer skills"
+# post-install prompts byte-identical to the public canonical files:
+diff /c/UDEV/rook-release/agent-prompts/ROOK_CLAUDE_POST_INSTALL.md installer/agent-assets/ROOK_CLAUDE_POST_INSTALL.md && echo "Claude prompt parity OK" || echo "CLAUDE PROMPT DRIFT — fix"
+diff /c/UDEV/rook-release/agent-prompts/ROOK_CODEX_POST_INSTALL.md installer/agent-assets/ROOK_CODEX_POST_INSTALL.md && echo "Codex prompt parity OK" || echo "CODEX PROMPT DRIFT — fix"
 grep -nE '\.claude/skills|\.claude/agents' installer/post_install.py && echo "CLAUDE COPY STILL PRESENT — fix" || echo "post_install: claude copy removed"
 grep -nE 'McpServerDir|KnowledgeDir|venv|register|CLAUDE\.md|AGENTS\.md' installer/RookSetup.iss installer/post_install.py | head
 ```
@@ -878,7 +893,7 @@ Then open `https://bringfire.github.io/rook-release/` (expect 200, not 404) and
 
 ## Self-Review notes
 - **Spec coverage:** A1↔B1(plugin); A2↔docs; A3↔B5; A4↔D3(docs); A5↔D1(msg); A6↔S2; A8 + B0↔installer-payload blocker (skills/hooks only in rook-release); B1↔S3; B2↔D2; B3↔refinement#2; C1↔§5; C2/C3↔sequencing; D1↔mirror (+v1.5.9 cleanup); D2↔§7 gates; D3↔flip. RookSplat coming-soon retained (A4). BUILDING.md dropped from payload (B2) and excluded from the grep set (B3 Step 3).
-- **Blocker (installer payload):** B0 stops the installer shipping `.claude-plugin`/`.claude/skills`/`.agents/skills`/`.claude/agents`/`hooks`/`session-start.sh` and removes the `post_install` skill copy; A8 updates the docs so skills/hooks come from the marketplace plugin. Codex consequence: Codex users get the MCP tool set, not packaged skills (documented in A8 Step 2).
+- **Blocker (installer payload) — curated public assets, not private/dev:** B0 removes the private `.claude-plugin`/full `.claude/skills`/`.agents/skills`/`.claude/agents`/`hooks`/`session-start.sh`, and ADDS a curated Codex skill payload (the 11 public skills, derived from `rook-release/.claude/skills`, diff-verified == 11, no maintainer skills); `post_install` copies only the curated Codex skills. **Both clients are first-class:** Claude Code gets skills/hooks via the marketplace; **Codex gets the curated 11 via the installer** (A8 Step 2). A9 ships two copy-paste post-install agent prompts (Claude + Codex), canonical in `rook-release/agent-prompts/`, copied byte-identical into the installer (diff-verified in B0 Step 4). Runtime/MCP/venv/knowledge/CLAUDE.md/AGENTS.md verified intact (B0 Step 4).
 - **Should-fixes folded in:** Git Bash shell note (header); whole-repo grep gates excluding generated/vendor (A7 Step 2, D2 Step 3); `git rm -r -f site` after a dirty-file check (C1).
 - **No placeholders:** NOTICES.txt, install.mdx body, plugin.json change, B0 line removals, and all greps are concrete.
 - **Consistency:** version `1.5.10` used uniformly in Phase C/D; `1.5.9` allowed only until D1, then must be absent (D2 Step 3) and the stale mirror deleted (D1 Step 5).
