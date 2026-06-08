@@ -204,7 +204,7 @@ $bootstrapLockLines = @(
     '# Install with --isolated --no-index --find-links python-wheelhouse --require-hashes'
 )
 foreach ($packageSpec in $bootstrapToolPackages) {
-    $parts = $packageSpec.Split('==')
+    $parts = $packageSpec -split '==', 2
     $packageName = $parts[0]
     $packageVersion = $parts[1]
     $packageWheel = Get-ChildItem -Path $wheelhouse -Filter "$packageName-$packageVersion-*.whl" | Select-Object -First 1
