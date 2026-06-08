@@ -19,11 +19,17 @@ has `grep`/`sed`/`find`). This machine's default shell is PowerShell, which lack
 those on PATH; run the snippets via Git Bash, or translate to PowerShell
 (`Select-String` for `grep`, etc.).
 
-**Installer payload principle (drives Task B0):** the installer ships **Rhino
-plugins + the Python MCP server/runtime + knowledge + guidance docs (CLAUDE.md /
-AGENTS.md) + MCP config registration only**. It does **not** ship the Claude
-plugin, skills, agents, or hooks — those live solely in `rook-release` and are
-installed via the marketplace. This keeps one source of truth.
+**Installer payload principle (drives Task B0):** ship **curated *public* agent
+assets; never *private/dev* assets.** The installer ships Rhino plugins + the Python
+MCP server/runtime + knowledge + guidance docs (CLAUDE.md / AGENTS.md) +
+MCP-config registration, **plus a curated Codex skill payload (the 11 public skills)
+for Codex**, **plus two copy-paste post-install agent prompts**. It does **not**
+ship the private plugin manifest, the full/dev `.claude/skills`, `.claude/agents`,
+or hooks. Distribution by client: **Claude Code** gets skills + the session hook via
+the `rook-release` **marketplace**; **Codex** gets the curated 11 skills via the
+**installer**. The canonical skill set lives in `rook-release/.claude/skills`; the
+Codex payload is **derived from it** (validated to equal exactly the 11), never
+copied from private `.agents/skills`.
 
 ---
 
@@ -301,14 +307,18 @@ Remove any statement that the installer "copies the skills, agents, and hooks." 
 `claude.md`, the "easy path" = run the installer (Rhino + MCP), then add the plugin
 for skills/hooks.
 
-- [ ] **Step 2: codex.md — correct the Codex capability story**
+- [ ] **Step 2: codex.md — Codex is first-class (curated skills via the installer)**
 
-Codex gets the **MCP tools** (via the installer's MCP registration). Skills/hooks
-are a **Claude Code** feature delivered through the marketplace, which Codex does not
-consume. Update the capability matrix: Codex **Skills → "—"** (was "✅ packaged
-set"). Add one line: "Packaged skills for Codex aren't part of this release; Codex
-users get the full MCP tool set." Remove any claim that the installer copies
-`.agents/skills` for Codex.
+Codex gets the **MCP tools** AND a **curated set of the same 11 user skills**,
+delivered by the **installer** (copied to `~/.codex/skills`) — plus `AGENTS.md`
+guidance. The difference from Claude Code is only the *delivery channel*: Claude
+gets skills + the session hook from the marketplace; Codex gets the curated skills
+from the installer. Update the capability matrix: Codex **Skills → ✅ (curated, 11;
+installer-delivered)**; Codex **Hooks → —** (hooks remain Claude-only). Use this
+framing:
+> Codex and other MCP clients use Rook's MCP tools. The curated skill workflow ships
+> to Claude Code via the marketplace plugin and to Codex via the installer (the same
+> 11 user skills). Maintainer/dev skills are not shipped to either.
 
 - [ ] **Step 3: install.mdx — add the plugin step**
 
@@ -318,8 +328,9 @@ After "Step 2 — Connect your assistant," add **"Step 3 — Add the Rook plugin
 /plugin marketplace add bringfire/rook-release
 /plugin install rook@rook
 ```
-and a note that this is what provides the `/` skills + the session hook (Claude
-Code only). Renumber the Verify step to Step 4.
+Note: this provides the `/` skills + the session hook **for Claude Code**. Add a
+one-liner: "**Codex users:** the curated skills are installed for you by the
+installer — no extra step." Renumber the Verify step to Step 4.
 
 - [ ] **Step 4: setup-verify.md — adjust the skills check**
 
@@ -339,6 +350,77 @@ Expected: `clean` (or only the corrected Codex line).
 
 ```bash
 cd /c/UDEV/rook-release && git add site/src/content/docs/plugin/overview.md site/src/content/docs/plugin/claude.md site/src/content/docs/plugin/codex.md site/src/content/docs/start/install.mdx site/src/content/docs/start/setup-verify.md && git commit -m "docs: skills/hooks come from the marketplace plugin; installer = Rhino + MCP only"
+```
+
+### Task A9: Post-install agent prompts (the "installer in the new world")
+
+> Two copy-paste prompts a user hands their agent to do the post-install
+> check / connect / smoke-test / cleanup. Authored here (public docs) as the
+> canonical source; Task B0 ships byte-identical copies via the installer.
+
+**Files:**
+- Create: `C:\UDEV\rook-release\site\src\content\docs\start\agent-post-install.md`
+
+- [ ] **Step 1: Create the docs page with BOTH prompts**
+
+Frontmatter (`title: Post-Install Agent Setup`, `sidebar: { order: 4 }`), a short
+intro ("After installing, paste the prompt for your assistant — it verifies the
+connection, runs a safe smoke test, sets up skills, cleans up, and reports."), then
+two `:::tip` copy-paste blocks.
+
+**Claude Code prompt** (`:::tip[Paste this to Claude Code]`):
+```text
+You're helping me finish setting up Rook (the Rhino + Grasshopper plugin) right
+after installing it. Run these checks in order, then clean up and report.
+
+1. MCP connection — list your MCP servers; confirm "rook" is present with a large
+   tool set (nearly 400). If missing, tell me (the installer registers it; I may
+   need to restart you).
+2. Rhino — make sure Rhino 8 is running, then call rhino_ping; expect "pong". If it
+   fails, remind me to start Rhino and that the RookNative plugin must be loaded
+   (I can run ShowRookChat in Rhino to check).
+3. Geometry round-trip — create a red sphere at the origin, radius 5; then list the
+   document objects to confirm it exists.
+4. Grasshopper (only if GH is open) — take a canvas snapshot to confirm GH control;
+   skip if GH isn't open.
+5. Skills — confirm the Rook skills are available (e.g. /design-grasshopper, /chirp,
+   /design-road). If not, install the plugin:
+       /plugin marketplace add bringfire/rook-release
+       /plugin install rook@rook
+   then confirm the 11 skills appear.
+6. Clean up — delete the test sphere you created (and any test layer) so my document
+   is left exactly as it was.
+7. Report — a short PASS/FAIL for each step; for any FAIL, the most likely cause and
+   fix.
+```
+
+**Codex prompt** (`:::tip[Paste this to Codex]`) — identical except step 5:
+```text
+5. Skills — confirm the curated Rook skills are installed (under ~/.codex/skills)
+   and that AGENTS.md guidance is present. You should have the 11 user skills:
+   design-grasshopper, plan-grasshopper, execute-grasshopper, chirp, chirp-cascade,
+   design-road, masterplan-roads, capture-convention, clean-layers, project-setup,
+   twisted-column. If any are missing, tell me to re-run the Rook installer with
+   Codex support.
+```
+(Steps 1-4, 6-7 are identical to the Claude prompt.)
+
+- [ ] **Step 2: Add to sidebar**
+
+In `astro.config.mjs`, add to the "Start Here" group, after "Set Up & Verify":
+`{ label: 'Post-Install Agent Setup', slug: 'start/agent-post-install' }`.
+
+- [ ] **Step 3: Cross-link from setup-verify**
+
+In `start/setup-verify.md`, add a line near the top pointing to the new page:
+"For a full post-install check your agent can run end-to-end, see
+[Post-Install Agent Setup](/rook-release/start/agent-post-install/)."
+
+- [ ] **Step 4: Build + commit**
+
+```bash
+cd /c/UDEV/rook-release/site && npm run build   # expect Complete!
+cd /c/UDEV/rook-release && git add site/src/content/docs/start/agent-post-install.md site/astro.config.mjs site/src/content/docs/start/setup-verify.md && git commit -m "docs: post-install agent prompts (Claude + Codex)"
 ```
 
 ### Task A7: Build + public-repo grep gate; push
@@ -373,15 +455,22 @@ cd /c/UDEV/rook-release && git push
 
 > All Phase B work is in `C:\UDEV\Rook` on branch `docs/public-release-site-and-eula`.
 
-### Task B0: Stop the installer shipping the plugin/skills/hooks payload (BLOCKER)
+### Task B0: Installer ships curated PUBLIC agent assets only (BLOCKER)
 
-> The installer must ship Rhino plugins + MCP/runtime + guidance docs only. Skills,
-> hooks, agents, and the plugin manifest belong solely to `rook-release` (installed
-> via the marketplace). This removes the maintainer-skill/private-metadata leak.
+> Boundary: **ship curated public assets; never private/dev assets.** Remove the
+> private plugin/skills/agents/hooks payload; **ADD a curated Codex skill payload**
+> (the 11 public skills, derived from `rook-release/.claude/skills`); ship the two
+> post-install agent prompts. Claude gets skills/hooks from the marketplace; **Codex
+> gets the curated 11 from the installer.** Keep MCP registration, venv, knowledge,
+> and CLAUDE.md/AGENTS.md guidance intact.
+>
+> **Prereq:** Phase A is done (so `rook-release/.claude/skills` = exactly the 11).
 
 **Files:**
-- Modify: `C:\UDEV\Rook\installer\RookSetup.iss` (lines 79-80, 138-145)
-- Modify: `C:\UDEV\Rook\installer\post_install.py` (skills/agents copy, ≈408-430 + call site)
+- Modify: `C:\UDEV\Rook\installer\RookSetup.iss` (components 79-80; remove 138-145; add curated-Codex + post-install-doc Source lines)
+- Modify: `C:\UDEV\Rook\installer\post_install.py` (copy ONLY curated Codex skills)
+- Create: `C:\UDEV\Rook\installer\agent-assets\codex-skills\` (curated 11, from `rook-release/.claude/skills`)
+- Create: `C:\UDEV\Rook\installer\agent-assets\ROOK_CLAUDE_POST_INSTALL.md`, `ROOK_CODEX_POST_INSTALL.md` (byte-identical to Task A9's prompts)
 
 - [ ] **Step 1: Remove the agent-payload Source lines from the `.iss`**
 
@@ -411,28 +500,59 @@ AGENTS.md guidance install.) The now-unused `#define`s for `ClaudeSkillsDir`,
 `CodexSkillsDir`, `ClaudeAgentsDir`, `PluginDir`, `HooksDir` (lines 32-36) may be
 left in place (harmless) or removed.
 
-- [ ] **Step 3: Remove the skills/agents copy from `post_install.py`**
+- [ ] **Step 3: In `post_install.py`, copy ONLY the curated Codex skills**
 
-Remove the routine that copies skills/agents into user homes (the function around
-lines 408-430 — it `_copy_children` from `.claude/skills` → `~/.claude/skills`,
-`.claude/agents` → `~/.claude/agents`, `.agents/skills` → `~/.codex/skills`) **and
-its call site** in `main()` (the step labelled "Copy Claude/Codex skills plus
-Claude agents…"). Keep MCP registration, venv setup, and the chat-manifest writer.
+Remove the **Claude** skills copy (`.claude/skills` → `~/.claude/skills`) and the
+**Claude agents** copy (`.claude/agents` → `~/.claude/agents`) — Claude gets those
+from the marketplace. **Keep** the Codex skills copy (`{install}/.agents/skills` →
+`~/.codex/skills`); the iss now fills `{app}\.agents\skills` from the curated set
+(Step 3c). Keep MCP registration, venv setup, and the chat-manifest writer untouched.
 
-- [ ] **Step 4: Verify the payload is gone**
+- [ ] **Step 3b: Create the curated Codex skill payload (derived from the public set)**
+
+```bash
+cd /c/UDEV/Rook
+rm -rf installer/agent-assets/codex-skills && mkdir -p installer/agent-assets/codex-skills
+cp -r /c/UDEV/rook-release/.claude/skills/. installer/agent-assets/codex-skills/
+ls installer/agent-assets/codex-skills   # expect exactly the 11 user skills
+```
+`rook-release` stays canonical; this payload is a derived build input.
+
+- [ ] **Step 3c: Ship curated Codex skills + post-install docs from the `.iss`**
+
+Add `#define CodexCuratedSkillsDir RepoRoot + "\installer\agent-assets\codex-skills"`
+near the other defines, then add to `[Files]` (replacing removed line 142):
+```
+Source: "{#CodexCuratedSkillsDir}\*"; DestDir: "{app}\.agents\skills"; Components: codex; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#RepoRoot}\installer\agent-assets\ROOK_CLAUDE_POST_INSTALL.md"; DestDir: "{localappdata}\Rook"; Flags: ignoreversion
+Source: "{#RepoRoot}\installer\agent-assets\ROOK_CODEX_POST_INSTALL.md"; DestDir: "{localappdata}\Rook"; Flags: ignoreversion
+```
+
+- [ ] **Step 3d: Create the two post-install agent docs (byte-identical to Task A9)**
+
+Create `installer/agent-assets/ROOK_CLAUDE_POST_INSTALL.md` and
+`ROOK_CODEX_POST_INSTALL.md` containing the exact prompt bodies from Task A9 (Claude
+and Codex respectively), as plain `.md` (no Starlight `:::tip` wrapper).
+
+- [ ] **Step 4: Verify — private payload gone, curated payload correct, runtime intact**
 
 Run:
 ```bash
 cd /c/UDEV/Rook
-grep -nE 'ClaudeSkillsDir|CodexSkillsDir|ClaudeAgentsDir|PluginDir\}|HooksDir|session-start\.sh' installer/RookSetup.iss | grep -i 'Source:' || echo "iss: no skill/plugin/hook payload"
-grep -nE '\.claude/skills|\.agents/skills|\.claude/agents' installer/post_install.py || echo "post_install: no skill copy"
+grep -nE 'PluginDir\}|ClaudeSkillsDir|ClaudeAgentsDir|HooksDir|session-start\.sh' installer/RookSetup.iss | grep -i 'Source:' || echo "iss: private plugin/skill/hook payload removed"
+ls installer/agent-assets/codex-skills
+grep -rilE 'build-release|/test|validate-security|consolidate|_template|deploy-local-testing' installer/agent-assets/codex-skills && echo "MAINTAINER LEAK — fix" || echo "curated: no maintainer skills"
+grep -nE '\.claude/skills|\.claude/agents' installer/post_install.py && echo "CLAUDE COPY STILL PRESENT — fix" || echo "post_install: claude copy removed"
+grep -nE 'McpServerDir|KnowledgeDir|venv|register|CLAUDE\.md|AGENTS\.md' installer/RookSetup.iss installer/post_install.py | head
 ```
-Expected: `iss: no skill/plugin/hook payload` and `post_install: no skill copy`.
+Expected: private payload removed; `codex-skills` lists exactly the 11;
+`curated: no maintainer skills`; `post_install: claude copy removed`; and MCP/venv/
+knowledge/CLAUDE.md/AGENTS.md lines all still present.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /c/UDEV/Rook && git add installer/RookSetup.iss installer/post_install.py && git commit -m "installer: ship Rhino+MCP/runtime only; skills/hooks/plugin come from rook-release marketplace"
+cd /c/UDEV/Rook && git add installer/RookSetup.iss installer/post_install.py installer/agent-assets && git commit -m "installer: curated public Codex skills + post-install prompts; drop private plugin/skills/hooks (Claude via marketplace)"
 ```
 
 ### Task B1: Installer URLs → rook-release; kill stale Rhino_AI
@@ -674,10 +794,11 @@ Getting started: https://bringfire.github.io/rook-release/
 Run: `gh release view v1.5.10 --repo bringfire/rook-release --json assets --jq '.assets[].name'`
 Expected: installer + ffmpeg bundle + manifests present.
 
-- [ ] **Step 5: Delete the stale mirrored v1.5.9 from rook-release**
+- [ ] **Step 5: ⏸ PAUSE — delete the stale mirrored v1.5.9 from rook-release**
 
-The earlier v1.5.9 mirror shipped the OLD installer (skills + EULA gate) and would
-confuse a public visitor. Remove it so only 1.5.10 is public:
+**Pause for explicit user approval** — this edits externally visible release
+history. The earlier v1.5.9 mirror shipped the OLD installer (skills + EULA gate)
+and would confuse a public visitor. On approval, remove it so only 1.5.10 is public:
 ```bash
 gh release delete v1.5.9 --repo bringfire/rook-release --yes --cleanup-tag
 ```
@@ -723,9 +844,11 @@ immediately after Task D3 and before sending McNeel.)
 
 **Files:** none (gh)
 
-- [ ] **Step 1: Make the repo public**
+- [ ] **Step 1: ⏸ PAUSE — make the repo public**
 
-Run: `gh repo edit bringfire/rook-release --visibility public --accept-visibility-change-consequences`
+**Pause for explicit user approval before this command** — it is the one-way public
+switch. On approval:
+`gh repo edit bringfire/rook-release --visibility public --accept-visibility-change-consequences`
 
 - [ ] **Step 2: Enable Pages (Actions builder) and re-enable the push trigger**
 

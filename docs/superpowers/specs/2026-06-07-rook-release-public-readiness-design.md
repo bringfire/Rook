@@ -140,26 +140,42 @@ prior decision was "site only"). It simply stops being **shipped** by the instal
 
 ---
 
-### 4.5 Installer payload — Rhino + MCP/runtime only (no plugin/skills/hooks)
-The installer currently also ships the Claude plugin assets (`RookSetup.iss:139-145`:
-`.claude-plugin/*`, `.claude/skills/*`, `.agents/skills/*`, `.claude/agents/*`,
-`hooks/hooks.json`, `scripts/session-start.sh`) and `post_install.py` copies those
-skills/agents into user homes. That contradicts "11 user skills / public plugin
-lives in `rook-release`" (it would ship maintainer skills + private-repo metadata).
+### 4.5 Installer payload — curated PUBLIC agent assets only
+The installer currently ships the **private** Claude plugin assets
+(`RookSetup.iss:139-145`: `.claude-plugin/*`, the **full** `.claude/skills/*`,
+`.agents/skills/*`, `.claude/agents/*`, `hooks/hooks.json`, `session-start.sh`) and
+`post_install.py` copies skills/agents into user homes. The full `.claude/skills`
+includes maintainer/dev skills (`build-release`, `test`, `validate-security`,
+`consolidate`, `_template`) and the manifest points at the private repo — i.e. it
+**leaks private/dev assets**.
 
-**Decision:** the installer ships **Rhino plugins + Python MCP server/runtime +
-knowledge + guidance docs (`CLAUDE.md`/`AGENTS.md`) + MCP-config registration only.**
-Skills, hooks, agents, and the plugin manifest are delivered **solely from
-`rook-release`** via the Claude Code marketplace (`/plugin install rook@rook`).
-Remove the §139-145 payload lines and the `post_install` skill copy; keep the
-`claude`/`codex` components (they still register MCP and install the guidance docs).
+**Decision — ship curated PUBLIC assets; never private/dev assets:**
+- Remove the §139-145 private payload and the Claude skills/agents copy in
+  `post_install.py`.
+- The installer ships **Rhino plugins + Python MCP server/runtime + knowledge +
+  guidance docs (`CLAUDE.md`/`AGENTS.md`) + MCP-config registration**, **plus a
+  curated Codex skill payload** = the **11 public user skills**, derived from
+  `rook-release/.claude/skills` (validated to equal exactly the 11; zero maintainer/
+  dev skills). `post_install.py` copies **only** the curated Codex skills →
+  `~/.codex/skills`.
+- **Distribution by client (both first-class):** Claude Code gets skills + the
+  session hook via the `rook-release` **marketplace** (`/plugin install rook@rook`);
+  **Codex gets the curated 11 via the installer** plus `AGENTS.md`.
 
-**Consequence (accepted):** Codex users get the **MCP tool set** but not packaged
-skills (the marketplace is Claude-Code-only). Docs (`plugin/codex.md`, the client
-matrix, `start/install.mdx`, `plugin/overview.md`, `plugin/claude.md`,
-`start/setup-verify.md`) are updated so skills/hooks are presented as a Claude Code
-marketplace step, not an installer side-effect. Packaged Codex skills can be a
-fast-follow if desired (a curated payload matching `rook-release`).
+**Post-install agent prompts (the "installer in the new world").** Ship two
+copy-paste prompts the user hands their agent to verify / connect / smoke-test /
+clean up after install: `ROOK_CLAUDE_POST_INSTALL.md` and
+`ROOK_CODEX_POST_INSTALL.md`, installed locally and **mirrored** in the public docs
+(`start/agent-post-install.md`). Each: confirm MCP `rook`; confirm Rhino 8 +
+`rhino_ping`; safe geometry round-trip; GH basics if open; skills check (Claude:
+marketplace plugin + 11 skills / Codex: curated `~/.codex/skills` + `AGENTS.md`);
+clean up the test sphere/layers; report PASS/FAIL + fixes.
+
+**Verify after B0 (no regressions):** MCP-server registration, venv setup, knowledge
+stores, and `CLAUDE.md`/`AGENTS.md` guidance are all still shipped/working.
+
+**Fast-follow:** if Codex skills should later be marketplace-style, derive them from
+the public curated set — never from private `.agents/skills`.
 
 ## 5. PR #230 cleanup
 Drop the **entire `site/` tree** from PR #230 (the website now lives only in
