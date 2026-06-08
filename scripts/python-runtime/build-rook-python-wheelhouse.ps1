@@ -62,11 +62,47 @@ function ConvertTo-ForwardSlashPath {
 
 function Get-RepoRelativePath {
     param([string]$Root, [string]$Path)
-    $relativePath = [System.IO.Path]::GetRelativePath((Resolve-Path -LiteralPath $Root).Path, (Resolve-Path -LiteralPath $Path).Path)
+    $rootPath = (Resolve-Path -LiteralPath $Root).Path.TrimEnd('\') + '\'
+    $targetPath = (Resolve-Path -LiteralPath $Path).Path
+    $rootUri = New-Object System.Uri($rootPath)
+    $targetUri = New-Object System.Uri($targetPath)
+    $relativeUri = $rootUri.MakeRelativeUri($targetUri)
+    $relativePath = [System.Uri]::UnescapeDataString($relativeUri.ToString()).Replace('/', '\')
     if ($relativePath -eq '.' -or $relativePath.StartsWith('..')) {
-        return ConvertTo-ForwardSlashPath -Path (Resolve-Path -LiteralPath $Path).Path
+        return ConvertTo-ForwardSlashPath -Path $targetPath
     }
     return ConvertTo-ForwardSlashPath -Path $relativePath
+}
+
+function Join-ProcessArguments {
+    param([string[]]$Arguments)
+    $quoted = @()
+    foreach ($argument in $Arguments) {
+        if ($argument -match '[\s"]') {
+            $quoted += '"' + ($argument -replace '"', '\"') + '"'
+        } else {
+            $quoted += $argument
+        }
+    }
+    return ($quoted -join ' ')
+}
+
+function Invoke-CheckedProcess {
+    param(
+        [string]$FilePath,
+        [string[]]$Arguments,
+        [string]$Label
+    )
+    $argumentList = Join-ProcessArguments -Arguments $Arguments
+    $process = Start-Process -FilePath $FilePath -ArgumentList $argumentList -NoNewWindow -PassThru
+    $timeoutMs = $CommandTimeoutSeconds * 1000
+    if (-not $process.WaitForExit($timeoutMs)) {
+        try { $process.Kill() } catch { }
+        Fail "$Label timed out after $CommandTimeoutSeconds seconds"
+    }
+    if ($process.ExitCode -ne 0) {
+        Fail "$Label failed with exit code $($process.ExitCode)"
+    }
 }
 
 function New-SourceArchive {
@@ -126,10 +162,8 @@ $rookWheelDir = Join-Path $BuildRoot 'rook-wheel'
 $chirpWheelDir = Join-Path $BuildRoot 'chirp-wheel'
 New-Item -ItemType Directory -Force -Path $rookWheelDir,$chirpWheelDir | Out-Null
 
-& $pythonExe -m pip wheel --no-deps --wheel-dir $rookWheelDir (Join-Path $RepoRoot 'mcp_server')
-if ($LASTEXITCODE -ne 0) { Fail 'rook-mcp wheel build failed' }
-& $pythonExe -m pip wheel --no-deps --wheel-dir $chirpWheelDir $ChirpRoot
-if ($LASTEXITCODE -ne 0) { Fail 'chirp wheel build failed' }
+Invoke-CheckedProcess -FilePath $pythonExe -Arguments @('-m', 'pip', 'wheel', '--no-deps', '--wheel-dir', $rookWheelDir, (Join-Path $RepoRoot 'mcp_server')) -Label 'rook-mcp wheel build'
+Invoke-CheckedProcess -FilePath $pythonExe -Arguments @('-m', 'pip', 'wheel', '--no-deps', '--wheel-dir', $chirpWheelDir, $ChirpRoot) -Label 'chirp wheel build'
 
 $rookWheel = Get-ChildItem -Path $rookWheelDir -Filter 'rook_mcp-*.whl' | Select-Object -First 1
 if (-not $rookWheel) { Fail 'rook-mcp wheel was not produced' }
@@ -139,8 +173,7 @@ if (-not $chirpWheel) { Fail 'chirp wheel was not produced' }
 Copy-Item -LiteralPath $rookWheel.FullName -Destination $wheelhouse
 Copy-Item -LiteralPath $chirpWheel.FullName -Destination $wheelhouse
 
-& $pythonExe -m pip download --dest $wheelhouse --only-binary=:all: --implementation cp --python-version 3.11 --abi cp311 --platform win_amd64 $rookWheel.FullName $chirpWheel.FullName
-if ($LASTEXITCODE -ne 0) { Fail 'dependency wheel download failed' }
+Invoke-CheckedProcess -FilePath $pythonExe -Arguments @('-m', 'pip', 'download', '--dest', $wheelhouse, '--only-binary=:all:', '--implementation', 'cp', '--python-version', '3.11', '--abi', 'cp311', '--platform', 'win_amd64', $rookWheel.FullName, $chirpWheel.FullName) -Label 'dependency wheel download'
 
 $sdists = @(Get-ChildItem -Path $wheelhouse -Include *.tar.gz,*.zip -File -Recurse)
 if ($sdists.Count -gt 0) {
@@ -274,10 +307,8 @@ if __name__ == "__main__":
     raise SystemExit(main())
 '@ | Set-Content -LiteralPath $lockScript -Encoding UTF8
 
-& $pythonExe $lockScript --base-python $pythonExe --wheelhouse $wheelhouse --package "rook-mcp==$Version" --output $lockRook --work-dir $BuildRoot --command-timeout-seconds $CommandTimeoutSeconds
-if ($LASTEXITCODE -ne 0) { Fail 'Rook hash lock generation failed' }
-& $pythonExe $lockScript --base-python $pythonExe --wheelhouse $wheelhouse --package 'chirp==0.1.0' --output $lockChirp --work-dir $BuildRoot --command-timeout-seconds $CommandTimeoutSeconds
-if ($LASTEXITCODE -ne 0) { Fail 'Chirp hash lock generation failed' }
+Invoke-CheckedProcess -FilePath $pythonExe -Arguments @($lockScript, '--base-python', $pythonExe, '--wheelhouse', $wheelhouse, '--package', "rook-mcp==$Version", '--output', $lockRook, '--work-dir', $BuildRoot, '--command-timeout-seconds', "$CommandTimeoutSeconds") -Label 'Rook hash lock generation'
+Invoke-CheckedProcess -FilePath $pythonExe -Arguments @($lockScript, '--base-python', $pythonExe, '--wheelhouse', $wheelhouse, '--package', 'chirp==0.1.0', '--output', $lockChirp, '--work-dir', $BuildRoot, '--command-timeout-seconds', "$CommandTimeoutSeconds") -Label 'Chirp hash lock generation'
 
 $verificationScript = Join-Path $BuildRoot 'verify_temp_runtime_install.py'
 @'
@@ -369,6 +400,11 @@ def main() -> int:
     ], env=env, timeout=args.command_timeout_seconds).strip()).resolve()
     if site_packages not in import_file.parents:
         raise SystemExit(f"{args.module} imported outside site-packages: {import_file}")
+    sanitized_import_record = {
+        "module": args.module,
+        f"{args.module}.__file__": "<site-packages>/" + import_file.relative_to(site_packages).as_posix(),
+        "origin": "site-packages",
+    }
 
     vision = {}
     if args.vision_smoke:
@@ -377,15 +413,23 @@ def main() -> int:
             "print(json.dumps({'cv2': cv2.__file__, 'PIL': PIL.__file__, "
             "'numpy': numpy.__file__, 'skimage': skimage.__file__}))"
         )
-        vision = json.loads(run([str(venv_python), "-c", vision_expr], env=env, timeout=args.command_timeout_seconds))
+        vision_paths = json.loads(run([str(venv_python), "-c", vision_expr], env=env, timeout=args.command_timeout_seconds))
+        for name, raw_path in vision_paths.items():
+            resolved_path = Path(raw_path).resolve()
+            if site_packages in resolved_path.parents:
+                vision[name] = "<site-packages>/" + resolved_path.relative_to(site_packages).as_posix()
+            else:
+                vision[name] = "<outside-site-packages>"
 
     Path(args.output).write_text(json.dumps({
-        "venv_python": str(venv_python.resolve()),
-        "site_packages": str(site_packages),
+        "venv_python": "<temp-venv>/Scripts/python.exe",
+        "site_packages": "<temp-venv>/Lib/site-packages",
+        "audit_site_packages": str(site_packages),
         "pip_check": pip_check.strip(),
         "pip_install_no_index": True,
-        "pip_install_output_sample": install_output[:2000],
-        "import_record": import_record,
+        "pip_install_looked_in_links": "Looking in links:" in install_output,
+        "pip_install_looked_in_indexes": "Looking in indexes:" in install_output,
+        "import_record": sanitized_import_record,
         "vision_imports": vision,
     }, indent=2), encoding="utf-8")
     return 0
@@ -400,27 +444,23 @@ $chirpVerification = Join-Path $BuildRoot 'verification-chirp.json'
 $rookTempVenv = Join-Path $BuildRoot 'verify-rook-venv'
 $chirpTempVenv = Join-Path $BuildRoot 'verify-chirp-venv'
 
-& $pythonExe $verificationScript --base-python $pythonExe --wheelhouse $wheelhouse --lockfile $lockRook --venv-dir $rookTempVenv --module rook --vision-smoke --output $rookVerification --command-timeout-seconds $CommandTimeoutSeconds
-if ($LASTEXITCODE -ne 0) { Fail 'Rook temp install verification failed' }
-& $pythonExe $verificationScript --base-python $pythonExe --wheelhouse $wheelhouse --lockfile $lockChirp --venv-dir $chirpTempVenv --module chirp --output $chirpVerification --command-timeout-seconds $CommandTimeoutSeconds
-if ($LASTEXITCODE -ne 0) { Fail 'Chirp temp install verification failed' }
+Invoke-CheckedProcess -FilePath $pythonExe -Arguments @($verificationScript, '--base-python', $pythonExe, '--wheelhouse', $wheelhouse, '--lockfile', $lockRook, '--venv-dir', $rookTempVenv, '--module', 'rook', '--vision-smoke', '--output', $rookVerification, '--command-timeout-seconds', "$CommandTimeoutSeconds") -Label 'Rook temp install verification'
+Invoke-CheckedProcess -FilePath $pythonExe -Arguments @($verificationScript, '--base-python', $pythonExe, '--wheelhouse', $wheelhouse, '--lockfile', $lockChirp, '--venv-dir', $chirpTempVenv, '--module', 'chirp', '--output', $chirpVerification, '--command-timeout-seconds', "$CommandTimeoutSeconds") -Label 'Chirp temp install verification'
 
 $auditVenv = Join-Path $BuildRoot 'pip-audit-venv'
 $pipAuditPackage = 'pip-audit==2.10.0'
-& $pythonExe -m venv $auditVenv
-if ($LASTEXITCODE -ne 0) { Fail 'pip-audit venv creation failed' }
+Invoke-CheckedProcess -FilePath $pythonExe -Arguments @('-m', 'venv', $auditVenv) -Label 'pip-audit venv creation'
 $auditPython = Join-Path $auditVenv 'Scripts\python.exe'
-& $auditPython -m pip --isolated --disable-pip-version-check install $pipAuditPackage
-if ($LASTEXITCODE -ne 0) { Fail 'pip-audit install failed' }
+Invoke-CheckedProcess -FilePath $auditPython -Arguments @('-m', 'pip', '--isolated', '--disable-pip-version-check', 'install', $pipAuditPackage) -Label 'pip-audit install'
 $pipAudit = Join-Path $auditVenv 'Scripts\pip-audit.exe'
 $rookVerificationObject = Get-Content -LiteralPath $rookVerification -Raw | ConvertFrom-Json
 $chirpVerificationObject = Get-Content -LiteralPath $chirpVerification -Raw | ConvertFrom-Json
 $rookAuditJson = Join-Path $BuildRoot 'pip-audit-rook.json'
 $chirpAuditJson = Join-Path $BuildRoot 'pip-audit-chirp.json'
-& $pipAudit --path $rookVerificationObject.site_packages --format json --output $rookAuditJson
-if ($LASTEXITCODE -ne 0) { Fail 'pip-audit failed for Rook temp venv' }
-& $pipAudit --path $chirpVerificationObject.site_packages --format json --output $chirpAuditJson
-if ($LASTEXITCODE -ne 0) { Fail 'pip-audit failed for Chirp temp venv' }
+Invoke-CheckedProcess -FilePath $pipAudit -Arguments @('--path', $rookVerificationObject.audit_site_packages, '--format', 'json', '--output', $rookAuditJson) -Label 'pip-audit Rook temp venv'
+Invoke-CheckedProcess -FilePath $pipAudit -Arguments @('--path', $chirpVerificationObject.audit_site_packages, '--format', 'json', '--output', $chirpAuditJson) -Label 'pip-audit Chirp temp venv'
+$rookManifestVerification = $rookVerificationObject | Select-Object * -ExcludeProperty audit_site_packages
+$chirpManifestVerification = $chirpVerificationObject | Select-Object * -ExcludeProperty audit_site_packages
 
 $wheelTagScript = Join-Path $BuildRoot 'collect_wheel_metadata.py'
 @'
@@ -438,6 +478,7 @@ from pip._vendor.packaging.utils import parse_wheel_filename
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--wheelhouse", required=True)
+    parser.add_argument("--output", required=True)
     args = parser.parse_args()
     wheelhouse = Path(args.wheelhouse)
     accepted_tags = {str(tag) for tag in packaging_tags.sys_tags()}
@@ -454,10 +495,10 @@ def main() -> int:
             "sha256": hashlib.sha256(wheel.read_bytes()).hexdigest().upper(),
             "tags": tag_strings,
         })
-    print(json.dumps({
+    Path(args.output).write_text(json.dumps({
         "interpreter_accepted_tags_sample": sorted(accepted_tags)[:100],
         "wheels": records,
-    }))
+    }, indent=2), encoding="utf-8")
     return 0
 
 
@@ -465,8 +506,9 @@ if __name__ == "__main__":
     raise SystemExit(main())
 '@ | Set-Content -LiteralPath $wheelTagScript -Encoding UTF8
 
-$wheelMetadata = (& $pythonExe $wheelTagScript --wheelhouse $wheelhouse | ConvertFrom-Json)
-if ($LASTEXITCODE -ne 0) { Fail 'wheel tag metadata collection failed' }
+$wheelMetadataJson = Join-Path $BuildRoot 'wheel-metadata.json'
+Invoke-CheckedProcess -FilePath $pythonExe -Arguments @($wheelTagScript, '--wheelhouse', $wheelhouse, '--output', $wheelMetadataJson) -Label 'wheel tag metadata collection'
+$wheelMetadata = Get-Content -LiteralPath $wheelMetadataJson -Raw | ConvertFrom-Json
 
 $provenanceScript = Join-Path $BuildRoot 'collect_license_provenance.py'
 @'
@@ -508,10 +550,14 @@ def metadata_for_wheel(wheel: Path) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--wheelhouse", required=True)
+    parser.add_argument("--output", required=True)
     args = parser.parse_args()
     wheelhouse = Path(args.wheelhouse)
     wheels = [metadata_for_wheel(wheel) for wheel in sorted(wheelhouse.glob("*.whl"))]
-    print(json.dumps({"schema_version": 1, "third_party_wheels": wheels}))
+    Path(args.output).write_text(
+        json.dumps({"schema_version": 1, "third_party_wheels": wheels}, indent=2),
+        encoding="utf-8",
+    )
     return 0
 
 
@@ -519,8 +565,9 @@ if __name__ == "__main__":
     raise SystemExit(main())
 '@ | Set-Content -LiteralPath $provenanceScript -Encoding UTF8
 
-$wheelLicenseProvenance = (& $pythonExe $provenanceScript --wheelhouse $wheelhouse | ConvertFrom-Json)
-if ($LASTEXITCODE -ne 0) { Fail 'wheel license provenance collection failed' }
+$wheelLicenseProvenanceJson = Join-Path $BuildRoot 'wheel-license-provenance.json'
+Invoke-CheckedProcess -FilePath $pythonExe -Arguments @($provenanceScript, '--wheelhouse', $wheelhouse, '--output', $wheelLicenseProvenanceJson) -Label 'wheel license provenance collection'
+$wheelLicenseProvenance = Get-Content -LiteralPath $wheelLicenseProvenanceJson -Raw | ConvertFrom-Json
 
 $sourceRoot = Join-Path $BuildRoot 'source-archives'
 $rookSourceArchive = Join-Path $sourceRoot "rook-$rookGitSha.tar"
@@ -530,7 +577,6 @@ $chirpSourceSha = New-SourceArchive -Root $ChirpRoot -GitSha $chirpGitSha -OutPa
 
 $manifest = [ordered]@{
     schema_version = 1
-    generated_utc = [DateTimeOffset]::UtcNow.ToString('o')
     release_version = $Version
     rook_git_sha = $rookGitSha
     rook_source_archive_sha256 = $rookSourceSha
@@ -564,8 +610,8 @@ $manifest = [ordered]@{
         chirp = [ordered]@{ path = Get-RepoRelativePath -Root $RepoRoot -Path $lockChirp; sha256 = Get-Sha256 -Path $lockChirp }
     }
     verification = [ordered]@{
-        rook = $rookVerificationObject
-        chirp = $chirpVerificationObject
+        rook = $rookManifestVerification
+        chirp = $chirpManifestVerification
         pip_audit = [ordered]@{
             tool = $pipAuditPackage
             rook = [ordered]@{ path = Get-RepoRelativePath -Root $RepoRoot -Path $rookAuditJson; sha256 = Get-Sha256 -Path $rookAuditJson }

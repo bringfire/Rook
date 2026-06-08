@@ -21,6 +21,15 @@ function Assert-NotContains {
     Assert-True -Condition (-not $Text.Contains($Expected)) -Message $Message
 }
 
+function Get-CodeWithoutPowerShellComments {
+    param([string]$Text)
+    $tokens = $null
+    $errors = $null
+    $null = [System.Management.Automation.Language.Parser]::ParseInput($Text, [ref]$tokens, [ref]$errors)
+    Assert-True -Condition ($errors.Count -eq 0) -Message "PowerShell parse errors in wheelhouse builder: $($errors -join '; ')"
+    return (($tokens | Where-Object { $_.Kind -ne 'Comment' } | ForEach-Object { $_.Text }) -join ' ')
+}
+
 function Test-PythonRuntimeConfigIsPinned {
     Assert-True -Condition (Test-Path $RuntimeConfigPath) -Message "Missing runtime config: $RuntimeConfigPath"
     $config = Get-Content -Path $RuntimeConfigPath -Raw | ConvertFrom-Json
@@ -68,18 +77,18 @@ function Test-WheelhouseBuilderExists {
 
 function Test-WheelhouseBuilderEnforcesReleaseContracts {
     $content = Get-Content -Path $WheelhouseBuilder -Raw
+    $code = Get-CodeWithoutPowerShellComments -Text $content
     Assert-NotContains -Text $content -Expected 'Release contract markers used by scripts/tests/python-runtime-packaging.tests.ps1' -Message 'Wheelhouse builder must not satisfy guard tests with marker comments.'
-    Assert-Contains -Text $content -Expected '$pythonExe -m pip wheel' -Message 'Wheelhouse builder must build wheels, not editable installs.'
-    Assert-Contains -Text $content -Expected '$pythonExe -m pip download' -Message 'Wheelhouse builder must collect dependency wheels.'
-    Assert-Contains -Text $content -Expected '--only-binary=:all:' -Message 'Wheelhouse builder must reject sdists for public wheelhouse inputs.'
+    Assert-Contains -Text $code -Expected 'Invoke-CheckedProcess -FilePath $pythonExe -Arguments @( ''-m'' , ''pip'' , ''wheel''' -Message 'Wheelhouse builder must build wheels through timeout-bounded pip wheel calls.'
+    Assert-Contains -Text $code -Expected 'Invoke-CheckedProcess -FilePath $pythonExe -Arguments @( ''-m'' , ''pip'' , ''download''' -Message 'Wheelhouse builder must collect dependency wheels through a timeout-bounded pip download call.'
+    Assert-Contains -Text $code -Expected '''--only-binary=:all:''' -Message 'Wheelhouse builder must reject sdists for public wheelhouse inputs.'
     Assert-Contains -Text $content -Expected '"pip", "check"' -Message 'Wheelhouse builder must run pip check.'
-    Assert-Contains -Text $content -Expected 'pip-audit' -Message 'Wheelhouse builder must run pip-audit against temp installed venvs.'
-    Assert-Contains -Text $content -Expected '$pipAuditPackage = ''pip-audit==2.10.0''' -Message 'Wheelhouse builder must pin pip-audit tooling for reproducible release gates.'
-    Assert-Contains -Text $content -Expected '$auditPython -m pip --isolated --disable-pip-version-check install $pipAuditPackage' -Message 'pip-audit install must ignore global/user pip configuration.'
+    Assert-Contains -Text $code -Expected '$pipAuditPackage = ''pip-audit==2.10.0''' -Message 'Wheelhouse builder must pin pip-audit tooling for reproducible release gates.'
+    Assert-Contains -Text $code -Expected 'Invoke-CheckedProcess -FilePath $auditPython -Arguments @( ''-m'' , ''pip'' , ''--isolated'' , ''--disable-pip-version-check'' , ''install'' , $pipAuditPackage )' -Message 'pip-audit install must ignore global/user pip configuration and be timeout bounded.'
     Assert-Contains -Text $content -Expected 'packaging_tags.sys_tags()' -Message 'Wheelhouse builder must validate wheel tags against interpreter accepted tags.'
     Assert-Contains -Text $content -Expected '{module}.__file__' -Message 'Wheelhouse builder must record module import origin evidence.'
-    Assert-Contains -Text $content -Expected '--module rook --vision-smoke' -Message 'Wheelhouse builder must verify the Rook install import origin.'
-    Assert-Contains -Text $content -Expected '--module chirp --output' -Message 'Wheelhouse builder must verify the Chirp install import origin.'
+    Assert-Contains -Text $code -Expected '''--module'' , ''rook'' , ''--vision-smoke''' -Message 'Wheelhouse builder must verify the Rook install import origin.'
+    Assert-Contains -Text $code -Expected '''--module'' , ''chirp'' , ''--output''' -Message 'Wheelhouse builder must verify the Chirp install import origin.'
     Assert-Contains -Text $content -Expected 'cv2' -Message 'Wheelhouse builder must run shipped vision stack import smokes.'
     Assert-Contains -Text $content -Expected 'license_provenance' -Message 'Runtime manifest must include Python and third-party package license/provenance evidence.'
     Assert-Contains -Text $content -Expected 'metadata.get("License-Expression"' -Message 'Wheel provenance collector must inspect modern wheel license metadata.'
@@ -89,7 +98,7 @@ function Test-WheelhouseBuilderEnforcesReleaseContracts {
     Assert-Contains -Text $content -Expected '[int]$CommandTimeoutSeconds = 1800' -Message 'Embedded Python subprocess helpers must have a bounded default timeout.'
     Assert-Contains -Text $content -Expected 'timeout=args.command_timeout_seconds' -Message 'Embedded Python subprocess helpers must pass the configured timeout into subprocess.run.'
     Assert-Contains -Text $content -Expected 'subprocess timed out after {timeout} seconds' -Message 'Embedded Python subprocess helper timeout failures must be clear.'
-    Assert-Contains -Text $content -Expected 'Require-CleanGitSource -Root $RepoRoot -Label ''Rook'' -ExcludedPathSpecs @(' -Message 'Rook clean check must be scoped to source files with generated payload paths excluded.'
+    Assert-Contains -Text $code -Expected 'Require-CleanGitSource -Root $RepoRoot -Label ''Rook'' -ExcludedPathSpecs @(' -Message 'Rook clean check must be scoped to source files with generated payload paths excluded.'
     Assert-Contains -Text $content -Expected '''installer/runtime/**''' -Message 'Rook clean check must exclude generated staged runtime output.'
     Assert-Contains -Text $content -Expected '''artifacts/**''' -Message 'Rook clean check must exclude generated build artifacts.'
     Assert-Contains -Text $content -Expected 'Require-CleanGitRepo -Root $ChirpRoot -Label ''Chirp''' -Message 'Chirp clean check must remain whole-repo clean.'
