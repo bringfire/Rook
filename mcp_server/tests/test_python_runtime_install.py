@@ -153,3 +153,35 @@ def test_pip_output_evidence_rejects_index_lookup() -> None:
         assert "network index" in str(exc)
     else:
         raise AssertionError("expected network index output to be rejected")
+
+
+def test_public_install_ignores_user_python_and_pip_contamination(
+    tmp_path: Path, monkeypatch
+) -> None:
+    runtime = load_runtime_install()
+    fake_user_python = tmp_path / "UserPython" / "python.exe"
+    fake_user_python.parent.mkdir()
+    fake_user_python.write_text("not real", encoding="utf-8")
+
+    monkeypatch.setenv("PATH", str(fake_user_python.parent))
+    monkeypatch.setenv("PYTHONPATH", str(tmp_path / "source-shadow"))
+    monkeypatch.setenv("PYTHONHOME", str(tmp_path / "bad-pythonhome"))
+    monkeypatch.setenv("PIP_INDEX_URL", "https://bad.example/simple")
+    monkeypatch.setenv("PIP_EXTRA_INDEX_URL", "https://bad.example/extra")
+
+    layout = runtime.RuntimeLayout.from_rook_root(tmp_path / "Rook", "3.11.9")
+    env = runtime.build_sanitized_python_env(require_virtualenv=True)
+    command = runtime.build_offline_pip_install_command(
+        layout.rook_venv / "Scripts" / "python.exe",
+        layout.wheelhouse,
+        layout.rook_lock,
+    )
+
+    runtime.assert_offline_pip_command(command)
+    assert str(fake_user_python) not in " ".join(command)
+    assert command[0] == str(layout.rook_venv / "Scripts" / "python.exe")
+    assert env["PIP_NO_INDEX"] == "1"
+    assert "PIP_INDEX_URL" not in env
+    assert "PIP_EXTRA_INDEX_URL" not in env
+    assert "PYTHONPATH" not in env
+    assert "PYTHONHOME" not in env
