@@ -14,6 +14,17 @@
 - Public: `C:\UDEV\rook-release` (git remote `origin` = `bringfire/rook-release`)
 - Private: `C:\UDEV\Rook` (git remote `origin` = `bringfire/Rook`, branch `docs/public-release-site-and-eula`)
 
+**Shell conventions:** All shell snippets assume **Git Bash** (the Bash tool — it
+has `grep`/`sed`/`find`). This machine's default shell is PowerShell, which lacks
+those on PATH; run the snippets via Git Bash, or translate to PowerShell
+(`Select-String` for `grep`, etc.).
+
+**Installer payload principle (drives Task B0):** the installer ships **Rhino
+plugins + the Python MCP server/runtime + knowledge + guidance docs (CLAUDE.md /
+AGENTS.md) + MCP config registration only**. It does **not** ship the Claude
+plugin, skills, agents, or hooks — those live solely in `rook-release` and are
+installed via the marketplace. This keeps one source of truth.
+
 ---
 
 ## Phase A — `rook-release` public repo (docs + plugin)
@@ -266,6 +277,70 @@ Expected: `unified`.
 cd /c/UDEV/rook-release && git add site/astro.config.mjs README.md site/src/content/docs/start/what-is-rook.md && git commit -m "docs: unify tool count to 'nearly 400 MCP tools'"
 ```
 
+### Task A8: Docs reflect "skills come from the marketplace plugin" (installer = Rhino + MCP only)
+
+> Required because Task B0 stops the installer from shipping skills/hooks. The docs
+> currently imply the installer copies skills/agents/hooks — that becomes false.
+
+**Files:**
+- Modify: `C:\UDEV\rook-release\site\src\content\docs\plugin\overview.md`
+- Modify: `C:\UDEV\rook-release\site\src\content\docs\plugin\claude.md`
+- Modify: `C:\UDEV\rook-release\site\src\content\docs\plugin\codex.md`
+- Modify: `C:\UDEV\rook-release\site\src\content\docs\start\install.mdx`
+- Modify: `C:\UDEV\rook-release\site\src\content\docs\start\setup-verify.md`
+
+- [ ] **Step 1: overview.md + claude.md — split the two install steps**
+
+Reword so the model is explicit and correct:
+- The **installer** sets up the Rhino plugins + the local **MCP server** (tools) and
+  registers it with your client.
+- The **skills + session hook** come from the **Claude Code plugin**, installed from
+  the marketplace: `/plugin marketplace add bringfire/rook-release` then
+  `/plugin install rook@rook`.
+Remove any statement that the installer "copies the skills, agents, and hooks." In
+`claude.md`, the "easy path" = run the installer (Rhino + MCP), then add the plugin
+for skills/hooks.
+
+- [ ] **Step 2: codex.md — correct the Codex capability story**
+
+Codex gets the **MCP tools** (via the installer's MCP registration). Skills/hooks
+are a **Claude Code** feature delivered through the marketplace, which Codex does not
+consume. Update the capability matrix: Codex **Skills → "—"** (was "✅ packaged
+set"). Add one line: "Packaged skills for Codex aren't part of this release; Codex
+users get the full MCP tool set." Remove any claim that the installer copies
+`.agents/skills` for Codex.
+
+- [ ] **Step 3: install.mdx — add the plugin step**
+
+After "Step 2 — Connect your assistant," add **"Step 3 — Add the Rook plugin
+(Claude Code)"** with:
+```
+/plugin marketplace add bringfire/rook-release
+/plugin install rook@rook
+```
+and a note that this is what provides the `/` skills + the session hook (Claude
+Code only). Renumber the Verify step to Step 4.
+
+- [ ] **Step 4: setup-verify.md — adjust the skills check**
+
+The skills check already says skills come from the plugin; ensure it points to
+installing the plugin from the marketplace (link to `plugin/overview`), not "the
+installer copies them."
+
+- [ ] **Step 5: Verify no stale "installer copies skills" claims**
+
+Run:
+```bash
+grep -rin "copies the skills\|copies the skills, agents\|installer copies\|packaged skill set\|packaged skills" /c/UDEV/rook-release/site/src || echo "clean"
+```
+Expected: `clean` (or only the corrected Codex line).
+
+- [ ] **Step 6: Commit**
+
+```bash
+cd /c/UDEV/rook-release && git add site/src/content/docs/plugin/overview.md site/src/content/docs/plugin/claude.md site/src/content/docs/plugin/codex.md site/src/content/docs/start/install.mdx site/src/content/docs/start/setup-verify.md && git commit -m "docs: skills/hooks come from the marketplace plugin; installer = Rhino + MCP only"
+```
+
 ### Task A7: Build + public-repo grep gate; push
 
 **Files:** none (validation)
@@ -275,14 +350,16 @@ cd /c/UDEV/rook-release && git add site/astro.config.mjs README.md site/src/cont
 Run: `cd /c/UDEV/rook-release/site && npm run build`
 Expected: "Complete!", no errors.
 
-- [ ] **Step 2: Public-repo cleanliness grep**
+- [ ] **Step 2: Public-repo cleanliness grep (whole repo, minus generated/vendor)**
 
 Run:
 ```bash
 cd /c/UDEV/rook-release
-grep -rIn -e 'bringfire/Rook\b' -e 'Rhino_AI' -e 'open source' -e 'no source' -e 'Placeholder' -e '1\.4\.5' site README.md .claude-plugin | grep -v 'rook-release' | grep -v node_modules || echo "clean"
+grep -rIn -e 'bringfire/Rook\b' -e 'Rhino_AI' -e 'open source' -e 'no source' -e 'Placeholder' -e '1\.4\.5' . \
+  --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=.astro --exclude-dir=.git \
+  | grep -v 'rook-release' || echo "clean"
 ```
-Expected: `clean` (note: `1.5.9` is still expected until Task D1 bumps to 1.5.10; everything else must be clean).
+Expected: `clean` (note: `1.5.9` is still expected until Task D1 bumps to 1.5.10; everything else must be clean). This scans the **entire** repo — docs, `.claude/skills`, `hooks`, `.claude-plugin`, meta — not just `site/`.
 
 - [ ] **Step 3: Push**
 
@@ -295,6 +372,68 @@ cd /c/UDEV/rook-release && git push
 ## Phase B — private `Rook` installer + bundled docs
 
 > All Phase B work is in `C:\UDEV\Rook` on branch `docs/public-release-site-and-eula`.
+
+### Task B0: Stop the installer shipping the plugin/skills/hooks payload (BLOCKER)
+
+> The installer must ship Rhino plugins + MCP/runtime + guidance docs only. Skills,
+> hooks, agents, and the plugin manifest belong solely to `rook-release` (installed
+> via the marketplace). This removes the maintainer-skill/private-metadata leak.
+
+**Files:**
+- Modify: `C:\UDEV\Rook\installer\RookSetup.iss` (lines 79-80, 138-145)
+- Modify: `C:\UDEV\Rook\installer\post_install.py` (skills/agents copy, ≈408-430 + call site)
+
+- [ ] **Step 1: Remove the agent-payload Source lines from the `.iss`**
+
+Delete the entire block at lines 138-145:
+```
+; --- Optional Claude/Codex agent payloads ---
+Source: "{#PluginDir}\plugin.json"; DestDir: "{app}\.claude-plugin"; Components: claude; Flags: ignoreversion
+Source: "{#PluginDir}\marketplace.json"; DestDir: "{app}\.claude-plugin"; Components: claude; Flags: ignoreversion
+Source: "{#ClaudeSkillsDir}\*"; DestDir: "{app}\.claude\skills"; Components: claude; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#CodexSkillsDir}\*"; DestDir: "{app}\.agents\skills"; Components: codex; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#ClaudeAgentsDir}\*"; DestDir: "{app}\.claude\agents"; Components: claude; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#HooksDir}\hooks.json"; DestDir: "{app}\hooks"; Components: claude; Flags: ignoreversion
+Source: "{#RepoRoot}\scripts\session-start.sh"; DestDir: "{app}\scripts"; Components: claude; Flags: ignoreversion
+```
+Keep the CLAUDE.md / AGENTS.md installs (lines 169-170) — those are operating
+guidance, not skills.
+
+- [ ] **Step 2: Re-describe the `claude`/`codex` components as MCP-config only**
+
+Lines 79-80 — change the descriptions to drop "+ user skills/agents":
+```
+Name: "claude"; Description: "Claude Code / Claude Desktop MCP configuration (requires MCP)"; Types: full custom
+Name: "codex"; Description: "OpenAI Codex CLI MCP configuration (requires MCP)"; Types: full custom
+```
+(The components stay — they still drive MCP-server registration and the CLAUDE.md /
+AGENTS.md guidance install.) The now-unused `#define`s for `ClaudeSkillsDir`,
+`CodexSkillsDir`, `ClaudeAgentsDir`, `PluginDir`, `HooksDir` (lines 32-36) may be
+left in place (harmless) or removed.
+
+- [ ] **Step 3: Remove the skills/agents copy from `post_install.py`**
+
+Remove the routine that copies skills/agents into user homes (the function around
+lines 408-430 — it `_copy_children` from `.claude/skills` → `~/.claude/skills`,
+`.claude/agents` → `~/.claude/agents`, `.agents/skills` → `~/.codex/skills`) **and
+its call site** in `main()` (the step labelled "Copy Claude/Codex skills plus
+Claude agents…"). Keep MCP registration, venv setup, and the chat-manifest writer.
+
+- [ ] **Step 4: Verify the payload is gone**
+
+Run:
+```bash
+cd /c/UDEV/Rook
+grep -nE 'ClaudeSkillsDir|CodexSkillsDir|ClaudeAgentsDir|PluginDir\}|HooksDir|session-start\.sh' installer/RookSetup.iss | grep -i 'Source:' || echo "iss: no skill/plugin/hook payload"
+grep -nE '\.claude/skills|\.agents/skills|\.claude/agents' installer/post_install.py || echo "post_install: no skill copy"
+```
+Expected: `iss: no skill/plugin/hook payload` and `post_install: no skill copy`.
+
+- [ ] **Step 5: Commit**
+
+```bash
+cd /c/UDEV/Rook && git add installer/RookSetup.iss installer/post_install.py && git commit -m "installer: ship Rhino+MCP/runtime only; skills/hooks/plugin come from rook-release marketplace"
+```
 
 ### Task B1: Installer URLs → rook-release; kill stale Rhino_AI
 
@@ -435,11 +574,21 @@ Expected: no `MISSING:` lines (the removed `LICENSE`/`BUILDING.md` lines are gon
 **Files:**
 - Delete: `C:\UDEV\Rook\site\` (whole tree, incl. `site/drafts/eula.md`)
 
-- [ ] **Step 1: Remove `site/` from the private repo branch**
+- [ ] **Step 1: Confirm `site/`'s dirty files are all intended for deletion**
 
-Run:
+`site/` may contain modified/untracked files (review-phase edits), so plain
+`git rm -r site` can fail with "has local modifications." First confirm everything
+under `site/` is meant to go:
 ```bash
-cd /c/UDEV/Rook && git rm -r site && git commit -m "chore: drop site/ from private repo — website now lives only in rook-release"
+cd /c/UDEV/Rook && git status --short site/
+```
+Expected: only `site/` paths (all of which we are deleting). If anything there is
+NOT meant for deletion, stop and resolve it first.
+
+- [ ] **Step 2: Force-remove `site/` and commit**
+
+```bash
+cd /c/UDEV/Rook && git rm -r -f site && git commit -m "chore: drop site/ from private repo — website now lives only in rook-release"
 ```
 (The canonical EULA remains as the private root `LICENSE`; the markdown draft under
 `site/drafts/` is intentionally not preserved.)
@@ -525,6 +674,15 @@ Getting started: https://bringfire.github.io/rook-release/
 Run: `gh release view v1.5.10 --repo bringfire/rook-release --json assets --jq '.assets[].name'`
 Expected: installer + ffmpeg bundle + manifests present.
 
+- [ ] **Step 5: Delete the stale mirrored v1.5.9 from rook-release**
+
+The earlier v1.5.9 mirror shipped the OLD installer (skills + EULA gate) and would
+confuse a public visitor. Remove it so only 1.5.10 is public:
+```bash
+gh release delete v1.5.9 --repo bringfire/rook-release --yes --cleanup-tag
+```
+Verify: `gh release list --repo bringfire/rook-release` shows only `v1.5.10`.
+
 ### Task D2: Final validation gates (before going public)
 
 **Files:** none (validation)
@@ -543,12 +701,14 @@ Expected: both valid.
 Run: `cd /c/UDEV/rook-release/site && npm run build`
 Expected: "Complete!".
 
-- [ ] **Step 3: Final cleanliness grep (now 1.5.9 must also be gone)**
+- [ ] **Step 3: Final cleanliness grep (whole repo; now 1.5.9 must also be gone)**
 
 Run:
 ```bash
 cd /c/UDEV/rook-release
-grep -rIn -e 'bringfire/Rook\b' -e 'Rhino_AI' -e 'open source' -e 'no source' -e 'Placeholder' -e '1\.4\.5' -e '1\.5\.9' site README.md .claude-plugin | grep -v 'rook-release' | grep -v node_modules || echo "clean"
+grep -rIn -e 'bringfire/Rook\b' -e 'Rhino_AI' -e 'open source' -e 'no source' -e 'Placeholder' -e '1\.4\.5' -e '1\.5\.9' . \
+  --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=.astro --exclude-dir=.git \
+  | grep -v 'rook-release' || echo "clean"
 ```
 Expected: `clean`.
 
@@ -594,6 +754,8 @@ Then open `https://bringfire.github.io/rook-release/` (expect 200, not 404) and
 ---
 
 ## Self-Review notes
-- **Spec coverage:** A1↔B1; A2↔B2(docs); A3↔B5; A4↔D3(docs); A5↔D1; A6↔S2; B1↔S3; B2↔D2; B3↔B3/B4/refinement#2; C1↔§5; C2/C3↔sequencing; D1↔mirror; D2↔§7 gates; D3↔flip. RookSplat coming-soon retained (A4 leaves its note). BUILDING.md excluded from the grep set per the user's planning note (B3 Step 3).
-- **No placeholders:** NOTICES.txt, install.mdx body, plugin.json change, and all greps are concrete.
-- **Consistency:** version `1.5.10` used uniformly in Phase C/D; `1.5.9` allowed only until D1, then must be absent (D2 Step 3).
+- **Spec coverage:** A1↔B1(plugin); A2↔docs; A3↔B5; A4↔D3(docs); A5↔D1(msg); A6↔S2; A8 + B0↔installer-payload blocker (skills/hooks only in rook-release); B1↔S3; B2↔D2; B3↔refinement#2; C1↔§5; C2/C3↔sequencing; D1↔mirror (+v1.5.9 cleanup); D2↔§7 gates; D3↔flip. RookSplat coming-soon retained (A4). BUILDING.md dropped from payload (B2) and excluded from the grep set (B3 Step 3).
+- **Blocker (installer payload):** B0 stops the installer shipping `.claude-plugin`/`.claude/skills`/`.agents/skills`/`.claude/agents`/`hooks`/`session-start.sh` and removes the `post_install` skill copy; A8 updates the docs so skills/hooks come from the marketplace plugin. Codex consequence: Codex users get the MCP tool set, not packaged skills (documented in A8 Step 2).
+- **Should-fixes folded in:** Git Bash shell note (header); whole-repo grep gates excluding generated/vendor (A7 Step 2, D2 Step 3); `git rm -r -f site` after a dirty-file check (C1).
+- **No placeholders:** NOTICES.txt, install.mdx body, plugin.json change, B0 line removals, and all greps are concrete.
+- **Consistency:** version `1.5.10` used uniformly in Phase C/D; `1.5.9` allowed only until D1, then must be absent (D2 Step 3) and the stale mirror deleted (D1 Step 5).
