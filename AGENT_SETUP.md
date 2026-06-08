@@ -19,7 +19,7 @@ and [MCP servers](https://code.claude.com/docs/en/desktop-quickstart).
 
 **The older "Claude Desktop" chat app (claude.ai/download) is NOT sufficient.**
 It only supports MCP servers — no hooks, no plugins, no skills. Users on that app
-will get the 264 MCP tools but none of the orchestration skills (`/design-grasshopper`,
+will get the nearly 400 MCP tools but none of the orchestration skills (`/design-grasshopper`,
 `/plan-grasshopper`, `/execute-grasshopper`, `/design-road`, etc.) or the session-start
 hook that loads Rook context. If the user is on the older Claude Desktop app, help them
 install [Claude Code Desktop](https://code.claude.com/docs/en/desktop-quickstart) instead.
@@ -31,7 +31,7 @@ Codex CLI also gets the packaged Rook skill set, but Claude-specific features
 ## What Is Rook
 
 Rook is an MCP server that gives AI agents direct control over Rhino 3D and
-Grasshopper. It exposes 264 tools for geometry creation, parametric modeling,
+Grasshopper. It exposes nearly 400 tools for geometry creation, parametric modeling,
 scene analysis, and more. The agent communicates with Rook via the Model Context
 Protocol (stdio). Rook communicates with Rhino via HTTP on localhost.
 
@@ -127,7 +127,7 @@ In the AI client, run:
 ```
 /mcp
 ```
-Look for `rook` in the list. It should show 264 tools.
+Look for `rook` in the list. It should show nearly 400 tools.
 
 ### Step 2: Ping Rhino
 
@@ -152,7 +152,7 @@ AI Client (you)
     |
     | stdio (MCP protocol)
     v
-Python MCP Server (rook-mcp)     264 tools
+Python MCP Server (rook-mcp)     nearly 400 tools
     |
     | HTTP localhost (OS-assigned port, discovered via %TEMP%/rook/)
     v
@@ -216,7 +216,7 @@ Set these in `mcp_server/.env` or as system environment variables.
 
 ## After Setup
 
-Once verified, the agent has access to 264 tools. Key tools to start with:
+Once verified, the agent has access to nearly 400 tools. Key tools to start with:
 
 | Tool | Purpose |
 |------|---------|
@@ -228,5 +228,5 @@ Once verified, the agent has access to 264 tools. Key tools to start with:
 | `rhino_objects` | List objects in the Rhino document |
 | `knowledge_query` | Query the knowledge graph for commands/patterns |
 
-For full tool documentation, call `/mcp` in the AI client to list all 264 tools
+For full tool documentation, call `/mcp` in the AI client to list all nearly 400 tools
 with descriptions.
