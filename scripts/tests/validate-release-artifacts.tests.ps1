@@ -75,7 +75,63 @@ function New-ValidatorFixture {
     Set-Content -LiteralPath $installerPath -Value 'fake installer bytes' -Encoding ASCII
     $installerSha = (Get-FileHash -LiteralPath $installerPath -Algorithm SHA256).Hash
 
+    $sourceBundlePath = Join-Path $tempRoot 'rook-ffmpeg-8.1.1-source-bundle.zip'
+    Set-Content -LiteralPath $sourceBundlePath -Value 'fake ffmpeg source bundle bytes' -Encoding ASCII
+    $sourceBundleSha = (Get-FileHash -LiteralPath $sourceBundlePath -Algorithm SHA256).Hash
+    $sourceBundleManifestPath = Join-Path $tempRoot 'rook-ffmpeg-source-bundle-manifest.json'
+    [ordered]@{
+        bundle_path = $sourceBundlePath
+        bundle_sha256 = $sourceBundleSha
+    } | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath $sourceBundleManifestPath -Encoding UTF8
+
     $smokeManifestPath = Join-Path $tempRoot "smoke-$Version.json"
+    $pythonRuntimeManifestPath = Join-Path $tempRoot 'python-runtime-manifest.json'
+    $installStatePath = Join-Path $tempRoot 'install-state.json'
+    $privatePythonPath = 'C:/Users/test/AppData/Local/Rook/python/cpython-3.11.9/python.exe'
+    $rookVenvPath = 'C:/Users/test/AppData/Local/Rook/venv'
+    $chirpVenvPath = 'C:/Users/test/AppData/Local/Rook/app/chirp/.venv'
+    $rookImportFile = 'C:/Users/test/AppData/Local/Rook/venv/Lib/site-packages/rook/__init__.py'
+    $chirpImportFile = 'C:/Users/test/AppData/Local/Rook/app/chirp/.venv/Lib/site-packages/chirp/__init__.py'
+    $chirpSourceArchiveSha = '1111111111111111111111111111111111111111111111111111111111111111'
+
+    [ordered]@{
+        schema_version = 1
+        python_runtime = [ordered]@{
+            package = 'python'
+            version = '3.11.9'
+            nuget_sha256 = '9283876D58C017E0E846F95B490DA3BCA0FC0A6EE1134B2870677CFB7EEC3C67'
+        }
+        license_provenance = [ordered]@{
+            python_runtime = [ordered]@{
+                package = 'python'
+                version = '3.11.9'
+            }
+            third_party_wheels = @(
+                [ordered]@{
+                    name = 'rook-mcp'
+                    version = $Version
+                    license = 'Proprietary'
+                }
+            )
+        }
+        chirp_git_sha = $GitSha
+        chirp_source_archive_sha256 = $chirpSourceArchiveSha
+    } | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $pythonRuntimeManifestPath -Encoding UTF8
+
+    [ordered]@{
+        schema_version = 1
+        python = [ordered]@{
+            path = $privatePythonPath
+            version = '3.11.9'
+        }
+        rook = [ordered]@{
+            venv_path = $rookVenvPath
+        }
+        chirp = [ordered]@{
+            venv_path = $chirpVenvPath
+        }
+    } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $installStatePath -Encoding UTF8
+
     if ($LegacySingleHost) {
         [ordered]@{
             git_sha = $GitSha
@@ -96,6 +152,29 @@ function New-ValidatorFixture {
             installer_sha256 = $installerSha
             rook_version = $Version
             smoke_started_utc = $SmokeStartedUtc
+            python_runtime_manifest = $pythonRuntimeManifestPath
+            install_state = $installStatePath
+            private_python_path = $privatePythonPath
+            private_python_version = '3.11.9'
+            rook_venv_path = $rookVenvPath
+            chirp_venv_path = $chirpVenvPath
+            rook_import_file = $rookImportFile
+            chirp_import_file = $chirpImportFile
+            pip_check = [ordered]@{
+                rook = [ordered]@{ ok = $true }
+                chirp = [ordered]@{ ok = $true }
+            }
+            license_provenance = [ordered]@{
+                manifest_path = $pythonRuntimeManifestPath
+            }
+            config_identity = [ordered]@{
+                chat_service_python_path = $privatePythonPath
+                chirp_home = 'C:/Users/test/AppData/Local/Rook/app/chirp'
+                release_pythonpath_entries = $false
+            }
+            no_index_install = $true
+            chirp_git_sha = $GitSha
+            chirp_source_archive_sha256 = $chirpSourceArchiveSha
             standalone_rhino = [ordered]@{
                 rhino_version = '8.test'
                 host_runtime = 'net7.0'
@@ -160,8 +239,21 @@ function New-ValidatorFixture {
         InstallerPath = $installerPath
         SmokeManifestPath = $smokeManifestPath
         OutputManifestPath = (Join-Path $tempRoot "release-manifest-$Version.json")
-        SourceBundleManifestPath = (Join-Path $RepoRoot 'artifacts\ffmpeg\ffmpeg-8.1.1-rook-minimal\rook-ffmpeg-source-bundle-manifest.json')
+        SourceBundleManifestPath = $sourceBundleManifestPath
     }
+}
+
+function Test-ReleaseValidatorRequiresPythonRuntimeEvidence {
+    $validator = Get-Content -Path $Validator -Raw
+    Assert-Contains -Text $validator -Expected 'python_runtime_manifest' -Message 'Release validator must require python_runtime_manifest in smoke evidence.'
+    Assert-Contains -Text $validator -Expected 'install_state' -Message 'Release validator must require install_state evidence.'
+    Assert-Contains -Text $validator -Expected 'private_python_path' -Message 'Smoke manifest must record private Python path.'
+    Assert-Contains -Text $validator -Expected 'private_python_version' -Message 'Smoke manifest must record private Python version.'
+    Assert-Contains -Text $validator -Expected 'rook_import_file' -Message 'Smoke manifest must record rook.__file__.'
+    Assert-Contains -Text $validator -Expected 'chirp_import_file' -Message 'Smoke manifest must record chirp.__file__.'
+    Assert-Contains -Text $validator -Expected 'pip_check' -Message 'Smoke manifest must record pip check results.'
+    Assert-Contains -Text $validator -Expected 'license_provenance' -Message 'Release validator must require runtime and wheel license/provenance evidence.'
+    Assert-Contains -Text $validator -Expected 'chirp_git_sha' -Message 'Release validator must require Chirp source identity.'
 }
 
 function Test-ValidatorWritesExactArtifactManifest {
@@ -409,6 +501,7 @@ function Test-ValidatorRejectsStaleCompanionSelfReport {
     }
 }
 
+Test-ReleaseValidatorRequiresPythonRuntimeEvidence
 Test-ValidatorWritesExactArtifactManifest
 Test-DocumentedValidatorCommandDefaultsRepoRoot
 Test-ValidatorRejectsGitShaThatDoesNotMatchCheckout

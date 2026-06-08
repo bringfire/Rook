@@ -255,6 +255,109 @@ function Assert-CompanionSelfReport {
     }
 }
 
+function Assert-PythonRuntimeEvidence {
+    param([object]$SmokeManifest)
+
+    foreach ($field in @(
+        'python_runtime_manifest',
+        'install_state',
+        'private_python_path',
+        'private_python_version',
+        'rook_venv_path',
+        'chirp_venv_path',
+        'rook_import_file',
+        'chirp_import_file',
+        'pip_check',
+        'license_provenance',
+        'config_identity',
+        'no_index_install',
+        'chirp_git_sha',
+        'chirp_source_archive_sha256'
+    )) {
+        $null = Require-JsonField -Json $SmokeManifest -Field $field -Label 'release smoke manifest'
+    }
+
+    $pythonRuntimeManifestPath = Require-File -Path ([string]$SmokeManifest.python_runtime_manifest) -Label 'python_runtime_manifest'
+    $installStatePath = Require-File -Path ([string]$SmokeManifest.install_state) -Label 'install_state'
+    $pythonRuntimeManifest = Get-Content -LiteralPath $pythonRuntimeManifestPath -Raw | ConvertFrom-Json
+    $installState = Get-Content -LiteralPath $installStatePath -Raw | ConvertFrom-Json
+
+    $privatePythonPath = ([string]$SmokeManifest.private_python_path).Replace('/', '\')
+    if ($privatePythonPath -notmatch '(?i)\\Rook\\python\\cpython-3\.11\.9\\python\.exe$') {
+        Fail "release smoke manifest.private_python_path must point to Rook private CPython 3.11.9; actual value: $($SmokeManifest.private_python_path)"
+    }
+    if ([string]$SmokeManifest.private_python_version -ne '3.11.9') {
+        Fail "release smoke manifest.private_python_version must be 3.11.9; actual value: $($SmokeManifest.private_python_version)"
+    }
+
+    $rookImportFile = ([string]$SmokeManifest.rook_import_file).Replace('/', '\')
+    if ($rookImportFile -notmatch '(?i)\\Rook\\venv\\Lib\\site-packages\\rook\\') {
+        Fail "release smoke manifest.rook_import_file must resolve from Rook venv site-packages; actual value: $($SmokeManifest.rook_import_file)"
+    }
+
+    $chirpImportFile = ([string]$SmokeManifest.chirp_import_file).Replace('/', '\')
+    if ($chirpImportFile -notmatch '(?i)\\Rook\\app\\chirp\\.venv\\Lib\\site-packages\\chirp\\') {
+        Fail "release smoke manifest.chirp_import_file must resolve from Chirp venv site-packages; actual value: $($SmokeManifest.chirp_import_file)"
+    }
+
+    Assert-BooleanField -Json $SmokeManifest -Field 'no_index_install' -Label 'release smoke manifest' -Expected $true
+    $pipCheck = Require-JsonField -Json $SmokeManifest -Field 'pip_check' -Label 'release smoke manifest'
+    Assert-BooleanField -Json (Require-JsonField -Json $pipCheck -Field 'rook' -Label 'release smoke manifest.pip_check') -Field 'ok' -Label 'release smoke manifest.pip_check.rook' -Expected $true
+    Assert-BooleanField -Json (Require-JsonField -Json $pipCheck -Field 'chirp' -Label 'release smoke manifest.pip_check') -Field 'ok' -Label 'release smoke manifest.pip_check.chirp' -Expected $true
+
+    $configIdentity = Require-JsonField -Json $SmokeManifest -Field 'config_identity' -Label 'release smoke manifest'
+    $chatServicePythonPath = ([string](Require-JsonField -Json $configIdentity -Field 'chat_service_python_path' -Label 'release smoke manifest.config_identity')).Replace('/', '\')
+    if ($chatServicePythonPath -ne $privatePythonPath) {
+        Fail "release smoke manifest.config_identity.chat_service_python_path must match private_python_path"
+    }
+    $chirpHome = ([string](Require-JsonField -Json $configIdentity -Field 'chirp_home' -Label 'release smoke manifest.config_identity')).Replace('/', '\')
+    if ($chirpHome -notmatch '(?i)\\Rook\\app\\chirp$') {
+        Fail "release smoke manifest.config_identity.chirp_home must point to Rook app Chirp home; actual value: $($configIdentity.chirp_home)"
+    }
+
+    if ([int]$installState.schema_version -ne 1) {
+        Fail 'install_state.schema_version must be 1'
+    }
+
+    $licenseProvenance = Require-JsonField -Json $pythonRuntimeManifest -Field 'license_provenance' -Label 'python_runtime_manifest'
+    $pythonRuntimeLicense = Require-JsonField -Json $licenseProvenance -Field 'python_runtime' -Label 'python_runtime_manifest.license_provenance'
+    if ([string]$pythonRuntimeLicense.package -ne 'python') {
+        Fail "python_runtime_manifest.license_provenance.python_runtime.package must be python; actual value: $($pythonRuntimeLicense.package)"
+    }
+    $thirdPartyWheels = @(Require-JsonField -Json $licenseProvenance -Field 'third_party_wheels' -Label 'python_runtime_manifest.license_provenance')
+    if ($thirdPartyWheels.Count -lt 1) {
+        Fail 'python_runtime_manifest.license_provenance.third_party_wheels must contain at least one wheel entry'
+    }
+
+    $manifestChirpGitSha = [string](Require-JsonField -Json $pythonRuntimeManifest -Field 'chirp_git_sha' -Label 'python_runtime_manifest')
+    if ([string]$SmokeManifest.chirp_git_sha -ne $manifestChirpGitSha) {
+        Fail 'release smoke manifest chirp_git_sha must match python_runtime_manifest chirp_git_sha'
+    }
+    $manifestChirpSourceArchiveSha = [string](Require-JsonField -Json $pythonRuntimeManifest -Field 'chirp_source_archive_sha256' -Label 'python_runtime_manifest')
+    if ([string]$SmokeManifest.chirp_source_archive_sha256 -ne $manifestChirpSourceArchiveSha) {
+        Fail 'release smoke manifest chirp_source_archive_sha256 must match python_runtime_manifest chirp_source_archive_sha256'
+    }
+
+    return [ordered]@{
+        python_runtime_manifest_path = $pythonRuntimeManifestPath
+        install_state_path = $installStatePath
+        private_python_path = [string]$SmokeManifest.private_python_path
+        private_python_version = [string]$SmokeManifest.private_python_version
+        rook_venv_path = [string]$SmokeManifest.rook_venv_path
+        chirp_venv_path = [string]$SmokeManifest.chirp_venv_path
+        rook_import_file = [string]$SmokeManifest.rook_import_file
+        chirp_import_file = [string]$SmokeManifest.chirp_import_file
+        no_index_install = $true
+        pip_check = $pipCheck
+        license_provenance = [ordered]@{
+            python_runtime_package = [string]$pythonRuntimeLicense.package
+            third_party_wheel_count = $thirdPartyWheels.Count
+        }
+        chirp_git_sha = [string]$SmokeManifest.chirp_git_sha
+        chirp_source_archive_sha256 = [string]$SmokeManifest.chirp_source_archive_sha256
+    }
+}
+
 if ($Version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$') {
     Fail "version must be X.Y.Z; actual value: $Version"
 }
@@ -369,6 +472,7 @@ if ([string]$smokeManifest.rook_version -ne $Version) {
 }
 Assert-SmokeHostSuccess -HostManifest $smokeManifest.standalone_rhino -Label 'release smoke manifest standalone_rhino' -RequiredVersionFields @('rhino_version') -ExpectedRhinoInside $false -SmokeStartedAt $smokeStartedAt
 Assert-SmokeHostSuccess -HostManifest $smokeManifest.rhino_inside_revit -Label 'release smoke manifest rhino_inside_revit' -RequiredVersionFields @('rhino_version', 'revit_version', 'rhino_inside_version') -ExpectedRhinoInside $true -SmokeStartedAt $smokeStartedAt
+$pythonRuntimeEvidence = Assert-PythonRuntimeEvidence -SmokeManifest $smokeManifest
 
 $outputManifestParent = Split-Path -Parent $OutputManifestPath
 if ($outputManifestParent) {
@@ -387,6 +491,7 @@ $releaseManifest = [ordered]@{
     ffmpeg_source_bundle_manifest_path = $sourceBundleManifestPathResolved
     smoke_manifest_path = $smokeManifestPathResolved
     smoke = $smokeManifest
+    python_runtime = $pythonRuntimeEvidence
     native = [ordered]@{
         path = $nativePath
         file_version = $expectedFileVersion
