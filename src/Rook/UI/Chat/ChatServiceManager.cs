@@ -552,7 +552,11 @@ namespace Rook.UI.Chat
                 // --- Find Python if .mcp.json didn't provide it ---
                 if (string.IsNullOrEmpty(pythonPath) || !File.Exists(pythonPath))
                 {
-                    pythonPath = DiscoverManagedVenvPython() ?? DiscoverPython();
+                    pythonPath = DiscoverManagedVenvPython();
+                    if (string.IsNullOrEmpty(pythonPath) && AllowUserPythonDiscovery())
+                    {
+                        pythonPath = DiscoverPython();
+                    }
                 }
 
                 if (string.IsNullOrEmpty(pythonPath) || !File.Exists(pythonPath))
@@ -670,6 +674,13 @@ namespace Rook.UI.Chat
 
             var candidate = Path.Combine(localAppData, "Rook", "venv", "Scripts", "python.exe");
             return File.Exists(candidate) ? candidate : null;
+        }
+
+        private static bool AllowUserPythonDiscovery()
+        {
+            var value = Environment.GetEnvironmentVariable("ROOK_ALLOW_USER_PYTHON_DISCOVERY");
+            return string.Equals(value, "1", StringComparison.Ordinal)
+                || string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>

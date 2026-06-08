@@ -177,6 +177,16 @@ function Test-UninstallUsesRecordedPrivatePython {
     Assert-NotContains -Text $content -Unexpected 'PythonExe := GetPythonPath()' -Message 'Uninstall must not depend on user Python discovery.'
 }
 
+function Test-ChatServiceUserPythonFallbackIsDevOnly {
+    $chatManager = Join-Path $RepoRoot 'src\Rook\UI\Chat\ChatServiceManager.cs'
+    $content = Get-Content -Path $chatManager -Raw
+
+    Assert-Contains -Text $content -Expected 'ROOK_ALLOW_USER_PYTHON_DISCOVERY' -Message 'Chat service PATH Python discovery must be gated by explicit support override.'
+    Assert-Contains -Text $content -Expected 'AllowUserPythonDiscovery' -Message 'Chat manager must centralize user Python fallback policy.'
+    Assert-Contains -Text $content -Expected 'DiscoverManagedVenvPython()' -Message 'Chat manager must prefer managed Rook venv.'
+    Assert-NotContains -Text $content -Unexpected 'DiscoverManagedVenvPython() ?? DiscoverPython()' -Message 'Chat manager must not unconditionally fall back to PATH Python.'
+}
+
 function Test-FfmpegValidatorRequiresReleaseSourceBundleArgument {
     Assert-True -Condition (Test-Path $FfmpegValidationScript) -Message "FFmpeg validation script is missing: $FfmpegValidationScript"
 
@@ -530,6 +540,7 @@ function Test-LegacyGitHubReleaseWorkflowIsDisabled {
 Test-InstallerPackagesBundledPythonRuntime
 Test-PublicInstallerDoesNotRequireUserPython
 Test-UninstallUsesRecordedPrivatePython
+Test-ChatServiceUserPythonFallbackIsDevOnly
 Test-InstallerPackagesMultiRuntimeCompanionPayloads
 Test-BuiltCompanionPayloadsExist
 Test-InstallerPackagesBundledFfmpegPayload
