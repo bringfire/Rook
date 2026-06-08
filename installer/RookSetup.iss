@@ -15,7 +15,7 @@
 #define MyAppName "Rook"
 #define MyAppVersion "1.5.9"
 #define MyAppPublisher "Bringfire"
-#define MyAppURL "https://github.com/bringfire/Rook"
+#define MyAppURL "https://github.com/bringfire/rook-release"
 
 ; Paths relative to this .iss file — adjust if your build layout differs.
 ; These assume a Release build has been run before packaging.
@@ -174,8 +174,8 @@ Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\A38E0E8F-E06E-40D2-
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\A38E0E8F-E06E-40D2-A6BD-7EDBC2CB1906"; ValueType: string; ValueName: "Country"; ValueData: ""; Components: plugins
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\A38E0E8F-E06E-40D2-A6BD-7EDBC2CB1906"; ValueType: string; ValueName: "Phone"; ValueData: ""; Components: plugins
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\A38E0E8F-E06E-40D2-A6BD-7EDBC2CB1906"; ValueType: string; ValueName: "EMail"; ValueData: ""; Components: plugins
-Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\A38E0E8F-E06E-40D2-A6BD-7EDBC2CB1906"; ValueType: string; ValueName: "WebSite"; ValueData: "https://github.com/bringfire/Rhino_AI"; Components: plugins
-Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\A38E0E8F-E06E-40D2-A6BD-7EDBC2CB1906"; ValueType: string; ValueName: "UpdateURL"; ValueData: "https://github.com/bringfire/Rhino_AI/releases"; Components: plugins
+Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\A38E0E8F-E06E-40D2-A6BD-7EDBC2CB1906"; ValueType: string; ValueName: "WebSite"; ValueData: "https://github.com/bringfire/rook-release"; Components: plugins
+Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\A38E0E8F-E06E-40D2-A6BD-7EDBC2CB1906"; ValueType: string; ValueName: "UpdateURL"; ValueData: "https://github.com/bringfire/rook-release/releases"; Components: plugins
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\A38E0E8F-E06E-40D2-A6BD-7EDBC2CB1906"; ValueType: string; ValueName: "Fax"; ValueData: ""; Components: plugins
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\A38E0E8F-E06E-40D2-A6BD-7EDBC2CB1906"; ValueType: string; ValueName: "Description"; ValueData: "RookNative - High-performance Rhino bridge for Claude Code"; Components: plugins
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\A38E0E8F-E06E-40D2-A6BD-7EDBC2CB1906"; ValueType: string; ValueName: "RegPath"; ValueData: "\\HKEY_CURRENT_USER\Software\McNeel\Rhinoceros\8.0\Plug-Ins\A38E0E8F-E06E-40D2-A6BD-7EDBC2CB1906"; Components: plugins
@@ -196,8 +196,8 @@ Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: string; ValueName: "Country"; ValueData: ""; Components: plugins
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: string; ValueName: "Phone"; ValueData: ""; Components: plugins
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: string; ValueName: "EMail"; ValueData: ""; Components: plugins
-Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: string; ValueName: "WebSite"; ValueData: "https://github.com/bringfire/Rhino_AI"; Components: plugins
-Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: string; ValueName: "UpdateURL"; ValueData: "https://github.com/bringfire/Rhino_AI/releases"; Components: plugins
+Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: string; ValueName: "WebSite"; ValueData: "https://github.com/bringfire/rook-release"; Components: plugins
+Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: string; ValueName: "UpdateURL"; ValueData: "https://github.com/bringfire/rook-release/releases"; Components: plugins
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: string; ValueName: "Fax"; ValueData: ""; Components: plugins
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: string; ValueName: "Description"; ValueData: "Rook for Rhino 3D - HTTP server enabling AI-powered CAD operations"; Components: plugins
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: string; ValueName: "RuiFile"; ValueData: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net7.0\Rook.rui"; Components: plugins
@@ -467,9 +467,9 @@ begin
   RequiredStringValues[8] := 'RegPath';
   RequiredStringValues[9] := RegPath;
   RequiredStringValues[10] := 'WebSite';
-  RequiredStringValues[11] := 'https://github.com/bringfire/Rhino_AI';
+  RequiredStringValues[11] := 'https://github.com/bringfire/rook-release';
   RequiredStringValues[12] := 'UpdateURL';
-  RequiredStringValues[13] := 'https://github.com/bringfire/Rhino_AI/releases';
+  RequiredStringValues[13] := 'https://github.com/bringfire/rook-release/releases';
   RequiredStringValues[14] := 'PlugIn\FileName';
   RequiredStringValues[15] := FileName;
 
