@@ -31,6 +31,14 @@ the `rook-release` **marketplace**; **Codex** gets the curated 11 skills via the
 Codex payload is **derived from it** (validated to equal exactly the 11), never
 copied from private `.agents/skills`.
 
+**Two "agent" layers (do not conflate):** (1) Rook's **built-in multi-agent fleet**
+— planner/worker/conductor `spawn_agent` orchestration in the MCP/runtime — is a
+real product feature; its docs (the Multi-Agent module, "fleet" language) **stay**.
+(2) Claude Code **subagent definition files** (`.claude/agents/`: knowledge-auditor,
+native-reviewer) are dev/review agents and are **not** shipped publicly. Grep gates
+target the specific leakage terms (`knowledge-auditor`, `native-reviewer`,
+`.claude/agents`) — never the bare words "agent"/"subagent"/"fleet".
+
 ---
 
 ## Phase A — `rook-release` public repo (docs + plugin)
@@ -839,11 +847,21 @@ Expected: "Complete!".
 
 - [ ] **Step 3: Final cleanliness grep (whole repo; now 1.5.9 must also be gone)**
 
+Targets SPECIFIC leakage terms — do NOT ban the words "agent"/"subagent"/"fleet"
+broadly (Rook's built-in multi-agent fleet is a real runtime feature and its docs
+must stay). Banned dev-subagent leakage = `knowledge-auditor`, `native-reviewer`,
+`.claude/agents`. Use the banner form `:::caution[Placeholder]` so the legit
+config-table column header "Placeholder | Value" in claude.md isn't flagged. Exclude
+image assets (SVG path data like `1.4.5` causes false positives).
+
 Run:
 ```bash
 cd /c/UDEV/rook-release
-grep -rIn -e 'bringfire/Rook\b' -e 'Rhino_AI' -e 'open source' -e 'no source' -e 'Placeholder' -e '1\.4\.5' -e '1\.5\.9' . \
+grep -rIn -e 'bringfire/Rook\b' -e 'Rhino_AI' -e 'open source' -e 'open-source' -e 'no source' \
+  -e ':::caution\[Placeholder' -e '1\.4\.5' -e '1\.5\.9' \
+  -e 'knowledge-auditor' -e 'native-reviewer' -e '\.claude/agents' . \
   --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=.astro --exclude-dir=.git \
+  --exclude=*.svg --exclude=*.png --exclude=*.woff2 --exclude=*.ico \
   | grep -v 'rook-release' || echo "clean"
 ```
 Expected: `clean`.
