@@ -575,8 +575,13 @@ knowledge/CLAUDE.md/AGENTS.md lines all still present.
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /c/UDEV/Rook && git add installer/RookSetup.iss installer/post_install.py installer/agent-assets && git commit -m "installer: curated public Codex skills + post-install prompts; drop private plugin/skills/hooks (Claude via marketplace)"
+cd /c/UDEV/Rook
+git add installer/RookSetup.iss installer/post_install.py
+git add -f installer/agent-assets    # -f REQUIRED: the private repo's root .gitignore ignores `references/` globally, so skill reference files won't stage without it
+git status --short    # confirm ONLY installer/* staged; site/ stays dirty/unstaged
+git commit -m "installer: curated public Codex skills + post-install prompts; drop private plugin/skills/hooks (Claude via marketplace)"
 ```
+Verify the full payload is tracked: `git ls-files installer/agent-assets | wc -l` should be **39** (37 skill files incl. `references/` + 2 prompts).
 
 ### Task B1: Installer URLs → rook-release; kill stale Rhino_AI
 
