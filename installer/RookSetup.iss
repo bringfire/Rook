@@ -85,6 +85,11 @@ Type: filesandordirs; Name: "{app}\.claude"
 Type: filesandordirs; Name: "{app}\hooks"
 Type: files; Name: "{app}\scripts\session-start.sh"
 Type: filesandordirs; Name: "{app}\.agents\skills"
+Type: filesandordirs; Name: "{app}\Skills"
+Type: filesandordirs; Name: "{app}\.codex"
+Type: files; Name: "{app}\.mcp.json"
+Type: files; Name: "{app}\LICENSE"
+Type: files; Name: "{app}\BUILDING.md"
 
 ; ---------------------------------------------------------------------------
 ; Files

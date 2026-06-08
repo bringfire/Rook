@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import rook.doctor as doctor
 from rook.doctor import (
     _build_probe_server_parameters,
     _config_targets,
@@ -104,23 +105,64 @@ def test_validate_codex_config_parses_semantically(tmp_path: Path):
     python_path = tmp_path / "python.exe"
     python_path.write_text("")
     config_path = tmp_path / "config.toml"
+    python_normalized = str(python_path).replace("\\", "/")
+    mcp_server_normalized = str(runtime_paths.mcp_server_dir).replace("\\", "/")
+    install_root_normalized = str(runtime_paths.install_root).replace("\\", "/")
+    data_root_normalized = str(runtime_paths.data_root).replace("\\", "/")
     config_path.write_text(
         "\n".join(
             [
                 "[mcp_servers.rook]",
-                f'command = "{str(python_path).replace("\\", "/")}"',
+                f'command = "{python_normalized}"',
                 'args = ["-m", "rook"]',
-                f'cwd = "{str(runtime_paths.mcp_server_dir).replace("\\", "/")}"',
+                f'cwd = "{mcp_server_normalized}"',
                 "",
                 "[mcp_servers.rook.env]",
                 'PYTHONPATH = ""',
                 'PYTHONHOME = ""',
-                f'ROOK_INSTALL_ROOT = "{str(runtime_paths.install_root).replace("\\", "/")}"',
-                f'ROOK_DATA_DIR = "{str(runtime_paths.data_root).replace("\\", "/")}"',
+                f'ROOK_INSTALL_ROOT = "{install_root_normalized}"',
+                f'ROOK_DATA_DIR = "{data_root_normalized}"',
                 'ROOK_MODE = "release"',
                 "",
                 "[other]",
                 'value = "kept"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    ok, detail = _validate_codex_config(config_path, runtime_paths, expected_python_path=str(python_path))
+
+    assert ok is True
+    assert detail is None
+
+
+def test_validate_codex_config_parses_on_python310_without_tomllib(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(doctor, "tomllib", None)
+    monkeypatch.setattr(doctor, "TOMLDecodeError", ValueError)
+    runtime_paths = _runtime_paths(tmp_path)
+    python_path = tmp_path / "python.exe"
+    python_path.write_text("")
+    config_path = tmp_path / "config.toml"
+    python_normalized = str(python_path).replace("\\", "/")
+    mcp_server_normalized = str(runtime_paths.mcp_server_dir).replace("\\", "/")
+    install_root_normalized = str(runtime_paths.install_root).replace("\\", "/")
+    data_root_normalized = str(runtime_paths.data_root).replace("\\", "/")
+    config_path.write_text(
+        "\n".join(
+            [
+                "[mcp_servers.rook]",
+                f'command = "{python_normalized}"',
+                'args = ["-m", "rook"]',
+                f'cwd = "{mcp_server_normalized}"',
+                "startup_timeout_sec = 30",
+                "",
+                "[mcp_servers.rook.env]",
+                'PYTHONPATH = ""',
+                'PYTHONHOME = ""',
+                f'ROOK_INSTALL_ROOT = "{install_root_normalized}"',
+                f'ROOK_DATA_DIR = "{data_root_normalized}"',
+                'ROOK_MODE = "release"',
             ]
         ),
         encoding="utf-8",

@@ -10,10 +10,16 @@ import subprocess
 import sys
 import tempfile
 import time
-import tomllib
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
+
+try:
+    import tomllib
+    TOMLDecodeError = tomllib.TOMLDecodeError
+except ModuleNotFoundError:
+    tomllib = None  # type: ignore[assignment]
+    TOMLDecodeError = ValueError
 
 import anyio
 from mcp import ClientSession
@@ -172,10 +178,59 @@ def _codex_has_rook_section(path: Path) -> bool:
     if not path.exists():
         return False
     try:
-        data = tomllib.loads(path.read_text(encoding="utf-8"))
-    except (OSError, tomllib.TOMLDecodeError):
+        data = _load_codex_toml(path.read_text(encoding="utf-8"))
+    except (OSError, TOMLDecodeError, ValueError):
         return False
     return "rook" in data.get("mcp_servers", {})
+
+
+def _parse_toml_value(value: str) -> Any:
+    value = value.strip()
+    if not value:
+        return ""
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        if value.isdigit():
+            return int(value)
+        return value
+
+
+def _parse_codex_rook_toml_fallback(text: str) -> dict[str, Any]:
+    """Parse the generated Codex MCP TOML subset on Python 3.10.
+
+    Rook's public installer supports Python 3.10+, but stdlib tomllib only
+    exists on Python 3.11+. The installer-generated Codex config only needs
+    basic strings, integers, and string arrays under two known sections.
+    """
+    entry: dict[str, Any] = {}
+    env: dict[str, Any] = {}
+    section: str | None = None
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("["):
+            if not line.endswith("]"):
+                raise ValueError(f"invalid TOML section header: {line}")
+            section = line[1:-1].strip()
+            continue
+        if section not in {"mcp_servers.rook", "mcp_servers.rook.env"}:
+            continue
+        if "=" not in line:
+            raise ValueError(f"invalid TOML assignment: {line}")
+        key, raw_value = line.split("=", 1)
+        target = env if section == "mcp_servers.rook.env" else entry
+        target[key.strip()] = _parse_toml_value(raw_value)
+    if env:
+        entry["env"] = env
+    return {"mcp_servers": {"rook": entry}}
+
+
+def _load_codex_toml(text: str) -> dict[str, Any]:
+    if tomllib is not None:
+        return tomllib.loads(text)
+    return _parse_codex_rook_toml_fallback(text)
 
 
 def _validate_codex_config(
@@ -186,8 +241,8 @@ def _validate_codex_config(
     if not path.exists():
         return False, "config file is missing"
     try:
-        data = tomllib.loads(path.read_text(encoding="utf-8"))
-    except (OSError, tomllib.TOMLDecodeError) as exc:
+        data = _load_codex_toml(path.read_text(encoding="utf-8"))
+    except (OSError, TOMLDecodeError, ValueError) as exc:
         return False, f"invalid TOML: {exc}"
 
     rook = data.get("mcp_servers", {}).get("rook")
