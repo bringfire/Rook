@@ -122,15 +122,24 @@ The stage then:
 2. Verifies the `.nupkg` SHA256.
 3. Extracts `tools\` into `installer/runtime/python/cpython-3.11.9/`.
 4. Builds non-editable wheels for `rook-mcp==1.5.10` and `chirp==0.1.0`
-   for the current release line.
+   for the current release line. Because Chirp is a sibling repository, the
+   release build must record the Chirp repo git SHA, verify the Chirp worktree
+   is clean, and record a Chirp source archive hash or equivalent vendored
+   source manifest before building the Chirp wheel.
 5. Generates `requirements-rook-lock.txt` and `requirements-chirp-lock.txt`.
 6. Builds one union wheelhouse containing every wheel needed by either lockfile.
-7. Fails on sdists unless explicitly approved in the manifest and release notes.
+7. Fails if any source distribution is present in the final public installer
+   wheelhouse. If an upstream package is available only as an sdist, the release
+   build must build and audit a compatible wheel during staging, then package
+   only that built wheel.
 
 Vulnerability, provenance, and integrity checks:
 
 - temp-install both lockfiles from the local wheelhouse using
   `--isolated --no-index --find-links --require-hashes`;
+- verify every package installed from the public wheelhouse is a wheel
+  compatible with the pinned interpreter's accepted tag set, including valid
+  pure-Python and ABI-stable wheels such as `py3-none-any` and `abi3`;
 - run `pip check` after each temp install;
 - run `pip-audit` against the installed temp venvs so it audits the exact
   wheelhouse result;
@@ -158,8 +167,12 @@ Manifest requirements:
 
 - `schema_version: 1`;
 - CPython NuGet package/version/hash;
-- target ABI/wheel tag, for example `cp311-win_amd64`;
+- target interpreter/platform identity and accepted wheel tag set;
+- each wheel's actual compatibility tags;
 - extracted runtime hash or file manifest;
+- Rook source git SHA and clean-state evidence;
+- Chirp sibling repository git SHA, clean-state evidence, and source archive hash
+  or equivalent vendored source manifest;
 - lockfile hashes;
 - wheel hashes and tags;
 - license/provenance summary;
@@ -168,7 +181,7 @@ Manifest requirements:
 - temp install verification summary;
 - import `__file__` paths;
 - generated UTC timestamp;
-- release version and git SHA.
+- release version, Rook git SHA, and Chirp source identity.
 
 The release workflow documentation and guard tests must stay synchronized in
 both `.agents` and `.claude`, including:
@@ -286,18 +299,22 @@ Build-time gates:
   `installer/python-runtime/python-runtime.json`;
 - extracted runtime must pass `python.exe -V`, `python.exe -m venv`, and temp
   venv `python -m pip --version`;
-- all dependencies must be wheels for the pinned ABI/platform, for example
-  `cp311-win_amd64`;
-- sdists fail unless explicitly approved;
-- `rook-mcp` and `chirp` wheels must be built from the exact release SHA/source
-  state;
+- all dependencies must be wheels compatible with the pinned interpreter's
+  accepted tag set; each wheel's actual tags must be recorded;
+- source distributions must never be packaged as public installer inputs; if an
+  sdist is unavoidable upstream, the release build must produce and audit a
+  compatible wheel and package only that wheel;
+- `rook-mcp` wheels must be built from the exact Rook release SHA/source state;
+- `chirp` wheels must be built from a recorded clean Chirp sibling repo SHA and
+  source archive hash or equivalent vendored source manifest;
 - both lockfiles must be fully pinned and hash-locked;
 - temp venv installs must use only
   `--isolated --no-index --find-links --require-hashes`;
 - `pip check` runs after each temp install;
 - `pip-audit` runs against the temp installed venvs;
-- manifest records wheel hashes, wheel tags, licenses/provenance, audit summary,
-  `pip check`, and import-origin proof;
+- manifest records wheel hashes, wheel tags, Rook source identity, Chirp source
+  identity, licenses/provenance, audit summary, `pip check`, and import-origin
+  proof;
 - release guard fails on hard `pytesseract` imports unless Tesseract packaging
   is added.
 
@@ -364,7 +381,7 @@ Responsibilities:
 - build non-editable `rook-mcp` and `chirp` wheels;
 - generate or consume fully pinned hash lockfiles;
 - produce one union wheelhouse;
-- fail on sdists unless explicitly approved;
+- reject source distributions in the final public installer wheelhouse;
 - run temp offline installs;
 - run `pip check`;
 - run `pip-audit`;
@@ -379,6 +396,9 @@ Responsibilities:
 - write `python-runtime-manifest.json`;
 - include `schema_version: 1`;
 - include CPython NuGet identity;
+- include Rook source git SHA and clean-state evidence;
+- include Chirp sibling repo git SHA, clean-state evidence, and source archive
+  hash or equivalent vendored source manifest;
 - include lockfile hashes;
 - include wheel hashes/tags;
 - include license/provenance summary;
@@ -386,7 +406,7 @@ Responsibilities:
 - include `pip check` results;
 - include temp install results;
 - include import `__file__` paths;
-- include release version and git SHA.
+- include release version and Rook git SHA.
 
 ### 4. Installer Source Integration
 
@@ -434,6 +454,7 @@ Responsibilities:
 - require `pip check` results;
 - require config identity paths;
 - require no-index/local-wheelhouse evidence;
+- require Chirp source identity evidence in `python-runtime-manifest.json`;
 - keep standalone Rhino and Rhino.Inside.Revit gates mandatory.
 
 ## Test Surface
@@ -463,8 +484,10 @@ Release-build script tests:
 
 - NuGet hash verification;
 - wheel-only enforcement;
+- rejection of source distributions in the final public installer wheelhouse;
 - lockfile hash mode;
 - manifest schema;
+- Chirp sibling repo source identity and clean-state validation;
 - staged payload freshness relative to `$buildStartedAt`;
 - import-origin proof from temp venvs.
 
