@@ -1,7 +1,7 @@
 # Rook — AI Agents for Rhino & Grasshopper
 
 > An agent platform that lets AI operate directly inside Rhino 3D
-> and Grasshopper. 300 MCP tools. Works with any LLM provider.
+> and Grasshopper. nearly 400 MCP tools. Works with any LLM provider.
 
 > **Using this file:** If your working directory is the Rook install folder
 > (`%LOCALAPPDATA%\Rook`), this file loads automatically. Otherwise, copy it
@@ -49,7 +49,7 @@ When `correction_detected: true` appears in tool output, call `knowledge_record`
 
 ## Primary Tools
 
-There are 300 MCP tools available. Two paths matter most.
+There are nearly 400 MCP tools available. Two paths matter most.
 
 ### For Grasshopper: prefer the batch path — `gh_snapshot` → `gh_edit`
 
