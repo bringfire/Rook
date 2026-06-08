@@ -59,12 +59,15 @@ if ($actualHash -ne $config.nupkg_sha256) {
     Fail "nupkg hash mismatch. Expected $($config.nupkg_sha256), actual $actualHash"
 }
 
+$extractArchivePath = Join-Path $DownloadRoot "$($config.python_nuget_package).$($config.python_version)-extract.zip"
+Copy-Item -LiteralPath $nupkgPath -Destination $extractArchivePath -Force
+
 $extractRoot = Join-Path $DownloadRoot "extract-$($config.python_version)"
 if (Test-Path -LiteralPath $extractRoot) {
     Remove-Item -LiteralPath $extractRoot -Recurse -Force
 }
 New-Item -ItemType Directory -Force -Path $extractRoot | Out-Null
-Expand-Archive -LiteralPath $nupkgPath -DestinationPath $extractRoot -Force
+Expand-Archive -LiteralPath $extractArchivePath -DestinationPath $extractRoot -Force
 
 $toolsRoot = Join-Path $extractRoot 'tools'
 $pythonExe = Join-Path $toolsRoot 'python.exe'

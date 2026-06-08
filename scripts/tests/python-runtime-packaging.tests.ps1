@@ -38,12 +38,32 @@ function Test-PythonRuntimeStagerExistsAndNeverRunsAtInstallTime {
     Assert-Contains -Text $content -Expected 'tools\python.exe' -Message 'Stager must stage the NuGet tools python.exe layout.'
 }
 
+function Test-PythonRuntimeStagerStagesRuntimeIntoTempRoots {
+    $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) "rook-python-runtime-packaging-$([System.Guid]::NewGuid().ToString('N'))"
+    $outputRoot = Join-Path $tempRoot 'runtime'
+    $downloadRoot = Join-Path $tempRoot 'downloads'
+
+    try {
+        $stageOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File $RuntimeStager -OutputRoot $outputRoot -DownloadRoot $downloadRoot 2>&1
+        Assert-True -Condition ($LASTEXITCODE -eq 0) -Message "Runtime stager failed:`n$($stageOutput -join "`n")"
+
+        $stagedPython = Join-Path $outputRoot 'cpython-3.11.9\python.exe'
+        Assert-True -Condition (Test-Path -LiteralPath $stagedPython -PathType Leaf) -Message "Stager did not create expected python.exe: $stagedPython"
+    }
+    finally {
+        if (Test-Path -LiteralPath $tempRoot) {
+            Remove-Item -LiteralPath $tempRoot -Recurse -Force
+        }
+    }
+}
+
 function Test-WheelhouseBuilderExists {
     Assert-True -Condition (Test-Path $WheelhouseBuilder) -Message "Missing wheelhouse builder: $WheelhouseBuilder"
 }
 
 Test-PythonRuntimeConfigIsPinned
 Test-PythonRuntimeStagerExistsAndNeverRunsAtInstallTime
+Test-PythonRuntimeStagerStagesRuntimeIntoTempRoots
 Test-WheelhouseBuilderExists
 
 Write-Host 'Python runtime packaging guard tests passed.'
