@@ -55,6 +55,23 @@ on Revit 2025+, and Rhino.Inside.Revit on Revit 2024 or older.
 The .iss references `ChirpDir = RepoRoot + "\..\Chirp"`. This is a sibling repo
 at the same directory level as Rook.
 
+## Bundled Python Runtime Payload
+
+Installer Source paths must include the staged private CPython runtime and the
+offline, hash-locked wheelhouse generated from the exact release SHA. Public
+installer builds must not depend on user Python, PyPI, editable installs, or
+source-tree `PYTHONPATH` entries.
+
+| File/Dir | Notes |
+|----------|-------|
+| `installer/runtime/python/cpython-3.11.9/python.exe` | Private CPython runtime staged from the pinned official Python NuGet package |
+| `installer/runtime/python/cpython-3.11.9/Lib/` | Private runtime standard library |
+| `installer/runtime/python-wheelhouse/` | Union wheelhouse; wheels only, no sdists |
+| `installer/runtime/requirements-rook-lock.txt` | Fully pinned hash-locked Rook MCP/chat requirements |
+| `installer/runtime/requirements-chirp-lock.txt` | Fully pinned hash-locked Chirp requirements |
+| `installer/runtime/python-runtime-manifest.json` | Runtime, wheelhouse, lockfile, audit, license/provenance, source provenance, and import-origin manifest |
+| `installer/python_runtime_install.py` | Stdlib post-install helper for private runtime installs |
+
 ## Bundled FFmpeg Payload
 
 Installer Source paths must include `third_party\ffmpeg` and package the
@@ -150,9 +167,14 @@ $files = @(
   "src\Rook\bin\Release\net48\RookBim.dll",
   "mcp_server\pyproject.toml",
   "..\Chirp\pyproject.toml",
+  "installer\runtime\python\cpython-3.11.9\python.exe",
+  "installer\runtime\requirements-rook-lock.txt",
+  "installer\runtime\requirements-chirp-lock.txt",
+  "installer\runtime\python-runtime-manifest.json",
   "installer\agent-assets\ROOK_CLAUDE_POST_INSTALL.md",
   "installer\agent-assets\ROOK_CODEX_POST_INSTALL.md",
   "installer\post_install.py",
+  "installer\python_runtime_install.py",
   "installer\rook-icon.ico",
   "installer\pre-install-readme.txt",
   "installer\CLAUDE.md",
@@ -194,6 +216,8 @@ foreach ($file in $optionalFiles) {
 $directories = @(
   "mcp_server\src\rook",
   "..\Chirp\src\chirp",
+  "installer\runtime\python\cpython-3.11.9\Lib",
+  "installer\runtime\python-wheelhouse",
   "knowledge\commands",
   "knowledge\gh",
   "installer\agent-assets\codex-skills",

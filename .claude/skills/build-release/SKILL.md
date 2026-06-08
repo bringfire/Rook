@@ -28,6 +28,7 @@ The argument is a semver version (X.Y.Z). If omitted, ask the user.
 | 0 | Pre-flight checks | Any check fails |
 | 1 | Release branch version bump (7 files / 10 edits) | Verification fails |
 | 2 | Merge the release PR and check out the exact main SHA to tag | Main HEAD is not the intended release commit |
+| 3A | Build bundled private Python runtime and offline wheelhouse | Validation fails |
 | 3 | Build and validate bundled FFmpeg payload/source bundle | Validation fails |
 | 4 | Build C++ native plugin | Exit code != 0 |
 | 5 | Build C# companion plugin for all managed runtimes | Exit code != 0 |
@@ -158,6 +159,28 @@ $buildStartedAt = [DateTimeOffset]::Now.ToString('o')
 If the commit changes after any artifact is built, discard those artifacts,
 rebuild from the new `main` SHA, rerun smoke, and regenerate the release
 manifest.
+
+## Step 3A: Build Bundled Python Runtime And Wheelhouse
+
+Run this stage from the exact checked-out release SHA, after recording
+`$buildStartedAt` and before verifying `.iss` source paths or invoking ISCC.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\python-runtime\stage-rook-python-runtime.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\python-runtime\build-rook-python-wheelhouse.ps1 -Version X.Y.Z
+```
+
+This stages CPython 3.11.9 from the pinned official Python NuGet package, builds
+non-editable wheels for `rook-mcp` and Chirp, creates one union wheelhouse,
+rejects source distributions in the final public installer payload, validates
+wheel tags against the pinned interpreter's accepted tag set, validates import
+origins from temporary venv `site-packages`, runs `pip check`, records the Chirp
+sibling-repo source identity, records package license/provenance evidence, and
+writes `installer\runtime\python-runtime-manifest.json`.
+
+Public/full installer builds must package only this sealed Python runtime
+payload. Do not use user Python, PATH Python, PyPI, editable installs, or source
+tree `PYTHONPATH` entries to satisfy MCP or Chirp release installation.
 
 ## Step 3: Build and Validate Bundled FFmpeg
 

@@ -363,6 +363,23 @@ function Test-ReleaseWorkflowDocsUseMultiRuntimeCompanionOutputs {
     Assert-Contains -Text $combined -Expected 'Do not cite Yak/package-manager layout docs as proof' -Message 'Release workflow docs must not treat Yak package layout docs as proof for the Inno installer.'
 }
 
+function Test-BuildReleaseDocsRequireBundledPythonPayload {
+    $combined = @(
+        Get-Content -Path $BuildReleaseSkill -Raw
+        Get-Content -Path $ClaudeBuildReleaseSkill -Raw
+        Get-Content -Path $IssSourcePaths -Raw
+        Get-Content -Path $ClaudeIssSourcePaths -Raw
+    ) -join "`n"
+
+    Assert-Contains -Text $combined -Expected 'scripts\python-runtime\stage-rook-python-runtime.ps1' -Message 'Release docs must stage private Python runtime.'
+    Assert-Contains -Text $combined -Expected 'scripts\python-runtime\build-rook-python-wheelhouse.ps1' -Message 'Release docs must build offline Python wheelhouse.'
+    Assert-Contains -Text $combined -Expected 'installer\runtime\python\cpython-3.11.9\python.exe' -Message 'Source checklist must require staged private Python runtime.'
+    Assert-Contains -Text $combined -Expected 'installer\runtime\python-wheelhouse' -Message 'Source checklist must require staged wheelhouse.'
+    Assert-Contains -Text $combined -Expected 'installer\runtime\requirements-rook-lock.txt' -Message 'Source checklist must require Rook lockfile.'
+    Assert-Contains -Text $combined -Expected 'installer\runtime\requirements-chirp-lock.txt' -Message 'Source checklist must require Chirp lockfile.'
+    Assert-Contains -Text $combined -Expected 'installer\runtime\python-runtime-manifest.json' -Message 'Source checklist must require Python runtime manifest.'
+}
+
 function Test-BuildReleaseWorkflowUsesWindowsPowerShellCommands {
     $combined = @(
         Get-Content -Path $BuildReleaseSkill -Raw
@@ -556,6 +573,7 @@ Test-InstallerVerifiesRhinoPluginRegistrationAfterInstall
 Test-UninstallRemovesGeneratedRuntimeArtifacts
 Test-PostInstallValidationUsesMultiRuntimeCompanionLayout
 Test-ReleaseWorkflowDocsUseMultiRuntimeCompanionOutputs
+Test-BuildReleaseDocsRequireBundledPythonPayload
 Test-BuildReleaseWorkflowUsesWindowsPowerShellCommands
 Test-BuildReleaseReferencesStaySynchronized
 Test-BuildReleaseVersionBumpIncludesRookBim
