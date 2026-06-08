@@ -79,6 +79,9 @@ function Test-WheelhouseBuilderEnforcesReleaseContracts {
     $content = Get-Content -Path $WheelhouseBuilder -Raw
     $code = Get-CodeWithoutPowerShellComments -Text $content
     Assert-NotContains -Text $content -Expected 'Release contract markers used by scripts/tests/python-runtime-packaging.tests.ps1' -Message 'Wheelhouse builder must not satisfy guard tests with marker comments.'
+    Assert-Contains -Text $code -Expected 'New-Object System.Diagnostics.ProcessStartInfo' -Message 'Wheelhouse builder must use Diagnostics.Process for reliable timeout-bounded exit-code capture.'
+    Assert-Contains -Text $content -Expected '$process.ExitCode -ne 0' -Message 'Wheelhouse builder must fail on non-zero child process exit codes.'
+    Assert-NotContains -Text $code -Expected 'Start-Process' -Message 'Wheelhouse builder must not use Start-Process because -PassThru can report a blank ExitCode after WaitForExit on this host.'
     Assert-Contains -Text $code -Expected 'Invoke-CheckedProcess -FilePath $pythonExe -Arguments @( ''-m'' , ''pip'' , ''wheel''' -Message 'Wheelhouse builder must build wheels through timeout-bounded pip wheel calls.'
     Assert-Contains -Text $code -Expected 'Invoke-CheckedProcess -FilePath $pythonExe -Arguments @( ''-m'' , ''pip'' , ''download''' -Message 'Wheelhouse builder must collect dependency wheels through a timeout-bounded pip download call.'
     Assert-Contains -Text $code -Expected '''--only-binary=:all:''' -Message 'Wheelhouse builder must reject sdists for public wheelhouse inputs.'

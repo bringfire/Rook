@@ -94,14 +94,25 @@ function Invoke-CheckedProcess {
         [string]$Label
     )
     $argumentList = Join-ProcessArguments -Arguments $Arguments
-    $process = Start-Process -FilePath $FilePath -ArgumentList $argumentList -NoNewWindow -PassThru
-    $timeoutMs = $CommandTimeoutSeconds * 1000
-    if (-not $process.WaitForExit($timeoutMs)) {
-        try { $process.Kill() } catch { }
-        Fail "$Label timed out after $CommandTimeoutSeconds seconds"
+    $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $startInfo.FileName = $FilePath
+    $startInfo.Arguments = $argumentList
+    $startInfo.UseShellExecute = $false
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo = $startInfo
+    try {
+        $null = $process.Start()
+        $timeoutMs = $CommandTimeoutSeconds * 1000
+        if (-not $process.WaitForExit($timeoutMs)) {
+            try { $process.Kill() } catch { }
+            Fail "$Label timed out after $CommandTimeoutSeconds seconds"
+        }
+        if ($process.ExitCode -ne 0) {
+            Fail "$Label failed with exit code $($process.ExitCode)"
+        }
     }
-    if ($process.ExitCode -ne 0) {
-        Fail "$Label failed with exit code $($process.ExitCode)"
+    finally {
+        $process.Dispose()
     }
 }
 
