@@ -34,6 +34,7 @@
 #define PythonRuntimeDir RepoRoot + "\installer\runtime\python\cpython-3.11.9"
 #define PythonWheelhouseDir RepoRoot + "\installer\runtime\python-wheelhouse"
 #define PythonRuntimeManifest RepoRoot + "\installer\runtime\python-runtime-manifest.json"
+#define BootstrapLockfile RepoRoot + "\installer\runtime\requirements-bootstrap-lock.txt"
 #define RookLockfile RepoRoot + "\installer\runtime\requirements-rook-lock.txt"
 #define ChirpLockfile RepoRoot + "\installer\runtime\requirements-chirp-lock.txt"
 
@@ -143,6 +144,7 @@ Source: "{#McpServerDir}\src\rook\*"; DestDir: "{app}\mcp_server\src\rook"; Comp
 Source: "{#PythonRuntimeDir}\*"; DestDir: "{localappdata}\Rook\python\cpython-3.11.9"; Components: mcp; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#PythonWheelhouseDir}\*"; DestDir: "{app}\python-wheelhouse"; Components: mcp chirp; Flags: ignoreversion
 Source: "{#PythonRuntimeManifest}"; DestDir: "{app}"; Components: mcp; Flags: ignoreversion
+Source: "{#BootstrapLockfile}"; DestDir: "{app}"; Components: mcp chirp; Flags: ignoreversion
 Source: "{#RookLockfile}"; DestDir: "{app}"; Components: mcp; Flags: ignoreversion
 Source: "{#ChirpLockfile}"; DestDir: "{app}"; Components: chirp; Flags: ignoreversion
 

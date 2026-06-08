@@ -40,6 +40,21 @@ def test_pip_command_is_offline_and_hash_locked(tmp_path: Path) -> None:
     assert "--extra-index-url" not in command
 
 
+def test_bootstrap_pip_command_is_offline_and_hash_locked(tmp_path: Path) -> None:
+    runtime = load_runtime_install()
+    command = runtime.build_offline_pip_bootstrap_command(
+        tmp_path / "venv" / "Scripts" / "python.exe",
+        tmp_path / "wheelhouse",
+        tmp_path / "requirements-bootstrap-lock.txt",
+    )
+
+    runtime.assert_offline_pip_command(command)
+    assert "requirements-bootstrap-lock.txt" in command[-1]
+    assert "--no-index" in command
+    assert "--find-links" in command
+    assert "--require-hashes" in command
+
+
 def test_sanitized_install_env_removes_python_and_pip_index_state(monkeypatch) -> None:
     runtime = load_runtime_install()
     monkeypatch.setenv("PYTHONHOME", "C:/bad")
@@ -110,6 +125,8 @@ def test_release_chat_manifest_has_no_source_pythonpath_entries(tmp_path: Path) 
     ].endswith("venv/Scripts/python.exe")
     assert manifest["workingDirectory"].endswith("mcp_server")
     assert manifest["pythonPathEntries"] == []
+    assert manifest["environment"]["DSPY_CACHEDIR"].endswith("data/dspy-cache")
+    assert manifest["environment"]["ROOK_DSPY_RESTRICT_PICKLE"] == "1"
 
 
 def test_mcp_env_points_to_chirp_home_and_clears_python_paths(tmp_path: Path) -> None:
@@ -125,6 +142,8 @@ def test_mcp_env_points_to_chirp_home_and_clears_python_paths(tmp_path: Path) ->
     assert env["ROOK_MODE"] == "release"
     assert env["PYTHONHOME"] == ""
     assert env["PYTHONPATH"] == ""
+    assert env["DSPY_CACHEDIR"].endswith("data/dspy-cache")
+    assert env["ROOK_DSPY_RESTRICT_PICKLE"] == "1"
     assert env["CHIRP_HOME"].endswith("app/chirp")
 
 
@@ -139,6 +158,10 @@ def test_runtime_layout_uses_private_python_and_two_venvs(tmp_path: Path) -> Non
     assert layout.rook_venv == tmp_path / "Rook" / "venv"
     assert layout.chirp_venv == tmp_path / "Rook" / "app" / "chirp" / ".venv"
     assert layout.wheelhouse == tmp_path / "Rook" / "app" / "python-wheelhouse"
+    assert (
+        layout.bootstrap_lock
+        == tmp_path / "Rook" / "app" / "requirements-bootstrap-lock.txt"
+    )
 
 
 def test_pip_output_evidence_rejects_index_lookup() -> None:
@@ -176,10 +199,18 @@ def test_public_install_ignores_user_python_and_pip_contamination(
         layout.wheelhouse,
         layout.rook_lock,
     )
+    bootstrap_command = runtime.build_offline_pip_bootstrap_command(
+        layout.rook_venv / "Scripts" / "python.exe",
+        layout.wheelhouse,
+        layout.bootstrap_lock,
+    )
 
     runtime.assert_offline_pip_command(command)
+    runtime.assert_offline_pip_command(bootstrap_command)
     assert str(fake_user_python) not in " ".join(command)
+    assert str(fake_user_python) not in " ".join(bootstrap_command)
     assert command[0] == str(layout.rook_venv / "Scripts" / "python.exe")
+    assert bootstrap_command[0] == str(layout.rook_venv / "Scripts" / "python.exe")
     assert env["PIP_NO_INDEX"] == "1"
     assert "PIP_INDEX_URL" not in env
     assert "PIP_EXTRA_INDEX_URL" not in env

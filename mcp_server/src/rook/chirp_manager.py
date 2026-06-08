@@ -160,6 +160,9 @@ def _start_chirp(chirp_home: Path) -> subprocess.Popen | None:
     # Prevent Python path conflicts
     env.pop("PYTHONHOME", None)
     env.pop("PYTHONPATH", None)
+    env["CHIRP_HOME"] = str(chirp_home)
+    env["CHIRP_DSPY_RESTRICT_PICKLE"] = "1"
+    env["DSPY_CACHEDIR"] = str(chirp_home / "data" / "dspy-cache")
 
     # Fully detach child stdio — passing a file handle and closing it in the
     # parent causes the child to block on its first stderr write on Windows.

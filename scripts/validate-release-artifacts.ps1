@@ -329,6 +329,23 @@ function Assert-PythonRuntimeEvidence {
         Fail 'python_runtime_manifest.license_provenance.third_party_wheels must contain at least one wheel entry'
     }
 
+    $securityMitigations = Require-JsonField -Json $pythonRuntimeManifest -Field 'security_mitigations' -Label 'python_runtime_manifest'
+    $diskcacheMitigation = Require-JsonField -Json $securityMitigations -Field 'diskcache_cve_2025_69872' -Label 'python_runtime_manifest.security_mitigations'
+    if ([string]$diskcacheMitigation.id -ne 'CVE-2025-69872') {
+        Fail "python_runtime_manifest.security_mitigations.diskcache_cve_2025_69872.id must be CVE-2025-69872; actual value: $($diskcacheMitigation.id)"
+    }
+    if ([string]$diskcacheMitigation.package -ne 'diskcache') {
+        Fail "python_runtime_manifest.security_mitigations.diskcache_cve_2025_69872.package must be diskcache; actual value: $($diskcacheMitigation.package)"
+    }
+    foreach ($runtimeName in @('rook', 'chirp')) {
+        $runtimeMitigation = Require-JsonField -Json $diskcacheMitigation -Field $runtimeName -Label 'python_runtime_manifest.security_mitigations.diskcache_cve_2025_69872'
+        Assert-BooleanField -Json $runtimeMitigation -Field 'restrict_pickle' -Label "python_runtime_manifest.security_mitigations.diskcache_cve_2025_69872.$runtimeName" -Expected $true
+        $cacheDir = [string](Require-JsonField -Json $runtimeMitigation -Field 'disk_cache_dir' -Label "python_runtime_manifest.security_mitigations.diskcache_cve_2025_69872.$runtimeName")
+        if ($cacheDir -notmatch '(?i)dspy-cache') {
+            Fail "python_runtime_manifest.security_mitigations.diskcache_cve_2025_69872.$runtimeName.disk_cache_dir must point to a Rook-owned DSPy cache; actual value: $cacheDir"
+        }
+    }
+
     $manifestChirpGitSha = [string](Require-JsonField -Json $pythonRuntimeManifest -Field 'chirp_git_sha' -Label 'python_runtime_manifest')
     if ([string]$SmokeManifest.chirp_git_sha -ne $manifestChirpGitSha) {
         Fail 'release smoke manifest chirp_git_sha must match python_runtime_manifest chirp_git_sha'
@@ -352,6 +369,13 @@ function Assert-PythonRuntimeEvidence {
         license_provenance = [ordered]@{
             python_runtime_package = [string]$pythonRuntimeLicense.package
             third_party_wheel_count = $thirdPartyWheels.Count
+        }
+        security_mitigations = [ordered]@{
+            diskcache_cve_2025_69872 = [ordered]@{
+                package = [string]$diskcacheMitigation.package
+                rook_restrict_pickle = $true
+                chirp_restrict_pickle = $true
+            }
         }
         chirp_git_sha = [string]$SmokeManifest.chirp_git_sha
         chirp_source_archive_sha256 = [string]$SmokeManifest.chirp_source_archive_sha256

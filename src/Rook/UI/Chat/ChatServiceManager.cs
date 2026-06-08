@@ -27,6 +27,9 @@ namespace Rook.UI.Chat
         [JsonPropertyName("pythonPathEntries")]
         public List<string> PythonPathEntries { get; set; } = new List<string>();
 
+        [JsonPropertyName("environment")]
+        public Dictionary<string, string> Environment { get; set; } = new Dictionary<string, string>();
+
         [JsonPropertyName("owner")]
         public string Owner { get; set; } = "rhino-panel";
     }
@@ -1027,6 +1030,14 @@ namespace Rook.UI.Chat
                 ["ROOK_CHAT_SERVICE_OWNER"] = manifest.Owner,
                 [NonceEnvVar] = SessionNonce,
             };
+            foreach (var kv in manifest.Environment)
+            {
+                if (!string.IsNullOrWhiteSpace(kv.Key))
+                    envOverrides[kv.Key] = kv.Value ?? "";
+            }
+            envOverrides["PYTHONHOME"] = "";
+            envOverrides["ROOK_CHAT_SERVICE_OWNER"] = manifest.Owner;
+            envOverrides[NonceEnvVar] = SessionNonce;
             var pythonPathEntries = manifest.PythonPathEntries
                 .Where(path => !string.IsNullOrWhiteSpace(path))
                 .Where(Directory.Exists)

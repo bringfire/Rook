@@ -67,6 +67,7 @@ source-tree `PYTHONPATH` entries.
 | `installer/runtime/python/cpython-3.11.9/python.exe` | Private CPython runtime staged from the pinned official Python NuGet package |
 | `installer/runtime/python/cpython-3.11.9/Lib/` | Private runtime standard library |
 | `installer/runtime/python-wheelhouse/` | Union wheelhouse; wheels only, no sdists |
+| `installer/runtime/requirements-bootstrap-lock.txt` | Fully pinned hash-locked pip/setuptools bootstrap requirements |
 | `installer/runtime/requirements-rook-lock.txt` | Fully pinned hash-locked Rook MCP/chat requirements |
 | `installer/runtime/requirements-chirp-lock.txt` | Fully pinned hash-locked Chirp requirements |
 | `installer/runtime/python-runtime-manifest.json` | Runtime, wheelhouse, lockfile, audit, license/provenance, source provenance, and import-origin manifest |
@@ -168,6 +169,7 @@ $files = @(
   "mcp_server\pyproject.toml",
   "..\Chirp\pyproject.toml",
   "installer\runtime\python\cpython-3.11.9\python.exe",
+  "installer\runtime\requirements-bootstrap-lock.txt",
   "installer\runtime\requirements-rook-lock.txt",
   "installer\runtime\requirements-chirp-lock.txt",
   "installer\runtime\python-runtime-manifest.json",

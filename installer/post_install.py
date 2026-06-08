@@ -89,6 +89,7 @@ def _ensure_private_runtime_inputs(layout: python_runtime_install.RuntimeLayout,
     required = [
         (layout.private_python, "private Python runtime"),
         (layout.wheelhouse, "Python wheelhouse"),
+        (layout.bootstrap_lock, "bootstrap requirements lock"),
         (lock, "requirements lock"),
     ]
     for path, label in required:
@@ -129,6 +130,27 @@ def _install_from_wheelhouse(
 
     venv_python = _create_venv(layout, venv_dir)
     if not venv_python:
+        return None
+
+    print(f"Upgrading pip bootstrap tools for {label} from bundled wheelhouse...")
+    bootstrap_command = python_runtime_install.build_offline_pip_bootstrap_command(
+        venv_python,
+        layout.wheelhouse,
+        layout.bootstrap_lock,
+    )
+    python_runtime_install.assert_offline_pip_command(bootstrap_command)
+    bootstrap_result = _run_install_command(
+        bootstrap_command,
+        env=python_runtime_install.build_sanitized_python_env(require_virtualenv=True),
+    )
+    bootstrap_output = _combined_output(bootstrap_result)
+    if bootstrap_result.returncode != 0:
+        print(f"{label} bootstrap tool upgrade failed with exit code {bootstrap_result.returncode}")
+        return None
+    try:
+        python_runtime_install.assert_local_wheelhouse_output(bootstrap_output)
+    except ValueError as exc:
+        print(f"{label} bootstrap failed release validation: {exc}")
         return None
 
     print(f"Installing {label} from bundled wheelhouse into {venv_dir}...")

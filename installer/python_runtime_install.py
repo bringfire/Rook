@@ -12,6 +12,7 @@ from pathlib import Path
 
 
 SCHEMA_VERSION = 1
+BOOTSTRAP_TOOL_REQUIREMENTS = ("pip==26.1.2", "setuptools==82.0.1")
 
 
 @dataclass(frozen=True)
@@ -23,6 +24,7 @@ class RuntimeLayout:
     rook_venv: Path
     chirp_venv: Path
     wheelhouse: Path
+    bootstrap_lock: Path
     rook_lock: Path
     chirp_lock: Path
     runtime_manifest: Path
@@ -43,6 +45,7 @@ class RuntimeLayout:
             rook_venv=rook_root / "venv",
             chirp_venv=app_dir / "chirp" / ".venv",
             wheelhouse=app_dir / "python-wheelhouse",
+            bootstrap_lock=app_dir / "requirements-bootstrap-lock.txt",
             rook_lock=app_dir / "requirements-rook-lock.txt",
             chirp_lock=app_dir / "requirements-chirp-lock.txt",
             runtime_manifest=app_dir / "python-runtime-manifest.json",
@@ -87,6 +90,18 @@ def build_offline_pip_install_command(
         "-r",
         str(requirements_lock),
     ]
+
+
+def build_offline_pip_bootstrap_command(
+    venv_python: Path,
+    wheelhouse_dir: Path,
+    requirements_bootstrap_lock: Path,
+) -> list[str]:
+    return build_offline_pip_install_command(
+        venv_python,
+        wheelhouse_dir,
+        requirements_bootstrap_lock,
+    )
 
 
 def assert_offline_pip_command(command: list[str]) -> None:
@@ -141,12 +156,15 @@ def _slash(path: Path) -> str:
 def build_release_mcp_env(
     install_dir: Path, data_dir: Path, chirp_dir: Path | None
 ) -> dict[str, str]:
+    dspy_cache_dir = data_dir / "dspy-cache"
     env_vars = {
         "PYTHONPATH": "",
         "PYTHONHOME": "",
         "ROOK_INSTALL_ROOT": _slash(install_dir),
         "ROOK_DATA_DIR": _slash(data_dir),
         "ROOK_MODE": "release",
+        "DSPY_CACHEDIR": _slash(dspy_cache_dir),
+        "ROOK_DSPY_RESTRICT_PICKLE": "1",
     }
     if chirp_dir is not None:
         env_vars["CHIRP_HOME"] = _slash(chirp_dir)
@@ -158,10 +176,17 @@ def build_chat_service_manifest(
     rook_venv_python: Path,
     release_mode: bool,
 ) -> dict:
+    rook_root = rook_venv_python.parent.parent.parent
+    app_dir = rook_root / "app"
+    data_dir = rook_root / "data"
+    chirp_dir = app_dir / "chirp"
     return {
         "pythonPath": str(rook_venv_python),
         "workingDirectory": str(mcp_server_dir),
         "module": "rook.agent.chat.service_main",
         "owner": "rhino-panel",
         "pythonPathEntries": [] if release_mode else [str(mcp_server_dir / "src")],
+        "environment": build_release_mcp_env(app_dir, data_dir, chirp_dir)
+        if release_mode
+        else {},
     }

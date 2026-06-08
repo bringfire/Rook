@@ -114,6 +114,20 @@ function New-ValidatorFixture {
                 }
             )
         }
+        security_mitigations = [ordered]@{
+            diskcache_cve_2025_69872 = [ordered]@{
+                id = 'CVE-2025-69872'
+                package = 'diskcache'
+                rook = [ordered]@{
+                    restrict_pickle = $true
+                    disk_cache_dir = 'C:/Users/test/AppData/Local/Rook/data/dspy-cache'
+                }
+                chirp = [ordered]@{
+                    restrict_pickle = $true
+                    disk_cache_dir = 'C:/Users/test/AppData/Local/Rook/app/chirp/data/dspy-cache'
+                }
+            }
+        }
         chirp_git_sha = $GitSha
         chirp_source_archive_sha256 = $chirpSourceArchiveSha
     } | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $pythonRuntimeManifestPath -Encoding UTF8
@@ -253,6 +267,9 @@ function Test-ReleaseValidatorRequiresPythonRuntimeEvidence {
     Assert-Contains -Text $validator -Expected 'chirp_import_file' -Message 'Smoke manifest must record chirp.__file__.'
     Assert-Contains -Text $validator -Expected 'pip_check' -Message 'Smoke manifest must record pip check results.'
     Assert-Contains -Text $validator -Expected 'license_provenance' -Message 'Release validator must require runtime and wheel license/provenance evidence.'
+    Assert-Contains -Text $validator -Expected 'security_mitigations' -Message 'Release validator must require runtime security mitigation evidence.'
+    Assert-Contains -Text $validator -Expected 'diskcache_cve_2025_69872' -Message 'Release validator must require the DiskCache CVE mitigation evidence.'
+    Assert-Contains -Text $validator -Expected 'restrict_pickle' -Message 'Release validator must require DSPy restricted pickle evidence.'
     Assert-Contains -Text $validator -Expected 'chirp_git_sha' -Message 'Release validator must require Chirp source identity.'
 }
 
