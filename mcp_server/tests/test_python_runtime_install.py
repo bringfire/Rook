@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import sys
 from pathlib import Path
 
 
@@ -12,6 +13,7 @@ def load_runtime_install():
     assert spec is not None
     assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
 
@@ -124,3 +126,30 @@ def test_mcp_env_points_to_chirp_home_and_clears_python_paths(tmp_path: Path) ->
     assert env["PYTHONHOME"] == ""
     assert env["PYTHONPATH"] == ""
     assert env["CHIRP_HOME"].endswith("app/chirp")
+
+
+def test_runtime_layout_uses_private_python_and_two_venvs(tmp_path: Path) -> None:
+    runtime = load_runtime_install()
+    layout = runtime.RuntimeLayout.from_rook_root(tmp_path / "Rook", "3.11.9")
+
+    assert (
+        layout.private_python
+        == tmp_path / "Rook" / "python" / "cpython-3.11.9" / "python.exe"
+    )
+    assert layout.rook_venv == tmp_path / "Rook" / "venv"
+    assert layout.chirp_venv == tmp_path / "Rook" / "app" / "chirp" / ".venv"
+    assert layout.wheelhouse == tmp_path / "Rook" / "app" / "python-wheelhouse"
+
+
+def test_pip_output_evidence_rejects_index_lookup() -> None:
+    runtime = load_runtime_install()
+    runtime.assert_local_wheelhouse_output(
+        "Looking in links: C:/Rook/app/python-wheelhouse\nProcessing rook_mcp.whl"
+    )
+
+    try:
+        runtime.assert_local_wheelhouse_output("Looking in indexes: https://pypi.org/simple")
+    except ValueError as exc:
+        assert "network index" in str(exc)
+    else:
+        raise AssertionError("expected network index output to be rejected")

@@ -7,10 +7,47 @@ from __future__ import annotations
 
 import json
 import os
+from dataclasses import dataclass
 from pathlib import Path
 
 
 SCHEMA_VERSION = 1
+
+
+@dataclass(frozen=True)
+class RuntimeLayout:
+    rook_root: Path
+    app_dir: Path
+    data_dir: Path
+    private_python: Path
+    rook_venv: Path
+    chirp_venv: Path
+    wheelhouse: Path
+    rook_lock: Path
+    chirp_lock: Path
+    runtime_manifest: Path
+    install_state: Path
+
+    @classmethod
+    def from_rook_root(cls, rook_root: Path, python_version: str) -> "RuntimeLayout":
+        app_dir = rook_root / "app"
+        data_dir = rook_root / "data"
+        return cls(
+            rook_root=rook_root,
+            app_dir=app_dir,
+            data_dir=data_dir,
+            private_python=rook_root
+            / "python"
+            / f"cpython-{python_version}"
+            / "python.exe",
+            rook_venv=rook_root / "venv",
+            chirp_venv=app_dir / "chirp" / ".venv",
+            wheelhouse=app_dir / "python-wheelhouse",
+            rook_lock=app_dir / "requirements-rook-lock.txt",
+            chirp_lock=app_dir / "requirements-chirp-lock.txt",
+            runtime_manifest=app_dir / "python-runtime-manifest.json",
+            install_state=data_dir / "install-state.json",
+        )
 
 
 def build_sanitized_python_env(require_virtualenv: bool) -> dict[str, str]:
@@ -62,6 +99,13 @@ def assert_offline_pip_command(command: list[str]) -> None:
         raise ValueError(
             f"offline pip command contains network index flags: {sorted(present_forbidden)}"
         )
+
+
+def assert_local_wheelhouse_output(output: str) -> None:
+    if "Looking in indexes:" in output:
+        raise ValueError("pip output shows network index lookup")
+    if "Looking in links:" not in output and "Processing " not in output:
+        raise ValueError("pip output does not prove local wheelhouse use")
 
 
 def needs_venv_recreate(

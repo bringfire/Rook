@@ -2,8 +2,8 @@
 
 This script runs after the installer copies files. It handles:
   1. Create a managed Rook runtime under %LOCALAPPDATA%\\Rook
-  2. Install the rook-mcp Python package into that managed venv
-  3. Set up Chirp adapter service (venv + pip install -e)
+  2. Install the rook-mcp Python package from the bundled wheelhouse
+  3. Set up Chirp adapter service from the bundled wheelhouse
   4. Register rook MCP server in documented user-scope client config
   5. Merge Rook config into Claude Desktop config (if installed)
   6. Generate user-level config.toml for OpenAI Codex CLI
@@ -27,6 +27,8 @@ import python_runtime_install
 
 
 MANAGED_COMPANION_RUNTIMES = ("net8.0", "net7.0", "net48")
+PRIVATE_PYTHON_VERSION = "3.11.9"
+INSTALL_COMMAND_TIMEOUT_SECONDS = 1800
 
 
 def _codex_on_path() -> bool:
@@ -58,90 +60,153 @@ def get_venv_python(venv_dir: Path) -> Path:
     return venv_dir / "bin" / "python"
 
 
-def install_mcp_server(mcp_server_dir: Path, runtime_root: Path) -> Path | None:
-    """Create a managed venv and install rook-mcp into it."""
-    bootstrap_python = find_python()
-    venv_dir, data_dir, logs_dir = get_runtime_paths(runtime_root)
+def _combined_output(result: subprocess.CompletedProcess[str]) -> str:
+    return "\n".join(part for part in (result.stdout, result.stderr) if part)
+
+
+def _run_install_command(
+    command: list[str],
+    *,
+    env: dict[str, str],
+    timeout: int = INSTALL_COMMAND_TIMEOUT_SECONDS,
+) -> subprocess.CompletedProcess[str]:
+    print(f"Running: {' '.join(command)}")
+    result = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        env=env,
+    )
+    if result.stdout:
+        print(result.stdout)
+    if result.stderr:
+        print(result.stderr)
+    return result
+
+
+def _ensure_private_runtime_inputs(layout: python_runtime_install.RuntimeLayout, lock: Path) -> bool:
+    required = [
+        (layout.private_python, "private Python runtime"),
+        (layout.wheelhouse, "Python wheelhouse"),
+        (lock, "requirements lock"),
+    ]
+    for path, label in required:
+        if not path.exists():
+            print(f"Missing {label}: {path}")
+            return False
+    return True
+
+
+def _create_venv(layout: python_runtime_install.RuntimeLayout, venv_dir: Path) -> Path | None:
     venv_python = get_venv_python(venv_dir)
+    if venv_python.exists():
+        return venv_python
+
+    print(f"Creating virtual environment at {venv_dir}...")
+    result = _run_install_command(
+        [str(layout.private_python), "-m", "venv", str(venv_dir)],
+        env=python_runtime_install.build_sanitized_python_env(require_virtualenv=False),
+        timeout=600,
+    )
+    if result.returncode != 0:
+        print(f"venv creation failed with exit code {result.returncode}")
+        return None
+    if not venv_python.exists():
+        print(f"venv Python not found at {venv_python}")
+        return None
+    return venv_python
+
+
+def _install_from_wheelhouse(
+    label: str,
+    layout: python_runtime_install.RuntimeLayout,
+    venv_dir: Path,
+    lock: Path,
+) -> Path | None:
+    if not _ensure_private_runtime_inputs(layout, lock):
+        return None
+
+    venv_python = _create_venv(layout, venv_dir)
+    if not venv_python:
+        return None
+
+    print(f"Installing {label} from bundled wheelhouse into {venv_dir}...")
+    command = python_runtime_install.build_offline_pip_install_command(
+        venv_python,
+        layout.wheelhouse,
+        lock,
+    )
+    python_runtime_install.assert_offline_pip_command(command)
+    result = _run_install_command(
+        command,
+        env=python_runtime_install.build_sanitized_python_env(require_virtualenv=True),
+    )
+    output = _combined_output(result)
+    if result.returncode != 0:
+        print(f"{label} install failed with exit code {result.returncode}")
+        return None
+    try:
+        python_runtime_install.assert_local_wheelhouse_output(output)
+    except ValueError as exc:
+        print(f"{label} install failed release validation: {exc}")
+        return None
+
+    check = _run_install_command(
+        [str(venv_python), "-m", "pip", "check"],
+        env=python_runtime_install.build_sanitized_python_env(require_virtualenv=True),
+        timeout=300,
+    )
+    if check.returncode != 0:
+        print(f"{label} pip check failed with exit code {check.returncode}")
+        return None
+
+    print(f"{label} installed successfully in {venv_dir}.")
+    return venv_python
+
+
+def install_mcp_server(mcp_server_dir: Path, runtime_root: Path) -> Path | None:
+    """Create a managed venv and install rook-mcp from the bundled wheelhouse."""
+    del mcp_server_dir
+    layout = python_runtime_install.RuntimeLayout.from_rook_root(
+        runtime_root, PRIVATE_PYTHON_VERSION
+    )
+    _, data_dir, logs_dir = get_runtime_paths(runtime_root)
 
     data_dir.mkdir(parents=True, exist_ok=True)
     logs_dir.mkdir(parents=True, exist_ok=True)
 
-    if not venv_python.exists():
-        print(f"Creating managed Rook venv at {venv_dir}...")
-        result = subprocess.run(
-            [bootstrap_python, "-m", "venv", str(venv_dir)],
-            capture_output=True,
-            text=True,
-            timeout=300,
-        )
-        if result.returncode != 0:
-            print(f"venv creation failed:\n{result.stderr}")
-            return None
-
-    print(f"Installing rook-mcp from {mcp_server_dir} into {venv_dir}...")
-
-    result = subprocess.run(
-        [str(venv_python), "-m", "pip", "install", "-e", str(mcp_server_dir)],
-        capture_output=True,
-        text=True,
-        timeout=300,
+    return _install_from_wheelhouse(
+        "rook-mcp",
+        layout,
+        layout.rook_venv,
+        layout.rook_lock,
     )
 
-    if result.returncode != 0:
-        print(f"pip install failed:\n{result.stderr}")
-        return None
 
-    print(f"rook-mcp installed successfully in {venv_dir}.")
-    return venv_python
-
-
-def install_chirp(chirp_dir: Path) -> bool:
+def install_chirp(chirp_dir: Path, runtime_root: Path) -> bool:
     """Set up Chirp: create venv and install the package.
 
     Chirp needs its own venv because chirp_manager.py discovers it via
     {CHIRP_HOME}/.venv/Scripts/python.exe. Keeping Chirp's heavyweight
-    dependencies (DSPy, FastAPI, uvicorn) isolated from the system Python.
+    dependencies isolated from the Rook MCP/chat venv.
     """
-    python = find_python()
-    venv_dir = chirp_dir / ".venv"
-
-    # Step 1: Create venv
-    print(f"Creating Chirp virtual environment at {venv_dir}...")
-    result = subprocess.run(
-        [python, "-m", "venv", str(venv_dir)],
-        capture_output=True,
-        text=True,
-        timeout=120,
+    layout = python_runtime_install.RuntimeLayout.from_rook_root(
+        runtime_root, PRIVATE_PYTHON_VERSION
     )
-    if result.returncode != 0:
-        print(f"venv creation failed:\n{result.stderr}")
+    if layout.chirp_venv.parent != chirp_dir:
+        print(f"Chirp home must be {layout.chirp_venv.parent}; got {chirp_dir}")
         return False
 
-    # Step 2: Find the venv's pip
-    if os.name == "nt":
-        venv_python = venv_dir / "Scripts" / "python.exe"
-    else:
-        venv_python = venv_dir / "bin" / "python"
-
-    if not venv_python.exists():
-        print(f"venv Python not found at {venv_python}")
-        return False
-
-    # Step 3: pip install -e inside the venv
-    print(f"Installing Chirp package into venv...")
-    result = subprocess.run(
-        [str(venv_python), "-m", "pip", "install", "-e", str(chirp_dir)],
-        capture_output=True,
-        text=True,
-        timeout=300,
+    return (
+        _install_from_wheelhouse(
+            "Chirp",
+            layout,
+            layout.chirp_venv,
+            layout.chirp_lock,
+        )
+        is not None
     )
-    if result.returncode != 0:
-        print(f"Chirp pip install failed:\n{result.stderr}")
-        return False
-
-    print("Chirp installed successfully.")
-    return True
 
 
 def _build_mcp_env(
@@ -696,12 +761,9 @@ def main() -> int:
     if chirp_dir and chirp_dir.exists():
         if args.skip_chirp_install:
             print("Skipping Chirp venv refresh.")
-        elif not install_chirp(chirp_dir):
+        elif not install_chirp(chirp_dir, runtime_root):
             print("\nWARNING: Chirp installation failed.")
-            print("You can install manually later:")
-            print(f"  cd {chirp_dir}")
-            print(f"  python -m venv .venv")
-            print(f"  .venv\\Scripts\\pip install -e .")
+            print("Re-run the installer repair flow after verifying the bundled runtime payload.")
 
     # Step 3: Generate user-level MCP config (includes CHIRP_HOME if Chirp installed)
     _, data_dir, _ = get_runtime_paths(runtime_root)
