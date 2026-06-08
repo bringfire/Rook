@@ -107,10 +107,22 @@ function Test-WheelhouseBuilderEnforcesReleaseContracts {
     Assert-NotContains -Text $content -Expected 'return ConvertTo-ForwardSlashPath -Path $targetPath' -Message 'Manifest path helper must not fall back to absolute local paths.'
 }
 
+function Test-OcrDependencyIsNotDefaultRuntimeDependency {
+    $pyproject = Join-Path $RepoRoot 'mcp_server\pyproject.toml'
+    $content = Get-Content -Path $pyproject -Raw
+
+    $defaultDepsBlock = [regex]::Match($content, 'dependencies\s*=\s*\[(?s:.*?)\]')
+    Assert-True -Condition $defaultDepsBlock.Success -Message 'pyproject must have project dependencies block.'
+    Assert-NotContains -Text $defaultDepsBlock.Value -Expected 'pytesseract' -Message 'pytesseract must not be part of default public release dependencies.'
+    Assert-Contains -Text $content -Expected 'ocr = [' -Message 'pyproject must keep OCR wrapper as an optional extra if retained.'
+    Assert-Contains -Text $content -Expected 'pytesseract>=0.3.10' -Message 'OCR optional extra must contain pytesseract.'
+}
+
 Test-PythonRuntimeConfigIsPinned
 Test-PythonRuntimeStagerExistsAndNeverRunsAtInstallTime
 Test-PythonRuntimeStagerStagesRuntimeIntoTempRoots
 Test-WheelhouseBuilderExists
 Test-WheelhouseBuilderEnforcesReleaseContracts
+Test-OcrDependencyIsNotDefaultRuntimeDependency
 
 Write-Host 'Python runtime packaging guard tests passed.'
