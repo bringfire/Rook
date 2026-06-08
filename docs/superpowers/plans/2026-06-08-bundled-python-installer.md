@@ -38,7 +38,7 @@ Create:
   Downloads the pinned Python NuGet package during release build, verifies its SHA256, extracts `tools\`, verifies `python.exe`, and writes runtime staging evidence.
 
 - `scripts/python-runtime/build-rook-python-wheelhouse.ps1`  
-  Builds non-editable `rook-mcp` and `chirp` wheels, creates two hash-locked requirements files, builds one union wheelhouse, rejects source distributions, temp-installs from the wheelhouse, runs `pip check`, runs import-origin checks, and writes `python-runtime-manifest.json`.
+  Builds non-editable `rook-mcp` and `chirp` wheels, creates two hash-locked requirements files, builds one union wheelhouse, rejects source distributions, temp-installs from the wheelhouse, runs `pip check`, runs import-origin checks, records package license/provenance metadata, and writes `python-runtime-manifest.json`.
 
 - `installer/python_runtime_install.py`  
   Stdlib-only install-time runtime manager imported by `post_install.py`. Handles private runtime discovery, venv invalidation, sanitized environment, offline pip install, `pip check`, import-origin validation, install-state writing, and command/output evidence.
@@ -352,10 +352,13 @@ function Test-WheelhouseBuilderEnforcesReleaseContracts {
     Assert-Contains -Text $content -Expected '--only-binary=:all:' -Message 'Wheelhouse builder must reject sdists for public wheelhouse inputs.'
     Assert-Contains -Text $content -Expected 'pip check' -Message 'Wheelhouse builder must run pip check.'
     Assert-Contains -Text $content -Expected 'pip-audit' -Message 'Wheelhouse builder must run pip-audit against temp installed venvs.'
+    Assert-Contains -Text $content -Expected 'pip-audit==2.10.0' -Message 'Wheelhouse builder must pin pip-audit tooling for reproducible release gates.'
     Assert-Contains -Text $content -Expected 'packaging.tags' -Message 'Wheelhouse builder must validate wheel tags against interpreter accepted tags.'
     Assert-Contains -Text $content -Expected 'rook.__file__' -Message 'Wheelhouse builder must record rook import origin evidence.'
     Assert-Contains -Text $content -Expected 'chirp.__file__' -Message 'Wheelhouse builder must record chirp import origin evidence.'
     Assert-Contains -Text $content -Expected 'cv2' -Message 'Wheelhouse builder must run shipped vision stack import smokes.'
+    Assert-Contains -Text $content -Expected 'license_provenance' -Message 'Runtime manifest must include Python and third-party package license/provenance evidence.'
+    Assert-Contains -Text $content -Expected 'License-Expression' -Message 'Wheel provenance collector must inspect modern wheel license metadata.'
     Assert-Contains -Text $content -Expected 'chirp_git_sha' -Message 'Manifest must include Chirp sibling repo git SHA.'
     Assert-Contains -Text $content -Expected 'chirp_source_archive_sha256' -Message 'Manifest must include Chirp source archive hash.'
     Assert-Contains -Text $content -Expected 'python-runtime-manifest.json' -Message 'Wheelhouse builder must write the runtime manifest.'
@@ -447,6 +450,11 @@ if (-not (Test-Path -LiteralPath $pythonExe -PathType Leaf)) {
 if (-not (Test-Path -LiteralPath (Join-Path $ChirpRoot 'pyproject.toml') -PathType Leaf)) {
     Fail "Chirp sibling repo missing: $ChirpRoot"
 }
+$runtimeConfigPath = Join-Path $RepoRoot 'installer\python-runtime\python-runtime.json'
+if (-not (Test-Path -LiteralPath $runtimeConfigPath -PathType Leaf)) {
+    Fail "Runtime config missing: $runtimeConfigPath"
+}
+$runtimeConfig = Get-Content -LiteralPath $runtimeConfigPath -Raw | ConvertFrom-Json
 
 $rookGitSha = Require-CleanGitRepo -Root $RepoRoot -Label 'Rook'
 $chirpGitSha = Require-CleanGitRepo -Root $ChirpRoot -Label 'Chirp'
@@ -725,10 +733,11 @@ if ($LASTEXITCODE -ne 0) { Fail 'Rook temp install verification failed' }
 if ($LASTEXITCODE -ne 0) { Fail 'Chirp temp install verification failed' }
 
 $auditVenv = Join-Path $BuildRoot 'pip-audit-venv'
+$pipAuditPackage = 'pip-audit==2.10.0'
 & $pythonExe -m venv $auditVenv
 if ($LASTEXITCODE -ne 0) { Fail 'pip-audit venv creation failed' }
 $auditPython = Join-Path $auditVenv 'Scripts\python.exe'
-& $auditPython -m pip install pip-audit
+& $auditPython -m pip install $pipAuditPackage
 if ($LASTEXITCODE -ne 0) { Fail 'pip-audit install failed' }
 $pipAudit = Join-Path $auditVenv 'Scripts\pip-audit.exe'
 $rookVerificationObject = Get-Content -LiteralPath $rookVerification -Raw | ConvertFrom-Json
@@ -786,6 +795,60 @@ if __name__ == "__main__":
 $wheelMetadata = (& $pythonExe $wheelTagScript --wheelhouse $wheelhouse | ConvertFrom-Json)
 if ($LASTEXITCODE -ne 0) { Fail 'wheel tag metadata collection failed' }
 
+$provenanceScript = Join-Path $BuildRoot 'collect_license_provenance.py'
+@'
+from __future__ import annotations
+
+import argparse
+import email.parser
+import hashlib
+import json
+import zipfile
+from pathlib import Path
+
+
+def metadata_for_wheel(wheel: Path) -> dict:
+    with zipfile.ZipFile(wheel) as archive:
+        metadata_name = next(name for name in archive.namelist() if name.endswith(".dist-info/METADATA"))
+        metadata = email.parser.Parser().parsestr(archive.read(metadata_name).decode("utf-8", "replace"))
+        license_files = sorted(
+            name for name in archive.namelist()
+            if ".dist-info/licenses/" in name.lower()
+            or name.rsplit("/", 1)[-1].lower().startswith(("license", "copying", "notice"))
+        )
+    return {
+        "wheel_file": wheel.name,
+        "sha256": hashlib.sha256(wheel.read_bytes()).hexdigest().upper(),
+        "name": metadata.get("Name", ""),
+        "version": metadata.get("Version", ""),
+        "summary": metadata.get("Summary", ""),
+        "license": metadata.get("License", ""),
+        "license_expression": metadata.get("License-Expression", ""),
+        "license_files": metadata.get_all("License-File", []),
+        "bundled_license_file_paths": license_files,
+        "home_page": metadata.get("Home-page", ""),
+        "project_urls": metadata.get_all("Project-URL", []),
+        "provenance_source": "wheel dist-info/METADATA",
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--wheelhouse", required=True)
+    args = parser.parse_args()
+    wheelhouse = Path(args.wheelhouse)
+    wheels = [metadata_for_wheel(wheel) for wheel in sorted(wheelhouse.glob("*.whl"))]
+    print(json.dumps({"schema_version": 1, "third_party_wheels": wheels}))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+'@ | Set-Content -LiteralPath $provenanceScript -Encoding UTF8
+
+$wheelLicenseProvenance = (& $pythonExe $provenanceScript --wheelhouse $wheelhouse | ConvertFrom-Json)
+if ($LASTEXITCODE -ne 0) { Fail 'wheel license provenance collection failed' }
+
 $sourceRoot = Join-Path $BuildRoot 'source-archives'
 $rookSourceArchive = Join-Path $sourceRoot "rook-$rookGitSha.tar"
 $chirpSourceArchive = Join-Path $sourceRoot "chirp-$chirpGitSha.tar"
@@ -806,6 +869,18 @@ $manifest = [ordered]@{
         abi = 'cp311'
         platform = 'win_amd64'
     }
+    license_provenance = [ordered]@{
+        schema_version = 1
+        python_runtime = [ordered]@{
+            package = $runtimeConfig.python_nuget_package
+            version = $runtimeConfig.python_version
+            nupkg_sha256 = $runtimeConfig.nupkg_sha256
+            source_url = "https://www.nuget.org/api/v2/package/$($runtimeConfig.python_nuget_package)/$($runtimeConfig.python_version)"
+            provenance_source = 'installer\python-runtime\python-runtime.json'
+            license = 'Python Software Foundation License'
+        }
+        third_party_wheels = $wheelLicenseProvenance.third_party_wheels
+    }
     wheelhouse = [ordered]@{
         path = $wheelhouse
         accepted_tag_sample = $wheelMetadata.interpreter_accepted_tags_sample
@@ -819,6 +894,7 @@ $manifest = [ordered]@{
         rook = $rookVerificationObject
         chirp = $chirpVerificationObject
         pip_audit = [ordered]@{
+            tool = $pipAuditPackage
             rook = [ordered]@{ path = $rookAuditJson; sha256 = Get-Sha256 -Path $rookAuditJson }
             chirp = [ordered]@{ path = $chirpAuditJson; sha256 = Get-Sha256 -Path $chirpAuditJson }
         }
@@ -1714,6 +1790,7 @@ function Test-ReleaseValidatorRequiresPythonRuntimeEvidence {
     Assert-Contains -Text $validator -Expected 'rook_import_file' -Message 'Smoke manifest must record rook.__file__.'
     Assert-Contains -Text $validator -Expected 'chirp_import_file' -Message 'Smoke manifest must record chirp.__file__.'
     Assert-Contains -Text $validator -Expected 'pip_check' -Message 'Smoke manifest must record pip check results.'
+    Assert-Contains -Text $validator -Expected 'license_provenance' -Message 'Release validator must require runtime and wheel license/provenance evidence.'
     Assert-Contains -Text $validator -Expected 'chirp_git_sha' -Message 'Release validator must require Chirp source identity.'
 }
 ```
@@ -1752,6 +1829,7 @@ chirp_venv_path
 rook_import_file
 chirp_import_file
 pip_check
+license_provenance
 config_identity
 no_index_install
 chirp_git_sha
@@ -1767,9 +1845,11 @@ $smokeManifest.chirp_import_file -match '(?i)\\Rook\\app\\chirp\\.venv\\Lib\\sit
 $smokeManifest.no_index_install -eq $true
 $smokeManifest.pip_check.rook.ok -eq $true
 $smokeManifest.pip_check.chirp.ok -eq $true
+$pythonRuntimeManifest.license_provenance.python_runtime.package -eq 'python'
+$pythonRuntimeManifest.license_provenance.third_party_wheels.Count -gt 0
 ```
 
-5. Add Python manifest summary into `$releaseManifest`.
+5. Add Python manifest summary into `$releaseManifest`, including `license_provenance` summary counts and Python NuGet identity.
 
 - [ ] **Step 4: Run validator tests**
 
@@ -1852,7 +1932,8 @@ This stage must run from the exact checked-out release SHA. It stages CPython
 3.11.9 from the pinned NuGet package, builds non-editable Rook/Chirp wheels,
 rejects source distributions in the final wheelhouse, validates import origins
 from temp venv site-packages, runs `pip check`, records Chirp sibling-repo
-source identity, and writes `installer\runtime\python-runtime-manifest.json`.
+source identity, records package license/provenance evidence, and writes
+`installer\runtime\python-runtime-manifest.json`.
 ```
 
 2. Adjust subsequent step numbers or add text without renumbering if renumbering is too noisy.
@@ -1871,7 +1952,7 @@ In both `.agents/skills/build-release/references/iss-source-paths.md` and `.clau
 | `installer/runtime/python-wheelhouse/` | Union wheelhouse; wheels only, no sdists |
 | `installer/runtime/requirements-rook-lock.txt` | Fully pinned hash-locked Rook MCP/chat requirements |
 | `installer/runtime/requirements-chirp-lock.txt` | Fully pinned hash-locked Chirp requirements |
-| `installer/runtime/python-runtime-manifest.json` | Runtime, wheelhouse, lockfile, audit, source provenance, and import-origin manifest |
+| `installer/runtime/python-runtime-manifest.json` | Runtime, wheelhouse, lockfile, audit, license/provenance, source provenance, and import-origin manifest |
 | `installer/python_runtime_install.py` | Stdlib post-install helper for private runtime installs |
 ```
 
@@ -1996,7 +2077,7 @@ Expected:
 - `installer\runtime\python-wheelhouse` contains only `.whl` files.
 - `installer\runtime\requirements-rook-lock.txt` exists.
 - `installer\runtime\requirements-chirp-lock.txt` exists.
-- `installer\runtime\python-runtime-manifest.json` exists and has `schema_version: 1`.
+- `installer\runtime\python-runtime-manifest.json` exists and has `schema_version: 1` plus `license_provenance`.
 
 - [ ] **Step 4: Compile installer**
 
@@ -2034,6 +2115,7 @@ If verification exposes a defect, stop this verification task and create a focus
 - Type consistency:
   - Runtime helper names used across tasks: `RuntimeLayout`, `build_sanitized_python_env`, `build_offline_pip_install_command`, `assert_offline_pip_command`, `build_release_mcp_env`, `build_chat_service_manifest`.
   - Manifest schema field name is consistently `schema_version`.
+  - License/provenance manifest field name is consistently `license_provenance`.
   - Chirp source identity fields are consistently `chirp_git_sha` and `chirp_source_archive_sha256`.
 
 ## Execution Handoff
