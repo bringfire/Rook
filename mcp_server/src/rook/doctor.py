@@ -102,10 +102,6 @@ def _config_targets() -> dict[str, Path]:
     }
 
 
-def _skill_source_root(runtime_paths: RuntimePaths) -> Path:
-    return runtime_paths.install_root / ".claude" / "skills"
-
-
 def _codex_skill_source_root(runtime_paths: RuntimePaths) -> Path:
     return runtime_paths.install_root / ".agents" / "skills"
 
@@ -120,7 +116,7 @@ def _should_check_claude(force: bool) -> bool:
     desktop_data = _read_json(targets["claude_desktop"]) or {}
     if "rook" in desktop_data.get("mcpServers", {}):
         return True
-    return targets["claude_skill_root"].exists()
+    return False
 
 
 def _should_check_codex(force: bool) -> bool:
@@ -479,7 +475,6 @@ def run_doctor(
     )
 
     if fix:
-        claude_source_root = _skill_source_root(runtime_paths)
         codex_source_root = _codex_skill_source_root(runtime_paths)
         chirp_home = os.environ.get("CHIRP_HOME")
         if check_claude:
@@ -489,8 +484,6 @@ def run_doctor(
                 desktop_fixed = _write_claude_desktop_config(runtime_paths, python_path, chirp_home=chirp_home)
                 if desktop_fixed is not None:
                     result.fixes_applied.append(f"updated {desktop_fixed}")
-                if _copy_skill_tree(claude_source_root, targets["claude_skill_root"]):
-                    result.fixes_applied.append(f"synced {targets['claude_skill_root']}")
             except Exception as exc:
                 result.checks.append(
                     DoctorCheck(name="--fix Claude integration", ok=False, detail=str(exc), severity="warning")
@@ -590,14 +583,6 @@ def run_doctor(
                     value=str(targets["claude_desktop"]),
                 )
             )
-
-        result.checks.append(
-            DoctorCheck(
-                name="Claude skills installed",
-                ok=_skill_sentinel(targets["claude_skill_root"]).exists(),
-                value=str(targets["claude_skill_root"]),
-            )
-        )
 
     if check_codex:
         codex_ok, codex_detail = _validate_codex_config(

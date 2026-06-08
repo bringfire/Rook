@@ -6,6 +6,7 @@ from rook.doctor import (
     _config_targets,
     _managed_companion_payloads,
     _probe_stderr_buffer,
+    _should_check_claude,
     _should_check_codex,
     _upsert_toml_section,
     _validate_codex_config,
@@ -84,6 +85,15 @@ def test_should_check_codex_detects_supported_skill_root(tmp_path: Path, monkeyp
     (tmp_path / ".codex" / "skills").mkdir(parents=True)
 
     assert _should_check_codex(force=False) is True
+
+
+def test_should_check_claude_ignores_marketplace_skill_root(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setenv("APPDATA", str(tmp_path / "AppData" / "Roaming"))
+    (tmp_path / ".claude" / "skills").mkdir(parents=True)
+
+    assert _should_check_claude(force=False) is False
+    assert _should_check_claude(force=True) is True
 
 
 def test_probe_stdio_uses_replacement_decoding_for_windows_encoded_output(tmp_path: Path):
