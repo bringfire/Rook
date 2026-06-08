@@ -61,9 +61,29 @@ function Test-WheelhouseBuilderExists {
     Assert-True -Condition (Test-Path $WheelhouseBuilder) -Message "Missing wheelhouse builder: $WheelhouseBuilder"
 }
 
+function Test-WheelhouseBuilderEnforcesReleaseContracts {
+    $content = Get-Content -Path $WheelhouseBuilder -Raw
+    Assert-Contains -Text $content -Expected 'pip wheel' -Message 'Wheelhouse builder must build wheels, not editable installs.'
+    Assert-Contains -Text $content -Expected 'pip download' -Message 'Wheelhouse builder must collect dependency wheels.'
+    Assert-Contains -Text $content -Expected '--only-binary=:all:' -Message 'Wheelhouse builder must reject sdists for public wheelhouse inputs.'
+    Assert-Contains -Text $content -Expected 'pip check' -Message 'Wheelhouse builder must run pip check.'
+    Assert-Contains -Text $content -Expected 'pip-audit' -Message 'Wheelhouse builder must run pip-audit against temp installed venvs.'
+    Assert-Contains -Text $content -Expected 'pip-audit==2.10.0' -Message 'Wheelhouse builder must pin pip-audit tooling for reproducible release gates.'
+    Assert-Contains -Text $content -Expected 'packaging.tags' -Message 'Wheelhouse builder must validate wheel tags against interpreter accepted tags.'
+    Assert-Contains -Text $content -Expected 'rook.__file__' -Message 'Wheelhouse builder must record rook import origin evidence.'
+    Assert-Contains -Text $content -Expected 'chirp.__file__' -Message 'Wheelhouse builder must record chirp import origin evidence.'
+    Assert-Contains -Text $content -Expected 'cv2' -Message 'Wheelhouse builder must run shipped vision stack import smokes.'
+    Assert-Contains -Text $content -Expected 'license_provenance' -Message 'Runtime manifest must include Python and third-party package license/provenance evidence.'
+    Assert-Contains -Text $content -Expected 'License-Expression' -Message 'Wheel provenance collector must inspect modern wheel license metadata.'
+    Assert-Contains -Text $content -Expected 'chirp_git_sha' -Message 'Manifest must include Chirp sibling repo git SHA.'
+    Assert-Contains -Text $content -Expected 'chirp_source_archive_sha256' -Message 'Manifest must include Chirp source archive hash.'
+    Assert-Contains -Text $content -Expected 'python-runtime-manifest.json' -Message 'Wheelhouse builder must write the runtime manifest.'
+}
+
 Test-PythonRuntimeConfigIsPinned
 Test-PythonRuntimeStagerExistsAndNeverRunsAtInstallTime
 Test-PythonRuntimeStagerStagesRuntimeIntoTempRoots
 Test-WheelhouseBuilderExists
+Test-WheelhouseBuilderEnforcesReleaseContracts
 
 Write-Host 'Python runtime packaging guard tests passed.'
