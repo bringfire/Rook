@@ -13,7 +13,7 @@
 ; Or open in Inno Setup GUI and press Ctrl+F9.
 
 #define MyAppName "Rook"
-#define MyAppVersion "1.5.9"
+#define MyAppVersion "1.5.10"
 #define MyAppPublisher "Bringfire"
 #define MyAppURL "https://github.com/bringfire/rook-release"
 
