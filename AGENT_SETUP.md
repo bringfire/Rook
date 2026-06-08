@@ -6,27 +6,28 @@
 
 ---
 
-## Critical: Supported AI Clients
+## Supported AI Clients
 
-**Rook requires [Claude Code](https://code.claude.com/docs/en/overview)** (CLI,
-[Desktop app](https://code.claude.com/docs/en/desktop), or
-[VS Code extension](https://code.claude.com/docs/en/vs-code)). All three variants
-share the same engine and support the full Rook feature set:
-[hooks](https://docs.anthropic.com/en/docs/claude-code/hooks-guide),
-[plugins](https://code.claude.com/docs/en/plugins),
-[skills](https://code.claude.com/docs/en/plugins-reference),
-and [MCP servers](https://code.claude.com/docs/en/desktop-quickstart).
+Rook works with any **MCP-capable** assistant. Two clients get the full guided
+experience:
 
-**The older "Claude Desktop" chat app (claude.ai/download) is NOT sufficient.**
-It only supports MCP servers — no hooks, no plugins, no skills. Users on that app
-will get the nearly 400 MCP tools but none of the orchestration skills (`/design-grasshopper`,
-`/plan-grasshopper`, `/execute-grasshopper`, `/design-road`, etc.) or the session-start
-hook that loads Rook context. If the user is on the older Claude Desktop app, help them
-install [Claude Code Desktop](https://code.claude.com/docs/en/desktop-quickstart) instead.
+- **[Claude Code](https://code.claude.com/docs/en/overview)** (CLI,
+  [Desktop app](https://code.claude.com/docs/en/desktop), or
+  [VS Code extension](https://code.claude.com/docs/en/vs-code)) — recommended for the
+  complete experience: the MCP tools plus the Rook **skills + session hook**, installed
+  from the marketplace plugin (`/plugin marketplace add bringfire/rook-release` →
+  `/plugin install rook@rook`). All three variants share the same engine and support
+  hooks, plugins, skills, and MCP servers.
+- **Codex CLI** — first-class: the MCP tools **plus** a curated set of the same Rook
+  skills, installed for you by the Rook installer (to `~/.codex/skills`), alongside
+  `AGENTS.md` guidance.
 
-Other MCP-compatible clients (Codex CLI, Cursor, Windsurf) get the MCP tools.
-Codex CLI also gets the packaged Rook skill set, but Claude-specific features
-(hooks, plugins, Claude agents) remain Claude-only.
+Other MCP-compatible clients (Cursor, Windsurf, and the older "Claude Desktop" chat
+app at claude.ai/download) get the **nearly 400 MCP tools**, but not the orchestration
+skills (`/design-grasshopper`, `/plan-grasshopper`, `/execute-grasshopper`,
+`/design-road`, etc.) or the session-start hook — those are Claude Code (marketplace
+plugin) and Codex (installer) features. For the guided workflows, use Claude Code or
+Codex.
 
 ## What Is Rook
 
