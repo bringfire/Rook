@@ -244,11 +244,8 @@ Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B\CommandList"; ValueType: string; ValueName: "UVBoxMapping"; ValueData: "2;UVBoxMapping"; Components: plugins
 
 ; ---------------------------------------------------------------------------
-; Post-install: run Python setup
+; Post-install Python setup is run from [Code] so child exit codes are fatal.
 ; ---------------------------------------------------------------------------
-
-[Run]
-Filename: "{localappdata}\Rook\python\cpython-3.11.9\python.exe"; Parameters: """{app}\post_install.py"" --install-dir ""{app}"" --runtime-root ""{localappdata}\Rook"" --mcp-server-dir ""{app}\mcp_server"" {code:GetChirpArgs} {code:GetClaudeArgs} {code:GetCodexArgs} {code:GetPluginsArgs}"; StatusMsg: "Configuring Rook private Python runtime and offline dependencies."; Components: mcp chirp claude codex; Flags: waituntilterminated; Check: BundledPythonFound
 
 ; ---------------------------------------------------------------------------
 ; Uninstall cleanup
@@ -372,6 +369,75 @@ begin
     Result := '--plugins'
   else
     Result := '';
+end;
+
+function PostInstallSelected(): Boolean;
+begin
+  Result :=
+    WizardIsComponentSelected('mcp') or
+    WizardIsComponentSelected('chirp') or
+    WizardIsComponentSelected('claude') or
+    WizardIsComponentSelected('codex');
+end;
+
+function RunPostInstallSetup(): Boolean;
+var
+  PythonExe: String;
+  Args: String;
+  ResultCode: Integer;
+begin
+  Result := True;
+
+  if not PostInstallSelected() then
+    Exit;
+
+  PythonExe := ExpandConstant('{localappdata}\Rook\python\cpython-3.11.9\python.exe');
+  if not FileExists(PythonExe) then
+  begin
+    Log('Post-install failed: bundled private Python is missing: ' + PythonExe);
+    MsgBox(
+      'Rook could not find its bundled private Python runtime.' + #13#10 + #13#10 +
+      'Repair the installation or rebuild the installer with the staged Python runtime payload.',
+      mbCriticalError, MB_OK);
+    Result := False;
+    Exit;
+  end;
+
+  Args :=
+    '"' + ExpandConstant('{app}') + '\post_install.py"' +
+    ' --install-dir "' + ExpandConstant('{app}') + '"' +
+    ' --runtime-root "' + ExpandConstant('{localappdata}\Rook') + '"' +
+    ' --mcp-server-dir "' + ExpandConstant('{app}') + '\mcp_server"' +
+    ' ' + GetChirpArgs('') +
+    ' ' + GetClaudeArgs('') +
+    ' ' + GetCodexArgs('') +
+    ' ' + GetPluginsArgs('');
+
+  Log('Post-install: running post_install.py with private Python: ' + PythonExe);
+  if not Exec(PythonExe, Args, '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+  begin
+    Log('Post-install failed: could not launch post_install.py');
+    MsgBox(
+      'Rook could not launch its post-install Python setup.' + #13#10 + #13#10 +
+      'Close Rhino/Revit, then rerun the installer repair flow.',
+      mbCriticalError, MB_OK);
+    Result := False;
+    Exit;
+  end;
+
+  if ResultCode <> 0 then
+  begin
+    Log('Post-install failed: post_install.py exited with code ' + IntToStr(ResultCode));
+    MsgBox(
+      'Rook Python setup failed and the installation cannot be treated as complete.' + #13#10 + #13#10 +
+      'Close Rhino/Revit and any Rook Python processes, then rerun the installer repair flow. ' +
+      'If the failure repeats, collect the installer log before publishing this build.',
+      mbCriticalError, MB_OK);
+    Result := False;
+    Exit;
+  end;
+
+  Log('Post-install: setup completed via post_install.py');
 end;
 
 function RhinoInstalled(): Boolean;
@@ -693,8 +759,8 @@ begin
 
     RecordPrivatePythonPath();
 
-    if WizardIsComponentSelected('mcp') or WizardIsComponentSelected('chirp') or WizardIsComponentSelected('claude') then
-      Log('Post-install: setup completed via post_install.py');
+    if not RunPostInstallSetup() then
+      Abort;
 
     VerifyRhinoPluginInstall();
   end;

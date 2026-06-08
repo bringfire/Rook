@@ -303,6 +303,22 @@ and companion self-report evidence in the release notes. Do not use registry
 `FileName` values or `Get-Process.Modules` absence as proof of managed
 companion load.
 
+Generate the Python/runtime evidence from the installed private Rook venv before
+writing the smoke manifest:
+
+```powershell
+& "$env:LOCALAPPDATA\Rook\venv\Scripts\python.exe" -m rook.local_testing_proof python-smoke-evidence --out "$env:TEMP\rook-python-smoke-evidence.json"
+```
+
+The command self-seeds `ROOK_INSTALL_ROOT`, `ROOK_DATA_DIR`, `ROOK_MODE`,
+`CHIRP_HOME`, `DSPY_CACHEDIR`, and restricted-pickle settings from the installed
+venv path before it validates the runtime.
+
+Copy the successful gate's `details` object into
+`installer\output\release-smoke-X.Y.Z.json`, then add the installer identity and
+host-specific standalone/Rhino.Inside evidence. Do not hand-author or guess the
+Python evidence fields.
+
 Write a structured smoke manifest at `installer\output\release-smoke-X.Y.Z.json`
 with at least:
 
@@ -311,6 +327,32 @@ git_sha
 installer_sha256
 rook_version
 smoke_started_utc
+python_runtime_manifest
+install_state
+private_python_path
+private_python_version
+rook_venv_path
+chirp_venv_path
+rook_import_file
+chirp_import_file
+pip_check:
+  rook:
+    ok
+  chirp:
+    ok
+rook_dspy_cache:
+  restrict_pickle
+  disk_cache_dir
+chirp_dspy_cache:
+  restrict_pickle
+  disk_cache_dir
+config_identity:
+  chat_service_python_path
+  chirp_home
+  release_pythonpath_entries
+no_index_install
+chirp_git_sha
+chirp_source_archive_sha256
 standalone_rhino:
   rhino_version
   host_runtime

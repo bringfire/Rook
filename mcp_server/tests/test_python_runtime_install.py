@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -16,6 +17,23 @@ def load_runtime_install():
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
+
+
+def load_post_install():
+    repo_root = Path(__file__).resolve().parents[2]
+    installer_dir = repo_root / "installer"
+    sys.path.insert(0, str(installer_dir))
+    try:
+        module_path = installer_dir / "post_install.py"
+        spec = importlib.util.spec_from_file_location("rook_post_install", module_path)
+        assert spec is not None
+        assert spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        return module
+    finally:
+        sys.path.remove(str(installer_dir))
 
 
 def test_pip_command_is_offline_and_hash_locked(tmp_path: Path) -> None:
@@ -78,12 +96,58 @@ def test_venv_invalidates_on_python_or_lock_hash_change(tmp_path: Path) -> None:
     state = {
         "schema_version": 1,
         "python": {"identity_hash": "old-python"},
-        "rook": {"lockfile_sha256": "old-lock"},
+        "rook": {"python_identity_hash": "old-python", "lockfile_sha256": "old-lock"},
     }
 
     assert runtime.needs_venv_recreate(state, "rook", "new-python", "old-lock")
     assert runtime.needs_venv_recreate(state, "rook", "old-python", "new-lock")
     assert not runtime.needs_venv_recreate(state, "rook", "old-python", "old-lock")
+
+
+def test_venv_invalidates_per_runtime_when_rook_installs_before_chirp(tmp_path: Path) -> None:
+    runtime = load_runtime_install()
+    post_install = load_post_install()
+    layout = runtime.RuntimeLayout.from_rook_root(tmp_path / "Rook", "3.11.9")
+    old_runtime_hash = "0" * 64
+    new_runtime_hash = "1" * 64
+    old_lock_hash = "2" * 64
+
+    runtime.write_install_state(
+        layout.install_state,
+        {
+            "python": {"identity_hash": old_runtime_hash},
+            "rook": {
+                "python_identity_hash": old_runtime_hash,
+                "lockfile_sha256": old_lock_hash,
+            },
+            "chirp": {
+                "python_identity_hash": old_runtime_hash,
+                "lockfile_sha256": old_lock_hash,
+            },
+        },
+    )
+
+    post_install._record_install_state(
+        layout=layout,
+        runtime_name="rook",
+        venv_dir=layout.rook_venv,
+        venv_python=layout.rook_venv / "Scripts" / "python.exe",
+        lock=layout.rook_lock,
+        python_identity_hash=new_runtime_hash,
+        lockfile_sha256=old_lock_hash,
+        pip_check_output="No broken requirements found.",
+    )
+
+    updated_state = runtime.read_install_state(layout.install_state)
+
+    assert updated_state["rook"]["python_identity_hash"] == new_runtime_hash
+    assert updated_state["chirp"]["python_identity_hash"] == old_runtime_hash
+    assert runtime.needs_venv_recreate(
+        updated_state,
+        "chirp",
+        new_runtime_hash,
+        old_lock_hash,
+    )
 
 
 def test_import_origin_must_be_site_packages(tmp_path: Path) -> None:
@@ -110,6 +174,216 @@ def test_install_state_has_schema_version(tmp_path: Path) -> None:
     payload = json.loads(path.read_text(encoding="utf-8"))
     assert payload["schema_version"] == 1
     assert payload["python"]["path"].endswith("python.exe")
+
+
+def test_post_install_recreates_stale_venv_and_writes_install_state(
+    tmp_path: Path, monkeypatch
+) -> None:
+    runtime = load_runtime_install()
+    post_install = load_post_install()
+    layout = runtime.RuntimeLayout.from_rook_root(tmp_path / "Rook", "3.11.9")
+
+    layout.private_python.parent.mkdir(parents=True)
+    layout.private_python.write_text("private python", encoding="utf-8")
+    layout.wheelhouse.mkdir(parents=True)
+    layout.bootstrap_lock.parent.mkdir(parents=True, exist_ok=True)
+    layout.bootstrap_lock.write_text("pip==26.1.2 --hash=sha256:abc\n", encoding="utf-8")
+    layout.rook_lock.write_text("rook-mcp==1.5.10 --hash=sha256:def\n", encoding="utf-8")
+    layout.runtime_manifest.write_text('{"schema_version":1}', encoding="utf-8")
+
+    stale_python = post_install.get_venv_python(layout.rook_venv)
+    stale_python.parent.mkdir(parents=True)
+    stale_python.write_text("stale", encoding="utf-8")
+    stale_marker = layout.rook_venv / "stale-package.txt"
+    stale_marker.write_text("orphaned package", encoding="utf-8")
+    runtime.write_install_state(
+        layout.install_state,
+        {
+            "python": {"identity_hash": "old-runtime"},
+            "rook": {"lockfile_sha256": "old-lock"},
+        },
+    )
+
+    def fake_run(command, *, env, timeout=post_install.INSTALL_COMMAND_TIMEOUT_SECONDS):
+        if command[:3] == [str(layout.private_python), "-m", "venv"]:
+            created_python = post_install.get_venv_python(Path(command[3]))
+            created_python.parent.mkdir(parents=True, exist_ok=True)
+            created_python.write_text("fresh", encoding="utf-8")
+        return subprocess.CompletedProcess(
+            args=command,
+            returncode=0,
+            stdout="Looking in links: C:/Rook/app/python-wheelhouse\nNo broken requirements found.",
+            stderr="",
+        )
+
+    monkeypatch.setattr(post_install, "_run_install_command", fake_run)
+
+    venv_python = post_install._install_from_wheelhouse(
+        "rook-mcp",
+        layout,
+        layout.rook_venv,
+        layout.rook_lock,
+        "rook",
+    )
+
+    assert venv_python == stale_python
+    assert not stale_marker.exists()
+    install_state = json.loads(layout.install_state.read_text(encoding="utf-8"))
+    assert install_state["schema_version"] == 1
+    assert install_state["python"]["path"] == str(layout.private_python)
+    assert install_state["python"]["identity_hash"]
+    assert install_state["rook"]["venv_path"] == str(layout.rook_venv)
+    assert install_state["rook"]["python_identity_hash"] == install_state["python"]["identity_hash"]
+    assert install_state["rook"]["lockfile_sha256"]
+
+
+def test_post_install_fails_closed_when_stale_venv_cannot_be_deleted(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    runtime = load_runtime_install()
+    post_install = load_post_install()
+    layout = runtime.RuntimeLayout.from_rook_root(tmp_path / "Rook", "3.11.9")
+
+    layout.private_python.parent.mkdir(parents=True)
+    layout.private_python.write_text("private python", encoding="utf-8")
+    layout.wheelhouse.mkdir(parents=True)
+    layout.bootstrap_lock.parent.mkdir(parents=True, exist_ok=True)
+    layout.bootstrap_lock.write_text("pip==26.1.2 --hash=sha256:abc\n", encoding="utf-8")
+    layout.rook_lock.write_text("rook-mcp==1.5.10 --hash=sha256:def\n", encoding="utf-8")
+    layout.runtime_manifest.write_text('{"schema_version":1}', encoding="utf-8")
+
+    stale_python = post_install.get_venv_python(layout.rook_venv)
+    stale_python.parent.mkdir(parents=True)
+    stale_python.write_text("stale", encoding="utf-8")
+    runtime.write_install_state(
+        layout.install_state,
+        {
+            "python": {"identity_hash": "old-runtime"},
+            "rook": {"lockfile_sha256": "old-lock"},
+        },
+    )
+
+    install_commands: list[list[str]] = []
+
+    def locked_delete(path):
+        raise PermissionError("venv file is locked")
+
+    def fake_run(command, *, env, timeout=post_install.INSTALL_COMMAND_TIMEOUT_SECONDS):
+        install_commands.append(command)
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(post_install.shutil, "rmtree", locked_delete)
+    monkeypatch.setattr(post_install, "_run_install_command", fake_run)
+
+    result = post_install._install_from_wheelhouse(
+        "rook-mcp",
+        layout,
+        layout.rook_venv,
+        layout.rook_lock,
+        "rook",
+    )
+
+    assert result is None
+    assert install_commands == []
+    assert "Close Rhino/Revit" in capsys.readouterr().out
+
+
+def test_post_install_requires_runtime_manifest_input(tmp_path: Path) -> None:
+    runtime = load_runtime_install()
+    post_install = load_post_install()
+    layout = runtime.RuntimeLayout.from_rook_root(tmp_path / "Rook", "3.11.9")
+
+    layout.private_python.parent.mkdir(parents=True)
+    layout.private_python.write_text("private python", encoding="utf-8")
+    layout.wheelhouse.mkdir(parents=True)
+    layout.bootstrap_lock.parent.mkdir(parents=True, exist_ok=True)
+    layout.bootstrap_lock.write_text("pip==26.1.2 --hash=sha256:abc\n", encoding="utf-8")
+    layout.rook_lock.write_text("rook-mcp==1.5.10 --hash=sha256:def\n", encoding="utf-8")
+
+    assert post_install._install_from_wheelhouse(
+        "rook-mcp",
+        layout,
+        layout.rook_venv,
+        layout.rook_lock,
+        "rook",
+    ) is None
+
+
+def test_post_install_main_fails_when_selected_chirp_install_fails(
+    tmp_path: Path, monkeypatch
+) -> None:
+    post_install = load_post_install()
+    install_dir = tmp_path / "app"
+    mcp_server_dir = install_dir / "mcp_server"
+    chirp_dir = install_dir / "chirp"
+    mcp_server_dir.mkdir(parents=True)
+    chirp_dir.mkdir()
+    managed_python = tmp_path / "Rook" / "venv" / "Scripts" / "python.exe"
+    managed_python.parent.mkdir(parents=True)
+    managed_python.write_text("fake", encoding="utf-8")
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "post_install.py",
+            "--install-dir",
+            str(install_dir),
+            "--mcp-server-dir",
+            str(mcp_server_dir),
+            "--runtime-root",
+            str(tmp_path / "Rook"),
+            "--chirp-dir",
+            str(chirp_dir),
+            "--skip-validation",
+        ],
+    )
+    monkeypatch.setattr(post_install, "install_mcp_server", lambda *args, **kwargs: managed_python)
+    monkeypatch.setattr(post_install, "install_chirp", lambda *args, **kwargs: False)
+    monkeypatch.setattr(post_install, "configure_claude_code", lambda *args, **kwargs: True)
+    monkeypatch.setattr(post_install, "configure_claude_desktop", lambda *args, **kwargs: True)
+    monkeypatch.setattr(post_install, "configure_codex", lambda *args, **kwargs: True)
+    monkeypatch.setattr(post_install, "install_user_assets", lambda *args, **kwargs: True)
+    monkeypatch.setattr(post_install, "write_chat_service_manifest", lambda *args, **kwargs: None)
+    monkeypatch.setattr(post_install, "create_env_examples", lambda *args, **kwargs: None)
+
+    assert post_install.main() == 1
+
+
+def test_post_install_main_fails_when_chat_manifest_write_fails(
+    tmp_path: Path, monkeypatch
+) -> None:
+    post_install = load_post_install()
+    install_dir = tmp_path / "app"
+    mcp_server_dir = install_dir / "mcp_server"
+    mcp_server_dir.mkdir(parents=True)
+    managed_python = tmp_path / "Rook" / "venv" / "Scripts" / "python.exe"
+    managed_python.parent.mkdir(parents=True)
+    managed_python.write_text("fake", encoding="utf-8")
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "post_install.py",
+            "--install-dir",
+            str(install_dir),
+            "--mcp-server-dir",
+            str(mcp_server_dir),
+            "--runtime-root",
+            str(tmp_path / "Rook"),
+            "--skip-validation",
+        ],
+    )
+    monkeypatch.setattr(post_install, "install_mcp_server", lambda *args, **kwargs: managed_python)
+    monkeypatch.setattr(post_install, "configure_claude_code", lambda *args, **kwargs: True)
+    monkeypatch.setattr(post_install, "configure_claude_desktop", lambda *args, **kwargs: True)
+    monkeypatch.setattr(post_install, "configure_codex", lambda *args, **kwargs: True)
+    monkeypatch.setattr(post_install, "install_user_assets", lambda *args, **kwargs: True)
+    monkeypatch.setattr(post_install, "write_chat_service_manifest", lambda *args, **kwargs: False)
+    monkeypatch.setattr(post_install, "create_env_examples", lambda *args, **kwargs: None)
+
+    assert post_install.main() == 1
 
 
 def test_release_chat_manifest_has_no_source_pythonpath_entries(tmp_path: Path) -> None:

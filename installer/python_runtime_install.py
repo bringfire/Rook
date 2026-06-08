@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -131,10 +132,29 @@ def needs_venv_recreate(
 ) -> bool:
     if install_state.get("schema_version") != SCHEMA_VERSION:
         return True
-    if install_state.get("python", {}).get("identity_hash") != python_identity_hash:
-        return True
     runtime_state = install_state.get(runtime_name, {})
-    return runtime_state.get("lockfile_sha256") != lockfile_sha256
+    return (
+        runtime_state.get("python_identity_hash") != python_identity_hash
+        or runtime_state.get("lockfile_sha256") != lockfile_sha256
+    )
+
+
+def read_install_state(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def is_site_packages_import(module_file: Path) -> bool:

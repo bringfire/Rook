@@ -21,6 +21,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 import python_runtime_install
@@ -90,6 +91,7 @@ def _ensure_private_runtime_inputs(layout: python_runtime_install.RuntimeLayout,
         (layout.private_python, "private Python runtime"),
         (layout.wheelhouse, "Python wheelhouse"),
         (layout.bootstrap_lock, "bootstrap requirements lock"),
+        (layout.runtime_manifest, "Python runtime manifest"),
         (lock, "requirements lock"),
     ]
     for path, label in required:
@@ -119,14 +121,87 @@ def _create_venv(layout: python_runtime_install.RuntimeLayout, venv_dir: Path) -
     return venv_python
 
 
+def _remove_stale_venv(label: str, venv_dir: Path) -> bool:
+    try:
+        shutil.rmtree(venv_dir)
+    except OSError as exc:
+        print(
+            f"Could not remove stale {label} virtual environment at {venv_dir}: {exc}. "
+            "Close Rhino/Revit and any Rook Python processes, then rerun the installer. "
+            "If the directory is still locked, reboot and repair the installation."
+        )
+        return False
+    if venv_dir.exists():
+        print(
+            f"Could not remove stale {label} virtual environment at {venv_dir}. "
+            "Close Rhino/Revit and any Rook Python processes, then rerun the installer. "
+            "If the directory is still locked, reboot and repair the installation."
+        )
+        return False
+    return True
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _record_install_state(
+    layout: python_runtime_install.RuntimeLayout,
+    runtime_name: str,
+    venv_dir: Path,
+    venv_python: Path,
+    lock: Path,
+    python_identity_hash: str,
+    lockfile_sha256: str,
+    pip_check_output: str,
+) -> None:
+    state = python_runtime_install.read_install_state(layout.install_state)
+    state.pop("schema_version", None)
+    state["python"] = {
+        "path": str(layout.private_python),
+        "version": PRIVATE_PYTHON_VERSION,
+        "identity_hash": python_identity_hash,
+        "runtime_manifest_path": str(layout.runtime_manifest),
+        "runtime_manifest_sha256": python_identity_hash,
+    }
+    state[runtime_name] = {
+        "venv_path": str(venv_dir),
+        "python_path": str(venv_python),
+        "python_identity_hash": python_identity_hash,
+        "lockfile_path": str(lock),
+        "lockfile_sha256": lockfile_sha256,
+        "installed_utc": _utc_now(),
+        "pip_check": pip_check_output.strip(),
+    }
+    python_runtime_install.write_install_state(layout.install_state, state)
+
+
 def _install_from_wheelhouse(
     label: str,
     layout: python_runtime_install.RuntimeLayout,
     venv_dir: Path,
     lock: Path,
+    runtime_name: str,
 ) -> Path | None:
     if not _ensure_private_runtime_inputs(layout, lock):
         return None
+
+    python_identity_hash = python_runtime_install.sha256_file(layout.runtime_manifest)
+    lockfile_sha256 = python_runtime_install.sha256_file(lock)
+    install_state = python_runtime_install.read_install_state(layout.install_state)
+    if python_runtime_install.needs_venv_recreate(
+        install_state,
+        runtime_name,
+        python_identity_hash,
+        lockfile_sha256,
+    ):
+        if venv_dir.exists():
+            print(
+                f"Recreating {label} virtual environment because Python runtime "
+                "identity or lockfile changed..."
+            )
+            if not _remove_stale_venv(label, venv_dir):
+                return None
 
     venv_python = _create_venv(layout, venv_dir)
     if not venv_python:
@@ -183,6 +258,16 @@ def _install_from_wheelhouse(
         print(f"{label} pip check failed with exit code {check.returncode}")
         return None
 
+    _record_install_state(
+        layout,
+        runtime_name,
+        venv_dir,
+        venv_python,
+        lock,
+        python_identity_hash,
+        lockfile_sha256,
+        _combined_output(check),
+    )
     print(f"{label} installed successfully in {venv_dir}.")
     return venv_python
 
@@ -203,6 +288,7 @@ def install_mcp_server(mcp_server_dir: Path, runtime_root: Path) -> Path | None:
         layout,
         layout.rook_venv,
         layout.rook_lock,
+        "rook",
     )
 
 
@@ -226,6 +312,7 @@ def install_chirp(chirp_dir: Path, runtime_root: Path) -> bool:
             layout,
             layout.chirp_venv,
             layout.chirp_lock,
+            "chirp",
         )
         is not None
     )
@@ -781,12 +868,16 @@ def main() -> int:
     managed_python_path = str(managed_python).replace("\\", "/")
 
     # Step 2: Install Chirp (if selected)
-    if chirp_dir and chirp_dir.exists():
+    if chirp_dir:
+        if not chirp_dir.exists():
+            print(f"\nERROR: Selected Chirp install directory is missing: {chirp_dir}")
+            return 1
         if args.skip_chirp_install:
             print("Skipping Chirp venv refresh.")
         elif not install_chirp(chirp_dir, runtime_root):
-            print("\nWARNING: Chirp installation failed.")
+            print("\nERROR: Chirp installation failed.")
             print("Re-run the installer repair flow after verifying the bundled runtime payload.")
+            return 1
 
     # Step 3: Generate user-level MCP config (includes CHIRP_HOME if Chirp installed)
     _, data_dir, _ = get_runtime_paths(runtime_root)
@@ -809,7 +900,10 @@ def main() -> int:
     install_user_assets(install_dir, install_claude=args.claude, install_codex=args.codex)
 
     # Step 7: Write chat service manifest for Rhino panel
-    write_chat_service_manifest(mcp_server_dir, managed_python_path)
+    if not write_chat_service_manifest(mcp_server_dir, managed_python_path):
+        print("\nERROR: Failed to write the Rhino chat service manifest.")
+        print("Re-run the installer repair flow after verifying the RookNative plugin directory.")
+        return 1
 
     # Step 8: Create .env.example templates
     create_env_examples(install_dir, chirp_dir)

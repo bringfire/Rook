@@ -565,6 +565,13 @@ namespace Rook.UI.Chat
                 if (string.IsNullOrEmpty(pythonPath) || !File.Exists(pythonPath))
                     return null;
 
+                var releasePython = IsPrivateReleasePython(pythonPath);
+                var releaseRoot = GetReleaseInstallRoot();
+                if (releasePython && !string.IsNullOrEmpty(releaseRoot))
+                {
+                    workingDirectory = Path.Combine(releaseRoot, "mcp_server");
+                }
+
                 // --- Find working directory if .mcp.json didn't provide it ---
                 if (string.IsNullOrEmpty(workingDirectory) || !Directory.Exists(workingDirectory))
                 {
@@ -613,7 +620,8 @@ namespace Rook.UI.Chat
                 }
                 else
                 {
-                    AddSrcPathEntry(pythonPathEntries, workingDirectory);
+                    if (!releasePython)
+                        AddSrcPathEntry(pythonPathEntries, workingDirectory);
                 }
 
                 var manifest = new ChatServiceManifest
@@ -623,7 +631,19 @@ namespace Rook.UI.Chat
                     Module = "rook.agent.chat.service_main",
                     Owner = ExpectedOwner,
                     PythonPathEntries = pythonPathEntries,
+                    Environment = releasePython
+                        ? BuildReleaseManifestEnvironment()
+                        : new Dictionary<string, string>(),
                 };
+
+                if (IsReleaseShapedManifest(manifest)
+                    && !IsReleaseManifestContract(manifest, out var generatedReleaseReason))
+                {
+                    RhinoApp.WriteLine(
+                        "Rook: generated release chat service manifest failed validation "
+                        + $"({generatedReleaseReason}).");
+                    return null;
+                }
 
                 // Persist the manifest so subsequent loads skip auto-generation.
                 // If the plugin directory is read-only, return the in-memory
@@ -660,6 +680,24 @@ namespace Rook.UI.Chat
             }
         }
 
+        private static Dictionary<string, string> BuildReleaseManifestEnvironment()
+        {
+            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            var installRoot = Path.Combine(localAppData, "Rook", "app");
+            var dataDir = Path.Combine(localAppData, "Rook", "data");
+            return new Dictionary<string, string>
+            {
+                ["PYTHONPATH"] = "",
+                ["PYTHONHOME"] = "",
+                ["ROOK_INSTALL_ROOT"] = installRoot,
+                ["ROOK_DATA_DIR"] = dataDir,
+                ["ROOK_MODE"] = "release",
+                ["DSPY_CACHEDIR"] = Path.Combine(dataDir, "dspy-cache"),
+                ["ROOK_DSPY_RESTRICT_PICKLE"] = "1",
+                ["CHIRP_HOME"] = Path.Combine(installRoot, "chirp"),
+            };
+        }
+
         private static string? GetReleaseInstallRoot()
         {
             var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
@@ -686,6 +724,163 @@ namespace Rook.UI.Chat
                 || string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
         }
 
+        private static bool IsPrivateReleasePython(string pythonPath)
+        {
+            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            if (string.IsNullOrWhiteSpace(localAppData) || string.IsNullOrWhiteSpace(pythonPath))
+                return false;
+
+            var expected = Path.Combine(localAppData, "Rook", "venv", "Scripts", "python.exe");
+            return PathsEqual(pythonPath, expected);
+        }
+
+        private static bool IsReleaseWorkingDirectory(string workingDirectory)
+        {
+            var releaseRoot = GetReleaseInstallRoot();
+            if (string.IsNullOrWhiteSpace(releaseRoot) || string.IsNullOrWhiteSpace(workingDirectory))
+                return false;
+
+            try
+            {
+                var normalizedRoot = Path.GetFullPath(releaseRoot)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                    + Path.DirectorySeparatorChar;
+                var normalizedWorkingDirectory = Path.GetFullPath(workingDirectory)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                    + Path.DirectorySeparatorChar;
+                return normalizedWorkingDirectory.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool ManifestEnvironmentEquals(ChatServiceManifest manifest, string key, string expected)
+        {
+            return manifest.Environment != null
+                && manifest.Environment.TryGetValue(key, out var value)
+                && string.Equals(value ?? "", expected, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string? ManifestEnvironmentValue(ChatServiceManifest manifest, string key)
+        {
+            return manifest.Environment != null && manifest.Environment.TryGetValue(key, out var value)
+                ? value
+                : null;
+        }
+
+        private static bool IsReleaseShapedManifest(ChatServiceManifest manifest)
+        {
+            return IsPrivateReleasePython(manifest.PythonPath)
+                || IsReleaseWorkingDirectory(manifest.WorkingDirectory)
+                || ManifestEnvironmentEquals(manifest, "ROOK_MODE", "release");
+        }
+
+        private static bool IsReleaseManifestContract(ChatServiceManifest manifest, out string reason)
+        {
+            if (!IsPrivateReleasePython(manifest.PythonPath))
+            {
+                reason = $"release manifest pythonPath must point to the private Rook venv: '{manifest.PythonPath}'";
+                return false;
+            }
+
+            var releaseRoot = GetReleaseInstallRoot();
+            var expectedWorkingDirectory = string.IsNullOrWhiteSpace(releaseRoot)
+                ? ""
+                : Path.Combine(releaseRoot, "mcp_server");
+            if (string.IsNullOrWhiteSpace(expectedWorkingDirectory)
+                || !PathsEqual(manifest.WorkingDirectory, expectedWorkingDirectory))
+            {
+                reason = $"release manifest workingDirectory must point to the installed mcp_server: '{manifest.WorkingDirectory}'";
+                return false;
+            }
+
+            if (!string.Equals(manifest.Module, "rook.agent.chat.service_main", StringComparison.Ordinal))
+            {
+                reason = $"release manifest module must be rook.agent.chat.service_main: '{manifest.Module}'";
+                return false;
+            }
+
+            if (manifest.PythonPathEntries != null
+                && manifest.PythonPathEntries.Any(path => !string.IsNullOrWhiteSpace(path)))
+            {
+                reason = "release manifest must not set source pythonPathEntries";
+                return false;
+            }
+
+            if (!ManifestEnvironmentEquals(manifest, "ROOK_MODE", "release"))
+            {
+                reason = "release manifest missing ROOK_MODE=release";
+                return false;
+            }
+
+            if (!ManifestEnvironmentEquals(manifest, "ROOK_DSPY_RESTRICT_PICKLE", "1"))
+            {
+                reason = "release manifest missing ROOK_DSPY_RESTRICT_PICKLE=1";
+                return false;
+            }
+
+            if (!ManifestEnvironmentEquals(manifest, "PYTHONPATH", ""))
+            {
+                reason = "release manifest must clear PYTHONPATH";
+                return false;
+            }
+
+            if (!ManifestEnvironmentEquals(manifest, "PYTHONHOME", ""))
+            {
+                reason = "release manifest must clear PYTHONHOME";
+                return false;
+            }
+
+            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            if (string.IsNullOrWhiteSpace(localAppData))
+            {
+                reason = "release manifest cannot be validated because LocalAppData is unavailable";
+                return false;
+            }
+
+            var expectedInstallRoot = Path.Combine(localAppData, "Rook", "app");
+            var installRoot = ManifestEnvironmentValue(manifest, "ROOK_INSTALL_ROOT") ?? "";
+            if (!PathsEqual(installRoot, expectedInstallRoot))
+            {
+                reason = $"release manifest ROOK_INSTALL_ROOT must point to the installed Rook app root: '{installRoot}'";
+                return false;
+            }
+
+            var expectedDataDir = Path.Combine(localAppData, "Rook", "data");
+            var dataDir = ManifestEnvironmentValue(manifest, "ROOK_DATA_DIR") ?? "";
+            if (!PathsEqual(dataDir, expectedDataDir))
+            {
+                reason = $"release manifest ROOK_DATA_DIR must point to the installed Rook data root: '{dataDir}'";
+                return false;
+            }
+
+            var dspyCacheDir = ManifestEnvironmentValue(manifest, "DSPY_CACHEDIR") ?? "";
+            var expectedDspyCacheDir = Path.Combine(expectedDataDir, "dspy-cache");
+            if (!PathsEqual(dspyCacheDir, expectedDspyCacheDir))
+            {
+                reason = $"release manifest DSPY_CACHEDIR must point to the installed Rook data dspy-cache: '{dspyCacheDir}'";
+                return false;
+            }
+
+            var chirpHome = ManifestEnvironmentValue(manifest, "CHIRP_HOME") ?? "";
+            var expectedChirpHome = Path.Combine(expectedInstallRoot, "chirp");
+            if (!PathsEqual(chirpHome, expectedChirpHome))
+            {
+                reason = $"release manifest CHIRP_HOME must point to the installed Rook app Chirp home: '{chirpHome}'";
+                return false;
+            }
+
+            reason = "";
+            return true;
+        }
+
+        private static bool AllowProjectRootEnvironment(ChatServiceManifest manifest)
+        {
+            return !IsReleaseShapedManifest(manifest) && AllowUserPythonDiscovery();
+        }
+
         /// <summary>
         /// Returns true when the cached manifest still matches the current runtime
         /// contract. This is stricter than "paths exist": it also detects the
@@ -704,6 +899,11 @@ namespace Rook.UI.Chat
             {
                 reason = $"working directory missing: '{manifest.WorkingDirectory}'";
                 return false;
+            }
+
+            if (IsReleaseShapedManifest(manifest))
+            {
+                return IsReleaseManifestContract(manifest, out reason);
             }
 
             if (Directory.Exists(Path.Combine(manifest.WorkingDirectory, "src")))
@@ -1045,11 +1245,17 @@ namespace Rook.UI.Chat
                 .ToList();
             if (pythonPathEntries.Count > 0)
                 envOverrides["PYTHONPATH"] = string.Join(";", pythonPathEntries);
-            foreach (var key in new[] { "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "ROOK_PROJECT_ROOT", "ROOK_LOG_LEVEL" })
+            foreach (var key in new[] { "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "ROOK_LOG_LEVEL" })
             {
                 var value = Environment.GetEnvironmentVariable(key);
                 if (!string.IsNullOrEmpty(value))
                     envOverrides[key] = value;
+            }
+            if (AllowProjectRootEnvironment(manifest))
+            {
+                var projectRoot = Environment.GetEnvironmentVariable("ROOK_PROJECT_ROOT");
+                if (!string.IsNullOrEmpty(projectRoot))
+                    envOverrides["ROOK_PROJECT_ROOT"] = projectRoot;
             }
 
             // Set up log file for output capture.

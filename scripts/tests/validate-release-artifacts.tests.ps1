@@ -87,15 +87,24 @@ function New-ValidatorFixture {
     $smokeManifestPath = Join-Path $tempRoot "smoke-$Version.json"
     $pythonRuntimeManifestPath = Join-Path $tempRoot 'python-runtime-manifest.json'
     $installStatePath = Join-Path $tempRoot 'install-state.json'
+    $rookLockPath = Join-Path $tempRoot 'requirements-rook-lock.txt'
+    $chirpLockPath = Join-Path $tempRoot 'requirements-chirp-lock.txt'
     $privatePythonPath = 'C:/Users/test/AppData/Local/Rook/python/cpython-3.11.9/python.exe'
     $rookVenvPath = 'C:/Users/test/AppData/Local/Rook/venv'
     $chirpVenvPath = 'C:/Users/test/AppData/Local/Rook/app/chirp/.venv'
     $rookImportFile = 'C:/Users/test/AppData/Local/Rook/venv/Lib/site-packages/rook/__init__.py'
     $chirpImportFile = 'C:/Users/test/AppData/Local/Rook/app/chirp/.venv/Lib/site-packages/chirp/__init__.py'
     $chirpSourceArchiveSha = '1111111111111111111111111111111111111111111111111111111111111111'
+    Set-Content -LiteralPath $rookLockPath -Value 'rook-mcp==1.5.10 --hash=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' -Encoding ASCII
+    Set-Content -LiteralPath $chirpLockPath -Value 'chirp==0.1.0 --hash=sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' -Encoding ASCII
+    $rookLockSha = (Get-FileHash -LiteralPath $rookLockPath -Algorithm SHA256).Hash.ToUpperInvariant()
+    $chirpLockSha = (Get-FileHash -LiteralPath $chirpLockPath -Algorithm SHA256).Hash.ToUpperInvariant()
 
     [ordered]@{
         schema_version = 1
+        release_version = $Version
+        rook_git_sha = $GitSha
+        rook_source_archive_sha256 = '2222222222222222222222222222222222222222222222222222222222222222'
         python_runtime = [ordered]@{
             package = 'python'
             version = '3.11.9'
@@ -114,6 +123,16 @@ function New-ValidatorFixture {
                 }
             )
         }
+        lockfiles = [ordered]@{
+            rook = [ordered]@{
+                path = $rookLockPath
+                sha256 = $rookLockSha
+            }
+            chirp = [ordered]@{
+                path = $chirpLockPath
+                sha256 = $chirpLockSha
+            }
+        }
         security_mitigations = [ordered]@{
             diskcache_cve_2025_69872 = [ordered]@{
                 id = 'CVE-2025-69872'
@@ -131,18 +150,31 @@ function New-ValidatorFixture {
         chirp_git_sha = $GitSha
         chirp_source_archive_sha256 = $chirpSourceArchiveSha
     } | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $pythonRuntimeManifestPath -Encoding UTF8
+    $pythonRuntimeManifestSha = (Get-FileHash -LiteralPath $pythonRuntimeManifestPath -Algorithm SHA256).Hash.ToUpperInvariant()
 
     [ordered]@{
         schema_version = 1
         python = [ordered]@{
             path = $privatePythonPath
             version = '3.11.9'
+            identity_hash = $pythonRuntimeManifestSha
+            runtime_manifest_sha256 = $pythonRuntimeManifestSha
         }
         rook = [ordered]@{
             venv_path = $rookVenvPath
+            python_path = "$rookVenvPath/Scripts/python.exe"
+            python_identity_hash = $pythonRuntimeManifestSha
+            lockfile_path = $rookLockPath
+            lockfile_sha256 = $rookLockSha
+            pip_check = 'No broken requirements found.'
         }
         chirp = [ordered]@{
             venv_path = $chirpVenvPath
+            python_path = "$chirpVenvPath/Scripts/python.exe"
+            python_identity_hash = $pythonRuntimeManifestSha
+            lockfile_path = $chirpLockPath
+            lockfile_sha256 = $chirpLockSha
+            pip_check = 'No broken requirements found.'
         }
     } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $installStatePath -Encoding UTF8
 
@@ -178,11 +210,19 @@ function New-ValidatorFixture {
                 rook = [ordered]@{ ok = $true }
                 chirp = [ordered]@{ ok = $true }
             }
+            rook_dspy_cache = [ordered]@{
+                restrict_pickle = $true
+                disk_cache_dir = 'C:/Users/test/AppData/Local/Rook/data/dspy-cache'
+            }
+            chirp_dspy_cache = [ordered]@{
+                restrict_pickle = $true
+                disk_cache_dir = 'C:/Users/test/AppData/Local/Rook/app/chirp/data/dspy-cache'
+            }
             license_provenance = [ordered]@{
                 manifest_path = $pythonRuntimeManifestPath
             }
             config_identity = [ordered]@{
-                chat_service_python_path = $privatePythonPath
+                chat_service_python_path = "$rookVenvPath/Scripts/python.exe"
                 chirp_home = 'C:/Users/test/AppData/Local/Rook/app/chirp'
                 release_pythonpath_entries = $false
             }
@@ -266,10 +306,15 @@ function Test-ReleaseValidatorRequiresPythonRuntimeEvidence {
     Assert-Contains -Text $validator -Expected 'rook_import_file' -Message 'Smoke manifest must record rook.__file__.'
     Assert-Contains -Text $validator -Expected 'chirp_import_file' -Message 'Smoke manifest must record chirp.__file__.'
     Assert-Contains -Text $validator -Expected 'pip_check' -Message 'Smoke manifest must record pip check results.'
+    Assert-Contains -Text $validator -Expected 'rook_dspy_cache' -Message 'Smoke manifest must record installed Rook DSPy cache mitigation evidence.'
+    Assert-Contains -Text $validator -Expected 'chirp_dspy_cache' -Message 'Smoke manifest must record installed Chirp DSPy cache mitigation evidence.'
     Assert-Contains -Text $validator -Expected 'license_provenance' -Message 'Release validator must require runtime and wheel license/provenance evidence.'
     Assert-Contains -Text $validator -Expected 'security_mitigations' -Message 'Release validator must require runtime security mitigation evidence.'
     Assert-Contains -Text $validator -Expected 'diskcache_cve_2025_69872' -Message 'Release validator must require the DiskCache CVE mitigation evidence.'
     Assert-Contains -Text $validator -Expected 'restrict_pickle' -Message 'Release validator must require DSPy restricted pickle evidence.'
+    Assert-Contains -Text $validator -Expected 'rook_git_sha' -Message 'Release validator must bind the Python payload to the Rook release git SHA.'
+    Assert-Contains -Text $validator -Expected 'rook_source_archive_sha256' -Message 'Release validator must require Rook source archive provenance.'
+    Assert-Contains -Text $validator -Expected 'release_version' -Message 'Release validator must bind the Python payload to the release version.'
     Assert-Contains -Text $validator -Expected 'chirp_git_sha' -Message 'Release validator must require Chirp source identity.'
 }
 
@@ -518,6 +563,273 @@ function Test-ValidatorRejectsStaleCompanionSelfReport {
     }
 }
 
+function Test-ValidatorRejectsStaleInstallStateHashes {
+    $fixture = New-ValidatorFixture
+
+    try {
+        $installStatePath = Join-Path $fixture.TempRoot 'install-state.json'
+        $installState = Get-Content -LiteralPath $installStatePath -Raw | ConvertFrom-Json
+        $installState.rook.lockfile_sha256 = '0000000000000000000000000000000000000000000000000000000000000000'
+        $installState | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $installStatePath -Encoding UTF8
+
+        $result = Invoke-Validator -Arguments @(
+            '-File', $Validator,
+            '-Version', $fixture.Version,
+            '-RepoRoot', $RepoRoot,
+            '-GitSha', $fixture.GitSha,
+            '-InstallerPath', $fixture.InstallerPath,
+            '-FfmpegSourceBundleManifestPath', $fixture.SourceBundleManifestPath,
+            '-SmokeManifestPath', $fixture.SmokeManifestPath,
+            '-OutputManifestPath', $fixture.OutputManifestPath,
+            '-MinInstallerBytes', '1'
+        )
+
+        Assert-True -Condition ($result.ExitCode -ne 0) -Message 'Validator accepted stale Rook install-state lockfile hash.'
+        Assert-Contains -Text $result.Output -Expected 'install_state.rook.lockfile_sha256' -Message "Validator install-state hash error was not specific. Output: $($result.Output)"
+    } finally {
+        Remove-Item -LiteralPath $fixture.TempRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Test-ValidatorRejectsStaleInstallStateLockfilePath {
+    $fixture = New-ValidatorFixture
+
+    try {
+        $installStatePath = Join-Path $fixture.TempRoot 'install-state.json'
+        $installState = Get-Content -LiteralPath $installStatePath -Raw | ConvertFrom-Json
+        $installState.chirp.lockfile_path = (Join-Path $fixture.TempRoot 'missing-chirp-lock.txt')
+        $installState | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $installStatePath -Encoding UTF8
+
+        $result = Invoke-Validator -Arguments @(
+            '-File', $Validator,
+            '-Version', $fixture.Version,
+            '-RepoRoot', $RepoRoot,
+            '-GitSha', $fixture.GitSha,
+            '-InstallerPath', $fixture.InstallerPath,
+            '-FfmpegSourceBundleManifestPath', $fixture.SourceBundleManifestPath,
+            '-SmokeManifestPath', $fixture.SmokeManifestPath,
+            '-OutputManifestPath', $fixture.OutputManifestPath,
+            '-MinInstallerBytes', '1'
+        )
+
+        Assert-True -Condition ($result.ExitCode -ne 0) -Message 'Validator accepted missing Chirp install-state lockfile path.'
+        Assert-Contains -Text $result.Output -Expected 'install_state.chirp.lockfile_path' -Message "Validator install-state lockfile path error was not specific. Output: $($result.Output)"
+    } finally {
+        Remove-Item -LiteralPath $fixture.TempRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Test-ValidatorRejectsStaleInstallStatePythonPath {
+    $fixture = New-ValidatorFixture
+
+    try {
+        $installStatePath = Join-Path $fixture.TempRoot 'install-state.json'
+        $installState = Get-Content -LiteralPath $installStatePath -Raw | ConvertFrom-Json
+        $installState.rook.python_path = 'C:/Users/test/AppData/Local/Rook/old-venv/Scripts/python.exe'
+        $installState | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $installStatePath -Encoding UTF8
+
+        $result = Invoke-Validator -Arguments @(
+            '-File', $Validator,
+            '-Version', $fixture.Version,
+            '-RepoRoot', $RepoRoot,
+            '-GitSha', $fixture.GitSha,
+            '-InstallerPath', $fixture.InstallerPath,
+            '-FfmpegSourceBundleManifestPath', $fixture.SourceBundleManifestPath,
+            '-SmokeManifestPath', $fixture.SmokeManifestPath,
+            '-OutputManifestPath', $fixture.OutputManifestPath,
+            '-MinInstallerBytes', '1'
+        )
+
+        Assert-True -Condition ($result.ExitCode -ne 0) -Message 'Validator accepted stale Rook install-state python path.'
+        Assert-Contains -Text $result.Output -Expected 'install_state.rook.python_path' -Message "Validator install-state python path error was not specific. Output: $($result.Output)"
+    } finally {
+        Remove-Item -LiteralPath $fixture.TempRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Test-ValidatorRejectsStaleInstallStateRuntimePythonIdentity {
+    $fixture = New-ValidatorFixture
+
+    try {
+        $installStatePath = Join-Path $fixture.TempRoot 'install-state.json'
+        $installState = Get-Content -LiteralPath $installStatePath -Raw | ConvertFrom-Json
+        $installState.chirp.python_identity_hash = '0000000000000000000000000000000000000000000000000000000000000000'
+        $installState | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $installStatePath -Encoding UTF8
+
+        $result = Invoke-Validator -Arguments @(
+            '-File', $Validator,
+            '-Version', $fixture.Version,
+            '-RepoRoot', $RepoRoot,
+            '-GitSha', $fixture.GitSha,
+            '-InstallerPath', $fixture.InstallerPath,
+            '-FfmpegSourceBundleManifestPath', $fixture.SourceBundleManifestPath,
+            '-SmokeManifestPath', $fixture.SmokeManifestPath,
+            '-OutputManifestPath', $fixture.OutputManifestPath,
+            '-MinInstallerBytes', '1'
+        )
+
+        Assert-True -Condition ($result.ExitCode -ne 0) -Message 'Validator accepted stale Chirp install-state Python identity hash.'
+        Assert-Contains -Text $result.Output -Expected 'install_state.chirp.python_identity_hash' -Message "Validator install-state Python identity error was not specific. Output: $($result.Output)"
+    } finally {
+        Remove-Item -LiteralPath $fixture.TempRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Test-ValidatorRejectsSuffixOnlyDspyCachePaths {
+    $fixture = New-ValidatorFixture
+
+    try {
+        $smokeManifest = Get-Content -LiteralPath $fixture.SmokeManifestPath -Raw | ConvertFrom-Json
+        $smokeManifest.rook_dspy_cache.disk_cache_dir = 'D:/shadow/Rook/data/dspy-cache'
+        $smokeManifest.chirp_dspy_cache.disk_cache_dir = 'D:/shadow/Rook/app/chirp/data/dspy-cache'
+        $smokeManifest | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $fixture.SmokeManifestPath -Encoding UTF8
+
+        $result = Invoke-Validator -Arguments @(
+            '-File', $Validator,
+            '-Version', $fixture.Version,
+            '-RepoRoot', $RepoRoot,
+            '-GitSha', $fixture.GitSha,
+            '-InstallerPath', $fixture.InstallerPath,
+            '-FfmpegSourceBundleManifestPath', $fixture.SourceBundleManifestPath,
+            '-SmokeManifestPath', $fixture.SmokeManifestPath,
+            '-OutputManifestPath', $fixture.OutputManifestPath,
+            '-MinInstallerBytes', '1'
+        )
+
+        Assert-True -Condition ($result.ExitCode -ne 0) -Message 'Validator accepted suffix-only DSPy cache paths outside the installed Rook root.'
+        Assert-Contains -Text $result.Output -Expected 'rook_dspy_cache.disk_cache_dir' -Message "Validator DSPy cache path error was not specific. Output: $($result.Output)"
+    } finally {
+        Remove-Item -LiteralPath $fixture.TempRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Test-ValidatorRejectsBaseRuntimeChatServicePython {
+    $fixture = New-ValidatorFixture
+
+    try {
+        $smokeManifest = Get-Content -LiteralPath $fixture.SmokeManifestPath -Raw | ConvertFrom-Json
+        $smokeManifest.config_identity.chat_service_python_path = $smokeManifest.private_python_path
+        $smokeManifest | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $fixture.SmokeManifestPath -Encoding UTF8
+
+        $result = Invoke-Validator -Arguments @(
+            '-File', $Validator,
+            '-Version', $fixture.Version,
+            '-RepoRoot', $RepoRoot,
+            '-GitSha', $fixture.GitSha,
+            '-InstallerPath', $fixture.InstallerPath,
+            '-FfmpegSourceBundleManifestPath', $fixture.SourceBundleManifestPath,
+            '-SmokeManifestPath', $fixture.SmokeManifestPath,
+            '-OutputManifestPath', $fixture.OutputManifestPath,
+            '-MinInstallerBytes', '1'
+        )
+
+        Assert-True -Condition ($result.ExitCode -ne 0) -Message 'Validator accepted a chat service path pointing at the base private CPython runtime.'
+        Assert-Contains -Text $result.Output -Expected 'chat_service_python_path' -Message "Validator chat service Python path error was not specific. Output: $($result.Output)"
+    } finally {
+        Remove-Item -LiteralPath $fixture.TempRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Test-ValidatorRejectsSuffixOnlyImportOrigins {
+    $fixture = New-ValidatorFixture
+
+    try {
+        $smokeManifest = Get-Content -LiteralPath $fixture.SmokeManifestPath -Raw | ConvertFrom-Json
+        $smokeManifest.rook_import_file = 'D:/shadow/Rook/venv/Lib/site-packages/rook/__init__.py'
+        $smokeManifest.chirp_import_file = 'D:/shadow/Rook/app/chirp/.venv/Lib/site-packages/chirp/__init__.py'
+        $smokeManifest | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $fixture.SmokeManifestPath -Encoding UTF8
+
+        $result = Invoke-Validator -Arguments @(
+            '-File', $Validator,
+            '-Version', $fixture.Version,
+            '-RepoRoot', $RepoRoot,
+            '-GitSha', $fixture.GitSha,
+            '-InstallerPath', $fixture.InstallerPath,
+            '-FfmpegSourceBundleManifestPath', $fixture.SourceBundleManifestPath,
+            '-SmokeManifestPath', $fixture.SmokeManifestPath,
+            '-OutputManifestPath', $fixture.OutputManifestPath,
+            '-MinInstallerBytes', '1'
+        )
+
+        Assert-True -Condition ($result.ExitCode -ne 0) -Message 'Validator accepted import origins from a shadow Rook root.'
+        Assert-Contains -Text $result.Output -Expected 'rook_import_file' -Message "Validator import origin error was not specific. Output: $($result.Output)"
+    } finally {
+        Remove-Item -LiteralPath $fixture.TempRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Test-ValidatorRejectsStalePythonRuntimeRookGitSha {
+    $fixture = New-ValidatorFixture
+
+    try {
+        $pythonRuntimeManifestPath = Join-Path $fixture.TempRoot 'python-runtime-manifest.json'
+        $runtimeManifest = Get-Content -LiteralPath $pythonRuntimeManifestPath -Raw | ConvertFrom-Json
+        $runtimeManifest.rook_git_sha = '0000000000000000000000000000000000000000'
+        $runtimeManifest | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $pythonRuntimeManifestPath -Encoding UTF8
+        $runtimeManifestSha = (Get-FileHash -LiteralPath $pythonRuntimeManifestPath -Algorithm SHA256).Hash.ToUpperInvariant()
+        $installStatePath = Join-Path $fixture.TempRoot 'install-state.json'
+        $installState = Get-Content -LiteralPath $installStatePath -Raw | ConvertFrom-Json
+        $installState.python.identity_hash = $runtimeManifestSha
+        $installState.python.runtime_manifest_sha256 = $runtimeManifestSha
+        $installState.rook.python_identity_hash = $runtimeManifestSha
+        $installState.chirp.python_identity_hash = $runtimeManifestSha
+        $installState | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $installStatePath -Encoding UTF8
+
+        $result = Invoke-Validator -Arguments @(
+            '-File', $Validator,
+            '-Version', $fixture.Version,
+            '-RepoRoot', $RepoRoot,
+            '-GitSha', $fixture.GitSha,
+            '-InstallerPath', $fixture.InstallerPath,
+            '-FfmpegSourceBundleManifestPath', $fixture.SourceBundleManifestPath,
+            '-SmokeManifestPath', $fixture.SmokeManifestPath,
+            '-OutputManifestPath', $fixture.OutputManifestPath,
+            '-MinInstallerBytes', '1'
+        )
+
+        Assert-True -Condition ($result.ExitCode -ne 0) -Message 'Validator accepted a Python runtime manifest built from a stale Rook git SHA.'
+        Assert-Contains -Text $result.Output -Expected 'rook_git_sha' -Message "Validator Rook git SHA error was not specific. Output: $($result.Output)"
+    } finally {
+        Remove-Item -LiteralPath $fixture.TempRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Test-ValidatorRejectsPythonRuntimeReleaseVersionMismatch {
+    $fixture = New-ValidatorFixture
+
+    try {
+        $pythonRuntimeManifestPath = Join-Path $fixture.TempRoot 'python-runtime-manifest.json'
+        $runtimeManifest = Get-Content -LiteralPath $pythonRuntimeManifestPath -Raw | ConvertFrom-Json
+        $runtimeManifest.release_version = '0.0.0'
+        $runtimeManifest | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $pythonRuntimeManifestPath -Encoding UTF8
+        $runtimeManifestSha = (Get-FileHash -LiteralPath $pythonRuntimeManifestPath -Algorithm SHA256).Hash.ToUpperInvariant()
+        $installStatePath = Join-Path $fixture.TempRoot 'install-state.json'
+        $installState = Get-Content -LiteralPath $installStatePath -Raw | ConvertFrom-Json
+        $installState.python.identity_hash = $runtimeManifestSha
+        $installState.python.runtime_manifest_sha256 = $runtimeManifestSha
+        $installState.rook.python_identity_hash = $runtimeManifestSha
+        $installState.chirp.python_identity_hash = $runtimeManifestSha
+        $installState | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $installStatePath -Encoding UTF8
+
+        $result = Invoke-Validator -Arguments @(
+            '-File', $Validator,
+            '-Version', $fixture.Version,
+            '-RepoRoot', $RepoRoot,
+            '-GitSha', $fixture.GitSha,
+            '-InstallerPath', $fixture.InstallerPath,
+            '-FfmpegSourceBundleManifestPath', $fixture.SourceBundleManifestPath,
+            '-SmokeManifestPath', $fixture.SmokeManifestPath,
+            '-OutputManifestPath', $fixture.OutputManifestPath,
+            '-MinInstallerBytes', '1'
+        )
+
+        Assert-True -Condition ($result.ExitCode -ne 0) -Message 'Validator accepted a Python runtime manifest built for a different release version.'
+        Assert-Contains -Text $result.Output -Expected 'release_version' -Message "Validator release version error was not specific. Output: $($result.Output)"
+    } finally {
+        Remove-Item -LiteralPath $fixture.TempRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 Test-ReleaseValidatorRequiresPythonRuntimeEvidence
 Test-ValidatorWritesExactArtifactManifest
 Test-DocumentedValidatorCommandDefaultsRepoRoot
@@ -529,5 +841,14 @@ Test-ValidatorRejectsLegacySingleHostSmokeManifest
 Test-ValidatorUsesCompanionSelfReportAsAuthoritativePath
 Test-ValidatorRejectsIncompleteCompanionSelfReport
 Test-ValidatorRejectsStaleCompanionSelfReport
+Test-ValidatorRejectsStaleInstallStateHashes
+Test-ValidatorRejectsStaleInstallStateLockfilePath
+Test-ValidatorRejectsStaleInstallStatePythonPath
+Test-ValidatorRejectsStaleInstallStateRuntimePythonIdentity
+Test-ValidatorRejectsSuffixOnlyDspyCachePaths
+Test-ValidatorRejectsBaseRuntimeChatServicePython
+Test-ValidatorRejectsSuffixOnlyImportOrigins
+Test-ValidatorRejectsStalePythonRuntimeRookGitSha
+Test-ValidatorRejectsPythonRuntimeReleaseVersionMismatch
 
 Write-Host 'Release artifact validator tests passed.'

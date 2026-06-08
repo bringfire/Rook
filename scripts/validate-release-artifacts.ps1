@@ -189,6 +189,97 @@ function Assert-BooleanField {
     }
 }
 
+function Normalize-Sha256 {
+    param([string]$Value, [string]$Label)
+    if ([string]::IsNullOrWhiteSpace($Value) -or $Value -notmatch '^[0-9a-fA-F]{64}$') {
+        Fail "$Label must be a 64-character SHA256 hex digest; actual value: $Value"
+    }
+    return $Value.ToUpperInvariant()
+}
+
+function Assert-NormalizedPathEquals {
+    param([string]$Actual, [string]$Expected, [string]$Label)
+    $actualNormalized = $Actual.Replace('/', '\').TrimEnd('\')
+    $expectedNormalized = $Expected.Replace('/', '\').TrimEnd('\')
+    if ($actualNormalized -ne $expectedNormalized) {
+        Fail "$Label mismatch. Expected $Expected, actual $Actual"
+    }
+}
+
+function Assert-NormalizedPathUnder {
+    param([string]$Actual, [string]$ExpectedRoot, [string]$Label)
+    $actualNormalized = $Actual.Replace('/', '\').TrimEnd('\')
+    $expectedRootNormalized = $ExpectedRoot.Replace('/', '\').TrimEnd('\')
+    if ($actualNormalized -ne $expectedRootNormalized -and -not $actualNormalized.StartsWith($expectedRootNormalized + '\', [System.StringComparison]::OrdinalIgnoreCase)) {
+        Fail "$Label must resolve under $ExpectedRoot; actual value: $Actual"
+    }
+}
+
+function Resolve-RuntimePayloadPath {
+    param([string]$ManifestPath, [string]$DeclaredPath, [string]$Label)
+    if ([string]::IsNullOrWhiteSpace($DeclaredPath)) {
+        Fail "$Label path is empty"
+    }
+    if ([System.IO.Path]::IsPathRooted($DeclaredPath)) {
+        return Require-File -Path $DeclaredPath -Label $Label
+    }
+    $repoCandidate = Join-Path $RepoRoot $DeclaredPath
+    if (Test-Path -LiteralPath $repoCandidate -PathType Leaf) {
+        return (Resolve-Path -LiteralPath $repoCandidate).Path
+    }
+    $manifestCandidate = Join-Path (Split-Path -Parent $ManifestPath) $DeclaredPath
+    return Require-File -Path $manifestCandidate -Label $Label
+}
+
+function Assert-InstallStateRuntime {
+    param(
+        [object]$InstallState,
+        [object]$PythonRuntimeManifest,
+        [string]$PythonRuntimeManifestPath,
+        [object]$SmokeManifest,
+        [object]$PipCheck,
+        [string]$RuntimeName,
+        [string]$SmokeVenvField
+    )
+
+    $runtimeState = Require-JsonField -Json $InstallState -Field $RuntimeName -Label 'install_state'
+    $runtimeLock = Require-JsonField -Json (Require-JsonField -Json $PythonRuntimeManifest -Field 'lockfiles' -Label 'python_runtime_manifest') -Field $RuntimeName -Label 'python_runtime_manifest.lockfiles'
+    $lockPath = Resolve-RuntimePayloadPath -ManifestPath $PythonRuntimeManifestPath -DeclaredPath ([string](Require-JsonField -Json $runtimeLock -Field 'path' -Label "python_runtime_manifest.lockfiles.$RuntimeName")) -Label "python_runtime_manifest.lockfiles.$RuntimeName.path"
+    $manifestLockSha = Normalize-Sha256 -Value ([string](Require-JsonField -Json $runtimeLock -Field 'sha256' -Label "python_runtime_manifest.lockfiles.$RuntimeName")) -Label "python_runtime_manifest.lockfiles.$RuntimeName.sha256"
+    $actualLockSha = Get-Sha256 -Path $lockPath
+    if ($actualLockSha -ne $manifestLockSha) {
+        Fail "python_runtime_manifest.lockfiles.$RuntimeName.sha256 does not match packaged lockfile hash. Expected $actualLockSha, actual $manifestLockSha"
+    }
+
+    $stateLockSha = Normalize-Sha256 -Value ([string](Require-JsonField -Json $runtimeState -Field 'lockfile_sha256' -Label "install_state.$RuntimeName")) -Label "install_state.$RuntimeName.lockfile_sha256"
+    if ($stateLockSha -ne $manifestLockSha) {
+        Fail "install_state.$RuntimeName.lockfile_sha256 must match python_runtime_manifest.lockfiles.$RuntimeName.sha256"
+    }
+    $statePythonIdentityHash = Normalize-Sha256 -Value ([string](Require-JsonField -Json $runtimeState -Field 'python_identity_hash' -Label "install_state.$RuntimeName")) -Label "install_state.$RuntimeName.python_identity_hash"
+    $installStatePython = Require-JsonField -Json $InstallState -Field 'python' -Label 'install_state'
+    $expectedPythonIdentityHash = Normalize-Sha256 -Value ([string](Require-JsonField -Json $installStatePython -Field 'identity_hash' -Label 'install_state.python')) -Label 'install_state.python.identity_hash'
+    if ($statePythonIdentityHash -ne $expectedPythonIdentityHash) {
+        Fail "install_state.$RuntimeName.python_identity_hash must match install_state.python.identity_hash"
+    }
+    $stateLockPath = Require-File -Path ([string](Require-JsonField -Json $runtimeState -Field 'lockfile_path' -Label "install_state.$RuntimeName")) -Label "install_state.$RuntimeName.lockfile_path"
+    $stateLockPathSha = Get-Sha256 -Path $stateLockPath
+    if ($stateLockPathSha -ne $stateLockSha) {
+        Fail "install_state.$RuntimeName.lockfile_path hash must match install_state.$RuntimeName.lockfile_sha256"
+    }
+
+    $stateVenvPath = [string](Require-JsonField -Json $runtimeState -Field 'venv_path' -Label "install_state.$RuntimeName")
+    $smokeVenvPath = [string](Require-JsonField -Json $SmokeManifest -Field $SmokeVenvField -Label 'release smoke manifest')
+    Assert-NormalizedPathEquals -Actual $stateVenvPath -Expected $smokeVenvPath -Label "install_state.$RuntimeName.venv_path"
+    $expectedRuntimePythonPath = Join-Path $stateVenvPath 'Scripts\python.exe'
+    Assert-NormalizedPathEquals -Actual ([string](Require-JsonField -Json $runtimeState -Field 'python_path' -Label "install_state.$RuntimeName")) -Expected $expectedRuntimePythonPath -Label "install_state.$RuntimeName.python_path"
+
+    $statePipCheck = [string](Require-JsonField -Json $runtimeState -Field 'pip_check' -Label "install_state.$RuntimeName")
+    if ($statePipCheck -notmatch 'No broken requirements found') {
+        Fail "install_state.$RuntimeName.pip_check must record successful pip check output; actual value: $statePipCheck"
+    }
+    Assert-BooleanField -Json (Require-JsonField -Json $PipCheck -Field $RuntimeName -Label 'release smoke manifest.pip_check') -Field 'ok' -Label "release smoke manifest.pip_check.$RuntimeName" -Expected $true
+}
+
 function Require-TimestampField {
     param(
         [object]$Json,
@@ -268,6 +359,8 @@ function Assert-PythonRuntimeEvidence {
         'rook_import_file',
         'chirp_import_file',
         'pip_check',
+        'rook_dspy_cache',
+        'chirp_dspy_cache',
         'license_provenance',
         'config_identity',
         'no_index_install',
@@ -289,35 +382,63 @@ function Assert-PythonRuntimeEvidence {
     if ([string]$SmokeManifest.private_python_version -ne '3.11.9') {
         Fail "release smoke manifest.private_python_version must be 3.11.9; actual value: $($SmokeManifest.private_python_version)"
     }
+    $installedRookRoot = $privatePythonPath -replace '(?i)\\python\\cpython-3\.11\.9\\python\.exe$', ''
+    if ($installedRookRoot -eq $privatePythonPath) {
+        Fail "could not derive installed Rook root from private_python_path: $($SmokeManifest.private_python_path)"
+    }
+    $expectedRookDataDir = Join-Path $installedRookRoot 'data'
+    $expectedRookAppDir = Join-Path $installedRookRoot 'app'
+    $expectedRookVenvPath = Join-Path $installedRookRoot 'venv'
+    $expectedChirpVenvPath = Join-Path $expectedRookAppDir 'chirp\.venv'
+    Assert-NormalizedPathEquals -Actual ([string]$SmokeManifest.rook_venv_path) -Expected $expectedRookVenvPath -Label 'release smoke manifest.rook_venv_path'
+    Assert-NormalizedPathEquals -Actual ([string]$SmokeManifest.chirp_venv_path) -Expected $expectedChirpVenvPath -Label 'release smoke manifest.chirp_venv_path'
 
     $rookImportFile = ([string]$SmokeManifest.rook_import_file).Replace('/', '\')
-    if ($rookImportFile -notmatch '(?i)\\Rook\\venv\\Lib\\site-packages\\rook\\') {
-        Fail "release smoke manifest.rook_import_file must resolve from Rook venv site-packages; actual value: $($SmokeManifest.rook_import_file)"
-    }
+    Assert-NormalizedPathUnder -Actual $rookImportFile -ExpectedRoot (Join-Path $expectedRookVenvPath 'Lib\site-packages\rook') -Label 'release smoke manifest.rook_import_file'
 
     $chirpImportFile = ([string]$SmokeManifest.chirp_import_file).Replace('/', '\')
-    if ($chirpImportFile -notmatch '(?i)\\Rook\\app\\chirp\\.venv\\Lib\\site-packages\\chirp\\') {
-        Fail "release smoke manifest.chirp_import_file must resolve from Chirp venv site-packages; actual value: $($SmokeManifest.chirp_import_file)"
-    }
+    Assert-NormalizedPathUnder -Actual $chirpImportFile -ExpectedRoot (Join-Path $expectedChirpVenvPath 'Lib\site-packages\chirp') -Label 'release smoke manifest.chirp_import_file'
 
     Assert-BooleanField -Json $SmokeManifest -Field 'no_index_install' -Label 'release smoke manifest' -Expected $true
     $pipCheck = Require-JsonField -Json $SmokeManifest -Field 'pip_check' -Label 'release smoke manifest'
     Assert-BooleanField -Json (Require-JsonField -Json $pipCheck -Field 'rook' -Label 'release smoke manifest.pip_check') -Field 'ok' -Label 'release smoke manifest.pip_check.rook' -Expected $true
     Assert-BooleanField -Json (Require-JsonField -Json $pipCheck -Field 'chirp' -Label 'release smoke manifest.pip_check') -Field 'ok' -Label 'release smoke manifest.pip_check.chirp' -Expected $true
 
+    $rookDspyCache = Require-JsonField -Json $SmokeManifest -Field 'rook_dspy_cache' -Label 'release smoke manifest'
+    Assert-BooleanField -Json $rookDspyCache -Field 'restrict_pickle' -Label 'release smoke manifest.rook_dspy_cache' -Expected $true
+    $rookDspyCacheDir = ([string](Require-JsonField -Json $rookDspyCache -Field 'disk_cache_dir' -Label 'release smoke manifest.rook_dspy_cache')).Replace('/', '\')
+    Assert-NormalizedPathEquals -Actual $rookDspyCacheDir -Expected (Join-Path $expectedRookDataDir 'dspy-cache') -Label 'release smoke manifest.rook_dspy_cache.disk_cache_dir'
+
+    $chirpDspyCache = Require-JsonField -Json $SmokeManifest -Field 'chirp_dspy_cache' -Label 'release smoke manifest'
+    Assert-BooleanField -Json $chirpDspyCache -Field 'restrict_pickle' -Label 'release smoke manifest.chirp_dspy_cache' -Expected $true
+    $chirpDspyCacheDir = ([string](Require-JsonField -Json $chirpDspyCache -Field 'disk_cache_dir' -Label 'release smoke manifest.chirp_dspy_cache')).Replace('/', '\')
+    Assert-NormalizedPathEquals -Actual $chirpDspyCacheDir -Expected (Join-Path $expectedRookAppDir 'chirp\data\dspy-cache') -Label 'release smoke manifest.chirp_dspy_cache.disk_cache_dir'
+
     $configIdentity = Require-JsonField -Json $SmokeManifest -Field 'config_identity' -Label 'release smoke manifest'
     $chatServicePythonPath = ([string](Require-JsonField -Json $configIdentity -Field 'chat_service_python_path' -Label 'release smoke manifest.config_identity')).Replace('/', '\')
-    if ($chatServicePythonPath -ne $privatePythonPath) {
-        Fail "release smoke manifest.config_identity.chat_service_python_path must match private_python_path"
-    }
+    Assert-NormalizedPathEquals -Actual $chatServicePythonPath -Expected (Join-Path ([string]$SmokeManifest.rook_venv_path) 'Scripts\python.exe') -Label 'release smoke manifest.config_identity.chat_service_python_path'
     $chirpHome = ([string](Require-JsonField -Json $configIdentity -Field 'chirp_home' -Label 'release smoke manifest.config_identity')).Replace('/', '\')
-    if ($chirpHome -notmatch '(?i)\\Rook\\app\\chirp$') {
-        Fail "release smoke manifest.config_identity.chirp_home must point to Rook app Chirp home; actual value: $($configIdentity.chirp_home)"
-    }
+    Assert-NormalizedPathEquals -Actual $chirpHome -Expected (Join-Path $expectedRookAppDir 'chirp') -Label 'release smoke manifest.config_identity.chirp_home'
 
     if ([int]$installState.schema_version -ne 1) {
         Fail 'install_state.schema_version must be 1'
     }
+    $actualRuntimeManifestSha = Get-Sha256 -Path $pythonRuntimeManifestPath
+    $installStatePython = Require-JsonField -Json $installState -Field 'python' -Label 'install_state'
+    Assert-NormalizedPathEquals -Actual ([string](Require-JsonField -Json $installStatePython -Field 'path' -Label 'install_state.python')) -Expected $privatePythonPath -Label 'install_state.python.path'
+    if ([string](Require-JsonField -Json $installStatePython -Field 'version' -Label 'install_state.python') -ne '3.11.9') {
+        Fail "install_state.python.version must be 3.11.9; actual value: $($installStatePython.version)"
+    }
+    $stateRuntimeManifestSha = Normalize-Sha256 -Value ([string](Require-JsonField -Json $installStatePython -Field 'runtime_manifest_sha256' -Label 'install_state.python')) -Label 'install_state.python.runtime_manifest_sha256'
+    if ($stateRuntimeManifestSha -ne $actualRuntimeManifestSha) {
+        Fail "install_state.python.runtime_manifest_sha256 must match python_runtime_manifest file hash"
+    }
+    $stateIdentityHash = Normalize-Sha256 -Value ([string](Require-JsonField -Json $installStatePython -Field 'identity_hash' -Label 'install_state.python')) -Label 'install_state.python.identity_hash'
+    if ($stateIdentityHash -ne $actualRuntimeManifestSha) {
+        Fail "install_state.python.identity_hash must match python_runtime_manifest file hash"
+    }
+    Assert-InstallStateRuntime -InstallState $installState -PythonRuntimeManifest $pythonRuntimeManifest -PythonRuntimeManifestPath $pythonRuntimeManifestPath -SmokeManifest $SmokeManifest -PipCheck $pipCheck -RuntimeName 'rook' -SmokeVenvField 'rook_venv_path'
+    Assert-InstallStateRuntime -InstallState $installState -PythonRuntimeManifest $pythonRuntimeManifest -PythonRuntimeManifestPath $pythonRuntimeManifestPath -SmokeManifest $SmokeManifest -PipCheck $pipCheck -RuntimeName 'chirp' -SmokeVenvField 'chirp_venv_path'
 
     $licenseProvenance = Require-JsonField -Json $pythonRuntimeManifest -Field 'license_provenance' -Label 'python_runtime_manifest'
     $pythonRuntimeLicense = Require-JsonField -Json $licenseProvenance -Field 'python_runtime' -Label 'python_runtime_manifest.license_provenance'
@@ -346,6 +467,16 @@ function Assert-PythonRuntimeEvidence {
         }
     }
 
+    $manifestReleaseVersion = [string](Require-JsonField -Json $pythonRuntimeManifest -Field 'release_version' -Label 'python_runtime_manifest')
+    if ($manifestReleaseVersion -ne $Version) {
+        Fail "python_runtime_manifest.release_version must match release version $Version; actual value: $manifestReleaseVersion"
+    }
+    $manifestRookGitSha = [string](Require-JsonField -Json $pythonRuntimeManifest -Field 'rook_git_sha' -Label 'python_runtime_manifest')
+    if ($manifestRookGitSha.ToLowerInvariant() -ne $GitSha.ToLowerInvariant()) {
+        Fail "python_runtime_manifest.rook_git_sha must match release GitSha $GitSha; actual value: $manifestRookGitSha"
+    }
+    $null = Normalize-Sha256 -Value ([string](Require-JsonField -Json $pythonRuntimeManifest -Field 'rook_source_archive_sha256' -Label 'python_runtime_manifest')) -Label 'python_runtime_manifest.rook_source_archive_sha256'
+
     $manifestChirpGitSha = [string](Require-JsonField -Json $pythonRuntimeManifest -Field 'chirp_git_sha' -Label 'python_runtime_manifest')
     if ([string]$SmokeManifest.chirp_git_sha -ne $manifestChirpGitSha) {
         Fail 'release smoke manifest chirp_git_sha must match python_runtime_manifest chirp_git_sha'
@@ -366,6 +497,8 @@ function Assert-PythonRuntimeEvidence {
         chirp_import_file = [string]$SmokeManifest.chirp_import_file
         no_index_install = $true
         pip_check = $pipCheck
+        rook_dspy_cache = $rookDspyCache
+        chirp_dspy_cache = $chirpDspyCache
         license_provenance = [ordered]@{
             python_runtime_package = [string]$pythonRuntimeLicense.package
             third_party_wheel_count = $thirdPartyWheels.Count
@@ -377,6 +510,9 @@ function Assert-PythonRuntimeEvidence {
                 chirp_restrict_pickle = $true
             }
         }
+        release_version = $manifestReleaseVersion
+        rook_git_sha = $manifestRookGitSha
+        rook_source_archive_sha256 = [string]$pythonRuntimeManifest.rook_source_archive_sha256
         chirp_git_sha = [string]$SmokeManifest.chirp_git_sha
         chirp_source_archive_sha256 = [string]$SmokeManifest.chirp_source_archive_sha256
     }

@@ -165,7 +165,17 @@ function Test-PublicInstallerDoesNotRequireUserPython {
     Assert-NotContains -Text $content -Unexpected 'Chirp — LLM-powered Grasshopper components (requires MCP + Python 3.10+)' -Message 'Public Chirp component must not require user Python.'
     Assert-NotContains -Text $content -Unexpected 'Python 3.10+ is required for the MCP server and Chirp but was not found.' -Message 'Installer must not block public MCP/Chirp install on user Python.'
     Assert-NotContains -Text $content -Unexpected 'Filename: "{code:GetPythonPath}"' -Message 'Post-install must not be launched through user Python discovery.'
-    Assert-Contains -Text $content -Expected 'Filename: "{localappdata}\Rook\python\cpython-3.11.9\python.exe"' -Message 'Post-install must run on bundled private Python.'
+    Assert-Contains -Text $content -Expected 'ExpandConstant(''{localappdata}\Rook\python\cpython-3.11.9\python.exe'')' -Message 'Post-install must run on bundled private Python.'
+}
+
+function Test-InstallerFailsWhenPostInstallFails {
+    $content = Get-Content -Path $InstallerScript -Raw
+
+    Assert-NotContains -Text $content -Unexpected 'Filename: "{localappdata}\Rook\python\cpython-3.11.9\python.exe"; Parameters: """{app}\post_install.py""' -Message 'Post-install must not run through [Run], which cannot gate child exit codes.'
+    Assert-Contains -Text $content -Expected 'function RunPostInstallSetup(): Boolean;' -Message 'Installer must run post_install.py from Pascal script where ResultCode can be checked.'
+    Assert-Contains -Text $content -Expected 'Exec(PythonExe, Args, '''', SW_HIDE, ewWaitUntilTerminated, ResultCode)' -Message 'Installer post-install runner must capture the child process exit code.'
+    Assert-Contains -Text $content -Expected 'ResultCode <> 0' -Message 'Installer must explicitly reject a nonzero post_install.py exit code.'
+    Assert-Contains -Text $content -Expected 'Abort;' -Message 'Installer must abort when post_install.py fails instead of reporting success.'
 }
 
 function Test-UninstallUsesRecordedPrivatePython {
@@ -185,7 +195,20 @@ function Test-ChatServiceUserPythonFallbackIsDevOnly {
     Assert-Contains -Text $content -Expected 'ROOK_ALLOW_USER_PYTHON_DISCOVERY' -Message 'Chat service PATH Python discovery must be gated by explicit support override.'
     Assert-Contains -Text $content -Expected 'AllowUserPythonDiscovery' -Message 'Chat manager must centralize user Python fallback policy.'
     Assert-Contains -Text $content -Expected 'DiscoverManagedVenvPython()' -Message 'Chat manager must prefer managed Rook venv.'
+    Assert-Contains -Text $content -Expected 'IsReleaseManifestContract' -Message 'Chat manager must reject stale/source-shaped release manifests.'
+    Assert-Contains -Text $content -Expected 'AllowProjectRootEnvironment' -Message 'ROOK_PROJECT_ROOT propagation must be gated behind explicit dev/support mode.'
+    Assert-Contains -Text $content -Expected 'release manifest workingDirectory' -Message 'Release chat manifest validation must enforce the installed mcp_server working directory.'
+    Assert-Contains -Text $content -Expected 'release manifest module' -Message 'Release chat manifest validation must enforce the chat service module.'
+    Assert-Contains -Text $content -Expected 'Path.Combine(localAppData, "Rook", "app")' -Message 'Release chat manifest validation must compare ROOK_INSTALL_ROOT to the exact installed app path.'
+    Assert-Contains -Text $content -Expected 'Path.Combine(localAppData, "Rook", "data")' -Message 'Release chat manifest validation must compare ROOK_DATA_DIR to the exact installed data path.'
+    Assert-Contains -Text $content -Expected 'ROOK_DSPY_RESTRICT_PICKLE' -Message 'Release chat manifest validation must require DSPy restricted pickle.'
+    Assert-Contains -Text $content -Expected 'DSPY_CACHEDIR' -Message 'Release chat manifest validation must require the installed DSPy cache directory.'
+    Assert-Contains -Text $content -Expected 'Path.Combine(expectedDataDir, "dspy-cache")' -Message 'Release chat manifest validation must compare DSPY_CACHEDIR to the exact installed data cache path.'
+    Assert-Contains -Text $content -Expected 'Path.Combine(expectedInstallRoot, "chirp")' -Message 'Release chat manifest validation must compare CHIRP_HOME to the exact installed Chirp home.'
+    Assert-Contains -Text $content -Expected 'BuildReleaseManifestEnvironment' -Message 'Auto-generated release chat manifests must include the full release environment contract.'
+    Assert-Contains -Text $content -Expected 'IsReleaseManifestContract(manifest, out var generatedReleaseReason)' -Message 'Auto-generated release-shaped manifests must be validated before use.'
     Assert-NotContains -Text $content -Unexpected 'DiscoverManagedVenvPython() ?? DiscoverPython()' -Message 'Chat manager must not unconditionally fall back to PATH Python.'
+    Assert-NotContains -Text $content -Unexpected '"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "ROOK_PROJECT_ROOT", "ROOK_LOG_LEVEL"' -Message 'Release chat child process must not unconditionally inherit ROOK_PROJECT_ROOT.'
 }
 
 function Test-FfmpegValidatorRequiresReleaseSourceBundleArgument {
@@ -380,6 +403,7 @@ function Test-BuildReleaseDocsRequireBundledPythonPayload {
     Assert-Contains -Text $combined -Expected 'installer\runtime\requirements-rook-lock.txt' -Message 'Source checklist must require Rook lockfile.'
     Assert-Contains -Text $combined -Expected 'installer\runtime\requirements-chirp-lock.txt' -Message 'Source checklist must require Chirp lockfile.'
     Assert-Contains -Text $combined -Expected 'installer\runtime\python-runtime-manifest.json' -Message 'Source checklist must require Python runtime manifest.'
+    Assert-Contains -Text $combined -Expected 'rook.local_testing_proof python-smoke-evidence' -Message 'Release docs must collect Python smoke evidence mechanically from the installed runtime.'
 }
 
 function Test-BuildReleaseWorkflowUsesWindowsPowerShellCommands {
@@ -558,6 +582,7 @@ function Test-LegacyGitHubReleaseWorkflowIsDisabled {
 
 Test-InstallerPackagesBundledPythonRuntime
 Test-PublicInstallerDoesNotRequireUserPython
+Test-InstallerFailsWhenPostInstallFails
 Test-UninstallUsesRecordedPrivatePython
 Test-ChatServiceUserPythonFallbackIsDevOnly
 Test-InstallerPackagesMultiRuntimeCompanionPayloads

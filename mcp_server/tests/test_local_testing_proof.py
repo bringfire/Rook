@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -65,22 +66,67 @@ def test_verify_chirp_runtime_uses_installed_chirp_venv(monkeypatch, tmp_path: P
     chirp_python.parent.mkdir(parents=True)
     chirp_python.write_text("fake", encoding="utf-8")
     calls = []
+    run_kwargs = []
 
     class Completed:
         returncode = 0
-        stdout = json.dumps({"chirp_file": str(chirp_root / "src" / "chirp" / "__init__.py")})
+        stdout = json.dumps(
+            {
+                "chirp_file": str(
+                    chirp_root / ".venv" / "Lib" / "site-packages" / "chirp" / "__init__.py"
+                ),
+                "dspy_cache": {
+                    "restrict_pickle": True,
+                    "disk_cache_dir": str(chirp_root / "data" / "dspy-cache"),
+                },
+            }
+        )
         stderr = ""
 
     def fake_run(command, **kwargs):
         calls.append(command)
+        run_kwargs.append(kwargs)
         return Completed()
 
     monkeypatch.setattr(proof.subprocess, "run", fake_run)
+    monkeypatch.setenv("PYTHONPATH", str(tmp_path / "source-shadow"))
+    monkeypatch.setenv("PYTHONHOME", str(tmp_path / "bad-pythonhome"))
 
     details = proof.verify_chirp_runtime(chirp_root)
 
     assert calls[0][0] == str(chirp_python)
-    assert details["chirp_file"].replace("\\", "/").endswith("src/chirp/__init__.py")
+    assert run_kwargs[0]["env"]["CHIRP_DSPY_RESTRICT_PICKLE"] == "1"
+    assert "PYTHONPATH" not in run_kwargs[0]["env"]
+    assert "PYTHONHOME" not in run_kwargs[0]["env"]
+    assert details["chirp_file"].replace("\\", "/").endswith("site-packages/chirp/__init__.py")
+    assert details["chirp_dspy_cache"]["restrict_pickle"] is True
+
+
+def test_verify_chirp_runtime_rejects_source_import_under_chirp_home(monkeypatch, tmp_path: Path):
+    chirp_root = tmp_path / "Rook" / "app" / "chirp"
+    chirp_python = chirp_root / ".venv" / "Scripts" / "python.exe"
+    chirp_python.parent.mkdir(parents=True)
+    chirp_python.write_text("fake", encoding="utf-8")
+
+    class Completed:
+        returncode = 0
+        stdout = json.dumps(
+            {
+                "chirp_file": str(chirp_root / "src" / "chirp" / "__init__.py"),
+                "dspy_cache": {
+                    "restrict_pickle": True,
+                    "disk_cache_dir": str(chirp_root / "data" / "dspy-cache"),
+                },
+            }
+        )
+        stderr = ""
+
+    monkeypatch.setattr(proof.subprocess, "run", lambda *args, **kwargs: Completed())
+
+    with pytest.raises(proof.ProofFailure) as exc:
+        proof.verify_chirp_runtime(chirp_root)
+
+    assert exc.value.failure_label == "chirp_import_leakage"
 
 
 def test_load_codex_toml_fallback_parses_rook_entry(monkeypatch):
@@ -94,6 +140,10 @@ cwd = "C:/Users/aryan/AppData/Local/Rook/app/mcp_server"
 ROOK_INSTALL_ROOT = "C:/Users/aryan/AppData/Local/Rook/app"
 ROOK_DATA_DIR = "C:/Users/aryan/AppData/Local/Rook/data"
 ROOK_MODE = "release"
+PYTHONHOME = ""
+PYTHONPATH = ""
+DSPY_CACHEDIR = "C:/Users/aryan/AppData/Local/Rook/data/dspy-cache"
+ROOK_DSPY_RESTRICT_PICKLE = "1"
 CHIRP_HOME = "C:/Users/aryan/AppData/Local/Rook/app/chirp"
 """
     monkeypatch.setattr(proof, "tomllib", None)
@@ -117,6 +167,10 @@ def test_verify_mcp_entry_rejects_repo_cwd(tmp_path: Path):
             "ROOK_INSTALL_ROOT": str(tmp_path / "Rook" / "app"),
             "ROOK_DATA_DIR": str(tmp_path / "Rook" / "data"),
             "ROOK_MODE": "release",
+            "PYTHONHOME": "",
+            "PYTHONPATH": "",
+            "DSPY_CACHEDIR": str(tmp_path / "Rook" / "data" / "dspy-cache"),
+            "ROOK_DSPY_RESTRICT_PICKLE": "1",
             "CHIRP_HOME": str(tmp_path / "Rook" / "app" / "chirp"),
         },
     }
@@ -157,6 +211,10 @@ cwd = "{toml_path(install_root / "mcp_server")}"
 ROOK_INSTALL_ROOT = "{toml_path(install_root)}"
 ROOK_DATA_DIR = "{toml_path(data_root)}"
 ROOK_MODE = "release"
+PYTHONHOME = ""
+PYTHONPATH = ""
+DSPY_CACHEDIR = "{toml_path(data_root / "dspy-cache")}"
+ROOK_DSPY_RESTRICT_PICKLE = "1"
 CHIRP_HOME = "{toml_path(chirp_home)}"
 ''',
         encoding="utf-8",
@@ -192,6 +250,199 @@ def test_verify_chat_manifest_rejects_stale_python(tmp_path: Path):
         )
 
     assert exc.value.failure_label == "chat_manifest_stale"
+
+
+def test_verify_chat_manifest_accepts_release_contract(tmp_path: Path):
+    rook_root = tmp_path / "Rook"
+    install_root = rook_root / "app"
+    data_root = rook_root / "data"
+    plugin_dir = tmp_path / "RookNative"
+    plugin_dir.mkdir()
+    venv_python = rook_root / "venv" / "Scripts" / "python.exe"
+    manifest = {
+        "pythonPath": str(venv_python),
+        "workingDirectory": str(install_root / "mcp_server"),
+        "module": "rook.agent.chat.service_main",
+        "pythonPathEntries": [],
+        "environment": {
+            "ROOK_INSTALL_ROOT": str(install_root),
+            "ROOK_DATA_DIR": str(data_root),
+            "ROOK_MODE": "release",
+            "PYTHONHOME": "",
+            "PYTHONPATH": "",
+            "DSPY_CACHEDIR": str(data_root / "dspy-cache"),
+            "ROOK_DSPY_RESTRICT_PICKLE": "1",
+            "CHIRP_HOME": str(install_root / "chirp"),
+        },
+    }
+    (plugin_dir / "RookChatService.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    details = proof.verify_chat_manifest(
+        plugin_dir=plugin_dir,
+        venv_python=venv_python,
+        install_root=install_root,
+    )
+
+    assert details["release_pythonpath_entries"] is False
+    assert details["python_path"] == str(venv_python)
+    assert details["chirp_home"] == str(install_root / "chirp")
+
+
+def test_build_release_smoke_python_evidence_uses_installed_runtime_facts(
+    monkeypatch, tmp_path: Path
+):
+    rook_root = tmp_path / "Rook"
+    install_root = rook_root / "app"
+    data_root = rook_root / "data"
+    venv_python = rook_root / "venv" / "Scripts" / "python.exe"
+    venv_python.parent.mkdir(parents=True)
+    runtime_manifest = {
+        "chirp_git_sha": "a" * 40,
+        "chirp_source_archive_sha256": "b" * 64,
+    }
+    install_root.mkdir(parents=True)
+    data_root.mkdir(parents=True)
+    (install_root / "python-runtime-manifest.json").write_text(
+        json.dumps(runtime_manifest),
+        encoding="utf-8",
+    )
+    (data_root / "install-state.json").write_text(
+        json.dumps(
+            {
+                "rook": {"pip_check": "No broken requirements found."},
+                "chirp": {"pip_check": "No broken requirements found."},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        proof,
+        "resolve_runtime_paths",
+        lambda: SimpleNamespace(
+            install_root=install_root,
+            data_root=data_root,
+            runtime_root=rook_root,
+        ),
+    )
+    monkeypatch.setattr(proof.sys, "executable", str(venv_python))
+
+    evidence = proof.build_release_smoke_python_evidence(
+        {
+            "rook_file": str(rook_root / "venv" / "Lib" / "site-packages" / "rook" / "__init__.py"),
+            "chirp_file": str(
+                install_root / "chirp" / ".venv" / "Lib" / "site-packages" / "chirp" / "__init__.py"
+            ),
+            "rook_dspy_cache": {
+                "restrict_pickle": True,
+                "disk_cache_dir": str(data_root / "dspy-cache"),
+            },
+            "chirp_dspy_cache": {
+                "restrict_pickle": True,
+                "disk_cache_dir": str(install_root / "chirp" / "data" / "dspy-cache"),
+            },
+            "chat_manifest": {
+                "python_path": str(venv_python),
+                "chirp_home": str(install_root / "chirp"),
+                "release_pythonpath_entries": False,
+            },
+        }
+    )
+
+    assert evidence["python_runtime_manifest"] == str(install_root / "python-runtime-manifest.json")
+    assert evidence["install_state"] == str(data_root / "install-state.json")
+    assert evidence["rook_venv_path"] == str(rook_root / "venv")
+    assert evidence["chirp_venv_path"] == str(install_root / "chirp" / ".venv")
+    assert evidence["pip_check"]["rook"]["ok"] is True
+    assert evidence["pip_check"]["chirp"]["ok"] is True
+    assert evidence["rook_dspy_cache"]["restrict_pickle"] is True
+    assert evidence["config_identity"]["chat_service_python_path"] == str(venv_python)
+    assert evidence["config_identity"]["release_pythonpath_entries"] is False
+    assert evidence["no_index_install"] is True
+    assert evidence["chirp_git_sha"] == "a" * 40
+
+
+def test_python_smoke_evidence_seeds_release_env_from_installed_venv(
+    monkeypatch, tmp_path: Path
+):
+    local_appdata = tmp_path / "AppData" / "Local"
+    rook_root = local_appdata / "Rook"
+    venv_python = rook_root / "venv" / "Scripts" / "python.exe"
+    venv_python.parent.mkdir(parents=True)
+    monkeypatch.setattr(proof.sys, "executable", str(venv_python))
+    monkeypatch.setenv("LOCALAPPDATA", str(local_appdata))
+    for key in (
+        "ROOK_INSTALL_ROOT",
+        "ROOK_DATA_DIR",
+        "ROOK_MODE",
+        "CHIRP_HOME",
+        "DSPY_CACHEDIR",
+        "ROOK_DSPY_RESTRICT_PICKLE",
+        "PYTHONPATH",
+        "PYTHONHOME",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("PYTHONPATH", str(tmp_path / "shadow-src"))
+    monkeypatch.setenv("PYTHONHOME", str(tmp_path / "shadow-python"))
+
+    seeded = proof.seed_release_env_from_installed_venv()
+
+    assert seeded is True
+    assert os.environ["ROOK_INSTALL_ROOT"] == str(rook_root / "app")
+    assert os.environ["ROOK_DATA_DIR"] == str(rook_root / "data")
+    assert os.environ["ROOK_MODE"] == "release"
+    assert os.environ["CHIRP_HOME"] == str(rook_root / "app" / "chirp")
+    assert os.environ["DSPY_CACHEDIR"] == str(rook_root / "data" / "dspy-cache")
+    assert os.environ["ROOK_DSPY_RESTRICT_PICKLE"] == "1"
+    assert os.environ["PYTHONPATH"] == ""
+    assert os.environ["PYTHONHOME"] == ""
+
+
+def test_python_smoke_evidence_seed_ignores_non_localappdata_venv(
+    monkeypatch, tmp_path: Path
+):
+    dev_root = tmp_path / "Rook-bundled-python"
+    dev_python = dev_root / "venv" / "Scripts" / "python.exe"
+    dev_python.parent.mkdir(parents=True)
+    monkeypatch.setattr(proof.sys, "executable", str(dev_python))
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "AppData" / "Local"))
+    monkeypatch.setenv("ROOK_MODE", "dev")
+    monkeypatch.setenv("ROOK_INSTALL_ROOT", str(dev_root))
+    monkeypatch.setenv("PYTHONPATH", str(dev_root / "mcp_server" / "src"))
+
+    seeded = proof.seed_release_env_from_installed_venv()
+
+    assert seeded is False
+    assert os.environ["ROOK_MODE"] == "dev"
+    assert os.environ["ROOK_INSTALL_ROOT"] == str(dev_root)
+    assert os.environ["PYTHONPATH"] == str(dev_root / "mcp_server" / "src")
+
+
+def test_python_smoke_evidence_seed_preserves_explicit_release_env(
+    monkeypatch, tmp_path: Path
+):
+    rook_root = tmp_path / "AppData" / "Local" / "Rook"
+    venv_python = rook_root / "venv" / "Scripts" / "python.exe"
+    explicit_data = tmp_path / "explicit-data"
+    venv_python.parent.mkdir(parents=True)
+    monkeypatch.setattr(proof.sys, "executable", str(venv_python))
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "AppData" / "Local"))
+    for key in (
+        "ROOK_INSTALL_ROOT",
+        "ROOK_MODE",
+        "CHIRP_HOME",
+        "DSPY_CACHEDIR",
+        "ROOK_DSPY_RESTRICT_PICKLE",
+        "PYTHONPATH",
+        "PYTHONHOME",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("ROOK_DATA_DIR", str(explicit_data))
+
+    seeded = proof.seed_release_env_from_installed_venv()
+
+    assert seeded is True
+    assert os.environ["ROOK_DATA_DIR"] == str(explicit_data)
+    assert os.environ["ROOK_INSTALL_ROOT"] == str(rook_root / "app")
 
 
 def test_verify_command_knowledge_runtime_requires_grasshopper_preflight(monkeypatch):
