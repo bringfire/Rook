@@ -241,6 +241,8 @@ Type: filesandordirs; Name: "{userappdata}\Rook"
 Type: filesandordirs; Name: "{localappdata}\Temp\rook"
 Type: files; Name: "{localappdata}\Rook\CLAUDE.md"
 Type: files; Name: "{localappdata}\Rook\AGENTS.md"
+Type: files; Name: "{localappdata}\Rook\ROOK_CLAUDE_POST_INSTALL.md"
+Type: files; Name: "{localappdata}\Rook\ROOK_CODEX_POST_INSTALL.md"
 Type: filesandordirs; Name: "{localappdata}\Rook\docs"
 
 ; ---------------------------------------------------------------------------

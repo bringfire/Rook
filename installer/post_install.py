@@ -7,7 +7,7 @@ This script runs after the installer copies files. It handles:
   4. Register rook MCP server in documented user-scope client config
   5. Merge Rook config into Claude Desktop config (if installed)
   6. Generate user-level config.toml for OpenAI Codex CLI
-  7. Copy Claude/Codex skills plus Claude agents to documented user locations
+  7. Copy curated Codex skills to ~/.codex/skills (Claude Code gets skills via the marketplace plugin)
   8. Validate the installation
 
 Uses only stdlib so it can run before dependencies are installed.
@@ -407,21 +407,21 @@ def _copy_children(source_root: Path, target_root: Path, label: str) -> bool:
 
 
 def install_user_assets(install_dir: Path, install_claude: bool, install_codex: bool) -> bool:
-    """Copy curated Codex skills to the user-level Codex home."""
-    installed_any = False
+    """Copy curated Codex skills to the user-level Codex home.
 
-    if install_codex:
-        installed_any |= _copy_children(
-            install_dir / ".agents" / "skills",
-            Path.home() / ".codex" / "skills",
-            "Codex skills",
-        )
-
-    if not (install_claude or install_codex):
-        print("No user asset targets selected - skipping skills/agents install")
+    Claude Code skills and hooks are delivered via the marketplace plugin,
+    not by this installer.  This function only copies Codex skills.
+    Returns True when there is nothing to do (Codex not selected).
+    """
+    if not install_codex:
+        # Nothing for this installer to copy; Claude Code skills come from the marketplace plugin.
         return True
 
-    return installed_any
+    return _copy_children(
+        install_dir / ".agents" / "skills",
+        Path.home() / ".codex" / "skills",
+        "Codex skills",
+    )
 
 
 def managed_companion_payloads(plugin_dir: Path) -> list[tuple[str, Path]]:
@@ -668,7 +668,7 @@ def main() -> int:
     parser.add_argument("--mcp-server-dir", required=False, help="MCP server directory")
     parser.add_argument("--runtime-root", required=False, help="Managed Rook runtime root")
     parser.add_argument("--chirp-dir", default=None, help="Chirp adapter directory")
-    parser.add_argument("--claude", action="store_true", help="Configure Claude Code/Desktop plus Claude skills and agents")
+    parser.add_argument("--claude", action="store_true", help="Configure Claude Code/Desktop MCP registration (skills/hooks come from the marketplace plugin, not this installer)")
     parser.add_argument("--codex", action="store_true", help="Configure OpenAI Codex CLI")
     parser.add_argument("--plugins", action="store_true", help="Validate Rhino plugin deployment")
     parser.add_argument("--uninstall", action="store_true", help="Run uninstall cleanup")
@@ -730,7 +730,7 @@ def main() -> int:
     else:
         print("Codex not selected - skipping Codex config.")
 
-    # Step 6: Install user-level skills and agents
+    # Step 6: Copy curated Codex skills to ~/.codex/skills (Claude Code skills/hooks come from the marketplace plugin)
     install_user_assets(install_dir, install_claude=args.claude, install_codex=args.codex)
 
     # Step 7: Write chat service manifest for Rhino panel
