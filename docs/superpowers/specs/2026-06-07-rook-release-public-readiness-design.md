@@ -42,7 +42,7 @@ boundary so it can't recur.
 |---|---|
 | Website docs (`site/`) | **`rook-release` only** |
 | Public (curated, user-only) plugin: `.claude-plugin/`, `.claude/skills/`, `hooks/` | **`rook-release`** |
-| Installer-bundled docs (`installer/CLAUDE.md`, `AGENTS.md`, `QUICK_START.md`, `AGENT_SETUP.md`) | **private `Rook`** |
+| Installer-bundled docs (exact paths copied by `RookSetup.iss`): root `QUICK_START.md`, `AGENT_SETUP.md`, `BUILDING.md`; `installer/CLAUDE.md`, `installer/AGENTS.md`; `docs/ONBOARDING_NEW_CLAUDE.md`, `docs/CURRENT_ARCHITECTURE.md`, `docs/AGENT_ARCHITECTURE.md`, `docs/TROUBLESHOOTING.md`; `mcp_server/README.md` | **private `Rook`** |
 | Source, build tooling, full dev skill set, installer (`.iss`) | **private `Rook`** |
 | Release assets (installer `.exe`, FFmpeg bundle, manifests) | built in private `Rook`, **mirrored** to `rook-release` |
 
@@ -113,16 +113,25 @@ must be validated). Then `npm run build` must be green.
 - The FFmpeg LGPL `LICENSE.FFmpeg.txt` copy (line 117) stays — LGPL compliance.
 
 ### 4.3 Installer-bundled docs (B3/B4 + refinement #2)
-- `QUICK_START.md`, `AGENT_SETUP.md`: remove the source-bootstrap / `git clone
-  bringfire/Rook` / "Option B: Source" framing; present the public story (download
-  the installer, connect your assistant). Point repo URLs at `rook-release`.
-- `BUILDING.md` (installer-copied at line 154): **stop copying it** from the
-  installer — it is a from-source dev guide irrelevant to an installed user. Public
-  troubleshooting/support is already covered by `docs/TROUBLESHOOTING.md` (copied to
-  `{localappdata}\Rook\docs`) and the docs-site Troubleshooting page.
+
+**Sanitize EVERY doc the installer copies — not just the root quick-start files.**
+Anything shipped in the installer must point at `rook-release` (or be removed from
+the payload). Verified stale-ref counts today (`bringfire/Rook` / `Rhino_AI` /
+source-clone language):
+
+| File | Stale refs | Action |
+|---|---|---|
+| `QUICK_START.md` | 3 | Rewrite to the public story (download installer; connect assistant); drop "Option B: Source" / `git clone`; URLs → `rook-release` |
+| `AGENT_SETUP.md` | 5 | Same: remove source-bootstrap framing; URLs → `rook-release` |
+| `installer/CLAUDE.md` | 1 | URL → `rook-release` (e.g. issues link) |
+| `installer/AGENTS.md` | 1 | URL → `rook-release` |
+| `docs/TROUBLESHOOTING.md` | 4 | URLs → `rook-release` |
+| `BUILDING.md` | 0 | **Stop copying it** (line 154) — a from-source dev guide irrelevant to an installed user; support is covered by `docs/TROUBLESHOOTING.md` + the docs-site Troubleshooting page |
+| `docs/ONBOARDING_NEW_CLAUDE.md`, `docs/CURRENT_ARCHITECTURE.md`, `docs/AGENT_ARCHITECTURE.md`, `mcp_server/README.md` | 0 | Clean today — keep, but include in the grep gate (§7) so they stay clean |
+
 - Confirm the already-made `installer/CLAUDE.md`, `installer/AGENTS.md` edits
   (tool-path rebalance, open-source removal, EULA wording) are committed to `main`
-  so the 1.5.10 build bundles them.
+  so the 1.5.10 build bundles them — then re-sanitize URLs per the table above.
 
 ### 4.4 EULA / LICENSE in the private repo
 Out of scope to change the private `LICENSE` file itself (monetization undecided;
@@ -132,9 +141,17 @@ prior decision was "site only"). It simply stops being **shipped** by the instal
 ---
 
 ## 5. PR #230 cleanup
-Drop `site/` from PR #230 (the website now lives only in `rook-release`). Keep the
-installer/`CLAUDE.md`/`AGENTS.md`/legal changes in that PR. Verified safe: nothing
-in the build consumes `site/`.
+Drop the **entire `site/` tree** from PR #230 (the website now lives only in
+`rook-release`). Keep the installer / `CLAUDE.md` / `AGENTS.md` / legal changes in
+that PR. Verified safe: nothing in the build consumes `site/`.
+
+- This removal includes `site/drafts/eula.md`. The canonical EULA already lives in
+  the private repo's root `LICENSE`, so dropping the markdown draft loses nothing —
+  do **not** preserve a separate copy under `site/`.
+- Note: spec commit `47cf1d2` inadvertently swept in the staged
+  `site/.../legal/eula.md → site/drafts/eula.md` rename. That is moot once the whole
+  `site/` tree is dropped from this branch; no separate cleanup of the rename is
+  needed beyond removing `site/`.
 
 ---
 
@@ -163,6 +180,9 @@ file copy, not a build step.
 - `npm run build` green; spot-check internal links resolve under `/rook-release/`.
 - Installer: built 1.5.10 runs the smoke test in `build-release`; the INFO page
   shows (no EULA gate); no `bringfire/Rook` or `Rhino_AI` URLs remain in the `.iss`.
+- **Installer-copied docs grep gate:** grep *every* doc the installer ships
+  (the §2 list) for `bringfire/Rook`, `Rhino_AI`, `git clone`, and source-bootstrap
+  language — all must resolve to `rook-release` or be dropped from the payload.
 - Grep the public repo for: `bringfire/Rook` (bare), `Rhino_AI`, "open source",
   "no source", "Placeholder", `1.5.9`, `1.4.5` — all clean.
 
