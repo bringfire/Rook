@@ -103,6 +103,8 @@ function Test-WheelhouseBuilderEnforcesReleaseContracts {
     Assert-Contains -Text $content -Expected '''artifacts/**''' -Message 'Rook clean check must exclude generated build artifacts.'
     Assert-Contains -Text $content -Expected 'Require-CleanGitRepo -Root $ChirpRoot -Label ''Chirp''' -Message 'Chirp clean check must remain whole-repo clean.'
     Assert-Contains -Text $content -Expected 'Get-RepoRelativePath' -Message 'Manifest artifact paths should be repo-relative or installer-relative where possible.'
+    Assert-Contains -Text $content -Expected 'manifest path is outside RepoRoot and would leak a local absolute path' -Message 'Manifest path helper must fail closed instead of writing absolute local paths.'
+    Assert-NotContains -Text $content -Expected 'return ConvertTo-ForwardSlashPath -Path $targetPath' -Message 'Manifest path helper must not fall back to absolute local paths.'
 }
 
 Test-PythonRuntimeConfigIsPinned

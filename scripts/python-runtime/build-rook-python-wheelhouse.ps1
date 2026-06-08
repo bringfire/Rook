@@ -69,7 +69,7 @@ function Get-RepoRelativePath {
     $relativeUri = $rootUri.MakeRelativeUri($targetUri)
     $relativePath = [System.Uri]::UnescapeDataString($relativeUri.ToString()).Replace('/', '\')
     if ($relativePath -eq '.' -or $relativePath.StartsWith('..')) {
-        return ConvertTo-ForwardSlashPath -Path $targetPath
+        Fail "manifest path is outside RepoRoot and would leak a local absolute path: $targetPath"
     }
     return ConvertTo-ForwardSlashPath -Path $relativePath
 }
