@@ -39,7 +39,7 @@ claude
 
 Rook is available globally — no need to be in the Rook directory.
 
-Type `/mcp` — you should see `rook` with 250+ tools.
+Type `/mcp` — you should see `rook` with nearly 400 tools.
 
 Test with:
 - "Ping Rhino"
@@ -52,9 +52,9 @@ Test with:
 |-----------|----------|---------|
 | RookNative Plugin | `%APPDATA%\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\` | C++ HTTP server inside Rhino |
 | Rook Companion | Same directory | C# Grasshopper bridge + chat panel |
-| MCP Server | `%LOCALAPPDATA%\Rook\app\mcp_server\` | Python MCP server — Claude ↔ Rhino bridge |
+| MCP Server | `%LOCALAPPDATA%\Rook\app\mcp_server\` | Python MCP server — assistant ↔ Rhino bridge |
 | Knowledge Stores | `%LOCALAPPDATA%\Rook\app\knowledge\` | 1,200+ GH component notes, 500+ patterns, command knowledge |
-| Skills (Codex) | `%LOCALAPPDATA%\Rook\app\skills\` (copied to `~/.codex/skills/`) | Curated Rook skill set for Codex CLI |
+| Skills (Codex) | `%LOCALAPPDATA%\Rook\app\.agents\skills\` (copied to `~/.codex/skills/`) | Curated Rook skill set for Codex CLI |
 | Chirp Adapter | `%LOCALAPPDATA%\Rook\app\chirp\` (installer) | LLM-powered Grasshopper components (optional) |
 | Claude Code Config | `~/.claude.json` | Global MCP configuration (auto-generated) |
 | Claude Desktop Config | `%APPDATA%\Claude\claude_desktop_config.json` | Desktop MCP configuration (auto-generated) |
