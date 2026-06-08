@@ -94,13 +94,9 @@ The committed recipe and policy files are release inputs and must also exist:
 
 | File/Dir | Notes |
 |----------|-------|
-| `.claude-plugin/plugin.json` | Plugin manifest |
-| `.claude-plugin/marketplace.json` | Marketplace registration |
-| `.claude/skills/` | Claude Code skill payload (recursesubdirs) |
-| `.claude/agents/` | Claude agent payload (recursesubdirs) |
-| `.agents/skills/` | Codex skill payload (recursesubdirs) |
-| `hooks/hooks.json` | Hook definitions |
-| `scripts/session-start.sh` | Session startup script |
+| `installer/agent-assets/codex-skills/` | Curated Codex skill payload (recursesubdirs) |
+| `installer/agent-assets/ROOK_CLAUDE_POST_INSTALL.md` | Post-install agent prompt |
+| `installer/agent-assets/ROOK_CODEX_POST_INSTALL.md` | Post-install agent prompt |
 
 ## Installer Assets
 
@@ -130,8 +126,6 @@ installed CLAUDE.md.
 |------|-------|
 | `QUICK_START.md` | User quick start guide |
 | `AGENT_SETUP.md` | Agent setup guide |
-| `BUILDING.md` | Build and source-install guide |
-| `LICENSE` | License file |
 
 ## Verification Script
 
@@ -156,10 +150,8 @@ $files = @(
   "src\Rook\bin\Release\net48\RookBim.dll",
   "mcp_server\pyproject.toml",
   "..\Chirp\pyproject.toml",
-  ".claude-plugin\plugin.json",
-  ".claude-plugin\marketplace.json",
-  "hooks\hooks.json",
-  "scripts\session-start.sh",
+  "installer\agent-assets\ROOK_CLAUDE_POST_INSTALL.md",
+  "installer\agent-assets\ROOK_CODEX_POST_INSTALL.md",
   "installer\post_install.py",
   "installer\rook-icon.ico",
   "installer\pre-install-readme.txt",
@@ -182,9 +174,7 @@ $files = @(
   "docs\AGENT_ARCHITECTURE.md",
   "docs\TROUBLESHOOTING.md",
   "QUICK_START.md",
-  "AGENT_SETUP.md",
-  "BUILDING.md",
-  "LICENSE"
+  "AGENT_SETUP.md"
 )
 
 $optionalFiles = @(
@@ -206,9 +196,7 @@ $directories = @(
   "..\Chirp\src\chirp",
   "knowledge\commands",
   "knowledge\gh",
-  ".claude\skills",
-  ".claude\agents",
-  ".agents\skills",
+  "installer\agent-assets\codex-skills",
   "src\Rook\bin\Release\net8.0\runtimes",
   "src\Rook\bin\Release\net7.0\runtimes",
   "src\Rook\bin\Release\net48\runtimes"

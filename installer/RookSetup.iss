@@ -52,7 +52,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=lowest
 SetupIconFile=rook-icon.ico
 UninstallDisplayIcon={app}\rook-icon.ico
-InfoBeforeFile={#RepoRoot}\installer\NOTICES.txt
+InfoBeforeFile={#RepoRoot}\installer\pre-install-readme.txt
 
 ; Don't create an uninstall entry in Add/Remove Programs — we handle it ourselves
 ; Actually, DO create it so users can uninstall normally:
@@ -73,6 +73,18 @@ Name: "chirp"; Description: "Chirp — LLM-powered Grasshopper components (requi
 Name: "knowledge"; Description: "Knowledge Stores (commands + Grasshopper)"; Types: full custom
 Name: "claude"; Description: "Claude Code / Claude Desktop MCP configuration (requires MCP)"; Types: full custom
 Name: "codex"; Description: "OpenAI Codex CLI MCP configuration + curated skills (requires MCP)"; Types: full custom
+
+; ---------------------------------------------------------------------------
+; Upgrade cleanup — remove stale payload from older installs
+; ---------------------------------------------------------------------------
+
+[InstallDelete]
+; Remove stale agent payload from older installs (pre-curated-payload versions)
+Type: filesandordirs; Name: "{app}\.claude-plugin"
+Type: filesandordirs; Name: "{app}\.claude"
+Type: filesandordirs; Name: "{app}\hooks"
+Type: files; Name: "{app}\scripts\session-start.sh"
+Type: filesandordirs; Name: "{app}\.agents\skills"
 
 ; ---------------------------------------------------------------------------
 ; Files
