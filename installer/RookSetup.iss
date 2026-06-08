@@ -627,11 +627,14 @@ begin
     end;
   end;
 
-  MsgBox(
-    'Rook installs Rhino plug-ins for the current Windows user only.' + #13#10 + #13#10 +
-    'If an administrator installs Rook for someone else, Rhino will not see the plug-ins in that user profile.' + #13#10 + #13#10 +
-    'Run this installer as the same Windows user who runs Rhino/Revit.',
-    mbInformation, MB_OK);
+  if not WizardSilent then
+  begin
+    MsgBox(
+      'Rook installs Rhino plug-ins for the current Windows user only.' + #13#10 + #13#10 +
+      'If an administrator installs Rook for someone else, Rhino will not see the plug-ins in that user profile.' + #13#10 + #13#10 +
+      'Run this installer as the same Windows user who runs Rhino/Revit.',
+      mbInformation, MB_OK);
+  end;
 
   // Detect Python
   FindPython();
