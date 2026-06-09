@@ -104,7 +104,8 @@ Acceptance criteria:
 - `RookNative.rhp` is discoverable and loadable by Rhino after restart.
 - Package layout in Rhino's package folder is documented.
 - Package size around the current 221 MB payload is accepted locally and by the Yak test server, or a McNeel-confirmed limit is recorded.
-- `yak list`, `yak install`, `yak update`, and `yak uninstall` behavior is documented.
+- `yak list`, `yak install <package> [<version>]`, and `yak uninstall` behavior is documented.
+- The actual update flow is documented from verified Yak behavior, such as Rhino Package Manager UI updates, `yak install <package> <version>`, or another McNeel-confirmed path.
 - No public default install path changes yet.
 
 Senior review focus:
@@ -164,6 +165,7 @@ Treat migration as a top risk, not a late cleanup task. Legacy AppData plugin fo
 
 Acceptance criteria:
 
+- A pre-load migration mechanism is selected before implementation proceeds. Acceptable mechanisms are current-installer handoff, standalone preflight/doctor, documented manual uninstall before Yak install, or a Yak smoke result proving both installs can coexist long enough for detection.
 - Yak-installed Rook detects legacy Inno install artifacts.
 - Duplicate plugin IDs and stale Rhino plugin paths are identified.
 - Migration either safely removes legacy load paths or gives precise cleanup instructions.
@@ -175,11 +177,12 @@ Senior review focus:
 - Rhino plugin registration semantics.
 - Failure mode when both Yak and legacy AppData payloads exist.
 - Whether migration can run early enough to prevent load conflicts.
+- Evidence that the chosen pre-load migration path works before `RookNative` startup is required for detection.
 - User data preservation.
 
 ### Gate 5: MCP And Connector Launch
 
-Make the MCP launch path stable across Yak updates.
+Make the MCP launch path stable across Yak package changes.
 
 Acceptance criteria:
 
@@ -202,7 +205,7 @@ Prove the full lifecycle before Yak becomes the default public path.
 
 Acceptance criteria:
 
-- Yak update replaces the immutable payload.
+- The verified Yak update path replaces the immutable payload, whether through Rhino Package Manager UI updates, `yak install <package> <version>`, or another McNeel-confirmed flow.
 - Bootstrap detects package/runtime version changes.
 - Compatible runtimes are reused and incompatible runtimes are rebuilt.
 - Rollback to a previous Yak package is understood.
