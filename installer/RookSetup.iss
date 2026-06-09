@@ -413,6 +413,9 @@ begin
     ' ' + GetCodexArgs('') +
     ' ' + GetPluginsArgs('');
 
+  WizardForm.StatusLabel.Caption :=
+    'Finalizing Rook: creating private Python environments and installing bundled wheels offline (no internet download required). This can take several minutes.';
+  WizardForm.StatusLabel.Update;
   Log('Post-install: running post_install.py with private Python: ' + PythonExe);
   if not Exec(PythonExe, Args, '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
   begin

@@ -113,6 +113,13 @@ namespace Rook.Tests.Services.Vision.Video
             await signal.ConfigureAwait(false);
         }
 
+        private void AssertBlobExistsWithBytes(Guid artifactId, string role)
+        {
+            var path = _artifactStore.GetBlobAbsolutePath(artifactId, role);
+            Assert.True(File.Exists(path), $"Expected artifact role '{role}' at {path}.");
+            Assert.True(new FileInfo(path).Length > 0, $"Expected artifact role '{role}' to be non-empty at {path}.");
+        }
+
         private async Task WaitUntilProviderJobIdAsync(Guid jobId)
         {
             var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(2);
@@ -291,6 +298,8 @@ namespace Rook.Tests.Services.Vision.Video
             Assert.NotNull(artifact);
             Assert.Contains(artifact!.Files, f => f.Role == VideoMediaRoles.Video);
             Assert.Contains(artifact.Files, f => f.Role == VideoMediaRoles.Poster);
+            AssertBlobExistsWithBytes(artifact.Id, VideoMediaRoles.Video);
+            AssertBlobExistsWithBytes(artifact.Id, VideoMediaRoles.Poster);
         }
 
         [Fact]
@@ -320,6 +329,11 @@ namespace Rook.Tests.Services.Vision.Video
             Assert.DoesNotContain(
                 _ledger.AllRecords.Where(r => r.JobId == jobId),
                 r => r.State == VideoJobState.Error);
+            var latest = _ledger.AllRecords.Last(r => r.JobId == jobId);
+            var sidecars = Assert.IsType<JsonObject>(latest.Extensions!["sidecars"]);
+            var poster = Assert.IsType<JsonObject>(sidecars["poster"]);
+            Assert.Equal("PublishFailed", poster["code"]!.GetValue<string>());
+            Assert.False(poster["success"]!.GetValue<bool>());
         }
 
         [Fact]
@@ -405,6 +419,17 @@ namespace Rook.Tests.Services.Vision.Video
                 {
                     frameStarted.TrySetResult(artifact.Id);
                     await releaseFrameSidecars.Task.ConfigureAwait(false);
+                    var publisher = new VideoSidecarPublisher(_artifactStore);
+                    publisher.Publish(
+                        artifact.Id,
+                        VideoMediaRoles.StartFrame,
+                        new byte[] { 1, 2, 3 },
+                        "jpg");
+                    publisher.Publish(
+                        artifact.Id,
+                        VideoMediaRoles.EndFrame,
+                        new byte[] { 4, 5, 6 },
+                        "jpg");
                     return FakeFrameProducer.Result(
                         artifact.Id,
                         VideoFrameSidecarRoleResultCode.Published,
@@ -435,6 +460,77 @@ namespace Rook.Tests.Services.Vision.Video
             Assert.Equal(frameArtifactId, final.ResultArtifactId);
             Assert.Single(frameProducer.ArtifactIds);
             Assert.Equal(final.ResultArtifactId.Value, frameProducer.ArtifactIds[0]);
+            var artifact = _artifactStore.Get(final.ResultArtifactId.Value);
+            Assert.NotNull(artifact);
+            Assert.Contains(artifact!.Files, f => f.Role == VideoMediaRoles.Video);
+            Assert.Contains(artifact.Files, f => f.Role == VideoMediaRoles.StartFrame);
+            Assert.Contains(artifact.Files, f => f.Role == VideoMediaRoles.EndFrame);
+            AssertBlobExistsWithBytes(artifact.Id, VideoMediaRoles.Video);
+            AssertBlobExistsWithBytes(artifact.Id, VideoMediaRoles.StartFrame);
+            AssertBlobExistsWithBytes(artifact.Id, VideoMediaRoles.EndFrame);
+        }
+
+        [Fact]
+        public async Task Complete_video_artifact_manifest_contains_gallery_sidecar_roles_when_all_sidecars_publish()
+        {
+            var jobId = Guid.NewGuid();
+            _idGen.Sequence.Enqueue(jobId);
+            ConfigureProviderHappyPath();
+            var posterProducer = new FakePosterProducer(_artifactStore)
+            {
+                OnPublishAsync = (artifact, _) =>
+                {
+                    new VideoSidecarPublisher(_artifactStore).Publish(
+                        artifact.Id,
+                        VideoMediaRoles.Poster,
+                        new byte[] { 8, 8, 8 },
+                        "jpg");
+                    return Task.FromResult(
+                        VideoPosterSidecarResult.From(
+                            VideoPosterSidecarResultCode.Published,
+                            artifact.Id));
+                },
+            };
+            var frameProducer = new FakeFrameProducer(_artifactStore)
+            {
+                OnPublishAsync = (artifact, _) =>
+                {
+                    var publisher = new VideoSidecarPublisher(_artifactStore);
+                    publisher.Publish(
+                        artifact.Id,
+                        VideoMediaRoles.StartFrame,
+                        new byte[] { 1, 2, 3 },
+                        "jpg");
+                    publisher.Publish(
+                        artifact.Id,
+                        VideoMediaRoles.EndFrame,
+                        new byte[] { 4, 5, 6 },
+                        "jpg");
+                    return Task.FromResult(
+                        FakeFrameProducer.Result(
+                            artifact.Id,
+                            VideoFrameSidecarRoleResultCode.Published,
+                            VideoFrameSidecarRoleResultCode.Published));
+                },
+            };
+
+            var mgr = Manager(posterProducer: posterProducer, frameProducer: frameProducer);
+            await mgr.SubmitAsync(T2vRequest(), CancellationToken.None);
+            var final = await WaitForTerminalAsync(mgr, jobId);
+
+            Assert.Equal(VideoJobState.Complete, final.State);
+            Assert.NotNull(final.ResultArtifactId);
+            var artifact = _artifactStore.Get(final.ResultArtifactId.Value);
+            Assert.NotNull(artifact);
+            var roles = artifact!.Files.Select(f => f.Role).ToHashSet(StringComparer.Ordinal);
+            Assert.Contains(VideoMediaRoles.Video, roles);
+            Assert.Contains(VideoMediaRoles.Poster, roles);
+            Assert.Contains(VideoMediaRoles.StartFrame, roles);
+            Assert.Contains(VideoMediaRoles.EndFrame, roles);
+            AssertBlobExistsWithBytes(artifact.Id, VideoMediaRoles.Video);
+            AssertBlobExistsWithBytes(artifact.Id, VideoMediaRoles.Poster);
+            AssertBlobExistsWithBytes(artifact.Id, VideoMediaRoles.StartFrame);
+            AssertBlobExistsWithBytes(artifact.Id, VideoMediaRoles.EndFrame);
         }
 
         [Fact]
@@ -458,6 +554,14 @@ namespace Rook.Tests.Services.Vision.Video
 
             Assert.Equal(VideoJobState.Complete, final.State);
             Assert.NotNull(final.ResultArtifactId);
+            var latest = _ledger.AllRecords.Last(r => r.JobId == jobId);
+            var sidecars = Assert.IsType<JsonObject>(latest.Extensions!["sidecars"]);
+            var frames = Assert.IsType<JsonObject>(sidecars["frames"]);
+            var roles = Assert.IsType<JsonArray>(frames["roles"]);
+            var endFrame = Assert.IsType<JsonObject>(roles[1]);
+            Assert.Equal("end_frame", endFrame["role"]!.GetValue<string>());
+            Assert.Equal("ExtractionFailed", endFrame["code"]!.GetValue<string>());
+            Assert.False(endFrame["success"]!.GetValue<bool>());
             Assert.Single(frameProducer.ArtifactIds);
             Assert.DoesNotContain(
                 _ledger.AllRecords.Where(r => r.JobId == jobId),

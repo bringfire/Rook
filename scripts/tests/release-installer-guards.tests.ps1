@@ -180,6 +180,13 @@ function Test-InstallerFailsWhenPostInstallFails {
     Assert-Contains -Text $content -Expected 'Rook post-install finalization failed' -Message 'Installer failure dialog must name post-install finalization, not only Python setup.'
 }
 
+function Test-InstallerExplainsOfflineWheelhouseProgress {
+    $content = Get-Content -Path $InstallerScript -Raw
+
+    Assert-Contains -Text $content -Expected 'installing bundled wheels offline (no internet download required)' -Message 'Installer progress must explain the long Python finalization is offline wheelhouse work, not dependency download.'
+    Assert-Contains -Text $content -Expected 'WizardForm.StatusLabel.Update' -Message 'Installer must repaint the progress label before long post-install work starts.'
+}
+
 function Test-UninstallUsesRecordedPrivatePython {
     $content = Get-Content -Path $InstallerScript -Raw
 
@@ -585,6 +592,7 @@ function Test-LegacyGitHubReleaseWorkflowIsDisabled {
 Test-InstallerPackagesBundledPythonRuntime
 Test-PublicInstallerDoesNotRequireUserPython
 Test-InstallerFailsWhenPostInstallFails
+Test-InstallerExplainsOfflineWheelhouseProgress
 Test-UninstallUsesRecordedPrivatePython
 Test-ChatServiceUserPythonFallbackIsDevOnly
 Test-InstallerPackagesMultiRuntimeCompanionPayloads

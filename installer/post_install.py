@@ -228,7 +228,10 @@ def _install_from_wheelhouse(
         print(f"{label} bootstrap failed release validation: {exc}")
         return None
 
-    print(f"Installing {label} from bundled wheelhouse into {venv_dir}...")
+    print(
+        f"Installing {label} from bundled wheelhouse into {venv_dir} "
+        "(offline; no internet download required)..."
+    )
     command = python_runtime_install.build_offline_pip_install_command(
         venv_python,
         layout.wheelhouse,
@@ -282,6 +285,7 @@ def install_mcp_server(mcp_server_dir: Path, runtime_root: Path) -> Path | None:
 
     data_dir.mkdir(parents=True, exist_ok=True)
     logs_dir.mkdir(parents=True, exist_ok=True)
+    (runtime_root / "discovery").mkdir(parents=True, exist_ok=True)
 
     return _install_from_wheelhouse(
         "rook-mcp",

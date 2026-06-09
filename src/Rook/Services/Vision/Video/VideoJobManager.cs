@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using Rook.Artifacts;
@@ -1115,32 +1116,58 @@ namespace Rook.Services.Vision.Video
                 blobs: new[] { new BlobInput(VideoMediaRoles.Video, materialized.Bytes!, ext) },
                 parentIds: CollectMediaParents(request));
 
+            VideoPosterSidecarResult? posterResult = null;
+            VideoFrameSidecarResult? frameResult = null;
+
             try
             {
-                await _posterProducer.TryPublishPosterAsync(
+                posterResult = await _posterProducer.TryPublishPosterAsync(
                     artifact.Id,
                     CancellationToken.None).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
+                posterResult = VideoPosterSidecarResult.From(
+                    VideoPosterSidecarResultCode.CancelledAfterArtifactCreated,
+                    artifact.Id,
+                    "Poster sidecar generation was cancelled after video artifact creation.");
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                posterResult = VideoPosterSidecarResult.From(
+                    VideoPosterSidecarResultCode.FinalizerFailed,
+                    artifact.Id,
+                    ex.Message,
+                    ex.ToString());
             }
 
             try
             {
-                await _frameProducer.TryPublishFrameSidecarsAsync(
+                frameResult = await _frameProducer.TryPublishFrameSidecarsAsync(
                     artifact.Id,
                     CancellationToken.None).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
+                frameResult = FrameFinalizerFailureResult(
+                    artifact.Id,
+                    VideoFrameSidecarRoleResultCode.CancelledAfterArtifactCreated,
+                    "Frame sidecar generation was cancelled after video artifact creation.",
+                    diagnostic: null);
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                frameResult = FrameFinalizerFailureResult(
+                    artifact.Id,
+                    VideoFrameSidecarRoleResultCode.FinalizerFailed,
+                    ex.Message,
+                    ex.ToString());
             }
 
+            current = current with
+            {
+                Extensions = MergeSidecarEvidence(current.Extensions, posterResult, frameResult),
+            };
             current = AppendTransition(
                 current,
                 VideoJobState.Complete,
@@ -1148,6 +1175,95 @@ namespace Rook.Services.Vision.Video
             running.LatestRecord = current;
             return current;
         }
+
+        private static VideoFrameSidecarResult FrameFinalizerFailureResult(
+            Guid artifactId,
+            VideoFrameSidecarRoleResultCode code,
+            string? message,
+            string? diagnostic)
+            => new(
+                artifactId,
+                new[]
+                {
+                    VideoFrameSidecarRoleResult.From(
+                        VideoMediaRoles.StartFrame,
+                        Rook.Services.Vision.Video.Extraction.VideoFrameSelector.First,
+                        code,
+                        message,
+                        diagnostic),
+                    VideoFrameSidecarRoleResult.From(
+                        VideoMediaRoles.EndFrame,
+                        Rook.Services.Vision.Video.Extraction.VideoFrameSelector.Last,
+                        code,
+                        message,
+                        diagnostic),
+                });
+
+        private static JsonObject MergeSidecarEvidence(
+            JsonObject? existing,
+            VideoPosterSidecarResult? poster,
+            VideoFrameSidecarResult? frames)
+        {
+            JsonObject? next = existing is null ? null : (JsonObject)existing.DeepClone();
+            JsonObject? sidecars = null;
+            if (next is not null && next["sidecars"] is JsonObject existingSidecars)
+                sidecars = (JsonObject)existingSidecars.DeepClone();
+            sidecars ??= new JsonObject();
+
+            if (poster is not null)
+            {
+                sidecars["poster"] = new JsonObject
+                {
+                    ["code"] = poster.Code.ToString(),
+                    ["success"] = poster.Success,
+                    ["message"] = poster.Message,
+                    ["diagnostic"] = poster.Diagnostic,
+                };
+            }
+
+            if (frames is not null)
+            {
+                var roles = new JsonArray();
+                foreach (var role in frames.RoleResults)
+                {
+                    roles.Add(new JsonObject
+                    {
+                        ["role"] = role.Role,
+                        ["selector"] = SelectorLabel(role.Selector),
+                        ["code"] = role.Code.ToString(),
+                        ["success"] = role.Success,
+                        ["message"] = role.Message,
+                        ["diagnostic"] = role.Diagnostic,
+                    });
+                }
+
+                sidecars["frames"] = new JsonObject
+                {
+                    ["roles"] = roles,
+                    ["success"] = AllFrameRolesSucceeded(frames),
+                };
+            }
+
+            next ??= new JsonObject();
+            next["sidecars"] = sidecars;
+            return next;
+        }
+
+        private static bool AllFrameRolesSucceeded(VideoFrameSidecarResult frames)
+        {
+            foreach (var role in frames.RoleResults)
+            {
+                if (!role.Success)
+                    return false;
+            }
+
+            return true;
+        }
+
+        private static string SelectorLabel(Rook.Services.Vision.Video.Extraction.VideoFrameSelector selector)
+            => selector.Kind == Rook.Services.Vision.Video.Extraction.VideoFrameSelectorKind.FrameIndex
+                ? $"FrameIndex:{selector.FrameIndexValue.GetValueOrDefault()}"
+                : selector.Kind.ToString();
 
         private static bool IsCancellationMaterializationFailure(
             VideoArtifactMaterializationResult materialized,

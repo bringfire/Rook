@@ -237,6 +237,24 @@ def test_post_install_recreates_stale_venv_and_writes_install_state(
     assert install_state["rook"]["lockfile_sha256"]
 
 
+def test_install_mcp_server_seeds_discovery_directory(tmp_path: Path, monkeypatch) -> None:
+    post_install = load_post_install()
+    runtime_root = tmp_path / "Rook"
+    managed_python = runtime_root / "venv" / "Scripts" / "python.exe"
+
+    def fake_install(*args, **kwargs):
+        managed_python.parent.mkdir(parents=True)
+        managed_python.write_text("fake", encoding="utf-8")
+        return managed_python
+
+    monkeypatch.setattr(post_install, "_install_from_wheelhouse", fake_install)
+
+    result = post_install.install_mcp_server(tmp_path / "app" / "mcp_server", runtime_root)
+
+    assert result == managed_python
+    assert (runtime_root / "discovery").is_dir()
+
+
 def test_post_install_fails_closed_when_stale_venv_cannot_be_deleted(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:

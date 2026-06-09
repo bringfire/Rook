@@ -74,9 +74,22 @@ namespace Rook.Services.Vision.Video.Extraction
                 return null;
 
             var pluginDirectory = Path.GetDirectoryName(managedAssemblyLocation);
-            return string.IsNullOrWhiteSpace(pluginDirectory)
-                ? null
-                : Path.Combine(pluginDirectory, "ffmpeg", "ffmpeg.exe");
+            if (string.IsNullOrWhiteSpace(pluginDirectory))
+                return null;
+
+            var assemblyAdjacent = Path.Combine(pluginDirectory, "ffmpeg", "ffmpeg.exe");
+            if (File.Exists(assemblyAdjacent))
+                return assemblyAdjacent;
+
+            var parentDirectory = Directory.GetParent(pluginDirectory)?.FullName;
+            if (!string.IsNullOrWhiteSpace(parentDirectory))
+            {
+                var parentAdjacent = Path.Combine(parentDirectory, "ffmpeg", "ffmpeg.exe");
+                if (File.Exists(parentAdjacent))
+                    return parentAdjacent;
+            }
+
+            return assemblyAdjacent;
         }
     }
 }
