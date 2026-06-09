@@ -176,6 +176,8 @@ function Test-InstallerFailsWhenPostInstallFails {
     Assert-Contains -Text $content -Expected 'Exec(PythonExe, Args, '''', SW_HIDE, ewWaitUntilTerminated, ResultCode)' -Message 'Installer post-install runner must capture the child process exit code.'
     Assert-Contains -Text $content -Expected 'ResultCode <> 0' -Message 'Installer must explicitly reject a nonzero post_install.py exit code.'
     Assert-Contains -Text $content -Expected 'Abort;' -Message 'Installer must abort when post_install.py fails instead of reporting success.'
+    Assert-NotContains -Text $content -Unexpected 'Rook Python setup failed' -Message 'Installer must not misdiagnose client/finalization failures as Python setup failures.'
+    Assert-Contains -Text $content -Expected 'Rook post-install finalization failed' -Message 'Installer failure dialog must name post-install finalization, not only Python setup.'
 }
 
 function Test-UninstallUsesRecordedPrivatePython {

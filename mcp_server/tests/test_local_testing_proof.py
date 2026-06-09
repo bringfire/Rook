@@ -231,6 +231,134 @@ CHIRP_HOME = "{toml_path(chirp_home)}"
     assert details["config_path"] == str(config)
 
 
+def test_verify_effective_configs_ignores_unrelated_empty_claude_when_codex_is_valid(
+    monkeypatch, tmp_path: Path
+):
+    home = tmp_path / "home"
+    appdata = tmp_path / "AppData" / "Roaming"
+    rook_root = tmp_path / "Rook"
+    install_root = rook_root / "app"
+    data_root = rook_root / "data"
+    chirp_home = install_root / "chirp"
+    venv_python = rook_root / "venv" / "Scripts" / "python.exe"
+    plugin_dir = appdata / "McNeel" / "Rhinoceros" / "8.0" / "Plug-ins" / "RookNative"
+
+    home.mkdir()
+    (home / ".claude.json").write_text('{"mcpServers": {}}', encoding="utf-8")
+    codex_config = home / ".codex" / "config.toml"
+    codex_config.parent.mkdir()
+    plugin_dir.mkdir(parents=True)
+
+    def toml_path(path: Path) -> str:
+        return str(path).replace("\\", "\\\\")
+
+    codex_config.write_text(
+        f'''
+[mcp_servers.rook]
+command = "{toml_path(venv_python)}"
+args = ["-m", "rook"]
+cwd = "{toml_path(install_root / "mcp_server")}"
+
+[mcp_servers.rook.env]
+ROOK_INSTALL_ROOT = "{toml_path(install_root)}"
+ROOK_DATA_DIR = "{toml_path(data_root)}"
+ROOK_MODE = "release"
+PYTHONHOME = ""
+PYTHONPATH = ""
+DSPY_CACHEDIR = "{toml_path(data_root / "dspy-cache")}"
+ROOK_DSPY_RESTRICT_PICKLE = "1"
+CHIRP_HOME = "{toml_path(chirp_home)}"
+''',
+        encoding="utf-8",
+    )
+    (plugin_dir / "RookChatService.json").write_text(
+        json.dumps(
+            {
+                "pythonPath": str(venv_python),
+                "workingDirectory": str(install_root / "mcp_server"),
+                "module": "rook.agent.chat.service_main",
+                "pythonPathEntries": [],
+                "environment": {
+                    "ROOK_INSTALL_ROOT": str(install_root),
+                    "ROOK_DATA_DIR": str(data_root),
+                    "ROOK_MODE": "release",
+                    "PYTHONHOME": "",
+                    "PYTHONPATH": "",
+                    "DSPY_CACHEDIR": str(data_root / "dspy-cache"),
+                    "ROOK_DSPY_RESTRICT_PICKLE": "1",
+                    "CHIRP_HOME": str(chirp_home),
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("APPDATA", str(appdata))
+    monkeypatch.setattr(proof.Path, "home", classmethod(lambda cls: home))
+
+    details = proof.verify_effective_configs(
+        paths=SimpleNamespace(install_root=install_root, data_root=data_root),
+        venv_python=venv_python,
+        chirp_home=chirp_home,
+    )
+
+    assert str(codex_config) in details["mcp_configs"]
+    assert details["mcp_config_warnings"][0]["path"] == str(home / ".claude.json")
+    assert details["mcp_config_warnings"][0]["failure_label"] == "mcp_config_missing"
+    assert details["chat_manifest"]["python_path"] == str(venv_python)
+
+
+def test_verify_effective_configs_fails_when_no_mcp_config_is_valid(
+    monkeypatch, tmp_path: Path
+):
+    home = tmp_path / "home"
+    appdata = tmp_path / "AppData" / "Roaming"
+    rook_root = tmp_path / "Rook"
+    install_root = rook_root / "app"
+    data_root = rook_root / "data"
+    chirp_home = install_root / "chirp"
+    venv_python = rook_root / "venv" / "Scripts" / "python.exe"
+    plugin_dir = appdata / "McNeel" / "Rhinoceros" / "8.0" / "Plug-ins" / "RookNative"
+
+    home.mkdir()
+    (home / ".claude.json").write_text('{"mcpServers": {}}', encoding="utf-8")
+    plugin_dir.mkdir(parents=True)
+    (plugin_dir / "RookChatService.json").write_text(
+        json.dumps(
+            {
+                "pythonPath": str(venv_python),
+                "workingDirectory": str(install_root / "mcp_server"),
+                "module": "rook.agent.chat.service_main",
+                "pythonPathEntries": [],
+                "environment": {
+                    "ROOK_INSTALL_ROOT": str(install_root),
+                    "ROOK_DATA_DIR": str(data_root),
+                    "ROOK_MODE": "release",
+                    "PYTHONHOME": "",
+                    "PYTHONPATH": "",
+                    "DSPY_CACHEDIR": str(data_root / "dspy-cache"),
+                    "ROOK_DSPY_RESTRICT_PICKLE": "1",
+                    "CHIRP_HOME": str(chirp_home),
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("APPDATA", str(appdata))
+    monkeypatch.setattr(proof.Path, "home", classmethod(lambda cls: home))
+
+    with pytest.raises(proof.ProofFailure) as exc:
+        proof.verify_effective_configs(
+            paths=SimpleNamespace(install_root=install_root, data_root=data_root),
+            venv_python=venv_python,
+            chirp_home=chirp_home,
+        )
+
+    assert exc.value.failure_label == "mcp_config_missing"
+    assert exc.value.details["mcp_config_warnings"][0]["path"] == str(home / ".claude.json")
+
+
 def test_verify_chat_manifest_rejects_stale_python(tmp_path: Path):
     plugin_dir = tmp_path / "RookNative"
     plugin_dir.mkdir()

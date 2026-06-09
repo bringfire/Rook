@@ -652,6 +652,8 @@ def validate(
         doctor_cmd.append("--claude")
     if install_codex:
         doctor_cmd.append("--codex")
+    if install_claude or install_codex:
+        doctor_cmd.append("--fix")
     if install_plugins:
         doctor_cmd.append("--plugins")
 
@@ -882,22 +884,30 @@ def main() -> int:
     # Step 3: Generate user-level MCP config (includes CHIRP_HOME if Chirp installed)
     _, data_dir, _ = get_runtime_paths(runtime_root)
     if args.claude:
-        configure_claude_code(install_dir, data_dir, managed_python_path, mcp_server_dir, chirp_dir)
+        if not configure_claude_code(install_dir, data_dir, managed_python_path, mcp_server_dir, chirp_dir):
+            print("\nERROR: Failed to configure Claude Code MCP registration.")
+            return 1
     else:
         print("Claude Code/Desktop not selected - skipping Claude config.")
 
     # Step 4: Configure Claude Desktop
     if args.claude:
-        configure_claude_desktop(install_dir, data_dir, managed_python_path, mcp_server_dir, chirp_dir)
+        if not configure_claude_desktop(install_dir, data_dir, managed_python_path, mcp_server_dir, chirp_dir):
+            print("\nERROR: Failed to configure Claude Desktop MCP registration.")
+            return 1
 
     # Step 5: Configure OpenAI Codex CLI (if requested or detected)
     if args.codex:
-        configure_codex(install_dir, data_dir, managed_python_path, mcp_server_dir, chirp_dir)
+        if not configure_codex(install_dir, data_dir, managed_python_path, mcp_server_dir, chirp_dir):
+            print("\nERROR: Failed to configure Codex MCP registration.")
+            return 1
     else:
         print("Codex not selected - skipping Codex config.")
 
     # Step 6: Copy curated Codex skills to ~/.codex/skills (Claude Code skills/hooks come from the marketplace plugin)
-    install_user_assets(install_dir, install_claude=args.claude, install_codex=args.codex)
+    if not install_user_assets(install_dir, install_claude=args.claude, install_codex=args.codex):
+        print("\nERROR: Failed to copy selected user agent assets.")
+        return 1
 
     # Step 7: Write chat service manifest for Rhino panel
     if not write_chat_service_manifest(mcp_server_dir, managed_python_path):

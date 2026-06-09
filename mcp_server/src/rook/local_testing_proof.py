@@ -539,35 +539,59 @@ def verify_effective_configs(
     home = Path.home()
     plugin_dir = appdata / "McNeel" / "Rhinoceros" / "8.0" / "Plug-ins" / "RookNative"
     checked: dict[str, Any] = {}
+    warnings: list[dict[str, str]] = []
 
     for config_path in (
         home / ".claude.json",
         appdata / "Claude" / "claude_desktop_config.json",
     ):
         if config_path.exists():
-            checked[str(config_path)] = verify_json_mcp_config(
-                config_path=config_path,
+            try:
+                checked[str(config_path)] = verify_json_mcp_config(
+                    config_path=config_path,
+                    venv_python=venv_python,
+                    install_root=paths.install_root,
+                    data_root=paths.data_root,
+                    chirp_home=chirp_home,
+                )
+            except ProofFailure as exc:
+                warnings.append(
+                    {
+                        "path": str(config_path),
+                        "failure_label": exc.failure_label,
+                        "error": str(exc),
+                    }
+                )
+
+    codex_config = home / ".codex" / "config.toml"
+    if codex_config.exists():
+        try:
+            checked[str(codex_config)] = verify_codex_mcp_config(
+                config_path=codex_config,
                 venv_python=venv_python,
                 install_root=paths.install_root,
                 data_root=paths.data_root,
                 chirp_home=chirp_home,
             )
-
-    codex_config = home / ".codex" / "config.toml"
-    if codex_config.exists():
-        checked[str(codex_config)] = verify_codex_mcp_config(
-            config_path=codex_config,
-            venv_python=venv_python,
-            install_root=paths.install_root,
-            data_root=paths.data_root,
-            chirp_home=chirp_home,
-        )
+        except ProofFailure as exc:
+            warnings.append(
+                {
+                    "path": str(codex_config),
+                    "failure_label": exc.failure_label,
+                    "error": str(exc),
+                }
+            )
 
     if not checked:
-        raise ProofFailure("mcp_config_missing", "no MCP config files were found to verify")
+        raise ProofFailure(
+            "mcp_config_missing",
+            "no valid MCP config files were found to verify",
+            {"mcp_config_warnings": warnings},
+        )
 
     return {
         "mcp_configs": checked,
+        "mcp_config_warnings": warnings,
         "chat_manifest": verify_chat_manifest(
             plugin_dir=plugin_dir,
             venv_python=venv_python,

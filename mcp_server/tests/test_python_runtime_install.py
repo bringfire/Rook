@@ -386,6 +386,98 @@ def test_post_install_main_fails_when_chat_manifest_write_fails(
     assert post_install.main() == 1
 
 
+def test_post_install_main_fails_when_selected_codex_assets_fail(
+    tmp_path: Path, monkeypatch
+) -> None:
+    post_install = load_post_install()
+    install_dir = tmp_path / "app"
+    mcp_server_dir = install_dir / "mcp_server"
+    mcp_server_dir.mkdir(parents=True)
+    managed_python = tmp_path / "Rook" / "venv" / "Scripts" / "python.exe"
+    managed_python.parent.mkdir(parents=True)
+    managed_python.write_text("fake", encoding="utf-8")
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "post_install.py",
+            "--install-dir",
+            str(install_dir),
+            "--mcp-server-dir",
+            str(mcp_server_dir),
+            "--runtime-root",
+            str(tmp_path / "Rook"),
+            "--codex",
+            "--skip-validation",
+        ],
+    )
+    monkeypatch.setattr(post_install, "install_mcp_server", lambda *args, **kwargs: managed_python)
+    monkeypatch.setattr(post_install, "configure_codex", lambda *args, **kwargs: True)
+    monkeypatch.setattr(post_install, "install_user_assets", lambda *args, **kwargs: False)
+    monkeypatch.setattr(post_install, "write_chat_service_manifest", lambda *args, **kwargs: True)
+    monkeypatch.setattr(post_install, "create_env_examples", lambda *args, **kwargs: None)
+
+    assert post_install.main() == 1
+
+
+def test_post_install_validation_invokes_doctor_fix_for_selected_clients(
+    tmp_path: Path, monkeypatch
+) -> None:
+    post_install = load_post_install()
+    install_dir = tmp_path / "Rook" / "app"
+    runtime_root = tmp_path / "Rook"
+    mcp_server_dir = install_dir / "mcp_server"
+    mcp_server_dir.mkdir(parents=True)
+    (runtime_root / "venv").mkdir(parents=True)
+    (runtime_root / "data").mkdir()
+    (runtime_root / "logs").mkdir()
+    chirp_python = install_dir / "chirp" / ".venv" / "Scripts" / "python.exe"
+    chirp_python.parent.mkdir(parents=True)
+    chirp_python.write_text("fake", encoding="utf-8")
+    python_path = str(runtime_root / "venv" / "Scripts" / "python.exe")
+    commands = []
+
+    class Completed:
+        returncode = 0
+        stdout = json.dumps(
+            {
+                "checks": [
+                    {"name": "Claude Code config", "ok": True},
+                    {"name": "Codex config", "ok": True},
+                    {"name": "Codex skills installed", "ok": True},
+                ],
+                "warnings": [],
+                "fixes_applied": [
+                    "updated C:/Users/test/.claude.json",
+                    "updated C:/Users/test/.codex/config.toml",
+                ],
+            }
+        )
+        stderr = ""
+
+    def fake_run(command, **kwargs):
+        commands.append(command)
+        return Completed()
+
+    monkeypatch.setattr(post_install.subprocess, "run", fake_run)
+
+    assert post_install.validate(
+        install_dir=install_dir,
+        runtime_root=runtime_root,
+        python_path=python_path,
+        install_plugins=False,
+        install_claude=True,
+        install_codex=True,
+        chirp_dir=install_dir / "chirp",
+    )
+
+    doctor_command = next(command for command in commands if "-m" in command and "rook" in command)
+    assert "--fix" in doctor_command
+    assert "--claude" in doctor_command
+    assert "--codex" in doctor_command
+
+
 def test_release_chat_manifest_has_no_source_pythonpath_entries(tmp_path: Path) -> None:
     runtime = load_runtime_install()
     manifest = runtime.build_chat_service_manifest(

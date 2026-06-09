@@ -429,7 +429,8 @@ begin
   begin
     Log('Post-install failed: post_install.py exited with code ' + IntToStr(ResultCode));
     MsgBox(
-      'Rook Python setup failed and the installation cannot be treated as complete.' + #13#10 + #13#10 +
+      'Rook post-install finalization failed and the installation cannot be treated as complete.' + #13#10 + #13#10 +
+      'This final step configures the bundled Python runtime, MCP client entries, Codex skills, and Rhino chat manifest.' + #13#10 + #13#10 +
       'Close Rhino/Revit and any Rook Python processes, then rerun the installer repair flow. ' +
       'If the failure repeats, collect the installer log before publishing this build.',
       mbCriticalError, MB_OK);
