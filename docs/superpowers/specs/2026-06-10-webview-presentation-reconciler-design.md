@@ -107,11 +107,26 @@ in-flight reconcile per surface, latest-wins coalescing of trigger requests.
 
 ### Desired-visible ownership and generation model
 
-- `DesiredVisible` is set only by the lifecycle layer:
-  - `true`: panel shown / logically open.
-  - `false` (durable hide): panel closing, panel disposed, lifecycle `Hide`
-    decision (tab-unselected / panel actually hidden per existing adapter
-    semantics — unchanged from today's Knowledge behavior).
+`DesiredVisible` is set only by the lifecycle layer. The exact semantics are
+per surface kind — this is the boundary that prevents host-probe transients
+from re-entering the decision path one layer up:
+
+| Surface kind | Event | DesiredVisible effect |
+|---|---|---|
+| Dedicated panel (Vision, Knowledge) | `PanelClosing` / dispose | `false` (durable) |
+| Dedicated panel | `PanelHidden` with visible-anywhere `false` after a real hide (not `HideOnDeactivate`) | `false` (durable) |
+| Dedicated panel | selected-tab probe `false`, `HideOnDeactivate`, app inactive, HWND chain / client-rect readings | **no change** — never durable hide |
+| Chat internal tab surface | internal tab unselected | `false` for that tab surface (Chat's own tab control is authoritative, not a Rhino probe) |
+| Chat internal tab surface | internal tab selected | `true` |
+| All surfaces | renderer-hidden probe result | **never changes DesiredVisible** — health symptom only |
+
+A correctly tabbed-behind dedicated panel therefore keeps
+`DesiredVisible=true`; its renderer legitimately reports `hidden`, bounded
+repair attempts no-op harmlessly inside the hidden host window, and the
+sequence terminates in Degraded-with-annotation — **never reload** (see
+repair sequence). Reselecting the tab fires `PanelShown`, which reconciles
+and repairs if genuinely stuck.
+
 - `Generation` is a per-surface monotonic counter, incremented on: durable
   hide, close/dispose, panel shown, and app active/inactive change.
 - Every delayed continuation (repair gap timer, confirmation probe, queued
@@ -135,9 +150,17 @@ JSON.stringify({
 })
 ```
 
+Parsing note (implementation requirement): WebView2 `ExecuteScriptAsync`
+returns the script result as a JSON-encoded *string* — the payload above
+arrives double-encoded and must be unquoted/decoded before parsing. This is a
+known source of false negatives in WebView2 code and gets an explicit unit
+test.
+
 Outcomes:
 
-- `Healthy`: parsed payload with `visibilityState == "visible"`.
+- `Healthy`: parsed payload with `visibilityState == "visible"`. Note this
+  certifies only the renderer's belief, not compositor output — see
+  *Scope of the probe* below.
 - `RendererHidden`: parsed payload with `visibilityState == "hidden"`.
 - `RendererUnresponsive`: no answer within `ProbeTimeoutMs`, or
   `ExecuteScriptAsync` faulted. This is a health classification — renderer
@@ -145,8 +168,20 @@ Outcomes:
   relied on. It does **not** claim the renderer process is dead (causes
   include dead renderer, blocked browser process, navigation in progress,
   disposed controller, host transition timing).
+- `ProbeInvalid`: an answer arrived but failed to decode/parse. Handled the
+  same as `RendererUnresponsive` (bounded reload path), recorded distinctly
+  in the ring.
 
 The full payload is recorded in the diagnostics ring on every probe.
+
+Scope of the probe: `Healthy` covers the live-proven stuck-hidden-renderer
+class. A renderer that reports `visible` while the compositor shows stale
+pixels (WebView2Feedback #5574 class) is **not** detected by this probe —
+that class was not captured in this investigation and is handled by the
+operator-forced repair path (the `Repair=Yes` affordance runs the gapped
+toggle regardless of probe result). If field evidence later shows a
+visible-but-not-compositing recurrence, a `VisibleButSuspect` classification
+can be added without changing this architecture.
 
 ### Repair sequence (exact, bounded)
 
@@ -165,13 +200,24 @@ On a reconcile trigger with `DesiredVisible=true` and app active:
       g. confirmation probe (after ConfirmDelayMs)
  4. still RendererHidden -> repair attempt 2 (same sequence, same guards)
  5. confirmation probe
- 6. still RendererHidden, or any probe RendererUnresponsive
-                        -> one CoreWebView2.Reload()  (re-runs document-
-                           created scripts incl. bridge shim; DocumentLoaded
-                           then triggers a fresh reconcile)
- 7. if the post-reload reconcile fails again -> Degraded state: ring-logged,
-    surfaced once via RhinoApp.WriteLine, NO further automatic action until
-    the next external trigger. No loops.
+ 6. still RendererHidden  -> Degraded state, ring-logged with lifecycle
+                             annotations (selected-tab, visible-anywhere) so
+                             an operator can distinguish "legitimately
+                             tabbed-behind" from "stuck". NO reload — a
+                             correctly hidden panel must never be reloaded.
+ 7. RendererUnresponsive or ProbeInvalid (at any probe)
+                          -> one CoreWebView2.Reload()  (re-runs document-
+                             created scripts incl. bridge shim), AND a
+                             scheduled post-reload confirmation reconcile
+                             (generation-guarded, after ReloadConfirmDelayMs)
+                             that runs even if DocumentLoaded never fires —
+                             the root-cause evidence showed document rebuilds
+                             can emit zero events, so DocumentLoaded is an
+                             additional trigger, never the only post-reload
+                             path.
+ 8. if the post-reload confirmation reconcile fails again -> Degraded state:
+    ring-logged, surfaced once via RhinoApp.WriteLine, NO further automatic
+    action until the next external trigger. No loops.
 ```
 
 On a reconcile trigger with `DesiredVisible=false` (durable hide only):
@@ -182,9 +228,10 @@ construction.
 Named constants (single source of truth, internal):
 
 ```text
-RepairGapMs      = 200
-ConfirmDelayMs   = 500
-ProbeTimeoutMs   = 2000
+RepairGapMs          = 200
+ConfirmDelayMs       = 500
+ProbeTimeoutMs       = 2000
+ReloadConfirmDelayMs = 3000
 MaxRepairAttemptsPerTrigger = 2
 MaxReloadsPerTrigger        = 1
 ```
@@ -221,9 +268,14 @@ Deleted:
 Kept:
 
 - `HostedPanelLifecycleAdapter` / `HostedPanelLifecycleCoordinator` —
-  unchanged. They own Rhino lifecycle interpretation (show/hide/defer/close)
-  and remain the sole source of durable desired state. Their HWND/selected
-  probes stay where they are today.
+  classes unchanged. They own Rhino lifecycle interpretation
+  (show/hide/defer/close) and remain the input to durable desired state.
+  What changes is the panels' **mapping** of adapter decisions, per the
+  desired-visible table: on dedicated panels, a probe-driven `Hide`
+  (tab-unselected / selected-visibility) is recorded as a ring annotation
+  and does NOT set `DesiredVisible=false`; only `Close`, dispose, and
+  real-hide-with-visible-anywhere-false do. Chat's internal tab selection
+  keeps mapping to per-tab desired state as today.
 - In-memory diagnostics ring (extended: probe payloads, repair outcomes,
   generation, trigger source), bounded as today.
 - Process-failure recovery (`ProcessFailed` classification) — unchanged.
@@ -242,9 +294,11 @@ command was unreachable through the MCP safe-command bridge. Therefore, as an
 **acceptance criterion** of this design, not a nice-to-have:
 
 1. `RookDumpVisionPresentationState` is generalized to all `RookWebSurface`
-   panels and gains an optional `Repair=Yes` mode that runs the exact repair
-   sequence once (operator/field-evidence path; not normal UX — automatic
-   convergence remains the product behavior).
+   panels and gains an optional `Repair=Yes` mode that runs the gapped-toggle
+   repair once **regardless of probe result** (this is the recovery path for
+   any visible-but-not-compositing failure the probe cannot detect;
+   operator/field-evidence path, not normal UX — automatic convergence
+   remains the product behavior).
 2. Dump and repair are exposed through a typed companion-bridge route (and
    MCP tool) so they are reachable without keyboard/manual command entry.
 
@@ -267,10 +321,19 @@ runs on Chat and Knowledge in the same session.
 - generation bump during gap → repair aborts, controller untouched
 - durable hide during gap → repair aborts
 - repair attempt bounding (2) and reload bounding (1), then Degraded
-- `RendererUnresponsive` → single reload path
+- persistent `RendererHidden` after bounded repairs → Degraded, **never
+  reload** (the tabbed-behind case)
+- `RendererUnresponsive` → single reload + scheduled post-reload
+  confirmation reconcile that runs **without** a `DocumentLoaded` event
+- `ProbeInvalid` (malformed/undecodable result) → classified, reload path
+- `ExecuteScriptAsync` double-encoded result is decoded correctly (a
+  JSON-encoded string containing JSON)
 - trigger while app inactive → recorded, executed on next activation only
 - coalescing: N triggers → one in-flight reconcile, latest generation wins
 - durable hide → `IsVisible=false`, no probe, no toggle
+- desired-visible table: selected-tab false / HideOnDeactivate / HWND
+  readings never produce durable hide on dedicated panels; Chat internal
+  tab unselected does for that tab surface
 
 ### Live validation matrix (merge gate, ring dump captured per scenario)
 
@@ -302,7 +365,10 @@ General:
 
 - A captured stuck-renderer state self-heals on the next return edge without
   re-dock, reload-by-hand, or panel reopen.
-- Clicking a dark panel heals it (all surfaces).
+- Clicking a dark panel heals it (all surfaces) **for the captured
+  stuck-hidden-renderer class**; visible-but-not-compositing failures (not
+  observed in this investigation) are recoverable via the operator
+  `Repair=Yes` path.
 - No present-side effects ever execute while the app is inactive (verified
   by ring inspection across the matrix).
 - The #192 wedge suite passes with full Rhino responsiveness.
