@@ -33,7 +33,7 @@ $env:ROOK_PANEL_LIFECYCLE_TRACE='1'; & "C:\Program Files\Rhino 8\System\Rhino.ex
 ```powershell
 Get-Content "$env:APPDATA\Rook\logs\panel-lifecycle.log" -Tail 60
 ```
-Expected: `event=PanelShown` lines for `RookVisionPanel` at each reselect timestamp.
+Expected: the trace records `event=Reconcile` / `event=DeferredRetry` lines (NOT a literal `PanelShown` event). A reselect that flowed through `PanelShown` appears as `panel=RookVisionPanel ... event=Reconcile ... reason=Show` (or `ShowOnDeactivate`) at the reselect timestamp. Correlate timestamps with your reselect actions.
 - [ ] **Step 1.4:** Record the verdict at the END of this plan file under "Checkpoint A verdict". If `PanelShown` does NOT fire on reselect: Task 7 must additionally subscribe Eto `Shown` and rely on `GotFocus`/`SizeChanged` (already in the trigger table) — note which events DID appear in the trace at reselect and list them in the verdict so Task 7 wires them.
 - [ ] **Step 1.5:** Close Rhino; clear the env var (`Remove-Item Env:ROOK_PANEL_LIFECYCLE_TRACE`).
 
@@ -215,13 +215,13 @@ namespace Rook.UI.Web
     internal enum ReconcileDisposition
     {
         NoOpHealthy,
-        Repaired,
+        Repaired,              // includes recovered-after-reload
         DegradedHidden,        // persistent RendererHidden — NEVER reload
-        ReloadIssued,          // unresponsive/invalid → reload + scheduled confirm
-        DegradedUnresponsive,  // post-reload still bad
+        DegradedUnresponsive,  // post-reload confirm still bad
         DurablyHidden,         // DesiredVisible=false → controller hidden
         SkippedInactive,       // queued for next activation
-        AbortedStale           // generation changed mid-flight
+        AbortedStale,          // generation changed mid-flight
+        CoalescedPending       // arrived mid-reconcile; latched, runs after
     }
 
     internal static class ReconcilerTiming
@@ -331,14 +331,26 @@ namespace Rook.Tests.UI.Web
         }
 
         [Fact]
-        public async Task Unresponsive_ReloadsOnceAndOnlyOnce()
+        public async Task Unresponsive_Reloads_ThenConfirmsHealthy_IsRepaired()
         {
             var (r, h) = Make();
             h.ProbeAnswers.Enqueue(Unresponsive());
+            h.ProbeAnswers.Enqueue(Healthy()); // post-reload confirmation probe
             var d = await r.ReconcileAsync("test");
-            Assert.Equal(ReconcileDisposition.ReloadIssued, d);
-            Assert.Contains("reload", h.Actions);
+            Assert.Equal(ReconcileDisposition.Repaired, d);
             Assert.Equal(1, h.Actions.FindAll(a => a == "reload").Count);
+            Assert.Contains("delay=3000", h.Actions); // ReloadConfirmDelayMs, no DocumentLoaded needed
+        }
+
+        [Fact]
+        public async Task Unresponsive_ReloadConfirmStillBad_DegradedOneReloadOnly()
+        {
+            var (r, h) = Make();
+            h.ProbeAnswers.Enqueue(Unresponsive());
+            h.ProbeAnswers.Enqueue(Unresponsive()); // post-reload confirm also bad
+            var d = await r.ReconcileAsync("test");
+            Assert.Equal(ReconcileDisposition.DegradedUnresponsive, d);
+            Assert.Equal(1, h.Actions.FindAll(a => a == "reload").Count); // never two
         }
 
         [Fact]
@@ -346,7 +358,30 @@ namespace Rook.Tests.UI.Web
         {
             var (r, h) = Make();
             h.ProbeAnswers.Enqueue(new PresentationProbeReport(ProbeOutcome.ProbeInvalid, "junk"));
-            Assert.Equal(ReconcileDisposition.ReloadIssued, await r.ReconcileAsync("test"));
+            h.ProbeAnswers.Enqueue(Healthy());
+            Assert.Equal(ReconcileDisposition.Repaired, await r.ReconcileAsync("test"));
+            Assert.Contains("reload", h.Actions);
+        }
+
+        [Fact]
+        public async Task TriggerDuringRepairGap_CoalescesAndRunsAfter()
+        {
+            var (r, h) = Make();
+            h.ProbeAnswers.Enqueue(Hidden());   // first reconcile: needs repair
+            h.ProbeAnswers.Enqueue(Healthy());  // first reconcile: confirm
+            h.ProbeAnswers.Enqueue(Healthy());  // coalesced second reconcile: probe
+            var fired = false;
+            h.OnDelay = () =>
+            {
+                if (fired) return;
+                fired = true;
+                // A trigger lands mid-gap: must NOT be dropped.
+                var d2 = r.ReconcileAsync("second-trigger").Result;
+                Assert.Equal(ReconcileDisposition.CoalescedPending, d2);
+            };
+            await r.ReconcileAsync("first-trigger");
+            // Three probes total: first, confirm, and the coalesced re-run.
+            Assert.Equal(3, h.Actions.FindAll(a => a == "probe").Count);
         }
 
         [Fact]
@@ -449,12 +484,35 @@ namespace Rook.UI.Web
             }
         }
 
+        private string? _pendingReason;
+
         public async Task<ReconcileDisposition> ReconcileAsync(string reason)
         {
-            if (_reconciling) return ReconcileDisposition.AbortedStale; // coalesce: latest caller re-triggers
+            if (_reconciling)
+            {
+                // Latest-wins latch: never drop a trigger that lands while a
+                // reconcile (e.g. a repair gap) is in flight.
+                _pendingReason = reason;
+                return ReconcileDisposition.CoalescedPending;
+            }
+
             _reconciling = true;
-            try { return await ReconcileCoreAsync(reason); }
-            finally { _reconciling = false; }
+            try
+            {
+                var disposition = await ReconcileCoreAsync(reason);
+                while (_pendingReason != null)
+                {
+                    var next = _pendingReason;
+                    _pendingReason = null;
+                    disposition = await ReconcileCoreAsync(next);
+                }
+                return disposition;
+            }
+            finally
+            {
+                _reconciling = false;
+                _pendingReason = null;
+            }
         }
 
         private async Task<ReconcileDisposition> ReconcileCoreAsync(string reason)
@@ -483,7 +541,7 @@ namespace Rook.UI.Web
             if (report.Outcome == ProbeOutcome.RendererUnresponsive ||
                 report.Outcome == ProbeOutcome.ProbeInvalid)
             {
-                return IssueReload(reason);
+                return await IssueReloadAsync(gen, reason);
             }
 
             // RendererHidden: bounded gapped-toggle repair.
@@ -501,7 +559,7 @@ namespace Rook.UI.Web
                     return ReconcileDisposition.Repaired;
                 if (confirm.Outcome == ProbeOutcome.RendererUnresponsive ||
                     confirm.Outcome == ProbeOutcome.ProbeInvalid)
-                    return IssueReload(reason);
+                    return await IssueReloadAsync(gen, reason);
             }
 
             // Persistent RendererHidden: legitimately-hidden hosts land here.
@@ -528,14 +586,26 @@ namespace Rook.UI.Web
             return null;
         }
 
-        private ReconcileDisposition IssueReload(string reason)
+        /// <summary>
+        /// One bounded reload, then an in-core confirmation that runs after
+        /// ReloadConfirmDelayMs INDEPENDENT of DocumentLoaded (spec review
+        /// P1: zero-event document rebuilds must still be confirmed).
+        /// DocumentLoaded remains an additional external trigger.
+        /// </summary>
+        private async Task<ReconcileDisposition> IssueReloadAsync(long gen, string reason)
         {
             _host.Record("reload", reason);
             _host.ReloadWebView();
-            // Post-reload confirmation is scheduled by the host wiring
-            // (RookWebSurface) via a generation-guarded delayed reconcile —
-            // independent of DocumentLoaded (spec review P1-1).
-            return ReconcileDisposition.ReloadIssued;
+            await _host.DelayAsync(ReconcilerTiming.ReloadConfirmDelayMs);
+            if (IsStale(gen)) return ReconcileDisposition.AbortedStale;
+
+            var confirm = await _host.ProbeAsync();
+            _host.Record("reload-confirm", confirm.Outcome.ToString());
+            if (confirm.Outcome == ProbeOutcome.Healthy)
+                return ReconcileDisposition.Repaired;
+
+            _host.Record("degraded-unresponsive", reason);
+            return ReconcileDisposition.DegradedUnresponsive;
         }
 
         private bool IsStale(long gen) => gen != _generation || !DesiredVisible;
@@ -639,15 +709,69 @@ namespace Rook.UI.Web
 
 ### Task 5: Typed dump/repair ops (BEFORE deleting anything)
 
-Adds `get_presentation_diagnostics` and `repair_presentation` as vision-dispatch ops so MCP can reach them (spec mandatory scope). `repair_presentation` runs the gapped toggle REGARDLESS of probe result (operator-forced path).
+Adds `get_presentation_diagnostics` and `repair_presentation` as vision-dispatch ops, reachable END-TO-END: MCP tool → NEW native C++ route → P/Invoke `vision_dispatch` → managed handler → **all-surface registry** (not Vision-only). `repair_presentation` runs the gapped toggle REGARDLESS of probe result (operator-forced path).
 
 **Files:**
-- Modify: `src/Rook/UI/Vision/VisionWebSurface.cs` (OpRoutes ~line 176; both new ops `VisionOpRoute.Ui` — they touch the controller/panel state, so UI thread)
-- Modify: `src/Rook/InternalBridge/NativeGhBridgeRegistrar.cs` (`ExpectedVisionOps` set ~line 73; switch ~line 1625)
-- Modify: `src/Rook/Handlers/VisionHandler.cs` (two new op implementations on the Ui dispatch path)
-- Modify: `src/Rook/UI/Vision/RookVisionPanel.cs` (add `internal static string RepairPresentation()` that invokes the forced repair on each live instance via its surface)
-- Modify: `mcp_server/src/rook/server.py` (new MCP tool `rhino_vision_presentation`, pattern-matched to `rhino_vision_artifacts` ~line 12046: action `dump` → existing dispatch; action `repair` → repair op)
-- Test: `src/Rook.Tests/Handlers/VisionHandlerTests.cs` (extend), `src/Rook.Tests/UI/Vision/VisionWebSurfaceTests.cs` (op-allowlist parity test already exists — extend)
+- Create: `src/Rook/UI/Web/WebSurfacePresentationRegistry.cs` (substrate-level registry — spec requires Chat/Knowledge coverage, so Vision-only static enumeration is insufficient)
+- Modify: `src/Rook/UI/Web/RookWebSurface.cs` (assign `SurfaceId = ResourceRoot + ":" + counter`; `Register` in `CreateWebContent`, `Deregister` in `Dispose`)
+- Modify: `src/Rook/UI/Vision/VisionWebSurface.cs` (OpRoutes ~line 176; both new ops `VisionOpRoute.Ui`)
+- Modify: `src/Rook/InternalBridge/NativeGhBridgeRegistrar.cs` (`ExpectedVisionOps` set ~line 73; switch ~line 1625 → UI-thread branch, same as `capture_depth`)
+- Modify: `src/Rook/Handlers/VisionHandler.cs` (two new ops on the Ui dispatch path; **use the file's existing `Ok(...)`/`Fail(...)` envelope helpers — do NOT invent new helper names; follow whatever the surrounding op cases use**)
+- Modify: `src/RookNative/RookServer.cpp` (~line 1026, next to the `/vision/artifacts` registrations): register `POST /vision/presentation`; the handler forwards the request body through the same `vision_dispatch` P/Invoke trampoline the other `/vision/*` handlers use — mirror `HandleVisionGetArtifact`'s forwarding implementation in the native `Handlers` unit, body = `{"op":"get_presentation_diagnostics"}` or `{"op":"repair_presentation"}` passed through verbatim from the HTTP body
+- Modify: `mcp_server/src/rook/server.py` (new MCP tool `rhino_vision_presentation`, pattern-matched to `rhino_vision_artifacts` ~line 12046: `action` arg `dump|repair` → `call_rhino("/vision/presentation", method="POST", body={"op": ...})`; there is NO pre-existing generic `/vision/dispatch` HTTP route — the new native route above is what makes this reachable)
+- Test: `src/Rook.Tests/Handlers/VisionHandlerTests.cs` (extend), `src/Rook.Tests/UI/Vision/VisionWebSurfaceTests.cs` (extend), `src/Rook.Tests/UI/Web/WebSurfacePresentationRegistryTests.cs` (create)
+
+- [ ] **Step 5.0: Registry (TDD).** Failing tests first in `WebSurfacePresentationRegistryTests.cs`: register two fake surfaces (test subclass of `RookWebSurface` as used by existing surface tests) → `DumpAll()` JSON contains both surface ids; dispose one → `DumpAll()` contains only the survivor; `RepairAll("test")` returns one `surfaceId:disposition` segment per live surface. Implementation:
+```csharp
+using System.Collections.Generic;
+using System.Text.Json;
+
+namespace Rook.UI.Web
+{
+    /// <summary>All live web surfaces, for substrate-wide diagnostics and
+    /// operator repair. Weak registration is unnecessary: surfaces
+    /// deterministically deregister in Dispose.</summary>
+    internal static class WebSurfacePresentationRegistry
+    {
+        private static readonly object s_lock = new();
+        private static readonly List<RookWebSurface> s_surfaces = new();
+
+        public static void Register(RookWebSurface surface)
+        { lock (s_lock) { if (!s_surfaces.Contains(surface)) s_surfaces.Add(surface); } }
+
+        public static void Deregister(RookWebSurface surface)
+        { lock (s_lock) { s_surfaces.Remove(surface); } }
+
+        public static string DumpAll()
+        {
+            lock (s_lock)
+            {
+                var dump = new List<object>();
+                foreach (var s in s_surfaces)
+                    dump.Add(new
+                    {
+                        surfaceId = s.SurfaceId,
+                        disposed = s.IsDisposed,
+                        entries = s.GetHostPresentationDiagnosticEntries()
+                    });
+                return JsonSerializer.Serialize(dump,
+                    new JsonSerializerOptions { WriteIndented = true });
+            }
+        }
+
+        public static string RepairAll(string reason)
+        {
+            RookWebSurface[] snapshot;
+            lock (s_lock) { snapshot = s_surfaces.ToArray(); }
+            var results = new List<string>();
+            foreach (var s in snapshot)
+                results.Add(s.SurfaceId + ":" + s.ForceRepairPresentation(reason));
+            return string.Join(";", results);
+        }
+    }
+}
+```
+(`ForceRepairPresentation` is defined in Task 6; for THIS task add it to `RookWebSurface` as a stub that calls the reconciler's `ForceRepairAsync` — see Step 5.4.)
 
 - [ ] **Step 5.1:** Write failing test in `VisionWebSurfaceTests.cs`: assert `VisionWebSurface.OpRoutes` contains `get_presentation_diagnostics` and `repair_presentation` mapped to `VisionOpRoute.Ui`:
 ```csharp
@@ -661,35 +785,19 @@ public void PresentationOps_AreUiRouted(string op)
 }
 ```
 - [ ] **Step 5.2:** Run — FAIL. Then add both ops to `OpRoutes` (`VisionOpRoute.Ui`), to `ExpectedVisionOps` in `NativeGhBridgeRegistrar`, and to the bridge switch routing them to `Vision.Dispatch(reqJson)` (UI-thread branch, same as `capture_depth`).
-- [ ] **Step 5.3:** Implement the two ops in `VisionHandler.Dispatch`'s op switch:
+- [ ] **Step 5.3:** Implement the two ops in `VisionHandler.Dispatch`'s op switch, **using the file's existing `Ok(...)`/`Fail(...)` helpers** (match the exact shape of neighboring op cases — do not introduce a new envelope helper):
 ```csharp
 case "get_presentation_diagnostics":
-    return Envelope(success: true,
-        data: RookVisionPanel.DumpPresentationDiagnostics());
+    return Ok(WebSurfacePresentationRegistry.DumpAll());
 case "repair_presentation":
-    return Envelope(success: true,
-        data: RookVisionPanel.RepairPresentation());
+    return Ok(WebSurfacePresentationRegistry.RepairAll("operator-repair"));
 ```
-(Match the handler's existing envelope helper; follow the file's established `{success,data}` shape exactly.)
-- [ ] **Step 5.4:** Implement `RookVisionPanel.RepairPresentation()`:
-```csharp
-internal static string RepairPresentation()
-{
-    lock (s_instancesLock)
-    {
-        var results = new List<string>();
-        foreach (var panel in s_instances)
-            results.Add(panel._surfaceId + ":" +
-                panel._surface.ForceRepairPresentation("operator-repair"));
-        return string.Join(";", results);
-    }
-}
-```
-`ForceRepairPresentation(reason)` lands on `RookWebSurface` in Task 6 (it schedules the gapped toggle unconditionally, generation-guarded). For THIS task, add the method as the real call into the reconciler: `_reconciler.ForceRepairAsync(reason)` — implement `ForceRepairAsync` on the reconciler now (gapped toggle without probe gate, same guards, returns disposition string) with a unit test mirroring `Hidden_RunsGappedToggleInExactOrder` minus the leading probe.
-- [ ] **Step 5.5:** Update `RookDumpVisionPresentationStateCommand`: keep existing behavior; append `RookVisionPanel.RepairPresentation()` invocation when the command is run with the Rhino option `Repair=Yes` (use `Rhino.Input.Custom.GetOption` with a toggle option; default No).
-- [ ] **Step 5.6:** Add MCP tool in `server.py`, following the `rhino_vision_artifacts` registration pattern: name `rhino_vision_presentation`, one required arg `action` (`"dump" | "repair"`), POSTs the corresponding op through the existing `/vision/dispatch` route helper used by other vision ops. Description: "Dump or force-repair WebView panel presentation state (dark-panel diagnostics)."
-- [ ] **Step 5.7:** Run all C# tests: `dotnet test src/Rook.Tests/Rook.Tests.csproj -v minimal` — Expected: PASS. Run Python tests if present for tool registry: `python -m pytest mcp_server/tests -k vision -q`.
-- [ ] **Step 5.8:** Commit: `git add -A; git commit -m "feat: typed dump/repair presentation ops + MCP tool"`
+- [ ] **Step 5.4:** Implement `ForceRepairAsync` on the reconciler now (gapped toggle WITHOUT the probe gate, same generation guards, then one confirmation probe; returns the disposition) plus a unit test mirroring `Hidden_RunsGappedToggleInExactOrder` minus the leading probe. Add `RookWebSurface.ForceRepairPresentation(string reason)` → runs `_reconciler.ForceRepairAsync(reason)` via `Application.Instance.Invoke` (synchronous result for the registry string) and returns the disposition's `ToString()`.
+- [ ] **Step 5.5:** Update `RookDumpVisionPresentationStateCommand`: dump now comes from `WebSurfacePresentationRegistry.DumpAll()` (all surfaces — spec generalization); add a Rhino toggle option `Repair` (default No) via `Rhino.Input.Custom.GetOption`; when Yes, also run `WebSurfacePresentationRegistry.RepairAll("command-repair")` and print the result.
+- [ ] **Step 5.6 (native route):** In `src/RookNative/RookServer.cpp` register `POST /vision/presentation` next to the existing `/vision/artifacts` registrations (~line 1026); implement the native handler by mirroring `HandleVisionGetArtifact`'s vision_dispatch forwarding (request body passes through verbatim; response/status propagated back). Build C++: `cmd /c scripts\build-native.bat`. Expected: clean build.
+- [ ] **Step 5.7 (MCP tool):** Add `rhino_vision_presentation` in `server.py`, following the `rhino_vision_artifacts` registration pattern (~line 12046): one required arg `action` (`"dump" | "repair"`), handler does `call_rhino("/vision/presentation", method="POST", body={"op": "get_presentation_diagnostics" if action == "dump" else "repair_presentation"}, port=port)`. Description: "Dump or force-repair WebView panel presentation state (dark-panel diagnostics)."
+- [ ] **Step 5.8:** Run all C# tests: `dotnet test src/Rook.Tests/Rook.Tests.csproj -v minimal` — Expected: PASS. Run Python tests if present for tool registry: `python -m pytest mcp_server/tests -k vision -q`.
+- [ ] **Step 5.9:** Commit: `git add -A; git commit -m "feat: typed dump/repair presentation route, registry, MCP tool"`
 
 ---
 
@@ -703,7 +811,7 @@ internal static string RepairPresentation()
   - `TrySetControllerVisible(bool)` → existing `SetControllerVisible(controller, visible, reason)` via `TryGetCoreWebView2Controller()`.
   - `TrySetControllerBounds()` → existing `TryBuildControllerTargetBounds()` + `SetControllerBounds(...)`.
   - `NotifyParentWindowPositionChanged()` → existing private method.
-  - `ReloadWebView()` → `_coreWebView2?.Reload()` in try/catch + schedule a generation-guarded delayed reconcile after `ReloadConfirmDelayMs` via `Application.Instance.AsyncInvoke` + `Task.Delay` — **runs even if DocumentLoaded never fires**.
+  - `ReloadWebView()` → `_coreWebView2?.Reload()` in try/catch only — the post-reload confirmation lives INSIDE the reconciler (`IssueReloadAsync`, Task 3) and is unit-tested there; no host-side scheduling needed. `DocumentLoaded` remains an additional external trigger.
   - `DelayAsync(ms)` → `Task.Delay(ms)`.
   - `Record(evt, detail)` → enqueue into the existing `_hostPresentationDiagnostics` ring (reuse `WebViewHostPresentationDiagnosticEntry` with probe payload in `ActionResult`/`Reason` fields, or extend the entry record with `ProbePayload`).
 - [ ] **Step 6.2:** Public surface API: `internal void RequestPresentationReconcile(string reason)` (fire-and-forget `Application.Instance.AsyncInvoke(async () => await _reconciler.ReconcileAsync(reason))`), `internal void SetPresentationDesiredVisible(bool visible, string reason)`, `internal string ForceRepairPresentation(string reason)`.
@@ -729,7 +837,7 @@ internal static string RepairPresentation()
 
 - [ ] **Step 7.1:** `RookVisionPanel`: delete `VisionPanelPresentationState` usage, probes-into-facts plumbing, and `OnApplicationIsActiveChanged` (surface owns it now). `PanelShown` → `_lifecycle.PanelShown(...)`; apply `PanelDesiredVisibilityPolicy.OnPanelShown` → `_surface.SetPresentationDesiredVisible(true, ...)` + `_surface.RequestPresentationReconcile("PanelShown:" + reason)`; `PanelHidden` → policy with `visibleAnyTab` probed via existing `_visibilityQuery.IsPanelVisibleAnyTab(...)` in try/catch (probe failure → `NoChange`, never durable hide); `PanelClosing` → durable hide + close. Lifecycle adapter `Show` decision → `RequestPresentationReconcile`; `Hide` decision → ring annotation only (call `_surface.RecordPresentationAnnotation("lifecycle-hide", decision.Reason)` — add that thin method to `RookWebSurface`); `Close` decision → `CloseSurface()`. If Checkpoint A found `PanelShown` does NOT fire on reselect, also forward Eto `Shown` on the panel `Content` to `RequestPresentationReconcile("ContentShown")`.
 - [ ] **Step 7.2:** `KnowledgeGraphPanel`: same mapping (it is simpler — replace `ApplyDecision`'s `ReconcileHostVisibility(true/false)` with `RequestPresentationReconcile` / annotation per the dedicated-panel table; `PanelClosing`/dispose → durable hide).
-- [ ] **Step 7.3:** `RookChatPanel` (`ReconcileHostedWebSurfaces`, line ~224): selected tab (`i == tabControl.SelectedIndex`) → `tab.Surface.SetPresentationDesiredVisible(true, ...)` + `RequestPresentationReconcile("TabSelected")`; unselected → `SetPresentationDesiredVisible(false, "TabUnselected")` (per spec: Chat's own tab control is authoritative — durable per-tab). Replace all four `ReconcileHostVisibility` call sites (lines 260/263/280/283).
+- [ ] **Step 7.3:** `RookChatPanel` (`ReconcileHostedWebSurfaces`, line ~224): selected tab (`i == tabControl.SelectedIndex`) → desired visible true + reconcile; unselected → desired visible false (per spec: Chat's own tab control is authoritative — durable per-tab). **Do not assume a `tab.Surface` property exists** — `ChatTab`/`VisionTab` currently expose `ReconcileHostVisibility(bool, string)` forwarding methods (call sites at lines 260/263/280/283). Replace those forwarding methods on the tab classes with `SetPresentationDesiredVisible(bool, string)` + `RequestPresentationReconcile(string)` forwarders to their internal surface (same forwarding pattern the tab classes already use), then update the four call sites.
 - [ ] **Step 7.4:** Rewrite `RookVisionPanelHostTests` to assert: shown→desired-visible true; hidden(HideOnDeactivate)→no change; hidden(Hide)+visibleAnyTab→no change; hidden(Hide)+not visible→durable; closing→durable; probe exception→no change.
 - [ ] **Step 7.5:** `dotnet test src/Rook.Tests/Rook.Tests.csproj -v minimal` — Expected: PASS except old coordinator tests (they go in Task 8). If old tests fail because plumbing was unplugged, proceed to Task 8 in the same sitting — Tasks 7+8 land as consecutive commits, the suite is green at the end of Task 8.
 - [ ] **Step 7.6:** Commit: `git add -A; git commit -m "feat: panels map lifecycle to reconciler desired state"`
@@ -790,7 +898,9 @@ internal static string RepairPresentation()
 
 ## Self-review notes
 
-- Spec coverage: probe contract (T2), reconciler ladder incl. no-reload-on-persistent-hidden and post-reload confirm (T3, T6.1), desired-visible table (T4, T7), typed route + MCP + Repair=Yes (T5), trigger table (T6.3, T7.1), deletions (T8), wedge checkpoint + video case + matrix (T9), rollout gate (T9/T10).
+- Spec coverage: probe contract (T2), reconciler ladder incl. no-reload-on-persistent-hidden, in-core post-reload confirm independent of DocumentLoaded, and latest-wins coalescing (T3), desired-visible table (T4, T7), all-surface registry + native `/vision/presentation` route + MCP tool + Repair option (T5), trigger table (T6.3, T7.1), deletions (T8), wedge checkpoint + video case + matrix (T9), rollout gate (T9/T10).
 - Persistent `RendererHidden` never reloads: enforced in T3 ladder + tested.
+- Coalescing: pending-reason latch, tested via trigger-during-repair-gap.
+- Post-reload confirm: in-core (`IssueReloadAsync`), unit-tested both outcomes.
 - `ExecuteScriptAsync` double-decode: T2 tests.
-- No placeholders: each code step carries the code; T5–T7 reference only members defined in earlier tasks or verified to exist (line-cited in research).
+- Plan review round 2 (Codex): MCP end-to-end via new native route (no generic `/vision/dispatch` HTTP route exists); registry replaces Vision-only enumeration; trace-format expectation corrected for Checkpoint A; `Ok`/`Fail` helper names; no invented `tab.Surface` member.
