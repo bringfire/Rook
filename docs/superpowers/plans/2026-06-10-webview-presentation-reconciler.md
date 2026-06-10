@@ -902,7 +902,22 @@ case "repair_presentation":
 
 ## Checkpoint A verdict
 
-(filled in by Task 1)
+**PASS (2026-06-10 16:36–16:38 UTC, live trace).** Dock-tab reselect reliably
+emits `PanelShown`: every reselect (3× docked + floating cycle) produced
+`event=Reconcile reason=Show action=Show decisionReason=show-ready` for the
+reselected panel and `reason=Hide decisionReason=rhino-panel-tab-unselected`
+for the panel going behind. Task 7 needs NO extra `Content.Shown` forwarding.
+
+**Bonus field evidence (same session):** KnowledgeGraphPanel — legacy path,
+docked, selected — went dark while controller `IsVisible=true` AND renderer
+probe reported `visibilityState: "visible"` (the visible-but-not-compositing
+class the automatic probe cannot detect). The forced gapped toggle
+(hide → 800ms → show) healed it live, user-confirmed. Implications:
+(1) the repair primitive is proven on BOTH failure classes and BOTH code
+paths; (2) the visible-but-not-compositing class is real and current, not
+hypothetical — the operator `Repair=Yes` path is load-bearing, and
+`VisibleButSuspect` auto-detection (spec's named extension point) should be
+revisited after the live matrix measures recurrence frequency.
 
 ## Self-review notes
 
