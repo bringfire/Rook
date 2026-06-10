@@ -523,9 +523,10 @@ namespace Rook.Tests.UI.Web
             Assert.Contains(
                 "protected virtual bool UseHostPresentationCoordinator => false;",
                 surface);
-            Assert.Contains(
-                "protected override bool UseHostPresentationCoordinator => true;",
-                vision);
+            // Reconciler cutover (Task 7): no surface opts into the legacy
+            // coordinator path anymore; the stack itself is deleted in the
+            // follow-up cleanup task.
+            Assert.DoesNotContain("UseHostPresentationCoordinator", vision);
             Assert.Contains("if (!UseHostPresentationCoordinator)", reconcile);
             Assert.Contains(
                 "ReconcileHostVisibility(facts.DesiredVisible, facts.Reason);",

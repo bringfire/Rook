@@ -1,3 +1,4 @@
+using System;
 using Rhino.UI;
 
 namespace Rook.UI.Web
@@ -23,6 +24,25 @@ namespace Rook.UI.Web
             return visibleAnyTab
                 ? DesiredVisibilityChange.NoChange
                 : DesiredVisibilityChange.DurablyHidden;
+        }
+
+        /// <summary>
+        /// Probe-safe variant: <paramref name="probeVisibleAnyTab"/> reads
+        /// Rhino's panel registry, which can throw during teardown or when
+        /// the host window is mid-transition. A probe failure must NEVER
+        /// durably hide the surface — it degrades to NoChange.
+        /// </summary>
+        public static DesiredVisibilityChange OnPanelHidden(
+            ShowPanelReason reason, Func<bool> probeVisibleAnyTab)
+        {
+            try
+            {
+                return OnPanelHidden(reason, probeVisibleAnyTab());
+            }
+            catch
+            {
+                return DesiredVisibilityChange.NoChange;
+            }
         }
 
         public static DesiredVisibilityChange OnPanelClosing()

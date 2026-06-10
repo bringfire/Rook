@@ -65,12 +65,34 @@ namespace Rook.Tests.UI.Chat
         }
 
         [Fact]
-        public void ChatTab_ExposesHostVisibilityReconciliationToOwningPanel()
+        public void ChatTab_ExposesPresentationDesiredVisibilityToOwningPanel()
         {
+            // Reconciler cutover (spec 2026-06-10): Chat's TabControl is
+            // authoritative for hosted tabs — selected maps to durable
+            // desired-visible true (+ reconcile), unselected to false.
             var source = ReadSourceFile("src", "Rook", "UI", "Chat", "ChatTab.cs");
+            var panel = ReadSourceFile("src", "Rook", "UI", "Chat", "RookChatPanel.cs");
 
-            Assert.Contains("internal void ReconcileHostVisibility", source);
-            Assert.Contains("_webSurface.ReconcileHostVisibility", source);
+            Assert.Contains(
+                "internal void SetPresentationDesiredVisible(bool visible, string reason)",
+                source);
+            Assert.Contains(
+                "internal void RequestPresentationReconcile(string reason)",
+                source);
+            Assert.Contains("_webSurface.SetPresentationDesiredVisible", source);
+            Assert.Contains("_webSurface.RequestPresentationReconcile", source);
+            Assert.DoesNotContain("ReconcileHostVisibility", source);
+
+            Assert.Contains(
+                "tab.SetPresentationDesiredVisible(true, sourceReason + \":\" + decision.Reason)",
+                panel);
+            Assert.Contains(
+                "tab.RequestPresentationReconcile(sourceReason + \":\" + decision.Reason)",
+                panel);
+            Assert.Contains(
+                "tab.SetPresentationDesiredVisible(false, sourceReason + \":\" + decision.Reason)",
+                panel);
+            Assert.DoesNotContain("tab.ReconcileHostVisibility", panel);
         }
 
         [Fact]

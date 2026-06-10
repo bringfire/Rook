@@ -86,9 +86,6 @@ namespace Rook.UI.Vision
     /// </summary>
     public sealed class VisionWebSurface : RookWebSurface
     {
-        private Func<WebViewHostPanelPresentationFacts, string, WebViewHostPanelPresentationFacts>?
-            _presentationFactsRefresher;
-
         // ─── Resource contract ────────────────────────────────────────
 
         protected override string ResourceRoot => "Rook.UI.Vision.Resources";
@@ -137,24 +134,6 @@ p { margin: 8px 0; line-height: 1.4; }
             "connect-src 'none';";
 
         protected override string ContentSecurityPolicy => VisionContentSecurityPolicy;
-
-        protected override bool UseHostPresentationCoordinator => true;
-
-        private protected override WebViewHostPanelPresentationFacts RefreshHostPresentationFacts(
-            WebViewHostPanelPresentationFacts facts,
-            string reason)
-        {
-            return _presentationFactsRefresher == null
-                ? facts
-                : _presentationFactsRefresher(facts, reason);
-        }
-
-        internal void SetPresentationFactsRefresher(
-            Func<WebViewHostPanelPresentationFacts, string, WebViewHostPanelPresentationFacts> refresher)
-        {
-            _presentationFactsRefresher = refresher ??
-                throw new ArgumentNullException(nameof(refresher));
-        }
 
         // ─── Op-routing table ─────────────────────────────────────────
 

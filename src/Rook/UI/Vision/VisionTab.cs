@@ -42,10 +42,26 @@ namespace Rook.UI.Vision
             Content = _surface.CreateWebContent();
         }
 
-        internal void ReconcileHostVisibility(bool visible, string reason)
+        /// <summary>
+        /// Durable per-tab desired-visibility forwarder. Chat's own
+        /// TabControl selection is authoritative for hosted tabs —
+        /// selected maps to true, unselected to false (reconciler spec
+        /// 2026-06-10).
+        /// </summary>
+        internal void SetPresentationDesiredVisible(bool visible, string reason)
         {
             if (_closed) return;
-            _surface.ReconcileHostVisibility(visible, reason);
+            _surface.SetPresentationDesiredVisible(visible, reason);
+        }
+
+        /// <summary>
+        /// Level-triggered reconcile request forwarder, used on the
+        /// selected tab.
+        /// </summary>
+        internal void RequestPresentationReconcile(string reason)
+        {
+            if (_closed) return;
+            _surface.RequestPresentationReconcile(reason);
         }
 
         /// <summary>
