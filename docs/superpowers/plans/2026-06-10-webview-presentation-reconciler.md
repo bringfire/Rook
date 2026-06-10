@@ -717,7 +717,7 @@ Adds `get_presentation_diagnostics` and `repair_presentation` as vision-dispatch
 - Modify: `src/Rook/UI/Vision/VisionWebSurface.cs` (OpRoutes ~line 176; both new ops `VisionOpRoute.Ui`)
 - Modify: `src/Rook/InternalBridge/NativeGhBridgeRegistrar.cs` (`ExpectedVisionOps` set ~line 73; switch ~line 1625 → UI-thread branch, same as `capture_depth`)
 - Modify: `src/Rook/Handlers/VisionHandler.cs` (two new ops on the Ui dispatch path; **use the file's existing `Ok(...)`/`Fail(...)` envelope helpers — do NOT invent new helper names; follow whatever the surrounding op cases use**)
-- Modify: `src/RookNative/RookServer.cpp` (~line 1026, next to the `/vision/artifacts` registrations): register `POST /vision/presentation`; the handler forwards the request body through the same `vision_dispatch` P/Invoke trampoline the other `/vision/*` handlers use — mirror `HandleVisionGetArtifact`'s forwarding implementation in the native `Handlers` unit, body = `{"op":"get_presentation_diagnostics"}` or `{"op":"repair_presentation"}` passed through verbatim from the HTTP body
+- Modify: `src/RookNative/RookServer.cpp` (~line 1026, next to the `/vision/artifacts` registrations): register `POST /vision/presentation` with a STRICT `{"action":"dump"|"repair"}` contract — the native handler constructs the managed op body itself and forwards only the two known op JSONs through the `vision_dispatch` trampoline (mirror `HandleVisionGetArtifact`'s forwarding mechanics); any other action → HTTP 400; no user-controlled bytes pass through
 - Modify: `mcp_server/src/rook/server.py` (new MCP tool `rhino_vision_presentation`, pattern-matched to `rhino_vision_artifacts` ~line 12046: `action` arg `dump|repair` → `call_rhino("/vision/presentation", method="POST", body={"op": ...})`; there is NO pre-existing generic `/vision/dispatch` HTTP route — the new native route above is what makes this reachable)
 - Test: `src/Rook.Tests/Handlers/VisionHandlerTests.cs` (extend), `src/Rook.Tests/UI/Vision/VisionWebSurfaceTests.cs` (extend), `src/Rook.Tests/UI/Web/WebSurfacePresentationRegistryTests.cs` (create)
 
@@ -759,19 +759,24 @@ namespace Rook.UI.Web
             }
         }
 
-        public static string RepairAll(string reason)
+        /// <summary>
+        /// Fire-and-forget: schedules an async forced repair per surface on
+        /// the UI thread and returns immediately. NEVER blocks on the gapped
+        /// toggle (200ms gap) — outcomes land in each surface's diagnostics
+        /// ring and are read via a follow-up DumpAll().
+        /// </summary>
+        public static string ScheduleRepairAll(string reason)
         {
             RookWebSurface[] snapshot;
             lock (s_lock) { snapshot = s_surfaces.ToArray(); }
-            var results = new List<string>();
             foreach (var s in snapshot)
-                results.Add(s.SurfaceId + ":" + s.ForceRepairPresentation(reason));
-            return string.Join(";", results);
+                s.SchedulePresentationRepair(reason);
+            return "scheduled:" + snapshot.Length;
         }
     }
 }
 ```
-(`ForceRepairPresentation` is defined in Task 6; for THIS task add it to `RookWebSurface` as a stub that calls the reconciler's `ForceRepairAsync` — see Step 5.4.)
+(`SchedulePresentationRepair` lands on `RookWebSurface` in Step 5.4: `Application.Instance.AsyncInvoke(async () => await _reconciler.ForceRepairAsync(reason))` in try/catch — fully async, no `Invoke`, no `.Result`/`.Wait()`, no UI-thread blocking during the gap. Registry test asserts `ScheduleRepairAll` returns `scheduled:<liveCount>` and that each fake surface received exactly one scheduled-repair request.)
 
 - [ ] **Step 5.1:** Write failing test in `VisionWebSurfaceTests.cs`: assert `VisionWebSurface.OpRoutes` contains `get_presentation_diagnostics` and `repair_presentation` mapped to `VisionOpRoute.Ui`:
 ```csharp
@@ -790,12 +795,15 @@ public void PresentationOps_AreUiRouted(string op)
 case "get_presentation_diagnostics":
     return Ok(WebSurfacePresentationRegistry.DumpAll());
 case "repair_presentation":
-    return Ok(WebSurfacePresentationRegistry.RepairAll("operator-repair"));
+    // Accepted-and-scheduled semantics: returns immediately; the async
+    // gapped toggle runs fire-and-forget on the UI thread; outcomes are
+    // recorded in the ring and read via a follow-up dump.
+    return Ok(WebSurfacePresentationRegistry.ScheduleRepairAll("operator-repair"));
 ```
-- [ ] **Step 5.4:** Implement `ForceRepairAsync` on the reconciler now (gapped toggle WITHOUT the probe gate, same generation guards, then one confirmation probe; returns the disposition) plus a unit test mirroring `Hidden_RunsGappedToggleInExactOrder` minus the leading probe. Add `RookWebSurface.ForceRepairPresentation(string reason)` → runs `_reconciler.ForceRepairAsync(reason)` via `Application.Instance.Invoke` (synchronous result for the registry string) and returns the disposition's `ToString()`.
-- [ ] **Step 5.5:** Update `RookDumpVisionPresentationStateCommand`: dump now comes from `WebSurfacePresentationRegistry.DumpAll()` (all surfaces — spec generalization); add a Rhino toggle option `Repair` (default No) via `Rhino.Input.Custom.GetOption`; when Yes, also run `WebSurfacePresentationRegistry.RepairAll("command-repair")` and print the result.
-- [ ] **Step 5.6 (native route):** In `src/RookNative/RookServer.cpp` register `POST /vision/presentation` next to the existing `/vision/artifacts` registrations (~line 1026); implement the native handler by mirroring `HandleVisionGetArtifact`'s vision_dispatch forwarding (request body passes through verbatim; response/status propagated back). Build C++: `cmd /c scripts\build-native.bat`. Expected: clean build.
-- [ ] **Step 5.7 (MCP tool):** Add `rhino_vision_presentation` in `server.py`, following the `rhino_vision_artifacts` registration pattern (~line 12046): one required arg `action` (`"dump" | "repair"`), handler does `call_rhino("/vision/presentation", method="POST", body={"op": "get_presentation_diagnostics" if action == "dump" else "repair_presentation"}, port=port)`. Description: "Dump or force-repair WebView panel presentation state (dark-panel diagnostics)."
+- [ ] **Step 5.4:** Implement `ForceRepairAsync` on the reconciler now (gapped toggle WITHOUT the probe gate, same generation guards, then one confirmation probe; returns the disposition; records `forced-repair` + disposition in the ring via `_host.Record`) plus a unit test mirroring `Hidden_RunsGappedToggleInExactOrder` minus the leading probe. Add `RookWebSurface.SchedulePresentationRepair(string reason)` → `Application.Instance.AsyncInvoke(async () => { try { await _reconciler.ForceRepairAsync(reason); } catch (Exception ex) { Log(...); } })`. **No synchronous `Invoke`, `.Result`, or `.Wait()` anywhere on the repair path** — the dump op is the result channel.
+- [ ] **Step 5.5:** Update `RookDumpVisionPresentationStateCommand`: dump now comes from `WebSurfacePresentationRegistry.DumpAll()` (all surfaces — spec generalization); add a Rhino toggle option `Repair` (default No) via `Rhino.Input.Custom.GetOption`; when Yes, call `WebSurfacePresentationRegistry.ScheduleRepairAll("command-repair")` and print "repair scheduled (N surfaces) — run the command again to see outcomes in the dump".
+- [ ] **Step 5.6 (native route):** In `src/RookNative/RookServer.cpp` register `POST /vision/presentation` next to the existing `/vision/artifacts` registrations (~line 1026). **The HTTP contract is `{"action":"dump"|"repair"}` — NOT a pass-through.** The native handler parses `action`, rejects anything else with HTTP 400, and CONSTRUCTS the managed op body itself: `action=="dump"` → forwards exactly `{"op":"get_presentation_diagnostics"}`; `action=="repair"` → forwards exactly `{"op":"repair_presentation"}` — through the same vision_dispatch forwarding mechanics as `HandleVisionGetArtifact` (response/status propagated back). No user-controlled bytes reach `vision_dispatch`; the route cannot invoke any other Vision op. Build C++: `cmd /c scripts\build-native.bat`. Expected: clean build.
+- [ ] **Step 5.7 (MCP tool):** Add `rhino_vision_presentation` in `server.py`, following the `rhino_vision_artifacts` registration pattern (~line 12046): one required arg `action` (`"dump" | "repair"`), handler does `call_rhino("/vision/presentation", method="POST", body={"action": action}, port=port)`. Description: "Dump or schedule-repair WebView panel presentation state (dark-panel diagnostics); repair returns scheduled:<n> — dump again to see outcomes."
 - [ ] **Step 5.8:** Run all C# tests: `dotnet test src/Rook.Tests/Rook.Tests.csproj -v minimal` — Expected: PASS. Run Python tests if present for tool registry: `python -m pytest mcp_server/tests -k vision -q`.
 - [ ] **Step 5.9:** Commit: `git add -A; git commit -m "feat: typed dump/repair presentation route, registry, MCP tool"`
 
@@ -867,7 +875,7 @@ case "repair_presentation":
 ### Task 9: Build, deploy, live checkpoints, full matrix
 
 - [ ] **Step 9.1:** Build + deploy per project convention: `cmd /c scripts\build-native.bat` then `cmd /c scripts\deploy-native.bat` (confirm the C# `Rook.rhp` is copied to `%APPDATA%\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net8.0\`; if deploy script only handles `RookNative.rhp`, copy `src/Rook/bin/Release/net8.0/Rook.rhp` there manually). **Confirm throwaway-safe Rhino state with the user before launching** (per `feedback_destructive_fixtures` discipline this is non-destructive, but the user pulls the trigger on live sessions).
-- [ ] **Step 9.2: MCP reachability check (mandatory acceptance criterion):** with Rhino running, call the new `rhino_vision_presentation` tool with `action=dump` and `action=repair` through MCP. Expected: structured success for both; ring entries visible in dump.
+- [ ] **Step 9.2: MCP reachability check (mandatory acceptance criterion):** with Rhino running, call the new `rhino_vision_presentation` tool with `action=dump` (expect ring entries for ALL live surfaces), then `action=repair` (expect immediate `scheduled:<n>`), then `action=dump` again ~3s later (expect `forced-repair` ring entries with dispositions per surface). Also verify an invalid action returns HTTP 400 from the native route.
 - [ ] **Step 9.3: Live checkpoint B (Codex planning note 2):** dock Vision tabbed-behind Knowledge, keep Rhino ACTIVE. Trigger reconciles (resize the dock group, click around) for 2 minutes. Expected: ring shows bounded repair attempts ending `DegradedHidden`, NO reload, and — critically — full Rhino responsiveness (command line accepts input, panels close/reopen, no resize smear: the #192 wedge symptoms). If Rhino wedges: STOP, record ring dump, revisit whether repair attempts must be suppressed when lifecycle annotations say tab-unselected (spec permits adding that guard without architecture change).
 - [ ] **Step 9.4: Full matrix** (each scenario → note result + capture `rhino_vision_presentation action=dump`):
   1. Floating Vision on monitor above primary; alt-tab storms (10+ cycles).
