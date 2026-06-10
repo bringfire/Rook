@@ -32,7 +32,9 @@ namespace Rook.Tests.UI.Web
             { Actions.Add("reload"); }
             public Task DelayAsync(int ms)
             { Actions.Add("delay=" + ms); OnDelay?.Invoke(); return Task.CompletedTask; }
-            public void Record(string evt, string detail) { }
+            public List<string> Records { get; } = new();
+            public void Record(string evt, string detail)
+            { Records.Add(evt + ";" + detail); }
         }
 
         private static PresentationProbeReport Hidden() =>
@@ -178,6 +180,35 @@ namespace Rook.Tests.UI.Web
             await r.SetAppActiveAsync(true); // flush
             Assert.Contains("probe", h.Actions);
             Assert.False(r.HasPendingInactiveRequest);
+        }
+
+        [Fact]
+        public async Task ForceRepair_RunsGappedToggleWithoutProbeGate_ThenConfirms()
+        {
+            // Mirrors Hidden_RunsGappedToggleInExactOrder_ThenConfirms
+            // minus the leading probe: forced repair never probe-gates.
+            var (r, h) = Make();
+            h.ProbeAnswers.Enqueue(Healthy()); // confirmation probe only
+            var d = await r.ForceRepairAsync("operator-repair");
+            Assert.Equal(ReconcileDisposition.Repaired, d);
+            Assert.Equal(new[]
+            {
+                "visible=False", "delay=200", "visible=True", "bounds", "notify",
+                "delay=500", "probe"
+            }, h.Actions);
+            Assert.Contains("forced-repair;operator-repair", h.Records);
+            Assert.Contains("forced-repair-disposition;Repaired", h.Records);
+        }
+
+        [Fact]
+        public async Task ForceRepair_GenerationBumpDuringGap_AbortsBeforeReShow()
+        {
+            var (r, h) = Make();
+            h.OnDelay = () => r.SetDesiredVisible(false, "closed-mid-gap");
+            var d = await r.ForceRepairAsync("operator-repair");
+            Assert.Equal(ReconcileDisposition.AbortedStale, d);
+            Assert.Contains("visible=False", h.Actions);
+            Assert.DoesNotContain("visible=True", h.Actions); // never re-shown
         }
 
         [Fact]

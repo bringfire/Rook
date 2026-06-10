@@ -320,6 +320,15 @@ namespace Rook.Handlers
                     "preview_viewport" => PreviewViewport(args),
                     "list_views" => ListViews(args),
                     "open_image_picker" => OpenImagePicker(args),
+                    "get_presentation_diagnostics" => Ok(
+                        Rook.UI.Web.WebSurfacePresentationRegistry.DumpAll()),
+                    // Accepted-and-scheduled semantics: returns immediately;
+                    // the async gapped toggle runs fire-and-forget on the
+                    // UI thread; outcomes are recorded in the ring and read
+                    // via a follow-up dump.
+                    "repair_presentation" => Ok(
+                        Rook.UI.Web.WebSurfacePresentationRegistry.ScheduleRepairAll(
+                            "operator-repair")),
                     "generate" or "enhance_prompt" or "test_api_key"
                         or "test_provider_secret" => Fail(
                         $"op '{op}' must be routed through the async dispatcher, not the sync dispatcher."),

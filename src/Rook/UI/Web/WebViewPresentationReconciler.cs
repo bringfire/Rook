@@ -126,6 +126,60 @@ namespace Rook.UI.Web
             }
         }
 
+        /// <summary>
+        /// Operator-forced repair (typed repair op / command path): runs
+        /// the gapped toggle WITHOUT the probe gate, under the same
+        /// generation guards as the trigger-driven repair sequence, then
+        /// one confirmation probe. Accepted-and-scheduled callers read the
+        /// outcome from the diagnostics ring (the dump op is the result
+        /// channel); the disposition is also returned for direct callers.
+        /// </summary>
+        public async Task<ReconcileDisposition> ForceRepairAsync(string reason)
+        {
+            _host.Record("forced-repair", reason);
+
+            if (_reconciling)
+            {
+                // A reconcile is mid-flight (possibly inside a repair
+                // gap). Latch the forced request as a pending trigger so
+                // it is never dropped; the normal level-triggered pass
+                // runs after the in-flight one completes.
+                _pendingReason = reason;
+                return ReconcileDisposition.CoalescedPending;
+            }
+
+            _reconciling = true;
+            try
+            {
+                var disposition = await ForceRepairCoreAsync(reason);
+                _host.Record("forced-repair-disposition", disposition.ToString());
+                return disposition;
+            }
+            finally
+            {
+                _reconciling = false;
+                _pendingReason = null;
+            }
+        }
+
+        private async Task<ReconcileDisposition> ForceRepairCoreAsync(string reason)
+        {
+            var gen = _generation;
+            var result = await RunGappedToggleAsync(gen, reason, attempt: 1);
+            if (result != null) return result.Value;
+
+            await _host.DelayAsync(ReconcilerTiming.ConfirmDelayMs);
+            if (IsStale(gen)) return ReconcileDisposition.AbortedStale;
+
+            var confirm = await _host.ProbeAsync();
+            _host.Record("confirm", "forced;" + confirm.Outcome);
+            if (confirm.Outcome == ProbeOutcome.Healthy)
+                return ReconcileDisposition.Repaired;
+            if (confirm.Outcome == ProbeOutcome.RendererHidden)
+                return ReconcileDisposition.DegradedHidden;
+            return ReconcileDisposition.DegradedUnresponsive;
+        }
+
         private async Task<ReconcileDisposition> ReconcileCoreAsync(string reason)
         {
             if (!DesiredVisible)

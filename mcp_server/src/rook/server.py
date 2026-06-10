@@ -12147,6 +12147,22 @@ Returns the full profile JSON including features, surfaces, and elements.""",
                 "required": [],
             },
         ),
+        Tool(
+            name="rhino_vision_presentation",
+            description=(
+                "Dump or schedule-repair WebView panel presentation state "
+                "(dark-panel diagnostics); repair returns scheduled:<n> — "
+                "dump again to see outcomes."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string", "enum": ["dump", "repair"], "description": "'dump' returns per-surface presentation diagnostics; 'repair' schedules an async forced repair on every live web surface."},
+                    "port": {"type": "integer", "description": "Specific Rhino port to target."},
+                },
+                "required": ["action"],
+            },
+        ),
 
         # --- RookBIM (Revit bridge, Phase 1) ---
         Tool(
@@ -19390,6 +19406,12 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
         case "rhino_vision_consume_approved":
             result = await call_rhino(
                 "/vision/artifacts/consume-approved", "POST", arguments, port=port
+            )
+
+        case "rhino_vision_presentation":
+            action = arguments.get("action", "")
+            result = await call_rhino(
+                "/vision/presentation", "POST", {"action": action}, port=port
             )
 
         # --- RookBIM (Revit bridge, Phase 1) ---

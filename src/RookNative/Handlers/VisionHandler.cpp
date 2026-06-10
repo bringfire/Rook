@@ -459,5 +459,52 @@ void HandleVisionVideoModelsList(const httplib::Request& /*req*/, httplib::Respo
         body);
 }
 
+// ─── Presentation diagnostics / repair (reconciler spec 2026-06-10) ─
+
+void HandleVisionPresentation(const httplib::Request& req, httplib::Response& res)
+{
+    // STRICT contract: {"action":"dump"|"repair"}. This route is NOT a
+    // pass-through — native parses the action, rejects anything else
+    // with HTTP 400, and constructs the managed op body itself so no
+    // user-controlled bytes reach vision_dispatch and the route cannot
+    // invoke any other Vision op.
+    nlohmann::json parsed;
+    if (!ParseBodyAsObject(req, res, "presentation", parsed)) return;
+
+    std::string action;
+    if (parsed.contains("action") && parsed["action"].is_string())
+    {
+        action = parsed["action"].get<std::string>();
+    }
+
+    const char* op = nullptr;
+    if (action == "dump")
+    {
+        op = "get_presentation_diagnostics";
+    }
+    else if (action == "repair")
+    {
+        op = "repair_presentation";
+    }
+    else
+    {
+        CRookServer::SendError(
+            res,
+            "POST /vision/presentation: 'action' must be 'dump' or 'repair'.");
+        res.status = 400;
+        res.set_header("X-Rook-Vision-Op", "presentation");
+        return;
+    }
+
+    // Freshly-constructed body: ForwardVisionDispatch injects the op, so
+    // the forwarded JSON is exactly {"op":"<op>"} — nothing else.
+    nlohmann::json body = nlohmann::json::object();
+    ForwardVisionDispatchWithUnavailableDiagnostic(
+        res,
+        "POST /vision/presentation",
+        op,
+        body);
+}
+
 } // namespace Handlers
 } // namespace Rook

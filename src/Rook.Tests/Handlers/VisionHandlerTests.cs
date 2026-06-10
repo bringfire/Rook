@@ -99,6 +99,34 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
+        public void Dispatch_GetPresentationDiagnostics_ReturnsOkWithJsonDump()
+        {
+            var handler = NewDispatchHandler();
+
+            var response = handler.Dispatch("{\"op\":\"get_presentation_diagnostics\"}");
+
+            Assert.True(response.Success);
+            var data = Assert.IsType<string>(response.Data);
+            // Registry contents vary across the suite (other tests may
+            // hold live surfaces) — pin only the JSON-array dump shape.
+            Assert.StartsWith("[", data.TrimStart());
+        }
+
+        [Fact]
+        public void Dispatch_RepairPresentation_ReturnsScheduledCountImmediately()
+        {
+            var handler = NewDispatchHandler();
+
+            var response = handler.Dispatch("{\"op\":\"repair_presentation\"}");
+
+            // Accepted-and-scheduled: the op returns scheduled:<n>
+            // synchronously and never blocks on the gapped toggle.
+            Assert.True(response.Success);
+            var data = Assert.IsType<string>(response.Data);
+            Assert.StartsWith("scheduled:", data);
+        }
+
+        [Fact]
         public async Task DispatchAsync_PublishDirectorVideo_RejectsNonOffUiDispatcher()
         {
             var handler = NewDispatchHandler();

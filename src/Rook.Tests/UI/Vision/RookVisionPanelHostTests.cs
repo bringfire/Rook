@@ -22,33 +22,30 @@ namespace Rook.Tests.UI.Vision
         }
 
         [Fact]
-        public void DumpVisionPresentationCommand_WritesFileAndPrintsCompactTail()
+        public void DumpVisionPresentationCommand_DumpsRegistryAndOffersRepairToggle()
         {
+            // Reconciler spec 2026-06-10: the dump comes from the
+            // substrate-wide WebSurfacePresentationRegistry (all surfaces,
+            // not Vision-only) and the Repair toggle (default No)
+            // schedules an accepted-and-scheduled forced repair.
             var command = ReadSourceFile(
                 "src",
                 "Rook",
                 "Commands",
                 "RookDumpVisionPresentationStateCommand.cs");
-            var panel = ReadSourceFile("src", "Rook", "UI", "Vision", "RookVisionPanel.cs");
 
             Assert.Contains("RookDumpVisionPresentationState", command);
-            Assert.Contains("RookVisionPanel.DumpPresentationDiagnostics()", command);
-            Assert.Contains("RookVisionPanel.DumpPresentationDiagnosticsSummary(16)", command);
+            Assert.Contains("WebSurfacePresentationRegistry.DumpAll()", command);
+            Assert.Contains("WebSurfacePresentationRegistry.ScheduleRepairAll(", command);
+            Assert.Contains("\"command-repair\"", command);
+            Assert.Contains("OptionToggle(false, \"No\", \"Yes\")", command);
+            Assert.Contains("AddOptionToggle(\"Repair\"", command);
+            Assert.Contains("run the command again", command);
             Assert.Contains("RhinoApp.WriteLine", command);
             Assert.Contains("File.WriteAllText", command);
             Assert.Contains("try", command);
             Assert.Contains("catch (Exception ex)", command);
             Assert.Contains("Guid.NewGuid().ToString(\"N\")", command);
-            Assert.Contains("internal static string DumpPresentationDiagnostics()", panel);
-            Assert.Contains("internal static string DumpPresentationDiagnosticsSummary(int tailCount)", panel);
-            Assert.Contains("Skip(Math.Max(0, allEntries.Length - count))", panel);
-            Assert.Contains("VisionPanelPresentationDiagnosticDump", panel);
-            Assert.Contains("SurfaceId = panel._surfaceId", panel);
-            Assert.Contains("DocumentSerialNumber = panel._documentSerialNumber", panel);
-            Assert.Contains("Closed = panel._closed", panel);
-            Assert.Contains("SurfaceDisposed = panel._surface.IsDisposed", panel);
-            Assert.Contains("Entries = panel._surface.GetHostPresentationDiagnosticEntries()", panel);
-            Assert.Contains("JsonSerializer.Serialize", panel);
         }
 
         [Fact]

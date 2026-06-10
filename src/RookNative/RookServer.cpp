@@ -1033,6 +1033,14 @@ void CRookServer::RegisterRoutes()
         Rook::Handlers::HandleVisionDeleteArtifact(req, res);
     });
 
+    // Presentation reconciler (spec 2026-06-10): typed dump/repair of
+    // WebView panel presentation state. STRICT {"action":"dump"|"repair"}
+    // contract — native constructs the managed op body itself; no
+    // user-controlled bytes pass through vision_dispatch.
+    m_server->Post("/vision/presentation", [](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleVisionPresentation(req, res);
+    });
+
     // PR-V2: video routes. All five forward through the same
     // vision_dispatch bridge callback (ABI v14 unchanged). Long-form
     // op names are injected by the C++ handlers and matched by C#

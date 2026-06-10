@@ -197,10 +197,24 @@ namespace Rook.UI.Web
         private int _hostPresentationDiagnosticSequence;
 #endif
 
+        // ─── Presentation reconciler (spec 2026-06-10) ────────────────
+        private static int s_surfaceIdCounter;
+        private readonly int _surfaceIdOrdinal =
+            System.Threading.Interlocked.Increment(ref s_surfaceIdCounter);
+        private readonly WebViewPresentationReconciler _reconciler;
+
+        /// <summary>
+        /// Process-unique surface identity for registry dumps:
+        /// ResourceRoot plus a per-process creation ordinal.
+        /// </summary>
+        internal string SurfaceId => ResourceRoot + ":" + _surfaceIdOrdinal;
+
         // ─── Constructor ──────────────────────────────────────────────
         protected RookWebSurface()
         {
             _dispatcher = new BridgeDispatcher(msg => Log($"Rook: {msg}"));
+            _reconciler = new WebViewPresentationReconciler(
+                new SurfacePresentationHost(this));
         }
 
         /// <summary>
@@ -437,6 +451,193 @@ namespace Rook.UI.Web
         }
 
         /// <summary>
+        /// Operator-forced repair: accepted-and-scheduled. Returns
+        /// immediately; the async gapped toggle runs fire-and-forget on
+        /// the UI thread and outcomes land in the diagnostics ring (read
+        /// via a follow-up dump). No synchronous Invoke / .Result /
+        /// .Wait() anywhere on this path. Virtual so test surfaces can
+        /// record scheduling without an Eto application loop.
+        /// </summary>
+        internal virtual void SchedulePresentationRepair(string reason)
+        {
+            if (_disposed)
+                return;
+
+            try
+            {
+                Application.Instance.AsyncInvoke(async () =>
+                {
+                    try
+                    {
+                        await _reconciler.ForceRepairAsync(reason);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log($"Rook: presentation forced repair failed for surface " +
+                            $"'{SurfaceId}' (reason={reason}): {ex.Message}");
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                Log($"Rook: presentation repair scheduling failed for surface " +
+                    $"'{SurfaceId}' (reason={reason}): {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Reconciler diagnostics hook: minimal ring entries (event in
+        /// <c>Reason</c>, detail/probe payload in <c>ActionResult</c>)
+        /// reusing the existing bounded host-presentation ring so the
+        /// registry dump is the single diagnostics read surface.
+        /// </summary>
+        private void RecordReconcilerDiagnostic(string evt, string detail)
+        {
+#if ROOK_WEBVIEW2
+            _hostPresentationDiagnostics.Enqueue(new WebViewHostPresentationDiagnosticEntry
+            {
+                Sequence = ++_hostPresentationDiagnosticSequence,
+                TimestampUtc = DateTimeOffset.UtcNow,
+                Surface = ResourceRoot,
+                Reason = evt,
+                ActionResult = detail
+            });
+
+            while (_hostPresentationDiagnostics.Count > MaxHostPresentationDiagnosticEntries)
+                _hostPresentationDiagnostics.Dequeue();
+#else
+            _ = evt;
+            _ = detail;
+#endif
+        }
+
+        /// <summary>
+        /// Minimal <see cref="IPresentationHost"/> over this surface's
+        /// WebView2 state. The probe is real (<c>ExecuteScriptAsync</c>
+        /// raced against <see cref="ReconcilerTiming.ProbeTimeoutMs"/>);
+        /// the controller members reuse the existing reflection helpers.
+        /// Full trigger wiring is the reconciler-cutover task.
+        /// </summary>
+        private sealed class SurfacePresentationHost : IPresentationHost
+        {
+            // Exact spec probe payload (visibilityState, hidden,
+            // readyState, hasRoot, viewport, appRect).
+            private const string ProbeScript =
+                "JSON.stringify({" +
+                "visibilityState:document.visibilityState," +
+                "hidden:document.hidden," +
+                "readyState:document.readyState," +
+                "hasRoot:!!document.body," +
+                "viewport:[window.innerWidth,window.innerHeight]," +
+                "appRect:document.body?(document.body.getBoundingClientRect().toJSON" +
+                "?document.body.getBoundingClientRect().toJSON():null):null" +
+                "})";
+
+            private readonly RookWebSurface _surface;
+
+            public SurfacePresentationHost(RookWebSurface surface)
+            {
+                _surface = surface;
+            }
+
+            public Task<PresentationProbeReport> ProbeAsync()
+            {
+#if ROOK_WEBVIEW2
+                return ProbeCoreAsync();
+#else
+                return Task.FromResult(
+                    PresentationProbeReport.Unresponsive("webview2-unavailable"));
+#endif
+            }
+
+#if ROOK_WEBVIEW2
+            private async Task<PresentationProbeReport> ProbeCoreAsync()
+            {
+                var core = _surface._coreWebView2;
+                if (core == null || _surface._disposed)
+                    return PresentationProbeReport.Unresponsive("webview2-unavailable");
+
+                try
+                {
+                    var probe = core.ExecuteScriptAsync(ProbeScript);
+                    var completed = await Task.WhenAny(
+                        probe,
+                        Task.Delay(ReconcilerTiming.ProbeTimeoutMs));
+                    if (!ReferenceEquals(completed, probe))
+                        return PresentationProbeReport.Unresponsive("probe-timeout");
+                    return PresentationProbeReport.Parse(await probe);
+                }
+                catch (Exception ex)
+                {
+                    return PresentationProbeReport.Unresponsive(
+                        "probe-fault:" + ex.Message);
+                }
+            }
+#endif
+
+            public bool TrySetControllerVisible(bool visible)
+            {
+#if ROOK_WEBVIEW2
+                var controller = _surface.TryGetCoreWebView2Controller();
+                if (controller == null)
+                    return false;
+                return _surface.SetControllerVisible(
+                    controller, visible, "presentation-reconciler");
+#else
+                _ = visible;
+                return false;
+#endif
+            }
+
+            public bool TrySetControllerBounds()
+            {
+#if ROOK_WEBVIEW2
+                var controller = _surface.TryGetCoreWebView2Controller();
+                if (controller == null)
+                    return false;
+                var bounds = _surface.TryBuildControllerTargetBounds();
+                if (bounds == null)
+                    return false;
+                return _surface.SetControllerBounds(
+                    controller, bounds, "presentation-reconciler");
+#else
+                return false;
+#endif
+            }
+
+            public void NotifyParentWindowPositionChanged()
+            {
+#if ROOK_WEBVIEW2
+                var controller = _surface.TryGetCoreWebView2Controller();
+                if (controller == null)
+                    return;
+                _surface.NotifyParentWindowPositionChanged(
+                    controller, "presentation-reconciler");
+#endif
+            }
+
+            public void ReloadWebView()
+            {
+#if ROOK_WEBVIEW2
+                try
+                {
+                    _surface._coreWebView2?.Reload();
+                }
+                catch (Exception ex)
+                {
+                    _surface.Log($"Rook: WebView2 reload failed for surface " +
+                        $"'{_surface.SurfaceId}': {ex.Message}");
+                }
+#endif
+            }
+
+            public Task DelayAsync(int milliseconds) => Task.Delay(milliseconds);
+
+            public void Record(string evt, string detail)
+                => _surface.RecordReconcilerDiagnostic(evt, detail);
+        }
+
+        /// <summary>
         /// Register a typed bridge handler keyed on a method name. Stored
         /// immediately; only fires once the bridge comes up. Call from the
         /// subclass constructor; do NOT call from <see cref="OnWebViewReady"/>
@@ -461,6 +662,7 @@ namespace Rook.UI.Web
                 _webView = new WebView();
                 _webView.DocumentLoaded += OnDocumentLoaded;
                 _disposeWebView = DisposeWebView;
+                WebSurfacePresentationRegistry.Register(this);
 
 #if ROOK_WEBVIEW2
                 // Rhino panels can be shown, hidden, floated, docked, and
@@ -2072,6 +2274,8 @@ namespace Rook.UI.Web
         {
             if (_disposed) return;
             _disposed = true;
+
+            WebSurfacePresentationRegistry.Deregister(this);
 
             if (!disposing) return;
 

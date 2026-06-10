@@ -186,6 +186,13 @@ p { margin: 8px 0; line-height: 1.4; }
                 ["preview_viewport"] = VisionOpRoute.Ui,
                 ["list_views"] = VisionOpRoute.Ui,
 
+                // Presentation reconciler (spec 2026-06-10): substrate-
+                // wide diagnostics dump + operator-forced repair. UI-
+                // thread — touches the WebView2 controller and schedules
+                // repairs via the Eto UI scheduler.
+                ["get_presentation_diagnostics"] = VisionOpRoute.Ui,
+                ["repair_presentation"] = VisionOpRoute.Ui,
+
                 ["list_artifacts"] = VisionOpRoute.OffUi,
                 ["get_artifact"] = VisionOpRoute.OffUi,
                 ["approve_artifact"] = VisionOpRoute.OffUi,

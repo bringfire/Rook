@@ -278,14 +278,27 @@ namespace Rook.Tests.InternalBridge
             Assert.Contains("publish_director_video", NativeGhBridgeRegistrar.ExpectedVisionOps);
         }
 
-        [Fact]
-        public void ExpectedVisionOps_HasExactly16Ops()
+        [Theory]
+        [InlineData("get_presentation_diagnostics")]
+        [InlineData("repair_presentation")]
+        public void ExpectedVisionOps_ContainsPresentationOps(string op)
         {
-            // Pinned count: 8 image + 1 Director publish + 5 V2 video + 2 V4 video list ops.
+            // Presentation reconciler (spec 2026-06-10): typed dump/repair
+            // ops reachable via POST /vision/presentation. Native
+            // constructs the op bodies itself; the trampoline routes both
+            // through the UI-thread dispatcher alongside capture_depth.
+            Assert.Contains(op, NativeGhBridgeRegistrar.ExpectedVisionOps);
+        }
+
+        [Fact]
+        public void ExpectedVisionOps_HasExactly18Ops()
+        {
+            // Pinned count: 8 image + 1 Director publish + 5 V2 video
+            // + 2 V4 video list ops + 2 presentation ops.
             // If this drifts, either a new op landed (update both the
             // count and the per-op test above) or one was removed
             // (intentional retirement).
-            Assert.Equal(16, NativeGhBridgeRegistrar.ExpectedVisionOps.Count);
+            Assert.Equal(18, NativeGhBridgeRegistrar.ExpectedVisionOps.Count);
         }
 
         [Fact]
