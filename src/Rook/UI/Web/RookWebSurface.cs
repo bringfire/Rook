@@ -191,6 +191,7 @@ namespace Rook.UI.Web
         private bool _hostPresentationQueued;
         private readonly WebViewHostPresentationIdleGate _hostPresentationIdleGate = new();
         private string _hostPresentationIdleReason = string.Empty;
+        private bool _activationIdleConfirmPending;
         private string _lastHostPresentationActionResult = "none";
         private const int MaxHostPresentationDiagnosticEntries = 64;
         private readonly Queue<WebViewHostPresentationDiagnosticEntry> _hostPresentationDiagnostics = new();
@@ -484,6 +485,57 @@ namespace Rook.UI.Web
                     $"'{SurfaceId}' (reason={reason}): {ex.Message}");
             }
         }
+
+        /// <summary>
+        /// Fire-and-forget level-triggered reconcile request. All external
+        /// triggers (focus, shown, resize, document load, panel lifecycle)
+        /// funnel through here; the reconciler serializes and coalesces.
+        /// No synchronous Invoke / .Result / .Wait() on this path.
+        /// </summary>
+        internal void RequestPresentationReconcile(string reason)
+        {
+            if (_disposed)
+                return;
+
+            try
+            {
+                Application.Instance.AsyncInvoke(async () =>
+                {
+                    try
+                    {
+                        await _reconciler.ReconcileAsync(reason);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log($"Rook: presentation reconcile failed for surface " +
+                            $"'{SurfaceId}' (reason={reason}): {ex.Message}");
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                Log($"Rook: presentation reconcile scheduling failed for surface " +
+                    $"'{SurfaceId}' (reason={reason}): {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Durable desired-visibility intent (panel lifecycle authority),
+        /// followed by an immediate reconcile toward that state.
+        /// </summary>
+        internal void SetPresentationDesiredVisible(bool visible, string reason)
+        {
+            _reconciler.SetDesiredVisible(visible, reason);
+            RequestPresentationReconcile(reason);
+        }
+
+        /// <summary>
+        /// Thin annotation hook for panel lifecycle decisions that take no
+        /// action (e.g. lifecycle-hide) but must remain visible in the
+        /// diagnostics ring dump.
+        /// </summary>
+        internal void RecordPresentationAnnotation(string evt, string detail)
+            => RecordReconcilerDiagnostic(evt, detail);
 
         /// <summary>
         /// Reconciler diagnostics hook: minimal ring entries (event in
@@ -1351,6 +1403,7 @@ namespace Rook.UI.Web
         private void OnWebViewGotFocus(object? sender, EventArgs e)
         {
             TraceWebViewFocus("webview-got-focus");
+            RequestPresentationReconcile("GotFocus");
             if (UseHostPresentationCoordinator)
                 return;
 
@@ -1360,6 +1413,7 @@ namespace Rook.UI.Web
         private void OnWebViewShown(object? sender, EventArgs e)
         {
             TraceWebViewFocus("webview-shown");
+            RequestPresentationReconcile("WebViewShown");
             if (UseHostPresentationCoordinator)
             {
                 ScheduleLatestHostPresentationFromEvent(
@@ -1374,6 +1428,7 @@ namespace Rook.UI.Web
         private void OnWebViewSizeChanged(object? sender, EventArgs e)
         {
             TraceWebViewFocus("webview-size-changed");
+            RequestPresentationReconcile("SizeChanged");
             if (!UseHostPresentationCoordinator)
                 return;
 
@@ -1386,6 +1441,31 @@ namespace Rook.UI.Web
         {
             var active = Application.Instance.IsActive;
             TraceWebViewFocus("app-active-changed", active ? "active" : "inactive");
+
+            try
+            {
+                Application.Instance.AsyncInvoke(async () =>
+                {
+                    try
+                    {
+                        await _reconciler.SetAppActiveAsync(
+                            Application.Instance.IsActive);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log($"Rook: presentation app-active update failed for " +
+                            $"surface '{SurfaceId}': {ex.Message}");
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                Log($"Rook: presentation app-active dispatch failed for surface " +
+                    $"'{SurfaceId}': {ex.Message}");
+            }
+
+            if (active)
+                ScheduleActivationIdleConfirm();
 
             if (UseHostPresentationCoordinator)
                 return;
@@ -1406,6 +1486,40 @@ namespace Rook.UI.Web
                 TraceWebViewFocus("host-visibility-reconcile-failed",
                     "ApplicationDeactivated;" + ex.Message);
             }
+        }
+
+        /// <summary>
+        /// One-shot RhinoApp.Idle confirmation after app activation: Rhino's
+        /// window/dock state settles after the activation event, so a single
+        /// idle-time reconcile catches presentation facts that were still
+        /// mid-transition at activation. Guarded against double-subscribe.
+        /// </summary>
+        private void ScheduleActivationIdleConfirm()
+        {
+            if (_disposed || _activationIdleConfirmPending)
+                return;
+
+            _activationIdleConfirmPending = true;
+            RhinoApp.Idle += OnActivationIdleConfirm;
+        }
+
+        private void OnActivationIdleConfirm(object? sender, EventArgs e)
+        {
+            RhinoApp.Idle -= OnActivationIdleConfirm;
+            _activationIdleConfirmPending = false;
+
+            if (_disposed)
+                return;
+
+            RequestPresentationReconcile("ActivationIdleConfirm");
+        }
+
+        private void ClearActivationIdleConfirm()
+        {
+            try { RhinoApp.Idle -= OnActivationIdleConfirm; }
+            catch { }
+
+            _activationIdleConfirmPending = false;
         }
 
         private object? TryGetCoreWebView2Controller()
@@ -1631,6 +1745,10 @@ namespace Rook.UI.Web
             SignalBridgeUnavailableIfNeeded();
 
             OnWebViewReady();
+
+            // Document (re)load is a presentation edge: it is also the
+            // external confirmation trigger after a reconciler-issued reload.
+            RequestPresentationReconcile("DocumentLoaded");
         }
 
         /// <summary>
@@ -2281,6 +2399,7 @@ namespace Rook.UI.Web
 
 #if ROOK_WEBVIEW2
             ClearHostPresentationIdle();
+            ClearActivationIdleConfirm();
             _hostPresentationQueued = false;
 
             if (_initEvent != null && _nativeControlWithInitHandler != null && _initHandler != null)
@@ -2332,6 +2451,8 @@ namespace Rook.UI.Web
             try { _webView!.SizeChanged -= OnWebViewSizeChanged; }
             catch { }
             try { RhinoApp.Idle -= OnHostPresentationIdle; }
+            catch { }
+            try { RhinoApp.Idle -= OnActivationIdleConfirm; }
             catch { }
             try { Application.Instance.IsActiveChanged -= OnApplicationIsActiveChanged; }
             catch { }
