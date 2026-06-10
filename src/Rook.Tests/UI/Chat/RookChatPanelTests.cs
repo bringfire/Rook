@@ -81,7 +81,6 @@ namespace Rook.Tests.UI.Chat
                 source);
             Assert.Contains("_webSurface.SetPresentationDesiredVisible", source);
             Assert.Contains("_webSurface.RequestPresentationReconcile", source);
-            Assert.DoesNotContain("ReconcileHostVisibility", source);
 
             Assert.Contains(
                 "tab.SetPresentationDesiredVisible(true, sourceReason + \":\" + decision.Reason)",
@@ -92,7 +91,6 @@ namespace Rook.Tests.UI.Chat
             Assert.Contains(
                 "tab.SetPresentationDesiredVisible(false, sourceReason + \":\" + decision.Reason)",
                 panel);
-            Assert.DoesNotContain("tab.ReconcileHostVisibility", panel);
         }
 
         [Fact]

@@ -189,7 +189,6 @@ namespace Rook.Tests.UI.Vision
             Assert.Contains("CloseSurface()", apply);
             // Lifecycle Hide must never become a durable desired-hide.
             Assert.DoesNotContain("SetPresentationDesiredVisible(false", apply);
-            Assert.DoesNotContain("ReconcileHostVisibility", apply);
         }
 
         [Fact]
@@ -212,14 +211,11 @@ namespace Rook.Tests.UI.Vision
 
             // The surface owns app-active edges and all probe/repair
             // behavior now (reconciler spec 2026-06-10).
-            Assert.DoesNotContain("VisionPanelPresentationState", source);
             Assert.DoesNotContain("SetPresentationFactsRefresher", source);
-            Assert.DoesNotContain("ReconcileHostPresentation", source);
             Assert.DoesNotContain("RefreshPresentationFactsForDecision", source);
             Assert.DoesNotContain("RefreshSelectionVisible", source);
             Assert.DoesNotContain("PanelVisibilityProbe", source);
             Assert.DoesNotContain("OnApplicationIsActiveChanged", source);
-            Assert.DoesNotContain("_surface.ReconcileHostVisibility", source);
         }
 
         [Fact]
@@ -236,7 +232,6 @@ namespace Rook.Tests.UI.Vision
         {
             var source = ReadSourceFile("src", "Rook", "UI", "Vision", "VisionWebSurface.cs");
 
-            Assert.DoesNotContain("UseHostPresentationCoordinator", source);
             Assert.DoesNotContain("RefreshHostPresentationFacts", source);
             Assert.DoesNotContain("SetPresentationFactsRefresher", source);
             Assert.DoesNotContain("VisionUiOpCompleted", source);
@@ -252,7 +247,6 @@ namespace Rook.Tests.UI.Vision
             Assert.DoesNotContain("RequestWebViewRepaint", source);
             Assert.DoesNotContain("RecoverAfterHostActivation", source);
             Assert.DoesNotContain("HostActivation:", source);
-            Assert.DoesNotContain("ReconcileHostVisibility", source);
             Assert.Contains(
                 "internal void SetPresentationDesiredVisible(bool visible, string reason)",
                 source);
@@ -288,7 +282,6 @@ namespace Rook.Tests.UI.Vision
             Assert.Contains("\"lifecycle-hide\"", apply);
             Assert.Contains("CloseSurface()", apply);
             Assert.DoesNotContain("SetPresentationDesiredVisible(false", apply);
-            Assert.DoesNotContain("ReconcileHostVisibility", source);
         }
 
         [Fact]

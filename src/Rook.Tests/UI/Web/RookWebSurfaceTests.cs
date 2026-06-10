@@ -300,10 +300,6 @@ namespace Rook.Tests.UI.Web
             Assert.Contains("Application.Instance.IsActiveChanged += OnApplicationIsActiveChanged;", source);
             Assert.Contains("Application.Instance.IsActiveChanged -= OnApplicationIsActiveChanged;", source);
             Assert.DoesNotContain("_webView.LostFocus += OnWebViewLostFocus;", source);
-            Assert.Contains("ReconcileHostVisibility(bool visible, string reason)", source);
-            Assert.Contains("ScheduleHostVisibilityReconcile", source);
-            Assert.Contains("RunHostVisibilityReconcile", source);
-            Assert.Contains("EnsureControllerVisibleAndPositioned", source);
             Assert.Contains("NotifyParentWindowPositionChanged", source);
             Assert.DoesNotContain("ROOK_ENABLE_WEBVIEW_REPAINT_WORKAROUND", source);
             Assert.DoesNotContain("request-repaint-skip", source);
@@ -333,16 +329,6 @@ namespace Rook.Tests.UI.Web
         }
 
         [Fact]
-        public void WebViewHostVisibilitySynchronization_RefreshesOnApplicationDeactivation()
-        {
-            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
-            var normalized = source.Replace("\r\n", "\n");
-
-            Assert.Contains("ApplicationDeactivated", source);
-            Assert.DoesNotContain("if (!active)\n                return;", normalized);
-        }
-
-        [Fact]
         public void RookWebSurface_DoesNotOwnRhinoPanelLifecycleReasons()
         {
             var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
@@ -355,118 +341,14 @@ namespace Rook.Tests.UI.Web
         [Fact]
         public void WebViewHostVisibilitySynchronization_UsesLifecycleLogs()
         {
+            // Trace strings emitted by the kept reflection helpers
+            // (controller lookup, visible-set, parent-position notify).
             var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
 
-            Assert.Contains("host-visibility-reconcile-request", source);
-            Assert.Contains("host-visibility-reconcile-queued", source);
-            Assert.Contains("host-visibility-reconcile-run", source);
             Assert.Contains("host-controller-visible-set", source);
             Assert.Contains("host-controller-position-notified", source);
             Assert.Contains("host-visibility-reconcile-skip", source);
             Assert.Contains("host-visibility-reconcile-failed", source);
-        }
-
-        [Fact]
-        public void HostVisibilityCoordinator_HiddenHost_IgnoresActivationRefreshWhenControlIsNotVisible()
-        {
-            var coordinator = new WebViewHostVisibilityCoordinator();
-
-            var hide = coordinator.RecordHostVisibility(false, "PanelHidden:Hide");
-            Assert.True(hide.ShouldSchedule);
-            Assert.False(hide.Visible);
-            Assert.False(coordinator.DrainQueued()!.Value.Visible);
-
-            var activation = coordinator.RecordVisibleRefresh(
-                "ApplicationActivated",
-                hostControlVisible: false);
-
-            Assert.False(activation.ShouldSchedule);
-            Assert.True(activation.Skipped);
-            Assert.Equal("host-hidden", activation.SkipReason);
-            Assert.False(coordinator.HasQueuedReconcile);
-        }
-
-        [Fact]
-        public void HostVisibilityCoordinator_HiddenHost_AllowsActivationRefreshWhenControlIsVisible()
-        {
-            var coordinator = new WebViewHostVisibilityCoordinator();
-
-            var hide = coordinator.RecordHostVisibility(false, "PanelHidden:Hide");
-            Assert.True(hide.ShouldSchedule);
-            Assert.False(coordinator.DrainQueued()!.Value.Visible);
-
-            var activation = coordinator.RecordVisibleRefresh(
-                "ApplicationActivated",
-                hostControlVisible: true);
-
-            Assert.True(activation.ShouldSchedule);
-            Assert.False(activation.Skipped);
-            Assert.True(activation.Visible);
-            Assert.Equal("ApplicationActivated:HostControlVisible", activation.Reason);
-            Assert.True(coordinator.DrainQueued()!.Value.Visible);
-        }
-
-        [Fact]
-        public void HostVisibilityCoordinator_UnselectedHiddenHost_IgnoresActivationRefreshWhenControlIsVisible()
-        {
-            var coordinator = new WebViewHostVisibilityCoordinator();
-
-            var hide = coordinator.RecordHostVisibility(false, "TabSelectionChanged:Unselected");
-            Assert.True(hide.ShouldSchedule);
-            Assert.False(coordinator.DrainQueued()!.Value.Visible);
-
-            var activation = coordinator.RecordVisibleRefresh(
-                "ApplicationActivated",
-                hostControlVisible: true);
-
-            Assert.False(activation.ShouldSchedule);
-            Assert.True(activation.Skipped);
-            Assert.Equal("host-hidden", activation.SkipReason);
-            Assert.False(coordinator.HasQueuedReconcile);
-        }
-
-        [Fact]
-        public void HostVisibilityCoordinator_ControllerAvailable_ReplaysLastDesiredVisibility()
-        {
-            var coordinator = new WebViewHostVisibilityCoordinator();
-
-            coordinator.RecordHostVisibility(false, "PanelHidden:Hide");
-            _ = coordinator.DrainQueued();
-
-            var replayHidden = coordinator.RecordControllerAvailable("WebView2Configured");
-
-            Assert.True(replayHidden.ShouldSchedule);
-            Assert.False(replayHidden.Visible);
-            Assert.Equal("WebView2Configured:PanelHidden:Hide", replayHidden.Reason);
-
-            _ = coordinator.DrainQueued();
-            coordinator.RecordHostVisibility(true, "PanelShown:Show");
-            _ = coordinator.DrainQueued();
-
-            var replayVisible = coordinator.RecordControllerAvailable("WebView2Configured");
-
-            Assert.True(replayVisible.ShouldSchedule);
-            Assert.True(replayVisible.Visible);
-            Assert.Equal("WebView2Configured:PanelShown:Show", replayVisible.Reason);
-        }
-
-        [Fact]
-        public void HostVisibilityCoordinator_CoalescesToLatestDesiredVisibility()
-        {
-            var coordinator = new WebViewHostVisibilityCoordinator();
-
-            var shown = coordinator.RecordHostVisibility(true, "PanelShown:Show");
-            var hidden = coordinator.RecordHostVisibility(false, "PanelHidden:Hide");
-
-            Assert.True(shown.ShouldSchedule);
-            Assert.False(hidden.ShouldSchedule);
-            Assert.True(hidden.Coalesced);
-
-            var queued = coordinator.DrainQueued();
-
-            Assert.NotNull(queued);
-            Assert.False(queued!.Value.Visible);
-            Assert.Equal("PanelHidden:Hide", queued.Value.Reason);
         }
 
         [Fact]
@@ -503,227 +385,10 @@ namespace Rook.Tests.UI.Web
             Assert.Contains("BindingFlags.NonPublic", source);
         }
 
-        // ─── Vision host presentation coordinator path ──────────────
+        // ─── Presentation diagnostics ring (reconciler Record path) ──
 
         [Fact]
-        public void VisionPresentationPath_IsOptInOnly()
-        {
-            var surface = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
-            var vision = ReadSourceFile("src", "Rook", "UI", "Vision", "VisionWebSurface.cs");
-            var reconcile = ExtractMemberBlock(
-                surface,
-                "internal void ReconcileHostPresentation(");
-            var gotFocus = ExtractMemberBlock(
-                surface,
-                "private void OnWebViewGotFocus(");
-            var appActive = ExtractMemberBlock(
-                surface,
-                "private void OnApplicationIsActiveChanged(");
-
-            Assert.Contains(
-                "protected virtual bool UseHostPresentationCoordinator => false;",
-                surface);
-            // Reconciler cutover (Task 7): no surface opts into the legacy
-            // coordinator path anymore; the stack itself is deleted in the
-            // follow-up cleanup task.
-            Assert.DoesNotContain("UseHostPresentationCoordinator", vision);
-            Assert.Contains("if (!UseHostPresentationCoordinator)", reconcile);
-            Assert.Contains(
-                "ReconcileHostVisibility(facts.DesiredVisible, facts.Reason);",
-                reconcile);
-            Assert.Contains("if (!facts.Authoritative)", reconcile);
-            Assert.Contains("if (UseHostPresentationCoordinator)", gotFocus);
-            Assert.Contains("if (UseHostPresentationCoordinator)", appActive);
-            Assert.DoesNotContain(
-                "protected override bool UseHostPresentationCoordinator => true;",
-                surface);
-        }
-
-        [Fact]
-        public void VisionPresentationPath_UsesOneShotIdleAndNoPersistentIdleLoop()
-        {
-            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
-            var scheduler = ExtractMemberBlock(
-                source,
-                "private void ScheduleHostPresentationReconcile(");
-            var idleScheduler = ExtractMemberBlock(
-                source,
-                "private void ScheduleHostPresentationIdleFollowUp(");
-            var idleHandler = ExtractMemberBlock(
-                source,
-                "private void OnHostPresentationIdle(");
-            var disposeWebView = ExtractMemberBlock(
-                source,
-                "private void DisposeWebView(");
-            var run = ExtractMemberBlock(
-                source,
-                "private void RunHostPresentationCoordinatorReconcile(");
-            var apply = ExtractMemberBlock(
-                source,
-                "private string ApplyHostPresentationDecision(");
-            var scopedScheduler = scheduler + idleScheduler + idleHandler + run + apply;
-
-            Assert.Contains(
-                "private readonly WebViewHostPresentationIdleGate _hostPresentationIdleGate = new();",
-                source);
-            Assert.Contains("_hostPresentationIdleReason", source);
-            Assert.Contains("TrySchedule(facts.Generation)", idleScheduler);
-            Assert.Contains("RhinoApp.Idle += OnHostPresentationIdle;", idleScheduler);
-            Assert.Contains("RhinoApp.Idle -= OnHostPresentationIdle;", idleHandler);
-            Assert.Contains("ShouldRun(", idleHandler);
-            Assert.Contains("facts.Generation", idleHandler);
-            Assert.Contains("_hostPresentationIdleGate.Clear();", source);
-            Assert.Contains("RhinoApp.Idle -= OnHostPresentationIdle;", disposeWebView);
-            Assert.DoesNotContain("while (", scopedScheduler);
-            Assert.DoesNotContain("for (", scopedScheduler);
-        }
-
-        [Fact]
-        public void VisionPresentationPath_ControllerConfiguredUsesCoordinatorPath()
-        {
-            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
-            var configure = ExtractMemberBlock(
-                source,
-                "private async void ConfigureVirtualHost(");
-
-            Assert.Contains("if (UseHostPresentationCoordinator)", configure);
-            Assert.Contains(
-                "ScheduleLatestHostPresentationFromEvent(",
-                configure);
-            Assert.Contains("\"WebView2Configured\"", configure);
-            Assert.Contains("scheduleIdleFollowUp: true", configure);
-            Assert.DoesNotContain(
-                "ScheduleHostVisibilityReconcile(\r\n                    _hostVisibility.RecordControllerAvailable(\"WebView2Configured\"));",
-                configure);
-        }
-
-        [Fact]
-        public void VisionPresentationPath_IdleSkipsHiddenLatestFactsBeforeReconcile()
-        {
-            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
-            var idleHandler = ExtractMemberBlock(
-                source,
-                "private void OnHostPresentationIdle(");
-
-            var hiddenGuard = idleHandler.IndexOf("ShouldRun(", StringComparison.Ordinal);
-            var reconcile = idleHandler.IndexOf(
-                "RunHostPresentationCoordinatorReconcile(reason);",
-                StringComparison.Ordinal);
-
-            Assert.True(hiddenGuard >= 0, "Idle handler must guard hidden facts.");
-            Assert.True(reconcile >= 0, "Idle handler must run presentation reconcile.");
-            Assert.True(
-                hiddenGuard < reconcile,
-                "Idle hidden-facts guard must run before presentation reconcile.");
-        }
-
-        [Fact]
-        public void VisionPresentationPath_AppliesPresentInBoundsVisibleNotifyOrder()
-        {
-            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
-            var method = ExtractMethod(source, "private string ApplyHostPresentationDecision");
-
-            var boundsIndex = method.IndexOf("SetControllerBounds", StringComparison.Ordinal);
-            var visibleIndex = method.IndexOf(
-                "SetControllerVisible(controller, true",
-                StringComparison.Ordinal);
-            var notifyIndex = method.IndexOf(
-                "NotifyParentWindowPositionChanged",
-                StringComparison.Ordinal);
-
-            Assert.True(boundsIndex >= 0);
-            Assert.True(visibleIndex >= 0);
-            Assert.True(notifyIndex >= 0);
-            Assert.True(boundsIndex < visibleIndex);
-            Assert.True(visibleIndex < notifyIndex);
-        }
-
-        [Fact]
-        public void VisionPresentationPath_DoesNotMarkMissingWebViewAsDisposed()
-        {
-            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
-
-            Assert.DoesNotContain("Disposed = _webView == null", source);
-            Assert.Contains("Disposed = facts.Disposed", source);
-        }
-
-        [Fact]
-        public void VisionPresentationPath_RefreshesAppActiveAtSnapshotTime()
-        {
-            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
-            var capture = ExtractMethod(source, "private HostPresentationProbe CaptureHostPresentationProbe");
-
-            Assert.Contains(
-                "AppActive = facts.AppActive && IsApplicationActiveForPresentation()",
-                capture);
-            Assert.Contains(
-                "private static bool IsApplicationActiveForPresentation()",
-                source);
-        }
-
-        [Fact]
-        public void VisionPresentationPath_RefreshesVolatileFactsBeforeDecision()
-        {
-            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
-            var run = ExtractMethod(
-                source,
-                "private void RunHostPresentationCoordinatorReconcile");
-            var idle = ExtractMemberBlock(
-                source,
-                "private void OnHostPresentationIdle(");
-
-            var runRefresh = run.IndexOf("RefreshHostPresentationFacts(", StringComparison.Ordinal);
-            var runProbe = run.IndexOf("CaptureHostPresentationProbe(facts)", StringComparison.Ordinal);
-            var idleRefresh = idle.IndexOf("RefreshHostPresentationFacts(", StringComparison.Ordinal);
-            var idleGate = idle.IndexOf("_hostPresentationIdleGate.ShouldRun(", StringComparison.Ordinal);
-
-            Assert.Contains(
-                "private protected virtual WebViewHostPanelPresentationFacts RefreshHostPresentationFacts(",
-                source);
-            Assert.True(runRefresh >= 0, "Run path must refresh volatile facts.");
-            Assert.True(runProbe >= 0, "Run path must capture a presentation probe.");
-            Assert.True(runRefresh < runProbe, "Facts refresh must happen before probe capture.");
-            Assert.True(idleRefresh >= 0, "Idle path must refresh volatile facts.");
-            Assert.True(idleGate >= 0, "Idle path must guard through the idle gate.");
-            Assert.True(idleRefresh < idleGate, "Idle facts refresh must happen before gate evaluation.");
-        }
-
-        [Fact]
-        public void VisionPresentationPath_BoundsFailureDoesNotSkipVisibleOrNotify()
-        {
-            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
-            var method = ExtractMethod(source, "private string ApplyHostPresentationDecision");
-
-            var boundsFailure = method.IndexOf("actionResult = \"set-bounds-failed\"", StringComparison.Ordinal);
-            var visibleIndex = method.IndexOf("SetControllerVisible(controller, true", StringComparison.Ordinal);
-            var notifyIndex = method.IndexOf(
-                "NotifyParentWindowPositionChangedWithResult",
-                StringComparison.Ordinal);
-
-            Assert.True(boundsFailure >= 0);
-            Assert.True(visibleIndex >= 0);
-            Assert.True(notifyIndex >= 0);
-            Assert.True(boundsFailure < visibleIndex);
-            Assert.True(visibleIndex < notifyIndex);
-            Assert.DoesNotContain("return \"set-bounds-failed\"", method);
-        }
-
-        [Fact]
-        public void VisionPresentationPath_ActionResultStaysInMemoryOnly()
-        {
-            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
-            var run = ExtractMethod(
-                source,
-                "private void RunHostPresentationCoordinatorReconcile");
-
-            Assert.Contains("_lastHostPresentationActionResult", source);
-            Assert.Contains("_lastHostPresentationActionResult =", run);
-            Assert.DoesNotContain("TraceWebViewFocus", run);
-            Assert.DoesNotContain("File.", run);
-        }
-
-        [Fact]
-        public void VisionPresentationPath_RecordsBoundedMemoryOnlyDiagnosticRing()
+        public void PresentationDiagnosticsRing_IsBoundedAndMemoryOnly()
         {
             var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
             var diagnostic = ReadSourceFile(
@@ -734,52 +399,23 @@ namespace Rook.Tests.UI.Web
                 "WebViewHostPresentationDiagnosticEntry.cs");
             var record = ExtractMethod(
                 source,
-                "private void RecordHostPresentationDiagnostic");
+                "private void RecordReconcilerDiagnostic");
             var dump = ExtractMemberBlock(
                 source,
                 "internal string DumpHostPresentationDiagnostics(");
 
             Assert.Contains("MaxHostPresentationDiagnosticEntries = 64", source);
             Assert.Contains("Queue<WebViewHostPresentationDiagnosticEntry>", source);
-            Assert.Contains("RecordHostPresentationDiagnostic(", source);
-            Assert.Contains("while (_hostPresentationDiagnostics.Count > MaxHostPresentationDiagnosticEntries)", record);
-            Assert.Contains("Facts = WebViewHostPanelPresentationFactsDiagnostic.From(facts)", record);
-            Assert.Contains("Snapshot = WebViewHostPresentationSnapshotDiagnostic.From(snapshot)", record);
-            Assert.Contains("Decision = WebViewHostPresentationDecisionDiagnostic.From(decision)", record);
-            Assert.Contains("ActionResult = actionResult", record);
+            Assert.Contains(
+                "while (_hostPresentationDiagnostics.Count > MaxHostPresentationDiagnosticEntries)",
+                record);
+            Assert.Contains("Reason = evt", record);
+            Assert.Contains("ActionResult = detail", record);
             Assert.Contains("JsonSerializer.Serialize", dump);
             Assert.DoesNotContain("File.", record + dump);
             Assert.DoesNotContain("object", diagnostic);
             Assert.DoesNotContain("IntPtr", diagnostic);
             Assert.DoesNotContain("Exception", diagnostic);
-        }
-
-        [Fact]
-        public void VisionPresentationPath_DoesNotUseReloadOrJsProbeForRecovery()
-        {
-            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
-            var scoped = string.Concat(
-                ExtractMemberBlock(
-                    source,
-                    "private void ScheduleHostPresentationReconcile("),
-                ExtractMemberBlock(
-                    source,
-                    "private void ScheduleHostPresentationIdleFollowUp("),
-                ExtractMemberBlock(
-                    source,
-                    "private void OnHostPresentationIdle("),
-                ExtractMemberBlock(
-                    source,
-                    "private void RunHostPresentationCoordinatorReconcile("),
-                ExtractMemberBlock(
-                    source,
-                    "private string ApplyHostPresentationDecision("));
-
-            Assert.DoesNotContain("ExecuteScript", scoped);
-            Assert.DoesNotContain(".Reload(", scoped);
-            Assert.DoesNotContain("ReloadAfterRendererExit", scoped);
-            Assert.DoesNotContain("TryRenavigateAfterReloadFailure", scoped);
-            Assert.DoesNotContain("BuildFocusProbeScript", scoped);
         }
 
         // ─── TryResolveVirtualResource hook (PR-7a) ──────────────────
