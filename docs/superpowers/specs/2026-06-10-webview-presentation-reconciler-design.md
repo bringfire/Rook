@@ -1,0 +1,339 @@
+# WebView Presentation Reconciler Design
+
+Date: 2026-06-10
+Status: approved design (Claude + Codex review), pre-implementation
+Replaces: probe-gated presentation architecture from PR #191 / PR #193
+Closes (on completion): issue #233 and the dark-panel bug class behind it
+
+## Problem
+
+RookVision (and potentially any `RookWebSurface` panel) can go dark: the
+WebView2-rendered content shows black/stale pixels while the backend, bridge,
+and every host-side probe report healthy. Six weeks of fixes (focus repaint
+workarounds, dedicated panel hosting, lifecycle hardening, the
+`WebViewHostPresentationCoordinator` state machine) each closed one edge and
+the bug class survived.
+
+## Root Cause (live-proven 2026-06-10)
+
+Captured in one instrumented session (in-memory presentation ring + injected
+JS visibility probe + external HWND watcher), with the user confirming visual
+state at each step:
+
+1. Rhino hides and can **recreate** a floating panel's dockbar form across
+   app deactivate/reactivate (observed: form HWND `919264` destroyed,
+   replaced by `527716`; the WebView2 widget windows were rebuilt with new
+   handles).
+2. During that transition the host control re-asserts WebView2 controller
+   visibility mid-reparent. Sometimes the renderer never receives the
+   "visible again" notification: the page's last `visibilitychange` event was
+   `hidden` (11:29:33) and **no `visible` event ever followed**, across many
+   Rhino refocuses. Chromium does not paint documents it believes are hidden.
+3. In that stuck state, every host-side fact is green: controller
+   `IsVisible=true`, correct `ParentWindow`, correct bounds, full HWND chain
+   `WS_VISIBLE`, `Chrome_RenderWidgetHostHWND` present, Eto loaded/visible,
+   Rhino panel visible+selected. The coordinator evaluated
+   `Presenting / action None`. **No probe Rook had could see the failure.**
+4. Repair was proven live: controller `IsVisible=false` → ~800ms gap →
+   `IsVisible=true` restored pixels with Rhino focused, no re-dock, no
+   reload. An instantaneous false→true toggle did **not** repair (the
+   transition coalesces away); the gap is load-bearing.
+5. A second silent failure was captured in the same session: the renderer
+   rebuilt its document (injected JS state wiped, fresh page) with **zero
+   events** reaching Rook's handlers — no NavigationStarting/Completed, no
+   DocumentLoaded, no ProcessFailed.
+6. A self-inflicted defect was also captured (ring entry #8): on app
+   activation, the coordinator sampled the HWND chain mid-transition
+   (`HwndChainHidden`), emitted `HideController`, and **applied it** — hiding
+   the controller on the way into activation. The PR #193 carve-out does not
+   cover the `Presenting -> PendingHost` path.
+7. Heisenbug confirmation: enabling synchronous file-trace diagnostics on the
+   UI thread made the bug substantially less reproducible. The failure lives
+   in a narrow timing window inside the activation/reparent transition.
+   No probe-then-act design can win a race it is inside of.
+
+Secondary observed facts:
+
+- Re-dock recovery is explained mechanically: Eto's WPF WebView2 handler
+  detaches/reattaches the control on panel unload/load, forcing a full
+  HwndHost rebuild that re-pushes parent/bounds/visibility.
+- `NotifyParentWindowPositionChanged` is documented by Microsoft as an
+  accessibility/dialog-placement notification, not a repaint trigger
+  (confirmed by WebView2Feedback #5398). The old `PresentController` action
+  leaned on it as the finishing move; on the stuck path it does nothing.
+- **Observed fact, this host stack, not a universal guarantee:** in today's
+  Rook/Rhino 8/Eto-WPF/WebView2 host, live evidence showed the host control
+  set the controller invisible during true host withdrawal (form hide at
+  11:29:33: element visibility propagated and controller read
+  `IsVisible=false` without any Rook action). The design records this as an
+  observed behavior of the current stack and does not depend on it as a
+  contract.
+
+## Architectural Verdict
+
+The prior model inferred pixel presentation from Rhino/Eto/HWND/controller
+proxy facts and acted only on detected drift (edge-triggered gate). The
+failing layer — the renderer's own visibility belief and its composition
+output — is not observable from any of those facts, and the critical
+restoring transitions (form re-show, reparent completion) emit no events.
+An edge-triggered gate over unobservable levels cannot converge.
+
+The replacement is a **level-triggered reconciler**: on every stabilized
+return edge, ask the renderer what it believes, compare with desired state,
+and apply a bounded, idempotent repair until they agree.
+
+## Invariants
+
+1. **No present-side effects while Rhino/app is inactive.** This preserves
+   the real invariant behind the PR #192 wedge evidence (Rhino lockups when
+   WebView2 was mutated through inactive/host-withdrawal intervals). The
+   reconciler runs only on return edges and only while the app is active;
+   triggers arriving while inactive re-queue for the next activation.
+2. **The renderer's belief is the primary liveness probe.** Host-side facts
+   (HWND chain, client rect, `Panels.IsPanelVisible`) are demoted to
+   diagnostic annotations; they gate nothing.
+3. **Durable desired state is owned by the panel lifecycle layer**
+   (`HostedPanelLifecycleAdapter` + panel callbacks), never inferred by the
+   reconciler. Renderer-hidden is a health symptom, not a desire signal.
+4. **Every repair is generation-guarded and bounded.** No unbounded retries,
+   no timers that outlive their authorizing state.
+5. **One code path for all surfaces.** No per-surface presentation seams
+   (`UseHostPresentationCoordinator` is deleted, not replaced).
+
+## Component: `WebViewPresentationReconciler`
+
+Owned by `RookWebSurface`, one instance per surface. Serialized: one
+in-flight reconcile per surface, latest-wins coalescing of trigger requests.
+
+### Desired-visible ownership and generation model
+
+- `DesiredVisible` is set only by the lifecycle layer:
+  - `true`: panel shown / logically open.
+  - `false` (durable hide): panel closing, panel disposed, lifecycle `Hide`
+    decision (tab-unselected / panel actually hidden per existing adapter
+    semantics — unchanged from today's Knowledge behavior).
+- `Generation` is a per-surface monotonic counter, incremented on: durable
+  hide, close/dispose, panel shown, and app active/inactive change.
+- Every delayed continuation (repair gap timer, confirmation probe, queued
+  reconcile) captures the generation at schedule time and **aborts silently**
+  if the current generation differs or `DesiredVisible` is false.
+
+### Probe contract
+
+`ProbePresentation()` executes one `ExecuteScriptAsync` returning a
+structured payload:
+
+```js
+JSON.stringify({
+  visibilityState: document.visibilityState,
+  hidden: document.hidden,
+  readyState: document.readyState,
+  hasRoot: !!document.body,
+  viewport: [window.innerWidth, window.innerHeight],
+  appRect: document.body ? (document.body.getBoundingClientRect().toJSON
+            ? document.body.getBoundingClientRect().toJSON() : null) : null
+})
+```
+
+Outcomes:
+
+- `Healthy`: parsed payload with `visibilityState == "visible"`.
+- `RendererHidden`: parsed payload with `visibilityState == "hidden"`.
+- `RendererUnresponsive`: no answer within `ProbeTimeoutMs`, or
+  `ExecuteScriptAsync` faulted. This is a health classification — renderer
+  or WebView IPC is unhealthy enough that script-based repair cannot be
+  relied on. It does **not** claim the renderer process is dead (causes
+  include dead renderer, blocked browser process, navigation in progress,
+  disposed controller, host transition timing).
+
+The full payload is recorded in the diagnostics ring on every probe.
+
+### Repair sequence (exact, bounded)
+
+On a reconcile trigger with `DesiredVisible=true` and app active:
+
+```text
+ 1. probe
+ 2. Healthy            -> record, done (no side effects; the ~95% path)
+ 3. RendererHidden     -> repair attempt 1:
+      a. controller.IsVisible = false
+      b. async wait RepairGapMs (UI thread free)
+      c. guard: generation current AND DesiredVisible still true, else abort
+      d. controller.IsVisible = true
+      e. set controller bounds to host target
+      f. NotifyParentWindowPositionChanged (a11y/dialog correctness only)
+      g. confirmation probe (after ConfirmDelayMs)
+ 4. still RendererHidden -> repair attempt 2 (same sequence, same guards)
+ 5. confirmation probe
+ 6. still RendererHidden, or any probe RendererUnresponsive
+                        -> one CoreWebView2.Reload()  (re-runs document-
+                           created scripts incl. bridge shim; DocumentLoaded
+                           then triggers a fresh reconcile)
+ 7. if the post-reload reconcile fails again -> Degraded state: ring-logged,
+    surfaced once via RhinoApp.WriteLine, NO further automatic action until
+    the next external trigger. No loops.
+```
+
+On a reconcile trigger with `DesiredVisible=false` (durable hide only):
+`controller.IsVisible = false`. No probe, no toggle. There is **no**
+probe-gated "protective hide" anywhere — the ring-#8 class is removed by
+construction.
+
+Named constants (single source of truth, internal):
+
+```text
+RepairGapMs      = 200
+ConfirmDelayMs   = 500
+ProbeTimeoutMs   = 2000
+MaxRepairAttemptsPerTrigger = 2
+MaxReloadsPerTrigger        = 1
+```
+
+### Trigger model
+
+| Trigger | Source | Behavior |
+|---|---|---|
+| App activated | `Application.Instance.IsActiveChanged` (active) | immediate async reconcile + one idle-tick confirmation reconcile |
+| Panel shown | lifecycle adapter `Show` decision | reconcile |
+| Got focus | Eto `GotFocus` | reconcile (restores click-to-heal on every surface) |
+| Size changed | Eto `SizeChanged` | coalesced reconcile |
+| Document loaded | `DocumentLoaded` (initial or post-Reload) | reconcile |
+| Post-repair confirm | reconciler-internal | bounded per sequence above |
+
+Guards: requests while app inactive are recorded and re-queued for the next
+activation (never executed inactive); generation mismatch aborts; disposed
+surface aborts. Nothing triggers on deactivate. No HWND-chain, client-rect,
+or `Panels.IsPanelVisible` value appears anywhere in the decision path.
+
+## Deletions, Keeps, Boundaries
+
+Deleted:
+
+- `WebViewHostPresentationCoordinator` runtime wiring and class
+- `VisionPanelPresentationState`
+- `UseHostPresentationCoordinator` seam
+- presentation-facts refresher plumbing (`SetPresentationFactsRefresher`,
+  `RefreshHostPresentationFacts` overrides)
+- `WebViewHostPresentationIdleGate`
+- legacy `WebViewHostVisibilityCoordinator` queue (subsumed by the
+  reconciler's coalescing)
+
+Kept:
+
+- `HostedPanelLifecycleAdapter` / `HostedPanelLifecycleCoordinator` —
+  unchanged. They own Rhino lifecycle interpretation (show/hide/defer/close)
+  and remain the sole source of durable desired state. Their HWND/selected
+  probes stay where they are today.
+- In-memory diagnostics ring (extended: probe payloads, repair outcomes,
+  generation, trigger source), bounded as today.
+- Process-failure recovery (`ProcessFailed` classification) — unchanged.
+- All bridge / virtual-host / CSP / security machinery — untouched.
+
+Boundary statement (review condition #3): the reconciler owns **renderer
+liveness and presentation repair only**. Logical open/closed/durable-hide is
+owned by the lifecycle layer. A surface that is logically closed can never be
+"repaired visible" (generation + DesiredVisible guards), and renderer-hidden
+never demotes a logically open surface to hidden.
+
+## Diagnostics & Operator Affordances (mandatory scope)
+
+The 2026-06-09 recurrence (#233) could not be diagnosed live because the dump
+command was unreachable through the MCP safe-command bridge. Therefore, as an
+**acceptance criterion** of this design, not a nice-to-have:
+
+1. `RookDumpVisionPresentationState` is generalized to all `RookWebSurface`
+   panels and gains an optional `Repair=Yes` mode that runs the exact repair
+   sequence once (operator/field-evidence path; not normal UX — automatic
+   convergence remains the product behavior).
+2. Dump and repair are exposed through a typed companion-bridge route (and
+   MCP tool) so they are reachable without keyboard/manual command entry.
+
+## Rollout & Validation Gates
+
+One shared substrate path, enabled for Vision, Chat, and Knowledge Graph in
+the same PR chain. Gate (review condition #1): **all three surfaces pass the
+live matrix before merge. If Chat or Knowledge fails, the PR does not ship
+half-enabled** — the failure is fixed or the chain stops; no per-surface
+architecture forks.
+
+Vision is validated first (it is the reproducer), then the identical matrix
+runs on Chat and Knowledge in the same session.
+
+### Unit tests (fake probe / clock / controller; no Rhino/Eto/WebView2 types)
+
+- healthy probe → no side effects
+- `RendererHidden` → exact repair sequence order (hide, gap, guard, show,
+  bounds, notify, confirm)
+- generation bump during gap → repair aborts, controller untouched
+- durable hide during gap → repair aborts
+- repair attempt bounding (2) and reload bounding (1), then Degraded
+- `RendererUnresponsive` → single reload path
+- trigger while app inactive → recorded, executed on next activation only
+- coalescing: N triggers → one in-flight reconcile, latest generation wins
+- durable hide → `IsVisible=false`, no probe, no toggle
+
+### Live validation matrix (merge gate, ring dump captured per scenario)
+
+Reproducer set (today's evidence):
+
+- floating Vision panel on a monitor above primary (negative-Y coords)
+- rapid app deactivate/reactivate cycles (alt-tab storms)
+- artifact reveal / open-folder Explorer focus steal, returning focus by
+  (a) clicking panel content, (b) clicking viewport, (c) alt-tab
+- artifact reveal / open-folder while a **video element is loaded/playing or
+  recently loaded** in the modal (review condition #6 — video stresses
+  composition differently than static images)
+
+PR #192 wedge suite (must show no Rhino lockup, command-line freeze,
+close-button failure, or resize smear):
+
+- app deactivate with panel docked; tab away/return; floating panel;
+  resize while inactive; Explorer focus steal
+
+General:
+
+- docked tab switch away/return without app refocus
+- undock/redock during and after a dark state
+- Chat + Knowledge co-resident in the same session, same matrix
+- multi-document open/close (per-doc panel lifecycle)
+- click-into-dark-panel heals (GotFocus trigger) on all surfaces
+
+## Acceptance Criteria
+
+- A captured stuck-renderer state self-heals on the next return edge without
+  re-dock, reload-by-hand, or panel reopen.
+- Clicking a dark panel heals it (all surfaces).
+- No present-side effects ever execute while the app is inactive (verified
+  by ring inspection across the matrix).
+- The #192 wedge suite passes with full Rhino responsiveness.
+- Dump + repair reachable via typed route/MCP tool, live-verified.
+- Unit suite covers the decision table above.
+- The deleted types are gone (no dormant parallel host model remains).
+
+## Non-Goals
+
+- No user-facing settings, env-var modes, or visible repair buttons.
+- No recurring timers / polling loops; the reconciler is event-triggered.
+- No changes to bridge security, CSP, virtual host, or artifact pipelines.
+- No attempt to prevent Rhino from hiding/recreating floating forms (host
+  behavior outside our control; the reconciler converges after it).
+- `--disable-features=CalculateNativeWinOcclusion` is explicitly out of
+  scope for this PR chain; it may be revisited as environment-level hardening
+  if field evidence later shows an occlusion-class failure (today's captured
+  mechanism was visibility-notification loss, which the flag does not
+  address).
+
+## Evidence Artifacts (this investigation)
+
+- Presentation ring dumps: `%TEMP%\rook-vision-presentation-*.json`,
+  `%TEMP%\rook-vision-presentation-mcp-dump.json` (2026-06-10 session)
+- Focus trace with stuck-hidden timeline: `%TEMP%\rook\webview-focus.log`
+  (11:26–11:29:33 entries; silence after 11:29:33 while refocusing = stuck)
+- External watcher log: `%TEMP%\rook-darkwatch.log` (form `919264`
+  `WS_VISIBLE=False` persisting across `fg=Rhino` samples)
+- Live repair confirmation: user-observed gapped-toggle recovery while Rhino
+  focused, 2026-06-10 ~11:35
+- Prior history: issue #233, PR #191 (`6a40e3b`), PR #193 (`959753f`),
+  PR #192 (failed validation branch — wedge evidence),
+  `docs/superpowers/specs/2026-05-25-webview-host-presentation-coordinator-design.md`,
+  `docs/superpowers/specs/2026-05-26-vision-return-edge-presentation-design.md`
