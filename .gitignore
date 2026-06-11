@@ -174,3 +174,6 @@ drafts/
 
 # Docs website now lives in the public rook-release repo, not here
 /site/
+
+# Runtime DSPy cache written by dev-mode MCP server (ROOK_DATA_DIR=knowledge/)
+knowledge/dspy-cache/
