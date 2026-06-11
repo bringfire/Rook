@@ -981,6 +981,87 @@ async def test_chirp_create_preserves_rich_pin_metadata(monkeypatch, patched_ser
     assert payload["data"]["pins_out"][0]["description"] == "Candidate spans"
 
 
+@pytest.mark.asyncio
+async def test_chirp_create_deterministic_only_uses_host_compatible_script_without_json(
+    monkeypatch, patched_server
+):
+    captured_scripts = []
+
+    class _FakeChirpResponse:
+        status_code = 200
+
+        def json(self):
+            return {
+                "script": "\n".join(
+                    [
+                        "using System.Text.Json;",
+                        "private void RunScript(object Input, ref object Result)",
+                        "{",
+                        "  Result = JsonSerializer.Serialize(Input);",
+                        "}",
+                    ]
+                ),
+                "name": "Deterministic",
+                "category": "classifier",
+                "pins_in": ["Input:string"],
+                "pins_out": ["Result:string"],
+            }
+
+    class _FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, json):
+            assert json["deterministic_only"] is True
+            return _FakeChirpResponse()
+
+    async def fake_ensure_chirp_running():
+        return {"running": True, "host": "127.0.0.1", "port": 9123}
+
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        if route == "/gh/document":
+            return {"success": True, "data": {"name": "TestDoc"}}
+        if route == "/gh/create-component":
+            return {"success": True, "data": {"guid": "chirp-guid"}}
+        if route == "/gh/script-params":
+            return {"success": True, "data": {"Guid": "chirp-guid", "Inputs": 1, "Outputs": 1}}
+        if route == "/gh/script":
+            captured_scripts.append(payload["script"])
+            return {"success": True, "data": {"Guid": "chirp-guid"}}
+        if route == "/gh/errors":
+            return {"success": True, "data": {"errors": []}}
+        raise AssertionError(f"Unexpected route: {route}")
+
+    monkeypatch.setattr(server.httpx, "AsyncClient", _FakeAsyncClient)
+    monkeypatch.setattr("rook.chirp_manager.ensure_chirp_running", fake_ensure_chirp_running)
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    response = await server.call_tool(
+        "chirp_create",
+        {
+            "category": "classifier",
+            "pins_in": [{"name": "Input", "type": "string"}],
+            "pins_out": [{"name": "Result", "type": "string"}],
+            "signature": "input -> result",
+            "deterministic_code": "Result = Input ?? string.Empty;",
+            "deterministic_only": True,
+        },
+    )
+    payload = _decode_response(response)
+
+    assert payload["success"] is True
+    assert captured_scripts
+    assert "System.Text.Json" not in captured_scripts[0]
+    assert "JsonSerializer" not in captured_scripts[0]
+    assert "Result = Input ?? string.Empty;" in captured_scripts[0]
+
+
 def test_python_preamble_item_access_emits_ghenv_extract_one():
     preamble = server._build_gh_python_preamble(
         [{"name": "crv", "type": "Curve", "access": "item"}]

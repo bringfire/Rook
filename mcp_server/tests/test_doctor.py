@@ -62,6 +62,8 @@ def test_validate_mcp_entry_checks_required_fields_but_ignores_optional_chirp_ho
             "ROOK_INSTALL_ROOT": str(runtime_paths.install_root).replace("\\", "/"),
             "ROOK_DATA_DIR": str(runtime_paths.data_root).replace("\\", "/"),
             "ROOK_MODE": "release",
+            "DSPY_CACHEDIR": str(runtime_paths.data_root / "dspy-cache").replace("\\", "/"),
+            "ROOK_DSPY_RESTRICT_PICKLE": "1",
             "CHIRP_HOME": "C:/custom/chirp",
         },
     }
@@ -70,6 +72,51 @@ def test_validate_mcp_entry_checks_required_fields_but_ignores_optional_chirp_ho
 
     assert ok is True
     assert detail is None
+
+
+def test_expected_mcp_entry_includes_dspy_cache_release_env(tmp_path: Path):
+    runtime_paths = _runtime_paths(tmp_path)
+    chirp_home = runtime_paths.install_root / "chirp"
+    chirp_home.mkdir()
+
+    entry = doctor._build_expected_mcp_entry(
+        runtime_paths,
+        str(tmp_path / "venv" / "Scripts" / "python.exe"),
+        chirp_home=str(chirp_home),
+    )
+
+    env = entry["env"]
+    assert env["DSPY_CACHEDIR"] == str(runtime_paths.data_root / "dspy-cache").replace("\\", "/")
+    assert env["ROOK_DSPY_RESTRICT_PICKLE"] == "1"
+    assert env["CHIRP_HOME"] == str(chirp_home).replace("\\", "/")
+
+
+def test_validate_mcp_entry_rejects_missing_dspy_cache_contract(tmp_path: Path):
+    runtime_paths = _runtime_paths(tmp_path)
+    python_path = tmp_path / "python.exe"
+    python_path.write_text("")
+    entry = {
+        "type": "stdio",
+        "command": str(python_path),
+        "args": ["-m", "rook"],
+        "cwd": str(runtime_paths.mcp_server_dir),
+        "env": {
+            "PYTHONPATH": "",
+            "PYTHONHOME": "",
+            "ROOK_INSTALL_ROOT": str(runtime_paths.install_root).replace("\\", "/"),
+            "ROOK_DATA_DIR": str(runtime_paths.data_root).replace("\\", "/"),
+            "ROOK_MODE": "release",
+        },
+    }
+
+    ok, detail = doctor._validate_mcp_entry(
+        entry,
+        runtime_paths,
+        expected_python_path=str(python_path),
+    )
+
+    assert ok is False
+    assert detail == "env DSPY_CACHEDIR does not match expected value"
 
 
 def test_config_targets_use_supported_codex_skill_root(tmp_path: Path, monkeypatch):
@@ -133,6 +180,8 @@ def test_validate_codex_config_parses_semantically(tmp_path: Path):
                 f'ROOK_INSTALL_ROOT = "{install_root_normalized}"',
                 f'ROOK_DATA_DIR = "{data_root_normalized}"',
                 'ROOK_MODE = "release"',
+                f'DSPY_CACHEDIR = "{data_root_normalized}/dspy-cache"',
+                'ROOK_DSPY_RESTRICT_PICKLE = "1"',
                 "",
                 "[other]",
                 'value = "kept"',
@@ -173,6 +222,8 @@ def test_validate_codex_config_parses_on_python310_without_tomllib(tmp_path: Pat
                 f'ROOK_INSTALL_ROOT = "{install_root_normalized}"',
                 f'ROOK_DATA_DIR = "{data_root_normalized}"',
                 'ROOK_MODE = "release"',
+                f'DSPY_CACHEDIR = "{data_root_normalized}/dspy-cache"',
+                'ROOK_DSPY_RESTRICT_PICKLE = "1"',
             ]
         ),
         encoding="utf-8",

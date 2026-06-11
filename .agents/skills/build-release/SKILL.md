@@ -28,6 +28,7 @@ The argument is a semver version (X.Y.Z). If omitted, ask the user.
 | 0 | Pre-flight checks | Any check fails |
 | 1 | Release branch version bump (7 files / 10 edits) | Verification fails |
 | 2 | Merge the release PR and check out the exact main SHA to tag | Main HEAD is not the intended release commit |
+| 3A | Build bundled private Python runtime and offline wheelhouse | Validation fails |
 | 3 | Build and validate bundled FFmpeg payload/source bundle | Validation fails |
 | 4 | Build C++ native plugin | Exit code != 0 |
 | 5 | Build C# companion plugin for all managed runtimes | Exit code != 0 |
@@ -159,6 +160,28 @@ If the commit changes after any artifact is built, discard those artifacts,
 rebuild from the new `main` SHA, rerun smoke, and regenerate the release
 manifest.
 
+## Step 3A: Build Bundled Python Runtime And Wheelhouse
+
+Run this stage from the exact checked-out release SHA, after recording
+`$buildStartedAt` and before verifying `.iss` source paths or invoking ISCC.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\python-runtime\stage-rook-python-runtime.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\python-runtime\build-rook-python-wheelhouse.ps1 -Version X.Y.Z
+```
+
+This stages CPython 3.11.9 from the pinned official Python NuGet package, builds
+non-editable wheels for `rook-mcp` and Chirp, creates one union wheelhouse,
+rejects source distributions in the final public installer payload, validates
+wheel tags against the pinned interpreter's accepted tag set, validates import
+origins from temporary venv `site-packages`, runs `pip check`, records the Chirp
+sibling-repo source identity, records package license/provenance evidence, and
+writes `installer\runtime\python-runtime-manifest.json`.
+
+Public/full installer builds must package only this sealed Python runtime
+payload. Do not use user Python, PATH Python, PyPI, editable installs, or source
+tree `PYTHONPATH` entries to satisfy MCP or Chirp release installation.
+
 ## Step 3: Build and Validate Bundled FFmpeg
 
 ```powershell
@@ -280,6 +303,22 @@ and companion self-report evidence in the release notes. Do not use registry
 `FileName` values or `Get-Process.Modules` absence as proof of managed
 companion load.
 
+Generate the Python/runtime evidence from the installed private Rook venv before
+writing the smoke manifest:
+
+```powershell
+& "$env:LOCALAPPDATA\Rook\venv\Scripts\python.exe" -m rook.local_testing_proof python-smoke-evidence --out "$env:TEMP\rook-python-smoke-evidence.json"
+```
+
+The command self-seeds `ROOK_INSTALL_ROOT`, `ROOK_DATA_DIR`, `ROOK_MODE`,
+`CHIRP_HOME`, `DSPY_CACHEDIR`, and restricted-pickle settings from the installed
+venv path before it validates the runtime.
+
+Copy the successful gate's `details` object into
+`installer\output\release-smoke-X.Y.Z.json`, then add the installer identity and
+host-specific standalone/Rhino.Inside evidence. Do not hand-author or guess the
+Python evidence fields.
+
 Write a structured smoke manifest at `installer\output\release-smoke-X.Y.Z.json`
 with at least:
 
@@ -288,6 +327,32 @@ git_sha
 installer_sha256
 rook_version
 smoke_started_utc
+python_runtime_manifest
+install_state
+private_python_path
+private_python_version
+rook_venv_path
+chirp_venv_path
+rook_import_file
+chirp_import_file
+pip_check:
+  rook:
+    ok
+  chirp:
+    ok
+rook_dspy_cache:
+  restrict_pickle
+  disk_cache_dir
+chirp_dspy_cache:
+  restrict_pickle
+  disk_cache_dir
+config_identity:
+  chat_service_python_path
+  chirp_home
+  release_pythonpath_entries
+no_index_install
+chirp_git_sha
+chirp_source_archive_sha256
 standalone_rhino:
   rhino_version
   host_runtime

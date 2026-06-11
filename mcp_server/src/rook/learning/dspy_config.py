@@ -8,6 +8,7 @@ DSPy modules in the learning system.
 import os
 import logging
 from typing import Optional
+from pathlib import Path
 
 import dspy
 
@@ -15,9 +16,72 @@ logger = logging.getLogger(__name__)
 
 # Global DSPy language model instance
 _lm: Optional[dspy.LM] = None
+_cache_configured = False
 
 
 DEFAULT_MODEL = "claude-sonnet-4-6"
+
+
+def _get_rook_dspy_cache_dir() -> Optional[str]:
+    """Resolve Rook's DSPy cache directory for release/runtime processes."""
+    configured = os.environ.get("DSPY_CACHEDIR")
+    if configured:
+        return configured
+
+    data_dir = os.environ.get("ROOK_DATA_DIR")
+    if data_dir:
+        cache_dir = str(Path(data_dir) / "dspy-cache")
+        os.environ["DSPY_CACHEDIR"] = cache_dir
+        return cache_dir
+
+    return None
+
+
+def configure_secure_dspy_cache() -> dict:
+    """Force DSPy disk cache reads through restricted pickle deserialization."""
+    global _cache_configured
+    cache_dir = _get_rook_dspy_cache_dir()
+    require_restricted_pickle = (
+        os.environ.get("ROOK_DSPY_RESTRICT_PICKLE") == "1"
+        or os.environ.get("ROOK_MODE") == "release"
+    )
+    kwargs = {
+        "enable_disk_cache": True,
+        "enable_memory_cache": True,
+        "restrict_pickle": True,
+    }
+    if cache_dir:
+        Path(cache_dir).mkdir(parents=True, exist_ok=True)
+        kwargs["disk_cache_dir"] = cache_dir
+
+    if not hasattr(dspy, "configure_cache"):
+        raise RuntimeError("Installed DSPy does not support secure cache configuration")
+
+    try:
+        dspy.configure_cache(**kwargs)
+    except TypeError as exc:
+        if require_restricted_pickle:
+            raise RuntimeError(
+                "Installed DSPy does not support restrict_pickle cache configuration"
+            ) from exc
+        fallback_kwargs = dict(kwargs)
+        fallback_kwargs.pop("restrict_pickle", None)
+        dspy.configure_cache(**fallback_kwargs)
+        kwargs["restrict_pickle"] = False
+
+    if kwargs["restrict_pickle"]:
+        os.environ["ROOK_DSPY_RESTRICT_PICKLE"] = "1"
+    else:
+        os.environ.pop("ROOK_DSPY_RESTRICT_PICKLE", None)
+    _cache_configured = True
+    logger.info(
+        "DSPy cache configured with restricted pickle; disk_cache_dir=%s",
+        cache_dir or "(dspy default)",
+    )
+    return kwargs
+
+
+configure_secure_dspy_cache()
 
 
 def _get_default_model() -> str:
@@ -66,6 +130,8 @@ def configure_dspy(
         ValueError: If an Anthropic model is requested but no API key is available.
     """
     global _lm
+
+    configure_secure_dspy_cache()
 
     # Resolve model from profiles if not explicitly provided
     if not model:
@@ -154,6 +220,8 @@ def configure_dspy_for_optimization(
     Returns:
         Tuple of (teacher_lm, student_lm)
     """
+    configure_secure_dspy_cache()
+
     teacher_model = teacher_model or _get_default_model()
 
     # Apply provider prefix if needed

@@ -19,6 +19,7 @@ except ModuleNotFoundError:  # Python 3.10 support floor.
 from .bridge import rhino_request_context
 from .learning.command_knowledge_store import CommandKnowledgeStore
 from .preflight import preflight_rhino_command
+from . import runtime_paths as runtime_paths_module
 from .runtime_harness import CleanupStatus, run_rhino_runtime_harness
 from .runtime_paths import resolve_runtime_paths
 
@@ -161,14 +162,25 @@ def verify_chirp_runtime(chirp_root: Path) -> dict[str, Any]:
 
     check = (
         "import json, chirp; "
-        "print(json.dumps({'chirp_file': chirp.__file__}, sort_keys=True))"
+        "from chirp.adapter import configure_secure_dspy_cache; "
+        "print(json.dumps({"
+        "'chirp_file': chirp.__file__, "
+        "'dspy_cache': configure_secure_dspy_cache()"
+        "}, sort_keys=True))"
     )
+    env = os.environ.copy()
+    env.pop("PYTHONHOME", None)
+    env.pop("PYTHONPATH", None)
+    env["CHIRP_HOME"] = str(chirp_root)
+    env["DSPY_CACHEDIR"] = str(chirp_root / "data" / "dspy-cache")
+    env["CHIRP_DSPY_RESTRICT_PICKLE"] = "1"
     completed = subprocess.run(
         [str(chirp_python), "-c", check],
         capture_output=True,
         text=True,
         timeout=20,
         check=False,
+        env=env,
     )
     if completed.returncode != 0:
         raise ProofFailure(
@@ -186,12 +198,46 @@ def verify_chirp_runtime(chirp_root: Path) -> dict[str, Any]:
         ) from exc
 
     chirp_file = Path(payload["chirp_file"]).resolve()
-    assert_path_under(chirp_file, chirp_root, "chirp_import_leakage")
+    chirp_site_packages_root = chirp_root / ".venv" / "Lib" / "site-packages" / "chirp"
+    assert_path_under(chirp_file, chirp_site_packages_root, "chirp_import_leakage")
+    dspy_cache = payload.get("dspy_cache") or {}
+    if dspy_cache.get("restrict_pickle") is not True:
+        raise ProofFailure(
+            "chirp_dspy_cache_unrestricted",
+            "installed Chirp DSPy cache did not report restrict_pickle=true",
+            {"dspy_cache": dspy_cache},
+        )
+    if not _path_equal(dspy_cache.get("disk_cache_dir"), chirp_root / "data" / "dspy-cache"):
+        raise ProofFailure(
+            "chirp_dspy_cache_unrestricted",
+            "installed Chirp DSPy cache dir mismatch",
+            {"dspy_cache": dspy_cache},
+        )
     return {
         "chirp_file": str(chirp_file),
         "chirp_root": str(chirp_root),
         "chirp_python": str(chirp_python),
+        "chirp_dspy_cache": dspy_cache,
     }
+
+
+def verify_rook_dspy_cache(data_root: Path) -> dict[str, Any]:
+    from .learning.dspy_config import configure_secure_dspy_cache
+
+    dspy_cache = configure_secure_dspy_cache()
+    if dspy_cache.get("restrict_pickle") is not True:
+        raise ProofFailure(
+            "rook_dspy_cache_unrestricted",
+            "installed Rook DSPy cache did not report restrict_pickle=true",
+            {"dspy_cache": dspy_cache},
+        )
+    if not _path_equal(dspy_cache.get("disk_cache_dir"), data_root / "dspy-cache"):
+        raise ProofFailure(
+            "rook_dspy_cache_unrestricted",
+            "installed Rook DSPy cache dir mismatch",
+            {"dspy_cache": dspy_cache},
+        )
+    return dspy_cache
 
 
 def _read_json(path: Path, missing_label: str = "mcp_config_missing") -> dict[str, Any]:
@@ -253,6 +299,30 @@ def verify_mcp_entry(
             "mcp_config_stale",
             f"Rook MCP env ROOK_MODE mismatch in {config_path}",
             {"actual": env.get("ROOK_MODE")},
+        )
+    if env.get("PYTHONPATH") != "":
+        raise ProofFailure(
+            "mcp_config_stale",
+            f"Rook MCP env PYTHONPATH must be cleared in {config_path}",
+            {"actual": env.get("PYTHONPATH")},
+        )
+    if env.get("PYTHONHOME") != "":
+        raise ProofFailure(
+            "mcp_config_stale",
+            f"Rook MCP env PYTHONHOME must be cleared in {config_path}",
+            {"actual": env.get("PYTHONHOME")},
+        )
+    if env.get("ROOK_DSPY_RESTRICT_PICKLE") != "1":
+        raise ProofFailure(
+            "mcp_config_stale",
+            f"Rook MCP env ROOK_DSPY_RESTRICT_PICKLE mismatch in {config_path}",
+            {"actual": env.get("ROOK_DSPY_RESTRICT_PICKLE")},
+        )
+    if not _path_equal(env.get("DSPY_CACHEDIR"), data_root / "dspy-cache"):
+        raise ProofFailure(
+            "mcp_config_stale",
+            f"Rook MCP env DSPY_CACHEDIR mismatch in {config_path}",
+            {"actual": env.get("DSPY_CACHEDIR")},
         )
     return {"config_path": str(config_path), "cwd": str(expected_cwd)}
 
@@ -394,7 +464,8 @@ def verify_chat_manifest(
         ) from exc
 
     expected_working_dir = install_root / "mcp_server"
-    expected_src = expected_working_dir / "src"
+    data_root = install_root.parent / "data"
+    chirp_home = install_root / "chirp"
     if not _path_equal(manifest.get("pythonPath"), venv_python):
         raise ProofFailure(
             "chat_manifest_stale",
@@ -414,13 +485,45 @@ def verify_chat_manifest(
             {"module": manifest.get("module")},
         )
     entries = manifest.get("pythonPathEntries") or []
-    if not entries or not _path_equal(entries[0], expected_src):
+    if entries:
         raise ProofFailure(
             "chat_manifest_stale",
-            "chat service pythonPathEntries mismatch",
+            "release chat service manifest must not contain source pythonPathEntries",
             {"pythonPathEntries": entries},
         )
-    return {"manifest_path": str(manifest_path), "working_directory": str(expected_working_dir)}
+    env = manifest.get("environment") or {}
+    expected_env = {
+        "ROOK_INSTALL_ROOT": install_root,
+        "ROOK_DATA_DIR": data_root,
+        "CHIRP_HOME": chirp_home,
+        "DSPY_CACHEDIR": data_root / "dspy-cache",
+    }
+    for key, expected in expected_env.items():
+        if not _path_equal(env.get(key), expected):
+            raise ProofFailure(
+                "chat_manifest_stale",
+                f"chat service environment {key} mismatch",
+                {"actual": env.get(key), "expected": str(expected)},
+            )
+    for key, expected in {
+        "ROOK_MODE": "release",
+        "ROOK_DSPY_RESTRICT_PICKLE": "1",
+        "PYTHONHOME": "",
+        "PYTHONPATH": "",
+    }.items():
+        if env.get(key) != expected:
+            raise ProofFailure(
+                "chat_manifest_stale",
+                f"chat service environment {key} mismatch",
+                {"actual": env.get(key), "expected": expected},
+            )
+    return {
+        "manifest_path": str(manifest_path),
+        "python_path": str(venv_python),
+        "working_directory": str(expected_working_dir),
+        "chirp_home": str(chirp_home),
+        "release_pythonpath_entries": False,
+    }
 
 
 def verify_effective_configs(
@@ -436,35 +539,59 @@ def verify_effective_configs(
     home = Path.home()
     plugin_dir = appdata / "McNeel" / "Rhinoceros" / "8.0" / "Plug-ins" / "RookNative"
     checked: dict[str, Any] = {}
+    warnings: list[dict[str, str]] = []
 
     for config_path in (
         home / ".claude.json",
         appdata / "Claude" / "claude_desktop_config.json",
     ):
         if config_path.exists():
-            checked[str(config_path)] = verify_json_mcp_config(
-                config_path=config_path,
+            try:
+                checked[str(config_path)] = verify_json_mcp_config(
+                    config_path=config_path,
+                    venv_python=venv_python,
+                    install_root=paths.install_root,
+                    data_root=paths.data_root,
+                    chirp_home=chirp_home,
+                )
+            except ProofFailure as exc:
+                warnings.append(
+                    {
+                        "path": str(config_path),
+                        "failure_label": exc.failure_label,
+                        "error": str(exc),
+                    }
+                )
+
+    codex_config = home / ".codex" / "config.toml"
+    if codex_config.exists():
+        try:
+            checked[str(codex_config)] = verify_codex_mcp_config(
+                config_path=codex_config,
                 venv_python=venv_python,
                 install_root=paths.install_root,
                 data_root=paths.data_root,
                 chirp_home=chirp_home,
             )
-
-    codex_config = home / ".codex" / "config.toml"
-    if codex_config.exists():
-        checked[str(codex_config)] = verify_codex_mcp_config(
-            config_path=codex_config,
-            venv_python=venv_python,
-            install_root=paths.install_root,
-            data_root=paths.data_root,
-            chirp_home=chirp_home,
-        )
+        except ProofFailure as exc:
+            warnings.append(
+                {
+                    "path": str(codex_config),
+                    "failure_label": exc.failure_label,
+                    "error": str(exc),
+                }
+            )
 
     if not checked:
-        raise ProofFailure("mcp_config_missing", "no MCP config files were found to verify")
+        raise ProofFailure(
+            "mcp_config_missing",
+            "no valid MCP config files were found to verify",
+            {"mcp_config_warnings": warnings},
+        )
 
     return {
         "mcp_configs": checked,
+        "mcp_config_warnings": warnings,
         "chat_manifest": verify_chat_manifest(
             plugin_dir=plugin_dir,
             venv_python=venv_python,
@@ -506,6 +633,48 @@ def verify_command_knowledge_runtime() -> dict[str, Any]:
     return details
 
 
+def seed_release_env_from_installed_venv() -> bool:
+    """Seed release env when invoked from %LOCALAPPDATA%/Rook/venv.
+
+    The public smoke command is intentionally simple for testers:
+    %LOCALAPPDATA%/Rook/venv/Scripts/python.exe -m rook.local_testing_proof
+    python-smoke-evidence. That process starts without the MCP/chat env block,
+    so derive the installed runtime contract from sys.executable before the
+    canonical runtime resolver runs.
+    """
+
+    executable = Path(sys.executable).resolve()
+    if executable.name.lower() != "python.exe":
+        return False
+    if executable.parent.name.lower() != "scripts":
+        return False
+    venv_dir = executable.parent.parent
+    if venv_dir.name.lower() != "venv":
+        return False
+
+    runtime_root = venv_dir.parent
+    local_appdata = os.environ.get("LOCALAPPDATA")
+    if not local_appdata:
+        return False
+    expected_runtime_root = (Path(local_appdata) / "Rook").resolve()
+    if _norm(runtime_root) != _norm(expected_runtime_root):
+        return False
+
+    install_root = runtime_root / "app"
+    data_root = runtime_root / "data"
+
+    os.environ.setdefault("ROOK_INSTALL_ROOT", str(install_root))
+    os.environ.setdefault("ROOK_DATA_DIR", str(data_root))
+    os.environ.setdefault("ROOK_MODE", "release")
+    os.environ.setdefault("CHIRP_HOME", str(install_root / "chirp"))
+    os.environ.setdefault("DSPY_CACHEDIR", str(data_root / "dspy-cache"))
+    os.environ.setdefault("ROOK_DSPY_RESTRICT_PICKLE", "1")
+    os.environ["PYTHONPATH"] = ""
+    os.environ["PYTHONHOME"] = ""
+    runtime_paths_module._cached_runtime_paths = None
+    return True
+
+
 def verify_installed_runtime(command: list[str]) -> GateResult:
     started = time.monotonic()
     try:
@@ -514,7 +683,7 @@ def verify_installed_runtime(command: list[str]) -> GateResult:
         paths = resolve_runtime_paths()
         install_root = paths.install_root
         data_root = paths.data_root
-        expected_rook_root = install_root / "mcp_server" / "src" / "rook"
+        expected_rook_root = Path(sys.executable).resolve().parent.parent / "Lib" / "site-packages" / "rook"
         expected_chirp_root = install_root / "chirp"
 
         assert_path_under(
@@ -533,6 +702,7 @@ def verify_installed_runtime(command: list[str]) -> GateResult:
         if _norm(data_root) != _norm(Path(os.environ.get("ROOK_DATA_DIR", data_root))):
             raise ProofFailure("runtime_path_mismatch", "ROOK_DATA_DIR mismatch")
 
+        rook_dspy_cache = verify_rook_dspy_cache(data_root)
         chirp_details = verify_chirp_runtime(expected_chirp_root)
         command_knowledge_details = verify_command_knowledge_runtime()
         config_details = verify_effective_configs(
@@ -548,6 +718,7 @@ def verify_installed_runtime(command: list[str]) -> GateResult:
             ended_at=time.monotonic(),
             details={
                 "rook_file": str(Path(rook.__file__).resolve()),
+                "rook_dspy_cache": rook_dspy_cache,
                 "install_root": str(install_root),
                 "data_root": str(data_root),
                 **chirp_details,
@@ -573,6 +744,93 @@ def verify_installed_runtime(command: list[str]) -> GateResult:
             ended_at=time.monotonic(),
             details={"error": str(exc)},
         )
+
+
+def _read_optional_json(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _pip_check_ok(install_state: dict[str, Any], runtime_name: str) -> bool:
+    runtime_state = install_state.get(runtime_name)
+    if not isinstance(runtime_state, dict):
+        return False
+    return "No broken requirements found" in str(runtime_state.get("pip_check", ""))
+
+
+def build_release_smoke_python_evidence(installed_details: dict[str, Any]) -> dict[str, Any]:
+    paths = resolve_runtime_paths()
+    venv_python = Path(sys.executable).resolve()
+    private_python_version = (
+        f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+    )
+    runtime_manifest_path = paths.install_root / "python-runtime-manifest.json"
+    install_state_path = paths.data_root / "install-state.json"
+    runtime_manifest = _read_optional_json(runtime_manifest_path)
+    install_state = _read_optional_json(install_state_path)
+    chat_manifest = installed_details.get("chat_manifest") or {}
+
+    return {
+        "python_runtime_manifest": str(runtime_manifest_path),
+        "install_state": str(install_state_path),
+        "private_python_path": str(
+            paths.runtime_root
+            / "python"
+            / f"cpython-{private_python_version}"
+            / "python.exe"
+        ),
+        "private_python_version": private_python_version,
+        "rook_venv_path": str(venv_python.parent.parent),
+        "chirp_venv_path": str(paths.install_root / "chirp" / ".venv"),
+        "rook_import_file": str(installed_details.get("rook_file", "")),
+        "chirp_import_file": str(installed_details.get("chirp_file", "")),
+        "pip_check": {
+            "rook": {"ok": _pip_check_ok(install_state, "rook")},
+            "chirp": {"ok": _pip_check_ok(install_state, "chirp")},
+        },
+        "rook_dspy_cache": installed_details.get("rook_dspy_cache") or {},
+        "chirp_dspy_cache": installed_details.get("chirp_dspy_cache") or {},
+        "license_provenance": {"manifest_path": str(runtime_manifest_path)},
+        "config_identity": {
+            "chat_service_python_path": str(chat_manifest.get("python_path", "")),
+            "chirp_home": str(chat_manifest.get("chirp_home", "")),
+            "release_pythonpath_entries": bool(
+                chat_manifest.get("release_pythonpath_entries", True)
+            ),
+        },
+        "no_index_install": True,
+        "chirp_git_sha": str(runtime_manifest.get("chirp_git_sha", "")),
+        "chirp_source_archive_sha256": str(
+            runtime_manifest.get("chirp_source_archive_sha256", "")
+        ),
+    }
+
+
+def python_smoke_evidence_gate(command: list[str]) -> GateResult:
+    started = time.monotonic()
+    seed_release_env_from_installed_venv()
+    installed = verify_installed_runtime(command)
+    if not installed.success:
+        return GateResult.failure(
+            gate="python_smoke_evidence",
+            failure_label=installed.failure_label or "installed_runtime_failed",
+            command=command,
+            started_at=started,
+            ended_at=time.monotonic(),
+            details=installed.details,
+        )
+    return GateResult.passed(
+        gate="python_smoke_evidence",
+        command=command,
+        started_at=started,
+        ended_at=time.monotonic(),
+        details=build_release_smoke_python_evidence(installed.details),
+    )
 
 
 async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -872,6 +1130,9 @@ def build_parser() -> argparse.ArgumentParser:
     installed = sub.add_parser("installed-runtime")
     installed.add_argument("--out", type=Path)
 
+    python_evidence = sub.add_parser("python-smoke-evidence")
+    python_evidence.add_argument("--out", type=Path)
+
     live = sub.add_parser("live-smoke")
     live.add_argument("--out", type=Path)
     live.add_argument("--port", type=int, default=int(os.environ.get("ROOK_RHINO_PORT", "0") or "0"))
@@ -902,6 +1163,8 @@ def main(argv: list[str] | None = None) -> int:
     command = [sys.executable, "-m", "rook.local_testing_proof", *argv]
     if args.command == "installed-runtime":
         result = verify_installed_runtime(command)
+    elif args.command == "python-smoke-evidence":
+        result = python_smoke_evidence_gate(command)
     elif args.command == "live-smoke":
         result = live_smoke_gate(command, port=args.port or None, process_id=args.process_id or None)
     elif args.command == "owned-release-readiness":

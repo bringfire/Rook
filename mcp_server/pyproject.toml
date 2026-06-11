@@ -15,13 +15,15 @@ dependencies = [
     "networkx>=3.2",
     # Vision/Image Processing libraries
     "opencv-python>=4.8.0",
-    "pytesseract>=0.3.10",
     "scikit-image>=0.22.0",
     "Pillow>=10.0.0",
     "numpy>=1.24.0",
 ]
 
 [project.optional-dependencies]
+ocr = [
+    "pytesseract>=0.3.10",
+]
 test = [
     "pytest",
     "pytest-asyncio",
