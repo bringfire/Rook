@@ -58,6 +58,17 @@ namespace Rook.UI.Web
         private long _generation;
         private bool _reconciling;
 
+        // Suspect-cycle forced repair (spec addendum 2026-06-10 evening):
+        // app deactivation marks the surface suspect; the next valid
+        // activation idle runs ONE probe-independent forced toggle. The
+        // desired-visible generation is tracked separately from
+        // _generation because app-active flips bump _generation on every
+        // deactivate/activate cycle — the exact cycle the suspect mark
+        // must survive. Only a desired-visible change invalidates a mark.
+        private bool _suspect;
+        private long _desiredGeneration;
+        private long _suspectDesiredGeneration = -1;
+
         public WebViewPresentationReconciler(IPresentationHost host)
         {
             _host = host ?? throw new ArgumentNullException(nameof(host));
@@ -73,6 +84,7 @@ namespace Rook.UI.Web
             if (DesiredVisible == visible) return;
             DesiredVisible = visible;
             _generation++;
+            _desiredGeneration++;
             _host.Record("desired-visible", visible + ";" + reason);
         }
 
@@ -118,6 +130,49 @@ namespace Rook.UI.Web
         {
             _host.Record("forced-repair", reason);
             return RunSerializedAsync(reason, forced: true);
+        }
+
+        /// <summary>
+        /// Marks the surface suspect after an app deactivation: a repair
+        /// executed during host churn can renderer-succeed and
+        /// compositor-fail, so the next valid activation idle runs one
+        /// probe-independent forced toggle. NO side effects beyond the
+        /// flag and a ring entry; callable while inactive; idempotent
+        /// (a bool — repeated marks never accumulate extra toggles).
+        /// </summary>
+        public void MarkSuspect(string reason)
+        {
+            _suspect = true;
+            _suspectDesiredGeneration = _desiredGeneration;
+            _host.Record("suspect-cycle", reason);
+        }
+
+        /// <summary>
+        /// Activation-idle entry point. If the surface is suspect and the
+        /// cycle is still valid (app active, desired visible, no
+        /// desired-visible flip since the mark): clear the suspect flag
+        /// and run the forced gapped toggle via
+        /// <see cref="ForceRepairAsync"/> (which emits the standard
+        /// forced-repair ring entries and serialized generation guards).
+        /// Suspect-but-inactive KEEPS the flag (the toggle runs on the
+        /// next valid activation idle); suspect-but-durably-hidden or a
+        /// stale desired generation clears it and takes the normal
+        /// probe-gated path.
+        /// </summary>
+        public Task<ReconcileDisposition> RunActivationIdleConfirmAsync()
+        {
+            if (_suspect && AppActive)
+            {
+                var stale = _suspectDesiredGeneration != _desiredGeneration;
+                _suspect = false;
+                if (DesiredVisible && !stale)
+                {
+                    _host.Record("suspect-cycle-forced-repair", "ActivationIdleConfirm");
+                    return ForceRepairAsync("ActivationIdleConfirm");
+                }
+            }
+
+            return ReconcileAsync("ActivationIdleConfirm");
         }
 
         private async Task<ReconcileDisposition> RunSerializedAsync(string reason, bool forced)

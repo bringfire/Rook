@@ -875,6 +875,15 @@ namespace Rook.UI.Web
             var active = Application.Instance.IsActive;
             TraceWebViewFocus("app-active-changed", active ? "active" : "inactive");
 
+            // Suspect-cycle mark (spec addendum 2026-06-10 evening): a
+            // repair run during activation churn can renderer-succeed and
+            // compositor-fail, so deactivation marks the surface suspect;
+            // the activation idle confirm runs one forced gapped toggle.
+            // No WebView mutation here (no-present-side-effects-while-
+            // inactive invariant) — just the flag + ring entry.
+            if (!active)
+                _reconciler.MarkSuspect("AppDeactivated");
+
             try
             {
                 Application.Instance.AsyncInvoke(async () =>
@@ -924,7 +933,29 @@ namespace Rook.UI.Web
             if (_disposed)
                 return;
 
-            RequestPresentationReconcile("ActivationIdleConfirm");
+            // Routes through the reconciler's activation-idle entry point
+            // so a pending suspect-cycle runs its forced toggle; otherwise
+            // it falls through to a normal probe-gated reconcile.
+            try
+            {
+                Application.Instance.AsyncInvoke(async () =>
+                {
+                    try
+                    {
+                        await _reconciler.RunActivationIdleConfirmAsync();
+                    }
+                    catch (Exception ex)
+                    {
+                        Log($"Rook: activation idle confirm failed for surface " +
+                            $"'{SurfaceId}': {ex.Message}");
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                Log($"Rook: activation idle confirm scheduling failed for " +
+                    $"surface '{SurfaceId}': {ex.Message}");
+            }
         }
 
         private void ClearActivationIdleConfirm()

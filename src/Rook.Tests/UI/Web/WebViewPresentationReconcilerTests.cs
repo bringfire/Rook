@@ -249,6 +249,128 @@ namespace Rook.Tests.UI.Web
         }
 
         [Fact]
+        public async Task SuspectCycle_ActivationIdle_RunsForcedToggleOnceDespiteHealthyProbe()
+        {
+            var (r, h) = Make();
+            r.MarkSuspect("AppDeactivated");
+            h.ProbeAnswers.Enqueue(Healthy()); // forced confirm probe
+            var d = await r.RunActivationIdleConfirmAsync();
+            Assert.Equal(ReconcileDisposition.Repaired, d);
+            // Exactly one gapped toggle despite a Healthy-probing host
+            // (probe-independent by design).
+            Assert.Equal(1, h.Actions.FindAll(a => a == "visible=False").Count);
+            // Exact ring sequence contract for a suspect-cycle repair
+            // (Records[0] is the Make() desired-visible setup entry).
+            Assert.Equal(new[]
+            {
+                "suspect-cycle;AppDeactivated",
+                "suspect-cycle-forced-repair;ActivationIdleConfirm",
+                "forced-repair;ActivationIdleConfirm",
+                "repair-attempt;1;ActivationIdleConfirm",
+                "confirm;forced;Healthy",
+                "forced-repair-disposition;Repaired",
+            }, h.Records.GetRange(1, h.Records.Count - 1));
+
+            // Second activation idle WITHOUT a new MarkSuspect: probe-only
+            // pass, no toggle (suspect was cleared by the first run).
+            h.ProbeAnswers.Enqueue(Healthy());
+            var d2 = await r.RunActivationIdleConfirmAsync();
+            Assert.Equal(ReconcileDisposition.NoOpHealthy, d2);
+            Assert.Equal(1, h.Actions.FindAll(a => a == "visible=False").Count);
+        }
+
+        [Fact]
+        public async Task SuspectCycle_InactiveOrDurablyHiddenOrStaleGeneration_DoesNotToggle()
+        {
+            // Case 1: inactive — no visibility calls at all; the suspect
+            // flag is KEPT so the toggle runs on the next valid
+            // activation idle.
+            {
+                var (r, h) = Make(appActive: false);
+                r.MarkSuspect("AppDeactivated");
+                var d = await r.RunActivationIdleConfirmAsync();
+                Assert.Equal(ReconcileDisposition.SkippedInactive, d);
+                Assert.Empty(h.Actions);
+
+                await r.SetAppActiveAsync(true); // flush probes Healthy
+                h.Actions.Clear();
+                h.ProbeAnswers.Enqueue(Healthy()); // forced confirm probe
+                var d2 = await r.RunActivationIdleConfirmAsync();
+                Assert.Equal(ReconcileDisposition.Repaired, d2);
+                Assert.Equal(1, h.Actions.FindAll(a => a == "visible=False").Count);
+            }
+
+            // Case 2: durably hidden — the durable-hide branch legitimately
+            // records a plain visible=False (that IS the durable-hide
+            // action); the contract is no hide->show toggle PAIR and
+            // visible=True NEVER recorded. Suspect is cleared.
+            {
+                var (r, h) = Make(desiredVisible: false);
+                r.MarkSuspect("AppDeactivated");
+                var d = await r.RunActivationIdleConfirmAsync();
+                Assert.Equal(ReconcileDisposition.DurablyHidden, d);
+                Assert.Equal(1, h.Actions.FindAll(a => a == "visible=False").Count);
+                Assert.DoesNotContain("visible=True", h.Actions);
+
+                // Suspect was cleared: a later reshow + idle confirm is a
+                // probe-only pass, never a toggle.
+                r.SetDesiredVisible(true, "reopened");
+                h.ProbeAnswers.Enqueue(Healthy());
+                var d2 = await r.RunActivationIdleConfirmAsync();
+                Assert.Equal(ReconcileDisposition.NoOpHealthy, d2);
+                Assert.DoesNotContain("visible=True", h.Actions);
+            }
+
+            // Case 3: stale generation — desired-visible flipped (hide +
+            // reshow) between the mark and the idle confirm, so the suspect
+            // cycle refers to a desired-state generation that no longer
+            // exists. No visibility calls at all: normal probe-gated pass.
+            {
+                var (r, h) = Make();
+                r.MarkSuspect("AppDeactivated");
+                r.SetDesiredVisible(false, "tab-behind");
+                r.SetDesiredVisible(true, "tab-reselected");
+                h.ProbeAnswers.Enqueue(Healthy());
+                var d = await r.RunActivationIdleConfirmAsync();
+                Assert.Equal(ReconcileDisposition.NoOpHealthy, d);
+                Assert.Empty(h.Actions.FindAll(a => a.StartsWith("visible=")));
+            }
+        }
+
+        [Fact]
+        public async Task SuspectCycle_DoesNotAccumulate()
+        {
+            var (r, h) = Make();
+            r.MarkSuspect("AppDeactivated");
+            r.MarkSuspect("AppDeactivated"); // second mark must NOT accumulate
+            h.ProbeAnswers.Enqueue(Healthy()); // forced confirm probe
+            var d = await r.RunActivationIdleConfirmAsync();
+            Assert.Equal(ReconcileDisposition.Repaired, d);
+            Assert.Equal(1, h.Actions.FindAll(a => a == "visible=False").Count);
+
+            // Next activation idle without a new mark: probe-only, still
+            // exactly one toggle total.
+            h.ProbeAnswers.Enqueue(Healthy());
+            var d2 = await r.RunActivationIdleConfirmAsync();
+            Assert.Equal(ReconcileDisposition.NoOpHealthy, d2);
+            Assert.Equal(1, h.Actions.FindAll(a => a == "visible=False").Count);
+        }
+
+        [Fact]
+        public async Task SuspectCycle_DesiredVisibleFlipsDuringGap_AbortsWithoutReShow()
+        {
+            // Critical safety guard for close/hide during activation churn:
+            // the new durable intent (hidden) wins; never re-shown.
+            var (r, h) = Make();
+            r.MarkSuspect("AppDeactivated");
+            h.OnDelay = () => r.SetDesiredVisible(false, "closed-mid-gap");
+            var d = await r.RunActivationIdleConfirmAsync();
+            Assert.Equal(ReconcileDisposition.AbortedStale, d);
+            Assert.Equal(1, h.Actions.FindAll(a => a == "visible=False").Count);
+            Assert.DoesNotContain("visible=True", h.Actions);
+        }
+
+        [Fact]
         public async Task TriggerDuringForcedRepair_RunsNormalReconcileAfter()
         {
             var (r, h) = Make();
