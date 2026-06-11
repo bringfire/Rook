@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "python_nuget_package": "python",
+  "python_version": "3.11.9",
+  "nupkg_sha256": "9283876D58C017E0E846F95B490DA3BCA0FC0A6EE1134B2870677CFB7EEC3C67",
+  "target_platform": "win_amd64",
+  "python_abi": "cp311",
+  "expected_executable": "tools\\python.exe"
+}

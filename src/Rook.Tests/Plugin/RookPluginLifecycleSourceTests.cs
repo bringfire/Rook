@@ -109,7 +109,9 @@ namespace Rook.Tests.Plugin
             Assert.Contains("GetReleaseInstallRoot();", autoGenerate);
             Assert.Contains("Path.Combine(releaseInstallRoot, \"mcp_server\")", autoGenerate);
             Assert.Contains("candidates.Add(releaseInstallRoot);", autoGenerate);
-            Assert.Contains("DiscoverManagedVenvPython() ?? DiscoverPython()", autoGenerate);
+            Assert.Contains("pythonPath = DiscoverManagedVenvPython();", autoGenerate);
+            Assert.Contains("AllowUserPythonDiscovery()", autoGenerate);
+            Assert.Contains("pythonPath = DiscoverPython();", autoGenerate);
 
             Assert.Contains("\"Rook\", \"app\"", releaseRoot);
             Assert.Contains("\"Rook\", \"venv\", \"Scripts\", \"python.exe\"", managedPython);

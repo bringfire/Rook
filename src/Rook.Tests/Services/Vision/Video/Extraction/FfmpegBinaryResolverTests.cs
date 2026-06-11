@@ -143,6 +143,19 @@ namespace Rook.Tests.Services.Vision.Video.Extraction
         }
 
         [Fact]
+        public void GetInstalledFfmpegPath_FallsBackToParentRookNativeFfmpegBesideRuntimeChild()
+        {
+            var pluginPath = Path.Combine(_root, "RookNative", "net7.0", "Rook.rhp");
+            Directory.CreateDirectory(Path.GetDirectoryName(pluginPath)!);
+            File.WriteAllText(pluginPath, "fake plugin");
+            var parentFfmpeg = TouchExe(Path.Combine(_root, "RookNative", "ffmpeg", "ffmpeg.exe"));
+
+            var result = FfmpegBundledBinaryLocator.GetInstalledFfmpegPath(pluginPath);
+
+            Assert.Equal(parentFfmpeg, result);
+        }
+
+        [Fact]
         public void GetInstalledFfmpegPath_MissingAssemblyLocation_ReturnsNull()
         {
             Assert.Null(FfmpegBundledBinaryLocator.GetInstalledFfmpegPath(null));

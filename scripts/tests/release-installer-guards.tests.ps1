@@ -144,6 +144,82 @@ function Test-InstallerPackagesBundledFfmpegPayload {
     }
 }
 
+function Test-InstallerPackagesBundledPythonRuntime {
+    $content = Get-Content -Path $InstallerScript -Raw
+
+    Assert-Contains -Text $content -Expected '#define PythonRuntimeDir RepoRoot + "\installer\runtime\python\cpython-3.11.9"' -Message 'Installer must define staged private Python runtime directory.'
+    Assert-Contains -Text $content -Expected '#define PythonWheelhouseDir RepoRoot + "\installer\runtime\python-wheelhouse"' -Message 'Installer must define staged wheelhouse directory.'
+    Assert-Contains -Text $content -Expected 'Source: "{#PythonRuntimeDir}\*"; DestDir: "{localappdata}\Rook\python\cpython-3.11.9"' -Message 'Installer must package private Python runtime.'
+    Assert-Contains -Text $content -Expected 'Source: "{#PythonWheelhouseDir}\*"; DestDir: "{app}\python-wheelhouse"' -Message 'Installer must package offline wheelhouse.'
+    Assert-Contains -Text $content -Expected 'requirements-bootstrap-lock.txt' -Message 'Installer must package bootstrap lockfile.'
+    Assert-Contains -Text $content -Expected 'requirements-rook-lock.txt' -Message 'Installer must package Rook lockfile.'
+    Assert-Contains -Text $content -Expected 'requirements-chirp-lock.txt' -Message 'Installer must package Chirp lockfile.'
+    Assert-Contains -Text $content -Expected 'python-runtime-manifest.json' -Message 'Installer must package Python runtime manifest.'
+    Assert-Contains -Text $content -Expected 'python_runtime_install.py' -Message 'Installer must package runtime install helper.'
+}
+
+function Test-PublicInstallerDoesNotRequireUserPython {
+    $content = Get-Content -Path $InstallerScript -Raw
+
+    Assert-NotContains -Text $content -Unexpected 'Python MCP Server (requires Python 3.10+)' -Message 'Public MCP component must not require user Python.'
+    Assert-NotContains -Text $content -Unexpected 'Chirp — LLM-powered Grasshopper components (requires MCP + Python 3.10+)' -Message 'Public Chirp component must not require user Python.'
+    Assert-NotContains -Text $content -Unexpected 'Python 3.10+ is required for the MCP server and Chirp but was not found.' -Message 'Installer must not block public MCP/Chirp install on user Python.'
+    Assert-NotContains -Text $content -Unexpected 'Filename: "{code:GetPythonPath}"' -Message 'Post-install must not be launched through user Python discovery.'
+    Assert-Contains -Text $content -Expected 'ExpandConstant(''{localappdata}\Rook\python\cpython-3.11.9\python.exe'')' -Message 'Post-install must run on bundled private Python.'
+}
+
+function Test-InstallerFailsWhenPostInstallFails {
+    $content = Get-Content -Path $InstallerScript -Raw
+
+    Assert-NotContains -Text $content -Unexpected 'Filename: "{localappdata}\Rook\python\cpython-3.11.9\python.exe"; Parameters: """{app}\post_install.py""' -Message 'Post-install must not run through [Run], which cannot gate child exit codes.'
+    Assert-Contains -Text $content -Expected 'function RunPostInstallSetup(): Boolean;' -Message 'Installer must run post_install.py from Pascal script where ResultCode can be checked.'
+    Assert-Contains -Text $content -Expected 'Exec(PythonExe, Args, '''', SW_HIDE, ewWaitUntilTerminated, ResultCode)' -Message 'Installer post-install runner must capture the child process exit code.'
+    Assert-Contains -Text $content -Expected 'ResultCode <> 0' -Message 'Installer must explicitly reject a nonzero post_install.py exit code.'
+    Assert-Contains -Text $content -Expected 'Abort;' -Message 'Installer must abort when post_install.py fails instead of reporting success.'
+    Assert-NotContains -Text $content -Unexpected 'Rook Python setup failed' -Message 'Installer must not misdiagnose client/finalization failures as Python setup failures.'
+    Assert-Contains -Text $content -Expected 'Rook post-install finalization failed' -Message 'Installer failure dialog must name post-install finalization, not only Python setup.'
+}
+
+function Test-InstallerExplainsOfflineWheelhouseProgress {
+    $content = Get-Content -Path $InstallerScript -Raw
+
+    Assert-Contains -Text $content -Expected 'installing bundled wheels offline (no internet download required)' -Message 'Installer progress must explain the long Python finalization is offline wheelhouse work, not dependency download.'
+    Assert-Contains -Text $content -Expected 'WizardForm.StatusLabel.Update' -Message 'Installer must repaint the progress label before long post-install work starts.'
+}
+
+function Test-UninstallUsesRecordedPrivatePython {
+    $content = Get-Content -Path $InstallerScript -Raw
+
+    Assert-Contains -Text $content -Expected 'python_path.txt' -Message 'Installer must record private Python path for uninstall cleanup.'
+    Assert-Contains -Text $content -Expected '{localappdata}\Rook\python\cpython-3.11.9\python.exe' -Message 'Uninstall must have a deterministic private Python fallback path.'
+    Assert-Contains -Text $content -Expected 'CurUninstallStepChanged' -Message 'Installer must run uninstall cleanup from the uninstall hook.'
+    Assert-Contains -Text $content -Expected '--uninstall' -Message 'Uninstall cleanup must invoke post_install.py --uninstall.'
+    Assert-NotContains -Text $content -Unexpected 'PythonExe := GetPythonPath()' -Message 'Uninstall must not depend on user Python discovery.'
+}
+
+function Test-ChatServiceUserPythonFallbackIsDevOnly {
+    $chatManager = Join-Path $RepoRoot 'src\Rook\UI\Chat\ChatServiceManager.cs'
+    $content = Get-Content -Path $chatManager -Raw
+
+    Assert-Contains -Text $content -Expected 'ROOK_ALLOW_USER_PYTHON_DISCOVERY' -Message 'Chat service PATH Python discovery must be gated by explicit support override.'
+    Assert-Contains -Text $content -Expected 'AllowUserPythonDiscovery' -Message 'Chat manager must centralize user Python fallback policy.'
+    Assert-Contains -Text $content -Expected 'DiscoverManagedVenvPython()' -Message 'Chat manager must prefer managed Rook venv.'
+    Assert-Contains -Text $content -Expected 'IsReleaseManifestContract' -Message 'Chat manager must reject stale/source-shaped release manifests.'
+    Assert-Contains -Text $content -Expected 'AllowProjectRootEnvironment' -Message 'ROOK_PROJECT_ROOT propagation must be gated behind explicit dev/support mode.'
+    Assert-Contains -Text $content -Expected 'release manifest workingDirectory' -Message 'Release chat manifest validation must enforce the installed mcp_server working directory.'
+    Assert-Contains -Text $content -Expected 'release manifest module' -Message 'Release chat manifest validation must enforce the chat service module.'
+    Assert-Contains -Text $content -Expected 'Path.Combine(localAppData, "Rook", "app")' -Message 'Release chat manifest validation must compare ROOK_INSTALL_ROOT to the exact installed app path.'
+    Assert-Contains -Text $content -Expected 'Path.Combine(localAppData, "Rook", "data")' -Message 'Release chat manifest validation must compare ROOK_DATA_DIR to the exact installed data path.'
+    Assert-Contains -Text $content -Expected 'ROOK_DSPY_RESTRICT_PICKLE' -Message 'Release chat manifest validation must require DSPy restricted pickle.'
+    Assert-Contains -Text $content -Expected 'DSPY_CACHEDIR' -Message 'Release chat manifest validation must require the installed DSPy cache directory.'
+    Assert-Contains -Text $content -Expected 'Path.Combine(expectedDataDir, "dspy-cache")' -Message 'Release chat manifest validation must compare DSPY_CACHEDIR to the exact installed data cache path.'
+    Assert-Contains -Text $content -Expected 'Path.Combine(expectedInstallRoot, "chirp")' -Message 'Release chat manifest validation must compare CHIRP_HOME to the exact installed Chirp home.'
+    Assert-Contains -Text $content -Expected 'BuildReleaseManifestEnvironment' -Message 'Auto-generated release chat manifests must include the full release environment contract.'
+    Assert-Contains -Text $content -Expected 'IsReleaseManifestContract(manifest, out var generatedReleaseReason)' -Message 'Auto-generated release-shaped manifests must be validated before use.'
+    Assert-NotContains -Text $content -Unexpected 'DiscoverManagedVenvPython() ?? DiscoverPython()' -Message 'Chat manager must not unconditionally fall back to PATH Python.'
+    Assert-NotContains -Text $content -Unexpected '"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "ROOK_PROJECT_ROOT", "ROOK_LOG_LEVEL"' -Message 'Release chat child process must not unconditionally inherit ROOK_PROJECT_ROOT.'
+}
+
 function Test-FfmpegValidatorRequiresReleaseSourceBundleArgument {
     Assert-True -Condition (Test-Path $FfmpegValidationScript) -Message "FFmpeg validation script is missing: $FfmpegValidationScript"
 
@@ -261,6 +337,7 @@ function Test-UninstallRemovesGeneratedRuntimeArtifacts {
 
     foreach ($path in @(
         '{localappdata}\Rook\app',
+        '{localappdata}\Rook\python',
         '{localappdata}\Rook\venv',
         '{localappdata}\Rook\data',
         '{localappdata}\Rook\logs',
@@ -272,6 +349,7 @@ function Test-UninstallRemovesGeneratedRuntimeArtifacts {
     }
 
     Assert-Contains -Text $postInstallContent -Expected 'Path(tempfile.gettempdir()) / "rook"' -Message 'Uninstall cleanup must remove the actual user temp Rook diagnostics directory.'
+    Assert-Contains -Text $postInstallContent -Expected 'runtime_root / "python"' -Message 'Uninstall cleanup must remove the private Python runtime installed by the public installer.'
     Assert-Contains -Text $postInstallContent -Expected 'runtime_root / "venv"' -Message 'Uninstall cleanup must remove the managed Python venv created by post_install.py.'
     Assert-Contains -Text $postInstallContent -Expected 'runtime_root / "data"' -Message 'Uninstall cleanup must remove runtime data for a fresh reinstall surface.'
     Assert-Contains -Text $postInstallContent -Expected 'runtime_root / "discovery"' -Message 'Uninstall cleanup must remove shared Rook discovery metadata for a fresh reinstall surface.'
@@ -316,6 +394,25 @@ function Test-ReleaseWorkflowDocsUseMultiRuntimeCompanionOutputs {
     Assert-Contains -Text $combined -Expected 'statusUpdatedUtc' -Message 'Release workflow docs must require the managed companion self-report freshness timestamp.'
     Assert-Contains -Text $combined -Expected 'smoke_started_utc' -Message 'Release workflow docs must include the release smoke start timestamp.'
     Assert-Contains -Text $combined -Expected 'Do not cite Yak/package-manager layout docs as proof' -Message 'Release workflow docs must not treat Yak package layout docs as proof for the Inno installer.'
+}
+
+function Test-BuildReleaseDocsRequireBundledPythonPayload {
+    $combined = @(
+        Get-Content -Path $BuildReleaseSkill -Raw
+        Get-Content -Path $ClaudeBuildReleaseSkill -Raw
+        Get-Content -Path $IssSourcePaths -Raw
+        Get-Content -Path $ClaudeIssSourcePaths -Raw
+    ) -join "`n"
+
+    Assert-Contains -Text $combined -Expected 'scripts\python-runtime\stage-rook-python-runtime.ps1' -Message 'Release docs must stage private Python runtime.'
+    Assert-Contains -Text $combined -Expected 'scripts\python-runtime\build-rook-python-wheelhouse.ps1' -Message 'Release docs must build offline Python wheelhouse.'
+    Assert-Contains -Text $combined -Expected 'installer\runtime\python\cpython-3.11.9\python.exe' -Message 'Source checklist must require staged private Python runtime.'
+    Assert-Contains -Text $combined -Expected 'installer\runtime\python-wheelhouse' -Message 'Source checklist must require staged wheelhouse.'
+    Assert-Contains -Text $combined -Expected 'installer\runtime\requirements-bootstrap-lock.txt' -Message 'Source checklist must require bootstrap lockfile.'
+    Assert-Contains -Text $combined -Expected 'installer\runtime\requirements-rook-lock.txt' -Message 'Source checklist must require Rook lockfile.'
+    Assert-Contains -Text $combined -Expected 'installer\runtime\requirements-chirp-lock.txt' -Message 'Source checklist must require Chirp lockfile.'
+    Assert-Contains -Text $combined -Expected 'installer\runtime\python-runtime-manifest.json' -Message 'Source checklist must require Python runtime manifest.'
+    Assert-Contains -Text $combined -Expected 'rook.local_testing_proof python-smoke-evidence' -Message 'Release docs must collect Python smoke evidence mechanically from the installed runtime.'
 }
 
 function Test-BuildReleaseWorkflowUsesWindowsPowerShellCommands {
@@ -492,6 +589,12 @@ function Test-LegacyGitHubReleaseWorkflowIsDisabled {
     Assert-NotContains -Text $content -Unexpected 'Compress-Archive' -Message 'Legacy GitHub release workflow must not package the old ZIP release.'
 }
 
+Test-InstallerPackagesBundledPythonRuntime
+Test-PublicInstallerDoesNotRequireUserPython
+Test-InstallerFailsWhenPostInstallFails
+Test-InstallerExplainsOfflineWheelhouseProgress
+Test-UninstallUsesRecordedPrivatePython
+Test-ChatServiceUserPythonFallbackIsDevOnly
 Test-InstallerPackagesMultiRuntimeCompanionPayloads
 Test-BuiltCompanionPayloadsExist
 Test-InstallerPackagesBundledFfmpegPayload
@@ -507,6 +610,7 @@ Test-InstallerVerifiesRhinoPluginRegistrationAfterInstall
 Test-UninstallRemovesGeneratedRuntimeArtifacts
 Test-PostInstallValidationUsesMultiRuntimeCompanionLayout
 Test-ReleaseWorkflowDocsUseMultiRuntimeCompanionOutputs
+Test-BuildReleaseDocsRequireBundledPythonPayload
 Test-BuildReleaseWorkflowUsesWindowsPowerShellCommands
 Test-BuildReleaseReferencesStaySynchronized
 Test-BuildReleaseVersionBumpIncludesRookBim

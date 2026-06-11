@@ -14653,6 +14653,12 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                                     chirp_pin_defs_out,
                                     pin_defs_out,
                                 )
+                                if deterministic_only:
+                                    script = _build_gh_csharp_wrapper(
+                                        deterministic_code or "",
+                                        chirp_pin_defs_in,
+                                        chirp_pin_defs_out,
+                                    )
 
                                 # Step 2: Create a RhinoCode C# Script component (not the legacy GH1 one).
                                 # Using GUID directly — name "C# Script" can resolve to the legacy component.

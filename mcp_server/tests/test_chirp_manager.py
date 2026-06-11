@@ -33,6 +33,11 @@ def test_start_chirp_detaches_stdio_no_port(monkeypatch, tmp_path):
     assert "CHIRP_PORT" not in captured["kwargs"]["env"]
     assert "PYTHONHOME" not in captured["kwargs"]["env"]
     assert "PYTHONPATH" not in captured["kwargs"]["env"]
+    assert captured["kwargs"]["env"]["CHIRP_HOME"] == str(chirp_home)
+    assert captured["kwargs"]["env"]["CHIRP_DSPY_RESTRICT_PICKLE"] == "1"
+    assert captured["kwargs"]["env"]["DSPY_CACHEDIR"] == str(
+        chirp_home / "data" / "dspy-cache"
+    )
     assert captured["kwargs"]["stdin"] is chirp_manager.subprocess.DEVNULL
     assert captured["kwargs"]["stdout"] is chirp_manager.subprocess.DEVNULL
     assert captured["kwargs"]["stderr"] is chirp_manager.subprocess.DEVNULL

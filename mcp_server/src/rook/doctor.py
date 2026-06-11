@@ -27,7 +27,15 @@ from mcp.client.stdio import StdioServerParameters, stdio_client
 
 from .runtime_paths import RuntimePaths, resolve_runtime_paths
 
-REQUIRED_MCP_ENV_KEYS = ("PYTHONPATH", "PYTHONHOME", "ROOK_INSTALL_ROOT", "ROOK_DATA_DIR", "ROOK_MODE")
+REQUIRED_MCP_ENV_KEYS = (
+    "PYTHONPATH",
+    "PYTHONHOME",
+    "ROOK_INSTALL_ROOT",
+    "ROOK_DATA_DIR",
+    "ROOK_MODE",
+    "DSPY_CACHEDIR",
+    "ROOK_DSPY_RESTRICT_PICKLE",
+)
 PATH_LIKE_ENV_KEYS = {"ROOK_INSTALL_ROOT", "ROOK_DATA_DIR", "CHIRP_HOME"}
 MANAGED_COMPANION_RUNTIMES = ("net8.0", "net7.0", "net48")
 
@@ -47,6 +55,8 @@ def _build_expected_env(runtime_paths: RuntimePaths, chirp_home: str | None = No
         "ROOK_INSTALL_ROOT": _normalize_path_string(runtime_paths.install_root),
         "ROOK_DATA_DIR": _normalize_path_string(runtime_paths.data_root),
         "ROOK_MODE": runtime_paths.mode,
+        "DSPY_CACHEDIR": _normalize_path_string(runtime_paths.data_root / "dspy-cache"),
+        "ROOK_DSPY_RESTRICT_PICKLE": "1",
     }
     chirp_home = chirp_home if chirp_home is not None else os.environ.get("CHIRP_HOME")
     if chirp_home and Path(chirp_home).exists():

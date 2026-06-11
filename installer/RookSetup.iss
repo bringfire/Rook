@@ -5,7 +5,7 @@
 ;   1. RookNative.rhp (C++ plugin) + Rook.rhp (C# companion) → Rhino plugin dir
 ;   2. Registers both plugins in Rhino 8 registry
 ;   3. Python MCP server payload + knowledge stores
-;   4. Chirp adapter service (venv + pip install) for LLM-powered GH components
+;   4. Chirp adapter service from bundled private Python runtime
 ;   5. Claude Code / Claude Desktop / Codex user-scope MCP configuration + skills
 ;   6. Claude Code user agents
 ;
@@ -31,6 +31,12 @@
 #define FfmpegDir   RepoRoot + "\third_party\ffmpeg"
 #define CodexCuratedSkillsDir RepoRoot + "\installer\agent-assets\codex-skills"
 #define ChirpDir     RepoRoot + "\..\Chirp"
+#define PythonRuntimeDir RepoRoot + "\installer\runtime\python\cpython-3.11.9"
+#define PythonWheelhouseDir RepoRoot + "\installer\runtime\python-wheelhouse"
+#define PythonRuntimeManifest RepoRoot + "\installer\runtime\python-runtime-manifest.json"
+#define BootstrapLockfile RepoRoot + "\installer\runtime\requirements-bootstrap-lock.txt"
+#define RookLockfile RepoRoot + "\installer\runtime\requirements-rook-lock.txt"
+#define ChirpLockfile RepoRoot + "\installer\runtime\requirements-chirp-lock.txt"
 
 [Setup]
 AppId={{E9A3F2B1-4C5D-6E7F-8A9B-0C1D2E3F4A5B}
@@ -68,8 +74,8 @@ Name: "custom"; Description: "Custom installation"; Flags: iscustom
 
 [Components]
 Name: "plugins"; Description: "Rhino 8 Plugins (RookNative + Companion)"; Types: full pluginsonly custom; Flags: fixed
-Name: "mcp"; Description: "Python MCP Server (requires Python 3.10+)"; Types: full custom
-Name: "chirp"; Description: "Chirp — LLM-powered Grasshopper components (requires MCP + Python 3.10+)"; Types: full custom
+Name: "mcp"; Description: "Python MCP Server (bundled private runtime)"; Types: full custom
+Name: "chirp"; Description: "Chirp — LLM-powered Grasshopper components (bundled private runtime)"; Types: full custom
 Name: "knowledge"; Description: "Knowledge Stores (commands + Grasshopper)"; Types: full custom
 Name: "claude"; Description: "Claude Code / Claude Desktop MCP configuration (requires MCP)"; Types: full custom
 Name: "codex"; Description: "OpenAI Codex CLI MCP configuration + curated skills (requires MCP)"; Types: full custom
@@ -135,6 +141,12 @@ Source: "{#FfmpegDir}\README.md"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\
 Source: "{#McpServerDir}\pyproject.toml"; DestDir: "{app}\mcp_server"; Components: mcp; Flags: ignoreversion
 Source: "{#McpServerDir}\README.md"; DestDir: "{app}\mcp_server"; Components: mcp; Flags: ignoreversion
 Source: "{#McpServerDir}\src\rook\*"; DestDir: "{app}\mcp_server\src\rook"; Components: mcp; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#PythonRuntimeDir}\*"; DestDir: "{localappdata}\Rook\python\cpython-3.11.9"; Components: mcp; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#PythonWheelhouseDir}\*"; DestDir: "{app}\python-wheelhouse"; Components: mcp chirp; Flags: ignoreversion
+Source: "{#PythonRuntimeManifest}"; DestDir: "{app}"; Components: mcp; Flags: ignoreversion
+Source: "{#BootstrapLockfile}"; DestDir: "{app}"; Components: mcp chirp; Flags: ignoreversion
+Source: "{#RookLockfile}"; DestDir: "{app}"; Components: mcp; Flags: ignoreversion
+Source: "{#ChirpLockfile}"; DestDir: "{app}"; Components: chirp; Flags: ignoreversion
 
 ; --- Chirp Adapter Service ---
 Source: "{#ChirpDir}\pyproject.toml"; DestDir: "{app}\chirp"; Components: chirp; Flags: ignoreversion
@@ -154,6 +166,7 @@ Source: "{#RepoRoot}\installer\agent-assets\ROOK_CODEX_POST_INSTALL.md"; DestDir
 
 ; --- Post-install setup script (always included, used by [Run]) ---
 Source: "post_install.py"; DestDir: "{app}"; Flags: ignoreversion
+Source: "python_runtime_install.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "rook-icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 ; --- Docs ---
@@ -231,11 +244,8 @@ Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B\CommandList"; ValueType: string; ValueName: "UVBoxMapping"; ValueData: "2;UVBoxMapping"; Components: plugins
 
 ; ---------------------------------------------------------------------------
-; Post-install: run Python setup
+; Post-install Python setup is run from [Code] so child exit codes are fatal.
 ; ---------------------------------------------------------------------------
-
-[Run]
-Filename: "{code:GetPythonPath}"; Parameters: """{app}\post_install.py"" --install-dir ""{app}"" --runtime-root ""{localappdata}\Rook"" --mcp-server-dir ""{app}\mcp_server"" {code:GetChirpArgs} {code:GetClaudeArgs} {code:GetCodexArgs} {code:GetPluginsArgs}"; StatusMsg: "Setting up Python MCP server, Chirp, and Claude/Codex configuration..."; Components: mcp chirp claude codex; Flags: runhidden waituntilterminated; Check: PythonFound
 
 ; ---------------------------------------------------------------------------
 ; Uninstall cleanup
@@ -246,6 +256,7 @@ Type: filesandordirs; Name: "{app}\mcp_server"
 Type: filesandordirs; Name: "{app}\chirp"
 Type: filesandordirs; Name: "{app}\knowledge"
 Type: filesandordirs; Name: "{localappdata}\Rook\app"
+Type: filesandordirs; Name: "{localappdata}\Rook\python"
 Type: filesandordirs; Name: "{localappdata}\Rook\venv"
 Type: filesandordirs; Name: "{localappdata}\Rook\data"
 Type: filesandordirs; Name: "{localappdata}\Rook\logs"
@@ -323,6 +334,11 @@ begin
   Result := PythonPath;
 end;
 
+function BundledPythonFound(): Boolean;
+begin
+  Result := FileExists(ExpandConstant('{localappdata}\Rook\python\cpython-3.11.9\python.exe'));
+end;
+
 function GetChirpArgs(Param: String): String;
 begin
   if WizardIsComponentSelected('chirp') then
@@ -353,6 +369,79 @@ begin
     Result := '--plugins'
   else
     Result := '';
+end;
+
+function PostInstallSelected(): Boolean;
+begin
+  Result :=
+    WizardIsComponentSelected('mcp') or
+    WizardIsComponentSelected('chirp') or
+    WizardIsComponentSelected('claude') or
+    WizardIsComponentSelected('codex');
+end;
+
+function RunPostInstallSetup(): Boolean;
+var
+  PythonExe: String;
+  Args: String;
+  ResultCode: Integer;
+begin
+  Result := True;
+
+  if not PostInstallSelected() then
+    Exit;
+
+  PythonExe := ExpandConstant('{localappdata}\Rook\python\cpython-3.11.9\python.exe');
+  if not FileExists(PythonExe) then
+  begin
+    Log('Post-install failed: bundled private Python is missing: ' + PythonExe);
+    MsgBox(
+      'Rook could not find its bundled private Python runtime.' + #13#10 + #13#10 +
+      'Repair the installation or rebuild the installer with the staged Python runtime payload.',
+      mbCriticalError, MB_OK);
+    Result := False;
+    Exit;
+  end;
+
+  Args :=
+    '"' + ExpandConstant('{app}') + '\post_install.py"' +
+    ' --install-dir "' + ExpandConstant('{app}') + '"' +
+    ' --runtime-root "' + ExpandConstant('{localappdata}\Rook') + '"' +
+    ' --mcp-server-dir "' + ExpandConstant('{app}') + '\mcp_server"' +
+    ' ' + GetChirpArgs('') +
+    ' ' + GetClaudeArgs('') +
+    ' ' + GetCodexArgs('') +
+    ' ' + GetPluginsArgs('');
+
+  WizardForm.StatusLabel.Caption :=
+    'Finalizing Rook: creating private Python environments and installing bundled wheels offline (no internet download required). This can take several minutes.';
+  WizardForm.StatusLabel.Update;
+  Log('Post-install: running post_install.py with private Python: ' + PythonExe);
+  if not Exec(PythonExe, Args, '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+  begin
+    Log('Post-install failed: could not launch post_install.py');
+    MsgBox(
+      'Rook could not launch its post-install Python setup.' + #13#10 + #13#10 +
+      'Close Rhino/Revit, then rerun the installer repair flow.',
+      mbCriticalError, MB_OK);
+    Result := False;
+    Exit;
+  end;
+
+  if ResultCode <> 0 then
+  begin
+    Log('Post-install failed: post_install.py exited with code ' + IntToStr(ResultCode));
+    MsgBox(
+      'Rook post-install finalization failed and the installation cannot be treated as complete.' + #13#10 + #13#10 +
+      'This final step configures the bundled Python runtime, MCP client entries, Codex skills, and Rhino chat manifest.' + #13#10 + #13#10 +
+      'Close Rhino/Revit and any Rook Python processes, then rerun the installer repair flow. ' +
+      'If the failure repeats, collect the installer log before publishing this build.',
+      mbCriticalError, MB_OK);
+    Result := False;
+    Exit;
+  end;
+
+  Log('Post-install: setup completed via post_install.py');
 end;
 
 function RhinoInstalled(): Boolean;
@@ -636,24 +725,24 @@ begin
       mbInformation, MB_OK);
   end;
 
-  // Detect Python
-  FindPython();
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   Result := '';
 
-  if (WizardIsComponentSelected('mcp') or WizardIsComponentSelected('chirp')) and (not PythonDetected) then
-  begin
-    Result := 'Python 3.10+ is required for the MCP server and Chirp but was not found.' + #13#10 + 'Please install Python from https://www.python.org/downloads/ and try again.' + #13#10 + #13#10 + 'Or go back and uncheck "Python MCP Server" and "Chirp" to install plugins only.';
-    Exit;
-  end;
-
   if (WizardIsComponentSelected('chirp') or WizardIsComponentSelected('claude') or WizardIsComponentSelected('codex')) and (not WizardIsComponentSelected('mcp')) then
   begin
     Result := 'The Claude, Codex, and Chirp options require the "Python MCP Server" component.' + #13#10 + #13#10 + 'Go back and enable "Python MCP Server", or uncheck the dependent options.';
   end;
+end;
+
+procedure RecordPrivatePythonPath();
+begin
+  SaveStringToFile(
+    ExpandConstant('{app}') + '\python_path.txt',
+    ExpandConstant('{localappdata}\Rook\python\cpython-3.11.9\python.exe'),
+    False);
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
@@ -672,14 +761,10 @@ begin
         WriteEnvFile(ExpandConstant('{app}') + '\chirp', ApiKey);
     end;
 
-    // Save resolved Python path so uninstall can run cleanup
-    if PythonDetected then
-      SaveStringToFile(ExpandConstant('{app}') + '\python_path.txt', PythonPath, False);
+    RecordPrivatePythonPath();
 
-    if PythonDetected and (WizardIsComponentSelected('mcp') or WizardIsComponentSelected('chirp') or WizardIsComponentSelected('claude')) then
-      Log('Post-install: setup completed via post_install.py')
-    else if not PythonDetected then
-      Log('Post-install: Python not found, MCP server setup skipped');
+    if not RunPostInstallSetup() then
+      Abort;
 
     VerifyRhinoPluginInstall();
   end;
@@ -687,17 +772,27 @@ end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
-  PythonFile: String;
+  PythonExe: String;
+  PythonPathFile: String;
   Lines: TArrayOfString;
   ResultCode: Integer;
 begin
   if CurUninstallStep = usUninstall then
   begin
     // Run cleanup before files are deleted
-    PythonFile := ExpandConstant('{app}') + '\python_path.txt';
-    if LoadStringsFromFile(PythonFile, Lines) and (GetArrayLength(Lines) > 0) and FileExists(Lines[0]) then
+    PythonExe := ExpandConstant('{localappdata}\Rook\python\cpython-3.11.9\python.exe');
+    PythonPathFile := ExpandConstant('{app}') + '\python_path.txt';
+    if LoadStringsFromFile(PythonPathFile, Lines) then
     begin
-      Exec(Lines[0], '"' + ExpandConstant('{app}') + '\post_install.py" --uninstall', '',
+      if GetArrayLength(Lines) > 0 then
+      begin
+        PythonExe := Lines[0];
+      end;
+    end;
+
+    if FileExists(PythonExe) then
+    begin
+      Exec(PythonExe, '"' + ExpandConstant('{app}') + '\post_install.py" --uninstall', '',
         SW_HIDE, ewWaitUntilTerminated, ResultCode);
     end;
   end;
