@@ -960,11 +960,21 @@ compositor-failed; forced repair healed).
     plain `RequestPresentationReconcile("ActivationIdleConfirm")`.
 - [ ] **Step 11.4:** full suite green; commit
   `fix: suspect-cycle forced repair at activation idle`.
-- [ ] **Step 11.5 (live, user present):** deploy (script + robocopy of
+- [x] **Step 11.5 (live, user present):** deploy (script + robocopy of
   net8.0), then revalidate IN THIS ORDER: Gate 3 Scenario 1 (unfocus/refocus
   cycles — Knowledge must not stay dark) → Gate 2 (tabbed-behind dispositions
   + wedge symptoms) → remaining matrix → registry close/dispose check (4th
   surface = new Chat ordinal, deregisters on tab close).
+
+  **Round 2 Gate 3 Scenario 1 result (2026-06-11): PASS.** User stress-tested
+  unfocus/refocus cycles with Vision floating (upper monitor) + Knowledge +
+  Chat: zero observed dark states. Ring evidence (dump:
+  `%TEMP%\rook-round2-gate3-dump.json`): Vision 11 suspect-cycle marks /
+  5 suspect-forced repairs, Knowledge 9/4, Chat 8/2 — every
+  `forced-repair-disposition` = `Repaired`, zero reloads, zero
+  `DegradedUnresponsive`. Marks > repairs is the designed no-accumulation
+  asymmetry. First-idle proved sufficient; the second-idle fallback was NOT
+  needed.
 - [ ] **Step 11.6:** PR (Task 10) only after Round 2 passes.
 
 **Explicitly deferred (needs design):** unselected-host repair skip — blocked
