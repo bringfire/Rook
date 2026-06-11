@@ -921,7 +921,12 @@ compositor-failed; forced repair healed).
     `RunActivationIdleConfirmAsync()` without a new `MarkSuspect()` is a
     probe-only pass (no toggle).
   - `SuspectCycle_InactiveOrDurablyHiddenOrStaleGeneration_DoesNotToggle` —
-    three cases, zero toggles.
+    three cases, no forced toggle. Precision for the durably-hidden case:
+    the durable-hide path may legitimately record a plain `visible=False`
+    (that IS the durable-hide action); the assertion is that no hide→show
+    toggle pair runs and `visible=True` is NEVER recorded — not that zero
+    visibility calls occur. The inactive and stale-generation cases expect
+    no visibility calls at all.
   - `SuspectCycle_DoesNotAccumulate` — `MarkSuspect()` twice → still one
     toggle on the next activation idle.
   - `SuspectCycle_DesiredVisibleFlipsDuringGap_AbortsWithoutReShow` — the
@@ -934,9 +939,13 @@ compositor-failed; forced repair healed).
     records `suspect-cycle`; NO side effects, callable while inactive.
   - `public Task<ReconcileDisposition> RunActivationIdleConfirmAsync()` —
     if `_suspect && AppActive && DesiredVisible`: clear `_suspect`, record
-    `suspect-cycle-forced-repair`, run the forced core (same
-    `RunSerializedAsync(reason, forced: true)` path, generation-guarded);
-    else fall through to a normal `ReconcileAsync("ActivationIdleConfirm")`.
+    `suspect-cycle-forced-repair`, then call
+    `ForceRepairAsync("ActivationIdleConfirm")` — NOT `RunSerializedAsync`
+    directly — because `ForceRepairAsync` is what emits the standard
+    `forced-repair` ring entry the sequence contract below requires, and it
+    already routes through the serialized forced path with the same
+    generation guards. Else fall through to a normal
+    `ReconcileAsync("ActivationIdleConfirm")`.
   - **Exact expected ring sequence for a suspect-cycle repair** (validation
     is judged against this; the standard `forced-repair` entry IS expected
     because the suspect path reuses `ForceRepairAsync`):
