@@ -54,6 +54,45 @@ def test_register_mcp_preserves_utf8_user_config(tmp_path, monkeypatch):
     assert result["mcpServers"]["rook"]["command"] == "C:/py/python.exe"
 
 
+def test_register_mcp_recovers_legacy_cp1252_config(tmp_path, monkeypatch):
+    """A config the OLD locale-default read could parse (cp1252 with
+    non-ASCII bytes that are invalid UTF-8) must still register — via the
+    cp1252 fallback — not be skipped or clobbered."""
+    module = _load_post_install()
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+
+    config = tmp_path / ".claude.json"
+    existing = {"projects": {"C:\\work\\Café": {}}, "mcpServers": {}}
+    # ensure_ascii=False + cp1252: é -> 0xE9, an invalid UTF-8 start byte.
+    config.write_bytes(
+        json.dumps(existing, ensure_ascii=False, indent=2).encode("cp1252")
+    )
+
+    ok = module._register_mcp_via_file("C:/py/python.exe", "C:/mcp", {})
+    assert ok is True
+
+    result = json.loads(config.read_text(encoding="utf-8"))
+    assert "C:\\work\\Café" in result["projects"]
+    assert result["mcpServers"]["rook"]["command"] == "C:/py/python.exe"
+
+
+def test_register_mcp_never_clobbers_unreadable_config(tmp_path, monkeypatch, capsys):
+    """An unparseable ~/.claude.json must be LEFT UNTOUCHED: registration is
+    skipped with a warning and the install continues (returns True)."""
+    module = _load_post_install()
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+
+    config = tmp_path / ".claude.json"
+    broken = b'{ "mcpServers": { broken json \x9d\xff'
+    config.write_bytes(broken)
+
+    ok = module._register_mcp_via_file("C:/py/python.exe", "C:/mcp", {})
+    assert ok is True
+    # Byte-identical: nothing was rewritten.
+    assert config.read_bytes() == broken
+    assert "leaving it untouched" in capsys.readouterr().out
+
+
 def _call_args(source: str, open_paren_idx: int) -> str:
     """Return the balanced-paren argument text starting at '('."""
     depth = 0

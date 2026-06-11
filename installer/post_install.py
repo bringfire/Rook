@@ -349,13 +349,41 @@ def _register_mcp_via_file(
     user_config_path = Path.home() / ".claude.json"
 
     if user_config_path.exists():
+        # Explicit UTF-8 first: Path.read_text() defaults to the locale codec
+        # (cp1252 on Windows), which crashes on any non-cp1252 byte in the
+        # user's config — e.g. a curly quote in a project name. Fall back to
+        # cp1252 for legacy locale-written configs so they keep working.
+        raw = None
         try:
-            # Explicit UTF-8: Path.read_text() defaults to the locale codec
-            # (cp1252 on Windows), which crashes on any non-cp1252 byte in
-            # the user's config — e.g. a curly quote in a project name.
-            existing = json.loads(user_config_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, UnicodeDecodeError, OSError):
-            existing = {}
+            raw = user_config_path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            try:
+                raw = user_config_path.read_text(encoding="cp1252")
+            except (UnicodeDecodeError, OSError):
+                raw = None
+        except OSError:
+            raw = None
+
+        existing = None
+        if raw is not None:
+            try:
+                parsed = json.loads(raw)
+                if isinstance(parsed, dict):
+                    existing = parsed
+            except json.JSONDecodeError:
+                existing = None
+
+        if existing is None:
+            # NEVER overwrite a config we could not read: that destroys the
+            # user's projects and other MCP servers. Leave the file untouched,
+            # skip Rook registration, and let the install complete.
+            print(
+                f"WARNING: could not read existing {user_config_path}; "
+                "leaving it untouched. Rook was NOT registered for Claude "
+                "Code. Repair or remove that file and rerun the installer, "
+                "or add the rook MCP server manually (see AGENT_SETUP.md)."
+            )
+            return True
     else:
         existing = {}
 
