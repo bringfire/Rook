@@ -421,11 +421,16 @@ Two model corrections, both live-proven:
 
 - App deactivate: mark the surface `suspect`. NO WebView mutation (preserves
   the no-present-side-effects-while-inactive invariant).
-- Activation idle confirm (the existing one-shot `OnActivationIdleConfirm`,
-  which by construction fires after activation churn settles — the same quiet
-  conditions under which every successful manual/forced repair ran): if app
-  active AND `DesiredVisible` AND generation valid AND suspect → run ONE
-  forced gapped toggle (no probe gate), clear suspect.
+- Activation idle confirm (the existing one-shot `OnActivationIdleConfirm`):
+  if app active AND `DesiredVisible` AND generation valid AND suspect → run
+  ONE forced gapped toggle (no probe gate), clear suspect. First-idle is the
+  best EXISTING hook and approximates the quiet window in which every
+  successful manual/forced repair ran — but it is not guaranteed quiet;
+  Rhino/Eto/WebView host churn may still be settling at first idle.
+  **Round-2 fallback criterion:** if the first-idle suspect repair still
+  loses the compositor race in live validation, the next design step is a
+  second-idle hop or a short post-idle delay before the toggle — NOT more
+  probe logic.
 - Ring entries: `suspect-cycle` (set), `suspect-cycle-forced-repair` (run),
   plus the standard forced-repair disposition.
 - Cost: one brief blink per app-refocus on healthy panels, during a transition

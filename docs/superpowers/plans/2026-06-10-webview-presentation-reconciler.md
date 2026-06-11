@@ -924,6 +924,11 @@ compositor-failed; forced repair healed).
     three cases, zero toggles.
   - `SuspectCycle_DoesNotAccumulate` — `MarkSuspect()` twice → still one
     toggle on the next activation idle.
+  - `SuspectCycle_DesiredVisibleFlipsDuringGap_AbortsWithoutReShow` — the
+    critical safety guard for close/hide during activation churn: host's
+    `OnDelay` flips `SetDesiredVisible(false, ...)` mid-gap → disposition
+    `AbortedStale`, `visible=False` recorded once, `visible=True` NEVER
+    recorded (controller left hidden, matching the new durable intent).
 - [ ] **Step 11.2:** implement on the reconciler:
   - `public void MarkSuspect(string reason)` — sets `_suspect = true`,
     records `suspect-cycle`; NO side effects, callable while inactive.
@@ -932,6 +937,12 @@ compositor-failed; forced repair healed).
     `suspect-cycle-forced-repair`, run the forced core (same
     `RunSerializedAsync(reason, forced: true)` path, generation-guarded);
     else fall through to a normal `ReconcileAsync("ActivationIdleConfirm")`.
+  - **Exact expected ring sequence for a suspect-cycle repair** (validation
+    is judged against this; the standard `forced-repair` entry IS expected
+    because the suspect path reuses `ForceRepairAsync`):
+    `suspect-cycle` → `suspect-cycle-forced-repair` → `forced-repair` →
+    `repair-attempt 1;<reason>` → `confirm forced;<outcome>` →
+    `forced-repair-disposition <disposition>`.
 - [ ] **Step 11.3:** wire in `RookWebSurface`:
   - `OnApplicationIsActiveChanged` when becoming INACTIVE →
     `_reconciler.MarkSuspect("AppDeactivated")` (no other side effects).
