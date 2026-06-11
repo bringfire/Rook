@@ -975,7 +975,21 @@ compositor-failed; forced repair healed).
   `DegradedUnresponsive`. Marks > repairs is the designed no-accumulation
   asymmetry. First-idle proved sufficient; the second-idle fallback was NOT
   needed.
-- [ ] **Step 11.6:** PR (Task 10) only after Round 2 passes.
+
+  **Round 2 remaining gates (2026-06-11): ALL PASS.**
+  - Gate 2 (tabbed-behind + wedge): no wedge symptoms; tabbed-behind Vision
+    suspect repairs harmlessly report `Repaired` (documented model-correction
+    semantics); Chat's durably-hidden surface correctly clears suspect WITHOUT
+    toggling and re-asserts durable hide (ring #149–158) — the unit-pinned
+    semantics confirmed live.
+  - Matrix spot-checks: artifact open-folder/reveal (Explorer steal), video
+    in modal, undock/redock — user-observed pass, rings clean (zero reloads,
+    zero `DegradedUnresponsive`, all dispositions `Repaired`).
+  - Registry close/dispose: confirmed organically — old chat tab surface
+    (`Chat.Resources:3`) disposed and deregistered during normal use; fresh
+    `Chat.Resources:5` registered with its own ring; no stale entries. (Two
+    simultaneous chat panels aren't supported by the UI — N/A.)
+- [x] **Step 11.6:** PR (Task 10) — Round 2 passed; proceeding.
 
 **Explicitly deferred (needs design):** unselected-host repair skip — blocked
 on identifying a reliable selected-dock-tab source (current panels pass
