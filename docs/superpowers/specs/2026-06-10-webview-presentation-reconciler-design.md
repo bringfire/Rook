@@ -389,6 +389,78 @@ General:
   mechanism was visibility-notification loss, which the flag does not
   address).
 
+## Addendum (2026-06-10 evening): Suspect-Cycle Forced Repair
+
+Live validation Round 1 (branch `521b92f` deployed): Gate 1 PASS (MCP
+dump/repair/400 end-to-end, 3 surfaces), Gate 2 user-observed PASS (no wedge),
+**Gate 3 Scenario 1 FAIL** — Knowledge Graph went dark on Rhino unfocus,
+recurring per deactivate/activate cycle; click-inside did NOT heal; MCP forced
+repair DID heal.
+
+Ring evidence (Knowledge, the failed heal): seq 162 probe `RendererHidden` →
+163 `repair-attempt 1;GotFocus` → 164 `confirm 1;Healthy` → 165–169 probe
+`Healthy` — while pixels stayed dark. Forced repair at 170–173 (same gapped
+toggle, quiet window) healed it.
+
+Two model corrections, both live-proven:
+
+1. **A repair executed during host churn can renderer-succeed and
+   compositor-fail.** The GotFocus repair ran inside the activation churn its
+   own trigger click caused; the confirm probe certifies renderer belief only
+   and cannot see the lost compositor present. The identical primitive
+   succeeded minutes later in a quiet window.
+2. **Controller visibility IS the renderer's visibility source, decoupled from
+   presentation.** Toggling a tabbed-behind surface flips its renderer to
+   `visible` inside a hidden host window, so `DegradedHidden` was unreachable
+   in Gate 2 (hidden probes "repaired" to Healthy). The original assumption
+   that a legitimately hidden host re-confirms hidden was wrong.
+
+### Mechanism (exercises the named `VisibleButSuspect` extension point)
+
+**Suspect-cycle forced repair** — per-cycle, post-churn, probe-independent:
+
+- App deactivate: mark the surface `suspect`. NO WebView mutation (preserves
+  the no-present-side-effects-while-inactive invariant).
+- Activation idle confirm (the existing one-shot `OnActivationIdleConfirm`,
+  which by construction fires after activation churn settles — the same quiet
+  conditions under which every successful manual/forced repair ran): if app
+  active AND `DesiredVisible` AND generation valid AND suspect → run ONE
+  forced gapped toggle (no probe gate), clear suspect.
+- Ring entries: `suspect-cycle` (set), `suspect-cycle-forced-repair` (run),
+  plus the standard forced-repair disposition.
+- Cost: one brief blink per app-refocus on healthy panels, during a transition
+  where the compositor is already visibly churning.
+
+Unit contract: Healthy probe would normally NoOp, but suspect + activation
+idle runs the forced toggle exactly once; inactive / durable-hidden / stale
+generation does NOT toggle; suspect does not accumulate (one toggle per cycle).
+
+### Deferred: unselected-host repair skip (NOT in this round)
+
+The Gate 2 anomaly suggests skipping automatic repair when the host dock-tab
+is unselected. Review correctly rejected the first proposal: **current
+dedicated panels pass `isSelectedTab: true` unconditionally and have no
+reliable selected-tab fact** — `Panels.IsPanelVisible(..., isSelectedTab:
+true)` is exactly the probe documented as stale during transitions. Until a
+reliable Rhino/Eto selected-tab source is identified, this round records
+annotations only; no repair-skip. Renderer hidden / WebView state must never
+be used to infer durable hidden.
+
+Operator repair (`repair_presentation` / `Repair=Yes`) remains unchanged and
+overrides any future automatic skip.
+
+### Revalidation order (Round 2)
+
+1. Gate 3 Scenario 1 FIRST (Rhino unfocus/refocus cycles; Knowledge must not
+   stay dark, click-inside must heal or be made moot by the suspect-cycle
+   repair).
+2. Then Gate 2 (tabbed-behind: expect dispositions to reflect correction #2;
+   wedge symptoms re-checked).
+3. Then the remaining matrix.
+4. Registry hygiene check: confirm the 4th live surface during Chat use is a
+   new `Rook.UI.Chat.Resources:<n>` ordinal (additional chat tab), and that
+   closing that tab deregisters it (close/dispose check).
+
 ## Evidence Artifacts (this investigation)
 
 - Presentation ring dumps: `%TEMP%\rook-vision-presentation-*.json`,
