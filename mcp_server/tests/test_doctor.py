@@ -388,3 +388,28 @@ def test_read_json_for_update_missing_file_and_cp1252_fallback(tmp_path: Path):
     legacy.write_bytes(_json.dumps({"projects": {"Café": {}}}, ensure_ascii=False).encode("cp1252"))
     parsed = doctor._read_json_for_update(legacy)
     assert "Café" in parsed["projects"]
+
+
+def test_run_doctor_fix_survives_invalid_utf8_claude_config(tmp_path: Path, monkeypatch):
+    """Re-review repro: run_doctor(fix=True, check_claude=True,
+    skip_handshake=True) against an invalid-UTF-8 ~/.claude.json must not
+    crash, must leave the file byte-identical, and must report both the fix
+    skip and the config validation as WARNING severity (non-fatal)."""
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
+    runtime_paths = _runtime_paths(tmp_path)
+    monkeypatch.setattr(doctor, "resolve_runtime_paths", lambda: runtime_paths)
+
+    target = _config_targets()["claude_user"]
+    target.parent.mkdir(parents=True, exist_ok=True)
+    broken = b"\xff\xfe{ not utf8 \x9d"
+    target.write_bytes(broken)
+
+    result = doctor.run_doctor(fix=True, check_claude=True, skip_handshake=True)
+
+    assert target.read_bytes() == broken
+    fix_checks = [c for c in result.checks if c.name == "--fix Claude integration"]
+    assert fix_checks and fix_checks[0].severity == "warning"
+    config_checks = [c for c in result.checks if c.name == "Claude Code config"]
+    assert config_checks and config_checks[0].severity == "warning"
+    assert "left untouched" in (config_checks[0].detail or "")

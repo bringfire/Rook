@@ -139,7 +139,7 @@ def _should_check_codex(force: bool) -> bool:
 def _read_json(path: Path) -> dict[str, Any] | None:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
         return None
 
 
@@ -519,6 +519,7 @@ def run_doctor(
         },
     )
 
+    skipped_unreadable: set[str] = set()
     if fix:
         codex_source_root = _codex_skill_source_root(runtime_paths)
         chirp_home = os.environ.get("CHIRP_HOME")
@@ -527,6 +528,7 @@ def run_doctor(
                 fixed_path = _write_claude_user_config(runtime_paths, python_path, chirp_home=chirp_home)
                 result.fixes_applied.append(f"updated {fixed_path}")
             except _UnreadableConfigError as exc:
+                skipped_unreadable.add("claude_user")
                 result.checks.append(
                     DoctorCheck(
                         name="--fix Claude integration",
@@ -544,6 +546,7 @@ def run_doctor(
                 if desktop_fixed is not None:
                     result.fixes_applied.append(f"updated {desktop_fixed}")
             except _UnreadableConfigError as exc:
+                skipped_unreadable.add("claude_desktop")
                 result.checks.append(
                     DoctorCheck(
                         name="--fix Claude Desktop integration",
@@ -623,21 +626,44 @@ def run_doctor(
         )
 
     if check_claude:
-        user_data = _read_json(targets["claude_user"])
-        user_entry = (user_data or {}).get("mcpServers", {}).get("rook")
-        user_ok, user_detail = _validate_mcp_entry(user_entry, runtime_paths, expected_python_path=expected_python_path)
-        result.checks.append(
-            DoctorCheck(
-                name="Claude Code config",
-                ok=user_ok,
-                detail=user_detail,
-                value=str(targets["claude_user"]),
+        if "claude_user" in skipped_unreadable:
+            # --fix deliberately left an unreadable config untouched; do not
+            # re-report that same target as a fatal missing entry.
+            result.checks.append(
+                DoctorCheck(
+                    name="Claude Code config",
+                    ok=False,
+                    detail="existing config unreadable; left untouched (see --fix warning)",
+                    value=str(targets["claude_user"]),
+                    severity="warning",
+                )
             )
-        )
+        else:
+            user_data = _read_json(targets["claude_user"])
+            user_entry = (user_data or {}).get("mcpServers", {}).get("rook")
+            user_ok, user_detail = _validate_mcp_entry(user_entry, runtime_paths, expected_python_path=expected_python_path)
+            result.checks.append(
+                DoctorCheck(
+                    name="Claude Code config",
+                    ok=user_ok,
+                    detail=user_detail,
+                    value=str(targets["claude_user"]),
+                )
+            )
 
         desktop_data = _read_json(targets["claude_desktop"])
         desktop_entry = (desktop_data or {}).get("mcpServers", {}).get("rook")
-        if desktop_entry is not None or targets["claude_desktop"].exists() or targets["claude_desktop"].parent.exists():
+        if "claude_desktop" in skipped_unreadable:
+            result.checks.append(
+                DoctorCheck(
+                    name="Claude Desktop config",
+                    ok=False,
+                    detail="existing config unreadable; left untouched (see --fix warning)",
+                    value=str(targets["claude_desktop"]),
+                    severity="warning",
+                )
+            )
+        elif desktop_entry is not None or targets["claude_desktop"].exists() or targets["claude_desktop"].parent.exists():
             desktop_ok, desktop_detail = _validate_mcp_entry(
                 desktop_entry,
                 runtime_paths,

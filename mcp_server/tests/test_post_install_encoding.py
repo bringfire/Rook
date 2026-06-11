@@ -122,3 +122,23 @@ def test_no_encodingless_text_io_in_post_install():
             line = source[: match.start()].count("\n") + 1
             violations.append(f"line {line}: .{match.group(1)}({args[:60]}...)")
     assert not violations, "encoding-less text IO found:\n" + "\n".join(violations)
+
+
+def test_consume_doctor_payload_warning_severity_does_not_fail_validation():
+    """Warning-severity doctor failures become installer warnings, never
+    fatal checks; error-severity failures still fail validation."""
+    module = _load_post_install()
+    payload = {
+        "checks": [
+            {"name": "Claude Code config", "ok": False, "severity": "warning", "detail": "left untouched"},
+            {"name": "Codex config", "ok": True, "severity": "error"},
+            {"name": "ROOK_DATA_DIR writable", "ok": False, "severity": "error", "detail": "boom"},
+        ],
+        "warnings": ["legacy path exists"],
+    }
+    checks, warnings = module._consume_doctor_payload(payload)
+    assert ("Codex config", True) in checks
+    assert ("ROOK_DATA_DIR writable", False) in checks
+    assert all(name != "Claude Code config" for name, _ in checks)
+    assert any("left untouched" in w for w in warnings)
+    assert "legacy path exists" in warnings

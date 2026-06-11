@@ -629,6 +629,27 @@ def managed_companion_payloads(plugin_dir: Path) -> list[tuple[str, Path]]:
     return [(runtime, plugin_dir / runtime / "Rook.rhp") for runtime in MANAGED_COMPANION_RUNTIMES]
 
 
+def _consume_doctor_payload(payload: dict) -> tuple[list[tuple[str, bool]], list[str]]:
+    """Split doctor checks into fatal validation entries and warnings.
+
+    Doctor checks carry a severity field; warning-severity failures (e.g.
+    "--fix left an unreadable config untouched") must surface as warnings,
+    not fail the installer — doctor's own exit code already treats them
+    as non-fatal (DoctorResult.ok ignores warning severity)."""
+    checks: list[tuple[str, bool]] = []
+    warnings: list[str] = []
+    for check in payload.get("checks", []):
+        name = check.get("name", "rook doctor check")
+        ok = bool(check.get("ok"))
+        if not ok and check.get("severity") == "warning":
+            warnings.append(f"{name}: {check.get('detail') or 'warning (non-fatal)'}")
+            continue
+        checks.append((name, ok))
+    for warning in payload.get("warnings", []):
+        warnings.append(str(warning))
+    return checks, warnings
+
+
 def validate(
     install_dir: Path,
     runtime_root: Path,
@@ -712,10 +733,9 @@ def validate(
                 warnings.append(f"rook doctor exited unexpectedly: {doctor_result.returncode}")
             else:
                 payload = json.loads(doctor_result.stdout)
-                for check in payload.get("checks", []):
-                    checks.append((check.get("name", "rook doctor check"), bool(check.get("ok"))))
-                for warning in payload.get("warnings", []):
-                    warnings.append(str(warning))
+                doctor_checks, doctor_warnings = _consume_doctor_payload(payload)
+                checks.extend(doctor_checks)
+                warnings.extend(doctor_warnings)
         except Exception as exc:
             checks.append(("rook doctor execution", False))
             warnings.append(f"rook doctor failed: {exc}")
