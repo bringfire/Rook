@@ -336,7 +336,8 @@ namespace Rook.Artifacts
                     {
                         artifact = ReadArtifact(artifactDir);
                     }
-                    catch (InvalidDataException ex)
+                    catch (Exception ex) when (
+                        ex is InvalidDataException or System.Text.Json.JsonException)
                     {
                         if (!Directory.EnumerateFileSystemEntries(artifactDir).Any())
                         {
@@ -387,7 +388,8 @@ namespace Rook.Artifacts
                 _ = ReadArtifact(dir);
                 corrupt = false;
             }
-            catch (InvalidDataException)
+            catch (Exception ex) when (
+                ex is InvalidDataException or System.Text.Json.JsonException)
             {
                 corrupt = true;
             }

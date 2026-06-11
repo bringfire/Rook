@@ -328,13 +328,36 @@ namespace Rook.Tests.Artifacts
         }
 
         [Fact]
-        public void List_MalformedManifestJson_Throws()
+        public void List_MalformedManifestJson_SkipsAndWarns()
+        {
+            // Malformed JSON is in the same corruption-recovery class as a
+            // missing manifest (#242 review): it must not brick listing.
+            // Get(id) above stays strict for direct inspection.
+            var healthy = _store.Create("image_capture", OneBlob());
+            var id = Guid.NewGuid();
+            var dir = CreateRawArtifactDir("2026-04-22", id);
+            WriteRawManifest(dir, "{ broken");
+
+            var list = _store.List(out var warnings);
+
+            Assert.Single(list);
+            Assert.Equal(healthy.Id, list[0].Id);
+            Assert.Single(warnings);
+            Assert.Contains(id.ToString("D"), warnings[0]);
+        }
+
+        [Fact]
+        public void Delete_MalformedManifestJson_Quarantines()
         {
             var id = Guid.NewGuid();
             var dir = CreateRawArtifactDir("2026-04-22", id);
             WriteRawManifest(dir, "{ broken");
 
-            Assert.ThrowsAny<JsonException>(() => _store.List());
+            Assert.True(_store.Delete(id));
+            Assert.False(Directory.Exists(dir));
+            var quarantined = Path.Combine(_root + "-quarantine", id.ToString("D"));
+            Assert.True(Directory.Exists(quarantined));
+            Assert.True(File.Exists(Path.Combine(quarantined, "manifest.json")));
         }
 
         // ─── corruption: finalized dir without manifest ─────────────
