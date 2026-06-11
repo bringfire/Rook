@@ -454,6 +454,28 @@ be used to infer durable hidden.
 Operator repair (`repair_presentation` / `Repair=Yes`) remains unchanged and
 overrides any future automatic skip.
 
+### Carve-out: forced repair is exempt from the inactive-app invariant
+
+The "no present-side effects while the app is inactive" invariant applies to
+the AUTOMATIC paths only. `ForceRepairAsync` (operator repair via the typed
+route, the command's `Repair=Yes`, and `ScheduleRepairAll`) intentionally runs
+regardless of app-active state. This is deliberate, not an oversight:
+
+- Every live heal in the 2026-06-10 investigation was performed via forced
+  toggle WHILE Rhino was inactive (the operator diagnoses from another
+  window by definition). Deferring forced repair to the next activation
+  would break the proven repair → observe workflow.
+- The #192 wedge evidence concerned automatic mutations issued during
+  transition churn, not one-shot operator actions in steady inactive state;
+  many forced repairs ran inactive across both validation rounds with zero
+  wedge symptoms.
+- Forced repair retains every other guard: serialized execution, the
+  generation/desired-visible mid-gap abort, and bounded attempts.
+
+The suspect-cycle path is NOT exempt — it triggers only at the activation
+idle confirm, which requires `AppActive`. A unit test pins the exemption so
+it reads as intent, not accident.
+
 ### Revalidation order (Round 2)
 
 1. Gate 3 Scenario 1 FIRST (Rhino unfocus/refocus cycles; Knowledge must not

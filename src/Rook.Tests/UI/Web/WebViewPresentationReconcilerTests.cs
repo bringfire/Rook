@@ -221,6 +221,23 @@ namespace Rook.Tests.UI.Web
         }
 
         [Fact]
+        public async Task ForceRepair_RunsWhileAppInactive_ByDesign()
+        {
+            // Spec carve-out: forced repair (operator path) is EXEMPT from
+            // the no-present-side-effects-while-inactive invariant. Every
+            // live heal in the 2026-06-10 investigation ran with Rhino
+            // inactive — the operator diagnoses from another window by
+            // definition. Automatic paths stay guarded; the suspect-cycle
+            // path additionally requires AppActive.
+            var (r, h) = Make(appActive: false);
+            h.ProbeAnswers.Enqueue(Healthy()); // forced confirmation probe
+            var d = await r.ForceRepairAsync("operator-while-inactive");
+            Assert.Equal(ReconcileDisposition.Repaired, d);
+            Assert.Contains("visible=False", h.Actions);
+            Assert.Contains("visible=True", h.Actions);
+        }
+
+        [Fact]
         public async Task ForceRepairDuringReconcile_CoalescesButRunsForcedToggleAfter()
         {
             var (r, h) = Make();
