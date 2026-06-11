@@ -277,8 +277,9 @@ $installer = Get-Item installer\output\Rook-Setup-X.Y.Z.exe
 $installer.Length
 ```
 
-Sanity check: file size should be > 5MB (current baseline is ~12MB). If significantly
-smaller, something was excluded.
+Sanity check: the bundled-Python installer baseline is ~221MB (v1.5.10). Fail
+the step if the output is below ~150MB - that means the Python runtime,
+wheelhouse, knowledge stores, or Chirp payload was excluded.
 
 ## Step 8: Installer Live Smoke and Artifact Validation
 
@@ -461,4 +462,4 @@ Remove-Item (Join-Path $env:TEMP "rook_build_native_release.bat") -Force -ErrorA
 | ISCC can't find source file | Path mismatch in .iss | Check CompanionDir matches actual build output path |
 | `error MSB1008: Only one project` | MSBuild.exe invoked from bash with /p flags | Bash interprets /p as a path; use `-p:` or route through .bat |
 | DLL locked / access denied | Rhino has the plugin loaded | Close Rhino before building |
-| Installer too small (<5MB) | Missing knowledge stores or Chirp | Verify all .iss source paths in Step 4 |
+| Installer too small (<150MB) | Missing bundled Python runtime/wheelhouse, knowledge stores, or Chirp | Verify all .iss source paths in Step 6, incl. the Python runtime staging outputs |
