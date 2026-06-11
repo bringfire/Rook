@@ -290,6 +290,19 @@ function Test-PostInstallValidationUsesMultiRuntimeCompanionLayout {
     Assert-NotContains -Text $combined -Unexpected 'plugin_dir / "Rook.rhp"' -Message 'Post-install validation must not require a root-level Rook.rhp companion payload.'
 }
 
+function Test-InstallerDoesNotHideLongPythonDependencyInstall {
+    $installerContent = Get-Content -Path $InstallerScript -Raw
+    $postInstallContent = Get-Content -Path $PostInstallScript -Raw
+
+    Assert-NotContains -Text $installerContent -Unexpected 'Flags: runhidden waituntilterminated' -Message 'Installer must not hide the long Python dependency install; users need live feedback during cold pip installs.'
+    Assert-Contains -Text $installerContent -Expected 'This can take 10-30+ minutes on first install' -Message 'Installer status text must warn users that first-time Python dependency setup can take a long time.'
+    Assert-Contains -Text $postInstallContent -Expected 'ROOK_POST_INSTALL_PIP_TIMEOUT_SECONDS' -Message 'Post-install pip timeout must be configurable for slow machines.'
+    Assert-Contains -Text $postInstallContent -Expected 'DEFAULT_PIP_INSTALL_TIMEOUT_SECONDS = 7200' -Message 'Post-install pip timeout must be raised far above the old 300 second cold-install failure threshold.'
+    Assert-Contains -Text $postInstallContent -Expected '_run_streaming_command' -Message 'Post-install must stream pip output instead of capturing it silently.'
+    Assert-Contains -Text $postInstallContent -Expected 'Repair command' -Message 'Post-install timeout failures must print an exact manual repair command.'
+    Assert-NotContains -Text $postInstallContent -Unexpected 'timeout=300' -Message 'Post-install must not retain the brittle 300 second dependency install timeout.'
+}
+
 function Test-ReleaseWorkflowDocsUseMultiRuntimeCompanionOutputs {
     $combined = @(
         Get-Content -Path $BuildReleaseSkill -Raw
@@ -506,6 +519,7 @@ Test-InstallerWarnsRegistrationIsPerWindowsUser
 Test-InstallerVerifiesRhinoPluginRegistrationAfterInstall
 Test-UninstallRemovesGeneratedRuntimeArtifacts
 Test-PostInstallValidationUsesMultiRuntimeCompanionLayout
+Test-InstallerDoesNotHideLongPythonDependencyInstall
 Test-ReleaseWorkflowDocsUseMultiRuntimeCompanionOutputs
 Test-BuildReleaseWorkflowUsesWindowsPowerShellCommands
 Test-BuildReleaseReferencesStaySynchronized

@@ -180,7 +180,9 @@ blocks the UI thread with no programmatic recovery.
 ## Troubleshooting
 
 ### MCP tools not available
-Run `/mcp` in Claude Code, look for "rook". If missing, restart Claude Code from project directory.
+After every install, update, or repair, restart Claude Code or whichever MCP
+client is in use before judging connectivity. Long-running MCP clients can keep
+stale runtime state. Then run `/mcp` in Claude Code and look for "rook".
 
 ### Rhino not responding
 A modal dialog may be blocking Rhino. Check the Rhino window for any dialog box

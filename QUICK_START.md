@@ -25,6 +25,8 @@ Other MCP clients ([Codex CLI](https://developers.openai.com/codex/cli), Cursor,
    - **Codex** — Auto-configure OpenAI Codex CLI (optional)
 3. The installer requires Python 3.10+ on your system.
 4. Restart Rhino.
+5. Restart Claude, Codex, Cursor, Windsurf, or whichever MCP client you are using
+   after install/update/repair so it does not keep stale MCP state.
 
 ## Verify Installation
 

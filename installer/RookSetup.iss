@@ -235,7 +235,7 @@ Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-
 ; ---------------------------------------------------------------------------
 
 [Run]
-Filename: "{code:GetPythonPath}"; Parameters: """{app}\post_install.py"" --install-dir ""{app}"" --runtime-root ""{localappdata}\Rook"" --mcp-server-dir ""{app}\mcp_server"" {code:GetChirpArgs} {code:GetClaudeArgs} {code:GetCodexArgs} {code:GetPluginsArgs}"; StatusMsg: "Setting up Python MCP server, Chirp, and Claude/Codex configuration..."; Components: mcp chirp claude codex; Flags: runhidden waituntilterminated; Check: PythonFound
+Filename: "{code:GetPythonPath}"; Parameters: """{app}\post_install.py"" --install-dir ""{app}"" --runtime-root ""{localappdata}\Rook"" --mcp-server-dir ""{app}\mcp_server"" {code:GetChirpArgs} {code:GetClaudeArgs} {code:GetCodexArgs} {code:GetPluginsArgs}"; StatusMsg: "Installing Rook Python dependencies. This can take 10-30+ minutes on first install; do not close the installer..."; Components: mcp chirp claude codex; Flags: waituntilterminated; Check: PythonFound
 
 ; ---------------------------------------------------------------------------
 ; Uninstall cleanup

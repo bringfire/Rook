@@ -16,15 +16,21 @@ Uses only stdlib so it can run before dependencies are installed.
 import argparse
 import json
 import os
+import queue
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 from pathlib import Path
 
 
 MANAGED_COMPANION_RUNTIMES = ("net8.0", "net7.0", "net48")
+DEFAULT_PIP_INSTALL_TIMEOUT_SECONDS = 7200
+DEFAULT_VENV_SETUP_TIMEOUT_SECONDS = 900
+INSTALL_HEARTBEAT_SECONDS = 30
 
 
 def _codex_on_path() -> bool:
@@ -56,38 +62,175 @@ def get_venv_python(venv_dir: Path) -> Path:
     return venv_dir / "bin" / "python"
 
 
+def _pip_install_timeout_seconds() -> int:
+    """Return the pip install timeout, allowing release support overrides."""
+    raw_value = os.environ.get("ROOK_POST_INSTALL_PIP_TIMEOUT_SECONDS")
+    if not raw_value:
+        return DEFAULT_PIP_INSTALL_TIMEOUT_SECONDS
+
+    try:
+        return int(raw_value)
+    except ValueError:
+        print(
+            "Ignoring invalid ROOK_POST_INSTALL_PIP_TIMEOUT_SECONDS="
+            f"{raw_value!r}; using {DEFAULT_PIP_INSTALL_TIMEOUT_SECONDS} seconds."
+        )
+        return DEFAULT_PIP_INSTALL_TIMEOUT_SECONDS
+
+
+def _format_command(args: list[str]) -> str:
+    return " ".join(f'"{arg}"' if " " in arg else arg for arg in args)
+
+
+def _print_repair_command(label: str, args: list[str]) -> None:
+    print(f"{label} timed out before completion.")
+    print("Repair command:")
+    print(f"  {_format_command(args)}")
+
+
+def _run_streaming_command(
+    args: list[str],
+    label: str,
+    timeout_seconds: int,
+    log_path: Path,
+    cwd: Path | None = None,
+    env: dict[str, str] | None = None,
+) -> tuple[int, bool]:
+    """Run a command while streaming output and heartbeat progress to the user."""
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    print(f"\n--- {label} ---")
+    print(f"Command: {_format_command(args)}")
+    print(f"Log: {log_path}")
+
+    with log_path.open("a", encoding="utf-8", errors="replace") as log_file:
+        log_file.write(f"\n--- {label} ---\n")
+        log_file.write(f"Command: {_format_command(args)}\n")
+        log_file.flush()
+
+        try:
+            process = subprocess.Popen(
+                args,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                cwd=str(cwd) if cwd else None,
+                env=env,
+            )
+        except OSError as exc:
+            print(f"{label} failed to start: {exc}")
+            log_file.write(f"Failed to start: {exc}\n")
+            return 1, False
+
+        output_queue: queue.Queue[str] = queue.Queue()
+
+        def read_output() -> None:
+            if process.stdout is None:
+                return
+            for line in process.stdout:
+                output_queue.put(line)
+
+        reader = threading.Thread(target=read_output, daemon=True)
+        reader.start()
+        started = time.monotonic()
+        last_heartbeat = started
+
+        while True:
+            try:
+                line = output_queue.get(timeout=1)
+                print(line, end="")
+                log_file.write(line)
+                log_file.flush()
+            except queue.Empty:
+                pass
+
+            returncode = process.poll()
+            now = time.monotonic()
+
+            if returncode is not None:
+                while True:
+                    try:
+                        line = output_queue.get_nowait()
+                    except queue.Empty:
+                        break
+                    print(line, end="")
+                    log_file.write(line)
+                log_file.write(f"Exit code: {returncode}\n")
+                log_file.flush()
+                reader.join(timeout=1)
+                return returncode, False
+
+            if timeout_seconds > 0 and now - started > timeout_seconds:
+                process.terminate()
+                try:
+                    process.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=10)
+                message = f"{label} timed out after {timeout_seconds} seconds."
+                print(message)
+                log_file.write(message + "\n")
+                log_file.flush()
+                return process.returncode or 124, True
+
+            if now - last_heartbeat >= INSTALL_HEARTBEAT_SECONDS:
+                elapsed_minutes = int((now - started) // 60)
+                message = (
+                    f"[Rook installer] Still working on {label} after "
+                    f"{elapsed_minutes} minute(s). First-time Python dependency "
+                    "installs can take a while; please do not close this window."
+                )
+                print(message)
+                log_file.write(message + "\n")
+                log_file.flush()
+                last_heartbeat = now
+
+
 def install_mcp_server(mcp_server_dir: Path, runtime_root: Path) -> Path | None:
     """Create a managed venv and install rook-mcp into it."""
     bootstrap_python = find_python()
     venv_dir, data_dir, logs_dir = get_runtime_paths(runtime_root)
     venv_python = get_venv_python(venv_dir)
+    log_path = logs_dir / "post_install.log"
 
     data_dir.mkdir(parents=True, exist_ok=True)
     logs_dir.mkdir(parents=True, exist_ok=True)
 
     if not venv_python.exists():
         print(f"Creating managed Rook venv at {venv_dir}...")
-        result = subprocess.run(
-            [bootstrap_python, "-m", "venv", str(venv_dir)],
-            capture_output=True,
-            text=True,
-            timeout=300,
+        venv_cmd = [bootstrap_python, "-m", "venv", str(venv_dir)]
+        returncode, timed_out = _run_streaming_command(
+            venv_cmd,
+            "Create managed Rook Python environment",
+            DEFAULT_VENV_SETUP_TIMEOUT_SECONDS,
+            log_path,
         )
-        if result.returncode != 0:
-            print(f"venv creation failed:\n{result.stderr}")
+        if returncode != 0:
+            if timed_out:
+                _print_repair_command("Managed Rook venv creation", venv_cmd)
+            else:
+                print("Managed Rook venv creation failed.")
             return None
 
     print(f"Installing rook-mcp from {mcp_server_dir} into {venv_dir}...")
-
-    result = subprocess.run(
-        [str(venv_python), "-m", "pip", "install", "-e", str(mcp_server_dir)],
-        capture_output=True,
-        text=True,
-        timeout=300,
+    print(
+        "This installs Rook's Python dependency stack. On a cold machine it can "
+        "take 10-30+ minutes while pip downloads and builds packages."
     )
 
-    if result.returncode != 0:
-        print(f"pip install failed:\n{result.stderr}")
+    pip_cmd = [str(venv_python), "-m", "pip", "install", "-e", str(mcp_server_dir)]
+    returncode, timed_out = _run_streaming_command(
+        pip_cmd,
+        "Install rook-mcp Python dependencies",
+        _pip_install_timeout_seconds(),
+        log_path,
+    )
+
+    if returncode != 0:
+        if timed_out:
+            _print_repair_command("rook-mcp dependency install", pip_cmd)
+        else:
+            print("rook-mcp dependency install failed. Review the log above for pip output.")
         return None
 
     print(f"rook-mcp installed successfully in {venv_dir}.")
@@ -103,17 +246,22 @@ def install_chirp(chirp_dir: Path) -> bool:
     """
     python = find_python()
     venv_dir = chirp_dir / ".venv"
+    log_path = chirp_dir / "logs" / "post_install.log"
 
     # Step 1: Create venv
     print(f"Creating Chirp virtual environment at {venv_dir}...")
-    result = subprocess.run(
-        [python, "-m", "venv", str(venv_dir)],
-        capture_output=True,
-        text=True,
-        timeout=120,
+    venv_cmd = [python, "-m", "venv", str(venv_dir)]
+    returncode, timed_out = _run_streaming_command(
+        venv_cmd,
+        "Create Chirp Python environment",
+        DEFAULT_VENV_SETUP_TIMEOUT_SECONDS,
+        log_path,
     )
-    if result.returncode != 0:
-        print(f"venv creation failed:\n{result.stderr}")
+    if returncode != 0:
+        if timed_out:
+            _print_repair_command("Chirp venv creation", venv_cmd)
+        else:
+            print("Chirp venv creation failed.")
         return False
 
     # Step 2: Find the venv's pip
@@ -128,14 +276,22 @@ def install_chirp(chirp_dir: Path) -> bool:
 
     # Step 3: pip install -e inside the venv
     print(f"Installing Chirp package into venv...")
-    result = subprocess.run(
-        [str(venv_python), "-m", "pip", "install", "-e", str(chirp_dir)],
-        capture_output=True,
-        text=True,
-        timeout=300,
+    print(
+        "This installs Chirp's Python dependency stack. On a cold machine it can "
+        "take 10-30+ minutes while pip downloads and builds packages."
     )
-    if result.returncode != 0:
-        print(f"Chirp pip install failed:\n{result.stderr}")
+    pip_cmd = [str(venv_python), "-m", "pip", "install", "-e", str(chirp_dir)]
+    returncode, timed_out = _run_streaming_command(
+        pip_cmd,
+        "Install Chirp Python dependencies",
+        _pip_install_timeout_seconds(),
+        log_path,
+    )
+    if returncode != 0:
+        if timed_out:
+            _print_repair_command("Chirp dependency install", pip_cmd)
+        else:
+            print("Chirp dependency install failed. Review the log above for pip output.")
         return False
 
     print("Chirp installed successfully.")
@@ -315,6 +471,29 @@ def _generate_codex_toml(python_path: str, mcp_dir: str, env_vars: dict[str, str
     return "\n".join(lines)
 
 
+def _remove_rook_installer_comment_stanzas(content: str) -> str:
+    """Remove generated Rook comment headers that may survive failed installs."""
+    lines = content.splitlines()
+    cleaned: list[str] = []
+    i = 0
+    while i < len(lines):
+        if (
+            lines[i] == "# Rook MCP Server configuration for OpenAI Codex CLI"
+            and i + 1 < len(lines)
+            and lines[i + 1] == "# Auto-generated by Rook installer"
+        ):
+            i += 2
+            while i < len(lines) and lines[i] == "":
+                i += 1
+            if cleaned and cleaned[-1] != "":
+                cleaned.append("")
+            continue
+        cleaned.append(lines[i])
+        i += 1
+
+    return "\n".join(cleaned).rstrip()
+
+
 def configure_codex(
     install_dir: Path,
     data_dir: Path,
@@ -333,17 +512,19 @@ def configure_codex(
     user_config = user_codex_dir / "config.toml"
 
     if user_config.exists():
-        existing = user_config.read_text(encoding="utf-8")
+        existing = _remove_rook_installer_comment_stanzas(
+            user_config.read_text(encoding="utf-8")
+        )
         if "[mcp_servers.rook]" in existing:
             # Already has rook - replace the rook block
             # Match from [mcp_servers.rook] to the next [section] or end of file
             pattern = r"\[mcp_servers\.rook\].*?(?=\n\[(?!mcp_servers\.rook[.\]])|$)"
             new_content = re.sub(pattern, toml_content.strip(), existing, flags=re.DOTALL)
-            user_config.write_text(new_content, encoding="utf-8")
+            user_config.write_text(new_content.rstrip() + "\n", encoding="utf-8")
         else:
             # Append rook section
-            with open(user_config, "a", encoding="utf-8") as f:
-                f.write("\n" + toml_content)
+            separator = "\n\n" if existing else ""
+            user_config.write_text(existing + separator + toml_content, encoding="utf-8")
     else:
         user_config.write_text(toml_content, encoding="utf-8")
 

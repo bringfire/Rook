@@ -59,6 +59,9 @@ Before starting, verify the user has:
    - Copies knowledge stores and Codex skills
 
 3. After install, the user must **restart Rhino**.
+4. After install, update, or repair, the user must **restart Claude, Codex, or
+   any other MCP client** before judging connectivity. Long-running MCP clients
+   can keep stale runtime state until restarted.
 
 ## MCP Configuration
 
