@@ -143,6 +143,41 @@ def _read_json(path: Path) -> dict[str, Any] | None:
         return None
 
 
+class _UnreadableConfigError(Exception):
+    """An EXISTING config file could not be decoded/parsed as a JSON object.
+
+    Raised by read-modify-write paths so callers skip the write: a config we
+    could not read must never be overwritten (that destroys the user's
+    projects and other MCP server entries)."""
+
+
+def _read_json_for_update(path: Path) -> dict[str, Any]:
+    """Read an existing config for read-modify-write. Missing file -> {}.
+
+    UTF-8 first; cp1252 fallback for legacy locale-written configs. An
+    existing file that still cannot be decoded, parsed, or is not a JSON
+    object raises _UnreadableConfigError — callers must leave it untouched.
+    """
+    if not path.exists():
+        return {}
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        try:
+            raw = path.read_text(encoding="cp1252")
+        except (UnicodeDecodeError, OSError) as exc:
+            raise _UnreadableConfigError(f"{path}: {exc}") from exc
+    except OSError as exc:
+        raise _UnreadableConfigError(f"{path}: {exc}") from exc
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise _UnreadableConfigError(f"{path}: {exc}") from exc
+    if not isinstance(parsed, dict):
+        raise _UnreadableConfigError(f"{path}: config root is not a JSON object")
+    return parsed
+
+
 def _validate_mcp_entry(
     actual: dict[str, Any] | None,
     runtime_paths: RuntimePaths,
@@ -309,7 +344,7 @@ def _upsert_toml_section(content: str, header: str, section_body: str) -> str:
 
 def _write_claude_user_config(runtime_paths: RuntimePaths, python_path: str, chirp_home: str | None = None) -> Path:
     target = _config_targets()["claude_user"]
-    existing = _read_json(target) or {}
+    existing = _read_json_for_update(target)  # raises _UnreadableConfigError: never clobber
     existing.setdefault("mcpServers", {})
     existing["mcpServers"]["rook"] = _build_expected_mcp_entry(runtime_paths, python_path, chirp_home=chirp_home)
     target.write_text(json.dumps(existing, indent=2), encoding="utf-8")
@@ -320,7 +355,7 @@ def _write_claude_desktop_config(runtime_paths: RuntimePaths, python_path: str, 
     target = _config_targets()["claude_desktop"]
     if not target.parent.exists():
         return None
-    existing = _read_json(target) or {}
+    existing = _read_json_for_update(target)  # raises _UnreadableConfigError: never clobber
     existing.setdefault("mcpServers", {})
     existing["mcpServers"]["rook"] = _build_expected_mcp_entry(runtime_paths, python_path, chirp_home=chirp_home)
     target.write_text(json.dumps(existing, indent=2), encoding="utf-8")
@@ -491,12 +526,35 @@ def run_doctor(
             try:
                 fixed_path = _write_claude_user_config(runtime_paths, python_path, chirp_home=chirp_home)
                 result.fixes_applied.append(f"updated {fixed_path}")
-                desktop_fixed = _write_claude_desktop_config(runtime_paths, python_path, chirp_home=chirp_home)
-                if desktop_fixed is not None:
-                    result.fixes_applied.append(f"updated {desktop_fixed}")
+            except _UnreadableConfigError as exc:
+                result.checks.append(
+                    DoctorCheck(
+                        name="--fix Claude integration",
+                        ok=False,
+                        detail=f"existing config unreadable; left untouched: {exc}",
+                        severity="warning",
+                    )
+                )
             except Exception as exc:
                 result.checks.append(
                     DoctorCheck(name="--fix Claude integration", ok=False, detail=str(exc), severity="warning")
+                )
+            try:
+                desktop_fixed = _write_claude_desktop_config(runtime_paths, python_path, chirp_home=chirp_home)
+                if desktop_fixed is not None:
+                    result.fixes_applied.append(f"updated {desktop_fixed}")
+            except _UnreadableConfigError as exc:
+                result.checks.append(
+                    DoctorCheck(
+                        name="--fix Claude Desktop integration",
+                        ok=False,
+                        detail=f"existing config unreadable; left untouched: {exc}",
+                        severity="warning",
+                    )
+                )
+            except Exception as exc:
+                result.checks.append(
+                    DoctorCheck(name="--fix Claude Desktop integration", ok=False, detail=str(exc), severity="warning")
                 )
         if check_codex:
             try:
