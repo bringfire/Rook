@@ -25,6 +25,9 @@ namespace Rook.Tests.Artifacts
         {
             if (Directory.Exists(_root))
                 Directory.Delete(_root, recursive: true);
+            var quarantine = _root + "-quarantine";
+            if (Directory.Exists(quarantine))
+                Directory.Delete(quarantine, recursive: true);
         }
 
         // ─── helpers ─────────────────────────────────────────────────
@@ -346,23 +349,33 @@ namespace Rook.Tests.Artifacts
         }
 
         [Fact]
-        public void List_FinalizedDirWithoutManifest_Throws()
+        public void List_FinalizedDirWithoutManifest_SkipsAndWarns()
         {
+            // Pre-#241 this THREW, bricking the whole Gallery on one
+            // corrupt dir. Fail-open is the contract now; recovery
+            // semantics are pinned in the "corruption recovery" region.
             var id = Guid.NewGuid();
             CreateRawArtifactDir("2026-04-22", id);
 
-            Assert.Throws<InvalidDataException>(() => _store.List());
+            var list = _store.List(out var warnings);
+
+            Assert.Empty(list);
+            Assert.Single(warnings);
+            Assert.Contains(id.ToString("D"), warnings[0]);
         }
 
         [Fact]
-        public void Delete_FinalizedDirWithoutManifest_Throws()
+        public void Delete_FinalizedDirWithoutManifest_Quarantines()
         {
+            // Pre-#241 this THREW with no recovery affordance. Delete now
+            // quarantines the unreadable dir — bytes preserved, store
+            // restored.
             var id = Guid.NewGuid();
             CreateRawArtifactDir("2026-04-22", id);
 
-            Assert.Throws<InvalidDataException>(() => _store.Delete(id));
-            // Dir untouched — corruption is surfaced, not silently cleaned.
-            Assert.True(Directory.Exists(Path.Combine(_root, "2026-04-22", id.ToString("D"))));
+            Assert.True(_store.Delete(id));
+            Assert.False(Directory.Exists(Path.Combine(_root, "2026-04-22", id.ToString("D"))));
+            Assert.True(Directory.Exists(Path.Combine(_root + "-quarantine", id.ToString("D"))));
         }
 
         // ─── corruption: duplicate UUID across buckets ──────────────
@@ -1153,6 +1166,126 @@ namespace Rook.Tests.Artifacts
             Assert.DoesNotContain("\"SchemaVersion\"", content);
             Assert.DoesNotContain("\"CreatedAt\"", content);
             Assert.DoesNotContain("\"ParentIds\"", content);
+        }
+
+        // ─── corruption recovery (issue #241) ────────────────────────
+        //
+        // Live failure 2026-06-11: a finalized dir containing image.png but
+        // no manifest.json bricked List() (the whole Gallery) and was
+        // undeletable through the product. These tests pin the recovery
+        // semantics: fail-open enumeration, quarantine-on-delete for
+        // corrupt dirs, and atomic (rename-first) teardown for healthy ones.
+
+        private string Today => DateTimeOffset.UtcNow.ToString("yyyy-MM-dd");
+
+        private string QuarantineRoot =>
+            Path.Combine(
+                Path.GetDirectoryName(_root)!,
+                Path.GetFileName(_root) + "-quarantine");
+
+        private string CreateOrphanDir(Guid id)
+        {
+            // The exact #241 state: blob present, manifest missing.
+            var dir = CreateRawArtifactDir(Today, id);
+            File.WriteAllBytes(Path.Combine(dir, "image.png"), Bytes("orphan"));
+            return dir;
+        }
+
+        [Fact]
+        public void List_SkipsCorruptDirs_AndReportsWarnings()
+        {
+            var healthy = _store.Create("image_capture", OneBlob());
+            var corruptId = Guid.NewGuid();
+            CreateOrphanDir(corruptId);
+
+            var list = _store.List(out var warnings);
+
+            Assert.Single(list);
+            Assert.Equal(healthy.Id, list[0].Id);
+            Assert.Single(warnings);
+            Assert.Contains(corruptId.ToString("D"), warnings[0]);
+        }
+
+        [Fact]
+        public void List_NoWarningsOverload_StillSkipsCorruptDirs()
+        {
+            var healthy = _store.Create("image_capture", OneBlob());
+            CreateOrphanDir(Guid.NewGuid());
+
+            var list = _store.List();
+
+            Assert.Single(list);
+            Assert.Equal(healthy.Id, list[0].Id);
+        }
+
+        [Fact]
+        public void Delete_CorruptDir_QuarantinesInsteadOfRefusing()
+        {
+            var corruptId = Guid.NewGuid();
+            var corruptDir = CreateOrphanDir(corruptId);
+
+            var deleted = _store.Delete(corruptId);
+
+            Assert.True(deleted);
+            Assert.False(Directory.Exists(corruptDir));
+            // Bytes preserved for diagnosis, store restored.
+            var quarantined = Path.Combine(QuarantineRoot, corruptId.ToString("D"));
+            Assert.True(Directory.Exists(quarantined));
+            Assert.True(File.Exists(Path.Combine(quarantined, "image.png")));
+            Assert.Empty(_store.List(out var warnings));
+            Assert.Empty(warnings);
+        }
+
+        [Fact]
+        public void Delete_HealthyWithLockedBlob_FailsCleanWithZeroMutation()
+        {
+            var a = _store.Create("image_capture", OneBlob());
+            var blobPath = BlobPath(a.Id, "primary.png");
+
+            using (new FileStream(blobPath, FileMode.Open, FileAccess.Read, FileShare.None))
+            {
+                var ex = Record.Exception(() => _store.Delete(a.Id));
+                Assert.NotNull(ex);
+                // CRITICAL (#241 origin candidate): the failed delete must
+                // not strand a manifest-less dir — zero mutation on failure.
+                Assert.True(File.Exists(ManifestPath(a.Id)));
+                Assert.Single(_store.List(out var lockedWarnings));
+                Assert.Empty(lockedWarnings);
+            }
+
+            Assert.True(_store.Delete(a.Id));
+            Assert.Empty(_store.List());
+        }
+
+        [Fact]
+        public void Enumerate_IgnoresDeletingTempDirs()
+        {
+            var healthy = _store.Create("image_capture", OneBlob());
+            var leftover = Path.Combine(
+                CreateRawDayDir(Today),
+                Guid.NewGuid().ToString("D") + ".deleting.tmp");
+            Directory.CreateDirectory(leftover);
+            File.WriteAllBytes(Path.Combine(leftover, "image.png"), Bytes("x"));
+
+            var list = _store.List(out var warnings);
+
+            Assert.Single(list);
+            Assert.Equal(healthy.Id, list[0].Id);
+            Assert.Empty(warnings);
+        }
+
+        [Fact]
+        public void Ctor_SweepsLeftoverDeletingTempDirs()
+        {
+            var leftover = Path.Combine(
+                CreateRawDayDir(Today),
+                Guid.NewGuid().ToString("D") + ".deleting.tmp");
+            Directory.CreateDirectory(leftover);
+            File.WriteAllBytes(Path.Combine(leftover, "image.png"), Bytes("x"));
+
+            _ = new ArtifactStore(_root); // fresh store sweeps best-effort
+
+            Assert.False(Directory.Exists(leftover));
         }
     }
 }
