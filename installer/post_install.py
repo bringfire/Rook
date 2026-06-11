@@ -350,8 +350,11 @@ def _register_mcp_via_file(
 
     if user_config_path.exists():
         try:
-            existing = json.loads(user_config_path.read_text())
-        except (json.JSONDecodeError, OSError):
+            # Explicit UTF-8: Path.read_text() defaults to the locale codec
+            # (cp1252 on Windows), which crashes on any non-cp1252 byte in
+            # the user's config — e.g. a curly quote in a project name.
+            existing = json.loads(user_config_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError, OSError):
             existing = {}
     else:
         existing = {}
@@ -401,7 +404,7 @@ def write_chat_service_manifest(mcp_server_dir: Path, python_path: str) -> bool:
     )
 
     manifest_path = plugin_dir / "RookChatService.json"
-    manifest_path.write_text(json.dumps(manifest, indent=2))
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     print(f"Wrote chat service manifest: {manifest_path}")
     return True
 
@@ -434,8 +437,8 @@ def configure_claude_desktop(
 
     if config_path.exists():
         try:
-            existing = json.loads(config_path.read_text())
-        except (json.JSONDecodeError, OSError):
+            existing = json.loads(config_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError, OSError):
             existing = {"mcpServers": {}}
 
         # Backup before modifying (remove stale backup first - rename fails on Windows if target exists)
@@ -533,7 +536,8 @@ def create_env_examples(install_dir: Path, chirp_dir: Path | None = None) -> Non
             "ANTHROPIC_API_KEY=your-key-here\n"
             "\n"
             "# Optional overrides\n"
-            "# ROOK_LOG_LEVEL=INFO\n"
+            "# ROOK_LOG_LEVEL=INFO\n",
+            encoding="utf-8",
         )
         print(f"Created {mcp_example}")
 
@@ -552,7 +556,8 @@ def create_env_examples(install_dir: Path, chirp_dir: Path | None = None) -> Non
                 "# Optional overrides\n"
                 "# CHIRP_MODEL=anthropic/claude-sonnet-4-20250514\n"
                 "# CHIRP_PORT=0\n"
-                "# CHIRP_TRACE_DIR=./traces\n"
+                "# CHIRP_TRACE_DIR=./traces\n",
+                encoding="utf-8",
             )
             print(f"Created {chirp_example}")
 
@@ -731,10 +736,10 @@ def uninstall_cleanup() -> None:
     user_config = Path.home() / ".claude.json"
     if user_config.exists():
         try:
-            data = json.loads(user_config.read_text())
+            data = json.loads(user_config.read_text(encoding="utf-8"))
             if "mcpServers" in data and "rook" in data["mcpServers"]:
                 del data["mcpServers"]["rook"]
-                user_config.write_text(json.dumps(data, indent=2))
+                user_config.write_text(json.dumps(data, indent=2), encoding="utf-8")
                 print(f"Removed rook from {user_config}")
         except Exception as e:
             print(f"Warning: could not clean {user_config}: {e}")
@@ -743,10 +748,10 @@ def uninstall_cleanup() -> None:
     legacy_mcp = Path.home() / ".claude" / ".mcp.json"
     if legacy_mcp.exists():
         try:
-            data = json.loads(legacy_mcp.read_text())
+            data = json.loads(legacy_mcp.read_text(encoding="utf-8"))
             if "mcpServers" in data and "rook" in data["mcpServers"]:
                 del data["mcpServers"]["rook"]
-                legacy_mcp.write_text(json.dumps(data, indent=2))
+                legacy_mcp.write_text(json.dumps(data, indent=2), encoding="utf-8")
                 print(f"Removed rook from {legacy_mcp} (legacy)")
         except Exception as e:
             print(f"Warning: could not clean {legacy_mcp}: {e}")
@@ -755,10 +760,10 @@ def uninstall_cleanup() -> None:
     config_path = Path(os.environ.get("APPDATA", "")) / "Claude" / "claude_desktop_config.json"
     if config_path.exists():
         try:
-            data = json.loads(config_path.read_text())
+            data = json.loads(config_path.read_text(encoding="utf-8"))
             if "mcpServers" in data and "rook" in data["mcpServers"]:
                 del data["mcpServers"]["rook"]
-                config_path.write_text(json.dumps(data, indent=2))
+                config_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
                 print(f"Removed rook from {config_path}")
         except Exception as e:
             print(f"Warning: could not clean {config_path}: {e}")
