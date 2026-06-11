@@ -33,7 +33,10 @@ namespace Rook.Artifacts
     ///   <item><c>.tmp</c> directories are never visible to <see cref="Get"/>,
     ///         <see cref="List"/>, or <see cref="Delete"/>.</item>
     ///   <item>A finalized <c>{uuid}</c> directory missing <c>manifest.json</c>
-    ///         is corruption (contradicts the atomic-create commit).</item>
+    ///         is corruption (contradicts the atomic-create commit).
+    ///         Recovery (issue #241): <see cref="List()"/> skips it with a
+    ///         warning; <see cref="Delete"/> quarantines it to a sibling
+    ///         <c>{root}-quarantine</c> directory.</item>
     /// </list>
     ///
     /// v1 has no index. <see cref="Get"/> and <see cref="Delete"/> scan day
@@ -47,6 +50,12 @@ namespace Rook.Artifacts
         private const int CurrentSchemaVersion = 1;
         private const string ManifestFileName = "manifest.json";
         private const string TempDirSuffix = ".tmp";
+        // Atomic-teardown marker (issue #241): Delete renames the artifact
+        // dir to {uuid}.deleting.tmp BEFORE recursive removal. The ".tmp"
+        // suffix makes leftovers invisible to Get/List/Delete by the
+        // existing rule; the constructor sweeps them best-effort.
+        private const string DeletingTempSuffix = ".deleting" + TempDirSuffix;
+        private const string QuarantineDirSuffix = "-quarantine";
         private const string DayKeyFormat = "yyyy-MM-dd";
 
         private static readonly Regex KindPattern =
@@ -79,6 +88,46 @@ namespace Rook.Artifacts
         public ArtifactStore(string? overrideRoot)
         {
             _root = overrideRoot ?? RookPaths.ArtifactsRoot;
+            SweepDeletingTempDirs();
+        }
+
+        /// <summary>
+        /// Best-effort removal of leftover <c>{uuid}.deleting.tmp</c> dirs
+        /// from interrupted deletes (issue #241). Failures are swallowed:
+        /// leftovers are invisible to the store and harmless; the next
+        /// store construction retries.
+        /// </summary>
+        private void SweepDeletingTempDirs()
+        {
+            try
+            {
+                if (!Directory.Exists(_root)) return;
+                foreach (var dayDir in Directory.EnumerateDirectories(_root))
+                {
+                    foreach (var dir in Directory.EnumerateDirectories(
+                                 dayDir, "*" + DeletingTempSuffix))
+                    {
+                        try { Directory.Delete(dir, recursive: true); }
+                        catch { /* still locked — next sweep retries */ }
+                    }
+
+                    // Empty GUID dirs are residue from fallback teardown
+                    // (delete-pending handles outlived the file unlinks).
+                    foreach (var dir in Directory.EnumerateDirectories(dayDir))
+                    {
+                        try
+                        {
+                            if (Guid.TryParseExact(Path.GetFileName(dir), "D", out _)
+                                && !Directory.EnumerateFileSystemEntries(dir).Any())
+                            {
+                                Directory.Delete(dir, recursive: false);
+                            }
+                        }
+                        catch { /* best-effort */ }
+                    }
+                }
+            }
+            catch { /* sweep must never block store construction */ }
         }
 
         internal Action<string, string>? AppendBlobManifestReplaceOverrideForTests { get; set; }
@@ -243,12 +292,28 @@ namespace Rook.Artifacts
         }
 
         public IReadOnlyList<Artifact> List()
-            => Enumerate()
+            => List(out _);
+
+        /// <summary>
+        /// Fail-open listing (issue #241): a corrupt artifact directory is
+        /// skipped and reported in <paramref name="warnings"/> instead of
+        /// throwing — one bad directory must never hide the healthy ones
+        /// (it previously bricked the whole Gallery).
+        /// </summary>
+        public IReadOnlyList<Artifact> List(out IReadOnlyList<string> warnings)
+        {
+            var collected = new List<string>();
+            var items = Enumerate(collected)
                 .OrderByDescending(a => a.CreatedAt)
                 .ThenBy(a => a.Id)
                 .ToList();
+            warnings = collected;
+            return items;
+        }
 
-        internal IEnumerable<Artifact> Enumerate()
+        internal IEnumerable<Artifact> Enumerate() => Enumerate(null);
+
+        private IEnumerable<Artifact> Enumerate(List<string>? warnings)
         {
             if (!Directory.Exists(_root)) yield break;
 
@@ -266,23 +331,149 @@ namespace Rook.Artifacts
 
                     if (!seenIds.Add(id)) throw DuplicateUuid(id);
 
-                    yield return ReadArtifact(artifactDir);
+                    Artifact? artifact;
+                    try
+                    {
+                        artifact = ReadArtifact(artifactDir);
+                    }
+                    catch (Exception ex) when (
+                        ex is InvalidDataException or System.Text.Json.JsonException)
+                    {
+                        if (!Directory.EnumerateFileSystemEntries(artifactDir).Any())
+                        {
+                            // Empty GUID dir = deletion residue kept alive by
+                            // a delete-pending handle. Silent skip; swept at
+                            // the next store construction.
+                            artifact = null;
+                        }
+                        else
+                        {
+                            // Fail-open: skip and report. Delete(id) on this
+                            // artifact quarantines it for recovery.
+                            warnings?.Add(
+                                $"Skipped unreadable artifact directory '{artifactDir}': {ex.Message}");
+                            artifact = null;
+                        }
+                    }
+
+                    if (artifact is not null)
+                        yield return artifact;
                 }
             }
         }
 
+        /// <summary>
+        /// Delete an artifact. Healthy artifacts are removed via atomic
+        /// rename-then-delete: the directory is first renamed to
+        /// <c>{uuid}.deleting.tmp</c> (atomic; fails CLEAN with zero
+        /// mutation if any blob is held open, e.g. by a WebView2 thumbnail
+        /// stream), then recursively deleted — an interrupted removal
+        /// leaves only an invisible, sweepable temp dir, never a
+        /// manifest-less "corrupt" artifact (issue #241's origin class).
+        ///
+        /// Corrupt directories (unreadable manifest) are QUARANTINED to a
+        /// sibling <c>{root}-quarantine</c> directory instead of refused:
+        /// bytes are preserved for diagnosis and the store is restored.
+        /// </summary>
         public bool Delete(Guid id)
         {
             var dirs = FindFinalizedDirs(id);
             if (dirs.Count == 0) return false;
             if (dirs.Count > 1) throw DuplicateUuid(id);
+            var dir = dirs[0];
 
-            // Validate before deleting — corruption surfaces, not silently cleaned.
-            // Force-remove of a corrupt artifact is not a v1 affordance.
-            _ = ReadArtifact(dirs[0]);
+            bool corrupt;
+            try
+            {
+                _ = ReadArtifact(dir);
+                corrupt = false;
+            }
+            catch (Exception ex) when (
+                ex is InvalidDataException or System.Text.Json.JsonException)
+            {
+                corrupt = true;
+            }
 
-            Directory.Delete(dirs[0], recursive: true);
+            if (corrupt)
+            {
+                QuarantineDir(dir, id);
+                return true;
+            }
+
+            var deleting = dir + DeletingTempSuffix;
+            try
+            {
+                Directory.Move(dir, deleting); // atomic commit point
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Open child handles (e.g. WebView2 streaming a gallery
+                // thumbnail) deny the parent rename even when the handle
+                // carries FileShare.Delete. Fall back to per-file teardown
+                // with MANIFEST LAST: blob streams are FileShare.Delete so
+                // File.Delete succeeds (POSIX unlink) mid-stream, and the
+                // manifest-last ordering means an interruption leaves a
+                // still-valid artifact — never a manifest-less corrupt dir
+                // (issue #241's origin class). A blob locked without
+                // FileShare.Delete throws here BEFORE the manifest is
+                // touched, so failure remains zero-mutation for the
+                // single-blob case and never strands corruption.
+                var manifest = Path.Combine(dir, ManifestFileName);
+                foreach (var file in Directory.EnumerateFiles(dir))
+                {
+                    if (string.Equals(file, manifest, StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    File.Delete(file);
+                }
+                File.Delete(manifest);
+                try
+                {
+                    Directory.Delete(dir, recursive: false);
+                }
+                catch (Exception cleanupEx) when (
+                    cleanupEx is IOException or UnauthorizedAccessException)
+                {
+                    // A delete-pending handle can keep the empty dir alive.
+                    // Empty GUID dirs are silently skipped by Enumerate and
+                    // swept at the next store construction.
+                }
+                return true;
+            }
+
+            try
+            {
+                Directory.Delete(deleting, recursive: true);
+            }
+            catch (IOException)
+            {
+                // Leftover .deleting.tmp is invisible; swept at next store
+                // construction. The artifact is gone from the store either way.
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
             return true;
+        }
+
+        private void QuarantineDir(string dir, Guid id)
+        {
+            var parent = Path.GetDirectoryName(
+                _root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            var quarantineRoot = Path.Combine(
+                parent ?? _root,
+                Path.GetFileName(
+                    _root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
+                + QuarantineDirSuffix);
+            Directory.CreateDirectory(quarantineRoot);
+
+            var target = Path.Combine(quarantineRoot, id.ToString("D"));
+            if (Directory.Exists(target))
+            {
+                target += "-" + DateTimeOffset.UtcNow.ToString(
+                    "yyyyMMddHHmmssfff", CultureInfo.InvariantCulture);
+            }
+
+            Directory.Move(dir, target);
         }
 
         /// <summary>

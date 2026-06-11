@@ -1808,9 +1808,23 @@ namespace Rook.Handlers
         internal ApiResponse DeleteArtifact(Dictionary<string, JsonElement> args)
         {
             var id = RequireArtifactId(args);
-            if (!_artifactStore.Delete(id))
+            try
             {
-                throw new KeyNotFoundException($"Artifact '{id:D}' not found.");
+                if (!_artifactStore.Delete(id))
+                {
+                    throw new KeyNotFoundException($"Artifact '{id:D}' not found.");
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // A file in the artifact is held open by another process
+                // (issue #241 follow-up). Pre-fix this surfaced only as an
+                // "unhandled error" command-line log while the gallery
+                // showed nothing.
+                return Fail(
+                    "Artifact is in use — a preview or another application "
+                    + "may be holding one of its files open. Close it and "
+                    + "try deleting again.");
             }
             return Ok(new Dictionary<string, object?>
             {
