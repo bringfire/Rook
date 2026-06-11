@@ -477,6 +477,21 @@ namespace Rook.Tests.UI.Web
             Assert.Null(result);
         }
 
+        [Fact]
+        public void CreateWebContent_SeedsInitialAppActiveState()
+        {
+            // The reconciler defaults to app-inactive; without seeding the
+            // real activation state at content creation, every initial
+            // reconcile (WebView2Configured, DocumentLoaded, PanelShown)
+            // would skip as inactive until Rhino emits an activation edge —
+            // exactly the timing-gap class this architecture removes.
+            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+            var method = ExtractMethod(source, "public Control CreateWebContent()");
+
+            Assert.Contains("_reconciler.SetAppActive(", method);
+            Assert.Contains("Application.Instance?.IsActive == true", method);
+        }
+
         private static string ReadSourceFile(params string[] pathParts)
         {
             var dir = new DirectoryInfo(AppContext.BaseDirectory);

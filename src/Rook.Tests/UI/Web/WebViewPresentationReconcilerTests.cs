@@ -219,5 +219,54 @@ namespace Rook.Tests.UI.Web
             await r.ReconcileAsync("test");
             Assert.True(r.DesiredVisible);
         }
+
+        [Fact]
+        public async Task ForceRepairDuringReconcile_CoalescesButRunsForcedToggleAfter()
+        {
+            var (r, h) = Make();
+            h.ProbeAnswers.Enqueue(Hidden());   // first reconcile: enters repair
+            h.ProbeAnswers.Enqueue(Healthy());  // first reconcile: confirm -> Repaired
+            h.ProbeAnswers.Enqueue(Healthy());  // forced pass: confirmation probe
+            var fired = false;
+            h.OnDelay = () =>
+            {
+                if (fired) return;
+                fired = true;
+                // Operator repair lands mid-flight: must latch as FORCED,
+                // not degrade into a normal probe-gated reconcile.
+                var d2 = r.ForceRepairAsync("operator-mid-flight").Result;
+                Assert.Equal(ReconcileDisposition.CoalescedPending, d2);
+            };
+            var d = await r.ReconcileAsync("first");
+            Assert.Equal(ReconcileDisposition.Repaired, d);
+            // Forced toggle ran after the first pass: two hide/show toggles
+            // total (first repair attempt + forced repair), and the forced
+            // pass has NO leading probe (3 probes: initial, confirm, forced
+            // confirm — a downgraded normal pass would have probed first
+            // and no-opped on Healthy with only a single toggle).
+            Assert.Equal(2, h.Actions.FindAll(a => a == "visible=False").Count);
+            Assert.Equal(3, h.Actions.FindAll(a => a == "probe").Count);
+        }
+
+        [Fact]
+        public async Task TriggerDuringForcedRepair_RunsNormalReconcileAfter()
+        {
+            var (r, h) = Make();
+            h.ProbeAnswers.Enqueue(Healthy());  // forced pass: confirmation probe
+            h.ProbeAnswers.Enqueue(Healthy());  // queued normal reconcile: probe
+            var fired = false;
+            h.OnDelay = () =>
+            {
+                if (fired) return;
+                fired = true;
+                // A normal trigger landing during a forced repair must not
+                // be dropped on completion.
+                var d2 = r.ReconcileAsync("trigger-mid-forced").Result;
+                Assert.Equal(ReconcileDisposition.CoalescedPending, d2);
+            };
+            var d = await r.ForceRepairAsync("operator");
+            Assert.Equal(ReconcileDisposition.NoOpHealthy, d);
+            Assert.Equal(2, h.Actions.FindAll(a => a == "probe").Count);
+        }
     }
 }

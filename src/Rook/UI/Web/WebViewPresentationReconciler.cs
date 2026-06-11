@@ -95,36 +95,14 @@ namespace Rook.UI.Web
             }
         }
 
+        // Typed pending latch: a trigger landing mid-reconcile is never
+        // dropped, and a pending FORCED repair is never downgraded to a
+        // normal probe-gated pass by a later normal trigger.
         private string? _pendingReason;
+        private bool _pendingForced;
 
-        public async Task<ReconcileDisposition> ReconcileAsync(string reason)
-        {
-            if (_reconciling)
-            {
-                // Latest-wins latch: never drop a trigger that lands while a
-                // reconcile (e.g. a repair gap) is in flight.
-                _pendingReason = reason;
-                return ReconcileDisposition.CoalescedPending;
-            }
-
-            _reconciling = true;
-            try
-            {
-                var disposition = await ReconcileCoreAsync(reason);
-                while (_pendingReason != null)
-                {
-                    var next = _pendingReason;
-                    _pendingReason = null;
-                    disposition = await ReconcileCoreAsync(next);
-                }
-                return disposition;
-            }
-            finally
-            {
-                _reconciling = false;
-                _pendingReason = null;
-            }
-        }
+        public Task<ReconcileDisposition> ReconcileAsync(string reason)
+            => RunSerializedAsync(reason, forced: false);
 
         /// <summary>
         /// Operator-forced repair (typed repair op / command path): runs
@@ -133,33 +111,58 @@ namespace Rook.UI.Web
         /// one confirmation probe. Accepted-and-scheduled callers read the
         /// outcome from the diagnostics ring (the dump op is the result
         /// channel); the disposition is also returned for direct callers.
+        /// If a reconcile is already in flight, the forced request latches
+        /// and the FORCED pass (not a normal one) runs after it completes.
         /// </summary>
-        public async Task<ReconcileDisposition> ForceRepairAsync(string reason)
+        public Task<ReconcileDisposition> ForceRepairAsync(string reason)
         {
             _host.Record("forced-repair", reason);
+            return RunSerializedAsync(reason, forced: true);
+        }
 
+        private async Task<ReconcileDisposition> RunSerializedAsync(string reason, bool forced)
+        {
             if (_reconciling)
             {
-                // A reconcile is mid-flight (possibly inside a repair
-                // gap). Latch the forced request as a pending trigger so
-                // it is never dropped; the normal level-triggered pass
-                // runs after the in-flight one completes.
+                // Latest-wins latch: never drop a trigger that lands while a
+                // reconcile (e.g. a repair gap) is in flight. Forced intent
+                // is sticky: a normal trigger cannot downgrade it.
                 _pendingReason = reason;
+                _pendingForced = _pendingForced || forced;
                 return ReconcileDisposition.CoalescedPending;
             }
 
             _reconciling = true;
             try
             {
-                var disposition = await ForceRepairCoreAsync(reason);
-                _host.Record("forced-repair-disposition", disposition.ToString());
+                var disposition = forced
+                    ? await RunForcedCoreWithRecordAsync(reason)
+                    : await ReconcileCoreAsync(reason);
+                while (_pendingReason != null)
+                {
+                    var next = _pendingReason;
+                    var nextForced = _pendingForced;
+                    _pendingReason = null;
+                    _pendingForced = false;
+                    disposition = nextForced
+                        ? await RunForcedCoreWithRecordAsync(next)
+                        : await ReconcileCoreAsync(next);
+                }
                 return disposition;
             }
             finally
             {
                 _reconciling = false;
                 _pendingReason = null;
+                _pendingForced = false;
             }
+        }
+
+        private async Task<ReconcileDisposition> RunForcedCoreWithRecordAsync(string reason)
+        {
+            var disposition = await ForceRepairCoreAsync(reason);
+            _host.Record("forced-repair-disposition", disposition.ToString());
+            return disposition;
         }
 
         private async Task<ReconcileDisposition> ForceRepairCoreAsync(string reason)

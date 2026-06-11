@@ -540,6 +540,12 @@ namespace Rook.UI.Web
                 _webView.Shown += OnWebViewShown;
                 _webView.SizeChanged += OnWebViewSizeChanged;
                 Application.Instance.IsActiveChanged += OnApplicationIsActiveChanged;
+                // Seed initial app-active state: the reconciler defaults to
+                // inactive, and without this the first reconciles
+                // (WebView2Configured, DocumentLoaded, PanelShown) would all
+                // skip as inactive until Rhino emits an activation edge.
+                try { _reconciler.SetAppActive(Application.Instance?.IsActive == true); }
+                catch { /* defensive: keep substrate functional outside Eto */ }
                 TraceWebViewFocus("create-web-content");
 
                 if (TrySetupVirtualHost())
