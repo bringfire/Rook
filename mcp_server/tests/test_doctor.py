@@ -355,3 +355,61 @@ def test_upsert_toml_section_replaces_child_sections_with_parent():
     assert 'ROOK_MODE = "dev"' in updated
     assert 'ROOK_MODE = "release"' not in updated
     assert '[beta]\nvalue = "b"' in updated
+
+
+def test_write_claude_user_config_never_clobbers_malformed_config(tmp_path: Path, monkeypatch):
+    """Regression for the 1.5.11 release smoke (PR #238 re-review): doctor
+    --fix must NEVER overwrite an existing ~/.claude.json it cannot parse —
+    that destroys the user's projects and other MCP entries."""
+    import pytest
+
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    runtime_paths = _runtime_paths(tmp_path)
+    target = _config_targets()["claude_user"]
+    target.parent.mkdir(parents=True, exist_ok=True)
+    broken = b'{ "mcpServers": { broken json \x9d\xff'
+    target.write_bytes(broken)
+
+    with pytest.raises(doctor._UnreadableConfigError):
+        doctor._write_claude_user_config(runtime_paths, str(tmp_path / "python.exe"))
+
+    # Byte-identical: nothing was rewritten.
+    assert target.read_bytes() == broken
+
+
+def test_read_json_for_update_missing_file_and_cp1252_fallback(tmp_path: Path):
+    """Missing file -> fresh {}; legacy cp1252 content (invalid UTF-8 start
+    byte 0xE9 for an accented char) -> parsed via fallback, not rejected."""
+    import json as _json
+
+    assert doctor._read_json_for_update(tmp_path / "absent.json") == {}
+
+    legacy = tmp_path / "legacy.json"
+    legacy.write_bytes(_json.dumps({"projects": {"Café": {}}}, ensure_ascii=False).encode("cp1252"))
+    parsed = doctor._read_json_for_update(legacy)
+    assert "Café" in parsed["projects"]
+
+
+def test_run_doctor_fix_survives_invalid_utf8_claude_config(tmp_path: Path, monkeypatch):
+    """Re-review repro: run_doctor(fix=True, check_claude=True,
+    skip_handshake=True) against an invalid-UTF-8 ~/.claude.json must not
+    crash, must leave the file byte-identical, and must report both the fix
+    skip and the config validation as WARNING severity (non-fatal)."""
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
+    runtime_paths = _runtime_paths(tmp_path)
+    monkeypatch.setattr(doctor, "resolve_runtime_paths", lambda: runtime_paths)
+
+    target = _config_targets()["claude_user"]
+    target.parent.mkdir(parents=True, exist_ok=True)
+    broken = b"\xff\xfe{ not utf8 \x9d"
+    target.write_bytes(broken)
+
+    result = doctor.run_doctor(fix=True, check_claude=True, skip_handshake=True)
+
+    assert target.read_bytes() == broken
+    fix_checks = [c for c in result.checks if c.name == "--fix Claude integration"]
+    assert fix_checks and fix_checks[0].severity == "warning"
+    config_checks = [c for c in result.checks if c.name == "Claude Code config"]
+    assert config_checks and config_checks[0].severity == "warning"
+    assert "left untouched" in (config_checks[0].detail or "")
