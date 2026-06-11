@@ -110,6 +110,21 @@ namespace Rook.Artifacts
                         try { Directory.Delete(dir, recursive: true); }
                         catch { /* still locked — next sweep retries */ }
                     }
+
+                    // Empty GUID dirs are residue from fallback teardown
+                    // (delete-pending handles outlived the file unlinks).
+                    foreach (var dir in Directory.EnumerateDirectories(dayDir))
+                    {
+                        try
+                        {
+                            if (Guid.TryParseExact(Path.GetFileName(dir), "D", out _)
+                                && !Directory.EnumerateFileSystemEntries(dir).Any())
+                            {
+                                Directory.Delete(dir, recursive: false);
+                            }
+                        }
+                        catch { /* best-effort */ }
+                    }
                 }
             }
             catch { /* sweep must never block store construction */ }
@@ -323,11 +338,21 @@ namespace Rook.Artifacts
                     }
                     catch (InvalidDataException ex)
                     {
-                        // Fail-open: skip and report. Delete(id) on this
-                        // artifact quarantines it for recovery.
-                        warnings?.Add(
-                            $"Skipped unreadable artifact directory '{artifactDir}': {ex.Message}");
-                        artifact = null;
+                        if (!Directory.EnumerateFileSystemEntries(artifactDir).Any())
+                        {
+                            // Empty GUID dir = deletion residue kept alive by
+                            // a delete-pending handle. Silent skip; swept at
+                            // the next store construction.
+                            artifact = null;
+                        }
+                        else
+                        {
+                            // Fail-open: skip and report. Delete(id) on this
+                            // artifact quarantines it for recovery.
+                            warnings?.Add(
+                                $"Skipped unreadable artifact directory '{artifactDir}': {ex.Message}");
+                            artifact = null;
+                        }
                     }
 
                     if (artifact is not null)
@@ -374,7 +399,45 @@ namespace Rook.Artifacts
             }
 
             var deleting = dir + DeletingTempSuffix;
-            Directory.Move(dir, deleting); // atomic commit point
+            try
+            {
+                Directory.Move(dir, deleting); // atomic commit point
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Open child handles (e.g. WebView2 streaming a gallery
+                // thumbnail) deny the parent rename even when the handle
+                // carries FileShare.Delete. Fall back to per-file teardown
+                // with MANIFEST LAST: blob streams are FileShare.Delete so
+                // File.Delete succeeds (POSIX unlink) mid-stream, and the
+                // manifest-last ordering means an interruption leaves a
+                // still-valid artifact — never a manifest-less corrupt dir
+                // (issue #241's origin class). A blob locked without
+                // FileShare.Delete throws here BEFORE the manifest is
+                // touched, so failure remains zero-mutation for the
+                // single-blob case and never strands corruption.
+                var manifest = Path.Combine(dir, ManifestFileName);
+                foreach (var file in Directory.EnumerateFiles(dir))
+                {
+                    if (string.Equals(file, manifest, StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    File.Delete(file);
+                }
+                File.Delete(manifest);
+                try
+                {
+                    Directory.Delete(dir, recursive: false);
+                }
+                catch (Exception cleanupEx) when (
+                    cleanupEx is IOException or UnauthorizedAccessException)
+                {
+                    // A delete-pending handle can keep the empty dir alive.
+                    // Empty GUID dirs are silently skipped by Enumerate and
+                    // swept at the next store construction.
+                }
+                return true;
+            }
+
             try
             {
                 Directory.Delete(deleting, recursive: true);

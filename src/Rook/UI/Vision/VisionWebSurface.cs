@@ -680,8 +680,11 @@ p { margin: 8px 0; line-height: 1.4; }
 
                 try
                 {
+                    // FileShare.Delete: a streamed preview must never pin
+                    // its file against deletion (issue #241 follow-up).
                     var previewStream = new FileStream(
-                        previewPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                        previewPath, FileMode.Open, FileAccess.Read,
+                        FileShare.Read | FileShare.Delete);
                     return new VirtualResource(
                         previewStream, "image/png", 200,
                         extraHeaders: "Cache-Control: no-store");
@@ -744,8 +747,12 @@ p { margin: 8px 0; line-height: 1.4; }
             Stream stream;
             try
             {
+                // FileShare.Delete: the gallery renders thumbnails from
+                // these streams — without delete sharing, a visible
+                // artifact could never be deleted (issue #241 follow-up).
                 stream = new FileStream(
-                    absPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    absPath, FileMode.Open, FileAccess.Read,
+                    FileShare.Read | FileShare.Delete);
             }
             catch (Exception ex)
             {

@@ -355,13 +355,23 @@ namespace Rook.Tests.Artifacts
             // corrupt dir. Fail-open is the contract now; recovery
             // semantics are pinned in the "corruption recovery" region.
             var id = Guid.NewGuid();
-            CreateRawArtifactDir("2026-04-22", id);
+            var dir = CreateRawArtifactDir("2026-04-22", id);
+            // Manifest-less but NOT empty (the live #241 shape) — an
+            // entirely empty GUID dir is deletion residue and skips
+            // silently instead of warning.
+            File.WriteAllBytes(Path.Combine(dir, "image.png"), Bytes("orphan"));
 
             var list = _store.List(out var warnings);
 
             Assert.Empty(list);
             Assert.Single(warnings);
             Assert.Contains(id.ToString("D"), warnings[0]);
+
+            // The empty-dir variant (deletion residue) skips silently:
+            // still exactly one warning — the non-empty orphan's.
+            CreateRawArtifactDir("2026-04-22", Guid.NewGuid());
+            Assert.Empty(_store.List(out var emptyDirWarnings));
+            Assert.Single(emptyDirWarnings);
         }
 
         [Fact]
@@ -1255,6 +1265,32 @@ namespace Rook.Tests.Artifacts
 
             Assert.True(_store.Delete(a.Id));
             Assert.Empty(_store.List());
+        }
+
+        [Fact]
+        public void Delete_WithDeleteSharedBlobStream_SucceedsWhileStreamed()
+        {
+            // The gallery holds blob streams open while thumbnails render
+            // (#241 follow-up: the user could never delete a visible
+            // artifact). Blob streams are opened with FileShare.Delete so
+            // deletion proceeds even mid-stream.
+            var a = _store.Create("image_capture", OneBlob());
+            var blobPath = BlobPath(a.Id, "primary.png");
+
+            using (new FileStream(
+                blobPath, FileMode.Open, FileAccess.Read,
+                FileShare.Read | FileShare.Delete))
+            {
+                Assert.True(_store.Delete(a.Id));
+                Assert.Empty(_store.List(out var midWarnings));
+                Assert.Empty(midWarnings);
+            }
+
+            // After the handle closes, nothing (not even residue swept at
+            // next construction) remains visible.
+            _ = new ArtifactStore(_root);
+            Assert.Empty(_store.List(out var warnings));
+            Assert.Empty(warnings);
         }
 
         [Fact]
