@@ -900,6 +900,102 @@ case "repair_presentation":
 
 ---
 
+### Task 11: Round 2 — suspect-cycle forced repair (post-Gate-3-failure)
+
+Spec authority: the design doc's "Addendum (2026-06-10 evening)". Round 1
+results: Gate 1 PASS, Gate 2 user-observed PASS (ring anomaly explained by
+model correction #2), Gate 3 Scenario 1 FAIL (Knowledge dark per
+deactivate/activate cycle; automatic GotFocus repair renderer-succeeded but
+compositor-failed; forced repair healed).
+
+**Files:**
+- Modify: `src/Rook/UI/Web/WebViewPresentationReconciler.cs`
+- Modify: `src/Rook/UI/Web/RookWebSurface.cs`
+- Test: `src/Rook.Tests/UI/Web/WebViewPresentationReconcilerTests.cs`
+
+- [ ] **Step 11.1 (TDD):** failing tests on the pure reconciler:
+  - `SuspectCycle_ActivationIdle_RunsForcedToggleOnceDespiteHealthyProbe` —
+    `MarkSuspect()` then `RunActivationIdleConfirmAsync()`: even with a
+    Healthy-probing host, exactly one gapped toggle runs (`visible=False` ×1)
+    and ring records `suspect-cycle-forced-repair`; a second
+    `RunActivationIdleConfirmAsync()` without a new `MarkSuspect()` is a
+    probe-only pass (no toggle).
+  - `SuspectCycle_InactiveOrDurablyHiddenOrStaleGeneration_DoesNotToggle` —
+    three cases, no forced toggle. Precision for the durably-hidden case:
+    the durable-hide path may legitimately record a plain `visible=False`
+    (that IS the durable-hide action); the assertion is that no hide→show
+    toggle pair runs and `visible=True` is NEVER recorded — not that zero
+    visibility calls occur. The inactive and stale-generation cases expect
+    no visibility calls at all.
+  - `SuspectCycle_DoesNotAccumulate` — `MarkSuspect()` twice → still one
+    toggle on the next activation idle.
+  - `SuspectCycle_DesiredVisibleFlipsDuringGap_AbortsWithoutReShow` — the
+    critical safety guard for close/hide during activation churn: host's
+    `OnDelay` flips `SetDesiredVisible(false, ...)` mid-gap → disposition
+    `AbortedStale`, `visible=False` recorded once, `visible=True` NEVER
+    recorded (controller left hidden, matching the new durable intent).
+- [ ] **Step 11.2:** implement on the reconciler:
+  - `public void MarkSuspect(string reason)` — sets `_suspect = true`,
+    records `suspect-cycle`; NO side effects, callable while inactive.
+  - `public Task<ReconcileDisposition> RunActivationIdleConfirmAsync()` —
+    if `_suspect && AppActive && DesiredVisible`: clear `_suspect`, record
+    `suspect-cycle-forced-repair`, then call
+    `ForceRepairAsync("ActivationIdleConfirm")` — NOT `RunSerializedAsync`
+    directly — because `ForceRepairAsync` is what emits the standard
+    `forced-repair` ring entry the sequence contract below requires, and it
+    already routes through the serialized forced path with the same
+    generation guards. Else fall through to a normal
+    `ReconcileAsync("ActivationIdleConfirm")`.
+  - **Exact expected ring sequence for a suspect-cycle repair** (validation
+    is judged against this; the standard `forced-repair` entry IS expected
+    because the suspect path reuses `ForceRepairAsync`):
+    `suspect-cycle` → `suspect-cycle-forced-repair` → `forced-repair` →
+    `repair-attempt 1;<reason>` → `confirm forced;<outcome>` →
+    `forced-repair-disposition <disposition>`.
+- [ ] **Step 11.3:** wire in `RookWebSurface`:
+  - `OnApplicationIsActiveChanged` when becoming INACTIVE →
+    `_reconciler.MarkSuspect("AppDeactivated")` (no other side effects).
+  - `OnActivationIdleConfirm` → call
+    `RunActivationIdleConfirmAsync()` (async via AsyncInvoke) instead of the
+    plain `RequestPresentationReconcile("ActivationIdleConfirm")`.
+- [ ] **Step 11.4:** full suite green; commit
+  `fix: suspect-cycle forced repair at activation idle`.
+- [x] **Step 11.5 (live, user present):** deploy (script + robocopy of
+  net8.0), then revalidate IN THIS ORDER: Gate 3 Scenario 1 (unfocus/refocus
+  cycles — Knowledge must not stay dark) → Gate 2 (tabbed-behind dispositions
+  + wedge symptoms) → remaining matrix → registry close/dispose check (4th
+  surface = new Chat ordinal, deregisters on tab close).
+
+  **Round 2 Gate 3 Scenario 1 result (2026-06-11): PASS.** User stress-tested
+  unfocus/refocus cycles with Vision floating (upper monitor) + Knowledge +
+  Chat: zero observed dark states. Ring evidence (dump:
+  `%TEMP%\rook-round2-gate3-dump.json`): Vision 11 suspect-cycle marks /
+  5 suspect-forced repairs, Knowledge 9/4, Chat 8/2 — every
+  `forced-repair-disposition` = `Repaired`, zero reloads, zero
+  `DegradedUnresponsive`. Marks > repairs is the designed no-accumulation
+  asymmetry. First-idle proved sufficient; the second-idle fallback was NOT
+  needed.
+
+  **Round 2 remaining gates (2026-06-11): ALL PASS.**
+  - Gate 2 (tabbed-behind + wedge): no wedge symptoms; tabbed-behind Vision
+    suspect repairs harmlessly report `Repaired` (documented model-correction
+    semantics); Chat's durably-hidden surface correctly clears suspect WITHOUT
+    toggling and re-asserts durable hide (ring #149–158) — the unit-pinned
+    semantics confirmed live.
+  - Matrix spot-checks: artifact open-folder/reveal (Explorer steal), video
+    in modal, undock/redock — user-observed pass, rings clean (zero reloads,
+    zero `DegradedUnresponsive`, all dispositions `Repaired`).
+  - Registry close/dispose: confirmed organically — old chat tab surface
+    (`Chat.Resources:3`) disposed and deregistered during normal use; fresh
+    `Chat.Resources:5` registered with its own ring; no stale entries. (Two
+    simultaneous chat panels aren't supported by the UI — N/A.)
+- [x] **Step 11.6:** PR (Task 10) — Round 2 passed; proceeding.
+
+**Explicitly deferred (needs design):** unselected-host repair skip — blocked
+on identifying a reliable selected-dock-tab source (current panels pass
+`isSelectedTab: true` unconditionally; the `IsPanelVisible(isSelectedTab:true)`
+probe is documented-stale). Operator repair stays unchanged and overriding.
+
 ## Checkpoint A verdict
 
 **PASS (2026-06-10 16:36–16:38 UTC, live trace).** Dock-tab reselect reliably

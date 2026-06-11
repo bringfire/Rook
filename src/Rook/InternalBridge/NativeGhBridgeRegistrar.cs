@@ -95,6 +95,12 @@ namespace Rook.InternalBridge
                 // alongside the V2 status/result/estimate read ops.
                 VideoOpHandler.OpListJobs,
                 VideoOpHandler.OpListModels,
+                // Presentation reconciler (spec 2026-06-10): typed
+                // dump/repair ops behind POST /vision/presentation.
+                // Native constructs these op bodies itself — no
+                // user-controlled bytes pass through the route.
+                "get_presentation_diagnostics",
+                "repair_presentation",
             };
 
         /// <summary>
@@ -1625,9 +1631,15 @@ namespace Rook.InternalBridge
             switch (op)
             {
                 case "capture_depth":
-                    // UI-thread path — needs DocumentContext + RhinoApp
-                    // for viewport access. Default 30 s timeout is fine
-                    // (capture completes in ~1 s).
+                case "get_presentation_diagnostics":
+                case "repair_presentation":
+                    // UI-thread path — capture_depth needs DocumentContext
+                    // + RhinoApp for viewport access (default 30 s timeout
+                    // is fine; capture completes in ~1 s). The presentation
+                    // ops read the surface registry / schedule repairs via
+                    // the Eto UI scheduler — both return immediately
+                    // (repair is accepted-and-scheduled, never blocking
+                    // on the gapped toggle).
                     return ExecuteApiResponseCallback(
                         requestJsonUtf8,
                         requestJsonLength,

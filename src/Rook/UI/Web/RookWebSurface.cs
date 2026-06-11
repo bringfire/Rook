@@ -17,131 +17,6 @@ using Microsoft.Web.WebView2.Core;
 
 namespace Rook.UI.Web
 {
-    internal readonly struct WebViewHostVisibilityDecision
-    {
-        public WebViewHostVisibilityDecision(
-            bool shouldSchedule,
-            bool visible,
-            string reason,
-            bool skipped = false,
-            string skipReason = "",
-            bool coalesced = false)
-        {
-            ShouldSchedule = shouldSchedule;
-            Visible = visible;
-            Reason = reason;
-            Skipped = skipped;
-            SkipReason = skipReason;
-            Coalesced = coalesced;
-        }
-
-        public bool ShouldSchedule { get; }
-        public bool Visible { get; }
-        public string Reason { get; }
-        public bool Skipped { get; }
-        public string SkipReason { get; }
-        public bool Coalesced { get; }
-    }
-
-    internal sealed class WebViewHostVisibilityCoordinator
-    {
-        private bool _desiredHostVisible = true;
-        private string _desiredHostVisibilityReason = "InitialHostVisible";
-        private bool _reconcileQueued;
-        private bool _queuedVisible;
-        private string _queuedReason = "";
-
-        public bool HasQueuedReconcile => _reconcileQueued;
-
-        public WebViewHostVisibilityDecision RecordHostVisibility(
-            bool visible,
-            string reason)
-        {
-            _desiredHostVisible = visible;
-            _desiredHostVisibilityReason = reason;
-            return QueueLatest(visible, reason);
-        }
-
-        public WebViewHostVisibilityDecision RecordVisibleRefresh(
-            string reason,
-            bool hostControlVisible)
-        {
-            if (!_desiredHostVisible)
-            {
-                if (hostControlVisible && CanRecoverHiddenHostFromVisibleControl())
-                {
-                    var visibleReason = reason + ":HostControlVisible";
-                    _desiredHostVisible = true;
-                    _desiredHostVisibilityReason = visibleReason;
-                    return QueueLatest(true, visibleReason);
-                }
-
-                return new WebViewHostVisibilityDecision(
-                    shouldSchedule: false,
-                    visible: false,
-                    reason: reason,
-                    skipped: true,
-                    skipReason: "host-hidden");
-            }
-
-            return QueueLatest(true, reason);
-        }
-
-        private bool CanRecoverHiddenHostFromVisibleControl()
-        {
-            return string.Equals(
-                _desiredHostVisibilityReason,
-                "PanelHidden:Hide",
-                StringComparison.Ordinal);
-        }
-
-        public WebViewHostVisibilityDecision RecordControllerAvailable(string reason)
-        {
-            return QueueLatest(
-                _desiredHostVisible,
-                reason + ":" + _desiredHostVisibilityReason);
-        }
-
-        public WebViewHostVisibilityDecision? DrainQueued()
-        {
-            if (!_reconcileQueued)
-                return null;
-
-            var decision = new WebViewHostVisibilityDecision(
-                shouldSchedule: false,
-                visible: _queuedVisible,
-                reason: _queuedReason);
-            _reconcileQueued = false;
-            return decision;
-        }
-
-        public void ClearQueued()
-        {
-            _reconcileQueued = false;
-        }
-
-        private WebViewHostVisibilityDecision QueueLatest(bool visible, string reason)
-        {
-            _queuedVisible = visible;
-            _queuedReason = reason;
-
-            if (_reconcileQueued)
-            {
-                return new WebViewHostVisibilityDecision(
-                    shouldSchedule: false,
-                    visible: visible,
-                    reason: reason,
-                    coalesced: true);
-            }
-
-            _reconcileQueued = true;
-            return new WebViewHostVisibilityDecision(
-                shouldSchedule: true,
-                visible: visible,
-                reason: reason);
-        }
-    }
-
     /// <summary>
     /// Reusable hardened WebView host for Rook WebUI surfaces.
     ///
@@ -185,22 +60,30 @@ namespace Rook.UI.Web
         private object? _nativeControlWithInitHandler;
         private EventInfo? _initEvent;
         private EventHandler<CoreWebView2InitializationCompletedEventArgs>? _initHandler;
-        private readonly WebViewHostVisibilityCoordinator _hostVisibility = new();
-        private readonly WebViewHostPresentationCoordinator _hostPresentation = new();
-        private WebViewHostPanelPresentationFacts? _latestPresentationFacts;
-        private bool _hostPresentationQueued;
-        private readonly WebViewHostPresentationIdleGate _hostPresentationIdleGate = new();
-        private string _hostPresentationIdleReason = string.Empty;
-        private string _lastHostPresentationActionResult = "none";
+        private bool _activationIdleConfirmPending;
         private const int MaxHostPresentationDiagnosticEntries = 64;
         private readonly Queue<WebViewHostPresentationDiagnosticEntry> _hostPresentationDiagnostics = new();
         private int _hostPresentationDiagnosticSequence;
 #endif
 
+        // ─── Presentation reconciler (spec 2026-06-10) ────────────────
+        private static int s_surfaceIdCounter;
+        private readonly int _surfaceIdOrdinal =
+            System.Threading.Interlocked.Increment(ref s_surfaceIdCounter);
+        private readonly WebViewPresentationReconciler _reconciler;
+
+        /// <summary>
+        /// Process-unique surface identity for registry dumps:
+        /// ResourceRoot plus a per-process creation ordinal.
+        /// </summary>
+        internal string SurfaceId => ResourceRoot + ":" + _surfaceIdOrdinal;
+
         // ─── Constructor ──────────────────────────────────────────────
         protected RookWebSurface()
         {
             _dispatcher = new BridgeDispatcher(msg => Log($"Rook: {msg}"));
+            _reconciler = new WebViewPresentationReconciler(
+                new SurfacePresentationHost(this));
         }
 
         /// <summary>
@@ -263,25 +146,6 @@ namespace Rook.UI.Web
         /// via RhinoApp.WriteLine — failures never go silent.
         /// </summary>
         protected virtual void OnBridgeUnavailable() { }
-
-        /// <summary>
-        /// Opt-in seam for the Vision-only host presentation coordinator.
-        /// Chat and Knowledge Graph stay on the legacy visibility path.
-        /// </summary>
-        protected virtual bool UseHostPresentationCoordinator => false;
-
-        /// <summary>
-        /// Gives opt-in surfaces one last chance to refresh volatile host
-        /// facts before a presentation decision. This must not mutate durable
-        /// intent; it is an execution-time visibility overlay.
-        /// </summary>
-        private protected virtual WebViewHostPanelPresentationFacts RefreshHostPresentationFacts(
-            WebViewHostPanelPresentationFacts facts,
-            string reason)
-        {
-            _ = reason;
-            return facts;
-        }
 
         /// <summary>
         /// Optional hook for subclasses to resolve <em>virtual</em> resources
@@ -382,40 +246,6 @@ namespace Rook.UI.Web
             };
         }
 
-        internal void ReconcileHostVisibility(bool visible, string reason)
-        {
-#if ROOK_WEBVIEW2
-            TraceWebViewFocus("host-visibility-reconcile-request", $"{visible};{reason}");
-            ScheduleHostVisibilityReconcile(
-                _hostVisibility.RecordHostVisibility(visible, reason));
-#else
-            _ = visible;
-            _ = reason;
-#endif
-        }
-
-        internal void ReconcileHostPresentation(
-            WebViewHostPanelPresentationFacts facts,
-            bool scheduleIdleFollowUp)
-        {
-#if ROOK_WEBVIEW2
-            if (!UseHostPresentationCoordinator)
-            {
-                ReconcileHostVisibility(facts.DesiredVisible, facts.Reason);
-                return;
-            }
-
-            if (!facts.Authoritative)
-                return;
-
-            _latestPresentationFacts = facts;
-            ScheduleHostPresentationReconcile(facts.Reason, scheduleIdleFollowUp);
-#else
-            ReconcileHostVisibility(facts.DesiredVisible, facts.Reason);
-            _ = scheduleIdleFollowUp;
-#endif
-        }
-
         internal string DumpHostPresentationDiagnostics()
         {
 #if ROOK_WEBVIEW2
@@ -434,6 +264,244 @@ namespace Rook.UI.Web
 #else
             return Array.Empty<WebViewHostPresentationDiagnosticEntry>();
 #endif
+        }
+
+        /// <summary>
+        /// Operator-forced repair: accepted-and-scheduled. Returns
+        /// immediately; the async gapped toggle runs fire-and-forget on
+        /// the UI thread and outcomes land in the diagnostics ring (read
+        /// via a follow-up dump). No synchronous Invoke / .Result /
+        /// .Wait() anywhere on this path. Virtual so test surfaces can
+        /// record scheduling without an Eto application loop.
+        /// </summary>
+        internal virtual void SchedulePresentationRepair(string reason)
+        {
+            if (_disposed)
+                return;
+
+            try
+            {
+                Application.Instance.AsyncInvoke(async () =>
+                {
+                    try
+                    {
+                        await _reconciler.ForceRepairAsync(reason);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log($"Rook: presentation forced repair failed for surface " +
+                            $"'{SurfaceId}' (reason={reason}): {ex.Message}");
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                Log($"Rook: presentation repair scheduling failed for surface " +
+                    $"'{SurfaceId}' (reason={reason}): {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Fire-and-forget level-triggered reconcile request. All external
+        /// triggers (focus, shown, resize, document load, panel lifecycle)
+        /// funnel through here; the reconciler serializes and coalesces.
+        /// No synchronous Invoke / .Result / .Wait() on this path.
+        /// </summary>
+        internal void RequestPresentationReconcile(string reason)
+        {
+            if (_disposed)
+                return;
+
+            try
+            {
+                Application.Instance.AsyncInvoke(async () =>
+                {
+                    try
+                    {
+                        await _reconciler.ReconcileAsync(reason);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log($"Rook: presentation reconcile failed for surface " +
+                            $"'{SurfaceId}' (reason={reason}): {ex.Message}");
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                Log($"Rook: presentation reconcile scheduling failed for surface " +
+                    $"'{SurfaceId}' (reason={reason}): {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Durable desired-visibility intent (panel lifecycle authority),
+        /// followed by an immediate reconcile toward that state.
+        /// </summary>
+        internal void SetPresentationDesiredVisible(bool visible, string reason)
+        {
+            _reconciler.SetDesiredVisible(visible, reason);
+            RequestPresentationReconcile(reason);
+        }
+
+        /// <summary>
+        /// Thin annotation hook for panel lifecycle decisions that take no
+        /// action (e.g. lifecycle-hide) but must remain visible in the
+        /// diagnostics ring dump.
+        /// </summary>
+        internal void RecordPresentationAnnotation(string evt, string detail)
+            => RecordReconcilerDiagnostic(evt, detail);
+
+        /// <summary>
+        /// Reconciler diagnostics hook: minimal ring entries (event in
+        /// <c>Reason</c>, detail/probe payload in <c>ActionResult</c>)
+        /// reusing the existing bounded host-presentation ring so the
+        /// registry dump is the single diagnostics read surface.
+        /// </summary>
+        private void RecordReconcilerDiagnostic(string evt, string detail)
+        {
+#if ROOK_WEBVIEW2
+            _hostPresentationDiagnostics.Enqueue(new WebViewHostPresentationDiagnosticEntry
+            {
+                Sequence = ++_hostPresentationDiagnosticSequence,
+                TimestampUtc = DateTimeOffset.UtcNow,
+                Surface = ResourceRoot,
+                Reason = evt,
+                ActionResult = detail
+            });
+
+            while (_hostPresentationDiagnostics.Count > MaxHostPresentationDiagnosticEntries)
+                _hostPresentationDiagnostics.Dequeue();
+#else
+            _ = evt;
+            _ = detail;
+#endif
+        }
+
+        /// <summary>
+        /// Minimal <see cref="IPresentationHost"/> over this surface's
+        /// WebView2 state. The probe is real (<c>ExecuteScriptAsync</c>
+        /// raced against <see cref="ReconcilerTiming.ProbeTimeoutMs"/>);
+        /// the controller members reuse the existing reflection helpers.
+        /// Full trigger wiring is the reconciler-cutover task.
+        /// </summary>
+        private sealed class SurfacePresentationHost : IPresentationHost
+        {
+            // Exact spec probe payload (visibilityState, hidden,
+            // readyState, hasRoot, viewport, appRect).
+            private const string ProbeScript =
+                "JSON.stringify({" +
+                "visibilityState:document.visibilityState," +
+                "hidden:document.hidden," +
+                "readyState:document.readyState," +
+                "hasRoot:!!document.body," +
+                "viewport:[window.innerWidth,window.innerHeight]," +
+                "appRect:document.body?(document.body.getBoundingClientRect().toJSON" +
+                "?document.body.getBoundingClientRect().toJSON():null):null" +
+                "})";
+
+            private readonly RookWebSurface _surface;
+
+            public SurfacePresentationHost(RookWebSurface surface)
+            {
+                _surface = surface;
+            }
+
+            public Task<PresentationProbeReport> ProbeAsync()
+            {
+#if ROOK_WEBVIEW2
+                return ProbeCoreAsync();
+#else
+                return Task.FromResult(
+                    PresentationProbeReport.Unresponsive("webview2-unavailable"));
+#endif
+            }
+
+#if ROOK_WEBVIEW2
+            private async Task<PresentationProbeReport> ProbeCoreAsync()
+            {
+                var core = _surface._coreWebView2;
+                if (core == null || _surface._disposed)
+                    return PresentationProbeReport.Unresponsive("webview2-unavailable");
+
+                try
+                {
+                    var probe = core.ExecuteScriptAsync(ProbeScript);
+                    var completed = await Task.WhenAny(
+                        probe,
+                        Task.Delay(ReconcilerTiming.ProbeTimeoutMs));
+                    if (!ReferenceEquals(completed, probe))
+                        return PresentationProbeReport.Unresponsive("probe-timeout");
+                    return PresentationProbeReport.Parse(await probe);
+                }
+                catch (Exception ex)
+                {
+                    return PresentationProbeReport.Unresponsive(
+                        "probe-fault:" + ex.Message);
+                }
+            }
+#endif
+
+            public bool TrySetControllerVisible(bool visible)
+            {
+#if ROOK_WEBVIEW2
+                var controller = _surface.TryGetCoreWebView2Controller();
+                if (controller == null)
+                    return false;
+                return _surface.SetControllerVisible(
+                    controller, visible, "presentation-reconciler");
+#else
+                _ = visible;
+                return false;
+#endif
+            }
+
+            public bool TrySetControllerBounds()
+            {
+#if ROOK_WEBVIEW2
+                var controller = _surface.TryGetCoreWebView2Controller();
+                if (controller == null)
+                    return false;
+                var bounds = _surface.TryBuildControllerTargetBounds();
+                if (bounds == null)
+                    return false;
+                return _surface.SetControllerBounds(
+                    controller, bounds, "presentation-reconciler");
+#else
+                return false;
+#endif
+            }
+
+            public void NotifyParentWindowPositionChanged()
+            {
+#if ROOK_WEBVIEW2
+                var controller = _surface.TryGetCoreWebView2Controller();
+                if (controller == null)
+                    return;
+                _surface.NotifyParentWindowPositionChanged(
+                    controller, "presentation-reconciler");
+#endif
+            }
+
+            public void ReloadWebView()
+            {
+#if ROOK_WEBVIEW2
+                try
+                {
+                    _surface._coreWebView2?.Reload();
+                }
+                catch (Exception ex)
+                {
+                    _surface.Log($"Rook: WebView2 reload failed for surface " +
+                        $"'{_surface.SurfaceId}': {ex.Message}");
+                }
+#endif
+            }
+
+            public Task DelayAsync(int milliseconds) => Task.Delay(milliseconds);
+
+            public void Record(string evt, string detail)
+                => _surface.RecordReconcilerDiagnostic(evt, detail);
         }
 
         /// <summary>
@@ -461,6 +529,7 @@ namespace Rook.UI.Web
                 _webView = new WebView();
                 _webView.DocumentLoaded += OnDocumentLoaded;
                 _disposeWebView = DisposeWebView;
+                WebSurfacePresentationRegistry.Register(this);
 
 #if ROOK_WEBVIEW2
                 // Rhino panels can be shown, hidden, floated, docked, and
@@ -471,6 +540,12 @@ namespace Rook.UI.Web
                 _webView.Shown += OnWebViewShown;
                 _webView.SizeChanged += OnWebViewSizeChanged;
                 Application.Instance.IsActiveChanged += OnApplicationIsActiveChanged;
+                // Seed initial app-active state: the reconciler defaults to
+                // inactive, and without this the first reconciles
+                // (WebView2Configured, DocumentLoaded, PanelShown) would all
+                // skip as inactive until Rhino emits an activation edge.
+                try { _reconciler.SetAppActive(Application.Instance?.IsActive == true); }
+                catch { /* defensive: keep substrate functional outside Eto */ }
                 TraceWebViewFocus("create-web-content");
 
                 if (TrySetupVirtualHost())
@@ -488,277 +563,10 @@ namespace Rook.UI.Web
             }
         }
 
-        protected void RequestHostVisibleRefresh(string reason)
-        {
 #if ROOK_WEBVIEW2
-            TraceWebViewFocus("host-visibility-reconcile-request",
-                $"visible-refresh;{reason}");
-            ScheduleHostVisibilityReconcile(
-                _hostVisibility.RecordVisibleRefresh(
-                    reason,
-                    _webView?.Visible == true));
-#else
-            _ = reason;
-#endif
-        }
-
-#if ROOK_WEBVIEW2
-        private void ScheduleHostPresentationReconcile(
-            string reason,
-            bool scheduleIdleFollowUp)
-        {
-            if (_disposed)
-            {
-                _hostPresentationQueued = false;
-                ClearHostPresentationIdle();
-                return;
-            }
-
-            if (scheduleIdleFollowUp)
-                ScheduleHostPresentationIdleFollowUp(reason);
-
-            if (_hostPresentationQueued)
-                return;
-
-            _hostPresentationQueued = true;
-
-            try
-            {
-                Application.Instance.AsyncInvoke(() =>
-                {
-                    if (!_hostPresentationQueued)
-                        return;
-
-                    _hostPresentationQueued = false;
-                    RunHostPresentationCoordinatorReconcile(reason);
-                });
-            }
-            catch (Exception ex)
-            {
-                _hostPresentationQueued = false;
-                TraceWebViewFocus(
-                    "host-presentation-reconcile-failed",
-                    "dispatch;" + reason + ";" + ex.Message);
-                RunHostPresentationCoordinatorReconcile(reason);
-            }
-        }
-
-        private void ScheduleHostPresentationIdleFollowUp(string reason)
-        {
-            var facts = _latestPresentationFacts;
-            if (facts == null || !facts.Authoritative)
-                return;
-
-            if (!_hostPresentationIdleGate.TrySchedule(facts.Generation))
-                return;
-
-            _hostPresentationIdleReason = reason;
-            RhinoApp.Idle += OnHostPresentationIdle;
-        }
-
-        private void OnHostPresentationIdle(object? sender, EventArgs e)
-        {
-            RhinoApp.Idle -= OnHostPresentationIdle;
-
-            var facts = _latestPresentationFacts;
-            var reason = _hostPresentationIdleReason;
-            _hostPresentationIdleReason = string.Empty;
-
-            if (facts != null && facts.Authoritative)
-            {
-                facts = RefreshHostPresentationFacts(facts, reason);
-                _latestPresentationFacts = facts;
-            }
-
-            if (facts == null ||
-                !facts.Authoritative ||
-                !_hostPresentationIdleGate.ShouldRun(
-                    facts.Generation,
-                    _disposed || facts.Disposed,
-                    facts.DesiredVisible))
-            {
-                return;
-            }
-
-            RunHostPresentationCoordinatorReconcile(reason);
-        }
-
-        private void ClearHostPresentationIdle()
-        {
-            try { RhinoApp.Idle -= OnHostPresentationIdle; }
-            catch { }
-
-            _hostPresentationIdleGate.Clear();
-            _hostPresentationIdleReason = string.Empty;
-        }
-
-        private void ScheduleLatestHostPresentationFromEvent(
-            string reason,
-            bool scheduleIdleFollowUp)
-        {
-            var facts = _latestPresentationFacts;
-            if (facts == null || !facts.Authoritative)
-                return;
-
-            ReconcileHostPresentation(
-                facts with { Reason = reason },
-                scheduleIdleFollowUp);
-        }
-
-        private void RunHostPresentationCoordinatorReconcile(string reason)
-        {
-            if (_latestPresentationFacts == null)
-                return;
-
-            var facts = RefreshHostPresentationFacts(
-                _latestPresentationFacts,
-                reason);
-            _latestPresentationFacts = facts;
-            var probe = CaptureHostPresentationProbe(facts);
-            var decision = _hostPresentation.Evaluate(probe.Snapshot, reason);
-            var actionResult = ApplyHostPresentationDecision(
-                decision,
-                probe.Controller,
-                reason);
-            _lastHostPresentationActionResult =
-                $"{decision.Action};{actionResult};{reason}";
-            RecordHostPresentationDiagnostic(
-                facts,
-                probe.Snapshot,
-                decision,
-                actionResult,
-                reason);
-        }
-
-        private void RecordHostPresentationDiagnostic(
-            WebViewHostPanelPresentationFacts facts,
-            WebViewHostPresentationSnapshot snapshot,
-            WebViewHostPresentationDecision decision,
-            string actionResult,
-            string reason)
-        {
-            _hostPresentationDiagnostics.Enqueue(new WebViewHostPresentationDiagnosticEntry
-            {
-                Sequence = ++_hostPresentationDiagnosticSequence,
-                TimestampUtc = DateTimeOffset.UtcNow,
-                Surface = ResourceRoot,
-                Reason = reason,
-                Facts = WebViewHostPanelPresentationFactsDiagnostic.From(facts),
-                Snapshot = WebViewHostPresentationSnapshotDiagnostic.From(snapshot),
-                Decision = WebViewHostPresentationDecisionDiagnostic.From(decision),
-                ActionResult = actionResult
-            });
-
-            while (_hostPresentationDiagnostics.Count > MaxHostPresentationDiagnosticEntries)
-                _hostPresentationDiagnostics.Dequeue();
-        }
-
-        private string ApplyHostPresentationDecision(
-            WebViewHostPresentationDecision decision,
-            object? controller,
-            string reason)
-        {
-            if (decision.Action == WebViewHostPresentationAction.None)
-                return "none";
-
-            if (controller == null)
-                return "skipped-controller-unavailable";
-
-            if (decision.Action == WebViewHostPresentationAction.HideController)
-            {
-                return SetControllerVisible(controller, false, reason)
-                    ? "applied"
-                    : "set-visible-failed";
-            }
-
-            if (decision.Action != WebViewHostPresentationAction.PresentController)
-                return "none";
-
-            var actionResult = "none";
-            if (decision.ShouldSetControllerBounds)
-            {
-                var target = TryBuildControllerTargetBounds();
-                if (target != null && !SetControllerBounds(controller, target, reason))
-                {
-                    actionResult = "set-bounds-failed";
-                }
-            }
-
-            if (decision.ShouldSetControllerVisible &&
-                !SetControllerVisible(controller, true, reason))
-            {
-                return "set-visible-failed";
-            }
-
-            var notifyResult = NotifyParentWindowPositionChangedWithResult(
-                controller,
-                reason)
-                ? "applied"
-                : "notify-parent-failed";
-
-            if (actionResult == "none")
-                return notifyResult;
-
-            return actionResult + ";" + notifyResult;
-        }
-
-        private HostPresentationProbe CaptureHostPresentationProbe(
-            WebViewHostPanelPresentationFacts facts)
-        {
-            var controller = TryGetCoreWebView2Controller();
-            var controllerAvailable = controller != null;
-            var controllerVisible = controllerAvailable &&
-                TryGetControllerVisible(controller!, out var isVisible) &&
-                isVisible;
-            var targetBounds = TryBuildControllerTargetBounds();
-
-            return new HostPresentationProbe(
-                controller,
-                targetBounds,
-                new WebViewHostPresentationSnapshot
-                {
-                    Disposed = facts.Disposed,
-                    DesiredVisible = facts.DesiredVisible,
-                    AppActive = facts.AppActive && IsApplicationActiveForPresentation(),
-                    TemporaryDeactivateHidden = facts.TemporaryDeactivateHidden,
-                    PanelVisible = facts.PanelVisible,
-                    RequiresSelectedPanel = facts.RequiresSelectedPanel,
-                    PanelSelectedVisible = facts.PanelSelectedVisible,
-                    EtoLoaded = _webView?.Loaded == true,
-                    EtoVisible = _webView?.Visible == true,
-                    EtoWidth = _webView?.Size.Width ?? 0,
-                    EtoHeight = _webView?.Size.Height ?? 0,
-                    ParentWindowPresent = _webView?.ParentWindow != null,
-                    HwndChainVisible = IsHostHwndChainVisible(),
-                    HwndClientRectNonZero = IsHostHwndClientRectNonZero(),
-                    ControllerAvailable = controllerAvailable,
-                    ControllerParentWindowPresent = controllerAvailable &&
-                        TryGetControllerParentWindow(controller!, out var parent) &&
-                        parent != IntPtr.Zero,
-                    ControllerVisible = controllerVisible,
-                    ControllerBoundsMatchHostTarget = targetBounds == null ||
-                        (controllerAvailable &&
-                         TryControllerBoundsMatch(controller!, targetBounds))
-                });
-        }
-
-        private static bool IsApplicationActiveForPresentation()
-        {
-            try
-            {
-                return Application.Instance?.IsActive == true;
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        private readonly record struct HostPresentationProbe(
-            object? Controller,
-            object? TargetBounds,
-            WebViewHostPresentationSnapshot Snapshot);
-
+        // Controller property readers below are reflection helpers shared by
+        // the presentation reconciler host and diagnostics; some are
+        // currently diagnostic-only.
         private static bool TryGetControllerVisible(object controller, out bool visible)
         {
             visible = false;
@@ -892,6 +700,9 @@ namespace Rook.UI.Web
             public int Bottom;
         }
 
+        // HWND probe helpers: diagnostic-only since the level-triggered
+        // reconciler cutover (spec 2026-06-10) — retained to feed ring
+        // annotations / future probes, not consulted for decisions.
         private bool IsHostHwndChainVisible()
         {
             var hwnd = TryGetHostHwnd();
@@ -988,111 +799,6 @@ namespace Rook.UI.Web
             return false;
         }
 
-        private void ScheduleHostVisibilityReconcile(WebViewHostVisibilityDecision decision)
-        {
-            if (_disposed || _webView == null)
-            {
-                TraceWebViewFocus("host-visibility-reconcile-skip",
-                    $"disposed-or-no-webview;{decision.Visible};{decision.Reason}");
-                _hostVisibility.ClearQueued();
-                return;
-            }
-
-            if (decision.Skipped)
-            {
-                TraceWebViewFocus("host-visibility-reconcile-skip",
-                    $"{decision.SkipReason};{decision.Visible};{decision.Reason}");
-                return;
-            }
-
-            if (decision.Coalesced)
-            {
-                TraceWebViewFocus("host-visibility-reconcile-skip",
-                    $"already-queued;{decision.Visible};{decision.Reason}");
-                return;
-            }
-
-            if (!decision.ShouldSchedule)
-                return;
-
-            TraceWebViewFocus("host-visibility-reconcile-queued",
-                $"{decision.Visible};{decision.Reason}");
-
-            try
-            {
-                Application.Instance.AsyncInvoke(() =>
-                {
-                    var queued = _hostVisibility.DrainQueued();
-                    if (queued == null)
-                    {
-                        TraceWebViewFocus("host-visibility-reconcile-skip",
-                            "queue-empty");
-                        return;
-                    }
-
-                    TraceWebViewFocus("host-visibility-reconcile-run",
-                        $"{queued.Value.Visible};{queued.Value.Reason}");
-                    RunHostVisibilityReconcile(
-                        queued.Value.Visible,
-                        queued.Value.Reason);
-                });
-            }
-            catch (Exception ex)
-            {
-                _hostVisibility.ClearQueued();
-                TraceWebViewFocus("host-visibility-reconcile-failed",
-                    $"dispatch;{decision.Visible};{decision.Reason};{ex.Message}");
-                Log($"Rook: WebView host visibility dispatch failed for surface " +
-                    $"'{ResourceRoot}' (reason={decision.Reason}): {ex.Message}");
-                RunHostVisibilityReconcile(decision.Visible, decision.Reason);
-            }
-        }
-
-        private void RunHostVisibilityReconcile(bool visible, string reason)
-        {
-            if (_disposed || _webView == null)
-            {
-                TraceWebViewFocus("host-visibility-reconcile-skip",
-                    $"disposed-or-no-webview;{visible};{reason}");
-                return;
-            }
-
-            try
-            {
-                var controller = TryGetCoreWebView2Controller();
-                if (controller == null)
-                {
-                    TraceWebViewFocus("host-visibility-reconcile-skip",
-                        $"controller-null;{visible};{reason}");
-                    return;
-                }
-
-                if (visible)
-                {
-                    EnsureControllerVisibleAndPositioned(controller, reason);
-                }
-                else
-                {
-                    SetControllerVisible(controller, false, reason);
-                    TraceWebViewFocus("host-visibility-hidden", reason);
-                }
-            }
-            catch (Exception ex)
-            {
-                TraceWebViewFocus("host-visibility-reconcile-failed",
-                    $"{visible};{reason};{ex.Message}");
-                Log($"Rook: WebView host visibility reconcile failed for surface " +
-                    $"'{ResourceRoot}' (reason={reason}): {ex.Message}");
-            }
-        }
-
-        private void EnsureControllerVisibleAndPositioned(object controller, string reason)
-        {
-            SetControllerVisible(controller, true, reason);
-            NotifyParentWindowPositionChanged(controller, reason);
-            TraceWebViewFocus("host-visibility-reconciled", reason);
-        }
-
         private bool SetControllerVisible(object controller, bool visible, string reason)
         {
             var isVisibleProp = GetInstanceProperty(controller.GetType(), "IsVisible");
@@ -1149,35 +855,19 @@ namespace Rook.UI.Web
         private void OnWebViewGotFocus(object? sender, EventArgs e)
         {
             TraceWebViewFocus("webview-got-focus");
-            if (UseHostPresentationCoordinator)
-                return;
-
-            RequestHostVisibleRefresh("WebViewGotFocus");
+            RequestPresentationReconcile("GotFocus");
         }
 
         private void OnWebViewShown(object? sender, EventArgs e)
         {
             TraceWebViewFocus("webview-shown");
-            if (UseHostPresentationCoordinator)
-            {
-                ScheduleLatestHostPresentationFromEvent(
-                    "WebViewShown",
-                    scheduleIdleFollowUp: true);
-                return;
-            }
-
-            ReconcileHostVisibility(true, "WebViewShown");
+            RequestPresentationReconcile("WebViewShown");
         }
 
         private void OnWebViewSizeChanged(object? sender, EventArgs e)
         {
             TraceWebViewFocus("webview-size-changed");
-            if (!UseHostPresentationCoordinator)
-                return;
-
-            ScheduleLatestHostPresentationFromEvent(
-                "WebViewSizeChanged",
-                scheduleIdleFollowUp: true);
+            RequestPresentationReconcile("SizeChanged");
         }
 
         private void OnApplicationIsActiveChanged(object? sender, EventArgs e)
@@ -1185,25 +875,95 @@ namespace Rook.UI.Web
             var active = Application.Instance.IsActive;
             TraceWebViewFocus("app-active-changed", active ? "active" : "inactive");
 
-            if (UseHostPresentationCoordinator)
-                return;
-
-            if (active)
-            {
-                RequestHostVisibleRefresh("ApplicationActivated");
-                return;
-            }
+            // Suspect-cycle mark (spec addendum 2026-06-10 evening): a
+            // repair run during activation churn can renderer-succeed and
+            // compositor-fail, so deactivation marks the surface suspect;
+            // the activation idle confirm runs one forced gapped toggle.
+            // No WebView mutation here (no-present-side-effects-while-
+            // inactive invariant) — just the flag + ring entry.
+            if (!active)
+                _reconciler.MarkSuspect("AppDeactivated");
 
             try
             {
-                Application.Instance.AsyncInvoke(() =>
-                    RequestHostVisibleRefresh("ApplicationDeactivated"));
+                Application.Instance.AsyncInvoke(async () =>
+                {
+                    try
+                    {
+                        await _reconciler.SetAppActiveAsync(
+                            Application.Instance.IsActive);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log($"Rook: presentation app-active update failed for " +
+                            $"surface '{SurfaceId}': {ex.Message}");
+                    }
+                });
             }
             catch (Exception ex)
             {
-                TraceWebViewFocus("host-visibility-reconcile-failed",
-                    "ApplicationDeactivated;" + ex.Message);
+                Log($"Rook: presentation app-active dispatch failed for surface " +
+                    $"'{SurfaceId}': {ex.Message}");
             }
+
+            if (active)
+                ScheduleActivationIdleConfirm();
+        }
+
+        /// <summary>
+        /// One-shot RhinoApp.Idle confirmation after app activation: Rhino's
+        /// window/dock state settles after the activation event, so a single
+        /// idle-time reconcile catches presentation facts that were still
+        /// mid-transition at activation. Guarded against double-subscribe.
+        /// </summary>
+        private void ScheduleActivationIdleConfirm()
+        {
+            if (_disposed || _activationIdleConfirmPending)
+                return;
+
+            _activationIdleConfirmPending = true;
+            RhinoApp.Idle += OnActivationIdleConfirm;
+        }
+
+        private void OnActivationIdleConfirm(object? sender, EventArgs e)
+        {
+            RhinoApp.Idle -= OnActivationIdleConfirm;
+            _activationIdleConfirmPending = false;
+
+            if (_disposed)
+                return;
+
+            // Routes through the reconciler's activation-idle entry point
+            // so a pending suspect-cycle runs its forced toggle; otherwise
+            // it falls through to a normal probe-gated reconcile.
+            try
+            {
+                Application.Instance.AsyncInvoke(async () =>
+                {
+                    try
+                    {
+                        await _reconciler.RunActivationIdleConfirmAsync();
+                    }
+                    catch (Exception ex)
+                    {
+                        Log($"Rook: activation idle confirm failed for surface " +
+                            $"'{SurfaceId}': {ex.Message}");
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                Log($"Rook: activation idle confirm scheduling failed for " +
+                    $"surface '{SurfaceId}': {ex.Message}");
+            }
+        }
+
+        private void ClearActivationIdleConfirm()
+        {
+            try { RhinoApp.Idle -= OnActivationIdleConfirm; }
+            catch { }
+
+            _activationIdleConfirmPending = false;
         }
 
         private object? TryGetCoreWebView2Controller()
@@ -1429,6 +1189,10 @@ namespace Rook.UI.Web
             SignalBridgeUnavailableIfNeeded();
 
             OnWebViewReady();
+
+            // Document (re)load is a presentation edge: it is also the
+            // external confirmation trigger after a reconciler-issued reload.
+            RequestPresentationReconcile("DocumentLoaded");
         }
 
         /// <summary>
@@ -1717,17 +1481,7 @@ namespace Rook.UI.Web
                 coreWebView2.NavigationStarting += OnNavigationStarting;
                 coreWebView2.NavigationCompleted += OnNavigationCompleted;
                 _coreWebView2 = coreWebView2;
-                if (UseHostPresentationCoordinator)
-                {
-                    ScheduleLatestHostPresentationFromEvent(
-                        "WebView2Configured",
-                        scheduleIdleFollowUp: true);
-                }
-                else
-                {
-                    ScheduleHostVisibilityReconcile(
-                        _hostVisibility.RecordControllerAvailable("WebView2Configured"));
-                }
+                RequestPresentationReconcile("WebView2Configured");
 
                 // Inject document-creation scripts in the locked order:
                 // nonce, bridge shim, surface bootstrap.
@@ -2073,11 +1827,12 @@ namespace Rook.UI.Web
             if (_disposed) return;
             _disposed = true;
 
+            WebSurfacePresentationRegistry.Deregister(this);
+
             if (!disposing) return;
 
 #if ROOK_WEBVIEW2
-            ClearHostPresentationIdle();
-            _hostPresentationQueued = false;
+            ClearActivationIdleConfirm();
 
             if (_initEvent != null && _nativeControlWithInitHandler != null && _initHandler != null)
             {
@@ -2127,7 +1882,7 @@ namespace Rook.UI.Web
             catch { }
             try { _webView!.SizeChanged -= OnWebViewSizeChanged; }
             catch { }
-            try { RhinoApp.Idle -= OnHostPresentationIdle; }
+            try { RhinoApp.Idle -= OnActivationIdleConfirm; }
             catch { }
             try { Application.Instance.IsActiveChanged -= OnApplicationIsActiveChanged; }
             catch { }

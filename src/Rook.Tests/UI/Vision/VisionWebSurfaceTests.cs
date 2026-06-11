@@ -252,6 +252,9 @@ namespace Rook.Tests.UI.Vision
                 "estimate_video_job",
                 // V3 video — bridge-only (NOT in native trampoline).
                 "list_video_jobs", "list_video_models",
+                // Presentation reconciler (spec 2026-06-10) — substrate-
+                // wide dump + operator-forced repair.
+                "get_presentation_diagnostics", "repair_presentation",
             };
             foreach (var op in expected)
             {
@@ -307,6 +310,10 @@ namespace Rook.Tests.UI.Vision
         // V3 video — both off-UI: ledger reads + registry enumeration.
         [InlineData("list_video_jobs", "OffUi")]
         [InlineData("list_video_models", "OffUi")]
+        // Presentation reconciler — UI-thread (touches the WebView2
+        // controller and the Eto async-invoke scheduler).
+        [InlineData("get_presentation_diagnostics", "Ui")]
+        [InlineData("repair_presentation", "Ui")]
         public void OpRoutes_Map_To_Correct_Dispatchers(string op, string expectedRouteName)
         {
             var expected = (VisionWebSurface.VisionOpRoute)Enum.Parse(
@@ -503,6 +510,15 @@ namespace Rook.Tests.UI.Vision
             var result = method!.Invoke(surface, new object?[] { args });
             var task = Assert.IsAssignableFrom<Task<JsonNode?>>(result);
             return await task.ConfigureAwait(false);
+        }
+
+        [Theory]
+        [InlineData("get_presentation_diagnostics")]
+        [InlineData("repair_presentation")]
+        public void PresentationOps_AreUiRouted(string op)
+        {
+            Assert.True(VisionWebSurface.OpRoutes.TryGetValue(op, out var route));
+            Assert.Equal(VisionWebSurface.VisionOpRoute.Ui, route);
         }
 
         [Fact]

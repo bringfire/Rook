@@ -389,6 +389,105 @@ General:
   mechanism was visibility-notification loss, which the flag does not
   address).
 
+## Addendum (2026-06-10 evening): Suspect-Cycle Forced Repair
+
+Live validation Round 1 (branch `521b92f` deployed): Gate 1 PASS (MCP
+dump/repair/400 end-to-end, 3 surfaces), Gate 2 user-observed PASS (no wedge),
+**Gate 3 Scenario 1 FAIL** — Knowledge Graph went dark on Rhino unfocus,
+recurring per deactivate/activate cycle; click-inside did NOT heal; MCP forced
+repair DID heal.
+
+Ring evidence (Knowledge, the failed heal): seq 162 probe `RendererHidden` →
+163 `repair-attempt 1;GotFocus` → 164 `confirm 1;Healthy` → 165–169 probe
+`Healthy` — while pixels stayed dark. Forced repair at 170–173 (same gapped
+toggle, quiet window) healed it.
+
+Two model corrections, both live-proven:
+
+1. **A repair executed during host churn can renderer-succeed and
+   compositor-fail.** The GotFocus repair ran inside the activation churn its
+   own trigger click caused; the confirm probe certifies renderer belief only
+   and cannot see the lost compositor present. The identical primitive
+   succeeded minutes later in a quiet window.
+2. **Controller visibility IS the renderer's visibility source, decoupled from
+   presentation.** Toggling a tabbed-behind surface flips its renderer to
+   `visible` inside a hidden host window, so `DegradedHidden` was unreachable
+   in Gate 2 (hidden probes "repaired" to Healthy). The original assumption
+   that a legitimately hidden host re-confirms hidden was wrong.
+
+### Mechanism (exercises the named `VisibleButSuspect` extension point)
+
+**Suspect-cycle forced repair** — per-cycle, post-churn, probe-independent:
+
+- App deactivate: mark the surface `suspect`. NO WebView mutation (preserves
+  the no-present-side-effects-while-inactive invariant).
+- Activation idle confirm (the existing one-shot `OnActivationIdleConfirm`):
+  if app active AND `DesiredVisible` AND generation valid AND suspect → run
+  ONE forced gapped toggle (no probe gate), clear suspect. First-idle is the
+  best EXISTING hook and approximates the quiet window in which every
+  successful manual/forced repair ran — but it is not guaranteed quiet;
+  Rhino/Eto/WebView host churn may still be settling at first idle.
+  **Round-2 fallback criterion:** if the first-idle suspect repair still
+  loses the compositor race in live validation, the next design step is a
+  second-idle hop or a short post-idle delay before the toggle — NOT more
+  probe logic.
+- Ring entries: `suspect-cycle` (set), `suspect-cycle-forced-repair` (run),
+  plus the standard forced-repair disposition.
+- Cost: one brief blink per app-refocus on healthy panels, during a transition
+  where the compositor is already visibly churning.
+
+Unit contract: Healthy probe would normally NoOp, but suspect + activation
+idle runs the forced toggle exactly once; inactive / durable-hidden / stale
+generation does NOT toggle; suspect does not accumulate (one toggle per cycle).
+
+### Deferred: unselected-host repair skip (NOT in this round)
+
+The Gate 2 anomaly suggests skipping automatic repair when the host dock-tab
+is unselected. Review correctly rejected the first proposal: **current
+dedicated panels pass `isSelectedTab: true` unconditionally and have no
+reliable selected-tab fact** — `Panels.IsPanelVisible(..., isSelectedTab:
+true)` is exactly the probe documented as stale during transitions. Until a
+reliable Rhino/Eto selected-tab source is identified, this round records
+annotations only; no repair-skip. Renderer hidden / WebView state must never
+be used to infer durable hidden.
+
+Operator repair (`repair_presentation` / `Repair=Yes`) remains unchanged and
+overrides any future automatic skip.
+
+### Carve-out: forced repair is exempt from the inactive-app invariant
+
+The "no present-side effects while the app is inactive" invariant applies to
+the AUTOMATIC paths only. `ForceRepairAsync` (operator repair via the typed
+route, the command's `Repair=Yes`, and `ScheduleRepairAll`) intentionally runs
+regardless of app-active state. This is deliberate, not an oversight:
+
+- Every live heal in the 2026-06-10 investigation was performed via forced
+  toggle WHILE Rhino was inactive (the operator diagnoses from another
+  window by definition). Deferring forced repair to the next activation
+  would break the proven repair → observe workflow.
+- The #192 wedge evidence concerned automatic mutations issued during
+  transition churn, not one-shot operator actions in steady inactive state;
+  many forced repairs ran inactive across both validation rounds with zero
+  wedge symptoms.
+- Forced repair retains every other guard: serialized execution, the
+  generation/desired-visible mid-gap abort, and bounded attempts.
+
+The suspect-cycle path is NOT exempt — it triggers only at the activation
+idle confirm, which requires `AppActive`. A unit test pins the exemption so
+it reads as intent, not accident.
+
+### Revalidation order (Round 2)
+
+1. Gate 3 Scenario 1 FIRST (Rhino unfocus/refocus cycles; Knowledge must not
+   stay dark, click-inside must heal or be made moot by the suspect-cycle
+   repair).
+2. Then Gate 2 (tabbed-behind: expect dispositions to reflect correction #2;
+   wedge symptoms re-checked).
+3. Then the remaining matrix.
+4. Registry hygiene check: confirm the 4th live surface during Chat use is a
+   new `Rook.UI.Chat.Resources:<n>` ordinal (additional chat tab), and that
+   closing that tab deregisters it (close/dispose check).
+
 ## Evidence Artifacts (this investigation)
 
 - Presentation ring dumps: `%TEMP%\rook-vision-presentation-*.json`,

@@ -257,10 +257,15 @@ namespace Rook.UI.Chat
             switch (decision.Action)
             {
                 case HostedSurfaceAction.Show:
-                    tab.ReconcileHostVisibility(true, sourceReason + ":" + decision.Reason);
+                    // Selected tab: durable desired-visible true, then a
+                    // level-triggered reconcile toward that state.
+                    tab.SetPresentationDesiredVisible(true, sourceReason + ":" + decision.Reason);
+                    tab.RequestPresentationReconcile(sourceReason + ":" + decision.Reason);
                     break;
                 case HostedSurfaceAction.Hide:
-                    tab.ReconcileHostVisibility(false, sourceReason + ":" + decision.Reason);
+                    // Unselected tab: per-tab-durable hide — Chat's own
+                    // TabControl selection is authoritative here.
+                    tab.SetPresentationDesiredVisible(false, sourceReason + ":" + decision.Reason);
                     break;
                 case HostedSurfaceAction.Close:
                     tab.OnTabClosed();
@@ -277,10 +282,15 @@ namespace Rook.UI.Chat
             switch (decision.Action)
             {
                 case HostedSurfaceAction.Show:
-                    tab.ReconcileHostVisibility(true, sourceReason + ":" + decision.Reason);
+                    // Selected tab: durable desired-visible true, then a
+                    // level-triggered reconcile toward that state.
+                    tab.SetPresentationDesiredVisible(true, sourceReason + ":" + decision.Reason);
+                    tab.RequestPresentationReconcile(sourceReason + ":" + decision.Reason);
                     break;
                 case HostedSurfaceAction.Hide:
-                    tab.ReconcileHostVisibility(false, sourceReason + ":" + decision.Reason);
+                    // Unselected tab: per-tab-durable hide — Chat's own
+                    // TabControl selection is authoritative here.
+                    tab.SetPresentationDesiredVisible(false, sourceReason + ":" + decision.Reason);
                     break;
                 case HostedSurfaceAction.Close:
                     tab.OnTabClosed();

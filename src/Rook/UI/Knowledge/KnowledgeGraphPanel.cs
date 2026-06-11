@@ -25,6 +25,8 @@ namespace Rook.UI.Knowledge
         private readonly KnowledgeGraphBootstrapCoordinator _bootstrap;
         private readonly HostedPanelLifecycleAdapter _lifecycle =
             new(typeof(KnowledgeGraphPanel));
+        private readonly IRhinoPanelVisibilityQuery _visibilityQuery =
+            new RhinoPanelVisibilityQuery();
         private readonly string _surfaceId;
         private uint _documentSerialNumber;
         private bool _closed;
@@ -54,6 +56,12 @@ namespace Rook.UI.Knowledge
         {
             _documentSerialNumber = documentSerialNumber;
             _lifecycle.PanelShown(documentSerialNumber, reason);
+            if (PanelDesiredVisibilityPolicy.OnPanelShown(reason) ==
+                DesiredVisibilityChange.Visible)
+            {
+                _surface.SetPresentationDesiredVisible(true, "PanelShown:" + reason);
+            }
+
             ReconcileSurface("PanelShown:" + reason);
 
             _ = Task.Run(() => _bootstrap.RequestBootstrapAsync(default));
@@ -63,6 +71,22 @@ namespace Rook.UI.Knowledge
         {
             _documentSerialNumber = documentSerialNumber;
             _lifecycle.PanelHidden(documentSerialNumber, reason);
+
+            // Probe failure degrades to NoChange inside the policy —
+            // a registry read that throws must never durably hide.
+            var change = PanelDesiredVisibilityPolicy.OnPanelHidden(
+                reason,
+                () => _visibilityQuery.IsPanelVisibleAnyTab(typeof(KnowledgeGraphPanel)));
+            if (change == DesiredVisibilityChange.DurablyHidden)
+            {
+                _surface.SetPresentationDesiredVisible(false, "PanelHidden:" + reason);
+            }
+            else
+            {
+                _surface.RecordPresentationAnnotation(
+                    "panel-hidden-nondurable", reason.ToString());
+            }
+
             ReconcileSurface("PanelHidden:" + reason);
         }
 
@@ -70,6 +94,7 @@ namespace Rook.UI.Knowledge
         {
             _documentSerialNumber = documentSerialNumber;
             _lifecycle.PanelClosing(documentSerialNumber, onCloseDocument);
+            _surface.SetPresentationDesiredVisible(false, "PanelClosing");
             ReconcileSurface("PanelClosing");
         }
 
@@ -104,10 +129,14 @@ namespace Rook.UI.Knowledge
             switch (decision.Action)
             {
                 case HostedSurfaceAction.Show:
-                    _surface.ReconcileHostVisibility(true, sourceReason + ":" + decision.Reason);
+                    _surface.RequestPresentationReconcile(
+                        sourceReason + ":" + decision.Reason);
                     break;
                 case HostedSurfaceAction.Hide:
-                    _surface.ReconcileHostVisibility(false, sourceReason + ":" + decision.Reason);
+                    // Annotation only — lifecycle Hide is NEVER a durable
+                    // desired-visibility edge (the policy owns durability).
+                    _surface.RecordPresentationAnnotation(
+                        "lifecycle-hide", decision.Reason);
                     break;
                 case HostedSurfaceAction.Close:
                     CloseSurface();

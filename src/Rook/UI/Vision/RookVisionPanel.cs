@@ -16,6 +16,13 @@ namespace Rook.UI.Vision
     /// the Knowledge Graph host shape instead of embedding Vision inside
     /// RookChatPanel's Eto tab control: the Vision WebView owns one native
     /// panel surface and does not reload on host activation.
+    ///
+    /// Presentation contract (reconciler spec 2026-06-10): the panel maps
+    /// Rhino lifecycle events to durable desired-visible intent via
+    /// <see cref="PanelDesiredVisibilityPolicy"/> and level-triggered
+    /// reconcile requests on the surface. The surface owns app-active
+    /// edges and all probe/repair behavior — the panel never reads
+    /// HWND/controller state and never hides on probe failure.
     /// </summary>
     [System.Runtime.InteropServices.Guid("C3D4E5F6-A7B8-9012-CDEF-123456789012")]
     public class RookVisionPanel : Panel, IPanel
@@ -29,8 +36,6 @@ namespace Rook.UI.Vision
             new(typeof(RookVisionPanel));
         private readonly IRhinoPanelVisibilityQuery _visibilityQuery =
             new RhinoPanelVisibilityQuery();
-        private readonly VisionPanelPresentationState _presentationState =
-            new(Application.Instance.IsActive);
         private readonly string _surfaceId;
         private uint _documentSerialNumber;
         private bool _closed;
@@ -46,11 +51,9 @@ namespace Rook.UI.Vision
                 ":vision-panel:" +
                 Interlocked.Increment(ref s_nextPanelInstanceId).ToString();
 
-            _surface.SetPresentationFactsRefresher(RefreshPresentationFactsForDecision);
             _content = _surface.CreateWebContent();
             _content.SizeChanged += OnContentSizeChanged;
             Content = _content;
-            Application.Instance.IsActiveChanged += OnApplicationIsActiveChanged;
             lock (s_instancesLock)
             {
                 s_instances.Add(this);
@@ -111,36 +114,6 @@ namespace Rook.UI.Vision
                         builder.Append(entry.Sequence);
                         builder.Append(' ');
                         builder.Append(entry.Reason);
-                        builder.Append("; facts=");
-                        builder.Append("app:");
-                        builder.Append(entry.Facts.AppActive);
-                        builder.Append(",any:");
-                        builder.Append(entry.Facts.PanelVisibleAnyTab);
-                        builder.Append(",sel:");
-                        builder.Append(entry.Facts.PanelSelectedVisible);
-                        builder.Append(",tmp:");
-                        builder.Append(entry.Facts.TemporaryDeactivateHidden);
-                        builder.Append("; snap=");
-                        builder.Append("app:");
-                        builder.Append(entry.Snapshot.AppActive);
-                        builder.Append(",panel:");
-                        builder.Append(entry.Snapshot.PanelVisible);
-                        builder.Append(",sel:");
-                        builder.Append(entry.Snapshot.PanelSelectedVisible);
-                        builder.Append(",hwnd:");
-                        builder.Append(entry.Snapshot.HwndChainVisible);
-                        builder.Append(",rect:");
-                        builder.Append(entry.Snapshot.HwndClientRectNonZero);
-                        builder.Append(",ctl:");
-                        builder.Append(entry.Snapshot.ControllerVisible);
-                        builder.Append("; decision=");
-                        builder.Append(entry.Decision.OldState);
-                        builder.Append("->");
-                        builder.Append(entry.Decision.NewState);
-                        builder.Append('/');
-                        builder.Append(entry.Decision.Action);
-                        builder.Append('/');
-                        builder.Append(entry.Decision.NotPresentableReason);
                         builder.Append("; result=");
                         builder.Append(entry.ActionResult);
                         builder.AppendLine();
@@ -155,15 +128,12 @@ namespace Rook.UI.Vision
         {
             _documentSerialNumber = documentSerialNumber;
             _lifecycle.PanelShown(documentSerialNumber, reason);
-            var visibleAnyTab = ProbeVisibleAnyTab(_presentationState.Current.PanelVisibleAnyTab);
-            var selectedVisible = ProbeSelectedVisible(_presentationState.Current.PanelSelectedVisible);
-            var facts = _presentationState.PanelShown(
-                reason,
-                visibleAnyTab.CoordinatorValue,
-                selectedVisible.CoordinatorValue);
-            _surface.ReconcileHostPresentation(
-                ApplyProbeStatus(facts, visibleAnyTab, selectedVisible),
-                scheduleIdleFollowUp: true);
+            if (PanelDesiredVisibilityPolicy.OnPanelShown(reason) ==
+                DesiredVisibilityChange.Visible)
+            {
+                _surface.SetPresentationDesiredVisible(true, "PanelShown:" + reason);
+            }
+
             ReconcileSurface("PanelShown:" + reason);
         }
 
@@ -171,15 +141,22 @@ namespace Rook.UI.Vision
         {
             _documentSerialNumber = documentSerialNumber;
             _lifecycle.PanelHidden(documentSerialNumber, reason);
-            var visibleAnyTab = ProbeVisibleAnyTab(_presentationState.Current.PanelVisibleAnyTab);
-            var selectedVisible = ProbeSelectedVisible(_presentationState.Current.PanelSelectedVisible);
-            var facts = _presentationState.PanelHidden(
+
+            // Probe failure degrades to NoChange inside the policy —
+            // a registry read that throws must never durably hide.
+            var change = PanelDesiredVisibilityPolicy.OnPanelHidden(
                 reason,
-                visibleAnyTab.CoordinatorValue,
-                selectedVisible.CoordinatorValue);
-            _surface.ReconcileHostPresentation(
-                ApplyProbeStatus(facts, visibleAnyTab, selectedVisible),
-                scheduleIdleFollowUp: false);
+                () => _visibilityQuery.IsPanelVisibleAnyTab(typeof(RookVisionPanel)));
+            if (change == DesiredVisibilityChange.DurablyHidden)
+            {
+                _surface.SetPresentationDesiredVisible(false, "PanelHidden:" + reason);
+            }
+            else
+            {
+                _surface.RecordPresentationAnnotation(
+                    "panel-hidden-nondurable", reason.ToString());
+            }
+
             ReconcileSurface("PanelHidden:" + reason);
         }
 
@@ -187,9 +164,7 @@ namespace Rook.UI.Vision
         {
             _documentSerialNumber = documentSerialNumber;
             _lifecycle.PanelClosing(documentSerialNumber, onCloseDocument);
-            _surface.ReconcileHostPresentation(
-                _presentationState.PanelClosing(),
-                scheduleIdleFollowUp: false);
+            _surface.SetPresentationDesiredVisible(false, "PanelClosing");
             ReconcileSurface("PanelClosing");
         }
 
@@ -206,15 +181,11 @@ namespace Rook.UI.Vision
         {
             if (_closed) return;
             _closed = true;
-            _surface.ReconcileHostPresentation(
-                _presentationState.PanelClosing(),
-                scheduleIdleFollowUp: false);
             if (_content != null)
             {
                 try { _content.SizeChanged -= OnContentSizeChanged; } catch { }
                 _content = null;
             }
-            try { Application.Instance.IsActiveChanged -= OnApplicationIsActiveChanged; } catch { }
             lock (s_instancesLock)
             {
                 s_instances.Remove(this);
@@ -237,7 +208,13 @@ namespace Rook.UI.Vision
             switch (decision.Action)
             {
                 case HostedSurfaceAction.Show:
-                    RefreshSelectionVisible(sourceReason + ":Show");
+                    _surface.RequestPresentationReconcile(sourceReason + ":Show");
+                    break;
+                case HostedSurfaceAction.Hide:
+                    // Annotation only — lifecycle Hide is NEVER a durable
+                    // desired-visibility edge (the policy owns durability).
+                    _surface.RecordPresentationAnnotation(
+                        "lifecycle-hide", decision.Reason);
                     break;
                 case HostedSurfaceAction.Close:
                     CloseSurface();
@@ -245,99 +222,9 @@ namespace Rook.UI.Vision
             }
         }
 
-        private void OnApplicationIsActiveChanged(object? sender, EventArgs e)
-        {
-            var facts = _presentationState.SetAppActive(Application.Instance.IsActive);
-            _surface.ReconcileHostPresentation(
-                facts,
-                scheduleIdleFollowUp: facts.AppActive);
-        }
-
         private void OnContentSizeChanged(object? sender, EventArgs e)
         {
-            RefreshSelectionVisible("ContentSizeChanged");
-        }
-
-        private void RefreshSelectionVisible(string reason)
-        {
-            var visibleAnyTab = ProbeVisibleAnyTab(_presentationState.Current.PanelVisibleAnyTab);
-            var selectedVisible = ProbeSelectedVisible(_presentationState.Current.PanelSelectedVisible);
-            var facts = _presentationState.RefreshSelection(
-                selectedVisible.CoordinatorValue,
-                reason);
-            _surface.ReconcileHostPresentation(
-                ApplyProbeStatus(
-                    facts with
-                    {
-                        PanelVisibleAnyTab = visibleAnyTab.CoordinatorValue,
-                        PanelVisible = visibleAnyTab.CoordinatorValue
-                    },
-                    visibleAnyTab,
-                    selectedVisible),
-                scheduleIdleFollowUp: true);
-        }
-
-        private WebViewHostPanelPresentationFacts RefreshPresentationFactsForDecision(
-            WebViewHostPanelPresentationFacts facts,
-            string reason)
-        {
-            if (!facts.Authoritative || facts.Disposed)
-                return facts with { Reason = reason };
-
-            var visibleAnyTab = ProbeVisibleAnyTab(facts.PanelVisibleAnyTab);
-            var selectedVisible = ProbeSelectedVisible(facts.PanelSelectedVisible);
-            return ApplyProbeStatus(
-                facts with
-                {
-                    PanelVisibleAnyTab = visibleAnyTab.CoordinatorValue,
-                    PanelVisible = visibleAnyTab.CoordinatorValue,
-                    PanelSelectedVisible = selectedVisible.CoordinatorValue,
-                    Reason = reason
-                },
-                visibleAnyTab,
-                selectedVisible);
-        }
-
-        private static WebViewHostPanelPresentationFacts ApplyProbeStatus(
-            WebViewHostPanelPresentationFacts facts,
-            PanelVisibilityProbe visibleAnyTab,
-            PanelVisibilityProbe selectedVisible)
-        {
-            return facts with
-            {
-                PanelVisibleAnyTabPriorValue = visibleAnyTab.PriorValue,
-                PanelVisibleAnyTabProbeSucceeded = visibleAnyTab.Succeeded,
-                PanelVisibleAnyTabProbeStatus = visibleAnyTab.Status,
-                PanelSelectedVisiblePriorValue = selectedVisible.PriorValue,
-                PanelSelectedVisibleProbeSucceeded = selectedVisible.Succeeded,
-                PanelSelectedVisibleProbeStatus = selectedVisible.Status
-            };
-        }
-
-        private PanelVisibilityProbe ProbeSelectedVisible(bool fallback)
-        {
-            try
-            {
-                return PanelVisibilityProbe.Success(
-                    _visibilityQuery.IsSelectedPanelVisible(typeof(RookVisionPanel)));
-            }
-            catch (Exception ex)
-            {
-                return PanelVisibilityProbe.Failure(fallback, ex);
-            }
-        }
-
-        private PanelVisibilityProbe ProbeVisibleAnyTab(bool fallback)
-        {
-            try
-            {
-                return PanelVisibilityProbe.Success(
-                    _visibilityQuery.IsPanelVisibleAnyTab(typeof(RookVisionPanel)));
-            }
-            catch (Exception ex)
-            {
-                return PanelVisibilityProbe.Failure(fallback, ex);
-            }
+            _surface.RequestPresentationReconcile("ContentSizeChanged");
         }
 
         private sealed record VisionPanelPresentationDiagnosticDump
@@ -348,27 +235,6 @@ namespace Rook.UI.Vision
             public bool SurfaceDisposed { get; init; }
             public IReadOnlyList<WebViewHostPresentationDiagnosticEntry> Entries { get; init; } =
                 Array.Empty<WebViewHostPresentationDiagnosticEntry>();
-        }
-
-        private readonly record struct PanelVisibilityProbe(
-            bool CoordinatorValue,
-            bool PriorValue,
-            bool Succeeded,
-            string Status)
-        {
-            public static PanelVisibilityProbe Success(bool value)
-            {
-                return new PanelVisibilityProbe(value, value, true, "ok");
-            }
-
-            public static PanelVisibilityProbe Failure(bool fallback, Exception ex)
-            {
-                return new PanelVisibilityProbe(
-                    false,
-                    fallback,
-                    false,
-                    "exception:" + ex.GetType().Name);
-            }
         }
     }
 }

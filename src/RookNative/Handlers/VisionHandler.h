@@ -128,5 +128,15 @@ void HandleVisionVideoJobsList(const httplib::Request& req, httplib::Response& r
 // describes model_id, provider, pricing, and capability matrix.
 void HandleVisionVideoModelsList(const httplib::Request& req, httplib::Response& res);
 
+// POST /vision/presentation — WebView panel presentation diagnostics
+// and operator-forced repair (reconciler spec 2026-06-10). STRICT
+// contract {"action":"dump"|"repair"}: native parses the action and
+// constructs the managed op body ITSELF ({"op":"get_presentation_
+// diagnostics"} or {"op":"repair_presentation"}); any other action is
+// rejected with HTTP 400. No user-controlled bytes pass through to
+// vision_dispatch. Repair is accepted-and-scheduled — it returns
+// scheduled:<n> immediately; outcomes are read via a follow-up dump.
+void HandleVisionPresentation(const httplib::Request& req, httplib::Response& res);
+
 } // namespace Handlers
 } // namespace Rook

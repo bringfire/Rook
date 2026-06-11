@@ -1,8 +1,10 @@
 using System;
 using System.IO;
+using Rhino.UI;
 using Rook.Commands;
 using Rook.UI.Chat;
 using Rook.UI.Vision;
+using Rook.UI.Web;
 using Xunit;
 
 namespace Rook.Tests.UI.Vision
@@ -22,33 +24,30 @@ namespace Rook.Tests.UI.Vision
         }
 
         [Fact]
-        public void DumpVisionPresentationCommand_WritesFileAndPrintsCompactTail()
+        public void DumpVisionPresentationCommand_DumpsRegistryAndOffersRepairToggle()
         {
+            // Reconciler spec 2026-06-10: the dump comes from the
+            // substrate-wide WebSurfacePresentationRegistry (all surfaces,
+            // not Vision-only) and the Repair toggle (default No)
+            // schedules an accepted-and-scheduled forced repair.
             var command = ReadSourceFile(
                 "src",
                 "Rook",
                 "Commands",
                 "RookDumpVisionPresentationStateCommand.cs");
-            var panel = ReadSourceFile("src", "Rook", "UI", "Vision", "RookVisionPanel.cs");
 
             Assert.Contains("RookDumpVisionPresentationState", command);
-            Assert.Contains("RookVisionPanel.DumpPresentationDiagnostics()", command);
-            Assert.Contains("RookVisionPanel.DumpPresentationDiagnosticsSummary(16)", command);
+            Assert.Contains("WebSurfacePresentationRegistry.DumpAll()", command);
+            Assert.Contains("WebSurfacePresentationRegistry.ScheduleRepairAll(", command);
+            Assert.Contains("\"command-repair\"", command);
+            Assert.Contains("OptionToggle(false, \"No\", \"Yes\")", command);
+            Assert.Contains("AddOptionToggle(\"Repair\"", command);
+            Assert.Contains("run the command again", command);
             Assert.Contains("RhinoApp.WriteLine", command);
             Assert.Contains("File.WriteAllText", command);
             Assert.Contains("try", command);
             Assert.Contains("catch (Exception ex)", command);
             Assert.Contains("Guid.NewGuid().ToString(\"N\")", command);
-            Assert.Contains("internal static string DumpPresentationDiagnostics()", panel);
-            Assert.Contains("internal static string DumpPresentationDiagnosticsSummary(int tailCount)", panel);
-            Assert.Contains("Skip(Math.Max(0, allEntries.Length - count))", panel);
-            Assert.Contains("VisionPanelPresentationDiagnosticDump", panel);
-            Assert.Contains("SurfaceId = panel._surfaceId", panel);
-            Assert.Contains("DocumentSerialNumber = panel._documentSerialNumber", panel);
-            Assert.Contains("Closed = panel._closed", panel);
-            Assert.Contains("SurfaceDisposed = panel._surface.IsDisposed", panel);
-            Assert.Contains("Entries = panel._surface.GetHostPresentationDiagnosticEntries()", panel);
-            Assert.Contains("JsonSerializer.Serialize", panel);
         }
 
         [Fact]
@@ -60,16 +59,163 @@ namespace Rook.Tests.UI.Vision
             Assert.Contains("\"Rook Vision\"", source);
         }
 
-        [Fact]
-        public void VisionTab_DoesNotExposeHostActivationVisibilityBypass()
-        {
-            var source = ReadSourceFile("src", "Rook", "UI", "Vision", "VisionTab.cs");
+        // ─── Desired-visibility mapping (behavioral, via the policy
+        //     seam both dedicated panels route lifecycle through) ──────
 
-            Assert.DoesNotContain("ReloadAfterHostActivation", source);
-            Assert.DoesNotContain("RequestWebViewRepaint", source);
-            Assert.DoesNotContain("RecoverAfterHostActivation", source);
-            Assert.DoesNotContain("HostActivation:", source);
-            Assert.Contains("internal void ReconcileHostVisibility(bool visible, string reason)", source);
+        [Theory]
+        [InlineData(ShowPanelReason.Show)]
+        [InlineData(ShowPanelReason.ShowOnDeactivate)]
+        public void PanelShown_MapsToDesiredVisibleTrue(ShowPanelReason reason)
+        {
+            Assert.Equal(
+                DesiredVisibilityChange.Visible,
+                PanelDesiredVisibilityPolicy.OnPanelShown(reason));
+        }
+
+        [Fact]
+        public void PanelHidden_HideOnDeactivate_IsNoChange()
+        {
+            // Transient app-deactivation hide must not touch durable
+            // desired visibility regardless of what the probe reads.
+            Assert.Equal(
+                DesiredVisibilityChange.NoChange,
+                PanelDesiredVisibilityPolicy.OnPanelHidden(
+                    ShowPanelReason.HideOnDeactivate, () => false));
+        }
+
+        [Fact]
+        public void PanelHidden_Hide_WhileVisibleAnyTab_IsNoChange()
+        {
+            Assert.Equal(
+                DesiredVisibilityChange.NoChange,
+                PanelDesiredVisibilityPolicy.OnPanelHidden(
+                    ShowPanelReason.Hide, () => true));
+        }
+
+        [Fact]
+        public void PanelHidden_Hide_NotVisibleAnywhere_IsDurablyHidden()
+        {
+            Assert.Equal(
+                DesiredVisibilityChange.DurablyHidden,
+                PanelDesiredVisibilityPolicy.OnPanelHidden(
+                    ShowPanelReason.Hide, () => false));
+        }
+
+        [Fact]
+        public void PanelHidden_ProbeException_IsNoChange_NeverDurable()
+        {
+            // A throwing visibility probe must NEVER durably hide.
+            Assert.Equal(
+                DesiredVisibilityChange.NoChange,
+                PanelDesiredVisibilityPolicy.OnPanelHidden(
+                    ShowPanelReason.Hide,
+                    () => throw new InvalidOperationException("probe failed")));
+        }
+
+        [Fact]
+        public void PanelClosing_IsDurablyHidden()
+        {
+            Assert.Equal(
+                DesiredVisibilityChange.DurablyHidden,
+                PanelDesiredVisibilityPolicy.OnPanelClosing());
+        }
+
+        // ─── Panel wiring (source pins: lifecycle → policy →
+        //     reconciler desired state) ───────────────────────────────
+
+        [Fact]
+        public void RookVisionPanel_PanelShown_SetsDesiredVisibleThroughPolicy()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Vision", "RookVisionPanel.cs");
+            var shown = ExtractMethod(source, "public void PanelShown");
+
+            Assert.Contains("_lifecycle.PanelShown(documentSerialNumber, reason)", shown);
+            Assert.Contains("PanelDesiredVisibilityPolicy.OnPanelShown(reason)", shown);
+            Assert.Contains(
+                "_surface.SetPresentationDesiredVisible(true, \"PanelShown:\" + reason)",
+                shown);
+            Assert.Contains("ReconcileSurface(\"PanelShown:\" + reason)", shown);
+        }
+
+        [Fact]
+        public void RookVisionPanel_PanelHidden_RoutesProbeThroughPolicy()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Vision", "RookVisionPanel.cs");
+            var hidden = ExtractMethod(source, "public void PanelHidden");
+
+            Assert.Contains("_lifecycle.PanelHidden(documentSerialNumber, reason)", hidden);
+            Assert.Contains("PanelDesiredVisibilityPolicy.OnPanelHidden(", hidden);
+            Assert.Contains(
+                "_visibilityQuery.IsPanelVisibleAnyTab(typeof(RookVisionPanel))",
+                hidden);
+            Assert.Contains("DesiredVisibilityChange.DurablyHidden", hidden);
+            Assert.Contains(
+                "_surface.SetPresentationDesiredVisible(false, \"PanelHidden:\" + reason)",
+                hidden);
+            Assert.Contains("\"panel-hidden-nondurable\"", hidden);
+        }
+
+        [Fact]
+        public void RookVisionPanel_PanelClosing_IsDurableHide()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Vision", "RookVisionPanel.cs");
+            var closing = ExtractMethod(source, "public void PanelClosing");
+
+            Assert.Contains(
+                "_lifecycle.PanelClosing(documentSerialNumber, onCloseDocument)",
+                closing);
+            Assert.Contains(
+                "_surface.SetPresentationDesiredVisible(false, \"PanelClosing\")",
+                closing);
+            Assert.Contains("ReconcileSurface(\"PanelClosing\")", closing);
+        }
+
+        [Fact]
+        public void RookVisionPanel_LifecycleDecision_ShowReconciles_HideAnnotatesOnly()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Vision", "RookVisionPanel.cs");
+            var apply = ExtractMethod(source, "private void ApplyDecision");
+
+            Assert.Contains("case HostedSurfaceAction.Show:", apply);
+            Assert.Contains(
+                "_surface.RequestPresentationReconcile(sourceReason + \":Show\")",
+                apply);
+            Assert.Contains("case HostedSurfaceAction.Hide:", apply);
+            Assert.Contains(
+                "_surface.RecordPresentationAnnotation(",
+                apply);
+            Assert.Contains("\"lifecycle-hide\"", apply);
+            Assert.Contains("case HostedSurfaceAction.Close:", apply);
+            Assert.Contains("CloseSurface()", apply);
+            // Lifecycle Hide must never become a durable desired-hide.
+            Assert.DoesNotContain("SetPresentationDesiredVisible(false", apply);
+        }
+
+        [Fact]
+        public void RookVisionPanel_ContentSizeChanged_RequestsReconcile()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Vision", "RookVisionPanel.cs");
+            var handler = ExtractMethod(source, "private void OnContentSizeChanged");
+
+            Assert.Contains("SizeChanged += OnContentSizeChanged", source);
+            Assert.Contains("SizeChanged -= OnContentSizeChanged", source);
+            Assert.Contains(
+                "_surface.RequestPresentationReconcile(\"ContentSizeChanged\")",
+                handler);
+        }
+
+        [Fact]
+        public void RookVisionPanel_HasNoProbeFactsPlumbing()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Vision", "RookVisionPanel.cs");
+
+            // The surface owns app-active edges and all probe/repair
+            // behavior now (reconciler spec 2026-06-10).
+            Assert.DoesNotContain("SetPresentationFactsRefresher", source);
+            Assert.DoesNotContain("RefreshPresentationFactsForDecision", source);
+            Assert.DoesNotContain("RefreshSelectionVisible", source);
+            Assert.DoesNotContain("PanelVisibilityProbe", source);
+            Assert.DoesNotContain("OnApplicationIsActiveChanged", source);
         }
 
         [Fact]
@@ -79,139 +225,63 @@ namespace Rook.Tests.UI.Vision
 
             Assert.Contains("HostedPanelLifecycleAdapter", source);
             Assert.Contains("typeof(RookVisionPanel)", source);
-            Assert.DoesNotContain("_surface.ReconcileHostVisibility(false, \"PanelHidden:\" + reason)", source);
         }
 
         [Fact]
-        public void RookVisionPanel_SuppliesPresentationFactsToSurface()
-        {
-            var source = ReadSourceFile("src", "Rook", "UI", "Vision", "RookVisionPanel.cs");
-
-            Assert.Contains("VisionPanelPresentationState", source);
-            Assert.Contains("_surface.ReconcileHostPresentation", source);
-            Assert.Contains("_surface.SetPresentationFactsRefresher", source);
-            Assert.Contains("RhinoPanelVisibilityQuery", source);
-            Assert.Contains("IsSelectedPanelVisible(typeof(RookVisionPanel))", source);
-            Assert.Contains("IsPanelVisibleAnyTab(typeof(RookVisionPanel))", source);
-        }
-
-        [Fact]
-        public void RookVisionPanel_RefreshesVolatilePanelFactsAtDecisionTime()
-        {
-            var source = ReadSourceFile("src", "Rook", "UI", "Vision", "RookVisionPanel.cs");
-            var method = ExtractMethod(
-                source,
-                "private WebViewHostPanelPresentationFacts RefreshPresentationFactsForDecision");
-
-            Assert.Contains("ProbeVisibleAnyTab(facts.PanelVisibleAnyTab)", method);
-            Assert.Contains("ProbeSelectedVisible(facts.PanelSelectedVisible)", method);
-            Assert.Contains("PanelVisibleAnyTab = visibleAnyTab.CoordinatorValue", method);
-            Assert.Contains("PanelVisible = visibleAnyTab.CoordinatorValue", method);
-            Assert.Contains("PanelSelectedVisible = selectedVisible.CoordinatorValue", method);
-            Assert.Contains("ApplyProbeStatus", method);
-            Assert.DoesNotContain("DesiredVisible =", method);
-        }
-
-        [Fact]
-        public void RookVisionPanel_VisibilityProbeFailuresRemainDistinctFromFalse()
-        {
-            var source = ReadSourceFile("src", "Rook", "UI", "Vision", "RookVisionPanel.cs");
-            var facts = ReadSourceFile("src", "Rook", "UI", "Web", "WebViewHostPanelPresentationFacts.cs");
-            var diagnostic = ReadSourceFile(
-                "src",
-                "Rook",
-                "UI",
-                "Web",
-                "WebViewHostPresentationDiagnosticEntry.cs");
-            var failure = ExtractMethod(
-                source,
-                "public static PanelVisibilityProbe Failure");
-
-            Assert.Contains("PanelVisibilityProbe Failure(bool fallback, Exception ex)", source);
-            Assert.Contains("\"exception:\" + ex.GetType().Name", source);
-            Assert.Contains("return new PanelVisibilityProbe(", failure);
-            Assert.Contains("false,", failure);
-            Assert.Contains("fallback,", failure);
-            Assert.Contains("PanelVisibleAnyTabPriorValue", facts);
-            Assert.Contains("PanelVisibleAnyTabProbeSucceeded", facts);
-            Assert.Contains("PanelVisibleAnyTabProbeStatus", facts);
-            Assert.Contains("PanelSelectedVisiblePriorValue", facts);
-            Assert.Contains("PanelSelectedVisibleProbeSucceeded", facts);
-            Assert.Contains("PanelSelectedVisibleProbeStatus", facts);
-            Assert.Contains("PanelVisibleAnyTabPriorValue", diagnostic);
-            Assert.Contains("PanelVisibleAnyTabProbeSucceeded", diagnostic);
-            Assert.Contains("PanelSelectedVisiblePriorValue", diagnostic);
-            Assert.Contains("PanelSelectedVisibleProbeStatus", diagnostic);
-            Assert.DoesNotContain("catch { return false; }", source);
-        }
-
-        [Fact]
-        public void RookVisionPanel_HandlesAppActiveAsAuthoritativeFacts()
-        {
-            var source = ReadSourceFile("src", "Rook", "UI", "Vision", "RookVisionPanel.cs");
-
-            Assert.Contains("Application.Instance.IsActiveChanged += OnApplicationIsActiveChanged", source);
-            Assert.Contains("Application.Instance.IsActiveChanged -= OnApplicationIsActiveChanged", source);
-            Assert.Contains("_presentationState.SetAppActive", source);
-        }
-
-        [Fact]
-        public void RookVisionPanel_PanelHiddenAndClosingSendNoPresentFacts()
-        {
-            var source = ReadSourceFile("src", "Rook", "UI", "Vision", "RookVisionPanel.cs");
-
-            Assert.Contains("_presentationState.PanelHidden", source);
-            Assert.Contains("_presentationState.PanelClosing", source);
-            Assert.Contains("scheduleIdleFollowUp: false", source);
-        }
-
-        [Fact]
-        public void RookVisionPanel_ShowDecisionRefreshesSelectionFactsOnly()
-        {
-            var source = ReadSourceFile("src", "Rook", "UI", "Vision", "RookVisionPanel.cs");
-            var apply = ExtractMethod(source, "private void ApplyDecision");
-
-            Assert.Contains("case HostedSurfaceAction.Show:", apply);
-            Assert.Contains("RefreshSelectionVisible", apply);
-            Assert.DoesNotContain("ReconcileHostVisibility", apply);
-        }
-
-        [Fact]
-        public void RookVisionPanel_CloseSurfaceSendsTerminalPresentationFacts()
-        {
-            var source = ReadSourceFile("src", "Rook", "UI", "Vision", "RookVisionPanel.cs");
-            var close = ExtractMethod(source, "private void CloseSurface");
-
-            Assert.Contains("_presentationState.PanelClosing()", close);
-            Assert.Contains("_surface.ReconcileHostPresentation", close);
-            Assert.Contains("scheduleIdleFollowUp: false", close);
-        }
-
-        [Fact]
-        public void RookVisionPanel_DoesNotSendLegacyHostVisibilityCommands()
-        {
-            var source = ReadSourceFile("src", "Rook", "UI", "Vision", "RookVisionPanel.cs");
-
-            Assert.DoesNotContain("_surface.ReconcileHostVisibility", source);
-        }
-
-        [Fact]
-        public void VisionWebSurface_UiBridgeOps_DoNotUseLegacyHostVisibilityRefresh()
+        public void VisionWebSurface_HasNoLegacyCoordinatorOptInOrFactsRefresher()
         {
             var source = ReadSourceFile("src", "Rook", "UI", "Vision", "VisionWebSurface.cs");
 
+            Assert.DoesNotContain("RefreshHostPresentationFacts", source);
+            Assert.DoesNotContain("SetPresentationFactsRefresher", source);
             Assert.DoesNotContain("VisionUiOpCompleted", source);
             Assert.DoesNotContain("RequestHostVisibleRefresh", source);
         }
 
         [Fact]
-        public void KnowledgeGraphPanel_UsesHostedPanelLifecycleAdapter()
+        public void VisionTab_ForwardsDesiredVisibilityWithoutHostActivationBypass()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Vision", "VisionTab.cs");
+
+            Assert.DoesNotContain("ReloadAfterHostActivation", source);
+            Assert.DoesNotContain("RequestWebViewRepaint", source);
+            Assert.DoesNotContain("RecoverAfterHostActivation", source);
+            Assert.DoesNotContain("HostActivation:", source);
+            Assert.Contains(
+                "internal void SetPresentationDesiredVisible(bool visible, string reason)",
+                source);
+            Assert.Contains(
+                "internal void RequestPresentationReconcile(string reason)",
+                source);
+        }
+
+        [Fact]
+        public void KnowledgeGraphPanel_UsesSameDedicatedPanelMapping()
         {
             var source = ReadSourceFile("src", "Rook", "UI", "Knowledge", "KnowledgeGraphPanel.cs");
+            var shown = ExtractMethod(source, "public void PanelShown");
+            var hidden = ExtractMethod(source, "public void PanelHidden");
+            var closing = ExtractMethod(source, "public void PanelClosing");
+            var apply = ExtractMethod(source, "private void ApplyDecision");
 
             Assert.Contains("HostedPanelLifecycleAdapter", source);
             Assert.Contains("typeof(KnowledgeGraphPanel)", source);
-            Assert.DoesNotContain("_surface.ReconcileHostVisibility(false, \"PanelHidden:\" + reason)", source);
+            Assert.Contains("PanelDesiredVisibilityPolicy.OnPanelShown(reason)", shown);
+            Assert.Contains(
+                "_surface.SetPresentationDesiredVisible(true, \"PanelShown:\" + reason)",
+                shown);
+            Assert.Contains("PanelDesiredVisibilityPolicy.OnPanelHidden(", hidden);
+            Assert.Contains(
+                "_visibilityQuery.IsPanelVisibleAnyTab(typeof(KnowledgeGraphPanel))",
+                hidden);
+            Assert.Contains("\"panel-hidden-nondurable\"", hidden);
+            Assert.Contains(
+                "_surface.SetPresentationDesiredVisible(false, \"PanelClosing\")",
+                closing);
+            Assert.Contains("_surface.RequestPresentationReconcile(", apply);
+            Assert.Contains("\"lifecycle-hide\"", apply);
+            Assert.Contains("CloseSurface()", apply);
+            Assert.DoesNotContain("SetPresentationDesiredVisible(false", apply);
         }
 
         [Fact]
