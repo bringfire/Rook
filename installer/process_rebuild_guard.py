@@ -303,8 +303,10 @@ class WindowsTerminator:
                 self.PROCESS_TERMINATE, False, process.pid
             )
             if not handle:
+                error = ctypes.get_last_error()
                 failures.append(
-                    f"{label}: failed to open pid {process.pid} for termination"
+                    f"{label}: failed to open pid {process.pid} "
+                    f"({process.image_path}) for termination; Win32 error {error}"
                 )
                 continue
 
@@ -312,7 +314,11 @@ class WindowsTerminator:
                 if self.kernel32.TerminateProcess(handle, 1):
                     closed_pids.append(process.pid)
                 else:
-                    failures.append(f"{label}: failed to terminate pid {process.pid}")
+                    error = ctypes.get_last_error()
+                    failures.append(
+                        f"{label}: failed to terminate pid {process.pid} "
+                        f"({process.image_path}); Win32 error {error}"
+                    )
             finally:
                 self.kernel32.CloseHandle(handle)
 
@@ -328,16 +334,20 @@ class RebuildGuard:
         self,
         label: str,
         rook_root: str | Path,
-        snapshot_provider,
-        terminator,
+        snapshot_provider=None,
+        terminator=None,
         current_pid: int | None = None,
         sweep_interval_seconds: float = 1.0,
         run_background: bool = True,
     ) -> None:
         self.label = label
         self.rook_root = rook_root
-        self.snapshot_provider = snapshot_provider
-        self.terminator = terminator
+        self.snapshot_provider = (
+            snapshot_provider
+            if snapshot_provider is not None
+            else WindowsSnapshotProvider()
+        )
+        self.terminator = terminator if terminator is not None else WindowsTerminator()
         self.current_pid = current_pid if current_pid is not None else os.getpid()
         self.sweep_interval_seconds = sweep_interval_seconds
         self.run_background = run_background
