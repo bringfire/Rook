@@ -27,6 +27,7 @@ import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 
+import process_rebuild_guard
 import python_runtime_install
 
 
@@ -127,6 +128,14 @@ def get_venv_python(venv_dir: Path) -> Path:
     if os.name == "nt":
         return venv_dir / "Scripts" / "python.exe"
     return venv_dir / "bin" / "python"
+
+
+def _make_rebuild_guard(label: str, runtime_root: Path):
+    return process_rebuild_guard.RebuildGuard(
+        label=label,
+        rook_root=str(runtime_root),
+        current_pid=os.getpid(),
+    )
 
 
 def _combined_output(result: subprocess.CompletedProcess[str]) -> str:
@@ -248,36 +257,60 @@ def _record_install_state(
     python_runtime_install.write_install_state(layout.install_state, state)
 
 
-def _install_from_wheelhouse(
+def _record_venv_rebuild_summary(
+    runtime_root: Path,
+    runtime_name: str,
+    label: str,
+    retry_count: int,
+    outcome: str,
+    failure_stage: str | None = None,
+) -> None:
+    payload = _read_install_summary(runtime_root)
+    rebuilds = payload.get("venv_rebuilds")
+    if not isinstance(rebuilds, dict):
+        rebuilds = {}
+    entry = {
+        "guard_label": label,
+        "retry_count": retry_count,
+        "outcome": outcome,
+        "updated_utc": _utc_now(),
+    }
+    if failure_stage is not None:
+        entry["failure_stage"] = failure_stage
+    rebuilds[runtime_name] = entry
+    payload["venv_rebuilds"] = rebuilds
+    _write_install_summary(runtime_root, payload)
+
+
+def _install_from_wheelhouse_once(
     label: str,
     layout: python_runtime_install.RuntimeLayout,
     venv_dir: Path,
     lock: Path,
     runtime_name: str,
-) -> Path | None:
-    if not _ensure_private_runtime_inputs(layout, lock):
-        return None
-
-    python_identity_hash = python_runtime_install.sha256_file(layout.runtime_manifest)
-    lockfile_sha256 = python_runtime_install.sha256_file(lock)
+    python_identity_hash: str,
+    lockfile_sha256: str,
+    *,
+    force_recreate: bool = False,
+) -> tuple[Path | None, str | None]:
     install_state = python_runtime_install.read_install_state(layout.install_state)
     if python_runtime_install.needs_venv_recreate(
         install_state,
         runtime_name,
         python_identity_hash,
         lockfile_sha256,
-    ):
+    ) or force_recreate:
         if venv_dir.exists():
             print(
                 f"Recreating {label} virtual environment because Python runtime "
                 "identity or lockfile changed..."
             )
             if not _remove_stale_venv(label, venv_dir):
-                return None
+                return None, "remove"
 
     venv_python = _create_venv(layout, venv_dir)
     if not venv_python:
-        return None
+        return None, "create"
 
     print(f"Upgrading pip bootstrap tools for {label} from bundled wheelhouse...")
     bootstrap_command = python_runtime_install.build_offline_pip_bootstrap_command(
@@ -293,12 +326,12 @@ def _install_from_wheelhouse(
     bootstrap_output = _combined_output(bootstrap_result)
     if bootstrap_result.returncode != 0:
         print(f"{label} bootstrap tool upgrade failed with exit code {bootstrap_result.returncode}")
-        return None
+        return None, "bootstrap"
     try:
         python_runtime_install.assert_local_wheelhouse_output(bootstrap_output)
     except ValueError as exc:
         print(f"{label} bootstrap failed release validation: {exc}")
-        return None
+        return None, "validation"
 
     print(
         f"Installing {label} from bundled wheelhouse into {venv_dir} "
@@ -317,11 +350,73 @@ def _install_from_wheelhouse(
     output = _combined_output(result)
     if result.returncode != 0:
         print(f"{label} install failed with exit code {result.returncode}")
-        return None
+        return None, "install"
     try:
         python_runtime_install.assert_local_wheelhouse_output(output)
     except ValueError as exc:
         print(f"{label} install failed release validation: {exc}")
+        return None, "validation"
+
+    return venv_python, None
+
+
+def _install_from_wheelhouse(
+    label: str,
+    layout: python_runtime_install.RuntimeLayout,
+    venv_dir: Path,
+    lock: Path,
+    runtime_name: str,
+) -> Path | None:
+    if not _ensure_private_runtime_inputs(layout, lock):
+        _record_venv_rebuild_summary(
+            layout.rook_root, runtime_name, label, 0, "failed", "inputs"
+        )
+        return None
+
+    python_identity_hash = python_runtime_install.sha256_file(layout.runtime_manifest)
+    lockfile_sha256 = python_runtime_install.sha256_file(lock)
+
+    retry_count = 0
+    with _make_rebuild_guard(label, layout.rook_root):
+        venv_python, failure_stage = _install_from_wheelhouse_once(
+            label,
+            layout,
+            venv_dir,
+            lock,
+            runtime_name,
+            python_identity_hash,
+            lockfile_sha256,
+        )
+
+    if failure_stage in {"remove", "create", "bootstrap", "install"}:
+        retry_count = 1
+        _INSTALL_LOGGER.warning(
+            "%s install failed at %s; retrying one full venv rebuild",
+            label,
+            failure_stage,
+        )
+        with _make_rebuild_guard(label, layout.rook_root):
+            venv_python, failure_stage = _install_from_wheelhouse_once(
+                label,
+                layout,
+                venv_dir,
+                lock,
+                runtime_name,
+                python_identity_hash,
+                lockfile_sha256,
+                force_recreate=True,
+            )
+
+    if not venv_python:
+        _INSTALL_LOGGER.error("%s install failed at %s", label, failure_stage)
+        _record_venv_rebuild_summary(
+            layout.rook_root,
+            runtime_name,
+            label,
+            retry_count,
+            "failed",
+            failure_stage,
+        )
         return None
 
     check = _run_install_command(
@@ -331,6 +426,14 @@ def _install_from_wheelhouse(
     )
     if check.returncode != 0:
         print(f"{label} pip check failed with exit code {check.returncode}")
+        _record_venv_rebuild_summary(
+            layout.rook_root,
+            runtime_name,
+            label,
+            retry_count,
+            "failed",
+            "pip-check",
+        )
         return None
 
     _record_install_state(
@@ -342,6 +445,9 @@ def _install_from_wheelhouse(
         python_identity_hash,
         lockfile_sha256,
         _combined_output(check),
+    )
+    _record_venv_rebuild_summary(
+        layout.rook_root, runtime_name, label, retry_count, "success"
     )
     print(f"{label} installed successfully in {venv_dir}.")
     return venv_python

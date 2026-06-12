@@ -730,3 +730,121 @@ def test_public_install_ignores_user_python_and_pip_contamination(
     assert "PIP_EXTRA_INDEX_URL" not in env
     assert "PYTHONPATH" not in env
     assert "PYTHONHOME" not in env
+
+
+def test_install_from_wheelhouse_uses_guard_and_retries_full_rebuild(
+    tmp_path: Path, monkeypatch
+) -> None:
+    runtime = load_runtime_install()
+    post_install = load_post_install()
+    layout = runtime.RuntimeLayout.from_rook_root(tmp_path / "Rook", "3.11.9")
+
+    layout.private_python.parent.mkdir(parents=True)
+    layout.private_python.write_text("private python", encoding="utf-8")
+    layout.wheelhouse.mkdir(parents=True)
+    layout.bootstrap_lock.parent.mkdir(parents=True, exist_ok=True)
+    layout.bootstrap_lock.write_text("pip==26.1.2 --hash=sha256:abc\n", encoding="utf-8")
+    layout.rook_lock.write_text("rook-mcp==1.5.10 --hash=sha256:def\n", encoding="utf-8")
+    layout.runtime_manifest.write_text('{"schema_version":1}', encoding="utf-8")
+    summary = layout.rook_root / "logs" / "post_install_summary.json"
+    summary.parent.mkdir(parents=True)
+    summary.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "phase_reached": "preflight",
+                "preflight": {"server_count": 5},
+            }
+        ),
+        encoding="utf-8",
+    )
+    stale_python = post_install.get_venv_python(layout.rook_venv)
+    stale_python.parent.mkdir(parents=True)
+    stale_python.write_text("stale", encoding="utf-8")
+
+    guard_events: list[str] = []
+
+    class FakeGuard:
+        def __init__(self, label, **kwargs):
+            self.label = label
+
+        def __enter__(self):
+            guard_events.append(f"enter:{self.label}")
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            guard_events.append(f"exit:{self.label}")
+            return False
+
+    monkeypatch.setattr(
+        post_install, "_make_rebuild_guard", lambda label, runtime_root: FakeGuard(label)
+    )
+
+    attempts = {"install": 0}
+
+    def fake_run(command, *, env, timeout=post_install.INSTALL_COMMAND_TIMEOUT_SECONDS):
+        if command[:3] == [str(layout.private_python), "-m", "venv"]:
+            created_python = post_install.get_venv_python(Path(command[3]))
+            created_python.parent.mkdir(parents=True, exist_ok=True)
+            created_python.write_text("fresh", encoding="utf-8")
+        if (
+            "-m" in command
+            and "pip" in command
+            and "install" in command
+            and str(layout.rook_lock) in command
+        ):
+            attempts["install"] += 1
+            if attempts["install"] == 1:
+                return subprocess.CompletedProcess(
+                    command, 1, stdout="", stderr="access denied"
+                )
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout="Looking in links: C:/Rook/app/python-wheelhouse\nNo broken requirements found.",
+            stderr="",
+        )
+
+    monkeypatch.setattr(post_install, "_run_install_command", fake_run)
+
+    venv_python = post_install._install_from_wheelhouse(
+        "rook-mcp",
+        layout,
+        layout.rook_venv,
+        layout.rook_lock,
+        "rook",
+    )
+
+    assert venv_python == stale_python
+    assert attempts["install"] == 2
+    assert guard_events == [
+        "enter:rook-mcp",
+        "exit:rook-mcp",
+        "enter:rook-mcp",
+        "exit:rook-mcp",
+    ]
+    payload = json.loads(summary.read_text(encoding="utf-8"))
+    assert payload["preflight"]["server_count"] == 5
+    assert payload["venv_rebuilds"]["rook"]["guard_label"] == "rook-mcp"
+    assert payload["venv_rebuilds"]["rook"]["retry_count"] == 1
+    assert payload["venv_rebuilds"]["rook"]["outcome"] == "success"
+
+
+def test_chirp_install_uses_separate_guard_window(
+    tmp_path: Path, monkeypatch
+) -> None:
+    post_install = load_post_install()
+    runtime_root = tmp_path / "Rook"
+    chirp_dir = runtime_root / "app" / "chirp"
+    chirp_dir.mkdir(parents=True)
+    labels: list[str] = []
+
+    monkeypatch.setattr(
+        post_install,
+        "_install_from_wheelhouse",
+        lambda label, layout, venv_dir, lock, runtime_name: labels.append(label)
+        or (venv_dir / "Scripts" / "python.exe"),
+    )
+
+    assert post_install.install_chirp(chirp_dir, runtime_root) is True
+    assert labels == ["Chirp"]
