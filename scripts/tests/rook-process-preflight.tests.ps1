@@ -161,6 +161,27 @@ function Test-ProcessEnumerationUsesTerminatingCimErrors {
     Assert-True ($source -match 'Get-CimInstance\s+Win32_Process\s+-ErrorAction\s+Stop') 'Get-ProcessSnapshot must use -ErrorAction Stop so Win32_Process enumeration failures are terminating.'
 }
 
+function Test-ProcessIdentityKeyDistinguishesSamePidWithinSameSecond {
+    Import-HelperFunctionsForUnitTest
+
+    $targetPid = 41000
+    $firstCreated = [DateTime]::new(2026, 1, 1, 12, 0, 0, 123, [DateTimeKind]::Utc)
+    $secondCreated = $firstCreated.AddMilliseconds(456)
+    $firstProcess = [pscustomobject]@{
+        ProcessId = $targetPid
+        CreationDateUtc = $firstCreated
+        CreationDateText = Format-UtcTimestamp $firstCreated
+    }
+    $secondProcess = [pscustomobject]@{
+        ProcessId = $targetPid
+        CreationDateUtc = $secondCreated
+        CreationDateText = Format-UtcTimestamp $secondCreated
+    }
+
+    Assert-Equals $firstProcess.CreationDateText $secondProcess.CreationDateText 'Test setup must use the same whole-second display timestamp.'
+    Assert-True ((Get-ProcessIdentityKey $firstProcess) -ne (Get-ProcessIdentityKey $secondProcess)) 'Internal identity keys must preserve sub-second CreationDateUtc precision.'
+}
+
 function Test-CloseModeSkipsStopWhenPidIdentityChangesBeforeStop {
     Import-HelperFunctionsForUnitTest
 
@@ -321,7 +342,102 @@ function Test-CloseModeReturnsCloseFailureWhenSuccessfulStopLeavesSameProcessAli
 
         Assert-Equals $code 30 ("Close mode must return close failure when successful Stop-Process calls leave the same process alive. Logs: {0}" -f ($script:CloseFailureLogMessages -join '; '))
         Assert-Equals $script:SavedSummary.outcome 'preflight-close-failed' 'Persistent processes after successful stop attempts must be summarized as close failures.'
+        Assert-Equals $script:SavedSummary.closed_process_count 0 'Repeated successful Stop-Process calls must not inflate closed_process_count while the same identity remains live.'
         Assert-Equals $script:StopCallCount 3 'Close mode must bound successful stop attempts before classifying a persistent process as failed.'
+    }
+    finally {
+        Remove-TestRoot $root
+    }
+}
+
+function Test-CloseModeSavesClosedOutcomeWhenFailedStopIdentityGoneAtFinalCheck {
+    Import-HelperFunctionsForUnitTest
+
+    $root = New-TestRoot
+    try {
+        $targetPid = 46000
+        $created = [DateTime]::UtcNow.AddSeconds(-10)
+        $rootProcess = [pscustomobject]@{
+            ProcessId = $targetPid
+            ParentProcessId = 4
+            ExecutablePath = (Join-Path $root 'rook-agent.exe')
+            CommandLine = ''
+            CreationDateUtc = $created
+            CreationDateText = Format-UtcTimestamp $created
+            IsMatched = $true
+        }
+
+        $script:RookRootPrefix = Normalize-PathPrefix $root
+        $script:RunStartUtc = Format-UtcTimestamp ([DateTime]::UtcNow)
+        $script:SetupVersion = 'test'
+        $script:ExitQuiet = 0
+        $script:ExitNotQuiet = 10
+        $script:ExitEnumerationFailure = 20
+        $script:ExitCloseFailure = 30
+        $script:ExitHelperError = 40
+        $script:MismatchSnapshotCallCount = 0
+        $script:MismatchFinalCheckReached = $false
+        $script:MismatchStopCallCount = 0
+        $script:MismatchRootProcess = $rootProcess
+        $script:MismatchRootPid = $targetPid
+        $script:MismatchRootCreated = $created
+        $script:SavedSummary = $null
+        $script:MismatchLogMessages = @()
+
+        function script:Get-ProcessSnapshot {
+            $script:MismatchSnapshotCallCount++
+            if ($script:MismatchSnapshotCallCount -le 3) {
+                return @($script:MismatchRootProcess)
+            }
+            $script:MismatchFinalCheckReached = $true
+            return @()
+        }
+
+        function script:Get-CimInstance {
+            param($ClassName, [string]$Filter, $ErrorAction)
+            if ($script:MismatchFinalCheckReached) {
+                return $null
+            }
+            return [pscustomobject]@{
+                ProcessId = $script:MismatchRootPid
+                CreationDate = [System.Management.ManagementDateTimeConverter]::ToDmtfDateTime($script:MismatchRootCreated)
+            }
+        }
+
+        function script:Stop-Process {
+            param([int]$Id, [switch]$Force, $ErrorAction)
+            $script:MismatchStopCallCount++
+            throw 'simulated close failure before final exit'
+        }
+
+        function script:Get-Process {
+            param([int]$Id, $ErrorAction)
+            return $null
+        }
+
+        function script:Start-Sleep {
+            param([int]$Milliseconds)
+        }
+
+        function script:Save-Summary {
+            param([object]$Summary)
+            $script:SavedSummary = $Summary
+        }
+
+        function script:Write-InnoSummary {
+            param([object]$Preflight)
+        }
+
+        function script:Log-Line {
+            param([string]$Message)
+            $script:MismatchLogMessages += $Message
+        }
+
+        $code = Invoke-CloseMode
+
+        Assert-Equals $code 0 ("Close mode must return quiet when failed stop identities are gone at final check. Logs: {0}" -f ($script:MismatchLogMessages -join '; '))
+        Assert-Equals $script:SavedSummary.outcome 'preflight-closed' 'Saved summary outcome must match the quiet close return path.'
+        Assert-Equals $script:MismatchStopCallCount 3 'Test setup must exhaust the stop attempts before the final quiet check.'
     }
     finally {
         Remove-TestRoot $root
@@ -626,8 +742,10 @@ Test-RecordOutcomeCancelledUsesStableSummary
 Test-CloseModeFailsQuietlyWhenNothingMatches
 Test-PreBundledDescendantTreeCloseKillsOutOfBoundaryChild
 Test-InvalidModeReturnsHelperMisuseExitCode
+Test-ProcessIdentityKeyDistinguishesSamePidWithinSameSecond
 Test-CloseModeSkipsStopWhenPidIdentityChangesBeforeStop
 Test-CloseModeReturnsCloseFailureWhenSuccessfulStopLeavesSameProcessAlive
+Test-CloseModeSavesClosedOutcomeWhenFailedStopIdentityGoneAtFinalCheck
 Test-CloseModeReturnsCloseFailureWhenSuccessfulDescendantStopLeavesSameProcessAliveAfterRootGone
 Test-CloseModeReturnsCloseFailureWhenFailedDescendantRemainsAfterRootGone
 Write-Host 'rook-process-preflight.tests.ps1 PASS'
