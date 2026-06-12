@@ -104,7 +104,7 @@ def _read_install_summary(runtime_root: Path) -> dict:
 
 
 def _write_install_summary(runtime_root: Path, payload: dict) -> None:
-    payload = {"schema_version": 1, **payload}
+    payload = {**payload, "schema_version": 1}
     path = _summary_path(runtime_root)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")

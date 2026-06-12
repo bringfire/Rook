@@ -204,6 +204,32 @@ def test_post_install_extends_seeded_summary(tmp_path: Path) -> None:
     assert payload["final_outcome"] == "running"
 
 
+def test_post_install_summary_schema_version_is_pinned_to_one(tmp_path: Path) -> None:
+    post_install = load_post_install()
+    runtime_root = tmp_path / "Rook"
+    logs = runtime_root / "logs"
+    logs.mkdir(parents=True)
+    summary = logs / "post_install_summary.json"
+    summary.write_text(
+        json.dumps(
+            {
+                "schema_version": 99,
+                "phase_reached": "preflight",
+                "preflight": {"server_count": 5},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    post_install._update_install_summary(runtime_root, final_outcome="running")
+
+    payload = json.loads(summary.read_text(encoding="utf-8"))
+    assert payload["schema_version"] == 1
+    assert payload["phase_reached"] == "preflight"
+    assert payload["preflight"]["server_count"] == 5
+    assert payload["final_outcome"] == "running"
+
+
 def test_last_gasp_handler_writes_traceback(tmp_path: Path, monkeypatch) -> None:
     post_install = load_post_install()
     runtime_root = tmp_path / "Rook"
