@@ -176,6 +176,51 @@ def test_install_state_has_schema_version(tmp_path: Path) -> None:
     assert payload["python"]["path"].endswith("python.exe")
 
 
+def test_post_install_extends_seeded_summary(tmp_path: Path) -> None:
+    post_install = load_post_install()
+    runtime_root = tmp_path / "Rook"
+    logs = runtime_root / "logs"
+    logs.mkdir(parents=True)
+    summary = logs / "post_install_summary.json"
+    summary.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "phase_reached": "preflight",
+                "preflight": {"server_count": 5, "owners": ["Claude", "Codex"]},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    post_install._configure_install_logging(runtime_root)
+    post_install._update_install_summary(
+        runtime_root, phase_reached="finalizer-started", final_outcome="running"
+    )
+
+    payload = json.loads(summary.read_text(encoding="utf-8"))
+    assert payload["preflight"]["server_count"] == 5
+    assert payload["phase_reached"] == "finalizer-started"
+    assert payload["final_outcome"] == "running"
+
+
+def test_last_gasp_handler_writes_traceback(tmp_path: Path, monkeypatch) -> None:
+    post_install = load_post_install()
+    runtime_root = tmp_path / "Rook"
+
+    def boom() -> int:
+        raise RuntimeError("forced install failure")
+
+    monkeypatch.setattr(post_install, "main", boom)
+
+    result = post_install._run_with_last_gasp(runtime_root=runtime_root)
+
+    assert result == 1
+    log = (runtime_root / "logs" / "post_install.log").read_text(encoding="utf-8")
+    assert "forced install failure" in log
+    assert "Traceback" in log
+
+
 def test_post_install_recreates_stale_venv_and_writes_install_state(
     tmp_path: Path, monkeypatch
 ) -> None:

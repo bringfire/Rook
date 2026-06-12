@@ -124,6 +124,13 @@ def test_no_encodingless_text_io_in_post_install():
     assert not violations, "encoding-less text IO found:\n" + "\n".join(violations)
 
 
+def test_post_install_summary_and_log_paths_use_utf8_source_pin():
+    raw = POST_INSTALL.read_text(encoding="utf-8")
+    assert 'encoding="utf-8"' in raw
+    assert "post_install_summary.json" in raw
+    assert "post_install.log" in raw
+
+
 def test_consume_doctor_payload_warning_severity_does_not_fail_validation():
     """Warning-severity doctor failures become installer warnings, never
     fatal checks; error-severity failures still fail validation."""

@@ -15,12 +15,15 @@ Uses only stdlib so it can run before dependencies are installed.
 
 import argparse
 import json
+import logging
 import os
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
+import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -30,6 +33,9 @@ import python_runtime_install
 MANAGED_COMPANION_RUNTIMES = ("net8.0", "net7.0", "net48")
 PRIVATE_PYTHON_VERSION = "3.11.9"
 INSTALL_COMMAND_TIMEOUT_SECONDS = 1800
+_INSTALL_LOGGER = logging.getLogger("rook.post_install")
+_INSTALL_LOGGING_CONFIGURED = False
+_INSTALL_LOG_PATH: Path | None = None
 
 
 def _codex_on_path() -> bool:
@@ -55,6 +61,61 @@ def get_runtime_paths(runtime_root: Path) -> tuple[Path, Path, Path]:
     return runtime_root / "venv", runtime_root / "data", runtime_root / "logs"
 
 
+def _summary_path(runtime_root: Path) -> Path:
+    return runtime_root / "logs" / "post_install_summary.json"
+
+
+def _post_install_log_path(runtime_root: Path) -> Path:
+    return runtime_root / "logs" / "post_install.log"
+
+
+def _configure_install_logging(runtime_root: Path) -> None:
+    global _INSTALL_LOGGING_CONFIGURED, _INSTALL_LOG_PATH
+    log_path = _post_install_log_path(runtime_root)
+    if _INSTALL_LOGGING_CONFIGURED and _INSTALL_LOG_PATH == log_path:
+        return
+
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    for existing in list(_INSTALL_LOGGER.handlers):
+        _INSTALL_LOGGER.removeHandler(existing)
+        existing.close()
+
+    handler = logging.FileHandler(log_path, mode="a", encoding="utf-8")
+    formatter = logging.Formatter("%(asctime)sZ %(levelname)s %(message)s")
+    formatter.converter = time.gmtime
+    handler.setFormatter(formatter)
+    _INSTALL_LOGGER.setLevel(logging.INFO)
+    _INSTALL_LOGGER.addHandler(handler)
+    _INSTALL_LOGGER.propagate = False
+    _INSTALL_LOGGING_CONFIGURED = True
+    _INSTALL_LOG_PATH = log_path
+    _INSTALL_LOGGER.info("post_install logging configured")
+
+
+def _read_install_summary(runtime_root: Path) -> dict:
+    path = _summary_path(runtime_root)
+    if not path.exists():
+        return {"schema_version": 1}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"schema_version": 1}
+    return payload if isinstance(payload, dict) else {"schema_version": 1}
+
+
+def _write_install_summary(runtime_root: Path, payload: dict) -> None:
+    payload = {"schema_version": 1, **payload}
+    path = _summary_path(runtime_root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def _update_install_summary(runtime_root: Path, **updates) -> None:
+    payload = _read_install_summary(runtime_root)
+    payload.update({key: value for key, value in updates.items() if value is not None})
+    _write_install_summary(runtime_root, payload)
+
+
 def get_venv_python(venv_dir: Path) -> Path:
     if os.name == "nt":
         return venv_dir / "Scripts" / "python.exe"
@@ -71,7 +132,9 @@ def _run_install_command(
     env: dict[str, str],
     timeout: int = INSTALL_COMMAND_TIMEOUT_SECONDS,
 ) -> subprocess.CompletedProcess[str]:
-    print(f"Running: {' '.join(command)}")
+    command_text = " ".join(command)
+    print(f"Running: {command_text}")
+    _INSTALL_LOGGER.info("Running: %s", command_text)
     result = subprocess.run(
         command,
         capture_output=True,
@@ -81,8 +144,10 @@ def _run_install_command(
     )
     if result.stdout:
         print(result.stdout)
+        _INSTALL_LOGGER.info("stdout:\n%s", result.stdout)
     if result.stderr:
         print(result.stderr)
+        _INSTALL_LOGGER.info("stderr:\n%s", result.stderr)
     return result
 
 
@@ -911,6 +976,10 @@ def main() -> int:
     mcp_server_dir = Path(args.mcp_server_dir)
     runtime_root = get_runtime_root(args.runtime_root)
     chirp_dir = Path(args.chirp_dir) if args.chirp_dir else None
+    _configure_install_logging(runtime_root)
+    _update_install_summary(
+        runtime_root, phase_reached="finalizer-started", final_outcome="running"
+    )
 
     print("=" * 50)
     print("Rook Post-Install Setup")
@@ -1003,5 +1072,21 @@ def main() -> int:
     return 0
 
 
+def _run_with_last_gasp(runtime_root: Path | None = None) -> int:
+    root = runtime_root or get_runtime_root()
+    try:
+        _configure_install_logging(root)
+        return main()
+    except SystemExit:
+        raise
+    except Exception:
+        _configure_install_logging(root)
+        _INSTALL_LOGGER.error("post_install crashed:\n%s", traceback.format_exc())
+        _update_install_summary(
+            root, phase_reached="finalizer-crashed", final_outcome="failed"
+        )
+        return 1
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(_run_with_last_gasp())
