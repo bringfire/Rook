@@ -421,9 +421,14 @@ function Add-FailedCloseRecord([hashtable]$FailedCloseRecords, [object]$Process)
     $FailedCloseRecords[(Get-ProcessIdentityKey $record)] = $record
 }
 
-function Get-LiveFailedCloseRecords([hashtable]$FailedCloseRecords) {
+function Add-AttemptedCloseRecord([hashtable]$AttemptedCloseRecords, [object]$Process) {
+    $record = New-FailedCloseRecord $Process
+    $AttemptedCloseRecords[(Get-ProcessIdentityKey $record)] = $record
+}
+
+function Get-LiveCloseRecords([hashtable]$CloseRecords) {
     $liveRecords = @()
-    foreach ($record in $FailedCloseRecords.Values) {
+    foreach ($record in $CloseRecords.Values) {
         try {
             if (Test-LiveProcessIdentityMatches $record) {
                 $liveRecords += $record
@@ -435,6 +440,14 @@ function Get-LiveFailedCloseRecords([hashtable]$FailedCloseRecords) {
         }
     }
     return @($liveRecords | Sort-Object -Property ProcessId, CreationDateText)
+}
+
+function Get-LiveFailedCloseRecords([hashtable]$FailedCloseRecords) {
+    return @(Get-LiveCloseRecords -CloseRecords $FailedCloseRecords)
+}
+
+function Get-LiveAttemptedCloseRecords([hashtable]$AttemptedCloseRecords) {
+    return @(Get-LiveCloseRecords -CloseRecords $AttemptedCloseRecords)
 }
 
 function Format-ProcessIdentities([object[]]$Records) {
@@ -455,6 +468,7 @@ function Invoke-CloseMode {
 
     $attemptsByIdentity = @{}
     $failedCloseRecords = @{}
+    $attemptedCloseRecords = @{}
     $closedProcessCount = 0
     $closeFailed = $false
     $lastPreflight = New-EmptyPreflightSummary
@@ -473,11 +487,12 @@ function Invoke-CloseMode {
         $lastPreflight = New-PreflightSummary -Roots $roots -ByPid $indexes.ByPid
         if ($roots.Count -eq 0) {
             $liveFailedCloseRecords = @(Get-LiveFailedCloseRecords -FailedCloseRecords $failedCloseRecords)
-            if ($liveFailedCloseRecords.Count -gt 0) {
+            $liveAttemptedCloseRecords = @(Get-LiveAttemptedCloseRecords -AttemptedCloseRecords $attemptedCloseRecords)
+            if ($liveFailedCloseRecords.Count -gt 0 -or $liveAttemptedCloseRecords.Count -gt 0) {
                 $summary = New-RunSummary -Preflight $lastPreflight -ClosedProcessCount $closedProcessCount -RunOutcome 'preflight-close-failed'
                 Save-Summary $summary
                 Write-InnoSummary $lastPreflight
-                Log-Line ("close_failed remaining_failed_processes={0} closed_process_count={1}" -f (Format-ProcessIdentities $liveFailedCloseRecords), $closedProcessCount)
+                Log-Line ("close_failed remaining_failed_processes={0} closed_process_count={1}" -f (Format-ProcessIdentities $liveAttemptedCloseRecords), $closedProcessCount)
                 return $ExitCloseFailure
             }
             $summary = New-RunSummary -Preflight $lastPreflight -ClosedProcessCount $closedProcessCount -RunOutcome 'preflight-closed'
@@ -510,6 +525,7 @@ function Invoke-CloseMode {
                 continue
             }
 
+            Add-AttemptedCloseRecord -AttemptedCloseRecords $attemptedCloseRecords -Process $target.Process
             try {
                 Stop-Process -Id $processId -Force -ErrorAction Stop
                 $closedProcessCount++
@@ -561,7 +577,8 @@ function Invoke-CloseMode {
         }
     }
     $liveFailedCloseRecords = @(Get-LiveFailedCloseRecords -FailedCloseRecords $failedCloseRecords)
-    $closeFailed = $closeFailed -or ($liveFailedCloseRecords.Count -gt 0)
+    $liveAttemptedCloseRecords = @(Get-LiveAttemptedCloseRecords -AttemptedCloseRecords $attemptedCloseRecords)
+    $closeFailed = $closeFailed -or ($liveFailedCloseRecords.Count -gt 0) -or ($liveAttemptedCloseRecords.Count -gt 0)
     $runOutcome = 'preflight-not-quiet'
     if ($closeFailed) {
         $runOutcome = 'preflight-close-failed'
@@ -574,16 +591,16 @@ function Invoke-CloseMode {
     Write-InnoSummary $lastPreflight
 
     if ($roots.Count -eq 0) {
-        if ($liveFailedCloseRecords.Count -gt 0) {
-            Log-Line ("close_failed remaining_failed_processes={0} closed_process_count={1}" -f (Format-ProcessIdentities $liveFailedCloseRecords), $closedProcessCount)
+        if ($liveFailedCloseRecords.Count -gt 0 -or $liveAttemptedCloseRecords.Count -gt 0) {
+            Log-Line ("close_failed remaining_failed_processes={0} closed_process_count={1}" -f (Format-ProcessIdentities $liveAttemptedCloseRecords), $closedProcessCount)
             return $ExitCloseFailure
         }
         Log-Line ("close_complete closed_process_count={0}" -f $closedProcessCount)
         return $ExitQuiet
     }
 
-    if ($liveFailedCloseRecords.Count -gt 0) {
-        Log-Line ("close_failed remaining_failed_processes={0} remaining_server_count={1} closed_process_count={2}" -f (Format-ProcessIdentities $liveFailedCloseRecords), $roots.Count, $closedProcessCount)
+    if ($liveFailedCloseRecords.Count -gt 0 -or $liveAttemptedCloseRecords.Count -gt 0) {
+        Log-Line ("close_failed remaining_failed_processes={0} remaining_server_count={1} closed_process_count={2}" -f (Format-ProcessIdentities $liveAttemptedCloseRecords), $roots.Count, $closedProcessCount)
         return $ExitCloseFailure
     }
     if ($closeFailed) {

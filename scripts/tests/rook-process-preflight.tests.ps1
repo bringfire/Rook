@@ -328,6 +328,124 @@ function Test-CloseModeReturnsCloseFailureWhenSuccessfulStopLeavesSameProcessAli
     }
 }
 
+function Test-CloseModeReturnsCloseFailureWhenSuccessfulDescendantStopLeavesSameProcessAliveAfterRootGone {
+    Import-HelperFunctionsForUnitTest
+
+    $root = New-TestRoot
+    try {
+        $childPid = 45001
+        $rootPid = 45000
+        $rootCreated = [DateTime]::UtcNow.AddSeconds(-2)
+        $childCreated = [DateTime]::UtcNow.AddSeconds(-1)
+        $rootProcess = [pscustomobject]@{
+            ProcessId = $rootPid
+            ParentProcessId = 4
+            ExecutablePath = (Join-Path $root 'rook-agent.exe')
+            CommandLine = ''
+            CreationDateUtc = $rootCreated
+            CreationDateText = Format-UtcTimestamp $rootCreated
+            IsMatched = $true
+        }
+        $childProcess = [pscustomobject]@{
+            ProcessId = $childPid
+            ParentProcessId = $rootPid
+            ExecutablePath = 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe'
+            CommandLine = ''
+            CreationDateUtc = $childCreated
+            CreationDateText = Format-UtcTimestamp $childCreated
+            IsMatched = $false
+        }
+
+        $script:RookRootPrefix = Normalize-PathPrefix $root
+        $script:RunStartUtc = Format-UtcTimestamp ([DateTime]::UtcNow)
+        $script:SetupVersion = 'test'
+        $script:ExitQuiet = 0
+        $script:ExitNotQuiet = 10
+        $script:ExitEnumerationFailure = 20
+        $script:ExitCloseFailure = 30
+        $script:ExitHelperError = 40
+        $script:SnapshotCallCount = 0
+        $script:SavedSummary = $null
+        $script:CloseFailureLogMessages = @()
+        $script:NoOpRootProcess = $rootProcess
+        $script:NoOpChildProcess = $childProcess
+        $script:NoOpRootPid = $rootPid
+        $script:NoOpChildPid = $childPid
+        $script:NoOpRootCreated = $rootCreated
+        $script:NoOpChildCreated = $childCreated
+        $script:NoOpRootGone = $false
+        $script:NoOpStopCallIds = @()
+
+        function script:Get-ProcessSnapshot {
+            $script:SnapshotCallCount++
+            if ($script:SnapshotCallCount -eq 1) {
+                return @($script:NoOpRootProcess, $script:NoOpChildProcess)
+            }
+            return @($script:NoOpChildProcess)
+        }
+
+        function script:Get-CimInstance {
+            param($ClassName, [string]$Filter, $ErrorAction)
+            if ($Filter -match ("ProcessId\s*=\s*{0}" -f $script:NoOpRootPid)) {
+                if ($script:NoOpRootGone) {
+                    return $null
+                }
+                return [pscustomobject]@{
+                    ProcessId = $script:NoOpRootPid
+                    CreationDate = [System.Management.ManagementDateTimeConverter]::ToDmtfDateTime($script:NoOpRootCreated)
+                }
+            }
+            return [pscustomobject]@{
+                ProcessId = $script:NoOpChildPid
+                CreationDate = [System.Management.ManagementDateTimeConverter]::ToDmtfDateTime($script:NoOpChildCreated)
+            }
+        }
+
+        function script:Stop-Process {
+            param([int]$Id, [switch]$Force, $ErrorAction)
+            $script:NoOpStopCallIds += $Id
+            if ($Id -eq $script:NoOpRootPid) {
+                $script:NoOpRootGone = $true
+            }
+        }
+
+        function script:Get-Process {
+            param([int]$Id, $ErrorAction)
+            if ($Id -eq $script:NoOpChildPid) {
+                return [pscustomobject]@{ Id = $script:NoOpChildPid }
+            }
+            return $null
+        }
+
+        function script:Start-Sleep {
+            param([int]$Milliseconds)
+        }
+
+        function script:Save-Summary {
+            param([object]$Summary)
+            $script:SavedSummary = $Summary
+        }
+
+        function script:Write-InnoSummary {
+            param([object]$Preflight)
+        }
+
+        function script:Log-Line {
+            param([string]$Message)
+            $script:CloseFailureLogMessages += $Message
+        }
+
+        $code = Invoke-CloseMode
+
+        Assert-Equals $code 30 ("Close mode must return close failure when a successful out-of-boundary descendant stop leaves the same process alive after matched roots are gone. Logs: {0}" -f ($script:CloseFailureLogMessages -join '; '))
+        Assert-Equals $script:SavedSummary.outcome 'preflight-close-failed' 'Attempted descendant identities that remain alive must be summarized as close failures even after matched roots disappear.'
+        Assert-True ($script:NoOpStopCallIds -contains $script:NoOpChildPid) 'Test setup must attempt to close the out-of-boundary descendant.'
+    }
+    finally {
+        Remove-TestRoot $root
+    }
+}
+
 function Test-CloseModeReturnsCloseFailureWhenFailedDescendantRemainsAfterRootGone {
     Import-HelperFunctionsForUnitTest
 
@@ -510,5 +628,6 @@ Test-PreBundledDescendantTreeCloseKillsOutOfBoundaryChild
 Test-InvalidModeReturnsHelperMisuseExitCode
 Test-CloseModeSkipsStopWhenPidIdentityChangesBeforeStop
 Test-CloseModeReturnsCloseFailureWhenSuccessfulStopLeavesSameProcessAlive
+Test-CloseModeReturnsCloseFailureWhenSuccessfulDescendantStopLeavesSameProcessAliveAfterRootGone
 Test-CloseModeReturnsCloseFailureWhenFailedDescendantRemainsAfterRootGone
 Write-Host 'rook-process-preflight.tests.ps1 PASS'
