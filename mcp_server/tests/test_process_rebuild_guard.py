@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import time
 from pathlib import Path
 
 
@@ -108,6 +109,93 @@ def test_rebuild_guard_stands_down_after_success():
     guard_instance.sweep_once()
     assert events == ["rook-mcp:[10]"]
     assert provider.calls == 1
+
+
+def test_rebuild_guard_continues_after_transient_sweep_exception():
+    guard = load_guard()
+    events: list[list[int]] = []
+
+    class FlakyProvider:
+        def __init__(self):
+            self.calls = 0
+
+        def snapshot(self):
+            self.calls += 1
+            if self.calls == 1:
+                return []
+            if self.calls == 2:
+                raise RuntimeError("snapshot hiccup")
+            return [proc(guard, 10, 900, r"C:\Rook\venv\Scripts\python.exe", 10.0)]
+
+    class FakeTerminator:
+        def close_processes(self, label, processes):
+            del label
+            events.append([p.pid for p in processes])
+            guard_instance._stopped.set()
+            return guard.CloseResult(
+                ok=True,
+                closed_pids=[p.pid for p in processes],
+                failures=[],
+            )
+
+    provider = FlakyProvider()
+    guard_instance = guard.RebuildGuard(
+        label="rook-mcp",
+        rook_root=r"C:\Rook",
+        snapshot_provider=provider,
+        terminator=FakeTerminator(),
+        current_pid=999,
+        sweep_interval_seconds=0.01,
+        run_background=True,
+    )
+
+    with guard_instance:
+        deadline = time.monotonic() + 1.0
+        while not events and time.monotonic() < deadline:
+            time.sleep(0.01)
+
+    assert events == [[10]]
+    assert guard_instance.thread_died_unexpectedly is False
+    assert "snapshot hiccup" in "\n".join(guard_instance.close_failures)
+
+
+def test_rebuild_guard_caps_repeated_close_attempts_per_identity():
+    guard = load_guard()
+    attempts: list[list[int]] = []
+
+    class SameProcessProvider:
+        def snapshot(self):
+            return [proc(guard, 10, 900, r"C:\Rook\venv\Scripts\python.exe", 10.0)]
+
+    class FailingTerminator:
+        def close_processes(self, label, processes):
+            attempts.append([p.pid for p in processes])
+            return guard.CloseResult(
+                ok=False,
+                closed_pids=[],
+                failures=[
+                    f"{label}: failed to terminate pid {processes[0].pid} "
+                    f"({processes[0].image_path}); Win32 error 5"
+                ],
+            )
+
+    guard_instance = guard.RebuildGuard(
+        label="rook-mcp",
+        rook_root=r"C:\Rook",
+        snapshot_provider=SameProcessProvider(),
+        terminator=FailingTerminator(),
+        current_pid=999,
+        sweep_interval_seconds=0,
+        run_background=False,
+    )
+
+    for _ in range(5):
+        guard_instance.sweep_once()
+
+    assert attempts == [[10], [10], [10]]
+    assert guard_instance.close_failures == [
+        r"rook-mcp: failed to terminate pid 10 (C:\Rook\venv\Scripts\python.exe); Win32 error 5"
+    ]
 
 
 def test_rebuild_guard_defaults_to_windows_dependencies(monkeypatch):

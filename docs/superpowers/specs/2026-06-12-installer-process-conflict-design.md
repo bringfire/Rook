@@ -255,7 +255,7 @@ Example wording:
 Rook Setup found 5 running Rook agent server(s) started by Claude and Codex.
 
 Setup will close them now so Rook can be updated. Your AI tools will reconnect
-after installation.
+automatically or on your next request.
 ```
 
 Use "close", not "kill" or "terminate". In silent and very-silent installs,
@@ -289,7 +289,8 @@ Guard contract:
 - log every sweep and close attempt;
 - cap close attempts per PID, around three attempts;
 - log sweep exceptions and continue where possible;
-- a dead guard thread while the mutation is active is a fail-loud condition;
+- a dead guard thread or close failure during an otherwise successful rebuild is
+  promoted to a top-level summary warning, not a retroactive install failure;
 - on venv/pip failure while guarded, sweep once more, perform one full rebuild
   retry from delete -> create -> pip, then fail loud if the retry fails;
 - never resume pip into a half-written venv.
@@ -434,7 +435,7 @@ Live installer smoke before PR open:
 - verify `post_install_summary.json` parses and records counts/owners/outcome;
 - verify Rook and Chirp venv rebuilds succeed as applicable;
 - verify child manifests are byte-identical to root;
-- verify clients reconnect after installation.
+- verify clients reconnect automatically or on the next request.
 
 Silent smoke:
 

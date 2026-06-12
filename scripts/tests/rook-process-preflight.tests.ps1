@@ -571,6 +571,25 @@ function Test-PreflightSummaryCollapsesMatchedChildrenAndReportsOwners {
     }
 }
 
+function Test-PreflightMessageUsesCountOnlyWhenOwnersAreUnknown {
+    Import-HelperFunctionsForUnitTest
+
+    $message = New-PreflightMessage -ServerCount 1 -Owners @('Unknown')
+
+    Assert-True ($message.Contains('Rook Setup found 1 running Rook agent server(s).')) 'Unresolved owners must use count-only dialog wording.'
+    Assert-True (-not $message.Contains('started by Unknown')) 'Unresolved owners must not render "started by Unknown".'
+    Assert-True ($message.Contains('reconnect automatically or on your next request')) 'Reconnect wording must match observed client behavior.'
+}
+
+function Test-PreflightMessageNamesResolvedOwners {
+    Import-HelperFunctionsForUnitTest
+
+    $message = New-PreflightMessage -ServerCount 2 -Owners @('Claude', 'Codex')
+
+    Assert-True ($message.Contains('started by Claude and Codex')) 'Resolved owners must still be named in the dialog.'
+    Assert-True ($message.Contains('reconnect automatically or on your next request')) 'Reconnect wording must match observed client behavior.'
+}
+
 function Test-EnumerateModeReturnsEnumerationFailureExitCodeWhenCimEnumerationFails {
     Import-HelperFunctionsForUnitTest
 
@@ -1571,6 +1590,8 @@ Test-InvalidModeReturnsHelperMisuseExitCode
 Test-EnumerateModeReturnsNotQuietExitCodeWhenConflictFound
 Test-EnumerateModeReturnsEnumerationFailureExitCodeWhenCimEnumerationFails
 Test-PreflightSummaryCollapsesMatchedChildrenAndReportsOwners
+Test-PreflightMessageUsesCountOnlyWhenOwnersAreUnknown
+Test-PreflightMessageNamesResolvedOwners
 Test-ProcessIdentityKeyDistinguishesSamePidWithinSameSecond
 Test-LiveProcessIdentityRejectsSamePidWithinSameSecondDifferentFileTime
 Test-LiveProcessIdentityRejectsMissingCreationDateWithoutPidFallback

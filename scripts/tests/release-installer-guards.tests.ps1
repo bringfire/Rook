@@ -610,6 +610,8 @@ function Test-InstallerUsesRookProcessPreflight {
     Assert-Contains -Text $content -Expected 'RookPreflightResweepEnabled := False;' -Message 'Installer must disable [Files] re-sweeps before post-install finalization starts.'
     Assert-NotContains -Text $content -Unexpected 'RunRookPreflightHelperNoWait' -Message '[Files] re-sweeps must not launch PowerShell asynchronously because it can overlap ssPostInstall.'
     Assert-NotContains -Text $content -Unexpected 'ewNoWait' -Message '[Files] re-sweeps must wait for the helper to exit before Inno can enter ssPostInstall.'
+    Assert-Contains -Text $content -Expected 'Rook process preflight re-sweep exit code' -Message '[Files] re-sweeps must log the helper exit code for installer forensics.'
+    Assert-Contains -Text $content -Expected 'IntToStr(ResultCode)' -Message '[Files] re-sweeps must include the helper exit code value in the Inno log.'
     Assert-Contains -Text $content -Expected 'Rook agent server' -Message 'Consent dialog must name Rook agent servers in plain language.'
 }
 

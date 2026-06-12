@@ -328,7 +328,7 @@ Implementation details that must be present in the helper:
 conflicts_found=true
 server_count=5
 owners=Claude, Codex
-message=Rook Setup found 5 running Rook agent server(s) started by Claude and Codex.\r\n\r\nSetup will close them now so Rook can be updated. Your AI tools will reconnect after installation.
+message=Rook Setup found 5 running Rook agent server(s) started by Claude and Codex.\r\n\r\nSetup will close them now so Rook can be updated. Your AI tools will reconnect automatically or on your next request.
 ```
 
 - `close` mode builds the descendant closure for each matched root, including children outside `$RookRoot`, sorts descendants before ancestors, and calls `Stop-Process -Id $pid -Force` for each process.
@@ -1348,7 +1348,7 @@ Checklist:
 - `post_install_summary.json` parses and includes preflight count/owners, closed count, guard windows, retry count, manifest paths, and outcome.
 - The `[Files]` copy duration is recorded. State it as observed on this machine and note that slower disks or antivirus scan load can widen the accepted respawn window.
 - Root and child `RookChatService.json` files are byte-identical.
-- Claude/Codex reconnect after installation.
+- Claude/Codex reconnect automatically or on the next request.
 
 - [ ] **Step 3: Verify process table after install**
 

@@ -330,6 +330,9 @@ class WindowsTerminator:
 
 
 class RebuildGuard:
+    MAX_CLOSE_ATTEMPTS_PER_IDENTITY = 3
+    MAX_CONSECUTIVE_SWEEP_FAILURES = 3
+
     def __init__(
         self,
         label: str,
@@ -339,6 +342,8 @@ class RebuildGuard:
         current_pid: int | None = None,
         sweep_interval_seconds: float = 1.0,
         run_background: bool = True,
+        max_close_attempts_per_identity: int = MAX_CLOSE_ATTEMPTS_PER_IDENTITY,
+        max_consecutive_sweep_failures: int = MAX_CONSECUTIVE_SWEEP_FAILURES,
     ) -> None:
         self.label = label
         self.rook_root = rook_root
@@ -351,8 +356,13 @@ class RebuildGuard:
         self.current_pid = current_pid if current_pid is not None else os.getpid()
         self.sweep_interval_seconds = sweep_interval_seconds
         self.run_background = run_background
+        self.max_close_attempts_per_identity = max_close_attempts_per_identity
+        self.max_consecutive_sweep_failures = max_consecutive_sweep_failures
         self.close_failures: list[str] = []
         self.thread_died_unexpectedly = False
+        self._close_attempts_by_identity: dict[tuple[int, float | None, str], int] = {}
+        self._recorded_close_failures: set[str] = set()
+        self._consecutive_sweep_failures = 0
         self._stopped = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -384,14 +394,52 @@ class RebuildGuard:
         if not kill_order:
             return CloseResult(ok=True, closed_pids=[], failures=[])
 
-        result = self.terminator.close_processes(self.label, kill_order)
-        self.close_failures.extend(result.failures)
+        attemptable = [
+            process
+            for process in kill_order
+            if self._close_attempts_by_identity.get(self._identity_key(process), 0)
+            < self.max_close_attempts_per_identity
+        ]
+        if not attemptable:
+            return CloseResult(ok=True, closed_pids=[], failures=[])
+
+        result = self.terminator.close_processes(self.label, attemptable)
+        closed_pids = set(result.closed_pids)
+        for process in attemptable:
+            if process.pid not in closed_pids:
+                identity = self._identity_key(process)
+                self._close_attempts_by_identity[identity] = (
+                    self._close_attempts_by_identity.get(identity, 0) + 1
+                )
+        for failure in result.failures:
+            if failure not in self._recorded_close_failures:
+                self._recorded_close_failures.add(failure)
+                self.close_failures.append(failure)
         return result
 
     def _run(self) -> None:
-        try:
-            while not self._stopped.wait(self.sweep_interval_seconds):
+        while not self._stopped.wait(self.sweep_interval_seconds):
+            try:
                 self.sweep_once()
-        except Exception as exc:
-            self.thread_died_unexpectedly = True
-            self.close_failures.append(f"{self.label}: guard thread failed: {exc}")
+                self._consecutive_sweep_failures = 0
+            except Exception as exc:
+                self._consecutive_sweep_failures += 1
+                self.close_failures.append(f"{self.label}: guard sweep failed: {exc}")
+                if (
+                    self._consecutive_sweep_failures
+                    >= self.max_consecutive_sweep_failures
+                ):
+                    self.thread_died_unexpectedly = True
+                    self.close_failures.append(
+                        f"{self.label}: guard thread failed after "
+                        f"{self._consecutive_sweep_failures} consecutive sweep errors"
+                    )
+                    break
+
+    @staticmethod
+    def _identity_key(process: ProcessInfo) -> tuple[int, float | None, str]:
+        return (
+            process.pid,
+            process.created_utc,
+            process.image_path.replace("/", "\\").lower(),
+        )

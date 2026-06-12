@@ -230,6 +230,35 @@ def test_post_install_summary_schema_version_is_pinned_to_one(tmp_path: Path) ->
     assert payload["final_outcome"] == "running"
 
 
+def test_rebuild_guard_health_promotes_top_level_warnings(tmp_path: Path) -> None:
+    post_install = load_post_install()
+    runtime_root = tmp_path / "Rook"
+    logs = runtime_root / "logs"
+    logs.mkdir(parents=True)
+    summary = logs / "post_install_summary.json"
+    summary.write_text(
+        json.dumps({"schema_version": 1, "phase_reached": "preflight"}),
+        encoding="utf-8",
+    )
+
+    post_install._record_venv_rebuild_summary(
+        runtime_root,
+        runtime_name="rook",
+        label="rook-mcp",
+        retry_count=0,
+        outcome="success",
+        guard_close_failures=["rook-mcp: failed to terminate pid 10"],
+        guard_thread_died_unexpectedly=True,
+    )
+
+    payload = json.loads(summary.read_text(encoding="utf-8"))
+    assert payload["venv_rebuilds"]["rook"]["outcome"] == "success"
+    assert payload["warnings"] == [
+        "rook-mcp rebuild guard close failure: rook-mcp: failed to terminate pid 10",
+        "rook-mcp rebuild guard sweep thread died unexpectedly",
+    ]
+
+
 def test_last_gasp_handler_writes_traceback(tmp_path: Path, monkeypatch) -> None:
     post_install = load_post_install()
     runtime_root = tmp_path / "Rook"

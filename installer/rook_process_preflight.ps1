@@ -201,8 +201,17 @@ function New-PreflightMessage([int]$ServerCount, [object[]]$Owners) {
         return 'Rook Setup found no running Rook agent server(s).'
     }
 
-    $ownerPhrase = Format-OwnerPhrase $Owners
-    return ("Rook Setup found {0} running Rook agent server(s) started by {1}.`r`n`r`nSetup will close them now so Rook can be updated. Your AI tools will reconnect after installation." -f $ServerCount, $ownerPhrase)
+    $reconnectText = 'Setup will close them now so Rook can be updated. Your AI tools will reconnect automatically or on your next request.'
+    $resolvedOwners = @($Owners | Where-Object {
+        $owner = [string]$_
+        (-not [string]::IsNullOrWhiteSpace($owner)) -and ($owner -ne 'Unknown')
+    })
+    if ($resolvedOwners.Count -eq 0) {
+        return ("Rook Setup found {0} running Rook agent server(s).`r`n`r`n{1}" -f $ServerCount, $reconnectText)
+    }
+
+    $ownerPhrase = Format-OwnerPhrase $resolvedOwners
+    return ("Rook Setup found {0} running Rook agent server(s) started by {1}.`r`n`r`n{2}" -f $ServerCount, $ownerPhrase, $reconnectText)
 }
 
 function New-ProcessSummary([object]$Root, [string]$Owner) {

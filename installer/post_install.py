@@ -124,6 +124,20 @@ def _update_install_summary(runtime_root: Path, **updates) -> None:
     _write_install_summary(runtime_root, payload)
 
 
+def _append_install_summary_warnings(payload: dict, warnings: list[str]) -> None:
+    if not warnings:
+        return
+    existing = payload.get("warnings")
+    if not isinstance(existing, list):
+        existing = []
+    seen = {str(item) for item in existing}
+    for warning in warnings:
+        if warning not in seen:
+            existing.append(warning)
+            seen.add(warning)
+    payload["warnings"] = existing
+
+
 def get_venv_python(venv_dir: Path) -> Path:
     if os.name == "nt":
         return venv_dir / "Scripts" / "python.exe"
@@ -285,6 +299,13 @@ def _record_venv_rebuild_summary(
         entry["guard_thread_died_unexpectedly"] = True
     rebuilds[runtime_name] = entry
     payload["venv_rebuilds"] = rebuilds
+    warnings = [
+        f"{label} rebuild guard close failure: {failure}"
+        for failure in (guard_close_failures or [])
+    ]
+    if guard_thread_died_unexpectedly:
+        warnings.append(f"{label} rebuild guard sweep thread died unexpectedly")
+    _append_install_summary_warnings(payload, warnings)
     _write_install_summary(runtime_root, payload)
 
 
@@ -671,6 +692,8 @@ def write_chat_service_manifest(mcp_server_dir: Path, python_path: str) -> bool:
             return False
         print(f"Wrote chat service manifest: {manifest_path}")
         _INSTALL_LOGGER.info("wrote chat service manifest: %s", manifest_path)
+    # python_path is the managed venv's Scripts/python.exe; climb to the
+    # Rook runtime root for the summary sidecar.
     runtime_root = Path(python_path).parent.parent.parent
     _update_install_summary(
         runtime_root,

@@ -941,6 +941,7 @@ begin
 
   RookPreflightLastSweepTick := CurrentTick;
   RunRookPreflightHelper('close', '', ResultCode);
+  Log('Rook process preflight re-sweep exit code: ' + IntToStr(ResultCode));
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
