@@ -49,6 +49,25 @@ function Invoke-Helper {
     return $LASTEXITCODE
 }
 
+function Import-HelperFunctionsForUnitTest {
+    $tokens = $null
+    $parseErrors = $null
+    $source = Get-Content -Path $Helper -Raw
+    $ast = [System.Management.Automation.Language.Parser]::ParseInput($source, [ref]$tokens, [ref]$parseErrors)
+    Assert-Equals @($parseErrors).Count 0 'Helper script must parse for unit harness import.'
+
+    $functions = $ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
+    foreach ($functionAst in $functions) {
+        $body = $functionAst.Body.Extent.Text
+        $body = $body.Substring(1, $body.Length - 2)
+        if (@($functionAst.Parameters).Count -gt 0) {
+            $parameters = @($functionAst.Parameters | ForEach-Object { $_.Extent.Text }) -join ', '
+            $body = ("param({0})`r`n{1}" -f $parameters, $body)
+        }
+        Set-Item -Path ("function:script:{0}" -f $functionAst.Name) -Value ([scriptblock]::Create($body))
+    }
+}
+
 function Test-EnumerateNoConflictsSeedsSummaryAndLog {
     $root = New-TestRoot
     $logs = Join-Path $root 'logs'
@@ -75,6 +94,16 @@ function Test-EnumerateNoConflictsSeedsSummaryAndLog {
     Assert-True (-not ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)) 'Log must be UTF-8 without a BOM.'
 }
 
+function Test-InvalidModeReturnsHelperMisuseExitCode {
+    $root = New-TestRoot
+    $logs = Join-Path $root 'logs'
+    New-Item -ItemType Directory -Path $logs -Force | Out-Null
+
+    $code = Invoke-Helper -Mode invalid -RookRoot $root -LogRoot $logs
+
+    Assert-Equals $code 40 'Invalid helper mode must be classified as helper misuse.'
+}
+
 function Test-RecordOutcomeCancelledUsesStableSummary {
     $root = New-TestRoot
     $logs = Join-Path $root 'logs'
@@ -98,6 +127,87 @@ function Test-CloseModeFailsQuietlyWhenNothingMatches {
     $code = Invoke-Helper -Mode close -RookRoot $root -LogRoot $logs
 
     Assert-Equals $code 0 'Close mode with no matches must exit 0.'
+}
+
+function Test-CloseModeReturnsCloseFailureWhenFailedDescendantRemainsAfterRootGone {
+    Import-HelperFunctionsForUnitTest
+
+    $root = New-TestRoot
+    $childPid = 42001
+    $rootPid = 42000
+    $rootCreated = [DateTime]::UtcNow.AddSeconds(-2)
+    $childCreated = [DateTime]::UtcNow.AddSeconds(-1)
+    $rootProcess = [pscustomobject]@{
+        ProcessId = $rootPid
+        ParentProcessId = 4
+        ExecutablePath = (Join-Path $root 'rook-agent.exe')
+        CommandLine = ''
+        CreationDateUtc = $rootCreated
+        CreationDateText = Format-UtcTimestamp $rootCreated
+        IsMatched = $true
+    }
+    $childProcess = [pscustomobject]@{
+        ProcessId = $childPid
+        ParentProcessId = $rootPid
+        ExecutablePath = 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe'
+        CommandLine = ''
+        CreationDateUtc = $childCreated
+        CreationDateText = Format-UtcTimestamp $childCreated
+        IsMatched = $false
+    }
+
+    $script:RookRootPrefix = Normalize-PathPrefix $root
+    $script:RunStartUtc = Format-UtcTimestamp ([DateTime]::UtcNow)
+    $script:SetupVersion = 'test'
+    $script:ExitQuiet = 0
+    $script:ExitNotQuiet = 10
+    $script:ExitEnumerationFailure = 20
+    $script:ExitCloseFailure = 30
+    $script:ExitHelperError = 40
+    $script:SnapshotCallCount = 0
+
+    function Get-ProcessSnapshot {
+        $script:SnapshotCallCount++
+        if ($script:SnapshotCallCount -eq 1) {
+            return @($rootProcess, $childProcess)
+        }
+        return @($childProcess)
+    }
+
+    function Stop-Process {
+        param([int]$Id, [switch]$Force, $ErrorAction)
+        if ($Id -eq $childPid) {
+            throw 'simulated descendant close failure'
+        }
+    }
+
+    function Get-Process {
+        param([int]$Id, $ErrorAction)
+        if ($Id -eq $childPid) {
+            return [pscustomobject]@{ Id = $childPid }
+        }
+        return $null
+    }
+
+    function Start-Sleep {
+        param([int]$Milliseconds)
+    }
+
+    function Save-Summary {
+        param([object]$Summary)
+    }
+
+    function Write-InnoSummary {
+        param([object]$Preflight)
+    }
+
+    function Log-Line {
+        param([string]$Message)
+    }
+
+    $code = Invoke-CloseMode
+
+    Assert-Equals $code 30 'Close mode must return close failure when a failed out-of-boundary descendant remains alive after matched roots are gone.'
 }
 
 function Test-PreBundledDescendantTreeCloseKillsOutOfBoundaryChild {
@@ -162,4 +272,6 @@ Test-EnumerateNoConflictsSeedsSummaryAndLog
 Test-RecordOutcomeCancelledUsesStableSummary
 Test-CloseModeFailsQuietlyWhenNothingMatches
 Test-PreBundledDescendantTreeCloseKillsOutOfBoundaryChild
+Test-CloseModeReturnsCloseFailureWhenFailedDescendantRemainsAfterRootGone
+Test-InvalidModeReturnsHelperMisuseExitCode
 Write-Host 'rook-process-preflight.tests.ps1 PASS'

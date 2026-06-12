@@ -1,12 +1,8 @@
 param(
-    [Parameter(Mandatory=$true)]
-    [ValidateSet('enumerate', 'close', 'record-outcome')]
     [string]$Mode,
 
-    [Parameter(Mandatory=$true)]
     [string]$RookRoot,
 
-    [Parameter(Mandatory=$true)]
     [string]$LogRoot,
 
     [string]$SummaryPath,
@@ -382,10 +378,21 @@ function Get-DescendantClosure([object[]]$Roots, [hashtable]$ByParentPid) {
     return @($targets.Values | Sort-Object -Property @{ Expression = { $_.Depth }; Descending = $true }, @{ Expression = { $_.Process.ProcessId }; Descending = $true })
 }
 
+function Get-LiveProcessIds([hashtable]$ProcessIds) {
+    $liveProcessIds = @()
+    foreach ($processId in $ProcessIds.Keys) {
+        if (Get-Process -Id ([int]$processId) -ErrorAction SilentlyContinue) {
+            $liveProcessIds += [int]$processId
+        }
+    }
+    return @($liveProcessIds | Sort-Object)
+}
+
 function Invoke-CloseMode {
     Log-Line ("mode=close setup_version={0} rook_root={1}" -f $SetupVersion, $RookRoot)
 
     $attemptsByPid = @{}
+    $failedClosePids = @{}
     $closedProcessCount = 0
     $closeFailed = $false
     $lastPreflight = New-EmptyPreflightSummary
@@ -406,6 +413,11 @@ function Invoke-CloseMode {
             $summary = New-RunSummary -Preflight $lastPreflight -ClosedProcessCount $closedProcessCount -RunOutcome 'preflight-closed'
             Save-Summary $summary
             Write-InnoSummary $lastPreflight
+            $liveFailedClosePids = @(Get-LiveProcessIds -ProcessIds $failedClosePids)
+            if ($liveFailedClosePids.Count -gt 0) {
+                Log-Line ("close_failed remaining_failed_pids={0} closed_process_count={1}" -f ($liveFailedClosePids -join ','), $closedProcessCount)
+                return $ExitCloseFailure
+            }
             Log-Line ("close_complete closed_process_count={0}" -f $closedProcessCount)
             return $ExitQuiet
         }
@@ -430,6 +442,7 @@ function Invoke-CloseMode {
                 Start-Sleep -Milliseconds 50
                 if (Get-Process -Id $processId -ErrorAction SilentlyContinue) {
                     $closeFailed = $true
+                    $failedClosePids[$processId] = $true
                     Log-Line ("stop_process_failed pid={0} attempt={1} error={2}" -f $processId, $attemptsByPid[$processId], $_.Exception.Message)
                 }
                 else {
@@ -455,13 +468,21 @@ function Invoke-CloseMode {
     $summary = New-RunSummary -Preflight $lastPreflight -ClosedProcessCount $closedProcessCount -RunOutcome 'preflight-closed'
     Save-Summary $summary
     Write-InnoSummary $lastPreflight
+    $liveFailedClosePids = @(Get-LiveProcessIds -ProcessIds $failedClosePids)
 
     if ($roots.Count -eq 0) {
+        if ($liveFailedClosePids.Count -gt 0) {
+            Log-Line ("close_failed remaining_failed_pids={0} closed_process_count={1}" -f ($liveFailedClosePids -join ','), $closedProcessCount)
+            return $ExitCloseFailure
+        }
         Log-Line ("close_complete closed_process_count={0}" -f $closedProcessCount)
         return $ExitQuiet
     }
 
-    Log-Line ("close_not_quiet remaining_server_count={0} close_failed={1}" -f $roots.Count, $closeFailed.ToString().ToLowerInvariant())
+    Log-Line ("close_not_quiet remaining_server_count={0} close_failed={1}" -f $roots.Count, ($closeFailed -or ($liveFailedClosePids.Count -gt 0)).ToString().ToLowerInvariant())
+    if ($liveFailedClosePids.Count -gt 0) {
+        return $ExitCloseFailure
+    }
     if ($closeFailed) {
         return $ExitCloseFailure
     }
@@ -483,10 +504,23 @@ function Invoke-RecordOutcomeMode {
 }
 
 try {
+    $validModes = @('enumerate', 'close', 'record-outcome')
+    if ([string]::IsNullOrWhiteSpace($LogRoot)) {
+        throw 'LogRoot is required.'
+    }
     [IO.Directory]::CreateDirectory($LogRoot) | Out-Null
     $script:SummaryPathResolved = Resolve-OutputPath -Path $SummaryPath -DefaultName 'post_install_summary.json'
     $script:InnoSummaryPathResolved = Resolve-OutputPath -Path $InnoSummaryPath -DefaultName 'preflight-summary.txt'
     $script:LogPathResolved = Resolve-OutputPath -Path $LogPath -DefaultName 'post_install.log'
+    if ([string]::IsNullOrWhiteSpace($Mode)) {
+        throw 'Mode is required.'
+    }
+    if ($validModes -notcontains $Mode) {
+        throw ("Invalid mode: {0}" -f $Mode)
+    }
+    if ([string]::IsNullOrWhiteSpace($RookRoot)) {
+        throw 'RookRoot is required.'
+    }
     $script:RookRootPrefix = Normalize-PathPrefix $RookRoot
     $script:RunStartUtc = Format-UtcTimestamp ([DateTime]::UtcNow)
 
