@@ -93,7 +93,8 @@ The installer owns a Rook-specific process close flow:
 3. The helper performs a read-only enumeration of Rook process conflicts and
    writes a summary file plus `post_install.log`.
 4. In interactive installs, Inno shows a plain-language consent dialog based on
-   the summary. In `/SILENT` and `/VERYSILENT`, consent is implied.
+   the summary when conflicts exist. No matches means no dialog and setup
+   proceeds directly. In `/SILENT` and `/VERYSILENT`, consent is implied.
 5. After consent, the helper closes matched process roots plus descendants and
    retries to quiet. It fails closed before `[Files]` if quiet cannot be reached.
 6. `[Files]` copies the installer payload.
@@ -138,6 +139,26 @@ With Restart Manager disabled, the pre-copy helper must fail closed if it cannot
 reach quiet. It must not let the installer continue into raw Inno
 Abort/Retry/Ignore file-copy failures.
 
+## Residual `[Files]` Respawn Window
+
+There is one accepted residual race between the pre-copy helper and the Python
+rebuild guard. After the helper reaches quiet and `[Files]` starts, an owning
+client could respawn a Rook MCP server before `post_install.py` starts its first
+guard. That server can re-map base-runtime DLLs or `.pyd` files during copy and
+could drive Inno into the raw Abort/Retry/Ignore UX that this design is trying
+to avoid.
+
+The race is bounded, not impossible. The live evidence showed client respawn
+latency around two minutes, while the `[Files]` copy phase is expected to be
+well under a minute on the cached dev installer path. The live smoke must record
+whether any respawn occurs during copy.
+
+Should-have, cuttable if the Pascal grows brittle: after consent, run a
+time-throttled re-sweep from `CurInstallProgressChanged` during `[Files]`.
+The re-sweep uses the same helper close mode, does not show a second consent
+dialog, and logs each invocation. If this is cut from the first implementation,
+the PR description must call out the accepted race explicitly.
+
 ## Pre-Copy PowerShell Helper
 
 The installer packages or extracts a real `.ps1` file and runs it as:
@@ -157,7 +178,8 @@ Enumeration mode:
 - validate parent/child relations with creation times where available;
 - walk one parent hop from each root to derive owner app names;
 - write a terse summary for Inno;
-- write the full table to a structured JSON sidecar;
+- seed `%LOCALAPPDATA%\Rook\logs\post_install_summary.json` with the full
+  preflight table and summary;
 - create/rotate `post_install.log`.
 
 Close mode:
@@ -170,7 +192,10 @@ Close mode:
 Exit-code contract:
 
 - `0`: quiet/no conflicts remain.
-- nonzero: not quiet, enumeration failure, close failure, or helper error.
+- `10`: not quiet after bounded close attempts.
+- `20`: enumeration or process-inspection failure.
+- `30`: close operation failure other than not-quiet.
+- `40`: helper misuse or unexpected helper error.
 
 Any nonzero exit means Inno stops at the preparing page with a plain-language
 message. PowerShell launch failure is also fail-closed.
@@ -235,6 +260,8 @@ after installation.
 
 Use "close", not "kill" or "terminate". In silent and very-silent installs,
 consent is implied, and the helper proceeds while logging the same evidence.
+When no conflicts are found, interactive installs show no process-conflict
+dialog.
 
 ## Rebuild Guard
 
@@ -279,6 +306,8 @@ First writer of a setup run is the pre-copy PowerShell helper:
 - rotate `post_install.log` to `post_install.prev.log`;
 - write a run header with Rook version and UTC timestamp;
 - write the preflight enumeration and close result.
+- if the user cancels at consent, write a cancelled outcome to
+  `post_install.log` and `post_install_summary.json`.
 
 PowerShell writes UTF-8 using .NET file APIs, not redirection.
 
@@ -291,7 +320,10 @@ The only expected concurrent writers are the Python main thread and guard
 thread, using one Python logging handler with its built-in lock. PowerShell exits
 before Python begins.
 
-The finalizer also writes a structured `post_install_summary.json` with:
+`%LOCALAPPDATA%\Rook\logs\post_install_summary.json` is a stable run artifact,
+not a temp file. The PowerShell helper seeds it before `[Files]` so pre-copy
+failures and consent cancels still leave evidence. The finalizer reads and
+extends the same file rather than creating a second summary. Its schema includes:
 
 - schema version;
 - run start/end UTC;
@@ -309,7 +341,9 @@ The summary is a support surface for future `rook doctor` consumption.
 
 ## Minimal #240 Manifest Fix
 
-Add child manifest deletes to the existing `[InstallDelete]` section:
+Add child manifest deletes to the current `[InstallDelete]` section in
+`RookSetup.iss`, before `[Files]`. If that section is ever removed or moved,
+the child-manifest deletes must still run before `[Files]`:
 
 ```ini
 Type: files; Name: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net8.0\RookChatService.json"
