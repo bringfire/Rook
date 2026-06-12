@@ -426,6 +426,7 @@ def _install_from_wheelhouse(
     )
     if check.returncode != 0:
         print(f"{label} pip check failed with exit code {check.returncode}")
+        _INSTALL_LOGGER.error("%s pip check failed with exit code %s", label, check.returncode)
         _record_venv_rebuild_summary(
             layout.rook_root,
             runtime_name,

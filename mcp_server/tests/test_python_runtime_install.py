@@ -830,6 +830,99 @@ def test_install_from_wheelhouse_uses_guard_and_retries_full_rebuild(
     assert payload["venv_rebuilds"]["rook"]["outcome"] == "success"
 
 
+def test_install_from_wheelhouse_logs_pip_check_failure_without_retry(
+    tmp_path: Path, monkeypatch
+) -> None:
+    runtime = load_runtime_install()
+    post_install = load_post_install()
+    layout = runtime.RuntimeLayout.from_rook_root(tmp_path / "Rook", "3.11.9")
+
+    layout.private_python.parent.mkdir(parents=True)
+    layout.private_python.write_text("private python", encoding="utf-8")
+    layout.wheelhouse.mkdir(parents=True)
+    layout.bootstrap_lock.parent.mkdir(parents=True, exist_ok=True)
+    layout.bootstrap_lock.write_text("pip==26.1.2 --hash=sha256:abc\n", encoding="utf-8")
+    layout.rook_lock.write_text("rook-mcp==1.5.10 --hash=sha256:def\n", encoding="utf-8")
+    layout.runtime_manifest.write_text('{"schema_version":1}', encoding="utf-8")
+
+    guard_events: list[str] = []
+
+    class FakeGuard:
+        def __init__(self, label, **kwargs):
+            self.label = label
+
+        def __enter__(self):
+            guard_events.append(f"enter:{self.label}")
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            guard_events.append(f"exit:{self.label}")
+            return False
+
+    monkeypatch.setattr(
+        post_install, "_make_rebuild_guard", lambda label, runtime_root: FakeGuard(label)
+    )
+
+    attempts = {"install": 0, "pip_check": 0}
+    logged_errors: list[tuple[str, tuple[object, ...]]] = []
+
+    def fake_error(message, *args, **kwargs):
+        del kwargs
+        logged_errors.append((message, args))
+
+    def fake_run(command, *, env, timeout=post_install.INSTALL_COMMAND_TIMEOUT_SECONDS):
+        if command[:3] == [str(layout.private_python), "-m", "venv"]:
+            created_python = post_install.get_venv_python(Path(command[3]))
+            created_python.parent.mkdir(parents=True, exist_ok=True)
+            created_python.write_text("fresh", encoding="utf-8")
+        if command[-2:] == ["pip", "check"]:
+            attempts["pip_check"] += 1
+            return subprocess.CompletedProcess(
+                command,
+                1,
+                stdout="",
+                stderr="rook-mcp 1.5.10 has requirement bad-package, but you have none",
+            )
+        if (
+            "-m" in command
+            and "pip" in command
+            and "install" in command
+            and str(layout.rook_lock) in command
+        ):
+            attempts["install"] += 1
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout="Looking in links: C:/Rook/app/python-wheelhouse\n",
+            stderr="",
+        )
+
+    monkeypatch.setattr(post_install, "_run_install_command", fake_run)
+    monkeypatch.setattr(post_install._INSTALL_LOGGER, "error", fake_error)
+
+    result = post_install._install_from_wheelhouse(
+        "rook-mcp",
+        layout,
+        layout.rook_venv,
+        layout.rook_lock,
+        "rook",
+    )
+
+    assert result is None
+    assert attempts == {"install": 1, "pip_check": 1}
+    assert guard_events == ["enter:rook-mcp", "exit:rook-mcp"]
+    assert logged_errors
+    assert logged_errors[0][0] == "%s pip check failed with exit code %s"
+    assert logged_errors[0][1] == ("rook-mcp", 1)
+    payload = json.loads(
+        (layout.rook_root / "logs" / "post_install_summary.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert payload["venv_rebuilds"]["rook"]["retry_count"] == 0
+    assert payload["venv_rebuilds"]["rook"]["failure_stage"] == "pip-check"
+
+
 def test_chirp_install_uses_separate_guard_window(
     tmp_path: Path, monkeypatch
 ) -> None:
