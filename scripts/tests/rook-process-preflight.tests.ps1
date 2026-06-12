@@ -62,9 +62,7 @@ function Invoke-Helper {
 }
 
 function Import-HelperFunctionsForUnitTest {
-    foreach ($mockName in @('Get-CimInstance', 'Stop-Process', 'Get-Process', 'Start-Sleep')) {
-        Remove-Item -Path ("function:script:{0}" -f $mockName) -ErrorAction SilentlyContinue
-    }
+    Clear-TestCommandMocks
 
     $tokens = $null
     $parseErrors = $null
@@ -81,6 +79,12 @@ function Import-HelperFunctionsForUnitTest {
             $body = ("param({0})`r`n{1}" -f $parameters, $body)
         }
         Set-Item -Path ("function:script:{0}" -f $functionAst.Name) -Value ([scriptblock]::Create($body))
+    }
+}
+
+function Clear-TestCommandMocks {
+    foreach ($mockName in @('Get-CimInstance', 'Stop-Process', 'Get-Process', 'Start-Sleep')) {
+        Remove-Item -Path ("function:script:{0}" -f $mockName) -ErrorAction SilentlyContinue
     }
 }
 
@@ -1419,6 +1423,8 @@ function Test-CloseModeReturnsInspectionFailureWhenIdentityRecheckCimThrows {
 }
 
 function Test-PreBundledDescendantTreeCloseKillsOutOfBoundaryChild {
+    Clear-TestCommandMocks
+
     $python = (Get-Command python -ErrorAction SilentlyContinue).Source
     if (-not $python) {
         Write-Host 'SKIP: python.exe not on PATH for fabricated venv integration test.'
@@ -1457,7 +1463,7 @@ finally:
         try {
             $deadline = (Get-Date).AddSeconds(20)
             while ((-not (Test-Path $childPidFile)) -and ((Get-Date) -lt $deadline)) {
-                Start-Sleep -Milliseconds 100
+                Microsoft.PowerShell.Utility\Start-Sleep -Milliseconds 100
             }
             Assert-True (Test-Path $childPidFile) 'Test child PID file was not written.'
             $childPid = [int](Get-Content -Path $childPidFile -Raw)
@@ -1465,14 +1471,14 @@ finally:
             $code = Invoke-Helper -Mode close -RookRoot $root -LogRoot $logs
 
             Assert-Equals $code 0 'Helper close mode must reach quiet.'
-            Start-Sleep -Milliseconds 500
-            Assert-True (-not (Get-Process -Id $parent.Id -ErrorAction SilentlyContinue)) 'Matched venv root process must be closed.'
-            Assert-True (-not (Get-Process -Id $childPid -ErrorAction SilentlyContinue)) 'Out-of-boundary system-Python child must be closed.'
+            Microsoft.PowerShell.Utility\Start-Sleep -Milliseconds 500
+            Assert-True (-not (Microsoft.PowerShell.Management\Get-Process -Id $parent.Id -ErrorAction SilentlyContinue)) 'Matched venv root process must be closed.'
+            Assert-True (-not (Microsoft.PowerShell.Management\Get-Process -Id $childPid -ErrorAction SilentlyContinue)) 'Out-of-boundary system-Python child must be closed.'
         }
         finally {
-            Stop-Process -Id $parent.Id -Force -ErrorAction SilentlyContinue
+            Microsoft.PowerShell.Management\Stop-Process -Id $parent.Id -Force -ErrorAction SilentlyContinue
             if (Test-Path $childPidFile) {
-                Stop-Process -Id ([int](Get-Content -Path $childPidFile -Raw)) -Force -ErrorAction SilentlyContinue
+                Microsoft.PowerShell.Management\Stop-Process -Id ([int](Get-Content -Path $childPidFile -Raw)) -Force -ErrorAction SilentlyContinue
             }
         }
     }
