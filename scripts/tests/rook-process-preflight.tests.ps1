@@ -111,6 +111,32 @@ function Test-EnumerateNoConflictsSeedsSummaryAndLog {
     }
 }
 
+function Test-EnumerateRotatesExistingPostInstallLog {
+    $root = New-TestRoot
+    try {
+        $logs = Join-Path $root 'logs'
+        New-Item -ItemType Directory -Path $logs -Force | Out-Null
+        $logPath = Join-Path $logs 'post_install.log'
+        $previousLogPath = Join-Path $logs 'post_install.prev.log'
+        $priorContent = "prior run content`r`n"
+        $encoding = New-Object System.Text.UTF8Encoding($false)
+        [IO.File]::WriteAllText($logPath, $priorContent, $encoding)
+
+        $code = Invoke-Helper -Mode enumerate -RookRoot $root -LogRoot $logs
+
+        Assert-Equals $code 0 'Enumeration with no matching processes must exit 0 while rotating an existing log.'
+        Assert-True (Test-Path $previousLogPath) 'Existing post_install.log must rotate to post_install.prev.log.'
+        Assert-Equals ([IO.File]::ReadAllText($previousLogPath)) $priorContent 'Rotated post_install.prev.log must retain the prior log content exactly.'
+        $newLog = Get-Content -Path $logPath -Raw
+        Assert-True ($newLog.Contains('mode=enumerate setup_version=test')) 'New post_install.log must contain the current enumerate run header.'
+        Assert-True ($newLog.Contains('enumeration_complete')) 'New post_install.log must contain current enumerate completion content.'
+        Assert-True (-not $newLog.Contains($priorContent.Trim())) 'New post_install.log must not retain prior-run content after rotation.'
+    }
+    finally {
+        Remove-TestRoot $root
+    }
+}
+
 function Test-EnumerateUsesDefaultOutputPathsUnderLogRoot {
     $root = New-TestRoot
     try {
@@ -194,7 +220,7 @@ function Test-EnumerateModeReturnsNotQuietExitCodeWhenConflictFound {
     $root = New-TestRoot
     try {
         $logs = Join-Path $root 'logs'
-        $created = [DateTime]::UtcNow.AddSeconds(-10)
+        $created = [DateTime]::new(2026, 1, 1, 12, 0, 0, 123, [DateTimeKind]::Utc)
         $conflictProcess = [pscustomobject]@{
             ProcessId = 47000
             ParentProcessId = 4
@@ -240,6 +266,102 @@ function Test-EnumerateModeReturnsNotQuietExitCodeWhenConflictFound {
         Assert-Equals $code 10 'Enumerate mode must return the not-quiet exit code when a matching Rook process is found.'
         Assert-Equals $script:SavedSummary.preflight.conflicts_found $true 'Not-quiet enumeration must summarize conflicts_found=true.'
         Assert-Equals $script:SavedSummary.preflight.server_count 1 'Not-quiet enumeration must record the matched server root.'
+    }
+    finally {
+        Remove-TestRoot $root
+    }
+}
+
+function Test-PreflightSummaryCollapsesMatchedChildrenAndReportsOwners {
+    Import-HelperFunctionsForUnitTest
+
+    $root = New-TestRoot
+    try {
+        $logs = Join-Path $root 'logs'
+        $script:InnoSummaryPathResolved = Join-Path $logs 'preflight-summary.txt'
+        $parentCreated = [DateTime]::UtcNow.AddSeconds(-20)
+        $rootCreated = [DateTime]::UtcNow.AddSeconds(-10)
+        $childCreated = [DateTime]::UtcNow.AddSeconds(-5)
+        $processes = @(
+            [pscustomobject]@{
+                ProcessId = 51000
+                ParentProcessId = 4
+                ExecutablePath = 'C:\Tools\claude.exe'
+                CommandLine = ''
+                CreationDateUtc = $parentCreated
+                CreationDateText = Format-UtcTimestamp $parentCreated
+                IsMatched = $false
+            },
+            [pscustomobject]@{
+                ProcessId = 51001
+                ParentProcessId = 51000
+                ExecutablePath = (Join-Path $root 'server-a\rook-agent.exe')
+                CommandLine = ''
+                CreationDateUtc = $rootCreated
+                CreationDateText = Format-UtcTimestamp $rootCreated
+                IsMatched = $true
+            },
+            [pscustomobject]@{
+                ProcessId = 51002
+                ParentProcessId = 51001
+                ExecutablePath = (Join-Path $root 'server-a\rook-worker.exe')
+                CommandLine = ''
+                CreationDateUtc = $childCreated
+                CreationDateText = Format-UtcTimestamp $childCreated
+                IsMatched = $true
+            },
+            [pscustomobject]@{
+                ProcessId = 52000
+                ParentProcessId = 4
+                ExecutablePath = 'C:\Tools\codex.exe'
+                CommandLine = ''
+                CreationDateUtc = $parentCreated
+                CreationDateText = Format-UtcTimestamp $parentCreated
+                IsMatched = $false
+            },
+            [pscustomobject]@{
+                ProcessId = 52001
+                ParentProcessId = 52000
+                ExecutablePath = (Join-Path $root 'server-b\rook-agent.exe')
+                CommandLine = ''
+                CreationDateUtc = $rootCreated
+                CreationDateText = Format-UtcTimestamp $rootCreated
+                IsMatched = $true
+            },
+            [pscustomobject]@{
+                ProcessId = 53000
+                ParentProcessId = 4
+                ExecutablePath = 'C:\Tools\OtherCli.exe'
+                CommandLine = ''
+                CreationDateUtc = $parentCreated
+                CreationDateText = Format-UtcTimestamp $parentCreated
+                IsMatched = $false
+            },
+            [pscustomobject]@{
+                ProcessId = 53001
+                ParentProcessId = 53000
+                ExecutablePath = (Join-Path $root 'server-c\rook-agent.exe')
+                CommandLine = ''
+                CreationDateUtc = $rootCreated
+                CreationDateText = Format-UtcTimestamp $rootCreated
+                IsMatched = $true
+            }
+        )
+        $indexes = New-ProcessIndexes $processes
+
+        $roots = @(Get-LogicalServerRoots -Processes $processes -ByPid $indexes.ByPid)
+        $preflight = New-PreflightSummary -Roots $roots -ByPid $indexes.ByPid
+        Write-InnoSummary $preflight
+
+        Assert-Equals $roots.Count 3 'Matched child processes must collapse under their logical matched root.'
+        Assert-True (-not (@($preflight.processes | ForEach-Object { [int]$_.process_id }) -contains 51002)) 'Matched child process must not be reported as a separate server root.'
+        Assert-Equals $preflight.server_count 3 'Preflight summary must count only logical server roots.'
+        Assert-Equals (@($preflight.owners) -join ',') 'Claude,Codex,OtherCli.exe' 'Owners must include friendly Claude/Codex mappings and raw basename fallback.'
+        Assert-Equals (@($preflight.processes | ForEach-Object { $_.owner }) -join ',') 'Claude,Codex,OtherCli.exe' 'Each process summary must retain owner attribution.'
+        $innoSummary = Get-Content -Path $script:InnoSummaryPathResolved -Raw
+        Assert-True ($innoSummary.Contains('server_count=3')) 'Inno summary must expose the logical root server count.'
+        Assert-True ($innoSummary.Contains('owners=Claude, Codex, OtherCli.exe')) 'Inno summary must expose owner attribution.'
+        Assert-True ($innoSummary.Contains('started by Claude, Codex, and OtherCli.exe')) 'Inno summary message must include the owner phrase.'
     }
     finally {
         Remove-TestRoot $root
@@ -306,13 +428,45 @@ function Test-ProcessIdentityKeyDistinguishesSamePidWithinSameSecond {
     Assert-True ((Get-ProcessIdentityKey $firstProcess) -ne (Get-ProcessIdentityKey $secondProcess)) 'Internal identity keys must preserve sub-second CreationDateUtc precision.'
 }
 
+function Test-LiveProcessIdentityRejectsSamePidWithinSameSecondDifferentFileTime {
+    Import-HelperFunctionsForUnitTest
+
+    $targetPid = 41010
+    $snapshotCreated = [DateTime]::new(2026, 1, 1, 12, 0, 0, 123, [DateTimeKind]::Utc)
+    $liveCreated = $snapshotCreated.AddTicks(5000)
+    $snapshotProcess = [pscustomobject]@{
+        ProcessId = $targetPid
+        CreationDateUtc = $snapshotCreated
+        CreationDateText = Format-UtcTimestamp $snapshotCreated
+    }
+    $liveProcess = [pscustomobject]@{
+        ProcessId = $targetPid
+        CreationDateUtc = $liveCreated
+        CreationDateText = Format-UtcTimestamp $liveCreated
+    }
+    $script:LiveIdentityPid = $targetPid
+    $script:LiveIdentityCreated = $liveCreated
+
+    function script:Get-CimInstance {
+        param($ClassName, [string]$Filter, $ErrorAction)
+        return [pscustomobject]@{
+            ProcessId = $script:LiveIdentityPid
+            CreationDate = $script:LiveIdentityCreated
+        }
+    }
+
+    Assert-Equals $snapshotProcess.CreationDateText $liveProcess.CreationDateText 'Test setup must use the same whole-second display timestamp.'
+    Assert-True ((Get-ProcessIdentityKey $snapshotProcess) -ne (Get-ProcessIdentityKey $liveProcess)) 'Internal identity keys must not collide when only sub-millisecond creation time differs.'
+    Assert-Equals (Test-LiveProcessIdentityMatches $snapshotProcess) $false 'Live identity revalidation must reject same PID with a different full-precision creation time.'
+}
+
 function Test-CloseModeSkipsStopWhenPidIdentityChangesBeforeStop {
     Import-HelperFunctionsForUnitTest
 
     $root = New-TestRoot
     try {
         $targetPid = 43000
-        $created = [DateTime]::UtcNow.AddSeconds(-10)
+        $created = [DateTime]::new(2026, 1, 1, 12, 0, 0, 123, [DateTimeKind]::Utc)
         $replacementCreated = $created.AddSeconds(5)
         $rootProcess = [pscustomobject]@{
             ProcessId = $targetPid
@@ -396,7 +550,7 @@ function Test-CloseModeReturnsCloseFailureWhenSuccessfulStopLeavesSameProcessAli
     $root = New-TestRoot
     try {
         $targetPid = 44000
-        $created = [DateTime]::UtcNow.AddSeconds(-10)
+        $created = [DateTime]::new(2026, 1, 1, 12, 0, 0, 123, [DateTimeKind]::Utc)
         $rootProcess = [pscustomobject]@{
             ProcessId = $targetPid
             ParentProcessId = 4
@@ -482,9 +636,9 @@ function Test-CloseModeStopsDescendantsBeforeAncestors {
         $rootPid = 48000
         $childPid = 48001
         $grandchildPid = 48002
-        $rootCreated = [DateTime]::UtcNow.AddSeconds(-3)
-        $childCreated = [DateTime]::UtcNow.AddSeconds(-2)
-        $grandchildCreated = [DateTime]::UtcNow.AddSeconds(-1)
+        $rootCreated = [DateTime]::new(2026, 1, 1, 12, 0, 0, 100, [DateTimeKind]::Utc)
+        $childCreated = [DateTime]::new(2026, 1, 1, 12, 0, 0, 200, [DateTimeKind]::Utc)
+        $grandchildCreated = [DateTime]::new(2026, 1, 1, 12, 0, 0, 300, [DateTimeKind]::Utc)
         $rootProcess = [pscustomobject]@{
             ProcessId = $rootPid
             ParentProcessId = 4
@@ -601,7 +755,7 @@ function Test-CloseModeSavesClosedOutcomeWhenFailedStopIdentityGoneAtFinalCheck 
     $root = New-TestRoot
     try {
         $targetPid = 46000
-        $created = [DateTime]::UtcNow.AddSeconds(-10)
+        $created = [DateTime]::new(2026, 1, 1, 12, 0, 0, 123, [DateTimeKind]::Utc)
         $rootProcess = [pscustomobject]@{
             ProcessId = $targetPid
             ParentProcessId = 4
@@ -696,8 +850,8 @@ function Test-CloseModeReturnsCloseFailureWhenSuccessfulDescendantStopLeavesSame
     try {
         $childPid = 45001
         $rootPid = 45000
-        $rootCreated = [DateTime]::UtcNow.AddSeconds(-2)
-        $childCreated = [DateTime]::UtcNow.AddSeconds(-1)
+        $rootCreated = [DateTime]::new(2026, 1, 1, 12, 0, 0, 100, [DateTimeKind]::Utc)
+        $childCreated = [DateTime]::new(2026, 1, 1, 12, 0, 0, 200, [DateTimeKind]::Utc)
         $rootProcess = [pscustomobject]@{
             ProcessId = $rootPid
             ParentProcessId = 4
@@ -814,8 +968,8 @@ function Test-CloseModeReturnsCloseFailureWhenFailedDescendantRemainsAfterRootGo
     try {
         $childPid = 42001
         $rootPid = 42000
-        $rootCreated = [DateTime]::UtcNow.AddSeconds(-2)
-        $childCreated = [DateTime]::UtcNow.AddSeconds(-1)
+        $rootCreated = [DateTime]::new(2026, 1, 1, 12, 0, 0, 100, [DateTimeKind]::Utc)
+        $childCreated = [DateTime]::new(2026, 1, 1, 12, 0, 0, 200, [DateTimeKind]::Utc)
         $rootProcess = [pscustomobject]@{
             ProcessId = $rootPid
             ParentProcessId = 4
@@ -983,6 +1137,7 @@ finally:
 
 Test-ProcessEnumerationUsesTerminatingCimErrors
 Test-EnumerateNoConflictsSeedsSummaryAndLog
+Test-EnumerateRotatesExistingPostInstallLog
 Test-EnumerateUsesDefaultOutputPathsUnderLogRoot
 Test-RecordOutcomeCancelledUsesStableSummary
 Test-CloseModeFailsQuietlyWhenNothingMatches
@@ -990,7 +1145,9 @@ Test-PreBundledDescendantTreeCloseKillsOutOfBoundaryChild
 Test-InvalidModeReturnsHelperMisuseExitCode
 Test-EnumerateModeReturnsNotQuietExitCodeWhenConflictFound
 Test-EnumerateModeReturnsEnumerationFailureExitCodeWhenCimEnumerationFails
+Test-PreflightSummaryCollapsesMatchedChildrenAndReportsOwners
 Test-ProcessIdentityKeyDistinguishesSamePidWithinSameSecond
+Test-LiveProcessIdentityRejectsSamePidWithinSameSecondDifferentFileTime
 Test-CloseModeSkipsStopWhenPidIdentityChangesBeforeStop
 Test-CloseModeReturnsCloseFailureWhenSuccessfulStopLeavesSameProcessAlive
 Test-CloseModeStopsDescendantsBeforeAncestors

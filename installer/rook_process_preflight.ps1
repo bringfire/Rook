@@ -412,8 +412,11 @@ function Test-LiveProcessIdentityMatches([object]$Process) {
         return $false
     }
 
-    $creationDelta = ([DateTime]$liveCreationDate) - ([DateTime]$Process.CreationDateUtc)
-    return ([Math]::Abs($creationDelta.TotalMilliseconds) -le 1)
+    $liveIdentity = [pscustomobject]@{
+        ProcessId = $processId
+        CreationDateUtc = $liveCreationDate
+    }
+    return ((Get-ProcessIdentityKey $liveIdentity) -eq (Get-ProcessIdentityKey $Process))
 }
 
 function Add-FailedCloseRecord([hashtable]$FailedCloseRecords, [object]$Process) {
