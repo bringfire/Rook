@@ -278,9 +278,9 @@ function Save-Summary([object]$Summary) {
 }
 
 function Read-SummaryOrDefault {
-    if (Test-Path $script:SummaryPathResolved) {
+    if (Test-Path -LiteralPath $script:SummaryPathResolved) {
         try {
-            return (Get-Content -Path $script:SummaryPathResolved -Raw | ConvertFrom-Json)
+            return (Get-Content -LiteralPath $script:SummaryPathResolved -Raw | ConvertFrom-Json)
         }
         catch {
             Log-Line ("summary_read_failed path={0} error={1}" -f $script:SummaryPathResolved, $_.Exception.Message)
@@ -308,8 +308,8 @@ function Write-InnoSummary([object]$Preflight) {
 
 function Invoke-EnumerateMode {
     $previousLog = Join-Path $LogRoot 'post_install.prev.log'
-    if (Test-Path $script:LogPathResolved) {
-        Move-Item -Path $script:LogPathResolved -Destination $previousLog -Force
+    if (Test-Path -LiteralPath $script:LogPathResolved) {
+        Move-Item -LiteralPath $script:LogPathResolved -Destination $previousLog -Force
     }
 
     Log-Line ("mode=enumerate setup_version={0} rook_root={1}" -f $SetupVersion, $RookRoot)

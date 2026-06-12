@@ -194,6 +194,33 @@ function Test-RecordOutcomeCancelledUsesStableSummary {
     }
 }
 
+function Test-RecordOutcomePreservesSummaryUnderBracketedLogRoot {
+    $root = New-TestRoot
+    try {
+        $logs = Join-Path $root 'logs-[literal]'
+        [IO.Directory]::CreateDirectory($logs) | Out-Null
+        $summaryPath = Join-Path $logs 'post_install_summary.json'
+        $encoding = New-Object System.Text.UTF8Encoding($false)
+
+        $enumerateCode = Invoke-Helper -Mode enumerate -RookRoot $root -LogRoot $logs
+        Assert-Equals $enumerateCode 0 'Enumeration must seed the summary under a bracketed LogRoot.'
+
+        $summary = [IO.File]::ReadAllText($summaryPath) | ConvertFrom-Json
+        $summary | Add-Member -NotePropertyName literal_path_marker -NotePropertyValue 'preserve-me'
+        [IO.File]::WriteAllText($summaryPath, (($summary | ConvertTo-Json -Depth 8) + "`r`n"), $encoding)
+
+        $recordCode = Invoke-Helper -Mode record-outcome -RookRoot $root -LogRoot $logs -ExtraArgs @('-Outcome', 'installed')
+
+        Assert-Equals $recordCode 0 'record-outcome must exit 0 under a bracketed LogRoot.'
+        $updated = [IO.File]::ReadAllText($summaryPath) | ConvertFrom-Json
+        Assert-Equals $updated.literal_path_marker 'preserve-me' 'record-outcome must preserve the existing summary when LogRoot contains brackets.'
+        Assert-Equals $updated.outcome 'installed' 'record-outcome must update the outcome in the existing summary.'
+    }
+    finally {
+        Remove-TestRoot $root
+    }
+}
+
 function Test-CloseModeFailsQuietlyWhenNothingMatches {
     $root = New-TestRoot
     try {
@@ -1167,6 +1194,7 @@ Test-EnumerateNoConflictsSeedsSummaryAndLog
 Test-EnumerateRotatesExistingPostInstallLog
 Test-EnumerateUsesDefaultOutputPathsUnderLogRoot
 Test-RecordOutcomeCancelledUsesStableSummary
+Test-RecordOutcomePreservesSummaryUnderBracketedLogRoot
 Test-CloseModeFailsQuietlyWhenNothingMatches
 Test-PreBundledDescendantTreeCloseKillsOutOfBoundaryChild
 Test-InvalidModeReturnsHelperMisuseExitCode
