@@ -605,6 +605,11 @@ function Test-InstallerUsesRookProcessPreflight {
     Assert-Contains -Text $content -Expected 'CurInstallProgressChanged' -Message 'Installer must either re-sweep during [Files] or explicitly document the accepted race in the PR.'
     Assert-Contains -Text $content -Expected 'function GetTickCount: Cardinal; external ''GetTickCount@kernel32.dll stdcall'';' -Message '[Files] re-sweep timer must import GetTickCount from kernel32.dll for Inno Pascal Script compilation.'
     Assert-Contains -Text $content -Expected 'GetTickCount' -Message '[Files] re-sweep must be time-throttled and not spawn PowerShell on every progress tick.'
+    Assert-Contains -Text $content -Expected 'RookPreflightResweepEnabled: Boolean;' -Message '[Files] re-sweeps must have an explicit phase gate.'
+    Assert-Contains -Text $content -Expected 'if not RookPreflightResweepEnabled then' -Message '[Files] re-sweeps must check the phase gate before launching the helper.'
+    Assert-Contains -Text $content -Expected 'RookPreflightResweepEnabled := False;' -Message 'Installer must disable [Files] re-sweeps before post-install finalization starts.'
+    Assert-NotContains -Text $content -Unexpected 'RunRookPreflightHelperNoWait' -Message '[Files] re-sweeps must not launch PowerShell asynchronously because it can overlap ssPostInstall.'
+    Assert-NotContains -Text $content -Unexpected 'ewNoWait' -Message '[Files] re-sweeps must wait for the helper to exit before Inno can enter ssPostInstall.'
     Assert-Contains -Text $content -Expected 'Rook agent server' -Message 'Consent dialog must name Rook agent servers in plain language.'
 }
 

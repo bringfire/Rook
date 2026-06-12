@@ -1270,7 +1270,21 @@ def _run_with_last_gasp(runtime_root: Path | None = None) -> int:
     try:
         if not args.uninstall:
             _configure_install_logging(root)
-        return main()
+        result = main()
+        if not args.uninstall:
+            if result == 0:
+                _update_install_summary(
+                    root,
+                    phase_reached="finalizer-complete",
+                    final_outcome="success",
+                )
+            else:
+                _update_install_summary(
+                    root,
+                    phase_reached="finalizer-failed",
+                    final_outcome="failed",
+                )
+        return result
     except SystemExit:
         raise
     except Exception:

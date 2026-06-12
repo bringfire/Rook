@@ -247,6 +247,56 @@ def test_last_gasp_handler_writes_traceback(tmp_path: Path, monkeypatch) -> None
     assert "Traceback" in log
 
 
+def test_last_gasp_records_success_outcome(tmp_path: Path, monkeypatch) -> None:
+    post_install = load_post_install()
+    runtime_root = tmp_path / "Rook"
+
+    def ok() -> int:
+        post_install._update_install_summary(
+            runtime_root, phase_reached="finalizer-started", final_outcome="running"
+        )
+        return 0
+
+    monkeypatch.setattr(post_install, "main", ok)
+
+    result = post_install._run_with_last_gasp(runtime_root=runtime_root)
+
+    assert result == 0
+    summary = json.loads(
+        (runtime_root / "logs" / "post_install_summary.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert summary["phase_reached"] == "finalizer-complete"
+    assert summary["final_outcome"] == "success"
+
+
+def test_last_gasp_records_normal_failure_outcome(
+    tmp_path: Path, monkeypatch
+) -> None:
+    post_install = load_post_install()
+    runtime_root = tmp_path / "Rook"
+
+    def fail() -> int:
+        post_install._update_install_summary(
+            runtime_root, phase_reached="finalizer-started", final_outcome="running"
+        )
+        return 1
+
+    monkeypatch.setattr(post_install, "main", fail)
+
+    result = post_install._run_with_last_gasp(runtime_root=runtime_root)
+
+    assert result == 1
+    summary = json.loads(
+        (runtime_root / "logs" / "post_install_summary.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert summary["phase_reached"] == "finalizer-failed"
+    assert summary["final_outcome"] == "failed"
+
+
 def test_uninstall_cleanup_runs_without_install_log_handler(
     tmp_path: Path, monkeypatch
 ) -> None:

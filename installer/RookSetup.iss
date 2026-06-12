@@ -294,7 +294,7 @@ var
   RookPreflightSummaryPath: String;
   RookPreflightInnoSummaryPath: String;
   RookPreflightLogRoot: String;
-  RookPreflightConsentGranted: Boolean;
+  RookPreflightResweepEnabled: Boolean;
   RookPreflightLastSweepTick: Cardinal;
 
 function GetTickCount: Cardinal; external 'GetTickCount@kernel32.dll stdcall';
@@ -415,22 +415,6 @@ begin
   Result := Exec('powershell.exe', Args, '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 end;
 
-function RunRookPreflightHelperNoWait(const Mode, ExtraArgs: String; var ResultCode: Integer): Boolean;
-var
-  Args: String;
-begin
-  Args :=
-    '-NoProfile -ExecutionPolicy Bypass -File "' + RookPreflightHelperPath + '"' +
-    ' -Mode ' + Mode +
-    ' -RookRoot "' + ExpandConstant('{localappdata}\Rook') + '"' +
-    ' -LogRoot "' + RookPreflightLogRoot + '"' +
-    ' -SummaryPath "' + RookPreflightSummaryPath + '"' +
-    ' -InnoSummaryPath "' + RookPreflightInnoSummaryPath + '"' +
-    ' -SetupVersion "{#MyAppVersion}" ' + ExtraArgs;
-  Log('Rook process preflight re-sweep: powershell.exe ' + Args);
-  Result := Exec('powershell.exe', Args, '', SW_HIDE, ewNoWait, ResultCode);
-end;
-
 function TryGetPreflightSummaryValue(const Lines: TArrayOfString; const Key: String; var Value: String): Boolean;
 var
   I: Integer;
@@ -472,7 +456,7 @@ var
 begin
   Result := False;
   ErrorMessage := '';
-  RookPreflightConsentGranted := False;
+  RookPreflightResweepEnabled := False;
   RookPreflightLastSweepTick := 0;
 
   ExtractTemporaryFile('rook_process_preflight.ps1');
@@ -515,11 +499,7 @@ begin
     MessageText := 'Rook Setup found running Rook agent server(s).' + #13#10 + #13#10 + 'Setup will close them now so Rook can be updated.';
   StringChangeEx(MessageText, '\r\n', #13#10, True);
 
-  if WizardSilent then
-  begin
-    RookPreflightConsentGranted := True;
-  end
-  else
+  if not WizardSilent then
   begin
     if MsgBox(MessageText, mbConfirmation, MB_OKCANCEL) = IDCANCEL then
     begin
@@ -527,7 +507,6 @@ begin
       ErrorMessage := 'Rook Setup cannot continue while Rook agent servers are running.';
       Exit;
     end;
-    RookPreflightConsentGranted := True;
   end;
 
   if not RunRookPreflightHelper('close', '', ResultCode) then
@@ -542,6 +521,7 @@ begin
     Exit;
   end;
 
+  RookPreflightResweepEnabled := True;
   Result := True;
 end;
 
@@ -923,6 +903,8 @@ var
 begin
   if CurStep = ssPostInstall then
   begin
+    RookPreflightResweepEnabled := False;
+
     // Write .env files with API key if the user provided one
     ApiKey := ApiKeyPage.Values[0];
     if ApiKey <> '' then
@@ -947,7 +929,7 @@ var
   CurrentTick: Cardinal;
   ResultCode: Integer;
 begin
-  if not RookPreflightConsentGranted then
+  if not RookPreflightResweepEnabled then
     Exit;
 
   if RookPreflightHelperPath = '' then
@@ -958,7 +940,7 @@ begin
     Exit;
 
   RookPreflightLastSweepTick := CurrentTick;
-  RunRookPreflightHelperNoWait('close', '', ResultCode);
+  RunRookPreflightHelper('close', '', ResultCode);
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
