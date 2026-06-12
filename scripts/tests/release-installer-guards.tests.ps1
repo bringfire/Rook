@@ -603,6 +603,7 @@ function Test-InstallerUsesRookProcessPreflight {
     Assert-Contains -Text $content -Expected 'RunRookPreflightHelper(''record-outcome''' -Message 'Consent cancellation must be recorded by the helper, not Pascal SaveStringToFile.'
     Assert-Contains -Text $content -Expected 'WizardSilent' -Message 'Silent and very-silent installs must imply consent.'
     Assert-Contains -Text $content -Expected 'CurInstallProgressChanged' -Message 'Installer must either re-sweep during [Files] or explicitly document the accepted race in the PR.'
+    Assert-Contains -Text $content -Expected 'function GetTickCount: Cardinal; external ''GetTickCount@kernel32.dll stdcall'';' -Message '[Files] re-sweep timer must import GetTickCount from kernel32.dll for Inno Pascal Script compilation.'
     Assert-Contains -Text $content -Expected 'GetTickCount' -Message '[Files] re-sweep must be time-throttled and not spawn PowerShell on every progress tick.'
     Assert-Contains -Text $content -Expected 'Rook agent server' -Message 'Consent dialog must name Rook agent servers in plain language.'
 }

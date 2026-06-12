@@ -291,6 +291,8 @@ var
   RookPreflightConsentGranted: Boolean;
   RookPreflightLastSweepTick: Cardinal;
 
+function GetTickCount: Cardinal; external 'GetTickCount@kernel32.dll stdcall';
+
 // Resolve the actual python.exe path by running the candidate and capturing sys.executable.
 // This avoids the problem where compound commands like 'py -3' can't be used as a Filename.
 function ResolvePythonExe(const Candidate, ExtraArgs: String): Boolean;
