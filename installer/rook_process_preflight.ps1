@@ -398,7 +398,7 @@ function Test-LiveProcessIdentityMatches([object]$Process) {
     $processId = [int]$Process.ProcessId
 
     if ($null -eq $Process.CreationDateUtc) {
-        return ($null -ne (Get-Process -Id $processId -ErrorAction SilentlyContinue))
+        return $false
     }
 
     $liveProcess = Get-CimInstance Win32_Process -Filter ("ProcessId = {0}" -f $processId) -ErrorAction Stop |

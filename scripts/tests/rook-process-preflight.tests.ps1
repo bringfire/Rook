@@ -460,6 +460,33 @@ function Test-LiveProcessIdentityRejectsSamePidWithinSameSecondDifferentFileTime
     Assert-Equals (Test-LiveProcessIdentityMatches $snapshotProcess) $false 'Live identity revalidation must reject same PID with a different full-precision creation time.'
 }
 
+function Test-LiveProcessIdentityRejectsMissingCreationDateWithoutPidFallback {
+    Import-HelperFunctionsForUnitTest
+
+    $targetPid = 41020
+    $snapshotProcess = [pscustomobject]@{
+        ProcessId = $targetPid
+        CreationDateUtc = $null
+        CreationDateText = ''
+    }
+    $script:GetProcessWasCalled = $false
+
+    function script:Get-Process {
+        param([int]$Id, $ErrorAction)
+        $script:GetProcessWasCalled = $true
+        return [pscustomobject]@{
+            Id = $Id
+        }
+    }
+
+    function script:Get-CimInstance {
+        throw 'Missing snapshot creation identity must not be revalidated against live process state.'
+    }
+
+    Assert-Equals (Test-LiveProcessIdentityMatches $snapshotProcess) $false 'Live identity revalidation must reject snapshots without a full creation-time identity.'
+    Assert-Equals $script:GetProcessWasCalled $false 'Live identity revalidation must not fall back to PID-only Get-Process matching.'
+}
+
 function Test-CloseModeSkipsStopWhenPidIdentityChangesBeforeStop {
     Import-HelperFunctionsForUnitTest
 
@@ -1148,6 +1175,7 @@ Test-EnumerateModeReturnsEnumerationFailureExitCodeWhenCimEnumerationFails
 Test-PreflightSummaryCollapsesMatchedChildrenAndReportsOwners
 Test-ProcessIdentityKeyDistinguishesSamePidWithinSameSecond
 Test-LiveProcessIdentityRejectsSamePidWithinSameSecondDifferentFileTime
+Test-LiveProcessIdentityRejectsMissingCreationDateWithoutPidFallback
 Test-CloseModeSkipsStopWhenPidIdentityChangesBeforeStop
 Test-CloseModeReturnsCloseFailureWhenSuccessfulStopLeavesSameProcessAlive
 Test-CloseModeStopsDescendantsBeforeAncestors
