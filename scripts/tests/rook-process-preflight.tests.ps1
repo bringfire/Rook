@@ -32,11 +32,9 @@ function Invoke-Helper {
         [string]$Mode,
         [string]$RookRoot,
         [string]$LogRoot,
-        [string[]]$ExtraArgs = @()
+        [string[]]$ExtraArgs = @(),
+        [switch]$UseDefaultOutputPaths
     )
-    $summary = Join-Path $LogRoot 'post_install_summary.json'
-    $innoSummary = Join-Path $LogRoot 'preflight-summary.txt'
-    $log = Join-Path $LogRoot 'post_install.log'
     $helperArgs = @(
         '-NoProfile',
         '-ExecutionPolicy', 'Bypass',
@@ -44,11 +42,18 @@ function Invoke-Helper {
         '-Mode', $Mode,
         '-RookRoot', $RookRoot,
         '-LogRoot', $LogRoot,
-        '-SummaryPath', $summary,
-        '-InnoSummaryPath', $innoSummary,
-        '-LogPath', $log,
         '-SetupVersion', 'test'
     )
+    if (-not $UseDefaultOutputPaths) {
+        $summary = Join-Path $LogRoot 'post_install_summary.json'
+        $innoSummary = Join-Path $LogRoot 'preflight-summary.txt'
+        $log = Join-Path $LogRoot 'post_install.log'
+        $helperArgs += @(
+            '-SummaryPath', $summary,
+            '-InnoSummaryPath', $innoSummary,
+            '-LogPath', $log
+        )
+    }
     if ($ExtraArgs) {
         $helperArgs += $ExtraArgs
     }
@@ -100,6 +105,28 @@ function Test-EnumerateNoConflictsSeedsSummaryAndLog {
         $bytes = [IO.File]::ReadAllBytes($logPath)
         Assert-True ($bytes.Length -gt 0) 'Log must not be empty.'
         Assert-True (-not ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)) 'Log must be UTF-8 without a BOM.'
+    }
+    finally {
+        Remove-TestRoot $root
+    }
+}
+
+function Test-EnumerateUsesDefaultOutputPathsUnderLogRoot {
+    $root = New-TestRoot
+    try {
+        $logs = Join-Path $root 'logs'
+
+        $code = Invoke-Helper -Mode enumerate -RookRoot $root -LogRoot $logs -UseDefaultOutputPaths
+
+        Assert-Equals $code 0 'Enumeration with default output paths and no matching processes must exit 0.'
+        $summaryPath = Join-Path $logs 'post_install_summary.json'
+        $innoSummaryPath = Join-Path $logs 'preflight-summary.txt'
+        $logPath = Join-Path $logs 'post_install.log'
+        Assert-True (Test-Path $summaryPath) 'Default SummaryPath must resolve to post_install_summary.json under LogRoot.'
+        Assert-True (Test-Path $innoSummaryPath) 'Default InnoSummaryPath must resolve to preflight-summary.txt under LogRoot.'
+        Assert-True (Test-Path $logPath) 'Default LogPath must resolve to post_install.log under LogRoot.'
+        $summary = Get-Content -Path $summaryPath -Raw | ConvertFrom-Json
+        Assert-Equals $summary.setup_version 'test' 'Default output path invocation must still pass setup version through to the summary.'
     }
     finally {
         Remove-TestRoot $root
@@ -159,6 +186,103 @@ function Test-CloseModeFailsQuietlyWhenNothingMatches {
 function Test-ProcessEnumerationUsesTerminatingCimErrors {
     $source = Get-Content -Path $Helper -Raw
     Assert-True ($source -match 'Get-CimInstance\s+Win32_Process\s+-ErrorAction\s+Stop') 'Get-ProcessSnapshot must use -ErrorAction Stop so Win32_Process enumeration failures are terminating.'
+}
+
+function Test-EnumerateModeReturnsNotQuietExitCodeWhenConflictFound {
+    Import-HelperFunctionsForUnitTest
+
+    $root = New-TestRoot
+    try {
+        $logs = Join-Path $root 'logs'
+        $created = [DateTime]::UtcNow.AddSeconds(-10)
+        $conflictProcess = [pscustomobject]@{
+            ProcessId = 47000
+            ParentProcessId = 4
+            ExecutablePath = (Join-Path $root 'rook-agent.exe')
+            CommandLine = ''
+            CreationDateUtc = $created
+            CreationDateText = Format-UtcTimestamp $created
+            IsMatched = $true
+        }
+
+        $script:LogRoot = $logs
+        $script:LogPathResolved = Join-Path $logs 'post_install.log'
+        $script:RookRootPrefix = Normalize-PathPrefix $root
+        $script:RunStartUtc = Format-UtcTimestamp ([DateTime]::UtcNow)
+        $script:SetupVersion = 'test'
+        $script:ExitQuiet = 0
+        $script:ExitNotQuiet = 10
+        $script:ExitEnumerationFailure = 20
+        $script:ExitCloseFailure = 30
+        $script:ExitHelperError = 40
+        $script:NotQuietProcess = $conflictProcess
+        $script:SavedSummary = $null
+
+        function script:Get-ProcessSnapshot {
+            return @($script:NotQuietProcess)
+        }
+
+        function script:Save-Summary {
+            param([object]$Summary)
+            $script:SavedSummary = $Summary
+        }
+
+        function script:Write-InnoSummary {
+            param([object]$Preflight)
+        }
+
+        function script:Log-Line {
+            param([string]$Message)
+        }
+
+        $code = Invoke-EnumerateMode
+
+        Assert-Equals $code 10 'Enumerate mode must return the not-quiet exit code when a matching Rook process is found.'
+        Assert-Equals $script:SavedSummary.preflight.conflicts_found $true 'Not-quiet enumeration must summarize conflicts_found=true.'
+        Assert-Equals $script:SavedSummary.preflight.server_count 1 'Not-quiet enumeration must record the matched server root.'
+    }
+    finally {
+        Remove-TestRoot $root
+    }
+}
+
+function Test-EnumerateModeReturnsEnumerationFailureExitCodeWhenCimEnumerationFails {
+    Import-HelperFunctionsForUnitTest
+
+    $root = New-TestRoot
+    try {
+        $logs = Join-Path $root 'logs'
+
+        $script:LogRoot = $logs
+        $script:LogPathResolved = Join-Path $logs 'post_install.log'
+        $script:RookRootPrefix = Normalize-PathPrefix $root
+        $script:RunStartUtc = Format-UtcTimestamp ([DateTime]::UtcNow)
+        $script:SetupVersion = 'test'
+        $script:ExitQuiet = 0
+        $script:ExitNotQuiet = 10
+        $script:ExitEnumerationFailure = 20
+        $script:ExitCloseFailure = 30
+        $script:ExitHelperError = 40
+        $script:CimErrorAction = $null
+
+        function script:Get-CimInstance {
+            param([string]$ClassName, $ErrorAction)
+            $script:CimErrorAction = $ErrorAction
+            throw 'simulated Win32_Process enumeration failure'
+        }
+
+        function script:Log-Line {
+            param([string]$Message)
+        }
+
+        $code = Invoke-EnumerateMode
+
+        Assert-Equals $code 20 'Enumerate mode must return the enumeration failure exit code when Win32_Process enumeration fails.'
+        Assert-Equals ([string]$script:CimErrorAction) 'Stop' 'Win32_Process enumeration must request terminating CIM errors.'
+    }
+    finally {
+        Remove-TestRoot $root
+    }
 }
 
 function Test-ProcessIdentityKeyDistinguishesSamePidWithinSameSecond {
@@ -344,6 +468,127 @@ function Test-CloseModeReturnsCloseFailureWhenSuccessfulStopLeavesSameProcessAli
         Assert-Equals $script:SavedSummary.outcome 'preflight-close-failed' 'Persistent processes after successful stop attempts must be summarized as close failures.'
         Assert-Equals $script:SavedSummary.closed_process_count 0 'Repeated successful Stop-Process calls must not inflate closed_process_count while the same identity remains live.'
         Assert-Equals $script:StopCallCount 3 'Close mode must bound successful stop attempts before classifying a persistent process as failed.'
+    }
+    finally {
+        Remove-TestRoot $root
+    }
+}
+
+function Test-CloseModeStopsDescendantsBeforeAncestors {
+    Import-HelperFunctionsForUnitTest
+
+    $root = New-TestRoot
+    try {
+        $rootPid = 48000
+        $childPid = 48001
+        $grandchildPid = 48002
+        $rootCreated = [DateTime]::UtcNow.AddSeconds(-3)
+        $childCreated = [DateTime]::UtcNow.AddSeconds(-2)
+        $grandchildCreated = [DateTime]::UtcNow.AddSeconds(-1)
+        $rootProcess = [pscustomobject]@{
+            ProcessId = $rootPid
+            ParentProcessId = 4
+            ExecutablePath = (Join-Path $root 'rook-agent.exe')
+            CommandLine = ''
+            CreationDateUtc = $rootCreated
+            CreationDateText = Format-UtcTimestamp $rootCreated
+            IsMatched = $true
+        }
+        $childProcess = [pscustomobject]@{
+            ProcessId = $childPid
+            ParentProcessId = $rootPid
+            ExecutablePath = 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe'
+            CommandLine = ''
+            CreationDateUtc = $childCreated
+            CreationDateText = Format-UtcTimestamp $childCreated
+            IsMatched = $false
+        }
+        $grandchildProcess = [pscustomobject]@{
+            ProcessId = $grandchildPid
+            ParentProcessId = $childPid
+            ExecutablePath = 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe'
+            CommandLine = ''
+            CreationDateUtc = $grandchildCreated
+            CreationDateText = Format-UtcTimestamp $grandchildCreated
+            IsMatched = $false
+        }
+
+        $script:RookRootPrefix = Normalize-PathPrefix $root
+        $script:RunStartUtc = Format-UtcTimestamp ([DateTime]::UtcNow)
+        $script:SetupVersion = 'test'
+        $script:ExitQuiet = 0
+        $script:ExitNotQuiet = 10
+        $script:ExitEnumerationFailure = 20
+        $script:ExitCloseFailure = 30
+        $script:ExitHelperError = 40
+        $script:StopOrderSnapshotCallCount = 0
+        $script:StopOrderProcesses = @($rootProcess, $childProcess, $grandchildProcess)
+        $script:StopOrderLiveByPid = @{}
+        $script:StopOrderCreationByPid = @{}
+        $script:StopCallIds = @()
+        foreach ($process in $script:StopOrderProcesses) {
+            $processId = [int]$process.ProcessId
+            $script:StopOrderLiveByPid[$processId] = $true
+            $script:StopOrderCreationByPid[$processId] = $process.CreationDateUtc
+        }
+
+        function script:Get-ProcessSnapshot {
+            $script:StopOrderSnapshotCallCount++
+            if ($script:StopOrderSnapshotCallCount -eq 1) {
+                return $script:StopOrderProcesses
+            }
+            return @()
+        }
+
+        function script:Get-CimInstance {
+            param($ClassName, [string]$Filter, $ErrorAction)
+            if ($Filter -notmatch 'ProcessId\s*=\s*(\d+)') {
+                return $null
+            }
+            $processId = [int]$Matches[1]
+            if (-not $script:StopOrderLiveByPid.ContainsKey($processId)) {
+                return $null
+            }
+            return [pscustomobject]@{
+                ProcessId = $processId
+                CreationDate = [System.Management.ManagementDateTimeConverter]::ToDmtfDateTime($script:StopOrderCreationByPid[$processId])
+            }
+        }
+
+        function script:Stop-Process {
+            param([int]$Id, [switch]$Force, $ErrorAction)
+            $script:StopCallIds += $Id
+            $script:StopOrderLiveByPid.Remove($Id)
+        }
+
+        function script:Get-Process {
+            param([int]$Id, $ErrorAction)
+            if ($script:StopOrderLiveByPid.ContainsKey($Id)) {
+                return [pscustomobject]@{ Id = $Id }
+            }
+            return $null
+        }
+
+        function script:Start-Sleep {
+            param([int]$Milliseconds)
+        }
+
+        function script:Save-Summary {
+            param([object]$Summary)
+        }
+
+        function script:Write-InnoSummary {
+            param([object]$Preflight)
+        }
+
+        function script:Log-Line {
+            param([string]$Message)
+        }
+
+        $code = Invoke-CloseMode
+
+        Assert-Equals $code 0 'Close mode must reach quiet after mocked descendant and ancestor stops complete.'
+        Assert-Equals ($script:StopCallIds -join ',') ("{0},{1},{2}" -f $grandchildPid, $childPid, $rootPid) 'Close mode must stop descendants before their ancestors.'
     }
     finally {
         Remove-TestRoot $root
@@ -738,13 +983,17 @@ finally:
 
 Test-ProcessEnumerationUsesTerminatingCimErrors
 Test-EnumerateNoConflictsSeedsSummaryAndLog
+Test-EnumerateUsesDefaultOutputPathsUnderLogRoot
 Test-RecordOutcomeCancelledUsesStableSummary
 Test-CloseModeFailsQuietlyWhenNothingMatches
 Test-PreBundledDescendantTreeCloseKillsOutOfBoundaryChild
 Test-InvalidModeReturnsHelperMisuseExitCode
+Test-EnumerateModeReturnsNotQuietExitCodeWhenConflictFound
+Test-EnumerateModeReturnsEnumerationFailureExitCodeWhenCimEnumerationFails
 Test-ProcessIdentityKeyDistinguishesSamePidWithinSameSecond
 Test-CloseModeSkipsStopWhenPidIdentityChangesBeforeStop
 Test-CloseModeReturnsCloseFailureWhenSuccessfulStopLeavesSameProcessAlive
+Test-CloseModeStopsDescendantsBeforeAncestors
 Test-CloseModeSavesClosedOutcomeWhenFailedStopIdentityGoneAtFinalCheck
 Test-CloseModeReturnsCloseFailureWhenSuccessfulDescendantStopLeavesSameProcessAliveAfterRootGone
 Test-CloseModeReturnsCloseFailureWhenFailedDescendantRemainsAfterRootGone
