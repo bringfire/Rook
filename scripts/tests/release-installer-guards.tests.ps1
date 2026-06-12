@@ -610,8 +610,13 @@ function Test-InstallerUsesRookProcessPreflight {
 
 function Test-InstallerDeletesStaleChildChatManifests {
     $content = Get-Content -Path $InstallerScript -Raw
+    $installDeleteMatch = [regex]::Match($content, '(?ms)^\[InstallDelete\]\s*(?<block>.*?)(?=^\[Files\])')
+    Assert-True -Condition $installDeleteMatch.Success -Message 'Installer must place [InstallDelete] before [Files] so stale child manifests are removed before payload copy.'
+    $installDeleteBlock = $installDeleteMatch.Groups['block'].Value
+
     foreach ($runtime in @('net8.0', 'net7.0', 'net48')) {
-        Assert-Contains -Text $content -Expected "RookNative\$runtime\RookChatService.json" -Message "Installer must delete stale $runtime child chat manifest before [Files]."
+        $expectedLine = "Type: files; Name: `"{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\$runtime\RookChatService.json`""
+        Assert-Contains -Text $installDeleteBlock -Expected $expectedLine -Message "Installer must delete stale $runtime child chat manifest with Type: files in [InstallDelete] before [Files]."
     }
 }
 

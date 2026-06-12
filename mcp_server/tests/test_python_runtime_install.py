@@ -672,6 +672,47 @@ def test_write_chat_service_manifest_writes_root_and_existing_child_manifests(
     assert "unknown managed runtime child directory" in capsys.readouterr().out
 
 
+def test_write_chat_service_manifest_child_write_failure_returns_false_without_summary(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    post_install = load_post_install()
+    appdata = tmp_path / "AppData" / "Roaming"
+    plugin_dir = appdata / "McNeel" / "Rhinoceros" / "8.0" / "Plug-ins" / "RookNative"
+    plugin_dir.mkdir(parents=True)
+    for runtime in ("net8.0", "net7.0", "net48"):
+        (plugin_dir / runtime).mkdir()
+    mcp_server_dir = tmp_path / "Rook" / "app" / "mcp_server"
+    mcp_server_dir.mkdir(parents=True)
+    python_path = tmp_path / "Rook" / "venv" / "Scripts" / "python.exe"
+    python_path.parent.mkdir(parents=True)
+    python_path.write_text("fake", encoding="utf-8")
+    summary_path = tmp_path / "Rook" / "logs" / "post_install_summary.json"
+    summary_path.parent.mkdir(parents=True)
+    summary_path.write_text(
+        json.dumps({"schema_version": 1, "phase_reached": "preflight"}),
+        encoding="utf-8",
+    )
+    failed_path = plugin_dir / "net7.0" / "RookChatService.json"
+    original_write_text = Path.write_text
+
+    def fail_child_manifest_write(self, *args, **kwargs):
+        if self == failed_path:
+            raise PermissionError("locked child manifest")
+        return original_write_text(self, *args, **kwargs)
+
+    monkeypatch.setenv("APPDATA", str(appdata))
+    monkeypatch.setattr(Path, "write_text", fail_child_manifest_write)
+
+    assert post_install.write_chat_service_manifest(mcp_server_dir, str(python_path)) is False
+
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert summary["phase_reached"] == "preflight"
+    assert "chat_service_manifest_paths" not in summary
+    output = capsys.readouterr().out
+    assert str(failed_path) in output
+    assert "Failed to write chat service manifest" in output
+
+
 def test_mcp_env_points_to_chirp_home_and_clears_python_paths(tmp_path: Path) -> None:
     runtime = load_runtime_install()
     env = runtime.build_release_mcp_env(

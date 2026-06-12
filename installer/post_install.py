@@ -659,7 +659,16 @@ def write_chat_service_manifest(mcp_server_dir: Path, python_path: str) -> bool:
             print(f"WARNING: unknown managed runtime child directory: {child}")
             _INSTALL_LOGGER.warning("unknown managed runtime child directory: %s", child)
     for manifest_path in targets:
-        manifest_path.write_text(payload, encoding="utf-8")
+        try:
+            manifest_path.write_text(payload, encoding="utf-8")
+        except OSError as exc:
+            print(f"Failed to write chat service manifest: {manifest_path}: {exc}")
+            _INSTALL_LOGGER.error(
+                "failed to write chat service manifest: %s: %s",
+                manifest_path,
+                exc,
+            )
+            return False
         print(f"Wrote chat service manifest: {manifest_path}")
         _INSTALL_LOGGER.info("wrote chat service manifest: %s", manifest_path)
     runtime_root = Path(python_path).parent.parent.parent
