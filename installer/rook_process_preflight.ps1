@@ -550,6 +550,16 @@ function Invoke-CloseMode {
     $indexes = New-ProcessIndexes $processes
     $roots = @(Get-LogicalServerRoots -Processes $processes -ByPid $indexes.ByPid)
     $lastPreflight = New-PreflightSummary -Roots $roots -ByPid $indexes.ByPid
+    if ($roots.Count -gt 0) {
+        $remainingTargets = @(Get-DescendantClosure -Roots $roots -ByParentPid $indexes.ByParentPid)
+        foreach ($target in $remainingTargets) {
+            $identityKey = Get-ProcessIdentityKey $target.Process
+            if ($attemptsByIdentity.ContainsKey($identityKey) -and [int]$attemptsByIdentity[$identityKey] -ge 3 -and -not $failedCloseRecords.ContainsKey($identityKey)) {
+                Add-FailedCloseRecord -FailedCloseRecords $failedCloseRecords -Process $target.Process
+                Log-Line ("stop_process_still_alive pid={0} creation_date_utc={1} attempts={2} depth={3}" -f ([int]$target.Process.ProcessId), $target.Process.CreationDateText, $attemptsByIdentity[$identityKey], $target.Depth)
+            }
+        }
+    }
     $liveFailedCloseRecords = @(Get-LiveFailedCloseRecords -FailedCloseRecords $failedCloseRecords)
     $closeFailed = $closeFailed -or ($liveFailedCloseRecords.Count -gt 0)
     $runOutcome = 'preflight-not-quiet'
@@ -572,13 +582,15 @@ function Invoke-CloseMode {
         return $ExitQuiet
     }
 
-    Log-Line ("close_not_quiet remaining_server_count={0} close_failed={1}" -f $roots.Count, $closeFailed.ToString().ToLowerInvariant())
     if ($liveFailedCloseRecords.Count -gt 0) {
+        Log-Line ("close_failed remaining_failed_processes={0} remaining_server_count={1} closed_process_count={2}" -f (Format-ProcessIdentities $liveFailedCloseRecords), $roots.Count, $closedProcessCount)
         return $ExitCloseFailure
     }
     if ($closeFailed) {
+        Log-Line ("close_failed remaining_server_count={0} closed_process_count={1}" -f $roots.Count, $closedProcessCount)
         return $ExitCloseFailure
     }
+    Log-Line ("close_not_quiet remaining_server_count={0} close_failed=false" -f $roots.Count)
     return $ExitNotQuiet
 }
 

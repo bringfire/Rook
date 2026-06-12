@@ -245,6 +245,89 @@ function Test-CloseModeSkipsStopWhenPidIdentityChangesBeforeStop {
     }
 }
 
+function Test-CloseModeReturnsCloseFailureWhenSuccessfulStopLeavesSameProcessAlive {
+    Import-HelperFunctionsForUnitTest
+
+    $root = New-TestRoot
+    try {
+        $targetPid = 44000
+        $created = [DateTime]::UtcNow.AddSeconds(-10)
+        $rootProcess = [pscustomobject]@{
+            ProcessId = $targetPid
+            ParentProcessId = 4
+            ExecutablePath = (Join-Path $root 'rook-agent.exe')
+            CommandLine = ''
+            CreationDateUtc = $created
+            CreationDateText = Format-UtcTimestamp $created
+            IsMatched = $true
+        }
+
+        $script:RookRootPrefix = Normalize-PathPrefix $root
+        $script:RunStartUtc = Format-UtcTimestamp ([DateTime]::UtcNow)
+        $script:SetupVersion = 'test'
+        $script:ExitQuiet = 0
+        $script:ExitNotQuiet = 10
+        $script:ExitEnumerationFailure = 20
+        $script:ExitCloseFailure = 30
+        $script:ExitHelperError = 40
+        $script:SavedSummary = $null
+        $script:CloseFailureLogMessages = @()
+        $script:StopCallCount = 0
+        $script:PersistentRootProcess = $rootProcess
+        $script:PersistentRootPid = $targetPid
+        $script:PersistentRootCreated = $created
+
+        function script:Get-ProcessSnapshot {
+            return @($script:PersistentRootProcess)
+        }
+
+        function script:Get-CimInstance {
+            param($ClassName, [string]$Filter, $ErrorAction)
+            return [pscustomobject]@{
+                ProcessId = $script:PersistentRootPid
+                CreationDate = [System.Management.ManagementDateTimeConverter]::ToDmtfDateTime($script:PersistentRootCreated)
+            }
+        }
+
+        function script:Stop-Process {
+            param([int]$Id, [switch]$Force, $ErrorAction)
+            $script:StopCallCount++
+        }
+
+        function script:Get-Process {
+            param([int]$Id, $ErrorAction)
+            return [pscustomobject]@{ Id = $script:PersistentRootPid }
+        }
+
+        function script:Start-Sleep {
+            param([int]$Milliseconds)
+        }
+
+        function script:Save-Summary {
+            param([object]$Summary)
+            $script:SavedSummary = $Summary
+        }
+
+        function script:Write-InnoSummary {
+            param([object]$Preflight)
+        }
+
+        function script:Log-Line {
+            param([string]$Message)
+            $script:CloseFailureLogMessages += $Message
+        }
+
+        $code = Invoke-CloseMode
+
+        Assert-Equals $code 30 ("Close mode must return close failure when successful Stop-Process calls leave the same process alive. Logs: {0}" -f ($script:CloseFailureLogMessages -join '; '))
+        Assert-Equals $script:SavedSummary.outcome 'preflight-close-failed' 'Persistent processes after successful stop attempts must be summarized as close failures.'
+        Assert-Equals $script:StopCallCount 3 'Close mode must bound successful stop attempts before classifying a persistent process as failed.'
+    }
+    finally {
+        Remove-TestRoot $root
+    }
+}
+
 function Test-CloseModeReturnsCloseFailureWhenFailedDescendantRemainsAfterRootGone {
     Import-HelperFunctionsForUnitTest
 
@@ -426,5 +509,6 @@ Test-CloseModeFailsQuietlyWhenNothingMatches
 Test-PreBundledDescendantTreeCloseKillsOutOfBoundaryChild
 Test-InvalidModeReturnsHelperMisuseExitCode
 Test-CloseModeSkipsStopWhenPidIdentityChangesBeforeStop
+Test-CloseModeReturnsCloseFailureWhenSuccessfulStopLeavesSameProcessAlive
 Test-CloseModeReturnsCloseFailureWhenFailedDescendantRemainsAfterRootGone
 Write-Host 'rook-process-preflight.tests.ps1 PASS'
