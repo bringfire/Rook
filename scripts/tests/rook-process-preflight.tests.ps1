@@ -342,6 +342,76 @@ function Test-CloseModePreservesEnumeratedPreflightOnSuccessfulClose {
     }
 }
 
+function Test-CloseModePreservesPriorClosedCountOnNoOpResweep {
+    Import-HelperFunctionsForUnitTest
+
+    $root = New-TestRoot
+    try {
+        $logs = Join-Path $root 'logs'
+        $summaryPath = Join-Path $logs 'post_install_summary.json'
+        $innoSummaryPath = Join-Path $logs 'preflight-summary.txt'
+        $logPath = Join-Path $logs 'post_install.log'
+        $parentPid = 49100
+        $rootPid = 49101
+        $parentCreated = [DateTime]::new(2026, 1, 1, 12, 0, 0, 100, [DateTimeKind]::Utc)
+        $rootCreated = [DateTime]::new(2026, 1, 1, 12, 0, 0, 200, [DateTimeKind]::Utc)
+        $parentProcess = [pscustomobject]@{
+            ProcessId = $parentPid
+            ParentProcessId = 4
+            ExecutablePath = 'C:\Tools\codex.exe'
+            CommandLine = ''
+            CreationDateUtc = $parentCreated
+            CreationDateText = Format-UtcTimestamp $parentCreated
+            IsMatched = $false
+        }
+        $rootProcess = [pscustomobject]@{
+            ProcessId = $rootPid
+            ParentProcessId = $parentPid
+            ExecutablePath = (Join-Path $root 'rook-agent.exe')
+            CommandLine = '--port 9876'
+            CreationDateUtc = $rootCreated
+            CreationDateText = Format-UtcTimestamp $rootCreated
+            IsMatched = $true
+        }
+        $indexes = New-ProcessIndexes @($parentProcess, $rootProcess)
+        $originalPreflight = New-PreflightSummary -Roots @($rootProcess) -ByPid $indexes.ByPid
+        $originalSummary = New-RunSummary -Preflight $originalPreflight -ClosedProcessCount 10 -RunOutcome 'preflight-closed'
+
+        $script:SummaryPathResolved = $summaryPath
+        $script:InnoSummaryPathResolved = $innoSummaryPath
+        $script:LogPathResolved = $logPath
+        $script:RookRootPrefix = Normalize-PathPrefix $root
+        $script:RunStartUtc = Format-UtcTimestamp ([DateTime]::UtcNow)
+        $script:SetupVersion = 'test'
+        $script:ExitQuiet = 0
+        $script:ExitNotQuiet = 10
+        $script:ExitEnumerationFailure = 20
+        $script:ExitCloseFailure = 30
+        $script:ExitHelperError = 40
+        Save-Summary $originalSummary
+
+        function script:Get-ProcessSnapshot {
+            return @()
+        }
+
+        function script:Start-Sleep {
+            param([int]$Milliseconds)
+        }
+
+        $code = Invoke-CloseMode
+
+        Assert-Equals $code 0 'No-op re-sweep after a successful close must remain quiet.'
+        $updated = Get-Content -Path $summaryPath -Raw | ConvertFrom-Json
+        Assert-Equals $updated.outcome 'preflight-closed' 'No-op re-sweep must preserve the successful close outcome.'
+        Assert-Equals $updated.closed_process_count 10 'No-op re-sweep must preserve the prior closed process count instead of overwriting it with zero.'
+        Assert-Equals $updated.preflight.server_count 1 'No-op re-sweep must preserve the original preflight server count.'
+        Assert-Equals (@($updated.preflight.owners) -join ',') 'Codex' 'No-op re-sweep must preserve original owner evidence.'
+    }
+    finally {
+        Remove-TestRoot $root
+    }
+}
+
 function Test-ProcessEnumerationUsesTerminatingCimErrors {
     $source = Get-Content -Path $Helper -Raw
     Assert-True ($source -match 'Get-CimInstance\s+Win32_Process\s+-ErrorAction\s+Stop') 'Get-ProcessSnapshot must use -ErrorAction Stop so Win32_Process enumeration failures are terminating.'
@@ -1495,6 +1565,7 @@ Test-RecordOutcomeCancelledUsesStableSummary
 Test-RecordOutcomePreservesSummaryUnderBracketedLogRoot
 Test-CloseModeFailsQuietlyWhenNothingMatches
 Test-CloseModePreservesEnumeratedPreflightOnSuccessfulClose
+Test-CloseModePreservesPriorClosedCountOnNoOpResweep
 Test-PreBundledDescendantTreeCloseKillsOutOfBoundaryChild
 Test-InvalidModeReturnsHelperMisuseExitCode
 Test-EnumerateModeReturnsNotQuietExitCodeWhenConflictFound

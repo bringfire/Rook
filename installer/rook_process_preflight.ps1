@@ -289,6 +289,18 @@ function Read-SummaryOrDefault {
     return (New-RunSummary -Preflight (New-EmptyPreflightSummary) -ClosedProcessCount 0 -RunOutcome 'preflight-not-run')
 }
 
+function Get-SummaryClosedProcessCount([object]$Summary) {
+    if ($null -eq $Summary) {
+        return 0
+    }
+    try {
+        return [Math]::Max(0, [int]$Summary.closed_process_count)
+    }
+    catch {
+        return 0
+    }
+}
+
 function Test-PreflightHasConflicts([object]$Preflight) {
     if ($null -eq $Preflight) {
         return $false
@@ -522,6 +534,7 @@ function Invoke-CloseMode {
     $failedCloseRecords = @{}
     $attemptedCloseRecords = @{}
     $closedProcessCount = 0
+    $priorClosedProcessCount = Get-SummaryClosedProcessCount (Read-SummaryOrDefault)
     $preflightEvidence = Get-InitialClosePreflightEvidence
 
     for ($round = 1; $round -le 3; $round++) {
@@ -546,17 +559,18 @@ function Invoke-CloseMode {
                 return $ExitEnumerationFailure
             }
             $closedProcessCount = Get-ClosedProcessCount -AttemptedCloseRecords $attemptedCloseRecords -LiveAttemptedCloseRecords $liveAttemptedCloseRecords
+            $summaryClosedProcessCount = $priorClosedProcessCount + $closedProcessCount
             if ($liveFailedCloseRecords.Count -gt 0 -or $liveAttemptedCloseRecords.Count -gt 0) {
-                $summary = New-RunSummary -Preflight $preflightEvidence -ClosedProcessCount $closedProcessCount -RunOutcome 'preflight-close-failed'
+                $summary = New-RunSummary -Preflight $preflightEvidence -ClosedProcessCount $summaryClosedProcessCount -RunOutcome 'preflight-close-failed'
                 Save-Summary $summary
                 Write-InnoSummary $preflightEvidence
-                Log-Line ("close_failed remaining_failed_processes={0} closed_process_count={1}" -f (Format-ProcessIdentities $liveAttemptedCloseRecords), $closedProcessCount)
+                Log-Line ("close_failed remaining_failed_processes={0} closed_process_count={1} total_closed_process_count={2}" -f (Format-ProcessIdentities $liveAttemptedCloseRecords), $closedProcessCount, $summaryClosedProcessCount)
                 return $ExitCloseFailure
             }
-            $summary = New-RunSummary -Preflight $preflightEvidence -ClosedProcessCount $closedProcessCount -RunOutcome 'preflight-closed'
+            $summary = New-RunSummary -Preflight $preflightEvidence -ClosedProcessCount $summaryClosedProcessCount -RunOutcome 'preflight-closed'
             Save-Summary $summary
             Write-InnoSummary $preflightEvidence
-            Log-Line ("close_complete closed_process_count={0}" -f $closedProcessCount)
+            Log-Line ("close_complete closed_process_count={0} total_closed_process_count={1}" -f $closedProcessCount, $summaryClosedProcessCount)
             return $ExitQuiet
         }
 
@@ -641,6 +655,7 @@ function Invoke-CloseMode {
         return $ExitEnumerationFailure
     }
     $closedProcessCount = Get-ClosedProcessCount -AttemptedCloseRecords $attemptedCloseRecords -LiveAttemptedCloseRecords $liveAttemptedCloseRecords
+    $summaryClosedProcessCount = $priorClosedProcessCount + $closedProcessCount
     $hasLiveCloseFailures = ($liveFailedCloseRecords.Count -gt 0) -or ($liveAttemptedCloseRecords.Count -gt 0)
     $runOutcome = 'preflight-not-quiet'
     if ($hasLiveCloseFailures) {
@@ -649,21 +664,21 @@ function Invoke-CloseMode {
     elseif ($roots.Count -eq 0) {
         $runOutcome = 'preflight-closed'
     }
-    $summary = New-RunSummary -Preflight $preflightEvidence -ClosedProcessCount $closedProcessCount -RunOutcome $runOutcome
+    $summary = New-RunSummary -Preflight $preflightEvidence -ClosedProcessCount $summaryClosedProcessCount -RunOutcome $runOutcome
     Save-Summary $summary
     Write-InnoSummary $preflightEvidence
 
     if ($roots.Count -eq 0) {
         if ($hasLiveCloseFailures) {
-            Log-Line ("close_failed remaining_failed_processes={0} closed_process_count={1}" -f (Format-ProcessIdentities $liveAttemptedCloseRecords), $closedProcessCount)
+            Log-Line ("close_failed remaining_failed_processes={0} closed_process_count={1} total_closed_process_count={2}" -f (Format-ProcessIdentities $liveAttemptedCloseRecords), $closedProcessCount, $summaryClosedProcessCount)
             return $ExitCloseFailure
         }
-        Log-Line ("close_complete closed_process_count={0}" -f $closedProcessCount)
+        Log-Line ("close_complete closed_process_count={0} total_closed_process_count={1}" -f $closedProcessCount, $summaryClosedProcessCount)
         return $ExitQuiet
     }
 
     if ($hasLiveCloseFailures) {
-        Log-Line ("close_failed remaining_failed_processes={0} remaining_server_count={1} closed_process_count={2}" -f (Format-ProcessIdentities $liveAttemptedCloseRecords), $roots.Count, $closedProcessCount)
+        Log-Line ("close_failed remaining_failed_processes={0} remaining_server_count={1} closed_process_count={2} total_closed_process_count={3}" -f (Format-ProcessIdentities $liveAttemptedCloseRecords), $roots.Count, $closedProcessCount, $summaryClosedProcessCount)
         return $ExitCloseFailure
     }
     Log-Line ("close_not_quiet remaining_server_count={0} close_failed=false" -f $roots.Count)
