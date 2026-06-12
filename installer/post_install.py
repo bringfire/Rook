@@ -264,6 +264,8 @@ def _record_venv_rebuild_summary(
     retry_count: int,
     outcome: str,
     failure_stage: str | None = None,
+    guard_close_failures: list[str] | None = None,
+    guard_thread_died_unexpectedly: bool = False,
 ) -> None:
     payload = _read_install_summary(runtime_root)
     rebuilds = payload.get("venv_rebuilds")
@@ -277,9 +279,25 @@ def _record_venv_rebuild_summary(
     }
     if failure_stage is not None:
         entry["failure_stage"] = failure_stage
+    if guard_close_failures:
+        entry["guard_close_failures"] = guard_close_failures
+    if guard_thread_died_unexpectedly:
+        entry["guard_thread_died_unexpectedly"] = True
     rebuilds[runtime_name] = entry
     payload["venv_rebuilds"] = rebuilds
     _write_install_summary(runtime_root, payload)
+
+
+def _collect_rebuild_guard_health(label: str, guard) -> tuple[list[str], bool]:
+    close_failures = [str(failure) for failure in getattr(guard, "close_failures", [])]
+    for failure in close_failures:
+        _INSTALL_LOGGER.error("%s rebuild guard close failure: %s", label, failure)
+
+    thread_died = bool(getattr(guard, "thread_died_unexpectedly", False))
+    if thread_died:
+        _INSTALL_LOGGER.error("%s rebuild guard sweep thread died unexpectedly", label)
+
+    return close_failures, thread_died
 
 
 def _install_from_wheelhouse_once(
@@ -377,7 +395,10 @@ def _install_from_wheelhouse(
     lockfile_sha256 = python_runtime_install.sha256_file(lock)
 
     retry_count = 0
-    with _make_rebuild_guard(label, layout.rook_root):
+    guard_close_failures: list[str] = []
+    guard_thread_died_unexpectedly = False
+
+    with _make_rebuild_guard(label, layout.rook_root) as guard:
         venv_python, failure_stage = _install_from_wheelhouse_once(
             label,
             layout,
@@ -387,6 +408,9 @@ def _install_from_wheelhouse(
             python_identity_hash,
             lockfile_sha256,
         )
+    close_failures, thread_died = _collect_rebuild_guard_health(label, guard)
+    guard_close_failures.extend(close_failures)
+    guard_thread_died_unexpectedly = guard_thread_died_unexpectedly or thread_died
 
     if failure_stage in {"remove", "create", "bootstrap", "install"}:
         retry_count = 1
@@ -395,7 +419,7 @@ def _install_from_wheelhouse(
             label,
             failure_stage,
         )
-        with _make_rebuild_guard(label, layout.rook_root):
+        with _make_rebuild_guard(label, layout.rook_root) as guard:
             venv_python, failure_stage = _install_from_wheelhouse_once(
                 label,
                 layout,
@@ -406,6 +430,9 @@ def _install_from_wheelhouse(
                 lockfile_sha256,
                 force_recreate=True,
             )
+        close_failures, thread_died = _collect_rebuild_guard_health(label, guard)
+        guard_close_failures.extend(close_failures)
+        guard_thread_died_unexpectedly = guard_thread_died_unexpectedly or thread_died
 
     if not venv_python:
         _INSTALL_LOGGER.error("%s install failed at %s", label, failure_stage)
@@ -416,6 +443,8 @@ def _install_from_wheelhouse(
             retry_count,
             "failed",
             failure_stage,
+            guard_close_failures,
+            guard_thread_died_unexpectedly,
         )
         return None
 
@@ -434,6 +463,8 @@ def _install_from_wheelhouse(
             retry_count,
             "failed",
             "pip-check",
+            guard_close_failures,
+            guard_thread_died_unexpectedly,
         )
         return None
 
@@ -448,7 +479,13 @@ def _install_from_wheelhouse(
         _combined_output(check),
     )
     _record_venv_rebuild_summary(
-        layout.rook_root, runtime_name, label, retry_count, "success"
+        layout.rook_root,
+        runtime_name,
+        label,
+        retry_count,
+        "success",
+        guard_close_failures=guard_close_failures,
+        guard_thread_died_unexpectedly=guard_thread_died_unexpectedly,
     )
     print(f"{label} installed successfully in {venv_dir}.")
     return venv_python

@@ -830,6 +830,96 @@ def test_install_from_wheelhouse_uses_guard_and_retries_full_rebuild(
     assert payload["venv_rebuilds"]["rook"]["outcome"] == "success"
 
 
+def test_install_from_wheelhouse_records_guard_health_signals(
+    tmp_path: Path, monkeypatch
+) -> None:
+    runtime = load_runtime_install()
+    post_install = load_post_install()
+    layout = runtime.RuntimeLayout.from_rook_root(tmp_path / "Rook", "3.11.9")
+
+    layout.private_python.parent.mkdir(parents=True)
+    layout.private_python.write_text("private python", encoding="utf-8")
+    layout.wheelhouse.mkdir(parents=True)
+    layout.bootstrap_lock.parent.mkdir(parents=True, exist_ok=True)
+    layout.bootstrap_lock.write_text("pip==26.1.2 --hash=sha256:abc\n", encoding="utf-8")
+    layout.rook_lock.write_text("rook-mcp==1.5.10 --hash=sha256:def\n", encoding="utf-8")
+    layout.runtime_manifest.write_text('{"schema_version":1}', encoding="utf-8")
+    summary = layout.rook_root / "logs" / "post_install_summary.json"
+    summary.parent.mkdir(parents=True)
+    summary.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "phase_reached": "preflight",
+                "preflight": {"server_count": 5},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    class FakeGuard:
+        close_failures = ["rook-mcp: failed to terminate pid 123 error=5"]
+        thread_died_unexpectedly = True
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    def fake_run(command, *, env, timeout=post_install.INSTALL_COMMAND_TIMEOUT_SECONDS):
+        if command[:3] == [str(layout.private_python), "-m", "venv"]:
+            created_python = post_install.get_venv_python(Path(command[3]))
+            created_python.parent.mkdir(parents=True, exist_ok=True)
+            created_python.write_text("fresh", encoding="utf-8")
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout="Looking in links: C:/Rook/app/python-wheelhouse\nNo broken requirements found.",
+            stderr="",
+        )
+
+    logged_errors: list[tuple[str, tuple[object, ...]]] = []
+
+    def fake_error(message, *args, **kwargs):
+        del kwargs
+        logged_errors.append((message, args))
+
+    monkeypatch.setattr(
+        post_install, "_make_rebuild_guard", lambda label, runtime_root: FakeGuard()
+    )
+    monkeypatch.setattr(post_install, "_run_install_command", fake_run)
+    monkeypatch.setattr(post_install._INSTALL_LOGGER, "error", fake_error)
+
+    venv_python = post_install._install_from_wheelhouse(
+        "rook-mcp",
+        layout,
+        layout.rook_venv,
+        layout.rook_lock,
+        "rook",
+    )
+
+    assert venv_python == post_install.get_venv_python(layout.rook_venv)
+    payload = json.loads(summary.read_text(encoding="utf-8"))
+    rebuild = payload["venv_rebuilds"]["rook"]
+    assert payload["preflight"]["server_count"] == 5
+    assert rebuild["guard_label"] == "rook-mcp"
+    assert rebuild["guard_close_failures"] == [
+        "rook-mcp: failed to terminate pid 123 error=5"
+    ]
+    assert rebuild["guard_thread_died_unexpectedly"] is True
+    assert logged_errors
+    assert logged_errors[0][0] == "%s rebuild guard close failure: %s"
+    assert logged_errors[0][1] == (
+        "rook-mcp",
+        "rook-mcp: failed to terminate pid 123 error=5",
+    )
+    assert (
+        "%s rebuild guard sweep thread died unexpectedly",
+        ("rook-mcp",),
+    ) in logged_errors
+
+
 def test_install_from_wheelhouse_logs_pip_check_failure_without_retry(
     tmp_path: Path, monkeypatch
 ) -> None:
