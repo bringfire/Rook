@@ -608,6 +608,13 @@ function Test-InstallerUsesRookProcessPreflight {
     Assert-Contains -Text $content -Expected 'Rook agent server' -Message 'Consent dialog must name Rook agent servers in plain language.'
 }
 
+function Test-InstallerDeletesStaleChildChatManifests {
+    $content = Get-Content -Path $InstallerScript -Raw
+    foreach ($runtime in @('net8.0', 'net7.0', 'net48')) {
+        Assert-Contains -Text $content -Expected "RookNative\$runtime\RookChatService.json" -Message "Installer must delete stale $runtime child chat manifest before [Files]."
+    }
+}
+
 Test-InstallerPackagesBundledPythonRuntime
 Test-PublicInstallerDoesNotRequireUserPython
 Test-InstallerFailsWhenPostInstallFails
@@ -642,5 +649,6 @@ Test-NativePdbRequirementIsConsistent
 Test-BuildReleaseDocsRequireFfmpegValidation
 Test-LegacyGitHubReleaseWorkflowIsDisabled
 Test-InstallerUsesRookProcessPreflight
+Test-InstallerDeletesStaleChildChatManifests
 
 Write-Host 'Release installer guard tests passed.'

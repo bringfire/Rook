@@ -647,9 +647,26 @@ def write_chat_service_manifest(mcp_server_dir: Path, python_path: str) -> bool:
         release_mode=True,
     )
 
-    manifest_path = plugin_dir / "RookChatService.json"
-    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-    print(f"Wrote chat service manifest: {manifest_path}")
+    payload = json.dumps(manifest, indent=2)
+    targets = [plugin_dir / "RookChatService.json"]
+    known_children = set(MANAGED_COMPANION_RUNTIMES)
+    for runtime in MANAGED_COMPANION_RUNTIMES:
+        child_dir = plugin_dir / runtime
+        if child_dir.is_dir():
+            targets.append(child_dir / "RookChatService.json")
+    for child in plugin_dir.iterdir():
+        if child.is_dir() and child.name.startswith("net") and child.name not in known_children:
+            print(f"WARNING: unknown managed runtime child directory: {child}")
+            _INSTALL_LOGGER.warning("unknown managed runtime child directory: %s", child)
+    for manifest_path in targets:
+        manifest_path.write_text(payload, encoding="utf-8")
+        print(f"Wrote chat service manifest: {manifest_path}")
+        _INSTALL_LOGGER.info("wrote chat service manifest: %s", manifest_path)
+    runtime_root = Path(python_path).parent.parent.parent
+    _update_install_summary(
+        runtime_root,
+        chat_service_manifest_paths=[str(manifest_path) for manifest_path in targets],
+    )
     return True
 
 

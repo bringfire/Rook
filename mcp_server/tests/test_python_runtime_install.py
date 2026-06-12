@@ -643,6 +643,35 @@ def test_release_chat_manifest_has_no_source_pythonpath_entries(tmp_path: Path) 
     assert manifest["environment"]["ROOK_DSPY_RESTRICT_PICKLE"] == "1"
 
 
+def test_write_chat_service_manifest_writes_root_and_existing_child_manifests(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    post_install = load_post_install()
+    appdata = tmp_path / "AppData" / "Roaming"
+    plugin_dir = appdata / "McNeel" / "Rhinoceros" / "8.0" / "Plug-ins" / "RookNative"
+    plugin_dir.mkdir(parents=True)
+    for runtime in ("net8.0", "net7.0", "net48", "net9.0"):
+        (plugin_dir / runtime).mkdir()
+    mcp_server_dir = tmp_path / "Rook" / "app" / "mcp_server"
+    mcp_server_dir.mkdir(parents=True)
+    python_path = tmp_path / "Rook" / "venv" / "Scripts" / "python.exe"
+    python_path.parent.mkdir(parents=True)
+    python_path.write_text("fake", encoding="utf-8")
+    monkeypatch.setenv("APPDATA", str(appdata))
+
+    assert post_install.write_chat_service_manifest(mcp_server_dir, str(python_path)) is True
+
+    root_payload = (plugin_dir / "RookChatService.json").read_text(encoding="utf-8")
+    for runtime in ("net8.0", "net7.0", "net48"):
+        child_payload = (plugin_dir / runtime / "RookChatService.json").read_text(
+            encoding="utf-8"
+        )
+        assert child_payload == root_payload
+        assert json.loads(child_payload)["module"] == "rook.agent.chat.service_main"
+    assert not (plugin_dir / "net9.0" / "RookChatService.json").exists()
+    assert "unknown managed runtime child directory" in capsys.readouterr().out
+
+
 def test_mcp_env_points_to_chirp_home_and_clears_python_paths(tmp_path: Path) -> None:
     runtime = load_runtime_install()
     env = runtime.build_release_mcp_env(

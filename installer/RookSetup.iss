@@ -99,6 +99,10 @@ Type: filesandordirs; Name: "{app}\.codex"
 Type: files; Name: "{app}\.mcp.json"
 Type: files; Name: "{app}\LICENSE"
 Type: files; Name: "{app}\BUILDING.md"
+; Remove stale per-runtime chat manifests before post_install writes fresh copies.
+Type: files; Name: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net8.0\RookChatService.json"
+Type: files; Name: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net7.0\RookChatService.json"
+Type: files; Name: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net48\RookChatService.json"
 
 ; ---------------------------------------------------------------------------
 ; Files
