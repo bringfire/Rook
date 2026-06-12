@@ -589,6 +589,24 @@ function Test-LegacyGitHubReleaseWorkflowIsDisabled {
     Assert-NotContains -Text $content -Unexpected 'Compress-Archive' -Message 'Legacy GitHub release workflow must not package the old ZIP release.'
 }
 
+function Test-InstallerUsesRookProcessPreflight {
+    $content = Get-Content -Path $InstallerScript -Raw
+
+    Assert-Contains -Text $content -Expected 'CloseApplications=no' -Message 'Installer must disable Inno Restart Manager close-app behavior.'
+    Assert-Contains -Text $content -Expected 'RestartApplications=no' -Message 'Installer must not restart raw python -m rook processes after install.'
+    Assert-Contains -Text $content -Expected 'SetupLogging=yes' -Message 'Installer must enable Inno setup logging as a backstop.'
+    Assert-Contains -Text $content -Expected 'Source: "rook_process_preflight.ps1"; Flags: dontcopy' -Message 'Preflight helper must be embedded for ExtractTemporaryFile before [Files].'
+    Assert-Contains -Text $content -Expected 'ExtractTemporaryFile(''rook_process_preflight.ps1'')' -Message 'PrepareToInstall must extract the helper to {tmp}.'
+    Assert-Contains -Text $content -Expected 'function RunRookProcessPreflight' -Message 'Installer must run Rook process preflight before [Files].'
+    Assert-Contains -Text $content -Expected 'RunRookPreflightHelper(''enumerate''' -Message 'Preflight must run helper enumeration mode.'
+    Assert-Contains -Text $content -Expected 'RunRookPreflightHelper(''close''' -Message 'Preflight must run helper close mode after consent or silent implied consent.'
+    Assert-Contains -Text $content -Expected 'RunRookPreflightHelper(''record-outcome''' -Message 'Consent cancellation must be recorded by the helper, not Pascal SaveStringToFile.'
+    Assert-Contains -Text $content -Expected 'WizardSilent' -Message 'Silent and very-silent installs must imply consent.'
+    Assert-Contains -Text $content -Expected 'CurInstallProgressChanged' -Message 'Installer must either re-sweep during [Files] or explicitly document the accepted race in the PR.'
+    Assert-Contains -Text $content -Expected 'GetTickCount' -Message '[Files] re-sweep must be time-throttled and not spawn PowerShell on every progress tick.'
+    Assert-Contains -Text $content -Expected 'Rook agent server' -Message 'Consent dialog must name Rook agent servers in plain language.'
+}
+
 Test-InstallerPackagesBundledPythonRuntime
 Test-PublicInstallerDoesNotRequireUserPython
 Test-InstallerFailsWhenPostInstallFails
@@ -622,5 +640,6 @@ Test-ReleaseArtifactValidatorExists
 Test-NativePdbRequirementIsConsistent
 Test-BuildReleaseDocsRequireFfmpegValidation
 Test-LegacyGitHubReleaseWorkflowIsDisabled
+Test-InstallerUsesRookProcessPreflight
 
 Write-Host 'Release installer guard tests passed.'
