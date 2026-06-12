@@ -76,9 +76,7 @@ def _configure_install_logging(runtime_root: Path) -> None:
         return
 
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    for existing in list(_INSTALL_LOGGER.handlers):
-        _INSTALL_LOGGER.removeHandler(existing)
-        existing.close()
+    _close_install_logging()
 
     handler = logging.FileHandler(log_path, mode="a", encoding="utf-8")
     formatter = logging.Formatter("%(asctime)sZ %(levelname)s %(message)s")
@@ -90,6 +88,15 @@ def _configure_install_logging(runtime_root: Path) -> None:
     _INSTALL_LOGGING_CONFIGURED = True
     _INSTALL_LOG_PATH = log_path
     _INSTALL_LOGGER.info("post_install logging configured")
+
+
+def _close_install_logging() -> None:
+    global _INSTALL_LOGGING_CONFIGURED, _INSTALL_LOG_PATH
+    for existing in list(_INSTALL_LOGGER.handlers):
+        _INSTALL_LOGGER.removeHandler(existing)
+        existing.close()
+    _INSTALL_LOGGING_CONFIGURED = False
+    _INSTALL_LOG_PATH = None
 
 
 def _read_install_summary(runtime_root: Path) -> dict:
@@ -966,6 +973,7 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.uninstall:
+        _close_install_logging()
         uninstall_cleanup()
         return 0
 
@@ -1072,10 +1080,26 @@ def main() -> int:
     return 0
 
 
+def _last_gasp_args_from_argv(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--runtime-root", required=False)
+    parser.add_argument("--uninstall", action="store_true")
+    args, _ = parser.parse_known_args(argv)
+    return args
+
+
+def _last_gasp_runtime_root_from_argv(argv: list[str]) -> Path:
+    args = _last_gasp_args_from_argv(argv)
+    return get_runtime_root(args.runtime_root)
+
+
 def _run_with_last_gasp(runtime_root: Path | None = None) -> int:
-    root = runtime_root or get_runtime_root()
+    argv = sys.argv[1:]
+    args = _last_gasp_args_from_argv(argv)
+    root = runtime_root or get_runtime_root(args.runtime_root)
     try:
-        _configure_install_logging(root)
+        if not args.uninstall:
+            _configure_install_logging(root)
         return main()
     except SystemExit:
         raise

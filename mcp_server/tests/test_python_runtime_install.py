@@ -247,6 +247,65 @@ def test_last_gasp_handler_writes_traceback(tmp_path: Path, monkeypatch) -> None
     assert "Traceback" in log
 
 
+def test_uninstall_cleanup_runs_without_install_log_handler(
+    tmp_path: Path, monkeypatch
+) -> None:
+    post_install = load_post_install()
+    runtime_root = tmp_path / "Rook"
+    post_install._configure_install_logging(runtime_root)
+
+    def assert_logging_closed() -> None:
+        assert post_install._INSTALL_LOGGER.handlers == []
+
+    monkeypatch.setattr(post_install, "uninstall_cleanup", assert_logging_closed)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "post_install.py",
+            "--uninstall",
+            "--runtime-root",
+            str(runtime_root),
+        ],
+    )
+
+    assert post_install.main() == 0
+
+
+def test_last_gasp_uses_runtime_root_from_argv(
+    tmp_path: Path, monkeypatch
+) -> None:
+    post_install = load_post_install()
+    default_parent = tmp_path / "default-local-appdata"
+    default_root = default_parent / "Rook"
+    custom_root = tmp_path / "custom-runtime"
+
+    def boom() -> int:
+        raise RuntimeError("custom runtime failure")
+
+    monkeypatch.setenv("LOCALAPPDATA", str(default_parent))
+    monkeypatch.setattr(post_install, "main", boom)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "post_install.py",
+            "--runtime-root",
+            str(custom_root),
+        ],
+    )
+
+    result = post_install._run_with_last_gasp()
+
+    assert result == 1
+    custom_log = custom_root / "logs" / "post_install.log"
+    custom_summary = custom_root / "logs" / "post_install_summary.json"
+    assert "custom runtime failure" in custom_log.read_text(encoding="utf-8")
+    assert json.loads(custom_summary.read_text(encoding="utf-8"))["final_outcome"] == "failed"
+    assert not (default_root / "logs" / "post_install.log").exists()
+    assert not (default_root / "logs" / "post_install_summary.json").exists()
+
+
 def test_post_install_recreates_stale_venv_and_writes_install_state(
     tmp_path: Path, monkeypatch
 ) -> None:
