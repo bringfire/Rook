@@ -62,6 +62,10 @@ function Invoke-Helper {
 }
 
 function Import-HelperFunctionsForUnitTest {
+    foreach ($mockName in @('Get-CimInstance', 'Stop-Process', 'Get-Process', 'Start-Sleep')) {
+        Remove-Item -Path ("function:script:{0}" -f $mockName) -ErrorAction SilentlyContinue
+    }
+
     $tokens = $null
     $parseErrors = $null
     $source = Get-Content -Path $Helper -Raw
@@ -230,6 +234,104 @@ function Test-CloseModeFailsQuietlyWhenNothingMatches {
         $code = Invoke-Helper -Mode close -RookRoot $root -LogRoot $logs
 
         Assert-Equals $code 0 'Close mode with no matches must exit 0.'
+    }
+    finally {
+        Remove-TestRoot $root
+    }
+}
+
+function Test-CloseModePreservesEnumeratedPreflightOnSuccessfulClose {
+    Import-HelperFunctionsForUnitTest
+
+    $root = New-TestRoot
+    try {
+        $logs = Join-Path $root 'logs'
+        $summaryPath = Join-Path $logs 'post_install_summary.json'
+        $innoSummaryPath = Join-Path $logs 'preflight-summary.txt'
+        $logPath = Join-Path $logs 'post_install.log'
+        $parentPid = 49000
+        $rootPid = 49001
+        $parentCreated = [DateTime]::new(2026, 1, 1, 12, 0, 0, 100, [DateTimeKind]::Utc)
+        $rootCreated = [DateTime]::new(2026, 1, 1, 12, 0, 0, 200, [DateTimeKind]::Utc)
+        $parentProcess = [pscustomobject]@{
+            ProcessId = $parentPid
+            ParentProcessId = 4
+            ExecutablePath = 'C:\Tools\claude.exe'
+            CommandLine = ''
+            CreationDateUtc = $parentCreated
+            CreationDateText = Format-UtcTimestamp $parentCreated
+            IsMatched = $false
+        }
+        $rootProcess = [pscustomobject]@{
+            ProcessId = $rootPid
+            ParentProcessId = $parentPid
+            ExecutablePath = (Join-Path $root 'rook-agent.exe')
+            CommandLine = '--port 9876'
+            CreationDateUtc = $rootCreated
+            CreationDateText = Format-UtcTimestamp $rootCreated
+            IsMatched = $true
+        }
+        $indexes = New-ProcessIndexes @($parentProcess, $rootProcess)
+        $originalPreflight = New-PreflightSummary -Roots @($rootProcess) -ByPid $indexes.ByPid
+        $originalSummary = New-RunSummary -Preflight $originalPreflight -ClosedProcessCount 0 -RunOutcome 'preflight-enumerated'
+
+        $script:SummaryPathResolved = $summaryPath
+        $script:InnoSummaryPathResolved = $innoSummaryPath
+        $script:LogPathResolved = $logPath
+        $script:RookRootPrefix = Normalize-PathPrefix $root
+        $script:RunStartUtc = Format-UtcTimestamp ([DateTime]::UtcNow)
+        $script:SetupVersion = 'test'
+        $script:ExitQuiet = 0
+        $script:ExitNotQuiet = 10
+        $script:ExitEnumerationFailure = 20
+        $script:ExitCloseFailure = 30
+        $script:ExitHelperError = 40
+        $script:PreserveSnapshotCallCount = 0
+        $script:PreserveRootProcess = $rootProcess
+        $script:PreserveRootPid = $rootPid
+        $script:PreserveRootCreated = $rootCreated
+        $script:PreserveRootLive = $true
+        Save-Summary $originalSummary
+
+        function script:Get-ProcessSnapshot {
+            $script:PreserveSnapshotCallCount++
+            if ($script:PreserveSnapshotCallCount -eq 1) {
+                return @($script:PreserveRootProcess)
+            }
+            return @()
+        }
+
+        function script:Get-CimInstance {
+            param($ClassName, [string]$Filter, $ErrorAction)
+            if (-not $script:PreserveRootLive) {
+                return $null
+            }
+            return [pscustomobject]@{
+                ProcessId = $script:PreserveRootPid
+                CreationDate = [System.Management.ManagementDateTimeConverter]::ToDmtfDateTime($script:PreserveRootCreated)
+            }
+        }
+
+        function script:Stop-Process {
+            param([int]$Id, [switch]$Force, $ErrorAction)
+            $script:PreserveRootLive = $false
+        }
+
+        function script:Start-Sleep {
+            param([int]$Milliseconds)
+        }
+
+        $code = Invoke-CloseMode
+
+        Assert-Equals $code 0 'Close mode must return quiet after closing the matched root.'
+        $updated = Get-Content -Path $summaryPath -Raw | ConvertFrom-Json
+        Assert-Equals $updated.outcome 'preflight-closed' 'Successful close must update the saved outcome.'
+        Assert-Equals $updated.closed_process_count 1 'Successful close must update the closed process count.'
+        Assert-Equals $updated.preflight.server_count 1 'Successful close must preserve the original enumerated server count.'
+        Assert-Equals (@($updated.preflight.owners) -join ',') 'Claude' 'Successful close must preserve original owner evidence.'
+        Assert-True ([string]$updated.preflight.message).Contains('started by Claude') 'Successful close must preserve the original conflict message.'
+        Assert-Equals $updated.preflight.processes[0].process_id $rootPid 'Successful close must preserve the original process table.'
+        Assert-Equals $updated.preflight.processes[0].owner 'Claude' 'Successful close must preserve original per-process owner evidence.'
     }
     finally {
         Remove-TestRoot $root
@@ -1126,6 +1228,196 @@ function Test-CloseModeReturnsCloseFailureWhenFailedDescendantRemainsAfterRootGo
     }
 }
 
+function Test-CloseModePreservesEnumeratedPreflightOnDescendantOnlyCloseFailure {
+    Import-HelperFunctionsForUnitTest
+
+    $root = New-TestRoot
+    try {
+        $logs = Join-Path $root 'logs'
+        $summaryPath = Join-Path $logs 'post_install_summary.json'
+        $innoSummaryPath = Join-Path $logs 'preflight-summary.txt'
+        $logPath = Join-Path $logs 'post_install.log'
+        $parentPid = 42100
+        $rootPid = 42101
+        $childPid = 42102
+        $parentCreated = [DateTime]::new(2026, 1, 1, 12, 0, 0, 50, [DateTimeKind]::Utc)
+        $rootCreated = [DateTime]::new(2026, 1, 1, 12, 0, 0, 100, [DateTimeKind]::Utc)
+        $childCreated = [DateTime]::new(2026, 1, 1, 12, 0, 0, 200, [DateTimeKind]::Utc)
+        $parentProcess = [pscustomobject]@{
+            ProcessId = $parentPid
+            ParentProcessId = 4
+            ExecutablePath = 'C:\Tools\codex.exe'
+            CommandLine = ''
+            CreationDateUtc = $parentCreated
+            CreationDateText = Format-UtcTimestamp $parentCreated
+            IsMatched = $false
+        }
+        $rootProcess = [pscustomobject]@{
+            ProcessId = $rootPid
+            ParentProcessId = $parentPid
+            ExecutablePath = (Join-Path $root 'rook-agent.exe')
+            CommandLine = '--port 9876'
+            CreationDateUtc = $rootCreated
+            CreationDateText = Format-UtcTimestamp $rootCreated
+            IsMatched = $true
+        }
+        $childProcess = [pscustomobject]@{
+            ProcessId = $childPid
+            ParentProcessId = $rootPid
+            ExecutablePath = 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe'
+            CommandLine = ''
+            CreationDateUtc = $childCreated
+            CreationDateText = Format-UtcTimestamp $childCreated
+            IsMatched = $false
+        }
+        $indexes = New-ProcessIndexes @($parentProcess, $rootProcess, $childProcess)
+        $originalPreflight = New-PreflightSummary -Roots @($rootProcess) -ByPid $indexes.ByPid
+        $originalSummary = New-RunSummary -Preflight $originalPreflight -ClosedProcessCount 0 -RunOutcome 'preflight-enumerated'
+
+        $script:SummaryPathResolved = $summaryPath
+        $script:InnoSummaryPathResolved = $innoSummaryPath
+        $script:LogPathResolved = $logPath
+        $script:RookRootPrefix = Normalize-PathPrefix $root
+        $script:RunStartUtc = Format-UtcTimestamp ([DateTime]::UtcNow)
+        $script:SetupVersion = 'test'
+        $script:ExitQuiet = 0
+        $script:ExitNotQuiet = 10
+        $script:ExitEnumerationFailure = 20
+        $script:ExitCloseFailure = 30
+        $script:ExitHelperError = 40
+        $script:DescendantOnlySnapshotCallCount = 0
+        $script:DescendantOnlyRootProcess = $rootProcess
+        $script:DescendantOnlyChildProcess = $childProcess
+        $script:DescendantOnlyRootPid = $rootPid
+        $script:DescendantOnlyChildPid = $childPid
+        $script:DescendantOnlyRootCreated = $rootCreated
+        $script:DescendantOnlyChildCreated = $childCreated
+        $script:DescendantOnlyRootLive = $true
+        Save-Summary $originalSummary
+
+        function script:Get-ProcessSnapshot {
+            $script:DescendantOnlySnapshotCallCount++
+            if ($script:DescendantOnlySnapshotCallCount -eq 1) {
+                return @($script:DescendantOnlyRootProcess, $script:DescendantOnlyChildProcess)
+            }
+            return @($script:DescendantOnlyChildProcess)
+        }
+
+        function script:Get-CimInstance {
+            param($ClassName, [string]$Filter, $ErrorAction)
+            if ($Filter -match ("ProcessId\s*=\s*{0}" -f $script:DescendantOnlyRootPid)) {
+                if (-not $script:DescendantOnlyRootLive) {
+                    return $null
+                }
+                return [pscustomobject]@{
+                    ProcessId = $script:DescendantOnlyRootPid
+                    CreationDate = [System.Management.ManagementDateTimeConverter]::ToDmtfDateTime($script:DescendantOnlyRootCreated)
+                }
+            }
+            return [pscustomobject]@{
+                ProcessId = $script:DescendantOnlyChildPid
+                CreationDate = [System.Management.ManagementDateTimeConverter]::ToDmtfDateTime($script:DescendantOnlyChildCreated)
+            }
+        }
+
+        function script:Stop-Process {
+            param([int]$Id, [switch]$Force, $ErrorAction)
+            if ($Id -eq $script:DescendantOnlyRootPid) {
+                $script:DescendantOnlyRootLive = $false
+            }
+        }
+
+        function script:Start-Sleep {
+            param([int]$Milliseconds)
+        }
+
+        $code = Invoke-CloseMode
+
+        Assert-Equals $code 30 'Close mode must return close failure when only a stopped descendant remains live.'
+        $updated = Get-Content -Path $summaryPath -Raw | ConvertFrom-Json
+        Assert-Equals $updated.outcome 'preflight-close-failed' 'Descendant-only close failure must save a close-failed outcome.'
+        Assert-Equals $updated.preflight.conflicts_found $true 'Descendant-only close failure must preserve conflicts_found=true from enumerate.'
+        Assert-Equals $updated.preflight.server_count 1 'Descendant-only close failure must preserve the original enumerated server count.'
+        Assert-Equals (@($updated.preflight.owners) -join ',') 'Codex' 'Descendant-only close failure must preserve original owner evidence.'
+        Assert-Equals $updated.preflight.processes[0].process_id $rootPid 'Descendant-only close failure must preserve the original root process table.'
+        $innoSummary = Get-Content -Path $innoSummaryPath -Raw
+        Assert-True ($innoSummary.Contains('conflicts_found=true')) 'Inno summary must preserve conflicts_found=true on descendant-only close failure.'
+        Assert-True ($innoSummary.Contains('server_count=1')) 'Inno summary must preserve the original server count on descendant-only close failure.'
+        Assert-True ($innoSummary.Contains('owners=Codex')) 'Inno summary must preserve original owner evidence on descendant-only close failure.'
+    }
+    finally {
+        Remove-TestRoot $root
+    }
+}
+
+function Test-CloseModeReturnsInspectionFailureWhenIdentityRecheckCimThrows {
+    Import-HelperFunctionsForUnitTest
+
+    $root = New-TestRoot
+    try {
+        $rootPid = 43100
+        $created = [DateTime]::new(2026, 1, 1, 12, 0, 0, 123, [DateTimeKind]::Utc)
+        $rootProcess = [pscustomobject]@{
+            ProcessId = $rootPid
+            ParentProcessId = 4
+            ExecutablePath = (Join-Path $root 'rook-agent.exe')
+            CommandLine = ''
+            CreationDateUtc = $created
+            CreationDateText = Format-UtcTimestamp $created
+            IsMatched = $true
+        }
+
+        $script:RookRootPrefix = Normalize-PathPrefix $root
+        $script:RunStartUtc = Format-UtcTimestamp ([DateTime]::UtcNow)
+        $script:SetupVersion = 'test'
+        $script:ExitQuiet = 0
+        $script:ExitNotQuiet = 10
+        $script:ExitEnumerationFailure = 20
+        $script:ExitCloseFailure = 30
+        $script:ExitHelperError = 40
+        $script:InspectionFailureRootProcess = $rootProcess
+        $script:InspectionFailureStopCalled = $false
+
+        function script:Get-ProcessSnapshot {
+            return @($script:InspectionFailureRootProcess)
+        }
+
+        function script:Get-CimInstance {
+            param($ClassName, [string]$Filter, $ErrorAction)
+            throw 'simulated per-PID CIM identity recheck failure'
+        }
+
+        function script:Stop-Process {
+            param([int]$Id, [switch]$Force, $ErrorAction)
+            $script:InspectionFailureStopCalled = $true
+        }
+
+        function script:Start-Sleep {
+            param([int]$Milliseconds)
+        }
+
+        function script:Save-Summary {
+            param([object]$Summary)
+        }
+
+        function script:Write-InnoSummary {
+            param([object]$Preflight)
+        }
+
+        function script:Log-Line {
+            param([string]$Message)
+        }
+
+        $code = Invoke-CloseMode
+
+        Assert-Equals $code 20 'Close mode must classify per-PID CIM identity recheck exceptions as process inspection failures.'
+        Assert-Equals $script:InspectionFailureStopCalled $false 'Close mode must not stop a process after identity recheck inspection fails.'
+    }
+    finally {
+        Remove-TestRoot $root
+    }
+}
+
 function Test-PreBundledDescendantTreeCloseKillsOutOfBoundaryChild {
     $python = (Get-Command python -ErrorAction SilentlyContinue).Source
     if (-not $python) {
@@ -1196,6 +1488,7 @@ Test-EnumerateUsesDefaultOutputPathsUnderLogRoot
 Test-RecordOutcomeCancelledUsesStableSummary
 Test-RecordOutcomePreservesSummaryUnderBracketedLogRoot
 Test-CloseModeFailsQuietlyWhenNothingMatches
+Test-CloseModePreservesEnumeratedPreflightOnSuccessfulClose
 Test-PreBundledDescendantTreeCloseKillsOutOfBoundaryChild
 Test-InvalidModeReturnsHelperMisuseExitCode
 Test-EnumerateModeReturnsNotQuietExitCodeWhenConflictFound
@@ -1210,4 +1503,6 @@ Test-CloseModeStopsDescendantsBeforeAncestors
 Test-CloseModeSavesClosedOutcomeWhenFailedStopIdentityGoneAtFinalCheck
 Test-CloseModeReturnsCloseFailureWhenSuccessfulDescendantStopLeavesSameProcessAliveAfterRootGone
 Test-CloseModeReturnsCloseFailureWhenFailedDescendantRemainsAfterRootGone
+Test-CloseModePreservesEnumeratedPreflightOnDescendantOnlyCloseFailure
+Test-CloseModeReturnsInspectionFailureWhenIdentityRecheckCimThrows
 Write-Host 'rook-process-preflight.tests.ps1 PASS'

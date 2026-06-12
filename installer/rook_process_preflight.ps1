@@ -289,6 +289,39 @@ function Read-SummaryOrDefault {
     return (New-RunSummary -Preflight (New-EmptyPreflightSummary) -ClosedProcessCount 0 -RunOutcome 'preflight-not-run')
 }
 
+function Test-PreflightHasConflicts([object]$Preflight) {
+    if ($null -eq $Preflight) {
+        return $false
+    }
+    if ($Preflight.conflicts_found) {
+        return $true
+    }
+    try {
+        return ([int]$Preflight.server_count -gt 0)
+    }
+    catch {
+        return $false
+    }
+}
+
+function Get-InitialClosePreflightEvidence {
+    $summary = Read-SummaryOrDefault
+    if (Test-PreflightHasConflicts $summary.preflight) {
+        return $summary.preflight
+    }
+    return (New-EmptyPreflightSummary)
+}
+
+function Select-ClosePreflightEvidence([object]$CurrentPreflight, [object]$LivePreflight) {
+    if (Test-PreflightHasConflicts $CurrentPreflight) {
+        return $CurrentPreflight
+    }
+    if (Test-PreflightHasConflicts $LivePreflight) {
+        return $LivePreflight
+    }
+    return $CurrentPreflight
+}
+
 function Write-InnoSummary([object]$Preflight) {
     $conflicts = 'false'
     if ($Preflight.conflicts_found) {
@@ -440,6 +473,7 @@ function Get-LiveCloseRecords([hashtable]$CloseRecords) {
         catch {
             $liveRecords += $record
             Log-Line ("identity_recheck_failed pid={0} creation_date_utc={1} error={2}" -f $record.ProcessId, $record.CreationDateText, $_.Exception.Message)
+            throw
         }
     }
     return @($liveRecords | Sort-Object -Property ProcessId, CreationDateText)
@@ -488,7 +522,7 @@ function Invoke-CloseMode {
     $failedCloseRecords = @{}
     $attemptedCloseRecords = @{}
     $closedProcessCount = 0
-    $lastPreflight = New-EmptyPreflightSummary
+    $preflightEvidence = Get-InitialClosePreflightEvidence
 
     for ($round = 1; $round -le 3; $round++) {
         try {
@@ -501,21 +535,27 @@ function Invoke-CloseMode {
 
         $indexes = New-ProcessIndexes $processes
         $roots = @(Get-LogicalServerRoots -Processes $processes -ByPid $indexes.ByPid)
-        $lastPreflight = New-PreflightSummary -Roots $roots -ByPid $indexes.ByPid
+        $livePreflight = New-PreflightSummary -Roots $roots -ByPid $indexes.ByPid
+        $preflightEvidence = Select-ClosePreflightEvidence -CurrentPreflight $preflightEvidence -LivePreflight $livePreflight
         if ($roots.Count -eq 0) {
-            $liveFailedCloseRecords = @(Get-LiveFailedCloseRecords -FailedCloseRecords $failedCloseRecords)
-            $liveAttemptedCloseRecords = @(Get-LiveAttemptedCloseRecords -AttemptedCloseRecords $attemptedCloseRecords)
+            try {
+                $liveFailedCloseRecords = @(Get-LiveFailedCloseRecords -FailedCloseRecords $failedCloseRecords)
+                $liveAttemptedCloseRecords = @(Get-LiveAttemptedCloseRecords -AttemptedCloseRecords $attemptedCloseRecords)
+            }
+            catch {
+                return $ExitEnumerationFailure
+            }
             $closedProcessCount = Get-ClosedProcessCount -AttemptedCloseRecords $attemptedCloseRecords -LiveAttemptedCloseRecords $liveAttemptedCloseRecords
             if ($liveFailedCloseRecords.Count -gt 0 -or $liveAttemptedCloseRecords.Count -gt 0) {
-                $summary = New-RunSummary -Preflight $lastPreflight -ClosedProcessCount $closedProcessCount -RunOutcome 'preflight-close-failed'
+                $summary = New-RunSummary -Preflight $preflightEvidence -ClosedProcessCount $closedProcessCount -RunOutcome 'preflight-close-failed'
                 Save-Summary $summary
-                Write-InnoSummary $lastPreflight
+                Write-InnoSummary $preflightEvidence
                 Log-Line ("close_failed remaining_failed_processes={0} closed_process_count={1}" -f (Format-ProcessIdentities $liveAttemptedCloseRecords), $closedProcessCount)
                 return $ExitCloseFailure
             }
-            $summary = New-RunSummary -Preflight $lastPreflight -ClosedProcessCount $closedProcessCount -RunOutcome 'preflight-closed'
+            $summary = New-RunSummary -Preflight $preflightEvidence -ClosedProcessCount $closedProcessCount -RunOutcome 'preflight-closed'
             Save-Summary $summary
-            Write-InnoSummary $lastPreflight
+            Write-InnoSummary $preflightEvidence
             Log-Line ("close_complete closed_process_count={0}" -f $closedProcessCount)
             return $ExitQuiet
         }
@@ -540,7 +580,7 @@ function Invoke-CloseMode {
             }
             catch {
                 Log-Line ("skip_stop_identity_recheck_failed pid={0} creation_date_utc={1} attempt={2} error={3}" -f $processId, $target.Process.CreationDateText, $attemptsByIdentity[$identityKey], $_.Exception.Message)
-                continue
+                return $ExitEnumerationFailure
             }
 
             Add-AttemptedCloseRecord -AttemptedCloseRecords $attemptedCloseRecords -Process $target.Process
@@ -554,8 +594,8 @@ function Invoke-CloseMode {
                     $stillSameProcess = Test-LiveProcessIdentityMatches $target.Process
                 }
                 catch {
-                    $stillSameProcess = $true
                     Log-Line ("identity_recheck_failed pid={0} creation_date_utc={1} error={2}" -f $processId, $target.Process.CreationDateText, $_.Exception.Message)
+                    return $ExitEnumerationFailure
                 }
 
                 if ($stillSameProcess) {
@@ -581,7 +621,8 @@ function Invoke-CloseMode {
 
     $indexes = New-ProcessIndexes $processes
     $roots = @(Get-LogicalServerRoots -Processes $processes -ByPid $indexes.ByPid)
-    $lastPreflight = New-PreflightSummary -Roots $roots -ByPid $indexes.ByPid
+    $livePreflight = New-PreflightSummary -Roots $roots -ByPid $indexes.ByPid
+    $preflightEvidence = Select-ClosePreflightEvidence -CurrentPreflight $preflightEvidence -LivePreflight $livePreflight
     if ($roots.Count -gt 0) {
         $remainingTargets = @(Get-DescendantClosure -Roots $roots -ByParentPid $indexes.ByParentPid)
         foreach ($target in $remainingTargets) {
@@ -592,8 +633,13 @@ function Invoke-CloseMode {
             }
         }
     }
-    $liveFailedCloseRecords = @(Get-LiveFailedCloseRecords -FailedCloseRecords $failedCloseRecords)
-    $liveAttemptedCloseRecords = @(Get-LiveAttemptedCloseRecords -AttemptedCloseRecords $attemptedCloseRecords)
+    try {
+        $liveFailedCloseRecords = @(Get-LiveFailedCloseRecords -FailedCloseRecords $failedCloseRecords)
+        $liveAttemptedCloseRecords = @(Get-LiveAttemptedCloseRecords -AttemptedCloseRecords $attemptedCloseRecords)
+    }
+    catch {
+        return $ExitEnumerationFailure
+    }
     $closedProcessCount = Get-ClosedProcessCount -AttemptedCloseRecords $attemptedCloseRecords -LiveAttemptedCloseRecords $liveAttemptedCloseRecords
     $hasLiveCloseFailures = ($liveFailedCloseRecords.Count -gt 0) -or ($liveAttemptedCloseRecords.Count -gt 0)
     $runOutcome = 'preflight-not-quiet'
@@ -603,9 +649,9 @@ function Invoke-CloseMode {
     elseif ($roots.Count -eq 0) {
         $runOutcome = 'preflight-closed'
     }
-    $summary = New-RunSummary -Preflight $lastPreflight -ClosedProcessCount $closedProcessCount -RunOutcome $runOutcome
+    $summary = New-RunSummary -Preflight $preflightEvidence -ClosedProcessCount $closedProcessCount -RunOutcome $runOutcome
     Save-Summary $summary
-    Write-InnoSummary $lastPreflight
+    Write-InnoSummary $preflightEvidence
 
     if ($roots.Count -eq 0) {
         if ($hasLiveCloseFailures) {
