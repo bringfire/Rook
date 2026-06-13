@@ -16,10 +16,24 @@ namespace Rook.Handlers
     /// </summary>
     public partial class GrasshopperHandler
     {
-        private readonly IGrasshopperCore _bridgeCore = new GrasshopperCore();
+        private readonly IGrasshopperCore _bridgeCore;
+        private readonly GhSolveReadinessCoordinator _solveReadinessCoordinator;
         private Assembly? _ghAssembly;
         private readonly object _lock = new();
         private readonly ShortIdRegistry _idRegistry = new();
+
+        public GrasshopperHandler()
+            : this(null, null)
+        {
+        }
+
+        internal GrasshopperHandler(
+            IGrasshopperCore? bridgeCore = null,
+            GhSolveReadinessCoordinator? solveReadinessCoordinator = null)
+        {
+            _bridgeCore = bridgeCore ?? new GrasshopperCore();
+            _solveReadinessCoordinator = solveReadinessCoordinator ?? new GhSolveReadinessCoordinator();
+        }
 
         #region Core API
 
@@ -28,7 +42,17 @@ namespace Rook.Handlers
         /// </summary>
         public ApiResponse GetStatus()
         {
-            return ToApiResponse(_bridgeCore.GetStatus());
+            var status = _bridgeCore.GetStatus();
+            if (status.Success && status.Data != null)
+            {
+                var telemetry = _solveReadinessCoordinator.LatestTelemetry;
+                status.Data.RirRepairAttempted = telemetry.RepairAttempted;
+                status.Data.RirRepairHeld = telemetry.RepairHeld;
+                status.Data.RirRepairReason = telemetry.Reason;
+                status.Data.RirRepairSource = telemetry.Source;
+            }
+
+            return ToApiResponse(status);
         }
 
         /// <summary>
@@ -552,7 +576,7 @@ namespace Rook.Handlers
                         decimal newValue = valueEl.GetDecimal();
                         sliderType.GetProperty("Value")?.SetValue(slider, newValue);
 
-                        ScheduleDocumentSolution(gh.Document!);
+                        RequestPostMutationSolve(gh.Document!, obj, requestSolve: true);
                         RefreshCanvas(gh.Canvas!, scheduleSolution: false);
 
                         // Get the actual min/max for response
@@ -590,7 +614,7 @@ namespace Rook.Handlers
                     };
                     userTextProp?.SetValue(obj, newContent);
 
-                    ScheduleDocumentSolution(gh.Document!);
+                    RequestPostMutationSolve(gh.Document!, obj, requestSolve: true);
                     RefreshCanvas(gh.Canvas!, scheduleSolution: false);
 
                     return new ApiResponse
@@ -612,7 +636,7 @@ namespace Rook.Handlers
                     bool newValue = valueEl.GetBoolean();
                     valueProp?.SetValue(obj, newValue);
 
-                    ScheduleDocumentSolution(gh.Document!);
+                    RequestPostMutationSolve(gh.Document!, obj, requestSolve: true);
                     RefreshCanvas(gh.Canvas!, scheduleSolution: false);
 
                     return new ApiResponse
@@ -795,7 +819,7 @@ namespace Rook.Handlers
                     }
 
                     // Safe-solve policy: mark dirty (no sync recompute) + async schedule when enabled.
-                    // NEVER ExpireSolution(true) here — that re-enters the solver and crashes a locked canvas.
+                    // NEVER request synchronous expiration here; that re-enters the solver and crashes a locked canvas.
                     var solveOutcome = RequestPostMutationSolve(gh.Document!, obj, requestSolve: true);
 
                     // Restore saved descriptions — must happen AFTER recompile + ExpireSolution
@@ -3353,6 +3377,8 @@ namespace Rook.Handlers
                 // Reset short ID registry for new document
                 _idRegistry.Clear();
 
+                _solveReadinessCoordinator.MarkRookManagedDocument(newDocument, "gh_document_open");
+
                 // Refresh the canvas
                 RefreshCanvas(gh.Canvas);
 
@@ -3411,6 +3437,8 @@ namespace Rook.Handlers
 
                 // Reset short ID registry for new document
                 _idRegistry.Clear();
+
+                _solveReadinessCoordinator.MarkRookManagedDocument(newDocument, "gh_document_new");
 
                 // Refresh the canvas
                 RefreshCanvas(gh.Canvas);
@@ -7036,6 +7064,15 @@ namespace Rook.Handlers
             var errors = new List<string>();
             var tempIdMap = new Dictionary<string, Guid>();
             int created = 0, deleted = 0, valuesSet = 0, connected = 0, disconnected = 0;
+            var dirtyObjects = new List<object>();
+
+            void AddDirty(object? candidate)
+            {
+                if (candidate != null && !dirtyObjects.Any(existing => ReferenceEquals(existing, candidate)))
+                {
+                    dirtyObjects.Add(candidate);
+                }
+            }
 
             // Each phase records undo BEFORE making changes:
             //   Phase 1 (Create):     RecordAddObjectEvent (after add)
@@ -7085,7 +7122,10 @@ namespace Rook.Handlers
 
                                 // Track created object for undo recording
                                 if (result.component != null)
+                                {
                                     createdObjects.Add(result.component);
+                                    AddDirty(result.component);
+                                }
                             }
                             else
                             {
@@ -7173,6 +7213,7 @@ namespace Rook.Handlers
                                 new[] { gh.Assembly!.GetType("Grasshopper.Kernel.IGH_Param")! });
                             removeMethod?.Invoke(targetInput, new[] { sourceOutput });
                             disconnected++;
+                            AddDirty(targetInput);
                         }
                         catch (Exception ex)
                         {
@@ -7277,6 +7318,7 @@ namespace Rook.Handlers
                                 {
                                     obj.GetType().GetProperty("NickName")?.SetValue(obj, nickVal);
                                     valuesSet++;
+                                    AddDirty(obj);
                                 }
                             }
 
@@ -7298,6 +7340,7 @@ namespace Rook.Handlers
                                     if (item.TryGetProperty("value", out var valEl2))
                                         sliderType.GetProperty("Value")?.SetValue(slider, valEl2.GetDecimal());
                                     valuesSet++;
+                                    AddDirty(obj);
                                 }
                             }
                             else if (typeName == "GH_Panel")
@@ -7306,6 +7349,7 @@ namespace Rook.Handlers
                                 {
                                     obj.GetType().GetProperty("UserText")?.SetValue(obj, valEl2.GetString());
                                     valuesSet++;
+                                    AddDirty(obj);
                                 }
                             }
                             else if (typeName == "GH_BooleanToggle")
@@ -7314,6 +7358,7 @@ namespace Rook.Handlers
                                 {
                                     obj.GetType().GetProperty("Value")?.SetValue(obj, valEl2.GetBoolean());
                                     valuesSet++;
+                                    AddDirty(obj);
                                 }
                             }
                         }
@@ -7382,6 +7427,7 @@ namespace Rook.Handlers
                                 new[] { gh.Assembly!.GetType("Grasshopper.Kernel.IGH_Param")! });
                             addMethod?.Invoke(targetInput, new[] { sourceOutput });
                             connected++;
+                            AddDirty(targetInput);
                         }
                         catch (Exception ex)
                         {
@@ -7406,11 +7452,13 @@ namespace Rook.Handlers
                     }
                 }
 
-                // Phase 7: Schedule async solution (runs after this handler returns)
-                if (valuesSet > 0 || connected > 0 || disconnected > 0 || created > 0 || deleted > 0)
-                {
-                    ScheduleDocumentSolution(gh.Document!);
-                }
+                // Phase 7: Schedule async solution (runs after this handler returns).
+                var changedObjects = valuesSet > 0 || connected > 0 || disconnected > 0 || created > 0 || deleted > 0;
+                var solveOutcome = RequestPostMutationSolve(
+                    gh.Document!,
+                    dirtyObjects,
+                    requestSolve: changedObjects,
+                    delayMs: 1);
                 RefreshCanvas(gh.Canvas!, scheduleSolution: false);
 
                 // Phase 8: Return updated snapshot with edit summary
@@ -7421,6 +7469,14 @@ namespace Rook.Handlers
                     {
                         created, deleted, values_set = valuesSet,
                         connected, disconnected,
+                        solve_scheduled = solveOutcome.SolveScheduled,
+                        solver_locked = solveOutcome.SolverLocked,
+                        solver_state_known = solveOutcome.SolverStateKnown,
+                        verification_deferred = solveOutcome.VerificationDeferred,
+                        rir_repair_attempted = solveOutcome.RirRepairAttempted,
+                        rir_repair_held = solveOutcome.RirRepairHeld,
+                        rir_repair_reason = solveOutcome.RirRepairReason,
+                        solve_warnings = solveOutcome.Warnings.ToArray(),
                         errors = errors.Count > 0 ? errors : null,
                         temp_id_map = tempIdMap.Count > 0
                             ? tempIdMap.ToDictionary(
@@ -7444,6 +7500,14 @@ namespace Rook.Handlers
                         {
                             created, deleted, values_set = valuesSet,
                             connected, disconnected,
+                            solve_scheduled = solveOutcome.SolveScheduled,
+                            solver_locked = solveOutcome.SolverLocked,
+                            solver_state_known = solveOutcome.SolverStateKnown,
+                            verification_deferred = solveOutcome.VerificationDeferred,
+                            rir_repair_attempted = solveOutcome.RirRepairAttempted,
+                            rir_repair_held = solveOutcome.RirRepairHeld,
+                            rir_repair_reason = solveOutcome.RirRepairReason,
+                            solve_warnings = solveOutcome.Warnings.ToArray(),
                             errors = errors.Count > 0 ? errors : null
                         }
                     };

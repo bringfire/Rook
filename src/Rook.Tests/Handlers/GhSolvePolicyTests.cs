@@ -1,4 +1,5 @@
 using Rook.Handlers;
+using Rook.InternalBridge;
 using Xunit;
 
 namespace Rook.Tests.Handlers
@@ -43,6 +44,31 @@ namespace Rook.Tests.Handlers
             var o = GhSolvePolicy.Decide(requestSolve: false, solverEnabled: true, solverStateKnown: true);
             Assert.False(o.SolveScheduled);
             Assert.False(o.VerificationDeferred);
+        }
+
+        [Fact]
+        public void Decide_PreservesRepairMetadata()
+        {
+            var state = new GhSolverState.Result(
+                enabled: true,
+                known: true,
+                solutionState: "PreProcess",
+                globalEnableSolutions: true,
+                documentEnabled: true);
+
+            var outcome = GhSolvePolicy.Decide(
+                state,
+                requestSolve: true,
+                scheduleAttempted: true,
+                scheduleSucceeded: true,
+                repairAttempted: true,
+                repairHeld: true,
+                repairReason: "schedule_time_repair_held");
+
+            Assert.True(outcome.RirRepairAttempted);
+            Assert.True(outcome.RirRepairHeld);
+            Assert.Equal("schedule_time_repair_held", outcome.RirRepairReason);
+            Assert.True(outcome.SolveScheduled);
         }
     }
 }

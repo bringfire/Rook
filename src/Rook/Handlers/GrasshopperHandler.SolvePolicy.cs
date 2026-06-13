@@ -4,7 +4,7 @@ using Rook.InternalBridge;
 namespace Rook.Handlers
 {
     // Shared post-mutation safe-solve policy. The safety invariant: HTTP-driven GH
-    // mutations NEVER call ExpireSolution(true) (synchronous recompute, which re-enters
+    // mutations NEVER request synchronous expiration (that re-enters
     // the solver and hard-crashes a locked canvas). They mark dirty with
     // ExpireSolution(false) and schedule at most one async ScheduleSolution(delay >= 1).
     // See docs/superpowers/specs/2026-06-02-gh-locked-solver-crash-design.md.
@@ -17,7 +17,7 @@ namespace Rook.Handlers
         // Batch form — for multi-target mutations (e.g. gh_edit).
         internal GhSolveOutcome RequestPostMutationSolve(object document, IReadOnlyList<object> dirtyObjects, bool requestSolve, int delayMs = 1)
         {
-            // 1. Mark each dirty WITHOUT recompute. This is the safety invariant: never ExpireSolution(true).
+            // 1. Mark each dirty WITHOUT recompute. This is the safety invariant: never request synchronous expiration.
             foreach (var obj in dirtyObjects)
             {
                 if (obj == null) continue;
@@ -25,13 +25,25 @@ namespace Rook.Handlers
                 expire?.Invoke(obj, new object[] { false });
             }
 
-            // 2. Inspect solver state (shared inspector).
+            // 2. In RIR, repair a Rook-driven document instance before deciding whether async scheduling is allowed.
+            var readiness = _solveReadinessCoordinator.PrepareForPostMutationSolve(
+                document,
+                requestSolve,
+                currentMutationIsRookDriven: true);
+
+            // 3. Inspect solver state after any schedule-time repair.
             var state = GhSolverState.Inspect(document);
 
-            // 3. Decide (pure).
-            var outcome = GhSolvePolicy.Decide(requestSolve, state.Enabled ?? true, state.Known);
+            // 4. Decide (pure).
+            var outcome = GhSolvePolicy.Decide(
+                requestSolve,
+                state.Enabled ?? true,
+                state.Known,
+                readiness.RepairAttempted,
+                readiness.RepairHeld,
+                readiness.Reason);
 
-            // 4. Schedule at most one async solution, never delay 0. If reflected
+            // 5. Schedule at most one async solution, never delay 0. If reflected
             //    ScheduleSolution is missing or throws, the solve did NOT happen —
             //    correct the outcome so callers never over-claim scheduling.
             if (outcome.SolveScheduled)
@@ -47,6 +59,9 @@ namespace Rook.Handlers
                         VerificationDeferred = true,
                         Warnings = AppendWarning(outcome.Warnings,
                             "ScheduleSolution was unavailable; solve not scheduled, verification deferred."),
+                        RirRepairAttempted = outcome.RirRepairAttempted,
+                        RirRepairHeld = outcome.RirRepairHeld,
+                        RirRepairReason = outcome.RirRepairReason,
                     };
                 }
             }

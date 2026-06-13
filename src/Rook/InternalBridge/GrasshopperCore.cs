@@ -134,6 +134,8 @@ namespace Rook.InternalBridge
                 Warnings = warnings,
                 SolverEnabled = solver.Enabled,
                 SolverStateKnown = solver.Known,
+                SolverGlobalEnableSolutions = solver.GlobalEnableSolutions,
+                SolverDocumentEnabled = solver.DocumentEnabled,
                 SolutionState = solver.SolutionState,
             };
         }
@@ -469,7 +471,13 @@ namespace Rook.InternalBridge
         public IReadOnlyList<string> Warnings { get; set; } = Array.Empty<string>();
         public bool? SolverEnabled { get; set; }
         public bool SolverStateKnown { get; set; }
+        public bool? SolverGlobalEnableSolutions { get; set; }
+        public bool? SolverDocumentEnabled { get; set; }
         public string? SolutionState { get; set; }
+        public bool RirRepairAttempted { get; set; }
+        public bool RirRepairHeld { get; set; }
+        public string? RirRepairReason { get; set; }
+        public string? RirRepairSource { get; set; }
     }
 
     public sealed class GrasshopperDocumentInfoDto
