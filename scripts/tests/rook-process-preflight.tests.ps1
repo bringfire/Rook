@@ -581,6 +581,16 @@ function Test-PreflightMessageUsesCountOnlyWhenOwnersAreUnknown {
     Assert-True ($message.Contains('reconnect automatically or on your next request')) 'Reconnect wording must match observed client behavior.'
 }
 
+function Test-PreflightMessageUsesCountOnlyWhenAnyOwnerIsUnknown {
+    Import-HelperFunctionsForUnitTest
+
+    $message = New-PreflightMessage -ServerCount 2 -Owners @('Claude', 'Unknown')
+
+    Assert-True ($message.Contains('Rook Setup found 2 running Rook agent server(s).')) 'Mixed unknown owner attribution must fall back to count-only wording.'
+    Assert-True (-not $message.Contains('started by Claude')) 'Mixed unknown owner attribution must not imply only the resolved owner started every server.'
+    Assert-True (-not $message.Contains('started by Unknown')) 'Mixed unknown owner attribution must not render "started by Unknown".'
+}
+
 function Test-PreflightMessageNamesResolvedOwners {
     Import-HelperFunctionsForUnitTest
 
@@ -1591,6 +1601,7 @@ Test-EnumerateModeReturnsNotQuietExitCodeWhenConflictFound
 Test-EnumerateModeReturnsEnumerationFailureExitCodeWhenCimEnumerationFails
 Test-PreflightSummaryCollapsesMatchedChildrenAndReportsOwners
 Test-PreflightMessageUsesCountOnlyWhenOwnersAreUnknown
+Test-PreflightMessageUsesCountOnlyWhenAnyOwnerIsUnknown
 Test-PreflightMessageNamesResolvedOwners
 Test-ProcessIdentityKeyDistinguishesSamePidWithinSameSecond
 Test-LiveProcessIdentityRejectsSamePidWithinSameSecondDifferentFileTime

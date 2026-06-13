@@ -612,6 +612,9 @@ function Test-InstallerUsesRookProcessPreflight {
     Assert-NotContains -Text $content -Unexpected 'ewNoWait' -Message '[Files] re-sweeps must wait for the helper to exit before Inno can enter ssPostInstall.'
     Assert-Contains -Text $content -Expected 'Rook process preflight re-sweep exit code' -Message '[Files] re-sweeps must log the helper exit code for installer forensics.'
     Assert-Contains -Text $content -Expected 'IntToStr(ResultCode)' -Message '[Files] re-sweeps must include the helper exit code value in the Inno log.'
+    Assert-Contains -Text $content -Expected 'Rook process preflight re-sweep failed' -Message '[Files] re-sweeps must log fail-closed failures before aborting.'
+    $resweepFailurePattern = "(?s)RunRookPreflightHelper\('close', '', ResultCode\).*?if \(\(not ResweepOk\) or \(ResultCode <> 0\)\) then.*?RookPreflightResweepEnabled := False;.*?RookPreflightFailureMessage\(ResultCode\).*?Abort;"
+    Assert-True -Condition ([regex]::IsMatch($content, $resweepFailurePattern)) -Message '[Files] re-sweeps must fail closed when the close helper fails or returns nonzero.'
     Assert-Contains -Text $content -Expected 'Rook agent server' -Message 'Consent dialog must name Rook agent servers in plain language.'
 }
 

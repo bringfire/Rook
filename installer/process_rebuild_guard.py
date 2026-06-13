@@ -30,8 +30,17 @@ def normalize_root(path: str | Path) -> str:
     return str(Path(path)).replace("/", "\\").rstrip("\\").lower() + "\\"
 
 
+def normalize_image_path(path: str) -> str:
+    return path.replace("/", "\\").lower()
+
+
+def filetime_to_unix_seconds(filetime: wintypes.FILETIME) -> float:
+    value = (filetime.dwHighDateTime << 32) + filetime.dwLowDateTime
+    return (value - 116444736000000000) / 10_000_000
+
+
 def is_under_root(process: ProcessInfo, rook_root: str | Path) -> bool:
-    image = process.image_path.replace("/", "\\").lower()
+    image = normalize_image_path(process.image_path)
     return image.startswith(normalize_root(rook_root))
 
 
@@ -268,14 +277,15 @@ class WindowsSnapshotProvider:
             )
             if not ok:
                 return None
-            value = (creation.dwHighDateTime << 32) + creation.dwLowDateTime
-            return (value - 116444736000000000) / 10_000_000
+            return filetime_to_unix_seconds(creation)
         finally:
             self.kernel32.CloseHandle(handle)
 
 
 class WindowsTerminator:
     PROCESS_TERMINATE = 0x0001
+    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    MAX_PATH_BUFFER = 32768
 
     def __init__(self) -> None:
         if os.name != "nt":
@@ -287,6 +297,21 @@ class WindowsTerminator:
             wintypes.DWORD,
         ]
         self.kernel32.OpenProcess.restype = wintypes.HANDLE
+        self.kernel32.QueryFullProcessImageNameW.argtypes = [
+            wintypes.HANDLE,
+            wintypes.DWORD,
+            wintypes.LPWSTR,
+            ctypes.POINTER(wintypes.DWORD),
+        ]
+        self.kernel32.QueryFullProcessImageNameW.restype = wintypes.BOOL
+        self.kernel32.GetProcessTimes.argtypes = [
+            wintypes.HANDLE,
+            ctypes.POINTER(wintypes.FILETIME),
+            ctypes.POINTER(wintypes.FILETIME),
+            ctypes.POINTER(wintypes.FILETIME),
+            ctypes.POINTER(wintypes.FILETIME),
+        ]
+        self.kernel32.GetProcessTimes.restype = wintypes.BOOL
         self.kernel32.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
         self.kernel32.TerminateProcess.restype = wintypes.BOOL
         self.kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
@@ -300,7 +325,9 @@ class WindowsTerminator:
 
         for process in processes:
             handle = self.kernel32.OpenProcess(
-                self.PROCESS_TERMINATE, False, process.pid
+                self.PROCESS_TERMINATE | self.PROCESS_QUERY_LIMITED_INFORMATION,
+                False,
+                process.pid,
             )
             if not handle:
                 error = ctypes.get_last_error()
@@ -311,6 +338,11 @@ class WindowsTerminator:
                 continue
 
             try:
+                identity_failure = self._identity_failure(label, process, handle)
+                if identity_failure is not None:
+                    failures.append(identity_failure)
+                    continue
+
                 if self.kernel32.TerminateProcess(handle, 1):
                     closed_pids.append(process.pid)
                 else:
@@ -327,6 +359,58 @@ class WindowsTerminator:
             closed_pids=closed_pids,
             failures=failures,
         )
+
+    def _identity_failure(
+        self, label: str, process: ProcessInfo, handle
+    ) -> str | None:
+        live_image_path = self._query_image_path(handle)
+        live_created_utc = self._query_created_utc(handle)
+
+        if live_image_path is None or live_created_utc is None:
+            return (
+                f"{label}: failed to verify pid {process.pid} identity before "
+                f"termination ({process.image_path})"
+            )
+
+        if (
+            normalize_image_path(live_image_path)
+            != normalize_image_path(process.image_path)
+            or process.created_utc is None
+            or abs(live_created_utc - process.created_utc) > 0.001
+        ):
+            return (
+                f"{label}: pid {process.pid} identity changed before termination; "
+                f"expected ({process.image_path}, {process.created_utc}), "
+                f"got ({live_image_path}, {live_created_utc})"
+            )
+
+        return None
+
+    def _query_image_path(self, handle) -> str | None:
+        buffer = ctypes.create_unicode_buffer(self.MAX_PATH_BUFFER)
+        size = wintypes.DWORD(len(buffer))
+        ok = self.kernel32.QueryFullProcessImageNameW(
+            handle, 0, buffer, ctypes.byref(size)
+        )
+        if not ok:
+            return None
+        return buffer.value
+
+    def _query_created_utc(self, handle) -> float | None:
+        creation = wintypes.FILETIME()
+        exit_time = wintypes.FILETIME()
+        kernel = wintypes.FILETIME()
+        user = wintypes.FILETIME()
+        ok = self.kernel32.GetProcessTimes(
+            handle,
+            ctypes.byref(creation),
+            ctypes.byref(exit_time),
+            ctypes.byref(kernel),
+            ctypes.byref(user),
+        )
+        if not ok:
+            return None
+        return filetime_to_unix_seconds(creation)
 
 
 class RebuildGuard:
@@ -367,7 +451,7 @@ class RebuildGuard:
         self._thread: threading.Thread | None = None
 
     def __enter__(self):
-        self.sweep_once()
+        self._guarded_sweep_once()
         if self.run_background:
             self._thread = threading.Thread(
                 target=self._run, name=f"{self.label}-rebuild-guard", daemon=True
@@ -394,52 +478,70 @@ class RebuildGuard:
         if not kill_order:
             return CloseResult(ok=True, closed_pids=[], failures=[])
 
-        attemptable = [
-            process
-            for process in kill_order
-            if self._close_attempts_by_identity.get(self._identity_key(process), 0)
-            < self.max_close_attempts_per_identity
-        ]
+        attemptable: list[ProcessInfo] = []
+        capped: list[ProcessInfo] = []
+        for process in kill_order:
+            attempts = self._close_attempts_by_identity.get(
+                self._identity_key(process), 0
+            )
+            if attempts < self.max_close_attempts_per_identity:
+                attemptable.append(process)
+            else:
+                capped.append(process)
+
+        self._record_cap_failures(capped)
         if not attemptable:
             return CloseResult(ok=True, closed_pids=[], failures=[])
 
         result = self.terminator.close_processes(self.label, attemptable)
-        closed_pids = set(result.closed_pids)
         for process in attemptable:
-            if process.pid not in closed_pids:
-                identity = self._identity_key(process)
-                self._close_attempts_by_identity[identity] = (
-                    self._close_attempts_by_identity.get(identity, 0) + 1
-                )
+            identity = self._identity_key(process)
+            self._close_attempts_by_identity[identity] = (
+                self._close_attempts_by_identity.get(identity, 0) + 1
+            )
         for failure in result.failures:
-            if failure not in self._recorded_close_failures:
-                self._recorded_close_failures.add(failure)
-                self.close_failures.append(failure)
+            self._record_close_failure_once(failure)
         return result
 
     def _run(self) -> None:
         while not self._stopped.wait(self.sweep_interval_seconds):
-            try:
-                self.sweep_once()
-                self._consecutive_sweep_failures = 0
-            except Exception as exc:
-                self._consecutive_sweep_failures += 1
-                self.close_failures.append(f"{self.label}: guard sweep failed: {exc}")
-                if (
-                    self._consecutive_sweep_failures
-                    >= self.max_consecutive_sweep_failures
-                ):
-                    self.thread_died_unexpectedly = True
-                    self.close_failures.append(
-                        f"{self.label}: guard thread failed after "
-                        f"{self._consecutive_sweep_failures} consecutive sweep errors"
-                    )
-                    break
+            self._guarded_sweep_once()
+            if self.thread_died_unexpectedly:
+                break
+
+    def _guarded_sweep_once(self) -> None:
+        try:
+            self.sweep_once()
+            self._consecutive_sweep_failures = 0
+        except Exception as exc:
+            self._consecutive_sweep_failures += 1
+            self._record_close_failure_once(f"{self.label}: guard sweep failed: {exc}")
+            if (
+                self._consecutive_sweep_failures
+                >= self.max_consecutive_sweep_failures
+            ):
+                self.thread_died_unexpectedly = True
+                self._record_close_failure_once(
+                    f"{self.label}: guard thread failed after "
+                    f"{self._consecutive_sweep_failures} consecutive sweep errors"
+                )
+
+    def _record_close_failure_once(self, failure: str) -> None:
+        if failure not in self._recorded_close_failures:
+            self._recorded_close_failures.add(failure)
+            self.close_failures.append(failure)
+
+    def _record_cap_failures(self, processes: list[ProcessInfo]) -> None:
+        for process in processes:
+            self._record_close_failure_once(
+                f"{self.label}: close attempt cap reached for pid {process.pid} "
+                f"({process.image_path})"
+            )
 
     @staticmethod
     def _identity_key(process: ProcessInfo) -> tuple[int, float | None, str]:
         return (
             process.pid,
             process.created_utc,
-            process.image_path.replace("/", "\\").lower(),
+            normalize_image_path(process.image_path),
         )

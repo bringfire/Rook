@@ -29,6 +29,12 @@ def proc(module, pid, ppid, image, created):
     )
 
 
+def set_filetime(filetime, unix_seconds: float) -> None:
+    value = int((unix_seconds * 10_000_000) + 116444736000000000)
+    filetime.dwLowDateTime = value & 0xFFFFFFFF
+    filetime.dwHighDateTime = value >> 32
+
+
 def test_matching_roots_count_stub_only_when_child_is_also_matched():
     guard = load_guard()
     root = r"C:\Users\me\AppData\Local\Rook"
@@ -194,7 +200,72 @@ def test_rebuild_guard_caps_repeated_close_attempts_per_identity():
 
     assert attempts == [[10], [10], [10]]
     assert guard_instance.close_failures == [
-        r"rook-mcp: failed to terminate pid 10 (C:\Rook\venv\Scripts\python.exe); Win32 error 5"
+        r"rook-mcp: failed to terminate pid 10 (C:\Rook\venv\Scripts\python.exe); Win32 error 5",
+        r"rook-mcp: close attempt cap reached for pid 10 (C:\Rook\venv\Scripts\python.exe)",
+    ]
+
+
+def test_rebuild_guard_caps_successful_attempts_when_identity_remains_live():
+    guard = load_guard()
+    attempts: list[list[int]] = []
+
+    class SameProcessProvider:
+        def snapshot(self):
+            return [proc(guard, 10, 900, r"C:\Rook\venv\Scripts\python.exe", 10.0)]
+
+    class SuccessfulTerminator:
+        def close_processes(self, label, processes):
+            del label
+            attempts.append([p.pid for p in processes])
+            return guard.CloseResult(
+                ok=True,
+                closed_pids=[p.pid for p in processes],
+                failures=[],
+            )
+
+    guard_instance = guard.RebuildGuard(
+        label="rook-mcp",
+        rook_root=r"C:\Rook",
+        snapshot_provider=SameProcessProvider(),
+        terminator=SuccessfulTerminator(),
+        current_pid=999,
+        sweep_interval_seconds=0,
+        run_background=False,
+    )
+
+    for _ in range(5):
+        guard_instance.sweep_once()
+
+    assert attempts == [[10], [10], [10]]
+    assert guard_instance.close_failures == [
+        r"rook-mcp: close attempt cap reached for pid 10 (C:\Rook\venv\Scripts\python.exe)"
+    ]
+
+
+def test_rebuild_guard_initial_sweep_exception_is_recorded_not_raised():
+    guard = load_guard()
+
+    class FailingProvider:
+        def snapshot(self):
+            raise RuntimeError("initial snapshot hiccup")
+
+    guard_instance = guard.RebuildGuard(
+        label="rook-mcp",
+        rook_root=r"C:\Rook",
+        snapshot_provider=FailingProvider(),
+        terminator=None,
+        current_pid=999,
+        sweep_interval_seconds=0,
+        run_background=False,
+    )
+    guard_instance.terminator = object()
+
+    with guard_instance:
+        pass
+
+    assert guard_instance.thread_died_unexpectedly is False
+    assert guard_instance.close_failures == [
+        "rook-mcp: guard sweep failed: initial snapshot hiccup"
     ]
 
 
@@ -266,9 +337,19 @@ def test_windows_terminator_failure_messages_include_win32_error_and_image_path(
             self.closed_handles = []
 
         def OpenProcess(self, access, inherit_handle, pid):
+            assert access & guard.WindowsTerminator.PROCESS_TERMINATE
+            assert access & guard.WindowsTerminator.PROCESS_QUERY_LIMITED_INFORMATION
             if pid == 100:
                 return 0
             return 1234
+
+        def QueryFullProcessImageNameW(self, handle, flags, buffer, size):
+            buffer.value = r"C:\Rook\terminate-fails.exe"
+            return True
+
+        def GetProcessTimes(self, handle, creation, exit_time, kernel, user):
+            set_filetime(creation._obj, 20.0)
+            return True
 
         def TerminateProcess(self, handle, exit_code):
             return False
@@ -302,3 +383,48 @@ def test_windows_terminator_failure_messages_include_win32_error_and_image_path(
         ),
     ]
     assert fake_kernel32.closed_handles == [1234]
+
+
+def test_windows_terminator_rechecks_identity_before_terminating():
+    guard = load_guard()
+    terminator = object.__new__(guard.WindowsTerminator)
+
+    class FakeKernel32:
+        def __init__(self):
+            self.terminated = []
+            self.closed_handles = []
+
+        def OpenProcess(self, access, inherit_handle, pid):
+            assert access & guard.WindowsTerminator.PROCESS_TERMINATE
+            assert access & guard.WindowsTerminator.PROCESS_QUERY_LIMITED_INFORMATION
+            return 1234
+
+        def QueryFullProcessImageNameW(self, handle, flags, buffer, size):
+            buffer.value = r"C:\Rook\venv\Scripts\python.exe"
+            return True
+
+        def GetProcessTimes(self, handle, creation, exit_time, kernel, user):
+            set_filetime(creation._obj, 99.0)
+            return True
+
+        def TerminateProcess(self, handle, exit_code):
+            self.terminated.append((handle, exit_code))
+            return True
+
+        def CloseHandle(self, handle):
+            self.closed_handles.append(handle)
+            return True
+
+    fake_kernel32 = FakeKernel32()
+    terminator.kernel32 = fake_kernel32
+
+    result = terminator.close_processes(
+        "rook-mcp",
+        [proc(guard, 200, 1, r"C:\Rook\venv\Scripts\python.exe", 20.0)],
+    )
+
+    assert result.ok is False
+    assert result.closed_pids == []
+    assert fake_kernel32.terminated == []
+    assert fake_kernel32.closed_handles == [1234]
+    assert "identity changed before termination" in result.failures[0]

@@ -928,6 +928,8 @@ procedure CurInstallProgressChanged(CurProgress, MaxProgress: Integer);
 var
   CurrentTick: Cardinal;
   ResultCode: Integer;
+  ResweepOk: Boolean;
+  FailureMessage: String;
 begin
   if not RookPreflightResweepEnabled then
     Exit;
@@ -940,8 +942,22 @@ begin
     Exit;
 
   RookPreflightLastSweepTick := CurrentTick;
-  RunRookPreflightHelper('close', '', ResultCode);
-  Log('Rook process preflight re-sweep exit code: ' + IntToStr(ResultCode));
+  ResultCode := 40;
+  ResweepOk := RunRookPreflightHelper('close', '', ResultCode);
+  if ResweepOk then
+    Log('Rook process preflight re-sweep exit code: ' + IntToStr(ResultCode))
+  else
+    Log('Rook process preflight re-sweep failed to launch; assumed exit code: ' + IntToStr(ResultCode));
+
+  if ((not ResweepOk) or (ResultCode <> 0)) then
+  begin
+    RookPreflightResweepEnabled := False;
+    FailureMessage := RookPreflightFailureMessage(ResultCode);
+    Log('Rook process preflight re-sweep failed: ' + FailureMessage);
+    if not WizardSilent then
+      MsgBox(FailureMessage, mbError, MB_OK);
+    Abort;
+  end;
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);

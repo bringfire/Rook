@@ -206,7 +206,11 @@ function New-PreflightMessage([int]$ServerCount, [object[]]$Owners) {
         $owner = [string]$_
         (-not [string]::IsNullOrWhiteSpace($owner)) -and ($owner -ne 'Unknown')
     })
-    if ($resolvedOwners.Count -eq 0) {
+    $hasUnknownOwner = @($Owners | Where-Object {
+        $owner = [string]$_
+        [string]::IsNullOrWhiteSpace($owner) -or ($owner -eq 'Unknown')
+    }).Count -gt 0
+    if (($resolvedOwners.Count -eq 0) -or $hasUnknownOwner) {
         return ("Rook Setup found {0} running Rook agent server(s).`r`n`r`n{1}" -f $ServerCount, $reconnectText)
     }
 
