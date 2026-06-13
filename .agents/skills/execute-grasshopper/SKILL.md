@@ -72,6 +72,7 @@ For each batch in the plan:
    - Substitute actual short IDs from the registry for plan variable names
    - If either source or target is marked as failed: skip this connection
    - If connection fails: inspect both components with `gh_batch_component_info(names=[...])`
+   - Treat the response as committed topology plus `edit_summary`; read solved output data with a follow-up `gh_snapshot` or `gh_inspect_output` after the solve settles
 
 **At each checkpoint:**
 ```python

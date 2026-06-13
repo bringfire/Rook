@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from rook import server
+from rook import server, targeting
 import rook.learning.gh_session_history as gh_session_history
 
 
@@ -27,6 +27,12 @@ def _decode_response(response):
 
 @pytest.fixture
 def patched_server(monkeypatch):
+    route = targeting.ToolRoute(
+        success=True,
+        target=targeting.InstanceRef(port=59123, process_id=4242),
+        selection="session",
+    )
+    monkeypatch.setattr(server.targeting, "resolve_tool_route", lambda *args, **kwargs: route)
     monkeypatch.setattr(server, "should_inject", lambda _name, _result: False)
     monkeypatch.setattr(server, "_record_observation", lambda *args, **kwargs: None)
     monkeypatch.setattr(server, "get_phase_tracker", lambda: _DummyPhaseTracker())
@@ -324,7 +330,7 @@ def test_batch_gh_edit_no_mutation_failure_requests_sequential_fallback():
 
 
 @pytest.mark.asyncio
-async def test_universal_injection_skips_partial_or_unverified_success(monkeypatch):
+async def test_universal_injection_skips_partial_or_unverified_success(monkeypatch, patched_server):
     monkeypatch.setattr(server, "_record_observation", lambda *args, **kwargs: None)
     monkeypatch.setattr(server, "get_phase_tracker", lambda: _DummyPhaseTracker())
 

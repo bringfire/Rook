@@ -6562,6 +6562,11 @@ namespace Rook.Handlers
             }
         }
 
+        private ApiResponse TakeStructuralSnapshot()
+        {
+            return TakeSnapshot("{\"include_data\":false,\"max_preview_items\":0}");
+        }
+
         private bool IsSimpleParam(string typeName)
         {
             return typeName is "GH_NumberSlider" or "GH_Panel" or "GH_BooleanToggle"
@@ -7100,8 +7105,12 @@ namespace Rook.Handlers
                 catch { return null; }
             }
 
+            GhDocumentSolveSuspension? solveSuspension = null;
+
             try
             {
+                solveSuspension = BeginPostMutationBatchSolveSuspension(gh.Document!);
+
                 // Phase 1: Create components
                 var createdObjects = new List<object>();
                 if (args.TryGetValue("create", out var createEl) && createEl.ValueKind == JsonValueKind.Array)
@@ -7452,17 +7461,36 @@ namespace Rook.Handlers
                     }
                 }
 
-                // Phase 7: Schedule async solution (runs after this handler returns).
+                // Phase 7: Mark changed objects dirty, but do not schedule yet. The
+                // response snapshot must be captured before any scheduled Chirp solve
+                // can monopolize the UI thread and trip the native callback timeout.
                 var changedObjects = valuesSet > 0 || connected > 0 || disconnected > 0 || created > 0 || deleted > 0;
-                var solveOutcome = RequestPostMutationSolve(
-                    gh.Document!,
-                    dirtyObjects,
-                    requestSolve: changedObjects,
-                    delayMs: 1);
+                ExpirePostMutationDirtyObjects(dirtyObjects);
                 RefreshCanvas(gh.Canvas!, scheduleSolution: false);
 
-                // Phase 8: Return updated snapshot with edit summary
-                var snapshotResult = TakeSnapshot(null);
+                // Phase 8: Capture committed topology before scheduling the solve.
+                // Do not read output previews here: after dirty expiration, data
+                // preview extraction can force expensive Chirp solve paths inside
+                // the native callback.
+                var snapshotResult = TakeStructuralSnapshot();
+
+                // Phase 9: Queue async solution after the callback has room to
+                // return committed metadata before long Chirp solves start.
+                const int postEditSolveDelayMs = 1;
+                // Apply the same 5s handoff to every gh_edit so follow-up
+                // snapshots can confirm committed topology before solving.
+                const int postEditScheduleDispatchDelayMs = 5000;
+                var solveOutcome = RequestDeferredPostMutationSolve(
+                    gh.Document!,
+                    requestSolve: changedObjects,
+                    delayMs: postEditSolveDelayMs,
+                    dispatchDelayMs: postEditScheduleDispatchDelayMs,
+                    solverStateOverride: solveSuspension.OriginalSolverState,
+                    beforeScheduleOnUiThread: solveSuspension.Restore);
+
+                if (!solveOutcome.SolveScheduled)
+                    solveSuspension.Restore();
+
                 if (snapshotResult.Success && snapshotResult.Data is Dictionary<string, object?> snapData)
                 {
                     snapData["edit_summary"] = new
@@ -7517,6 +7545,7 @@ namespace Rook.Handlers
             }
             catch (Exception ex)
             {
+                solveSuspension?.Restore();
                 return new ApiResponse { Success = false, Data = $"ApplyEdit failed: {ex.Message}" };
             }
         }

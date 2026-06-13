@@ -60,6 +60,9 @@ gh_edit(epoch=snap["epoch"], create=[...], connect=["T1.O0>C2.I1"], set_values=[
 ```
 
 One read, one atomic write — deterministic, minimal round trips, no GUID guessing.
+`gh_edit` returns committed topology and an `edit_summary`; it does not return
+solved output previews inline. Fetch solved data with a follow-up `gh_snapshot`
+after the solve has settled.
 Use this by default for creating, wiring, and editing definitions. `gh_undo`
 reverses the last edit.
 
