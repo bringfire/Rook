@@ -4,7 +4,7 @@ using Rook.InternalBridge;
 namespace Rook.Handlers
 {
     // Shared post-mutation safe-solve policy. The safety invariant: HTTP-driven GH
-    // mutations NEVER call ExpireSolution(true) (synchronous recompute, which re-enters
+    // mutations NEVER request synchronous expiration (that re-enters
     // the solver and hard-crashes a locked canvas). They mark dirty with
     // ExpireSolution(false) and schedule at most one async ScheduleSolution(delay >= 1).
     // See docs/superpowers/specs/2026-06-02-gh-locked-solver-crash-design.md.
@@ -17,7 +17,7 @@ namespace Rook.Handlers
         // Batch form — for multi-target mutations (e.g. gh_edit).
         internal GhSolveOutcome RequestPostMutationSolve(object document, IReadOnlyList<object> dirtyObjects, bool requestSolve, int delayMs = 1)
         {
-            // 1. Mark each dirty WITHOUT recompute. This is the safety invariant: never ExpireSolution(true).
+            // 1. Mark each dirty WITHOUT recompute. This is the safety invariant: never request synchronous expiration.
             foreach (var obj in dirtyObjects)
             {
                 if (obj == null) continue;

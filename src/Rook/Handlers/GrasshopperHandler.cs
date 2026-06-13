@@ -819,7 +819,7 @@ namespace Rook.Handlers
                     }
 
                     // Safe-solve policy: mark dirty (no sync recompute) + async schedule when enabled.
-                    // NEVER ExpireSolution(true) here — that re-enters the solver and crashes a locked canvas.
+                    // NEVER request synchronous expiration here; that re-enters the solver and crashes a locked canvas.
                     var solveOutcome = RequestPostMutationSolve(gh.Document!, obj, requestSolve: true);
 
                     // Restore saved descriptions — must happen AFTER recompile + ExpireSolution

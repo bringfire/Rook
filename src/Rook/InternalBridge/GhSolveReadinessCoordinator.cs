@@ -105,7 +105,7 @@ namespace Rook.InternalBridge
             }
 
             var state = GhSolverState.Inspect(document);
-            if (state.GlobalEnableSolutions == false)
+            if (state.GlobalEnableSolutions.HasValue && !state.GlobalEnableSolutions.Value)
             {
                 return Record(GhSolveReadinessResult.NoAction("static_solver_disabled"), "schedule_time");
             }
@@ -209,7 +209,9 @@ namespace Rook.InternalBridge
 
             var activeDocument = _getActiveDocument();
             var state = GhSolverState.Inspect(activeDocument);
-            if (!ReferenceEquals(document, activeDocument) || state.GlobalEnableSolutions == false || state.DocumentEnabled != false)
+            if (!ReferenceEquals(document, activeDocument) ||
+                (state.GlobalEnableSolutions.HasValue && !state.GlobalEnableSolutions.Value) ||
+                state.DocumentEnabled != false)
             {
                 return;
             }
