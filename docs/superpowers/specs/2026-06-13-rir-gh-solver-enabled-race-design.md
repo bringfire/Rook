@@ -4,11 +4,12 @@ Date: 2026-06-13
 
 ## Purpose
 
-Fix issue #247: Grasshopper definitions created or replaced by Rook inside
+Fix issue #247: Grasshopper definitions driven by Rook inside
 Rhino.Inside.Revit can stop auto-solving because the active `GH_Document`
-settles with `document.Enabled == false`. Rook then reports
-`solverEnabled=false`, and post-mutation solves either defer or schedule into a
-disabled document. Edits commit, but downstream volatile data does not update.
+settles, or later re-settles, with `document.Enabled == false`. Rook then
+reports `solverEnabled=false`, and post-mutation solves either defer or schedule
+into a disabled document. Edits commit, but downstream volatile data does not
+update.
 
 This design is scoped to #247 only. It deliberately leaves the #246
 `gh_edit`/Chirp callback timeout for a later PR, while keeping the solve
@@ -46,6 +47,16 @@ This answers the previously open "what resets `document.Enabled`?" question:
 the source is the RIR activation-gate exit path during or after document
 replacement, not an unknown create-time state or DocumentServer behavior.
 
+A follow-up focus probe showed that the activation gate is not limited to the
+document-replacement window. After a one-shot post-create repair window expired,
+focusing Revit left the active document with `solverEnabled=false`; the passive
+event logger recorded repeated `ActivationGate_Enter`/`ActivationGate_Exit`
+toggles. With Revit still foreground, a `gh_edit` changed a slider from 7 to 9
+and returned success, but `gh_status` stayed `solverEnabled=false` and direct
+inspection showed both slider and panel volatile data empty. Focusing
+Grasshopper later could re-enable the document, but Rook cannot rely on that
+because agents often drive edits while Revit remains foreground.
+
 ## Safety Invariant
 
 The PR #208 safe-solve invariant remains unchanged:
@@ -57,8 +68,9 @@ The PR #208 safe-solve invariant remains unchanged:
 
 The #247 fix must not call `NewSolution`, must not call `ExpireSolution(true)`,
 and must not treat every disabled document as schedulable. The fix is to make a
-Rook-created RIR document legitimately enabled after the RIR replacement window
-settles, then let the existing async solve path run.
+Rook-managed RIR document legitimately enabled at the point Rook is about to
+schedule an async post-mutation solve, then let the existing async solve path
+run.
 
 ## Host Safety
 
@@ -70,8 +82,9 @@ gate so Grasshopper does not freely solve while Revit owns the execution
 context. Rook's repair is safe only because it is narrow and because it does not
 run a solution inside that gate. Rook's GH mutations are Rhino-side canvas,
 geometry, and parameter edits. The repair restores `document.Enabled=true` for a
-Rook-managed document after the replacement/activation transition, then uses
-Grasshopper's existing asynchronous schedule on the Rhino message loop.
+Rook-managed document immediately before a Rook-driven async solve schedule,
+then uses Grasshopper's existing asynchronous schedule on the Rhino message
+loop.
 
 If a Grasshopper definition contains Revit-touching components, normal
 Rhino.Inside.Revit and Revit transaction rules still govern those components.
@@ -80,32 +93,80 @@ guards, and does not force a synchronous solve while Revit API work is active.
 
 ## Design
 
-### RIR lifecycle normalizer
+### RIR solve-readiness coordinator
 
-Add a small managed helper for Rook-owned GH document lifecycle normalization.
-The helper is RIR-gated and should live near the existing GH bridge internals,
-not in native code. It owns three responsibilities:
+Add a small managed helper for Rook-owned GH solve readiness. The helper is
+RIR-gated and should live near the existing GH bridge internals, not in native
+code. It owns four responsibilities:
 
 1. Detect RIR host context.
-2. Track the current Rook-created/opened/replaced active document during a
-   bounded settle window.
-3. Repair one RIR activation-gate disable event, then tear itself down.
+2. Mark the current Rook-created/opened/replaced active document as
+   Rook-managed.
+3. Optionally run a bounded transition-settle repair after document
+   replacement.
+4. Perform the load-bearing schedule-time repair immediately before Rook
+   schedules a post-mutation solve.
 
-The helper arms only after a Rook-initiated document transition:
+The Rook-managed document mark is updated only after a Rook-initiated document
+transition:
 
 - `gh_document_new`;
 - `gh_document_open`;
 - any future Rook path that intentionally replaces the active canvas document.
 
-The arm point should be the post-replacement active-document transition:
+The mark point should be the post-replacement active-document transition:
 `DocumentChanged` landing on the new active document, on the UI thread. This
-avoids repairing the outgoing disabled document and makes the helper operate on
+avoids marking the outgoing disabled document and makes the helper operate on
 the same active document that later `gh_status` and `gh_edit` should inspect.
 
-### Bounded one-shot repair
+### Primary schedule-time repair
 
-The normalizer must not be a persistent watcher. It subscribes only to the new
-active document during a bounded settle window after Rook replacement.
+The primary hook is the post-mutation safe-solve path, including `gh_edit`.
+When Rook is about to schedule an async solve for a committed mutation, the
+helper inspects the current active document on the UI thread.
+
+If all of the following are true, it performs one repair attempt for that
+mutation:
+
+- host is Rhino.Inside.Revit;
+- the document is the current active canvas document;
+- the document is Rook-managed, or the current mutation is a Rook-driven edit on
+  the current active document;
+- static `GH_Document.EnableSolutions` is true;
+- instance `document.Enabled` is false;
+- the caller requested a post-mutation solve.
+
+When the condition matches, set `document.Enabled=true`, immediately re-read the
+current active document, mark the mutated objects dirty with `ExpireSolution(false)`,
+and schedule through the existing async solve path with
+`ScheduleSolution(delay >= 1)` only if the re-read says the document is enabled.
+Do not call `NewSolution`.
+
+If the re-read is still false, or if RIR disables the document again before the
+schedule is accepted, do not loop. Return a deferred solve outcome and log that
+the schedule-time repair did not hold.
+
+Stack attribution to `ActivationGate_Exit` is telemetry, not a hard precondition
+for schedule-time repair. Runtime stack walking is brittle and should not be the
+reason a needed RIR repair is skipped. The load-bearing discriminator is the
+combination of RIR host, static solver enabled, current Rook-managed/Rook-driven
+document, and a pending Rook post-mutation solve.
+
+Ordinary Grasshopper solver locks remain preserved because the standard user
+lock path makes `GH_Document.EnableSolutions == false`. If implementation
+evidence finds a user-accessible path that deliberately sets only the instance
+`document.Enabled=false` while the static flag remains true, that path must be
+classified before shipping and added to the no-repair predicate.
+
+### Bounded transition-settle repair
+
+The post-document transition repair is still useful for the tight
+`gh_document_new` -> immediate edit burst, but the focus probe proves it is not
+sufficient as the primary architecture. Treat it as early normalization and
+diagnostic surface.
+
+The transition repair must not be a persistent watcher. It subscribes only to
+the new active document during a bounded settle window after Rook replacement.
 
 Concrete bound:
 
@@ -115,43 +176,48 @@ Concrete bound:
   5 second window expires, or when another canvas `DocumentChanged` replaces the
   tracked document.
 
-The repair condition is intentionally narrow:
+The transition repair condition is intentionally narrow:
 
 - host is Rhino.Inside.Revit;
 - tracked document is still the current active canvas document;
 - static `GH_Document.EnableSolutions` is true;
-- instance `document.Enabled` changed to false;
-- the disable source is the RIR activation-gate exit path, identified from the
-  event context/stack or an equivalent RIR-specific signal.
+- instance `document.Enabled` changed to false.
 
-When the condition matches, set `document.Enabled=true`. If there is pending
-post-mutation work for that document, mark the document dirty as needed and
-schedule through the existing async solve path with
-`ScheduleSolution(delay >= 1)`. Do not call `NewSolution`.
+`ActivationGate_Exit` stack attribution should be recorded when available, but
+it must not be a hard precondition for this bounded repair. Within this narrow
+Rook-initiated settle window, a user hand-lock is not the expected source of the
+instance disable; the static solver flag remains the user-lock guard.
 
-Outside the armed settle window, never change `document.Enabled`. This is what
-preserves a later user lock.
+When the condition matches, set `document.Enabled=true`. If there is already
+pending post-mutation work for that document, schedule through the same
+schedule-time helper rather than duplicating scheduling logic. Outside the armed
+settle window, never change `document.Enabled`.
+
+All arm, repair, re-read, schedule, and teardown operations run on the UI thread.
+Teardown must be idempotent because first repair, timeout expiry, and
+`DocumentChanged` replacement can race.
 
 ### Did-not-stick outcome
 
-The repair is one-shot. If RIR disables the document again after the repair or
-after the settle window closes, Rook accepts the disabled state and logs it. It
-must not loop, repeatedly fight the host, or keep an open subscription.
+Repairs are one-shot per context: once per document-transition window and once
+per post-mutation solve attempt. If RIR disables the document again after a
+repair, Rook accepts the disabled state for that context and logs it. It must
+not loop, repeatedly fight the host, or keep an open subscription.
 
 Telemetry should distinguish:
 
 - repair attempted;
 - repair held after a post-repair re-read;
 - repair did not hold;
-- no repair was attempted because the disable was not recognized as the RIR
-  activation-gate exit path;
+- no repair was attempted because static `GH_Document.EnableSolutions` was
+  false;
 - no repair was attempted because the helper was outside its settle window.
 
 The held check should re-read the current active document after the repair on
-the UI thread. A practical implementation can record an immediate re-read plus
-one delayed re-read within the same 5 second settle budget. If the second read
-is false, the solve remains deferred and the telemetry explains that the RIR
-gate re-disabled the document after repair.
+the UI thread. For transition-settle repair, a practical implementation can
+record an immediate re-read plus one delayed re-read within the same 5 second
+settle budget. For schedule-time repair, the immediate re-read decides whether
+Rook schedules the async solve or returns a deferred outcome.
 
 ### Read-path audit
 
@@ -189,10 +255,9 @@ gh_document_new -> gh_edit -> post-mutation solve
 
 `gh_edit` currently commits the mutation and schedules a document solution. If
 the active document has settled disabled under RIR, that schedule does not
-produce a recompute. The #247 implementation should route post-mutation solve
-scheduling through the same RIR-aware safe-scheduling surface, or otherwise
-ensure that `gh_edit` consults the normalizer before deciding the solve is
-deferred.
+produce a recompute. The #247 implementation must route post-mutation solve
+scheduling through the RIR-aware safe-scheduling surface. In that surface,
+schedule-time repair happens before the policy decides the solve is deferred.
 
 This is still a solve-scheduling fix, not a mutation-readiness fix. A disabled
 solver should not make `ready_for_edit=false`; edits can still commit while the
@@ -203,9 +268,9 @@ solver is locked or deferred.
 Standalone Rhino already works and must be a no-op path for this normalizer.
 
 When `rhinoInside=false`, the helper must not subscribe, repair, or emit
-normalization actions. Standalone `gh_document_new` and `gh_edit` should keep
-their existing behavior: active document enabled, async solve scheduled, panel
-volatile data populated.
+normalization actions, including at schedule time. Standalone
+`gh_document_new` and `gh_edit` should keep their existing behavior: active
+document enabled, async solve scheduled, panel volatile data populated.
 
 Add an explicit regression test or live assertion that no RIR normalization is
 armed under standalone Rhino.
@@ -222,9 +287,10 @@ different failures:
 
 The #247 helper should therefore expose outcome metadata such as
 `mutation_committed`, `solve_scheduled`, `solve_deferred`,
-`solver_state_known`, and `rir_normalization_action`. It should not hard-code a
-blocking "wait until solved" contract. That leaves room for #246 to decouple
-mutation acknowledgment from solve completion without undoing the #247 work.
+`solver_state_known`, `rir_repair_attempted`, and `rir_repair_held`. It should
+not hard-code a blocking "wait until solved" contract. That leaves room for
+#246 to decouple mutation acknowledgment from solve completion without undoing
+the #247 work.
 
 ## Considered And Rejected
 
@@ -241,21 +307,34 @@ class that PR #208 intentionally removed.
 Working directly inside the RIR activation gate was considered. That would mean
 trying to drive Rook GH operations inside the correct RIR activation context
 instead of repairing after the gate exits. It is more invasive and more tightly
-coupled to Rhino.Inside.Revit internals than a bounded post-replacement repair,
-so this design chooses the narrower normalizer.
+coupled to Rhino.Inside.Revit internals than a schedule-time repair that uses
+Rook's existing async solve policy, so this design chooses the narrower
+normalizer.
+
+Using only a bounded post-document transition normalizer as the primary fix is
+rejected. The 2026-06-13 focus probe showed RIR can disable the current document
+after the transition window, when Revit becomes foreground. A later Rook
+`gh_edit` can then commit successfully but leave volatile data empty unless the
+solve-schedule path repairs the document before scheduling.
 
 ## Tests
 
 Automated/unit tests:
 
 - RIR-gated normalizer does not arm when `rhinoInside=false`.
-- A Rook-initiated document transition arms a one-shot settle window.
-- `EnabledChanged=false` from the RIR activation-gate exit path repairs once
-  and unsubscribes.
+- A Rook-initiated document transition marks the new active document as
+  Rook-managed and arms a one-shot settle window.
+- `EnabledChanged=false` during the settle window repairs once and unsubscribes.
 - `EnabledChanged=false` outside the settle window is not repaired.
-- `EnabledChanged=false` from a non-RIR/user-lock source is not repaired.
+- `EnabledChanged=false` when static `GH_Document.EnableSolutions=false` is not
+  repaired.
 - A second false after the one-shot repair is logged as did-not-stick and is
   not repaired again.
+- Schedule-time repair runs once for a RIR, Rook-driven post-mutation solve
+  when static solver is true and instance document enabled is false.
+- Schedule-time repair does not run for standalone Rhino.
+- Schedule-time repair does not run when static `GH_Document.EnableSolutions`
+  is false.
 - `GhSolverState.Inspect` reads the current active document, not a cached
   outgoing document.
 - Source/static guard continues to reject `NewSolution`,
@@ -269,11 +348,14 @@ Live RIR verification:
    replacement window.
 4. Immediately call `gh_status` and `gh_edit` for a Number Slider -> Panel
    graph.
-5. Confirm `gh_status.solverEnabled=true` after the bounded settle.
-6. Confirm the panel has populated volatile data without any manual
+5. Confirm the panel has populated volatile data without any manual
    `NewSolution`.
-7. Confirm DocumentServer registration remains irrelevant and can still be 0.
-8. Confirm telemetry records whether RIR normalization repaired and whether the
+6. Focus Revit so `gh_status.solverEnabled=false` on the active GH document.
+7. While Revit remains foreground, run `gh_edit` to change the slider value.
+8. Confirm schedule-time repair runs and the panel volatile data updates without
+   manual `NewSolution`.
+9. Confirm DocumentServer registration remains irrelevant and can still be 0.
+10. Confirm telemetry records whether RIR normalization repaired and whether the
    repair held.
 
 Standalone regression:
@@ -298,14 +380,16 @@ This is the #247 PR and should use a `fix/` branch. It should land before any
 Implementation order:
 
 1. Add the RIR-gated normalizer and diagnostics behind tests.
-2. Wire it into Rook document creation/open/replacement.
+2. Wire document ownership marking and bounded transition-settle repair into
+   Rook document creation/open/replacement.
 3. Audit and adjust `gh_status`/`GhSolverState` to read the current active
    document.
 4. Route `gh_edit` post-mutation scheduling through the RIR-aware safe schedule
-   surface.
+   surface, with schedule-time repair as the primary hook.
 5. Run automated tests.
 6. Rebuild and deploy the managed companion with Rhino and Revit closed.
-7. Run the deliberate RIR replacement-window live verification.
+7. Run the deliberate RIR replacement-window and Revit-foreground live
+   verification.
 8. Run standalone and user-lock regressions.
 
 If the deliberate repeated-replacement sequence stops reproducing during
