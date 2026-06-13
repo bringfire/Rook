@@ -750,5 +750,9 @@ $manifest = [ordered]@{
 }
 
 $manifestPath = Join-Path $OutputRoot 'python-runtime-manifest.json'
-$manifest | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $manifestPath -Encoding UTF8
+# Write BOM-less UTF-8. Windows PowerShell `Set-Content -Encoding UTF8` emits a
+# UTF-8 BOM, which makes Python `json.loads(read_text(encoding="utf-8"))` throw
+# "Unexpected UTF-8 BOM" on the consuming side (release smoke evidence gate).
+$manifestJson = $manifest | ConvertTo-Json -Depth 10
+[System.IO.File]::WriteAllText($manifestPath, $manifestJson, (New-Object System.Text.UTF8Encoding($false)))
 Write-Host "Python runtime manifest: $manifestPath"
