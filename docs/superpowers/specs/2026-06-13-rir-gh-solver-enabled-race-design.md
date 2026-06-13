@@ -57,6 +57,23 @@ inspection showed both slider and panel volatile data empty. Focusing
 Grasshopper later could re-enable the document, but Rook cannot rely on that
 because agents often drive edits while Revit remains foreground.
 
+The load-bearing async assumption was then spiked directly. With Revit
+foreground and `solverEnabled=false`, `gh_edit` changed the slider to 4 and
+cleared both slider and panel volatile data. A script then set
+`GH_Document.EnableSolutions=true`, set `document.Enabled=true`, expired the
+objects with `ExpireSolution(false)`, and called `ScheduleSolution(1)`. No
+`NewSolution` was used. `SolutionEnd` fired and the panel volatile data became
+`["4"]`; later `ActivationGate_Exit` disabled the document again, but the async
+solve had already completed. This proves schedule-time repair plus async
+schedule can recompute while Revit remains foreground.
+
+The solver-lock discriminator was also checked at the Grasshopper flag level:
+setting `GH_Document.EnableSolutions=false` left `document.Enabled=true` but
+made `solverEnabled=false`; resetting the static flag restored
+`solverEnabled=true`. That supports using the static flag as the no-repair guard
+for user solver lock, while still making UI-lock classification an upfront
+implementation task.
+
 ## Safety Invariant
 
 The PR #208 safe-solve invariant remains unchanged:
@@ -136,15 +153,22 @@ mutation:
 - instance `document.Enabled` is false;
 - the caller requested a post-mutation solve.
 
-When the condition matches, set `document.Enabled=true`, immediately re-read the
-current active document, mark the mutated objects dirty with `ExpireSolution(false)`,
-and schedule through the existing async solve path with
-`ScheduleSolution(delay >= 1)` only if the re-read says the document is enabled.
-Do not call `NewSolution`.
+When the condition matches, set `document.Enabled=true`, then re-read the
+current active document before scheduling. This repair is inserted into the
+existing post-mutation safe-solve path; it must not create a second independent
+`ExpireSolution(false)` or `ScheduleSolution(...)` call. The single shared
+scheduler remains responsible for dirtying the mutated objects once and calling
+`ScheduleSolution(delay >= 1)` once. Do not call `NewSolution`.
 
 If the re-read is still false, or if RIR disables the document again before the
 schedule is accepted, do not loop. Return a deferred solve outcome and log that
 the schedule-time repair did not hold.
+
+The immediate UI-thread re-read is a guard against obvious failed assignment,
+not proof that the repair held long enough for a solve. The meaningful live
+verification is that the scheduled async solve reaches `SolutionEnd` and
+volatile data updates before any later `ActivationGate_Exit` disables the
+document again.
 
 Stack attribution to `ActivationGate_Exit` is telemetry, not a hard precondition
 for schedule-time repair. Runtime stack walking is brittle and should not be the
@@ -152,11 +176,12 @@ reason a needed RIR repair is skipped. The load-bearing discriminator is the
 combination of RIR host, static solver enabled, current Rook-managed/Rook-driven
 document, and a pending Rook post-mutation solve.
 
-Ordinary Grasshopper solver locks remain preserved because the standard user
-lock path makes `GH_Document.EnableSolutions == false`. If implementation
-evidence finds a user-accessible path that deliberately sets only the instance
+Ordinary Grasshopper solver locks remain preserved because the standard solver
+lock flag is `GH_Document.EnableSolutions == false`. If Task 0 finds a
+user-accessible path that deliberately sets only the instance
 `document.Enabled=false` while the static flag remains true, that path must be
-classified before shipping and added to the no-repair predicate.
+classified before any implementation proceeds and added to the no-repair
+predicate.
 
 ### Bounded transition-settle repair
 
@@ -335,6 +360,9 @@ Automated/unit tests:
 - Schedule-time repair does not run for standalone Rhino.
 - Schedule-time repair does not run when static `GH_Document.EnableSolutions`
   is false.
+- The post-mutation safe-solve path has exactly one owner for dirtying and
+  scheduling; schedule-time repair only prepares the document before that
+  shared scheduler runs.
 - `GhSolverState.Inspect` reads the current active document, not a cached
   outgoing document.
 - Source/static guard continues to reject `NewSolution`,
@@ -357,6 +385,8 @@ Live RIR verification:
 9. Confirm DocumentServer registration remains irrelevant and can still be 0.
 10. Confirm telemetry records whether RIR normalization repaired and whether the
    repair held.
+11. Confirm a `SolutionEnd` or equivalent solve-completion signal is observed
+    before treating the async schedule as verified.
 
 Standalone regression:
 
@@ -377,7 +407,12 @@ User-lock regression:
 This is the #247 PR and should use a `fix/` branch. It should land before any
 #246 implementation.
 
-Implementation order:
+Task 0 gate: classify the user solver-lock path before code changes. Confirm
+the actual Grasshopper user lock sets `GH_Document.EnableSolutions=false`, and
+stop if a normal user action can set only `document.Enabled=false` while the
+static flag remains true.
+
+Implementation order after Task 0:
 
 1. Add the RIR-gated normalizer and diagnostics behind tests.
 2. Wire document ownership marking and bounded transition-settle repair into
