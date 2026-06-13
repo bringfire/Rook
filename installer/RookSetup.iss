@@ -954,9 +954,6 @@ begin
     RookPreflightResweepEnabled := False;
     FailureMessage := RookPreflightFailureMessage(ResultCode);
     Log('Rook process preflight re-sweep failed: ' + FailureMessage);
-    if not WizardSilent then
-      MsgBox(FailureMessage, mbError, MB_OK);
-    Abort;
   end;
 end;
 

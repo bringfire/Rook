@@ -612,9 +612,14 @@ function Test-InstallerUsesRookProcessPreflight {
     Assert-NotContains -Text $content -Unexpected 'ewNoWait' -Message '[Files] re-sweeps must wait for the helper to exit before Inno can enter ssPostInstall.'
     Assert-Contains -Text $content -Expected 'Rook process preflight re-sweep exit code' -Message '[Files] re-sweeps must log the helper exit code for installer forensics.'
     Assert-Contains -Text $content -Expected 'IntToStr(ResultCode)' -Message '[Files] re-sweeps must include the helper exit code value in the Inno log.'
-    Assert-Contains -Text $content -Expected 'Rook process preflight re-sweep failed' -Message '[Files] re-sweeps must log fail-closed failures before aborting.'
-    $resweepFailurePattern = "(?s)RunRookPreflightHelper\('close', '', ResultCode\).*?if \(\(not ResweepOk\) or \(ResultCode <> 0\)\) then.*?RookPreflightResweepEnabled := False;.*?RookPreflightFailureMessage\(ResultCode\).*?Abort;"
-    Assert-True -Condition ([regex]::IsMatch($content, $resweepFailurePattern)) -Message '[Files] re-sweeps must fail closed when the close helper fails or returns nonzero.'
+    Assert-Contains -Text $content -Expected 'Rook process preflight re-sweep failed' -Message '[Files] re-sweeps must log helper failures prominently.'
+    $progressMatch = [regex]::Match($content, '(?ms)^procedure CurInstallProgressChanged\(.*?^end;')
+    Assert-True -Condition $progressMatch.Success -Message 'Installer must define CurInstallProgressChanged for [Files] re-sweeps.'
+    $progressBody = $progressMatch.Value
+    $resweepFailurePattern = "(?s)RunRookPreflightHelper\('close', '', ResultCode\).*?if \(\(not ResweepOk\) or \(ResultCode <> 0\)\) then.*?RookPreflightResweepEnabled := False;.*?Rook process preflight re-sweep failed"
+    Assert-True -Condition ([regex]::IsMatch($progressBody, $resweepFailurePattern)) -Message '[Files] re-sweeps must log helper failures and disable further re-sweeps.'
+    Assert-NotContains -Text $progressBody -Unexpected 'Abort;' -Message '[Files] re-sweeps must not abort from the progress callback after install mutation has started.'
+    Assert-NotContains -Text $progressBody -Unexpected 'MsgBox(' -Message '[Files] re-sweeps must not show a second conflict dialog from the progress callback.'
     Assert-Contains -Text $content -Expected 'Rook agent server' -Message 'Consent dialog must name Rook agent servers in plain language.'
 }
 
