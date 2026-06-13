@@ -42,7 +42,17 @@ namespace Rook.Handlers
         /// </summary>
         public ApiResponse GetStatus()
         {
-            return ToApiResponse(_bridgeCore.GetStatus());
+            var status = _bridgeCore.GetStatus();
+            if (status.Success && status.Data != null)
+            {
+                var telemetry = _solveReadinessCoordinator.LatestTelemetry;
+                status.Data.RirRepairAttempted = telemetry.RepairAttempted;
+                status.Data.RirRepairHeld = telemetry.RepairHeld;
+                status.Data.RirRepairReason = telemetry.Reason;
+                status.Data.RirRepairSource = telemetry.Source;
+            }
+
+            return ToApiResponse(status);
         }
 
         /// <summary>
@@ -3367,6 +3377,8 @@ namespace Rook.Handlers
                 // Reset short ID registry for new document
                 _idRegistry.Clear();
 
+                _solveReadinessCoordinator.MarkRookManagedDocument(newDocument, "gh_document_open");
+
                 // Refresh the canvas
                 RefreshCanvas(gh.Canvas);
 
@@ -3425,6 +3437,8 @@ namespace Rook.Handlers
 
                 // Reset short ID registry for new document
                 _idRegistry.Clear();
+
+                _solveReadinessCoordinator.MarkRookManagedDocument(newDocument, "gh_document_new");
 
                 // Refresh the canvas
                 RefreshCanvas(gh.Canvas);
