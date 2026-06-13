@@ -376,7 +376,7 @@ class WindowsTerminator:
             normalize_image_path(live_image_path)
             != normalize_image_path(process.image_path)
             or process.created_utc is None
-            or abs(live_created_utc - process.created_utc) > 0.001
+            or live_created_utc != process.created_utc
         ):
             return (
                 f"{label}: pid {process.pid} identity changed before termination; "

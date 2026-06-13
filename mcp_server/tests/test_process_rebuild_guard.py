@@ -428,3 +428,45 @@ def test_windows_terminator_rechecks_identity_before_terminating():
     assert fake_kernel32.terminated == []
     assert fake_kernel32.closed_handles == [1234]
     assert "identity changed before termination" in result.failures[0]
+
+
+def test_windows_terminator_rejects_submillisecond_creation_time_change():
+    guard = load_guard()
+    terminator = object.__new__(guard.WindowsTerminator)
+
+    class FakeKernel32:
+        def __init__(self):
+            self.terminated = []
+            self.closed_handles = []
+
+        def OpenProcess(self, access, inherit_handle, pid):
+            return 1234
+
+        def QueryFullProcessImageNameW(self, handle, flags, buffer, size):
+            buffer.value = r"C:\Rook\venv\Scripts\python.exe"
+            return True
+
+        def GetProcessTimes(self, handle, creation, exit_time, kernel, user):
+            set_filetime(creation._obj, 20.0005)
+            return True
+
+        def TerminateProcess(self, handle, exit_code):
+            self.terminated.append((handle, exit_code))
+            return True
+
+        def CloseHandle(self, handle):
+            self.closed_handles.append(handle)
+            return True
+
+    fake_kernel32 = FakeKernel32()
+    terminator.kernel32 = fake_kernel32
+
+    result = terminator.close_processes(
+        "rook-mcp",
+        [proc(guard, 200, 1, r"C:\Rook\venv\Scripts\python.exe", 20.0)],
+    )
+
+    assert result.ok is False
+    assert result.closed_pids == []
+    assert fake_kernel32.terminated == []
+    assert "identity changed before termination" in result.failures[0]
