@@ -28,7 +28,7 @@ The argument is a semver version (X.Y.Z). If omitted, ask the user.
 | 0 | Pre-flight checks | Any check fails |
 | 1 | Release branch version bump (7 files / 10 edits) | Verification fails |
 | 2 | Merge the release PR and check out the exact main SHA to tag | Main HEAD is not the intended release commit |
-| 3A | Build bundled private Python runtime and offline wheelhouse | Validation fails |
+| 3A | Build **and validate** bundled private Python runtime and offline wheelhouse | Build or wheelhouse validation fails |
 | 3 | Build and validate bundled FFmpeg payload/source bundle | Validation fails |
 | 4 | Build C++ native plugin | Exit code != 0 |
 | 5 | Build C# companion plugin for all managed runtimes | Exit code != 0 |
@@ -181,6 +181,30 @@ writes `installer\runtime\python-runtime-manifest.json`.
 Public/full installer builds must package only this sealed Python runtime
 payload. Do not use user Python, PATH Python, PyPI, editable installs, or source
 tree `PYTHONPATH` entries to satisfy MCP or Chirp release installation.
+
+**Then validate the staged wheelhouse before going further (fail closed):**
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\validate-python-wheelhouse.ps1 -Version X.Y.Z
+```
+
+The wheelhouse is a gitignored local build artifact, so nothing in version
+control proves it matches the release being built. This guard is the forcing
+function that makes a stale wheelhouse impossible to ship: it fails closed
+unless the staged wheelhouse is internally consistent with
+`python-runtime-manifest.json` (every listed wheel present with a matching
+SHA256, no extra wheels, no source distributions, lockfile hashes intact) AND
+stamped with the **exact** release version (`release_version`, the `rook_mcp`
+wheel, and the rook lockfile pin all equal `X.Y.Z` — strict version-equality).
+If this fails with a version mismatch, the wheelhouse was not rebuilt for this
+release: re-run `build-rook-python-wheelhouse.ps1 -Version X.Y.Z` above.
+
+> Defense in depth: Step 8's `validate-release-artifacts.ps1` independently
+> re-checks `python_runtime_manifest.release_version == X.Y.Z` and
+> `rook_git_sha == <release SHA>` against the *installed* runtime, so a stale
+> wheelhouse is blocked again before publish even if this early gate is skipped.
+> Do not rely on that as the only check — the point of this step is to catch the
+> problem **before** building a doomed installer and running a full live smoke.
 
 ## Step 3: Build and Validate Bundled FFmpeg
 
