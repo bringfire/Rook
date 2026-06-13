@@ -900,3 +900,31 @@ def test_owned_release_readiness_preserves_live_smoke_failure_label(monkeypatch,
 
     assert result.success is False
     assert result.failure_label == "chirp_create_failed"
+
+
+def test_read_optional_json_tolerates_utf8_bom(tmp_path: Path):
+    """Windows PowerShell `Set-Content -Encoding UTF8` writes the runtime manifest
+    with a UTF-8 BOM. The reader must parse it; otherwise json.loads raises
+    "Unexpected UTF-8 BOM", the gate swallows it to {}, and chirp_git_sha /
+    chirp_source_archive_sha256 come back empty -> validate-release-artifacts
+    fails the cross-check. Regression for the 1.5.12 release blocker."""
+    manifest = tmp_path / "python-runtime-manifest.json"
+    payload = {
+        "chirp_git_sha": "c9ea6c0cf77cb06f9ce7c9e8c3bb8dd09f96d455",
+        "chirp_source_archive_sha256": "CDD42532",
+        "release_version": "1.5.12",
+    }
+    manifest.write_bytes(b"\xef\xbb\xbf" + json.dumps(payload).encode("utf-8"))
+
+    data = proof._read_optional_json(manifest)
+
+    assert data.get("chirp_git_sha") == "c9ea6c0cf77cb06f9ce7c9e8c3bb8dd09f96d455"
+    assert data.get("chirp_source_archive_sha256") == "CDD42532"
+    assert data.get("release_version") == "1.5.12"
+
+
+def test_read_optional_json_still_reads_plain_utf8(tmp_path: Path):
+    manifest = tmp_path / "plain.json"
+    manifest.write_text(json.dumps({"chirp_git_sha": "abc123"}), encoding="utf-8")
+
+    assert proof._read_optional_json(manifest).get("chirp_git_sha") == "abc123"

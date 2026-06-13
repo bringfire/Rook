@@ -244,7 +244,7 @@ def _read_json(path: Path, missing_label: str = "mcp_config_missing") -> dict[st
     if not path.exists():
         raise ProofFailure(missing_label, f"JSON file not found: {path}")
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
     except json.JSONDecodeError as exc:
         raise ProofFailure("mcp_config_stale", f"JSON file is malformed: {path}") from exc
     if not isinstance(data, dict):
@@ -424,7 +424,7 @@ def verify_codex_mcp_config(
     if not config_path.exists():
         raise ProofFailure("mcp_config_missing", f"Codex MCP config not found: {config_path}")
     try:
-        data = _load_codex_toml(config_path.read_text(encoding="utf-8"))
+        data = _load_codex_toml(config_path.read_text(encoding="utf-8-sig"))
     except Exception as exc:
         raise ProofFailure(
             "mcp_config_stale",
@@ -456,7 +456,7 @@ def verify_chat_manifest(
             f"chat service manifest not found: {manifest_path}",
         )
     try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
     except json.JSONDecodeError as exc:
         raise ProofFailure(
             "chat_manifest_stale",
@@ -750,7 +750,7 @@ def _read_optional_json(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload = json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, json.JSONDecodeError):
         return {}
     return payload if isinstance(payload, dict) else {}
