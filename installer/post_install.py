@@ -15,21 +15,28 @@ Uses only stdlib so it can run before dependencies are installed.
 
 import argparse
 import json
+import logging
 import os
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
+import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 
+import process_rebuild_guard
 import python_runtime_install
 
 
 MANAGED_COMPANION_RUNTIMES = ("net8.0", "net7.0", "net48")
 PRIVATE_PYTHON_VERSION = "3.11.9"
 INSTALL_COMMAND_TIMEOUT_SECONDS = 1800
+_INSTALL_LOGGER = logging.getLogger("rook.post_install")
+_INSTALL_LOGGING_CONFIGURED = False
+_INSTALL_LOG_PATH: Path | None = None
 
 
 def _codex_on_path() -> bool:
@@ -55,10 +62,94 @@ def get_runtime_paths(runtime_root: Path) -> tuple[Path, Path, Path]:
     return runtime_root / "venv", runtime_root / "data", runtime_root / "logs"
 
 
+def _summary_path(runtime_root: Path) -> Path:
+    return runtime_root / "logs" / "post_install_summary.json"
+
+
+def _post_install_log_path(runtime_root: Path) -> Path:
+    return runtime_root / "logs" / "post_install.log"
+
+
+def _configure_install_logging(runtime_root: Path) -> None:
+    global _INSTALL_LOGGING_CONFIGURED, _INSTALL_LOG_PATH
+    log_path = _post_install_log_path(runtime_root)
+    if _INSTALL_LOGGING_CONFIGURED and _INSTALL_LOG_PATH == log_path:
+        return
+
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    _close_install_logging()
+
+    handler = logging.FileHandler(log_path, mode="a", encoding="utf-8")
+    formatter = logging.Formatter("%(asctime)sZ %(levelname)s %(message)s")
+    formatter.converter = time.gmtime
+    handler.setFormatter(formatter)
+    _INSTALL_LOGGER.setLevel(logging.INFO)
+    _INSTALL_LOGGER.addHandler(handler)
+    _INSTALL_LOGGER.propagate = False
+    _INSTALL_LOGGING_CONFIGURED = True
+    _INSTALL_LOG_PATH = log_path
+    _INSTALL_LOGGER.info("post_install logging configured")
+
+
+def _close_install_logging() -> None:
+    global _INSTALL_LOGGING_CONFIGURED, _INSTALL_LOG_PATH
+    for existing in list(_INSTALL_LOGGER.handlers):
+        _INSTALL_LOGGER.removeHandler(existing)
+        existing.close()
+    _INSTALL_LOGGING_CONFIGURED = False
+    _INSTALL_LOG_PATH = None
+
+
+def _read_install_summary(runtime_root: Path) -> dict:
+    path = _summary_path(runtime_root)
+    if not path.exists():
+        return {"schema_version": 1}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"schema_version": 1}
+    return payload if isinstance(payload, dict) else {"schema_version": 1}
+
+
+def _write_install_summary(runtime_root: Path, payload: dict) -> None:
+    payload = {**payload, "schema_version": 1}
+    path = _summary_path(runtime_root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def _update_install_summary(runtime_root: Path, **updates) -> None:
+    payload = _read_install_summary(runtime_root)
+    payload.update({key: value for key, value in updates.items() if value is not None})
+    _write_install_summary(runtime_root, payload)
+
+
+def _append_install_summary_warnings(payload: dict, warnings: list[str]) -> None:
+    if not warnings:
+        return
+    existing = payload.get("warnings")
+    if not isinstance(existing, list):
+        existing = []
+    seen = {str(item) for item in existing}
+    for warning in warnings:
+        if warning not in seen:
+            existing.append(warning)
+            seen.add(warning)
+    payload["warnings"] = existing
+
+
 def get_venv_python(venv_dir: Path) -> Path:
     if os.name == "nt":
         return venv_dir / "Scripts" / "python.exe"
     return venv_dir / "bin" / "python"
+
+
+def _make_rebuild_guard(label: str, runtime_root: Path):
+    return process_rebuild_guard.RebuildGuard(
+        label=label,
+        rook_root=str(runtime_root),
+        current_pid=os.getpid(),
+    )
 
 
 def _combined_output(result: subprocess.CompletedProcess[str]) -> str:
@@ -71,7 +162,9 @@ def _run_install_command(
     env: dict[str, str],
     timeout: int = INSTALL_COMMAND_TIMEOUT_SECONDS,
 ) -> subprocess.CompletedProcess[str]:
-    print(f"Running: {' '.join(command)}")
+    command_text = " ".join(command)
+    print(f"Running: {command_text}")
+    _INSTALL_LOGGER.info("Running: %s", command_text)
     result = subprocess.run(
         command,
         capture_output=True,
@@ -81,8 +174,10 @@ def _run_install_command(
     )
     if result.stdout:
         print(result.stdout)
+        _INSTALL_LOGGER.info("stdout:\n%s", result.stdout)
     if result.stderr:
         print(result.stderr)
+        _INSTALL_LOGGER.info("stderr:\n%s", result.stderr)
     return result
 
 
@@ -176,36 +271,85 @@ def _record_install_state(
     python_runtime_install.write_install_state(layout.install_state, state)
 
 
-def _install_from_wheelhouse(
+def _record_venv_rebuild_summary(
+    runtime_root: Path,
+    runtime_name: str,
+    label: str,
+    retry_count: int,
+    outcome: str,
+    failure_stage: str | None = None,
+    guard_close_failures: list[str] | None = None,
+    guard_thread_died_unexpectedly: bool = False,
+) -> None:
+    payload = _read_install_summary(runtime_root)
+    rebuilds = payload.get("venv_rebuilds")
+    if not isinstance(rebuilds, dict):
+        rebuilds = {}
+    entry = {
+        "guard_label": label,
+        "retry_count": retry_count,
+        "outcome": outcome,
+        "updated_utc": _utc_now(),
+    }
+    if failure_stage is not None:
+        entry["failure_stage"] = failure_stage
+    if guard_close_failures:
+        entry["guard_close_failures"] = guard_close_failures
+    if guard_thread_died_unexpectedly:
+        entry["guard_thread_died_unexpectedly"] = True
+    rebuilds[runtime_name] = entry
+    payload["venv_rebuilds"] = rebuilds
+    warnings = [
+        f"{label} rebuild guard close failure: {failure}"
+        for failure in (guard_close_failures or [])
+    ]
+    if guard_thread_died_unexpectedly:
+        warnings.append(f"{label} rebuild guard sweep thread died unexpectedly")
+    _append_install_summary_warnings(payload, warnings)
+    _write_install_summary(runtime_root, payload)
+
+
+def _collect_rebuild_guard_health(label: str, guard) -> tuple[list[str], bool]:
+    close_failures = [str(failure) for failure in getattr(guard, "close_failures", [])]
+    for failure in close_failures:
+        _INSTALL_LOGGER.error("%s rebuild guard close failure: %s", label, failure)
+
+    thread_died = bool(getattr(guard, "thread_died_unexpectedly", False))
+    if thread_died:
+        _INSTALL_LOGGER.error("%s rebuild guard sweep thread died unexpectedly", label)
+
+    return close_failures, thread_died
+
+
+def _install_from_wheelhouse_once(
     label: str,
     layout: python_runtime_install.RuntimeLayout,
     venv_dir: Path,
     lock: Path,
     runtime_name: str,
-) -> Path | None:
-    if not _ensure_private_runtime_inputs(layout, lock):
-        return None
-
-    python_identity_hash = python_runtime_install.sha256_file(layout.runtime_manifest)
-    lockfile_sha256 = python_runtime_install.sha256_file(lock)
+    python_identity_hash: str,
+    lockfile_sha256: str,
+    *,
+    force_recreate: bool = False,
+) -> tuple[Path | None, str | None]:
     install_state = python_runtime_install.read_install_state(layout.install_state)
     if python_runtime_install.needs_venv_recreate(
         install_state,
         runtime_name,
         python_identity_hash,
         lockfile_sha256,
-    ):
+    ) or force_recreate:
         if venv_dir.exists():
             print(
                 f"Recreating {label} virtual environment because Python runtime "
                 "identity or lockfile changed..."
             )
             if not _remove_stale_venv(label, venv_dir):
-                return None
+                return None, "remove"
 
     venv_python = _create_venv(layout, venv_dir)
     if not venv_python:
-        return None
+        return None, "create"
 
     print(f"Upgrading pip bootstrap tools for {label} from bundled wheelhouse...")
     bootstrap_command = python_runtime_install.build_offline_pip_bootstrap_command(
@@ -221,12 +365,12 @@ def _install_from_wheelhouse(
     bootstrap_output = _combined_output(bootstrap_result)
     if bootstrap_result.returncode != 0:
         print(f"{label} bootstrap tool upgrade failed with exit code {bootstrap_result.returncode}")
-        return None
+        return None, "bootstrap"
     try:
         python_runtime_install.assert_local_wheelhouse_output(bootstrap_output)
     except ValueError as exc:
         print(f"{label} bootstrap failed release validation: {exc}")
-        return None
+        return None, "validation"
 
     print(
         f"Installing {label} from bundled wheelhouse into {venv_dir} "
@@ -245,11 +389,84 @@ def _install_from_wheelhouse(
     output = _combined_output(result)
     if result.returncode != 0:
         print(f"{label} install failed with exit code {result.returncode}")
-        return None
+        return None, "install"
     try:
         python_runtime_install.assert_local_wheelhouse_output(output)
     except ValueError as exc:
         print(f"{label} install failed release validation: {exc}")
+        return None, "validation"
+
+    return venv_python, None
+
+
+def _install_from_wheelhouse(
+    label: str,
+    layout: python_runtime_install.RuntimeLayout,
+    venv_dir: Path,
+    lock: Path,
+    runtime_name: str,
+) -> Path | None:
+    if not _ensure_private_runtime_inputs(layout, lock):
+        _record_venv_rebuild_summary(
+            layout.rook_root, runtime_name, label, 0, "failed", "inputs"
+        )
+        return None
+
+    python_identity_hash = python_runtime_install.sha256_file(layout.runtime_manifest)
+    lockfile_sha256 = python_runtime_install.sha256_file(lock)
+
+    retry_count = 0
+    guard_close_failures: list[str] = []
+    guard_thread_died_unexpectedly = False
+
+    with _make_rebuild_guard(label, layout.rook_root) as guard:
+        venv_python, failure_stage = _install_from_wheelhouse_once(
+            label,
+            layout,
+            venv_dir,
+            lock,
+            runtime_name,
+            python_identity_hash,
+            lockfile_sha256,
+        )
+    close_failures, thread_died = _collect_rebuild_guard_health(label, guard)
+    guard_close_failures.extend(close_failures)
+    guard_thread_died_unexpectedly = guard_thread_died_unexpectedly or thread_died
+
+    if failure_stage in {"remove", "create", "bootstrap", "install"}:
+        retry_count = 1
+        _INSTALL_LOGGER.warning(
+            "%s install failed at %s; retrying one full venv rebuild",
+            label,
+            failure_stage,
+        )
+        with _make_rebuild_guard(label, layout.rook_root) as guard:
+            venv_python, failure_stage = _install_from_wheelhouse_once(
+                label,
+                layout,
+                venv_dir,
+                lock,
+                runtime_name,
+                python_identity_hash,
+                lockfile_sha256,
+                force_recreate=True,
+            )
+        close_failures, thread_died = _collect_rebuild_guard_health(label, guard)
+        guard_close_failures.extend(close_failures)
+        guard_thread_died_unexpectedly = guard_thread_died_unexpectedly or thread_died
+
+    if not venv_python:
+        _INSTALL_LOGGER.error("%s install failed at %s", label, failure_stage)
+        _record_venv_rebuild_summary(
+            layout.rook_root,
+            runtime_name,
+            label,
+            retry_count,
+            "failed",
+            failure_stage,
+            guard_close_failures,
+            guard_thread_died_unexpectedly,
+        )
         return None
 
     check = _run_install_command(
@@ -259,6 +476,17 @@ def _install_from_wheelhouse(
     )
     if check.returncode != 0:
         print(f"{label} pip check failed with exit code {check.returncode}")
+        _INSTALL_LOGGER.error("%s pip check failed with exit code %s", label, check.returncode)
+        _record_venv_rebuild_summary(
+            layout.rook_root,
+            runtime_name,
+            label,
+            retry_count,
+            "failed",
+            "pip-check",
+            guard_close_failures,
+            guard_thread_died_unexpectedly,
+        )
         return None
 
     _record_install_state(
@@ -270,6 +498,15 @@ def _install_from_wheelhouse(
         python_identity_hash,
         lockfile_sha256,
         _combined_output(check),
+    )
+    _record_venv_rebuild_summary(
+        layout.rook_root,
+        runtime_name,
+        label,
+        retry_count,
+        "success",
+        guard_close_failures=guard_close_failures,
+        guard_thread_died_unexpectedly=guard_thread_died_unexpectedly,
     )
     print(f"{label} installed successfully in {venv_dir}.")
     return venv_python
@@ -431,9 +668,37 @@ def write_chat_service_manifest(mcp_server_dir: Path, python_path: str) -> bool:
         release_mode=True,
     )
 
-    manifest_path = plugin_dir / "RookChatService.json"
-    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-    print(f"Wrote chat service manifest: {manifest_path}")
+    payload = json.dumps(manifest, indent=2)
+    targets = [plugin_dir / "RookChatService.json"]
+    known_children = set(MANAGED_COMPANION_RUNTIMES)
+    for runtime in MANAGED_COMPANION_RUNTIMES:
+        child_dir = plugin_dir / runtime
+        if child_dir.is_dir():
+            targets.append(child_dir / "RookChatService.json")
+    for child in plugin_dir.iterdir():
+        if child.is_dir() and child.name.startswith("net") and child.name not in known_children:
+            print(f"WARNING: unknown managed runtime child directory: {child}")
+            _INSTALL_LOGGER.warning("unknown managed runtime child directory: %s", child)
+    for manifest_path in targets:
+        try:
+            manifest_path.write_text(payload, encoding="utf-8")
+        except OSError as exc:
+            print(f"Failed to write chat service manifest: {manifest_path}: {exc}")
+            _INSTALL_LOGGER.error(
+                "failed to write chat service manifest: %s: %s",
+                manifest_path,
+                exc,
+            )
+            return False
+        print(f"Wrote chat service manifest: {manifest_path}")
+        _INSTALL_LOGGER.info("wrote chat service manifest: %s", manifest_path)
+    # python_path is the managed venv's Scripts/python.exe; climb to the
+    # Rook runtime root for the summary sidecar.
+    runtime_root = Path(python_path).parent.parent.parent
+    _update_install_summary(
+        runtime_root,
+        chat_service_manifest_paths=[str(manifest_path) for manifest_path in targets],
+    )
     return True
 
 
@@ -901,6 +1166,7 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.uninstall:
+        _close_install_logging()
         uninstall_cleanup()
         return 0
 
@@ -911,6 +1177,10 @@ def main() -> int:
     mcp_server_dir = Path(args.mcp_server_dir)
     runtime_root = get_runtime_root(args.runtime_root)
     chirp_dir = Path(args.chirp_dir) if args.chirp_dir else None
+    _configure_install_logging(runtime_root)
+    _update_install_summary(
+        runtime_root, phase_reached="finalizer-started", final_outcome="running"
+    )
 
     print("=" * 50)
     print("Rook Post-Install Setup")
@@ -1003,5 +1273,51 @@ def main() -> int:
     return 0
 
 
+def _last_gasp_args_from_argv(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--runtime-root", required=False)
+    parser.add_argument("--uninstall", action="store_true")
+    args, _ = parser.parse_known_args(argv)
+    return args
+
+
+def _last_gasp_runtime_root_from_argv(argv: list[str]) -> Path:
+    args = _last_gasp_args_from_argv(argv)
+    return get_runtime_root(args.runtime_root)
+
+
+def _run_with_last_gasp(runtime_root: Path | None = None) -> int:
+    argv = sys.argv[1:]
+    args = _last_gasp_args_from_argv(argv)
+    root = runtime_root or get_runtime_root(args.runtime_root)
+    try:
+        if not args.uninstall:
+            _configure_install_logging(root)
+        result = main()
+        if not args.uninstall:
+            if result == 0:
+                _update_install_summary(
+                    root,
+                    phase_reached="finalizer-complete",
+                    final_outcome="success",
+                )
+            else:
+                _update_install_summary(
+                    root,
+                    phase_reached="finalizer-failed",
+                    final_outcome="failed",
+                )
+        return result
+    except SystemExit:
+        raise
+    except Exception:
+        _configure_install_logging(root)
+        _INSTALL_LOGGER.error("post_install crashed:\n%s", traceback.format_exc())
+        _update_install_summary(
+            root, phase_reached="finalizer-crashed", final_outcome="failed"
+        )
+        return 1
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(_run_with_last_gasp())

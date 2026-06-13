@@ -9,6 +9,7 @@ encoding="utf-8" explicitly.
 
 from __future__ import annotations
 
+import ast
 import importlib.util
 import json
 import re
@@ -106,6 +107,33 @@ def _call_args(source: str, open_paren_idx: int) -> str:
     return source[open_paren_idx + 1 :]
 
 
+def _function_node(source: str, name: str) -> ast.FunctionDef:
+    tree = ast.parse(source)
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name == name:
+            return node
+    raise AssertionError(f"{name} not found")
+
+
+def _has_utf8_keyword(call: ast.Call) -> bool:
+    return any(
+        keyword.arg == "encoding"
+        and isinstance(keyword.value, ast.Constant)
+        and keyword.value.value == "utf-8"
+        for keyword in call.keywords
+    )
+
+
+def _attribute_calls(function: ast.FunctionDef, name: str) -> list[ast.Call]:
+    return [
+        node
+        for node in ast.walk(function)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == name
+    ]
+
+
 def test_no_encodingless_text_io_in_post_install():
     """Source pin: every read_text/write_text CALL in post_install.py must
     carry an explicit encoding argument (locale-default IO is forbidden).
@@ -122,6 +150,50 @@ def test_no_encodingless_text_io_in_post_install():
             line = source[: match.start()].count("\n") + 1
             violations.append(f"line {line}: .{match.group(1)}({args[:60]}...)")
     assert not violations, "encoding-less text IO found:\n" + "\n".join(violations)
+
+
+def test_post_install_summary_and_log_paths_use_utf8_source_pin():
+    source = POST_INSTALL.read_text(encoding="utf-8")
+
+    summary_path = _function_node(source, "_summary_path")
+    assert "post_install_summary.json" in ast.get_source_segment(source, summary_path)
+
+    read_summary = _function_node(source, "_read_install_summary")
+    assert any(
+        isinstance(call.func.value, ast.Name)
+        and call.func.value.id == "path"
+        and _has_utf8_keyword(call)
+        for call in _attribute_calls(read_summary, "read_text")
+    )
+
+    write_summary = _function_node(source, "_write_install_summary")
+    assert any(
+        isinstance(call.func.value, ast.Name)
+        and call.func.value.id == "path"
+        and _has_utf8_keyword(call)
+        for call in _attribute_calls(write_summary, "write_text")
+    )
+
+    log_path = _function_node(source, "_post_install_log_path")
+    assert "post_install.log" in ast.get_source_segment(source, log_path)
+
+    configure_logging = _function_node(source, "_configure_install_logging")
+    file_handler_calls = [
+        node
+        for node in ast.walk(configure_logging)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "logging"
+        and node.func.attr == "FileHandler"
+    ]
+    assert any(
+        call.args
+        and isinstance(call.args[0], ast.Name)
+        and call.args[0].id == "log_path"
+        and _has_utf8_keyword(call)
+        for call in file_handler_calls
+    )
 
 
 def test_consume_doctor_payload_warning_severity_does_not_fail_validation():

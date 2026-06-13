@@ -589,6 +589,52 @@ function Test-LegacyGitHubReleaseWorkflowIsDisabled {
     Assert-NotContains -Text $content -Unexpected 'Compress-Archive' -Message 'Legacy GitHub release workflow must not package the old ZIP release.'
 }
 
+function Test-InstallerUsesRookProcessPreflight {
+    $content = Get-Content -Path $InstallerScript -Raw
+
+    Assert-Contains -Text $content -Expected 'CloseApplications=no' -Message 'Installer must disable Inno Restart Manager close-app behavior.'
+    Assert-Contains -Text $content -Expected 'RestartApplications=no' -Message 'Installer must not restart raw python -m rook processes after install.'
+    Assert-Contains -Text $content -Expected 'SetupLogging=yes' -Message 'Installer must enable Inno setup logging as a backstop.'
+    Assert-Contains -Text $content -Expected 'Source: "rook_process_preflight.ps1"; Flags: dontcopy' -Message 'Preflight helper must be embedded for ExtractTemporaryFile before [Files].'
+    Assert-Contains -Text $content -Expected 'ExtractTemporaryFile(''rook_process_preflight.ps1'')' -Message 'PrepareToInstall must extract the helper to {tmp}.'
+    Assert-Contains -Text $content -Expected 'function RunRookProcessPreflight' -Message 'Installer must run Rook process preflight before [Files].'
+    Assert-Contains -Text $content -Expected 'RunRookPreflightHelper(''enumerate''' -Message 'Preflight must run helper enumeration mode.'
+    Assert-Contains -Text $content -Expected 'RunRookPreflightHelper(''close''' -Message 'Preflight must run helper close mode after consent or silent implied consent.'
+    Assert-Contains -Text $content -Expected 'RunRookPreflightHelper(''record-outcome''' -Message 'Consent cancellation must be recorded by the helper, not Pascal SaveStringToFile.'
+    Assert-Contains -Text $content -Expected 'WizardSilent' -Message 'Silent and very-silent installs must imply consent.'
+    Assert-Contains -Text $content -Expected 'CurInstallProgressChanged' -Message 'Installer must either re-sweep during [Files] or explicitly document the accepted race in the PR.'
+    Assert-Contains -Text $content -Expected 'function GetTickCount: Cardinal; external ''GetTickCount@kernel32.dll stdcall'';' -Message '[Files] re-sweep timer must import GetTickCount from kernel32.dll for Inno Pascal Script compilation.'
+    Assert-Contains -Text $content -Expected 'GetTickCount' -Message '[Files] re-sweep must be time-throttled and not spawn PowerShell on every progress tick.'
+    Assert-Contains -Text $content -Expected 'RookPreflightResweepEnabled: Boolean;' -Message '[Files] re-sweeps must have an explicit phase gate.'
+    Assert-Contains -Text $content -Expected 'if not RookPreflightResweepEnabled then' -Message '[Files] re-sweeps must check the phase gate before launching the helper.'
+    Assert-Contains -Text $content -Expected 'RookPreflightResweepEnabled := False;' -Message 'Installer must disable [Files] re-sweeps before post-install finalization starts.'
+    Assert-NotContains -Text $content -Unexpected 'RunRookPreflightHelperNoWait' -Message '[Files] re-sweeps must not launch PowerShell asynchronously because it can overlap ssPostInstall.'
+    Assert-NotContains -Text $content -Unexpected 'ewNoWait' -Message '[Files] re-sweeps must wait for the helper to exit before Inno can enter ssPostInstall.'
+    Assert-Contains -Text $content -Expected 'Rook process preflight re-sweep exit code' -Message '[Files] re-sweeps must log the helper exit code for installer forensics.'
+    Assert-Contains -Text $content -Expected 'IntToStr(ResultCode)' -Message '[Files] re-sweeps must include the helper exit code value in the Inno log.'
+    Assert-Contains -Text $content -Expected 'Rook process preflight re-sweep failed' -Message '[Files] re-sweeps must log helper failures prominently.'
+    $progressMatch = [regex]::Match($content, '(?ms)^procedure CurInstallProgressChanged\(.*?^end;')
+    Assert-True -Condition $progressMatch.Success -Message 'Installer must define CurInstallProgressChanged for [Files] re-sweeps.'
+    $progressBody = $progressMatch.Value
+    $resweepFailurePattern = "(?s)RunRookPreflightHelper\('close', '', ResultCode\).*?if \(\(not ResweepOk\) or \(ResultCode <> 0\)\) then.*?RookPreflightResweepEnabled := False;.*?Rook process preflight re-sweep failed"
+    Assert-True -Condition ([regex]::IsMatch($progressBody, $resweepFailurePattern)) -Message '[Files] re-sweeps must log helper failures and disable further re-sweeps.'
+    Assert-NotContains -Text $progressBody -Unexpected 'Abort;' -Message '[Files] re-sweeps must not abort from the progress callback after install mutation has started.'
+    Assert-NotContains -Text $progressBody -Unexpected 'MsgBox(' -Message '[Files] re-sweeps must not show a second conflict dialog from the progress callback.'
+    Assert-Contains -Text $content -Expected 'Rook agent server' -Message 'Consent dialog must name Rook agent servers in plain language.'
+}
+
+function Test-InstallerDeletesStaleChildChatManifests {
+    $content = Get-Content -Path $InstallerScript -Raw
+    $installDeleteMatch = [regex]::Match($content, '(?ms)^\[InstallDelete\]\s*(?<block>.*?)(?=^\[Files\])')
+    Assert-True -Condition $installDeleteMatch.Success -Message 'Installer must place [InstallDelete] before [Files] so stale child manifests are removed before payload copy.'
+    $installDeleteBlock = $installDeleteMatch.Groups['block'].Value
+
+    foreach ($runtime in @('net8.0', 'net7.0', 'net48')) {
+        $expectedLine = "Type: files; Name: `"{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\$runtime\RookChatService.json`""
+        Assert-Contains -Text $installDeleteBlock -Expected $expectedLine -Message "Installer must delete stale $runtime child chat manifest with Type: files in [InstallDelete] before [Files]."
+    }
+}
+
 Test-InstallerPackagesBundledPythonRuntime
 Test-PublicInstallerDoesNotRequireUserPython
 Test-InstallerFailsWhenPostInstallFails
@@ -622,5 +668,7 @@ Test-ReleaseArtifactValidatorExists
 Test-NativePdbRequirementIsConsistent
 Test-BuildReleaseDocsRequireFfmpegValidation
 Test-LegacyGitHubReleaseWorkflowIsDisabled
+Test-InstallerUsesRookProcessPreflight
+Test-InstallerDeletesStaleChildChatManifests
 
 Write-Host 'Release installer guard tests passed.'

@@ -13,7 +13,9 @@
 ; Or open in Inno Setup GUI and press Ctrl+F9.
 
 #define MyAppName "Rook"
+#ifndef MyAppVersion
 #define MyAppVersion "1.5.11"
+#endif
 #define MyAppPublisher "Bringfire"
 #define MyAppURL "https://github.com/bringfire/rook-release"
 
@@ -59,6 +61,9 @@ PrivilegesRequired=lowest
 SetupIconFile=rook-icon.ico
 UninstallDisplayIcon={app}\rook-icon.ico
 InfoBeforeFile={#RepoRoot}\installer\pre-install-readme.txt
+CloseApplications=no
+RestartApplications=no
+SetupLogging=yes
 
 ; Don't create an uninstall entry in Add/Remove Programs — we handle it ourselves
 ; Actually, DO create it so users can uninstall normally:
@@ -96,6 +101,10 @@ Type: filesandordirs; Name: "{app}\.codex"
 Type: files; Name: "{app}\.mcp.json"
 Type: files; Name: "{app}\LICENSE"
 Type: files; Name: "{app}\BUILDING.md"
+; Remove stale per-runtime chat manifests before post_install writes fresh copies.
+Type: files; Name: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net8.0\RookChatService.json"
+Type: files; Name: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net7.0\RookChatService.json"
+Type: files; Name: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net48\RookChatService.json"
 
 ; ---------------------------------------------------------------------------
 ; Files
@@ -167,6 +176,8 @@ Source: "{#RepoRoot}\installer\agent-assets\ROOK_CODEX_POST_INSTALL.md"; DestDir
 ; --- Post-install setup script (always included, used by [Run]) ---
 Source: "post_install.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "python_runtime_install.py"; DestDir: "{app}"; Flags: ignoreversion
+Source: "rook_process_preflight.ps1"; Flags: dontcopy
+Source: "process_rebuild_guard.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "rook-icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 ; --- Docs ---
@@ -279,6 +290,14 @@ var
   PythonPath: String;
   PythonDetected: Boolean;
   ApiKeyPage: TInputQueryWizardPage;
+  RookPreflightHelperPath: String;
+  RookPreflightSummaryPath: String;
+  RookPreflightInnoSummaryPath: String;
+  RookPreflightLogRoot: String;
+  RookPreflightResweepEnabled: Boolean;
+  RookPreflightLastSweepTick: Cardinal;
+
+function GetTickCount: Cardinal; external 'GetTickCount@kernel32.dll stdcall';
 
 // Resolve the actual python.exe path by running the candidate and capturing sys.executable.
 // This avoids the problem where compound commands like 'py -3' can't be used as a Filename.
@@ -378,6 +397,132 @@ begin
     WizardIsComponentSelected('chirp') or
     WizardIsComponentSelected('claude') or
     WizardIsComponentSelected('codex');
+end;
+
+function RunRookPreflightHelper(const Mode, ExtraArgs: String; var ResultCode: Integer): Boolean;
+var
+  Args: String;
+begin
+  Args :=
+    '-NoProfile -ExecutionPolicy Bypass -File "' + RookPreflightHelperPath + '"' +
+    ' -Mode ' + Mode +
+    ' -RookRoot "' + ExpandConstant('{localappdata}\Rook') + '"' +
+    ' -LogRoot "' + RookPreflightLogRoot + '"' +
+    ' -SummaryPath "' + RookPreflightSummaryPath + '"' +
+    ' -InnoSummaryPath "' + RookPreflightInnoSummaryPath + '"' +
+    ' -SetupVersion "{#MyAppVersion}" ' + ExtraArgs;
+  Log('Rook process preflight: powershell.exe ' + Args);
+  Result := Exec('powershell.exe', Args, '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+end;
+
+function TryGetPreflightSummaryValue(const Lines: TArrayOfString; const Key: String; var Value: String): Boolean;
+var
+  I: Integer;
+  Prefix: String;
+begin
+  Result := False;
+  Prefix := Key + '=';
+  for I := 0 to GetArrayLength(Lines) - 1 do
+  begin
+    if Pos(Prefix, Lines[I]) = 1 then
+    begin
+      Value := Copy(Lines[I], Length(Prefix) + 1, Length(Lines[I]) - Length(Prefix));
+      Result := True;
+      Exit;
+    end;
+  end;
+end;
+
+function RookPreflightFailureMessage(ResultCode: Integer): String;
+begin
+  case ResultCode of
+    10:
+      Result := 'Rook agent servers could not be closed. Close Claude, Codex, or the listed owner apps and run Setup again.';
+    20:
+      Result := 'Rook Setup could not inspect running processes. See post_install.log and the setup log.';
+    30, 40:
+      Result := 'Rook Setup could not complete process preflight. See post_install.log and the setup log.';
+  else
+    Result := 'Rook Setup could not complete process preflight. See post_install.log and the setup log.';
+  end;
+end;
+
+function RunRookProcessPreflight(var ErrorMessage: String): Boolean;
+var
+  Lines: TArrayOfString;
+  ResultCode: Integer;
+  ConflictsFound: String;
+  MessageText: String;
+begin
+  Result := False;
+  ErrorMessage := '';
+  RookPreflightResweepEnabled := False;
+  RookPreflightLastSweepTick := 0;
+
+  ExtractTemporaryFile('rook_process_preflight.ps1');
+  RookPreflightHelperPath := ExpandConstant('{tmp}\rook_process_preflight.ps1');
+  RookPreflightLogRoot := ExpandConstant('{localappdata}\Rook\logs');
+  RookPreflightSummaryPath := RookPreflightLogRoot + '\post_install_summary.json';
+  RookPreflightInnoSummaryPath := RookPreflightLogRoot + '\preflight-summary.txt';
+
+  if not RunRookPreflightHelper('enumerate', '', ResultCode) then
+  begin
+    ErrorMessage := 'Rook Setup could not launch process preflight. See the setup log.';
+    Exit;
+  end;
+
+  if (ResultCode <> 0) and (ResultCode <> 10) then
+  begin
+    ErrorMessage := RookPreflightFailureMessage(ResultCode);
+    Exit;
+  end;
+
+  if not LoadStringsFromFile(RookPreflightInnoSummaryPath, Lines) then
+  begin
+    ErrorMessage := 'Rook Setup could not read process preflight results. See post_install.log and the setup log.';
+    Exit;
+  end;
+
+  if not TryGetPreflightSummaryValue(Lines, 'conflicts_found', ConflictsFound) then
+  begin
+    ErrorMessage := 'Rook Setup could not read process preflight conflict status. See post_install.log and the setup log.';
+    Exit;
+  end;
+
+  if CompareText(ConflictsFound, 'true') <> 0 then
+  begin
+    Result := True;
+    Exit;
+  end;
+
+  if not TryGetPreflightSummaryValue(Lines, 'message', MessageText) then
+    MessageText := 'Rook Setup found running Rook agent server(s).' + #13#10 + #13#10 + 'Setup will close them now so Rook can be updated.';
+  StringChangeEx(MessageText, '\r\n', #13#10, True);
+
+  if not WizardSilent then
+  begin
+    if MsgBox(MessageText, mbConfirmation, MB_OKCANCEL) = IDCANCEL then
+    begin
+      RunRookPreflightHelper('record-outcome', '-Outcome cancelled', ResultCode);
+      ErrorMessage := 'Rook Setup cannot continue while Rook agent servers are running.';
+      Exit;
+    end;
+  end;
+
+  if not RunRookPreflightHelper('close', '', ResultCode) then
+  begin
+    ErrorMessage := 'Rook Setup could not launch process preflight close mode. See the setup log.';
+    Exit;
+  end;
+
+  if ResultCode <> 0 then
+  begin
+    ErrorMessage := RookPreflightFailureMessage(ResultCode);
+    Exit;
+  end;
+
+  RookPreflightResweepEnabled := True;
+  Result := True;
 end;
 
 function RunPostInstallSetup(): Boolean;
@@ -734,6 +879,13 @@ begin
   if (WizardIsComponentSelected('chirp') or WizardIsComponentSelected('claude') or WizardIsComponentSelected('codex')) and (not WizardIsComponentSelected('mcp')) then
   begin
     Result := 'The Claude, Codex, and Chirp options require the "Python MCP Server" component.' + #13#10 + #13#10 + 'Go back and enable "Python MCP Server", or uncheck the dependent options.';
+    Exit;
+  end;
+
+  if PostInstallSelected() then
+  begin
+    if not RunRookProcessPreflight(Result) then
+      Exit;
   end;
 end;
 
@@ -751,6 +903,8 @@ var
 begin
   if CurStep = ssPostInstall then
   begin
+    RookPreflightResweepEnabled := False;
+
     // Write .env files with API key if the user provided one
     ApiKey := ApiKeyPage.Values[0];
     if ApiKey <> '' then
@@ -767,6 +921,39 @@ begin
       Abort;
 
     VerifyRhinoPluginInstall();
+  end;
+end;
+
+procedure CurInstallProgressChanged(CurProgress, MaxProgress: Integer);
+var
+  CurrentTick: Cardinal;
+  ResultCode: Integer;
+  ResweepOk: Boolean;
+  FailureMessage: String;
+begin
+  if not RookPreflightResweepEnabled then
+    Exit;
+
+  if RookPreflightHelperPath = '' then
+    Exit;
+
+  CurrentTick := GetTickCount;
+  if (RookPreflightLastSweepTick <> 0) and ((CurrentTick - RookPreflightLastSweepTick) < 10000) then
+    Exit;
+
+  RookPreflightLastSweepTick := CurrentTick;
+  ResultCode := 40;
+  ResweepOk := RunRookPreflightHelper('close', '', ResultCode);
+  if ResweepOk then
+    Log('Rook process preflight re-sweep exit code: ' + IntToStr(ResultCode))
+  else
+    Log('Rook process preflight re-sweep failed to launch; assumed exit code: ' + IntToStr(ResultCode));
+
+  if ((not ResweepOk) or (ResultCode <> 0)) then
+  begin
+    RookPreflightResweepEnabled := False;
+    FailureMessage := RookPreflightFailureMessage(ResultCode);
+    Log('Rook process preflight re-sweep failed: ' + FailureMessage);
   end;
 end;
 

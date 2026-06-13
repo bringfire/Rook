@@ -176,6 +176,215 @@ def test_install_state_has_schema_version(tmp_path: Path) -> None:
     assert payload["python"]["path"].endswith("python.exe")
 
 
+def test_post_install_extends_seeded_summary(tmp_path: Path) -> None:
+    post_install = load_post_install()
+    runtime_root = tmp_path / "Rook"
+    logs = runtime_root / "logs"
+    logs.mkdir(parents=True)
+    summary = logs / "post_install_summary.json"
+    summary.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "phase_reached": "preflight",
+                "preflight": {"server_count": 5, "owners": ["Claude", "Codex"]},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    post_install._configure_install_logging(runtime_root)
+    post_install._update_install_summary(
+        runtime_root, phase_reached="finalizer-started", final_outcome="running"
+    )
+
+    payload = json.loads(summary.read_text(encoding="utf-8"))
+    assert payload["preflight"]["server_count"] == 5
+    assert payload["phase_reached"] == "finalizer-started"
+    assert payload["final_outcome"] == "running"
+
+
+def test_post_install_summary_schema_version_is_pinned_to_one(tmp_path: Path) -> None:
+    post_install = load_post_install()
+    runtime_root = tmp_path / "Rook"
+    logs = runtime_root / "logs"
+    logs.mkdir(parents=True)
+    summary = logs / "post_install_summary.json"
+    summary.write_text(
+        json.dumps(
+            {
+                "schema_version": 99,
+                "phase_reached": "preflight",
+                "preflight": {"server_count": 5},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    post_install._update_install_summary(runtime_root, final_outcome="running")
+
+    payload = json.loads(summary.read_text(encoding="utf-8"))
+    assert payload["schema_version"] == 1
+    assert payload["phase_reached"] == "preflight"
+    assert payload["preflight"]["server_count"] == 5
+    assert payload["final_outcome"] == "running"
+
+
+def test_rebuild_guard_health_promotes_top_level_warnings(tmp_path: Path) -> None:
+    post_install = load_post_install()
+    runtime_root = tmp_path / "Rook"
+    logs = runtime_root / "logs"
+    logs.mkdir(parents=True)
+    summary = logs / "post_install_summary.json"
+    summary.write_text(
+        json.dumps({"schema_version": 1, "phase_reached": "preflight"}),
+        encoding="utf-8",
+    )
+
+    post_install._record_venv_rebuild_summary(
+        runtime_root,
+        runtime_name="rook",
+        label="rook-mcp",
+        retry_count=0,
+        outcome="success",
+        guard_close_failures=["rook-mcp: failed to terminate pid 10"],
+        guard_thread_died_unexpectedly=True,
+    )
+
+    payload = json.loads(summary.read_text(encoding="utf-8"))
+    assert payload["venv_rebuilds"]["rook"]["outcome"] == "success"
+    assert payload["warnings"] == [
+        "rook-mcp rebuild guard close failure: rook-mcp: failed to terminate pid 10",
+        "rook-mcp rebuild guard sweep thread died unexpectedly",
+    ]
+
+
+def test_last_gasp_handler_writes_traceback(tmp_path: Path, monkeypatch) -> None:
+    post_install = load_post_install()
+    runtime_root = tmp_path / "Rook"
+
+    def boom() -> int:
+        raise RuntimeError("forced install failure")
+
+    monkeypatch.setattr(post_install, "main", boom)
+
+    result = post_install._run_with_last_gasp(runtime_root=runtime_root)
+
+    assert result == 1
+    log = (runtime_root / "logs" / "post_install.log").read_text(encoding="utf-8")
+    assert "forced install failure" in log
+    assert "Traceback" in log
+
+
+def test_last_gasp_records_success_outcome(tmp_path: Path, monkeypatch) -> None:
+    post_install = load_post_install()
+    runtime_root = tmp_path / "Rook"
+
+    def ok() -> int:
+        post_install._update_install_summary(
+            runtime_root, phase_reached="finalizer-started", final_outcome="running"
+        )
+        return 0
+
+    monkeypatch.setattr(post_install, "main", ok)
+
+    result = post_install._run_with_last_gasp(runtime_root=runtime_root)
+
+    assert result == 0
+    summary = json.loads(
+        (runtime_root / "logs" / "post_install_summary.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert summary["phase_reached"] == "finalizer-complete"
+    assert summary["final_outcome"] == "success"
+
+
+def test_last_gasp_records_normal_failure_outcome(
+    tmp_path: Path, monkeypatch
+) -> None:
+    post_install = load_post_install()
+    runtime_root = tmp_path / "Rook"
+
+    def fail() -> int:
+        post_install._update_install_summary(
+            runtime_root, phase_reached="finalizer-started", final_outcome="running"
+        )
+        return 1
+
+    monkeypatch.setattr(post_install, "main", fail)
+
+    result = post_install._run_with_last_gasp(runtime_root=runtime_root)
+
+    assert result == 1
+    summary = json.loads(
+        (runtime_root / "logs" / "post_install_summary.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert summary["phase_reached"] == "finalizer-failed"
+    assert summary["final_outcome"] == "failed"
+
+
+def test_uninstall_cleanup_runs_without_install_log_handler(
+    tmp_path: Path, monkeypatch
+) -> None:
+    post_install = load_post_install()
+    runtime_root = tmp_path / "Rook"
+    post_install._configure_install_logging(runtime_root)
+
+    def assert_logging_closed() -> None:
+        assert post_install._INSTALL_LOGGER.handlers == []
+
+    monkeypatch.setattr(post_install, "uninstall_cleanup", assert_logging_closed)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "post_install.py",
+            "--uninstall",
+            "--runtime-root",
+            str(runtime_root),
+        ],
+    )
+
+    assert post_install.main() == 0
+
+
+def test_last_gasp_uses_runtime_root_from_argv(
+    tmp_path: Path, monkeypatch
+) -> None:
+    post_install = load_post_install()
+    default_parent = tmp_path / "default-local-appdata"
+    default_root = default_parent / "Rook"
+    custom_root = tmp_path / "custom-runtime"
+
+    def boom() -> int:
+        raise RuntimeError("custom runtime failure")
+
+    monkeypatch.setenv("LOCALAPPDATA", str(default_parent))
+    monkeypatch.setattr(post_install, "main", boom)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "post_install.py",
+            "--runtime-root",
+            str(custom_root),
+        ],
+    )
+
+    result = post_install._run_with_last_gasp()
+
+    assert result == 1
+    custom_log = custom_root / "logs" / "post_install.log"
+    custom_summary = custom_root / "logs" / "post_install_summary.json"
+    assert "custom runtime failure" in custom_log.read_text(encoding="utf-8")
+    assert json.loads(custom_summary.read_text(encoding="utf-8"))["final_outcome"] == "failed"
+    assert not (default_root / "logs" / "post_install.log").exists()
+    assert not (default_root / "logs" / "post_install_summary.json").exists()
+
+
 def test_post_install_recreates_stale_venv_and_writes_install_state(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -513,6 +722,76 @@ def test_release_chat_manifest_has_no_source_pythonpath_entries(tmp_path: Path) 
     assert manifest["environment"]["ROOK_DSPY_RESTRICT_PICKLE"] == "1"
 
 
+def test_write_chat_service_manifest_writes_root_and_existing_child_manifests(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    post_install = load_post_install()
+    appdata = tmp_path / "AppData" / "Roaming"
+    plugin_dir = appdata / "McNeel" / "Rhinoceros" / "8.0" / "Plug-ins" / "RookNative"
+    plugin_dir.mkdir(parents=True)
+    for runtime in ("net8.0", "net7.0", "net48", "net9.0"):
+        (plugin_dir / runtime).mkdir()
+    mcp_server_dir = tmp_path / "Rook" / "app" / "mcp_server"
+    mcp_server_dir.mkdir(parents=True)
+    python_path = tmp_path / "Rook" / "venv" / "Scripts" / "python.exe"
+    python_path.parent.mkdir(parents=True)
+    python_path.write_text("fake", encoding="utf-8")
+    monkeypatch.setenv("APPDATA", str(appdata))
+
+    assert post_install.write_chat_service_manifest(mcp_server_dir, str(python_path)) is True
+
+    root_payload = (plugin_dir / "RookChatService.json").read_text(encoding="utf-8")
+    for runtime in ("net8.0", "net7.0", "net48"):
+        child_payload = (plugin_dir / runtime / "RookChatService.json").read_text(
+            encoding="utf-8"
+        )
+        assert child_payload == root_payload
+        assert json.loads(child_payload)["module"] == "rook.agent.chat.service_main"
+    assert not (plugin_dir / "net9.0" / "RookChatService.json").exists()
+    assert "unknown managed runtime child directory" in capsys.readouterr().out
+
+
+def test_write_chat_service_manifest_child_write_failure_returns_false_without_summary(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    post_install = load_post_install()
+    appdata = tmp_path / "AppData" / "Roaming"
+    plugin_dir = appdata / "McNeel" / "Rhinoceros" / "8.0" / "Plug-ins" / "RookNative"
+    plugin_dir.mkdir(parents=True)
+    for runtime in ("net8.0", "net7.0", "net48"):
+        (plugin_dir / runtime).mkdir()
+    mcp_server_dir = tmp_path / "Rook" / "app" / "mcp_server"
+    mcp_server_dir.mkdir(parents=True)
+    python_path = tmp_path / "Rook" / "venv" / "Scripts" / "python.exe"
+    python_path.parent.mkdir(parents=True)
+    python_path.write_text("fake", encoding="utf-8")
+    summary_path = tmp_path / "Rook" / "logs" / "post_install_summary.json"
+    summary_path.parent.mkdir(parents=True)
+    summary_path.write_text(
+        json.dumps({"schema_version": 1, "phase_reached": "preflight"}),
+        encoding="utf-8",
+    )
+    failed_path = plugin_dir / "net7.0" / "RookChatService.json"
+    original_write_text = Path.write_text
+
+    def fail_child_manifest_write(self, *args, **kwargs):
+        if self == failed_path:
+            raise PermissionError("locked child manifest")
+        return original_write_text(self, *args, **kwargs)
+
+    monkeypatch.setenv("APPDATA", str(appdata))
+    monkeypatch.setattr(Path, "write_text", fail_child_manifest_write)
+
+    assert post_install.write_chat_service_manifest(mcp_server_dir, str(python_path)) is False
+
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert summary["phase_reached"] == "preflight"
+    assert "chat_service_manifest_paths" not in summary
+    output = capsys.readouterr().out
+    assert str(failed_path) in output
+    assert "Failed to write chat service manifest" in output
+
+
 def test_mcp_env_points_to_chirp_home_and_clears_python_paths(tmp_path: Path) -> None:
     runtime = load_runtime_install()
     env = runtime.build_release_mcp_env(
@@ -600,3 +879,304 @@ def test_public_install_ignores_user_python_and_pip_contamination(
     assert "PIP_EXTRA_INDEX_URL" not in env
     assert "PYTHONPATH" not in env
     assert "PYTHONHOME" not in env
+
+
+def test_install_from_wheelhouse_uses_guard_and_retries_full_rebuild(
+    tmp_path: Path, monkeypatch
+) -> None:
+    runtime = load_runtime_install()
+    post_install = load_post_install()
+    layout = runtime.RuntimeLayout.from_rook_root(tmp_path / "Rook", "3.11.9")
+
+    layout.private_python.parent.mkdir(parents=True)
+    layout.private_python.write_text("private python", encoding="utf-8")
+    layout.wheelhouse.mkdir(parents=True)
+    layout.bootstrap_lock.parent.mkdir(parents=True, exist_ok=True)
+    layout.bootstrap_lock.write_text("pip==26.1.2 --hash=sha256:abc\n", encoding="utf-8")
+    layout.rook_lock.write_text("rook-mcp==1.5.10 --hash=sha256:def\n", encoding="utf-8")
+    layout.runtime_manifest.write_text('{"schema_version":1}', encoding="utf-8")
+    summary = layout.rook_root / "logs" / "post_install_summary.json"
+    summary.parent.mkdir(parents=True)
+    summary.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "phase_reached": "preflight",
+                "preflight": {"server_count": 5},
+            }
+        ),
+        encoding="utf-8",
+    )
+    stale_python = post_install.get_venv_python(layout.rook_venv)
+    stale_python.parent.mkdir(parents=True)
+    stale_python.write_text("stale", encoding="utf-8")
+
+    guard_events: list[str] = []
+
+    class FakeGuard:
+        def __init__(self, label, **kwargs):
+            self.label = label
+
+        def __enter__(self):
+            guard_events.append(f"enter:{self.label}")
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            guard_events.append(f"exit:{self.label}")
+            return False
+
+    monkeypatch.setattr(
+        post_install, "_make_rebuild_guard", lambda label, runtime_root: FakeGuard(label)
+    )
+
+    attempts = {"install": 0}
+
+    def fake_run(command, *, env, timeout=post_install.INSTALL_COMMAND_TIMEOUT_SECONDS):
+        if command[:3] == [str(layout.private_python), "-m", "venv"]:
+            created_python = post_install.get_venv_python(Path(command[3]))
+            created_python.parent.mkdir(parents=True, exist_ok=True)
+            created_python.write_text("fresh", encoding="utf-8")
+        if (
+            "-m" in command
+            and "pip" in command
+            and "install" in command
+            and str(layout.rook_lock) in command
+        ):
+            attempts["install"] += 1
+            if attempts["install"] == 1:
+                return subprocess.CompletedProcess(
+                    command, 1, stdout="", stderr="access denied"
+                )
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout="Looking in links: C:/Rook/app/python-wheelhouse\nNo broken requirements found.",
+            stderr="",
+        )
+
+    monkeypatch.setattr(post_install, "_run_install_command", fake_run)
+
+    venv_python = post_install._install_from_wheelhouse(
+        "rook-mcp",
+        layout,
+        layout.rook_venv,
+        layout.rook_lock,
+        "rook",
+    )
+
+    assert venv_python == stale_python
+    assert attempts["install"] == 2
+    assert guard_events == [
+        "enter:rook-mcp",
+        "exit:rook-mcp",
+        "enter:rook-mcp",
+        "exit:rook-mcp",
+    ]
+    payload = json.loads(summary.read_text(encoding="utf-8"))
+    assert payload["preflight"]["server_count"] == 5
+    assert payload["venv_rebuilds"]["rook"]["guard_label"] == "rook-mcp"
+    assert payload["venv_rebuilds"]["rook"]["retry_count"] == 1
+    assert payload["venv_rebuilds"]["rook"]["outcome"] == "success"
+
+
+def test_install_from_wheelhouse_records_guard_health_signals(
+    tmp_path: Path, monkeypatch
+) -> None:
+    runtime = load_runtime_install()
+    post_install = load_post_install()
+    layout = runtime.RuntimeLayout.from_rook_root(tmp_path / "Rook", "3.11.9")
+
+    layout.private_python.parent.mkdir(parents=True)
+    layout.private_python.write_text("private python", encoding="utf-8")
+    layout.wheelhouse.mkdir(parents=True)
+    layout.bootstrap_lock.parent.mkdir(parents=True, exist_ok=True)
+    layout.bootstrap_lock.write_text("pip==26.1.2 --hash=sha256:abc\n", encoding="utf-8")
+    layout.rook_lock.write_text("rook-mcp==1.5.10 --hash=sha256:def\n", encoding="utf-8")
+    layout.runtime_manifest.write_text('{"schema_version":1}', encoding="utf-8")
+    summary = layout.rook_root / "logs" / "post_install_summary.json"
+    summary.parent.mkdir(parents=True)
+    summary.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "phase_reached": "preflight",
+                "preflight": {"server_count": 5},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    class FakeGuard:
+        close_failures = ["rook-mcp: failed to terminate pid 123 error=5"]
+        thread_died_unexpectedly = True
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    def fake_run(command, *, env, timeout=post_install.INSTALL_COMMAND_TIMEOUT_SECONDS):
+        if command[:3] == [str(layout.private_python), "-m", "venv"]:
+            created_python = post_install.get_venv_python(Path(command[3]))
+            created_python.parent.mkdir(parents=True, exist_ok=True)
+            created_python.write_text("fresh", encoding="utf-8")
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout="Looking in links: C:/Rook/app/python-wheelhouse\nNo broken requirements found.",
+            stderr="",
+        )
+
+    logged_errors: list[tuple[str, tuple[object, ...]]] = []
+
+    def fake_error(message, *args, **kwargs):
+        del kwargs
+        logged_errors.append((message, args))
+
+    monkeypatch.setattr(
+        post_install, "_make_rebuild_guard", lambda label, runtime_root: FakeGuard()
+    )
+    monkeypatch.setattr(post_install, "_run_install_command", fake_run)
+    monkeypatch.setattr(post_install._INSTALL_LOGGER, "error", fake_error)
+
+    venv_python = post_install._install_from_wheelhouse(
+        "rook-mcp",
+        layout,
+        layout.rook_venv,
+        layout.rook_lock,
+        "rook",
+    )
+
+    assert venv_python == post_install.get_venv_python(layout.rook_venv)
+    payload = json.loads(summary.read_text(encoding="utf-8"))
+    rebuild = payload["venv_rebuilds"]["rook"]
+    assert payload["preflight"]["server_count"] == 5
+    assert rebuild["guard_label"] == "rook-mcp"
+    assert rebuild["guard_close_failures"] == [
+        "rook-mcp: failed to terminate pid 123 error=5"
+    ]
+    assert rebuild["guard_thread_died_unexpectedly"] is True
+    assert logged_errors
+    assert logged_errors[0][0] == "%s rebuild guard close failure: %s"
+    assert logged_errors[0][1] == (
+        "rook-mcp",
+        "rook-mcp: failed to terminate pid 123 error=5",
+    )
+    assert (
+        "%s rebuild guard sweep thread died unexpectedly",
+        ("rook-mcp",),
+    ) in logged_errors
+
+
+def test_install_from_wheelhouse_logs_pip_check_failure_without_retry(
+    tmp_path: Path, monkeypatch
+) -> None:
+    runtime = load_runtime_install()
+    post_install = load_post_install()
+    layout = runtime.RuntimeLayout.from_rook_root(tmp_path / "Rook", "3.11.9")
+
+    layout.private_python.parent.mkdir(parents=True)
+    layout.private_python.write_text("private python", encoding="utf-8")
+    layout.wheelhouse.mkdir(parents=True)
+    layout.bootstrap_lock.parent.mkdir(parents=True, exist_ok=True)
+    layout.bootstrap_lock.write_text("pip==26.1.2 --hash=sha256:abc\n", encoding="utf-8")
+    layout.rook_lock.write_text("rook-mcp==1.5.10 --hash=sha256:def\n", encoding="utf-8")
+    layout.runtime_manifest.write_text('{"schema_version":1}', encoding="utf-8")
+
+    guard_events: list[str] = []
+
+    class FakeGuard:
+        def __init__(self, label, **kwargs):
+            self.label = label
+
+        def __enter__(self):
+            guard_events.append(f"enter:{self.label}")
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            guard_events.append(f"exit:{self.label}")
+            return False
+
+    monkeypatch.setattr(
+        post_install, "_make_rebuild_guard", lambda label, runtime_root: FakeGuard(label)
+    )
+
+    attempts = {"install": 0, "pip_check": 0}
+    logged_errors: list[tuple[str, tuple[object, ...]]] = []
+
+    def fake_error(message, *args, **kwargs):
+        del kwargs
+        logged_errors.append((message, args))
+
+    def fake_run(command, *, env, timeout=post_install.INSTALL_COMMAND_TIMEOUT_SECONDS):
+        if command[:3] == [str(layout.private_python), "-m", "venv"]:
+            created_python = post_install.get_venv_python(Path(command[3]))
+            created_python.parent.mkdir(parents=True, exist_ok=True)
+            created_python.write_text("fresh", encoding="utf-8")
+        if command[-2:] == ["pip", "check"]:
+            attempts["pip_check"] += 1
+            return subprocess.CompletedProcess(
+                command,
+                1,
+                stdout="",
+                stderr="rook-mcp 1.5.10 has requirement bad-package, but you have none",
+            )
+        if (
+            "-m" in command
+            and "pip" in command
+            and "install" in command
+            and str(layout.rook_lock) in command
+        ):
+            attempts["install"] += 1
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout="Looking in links: C:/Rook/app/python-wheelhouse\n",
+            stderr="",
+        )
+
+    monkeypatch.setattr(post_install, "_run_install_command", fake_run)
+    monkeypatch.setattr(post_install._INSTALL_LOGGER, "error", fake_error)
+
+    result = post_install._install_from_wheelhouse(
+        "rook-mcp",
+        layout,
+        layout.rook_venv,
+        layout.rook_lock,
+        "rook",
+    )
+
+    assert result is None
+    assert attempts == {"install": 1, "pip_check": 1}
+    assert guard_events == ["enter:rook-mcp", "exit:rook-mcp"]
+    assert logged_errors
+    assert logged_errors[0][0] == "%s pip check failed with exit code %s"
+    assert logged_errors[0][1] == ("rook-mcp", 1)
+    payload = json.loads(
+        (layout.rook_root / "logs" / "post_install_summary.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert payload["venv_rebuilds"]["rook"]["retry_count"] == 0
+    assert payload["venv_rebuilds"]["rook"]["failure_stage"] == "pip-check"
+
+
+def test_chirp_install_uses_separate_guard_window(
+    tmp_path: Path, monkeypatch
+) -> None:
+    post_install = load_post_install()
+    runtime_root = tmp_path / "Rook"
+    chirp_dir = runtime_root / "app" / "chirp"
+    chirp_dir.mkdir(parents=True)
+    labels: list[str] = []
+
+    monkeypatch.setattr(
+        post_install,
+        "_install_from_wheelhouse",
+        lambda label, layout, venv_dir, lock, runtime_name: labels.append(label)
+        or (venv_dir / "Scripts" / "python.exe"),
+    )
+
+    assert post_install.install_chirp(chirp_dir, runtime_root) is True
+    assert labels == ["Chirp"]
