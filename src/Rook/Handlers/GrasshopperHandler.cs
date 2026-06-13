@@ -16,10 +16,24 @@ namespace Rook.Handlers
     /// </summary>
     public partial class GrasshopperHandler
     {
-        private readonly IGrasshopperCore _bridgeCore = new GrasshopperCore();
+        private readonly IGrasshopperCore _bridgeCore;
+        private readonly GhSolveReadinessCoordinator _solveReadinessCoordinator;
         private Assembly? _ghAssembly;
         private readonly object _lock = new();
         private readonly ShortIdRegistry _idRegistry = new();
+
+        public GrasshopperHandler()
+            : this(null, null)
+        {
+        }
+
+        internal GrasshopperHandler(
+            IGrasshopperCore? bridgeCore = null,
+            GhSolveReadinessCoordinator? solveReadinessCoordinator = null)
+        {
+            _bridgeCore = bridgeCore ?? new GrasshopperCore();
+            _solveReadinessCoordinator = solveReadinessCoordinator ?? new GhSolveReadinessCoordinator();
+        }
 
         #region Core API
 

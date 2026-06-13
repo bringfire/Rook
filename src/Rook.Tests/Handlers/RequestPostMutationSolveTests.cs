@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Rook.Handlers;
+using Rook.InternalBridge;
 using Xunit;
 
 namespace Rook.Tests.Handlers
@@ -13,6 +14,7 @@ namespace Rook.Tests.Handlers
         }
         private sealed class FakeDoc
         {
+            public static bool EnableSolutions { get; set; } = true;
             public bool Enabled { get; set; } = true;
             public List<int> Scheduled = new();
             public void ScheduleSolution(int ms) => Scheduled.Add(ms);
@@ -63,6 +65,71 @@ namespace Rook.Tests.Handlers
             Assert.Equal(new[] { false }, obj.Expire);
             Assert.False(outcome.SolveScheduled);   // reflection miss corrected — never over-claim scheduling
             Assert.True(outcome.VerificationDeferred);
+        }
+
+        [Fact]
+        public void RequestPostMutationSolve_RirDisabledInstanceRepairsBeforeScheduling()
+        {
+            FakeDoc.EnableSolutions = true;
+            var document = new FakeDoc { Enabled = false };
+            var dirty = new FakeObj();
+            var handler = CreateHandlerForRirRepair(
+                isRhinoInside: () => true,
+                getActiveDocument: () => document);
+
+            var outcome = handler.RequestPostMutationSolve(document, new[] { dirty }, requestSolve: true, delayMs: 1);
+
+            Assert.True(outcome.RirRepairAttempted);
+            Assert.True(outcome.RirRepairHeld);
+            Assert.True(document.Enabled);
+            Assert.True(outcome.SolveScheduled);
+            Assert.Single(document.Scheduled);
+            Assert.Equal(new[] { false }, dirty.Expire);
+        }
+
+        [Fact]
+        public void RequestPostMutationSolve_StaticSolverDisabledDoesNotRepairOrSchedule()
+        {
+            FakeDoc.EnableSolutions = false;
+            var document = new FakeDoc { Enabled = false };
+            var handler = CreateHandlerForRirRepair(
+                isRhinoInside: () => true,
+                getActiveDocument: () => document);
+
+            var outcome = handler.RequestPostMutationSolve(document, System.Array.Empty<object>(), requestSolve: true, delayMs: 1);
+
+            Assert.False(outcome.RirRepairAttempted);
+            Assert.False(document.Enabled);
+            Assert.False(outcome.SolveScheduled);
+            Assert.True(outcome.SolverLocked);
+
+            FakeDoc.EnableSolutions = true;
+        }
+
+        [Fact]
+        public void RequestPostMutationSolve_StandaloneDisabledInstanceDoesNotRepair()
+        {
+            FakeDoc.EnableSolutions = true;
+            var document = new FakeDoc { Enabled = false };
+            var handler = CreateHandlerForRirRepair(
+                isRhinoInside: () => false,
+                getActiveDocument: () => document);
+
+            var outcome = handler.RequestPostMutationSolve(document, System.Array.Empty<object>(), requestSolve: true, delayMs: 1);
+
+            Assert.False(outcome.RirRepairAttempted);
+            Assert.False(document.Enabled);
+            Assert.False(outcome.SolveScheduled);
+        }
+
+        private static GrasshopperHandler CreateHandlerForRirRepair(System.Func<bool> isRhinoInside, System.Func<object?> getActiveDocument)
+        {
+            var coordinator = new GhSolveReadinessCoordinator(
+                isRhinoInside: isRhinoInside,
+                getActiveDocument: getActiveDocument,
+                runOnUiThread: action => action());
+
+            return new GrasshopperHandler(solveReadinessCoordinator: coordinator);
         }
     }
 }

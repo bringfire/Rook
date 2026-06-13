@@ -30,7 +30,7 @@ namespace Rook.InternalBridge
         {
             _isRhinoInside = isRhinoInside ?? (() => Rhino.Runtime.HostUtils.RunningAsRhinoInside);
             _getActiveDocument = getActiveDocument ?? GetGrasshopperActiveDocument;
-            _runOnUiThread = runOnUiThread ?? (action => RhinoApp.InvokeOnUiThread(new Action(action)));
+            _runOnUiThread = runOnUiThread ?? RunOnRhinoUiThread;
             _utcNow = utcNow ?? (() => DateTimeOffset.UtcNow);
         }
 
@@ -50,6 +50,11 @@ namespace Rook.InternalBridge
             bool requestSolve,
             bool currentMutationIsRookDriven)
         {
+            if (!_isRhinoInside())
+            {
+                return Record(GhSolveReadinessResult.NoAction("standalone"), "schedule_time");
+            }
+
             GhSolveReadinessResult result = GhSolveReadinessResult.NoAction("not_run");
             _runOnUiThread(() => result = PrepareOnUiThread(document, requestSolve, currentMutationIsRookDriven));
             return result;
@@ -57,6 +62,17 @@ namespace Rook.InternalBridge
 
         public void MarkRookManagedDocument(object? document, string reason)
         {
+            if (!_isRhinoInside())
+            {
+                lock (_sync)
+                {
+                    _managedDocument = document;
+                    _latestTelemetry = new GhSolveReadinessTelemetry(false, false, "standalone", reason, _utcNow());
+                }
+
+                return;
+            }
+
             _runOnUiThread(() => MarkRookManagedDocumentOnUiThread(document, reason));
         }
 
@@ -263,6 +279,26 @@ namespace Rook.InternalBridge
             catch
             {
                 return false;
+            }
+        }
+
+        private static void RunOnRhinoUiThread(Action action)
+        {
+            try
+            {
+                RhinoApp.InvokeOnUiThread(new Action(action));
+            }
+            catch (DllNotFoundException)
+            {
+                action();
+            }
+            catch (EntryPointNotFoundException)
+            {
+                action();
+            }
+            catch (BadImageFormatException)
+            {
+                action();
             }
         }
 
