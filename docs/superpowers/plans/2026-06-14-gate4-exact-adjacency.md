@@ -32,10 +32,20 @@ designed-for (pluggable engine) but flagged-unsupported in v1.
   + `PlanarAdjacencyEngine` (new; pure, no Rhino/threads — the testable core)
 - `src/RookNative/SceneGraph/ExactAdjacencyService.{h,cpp}` — orchestration (new)
 - `src/RookNative/SceneGraph/SceneGraph.{h,cpp}` — add `QueryCandidatesAsync` (modify)
-- `src/RookNative/Handlers/SceneGraphHandler.cpp` (or owning handler) — route
-  `POST /scene/graph/adjacency/exact` + coarse decoration (modify)
-- `src/RookNative/RookNative.vcxproj` + `.filters` — include new units (modify; AUTHORIZED)
-- Native test target — engine unit tests (location confirmed in Task 0)
+- Route (modify, all three — Finding 2 of plan-rev-2): `Handlers/SceneGraphHandler.h`
+  (declare), `Handlers/SceneGraphHandler.cpp` (implement), `RookServer.cpp` (register
+  `POST /scene/graph/adjacency/exact`)
+- `src/RookNative/RookNative.vcxproj` + `.filters` — units added per-task (AUTHORIZED)
+- **Separate** test project `ExactAdjacencyTests.vcxproj` (its own build target — NOT
+  added to the plugin project) compiling the pure engine + Clipper2 + types, no Rhino
+
+> **BUILD POLICY — PCH (Finding 1, verified):** the plugin uses `/Yu stdafx.h`
+> globally with NO `NotUsing` precedent. Every new `.cpp` must opt in or out:
+> - Clipper2 `.cpp`s and `PlanarAdjacencyEngine.cpp` (pure, Rhino-free) →
+>   `<PrecompiledHeader>NotUsing</PrecompiledHeader>` per-file in the vcxproj.
+> - `ExactAdjacencyService.cpp` (Rhino-facing: `CRhinoDoc`, dispatcher) → keep PCH
+>   (`Use`); it includes `stdafx.h` first like every other plugin unit.
+> - The pure engine must NOT pull Rhino SDK via `stdafx.h` (keeps it standalone-testable).
 
 ---
 
@@ -50,10 +60,12 @@ designed-for (pluggable engine) but flagged-unsupported in v1.
 - [ ] **Step 2 — define the engine test target (Finding 4):** the engine is pure (no
   Rhino). If a harness exists, follow it. If NONE exists, the plan creates a standalone
   target: test file `src/RookNative/SceneGraph/tests/exact_adjacency_tests.cpp` +
-  `ExactAdjacencyTests.vcxproj` (console exe, links only the engine + Clipper2 units),
-  built via `cmd /c msbuild ExactAdjacencyTests.vcxproj` (or the repo's chosen runner).
-  Record the exact files + build command — Task 3 creates them (new test .vcxproj is
-  AUTHORIZED).
+  `ExactAdjacencyTests.vcxproj` — a SEPARATE console-exe target (its own project,
+  optionally referenced from the `.sln`; **never nested in / added to
+  `RookNative.vcxproj`**). It links ONLY the pure engine + Clipper2 + types — **no
+  Rhino SDK, no `stdafx.h`/PCH**. Built via `cmd /c msbuild ExactAdjacencyTests.vcxproj`
+  (or the repo's chosen runner). Record exact files + build command — **Task 3 creates
+  this target** (the new standalone test `.vcxproj` is AUTHORIZED).
 - [ ] **Step 3 — Clipper2 source:** fetch the FULL `CPP/Clipper2Lib/include/clipper2/`
   header tree + `CPP/Clipper2Lib/src/` from `AngusJohnson/Clipper2`; record version.
   Note: `clipper.h` transitively includes offset/rectclip/minkowski/triangulation —
@@ -72,8 +84,10 @@ designed-for (pluggable engine) but flagged-unsupported in v1.
 - [ ] **Step 2 (AUTHORIZED .vcxproj):** add to `RookNative.vcxproj` (+ `.filters`) ONLY
   the `.cpp` units actually required to link `Intersect`+`Area` — begin with
   `clipper.engine.cpp` (+ `clipper.rectclip.cpp` if the linker requires it); do NOT add
-  offset/triangulation/minkowski units. Prove the minimal set by compiling a scratch
-  `Intersect`+`Area` smoke; if a unit is undefined-at-link, add it and re-record.
+  offset/triangulation/minkowski units. **Set `<PrecompiledHeader>NotUsing</PrecompiledHeader>`
+  on every Clipper2 `.cpp`** (they don't include `stdafx.h`; without this the `/Yu`
+  build fails). Prove the minimal set by compiling a scratch `Intersect`+`Area` smoke;
+  if a unit is undefined-at-link, add it and re-record.
 - [ ] **Step 3:** Append to `vendor/versions.txt`:
   `clipper2 <version> — Boost Software License 1.0 — 2D polygon boolean (Intersect/Area)`.
   Commit. `git commit -m "deps: vendor Clipper2 (BSL-1.0) + minimal compiled units"`
@@ -119,8 +133,13 @@ assert(approx(r.edges[0].sharedArea, expectedArea));
 - [ ] **Step 2:** Declare `IExactAdjacencyEngine` (spec §4) and `class
   PlanarAdjacencyEngine : public IExactAdjacencyEngine` with `Evaluate(...) const
   override` in the header.
-- [ ] **Step 3:** Run tests → FAIL (link/undefined). Commit the failing tests:
-  `git commit -m "test(scene): planar adjacency engine cases (failing)"`
+- [ ] **Step 3 (Finding 3 — create the test target HERE so the failure is real):**
+  create `ExactAdjacencyTests.vcxproj` per Task 0 — a standalone console exe including
+  `exact_adjacency_tests.cpp` + `ExactAdjacencyTypes.h` + `PlanarAdjacencyEngine.h` +
+  the Clipper2 units, all `NotUsing` PCH, **no Rhino**. Build it.
+- [ ] **Step 4:** Run the test exe → FAIL (link error: `PlanarAdjacencyEngine::Evaluate`
+  undefined — not yet implemented). Commit the failing tests + test target:
+  `git commit -m "test(scene): planar adjacency engine cases + standalone test target (failing)"`
 
 ## Task 4: PlanarAdjacencyEngine — implement (Clipper2)
 
@@ -142,10 +161,13 @@ assert(approx(r.edges[0].sharedArea, expectedArea));
   Mesh/SubD/curved/malformed — that ownership is extraction's.
 - [ ] **Step 4:** Run tests → PASS. Iterate on precision/orientation until (e) hole
   and (f) concave cases match expected areas.
-- [ ] **Step 5 (Finding 1 — add unit to project WITH the task that creates it):** add
-  `PlanarAdjacencyEngine.{cpp,h}` (+ `ExactAdjacencyTypes.h`) and, if created in Task 0,
-  the test `.vcxproj` to `RookNative.vcxproj`/`.filters` (AUTHORIZED). Build green, then
-  commit. `git commit -m "feat(scene): planar adjacency engine via Clipper2"`
+- [ ] **Step 5 — add unit to the plugin project WITH this task (AUTHORIZED):** add
+  `PlanarAdjacencyEngine.{cpp,h}` + `ExactAdjacencyTypes.h` to `RookNative.vcxproj`/
+  `.filters`, with `<PrecompiledHeader>NotUsing</PrecompiledHeader>` on
+  `PlanarAdjacencyEngine.cpp` (pure, no `stdafx.h`). **Do NOT add the test project to
+  `RookNative.vcxproj`** — `ExactAdjacencyTests.vcxproj` is a separate target (Task 3).
+  Build the plugin green, then commit.
+  `git commit -m "feat(scene): planar adjacency engine via Clipper2"`
 
 ## Task 5: CSceneGraph::QueryCandidatesAsync (processor-thread read)
 
@@ -159,8 +181,9 @@ assert(approx(r.edges[0].sharedArea, expectedArea));
   bboxOverlap desc, id asc)`; **sort deterministically**; capture `totalCandidateCount`;
   **then cap** to `maxCandidates`; set `capped`; copy `sourceNode` + `graphSequence`.
   (Spec §3 — capping raw RTree order is forbidden.)
-- [ ] **Step 3:** Build (`scripts/build-native.bat`) — will fail until Task 9 adds new
-  units; this task only touches existing files, so it compiles. Commit.
+- [ ] **Step 3 (Finding 4 — stale wording fixed):** this task modifies ONLY existing
+  units (`SceneGraph.h`/`.cpp`), so `cmd /c scripts\build-native.bat` compiles cleanly
+  now (no new project entries needed here). Commit.
   `git commit -m "feat(scene): deterministic action-queued candidate query"`
 
 ## Task 6: ExactAdjacencyService (orchestration + cache)
