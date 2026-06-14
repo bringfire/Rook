@@ -264,8 +264,54 @@ static void test_g() {
     if (cb) CHECK(cb->capability == Capability::PartialExactUnsupported);
 }
 
+// test_h — corner-only touch -> no edge (spec §11). Two opposing coplanar faces
+// on plane x=1. A occupies (y,z) in [0,1]x[0,1]; B occupies (y,z) in [1,2]x[1,2].
+// They meet ONLY at the single corner point (1,1). Boolean intersection area = 0
+// -> no edge. Coordinates kept small/near origin.
+static void test_h() {
+    ObjectFaceSummary A = makeYZFaceAtX("A", 1.0, {1,0,0},
+        { { {0,0},{1,0},{1,1},{0,1} } });          // [0,1] x [0,1]
+    ObjectFaceSummary B = makeYZFaceAtX("B", 1.0, {-1,0,0},
+        { { {1,1},{2,1},{2,2},{1,2} } });          // [1,2] x [1,2], touches at (1,1)
+    PlanarAdjacencyEngine eng;
+    ExactAdjacencyCore r = eng.Evaluate(A, { B }, 1e-3);
+    CHECK(r.edges.size() == 0);
+}
+
+// test_i — near-contact precision boundary (spec §11). Two parts:
+//  (1) NO spurious area: A on x=1 (y in [0,1]); B opposing on x=1 (y in [1.001,2]).
+//      The projected outlines are separated by a 0.001 gap (above the 6-decimal
+//      precision floor). They do NOT overlap -> 0 edges.
+//  (2) GENUINE tiny overlap: B' on x=1 (y in [0.999,2]) overlaps A in a strip
+//      0.001 wide (y in [0.999,1]) x 1 tall = 0.001 area > kAreaTol(1e-6) ->
+//      1 edge with sharedArea ~= 0.001. Coordinates kept small/near origin.
+static void test_i() {
+    // (1) tiny gap -> no overlap.
+    {
+        ObjectFaceSummary A = makeYZFaceAtX("A", 1.0, {1,0,0},
+            { { {0,0},{1,0},{1,1},{0,1} } });               // y in [0,1], z in [0,1]
+        ObjectFaceSummary B = makeYZFaceAtX("B", 1.0, {-1,0,0},
+            { { {1.001,0},{2,0},{2,1},{1.001,1} } });       // y in [1.001,2]
+        PlanarAdjacencyEngine eng;
+        ExactAdjacencyCore r = eng.Evaluate(A, { B }, 1e-3);
+        CHECK(r.edges.size() == 0);
+    }
+    // (2) genuine 0.001-wide overlap strip -> edge with area ~0.001.
+    {
+        ObjectFaceSummary A = makeYZFaceAtX("A", 1.0, {1,0,0},
+            { { {0,0},{1,0},{1,1},{0,1} } });               // y in [0,1], z in [0,1]
+        ObjectFaceSummary B = makeYZFaceAtX("B", 1.0, {-1,0,0},
+            { { {0.999,0},{2,0},{2,1},{0.999,1} } });       // y in [0.999,2]
+        PlanarAdjacencyEngine eng;
+        ExactAdjacencyCore r = eng.Evaluate(A, { B }, 1e-3);
+        CHECK(r.edges.size() == 1);
+        if (r.edges.size() == 1) CHECK_NEAR(r.edges[0].sharedArea, 0.001, 1e-6);
+    }
+}
+
 int main(){
     test_a(); test_b(); test_c(); test_d(); test_e(); test_f(); test_g();
+    test_h(); test_i();
     printf("%d failure(s)\n", g_failures);
     return g_failures ? 1 : 0;
 }

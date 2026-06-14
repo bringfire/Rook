@@ -83,6 +83,9 @@
 
   <ItemGroup>
     <ClCompile Include="SceneGraph\tests\exact_adjacency_tests.cpp" />
+    <ClCompile Include="SceneGraph\PlanarAdjacencyEngine.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
     <ClCompile Include="vendor\clipper2\src\clipper.engine.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>

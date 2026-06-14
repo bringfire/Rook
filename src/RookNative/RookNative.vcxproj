@@ -144,6 +144,10 @@
     <ClCompile Include="SceneGraph\SceneGraph.cpp" />
     <ClCompile Include="SceneGraph\SceneGraphWatcher.cpp" />
     <ClCompile Include="SceneGraph\SceneGraphConduit.cpp" />
+    <ClCompile Include="SceneGraph\PlanarAdjacencyEngine.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)'=='Debug'">NotUsing</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)'=='Release'">NotUsing</PrecompiledHeader>
+    </ClCompile>
     <ClCompile Include="Handlers\SceneGraphHandler.cpp" />
     <ClCompile Include="Handlers\CommandInteractiveHandler.cpp" />
     <ClCompile Include="Handlers\PromptHandler.cpp" />
@@ -218,6 +222,8 @@
     <ClInclude Include="Handlers\TextureMappingHandler.h" />
     <ClInclude Include="Handlers\GameExportHandler.h" />
     <ClInclude Include="SceneGraph\SceneGraphModels.h" />
+    <ClInclude Include="SceneGraph\ExactAdjacencyTypes.h" />
+    <ClInclude Include="SceneGraph\PlanarAdjacencyEngine.h" />
     <ClInclude Include="SceneGraph\SceneGraph.h" />
     <ClInclude Include="SceneGraph\SceneGraphWatcher.h" />
     <ClInclude Include="SceneGraph\SceneGraphConduit.h" />
