@@ -526,6 +526,7 @@ _ALL_KNOWN_TOOLS = {
     "rhino_vision_consume_approved",
     "rhino_vision_delete_artifact",
     "rhino_vision_get_artifact",
+    "rhino_vision_presentation",
     "rhino_viewport",
     "rhino_views",
     "rhino_views_restore",
