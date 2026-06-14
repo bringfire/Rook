@@ -2811,15 +2811,15 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="rhino_launch",
-            description="""Launch Rhino if it is not already running. Starts the Rhino 8 process and waits for the Rook native plugin to load and respond to pings. Returns immediately if Rhino is already running.
+            description="""Compatibility launcher for Rhino availability. If Rhino is already reachable, returns already_running without changing the active binding. If Rhino is not reachable, delegates to rhino_workbench_launch and returns that owned workbench launch envelope.
 
-Use this before any Rhino operations to ensure Rhino is available. Safe to call multiple times.""",
+Prefer rhino_workbench_launch for new automation that needs an owned disposable Rhino session. Safe to call multiple times.""",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "timeout": {
                         "type": "integer",
-                        "description": "Max seconds to wait for Rhino to start (default: 120)"
+                        "description": "Max seconds to wait for owned workbench readiness (default: 90). Maps to readinessTimeoutSeconds."
                     }
                 },
                 "required": []
@@ -12931,58 +12931,52 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
             result = targeting.clear_active_instance_result()
 
         case "rhino_launch":
-            import subprocess as _sp
-            import os as _os
+            timeout = arguments.get("timeout", 90)
 
-            timeout = arguments.get("timeout", 120) if arguments else 120
-            # First check if already running
             try:
                 ping_result = await call_rhino("/ping")
                 if ping_result.get("success"):
-                    result = {"success": True, "data": {"status": "already_running", "message": "Rhino is already running"}}
+                    result = _with_rhino_launch_canonical_tool({
+                        "success": True,
+                        "data": {
+                            "status": "already_running",
+                            "message": "Rhino is already running",
+                        },
+                    })
                 else:
-                    raise Exception("ping failed")
+                    raise RuntimeError("ping failed")
             except Exception:
                 if targeting.get_panel_target_lock() is not None:
-                    result = targeting.route_error_result(
-                        targeting.ToolRoute(
-                            success=False,
-                            error="panel_target_stale",
-                            instances=targeting.discover_instances(),
-                        )
-                    )
+                    result = _with_rhino_launch_canonical_tool({
+                        "success": False,
+                        "data": {
+                            "code": "workbench_requires_external_scope",
+                            "message": (
+                                "rhino_launch can only launch an owned workbench "
+                                "from an external MCP client when Rhino is not reachable."
+                            ),
+                            "retryable": False,
+                        },
+                    })
                 else:
-                    # Not running — launch it
-                    rhino_exe = "C:/Program Files/Rhino 8/System/Rhino.exe"
-                    if not _os.path.exists(rhino_exe):
-                        result = {"success": False, "data": f"Rhino not found at {rhino_exe}"}
-                    else:
-                        _sp.Popen([rhino_exe], creationflags=_sp.DETACHED_PROCESS)
-                        # Poll until native plugin responds
-                        elapsed = 0
-                        started = False
-                        while elapsed < timeout:
-                            await asyncio.sleep(2)
-                            elapsed += 2
-                            try:
-                                ping_result = await call_rhino("/ping")
-                                if ping_result.get("success"):
-                                    started = True
-                                    break
-                            except Exception:
-                                continue
-                        if started:
-                            result = {"success": True, "data": {"status": "launched", "message": f"Rhino started in {elapsed}s"}}
-                            if targeting.should_auto_bind_launched_instance():
-                                target = targeting.bind_single_available_instance()
-                                if target is not None and isinstance(result.get("data"), dict):
-                                    result["data"]["auto_bound"] = True
-                                    result["data"]["active"] = {
+                    result = await workbench.launch_owned_workbench(
+                        readiness_timeout_seconds=timeout,
+                    )
+                    if result.get("success") and isinstance(result.get("data"), dict):
+                        data = result["data"]
+                        if targeting.should_auto_bind_launched_instance():
+                            target = targeting.bind_single_available_instance()
+                            if target is not None:
+                                data = {
+                                    **data,
+                                    "auto_bound": True,
+                                    "active": {
                                         "port": target.port,
                                         "processId": target.process_id,
-                                    }
-                        else:
-                            result = {"success": False, "data": f"Rhino failed to start within {timeout}s"}
+                                    },
+                                }
+                                result = {**result, "data": data}
+                    result = _with_rhino_launch_canonical_tool(result)
 
         case "rhino_workbench_launch":
             result = await workbench.launch_owned_workbench(
@@ -19581,6 +19575,22 @@ def _format_tool_result(result: dict[str, Any]) -> list[TextContent]:
     return [TextContent(type="text", text=text)]
 
 
+_RHINO_LAUNCH_CANONICAL_TOOL = "rhino_workbench_launch"
+
+
+def _with_rhino_launch_canonical_tool(result: dict[str, Any]) -> dict[str, Any]:
+    out = dict(result)
+    data = out.get("data")
+    if isinstance(data, dict):
+        out["data"] = {**data, "canonicalTool": _RHINO_LAUNCH_CANONICAL_TOOL}
+    else:
+        out["data"] = {
+            "value": data,
+            "canonicalTool": _RHINO_LAUNCH_CANONICAL_TOOL,
+        }
+    return out
+
+
 @mcp.call_tool()
 async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     """Handle tool calls with centralized Rhino target routing."""
@@ -19605,9 +19615,10 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     if targeting.get_panel_target_config_error() is not None and (
         policy.requires_rhino or name == "rhino_launch"
     ):
-        return _format_tool_result(
-            {"success": False, "data": targeting.get_panel_target_config_error()}
-        )
+        raw_result = {"success": False, "data": targeting.get_panel_target_config_error()}
+        if name == "rhino_launch":
+            raw_result = _with_rhino_launch_canonical_tool(raw_result)
+        return _format_tool_result(raw_result)
 
     if targeting.get_panel_target_lock() is not None and name in {"spawn_agent", "plan_and_execute"}:
         return _format_tool_result(
@@ -19615,11 +19626,6 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                 message="Background agents are disabled in the embedded panel-locked Claude Code tab."
             )
         )
-
-    if name == "rhino_launch" and targeting.get_panel_target_lock() is not None:
-        lock_route = targeting.resolve_tool_route("rhino_ping")
-        if not lock_route.success:
-            return _format_tool_result(targeting.route_error_result(lock_route))
 
     if name in {"rhino_workbench_launch", "rhino_workbench_list", "rhino_workbench_close"}:
         if targeting.get_panel_target_config_error() is not None:
