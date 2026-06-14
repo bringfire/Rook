@@ -519,6 +519,258 @@ async def test_call_tool_dispatches_launch(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_rhino_launch_delegates_to_workbench_with_default_timeout(monkeypatch):
+    import os
+
+    from rook import server, targeting
+
+    targeting.reset_targeting_state_for_tests()
+
+    async def unreachable_ping(endpoint, *args, **kwargs):
+        assert endpoint == "/ping"
+        raise RuntimeError("not reachable")
+
+    monkeypatch.setattr(server, "call_rhino", unreachable_ping)
+    monkeypatch.setattr(os.path, "exists", lambda path: False)
+    with patch.object(server.workbench, "launch_owned_workbench",
+                      new_callable=AsyncMock) as mock:
+        mock.return_value = {"success": True, "data": {
+            "session": "rhino-5",
+            "processId": 5,
+            "port": 64000,
+            "owned": True,
+            "mode": "workbench",
+            "boundInSeconds": 1.0,
+        }}
+        result = await server.call_tool("rhino_launch", {})
+
+    text = result[0].text
+    assert '"session": "rhino-5"' in text
+    assert '"canonicalTool": "rhino_workbench_launch"' in text
+    mock.assert_awaited_once_with(readiness_timeout_seconds=90)
+
+
+@pytest.mark.asyncio
+async def test_rhino_launch_maps_timeout_to_readiness_timeout(monkeypatch):
+    import os
+
+    from rook import server, targeting
+
+    targeting.reset_targeting_state_for_tests()
+
+    async def unreachable_ping(endpoint, *args, **kwargs):
+        assert endpoint == "/ping"
+        raise RuntimeError("not reachable")
+
+    monkeypatch.setattr(server, "call_rhino", unreachable_ping)
+    monkeypatch.setattr(os.path, "exists", lambda path: False)
+    with patch.object(server.workbench, "launch_owned_workbench",
+                      new_callable=AsyncMock) as mock:
+        mock.return_value = {"success": True, "data": {
+            "session": "rhino-7",
+            "processId": 7,
+            "port": 64001,
+            "owned": True,
+            "mode": "workbench",
+            "boundInSeconds": 1.0,
+        }}
+        result = await server.call_tool("rhino_launch", {"timeout": 120})
+
+    assert '"canonicalTool": "rhino_workbench_launch"' in result[0].text
+    mock.assert_awaited_once_with(readiness_timeout_seconds=120)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad", [None, "abc", 0, -5, True, False])
+async def test_rhino_launch_invalid_timeout_uses_owned_launcher_validation(monkeypatch, bad):
+    import os
+
+    from rook import server, targeting
+
+    targeting.reset_targeting_state_for_tests()
+
+    async def unreachable_ping(endpoint, *args, **kwargs):
+        assert endpoint == "/ping"
+        raise RuntimeError("not reachable")
+
+    monkeypatch.setattr(server, "call_rhino", unreachable_ping)
+    monkeypatch.setattr(os.path, "exists", lambda path: False)
+    with patch.object(server.workbench, "launch_owned_workbench",
+                      new_callable=AsyncMock) as mock:
+        mock.return_value = {
+            "success": False,
+            "data": {
+                "code": "invalid_readiness_timeout",
+                "message": f"readinessTimeoutSeconds must be a positive number, got {bad!r}",
+                "retryable": False,
+            },
+        }
+        result = await server.call_tool("rhino_launch", {"timeout": bad})
+
+    text = result[0].text
+    assert '"code": "invalid_readiness_timeout"' in text
+    assert '"canonicalTool": "rhino_workbench_launch"' in text
+    mock.assert_awaited_once_with(readiness_timeout_seconds=bad)
+
+
+@pytest.mark.asyncio
+async def test_rhino_launch_external_reachable_returns_already_running_without_launch_or_rebind(monkeypatch):
+    from rook import server, targeting
+
+    targeting.reset_targeting_state_for_tests()
+    called = {"bind": False}
+
+    async def reachable_ping(endpoint, *args, **kwargs):
+        assert endpoint == "/ping"
+        return {"success": True, "data": {"status": "ok"}}
+
+    monkeypatch.setattr(server, "call_rhino", reachable_ping)
+    monkeypatch.setattr(
+        targeting,
+        "bind_single_available_instance",
+        lambda: called.__setitem__("bind", True),
+    )
+    with patch.object(server.workbench, "launch_owned_workbench",
+                      new_callable=AsyncMock) as mock:
+        result = await server.call_tool("rhino_launch", {})
+
+    text = result[0].text
+    assert '"status": "already_running"' in text
+    assert '"canonicalTool": "rhino_workbench_launch"' in text
+    assert '"auto_bound": true' not in text
+    assert called["bind"] is False
+    mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_rhino_launch_config_error_precedes_reachability(monkeypatch):
+    from rook import server, targeting
+
+    targeting.reset_targeting_state_for_tests()
+    targeting.initialize_from_environment({"ROOK_MCP_TARGET_MODE": "bogus_mode"})
+
+    async def reachable_ping(endpoint, *args, **kwargs):
+        raise AssertionError("reachability must not be checked after config error")
+
+    monkeypatch.setattr(server, "call_rhino", reachable_ping)
+    with patch.object(server.workbench, "launch_owned_workbench",
+                      new_callable=AsyncMock) as mock:
+        try:
+            result = await server.call_tool("rhino_launch", {})
+        finally:
+            targeting.reset_targeting_state_for_tests()
+
+    text = result[0].text
+    assert "panel_target_config_error" in text
+    assert '"canonicalTool": "rhino_workbench_launch"' in text
+    mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_rhino_launch_structured_failure_envelope_replaces_legacy_string(monkeypatch):
+    import os
+
+    from rook import server, targeting
+
+    targeting.reset_targeting_state_for_tests()
+
+    async def unreachable_ping(endpoint, *args, **kwargs):
+        assert endpoint == "/ping"
+        raise RuntimeError("not reachable")
+
+    monkeypatch.setattr(server, "call_rhino", unreachable_ping)
+    monkeypatch.setattr(os.path, "exists", lambda path: False)
+    with patch.object(server.workbench, "launch_owned_workbench",
+                      new_callable=AsyncMock) as mock:
+        mock.return_value = {
+            "success": False,
+            "data": {
+                "code": "workbench_readiness_timeout",
+                "message": "Rhino did not publish discovery before readiness timeout",
+                "reason": "timeout",
+                "retryable": True,
+                "evidence": {
+                    "discoveryLogSeen": False,
+                    "elapsedSeconds": 90.0,
+                },
+            },
+        }
+        result = await server.call_tool("rhino_launch", {})
+
+    text = result[0].text
+    assert '"code": "workbench_readiness_timeout"' in text
+    assert '"reason": "timeout"' in text
+    assert '"discoveryLogSeen": false' in text
+    assert '"canonicalTool": "rhino_workbench_launch"' in text
+    assert "Rhino failed to start within" not in text
+
+
+@pytest.mark.asyncio
+async def test_rhino_launch_launch_success_may_auto_bind(monkeypatch):
+    import os
+
+    from rook import server, targeting
+
+    targeting.reset_targeting_state_for_tests()
+
+    async def unreachable_ping(endpoint, *args, **kwargs):
+        assert endpoint == "/ping"
+        raise RuntimeError("not reachable")
+
+    monkeypatch.setattr(server, "call_rhino", unreachable_ping)
+    monkeypatch.setattr(os.path, "exists", lambda path: False)
+    monkeypatch.setattr(targeting, "should_auto_bind_launched_instance", lambda: True)
+    monkeypatch.setattr(
+        targeting,
+        "bind_single_available_instance",
+        lambda: targeting.InstanceRef(64002, 42),
+    )
+    with patch.object(server.workbench, "launch_owned_workbench",
+                      new_callable=AsyncMock) as mock:
+        mock.return_value = {"success": True, "data": {
+            "session": "rhino-42",
+            "processId": 42,
+            "port": 64002,
+            "owned": True,
+            "mode": "workbench",
+            "boundInSeconds": 1.0,
+        }}
+        result = await server.call_tool("rhino_launch", {})
+
+    text = result[0].text
+    assert '"auto_bound": true' in text
+    assert '"processId": 42' in text
+    assert '"port": 64002' in text
+    assert '"canonicalTool": "rhino_workbench_launch"' in text
+
+
+@pytest.mark.asyncio
+async def test_rhino_launch_tool_schema_documents_workbench_alias():
+    from rook.server import list_tools
+
+    tools = await list_tools()
+    launch_tool = next(tool for tool in tools if tool.name == "rhino_launch")
+
+    assert "compatibility" in launch_tool.description.lower()
+    assert "rhino_workbench_launch" in launch_tool.description
+    assert "default: 90" in launch_tool.inputSchema["properties"]["timeout"]["description"]
+
+
+def test_rhino_launch_case_does_not_hardcode_rhino_executable():
+    from pathlib import Path
+
+    source = Path("mcp_server/src/rook/server.py").read_text(encoding="utf-8")
+    start = source.index('case "rhino_launch":')
+    end = source.index('case "rhino_workbench_launch":', start)
+    launch_case = source[start:end]
+
+    assert "Program Files" not in launch_case
+    assert "Rhino 8/System/Rhino.exe" not in launch_case
+    assert "subprocess" not in launch_case
+    assert "Popen" not in launch_case
+
+
+@pytest.mark.asyncio
 async def test_call_tool_close_not_rejected_by_p3_guard(monkeypatch):
     # rhino_workbench_close is non-routed + takes `session`; must NOT be
     # session_not_targetable.

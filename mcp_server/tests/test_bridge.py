@@ -2,6 +2,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -566,7 +567,7 @@ async def test_panel_lock_blocks_spawn_agent_before_background_task(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_panel_lock_launch_stale_owner_returns_stale(monkeypatch):
+async def test_panel_lock_launch_unreachable_requires_external_scope(monkeypatch):
     from rook import server, targeting
 
     targeting.reset_targeting_state_for_tests()
@@ -579,13 +580,22 @@ async def test_panel_lock_launch_stale_owner_returns_stale(monkeypatch):
         {"host": "127.0.0.1", "port": 9950, "processId": 7101, "pluginType": "native"},
     ])
 
-    result = await server.call_tool("rhino_launch", {})
+    async def failed_ping(endpoint, *args, **kwargs):
+        assert endpoint == "/ping"
+        raise RuntimeError("panel target unreachable")
 
-    assert "panel_target_stale" in result[0].text
+    monkeypatch.setattr(server, "call_rhino", failed_ping)
+    with patch.object(server.workbench, "launch_owned_workbench",
+                      new_callable=AsyncMock) as mock:
+        result = await server.call_tool("rhino_launch", {})
+
+    assert "workbench_requires_external_scope" in result[0].text
+    assert '"canonicalTool": "rhino_workbench_launch"' in result[0].text
+    mock.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_panel_lock_launch_live_owner_does_not_auto_bind(monkeypatch):
+async def test_panel_lock_launch_live_owner_returns_already_running_without_auto_bind(monkeypatch):
     from rook import server, targeting
 
     targeting.reset_targeting_state_for_tests()
@@ -604,22 +614,24 @@ async def test_panel_lock_launch_live_owner_does_not_auto_bind(monkeypatch):
         lambda: called.__setitem__("bind", True),
     )
 
-    async def fake_dispatch(name, arguments):
-        return {"success": True, "data": {"status": "launched"}}
+    async def reachable_ping(endpoint, *args, **kwargs):
+        assert endpoint == "/ping"
+        return {"success": True, "data": {"status": "ok"}}
 
-    monkeypatch.setattr(server, "_call_tool_dispatch", fake_dispatch)
+    monkeypatch.setattr(server, "call_rhino", reachable_ping)
+    with patch.object(server.workbench, "launch_owned_workbench",
+                      new_callable=AsyncMock) as mock:
+        result = await server.call_tool("rhino_launch", {})
 
-    result = await server.call_tool("rhino_launch", {})
-
-    assert '"status": "launched"' in result[0].text
+    assert '"status": "already_running"' in result[0].text
+    assert '"canonicalTool": "rhino_workbench_launch"' in result[0].text
+    assert '"auto_bound": true' not in result[0].text
     assert called["bind"] is False
+    mock.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_panel_lock_launch_ping_failure_does_not_spawn_rhino(monkeypatch):
-    import os
-    import subprocess
-
+async def test_panel_lock_launch_ping_failure_does_not_launch_workbench(monkeypatch):
     from rook import server, targeting
 
     targeting.reset_targeting_state_for_tests()
@@ -636,15 +648,14 @@ async def test_panel_lock_launch_ping_failure_does_not_spawn_rhino(monkeypatch):
         assert endpoint == "/ping"
         return {"success": False, "data": "ping failed"}
 
-    popen_calls = []
     monkeypatch.setattr(server, "call_rhino", failed_ping)
-    monkeypatch.setattr(os.path, "exists", lambda path: True)
-    monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: popen_calls.append((args, kwargs)))
+    with patch.object(server.workbench, "launch_owned_workbench",
+                      new_callable=AsyncMock) as mock:
+        result = await server.call_tool("rhino_launch", {"timeout": 0})
 
-    result = await server.call_tool("rhino_launch", {"timeout": 0})
-
-    assert "panel_target_stale" in result[0].text
-    assert popen_calls == []
+    assert "workbench_requires_external_scope" in result[0].text
+    assert '"canonicalTool": "rhino_workbench_launch"' in result[0].text
+    mock.assert_not_awaited()
 
 
 @pytest.mark.asyncio

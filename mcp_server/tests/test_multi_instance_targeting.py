@@ -865,6 +865,7 @@ async def test_launch_already_running_leaves_stale_active_binding_unchanged(monk
             result = await server.call_tool("rhino_launch", {})
 
         assert '"already_running"' in result[0].text
+        assert '"canonicalTool": "rhino_workbench_launch"' in result[0].text
         assert '"auto_bound": true' not in result[0].text
         assert targeting.get_active_target() == targeting.InstanceRef(9950, 7101)
     finally:
