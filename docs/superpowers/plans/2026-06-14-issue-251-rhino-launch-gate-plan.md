@@ -58,6 +58,7 @@ Add `docs/superpowers/audits/2026-06-14-issue-251-rhino-workbench-launch-gate.md
 ## Pre-Run Snapshot
 
 - Timestamp:
+- Cold/warm:
 - Rhino processes:
 - Rook-owned workbench sessions:
 - Non-owned Rhino processes:
@@ -72,6 +73,7 @@ Add `docs/superpowers/audits/2026-06-14-issue-251-rhino-workbench-launch-gate.md
 
 ## MCP-Wrapped Launch Arm
 
+- Cold/warm at arm start:
 - Tool:
 - Arguments:
 - Start time:
@@ -117,6 +119,27 @@ Add `docs/superpowers/audits/2026-06-14-issue-251-rhino-workbench-launch-gate.md
 
 Expected: the file exists and contains only empty fields ready for captured evidence.
 
+- [ ] **Step 3: Determine cold or warm launch context**
+
+Record whether this appears to be the first Rhino launch since boot and whether
+Rhino/Rook launch code has already been warmed in this session. Use process
+start times, current uptime, and the pre-run Rhino process snapshot as evidence.
+
+Run:
+
+```powershell
+$os = Get-CimInstance Win32_OperatingSystem
+[pscustomobject]@{
+  LastBootUpTime = $os.LastBootUpTime
+  Now = Get-Date
+}
+Get-Process Rhino -ErrorAction SilentlyContinue |
+  Select-Object Id,StartTime,MainWindowTitle |
+  Format-List
+```
+
+Expected: record `cold`, `warm`, or `unknown`, with a short reason. If the run is not cold, the final classification cannot be `clear`.
+
 ## Task 2: Record Static Timeout Facts
 
 **Files:**
@@ -134,7 +157,9 @@ Expected: record the `rhino_workbench_launch` default `readinessTimeoutSeconds` 
 
 - [ ] **Step 2: Try to discover the MCP client call timeout**
 
-Run targeted searches for explicit client timeout configuration:
+Run targeted searches for explicit timeout configuration for the client that
+will issue Task 4's MCP call. Do not use a timeout from a different client
+surface for the static comparison.
 
 ```powershell
 rg --line-number --hidden --glob '!**/.git/**' "Transport closed|timeout|call timeout|mcp" .codex C:\Users\aryan\.codex 2>$null
@@ -194,23 +219,31 @@ Call the Rook MCP tool `rhino_workbench_list` with empty arguments.
 
 Expected: record all returned owned sessions. If the tool call fails, record the raw failure and continue with process evidence.
 
-- [ ] **Step 3: Snapshot discovery files**
+- [ ] **Step 3: Resolve and snapshot discovery files**
 
 Run:
 
 ```powershell
-$paths = @(
-  "$env:LOCALAPPDATA\Rook\discovery",
-  "$env:TEMP\rook"
-)
-foreach ($p in $paths) {
-  if (Test-Path $p) {
-    Get-ChildItem $p -Force | Select-Object FullName,Length,LastWriteTime
-  }
+$env:PYTHONPATH = "$PWD\mcp_server\src"
+@'
+from pathlib import Path
+from rook.bridge import resolve_discovery_folder
+import tempfile
+folder, source, _ = resolve_discovery_folder(temp_root=Path(tempfile.gettempdir()))
+print(f"{folder}|{source}")
+'@ | & mcp_server\.venv\Scripts\python.exe -
+```
+
+Then run, replacing `DISCOVERY_FOLDER_FROM_PYTHON` with the folder printed before the `|`:
+
+```powershell
+$p = "DISCOVERY_FOLDER_FROM_PYTHON"
+if (Test-Path $p) {
+  Get-ChildItem $p -Force | Select-Object FullName,Length,LastWriteTime
 }
 ```
 
-Expected: record discovery files relevant to Rhino native instances and workbench launch.
+Expected: record the resolved discovery folder, its source, and discovery files relevant to Rhino native instances and workbench launch.
 
 - [ ] **Step 4: Detect recovery or modal windows without clearing them**
 
@@ -226,13 +259,19 @@ Expected: record visible titles that suggest crash recovery, error dialogs, moda
 
 - [ ] **Step 5: Close only Rook-owned workbench sessions**
 
-For each owned session from `rhino_workbench_list`, call the Rook MCP tool:
+For each owned session from `rhino_workbench_list`, first call the Rook MCP tool:
+
+```json
+{"session": "rhino-7000", "graceful": true}
+```
+
+using `rhino_workbench_close`.
+
+If graceful close fails or times out and the session is confirmed Rook-owned, then call:
 
 ```json
 {"session": "rhino-7000", "graceful": false}
 ```
-
-using `rhino_workbench_close`.
 
 Expected: replace `rhino-7000` with each actual owned session id and record each close result. Do not use raw `taskkill`.
 
@@ -256,6 +295,14 @@ Get-Date -Format o
 ```
 
 Expected: record this as the MCP arm start time.
+
+- [ ] **Step 1a: Record cold or warm state at arm start**
+
+Record the current `cold`, `warm`, or `unknown` status in the MCP arm section.
+Use the same evidence basis from Task 1 Step 3 plus any cleanup/launches that
+already occurred during this gate run.
+
+Expected: if the arm is warm or unknown, the final classification cannot be `clear`.
 
 - [ ] **Step 2: Call MCP `rhino_workbench_launch`**
 
@@ -298,7 +345,7 @@ Call `rhino_workbench_list` if the MCP transport is still available.
 
 Run the discovery-file command from Task 3 Step 3 again.
 
-Expected: record registry/session rows and discovery evidence. If the MCP transport is unavailable, record that liveness/session state was unavailable through MCP and rely on filesystem/process evidence.
+Expected: record registry/session rows and discovery evidence from the resolved discovery folder. If the MCP transport is unavailable, record that liveness/session state was unavailable through MCP and rely on filesystem/process evidence.
 
 - [ ] **Step 6: Optional concurrent-service evidence**
 
@@ -377,7 +424,17 @@ asyncio.run(main())
 '@ | & mcp_server\.venv\Scripts\python.exe -
 ```
 
-Expected: record elapsed and result. This control localizes whether the owned launcher itself works in an async context; it does not by itself classify the transport mechanism.
+Expected: record elapsed and result. If the result is `workbench_requires_external_scope`, the control did not reach the launch path and must not be treated as evidence that direct launch works. This control localizes whether the owned launcher itself works in an async context; it does not by itself classify the transport mechanism.
+
+- [ ] **Step 4: Verify direct-control teardown visibility**
+
+If the direct control created an owned workbench, call `rhino_workbench_list`
+from MCP and confirm the session appears there. Then close it with
+`rhino_workbench_close`. If MCP cannot see or close it, run an in-process Python
+teardown from the same control process context before continuing.
+
+Expected: record whether MCP saw the control-created row and how the control
+Rhino was closed. Do not leave a control-launched Rhino running.
 
 ## Task 7: Classify And Stop
 
