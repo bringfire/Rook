@@ -69,6 +69,7 @@ For each component in dependency order (upstream first):
 1. Call `chirp_create` MCP tool with `pins_in`, `pins_out`, `signature`
 2. Note the component GUID from the creation result
 3. After all components exist, wire Reasoning outputs to downstream inputs using `gh_edit`
+   - Treat the `gh_edit` response as topology confirmation; read Reasoning outputs with a follow-up `gh_snapshot` after the solve settles
 4. Place Panel components on each Reasoning output for visibility
 5. Place a Panel for the design brief input text
 

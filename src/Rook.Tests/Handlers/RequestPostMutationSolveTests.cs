@@ -68,6 +68,87 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
+        public void RequestPostMutationSolve_CanSkipAlreadyExpiredDirtyObjects()
+        {
+            var h = new GrasshopperHandler();
+            var obj = new FakeObj();
+            var doc = new FakeDoc { Enabled = true };
+
+            var outcome = h.RequestPostMutationSolve(
+                doc,
+                new[] { obj },
+                requestSolve: true,
+                delayMs: 250,
+                expireDirtyObjects: false);
+
+            Assert.Empty(obj.Expire);
+            Assert.Equal(new[] { 250 }, doc.Scheduled);
+            Assert.True(outcome.SolveScheduled);
+        }
+
+        [Fact]
+        public void BeginPostMutationBatchSolveSuspension_DisablesEnabledDocumentInstanceOnly()
+        {
+            FakeDoc.EnableSolutions = true;
+            var h = new GrasshopperHandler();
+            var doc = new FakeDoc { Enabled = true };
+
+            var suspension = h.BeginPostMutationBatchSolveSuspension(doc);
+
+            Assert.True(suspension.Active);
+            Assert.True(suspension.OriginalSolverState.Enabled);
+            Assert.False(doc.Enabled);
+            Assert.True(FakeDoc.EnableSolutions);
+
+            suspension.Restore();
+
+            Assert.True(doc.Enabled);
+            Assert.True(FakeDoc.EnableSolutions);
+        }
+
+        [Fact]
+        public void BeginPostMutationBatchSolveSuspension_PreservesAlreadyDisabledDocument()
+        {
+            FakeDoc.EnableSolutions = true;
+            var h = new GrasshopperHandler();
+            var doc = new FakeDoc { Enabled = false };
+
+            var suspension = h.BeginPostMutationBatchSolveSuspension(doc);
+
+            Assert.False(suspension.Active);
+            Assert.False(suspension.OriginalSolverState.Enabled);
+            Assert.False(doc.Enabled);
+
+            suspension.Restore();
+
+            Assert.False(doc.Enabled);
+            Assert.True(FakeDoc.EnableSolutions);
+        }
+
+        [Fact]
+        public void RequestPostMutationSolve_UsesOriginalSolverStateOverride()
+        {
+            FakeDoc.EnableSolutions = true;
+            var h = new GrasshopperHandler();
+            var obj = new FakeObj();
+            var doc = new FakeDoc { Enabled = true };
+            var originalState = GhSolverState.Inspect(doc);
+            doc.Enabled = false;
+
+            var outcome = h.RequestPostMutationSolve(
+                doc,
+                new[] { obj },
+                requestSolve: true,
+                delayMs: 250,
+                solverStateOverride: originalState);
+
+            Assert.Equal(new[] { false }, obj.Expire);
+            Assert.Equal(new[] { 250 }, doc.Scheduled);
+            Assert.True(outcome.SolveScheduled);
+            Assert.False(outcome.SolverLocked);
+        }
+
+        [Fact]
         public void RequestPostMutationSolve_RirDisabledInstanceRepairsBeforeScheduling()
         {
             FakeDoc.EnableSolutions = true;
