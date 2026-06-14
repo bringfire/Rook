@@ -1568,6 +1568,90 @@ def test_runtime_harness_applies_rhino_launch_env_overrides(
     assert launch_envs[0]["ROOK_KEEP_ME"] == "ambient"
 
 
+def test_runtime_harness_applies_overrides_before_build_launch_env(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from types import SimpleNamespace
+
+    rhino_exe = tmp_path / "Rhino.exe"
+    rhino_exe.write_text("fake", encoding="utf-8")
+    process = FakeHarnessProcess(pid=4322, poll_results=[None, None])
+    discovery = FakeHarnessDiscovery(pid=4322, port=9922)
+    received_base_envs: list[dict[str, str]] = []
+    popen_envs: list[dict[str, str]] = []
+    report = {
+        "authoritative": {
+            "SystemDrive": "C:",
+            "SystemRoot": r"C:\Windows",
+            "windir": r"C:\Windows",
+        },
+        "backfilled": {"ProgramData": r"C:\ProgramData"},
+        "inherited": {"ROOK_KEEP_ME": "ambient"},
+        "missing_unresolved": [],
+        "fallback_used": [],
+    }
+    fake_env = SimpleNamespace(
+        env={"windir": r"C:\Windows", "SystemRoot": r"C:\Windows", "SystemDrive": "C:", "ROOK_KEEP_ME": "ambient"},
+        report=report,
+    )
+
+    monkeypatch.setenv("ROOK_NATIVE_RUNSCRIPT_SAFETY", "ambient")
+    monkeypatch.setenv("ROOK_KEEP_ME", "ambient")
+    monkeypatch.setattr(
+        "rook.runtime_harness.build_launch_env",
+        lambda base_env: received_base_envs.append(dict(base_env)) or fake_env,
+    )
+    monkeypatch.setattr(
+        "rook.runtime_harness.subprocess.Popen",
+        lambda command, **kwargs: popen_envs.append(kwargs["env"]) or process,
+    )
+    monkeypatch.setattr(
+        "rook.runtime_harness.run_smoke_command",
+        lambda command, env_additions, cwd=None, timeout_seconds=None: SmokeCommandResult(
+            command,
+            _scoped_env_subset(env_additions),
+            0,
+            "",
+            "",
+            0.01,
+            timeout_seconds=timeout_seconds,
+        ),
+    )
+    monkeypatch.setattr("rook.runtime_harness.copy_temp_rook_artifacts", lambda *args: [])
+    monkeypatch.setattr(
+        "rook.runtime_harness.httpx.post",
+        lambda url, json, timeout: httpx.Response(200, json={"success": True}),
+    )
+    monkeypatch.setattr(
+        "rook.runtime_harness.request_external_graceful_close",
+        lambda cleanup_process, timeout_seconds, **kwargs: cleanup_process.wait(timeout_seconds)
+        or False,
+    )
+
+    result = run_rhino_runtime_harness(
+        rhino_exe=rhino_exe,
+        artifact_root=tmp_path / "artifacts",
+        smoke_command=["smoke"],
+        discovery=discovery,
+        launch_env_overrides={
+            "ROOK_NATIVE_RUNSCRIPT_SAFETY": None,
+            "ROOK_NATIVE_RUNSCRIPT_SAFETY_MODE": "smoke",
+        },
+    )
+
+    assert result.success is True
+    assert len(received_base_envs) == 1
+    assert "ROOK_NATIVE_RUNSCRIPT_SAFETY" not in received_base_envs[0]
+    assert received_base_envs[0]["ROOK_NATIVE_RUNSCRIPT_SAFETY_MODE"] == "smoke"
+    assert received_base_envs[0]["ROOK_KEEP_ME"] == "ambient"
+    assert popen_envs == [fake_env.env]
+    assert result.launch_outcome["evidence"]["launchEnv"] == report
+
+    manifest = json.loads((result.artifact_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["launch_outcome"]["evidence"]["launchEnv"] == report
+
+
 def test_runtime_harness_unrecovered_sentinel_forces_owned_cleanup(
     tmp_path: Path,
     monkeypatch,

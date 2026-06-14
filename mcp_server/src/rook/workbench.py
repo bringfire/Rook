@@ -30,6 +30,7 @@ from .runtime_harness import (
 from .rhino_launch import (
     LaunchExecError,
     LaunchOutcome,
+    build_launch_env,
     exec_failure_outcome,
     resolve_requested_scheme,
     start_rhino_process,
@@ -270,13 +271,17 @@ async def launch_owned_workbench(readiness_timeout_seconds: int = 90) -> dict[st
     exe = _resolve_rhino_exe()
     if not exe.exists():
         return _err("rhino_executable_not_found", f"Rhino executable not found: {exe}")
-    requested = resolve_requested_scheme("RookWorkbench", os.environ, env_var="ROOK_WORKBENCH_SCHEME")
+    launch_env = build_launch_env(os.environ)
+    requested = resolve_requested_scheme("RookWorkbench", launch_env.env, env_var="ROOK_WORKBENCH_SCHEME")
     try:
         started = start_rhino_process(
-            exe, requested_scheme=requested, env=None,
+            exe, requested_scheme=requested, env=launch_env.env,
+            launch_env_report=launch_env.report,
             # Launch via THIS module's subprocess.Popen so tests patching
             # workbench.subprocess.Popen still intercept; start_rhino_process owns argv (/nosplash).
-            popen=lambda argv: subprocess.Popen(argv))
+            # The explicit env is intentionally duplicated here and in start_rhino_process(env=...):
+            # removing this lambda later must still preserve the controlled launch environment.
+            popen=lambda argv: subprocess.Popen(argv, env=launch_env.env))
     except LaunchExecError as exc:
         # _err derives retryable from _RETRYABLE (workbench_launch_failed -> False); add the
         # structured reason/evidence. NOT retryable by existing policy.
@@ -325,7 +330,8 @@ async def launch_owned_workbench(readiness_timeout_seconds: int = 90) -> dict[st
                                      launched_at=time.time())
     return {"success": True, "data": {
         "session": session, "processId": pid, "port": record.port, "owned": True,
-        "mode": "workbench", "boundInSeconds": round(time.monotonic() - started_at, 2)}}
+        "mode": "workbench", "boundInSeconds": round(time.monotonic() - started_at, 2),
+        "evidence": rr.outcome.evidence.to_dict()}}
 
 
 async def _reap_unclaimable(process, pid: int, exc: Exception, *,

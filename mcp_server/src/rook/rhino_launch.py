@@ -26,7 +26,7 @@ import tempfile
 import time
 from dataclasses import dataclass
 from enum import Enum
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any, Awaitable, Callable, Protocol
 
 import httpx
@@ -312,6 +312,158 @@ SCHEME_ISOLATION_AVAILABLE = False          # Phase 2 flips this only once autol
 CAN_RESET_SCHEME_RECOVERY_STATE = False     # Phase 2 flips this only once a scheme-local marker is proven
 
 
+WINDOWS_ENV_INVARIANTS = ("SystemDrive", "SystemRoot", "windir")
+CUSTOMIZABLE_LAUNCH_ENV_KEYS = (
+    "APPDATA",
+    "LOCALAPPDATA",
+    "PATH",
+    "ProgramData",
+    "TEMP",
+    "TMP",
+    "USERPROFILE",
+)
+FALLBACK_WINDOWS_DIR = r"C:\Windows"
+
+
+@dataclass(frozen=True)
+class LaunchOsInfo:
+    windows_dir: str | None
+    windows_dir_exists: bool = True
+    fallback_used: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class LaunchEnvResult:
+    env: dict[str, str]
+    report: dict[str, Any]
+
+
+def _discover_windows_launch_os_info() -> LaunchOsInfo:
+    if os.name != "nt":
+        return LaunchOsInfo(
+            windows_dir=FALLBACK_WINDOWS_DIR,
+            windows_dir_exists=True,
+            fallback_used=("non_windows_fallback",),
+        )
+    try:
+        buffer = ctypes.create_unicode_buffer(32768)
+        length = ctypes.windll.kernel32.GetWindowsDirectoryW(buffer, len(buffer))
+        if length <= 0 or length >= len(buffer):
+            return LaunchOsInfo(
+                windows_dir=FALLBACK_WINDOWS_DIR,
+                windows_dir_exists=True,
+                fallback_used=("windows_dir",),
+            )
+        candidate = buffer.value
+        return LaunchOsInfo(
+            windows_dir=candidate,
+            windows_dir_exists=Path(candidate).exists(),
+            fallback_used=(),
+        )
+    except Exception:
+        return LaunchOsInfo(
+            windows_dir=FALLBACK_WINDOWS_DIR,
+            windows_dir_exists=True,
+            fallback_used=("os_info_exception",),
+        )
+
+
+def _non_empty(value: object) -> bool:
+    return str(value).strip() != ""
+
+
+def _sorted_mapping(values: dict[str, str]) -> dict[str, str]:
+    return {key: values[key] for key in sorted(values)}
+
+
+def _resolve_launch_os_info(os_info) -> LaunchOsInfo:
+    if os_info is None:
+        return _discover_windows_launch_os_info()
+    if callable(os_info):
+        return os_info()
+    return os_info
+
+
+def _fallback_launch_os_info(extra_fallbacks: list[str] | None = None) -> LaunchOsInfo:
+    fallbacks = ["windows_dir"]
+    if extra_fallbacks:
+        fallbacks = [*extra_fallbacks, *fallbacks]
+    return LaunchOsInfo(
+        windows_dir=FALLBACK_WINDOWS_DIR,
+        windows_dir_exists=True,
+        fallback_used=tuple(dict.fromkeys(fallbacks)),
+    )
+
+
+def build_launch_env(base_env=None, os_info=None) -> LaunchEnvResult:
+    source = os.environ if base_env is None else base_env
+    env = {str(key): str(value) for key, value in source.items()}
+
+    try:
+        info = _resolve_launch_os_info(os_info)
+    except Exception:
+        info = _fallback_launch_os_info(["os_info_exception"])
+
+    if not isinstance(info, LaunchOsInfo):
+        info = _fallback_launch_os_info(["os_info_invalid"])
+    elif not _non_empty(info.windows_dir) or not info.windows_dir_exists:
+        info = _fallback_launch_os_info(list(info.fallback_used))
+
+    windows_dir = str(info.windows_dir or FALLBACK_WINDOWS_DIR).rstrip("\\/")
+    system_drive = PureWindowsPath(windows_dir).drive or "C:"
+
+    authoritative = {
+        "SystemDrive": system_drive,
+        "SystemRoot": windows_dir,
+        "windir": windows_dir,
+    }
+    env.update(authoritative)
+
+    backfilled: dict[str, str] = {}
+    inherited: dict[str, str] = {}
+    missing_unresolved: list[str] = []
+
+    def has_value(name: str) -> bool:
+        return name in env and _non_empty(env[name])
+
+    def inherit_or_backfill(name: str, value: str | None) -> None:
+        if has_value(name):
+            inherited[name] = env[name]
+            return
+        if value is not None and _non_empty(value):
+            env[name] = value
+            backfilled[name] = value
+            return
+        missing_unresolved.append(name)
+
+    userprofile = env.get("USERPROFILE") if has_value("USERPROFILE") else None
+    inherit_or_backfill("USERPROFILE", None)
+    inherit_or_backfill("ProgramData", rf"{system_drive}\ProgramData")
+    inherit_or_backfill(
+        "APPDATA",
+        rf"{userprofile}\AppData\Roaming" if userprofile else None,
+    )
+    inherit_or_backfill(
+        "LOCALAPPDATA",
+        rf"{userprofile}\AppData\Local" if userprofile else None,
+    )
+
+    local_app_data = env.get("LOCALAPPDATA") if has_value("LOCALAPPDATA") else None
+    temp_value = rf"{local_app_data}\Temp" if local_app_data else None
+    inherit_or_backfill("TEMP", temp_value)
+    inherit_or_backfill("TMP", temp_value)
+    inherit_or_backfill("PATH", rf"{windows_dir}\System32;{windows_dir}")
+
+    report = {
+        "authoritative": _sorted_mapping(authoritative),
+        "backfilled": _sorted_mapping(backfilled),
+        "inherited": _sorted_mapping(inherited),
+        "missing_unresolved": sorted(dict.fromkeys(missing_unresolved)),
+        "fallback_used": sorted(dict.fromkeys(info.fallback_used)),
+    }
+    return LaunchEnvResult(env=env, report=report)
+
+
 @dataclass(frozen=True)
 class LaunchEvidence:
     requestedScheme: str | None        # what the caller asked for
@@ -326,6 +478,7 @@ class LaunchEvidence:
     argv: list[str]
     elapsedSeconds: float
     diagnosticHint: str | None         # NON-CAUSAL, e.g. "startup_window_present_no_discovery"
+    launchEnv: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return dataclasses.asdict(self)
@@ -380,7 +533,8 @@ def build_rhino_argv(rhino_exe, *, active_scheme: str | None) -> list[str]:
 
 
 def _build_evidence(*, requested_scheme, active_scheme, isolation_mode, discovery_record_path,
-                    discovery_log_seen, windows, exit_code, argv, elapsed) -> LaunchEvidence:
+                    discovery_log_seen, windows, exit_code, argv, elapsed,
+                    launch_env=None) -> LaunchEvidence:
     visible = [w for w in windows if w.get("visible")]
     empty_title_present = any((w.get("title") or "") == "" for w in visible)
     hint = "startup_window_present_no_discovery" if visible and discovery_record_path is None else None
@@ -389,7 +543,7 @@ def _build_evidence(*, requested_scheme, active_scheme, isolation_mode, discover
         discoveryRecordPath=discovery_record_path, discoveryLogSeen=discovery_log_seen,
         windows=list(windows), visibleWindowCount=len(visible),
         emptyTitleWindowPresent=empty_title_present, exitCode=exit_code, argv=list(argv),
-        elapsedSeconds=elapsed, diagnosticHint=hint)
+        elapsedSeconds=elapsed, diagnosticHint=hint, launchEnv=launch_env)
 
 
 @dataclass(frozen=True)
@@ -402,19 +556,23 @@ class StartedRhino:
     isolationMode: str
     started_at: float             # time.monotonic() at Popen — elapsed timing
     started_wall: float           # time.time() at Popen — native-discovery log freshness (PID-reuse guard)
+    launchEnv: dict[str, Any] | None = None
 
 
 class LaunchExecError(RuntimeError):
     """Popen itself failed (exe missing / OSError) — carries the evidence base."""
-    def __init__(self, message, *, argv, requested_scheme, active_scheme, isolation_mode):
+    def __init__(self, message, *, argv, requested_scheme, active_scheme, isolation_mode,
+                 launch_env=None):
         super().__init__(message)
         self.argv = list(argv)
         self.requested_scheme = requested_scheme
         self.active_scheme = active_scheme
         self.isolation_mode = isolation_mode
+        self.launch_env = launch_env
 
 
 def start_rhino_process(rhino_exe, *, requested_scheme: str | None, env,
+                        launch_env_report: dict[str, Any] | None = None,
                         scheme_isolation_available: bool = SCHEME_ISOLATION_AVAILABLE,
                         popen=None) -> StartedRhino:
     active_scheme, isolation_mode = resolve_active_scheme(
@@ -427,16 +585,19 @@ def start_rhino_process(rhino_exe, *, requested_scheme: str | None, env,
         proc = popen(argv)
     except OSError as exc:
         raise LaunchExecError(str(exc), argv=argv, requested_scheme=requested_scheme,
-                              active_scheme=active_scheme, isolation_mode=isolation_mode) from exc
+                              active_scheme=active_scheme, isolation_mode=isolation_mode,
+                              launch_env=launch_env_report) from exc
     return StartedRhino(process=proc, pid=int(proc.pid), argv=argv,
                         requestedScheme=requested_scheme, activeScheme=active_scheme,
-                        isolationMode=isolation_mode, started_at=started_at, started_wall=started_wall)
+                        isolationMode=isolation_mode, started_at=started_at,
+                        started_wall=started_wall, launchEnv=launch_env_report)
 
 
 def exec_failure_outcome(exc: LaunchExecError) -> LaunchOutcome:
     ev = _build_evidence(requested_scheme=exc.requested_scheme, active_scheme=exc.active_scheme,
                          isolation_mode=exc.isolation_mode, discovery_record_path=None,
-                         discovery_log_seen=False, windows=[], exit_code=None, argv=exc.argv, elapsed=0.0)
+                         discovery_log_seen=False, windows=[], exit_code=None, argv=exc.argv,
+                         elapsed=0.0, launch_env=exc.launch_env)
     return LaunchOutcome(ok=False, schemeIsolationAvailable=SCHEME_ISOLATION_AVAILABLE,
                          canResetSchemeRecoveryState=CAN_RESET_SCHEME_RECOVERY_STATE, evidence=ev,
                          reason=DiscoveryFailureReason.LAUNCH_EXEC_FAILED, message=str(exc))
@@ -490,7 +651,8 @@ def wait_for_rook_readiness(started: StartedRhino, *, discovery, ping=None,
         ev = _build_evidence(requested_scheme=started.requestedScheme, active_scheme=started.activeScheme,
                              isolation_mode=started.isolationMode, discovery_record_path=None,
                              discovery_log_seen=log_seen(), windows=windows, exit_code=started.process.poll(),
-                             argv=started.argv, elapsed=now() - started.started_at)
+                             argv=started.argv, elapsed=now() - started.started_at,
+                             launch_env=started.launchEnv)
         outcome = LaunchOutcome(ok=False, schemeIsolationAvailable=SCHEME_ISOLATION_AVAILABLE,
                                 canResetSchemeRecoveryState=CAN_RESET_SCHEME_RECOVERY_STATE, evidence=ev,
                                 reason=exc.reason or DiscoveryFailureReason.BIND_TIMEOUT_NO_DISCOVERY,
@@ -499,7 +661,7 @@ def wait_for_rook_readiness(started: StartedRhino, *, discovery, ping=None,
     ev = _build_evidence(requested_scheme=started.requestedScheme, active_scheme=started.activeScheme,
                          isolation_mode=started.isolationMode, discovery_record_path=str(record.path),
                          discovery_log_seen=log_seen(), windows=[], exit_code=None, argv=started.argv,
-                         elapsed=now() - started.started_at)
+                         elapsed=now() - started.started_at, launch_env=started.launchEnv)
     outcome = LaunchOutcome(ok=True, schemeIsolationAvailable=SCHEME_ISOLATION_AVAILABLE,
                             canResetSchemeRecoveryState=CAN_RESET_SCHEME_RECOVERY_STATE, evidence=ev,
                             pid=record.pid, port=record.port, discoveryRecordPath=str(record.path))

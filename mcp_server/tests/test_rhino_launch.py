@@ -70,6 +70,213 @@ def test_outcome_to_dict_round_shape():
     assert d["schemeIsolationAvailable"] is False
 
 
+# ---- Issue #222: launch environment policy ----
+
+def test_build_launch_env_authoritatively_sets_windows_invariants():
+    from rook.rhino_launch import LaunchOsInfo, build_launch_env
+
+    base = {
+        "windir": r"Z:\Wrong",
+        "SystemRoot": r"Y:\Wrong",
+        "SystemDrive": "Y:",
+        "PATH": r"C:\Tools",
+    }
+
+    result = build_launch_env(
+        base,
+        os_info=LaunchOsInfo(windows_dir=r"D:\Windows", windows_dir_exists=True),
+    )
+
+    assert result.env["windir"] == r"D:\Windows"
+    assert result.env["SystemRoot"] == r"D:\Windows"
+    assert result.env["SystemDrive"] == "D:"
+    assert result.report["authoritative"] == {
+        "SystemDrive": "D:",
+        "SystemRoot": r"D:\Windows",
+        "windir": r"D:\Windows",
+    }
+    assert result.report["inherited"]["PATH"] == r"C:\Tools"
+
+
+def test_build_launch_env_backfills_customizables_from_non_empty_sources():
+    from rook.rhino_launch import LaunchOsInfo, build_launch_env
+
+    result = build_launch_env(
+        {"USERPROFILE": r"C:\Users\Ada", "PATH": ""},
+        os_info=LaunchOsInfo(windows_dir=r"C:\Windows", windows_dir_exists=True),
+    )
+
+    assert result.env["ProgramData"] == r"C:\ProgramData"
+    assert result.env["APPDATA"] == r"C:\Users\Ada\AppData\Roaming"
+    assert result.env["LOCALAPPDATA"] == r"C:\Users\Ada\AppData\Local"
+    assert result.env["TEMP"] == r"C:\Users\Ada\AppData\Local\Temp"
+    assert result.env["TMP"] == r"C:\Users\Ada\AppData\Local\Temp"
+    assert result.env["PATH"] == r"C:\Windows\System32;C:\Windows"
+    assert result.report["backfilled"] == {
+        "APPDATA": r"C:\Users\Ada\AppData\Roaming",
+        "LOCALAPPDATA": r"C:\Users\Ada\AppData\Local",
+        "PATH": r"C:\Windows\System32;C:\Windows",
+        "ProgramData": r"C:\ProgramData",
+        "TEMP": r"C:\Users\Ada\AppData\Local\Temp",
+        "TMP": r"C:\Users\Ada\AppData\Local\Temp",
+    }
+    assert result.report["inherited"] == {"USERPROFILE": r"C:\Users\Ada"}
+    assert result.report["missing_unresolved"] == []
+
+
+def test_build_launch_env_records_unresolved_customizables_without_fabricating():
+    from rook.rhino_launch import LaunchOsInfo, build_launch_env
+
+    result = build_launch_env(
+        {},
+        os_info=LaunchOsInfo(windows_dir=r"C:\Windows", windows_dir_exists=True),
+    )
+
+    assert result.env["windir"] == r"C:\Windows"
+    assert result.env["SystemRoot"] == r"C:\Windows"
+    assert result.env["SystemDrive"] == "C:"
+    assert result.env["ProgramData"] == r"C:\ProgramData"
+    assert result.env["PATH"] == r"C:\Windows\System32;C:\Windows"
+    for name in ("APPDATA", "LOCALAPPDATA", "TEMP", "TMP", "USERPROFILE"):
+        assert name not in result.env
+    assert result.report["missing_unresolved"] == [
+        "APPDATA",
+        "LOCALAPPDATA",
+        "TEMP",
+        "TMP",
+        "USERPROFILE",
+    ]
+
+
+def test_build_launch_env_does_not_merge_present_minimal_path():
+    from rook.rhino_launch import LaunchOsInfo, build_launch_env
+
+    result = build_launch_env(
+        {"PATH": r"C:\venv\Scripts"},
+        os_info=LaunchOsInfo(windows_dir=r"C:\Windows", windows_dir_exists=True),
+    )
+
+    assert result.env["PATH"] == r"C:\venv\Scripts"
+    assert result.report["inherited"]["PATH"] == r"C:\venv\Scripts"
+    assert "PATH" not in result.report["backfilled"]
+
+
+def test_build_launch_env_uses_fallback_when_discovery_invalid():
+    from rook.rhino_launch import LaunchOsInfo, build_launch_env
+
+    result = build_launch_env(
+        {"PATH": r"C:\Tools"},
+        os_info=LaunchOsInfo(windows_dir=r"Q:\MissingWindows", windows_dir_exists=False),
+    )
+
+    assert result.env["windir"] == r"C:\Windows"
+    assert result.env["SystemRoot"] == r"C:\Windows"
+    assert result.env["SystemDrive"] == "C:"
+    assert result.report["fallback_used"] == ["windows_dir"]
+
+
+def test_build_launch_env_catches_os_info_exception_and_records_fallback():
+    from rook.rhino_launch import build_launch_env
+
+    def raise_os_info():
+        raise RuntimeError("ctypes failed")
+
+    result = build_launch_env({"PATH": r"C:\Tools"}, os_info=raise_os_info)
+
+    assert result.env["windir"] == r"C:\Windows"
+    assert result.env["SystemRoot"] == r"C:\Windows"
+    assert result.env["SystemDrive"] == "C:"
+    assert result.report["fallback_used"] == ["os_info_exception", "windows_dir"]
+
+
+def test_build_launch_env_does_not_mutate_base_env():
+    from rook.rhino_launch import LaunchOsInfo, build_launch_env
+
+    base = {"PATH": r"C:\Tools", "windir": r"Z:\Wrong"}
+    original = dict(base)
+
+    result = build_launch_env(
+        base,
+        os_info=LaunchOsInfo(windows_dir=r"C:\Windows", windows_dir_exists=True),
+    )
+    result.env["PATH"] = r"C:\Changed"
+
+    assert base == original
+
+
+def test_build_launch_env_report_is_deterministic():
+    from rook.rhino_launch import LaunchOsInfo, build_launch_env
+
+    result = build_launch_env(
+        {
+            "TMP": r"C:\Tmp",
+            "APPDATA": r"C:\Users\Ada\AppData\Roaming",
+            "PATH": r"C:\Tools",
+            "USERPROFILE": r"C:\Users\Ada",
+        },
+        os_info=LaunchOsInfo(windows_dir=r"C:\Windows", windows_dir_exists=True),
+    )
+
+    assert list(result.report["authoritative"]) == ["SystemDrive", "SystemRoot", "windir"]
+    assert list(result.report["backfilled"]) == ["LOCALAPPDATA", "ProgramData", "TEMP"]
+    assert list(result.report["inherited"]) == ["APPDATA", "PATH", "TMP", "USERPROFILE"]
+    assert result.report["missing_unresolved"] == []
+    assert result.report["fallback_used"] == []
+
+
+def test_launch_evidence_with_launch_env_is_json_serializable():
+    import json
+    from rook.rhino_launch import LaunchEvidence
+
+    ev = LaunchEvidence(
+        requestedScheme="RookWorkbench",
+        activeScheme=None,
+        isolationMode="default",
+        discoveryRecordPath=None,
+        discoveryLogSeen=False,
+        windows=[],
+        visibleWindowCount=0,
+        emptyTitleWindowPresent=False,
+        exitCode=None,
+        argv=["R.exe", "/nosplash"],
+        elapsedSeconds=1.0,
+        diagnosticHint=None,
+        launchEnv={
+            "authoritative": {"SystemDrive": "C:", "SystemRoot": r"C:\Windows", "windir": r"C:\Windows"},
+            "backfilled": {},
+            "inherited": {"PATH": r"C:\Tools"},
+            "missing_unresolved": [],
+            "fallback_used": [],
+        },
+    )
+
+    dumped = json.dumps(ev.to_dict(), sort_keys=True)
+    assert '"launchEnv"' in dumped
+    assert ev.to_dict()["launchEnv"]["authoritative"]["windir"] == r"C:\Windows"
+
+
+def test_exec_failure_outcome_includes_launch_env_report():
+    from rook.rhino_launch import LaunchExecError, exec_failure_outcome
+
+    exc = LaunchExecError(
+        "nope",
+        argv=["R.exe", "/nosplash"],
+        requested_scheme="RookWorkbench",
+        active_scheme=None,
+        isolation_mode="default",
+        launch_env={
+            "authoritative": {"SystemDrive": "C:", "SystemRoot": r"C:\Windows", "windir": r"C:\Windows"},
+            "backfilled": {},
+            "inherited": {},
+            "missing_unresolved": [],
+            "fallback_used": [],
+        },
+    )
+
+    out = exec_failure_outcome(exc)
+    assert out.evidence.launchEnv["authoritative"]["windir"] == r"C:\Windows"
+
+
 # ---- Task 4: scheme resolution (requested vs active) + argv builder ----
 
 def test_requested_scheme_default_and_opt_out():
