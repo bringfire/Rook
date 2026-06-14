@@ -1,0 +1,46 @@
+{
+  "tests": [
+    {
+      "name": "T1: assign sentinel GlobalId + custom RookId",
+      "ok": true,
+      "detail": "{'wall_gid': '11111111111111111111aa', 'wall_rid': 'rook-2Fg77H8HL0EAUHFyHz9EfB'}"
+    },
+    {
+      "name": "T2: IFC export \u2014 what survives?",
+      "ok": true,
+      "detail": "{'gid_before': '11111111111111111111aa', 'gid_after': '2k6r9jMO508hOMxusWXRkR', 'gid_survived_export': False, 'rid_before': 'rook-2Fg77H8HL0EAUHFyHz9EfB', 'rid_after': 'rook-2Fg77H8HL0EAUHFyHz9EfB', 'rid_survived_export': True, 'ifc_bytes': 3182}"
+    },
+    {
+      "name": "T3: custom RookId persists in .FCStd",
+      "ok": true,
+      "detail": "{'rid_persisted': True, 'rid_value': 'rook-2Fg77H8HL0EAUHFyHz9EfB', 'gid_value': '2k6r9jMO508hOMxusWXRkR', 'RookId_in_props': True}"
+    },
+    {
+      "name": "T4: RookId stable across param-change+recompute",
+      "ok": true,
+      "detail": "{'rid_before': 'rook-2Fg77H8HL0EAUHFyHz9EfB', 'rid_after': 'rook-2Fg77H8HL0EAUHFyHz9EfB', 'rid_stable': True}"
+    }
+  ],
+  "answers": {
+    "export_stability": {
+      "gid_before": "11111111111111111111aa",
+      "gid_after": "2k6r9jMO508hOMxusWXRkR",
+      "gid_survived_export": false,
+      "rid_before": "rook-2Fg77H8HL0EAUHFyHz9EfB",
+      "rid_after": "rook-2Fg77H8HL0EAUHFyHz9EfB",
+      "rid_survived_export": true,
+      "ifc_bytes": 3182
+    },
+    "saveopen_custom_prop": {
+      "rid_persisted": true,
+      "rid_value": "rook-2Fg77H8HL0EAUHFyHz9EfB",
+      "gid_value": "2k6r9jMO508hOMxusWXRkR",
+      "RookId_in_props": true
+    },
+    "param_change_custom_prop": {
+      "rid_before": "rook-2Fg77H8HL0EAUHFyHz9EfB",
+      "rid_after": "rook-2Fg77H8HL0EAUHFyHz9EfB",
+      "rid_stable": true
+    }
+  }
+}

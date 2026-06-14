@@ -1,0 +1,71 @@
+{
+  "adjacency": {
+    "truth": [
+      "A|B",
+      "A|C"
+    ],
+    "pathA": [
+      "A|B",
+      "A|C"
+    ],
+    "pathB2": [
+      "A|B",
+      "A|C"
+    ],
+    "A_eq_truth": true,
+    "B2_eq_A": true
+  },
+  "apertures": {
+    "door_AB": {
+      "hosts": [
+        "A",
+        "B"
+      ],
+      "kind": "interior"
+    },
+    "door_Aext": {
+      "hosts": [
+        "A"
+      ],
+      "kind": "exterior"
+    }
+  },
+  "circulation": {
+    "A": {
+      "has_egress": true,
+      "doors": [
+        "door_AB",
+        "door_Aext"
+      ]
+    },
+    "B": {
+      "has_egress": true,
+      "doors": [
+        "door_AB"
+      ]
+    },
+    "C": {
+      "has_egress": false,
+      "doors": []
+    }
+  },
+  "general_polygon": {
+    "aabb_says_overlap": true,
+    "polygon_says_overlap": false,
+    "clip_area": 0.0
+  },
+  "timing": {
+    "A_ms": 8.27,
+    "B2_ms": 3.52
+  },
+  "answers": {
+    "G2_1_multiwall_A_eq_truth": true,
+    "G2_1_B2_eq_A": true,
+    "G2_1_corner_only_excluded": true,
+    "G2_2_door_AB_interior": true,
+    "G2_2_door_Aext_exterior": true,
+    "G2_2_sealed_C_no_egress": true,
+    "G2_2_B_egress_via_A": true,
+    "G2_3_polygon_fixes_aabb_falsepositive": true
+  }
+}

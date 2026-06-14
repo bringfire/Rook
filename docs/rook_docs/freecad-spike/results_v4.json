@@ -1,0 +1,63 @@
+{
+  "version": "1.1.1",
+  "steps": [
+    {
+      "name": "real hosted opening that cuts the wall",
+      "ok": true,
+      "detail": "{'method': 'Window', 'wall_vol': 2784000000.0, 'solid_vol': 3000000000.0, 'cut': 216000000.0}"
+    },
+    {
+      "name": "mint pass 1 (fresh objects -> all minted)",
+      "ok": true,
+      "detail": "{'Wall': 'minted', 'Structure': 'minted', 'Window': 'minted'}"
+    },
+    {
+      "name": "mint pass 2 after save/reopen -> idempotent (no churn)",
+      "ok": true,
+      "detail": "{'Wall': 'kept', 'Structure': 'kept', 'Window': 'kept'}"
+    },
+    {
+      "name": "emit clean RookId-keyed blueprint.json",
+      "ok": true,
+      "detail": "5 objects; semantic=['Structure', 'Wall', 'Window']"
+    },
+    {
+      "name": "export reference.step + reference.ifc",
+      "ok": true,
+      "detail": "{'step_bytes': 25395, 'ifc_bytes': 5489, 'step_shapes': 5}"
+    },
+    {
+      "name": "MAPPING PROBE: identity inside STEP/IFC",
+      "ok": true,
+      "detail": "{'step_contains_label_Wall': False, 'step_contains_label_Slab': False, 'step_contains_any_rookId': False, 'step_product_names': ['Open CASCADE STEP translator 7.8 1'], 'ifc_contains_label_Wall': True, 'ifc_contains_any_rookId': False, 'ifc_wall_globalids': ['2if0ZxZfPD3xYSeSEMKU6d']}"
+    }
+  ],
+  "opening_method": "Window",
+  "minting": {
+    "pass1": {
+      "Wall": "minted",
+      "Structure": "minted",
+      "Window": "minted"
+    },
+    "pass2_after_reopen": {
+      "Wall": "kept",
+      "Structure": "kept",
+      "Window": "kept"
+    },
+    "idempotent": true
+  },
+  "mapping_probe": {
+    "step_contains_label_Wall": false,
+    "step_contains_label_Slab": false,
+    "step_contains_any_rookId": false,
+    "step_product_names": [
+      "Open CASCADE STEP translator 7.8 1"
+    ],
+    "ifc_contains_label_Wall": true,
+    "ifc_contains_any_rookId": false,
+    "ifc_wall_globalids": [
+      "2if0ZxZfPD3xYSeSEMKU6d"
+    ]
+  },
+  "blueprint_objects": 5
+}

@@ -1,0 +1,78 @@
+{
+  "fixtures": {
+    "C1_column_on_slab": {
+      "note": "column circular bottom on slab top (curved EDGE, planar face)",
+      "truth": [
+        "col|slab"
+      ],
+      "A_OCCT": [
+        "col|slab"
+      ],
+      "B2_exact": [],
+      "B2_exact_skipped_curved_faces": 1,
+      "B2_tess": [],
+      "A_eq_truth": true,
+      "B2exact_eq_truth": false,
+      "B2tess_eq_truth": false,
+      "timing_ms": {
+        "A": 20.6,
+        "B2_tess": 10.52
+      }
+    },
+    "C2_cyl_in_tube": {
+      "note": "solid cylinder R500 inside tube R500..R800 \u2014 shared CYLINDRICAL face",
+      "truth": [
+        "core|tube"
+      ],
+      "A_OCCT": [
+        "core|tube"
+      ],
+      "B2_exact": [],
+      "B2_exact_skipped_curved_faces": 3,
+      "B2_tess": [
+        "core|tube"
+      ],
+      "A_eq_truth": true,
+      "B2exact_eq_truth": false,
+      "B2tess_eq_truth": true,
+      "timing_ms": {
+        "A": 9.0,
+        "B2_tess": 23.24
+      }
+    },
+    "C3_curved_wall_on_slab": {
+      "note": "90deg cylindrical-shell wall standing on slab (annular-sector contact)",
+      "truth": [
+        "cwall|slab2"
+      ],
+      "A_OCCT": [
+        "cwall|slab2"
+      ],
+      "B2_exact": [
+        "cwall|slab2"
+      ],
+      "B2_exact_skipped_curved_faces": 2,
+      "B2_tess": [],
+      "A_eq_truth": true,
+      "B2exact_eq_truth": true,
+      "B2tess_eq_truth": false,
+      "timing_ms": {
+        "A": 47.27,
+        "B2_tess": 10.06
+      }
+    }
+  },
+  "answers": {
+    "A_OCCT_handles_all_curved": true,
+    "B2_exact_fails_curved": [
+      "C1_column_on_slab",
+      "C2_cyl_in_tube"
+    ],
+    "B2_tess_results": {
+      "C1_column_on_slab": false,
+      "C2_cyl_in_tube": true,
+      "C3_curved_wall_on_slab": false
+    },
+    "verdict_curved_needs_OCCT": true
+  }
+}

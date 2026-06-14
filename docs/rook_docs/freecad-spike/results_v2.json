@@ -1,0 +1,139 @@
+{
+  "version": "1.1.1",
+  "answers": {
+    "A_at_creation": {
+      "wall_has_GlobalId_attr": true,
+      "wall_GlobalId_repr": "''",
+      "wall_GlobalId_empty": true,
+      "wall_Name": "Wall",
+      "wall_ID": 3336,
+      "slab_GlobalId_repr": "''",
+      "wall_identity_like_props": [
+        "GlobalId",
+        "OverrideAlign",
+        "OverrideOffset",
+        "OverrideWidth",
+        "Width"
+      ]
+    },
+    "B_minting": {
+      "ifcopenshell_guid_new": "0ZsiKro3v1WRKYWEeRxyhZ",
+      "ifcopenshell_available": true,
+      "exportIFC_id_helpers": [
+        "getUID"
+      ],
+      "exportIFC_import_ok": true,
+      "assigned": "23V3baJjXDBAzuo$V1Qavy",
+      "readback_matches": true
+    },
+    "C_recompute": {
+      "stable": {
+        "Wall": true,
+        "Structure": true
+      },
+      "before": {
+        "Wall": {
+          "gid": "23V3baJjXDBAzuo$V1Qavy",
+          "ID": 3336
+        },
+        "Structure": {
+          "gid": "1LAqMy99rEVQUemHgt8Xn7",
+          "ID": 3337
+        }
+      },
+      "after": {
+        "Wall": {
+          "gid": "23V3baJjXDBAzuo$V1Qavy",
+          "ID": 3336
+        },
+        "Structure": {
+          "gid": "1LAqMy99rEVQUemHgt8Xn7",
+          "ID": 3337
+        }
+      }
+    },
+    "C_saveopen": {
+      "stable": {
+        "Wall": true,
+        "Structure": true
+      },
+      "after": {
+        "Wall": {
+          "gid": "23V3baJjXDBAzuo$V1Qavy",
+          "ID": 3336
+        },
+        "Structure": {
+          "gid": "1LAqMy99rEVQUemHgt8Xn7",
+          "ID": 3337
+        }
+      }
+    },
+    "C_param_change_THE_SEAM": {
+      "gid_before": "23V3baJjXDBAzuo$V1Qavy",
+      "gid_after": "23V3baJjXDBAzuo$V1Qavy",
+      "id_stable": true,
+      "vol_before": 3000000000.0,
+      "vol_after": 4500000000.0,
+      "geometry_changed": true
+    },
+    "D_fallbacks": {
+      "wall_Name_stable": true,
+      "wall_ID": 3336,
+      "note": "Name is unique-per-doc & immutable; ID is int unique-per-doc. Neither is globally unique across docs/bundles."
+    },
+    "E_ifc_export": {
+      "ok": true,
+      "path": "C:\\Users\\aryan\\source\\repos\\Rook\\docs\\rook_docs\\freecad-spike\\reference_clean.ifc",
+      "bytes": 3193,
+      "wall_gid_after_export": "0optIN8J9BS9jeer4myN$F"
+    }
+  },
+  "probes": [
+    {
+      "name": "Q-A: identity state at creation",
+      "ok": true,
+      "detail": "{'wall_has_GlobalId_attr': True, 'wall_GlobalId_repr': \"''\", 'wall_GlobalId_empty': True, 'wall_Name': 'Wall', 'wall_ID': 3336, 'slab_GlobalId_repr': \"''\", 'wall_identity_like_props': ['GlobalId', 'OverrideAlign', 'OverrideOffset', 'OverrideWidth', 'Width']}"
+    },
+    {
+      "name": "Q-B: deterministic GlobalId minting (no full export)",
+      "ok": true,
+      "detail": "{'ifcopenshell_guid_new': '0ZsiKro3v1WRKYWEeRxyhZ', 'ifcopenshell_available': True, 'exportIFC_id_helpers': ['getUID'], 'exportIFC_import_ok': True, 'assigned': '23V3baJjXDBAzuo$V1Qavy', 'readback_matches': True}"
+    },
+    {
+      "name": "ensure ids assigned",
+      "ok": true,
+      "detail": "{'Wall': '23V3baJjXDBAzuo$V1Qavy', 'Structure': '1LAqMy99rEVQUemHgt8Xn7'}"
+    },
+    {
+      "name": "capture identities",
+      "ok": true,
+      "detail": "{'Wall': {'gid': '23V3baJjXDBAzuo$V1Qavy', 'ID': 3336}, 'Structure': {'gid': '1LAqMy99rEVQUemHgt8Xn7', 'ID': 3337}}"
+    },
+    {
+      "name": "C1: survives recompute",
+      "ok": true,
+      "detail": "{'Wall': True, 'Structure': True}"
+    },
+    {
+      "name": "C2: survives save/close/reopen",
+      "ok": true,
+      "detail": "{'Wall': True, 'Structure': True}"
+    },
+    {
+      "name": "C3: survives param-change+recompute (THE SEAM)",
+      "ok": true,
+      "detail": "{'gid_before': '23V3baJjXDBAzuo$V1Qavy', 'gid_after': '23V3baJjXDBAzuo$V1Qavy', 'id_stable': True, 'vol_before': 3000000000.0, 'vol_after': 4500000000.0, 'geometry_changed': True}"
+    },
+    {
+      "name": "Q-D: Name/ID fallback identity",
+      "ok": true,
+      "detail": "{'wall_Name_stable': True, 'wall_ID': 3336, 'note': 'Name is unique-per-doc & immutable; ID is int unique-per-doc. Neither is globally unique across docs/bundles.'}"
+    },
+    {
+      "name": "Q-E: clean headless IFC export (trap probe)",
+      "ok": true,
+      "detail": "{'ok': True, 'path': 'C:\\\\Users\\\\aryan\\\\source\\\\repos\\\\Rook\\\\docs\\\\rook_docs\\\\freecad-spike\\\\reference_clean.ifc', 'bytes': 3193, 'wall_gid_after_export': '0optIN8J9BS9jeer4myN$F'}"
+    }
+  ],
+  "fatal": null
+}

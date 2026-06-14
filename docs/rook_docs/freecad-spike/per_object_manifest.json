@@ -1,0 +1,59 @@
+{
+  "source": "storey.FCStd",
+  "objects": [
+    {
+      "rookId": "rook-0NJu28EOH6JAU5yMwRwx60",
+      "name": "Wall",
+      "label": "Wall",
+      "ifcType": "Wall",
+      "file": "per_object/rook-0NJu28EOH6JAU5yMwRwx60.step",
+      "bytes": 12130,
+      "volume": 2784000000.0,
+      "bbox": [
+        0.0,
+        -100.0,
+        0.0,
+        5000.0,
+        100.0,
+        3000.0
+      ],
+      "exported": true
+    },
+    {
+      "rookId": "rook-0neTnTUx14BhYmHFcvLcqR",
+      "name": "Structure",
+      "label": "Slab",
+      "ifcType": "Beam",
+      "file": "per_object/rook-0neTnTUx14BhYmHFcvLcqR.step",
+      "bytes": 7164,
+      "volume": 7200000000.0,
+      "bbox": [
+        2500.0,
+        -2000.0,
+        -450.0,
+        8500.0,
+        2000.0,
+        -150.0
+      ],
+      "exported": true
+    },
+    {
+      "rookId": "rook-3b$R$EhWvAQ9qLKbKAtna1",
+      "name": "Window",
+      "label": "Window",
+      "ifcType": "Window",
+      "file": "per_object/rook-3b$R$EhWvAQ9qLKbKAtna1.step",
+      "bytes": 7132,
+      "volume": 1080000.0,
+      "bbox": [
+        2000.0,
+        100.0,
+        800.0,
+        2900.0,
+        101.0,
+        2000.0
+      ],
+      "exported": true
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "version": "1.1.1",
+  "probes": [
+    {
+      "name": "P1: Arch Space auto-computes area/volume/boundary",
+      "ok": true,
+      "detail": "{'made': 'Space', 'has_Area': True, 'Area': 30000000.0, 'props_sample': ['Area', 'AreaCalculationType', 'Boundaries', 'FinishCeiling', 'FinishFloor', 'FinishWalls', 'Group', 'HorizontalArea', 'VerticalArea'], 'ifcType': 'Space', 'shape_volume': 210000000000.0}"
+    },
+    {
+      "name": "P2: spatial containment auto-detected vs manual",
+      "ok": true,
+      "detail": "{'getContainer': '<no such helper>', 'getHost': 'None', 'getSpaceBoundaries': '<no such helper>', 'space_Group': [], 'space_Boundaries': '[]', 'manual_point_in_bbox': True}"
+    },
+    {
+      "name": "P3: does placement create a dependency-graph edge?",
+      "ok": true,
+      "detail": "{'table_OutList': [], 'table_InList': [], 'space_OutList': ['DiningZoneSolid'], 'space_InList': [], 'placement_created_dep_edge': False}"
+    },
+    {
+      "name": "P4: 3D layout constraint/assembly solver in core?",
+      "ok": true,
+      "detail": "{'Assembly': 'importable', 'AssemblyA2plus': 'absent (ModuleNotFoundError)', 'a2plus': 'absent (ModuleNotFoundError)', 'Assembly4': 'absent (ModuleNotFoundError)', 'Sketcher': 'present (2D profile constraints only \u2014 not a 3D furniture layout solver)', 'expression_binding': 'WORKS: chair.x bound to table.x+700 -> 2000.0', 'expression_note': '1-D property binding only; NOT clearance/collision/aisle constraint solving'}"
+    },
+    {
+      "name": "P5: does furniture reflow when the zone resizes?",
+      "ok": true,
+      "detail": "{'before': (2000.0, 2000.0, 2000.0), 'after': (2000.0, 2000.0, 2000.0), 'table_followed_zone_resize': False}"
+    }
+  ],
+  "verdicts": {
+    "P1_space": "FREECAD-NATIVE: IfcSpace object with auto area/volume",
+    "P2_containment": "ROOK-WOULD-DO-ANYWAY: containment is manual point-in-volume (trivial in Rook)",
+    "P3_depgraph": "ROOK-WOULD-DO-ANYWAY: placement creates NO dep edge; zone\u2194slot relationship must live in an external graph (= blueprint.json)",
+    "P4_constraints": "FREECAD-NATIVE: has a 3D layout/assembly solver",
+    "P5_reflow": "ROOK-WOULD-DO-ANYWAY: resizing the zone moves NO furniture; reflow logic is custom either way (only explicit expression bindings propagate)"
+  }
+}

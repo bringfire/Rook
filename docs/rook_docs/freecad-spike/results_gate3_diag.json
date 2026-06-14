@@ -1,0 +1,100 @@
+{
+  "C2_cyl_in_tube": {
+    "solid_solid_mindist": 0.0,
+    "coincident_face_pairs": [
+      {
+        "f1": 0,
+        "f2": 1,
+        "dist": 0.0,
+        "f1_type": "<Cylinder object>",
+        "shared_area": 0.0
+      },
+      {
+        "f1": 0,
+        "f2": 2,
+        "dist": 0.0,
+        "f1_type": "<Cylinder object>",
+        "shared_area": 0.0
+      },
+      {
+        "f1": 0,
+        "f2": 3,
+        "dist": 0.0,
+        "f1_type": "<Cylinder object>",
+        "shared_area": 9424778.0
+      },
+      {
+        "f1": 1,
+        "f2": 1,
+        "dist": 0.0,
+        "f1_type": "<Plane object>",
+        "shared_area": 0.0
+      },
+      {
+        "f1": 1,
+        "f2": 3,
+        "dist": 0.0,
+        "f1_type": "<Plane object>",
+        "shared_area": 0.0
+      },
+      {
+        "f1": 2,
+        "f2": 2,
+        "dist": 0.0,
+        "f1_type": "<Plane object>",
+        "shared_area": 0.0
+      },
+      {
+        "f1": 2,
+        "f2": 3,
+        "dist": 0.0,
+        "f1_type": "<Plane object>",
+        "shared_area": 0.0
+      }
+    ],
+    "OCCT_sees_shared_face": true,
+    "generalFuse_result_solids": 2
+  },
+  "C3_curved_wall_on_slab": {
+    "solid_solid_mindist": 0.0,
+    "coincident_face_pairs": [
+      {
+        "f1": 5,
+        "f2": 0,
+        "dist": 0.0,
+        "f1_type": "<Plane object>",
+        "shared_area": 0.0
+      },
+      {
+        "f1": 5,
+        "f2": 2,
+        "dist": 0.0,
+        "f1_type": "<Plane object>",
+        "shared_area": 0.0
+      },
+      {
+        "f1": 5,
+        "f2": 3,
+        "dist": 0.0,
+        "f1_type": "<Plane object>",
+        "shared_area": 596902.6
+      },
+      {
+        "f1": 5,
+        "f2": 4,
+        "dist": 0.0,
+        "f1_type": "<Plane object>",
+        "shared_area": 0.0
+      },
+      {
+        "f1": 5,
+        "f2": 5,
+        "dist": 0.0,
+        "f1_type": "<Plane object>",
+        "shared_area": 0.0
+      }
+    ],
+    "OCCT_sees_shared_face": true,
+    "generalFuse_result_solids": 2
+  }
+}

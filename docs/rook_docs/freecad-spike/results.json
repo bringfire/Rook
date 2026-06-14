@@ -1,0 +1,88 @@
+{
+  "freecad_version": "1.1.1 (20260414 (Git shallow))",
+  "freecad_cmd": "C:\\Users\\aryan\\AppData\\Local\\Programs\\FreeCAD 1.1\\bin\\freecadcmd.exe",
+  "gui_up": false,
+  "steps": [
+    {
+      "name": "import FreeCAD (App, no GUI)",
+      "ok": true,
+      "detail": "1.1.1 (20260414 (Git shallow))"
+    },
+    {
+      "name": "import Arch (BIM App layer)",
+      "ok": true,
+      "detail": "Arch imported"
+    },
+    {
+      "name": "makeWall (headless)",
+      "ok": true,
+      "detail": "wall=Wall baseline=Line"
+    },
+    {
+      "name": "makeStructure / slab (headless)",
+      "ok": true,
+      "detail": "Structure"
+    },
+    {
+      "name": "makeWindow / opening (headless, best-effort)",
+      "ok": true,
+      "detail": "Window"
+    },
+    {
+      "name": "recompute after creation",
+      "ok": true,
+      "detail": "2"
+    },
+    {
+      "name": "identity field present on wall",
+      "ok": false,
+      "detail": "RuntimeError: no GlobalId / IfcUID found on wall",
+      "trace": [
+        "          ^^^^",
+        "  File \"C:\\Users/aryan/source/repos/Rook/docs/rook_docs/freecad-spike\\spike_headless_bim.py\", line 159, in _probe_identity",
+        "    raise RuntimeError(\"no GlobalId / IfcUID found on wall\")",
+        "RuntimeError: no GlobalId / IfcUID found on wall"
+      ]
+    },
+    {
+      "name": "export STEP (reference geometry)",
+      "ok": true,
+      "detail": "{'path': 'C:\\\\Users\\\\aryan\\\\source\\\\repos\\\\Rook\\\\docs\\\\rook_docs\\\\freecad-spike\\\\reference.step', 'bytes': 7884}"
+    },
+    {
+      "name": "export BREP (reference geometry)",
+      "ok": true,
+      "detail": "{'path': 'C:\\\\Users\\\\aryan\\\\source\\\\repos\\\\Rook\\\\docs\\\\rook_docs\\\\freecad-spike\\\\reference.brep', 'bytes': 2914}"
+    },
+    {
+      "name": "export IFC (secondary, trap probe)",
+      "ok": false,
+      "detail": "AttributeError: 'NoneType' object has no attribute 'Shape'",
+      "trace": [
+        "  File \"C:\\Users\\aryan\\AppData\\Local\\Programs\\FreeCAD 1.1\\Mod\\BIM\\ArchWindow.py\", line 830, in getSubVolume",
+        "    for w in base.Shape.Wires:",
+        "             ^^^^^^^^^^",
+        "AttributeError: 'NoneType' object has no attribute 'Shape'"
+      ]
+    },
+    {
+      "name": "emit blueprint.json",
+      "ok": true,
+      "detail": "4 objects -> C:\\Users\\aryan\\source\\repos\\Rook\\docs\\rook_docs\\freecad-spike\\blueprint.json"
+    }
+  ],
+  "identity_field": null,
+  "identity_survives": {},
+  "exports": {
+    "step": {
+      "path": "C:\\Users\\aryan\\source\\repos\\Rook\\docs\\rook_docs\\freecad-spike\\reference.step",
+      "bytes": 7884
+    },
+    "brep": {
+      "path": "C:\\Users\\aryan\\source\\repos\\Rook\\docs\\rook_docs\\freecad-spike\\reference.brep",
+      "bytes": 2914
+    }
+  },
+  "blueprint_objects": 4,
+  "fatal": null
+}
