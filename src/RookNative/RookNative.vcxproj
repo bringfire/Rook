@@ -55,7 +55,7 @@
     <ClCompile>
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>stdafx.h</PrecompiledHeaderFile>
-      <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)vendor;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)vendor;$(ProjectDir)vendor\clipper2\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <WarningLevel>Level3</WarningLevel>
@@ -156,6 +156,12 @@
     <ClCompile Include="Interactive\GumballContextBuilder.cpp" />
     <ClCompile Include="Interactive\SessionRecorder.cpp" />
     <ClCompile Include="Commands\AIGumballCommand.cpp" />
+    <!-- Vendored Clipper2 (BSL-1.0): minimal compiled unit for Intersect/Area. -->
+    <!-- These do not include stdafx.h, so PCH must be disabled per-file. -->
+    <ClCompile Include="vendor\clipper2\src\clipper.engine.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)'=='Debug'">NotUsing</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)'=='Release'">NotUsing</PrecompiledHeader>
+    </ClCompile>
   </ItemGroup>
 
   <!-- Header files -->

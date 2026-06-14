@@ -31,6 +31,9 @@
     <Filter Include="Interactive">
       <UniqueIdentifier>{F6A7B8C9-D0E1-2345-F123-456789012345}</UniqueIdentifier>
     </Filter>
+    <Filter Include="vendor\clipper2">
+      <UniqueIdentifier>{A7B8C9D0-E1F2-3456-1234-56789012345A}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="stdafx.cpp">
@@ -86,6 +89,9 @@
     </ClCompile>
     <ClCompile Include="Interactive\GumballContextBuilder.cpp">
       <Filter>Interactive</Filter>
+    </ClCompile>
+    <ClCompile Include="vendor\clipper2\src\clipper.engine.cpp">
+      <Filter>vendor\clipper2</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

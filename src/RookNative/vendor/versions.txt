@@ -1,5 +1,6 @@
-Third-party header-only libraries committed to vendor/.
-No package manager needed — just include the header.
+Third-party libraries committed to vendor/.
+Most are header-only (just include the header); Clipper2 also ships
+compiled translation units (see below). No package manager needed.
 
 cpp-httplib v0.18.3
   Header: httplib/httplib.h
@@ -10,3 +11,5 @@ nlohmann/json v3.11.3
   Header: nlohmann/json.hpp
   Source: https://github.com/nlohmann/json
   License: MIT
+
+clipper2 2.0.1 (commit f9c5eb6e14a59f6f5d65fbfb3564519a561cf4fd) — Boost Software License 1.0 — 2D polygon boolean (Intersect/Area); units compiled: clipper.engine.cpp
