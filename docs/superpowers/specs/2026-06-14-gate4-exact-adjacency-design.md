@@ -115,22 +115,26 @@ struct ExactEdge {
     std::string relationship = "adjacent_exact";
     double sharedArea = 0.0;               // Clipper2 hole/concave-aware (see §5)
 };
-struct CandidateOutcome {
-    std::string id;
-    Capability capability;
-    std::optional<std::string> coarseRelationship;  // decorated AFTER cache (Finding 2)
-};
-struct ExactAdjacencyResult {              // CACHED CORE (no coarse decoration — Finding 2)
+// Type-enforced separation (Finding 4): the cached core carries NO coarse state.
+struct ExactCandidate { std::string id; Capability capability; };  // cached
+struct ExactAdjacencyCore {                // CACHED — exact-only, never coarse
     std::string objectId;
     int graphSequence = 0;
     Capability sourceCapability = Capability::FailedWithDiagnostics;
     std::vector<ExactEdge> edges;
-    std::vector<CandidateOutcome> candidates;
+    std::vector<ExactCandidate> candidates;
     bool capped = false;
     int candidateCount = 0;                // evaluated (post-cap)
     int candidateLimit = 0;
     int totalCandidateCount = 0;           // pre-cap (Finding 9)
     std::vector<std::string> diagnostics;
+};
+// RESPONSE DTO — built from a cached ExactAdjacencyCore + live coarse decoration
+// (post-lookup, never cached). Same scalar fields as the core, plus per-candidate coarse.
+struct CandidateOutcome {                  // response only
+    std::string id;
+    Capability capability;
+    std::optional<std::string> coarseRelationship;
 };
 ```
 
@@ -139,7 +143,7 @@ struct ExactAdjacencyResult {              // CACHED CORE (no coarse decoration 
 class IExactAdjacencyEngine {
 public:
     virtual ~IExactAdjacencyEngine() = default;
-    virtual ExactAdjacencyResult Evaluate(
+    virtual ExactAdjacencyCore Evaluate(
         const ObjectFaceSummary& source,
         const std::vector<ObjectFaceSummary>& candidates,
         double tolerance) const = 0;       // pure data; no Rhino, no threads
@@ -161,8 +165,12 @@ then a positive overlap:
 For a qualifying pair, compute **shared area via Clipper2**:
 - Project both faces' loops into **plane-local 2D** coordinates (shared in-plane
   basis derived from the canonical plane).
-- Build each face as a Clipper2 path set (outer + holes) and run
-  `Intersect(A, B, FillRule::NonZero)`; `sharedArea = Area(result)`.
+- **Normalize each face's projected loops** to a consistent orientation (outer CCW,
+  holes CW) in plane-local 2D, then `Intersect(A, B, FillRule::NonZero)`. With
+  normalized orientation `Area(result)` is the **net solid overlap** (holes already
+  subtract, not add); `sharedArea` is that net area, summed over qualifying face
+  pairs. (Normalized-NonZero is pinned for v1 under `engineVersion`; raw-loop
+  `EvenOdd` is the equivalent alternative — do not mix.)
 - Clipper2 handles concave loops, holes, and self-touching robustly. **We do NOT use
   Clipper2 triangulation** (documented as buggy) — only intersection + area.
 - Adjacency iff `sharedArea > areaTol`. Object-pair `sharedArea` = sum over
@@ -171,11 +179,16 @@ For a qualifying pair, compute **shared area via Clipper2**:
 This correctly handles the **wall-with-window-opening** case (overlap inside the
 opening contributes no area) and concave faces (L-shaped slabs/walls).
 
-**Precision policy (Clipper2 is integer-backed):** project in **model units**; feed
-`ClipperD` with a fixed precision of **6 decimal places**; `areaTol` and `normalTol`
-are **fixed engine constants covered by `engineVersion`** (Finding 3 — not options,
-not in the cache key). Tests must exercise small architectural tolerances around
-openings and near-contact gaps (§11).
+**Precision policy (Clipper2 is integer-backed; caller owns coordinate range):**
+project to plane-local 2D AND **subtract a local origin near the face pair** (the
+source face centroid) so coordinates are small before `ClipperD` (precision **6
+decimals**). **Range-guard the scaled integer coordinates**; if a coordinate exceeds
+Clipper2's safe integer range, emit a diagnostic and mark that pair
+`FailedWithDiagnostics` — never silently wrong. The **minimum effective tolerance**
+is one unit at 6 decimals (1e-6 model units); `areaTol` must be ≥ a small multiple of
+that. `areaTol`, `normalTol`, the precision, and the local-origin rule are **fixed
+engine constants covered by `engineVersion`** (not options, not in the cache key).
+Tests exercise small openings and near-contact gaps around this boundary (§11).
 
 **Capability rollup (per `ObjectFaceSummary`):**
 - every face `Planar`, orientation-reliable, valid → `ExactPlanar`
@@ -185,8 +198,12 @@ openings and near-contact gaps (§11).
 - no eligible faces → `CoarseFallbackExactUnsupported`
 - mesh/subd/malformed → `UnsupportedGeometry`
 
-A candidate's `capability` = min eligibility of the pair. Ineligible faces never
-yield an `adjacent_exact` edge.
+**Precedence (resolve overlap, Finding 3):** (1) object is Mesh/SubD type →
+`UnsupportedGeometry`; (2) Brep/Extrusion, NO eligible faces →
+`CoarseFallbackExactUnsupported`; (3) Brep/Extrusion, some eligible + some ineligible
+(curved/unoriented/malformed) → `PartialExactUnsupported`; (4) all eligible →
+`ExactPlanar`. A candidate's `capability` = min eligibility of the pair. Ineligible
+faces never yield an `adjacent_exact` edge.
 
 ## 6. Data flow (three thread hops)
 
@@ -205,7 +222,7 @@ yield an `adjacent_exact` edge.
              unknown. EXTRACTION ONLY — no SDK pointers escape.
    │ returns vector<ObjectFaceSummary>
    ▼
-[worker]     PlanarAdjacencyEngine.Evaluate(...) (Clipper2) -> ExactAdjacencyResult (core)
+[worker]     PlanarAdjacencyEngine.Evaluate(...) (Clipper2) -> ExactAdjacencyCore (core)
    │ cache CORE result; THEN decorate coarseRelationship if includeCoarse (Finding 2)
    ▼  return
 ```
