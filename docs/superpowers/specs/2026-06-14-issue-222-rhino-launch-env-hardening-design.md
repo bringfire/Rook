@@ -69,9 +69,10 @@ from OS discovery even when the parent supplied a value:
 
 Production discovery uses `GetWindowsDirectoryW` to discover the Windows
 directory, validates that it exists, and derives `SystemDrive` from it. If
-discovery fails, the helper uses conservative `C:\Windows` and `C:` fallbacks
-and records the fallback in the policy report. A silent discovery failure must
-not authoritatively set garbage.
+discovery fails or raises, the helper catches the failure, uses conservative
+`C:\Windows` and `C:` fallbacks, and records the fallback in the policy report.
+A launch-environment helper must not throw from OS discovery; a silent discovery
+failure must not authoritatively set garbage.
 
 ### Parent-Customizable Essentials
 
@@ -86,7 +87,7 @@ when absent or empty:
 - `ProgramData`
 - `PATH`
 
-Backfill uses only cheap derivation:
+Backfill uses only cheap derivation from present-and-non-empty source values:
 
 - `ProgramData` from `SystemDrive`.
 - `APPDATA` and `LOCALAPPDATA` from `USERPROFILE` when present.
@@ -165,6 +166,7 @@ Unit tests for `build_launch_env()` live in `mcp_server/tests/test_rhino_launch.
 - Present-wrong `windir`, `SystemRoot`, or `SystemDrive` is overwritten from
   injected OS discovery.
 - OS discovery failure uses fallback and reports fallback use.
+- Injected OS discovery that raises uses fallback and does not propagate.
 - Parent-customizable values are cheap-derived only when possible.
 - Unresolvable customizable values are recorded in `missing_unresolved`, not
   fabricated.
@@ -192,19 +194,27 @@ Unit tests for launch wiring:
 Live verification must exercise the runtime that the MCP client is actually
 bound to. The prior probe showed Codex binds to the installed AppData runtime,
 not necessarily the repo `.venv`. Before the live MCP rerun, either deploy the
-fix to the installed runtime or explicitly repoint the Codex binding to the repo
+fix to the installed runtime, sync the changed Python source into the installed
+runtime for local testing, or explicitly repoint the Codex binding to the repo
 runtime. A green live rerun against old installed code is not evidence.
 
-Required live checks after deployment or repointing:
+Required #222 live proof after deployment, source sync, or repointing:
 
-1. Start from no live `Rhino.exe` and no owned workbench sessions.
-2. From the fixed MCP binding, run `rhino_workbench_launch`.
-3. Expected: launch binds successfully, returns a structured success envelope,
+1. From the fixed MCP binding, run `rhino_workbench_launch`.
+2. Expected: launch binds successfully, returns a structured success envelope,
    and `launchEnv` reports authoritative `windir`/`SystemRoot`/`SystemDrive`.
-4. Close the owned session through `rhino_workbench_close`.
-5. Confirm no live `Rhino.exe` process remains.
-6. Rerun the approved #251 launch gate. Only after that gate classifies `clear`
-   should #251 delegation proceed.
+3. Close the owned session through `rhino_workbench_close`.
+4. Confirm the owned PID is gone and no owned workbench session remains.
+
+This #222 live proof does not require a globally clean/cold Rhino state. An
+unrelated user Rhino does not interfere with PID-correlated owned discovery, and
+the harness must not ask the user to close their real Rhino session solely to
+prove this env fix.
+
+After the #222 live proof passes, rerun the approved #251 launch gate as a
+separate step. The #251 gate still carries its own clean/cold-state requirement;
+that is where any user decision about closing an existing non-owned Rhino
+belongs. Only after that gate classifies `clear` should #251 delegation proceed.
 
 ## Routing
 
