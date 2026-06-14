@@ -18,6 +18,7 @@ void HandleSceneGraphDiff(const httplib::Request& req, httplib::Response& res);
 void HandleSceneGraphReconcile(const httplib::Request& req, httplib::Response& res);
 void HandleSceneGraphClassify(const httplib::Request& req, httplib::Response& res);
 void HandleSceneGraphOverlay(const httplib::Request& req, httplib::Response& res);
+void HandleSceneGraphExactAdjacency(const httplib::Request& req, httplib::Response& res);
 
 } // namespace Handlers
 } // namespace Rook

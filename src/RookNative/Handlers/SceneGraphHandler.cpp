@@ -10,8 +10,12 @@
 #include "RookServer.h"
 #include "SceneGraph/SceneGraph.h"
 #include "SceneGraph/SceneGraphConduit.h"
+#include "SceneGraph/ExactAdjacencyService.h"
+#include "SceneGraph/ExactAdjacencyTypes.h"
 #include "Threading/MainThreadDispatcher.h"
 #include "Infrastructure/JsonHelpers.h"
+
+#include <unordered_map>
 
 using json = nlohmann::json;
 
@@ -92,6 +96,20 @@ json SerializeEdgeFull(const SceneEdge& e)
         {"overlap", e.overlap},
         {"direction", e.direction}
     };
+}
+
+// Maps the exact-adjacency Capability enum to its spec §9 wire string.
+static std::string CapabilityToString(Capability c)
+{
+    switch (c)
+    {
+    case Capability::ExactPlanar:                    return "exact_planar";
+    case Capability::PartialExactUnsupported:        return "partial_exact_unsupported";
+    case Capability::CoarseFallbackExactUnsupported: return "coarse_fallback_exact_unsupported";
+    case Capability::UnsupportedGeometry:            return "unsupported_geometry";
+    case Capability::FailedWithDiagnostics:          return "failed_with_diagnostics";
+    default:                                         return "unknown";
+    }
 }
 
 } // anonymous namespace
@@ -654,6 +672,102 @@ void HandleSceneGraphOverlay(const httplib::Request& req, httplib::Response& res
         {"nodeCount", result.nodeCount},
         {"edgeCount", result.edgeCount}
     });
+}
+
+// ================================================================
+// POST /scene/graph/adjacency/exact — Exact (planar) adjacency
+//   + optional coarse decoration (live, never cached)
+// ================================================================
+
+void HandleSceneGraphExactAdjacency(const httplib::Request& req, httplib::Response& res)
+{
+    // 1) Parse body.
+    std::string objectId;
+    CandidateQueryOptions opts;          // defaults: maxCandidates=64, tolerance=1e-3
+    bool includeCoarse = false;
+    try {
+        auto body = json::parse(req.body);
+        if (!body.contains("objectId") || !body["objectId"].is_string())
+        {
+            CRookServer::SendError(res, "Missing 'objectId' (string)");
+            return;
+        }
+        objectId = body["objectId"].get<std::string>();
+        if (body.contains("maxCandidates") && body["maxCandidates"].is_number_integer())
+            opts.maxCandidates = body["maxCandidates"].get<int>();
+        if (body.contains("tolerance") && body["tolerance"].is_number())
+            opts.tolerance = body["tolerance"].get<double>();
+        if (body.contains("includeCoarse") && body["includeCoarse"].is_boolean())
+            includeCoarse = body["includeCoarse"].get<bool>();
+    } catch (const std::exception& e) {
+        CRookServer::SendError(res, std::string("Invalid JSON body: ") + e.what());
+        return;
+    }
+
+    // 2) Compute exact CORE (worker thread; safe to block).
+    ExactAdjacencyCore core = ExactAdjacencyService::Instance().Compute(objectId, opts);
+
+    // 3) Optional coarse decoration — AFTER compute, from the LIVE snapshot,
+    //    NEVER cached. Look up the existing bbox relationship between objectId
+    //    and each candidate from snapshot->edgesByNode[objectId].
+    std::unordered_map<std::string, std::string> coarseByCandidate;  // candidateId -> relationship
+    if (includeCoarse)
+    {
+        auto snapshot = CSceneGraph::Instance().ReadSnapshot();
+        if (snapshot)
+        {
+            auto it = snapshot->edgesByNode.find(objectId);
+            if (it != snapshot->edgesByNode.end())
+            {
+                for (const SceneEdge& e : it->second)
+                {
+                    const std::string& other = (e.sourceId == objectId) ? e.targetId : e.sourceId;
+                    // First relationship found for a candidate wins (deterministic).
+                    coarseByCandidate.emplace(other, e.relationship);
+                }
+            }
+        }
+    }
+
+    // 4) Serialize per spec §9.
+    json out;
+    out["objectId"]         = core.objectId;
+    out["graphSequence"]    = core.graphSequence;
+    out["sourceCapability"] = CapabilityToString(core.sourceCapability);
+
+    json edgesJson = json::array();
+    for (const ExactEdge& e : core.edges)
+    {
+        edgesJson.push_back({
+            {"targetId",     e.targetId},
+            {"relationship", e.relationship},   // "adjacent_exact"
+            {"sharedArea",   e.sharedArea}
+        });
+    }
+    out["edges"] = edgesJson;
+
+    json candsJson = json::array();
+    for (const ExactCandidate& c : core.candidates)
+    {
+        json cj;
+        cj["id"]         = c.id;
+        cj["capability"] = CapabilityToString(c.capability);
+        if (includeCoarse)
+        {
+            auto cit = coarseByCandidate.find(c.id);
+            if (cit != coarseByCandidate.end()) cj["coarseRelationship"] = cit->second;
+            else                                cj["coarseRelationship"] = nullptr;
+        }
+        candsJson.push_back(std::move(cj));
+    }
+    out["candidates"]          = candsJson;
+    out["capped"]              = core.capped;
+    out["candidateCount"]      = core.candidateCount;
+    out["candidateLimit"]      = core.candidateLimit;
+    out["totalCandidateCount"] = core.totalCandidateCount;
+    out["diagnostics"]         = core.diagnostics;
+
+    CRookServer::SendSuccess(res, out);
 }
 
 } // namespace Handlers
