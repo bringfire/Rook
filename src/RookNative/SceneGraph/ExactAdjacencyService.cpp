@@ -344,7 +344,17 @@ ExactAdjacencyCore ExactAdjacencyService::Compute(const std::string& objectId,
         ex = fut.get();   // worker thread blocks; safe (not main thread)
     } catch (const std::exception& e) {
         core.sourceCapability = Capability::FailedWithDiagnostics;
-        core.diagnostics.push_back(std::string("extraction_dispatch_failed:") + e.what());
+        // Distinguish the "Rhino is mid-command / modal loop" case from a genuine
+        // extraction failure. The dispatcher cancels Normal-policy tasks while a
+        // command is active (MainThreadDispatcher: "dispatcher is busy"/"not
+        // running"), which is a TRANSIENT condition the caller should RETRY — not a
+        // statement about the geometry. Emit a distinct, retryable diagnostic so the
+        // agent/Python layer can retry rather than treat it as unsupported geometry.
+        const std::string what = e.what();
+        const bool transient = (what.find("busy") != std::string::npos) ||
+                               (what.find("not running") != std::string::npos);
+        core.diagnostics.push_back(
+            std::string(transient ? "dispatcher_busy_retry:" : "extraction_dispatch_failed:") + what);
         return core;
     }
     if (!ex.ok) {

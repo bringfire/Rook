@@ -21,6 +21,18 @@ namespace Rook {
 
 // Lazy, on-demand exact planar-adjacency orchestration with a result cache.
 // Singleton (holds the cache across calls), mirroring CSceneGraph::Instance().
+//
+// TEARDOWN CONTRACT (do not break): this Meyers singleton is constructed on the
+// first Compute() call — i.e. AFTER CMainThreadDispatcher::Instance() and
+// CSceneGraph::Instance() — so it is destroyed FIRST during static teardown. Its
+// destructor MUST stay trivial: it must never call Dispatch()/EnqueueAction() or
+// otherwise touch the dispatcher or scene graph (which may already be torn down).
+// In-flight Compute() calls during plugin unload are safe ONLY because Dispatch()
+// and EnqueueAction() are self-guarding (they resolve their futures with an
+// exception / drained action once Stop() has run); Compute() catches that and
+// returns a "dispatcher_busy_retry"/"failed_with_diagnostics" core. There is
+// intentionally NO Stop() hook here — keep it that way unless you add explicit
+// shutdown ordering in OnUnloadPlugIn.
 class ExactAdjacencyService {
 public:
     static ExactAdjacencyService& Instance();
