@@ -30,6 +30,7 @@ from .rhino_launch import (  # noqa: F401  canonical home is rhino_launch; re-ex
     PingFunction,
     _run_awaitable_sync,
     _windows_user32,
+    build_launch_env,
     default_discovery_dir,
     describe_windows_for_pid,
     exec_failure_outcome,
@@ -657,17 +658,21 @@ def run_rhino_runtime_harness(
 
     discovery = discovery or OwnedRhinoDiscovery()
     requested_scheme = resolve_requested_scheme("RookHarness", os.environ, env_var="ROOK_HARNESS_SCHEME")
-    launch_env = _apply_env_overrides(os.environ, launch_env_overrides)
+    launch_env_base = _apply_env_overrides(os.environ, launch_env_overrides)
+    launch_env = build_launch_env(launch_env_base)
     try:
         started = start_rhino_process(
             rhino_exe,
             requested_scheme=requested_scheme,
-            env=launch_env,
+            env=launch_env.env,
+            launch_env_report=launch_env.report,
             # Launch via THIS module's subprocess.Popen so harness tests that patch
             # rook.runtime_harness.subprocess.Popen still intercept the owned-Rhino launch.
             # start_rhino_process still owns argv (/nosplash) + scheme; the primitive's own
             # popen-injection path is exercised directly in test_rhino_launch.
-            popen=lambda argv: subprocess.Popen(argv, env=launch_env),
+            # The explicit env is intentionally duplicated here and in start_rhino_process(env=...):
+            # removing this lambda later must still preserve the controlled launch environment.
+            popen=lambda argv: subprocess.Popen(argv, env=launch_env.env),
         )
     except LaunchExecError as exc:
         result = RhinoHarnessResult(

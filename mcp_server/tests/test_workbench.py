@@ -216,6 +216,48 @@ async def test_launch_success_registers_owned(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_launch_success_uses_built_launch_env_and_returns_evidence(monkeypatch):
+    from types import SimpleNamespace
+
+    launch_envs: list[dict[str, str]] = []
+    report = {
+        "authoritative": {
+            "SystemDrive": "C:",
+            "SystemRoot": r"C:\Windows",
+            "windir": r"C:\Windows",
+        },
+        "backfilled": {"ProgramData": r"C:\ProgramData"},
+        "inherited": {"PATH": r"C:\Tools"},
+        "missing_unresolved": [],
+        "fallback_used": [],
+    }
+    fake_env = SimpleNamespace(
+        env={"windir": r"C:\Windows", "SystemRoot": r"C:\Windows", "SystemDrive": "C:", "PATH": r"C:\Tools"},
+        report=report,
+    )
+
+    monkeypatch.setattr(workbench, "build_launch_env", lambda base_env: fake_env)
+    monkeypatch.setattr(
+        workbench.subprocess,
+        "Popen",
+        lambda command, **kwargs: launch_envs.append(kwargs["env"]) or _FakeProc(7778),
+    )
+    monkeypatch.setattr(workbench.Path, "exists", lambda self: True)
+    monkeypatch.setattr(workbench.asyncio, "to_thread", _sync_to_thread)
+    monkeypatch.setattr(
+        workbench.OwnedRhinoDiscovery,
+        "wait_for_ready",
+        lambda self, *a, **k: _record(7778, port=64001),
+    )
+
+    out = await workbench.launch_owned_workbench(readiness_timeout_seconds=5)
+
+    assert out["success"] is True
+    assert launch_envs == [fake_env.env]
+    assert out["data"]["evidence"]["launchEnv"] == report
+
+
+@pytest.mark.asyncio
 async def test_launch_exe_missing(monkeypatch):
     monkeypatch.setattr(workbench.Path, "exists", lambda self: False)
     out = await workbench.launch_owned_workbench()
@@ -251,6 +293,45 @@ async def test_launch_failure_maps_reason_to_code(monkeypatch, reason, code):
     assert out["data"]["retryable"] is True   # all launch DiscoveryError reasons are retryable
     assert 8888 not in workbench._OWNED        # failed launch never registered
     assert reaped == [8888]                    # EVERY failed launch is reaped (incl. bind timeout)
+
+
+@pytest.mark.asyncio
+async def test_launch_failure_returns_launch_env_evidence(monkeypatch):
+    from types import SimpleNamespace
+
+    report = {
+        "authoritative": {
+            "SystemDrive": "C:",
+            "SystemRoot": r"C:\Windows",
+            "windir": r"C:\Windows",
+        },
+        "backfilled": {},
+        "inherited": {"PATH": r"C:\Tools"},
+        "missing_unresolved": [],
+        "fallback_used": [],
+    }
+    fake_env = SimpleNamespace(
+        env={"windir": r"C:\Windows", "SystemRoot": r"C:\Windows", "SystemDrive": "C:", "PATH": r"C:\Tools"},
+        report=report,
+    )
+
+    monkeypatch.setattr(workbench, "build_launch_env", lambda base_env: fake_env)
+    monkeypatch.setattr(workbench.subprocess, "Popen", lambda command, **kwargs: _FakeProc(8891))
+    monkeypatch.setattr(workbench.Path, "exists", lambda self: True)
+    monkeypatch.setattr(workbench, "describe_windows_for_pid", lambda pid: [])
+    monkeypatch.setattr(workbench, "force_owned_process_cleanup", lambda p, d: True)
+    monkeypatch.setattr(workbench.asyncio, "to_thread", _sync_to_thread)
+
+    def raise_wfr(self, *a, **k):
+        raise DiscoveryError("boom", reason=DiscoveryFailureReason.EXITED_BEFORE_BIND)
+
+    monkeypatch.setattr(workbench.OwnedRhinoDiscovery, "wait_for_ready", raise_wfr)
+
+    out = await workbench.launch_owned_workbench()
+
+    assert out["success"] is False
+    assert out["data"]["code"] == "workbench_exited_before_bind"
+    assert out["data"]["evidence"]["launchEnv"] == report
 
 
 @pytest.mark.asyncio
