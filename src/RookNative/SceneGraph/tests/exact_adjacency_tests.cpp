@@ -309,9 +309,44 @@ static void test_i() {
     }
 }
 
+// test_j — TILTED (non-axis-aligned) plane end-to-end. All other cases use
+// axis-aligned planes ({±1,0,0} etc.); this exercises the projection/basis/area
+// math on a real-world angled plane (angled walls / sloped slabs).
+//
+// Plane normal n = (s, s, 0) with s = 1/sqrt(2) — a 45° plane through the world
+// origin. In-plane orthonormal axes: e1 = (-s, s, 0) (perpendicular to n, in XY),
+// e2 = (0,0,1). A unit square (side 1, area 1) centered at the origin has corners
+// O + a*e1 + b*e2 for (a,b) in {(-.5,-.5),(.5,-.5),(.5,.5),(-.5,.5)}.
+//
+// Faces A and B use these SAME 4 coplanar corner points but opposite outward
+// normals (A: +n, B: -n). Sign-folding maps +n and -n to the identical
+// canonicalPlane (n leads with +s -> stays; -n leads with -s -> negated to +n),
+// so they are coplanar; the opposing-normal gate uses the raw normals -> opposing.
+// Full overlap => exactly 1 edge with sharedArea ≈ 1.0 (the square's true area).
+static void test_j() {
+    const double s = 1.0 / std::sqrt(2.0);
+    const P3 e1 = { -s, s, 0.0 };   // in-plane, perpendicular to n, in XY plane
+    const P3 e2 = { 0.0, 0.0, 1.0 };
+    auto corner = [&](double a, double b) -> P3 {
+        return { a * e1[0] + b * e2[0],
+                 a * e1[1] + b * e2[1],
+                 a * e1[2] + b * e2[2] };
+    };
+    Loop sq = { corner(-0.5, -0.5), corner(0.5, -0.5),
+                corner(0.5, 0.5),  corner(-0.5, 0.5) };
+
+    ObjectFaceSummary A = makeFaceObject("A", { s, s, 0.0 }, { sq });
+    ObjectFaceSummary B = makeFaceObject("B", { -s, -s, 0.0 }, { sq });
+
+    PlanarAdjacencyEngine eng;
+    ExactAdjacencyCore r = eng.Evaluate(A, { B }, 1e-3);
+    CHECK(r.edges.size() == 1);
+    if (r.edges.size() == 1) CHECK_NEAR(r.edges[0].sharedArea, 1.0, 1e-6);
+}
+
 int main(){
     test_a(); test_b(); test_c(); test_d(); test_e(); test_f(); test_g();
-    test_h(); test_i();
+    test_h(); test_i(); test_j();
     printf("%d failure(s)\n", g_failures);
     return g_failures ? 1 : 0;
 }

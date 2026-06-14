@@ -114,10 +114,17 @@ double faceOverlapArea(const PlanarFace& fa,
     using namespace Clipper2Lib;
 
     if (fa.loops.empty() || fb.loops.empty()) return 0.0;
-    if (fa.loops[0].empty()) return 0.0;
+    if (fa.loops[0].empty() || fb.loops[0].empty()) return 0.0;
 
     // Basis from the canonical (folded) plane normal of fa.
     Vec3 n = { fa.canonicalPlane[0], fa.canonicalPlane[1], fa.canonicalPlane[2] };
+    // Degenerate-normal guard: a near-zero canonical normal would make buildBasis
+    // produce a zero v and a silently-wrong area. Surface it as a diagnostic skip,
+    // consistent with the range-guard pattern below.
+    if (norm3(n) < kNormalTol) {
+        diagnostics.push_back("degenerate_normal:" + sourceId + "|" + targetId);
+        return 0.0;
+    }
     Vec3 u, v;
     buildBasis(n, u, v);
 
@@ -168,13 +175,20 @@ double faceOverlapArea(const PlanarFace& fa,
         return 0.0;
     }
 
-    ClipperD clipper(kClipperPrecision);
-    clipper.AddSubject(subject);
-    clipper.AddClip(clip);
-    PathsD solution;
-    clipper.Execute(ClipType::Intersection, FillRule::NonZero, solution);
-
-    return Area(solution);  // net (holes subtract) given correct orientation
+    // Clipper2 throws Clipper2Lib::Clipper2Exception via DoError when exceptions
+    // are enabled. Catch it here so it never propagates into the HTTP layer.
+    try {
+        ClipperD clipper(kClipperPrecision);
+        clipper.AddSubject(subject);
+        clipper.AddClip(clip);
+        PathsD solution;
+        clipper.Execute(ClipType::Intersection, FillRule::NonZero, solution);
+        return Area(solution);  // net (holes subtract) given correct orientation
+    } catch (const Clipper2Lib::Clipper2Exception& ex) {
+        diagnostics.push_back(std::string("clipper_exception:") + ex.what() +
+                              "|" + sourceId + "|" + targetId);
+        return 0.0;
+    }
 }
 
 } // anonymous namespace
