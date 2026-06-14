@@ -39,30 +39,44 @@ designed-for (pluggable engine) but flagged-unsupported in v1.
 
 ---
 
-## Task 0: Confirm test harness + Clipper2 fetch source (no code)
+## Task 0: Locate test harness + Clipper2 source (investigation, no commit)
 
-**Files:** none (investigation)
+**Files:** none. **Use Windows-native commands (`rg`, PowerShell).**
 
-- [ ] **Step 1:** Search for the existing native test pattern.
-  Run: `grep -ril "test" src/RookNative --include=*.vcxproj; ls src/RookNative` and
-  check `scripts/` for a test runner. Record: is there a native unit-test project, or
-  do we add a small standalone test exe for the pure engine?
-- [ ] **Step 2:** Confirm Clipper2 acquisition: target the latest Clipper2 C++
-  release (`AngusJohnson/Clipper2`, `CPP/` tree: `clipper.core.h`, `clipper.engine.*`,
-  `clipper.h`, `clipper.offset.*` — we need core + engine only). Record exact version.
-- [ ] **Step 3:** No commit (investigation only). Decide engine-test placement based
-  on Step 1; the engine is pure so a standalone test exe is acceptable if no harness.
+- [ ] **Step 1 (Finding 6):** find any native test target:
+  `rg -l -i "gtest|catch2|doctest|CppUnitTest" src/RookNative` and
+  `Get-ChildItem -Recurse src/RookNative -Filter *.vcxproj | Select-String -Pattern "test"`.
+  Record whether a native unit-test project/framework exists.
+- [ ] **Step 2 — define the engine test target (Finding 4):** the engine is pure (no
+  Rhino). If a harness exists, follow it. If NONE exists, the plan creates a standalone
+  target: test file `src/RookNative/SceneGraph/tests/exact_adjacency_tests.cpp` +
+  `ExactAdjacencyTests.vcxproj` (console exe, links only the engine + Clipper2 units),
+  built via `cmd /c msbuild ExactAdjacencyTests.vcxproj` (or the repo's chosen runner).
+  Record the exact files + build command — Task 3 creates them (new test .vcxproj is
+  AUTHORIZED).
+- [ ] **Step 3 — Clipper2 source:** fetch the FULL `CPP/Clipper2Lib/include/clipper2/`
+  header tree + `CPP/Clipper2Lib/src/` from `AngusJohnson/Clipper2`; record version.
+  Note: `clipper.h` transitively includes offset/rectclip/minkowski/triangulation —
+  Task 1 includes engine/core headers DIRECTLY and compiles only the minimal `.cpp` set.
+- [ ] No commit (investigation only).
 
 ## Task 1: Vendor Clipper2 (AUTHORIZED dependency step)
 
 **Files:** Create `src/RookNative/vendor/clipper2/*`; Modify `vendor/versions.txt`
 
-- [ ] **Step 1:** Copy Clipper2 `CPP/Clipper2Lib/{include,src}` into
-  `src/RookNative/vendor/clipper2/`. Include only `clipper.core.*`, `clipper.engine.*`,
-  `clipper.h` (NOT triangulation/offset units we don't use).
-- [ ] **Step 2:** Append to `src/RookNative/vendor/versions.txt`:
+- [ ] **Step 1 (Finding 3):** copy the FULL `CPP/Clipper2Lib/include/clipper2/` header
+  tree into `src/RookNative/vendor/clipper2/include/` (headers cross-reference; do not
+  prune them) and `CPP/Clipper2Lib/src/` into `.../src/`. Our code includes
+  `clipper2/clipper.engine.h` + `clipper.core.h` **directly** (avoid `clipper.h`, which
+  pulls offset/rectclip/minkowski/triangulation).
+- [ ] **Step 2 (AUTHORIZED .vcxproj):** add to `RookNative.vcxproj` (+ `.filters`) ONLY
+  the `.cpp` units actually required to link `Intersect`+`Area` — begin with
+  `clipper.engine.cpp` (+ `clipper.rectclip.cpp` if the linker requires it); do NOT add
+  offset/triangulation/minkowski units. Prove the minimal set by compiling a scratch
+  `Intersect`+`Area` smoke; if a unit is undefined-at-link, add it and re-record.
+- [ ] **Step 3:** Append to `vendor/versions.txt`:
   `clipper2 <version> — Boost Software License 1.0 — 2D polygon boolean (Intersect/Area)`.
-- [ ] **Step 3:** Commit. `git commit -m "deps: vendor Clipper2 (BSL-1.0) for 2D polygon boolean"`
+  Commit. `git commit -m "deps: vendor Clipper2 (BSL-1.0) + minimal compiled units"`
 
 ## Task 2: Plain DTOs
 
@@ -119,15 +133,19 @@ assert(approx(r.edges[0].sharedArea, expectedArea));
   CW), build Clipper2 `PathsD` (precision `kClipperPrecision`), **range-guard** scaled
   coords (on overflow → diagnostic + skip pair), `Intersect(a,b,FillRule::NonZero)`,
   return `Area(result)` (net; holes subtract). See spec §5.
-- [ ] **Step 3:** Implement `Evaluate`: for each candidate, for each coplanar +
-  opposing-normal eligible face pair, sum `faceOverlapArea > kAreaTol`; build
-  `ExactEdge`s; roll up `Capability` per spec §5 precedence (Mesh/SubD →
-  `UnsupportedGeometry`; none-eligible → `CoarseFallbackExactUnsupported`; some →
-  `PartialExactUnsupported`; all → `ExactPlanar`); populate `ExactAdjacencyCore`
-  (`candidateCount`, diagnostics with reason codes).
+- [ ] **Step 3 (Finding 5 — engine does NOT classify geometry):** implement `Evaluate`
+  consuming the per-object `capability` ALREADY assigned by extraction (Task 7). The
+  engine only: (a) evaluates eligible planar face pairs (coplanar + opposing-normal),
+  summing `faceOverlapArea > kAreaTol` into `ExactEdge`s; (b) sets each candidate's
+  `capability = min(source.capability, candidate.capability)`; (c) populates
+  `ExactAdjacencyCore` (`candidateCount`, engine diagnostics). It must NOT re-derive
+  Mesh/SubD/curved/malformed — that ownership is extraction's.
 - [ ] **Step 4:** Run tests → PASS. Iterate on precision/orientation until (e) hole
   and (f) concave cases match expected areas.
-- [ ] **Step 5:** Commit. `git commit -m "feat(scene): planar adjacency engine via Clipper2"`
+- [ ] **Step 5 (Finding 1 — add unit to project WITH the task that creates it):** add
+  `PlanarAdjacencyEngine.{cpp,h}` (+ `ExactAdjacencyTypes.h`) and, if created in Task 0,
+  the test `.vcxproj` to `RookNative.vcxproj`/`.filters` (AUTHORIZED). Build green, then
+  commit. `git commit -m "feat(scene): planar adjacency engine via Clipper2"`
 
 ## Task 5: CSceneGraph::QueryCandidatesAsync (processor-thread read)
 
@@ -160,7 +178,9 @@ assert(approx(r.edges[0].sharedArea, expectedArea));
 - [ ] **Step 2:** Cache: `std::unordered_map<CacheKey, ExactAdjacencyCore>` guarded by
   a mutex; drop ALL entries when `graphSequence` advances (compare to last-seen).
   Stores the CORE only — never coarse (type-enforced via `ExactAdjacencyCore`).
-- [ ] **Step 3:** Build + commit. `git commit -m "feat(scene): ExactAdjacencyService orchestration + core cache"`
+- [ ] **Step 3 (Finding 1):** add `ExactAdjacencyService.{cpp,h}` to
+  `RookNative.vcxproj`/`.filters` (AUTHORIZED) so the unit links. Build green, then
+  commit. `git commit -m "feat(scene): ExactAdjacencyService orchestration + core cache"`
 
 ## Task 7: Main-thread face extraction (Rhino → plain structs)
 
@@ -172,14 +192,19 @@ assert(approx(r.edges[0].sharedArea, expectedArea));
   normal (`outwardNormal`), `canonicalPlane` (sign-folded), outer+inner loops as
   `array<double,3>` lists; mark non-eligible faces with reason codes
   (`curved`/`unoriented`/`malformed`). **No Rhino SDK pointers escape** — only the
-  plain `ObjectFaceSummary` is returned. Roll up object `Capability` (spec §5 precedence).
+  plain `ObjectFaceSummary` is returned. Roll up object `Capability` (spec §5
+  precedence). **Extraction is the SOLE owner of object-capability classification +
+  reason-code diagnostics; the engine never re-derives them (Finding 5).**
 - [ ] **Step 2:** Enforce face-count cap + extraction budget; on exceed → diagnostic
   + `FailedWithDiagnostics` for that object.
 - [ ] **Step 3:** Build + commit. `git commit -m "feat(scene): main-thread Brep face-summary extraction"`
 
 ## Task 8: HTTP route + coarse decoration
 
-**Files:** Modify the scene-graph HTTP handler (`SceneGraphHandler.cpp` or owner)
+**Files (Finding 2 — all three):** Modify `src/RookNative/Handlers/SceneGraphHandler.h`
+(declare the handler method, near `:13`), `src/RookNative/Handlers/SceneGraphHandler.cpp`
+(implement), and `src/RookNative/RookServer.cpp` (register the route near the other
+scene-graph route registrations, `~:1766`).
 
 - [ ] **Step 1:** Register `POST /scene/graph/adjacency/exact`. Parse
   `{objectId, maxCandidates?, tolerance?, includeCoarse?}` (defaults from spec).
@@ -191,15 +216,18 @@ assert(approx(r.edges[0].sharedArea, expectedArea));
   `candidateCount`, `candidateLimit`, `totalCandidateCount`, `diagnostics`). Commit.
   `git commit -m "feat(api): POST /scene/graph/adjacency/exact overlay route"`
 
-## Task 9: Project-file inclusion (AUTHORIZED .vcxproj edit)
+## Task 9: Final project-file verification (units added per-task in Tasks 1/4/6)
 
-**Files:** Modify `src/RookNative/RookNative.vcxproj` + `.filters`
+> Project-file edits now happen WITH each unit-creating task (Finding 1), so by here
+> everything links. This task is the consolidation/verification pass.
 
-- [ ] **Step 1:** Add `<ClCompile>`/`<ClInclude>` entries for: Clipper2 `src/*.cpp` +
-  headers, `PlanarAdjacencyEngine.cpp/.h`, `ExactAdjacencyService.cpp/.h`,
-  `ExactAdjacencyTypes.h`. Mirror in `.filters`.
-- [ ] **Step 2:** Build: `cmd /c scripts\build-native.bat`. Expected: clean compile/link.
-- [ ] **Step 3:** Commit. `git commit -m "build: include exact-adjacency + Clipper2 units in RookNative.vcxproj"`
+- [ ] **Step 1:** Confirm `.filters` groups the new units sensibly (SceneGraph/,
+  vendor/clipper2/) and that NO offset/triangulation/minkowski Clipper2 `.cpp` snuck
+  into the project (only the minimal linked set from Task 1).
+- [ ] **Step 2:** Clean full build: `cmd /c scripts\build-native.bat`. Expected: clean
+  compile + link, no warnings about the new units.
+- [ ] **Step 3:** Commit any `.filters`/project tidy.
+  `git commit -m "build: tidy exact-adjacency + Clipper2 project layout"`
 
 ## Task 10: Live-Rhino integration smoke (deploy + exercise)
 
