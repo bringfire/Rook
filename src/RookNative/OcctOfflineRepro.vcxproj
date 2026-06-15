@@ -26,7 +26,7 @@
     <UseDebugLibraries>false</UseDebugLibraries>
     <PlatformToolset>v143</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
-    <WholeProgramOptimization>false</WholeProgramOptimization>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
   </PropertyGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
@@ -50,7 +50,10 @@
       <PreprocessorDefinitions>NDEBUG;NOMINMAX;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <Optimization>Disabled</Optimization>
+      <!-- Exp 1: /O2 + inlining (GL stays OFF for ASan) to expose opt-sensitive UB. -->
+      <Optimization>MaxSpeed</Optimization>
+      <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <!-- /RTC is ASan-incompatible; ensure it is OFF. -->
       <BasicRuntimeChecks>Default</BasicRuntimeChecks>
@@ -58,14 +61,17 @@
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>false</SDLCheck>
       <ConformanceMode>true</ConformanceMode>
-      <!-- /fsanitize=address: the whole point. /bigobj for the heavy OCCT TUs. -->
-      <AdditionalOptions>/fsanitize=address /bigobj %(AdditionalOptions)</AdditionalOptions>
+      <!-- Exp 2: ASan OFF, /GL ON (WholeProgramOptimization) to match deployed Release codegen. -->
+      <WholeProgramOptimization>true</WholeProgramOptimization>
+      <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <!-- ASan needs incremental linking OFF. -->
+      <!-- ASan needs incremental linking OFF (and so does LTCG). -->
       <LinkIncremental>false</LinkIncremental>
+      <!-- Exp 2: LTCG to match deployed Release link. -->
+      <LinkTimeCodeGeneration>UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
       <AdditionalLibraryDirectories>C:\Users\aryan\source\repos\OCCT\build-rook\win64\vc14\lib;$(RhinoSdkDir)lib\Release;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <!-- OCCT MODELING subset + STEP reader (OcctProbe.cpp::ReadStep, not on the
            Evaluate path but in the linked TU) + openNURBS. -->
