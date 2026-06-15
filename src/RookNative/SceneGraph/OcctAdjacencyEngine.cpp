@@ -49,7 +49,9 @@
 #include <TopoDS_Face.hxx>
 #include <BRepBndLib.hxx>
 #include <Bnd_Box.hxx>
+#include <Standard_Failure.hxx>
 
+#include <exception>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -82,10 +84,32 @@ Capability CapabilityFromConversion(const OcctFaceSet& fs) {
 }
 
 // Bounding box of an OCCT face. Returned by value (Bnd_Box is copyable).
-Bnd_Box FaceBox(const TopoDS_Face& f) {
-    Bnd_Box box;
-    BRepBndLib::Add(f, box);
-    return box;
+//
+// CRASH BOUNDARY: BRepBndLib::Add is the ONE OCCT call in the broad phase that is
+// NOT inside SharedFaceArea's guard. On a face that converted to a non-null
+// TopoDS_Face but carries degenerate / missing internal geometry (no triangulation,
+// a null Geom handle along the bbox path), BRepBndLib::Add can fault with a
+// null-pointer WRITE; OCCT's OSD::SetSignal translator turns that access violation
+// into a Standard_Failure. If it escaped here it would propagate straight out of
+// Evaluate (this was the observed `evaluate_failed: ACCESS VIOLATION ... WRITE`).
+// Guard it: on ANY failure return a VOID (empty) Bnd_Box. A void box is treated by
+// Bnd_Box::IsOut as "always overlapping" (IsOut returns false), so the prefilter
+// CANNOT false-skip the pair — it conservatively falls through to the narrow phase,
+// which runs under SharedFaceArea's own crash guard. `failed` is set so the caller
+// can record an honest `engine:` diagnostic. Never crashes.
+Bnd_Box FaceBox(const TopoDS_Face& f, bool& failed) {
+    failed = false;
+    try {
+        Bnd_Box box;
+        BRepBndLib::Add(f, box);
+        return box;
+    } catch (const Standard_Failure&) {
+        failed = true;
+        return Bnd_Box();   // void box -> IsOut == false -> never skipped
+    } catch (...) {
+        failed = true;
+        return Bnd_Box();
+    }
 }
 
 } // namespace
@@ -111,6 +135,15 @@ ExactAdjacencyCore OcctAdjacencyEngine::Evaluate(
         return core;
     }
 
+    // ── OUTER CRASH BOUNDARY ──────────────────────────────────────────────
+    // Every OCCT call below is individually guarded (ConvertBrepFaces guards
+    // per face, FaceBox guards each bbox, SharedFaceArea guards each pair). This
+    // outer guard is the backstop: if any OCCT fault still escapes an inner guard
+    // (or an OCCT global-state fault fires between calls), it must NOT propagate
+    // out of Evaluate as an access violation. It degrades to a diagnostic on the
+    // partially-built core. The whole point is honest degradation, never a crash.
+    try {
+
     // ── Convert source once; derive its capability from the conversion. ──
     OcctFaceSet srcFs = ConvertBrepFaces(*source.brep);
     core.sourceCapability = CapabilityFromConversion(srcFs);
@@ -119,11 +152,17 @@ ExactAdjacencyCore OcctAdjacencyEngine::Evaluate(
 
     const int srcCount = srcFs.faceCount();
 
-    // Precompute source face bounding boxes.
+    // Precompute source face bounding boxes (guarded; a failed box stays void
+    // so the prefilter never false-skips that face's pairs).
     std::vector<Bnd_Box> srcBoxes;
     srcBoxes.reserve(static_cast<size_t>(srcCount));
-    for (int s = 0; s < srcCount; ++s)
-        srcBoxes.push_back(FaceBox(OcctFaceAt(srcFs, s)));
+    for (int s = 0; s < srcCount; ++s) {
+        bool boxFailed = false;
+        srcBoxes.push_back(FaceBox(OcctFaceAt(srcFs, s), boxFailed));
+        if (boxFailed)
+            core.diagnostics.push_back(
+                "engine:bbox_failed:source_face:" + std::to_string(srcFs.sourceFaceIndex(s)));
+    }
 
     // ── Per-candidate evaluation. ──
     for (const ObjectBrepPayload& cand : candidates) {
@@ -148,11 +187,18 @@ ExactAdjacencyCore OcctAdjacencyEngine::Evaluate(
                 "cand:" + cand.objectId + ":convert_failed_face:" + std::to_string(fi));
         const int candCount = candFs.faceCount();
 
-        // Precompute candidate face bounding boxes.
+        // Precompute candidate face bounding boxes (guarded; same conservative
+        // void-box-on-failure policy as the source side).
         std::vector<Bnd_Box> candBoxes;
         candBoxes.reserve(static_cast<size_t>(candCount));
-        for (int c = 0; c < candCount; ++c)
-            candBoxes.push_back(FaceBox(OcctFaceAt(candFs, c)));
+        for (int c = 0; c < candCount; ++c) {
+            bool boxFailed = false;
+            candBoxes.push_back(FaceBox(OcctFaceAt(candFs, c), boxFailed));
+            if (boxFailed)
+                core.diagnostics.push_back(
+                    "engine:bbox_failed:cand:" + cand.objectId + ":face:" +
+                    std::to_string(candFs.sourceFaceIndex(c)));
+        }
 
         double edgeArea = 0.0;
         std::vector<FacePair> facePairs;
@@ -195,6 +241,17 @@ ExactAdjacencyCore OcctAdjacencyEngine::Evaluate(
         }
         // No-edge on an ExactBrep source with a non-touching candidate is NOT an
         // error — emit no diagnostic.
+    }
+
+    } catch (const Standard_Failure& e) {
+        const char* msg = e.what();
+        core.diagnostics.push_back(
+            std::string("engine:evaluate_caught:") + (msg ? msg : "Standard_Failure"));
+    } catch (const std::exception& e) {
+        core.diagnostics.push_back(
+            std::string("engine:evaluate_caught:") + (e.what() ? e.what() : "std::exception"));
+    } catch (...) {
+        core.diagnostics.push_back("engine:evaluate_caught:unknown");
     }
 
     return core;

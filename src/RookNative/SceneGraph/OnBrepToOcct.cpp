@@ -111,9 +111,22 @@ OcctFaceSet::Impl* OcctFaceSet::impl() { return m_impl.get(); }
 const OcctFaceSet::Impl* OcctFaceSet::impl() const { return m_impl.get(); }
 
 // OCCT-aware internal accessor (declared in OnBrepToOcct_internal.h). Defined
-// here where OcctFaceSet::Impl is a complete type. Additive; no behavior change.
+// here where OcctFaceSet::Impl is a complete type.
+//
+// Returns a STABLE reference: faces live in a std::vector<TopoDS_Face>, so the
+// reference is valid for the lifetime of the set (no dangling, no iteration).
+// Defensive bounds/null guard (belt-and-suspenders): the engine guarantees slot
+// is in [0, faceCount()), but a stale/out-of-range slot would otherwise index
+// past the vector — UB that can surface as a null-pointer access downstream. On
+// a bad slot, return a stable static null TopoDS_Face: BRepBndLib::Add and
+// BRepAlgoAPI_Common both treat a null shape as empty (no fault), so the engine
+// degrades to "no overlap" rather than crashing.
 const TopoDS_Face& OcctFaceAt(const OcctFaceSet& set, int slot) {
-    return set.impl()->faces[static_cast<size_t>(slot)];
+    static const TopoDS_Face kNullFace;  // empty/null shape, stable address
+    const OcctFaceSet::Impl* impl = set.impl();
+    if (!impl || slot < 0 || slot >= static_cast<int>(impl->faces.size()))
+        return kNullFace;
+    return impl->faces[static_cast<size_t>(slot)];
 }
 
 namespace {
