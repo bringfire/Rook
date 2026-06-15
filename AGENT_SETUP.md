@@ -46,6 +46,11 @@ Before starting, verify the user has:
 | **Rhino 8** (Windows) | `where rhinoceros` or ask the user | Yes |
 | **Python 3.10+** | `python --version` or `python3 --version` or `py -3 --version` | Yes (installer) |
 
+> **Don't have a CLI agent installed yet?** Use its official native installer (Windows):
+>
+> - **Claude Code** — PowerShell: `irm https://claude.ai/install.ps1 | iex` (or `winget install Anthropic.ClaudeCode`) · [quickstart](https://code.claude.com/docs/en/quickstart)
+> - **Codex CLI** — PowerShell: `powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1 | iex"` (or `npm install -g @openai/codex`) · [repo](https://github.com/openai/codex)
+
 ## Installation
 
 1. Download the latest `Rook-Setup-<version>.exe` from:
