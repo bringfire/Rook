@@ -81,6 +81,18 @@ class TestAlignPositions:
         ys = [r["y"] for r in result]
         assert ys == [30, 70, 110]
 
+    def test_skips_malformed_entries_and_accepts_pascal_case(self):
+        comps = [
+            ["not", "a", "component"],
+            {"Guid": "a", "Position": {"X": 10, "Y": 20}, "Size": {"Width": 100, "Height": 40}},
+            {"guid": "b", "position": ["bad"], "size": ["bad"]},
+        ]
+
+        result = align_positions(comps, "left", "first")
+
+        assert [r["guid"] for r in result] == ["a", "b"]
+        assert {r["x"] for r in result} == {10}
+
 
 # ---------------------------------------------------------------------------
 # distribute_positions
@@ -133,6 +145,18 @@ class TestDistributePositions:
         assert result_by_guid["c0"]["y"] == 10
         assert result_by_guid["c1"]["y"] == 20
         assert result_by_guid["c2"]["y"] == 30
+
+    def test_skips_malformed_entries_and_accepts_pascal_case(self):
+        comps = [
+            {"Guid": "a", "Position": {"X": 0, "Y": 10}, "Size": {"Width": 100, "Height": 40}},
+            ["not", "a", "component"],
+            {"guid": "b", "position": {"x": 200, "y": 20}, "size": ["bad"]},
+        ]
+
+        result = distribute_positions(comps, "horizontal", spacing=20)
+
+        assert [r["guid"] for r in result] == ["a", "b"]
+        assert [r["x"] for r in result] == [0, 120]
 
 
 # ---------------------------------------------------------------------------
@@ -199,3 +223,33 @@ class TestStraightenWires:
         result = straighten_wire_positions(comps, conns, target_guids=["b"])
         result_guids = {r["guid"] for r in result}
         assert "c" not in result_guids
+
+    def test_bridge_pascal_case_connections_and_list_wrappers(self):
+        comps = [
+            {"Guid": "src", "Name": "Source",
+             "Position": {"X": 0, "Y": 50},
+             "Size": {"Width": 100, "Height": 40}},
+            ["not", "a", "component"],
+            {"Guid": "dst", "Name": "Dest",
+             "Position": {"X": 200, "Y": 200},
+             "Size": {"Width": 80, "Height": 40}},
+        ]
+        conns = {
+            "dst": [
+                {
+                    "Inputs": [
+                        {
+                            "Sources": [
+                                {"ComponentGuid": "src"},
+                            ],
+                        },
+                    ],
+                },
+            ],
+        }
+
+        result = straighten_wire_positions(comps, conns)
+
+        result_by_guid = {r["guid"]: r for r in result}
+        assert "dst" in result_by_guid
+        assert result_by_guid["dst"]["y"] == pytest.approx(50)

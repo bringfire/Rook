@@ -23,7 +23,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
 
-from .sugiyama import Edge, Node, SugiyamaLayout
+from .sugiyama import Edge, Node, SugiyamaLayout, _get_any, _iter_dicts
 
 
 @dataclass
@@ -141,18 +141,20 @@ class CanvasLayout:
 
         Handles both PascalCase (from C# endpoint) and lowercase keys.
         """
-        for g in groups:
+        for g in _iter_dicts(groups):
             # C# serializes with camelCase: Guid→guid, NickName→nickName, etc.
-            guid = g.get("guid") or g.get("Guid", "")
+            guid = _get_any(g, "guid", "Guid", default="")
             if not guid:
                 continue
-            members = g.get("members") or g.get("Members", [])
+            members = _get_any(g, "members", "Members", default=[])
+            if not isinstance(members, list):
+                members = []
             self.groups[guid] = GroupInfo(
                 guid=guid,
-                nickname=g.get("nickName") or g.get("NickName") or g.get("nickname", ""),
+                nickname=_get_any(g, "nickName", "NickName", "nickname", default=""),
                 member_guids=[m for m in members if m in self.nodes],
-                colour=g.get("colour") or g.get("Colour", ""),
-                bounds=g.get("bounds") or g.get("Bounds"),
+                colour=_get_any(g, "colour", "Colour", default=""),
+                bounds=_get_any(g, "bounds", "Bounds"),
             )
 
     # ------------------------------------------------------------------

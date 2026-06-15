@@ -103,6 +103,48 @@ class TestCanvasLayoutPipeline:
         layout.run(comps, conns)
         assert layout.num_layers >= 5
 
+    def test_bridge_connection_lists_do_not_crash_layout(self):
+        """List-shaped bridge fields should be ignored or normalized safely."""
+        comps = [
+            {"guid": "a", "name": "A", "position": {"x": 0, "y": 0}, "size": {"width": 100, "height": 40}},
+            {"guid": "b", "name": "B", "position": {"x": 200, "y": 0}, "size": {"width": 100, "height": 40}},
+        ]
+        conns = {
+            "a": [
+                {
+                    "Outputs": [
+                        {
+                            "Recipients": [
+                                {"ComponentGuid": "b"},
+                            ],
+                        },
+                    ],
+                }
+            ],
+            "b": {"Inputs": [{"Sources": [{"ComponentGuid": "a"}]}], "Outputs": []},
+        }
+
+        layout = CanvasLayout()
+        result = layout.run(comps, conns)
+
+        assert set(result) == {"a", "b"}
+        assert result["a"]["x"] < result["b"]["x"]
+
+    def test_non_dict_canvas_entries_are_skipped(self):
+        """Malformed list entries from snapshots should not reach .get calls."""
+        comps = [
+            ["not", "a", "component"],
+            {"guid": "a", "name": "A", "position": ["bad"], "size": ["bad"]},
+        ]
+        conns = {"a": {"outputs": [["not", "a", "connection"]]}}
+        groups = [["not", "a", "group"], {"guid": "g1", "members": ["a"]}]
+
+        layout = CanvasLayout()
+        result = layout.run(comps, conns, groups=groups)
+
+        assert set(result) == {"a"}
+        assert "g1" in layout.groups
+
 
 # ---------------------------------------------------------------------------
 # Collision detection

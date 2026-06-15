@@ -63,7 +63,17 @@ from .learning.command_consolidator import CommandTieringSystem
 from .learning.dspy_config import configure_dspy, is_configured
 from .learning.sugiyama import SugiyamaLayout
 from .learning.canvas_layout import CanvasLayout, LayoutSettings
-from .learning.canvas_align import align_positions, distribute_positions, straighten_wire_positions
+from .learning.canvas_align import (
+    align_positions,
+    canvas_objects_from_payload,
+    component_guid as canvas_component_guid,
+    connection_inputs_from_payload,
+    connection_param_name,
+    connection_source_guid,
+    connection_sources_from_input,
+    distribute_positions,
+    straighten_wire_positions,
+)
 from .learning.phase_tracker import get_phase_tracker
 from .learning.knowledge_injector import should_inject, inject_knowledge, record_injection_success
 from .learning.unified_store import get_unified_store
@@ -14916,7 +14926,9 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                                     continue
 
                                 canvas_state = query_result.get("data", {})
-                                objects = canvas_state.get("objects", [])
+                                objects = canvas_objects_from_payload(canvas_state)
+                                if not isinstance(canvas_state, dict):
+                                    canvas_state = {"objects": objects}
                                 if not objects:
                                     failed += 1
                                     errors.append({"file": gh_file.name, "error": "No objects on canvas"})
@@ -14925,24 +14937,24 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                                 # Get connection data for each component (same as gh_extract_recipe)
                                 connections_data = {}
                                 for obj in objects:
-                                    guid = obj.get("guid")
+                                    guid = canvas_component_guid(obj)
                                     if guid:
                                         conn_result = await call_rhino("/gh/connections", "GET", {"guid": guid}, port=port)
                                         if conn_result.get("success"):
                                             comp_data = conn_result.get("data", {})
-                                            if "inputs" in comp_data:
-                                                transformed_inputs = []
-                                                for inp in comp_data["inputs"]:
-                                                    transformed_sources = []
-                                                    for src in inp.get("sources", []):
-                                                        transformed_sources.append({
-                                                            "guid": src.get("componentGuid", ""),
-                                                            "param": src.get("paramNickName") or src.get("paramName", "output"),
-                                                        })
-                                                    transformed_inputs.append({
-                                                        "name": inp.get("paramNickName") or inp.get("paramName", ""),
-                                                        "sources": transformed_sources,
+                                            transformed_inputs = []
+                                            for inp in connection_inputs_from_payload(comp_data):
+                                                transformed_sources = []
+                                                for src in connection_sources_from_input(inp):
+                                                    transformed_sources.append({
+                                                        "guid": connection_source_guid(src),
+                                                        "param": connection_param_name(src, "output"),
                                                     })
+                                                transformed_inputs.append({
+                                                    "name": connection_param_name(inp),
+                                                    "sources": transformed_sources,
+                                                })
+                                            if transformed_inputs:
                                                 connections_data[guid] = {"inputs": transformed_inputs}
 
                                 # Extract recipe data
@@ -15046,30 +15058,36 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
             # Step 1: Query all canvas objects
             query_result = await call_rhino("/gh/query", "GET", {}, port)
             if not query_result.get("success"):
-                return [TextContent(
-                    type="text",
-                    text=json.dumps({"error": "Failed to query canvas", "details": query_result})
-                )]
+                return {
+                    "success": False,
+                    "data": {"error": "Failed to query canvas", "details": query_result},
+                }
 
-            all_objects = query_result.get("data", {}).get("objects", [])
+            query_data = query_result.get("data", {})
+            if isinstance(query_data, dict):
+                all_objects = query_data.get("objects", [])
+            elif isinstance(query_data, list):
+                all_objects = query_data
+            else:
+                all_objects = []
             # Filter out GH_Group objects — they have huge bounding boxes and no
             # wire connections, which poisons the layout graph (causes stretching).
             # Groups are handled separately via /gh/groups + /gh/group-resize.
             GROUP_TYPE_NAMES = {"GH_Group", "Group"}
             components = [
                 obj for obj in all_objects
-                if obj.get("type") not in GROUP_TYPE_NAMES
+                if isinstance(obj, dict) and obj.get("type") not in GROUP_TYPE_NAMES
             ]
             if not components:
-                return [TextContent(
-                    type="text",
-                    text=json.dumps({"success": True, "message": "Canvas is empty, nothing to organize"})
-                )]
+                return {
+                    "success": True,
+                    "data": {"success": True, "message": "Canvas is empty, nothing to organize"},
+                }
 
             # Step 2: Get connections for each component
             connections: dict[str, dict] = {}
             for comp in components:
-                guid = comp.get("guid")
+                guid = canvas_component_guid(comp)
                 if not guid:
                     continue
                 conn_result = await call_rhino(f"/gh/connections?guid={guid}", "GET", {}, port)
@@ -15083,7 +15101,11 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
             try:
                 groups_result = await call_rhino("/gh/groups", "GET", {}, port)
                 if groups_result.get("success"):
-                    groups_data = groups_result.get("data", {}).get("groups", [])
+                    group_payload = groups_result.get("data", {})
+                    if isinstance(group_payload, dict):
+                        groups_data = group_payload.get("groups", [])
+                    elif isinstance(group_payload, list):
+                        groups_data = group_payload
             except Exception:
                 pass  # Groups endpoint may not exist on older plugin versions
 
@@ -15138,6 +15160,8 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                 # Step 6: Resize groups to fit members
                 if groups_data:
                     for group in groups_data:
+                        if not isinstance(group, dict):
+                            continue
                         group_guid = group.get("guid") or group.get("Guid")
                         if group_guid:
                             try:
@@ -15160,7 +15184,7 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                 result_data["dry_run"] = True
                 result_data["message"] = "Dry run - positions calculated but components not moved"
 
-            return [TextContent(type="text", text=json.dumps(result_data, indent=2))]
+            return {"success": True, "data": result_data}
 
         case "gh_canvas_focus":
             result = await call_rhino("/gh/canvas/focus", "POST", arguments, port=port)
@@ -15203,9 +15227,9 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                 if not query_result.get("success"):
                     result = {"success": False, "data": "Failed to query canvas"}
                 else:
-                    all_comps = query_result.get("data", {}).get("objects", [])
+                    all_comps = canvas_objects_from_payload(query_result.get("data", {}))
                     guid_set = set(guids)
-                    comps = [c for c in all_comps if c.get("guid") in guid_set]
+                    comps = [c for c in all_comps if canvas_component_guid(c) in guid_set]
                     if len(comps) < 2:
                         result = {"success": False, "data": f"Found {len(comps)} of {len(guids)} components"}
                     else:
@@ -15225,9 +15249,9 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                 if not query_result.get("success"):
                     result = {"success": False, "data": "Failed to query canvas"}
                 else:
-                    all_comps = query_result.get("data", {}).get("objects", [])
+                    all_comps = canvas_objects_from_payload(query_result.get("data", {}))
                     guid_set = set(guids)
-                    comps = [c for c in all_comps if c.get("guid") in guid_set]
+                    comps = [c for c in all_comps if canvas_component_guid(c) in guid_set]
                     if len(comps) < 2:
                         result = {"success": False, "data": f"Found {len(comps)} of {len(guids)} components"}
                     else:
@@ -15243,13 +15267,13 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
             if not query_result.get("success"):
                 result = {"success": False, "data": "Failed to query canvas"}
             else:
-                components = query_result.get("data", {}).get("objects", [])
+                components = canvas_objects_from_payload(query_result.get("data", {}))
                 if not components:
                     result = {"success": True, "data": {"straightened": 0, "message": "Canvas is empty"}}
                 else:
                     connections: dict[str, dict] = {}
                     for comp in components:
-                        guid = comp.get("guid")
+                        guid = canvas_component_guid(comp)
                         if not guid:
                             continue
                         conn_result = await call_rhino(f"/gh/connections?guid={guid}", "GET", {}, port)
@@ -15730,34 +15754,37 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                     result = {"success": False, "data": f"Failed to get canvas snapshot: {snapshot_result}"}
                 else:
                     snapshot_data = snapshot_result.get("data", {})
-                    components = snapshot_data.get("components", [])
-
-                    if not components:
-                        result = {"success": False, "data": "No components on canvas to extract recipe from"}
+                    if not isinstance(snapshot_data, dict):
+                        result = {"success": False, "data": "Canvas snapshot returned an unexpected payload shape"}
                     else:
-                        # Extract v2 recipe from snapshot
-                        draft = extract_recipe(
-                            snapshot=snapshot_data,
-                            source_definition=source_def,
-                            use_dspy=use_dspy,
-                        )
+                        components = snapshot_data.get("components", [])
 
-                        # Apply overrides
-                        if arguments.get("name"):
-                            draft.suggested_name = arguments["name"]
-                        if arguments.get("description"):
-                            draft.description = arguments["description"]
+                        if not components:
+                            result = {"success": False, "data": "No components on canvas to extract recipe from"}
+                        else:
+                            # Extract v2 recipe from snapshot
+                            draft = extract_recipe(
+                                snapshot=snapshot_data,
+                                source_definition=source_def,
+                                use_dspy=use_dspy,
+                            )
 
-                        # Store draft for later saving
-                        recorder = get_session_recorder()
-                        if not hasattr(recorder, "_draft_recipes"):
-                            recorder._draft_recipes = {}
-                        recorder._draft_recipes[draft.draft_id] = draft
+                            # Apply overrides
+                            if arguments.get("name"):
+                                draft.suggested_name = arguments["name"]
+                            if arguments.get("description"):
+                                draft.description = arguments["description"]
 
-                        result = {
-                            "success": True,
-                            "data": draft.to_dict(),
-                        }
+                            # Store draft for later saving
+                            recorder = get_session_recorder()
+                            if not hasattr(recorder, "_draft_recipes"):
+                                recorder._draft_recipes = {}
+                            recorder._draft_recipes[draft.draft_id] = draft
+
+                            result = {
+                                "success": True,
+                                "data": draft.to_dict(),
+                            }
             except Exception as e:
                 import traceback
                 result = {"success": False, "data": f"Recipe extraction failed: {str(e)}", "traceback": traceback.format_exc()}
@@ -15953,44 +15980,47 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                             result = {"success": False, "data": f"Failed to get canvas snapshot: {snapshot_result}"}
                         else:
                             snapshot_data = snapshot_result.get("data", {})
-                            components = snapshot_data.get("components", [])
-
-                            if not components:
-                                result = {"success": False, "data": "No components on canvas. Open the source .gh file first."}
+                            if not isinstance(snapshot_data, dict):
+                                result = {"success": False, "data": "Canvas snapshot returned an unexpected payload shape"}
                             else:
-                                # Extract v2 from snapshot (skip DSPy — we keep existing metadata)
-                                draft = extract_recipe_v2(snapshot_data, source_definition=pattern.source_definition, use_dspy=False)
+                                components = snapshot_data.get("components", [])
 
-                                # Work on a copy so store stays consistent if update() fails
-                                upgraded = copy.deepcopy(pattern)
+                                if not components:
+                                    result = {"success": False, "data": "No components on canvas. Open the source .gh file first."}
+                                else:
+                                    # Extract v2 from snapshot (skip DSPy — we keep existing metadata)
+                                    draft = extract_recipe_v2(snapshot_data, source_definition=pattern.source_definition, use_dspy=False)
 
-                                # Merge: replace only recipe fields (shared with tests)
-                                merge_v2_into_pattern(upgraded, draft)
+                                    # Work on a copy so store stays consistent if update() fails
+                                    upgraded = copy.deepcopy(pattern)
 
-                                # Add evolution entry
-                                from datetime import datetime
-                                upgraded.evolution_history.append({
-                                    "date": datetime.utcnow().isoformat() + "Z",
-                                    "trigger": "v2_migration",
-                                    "changes": f"Upgraded from v1 wiring to v2 graph format. Components: {old_component_count} -> {len(draft.components)}, Flows: {len(draft.graph.get('flows', []))}",
-                                })
+                                    # Merge: replace only recipe fields (shared with tests)
+                                    merge_v2_into_pattern(upgraded, draft)
 
-                                # Save back (same pattern_id, overwrites)
-                                store.update(upgraded)
+                                    # Add evolution entry
+                                    from datetime import datetime
+                                    upgraded.evolution_history.append({
+                                        "date": datetime.utcnow().isoformat() + "Z",
+                                        "trigger": "v2_migration",
+                                        "changes": f"Upgraded from v1 wiring to v2 graph format. Components: {old_component_count} -> {len(draft.components)}, Flows: {len(draft.graph.get('flows', []))}",
+                                    })
 
-                                result = {
-                                    "success": True,
-                                    "data": {
-                                        "pattern_id": upgraded.pattern_id,
-                                        "name": upgraded.name,
-                                        "old_component_count": old_component_count,
-                                        "new_component_count": len(draft.components),
-                                        "flow_count": len(draft.graph.get("flows", [])),
-                                        "links_preserved": len(upgraded.links),
-                                        "schema_version": "2.0",
-                                        "message": f"Upgraded '{upgraded.name}' to v2. {len(upgraded.links)} links preserved.",
-                                    },
-                                }
+                                    # Save back (same pattern_id, overwrites)
+                                    store.update(upgraded)
+
+                                    result = {
+                                        "success": True,
+                                        "data": {
+                                            "pattern_id": upgraded.pattern_id,
+                                            "name": upgraded.name,
+                                            "old_component_count": old_component_count,
+                                            "new_component_count": len(draft.components),
+                                            "flow_count": len(draft.graph.get("flows", [])),
+                                            "links_preserved": len(upgraded.links),
+                                            "schema_version": "2.0",
+                                            "message": f"Upgraded '{upgraded.name}' to v2. {len(upgraded.links)} links preserved.",
+                                        },
+                                    }
             except Exception as e:
                 import traceback
                 result = {"success": False, "data": f"Recipe upgrade failed: {str(e)}", "traceback": traceback.format_exc()}
@@ -17480,7 +17510,11 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                                 needs_canvas = any(kw in intent_lower for kw in _CANVAS_CONTEXT_KEYWORDS)
                                 if needs_canvas:
                                     canvas_result = await call_rhino("/gh/query", "GET", {}, port=port)
-                                    canvas_state = canvas_result.get("data", {}).get("objects", []) if canvas_result.get("success") else []
+                                    canvas_state = (
+                                        canvas_objects_from_payload(canvas_result.get("data", {}))
+                                        if canvas_result.get("success")
+                                        else []
+                                    )
                                 else:
                                     canvas_state = []
 

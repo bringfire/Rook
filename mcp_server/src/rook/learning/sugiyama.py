@@ -14,6 +14,33 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
+def _iter_dicts(value: Any):
+    """Yield dicts from a dict or a shallow list of dicts."""
+    if isinstance(value, dict):
+        yield value
+    elif isinstance(value, list):
+        for item in value:
+            if isinstance(item, dict):
+                yield item
+
+
+def _get_any(data: dict[str, Any], *keys: str, default: Any = None) -> Any:
+    for key in keys:
+        if key in data:
+            return data[key]
+    return default
+
+
+def _coord(data: Any, lower_key: str, upper_key: str, default: float) -> float:
+    if not isinstance(data, dict):
+        return default
+    value = _get_any(data, lower_key, upper_key, default=default)
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 @dataclass
 class Node:
     """A node in the layout graph (represents a GH component)."""
@@ -73,17 +100,21 @@ class SugiyamaLayout:
         """
         # Build nodes from components
         for comp in components:
-            guid = comp["guid"]
-            pos = comp.get("position") or {"x": 0, "y": 0}
-            size = comp.get("size") or {"width": 100, "height": 40}
+            if not isinstance(comp, dict):
+                continue
+            guid = _get_any(comp, "guid", "Guid")
+            if not guid:
+                continue
+            pos = _get_any(comp, "position", "Position", default={})
+            size = _get_any(comp, "size", "Size", default={})
 
             self.nodes[guid] = Node(
                 guid=guid,
-                name=comp.get("name", "Unknown"),
-                width=size.get("width", 100),
-                height=size.get("height", 40),
-                original_x=pos.get("x", 0),
-                original_y=pos.get("y", 0),
+                name=_get_any(comp, "name", "Name", default="Unknown"),
+                width=_coord(size, "width", "Width", 100),
+                height=_coord(size, "height", "Height", 40),
+                original_x=_coord(pos, "x", "X", 0),
+                original_y=_coord(pos, "y", "Y", 0),
             )
             self._adjacency[guid] = []
             self._reverse_adjacency[guid] = []
@@ -99,28 +130,50 @@ class SugiyamaLayout:
             # Handle both formats:
             # - Test format: {"outputs": [{"recipients": [{"recipientComponentGuid": "..."}]}]}
             # - API format: {"outputs": [{"componentGuid": "..."}]}
-            for output in conn_data.get("outputs", []):
-                # Try API format first (componentGuid directly on output)
-                target_guid = output.get("componentGuid")
-                if target_guid and target_guid in self.nodes:
-                    edge_key = (guid, target_guid)
-                    if edge_key not in seen_edges:
-                        seen_edges.add(edge_key)
-                        self.edges.append(Edge(source_guid=guid, target_guid=target_guid))
-                        self._adjacency[guid].append(target_guid)
-                        self._reverse_adjacency[target_guid].append(guid)
-                else:
-                    # Fall back to nested recipients format
-                    # API uses componentGuid, tests might use recipientComponentGuid
-                    for recipient in output.get("recipients", []):
-                        target_guid = recipient.get("componentGuid") or recipient.get("recipientComponentGuid")
-                        if target_guid and target_guid in self.nodes:
-                            edge_key = (guid, target_guid)
-                            if edge_key not in seen_edges:
-                                seen_edges.add(edge_key)
-                                self.edges.append(Edge(source_guid=guid, target_guid=target_guid))
-                                self._adjacency[guid].append(target_guid)
-                                self._reverse_adjacency[target_guid].append(guid)
+            for conn_item in _iter_dicts(conn_data):
+                outputs = _get_any(conn_item, "outputs", "Outputs", default=[])
+                if not isinstance(outputs, list):
+                    continue
+                for output in outputs:
+                    if not isinstance(output, dict):
+                        continue
+                    # Try API format first (componentGuid directly on output)
+                    target_guid = _get_any(
+                        output,
+                        "componentGuid",
+                        "ComponentGuid",
+                        "recipientComponentGuid",
+                        "RecipientComponentGuid",
+                    )
+                    if target_guid and target_guid in self.nodes:
+                        edge_key = (guid, target_guid)
+                        if edge_key not in seen_edges:
+                            seen_edges.add(edge_key)
+                            self.edges.append(Edge(source_guid=guid, target_guid=target_guid))
+                            self._adjacency[guid].append(target_guid)
+                            self._reverse_adjacency[target_guid].append(guid)
+                    else:
+                        # Fall back to nested recipients format.
+                        recipients = _get_any(output, "recipients", "Recipients", default=[])
+                        if not isinstance(recipients, list):
+                            continue
+                        for recipient in recipients:
+                            if not isinstance(recipient, dict):
+                                continue
+                            target_guid = _get_any(
+                                recipient,
+                                "componentGuid",
+                                "ComponentGuid",
+                                "recipientComponentGuid",
+                                "RecipientComponentGuid",
+                            )
+                            if target_guid and target_guid in self.nodes:
+                                edge_key = (guid, target_guid)
+                                if edge_key not in seen_edges:
+                                    seen_edges.add(edge_key)
+                                    self.edges.append(Edge(source_guid=guid, target_guid=target_guid))
+                                    self._adjacency[guid].append(target_guid)
+                                    self._reverse_adjacency[target_guid].append(guid)
 
     def assign_layers(self) -> int:
         """Assign nodes to layers using longest path from sources.

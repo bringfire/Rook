@@ -1281,6 +1281,7 @@ def build_local_tools() -> Dict[str, Any]:
 
     # --- gh_canvas_cleanup (CanvasLayout pipeline) ---
     try:
+        from ..learning.canvas_align import component_guid
         from ..learning.canvas_layout import CanvasLayout, LayoutSettings
 
         async def _gh_canvas_cleanup(
@@ -1301,14 +1302,21 @@ def build_local_tools() -> Dict[str, Any]:
             if not query_result.get("success"):
                 return {"success": False, "data": "Failed to query canvas"}
 
-            components = query_result.get("data", {}).get("objects", [])
+            query_data = query_result.get("data", {})
+            if isinstance(query_data, dict):
+                components = query_data.get("objects", [])
+            elif isinstance(query_data, list):
+                components = query_data
+            else:
+                components = []
+            components = [comp for comp in components if isinstance(comp, dict)]
             if not components:
                 return {"success": True, "data": {"moved": 0, "message": "Canvas is empty"}}
 
             # 2. Get connections for each component
             connections: dict = {}
             for comp in components:
-                guid = comp.get("guid")
+                guid = component_guid(comp)
                 if not guid:
                     continue
                 conn_result = await call_rhino("/gh/connections", "GET", {"guid": guid})
@@ -1322,7 +1330,11 @@ def build_local_tools() -> Dict[str, Any]:
             try:
                 groups_result = await call_rhino("/gh/groups", "GET", {})
                 if groups_result.get("success"):
-                    groups_data = groups_result.get("data", {}).get("groups", [])
+                    group_payload = groups_result.get("data", {})
+                    if isinstance(group_payload, dict):
+                        groups_data = group_payload.get("groups", [])
+                    elif isinstance(group_payload, list):
+                        groups_data = group_payload
             except Exception:
                 pass
 
@@ -1369,6 +1381,8 @@ def build_local_tools() -> Dict[str, Any]:
                 # 6. Resize groups to fit members
                 if groups_data:
                     for group in groups_data:
+                        if not isinstance(group, dict):
+                            continue
                         group_guid = group.get("guid") or group.get("Guid")
                         if group_guid:
                             try:
@@ -1389,7 +1403,7 @@ def build_local_tools() -> Dict[str, Any]:
 
     # --- gh_align ---
     try:
-        from ..learning.canvas_align import align_positions
+        from ..learning.canvas_align import align_positions, canvas_objects_from_payload, component_guid
 
         async def _gh_align(
             guids: list[str],
@@ -1404,9 +1418,9 @@ def build_local_tools() -> Dict[str, Any]:
             if not query_result.get("success"):
                 return {"success": False, "data": "Failed to query canvas"}
 
-            all_comps = query_result.get("data", {}).get("objects", [])
+            all_comps = canvas_objects_from_payload(query_result.get("data", {}))
             guid_set = set(guids)
-            comps = [c for c in all_comps if c.get("guid") in guid_set]
+            comps = [c for c in all_comps if component_guid(c) in guid_set]
             if len(comps) < 2:
                 return {"success": False, "data": f"Found {len(comps)} of {len(guids)} components"}
 
@@ -1420,7 +1434,7 @@ def build_local_tools() -> Dict[str, Any]:
 
     # --- gh_distribute ---
     try:
-        from ..learning.canvas_align import distribute_positions
+        from ..learning.canvas_align import canvas_objects_from_payload, component_guid, distribute_positions
 
         async def _gh_distribute(
             guids: list[str],
@@ -1435,9 +1449,9 @@ def build_local_tools() -> Dict[str, Any]:
             if not query_result.get("success"):
                 return {"success": False, "data": "Failed to query canvas"}
 
-            all_comps = query_result.get("data", {}).get("objects", [])
+            all_comps = canvas_objects_from_payload(query_result.get("data", {}))
             guid_set = set(guids)
-            comps = [c for c in all_comps if c.get("guid") in guid_set]
+            comps = [c for c in all_comps if component_guid(c) in guid_set]
             if len(comps) < 2:
                 return {"success": False, "data": f"Found {len(comps)} of {len(guids)} components"}
 
@@ -1451,7 +1465,7 @@ def build_local_tools() -> Dict[str, Any]:
 
     # --- gh_straighten_wires ---
     try:
-        from ..learning.canvas_align import straighten_wire_positions
+        from ..learning.canvas_align import canvas_objects_from_payload, component_guid, straighten_wire_positions
 
         async def _gh_straighten_wires(
             guids: list[str] | None = None,
@@ -1461,13 +1475,13 @@ def build_local_tools() -> Dict[str, Any]:
             if not query_result.get("success"):
                 return {"success": False, "data": "Failed to query canvas"}
 
-            components = query_result.get("data", {}).get("objects", [])
+            components = canvas_objects_from_payload(query_result.get("data", {}))
             if not components:
                 return {"success": True, "data": {"straightened": 0, "message": "Canvas is empty"}}
 
             connections: dict = {}
             for comp in components:
-                guid = comp.get("guid")
+                guid = component_guid(comp)
                 if not guid:
                     continue
                 conn_result = await call_rhino("/gh/connections", "GET", {"guid": guid})
