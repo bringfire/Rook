@@ -42,10 +42,11 @@
 - `src/RookNative/RookNative.vcxproj` — remove `PlanarAdjacencyEngine.cpp`; add the new cpps with per-file OCCT include; replace hardcoded OCCT path with `$(OcctRoot)`; trim the production TK\* link list to the measured non-DataExchange closure.
 - `src/RookNative/ExactAdjacencyTests.vcxproj` — repoint at the legacy header/unit.
 
-**New test targets:**
-- `src/RookNative/OcctAdjacencyTests.vcxproj` — NEW. Offline OCCT harness: links openNURBS (read `.3dm`→`ON_Brep`) + OCCT modeling + OCCT DataExchange (read STEP oracle). Builds `SceneGraph/tests/occt_adjacency_tests.cpp`.
-- `src/RookNative/SceneGraph/tests/occt_adjacency_tests.cpp` — NEW. Converter-fidelity + engine-kernel offline tests.
-- `docs/rook_docs/occt-spike/live_verify_occt_adjacency.py` — NEW. Python `urllib` in-plugin verification.
+**Test surfaces (amended — in-plugin first):**
+- **Dev validation route** `POST /scene/occt_validate_converter` (handler in `SceneGraphHandler.cpp`, registered in `RookServer.cpp`) — feature-branch dev route (gated like the Spike-G `/scene/occt_probe`), REMOVED/gated in Task 8/9 before productionization. Runs `ConvertBrepFaces` on the live `ON_Brep` (main-thread copy → worker convert) and reports converted face count, failed face indices, converted total area (model units + ×645.16 mm²), the precomputed expected mm² oracle, relative error, face-index-map sanity, and diagnostics. Uses a built-in oracle table for the known SpatialTest GUIDs (Task 4); accepts an optional `expectedMm2` override in the body. **Never reads STEP.**
+- `src/RookNative/OcctPrimitiveTests.vcxproj` + `src/RookNative/SceneGraph/tests/occt_primitive_tests.cpp` — NEW, **OCCT-only** offline console (links OCCT modeling only; NO openNURBS, NO STEP, NO `ON_Brep`). Tests the kernel coincidence primitive `SharedFaceArea(TopoDS, TopoDS, fuzz)` on `BRepPrimAPI` boxes/cylinders — the Task-6 robustness matrix.
+- `docs/rook_docs/occt-spike/live_verify_occt_adjacency.py` — NEW. Python `urllib` in-plugin verification (Task 10; also exercises the dev validation route).
+- The STEP `.stp` fixtures (committed-as-README, gitignored geometry) were the one-time source of the oracle constants; they are NOT linked or read by any shipped or test binary.
 
 ---
 
@@ -63,21 +64,32 @@ slashes; the native build is invoked via `cmd //c scripts/build-native.bat Relea
 (double-slash escapes the MSYS path-mangling); `MSBuild.exe` must be on `PATH` (run from a
 "Developer Command Prompt"-initialized Git Bash, or call the full VS MSBuild path).
 
-**Phase 1 — additive + offline; `.rhp` stays GREEN on the old Clipper engine. Each task is
-its own buildable commit:**
-1. **Task 1 (additive)** — create the `Rook::Legacy` unit (new files) + repoint the legacy
-   *test* at it; **do NOT delete the old `PlanarAdjacencyEngine.{h,cpp}` and do NOT touch
-   `RookNative.vcxproj`** yet. `.rhp` still green (old engine intact); legacy test green.
-2. **Task 2 (additive)** — add `OcctAdjacencyTypes.h` as a **standalone** header (does NOT
-   include/strip `ExactAdjacencyTypes.h`; no `.rhp` TU includes it, so old and new contract
-   types coexist in separate binaries with no ODR clash).
-3. **Task 4** — converter surfaces + offline `OcctAdjacencyTests` exe.
-4. **Task 5** — converter trims/orientation (oracle match).
-5. **Task 6** — `OcctAdjacencyEngine` kernel + offline kernel-primitive robustness matrix.
-6. **Task 7 Steps 1–2** — engine-internal diagnostic merge + offline diagnostics test.
+**TEST VENUE (amended 2026-06-15, user decision): IN-PLUGIN FIRST.** The converter is
+validated *inside RookNative* against the live `ON_Brep` and **precomputed STEP-oracle
+constants** (hardcoded mm², computed offline — see the oracle table in Task 4), via a
+**dev-gated diagnostic route** `POST /scene/occt_validate_converter`. RookNative already
+links openNURBS + OCCT, so this is **zero new linking** and **no STEP in the `.rhp`** (the
+route uses constants, never reads STEP). No standalone-openNURBS console is built (the
+plan's prior `OcctAdjacencyTests` offline console is REPLACED by this route). The only
+remaining *offline* test is Task 6's OCCT-primitive robustness matrix, which needs no
+`ON_Brep` and so links OCCT only (like the Spike-G `OcctProbe` unit).
 
-Throughout Phase 1 the `.rhp` compiles and runs the Gate-4 Clipper engine; each offline
-task ends with a passing `OcctAdjacencyTests.exe` (real, testable progress).
+**Phase 1 — additive; `.rhp` stays GREEN on the old Clipper engine while gaining the new
+converter + a dev route alongside it. Each task is its own buildable commit:**
+1. **Task 1 (additive)** — `Rook::Legacy` unit + repoint the legacy *test*; old engine and
+   `RookNative.vcxproj` untouched. `.rhp` green; legacy test green. ✅ DONE (`32a594be`).
+2. **Task 2 (additive)** — `OcctAdjacencyTypes.h` standalone header. ✅ DONE (`c2104bd2`).
+3. **Task 4** — converter surfaces + the dev validation route + oracle table; `.rhp` builds
+   (additive: new files + new dev route; old engine still wired).
+4. **Task 5** — converter trims/orientation; the dev route reports oracle match within 1e-4
+   for the planar wall + the curved wall.
+5. **Task 6** — `OcctAdjacencyEngine` kernel; OCCT-only offline primitive robustness matrix.
+6. **Task 7 Steps 1–2** — engine-internal diagnostic merge (offline-testable on payloads
+   built from live `ON_Brep` via the dev route, or a small OCCT-only harness).
+
+Throughout Phase 1 the `.rhp` stays green on the old Clipper engine; the new converter and
+dev route are ADDITIVE (the production adjacency route is unchanged until Task 8). Each task
+ends with a verifiable result (dev-route oracle match, or the offline primitive matrix).
 
 **Phase 2 — ONE integration task (Task 8), ONE build, ONE commit. The only `.rhp`
 red→green window lives entirely inside this task and never reaches a commit boundary.**
@@ -244,13 +256,14 @@ git commit -m "feat(scene): OCCT adjacency contract types (4-state Capability, O
 
 ---
 
-## Task 4: `ON_Brep`→`TopoDS` converter — surfaces + face-index map (offline harness)
+## Task 4: `ON_Brep`→`TopoDS` converter — surfaces + face-index map (in-plugin venue)
 
 **Files:**
 - Create: `src/RookNative/SceneGraph/OnBrepToOcct.h`
 - Create: `src/RookNative/SceneGraph/OnBrepToOcct.cpp`
-- Create: `src/RookNative/SceneGraph/tests/occt_adjacency_tests.cpp`
-- Create: `src/RookNative/OcctAdjacencyTests.vcxproj`
+- Modify: `src/RookNative/Handlers/SceneGraphHandler.{h,cpp}` (dev route handler `HandleOcctValidateConverter`)
+- Modify: `src/RookNative/RookServer.cpp` (register `POST /scene/occt_validate_converter`)
+- Modify: `src/RookNative/RookNative.vcxproj` (add `OnBrepToOcct.cpp`, per-file OCCT block — additive)
 
 **Converter interface (`OnBrepToOcct.h`) — RAII pimpl result, NO `void*`:**
 ```cpp
@@ -296,44 +309,44 @@ OcctFaceSet ConvertBrepFaces(const ON_Brep& brep);
 The kernel (Task 6) reaches the OCCT faces via `OcctFaceSet::impl()` inside the OCCT-aware
 `.cpp` only. Ownership/lifetime are explicit (RAII, move-only) — no raw `void*`.
 
-- [ ] **Step 1: Write the offline harness test (RED) — surface fidelity.** In `occt_adjacency_tests.cpp`, dependency-free `CHECK`/`CHECK_NEAR` harness (copy the macro style from `exact_adjacency_tests.cpp`). First test: read a known planar object from `SpatialTest.3dm` via openNURBS `ONX_Model`, get its `ON_Brep`, call `ConvertBrepFaces`, sum converted face areas (`BRepGProp::SurfaceProperties`), and compare to the STEP oracle total surface area (read the committed per-object `.stp` via `STEPControl_Reader`), converting in²→mm² (× 645.16) or comparing in consistent units. Assert ratio ≈ 1.0 within 1e-4.
+> **Implementer note:** OCCT call shapes below are **illustrative scaffolding, not a literal
+> required API**. Converter internals are compiler-and-oracle-driven (see Self-Review notes);
+> the binding contract is the oracle area match within 1e-4 and the `OcctFaceSet`/
+> `ConvertBrepFaces` signatures in `OnBrepToOcct.h`.
 
-```cpp
-// pseudostructure — real openNURBS/OCCT calls filled during impl:
-//   ONX_Model m; m.Read(L"C:\\Users\\aryan\\Desktop\\SpatialTest.3dm");
-//   const ON_Brep* b = /* component by known GUID 71065f57-... */;
-//   Rook::OcctFaceSet fs = Rook::ConvertBrepFaces(*b);   // RAII; owns the OCCT faces
-//   double conv = occtFaceSetTotalArea(fs);              // sums via fs.impl() in the .cpp
-//   double oracle = stepTotalSurfaceArea("fixtures/71065f57.stp");  // STEPControl_Reader
-//   CHECK_NEAR(conv * 645.16, oracle, oracle * 1e-4);    // model in^2 vs STEP mm^2
-// (occtFaceSetTotalArea + stepTotalSurfaceArea are test helpers in the OCCT-aware test TU.)
+**Oracle constants (precomputed offline 2026-06-15 via OCP 7.9.3 reading the committed
+`.stp` fixtures; total surface area in mm² — these are the converter-fidelity targets, no
+STEP read at runtime). Embed as a built-in table in the dev route:**
+
+| objectId (full GUID) | expected total surface mm² | (÷645.16 = in²) | role |
+|---|---|---|---|
+| `71065f57-ee93-4af5-8a67-9aa1c4e88302` | 431441833.631 | 668736.180 | planar wall |
+| `08d4dedf-1387-453a-9938-7f3ab516b8ac` | 236698710.791 | 366883.735 | open floorplate |
+| `5c12cc83-5fe3-4f2c-9fca-c0575c9f5dd3` |  57752777.327 |  89516.984 | Triage abutment |
+| `be0ca730-f3e9-4b41-a5bf-6b3848607b14` |  57730120.364 |  89481.866 | Triage abutment |
+| `7e80db98-d133-4a05-b9fe-ee6d37d9069d` |  31753629.008 |  49218.223 | I-WALL abutment |
+| `26b2c012-24cf-4656-9e48-8083dc072cad` |  31461872.558 |  48766.000 | I-WALL abutment |
+| `7d55840d-2516-4a78-9c7d-3a10152756b1` |  40404289.332 |  62626.774 | **curved wall** |
+| `502898fc-75f3-4d59-bddf-cc966a942795` |  37898150.015 |  58742.250 | sliver |
+
+- [ ] **Step 1: Implement `OcctFaceSet` + `ConvertBrepFaces` surfaces only** in `OnBrepToOcct.cpp`: define `OcctFaceSet::Impl` (a `TopoDS_Compound`/`NCollection_List<TopoDS_Face>` + `std::vector<int>` source-index map + `std::vector<int>` failed). For each `ON_BrepFace`, get `face.SurfaceOf()->NurbsSurface()`, build an OCCT `Geom_BSplineSurface` (poles ÷ W for homogeneous control points; weights; knots with end-knot padding per Spike D); make a face with `BRepBuilderAPI_MakeFace(geomSurf, tol)` (untrimmed full-surface for now); append + record the source face index. Per-face exception → record in `failed`. Pure: no Rhino SDK, no STEP, no threads. (Trims come in Task 5; untrimmed areas WON'T match the oracle yet.)
+
+- [ ] **Step 2: Add the dev validation route handler** `HandleOcctValidateConverter` in `SceneGraphHandler.cpp` + register `POST /scene/occt_validate_converter` in `RookServer.cpp` (next to the existing `/scene/occt_probe`; same dev-gating). Body: `{ "objectId": "<guid>", "expectedMm2": <optional override> }`. It: dispatches to the MAIN thread to deep-copy the object's `ON_Brep` (reuse the `ExtractBrep` pattern already in `ExactAdjacencyService.cpp`; mesh/SubD/non-brep → error JSON), then on the worker calls `ConvertBrepFaces`, sums converted area (model units), and returns JSON: `convertedFaceCount`, `failedFaceIndices`, `totalAreaModel`, `totalAreaMm2` (= model × `modelUnitsToMillimeters²`… NB area scale is the SQUARE of the length scale — for inches 645.16 = 25.4²), `expectedMm2` (from the built-in table or the override), `relErr`, `faceIndexMapOk` (every OCCT slot maps to a valid source index), and `diagnostics`. OCCT work serialized via a static mutex (mirror `HandleOcctProbe`).
+
+- [ ] **Step 3: Add the new converter file to `RookNative.vcxproj`** — add `SceneGraph\OnBrepToOcct.cpp` with the per-file OCCT block (mirror the `OcctProbe.cpp` block: `NotUsing` PCH, `<AdditionalIncludeDirectories>$(OcctRoot)\inc;…` — for now keep the existing hardcoded `C:\Users\aryan\source\repos\OCCT\build-rook\inc` path that `OcctProbe.cpp` uses; Task 9 swaps all of them to `$(OcctRoot)`, `/bigobj`). This is ADDITIVE — do not remove or alter the old engine. `SceneGraphHandler.cpp` keeps its PCH and includes the OCCT-header-free `OnBrepToOcct.h` only.
+
+- [ ] **Step 4: Build the `.rhp` (additive, stays green on the old engine)**
 ```
-> **Implementer note:** the helper names above (`occtFaceSetTotalArea`,
-> `stepTotalSurfaceArea`, `sumFaceAreas`) and OCCT call shapes are **illustrative
-> scaffolding, not a literal required API**. Converter internals are compiler-and-oracle-
-> driven (see Self-Review notes); the binding contract is the oracle area match within
-> 1e-4 and the `OcctFaceSet`/`ConvertBrepFaces` signatures in `OnBrepToOcct.h`.
-
-- [ ] **Step 2: Create `OcctAdjacencyTests.vcxproj`** — copy `ExactAdjacencyTests.vcxproj`, change `ProjectGuid` (new GUID), `TargetName`/`RootNamespace` → `OcctAdjacencyTests`. Compile `SceneGraph\tests\occt_adjacency_tests.cpp` + `SceneGraph\OnBrepToOcct.cpp`. Add include dirs: `$(OcctRoot)\inc` and the openNURBS include dir (find it from RookNative.vcxproj's Rhino SDK include path). Link: OCCT modeling + DataExchange TK\* libs (the full Spike-G list is fine for the test target) from `$(OcctRoot)\win64\vc14\lib`, plus the openNURBS lib (`opennurbs_public.lib` or the Rhino SDK's `opennurbs.lib` — resolve from the Rhino SDK lib dir). Set `$(OcctRoot)` via an MSBuild property defaulting to `C:\Users\aryan\source\repos\OCCT\build-rook` (Task 9 makes this an env var across all projects).
-
-- [ ] **Step 3: Generate the STEP oracle fixtures (one-time, offline, dev-only).** With Rhino open on `SpatialTest.3dm`, export the fixture objects (the Spike-A GUIDs: wall `71065f57…`, open floorplate `08d4dedf…`, and its 5 confirmed abutments) to per-object `.stp` files into `src/RookNative/SceneGraph/tests/fixtures/` (gitignored — user geometry). Document the exact GUIDs + export command in a `fixtures/README.md` (committed). This is a **dev/test artifact**; it is never invoked by the runtime.
-
-- [ ] **Step 4: Build the test (verify RED)**
+cmd //c scripts/build-native.bat Release
 ```
-cd src/RookNative
-MSBuild.exe OcctAdjacencyTests.vcxproj -p:Configuration=Debug -p:Platform=x64 -v:m
-cd ..
+Expected: compiles + links (old Clipper adjacency route unchanged; new converter + dev route added).
+
+- [ ] **Step 5: Validate in-plugin (controller-coordinated deploy/live loop).** This needs the Rhino deploy cycle (deploy requires Rhino CLOSED; test requires Rhino OPEN on `SpatialTest.3dm`). The implementer subagent STOPS after Step 4 with `STATUS: DONE` and reports that in-plugin validation is pending the deploy cycle; the CONTROLLER coordinates deploy + hits `POST /scene/occt_validate_converter` (via Python `urllib`) for the wall `71065f57`. At THIS task's bar (surfaces only, untrimmed): assert the route returns `convertedFaceCount == brep face count`, `failedFaceIndices` empty, finite positive area, `faceIndexMapOk == true`. (The exact-area oracle match is Task 5's bar.)
+
+- [ ] **Step 6: Commit (additive — `.rhp` green on old engine + new converter/route)**
 ```
-Expected: FAILS to link (unresolved `ConvertBrepFaces`/`OcctFaceSet`) — the RED state.
-
-- [ ] **Step 5: Implement `OcctFaceSet` + `ConvertBrepFaces` surfaces only.** In `OnBrepToOcct.cpp`: define `OcctFaceSet::Impl` (holding a `TopoDS_Compound`/`NCollection_List<TopoDS_Face>` + `std::vector<int>` source-index map + `std::vector<int>` failed). For each `ON_BrepFace`, get `face.SurfaceOf()->NurbsSurface()`, build an OCCT `Geom_BSplineSurface` (poles ÷ W for homogeneous control points; weights; knots with end-knot padding per Spike D); make a face with `BRepBuilderAPI_MakeFace(geomSurf, tol)` (untrimmed full-surface face for now); append to the Impl's list and record the source face index. On any per-face exception, record the index in `failed`. (Trims come in Task 5; untrimmed areas won't match the oracle yet — so this step's test asserts only that conversion *runs* and `faceCount()` is as expected; the area-match assertion is enabled in Task 5.)
-
-- [ ] **Step 6: Adjust the Task-4 test to its achievable bar** — assert `fs.faceCount() == brep->m_F.Count() - fs.failedFaceIndices().size()`, and that the summed areas are finite/positive. (The exact-area oracle match is Task 5's bar, once trimming lands.) Build + run; expect `exit=0`.
-
-- [ ] **Step 7: Commit**
-```
-git add src/RookNative/SceneGraph/OnBrepToOcct.* src/RookNative/SceneGraph/tests/occt_adjacency_tests.cpp src/RookNative/OcctAdjacencyTests.vcxproj src/RookNative/SceneGraph/tests/fixtures/README.md
-git commit -m "feat(scene): ON_Brep->OCCT surface converter + face-index map + offline harness"
+git add src/RookNative/SceneGraph/OnBrepToOcct.* src/RookNative/Handlers/SceneGraphHandler.* src/RookNative/RookServer.cpp src/RookNative/RookNative.vcxproj
+git commit -m "feat(scene): ON_Brep->OCCT surface converter + dev validation route (in-plugin venue)"
 ```
 
 ---
@@ -342,11 +355,12 @@ git commit -m "feat(scene): ON_Brep->OCCT surface converter + face-index map + o
 
 **Files:**
 - Modify: `src/RookNative/SceneGraph/OnBrepToOcct.cpp`
-- Modify: `src/RookNative/SceneGraph/tests/occt_adjacency_tests.cpp`
 
-- [ ] **Step 1: Enable the exact-area oracle assertion (RED).** Turn the Task-4 test's area check into `CHECK_NEAR(conv_in2 * 645.16, oracle_mm2, oracle_mm2 * 1e-4)` for the wall fixture (expected wall total ≈ the Spike-A value). Build + run; expect FAIL (untrimmed full-surface faces over-report area).
+Validated in-plugin via the `POST /scene/occt_validate_converter` route from Task 4 (no
+console exe). Bar: each fixture's converted total area matches its `expectedMm2` oracle
+(table in Task 4) within 1e-4 relative — including the curved wall.
 
-- [ ] **Step 2: Implement trims + orientation** in `ConvertBrepFaces`, per spec §3.1:
+- [ ] **Step 1: Implement trims + orientation** in `ConvertBrepFaces`, per spec §3.1:
   - For each face, build a wire per `ON_BrepLoop`: for each `ON_BrepTrim`, copy its pcurve (`trim.TrimCurveOf()->NurbsCurve()`) → OCCT 2D `Geom2d_BSplineCurve` → `BRepBuilderAPI_MakeEdge(pcurve2d, geomSurf)`; honor `trim.m_bRev3d` for edge orientation; `BRepLib::BuildCurves3d` on the edge.
   - **Outer loop** (`ON_BrepLoop::outer`) → bounding wire; **inner loops** (`ON_BrepLoop::inner`) → reversed wires (holes subtract).
   - **Face reversal**: apply `ON_BrepFace::m_bRev` to the OCCT face orientation (`face.Reversed()` / `TopoDS_Face` orientation flag) so the natural normal matches the `ON_Brep` oriented normal.
@@ -354,21 +368,18 @@ git commit -m "feat(scene): ON_Brep->OCCT surface converter + face-index map + o
   - **Singular trims**: represent collapsed trims (`ON_BrepTrim::singular`) as OCCT degenerated edges (`BRepBuilderAPI_MakeEdge` degenerate form) — do NOT drop them (dropping leaves an invalid wire).
   - `BRepBuilderAPI_MakeFace(geomSurf, outerWire)` then `.Add(holeWire)`; `ShapeFix_Face` as a *net*, not a corrector — if fixed area disagrees with the oracle it is a converter bug.
 
-- [ ] **Step 3: Build + run (GREEN)** — wall fixture converted area matches the STEP oracle within 1e-4.
+- [ ] **Step 2: Build the `.rhp`**
 ```
-cd src/RookNative
-MSBuild.exe OcctAdjacencyTests.vcxproj -p:Configuration=Debug -p:Platform=x64 -v:m
-./bin/tests/Debug/x64/OcctAdjacencyTests.exe; echo "exit=$?"
-cd ..
+cmd //c scripts/build-native.bat Release
 ```
-Expected: no `FAIL` lines, `exit=0`.
+Expected: compiles + links.
 
-- [ ] **Step 4: Add a curved-face fixture assertion** — convert the curved wall (`7d55840d…`) and assert converted total area matches its STEP oracle within 1e-4 (proves rational/curved trims). Build + run; expect `exit=0`.
+- [ ] **Step 3: Validate in-plugin (controller-coordinated deploy/live loop).** Implementer reports `STATUS: DONE`, validation pending deploy. Controller deploys (Rhino closed → open on `SpatialTest.3dm`) and hits `POST /scene/occt_validate_converter` for the **planar wall `71065f57`** AND the **curved wall `7d55840d`**: assert `relErr < 1e-4` against each `expectedMm2`, `failedFaceIndices` empty, `faceIndexMapOk == true`. The curved wall proves rational/curved trims. (Spot-check 1–2 more fixtures opportunistically.)
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 4: Commit**
 ```
-git add src/RookNative/SceneGraph/OnBrepToOcct.cpp src/RookNative/SceneGraph/tests/occt_adjacency_tests.cpp
-git commit -m "feat(scene): converter trims/pcurves + orientation fidelity (Strengthener-1 proof in C++)"
+git add src/RookNative/SceneGraph/OnBrepToOcct.cpp
+git commit -m "feat(scene): converter trims/pcurves + orientation fidelity (Strengthener-1 proof, in-plugin)"
 ```
 
 ---
@@ -378,51 +389,61 @@ git commit -m "feat(scene): converter trims/pcurves + orientation fidelity (Stre
 **Files:**
 - Create: `src/RookNative/SceneGraph/OcctAdjacencyEngine.h`
 - Create: `src/RookNative/SceneGraph/OcctAdjacencyEngine.cpp`
-- Modify: `src/RookNative/SceneGraph/tests/occt_adjacency_tests.cpp`
-- Modify: `src/RookNative/OcctAdjacencyTests.vcxproj` (add `OcctAdjacencyEngine.cpp`)
+- Create: `src/RookNative/SceneGraph/OcctAdjacencyEngine_internal.h` (OCCT-aware internal decls)
+- Create: `src/RookNative/SceneGraph/tests/occt_primitive_tests.cpp` + `src/RookNative/OcctPrimitiveTests.vcxproj` (OCCT-only offline matrix)
+- Modify: `src/RookNative/Handlers/SceneGraphHandler.cpp` + `RookServer.cpp` (extend the dev route to run `Evaluate`)
+- Modify: `src/RookNative/RookNative.vcxproj` (add `OcctAdjacencyEngine.cpp`)
 
-- [ ] **Step 1: Engine header** — `class OcctAdjacencyEngine : public IExactAdjacencyEngine` overriding `Evaluate`. OCCT-header-free header (like `OnBrepToOcct.h`); include only `OcctAdjacencyTypes.h`.
+- [ ] **Step 1: Engine header** — `class OcctAdjacencyEngine : public IExactAdjacencyEngine` overriding `Evaluate`. OCCT-header-free header (like `OnBrepToOcct.h`); include only `OcctAdjacencyTypes.h`. Also create `OcctAdjacencyEngine_internal.h` declaring the testable primitive `double SharedFaceArea(const TopoDS_Shape& a, const TopoDS_Shape& b, double fuzz, bool& crashed);` (OCCT-aware; included only by OCCT TUs + the primitive test).
 
-- [ ] **Step 2: Write the engine kernel test (RED)** — in the offline harness, build two `ObjectBrepPayload`s from two abutting fixtures (wall `71065f57` + the floorplate `08d4dedf`), call `OcctAdjacencyEngine().Evaluate(source, {cand}, tolModelUnits)`, assert: one `ExactEdge` with `sharedArea` ≈ the Spike-A confirmed abutment area (3312 in²) within 1e-3 relative, `facePairs` non-empty and `sum(facePairs.sharedArea) == edge.sharedArea`, `sourceCapability == ExactBrep`. Build → expect link FAIL (RED).
-
-- [ ] **Step 3: Implement `Evaluate`** per spec §3.2:
+- [ ] **Step 2: Implement `Evaluate`** per spec §3.2 (in `OcctAdjacencyEngine.cpp`, OCCT-aware TU):
   - For source + each candidate: `ConvertBrepFaces` (downgrade `capability` to `PartialExactBrep` if `failedFaceIndices` non-empty; if zero faces convert, `UnsupportedGeometry`/`FailedWithDiagnostics`).
   - **Prefilter**: skip face pairs whose OCCT face bounding boxes (`BRepBndLib::Add` → `Bnd_Box`) do not overlap within `toleranceModelUnits`. **No coplanar/planar assumption.**
-  - For surviving pairs: `BRepAlgoAPI_Common op; op.SetArguments({faceA}); op.SetTools({faceB}); op.SetFuzzyValue(toleranceModelUnits); op.Build();` guard with `try/catch(Standard_Failure)` AND `if (op.HasErrors()) continue;`. Area = `SurfaceProperties(op.Shape()).Mass()`.
-  - Accumulate per (sourceFaceIndex, candFaceIndex); if pair area > `kAreaTol`, append a `FacePair`. After all pairs, if `sum > kAreaTol`, emit one `ExactEdge{sourceId,targetId,"adjacent_exact",sum,facePairs}`.
-  - Populate `core.candidates` (id + combined capability), `core.sourceCapability`, and merge diagnostics (Task 7 finalizes the merge namespacing).
-  - Serialize OCCT work behind a `static std::mutex` (engine-level; the service also serializes — belt and suspenders for v1).
-  - Define `CapabilityToString` here.
+  - The per-pair coincidence is the `SharedFaceArea` primitive: `BRepAlgoAPI_Common op; op.SetArguments({faceA}); op.SetTools({faceB}); op.SetFuzzyValue(fuzz); op.Build();` guard with `try/catch(Standard_Failure)` AND `if (op.HasErrors())`. Area = `SurfaceProperties(op.Shape()).Mass()`.
+  - Accumulate per (sourceFaceIndex, candFaceIndex); pair area > `kAreaTol` → append a `FacePair`. After all pairs, sum > `kAreaTol` → emit one `ExactEdge{sourceId,targetId,"adjacent_exact",sum,facePairs}`.
+  - Populate `core.candidates` (id + combined capability), `core.sourceCapability`; merge diagnostics (Task 7 finalizes namespacing). Serialize OCCT behind a `static std::mutex`. Define `CapabilityToString` here.
+  - Add `OcctAdjacencyEngine.cpp` to `RookNative.vcxproj` (per-file OCCT block, additive).
 
-- [ ] **Step 4: Build + run (GREEN)** — kernel test passes (abutment area + facePairs + capability). `exit=0`.
-
-- [ ] **Step 5: Port the robustness matrix as a LOWER-LEVEL kernel test (resolved fork).** The 9 `spike_strengthener2_coverage.py` cases test the *coincidence primitive*, not the Brep→payload path. Expose the kernel primitive as a separately-testable free function in `OcctAdjacencyEngine.cpp`'s OCCT-aware TU — e.g. `double SharedFaceArea(const TopoDS_Shape& a, const TopoDS_Shape& b, double fuzz, bool& crashed);` (declared in an internal `OcctAdjacencyEngine_internal.h` included only by OCCT-aware TUs). Build the 9 cases from `BRepPrimAPI_MakeBox`/`MakeCylinder` directly (no `ObjectBrepPayload`, no converter) and assert: abutting→exact(100); gap>fuzzy→0; gap<fuzzy→bridged(100); coincident-duplicate→full overlap, no crash; interpenetration→0 face-adjacency; far-from-origin(+1e6)→exact; sliver→no crash; degenerate→rejected at construction; curved-on-planar→πr². This deliberately tests the primitive at the level Strengthener 2 validated it; the full `Evaluate(ObjectBrepPayload…)` path is covered by Step 2's fixture test + Task 10's live test. Build + run; `exit=0`.
-
-- [ ] **Step 6: Commit**
+- [ ] **Step 3: OCCT-only offline robustness matrix (RED→GREEN).** Create `OcctPrimitiveTests.vcxproj` (copy `ExactAdjacencyTests.vcxproj`; new GUID; `TargetName`=`OcctPrimitiveTests`; links **OCCT modeling only** from `$(OcctRoot)\win64\vc14\lib` — NO openNURBS, NO STEP, NO DataExchange; include `$(OcctRoot)\inc`). Compile `occt_primitive_tests.cpp` + `OcctAdjacencyEngine.cpp` (the `SharedFaceArea` primitive). Build the 9 `spike_strengthener2_coverage.py` cases from `BRepPrimAPI_MakeBox`/`MakeCylinder` directly (no `ObjectBrepPayload`, no converter): abutting→exact(≈100·25.4²); gap>fuzzy→0; gap<fuzzy→bridged; coincident-duplicate→full overlap, no crash; interpenetration→0 face-adjacency; far-from-origin(+1e6)→exact; sliver→no crash; degenerate→rejected at construction; curved-on-planar→πr². Build + run; `exit=0`.
 ```
-git add src/RookNative/SceneGraph/OcctAdjacencyEngine.* src/RookNative/SceneGraph/tests/occt_adjacency_tests.cpp src/RookNative/OcctAdjacencyTests.vcxproj
-git commit -m "feat(scene): OcctAdjacencyEngine kernel — Common().Area, prefilter, facePairs, robustness matrix"
+cd src/RookNative
+MSBuild.exe OcctPrimitiveTests.vcxproj -p:Configuration=Debug -p:Platform=x64 -v:m
+./bin/tests/Debug/x64/OcctPrimitiveTests.exe; echo "exit=$?"
+cd ..
+```
+
+- [ ] **Step 4: Extend the dev route to validate the full `Evaluate(payload)` path in-plugin.** Add an optional mode to `POST /scene/occt_validate_converter` (or a sibling `…/occt_validate_adjacency`): body `{ "sourceId", "candidateIds": [...] }` → main-thread deep-copy each `ON_Brep` into `ObjectBrepPayload`s → worker `OcctAdjacencyEngine().Evaluate(...)` → return the edges (`sharedArea`, `facePairs`) + capabilities + diagnostics. Build the `.rhp` (`cmd //c scripts/build-native.bat Release`). Implementer reports `STATUS: DONE`, in-plugin validation pending deploy.
+
+- [ ] **Step 5: Validate in-plugin (controller-coordinated).** Controller deploys + hits the route for source `08d4dedf` (open floorplate) with the 5 candidate abutment GUIDs: assert an edge to wall `71065f57` with `sharedArea` ≈ 3312 in² (×25.4² mm²) within 1e-3 relative, `facePairs` non-empty summing to `sharedArea`, `sourceCapability == exact_brep`.
+
+- [ ] **Step 6: Commit (additive)**
+```
+git add src/RookNative/SceneGraph/OcctAdjacencyEngine.* src/RookNative/SceneGraph/OcctAdjacencyEngine_internal.h src/RookNative/SceneGraph/tests/occt_primitive_tests.cpp src/RookNative/OcctPrimitiveTests.vcxproj src/RookNative/Handlers/SceneGraphHandler.* src/RookNative/RookServer.cpp src/RookNative/RookNative.vcxproj
+git commit -m "feat(scene): OcctAdjacencyEngine kernel + OCCT-only robustness matrix + in-plugin Evaluate validation"
 ```
 
 ---
 
-## Task 7: Engine-internal diagnostic propagation (offline; Phase 1)
+## Task 7: Engine-internal diagnostic propagation (Phase 1, additive)
 
-> Phase 1, offline. The matching **handler/wire-serialization** change is a step of the
-> Task 8 integration block (it touches the `.rhp`), NOT here — see issue: never build the
-> `.rhp` before Task 8 wires the engine.
+> Phase 1. The engine diagnostic MERGE lives in `OcctAdjacencyEngine.cpp` (additive — the
+> engine isn't wired into the production route until Task 8, so this stays green on the old
+> engine). The matching **production handler/wire-serialization** (the `/scene/graph/
+> adjacency/exact` response) is a step of the Task 8 integration block, NOT here. Diagnostic
+> behavior is validated in-plugin via the Task-6 dev `Evaluate` route, not a console.
 
 **Files:**
 - Modify: `src/RookNative/SceneGraph/OcctAdjacencyEngine.cpp` (diagnostic merge)
-- Modify: `src/RookNative/SceneGraph/tests/occt_adjacency_tests.cpp` (diagnostics test)
 
 - [ ] **Step 1: Engine diagnostic merge.** In `Evaluate`, merge into `core.diagnostics`: source extraction codes prefixed `source:`, each candidate's codes prefixed `cand:<id>:`, engine per-pair failures prefixed `engine:` (conversion failure, `Common` exception/HasErrors). Successful contributions are recorded in `facePairs`, not as strings.
 
-- [ ] **Step 2: Add a diagnostics test** (offline) — feed a payload with `brep=nullptr`/`UnsupportedGeometry` ("mesh") as a candidate; assert the core's `diagnostics` contains `cand:<id>:mesh` and that candidate's `capability == UnsupportedGeometry`, while an `ExactBrep` source with no touching candidate yields zero edges and NO error diagnostic (the tightened no-edge invariant). Build + run the offline exe; `exit=0`.
+- [ ] **Step 2: Build the `.rhp`** (`cmd //c scripts/build-native.bat Release`) — additive, still green on the old production engine. Implementer reports `STATUS: DONE`, diagnostic validation pending the deploy/live check.
 
-- [ ] **Step 3: Commit (offline engine only — `.rhp` untouched)**
+- [ ] **Step 3: Validate in-plugin (controller-coordinated).** Via the Task-6 dev `Evaluate` route, feed source = an `ExactBrep` wall with candidates including a **mesh** object and a **SubD** object: assert each non-brep candidate's `capability == unsupported_geometry` with a `cand:<id>:mesh`/`:subd` reason in `diagnostics`; assert an `ExactBrep` source with a non-touching candidate yields zero edges and NO error diagnostic (tightened no-edge invariant).
+
+- [ ] **Step 4: Commit (additive — `.rhp` green on old production engine)**
 ```
-git add src/RookNative/SceneGraph/OcctAdjacencyEngine.cpp src/RookNative/SceneGraph/tests/occt_adjacency_tests.cpp
+git add src/RookNative/SceneGraph/OcctAdjacencyEngine.cpp
 git commit -m "feat(scene): engine-internal diagnostic propagation (source/cand/engine namespaces)"
 ```
 
@@ -445,9 +466,9 @@ git commit -m "feat(scene): engine-internal diagnostic propagation (source/cand/
 - Modify: `src/RookNative/SceneGraph/ExactAdjacencyTypes.h` (strip to query types — Task 2 Step 3)
 - Modify: `src/RookNative/SceneGraph/OcctAdjacencyTypes.h` (uncomment the `ExactAdjacencyTypes.h` include)
 - Modify: `src/RookNative/SceneGraph/ExactAdjacencyService.{h,cpp}` (extraction → `ObjectBrepPayload`; engine wiring; units; `fuzzMm` conversion)
-- Modify: `src/RookNative/Handlers/SceneGraphHandler.cpp` (response fields; parse `fuzzMm`; remove `HandleOcctProbe`)
-- Modify: `src/RookNative/RookServer.cpp` (remove `/scene/occt_probe` route)
-- Modify: `src/RookNative/RookNative.vcxproj` (remove `PlanarAdjacencyEngine.cpp` + `OcctProbe.cpp`; add `OnBrepToOcct.cpp` + `OcctAdjacencyEngine.cpp` with per-file OCCT include)
+- Modify: `src/RookNative/Handlers/SceneGraphHandler.cpp` (response fields; parse `fuzzMm`; remove dev routes `HandleOcctValidateConverter`/`HandleOcctProbe`)
+- Modify: `src/RookNative/RookServer.cpp` (remove `/scene/occt_validate_converter` + `/scene/occt_probe` routes)
+- Modify: `src/RookNative/RookNative.vcxproj` (remove `PlanarAdjacencyEngine.cpp` + `OcctProbe.cpp`; `OnBrepToOcct.cpp`/`OcctAdjacencyEngine.cpp` were ALREADY added additively in Tasks 4/6 — leave them)
 
 - [ ] **Step 1: Remove the old engine + strip types.** `git rm src/RookNative/SceneGraph/PlanarAdjacencyEngine.h src/RookNative/SceneGraph/PlanarAdjacencyEngine.cpp`. Apply **Task 2 Step 3** (strip `ExactAdjacencyTypes.h` to the broad-phase query types only; uncomment the `#include "SceneGraph/ExactAdjacencyTypes.h"` in `OcctAdjacencyTypes.h`).
 
@@ -471,16 +492,16 @@ git commit -m "feat(scene): engine-internal diagnostic propagation (source/cand/
   - Set `evaluated.lengthUnit` from the doc unit system (reuse/extend the unit-name mapper in `DocumentOpsHandler.cpp`, e.g. "inches"); `evaluated.areaUnit = lengthUnit + "^2"`.
   - Merge the service-owned fields (objectId/graphSequence/candidateLimit/capped/totalCandidateCount) and cache exactly as today (`kEngineVersion==2` auto-drops Gate-4 entries).
 
-- [ ] **Step 4: Add the new cpps to `RookNative.vcxproj`; remove old/tracer.** Add `SceneGraph\OnBrepToOcct.cpp` and `SceneGraph\OcctAdjacencyEngine.cpp` each with the per-file OCCT block (mirror the existing `OcctProbe.cpp` block: `NotUsing` PCH, `<AdditionalIncludeDirectories>$(OcctRoot)\inc;…`, `/bigobj`). Remove the `PlanarAdjacencyEngine.cpp` and `OcctProbe.cpp` `ClCompile` blocks and the `OcctProbe.h` `ClInclude`. `ExactAdjacencyService.cpp`/`SceneGraphHandler.cpp` keep the PCH and include only the OCCT-header-free `OcctAdjacencyEngine.h`/`OnBrepToOcct.h` — OCCT headers never leak into PCH TUs.
+- [ ] **Step 4: `RookNative.vcxproj` — remove old engine + tracer (the new cpps are ALREADY present).** `OnBrepToOcct.cpp` (Task 4) and `OcctAdjacencyEngine.cpp` (Task 6) were already added additively, so do NOT re-add them. Remove the `PlanarAdjacencyEngine.cpp` and `OcctProbe.cpp` `ClCompile` blocks and the `OcctProbe.h` `ClInclude`. `ExactAdjacencyService.cpp`/`SceneGraphHandler.cpp` keep the PCH and include only the OCCT-header-free `OcctAdjacencyEngine.h`/`OnBrepToOcct.h` — OCCT headers never leak into PCH TUs.
 
-- [ ] **Step 5: Handler migration (was Task 7 Step 3) + `fuzzMm` param + tracer removal.** In `SceneGraphHandler.cpp::HandleSceneGraphExactAdjacency`: parse optional `fuzzMm` (default `kDefaultFuzzMm`) from the body and pass it to `Compute`; serialize `out["lengthUnit"]`/`out["areaUnit"]`; per edge add a `facePairs` array (`sourceFaceIndex`/`candidateFaceIndex`/`sharedArea`); `CapabilityToString` emits `exact_brep`/`partial_exact_brep`/`unsupported_geometry`/`failed_with_diagnostics` (no `exact_planar`). Delete `HandleOcctProbe` + its `#include "SceneGraph/OcctProbe.h"`. In `RookServer.cpp` remove the `m_server->Post("/scene/occt_probe", …)` registration (~1796). `git rm src/RookNative/SceneGraph/OcctProbe.h src/RookNative/SceneGraph/OcctProbe.cpp`.
+- [ ] **Step 5: Production handler migration + `fuzzMm` + remove dev routes/tracer.** In `SceneGraphHandler.cpp::HandleSceneGraphExactAdjacency`: parse optional `fuzzMm` (default `kDefaultFuzzMm`) and pass to `Compute`; serialize `out["lengthUnit"]`/`out["areaUnit"]`; per edge add `facePairs`; `CapabilityToString` emits `exact_brep`/`partial_exact_brep`/`unsupported_geometry`/`failed_with_diagnostics` (no `exact_planar`). **Remove the dev validation route(s)** added in Tasks 4/6 — delete `HandleOcctValidateConverter` (+ the Evaluate-mode sibling) and `HandleOcctProbe`, their `#include "SceneGraph/OcctProbe.h"`, and the `m_server->Post("/scene/occt_validate_converter", …)` + `/scene/occt_probe` registrations in `RookServer.cpp`. `git rm src/RookNative/SceneGraph/OcctProbe.h src/RookNative/SceneGraph/OcctProbe.cpp`. (The dev routes have served Tasks 4–7; the real `/scene/graph/adjacency/exact` route + Task 10's live verify replace them. `OnBrepToOcct`/`OcctAdjacencyEngine` STAY — they are the production engine now.)
 
-- [ ] **Step 6: Build the `.rhp` (the green restore) + build the offline tests**
+- [ ] **Step 6: Build the `.rhp` (the green restore) + the OCCT-only primitive matrix**
 ```
 cmd //c scripts/build-native.bat Release
-cd src/RookNative && MSBuild.exe OcctAdjacencyTests.vcxproj -p:Configuration=Debug -p:Platform=x64 -v:m && ./bin/tests/Debug/x64/OcctAdjacencyTests.exe; echo "exit=$?"; cd ..
+cd src/RookNative && MSBuild.exe OcctPrimitiveTests.vcxproj -p:Configuration=Debug -p:Platform=x64 -v:m && ./bin/tests/Debug/x64/OcctPrimitiveTests.exe; echo "exit=$?"; cd ..
 ```
-Expected: `.rhp` compiles + links (production engine is now OCCT); offline tests still `exit=0`.
+Expected: `.rhp` compiles + links (production engine is now OCCT; no dev routes); primitive matrix still `exit=0`.
 
 - [ ] **Step 7: Single integration commit**
 ```
@@ -493,13 +514,13 @@ git commit -m "feat(scene): integrate OcctAdjacencyEngine — payload extraction
 ## Task 9: Build productionization (OCCT 7.9.3 pin, `$(OcctRoot)`, measured DLL closure, LGPL)
 
 **Files:**
-- Modify: `src/RookNative/RookNative.vcxproj`, `src/RookNative/OcctAdjacencyTests.vcxproj` (`$(OcctRoot)` property; trim production link list)
+- Modify: `src/RookNative/RookNative.vcxproj`, `src/RookNative/OcctPrimitiveTests.vcxproj` (`$(OcctRoot)` property; trim production link list)
 - Create: `docs/rook_docs/occt-build-7.9.3.md` (build + deploy doc)
 - Modify: the about/licenses surface (locate via grep) for LGPL attribution
 
-- [ ] **Step 1: Build OCCT 7.9.3.** In `C:/Users/aryan/source/repos/OCCT`, fetch + checkout `V7_9_3`; configure modeling + DataExchange (DataExchange only needed for the test target) into `build-rook-793`; build Release. Document exact cmake flags in `docs/rook_docs/occt-build-7.9.3.md`. (DataExchange in the shared build is fine; the *runtime link list* excludes it — Step 3.)
+- [ ] **Step 1: Build OCCT 7.9.3.** In `C:/Users/aryan/source/repos/OCCT`, fetch + checkout `V7_9_3`; configure **modeling modules only** (no DataExchange/STEP is needed by the runtime OR by any C++ test now — the converter-fidelity oracle was precomputed offline via Python OCP; the primitive matrix is OCCT-modeling-only) into `build-rook-793`; build Release. Document exact cmake flags in `docs/rook_docs/occt-build-7.9.3.md`.
 
-- [ ] **Step 2: Introduce `$(OcctRoot)`.** Add `<OcctRoot Condition="'$(OcctRoot)'==''">$(OCCT_ROOT)</OcctRoot>` then a fallback default to the 7.9.3 build tree, in a `PropertyGroup` in both vcxprojs. Replace every hardcoded `C:\Users\aryan\source\repos\OCCT\build-rook\…` with `$(OcctRoot)\…`. Document the `OCCT_ROOT` env var in the build doc.
+- [ ] **Step 2: Introduce `$(OcctRoot)`.** Add `<OcctRoot Condition="'$(OcctRoot)'==''">$(OCCT_ROOT)</OcctRoot>` then a fallback default to the 7.9.3 build tree, in a `PropertyGroup` in both vcxprojs (`RookNative` + `OcctPrimitiveTests`). Replace every hardcoded `C:\Users\aryan\source\repos\OCCT\build-rook\…` (including the per-file include paths added in Tasks 4/6 and the `OcctProbe` legacy path if still present) with `$(OcctRoot)\…`. Document the `OCCT_ROOT` env var in the build doc.
 
 - [ ] **Step 3: Trim the production TK\* link list.** In `RookNative.vcxproj`, reduce `AdditionalDependencies` to the **non-DataExchange** modeling closure required by the converter + kernel (drop `TKDESTEP`, `TKXSBase`, `TKDE`, `TKDECascade`, `TKCAF`, `TKLCAF`, `TKXCAF`, `TKCDF`, `TKExpress`). Build the `.rhp`, then **measure the real closure with `dumpbin`**:
 ```
@@ -512,7 +533,7 @@ Iterate the link list until it links with the minimal set; record the measured D
 
 - [ ] **Step 5: Commit** (replace `<licenses-file>` with the actual path located in Step 4 — e.g. an about/version `.cpp` in `src/RookNative` or a `.cs` in `src/Rook`; do NOT commit a literal placeholder)
 ```
-git add src/RookNative/RookNative.vcxproj src/RookNative/OcctAdjacencyTests.vcxproj docs/rook_docs/occt-build-7.9.3.md <licenses-file-from-step-4>
+git add src/RookNative/RookNative.vcxproj src/RookNative/OcctPrimitiveTests.vcxproj docs/rook_docs/occt-build-7.9.3.md <licenses-file-from-step-4>
 git commit -m "build(occt): pin 7.9.3, \$(OcctRoot) property, measured non-DataExchange DLL closure, LGPL attribution"
 ```
 
@@ -550,8 +571,9 @@ git commit -m "test(scene): in-plugin live verification of OCCT adjacency on Spa
 
 ## Self-Review notes (for the executor)
 
-- **OCCT converter internals (Tasks 4–5) are compiler-and-oracle-driven.** The exact `Geom2d_BSplineCurve`/`BRepBuilderAPI` call sequences will be refined against the MSVC compiler and the STEP-oracle area match — the test (oracle within 1e-4) is the contract, not a fixed code listing. This is deliberate: bit-exact OCCT code cannot be authored blind, and orientation bugs hide behind plausible-looking faces (spec §3.1 rationale).
+- **TEST VENUE = IN-PLUGIN (amended).** The converter/engine are validated inside RookNative via the dev route `POST /scene/occt_validate_converter` against precomputed oracle constants (Task 4 table) — NOT a standalone openNURBS console. The only offline C++ test is the OCCT-modeling-only primitive matrix (`OcctPrimitiveTests`). Validation loop is controller-coordinated: implementer builds the `.rhp`; controller deploys (Rhino CLOSED) + hits the route (Rhino OPEN). Dev routes are removed in Task 8 Step 5.
+- **OCCT converter internals (Tasks 4–5) are compiler-and-oracle-driven.** The exact `Geom2d_BSplineCurve`/`BRepBuilderAPI` call sequences will be refined against the MSVC compiler and the oracle area match — the bar (oracle within 1e-4) is the contract, not a fixed code listing. This is deliberate: bit-exact OCCT code cannot be authored blind, and orientation bugs hide behind plausible-looking faces (spec §3.1 rationale).
 - **Tolerance unit boundary (issue-5 resolution):** there are TWO distinct tolerances. `CandidateQueryOptions.tolerance` stays **model-units** and feeds ONLY the broad-phase candidate query — do not touch its meaning. The OCCT fuzzy is a SEPARATE HTTP param **`fuzzMm`** (mm), converted ONCE in `Compute` (Task 8 Step 3) via `tolModelUnits = fuzzMm / modelUnitsToMillimeters` before reaching `Common`. Never reinterpret `opts.tolerance` as mm; never let an unconverted mm value reach `Common`.
 - **Move-only payloads:** `ObjectBrepPayload` never enters the cache or gets copied. Only `ExactAdjacencyCore` (plain data) is cached/serialized. If a build error mentions a deleted copy ctor on a payload vector, you are copying where you must move.
 - **`kEngineVersion` is bumped to 2** → the adjacency cache auto-drops Gate-4 entries on first call. Do not also clear manually.
-- **No STEP in the runtime path:** if any production TU (compiled into `.rhp`) includes a `STEPControl_*` header, that is a regression against spec §1's invariant. STEP lives only in `OcctAdjacencyTests`.
+- **No STEP anywhere in the C++ build:** no production TU AND no C++ test TU includes a `STEPControl_*`/DataExchange header. The STEP oracle was consumed once, offline, via Python OCP to produce the constants in the Task-4 table; the `.stp` fixtures are never read by a shipped or test binary. Any `STEPControl_*` include is a regression against spec §1's invariant.
