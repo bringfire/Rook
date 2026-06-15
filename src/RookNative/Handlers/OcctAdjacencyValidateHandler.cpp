@@ -14,19 +14,18 @@
 // Resolves the source + each candidate ON_Brep on the MAIN thread, deep-copies
 // each into an ObjectBrepPayload (mesh/SubD/non-Brep -> brep=nullptr + capability
 // + diagnostic), captures the model-units->mm scale, computes
-// tolModelUnits = fuzzMm / modelUnitsToMillimeters, then runs the engine on the
-// WORKER thread (the engine serializes internally under its own OCCT mutex).
+// tolModelUnits = fuzzMm / modelUnitsToMillimeters, then runs the engine, whose
+// OCCT compute is serialized on the dedicated OCCT worker thread (Task 6b
+// OcctExecutor; SE translation installed once there).
 
 #include "stdafx.h"   // RhinoSdk -> opennurbs (ON_Brep) available; PCH like other handlers
 #include "Handlers/SceneGraphHandler.h"     // declares HandleOcctValidateAdjacency
 #include "RookServer.h"
-#include "SceneGraph/OcctProbe.h"            // OcctProbeInit
 #include "SceneGraph/OcctAdjacencyTypes.h"   // Task 6 contract (OCCT-header-free)
 #include "SceneGraph/OcctAdjacencyEngine.h"  // Task 6 engine (OCCT-header-free pimpl)
 #include "Threading/MainThreadDispatcher.h"
 #include "Infrastructure/JsonHelpers.h"
 
-#include <mutex>
 #include <string>
 #include <vector>
 
@@ -144,9 +143,10 @@ void HandleOcctValidateAdjacency(const httplib::Request& req, httplib::Response&
     const double tolModelUnits =
         (srcUnitsToMm != 0.0) ? (fuzzMm / srcUnitsToMm) : fuzzMm;
 
-    static std::once_flag s_init;
-    std::call_once(s_init, [] { Rook::OcctProbeInit(); });
-
+    // Task 6b: OcctProbeInit (OSD::SetSignal) is now installed ONCE on the
+    // dedicated OCCT worker thread inside OcctExecutor; OcctAdjacencyEngine::Evaluate
+    // routes its OCCT compute through that executor. No per-handler call_once /
+    // mutex is needed — the engine call below is serialized + SE-translated there.
     ExactAdjacencyCore core;
     try {
         core = OcctAdjacencyEngine().Evaluate(source, candidates, tolModelUnits);

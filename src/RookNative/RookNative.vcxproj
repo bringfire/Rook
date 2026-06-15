@@ -203,6 +203,19 @@
       <ExceptionHandling>Async</ExceptionHandling>
       <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
+    <!-- Task 6b: the single dedicated serialized OCCT worker thread. Calls
+         OcctProbeInit() (OSD::SetSignal) ONCE on its worker thread so SE
+         translation is active on the only thread that touches OCCT. Same build
+         shape as the sibling OCCT TUs: NotUsing PCH, per-file OCCT include path,
+         /bigobj. /EHa (Async) is required so the worker's per-task try/catch and
+         RAII reliably unwind SEH-translated OCCT faults. -->
+    <ClCompile Include="SceneGraph\OcctExecutor.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)'=='Debug'">NotUsing</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)'=='Release'">NotUsing</PrecompiledHeader>
+      <AdditionalIncludeDirectories>C:\Users\aryan\source\repos\OCCT\build-rook\inc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <ExceptionHandling>Async</ExceptionHandling>
+      <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
     <!-- /EHa (Async): this TU hosts the dev OCCT routes (HandleOcctProbe,
          HandleOcctValidateConverter) which hold a static std::mutex across OCCT
          calls. Same EDEADLK exposure as the engine: a SEH-translated OCCT fault
@@ -293,6 +306,7 @@
     <ClInclude Include="SceneGraph\PlanarAdjacencyEngine.h" />
     <ClInclude Include="SceneGraph\ExactAdjacencyService.h" />
     <ClInclude Include="SceneGraph\OcctProbe.h" />
+    <ClInclude Include="SceneGraph\OcctExecutor.h" />
     <ClInclude Include="SceneGraph\OnBrepToOcct.h" />
     <ClInclude Include="SceneGraph\OnBrepToOcct_internal.h" />
     <ClInclude Include="SceneGraph\OcctAdjacencyTypes.h" />

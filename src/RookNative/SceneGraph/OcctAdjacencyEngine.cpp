@@ -10,21 +10,25 @@
 //     primitive declaration (OcctAdjacencyEngine_internal.h) are OCCT-aware and
 //     included ONLY here (and by the OCCT-only test).
 //
-// CONCURRENCY (v1): the whole Evaluate body serializes under a static std::mutex,
-// matching the OCCT mutex policy used by the dev routes. OCCT global state +
-// single-UI-thread Rhino marshalling make this the conservative correct choice;
-// finer-grained parallelism is a later optimization, not a Task-6 concern.
+// CONCURRENCY (v1, Task 6b): the whole Evaluate body runs on the single dedicated
+// OCCT worker thread via OcctExecutor::Instance().Run([&]{ ... }). One worker
+// thread == serial execution, so this IS the v1 serialization — the old per-call
+// `static std::mutex s_engineMutex` (and its stale-lock/EDEADLK failure class) is
+// gone. More importantly, the worker thread installs OCCT's per-thread
+// SEH->Standard_Failure translation (OSD::SetSignal) ONCE at startup, so OCCT
+// faults here are catchable Standard_Failure (the inner try/catch below degrades
+// them to diagnostics) rather than a raw access violation that kills Rhino.
+// Run() blocks the caller and rethrows any escaping exception on the caller
+// thread; `source`/`candidates` are const refs captured by reference that outlive
+// the blocking call, so the capture is safe.
 //
 // CRASH/UNWIND CONTRACT: an OCCT fault inside this TU surfaces as a
-// Standard_Failure synthesized by OCCT's OSD::SetSignal SEH translator. Under the
-// default /EHsc model that SEH-translated throw does NOT reliably run C++
-// destructors during unwind, so the lock_guard below could be skipped and leave
-// s_engineMutex permanently locked — the next pooled httplib worker then deadlocks
-// (EDEADLK: "resource deadlock would occur") trying to re-lock the held mutex.
-// This TU is therefore compiled with /EHa (Async exceptions; set per-file in
-// RookNative.vcxproj) so SEH-translated throws unwind the stack and run the
-// lock_guard destructor — releasing the mutex on every fault path. Do NOT drop
-// the /EHa flag.
+// Standard_Failure synthesized by OCCT's OSD::SetSignal SEH translator (installed
+// on the OCCT worker thread). Under the default /EHsc model that SEH-translated
+// throw does NOT reliably run C++ destructors during unwind. This TU is therefore
+// compiled with /EHa (Async exceptions; set per-file in RookNative.vcxproj) so
+// SEH-translated throws unwind the stack and run RAII destructors on every fault
+// path. Do NOT drop the /EHa flag.
 //
 // METHOD:
 //   - Convert source + each candidate ON_Brep to OCCT faces ONCE (proven converter).
@@ -47,6 +51,7 @@
 #include "SceneGraph/OcctAdjacencyEngine_internal.h"
 #include "SceneGraph/OnBrepToOcct.h"
 #include "SceneGraph/OnBrepToOcct_internal.h"
+#include "SceneGraph/OcctExecutor.h"   // Task 6b: dedicated serialized OCCT thread
 
 // ── openNURBS (only ON_Brep is touched, through the converter). Declared import
 //    for the same LNK2005 reason documented in OnBrepToOcct.cpp. ──
@@ -67,7 +72,6 @@
 #include <Standard_Failure.hxx>
 
 #include <exception>
-#include <mutex>
 #include <string>
 #include <vector>
 
@@ -105,8 +109,13 @@ ExactAdjacencyCore OcctAdjacencyEngine::Evaluate(
     const std::vector<ObjectBrepPayload>& candidates,
     double toleranceModelUnits) const
 {
-    static std::mutex s_engineMutex;   // v1: serialize the whole body
-    std::lock_guard<std::mutex> lk(s_engineMutex);
+    // Task 6b: run the entire evaluate body on the dedicated OCCT worker thread.
+    // One worker == serial (the v1 serialization) AND it is the only thread with
+    // OCCT SE translation installed, so OCCT faults are catchable here instead of
+    // killing the process. Run() blocks until the lambda returns and rethrows any
+    // escaping exception on this caller thread. `source`/`candidates` are const
+    // refs that outlive the blocking call — safe to capture by reference.
+    return OcctExecutor::Instance().Run([&]() -> ExactAdjacencyCore {
 
     ExactAdjacencyCore core;
     core.objectId = source.objectId;
@@ -216,6 +225,8 @@ ExactAdjacencyCore OcctAdjacencyEngine::Evaluate(
     }
 
     return core;
+
+    });  // OcctExecutor::Instance().Run
 }
 
 } // namespace Rook

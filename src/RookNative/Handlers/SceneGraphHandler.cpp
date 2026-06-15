@@ -12,8 +12,9 @@
 #include "SceneGraph/SceneGraphConduit.h"
 #include "SceneGraph/ExactAdjacencyService.h"
 #include "SceneGraph/ExactAdjacencyTypes.h"
-#include "SceneGraph/OcctProbe.h"   // Spike G tracer (OCCT-only unit)
-#include "SceneGraph/OnBrepToOcct.h" // Task 4 converter (OCCT-header-free pimpl)
+#include "SceneGraph/OcctProbe.h"    // Spike G tracer (OCCT-only unit)
+#include "SceneGraph/OnBrepToOcct.h"  // Task 4 converter (OCCT-header-free pimpl)
+#include "SceneGraph/OcctExecutor.h"  // Task 6b: dedicated serialized OCCT thread
 #include "Threading/MainThreadDispatcher.h"
 #include "Infrastructure/JsonHelpers.h"
 
@@ -799,16 +800,14 @@ void HandleOcctProbe(const httplib::Request& req, httplib::Response& res)
         return;
     }
 
-    static std::once_flag s_init;
-    std::call_once(s_init, [] { Rook::OcctProbeInit(); });
-
-    static std::mutex s_occtMutex;  // serialized OCCT (v1 concurrency policy)
+    // Task 6b: run the OCCT compute on the dedicated serialized OCCT worker thread
+    // (SE translation installed once there). One worker == the v1 serialization, so
+    // the old call_once(OcctProbeInit) + static mutex are gone. Run() blocks and
+    // returns the result; stepA/stepB outlive the blocking call.
     std::string diag;
-    double area;
-    {
-        std::lock_guard<std::mutex> lk(s_occtMutex);
-        area = Rook::OcctProbeSharedArea(stepA, stepB, diag);
-    }
+    double area = Rook::OcctExecutor::Instance().Run([&]() -> double {
+        return Rook::OcctProbeSharedArea(stepA, stepB, diag);
+    });
 
     CRookServer::SendSuccess(res, {
         {"sharedArea_mm2", area},
@@ -928,19 +927,20 @@ void HandleOcctValidateConverter(const httplib::Request& req, httplib::Response&
         return;
     }
 
-    // ── OCCT conversion (serialized) ──
-    static std::once_flag s_init;
-    std::call_once(s_init, [] { Rook::OcctProbeInit(); });
-    static std::mutex s_occtMutex;
-
+    // ── OCCT conversion (Task 6b: on the dedicated serialized OCCT worker thread) ──
+    // The converter runs on the OCCT worker (SE translation installed once there);
+    // one worker == the v1 serialization, so the old call_once(OcctProbeInit) +
+    // static mutex are gone. ex.brep is an owned deep-copy on the main thread, so
+    // the worker only touches an owned ON_Brep (no live Rhino SDK). Run() blocks
+    // and rethrows any escaping exception here; the inner try/catch still degrades
+    // a (now catchable) OCCT fault to a diagnostic.
     int convertedFaceCount = 0;
     int brepFaceCount = ex.brep->m_F.Count();
     std::vector<int> failed;
     std::vector<int> sourceMap;     // sourceMap[slot] = source face index
     double totalAreaModel = 0.0;
     std::vector<std::string> diagnostics;
-    {
-        std::lock_guard<std::mutex> lk(s_occtMutex);
+    Rook::OcctExecutor::Instance().Run([&]() {
         try {
             Rook::OcctFaceSet faceSet = Rook::ConvertBrepFaces(*ex.brep);
             convertedFaceCount = faceSet.faceCount();
@@ -953,7 +953,7 @@ void HandleOcctValidateConverter(const httplib::Request& req, httplib::Response&
         } catch (...) {
             diagnostics.push_back("convert_exception: unknown");
         }
-    }
+    });
 
     // Area scale = (length scale)^2. inches -> 25.4^2 = 645.16.
     const double totalAreaMm2 = totalAreaModel * ex.unitsToMm * ex.unitsToMm;
