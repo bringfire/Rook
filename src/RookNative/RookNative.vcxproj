@@ -161,6 +161,15 @@
       <AdditionalIncludeDirectories>C:\Users\aryan\source\repos\OCCT\build-rook\inc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
+    <!-- Task 4: ON_Brep->OCCT surface converter. OCCT-only TU (NotUsing PCH);
+         the ONE unit that includes BOTH openNURBS (from Rhino props) and OCCT.
+         Per-file OCCT include path; /bigobj for OCCT templates. -->
+    <ClCompile Include="SceneGraph\OnBrepToOcct.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)'=='Debug'">NotUsing</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)'=='Release'">NotUsing</PrecompiledHeader>
+      <AdditionalIncludeDirectories>C:\Users\aryan\source\repos\OCCT\build-rook\inc;$(RhinoSdkDir)openNURBS;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
     <ClCompile Include="Handlers\SceneGraphHandler.cpp" />
     <ClCompile Include="Handlers\CommandInteractiveHandler.cpp" />
     <ClCompile Include="Handlers\PromptHandler.cpp" />
@@ -239,6 +248,8 @@
     <ClInclude Include="SceneGraph\PlanarAdjacencyEngine.h" />
     <ClInclude Include="SceneGraph\ExactAdjacencyService.h" />
     <ClInclude Include="SceneGraph\OcctProbe.h" />
+    <ClInclude Include="SceneGraph\OnBrepToOcct.h" />
+    <ClInclude Include="SceneGraph\OcctAdjacencyTypes.h" />
     <ClInclude Include="SceneGraph\SceneGraph.h" />
     <ClInclude Include="SceneGraph\SceneGraphWatcher.h" />
     <ClInclude Include="SceneGraph\SceneGraphConduit.h" />

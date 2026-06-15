@@ -1796,6 +1796,9 @@ void CRookServer::RegisterRoutes()
     m_server->Post("/scene/occt_probe", [this](const httplib::Request& req, httplib::Response& res) {
         Rook::Handlers::HandleOcctProbe(req, res);   // Spike G tracer
     });
+    m_server->Post("/scene/occt_validate_converter", [this](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleOcctValidateConverter(req, res);   // Task 4 dev route (removed in Task 8)
+    });
 
     // Phase 5: Command Interactive
     m_server->Get("/command/prompt", [this](const httplib::Request& req, httplib::Response& res) {

@@ -13,11 +13,16 @@
 #include "SceneGraph/ExactAdjacencyService.h"
 #include "SceneGraph/ExactAdjacencyTypes.h"
 #include "SceneGraph/OcctProbe.h"   // Spike G tracer (OCCT-only unit)
+#include "SceneGraph/OnBrepToOcct.h" // Task 4 converter (OCCT-header-free pimpl)
 #include "Threading/MainThreadDispatcher.h"
 #include "Infrastructure/JsonHelpers.h"
 
 #include <unordered_map>
 #include <mutex>
+#include <cmath>
+#include <memory>
+#include <vector>
+#include <string>
 
 using json = nlohmann::json;
 
@@ -810,6 +815,187 @@ void HandleOcctProbe(const httplib::Request& req, httplib::Response& res)
         {"diag", diag},
         {"occt", "in-plugin"}
     });
+}
+
+// ================================================================
+// Task 4 DEV route: ON_Brep -> OCCT surface converter validation.
+//   POST /scene/occt_validate_converter
+//   body: { objectId: "<guid>", expectedMm2?: <number override> }
+// Resolves the live ON_Brep on the MAIN thread, deep-copies it (no Rhino
+// pointer escapes), then runs the surface-only converter under the OCCT
+// mutex and sums untrimmed face area. Untrimmed area OVER-reports vs the
+// trimmed oracle until Task 5 adds trims — that's expected this task.
+// Same dev visibility as /scene/occt_probe; removed in Task 8.
+// ================================================================
+void HandleOcctValidateConverter(const httplib::Request& req, httplib::Response& res)
+{
+    std::string objectId;
+    bool hasOverride = false;
+    double overrideMm2 = 0.0;
+    try {
+        auto body = json::parse(req.body);
+        if (!body.contains("objectId")) {
+            CRookServer::SendError(res, "Missing 'objectId' (guid)");
+            return;
+        }
+        objectId = body["objectId"].get<std::string>();
+        if (body.contains("expectedMm2") && body["expectedMm2"].is_number()) {
+            hasOverride = true;
+            overrideMm2 = body["expectedMm2"].get<double>();
+        }
+    } catch (const std::exception& e) {
+        CRookServer::SendError(res, std::string("Invalid JSON: ") + e.what());
+        return;
+    }
+
+    // Built-in oracle table (objectId -> expected mm^2; trimmed truth from STEP).
+    static const std::unordered_map<std::string, double> kOracle = {
+        {"71065f57-ee93-4af5-8a67-9aa1c4e88302", 431441833.631},
+        {"08d4dedf-1387-453a-9938-7f3ab516b8ac", 236698710.791},
+        {"5c12cc83-5fe3-4f2c-9fca-c0575c9f5dd3", 57752777.327},
+        {"be0ca730-f3e9-4b41-a5bf-6b3848607b14", 57730120.364},
+        {"7e80db98-d133-4a05-b9fe-ee6d37d9069d", 31753629.008},
+        {"26b2c012-24cf-4656-9e48-8083dc072cad", 31461872.558},
+        {"7d55840d-2516-4a78-9c7d-3a10152756b1", 40404289.332},
+        {"502898fc-75f3-4d59-bddf-cc966a942795", 37898150.015},
+    };
+
+    // ── Main-thread extraction: resolve doc + object, deep-copy the ON_Brep,
+    //    capture the model-units->mm length scale. Only plain data escapes. ──
+    struct Extracted {
+        std::shared_ptr<ON_Brep> brep;     // owned deep-copy; null if unsupported
+        double unitsToMm = 1.0;
+        std::string kind;                  // "brep" | "mesh" | "subd" | "no_brep"
+        bool found = false;
+    };
+
+    ON_UUID uuid = ON_UuidFromString(objectId.c_str());
+
+    auto fut = CMainThreadDispatcher::Instance().Dispatch(
+        [uuid]() -> Extracted {
+            Extracted ex;
+            unsigned int sn = CRhinoDoc::TargetDocSerialNumber();
+            CRhinoDoc* doc = CRhinoDoc::FromRuntimeSerialNumber(sn);
+            if (!doc) return ex;
+            const CRhinoObject* obj = doc->LookupObject(uuid);
+            if (!obj) return ex;
+            ex.found = true;
+
+            const ON_3dmUnitsAndTolerances& ut = doc->Properties().ModelUnitsAndTolerances();
+            ex.unitsToMm = ON::UnitScale(ut.m_unit_system,
+                                         ON::LengthUnitSystem::Millimeters);
+
+            const ON_Geometry* geom = obj->Geometry();
+            if (ON_Mesh::Cast(geom))      { ex.kind = "mesh"; return ex; }
+            if (ON_SubD::Cast(geom))      { ex.kind = "subd"; return ex; }
+
+            // Brep or Extrusion (via BrepForm) -> owned deep-copy.
+            if (const ON_Brep* b = ON_Brep::Cast(geom)) {
+                ex.brep = std::make_shared<ON_Brep>(*b);   // deep copy
+                ex.kind = "brep";
+                return ex;
+            }
+            if (const ON_Extrusion* e = ON_Extrusion::Cast(geom)) {
+                ON_Brep* bf = e->BrepForm();
+                if (bf) {
+                    ex.brep = std::shared_ptr<ON_Brep>(bf); // owns the BrepForm allocation
+                    ex.kind = "brep";
+                    return ex;
+                }
+            }
+            ex.kind = "no_brep";
+            return ex;
+        });
+
+    Extracted ex;
+    try {
+        ex = fut.get();
+    } catch (const std::exception& e) {
+        CRookServer::SendError(res, std::string("extraction_dispatch_failed: ") + e.what());
+        return;
+    }
+
+    if (!ex.found) {
+        CRookServer::SendSuccess(res, {{"error", "object_not_found"}, {"objectId", objectId}});
+        return;
+    }
+    if (ex.kind != "brep" || !ex.brep) {
+        CRookServer::SendSuccess(res, {
+            {"error", "unsupported"},
+            {"kind", ex.kind.empty() ? "no_brep" : ex.kind},
+            {"objectId", objectId}
+        });
+        return;
+    }
+
+    // ── OCCT conversion (serialized) ──
+    static std::once_flag s_init;
+    std::call_once(s_init, [] { Rook::OcctProbeInit(); });
+    static std::mutex s_occtMutex;
+
+    int convertedFaceCount = 0;
+    int brepFaceCount = ex.brep->m_F.Count();
+    std::vector<int> failed;
+    std::vector<int> sourceMap;     // sourceMap[slot] = source face index
+    double totalAreaModel = 0.0;
+    std::vector<std::string> diagnostics;
+    {
+        std::lock_guard<std::mutex> lk(s_occtMutex);
+        try {
+            Rook::OcctFaceSet faceSet = Rook::ConvertBrepFaces(*ex.brep);
+            convertedFaceCount = faceSet.faceCount();
+            failed = faceSet.failedFaceIndices();
+            for (int s = 0; s < convertedFaceCount; ++s)
+                sourceMap.push_back(faceSet.sourceFaceIndex(s));
+            totalAreaModel = Rook::OcctFaceSetTotalArea(faceSet);
+        } catch (const std::exception& e) {
+            diagnostics.push_back(std::string("convert_exception: ") + e.what());
+        } catch (...) {
+            diagnostics.push_back("convert_exception: unknown");
+        }
+    }
+
+    // Area scale = (length scale)^2. inches -> 25.4^2 = 645.16.
+    const double totalAreaMm2 = totalAreaModel * ex.unitsToMm * ex.unitsToMm;
+
+    // Expected: body override, else oracle table, else null.
+    bool hasExpected = hasOverride;
+    double expectedMm2 = overrideMm2;
+    if (!hasExpected) {
+        auto it = kOracle.find(objectId);
+        if (it != kOracle.end()) { hasExpected = true; expectedMm2 = it->second; }
+    }
+
+    // faceIndexMapOk: every slot maps to a source index in [0, brepFaceCount).
+    bool faceIndexMapOk = true;
+    for (int s = 0; s < convertedFaceCount; ++s) {
+        int src = (s < (int)sourceMap.size()) ? sourceMap[s] : -1;
+        if (src < 0 || src >= brepFaceCount) { faceIndexMapOk = false; break; }
+    }
+
+    json out;
+    out["objectId"]           = objectId;
+    out["convertedFaceCount"] = convertedFaceCount;
+    out["brepFaceCount"]      = brepFaceCount;
+    out["failedFaceIndices"]  = failed;
+    out["totalAreaModel"]     = totalAreaModel;
+    out["totalAreaMm2"]       = totalAreaMm2;
+    if (hasExpected) {
+        out["expectedMm2"] = expectedMm2;
+        if (expectedMm2 != 0.0)
+            out["relErr"] = std::fabs(totalAreaMm2 - expectedMm2) / std::fabs(expectedMm2);
+        else
+            out["relErr"] = nullptr;
+    } else {
+        out["expectedMm2"] = nullptr;
+        out["relErr"]      = nullptr;
+    }
+    out["faceIndexMapOk"]     = faceIndexMapOk;
+    out["modelUnitsToMm"]     = ex.unitsToMm;
+    diagnostics.push_back("untrimmed_surfaces_only_task4_overreports_vs_trimmed_oracle");
+    out["diagnostics"]        = diagnostics;
+
+    CRookServer::SendSuccess(res, out);
 }
 
 } // namespace Handlers
