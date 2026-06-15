@@ -77,6 +77,7 @@
 #include <cstdio>
 #include <cstdarg>
 #include <cstdlib>
+#include <malloc.h>   // _heapchk — TEMPORARY diagnostic (heap-corruption probe)
 
 namespace Rook {
 
@@ -164,7 +165,8 @@ ExactAdjacencyCore OcctAdjacencyEngine::Evaluate(
     // ── Convert source once; derive its capability from the conversion. ──
     OcctTrace("convert SOURCE begin");
     OcctFaceSet srcFs = ConvertBrepFaces(*source.brep);
-    OcctTrace("convert SOURCE done faces=%d failed=%zu", srcFs.faceCount(), srcFs.failedFaceIndices().size());
+    { int hc = _heapchk(); OcctTrace("convert SOURCE done faces=%d failed=%zu HEAPCHK=%d(%s)",
+        srcFs.faceCount(), srcFs.failedFaceIndices().size(), hc, hc==_HEAPOK?"OK":"BAD"); }
     core.sourceCapability = CapabilityFromConversion(srcFs);
     for (int fi : srcFs.failedFaceIndices())
         core.diagnostics.push_back("source:convert_failed_face:" + std::to_string(fi));
@@ -176,8 +178,12 @@ ExactAdjacencyCore OcctAdjacencyEngine::Evaluate(
     for (const ObjectBrepPayload& cand : candidates) {
         ++candIdx;
         OcctTrace("cand[%d] begin hasBrep=%d", candIdx, cand.brep ? 1 : 0);
+        { int hc = _heapchk(); OcctTrace("cand[%d] preflight HEAPCHK=%d(%s) objId.size=%zu candidates.cap=%zu",
+            candIdx, hc, hc==_HEAPOK?"OK":"BAD", cand.objectId.size(), core.candidates.capacity()); }
         const Capability combined = CombineCapability(core.sourceCapability, cand.capability);
+        OcctTrace("cand[%d] before push_back", candIdx);
         core.candidates.push_back(ExactCandidate{cand.objectId, combined});
+        OcctTrace("cand[%d] after push_back", candIdx);
 
         // Candidate unsupported / failed at extraction: record reason, no edge.
         if (!cand.brep) {
