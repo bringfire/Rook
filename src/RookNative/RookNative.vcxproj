@@ -89,6 +89,10 @@
     <Link>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
+      <!-- Spike G: OCCT (modeling + STEP), built from source at OCCT/build-rook.
+           Absolute path is a tracer shortcut; production should use a property/env var. -->
+      <AdditionalLibraryDirectories>C:\Users\aryan\source\repos\OCCT\build-rook\win64\vc14\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>TKernel.lib;TKMath.lib;TKG2d.lib;TKG3d.lib;TKGeomBase.lib;TKGeomAlgo.lib;TKBRep.lib;TKTopAlgo.lib;TKPrim.lib;TKBO.lib;TKBool.lib;TKShHealing.lib;TKDESTEP.lib;TKXSBase.lib;TKDE.lib;TKDECascade.lib;TKCAF.lib;TKLCAF.lib;TKXCAF.lib;TKCDF.lib;TKExpress.lib;TKMesh.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
 
@@ -149,6 +153,14 @@
       <PrecompiledHeader Condition="'$(Configuration)'=='Release'">NotUsing</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="SceneGraph\ExactAdjacencyService.cpp" />
+    <!-- Spike G tracer: OCCT-only unit. No stdafx (NotUsing PCH); per-file OCCT
+         include path so OCCT headers don't leak into other TUs; /bigobj for OCCT templates. -->
+    <ClCompile Include="SceneGraph\OcctProbe.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)'=='Debug'">NotUsing</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)'=='Release'">NotUsing</PrecompiledHeader>
+      <AdditionalIncludeDirectories>C:\Users\aryan\source\repos\OCCT\build-rook\inc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
     <ClCompile Include="Handlers\SceneGraphHandler.cpp" />
     <ClCompile Include="Handlers\CommandInteractiveHandler.cpp" />
     <ClCompile Include="Handlers\PromptHandler.cpp" />
@@ -226,6 +238,7 @@
     <ClInclude Include="SceneGraph\ExactAdjacencyTypes.h" />
     <ClInclude Include="SceneGraph\PlanarAdjacencyEngine.h" />
     <ClInclude Include="SceneGraph\ExactAdjacencyService.h" />
+    <ClInclude Include="SceneGraph\OcctProbe.h" />
     <ClInclude Include="SceneGraph\SceneGraph.h" />
     <ClInclude Include="SceneGraph\SceneGraphWatcher.h" />
     <ClInclude Include="SceneGraph\SceneGraphConduit.h" />

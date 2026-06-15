@@ -1793,6 +1793,9 @@ void CRookServer::RegisterRoutes()
     m_server->Post("/scene/graph/adjacency/exact", [this](const httplib::Request& req, httplib::Response& res) {
         Rook::Handlers::HandleSceneGraphExactAdjacency(req, res);
     });
+    m_server->Post("/scene/occt_probe", [this](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleOcctProbe(req, res);   // Spike G tracer
+    });
 
     // Phase 5: Command Interactive
     m_server->Get("/command/prompt", [this](const httplib::Request& req, httplib::Response& res) {

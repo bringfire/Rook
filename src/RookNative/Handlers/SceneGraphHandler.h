@@ -19,6 +19,7 @@ void HandleSceneGraphReconcile(const httplib::Request& req, httplib::Response& r
 void HandleSceneGraphClassify(const httplib::Request& req, httplib::Response& res);
 void HandleSceneGraphOverlay(const httplib::Request& req, httplib::Response& res);
 void HandleSceneGraphExactAdjacency(const httplib::Request& req, httplib::Response& res);
+void HandleOcctProbe(const httplib::Request& req, httplib::Response& res);  // Spike G tracer
 
 } // namespace Handlers
 } // namespace Rook

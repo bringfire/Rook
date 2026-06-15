@@ -12,10 +12,12 @@
 #include "SceneGraph/SceneGraphConduit.h"
 #include "SceneGraph/ExactAdjacencyService.h"
 #include "SceneGraph/ExactAdjacencyTypes.h"
+#include "SceneGraph/OcctProbe.h"   // Spike G tracer (OCCT-only unit)
 #include "Threading/MainThreadDispatcher.h"
 #include "Infrastructure/JsonHelpers.h"
 
 #include <unordered_map>
+#include <mutex>
 
 using json = nlohmann::json;
 
@@ -768,6 +770,46 @@ void HandleSceneGraphExactAdjacency(const httplib::Request& req, httplib::Respon
     out["diagnostics"]         = core.diagnostics;
 
     CRookServer::SendSuccess(res, out);
+}
+
+// ================================================================
+// Spike G tracer: OCCT-in-plugin probe. POST /scene/occt_probe
+//   body: { stepA: "<path>", stepB: "<path>" }
+// Proves OCCT links + inits + runs BRepAlgoAPI_Common inside RookNative.
+// OCCT calls are serialized (the v1 concurrency policy) via a static mutex.
+// ================================================================
+void HandleOcctProbe(const httplib::Request& req, httplib::Response& res)
+{
+    std::string stepA, stepB;
+    try {
+        auto body = json::parse(req.body);
+        if (!body.contains("stepA") || !body.contains("stepB")) {
+            CRookServer::SendError(res, "Missing 'stepA'/'stepB' (file paths)");
+            return;
+        }
+        stepA = body["stepA"].get<std::string>();
+        stepB = body["stepB"].get<std::string>();
+    } catch (const std::exception& e) {
+        CRookServer::SendError(res, std::string("Invalid JSON: ") + e.what());
+        return;
+    }
+
+    static std::once_flag s_init;
+    std::call_once(s_init, [] { Rook::OcctProbeInit(); });
+
+    static std::mutex s_occtMutex;  // serialized OCCT (v1 concurrency policy)
+    std::string diag;
+    double area;
+    {
+        std::lock_guard<std::mutex> lk(s_occtMutex);
+        area = Rook::OcctProbeSharedArea(stepA, stepB, diag);
+    }
+
+    CRookServer::SendSuccess(res, {
+        {"sharedArea_mm2", area},
+        {"diag", diag},
+        {"occt", "in-plugin"}
+    });
 }
 
 } // namespace Handlers
