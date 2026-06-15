@@ -8,12 +8,45 @@
    chrome should feel like a tool a draftsperson would respect, not a
    SaaS dashboard. */
 
-/* Self-hosted fonts (Archivo + JetBrains Mono). Vision CSP pins
-   `font-src 'self'` (see VisionWebSurface.cs), so external font hosts
-   are blocked — these are vendored under ./fonts/ and embedded into
-   Rook.rhp. Provenance, SHAs, and the Archivo TTF→WOFF2 conversion
-   recipe live in fonts/SOURCES.md. Both families are SIL OFL 1.1. */
+/* Self-hosted fonts. Vision CSP pins `font-src 'self'` (see
+   VisionWebSurface.cs), so external font hosts (Google Fonts, etc.) are
+   blocked — every family is vendored under ./fonts/ and embedded into
+   Rook.rhp. Provenance, SHAs, and the TTF→WOFF2 conversion recipe live in
+   fonts/SOURCES.md. All families are SIL OFL 1.1.
 
+   Display + body match the Rook docs site (folio aesthetic): Cormorant
+   Garamond (display) + EB Garamond (body), with JetBrains Mono retained
+   for labels/telemetry. Archivo is kept vendored as a fallback face but is
+   no longer referenced by the type tokens. */
+
+@font-face {
+    font-family: 'Cormorant Garamond';
+    src: url('fonts/CormorantGaramond-VariableFont_wght.woff2') format('woff2-variations');
+    font-weight: 300 700;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'Cormorant Garamond';
+    src: url('fonts/CormorantGaramond-Italic-VariableFont_wght.woff2') format('woff2-variations');
+    font-weight: 300 700;
+    font-style: italic;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'EB Garamond';
+    src: url('fonts/EBGaramond-VariableFont_wght.woff2') format('woff2-variations');
+    font-weight: 400 800;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'EB Garamond';
+    src: url('fonts/EBGaramond-Italic-VariableFont_wght.woff2') format('woff2-variations');
+    font-weight: 400 800;
+    font-style: italic;
+    font-display: swap;
+}
 @font-face {
     font-family: 'Archivo';
     src: url('fonts/Archivo-VariableFont_wdth_wght.woff2') format('woff2-variations');
@@ -32,19 +65,20 @@
     /* Ink palette — high-contrast spine, sparse precision accents. */
     --ink: #0a0a0c;            /* primary ink — slightly warm off-black */
     --ink-soft: #2a2a2e;       /* depressed/secondary ink */
-    --paper: #fafaf7;          /* primary paper — warm off-white, like Bristol */
+    --paper: #f0e7d2;          /* primary paper — folio cream (matches docs site) */
     --paper-bright: #ffffff;   /* pure white for inversions on dark */
-    --paper-tone: #f0eee8;     /* slightly toned paper for empty states */
+    --paper-tone: #e7dcc2;     /* slightly deeper cream for empty states */
+    --paper-card: rgba(255, 252, 244, 0.5); /* translucent card fill — lets body grain read through */
     --rule: #0a0a0c;           /* hairline rule color */
 
-    /* Accents — used like ink stamps, never as fills.
-       Two cyans by purpose: --accent-cyan for rules/underlines (no
-       contrast budget — purely decorative), --accent-cyan-bright for
-       text/glyphs on ink backgrounds (#5fb3ff on --ink ≈ 8.8:1, clears
-       WCAG AAA for normal text). Don't swap them. */
-    --accent-cyan: #0050d4;        /* focus / rules / underlines on paper */
-    --accent-cyan-bright: #5fb3ff; /* text / glyphs on ink — small-size safe */
-    --accent-cyan-soft: rgba(0, 80, 212, 0.08);
+    /* Accents — brass, matching the docs-site folio palette (was drafting
+       cyan). Used like ink stamps, never as fills. Two brasses by purpose:
+       --accent-brass (brass-deep) for rules/underlines/focus on paper;
+       --accent-brass-bright (brass highlight) for text/glyphs on ink
+       backgrounds (#c9a55e on --ink ≈ 8.6:1, clears WCAG AAA). Don't swap. */
+    --accent-brass: #5e4618;        /* focus / rules / underlines on paper — brass-deep */
+    --accent-brass-bright: #c9a55e; /* text / glyphs on ink — brass highlight, small-size safe */
+    --accent-brass-soft: rgba(138, 106, 44, 0.12);
     --accent-red: #c8302a;     /* error / danger — drafter's red */
     --accent-amber: #c47900;   /* caution / warning */
     --accent-green: #2d6e3d;   /* confirm / approved */
@@ -57,9 +91,11 @@
     --code-boolean: #6cb8a0;   /* desaturated mint — booleans/null */
     --code-rule: rgba(126, 212, 255, 0.12);
 
-    /* Type tokens. */
-    --type-display: 'Archivo', 'Helvetica Neue', sans-serif;
-    --type-body: 'Archivo', 'Helvetica Neue', sans-serif;
+    /* Type tokens — aligned with the Rook docs site (folio aesthetic).
+       Cormorant Garamond (display) + EB Garamond (body); Archivo retained
+       only as a fallback face behind the serif stacks. */
+    --type-display: 'Cormorant Garamond', 'Archivo', 'Georgia', serif;
+    --type-body: 'EB Garamond', 'Archivo', 'Georgia', serif;
     --type-mono: 'JetBrains Mono', 'Consolas', 'Monaco', monospace;
 
     /* Spacing rhythm — multiples of 6px. */
@@ -81,13 +117,23 @@
 }
 
 html {
-    font-size: 16px;
+    font-size: 17.5px;
 }
 
 body {
     font-family: var(--type-body);
+    font-weight: 500;
     font-feature-settings: "ss01" 1, "ss02" 1;
-    background: var(--paper);
+    /* Folio paper texture (matches docs site): warm highlight + brass
+       lowlight wash over a fine cross-hatched letterpress grain, atop the
+       cream base. Fixed attachment keeps the grain stable while scrolling. */
+    background:
+        radial-gradient(ellipse at 30% 18%, rgba(255, 250, 230, 0.55), transparent 60%),
+        radial-gradient(ellipse at 82% 88%, rgba(138, 106, 44, 0.10), transparent 65%),
+        repeating-linear-gradient(100deg, rgba(26, 20, 16, 0.018) 0 2px, transparent 2px 5px),
+        repeating-linear-gradient(10deg, rgba(26, 20, 16, 0.014) 0 1px, transparent 1px 7px),
+        var(--paper);
+    background-attachment: fixed;
     color: var(--ink);
     min-height: 100vh;
     line-height: 1.5;
@@ -115,7 +161,7 @@ body {
     display: grid;
     grid-template-columns: 1fr auto;
     border-bottom: 1px solid var(--rule);
-    background: var(--paper);
+    background: var(--paper-card);
     position: relative;
 }
 
@@ -159,7 +205,7 @@ body {
 
 .logo-name {
     font-family: var(--type-display);
-    font-size: 22px;
+    font-size: 24px;
     font-weight: 800;
     font-stretch: 110%;
     letter-spacing: 0.32em;
@@ -169,7 +215,7 @@ body {
 
 .logo-tagline {
     font-family: var(--type-mono);
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 400;
     letter-spacing: 0.18em;
     text-transform: uppercase;
@@ -188,7 +234,7 @@ body {
     border-left: 1px solid var(--rule);
     cursor: pointer;
     font-family: var(--type-display);
-    font-size: 11px;
+    font-size: 14.5px;
     font-weight: 700;
     letter-spacing: 0.22em;
     text-transform: uppercase;
@@ -203,7 +249,7 @@ body {
     right: 0;
     bottom: 0;
     height: 0;
-    background: var(--accent-cyan);
+    background: var(--accent-brass);
     transition: height 80ms linear;
 }
 
@@ -270,7 +316,7 @@ body {
 
 .view-title {
     font-family: var(--type-display);
-    font-size: 32px;
+    font-size: 35px;
     font-weight: 800;
     font-stretch: 110%;
     letter-spacing: 0.18em;
@@ -281,7 +327,7 @@ body {
 
 .view-subtitle {
     font-family: var(--type-mono);
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 400;
     letter-spacing: 0.16em;
     text-transform: uppercase;
@@ -336,21 +382,21 @@ body {
     bottom: -1px;
     width: var(--space-5);
     height: 1px;
-    background: var(--accent-cyan);
+    background: var(--accent-brass);
 }
 
 .panel-number {
     font-family: var(--type-mono);
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 500;
     letter-spacing: 0.08em;
-    color: var(--accent-cyan-bright);
+    color: var(--accent-brass-bright);
     font-variant-numeric: var(--tabular);
 }
 
 .panel-title {
     font-family: var(--type-display);
-    font-size: 13px;
+    font-size: 14.5px;
     font-weight: 700;
     letter-spacing: 0.28em;
     text-transform: uppercase;
@@ -372,7 +418,7 @@ body {
     display: block;
     margin-top: 4px;
     font-family: var(--type-mono);
-    font-size: 10px;
+    font-size: 11px;
     letter-spacing: 0.12em;
     color: var(--ink-soft);
     font-variant-numeric: var(--tabular);
@@ -462,7 +508,7 @@ body {
 .placeholder-content span {
     display: block;
     font-family: var(--type-mono);
-    font-size: 10px;
+    font-size: 11px;
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--ink-soft);
@@ -486,7 +532,7 @@ body {
     border-left: 1px solid var(--rule);
     cursor: pointer;
     font-family: var(--type-display);
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 700;
     letter-spacing: 0.18em;
     text-transform: uppercase;
@@ -538,7 +584,7 @@ body {
     border-bottom: 1px solid var(--rule);
     color: var(--ink);
     font-family: var(--type-body);
-    font-size: 14px;
+    font-size: 15.5px;
     line-height: 1.6;
     resize: none;
 }
@@ -560,7 +606,7 @@ body {
     color: var(--code-string);
     border-bottom: 1px solid var(--rule);
     font-family: var(--type-mono);
-    font-size: 12px;
+    font-size: 13px;
     line-height: 1.6;
     /* Preserve indentation + newlines but wrap long values. Without
        this the pre's intrinsic min-content equals the longest line,
@@ -583,7 +629,7 @@ body {
 .prompt-json-preview::before {
     content: "// ENHANCED · JSON";
     display: block;
-    font-size: 9px;
+    font-size: 10px;
     letter-spacing: 0.24em;
     color: var(--code-key);
     opacity: 0.7;
@@ -648,7 +694,7 @@ body {
     color: var(--ink);
     border: 1px solid var(--rule);
     font-family: var(--type-display);
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 700;
     letter-spacing: 0.18em;
     text-transform: uppercase;
@@ -673,7 +719,7 @@ body {
 .prompt-input-container textarea:focus {
     outline: none;
     background: var(--paper-bright);
-    box-shadow: inset 3px 0 0 0 var(--accent-cyan);
+    box-shadow: inset 3px 0 0 0 var(--accent-brass);
 }
 
 .prompt-actions {
@@ -682,12 +728,12 @@ body {
     padding: var(--space-2) var(--space-5);
     border-bottom: 1px solid var(--rule);
     gap: var(--space-2);
-    background: var(--paper);
+    background: var(--paper-card);
 }
 
 .hint {
     font-family: var(--type-mono);
-    font-size: 10px;
+    font-size: 11px;
     letter-spacing: 0.08em;
     color: var(--ink-soft);
 }
@@ -724,7 +770,7 @@ body {
 
 .section-label {
     font-family: var(--type-display);
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 700;
     letter-spacing: 0.22em;
     text-transform: uppercase;
@@ -732,7 +778,7 @@ body {
 
 .section-label::before {
     content: "§ ";
-    color: var(--accent-cyan);
+    color: var(--accent-brass);
     font-family: var(--type-mono);
 }
 
@@ -770,7 +816,7 @@ body {
     align-items: center;
     justify-content: center;
     font-family: var(--type-mono);
-    font-size: 8px;
+    font-size: 9px;
     letter-spacing: 0.05em;
     text-transform: uppercase;
     color: var(--ink-soft);
@@ -788,7 +834,7 @@ body {
     background: var(--accent-red);
     color: var(--paper-bright);
     border: none;
-    font-size: 10px;
+    font-size: 11px;
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -808,7 +854,7 @@ body {
     justify-content: center;
     width: 48px;
     height: 48px;
-    background: var(--paper);
+    background: var(--paper-card);
     border: 1px dashed var(--rule);
     cursor: pointer;
     transition: background 80ms linear, color 80ms linear, border-style 80ms linear;
@@ -828,7 +874,7 @@ body {
 }
 
 .reference-upload span {
-    font-size: 8px;
+    font-size: 9px;
     font-weight: 500;
     letter-spacing: 0.12em;
     text-transform: uppercase;
@@ -845,7 +891,7 @@ body {
 .option-group {
     padding: var(--space-3) var(--space-5);
     border-right: 1px solid var(--rule);
-    background: var(--paper);
+    background: var(--paper-card);
 }
 
 .option-group:last-child {
@@ -854,7 +900,7 @@ body {
 
 .option-hint {
     font-family: var(--type-mono);
-    font-size: 9px;
+    font-size: 10px;
     color: var(--ink-soft);
     margin-top: 4px;
     letter-spacing: 0.06em;
@@ -867,7 +913,7 @@ body {
 .select-label {
     display: block;
     font-family: var(--type-display);
-    font-size: 9px;
+    font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.22em;
     text-transform: uppercase;
@@ -886,7 +932,7 @@ body {
     border: 1px solid var(--rule);
     color: var(--ink);
     font-family: var(--type-mono);
-    font-size: 12px;
+    font-size: 13px;
     cursor: pointer;
     appearance: none;
     transition: background 80ms linear, box-shadow 80ms linear;
@@ -895,7 +941,7 @@ body {
 .select-wrapper select:focus {
     outline: none;
     background: var(--paper-bright);
-    box-shadow: inset 0 0 0 1px var(--accent-cyan), 0 0 0 1px var(--accent-cyan);
+    box-shadow: inset 0 0 0 1px var(--accent-brass), 0 0 0 1px var(--accent-brass);
 }
 
 .select-arrow {
@@ -920,7 +966,7 @@ body {
 .input-field label {
     display: block;
     font-family: var(--type-display);
-    font-size: 9px;
+    font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.22em;
     text-transform: uppercase;
@@ -940,14 +986,14 @@ body {
     border-right: none;
     color: var(--ink);
     font-family: var(--type-mono);
-    font-size: 12px;
+    font-size: 13px;
     letter-spacing: 0.04em;
 }
 
 .input-group input:focus {
     outline: none;
     background: var(--paper-bright);
-    box-shadow: inset 3px 0 0 0 var(--accent-cyan);
+    box-shadow: inset 3px 0 0 0 var(--accent-brass);
 }
 
 .input-group input::placeholder {
@@ -963,7 +1009,7 @@ body {
     display: block;
     margin-top: var(--space-1);
     font-family: var(--type-mono);
-    font-size: 10px;
+    font-size: 11px;
     color: var(--ink-soft);
     line-height: 1.6;
 }
@@ -972,7 +1018,7 @@ body {
     background: var(--paper-tone);
     padding: 1px 4px;
     border: 1px solid rgba(10, 10, 12, 0.1);
-    font-size: 10px;
+    font-size: 11px;
 }
 
 .input-hint a {
@@ -993,7 +1039,7 @@ body {
     gap: var(--space-1);
     padding: 9px 18px;
     font-family: var(--type-display);
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 700;
     letter-spacing: 0.18em;
     text-transform: uppercase;
@@ -1067,7 +1113,7 @@ body {
 .btn-generate {
     width: 100%;
     padding: var(--space-3) var(--space-5);
-    font-size: 13px;
+    font-size: 14.5px;
     letter-spacing: 0.28em;
     background: var(--ink);
     color: var(--paper-bright);
@@ -1099,7 +1145,7 @@ body {
     bottom: 0;
     width: 0;
     height: 2px;
-    background: var(--accent-cyan);
+    background: var(--accent-brass);
     transition: width 200ms ease-out;
 }
 
@@ -1130,7 +1176,7 @@ body {
     padding: 7px 13px;
     background: var(--paper);
     color: var(--ink);
-    font-size: 9px;
+    font-size: 10px;
 }
 
 .btn-enhance:hover {
@@ -1143,7 +1189,7 @@ body {
     border: none;
     color: var(--ink);
     font-family: var(--type-display);
-    font-size: 9px;
+    font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.18em;
     text-transform: uppercase;
@@ -1228,7 +1274,7 @@ body {
 .status-message {
     padding: var(--space-2) var(--space-5);
     font-family: var(--type-mono);
-    font-size: 11px;
+    font-size: 12px;
     letter-spacing: 0.06em;
     border-top: 1px solid var(--rule);
     position: relative;
@@ -1252,7 +1298,7 @@ body {
 }
 
 .status-message.info::before {
-    background: var(--accent-cyan);
+    background: var(--accent-brass);
 }
 
 .status-message.success {
@@ -1278,7 +1324,7 @@ body {
 .status-indicator {
     margin-top: var(--space-1);
     font-family: var(--type-mono);
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 500;
     letter-spacing: 0.12em;
     text-transform: uppercase;
@@ -1316,7 +1362,7 @@ body {
 
 .result-title {
     font-family: var(--type-display);
-    font-size: 13px;
+    font-size: 14.5px;
     font-weight: 700;
     letter-spacing: 0.28em;
     text-transform: uppercase;
@@ -1324,7 +1370,7 @@ body {
 
 .result-title::before {
     content: "▸ ";
-    color: var(--accent-cyan-bright);
+    color: var(--accent-brass-bright);
 }
 
 .result-actions {
@@ -1406,7 +1452,7 @@ body {
 
 .placeholder-hint {
     font-family: var(--type-mono);
-    font-size: 9px;
+    font-size: 10px;
     color: var(--ink-soft);
     margin-top: var(--space-1);
     letter-spacing: 0.06em;
@@ -1433,7 +1479,7 @@ body {
     border-bottom: 1px solid var(--rule);
     background: var(--paper-tone);
     font-family: var(--type-mono);
-    font-size: 10px;
+    font-size: 11px;
     letter-spacing: 0.08em;
     color: var(--ink-soft);
 }
@@ -1441,7 +1487,7 @@ body {
 .studio-source-label::before {
     content: "SRC / ";
     opacity: 0.5;
-    color: var(--accent-cyan);
+    color: var(--accent-brass);
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -1462,7 +1508,7 @@ body {
 
 .media-import-panel {
     border-bottom: 1px solid var(--rule);
-    background: var(--paper);
+    background: var(--paper-card);
 }
 
 .media-import-panel-header {
@@ -1477,7 +1523,7 @@ body {
 
 .media-import-panel-header span {
     font-family: var(--type-display);
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 700;
     letter-spacing: 0.18em;
     text-transform: uppercase;
@@ -1514,7 +1560,7 @@ body {
 .media-import-message,
 .media-import-empty {
     font-family: var(--type-mono);
-    font-size: 11px;
+    font-size: 12px;
 }
 
 .media-import-name,
@@ -1596,7 +1642,7 @@ body {
     background: var(--paper-tone);
     color: var(--ink-soft);
     font-family: var(--type-mono);
-    font-size: 10px;
+    font-size: 11px;
     letter-spacing: 0.12em;
     text-transform: uppercase;
 }
@@ -1609,7 +1655,7 @@ body {
     background: var(--accent-green);
     color: var(--paper-bright);
     font-family: var(--type-display);
-    font-size: 8px;
+    font-size: 9px;
     font-weight: 700;
     letter-spacing: 0.2em;
     text-transform: uppercase;
@@ -1621,7 +1667,7 @@ body {
 
 .gallery-item-info p {
     font-family: var(--type-mono);
-    font-size: 11px;
+    font-size: 12px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1636,7 +1682,7 @@ body {
 
 .gallery-item-info p:last-child {
     color: var(--ink-soft);
-    font-size: 10px;
+    font-size: 11px;
     letter-spacing: 0.08em;
     text-transform: uppercase;
 }
@@ -1661,7 +1707,7 @@ body {
 
 .gallery-empty span {
     font-family: var(--type-display);
-    font-size: 13px;
+    font-size: 14.5px;
     font-weight: 700;
     letter-spacing: 0.22em;
     text-transform: uppercase;
@@ -1670,7 +1716,7 @@ body {
 
 .gallery-empty p {
     font-family: var(--type-mono);
-    font-size: 11px;
+    font-size: 12px;
     color: var(--ink-soft);
     letter-spacing: 0.06em;
 }
@@ -1704,14 +1750,14 @@ body {
     bottom: -1px;
     width: var(--space-5);
     height: 1px;
-    background: var(--accent-cyan);
+    background: var(--accent-brass);
 }
 
 .card-icon {
     display: flex;
     align-items: center;
     justify-content: center;
-    color: var(--accent-cyan-bright);
+    color: var(--accent-brass-bright);
 }
 
 .card-icon svg {
@@ -1721,7 +1767,7 @@ body {
 
 .card-header h3 {
     font-family: var(--type-display);
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 700;
     letter-spacing: 0.24em;
     text-transform: uppercase;
@@ -1739,13 +1785,13 @@ body {
 .provider-credential-empty {
     margin: 0;
     font-family: var(--type-mono);
-    font-size: 12px;
+    font-size: 13px;
     color: var(--ink-soft);
 }
 
 .provider-credential-card {
     border: 1px solid var(--rule);
-    background: var(--paper);
+    background: var(--paper-card);
     padding: var(--space-3);
 }
 
@@ -1761,7 +1807,7 @@ body {
 
 .provider-credential-header h4 {
     font-family: var(--type-display);
-    font-size: 13px;
+    font-size: 14.5px;
     font-weight: 700;
     letter-spacing: 0.16em;
     text-transform: uppercase;
@@ -1769,7 +1815,7 @@ body {
 
 .provider-credential-header span {
     font-family: var(--type-mono);
-    font-size: 10px;
+    font-size: 11px;
     color: var(--ink-soft);
     text-align: right;
 }
@@ -1784,7 +1830,7 @@ body {
     display: block;
     margin-bottom: var(--space-1);
     font-family: var(--type-display);
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 700;
     letter-spacing: 0.2em;
     text-transform: uppercase;
@@ -1825,7 +1871,7 @@ body {
 
 .settings-kv dt {
     font-family: var(--type-display);
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 700;
     letter-spacing: 0.22em;
     text-transform: uppercase;
@@ -1834,7 +1880,7 @@ body {
 
 .settings-kv dd {
     font-family: var(--type-mono);
-    font-size: 12px;
+    font-size: 13px;
     color: var(--ink);
     font-variant-numeric: var(--tabular);
 }
@@ -1866,7 +1912,7 @@ body {
     max-width: 90vw;
     max-height: 90vh;
     border: 1px solid var(--rule);
-    background: var(--paper);
+    background: var(--paper-card);
     box-shadow: 4px 4px 0 var(--ink);
 }
 
@@ -1909,7 +1955,7 @@ body {
 
 .modal-prompt {
     font-family: var(--type-body);
-    font-size: 14px;
+    font-size: 15.5px;
     margin-bottom: var(--space-1);
     white-space: pre-wrap;
     line-height: 1.55;
@@ -1917,7 +1963,7 @@ body {
 
 .modal-meta {
     font-family: var(--type-mono);
-    font-size: 10px;
+    font-size: 11px;
     color: var(--ink-soft);
     letter-spacing: 0.08em;
     margin-bottom: var(--space-2);
@@ -1954,7 +2000,7 @@ body {
        mobile breakpoint takes over with a tighter set of values. */
     .nav-btn {
         padding: var(--space-2) var(--space-3);
-        font-size: 10px;
+        font-size: 12px;
         letter-spacing: 0.16em;
     }
 }
@@ -1984,7 +2030,7 @@ body {
        so this stays pure layout. */
     .nav-btn {
         padding: var(--space-2) var(--space-1);
-        font-size: 10px;
+        font-size: 11px;
         letter-spacing: 0.12em;
         border-left: none;
         border-right: 1px solid var(--rule);
@@ -2014,12 +2060,12 @@ body {
 
 @media (max-width: 480px) {
     .logo-name {
-        font-size: 18px;
+        font-size: 20px;
         letter-spacing: 0.2em;
     }
 
     .view-title {
-        font-size: 22px;
+        font-size: 24px;
     }
 
     .gallery-grid {
@@ -2055,7 +2101,7 @@ body {
 
 .video-form-panel,
 .video-queue-panel {
-    background: var(--paper);
+    background: var(--paper-card);
     border: 1px solid var(--rule);
 }
 
@@ -2086,7 +2132,7 @@ body {
     cursor: pointer;
     padding: 6px 8px;
     font-family: var(--type-mono);
-    font-size: 12px;
+    font-size: 13px;
     text-transform: uppercase;
     letter-spacing: 0.05em;
     color: var(--ink-soft);
@@ -2147,7 +2193,7 @@ body {
 
 .video-frame-label {
     font-family: var(--type-mono);
-    font-size: 11px;
+    font-size: 12px;
     text-transform: uppercase;
     letter-spacing: 0.06em;
     color: var(--ink-soft);
@@ -2171,7 +2217,7 @@ body {
 .video-frame-empty {
     color: var(--ink-soft);
     font-family: var(--type-mono);
-    font-size: 12px;
+    font-size: 13px;
     text-transform: uppercase;
     letter-spacing: 0.05em;
 }
@@ -2194,7 +2240,7 @@ body {
 
 .video-cost-label {
     font-family: var(--type-mono);
-    font-size: 11px;
+    font-size: 12px;
     text-transform: uppercase;
     letter-spacing: 0.07em;
     color: var(--ink-soft);
@@ -2202,7 +2248,7 @@ body {
 
 .video-cost-amount {
     font-family: var(--type-display);
-    font-size: 22px;
+    font-size: 24px;
     font-feature-settings: var(--tabular);
     color: var(--ink);
     letter-spacing: -0.01em;
@@ -2210,7 +2256,7 @@ body {
 
 .video-cost-detail {
     font-family: var(--type-mono);
-    font-size: 12px;
+    font-size: 13px;
     color: var(--ink-soft);
     margin-left: auto;
 }
@@ -2238,7 +2284,7 @@ body {
     color: var(--ink-soft);
     cursor: pointer;
     font-family: var(--type-mono);
-    font-size: 11px;
+    font-size: 12px;
     letter-spacing: 0.04em;
     line-height: 1.2;
     min-width: 0;
@@ -2248,7 +2294,7 @@ body {
 }
 
 .video-queue-filter:focus-visible {
-    outline: 2px solid var(--accent-cyan);
+    outline: 2px solid var(--accent-brass);
     outline-offset: 2px;
 }
 
@@ -2271,7 +2317,7 @@ body {
     border: 1px solid color-mix(in srgb, var(--accent-amber) 70%, var(--rule));
     background: color-mix(in srgb, var(--accent-amber) 16%, var(--paper));
     color: var(--ink);
-    font-size: 12px;
+    font-size: 13px;
 }
 
 .video-queue-list {
@@ -2296,13 +2342,13 @@ body {
 .video-queue-empty span {
     display: block;
     font-family: var(--type-mono);
-    font-size: 13px;
+    font-size: 14.5px;
     text-transform: uppercase;
     letter-spacing: 0.06em;
     margin-bottom: var(--space-1);
 }
 
-.video-queue-empty p { font-size: 13px; }
+.video-queue-empty p { font-size: 14.5px; }
 
 .video-queue-warnings {
     margin: var(--space-2) 0;
@@ -2310,7 +2356,7 @@ body {
     background: var(--accent-amber);
     color: var(--paper-bright);
     font-family: var(--type-mono);
-    font-size: 11px;
+    font-size: 12px;
     text-transform: uppercase;
     letter-spacing: 0.06em;
 }
@@ -2326,7 +2372,7 @@ body {
 
 .video-queue-row-state {
     font-family: var(--type-mono);
-    font-size: 10px;
+    font-size: 11px;
     text-transform: uppercase;
     letter-spacing: 0.08em;
     padding: 2px 6px;
@@ -2344,24 +2390,24 @@ body {
 .video-queue-row.state-submitting .video-queue-row-state,
 .video-queue-row.state-polling .video-queue-row-state,
 .video-queue-row.state-downloading .video-queue-row-state,
-.video-queue-row.state-saving .video-queue-row-state { background: var(--accent-cyan); }
+.video-queue-row.state-saving .video-queue-row-state { background: var(--accent-brass); }
 
 .video-queue-row-id {
     font-family: var(--type-mono);
-    font-size: 11px;
+    font-size: 12px;
     color: var(--ink-soft);
     margin-left: var(--space-1);
 }
 
 .video-queue-row-summary {
-    font-size: 13px;
+    font-size: 14.5px;
     color: var(--ink-soft);
     margin-top: 2px;
 }
 
 .video-queue-row-error {
     color: var(--accent-red);
-    font-size: 12px;
+    font-size: 13px;
     line-height: 1.35;
     margin-top: 4px;
     max-height: 3.3em;
@@ -2384,7 +2430,7 @@ body {
 
 .modal-content-cost,
 .modal-content-picker {
-    background: var(--paper);
+    background: var(--paper-card);
     color: var(--ink);
     padding: var(--space-5);
     max-width: 520px;
@@ -2398,13 +2444,13 @@ body {
 
 .modal-title {
     font-family: var(--type-display);
-    font-size: 22px;
+    font-size: 24px;
     margin-bottom: var(--space-1);
 }
 
 .modal-subtitle {
     color: var(--ink-soft);
-    font-size: 13px;
+    font-size: 14.5px;
     margin-bottom: var(--space-3);
 }
 
@@ -2426,7 +2472,7 @@ body {
 
 .video-cost-headline-label {
     font-family: var(--type-mono);
-    font-size: 11px;
+    font-size: 12px;
     text-transform: uppercase;
     letter-spacing: 0.07em;
     color: var(--ink-soft);
@@ -2434,7 +2480,7 @@ body {
 
 .video-cost-headline-amount {
     font-family: var(--type-display);
-    font-size: 32px;
+    font-size: 35px;
     font-feature-settings: var(--tabular);
 }
 
@@ -2442,14 +2488,14 @@ body {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
     gap: var(--space-1) var(--space-2);
-    font-size: 12px;
+    font-size: 13px;
     margin-bottom: var(--space-2);
 }
 
 .video-cost-meta dt {
     color: var(--ink-soft);
     font-family: var(--type-mono);
-    font-size: 10px;
+    font-size: 11px;
     text-transform: uppercase;
     letter-spacing: 0.06em;
 }
@@ -2459,7 +2505,7 @@ body {
 .video-cost-breakdown {
     width: 100%;
     border-collapse: collapse;
-    font-size: 13px;
+    font-size: 14.5px;
 }
 
 .video-cost-breakdown th,
@@ -2471,7 +2517,7 @@ body {
 
 .video-cost-breakdown th {
     font-family: var(--type-mono);
-    font-size: 10px;
+    font-size: 11px;
     text-transform: uppercase;
     letter-spacing: 0.06em;
     color: var(--ink-soft);
@@ -2499,7 +2545,7 @@ body {
 }
 
 .video-picker-item:hover {
-    border-color: var(--accent-cyan);
+    border-color: var(--accent-brass);
 }
 
 .video-picker-thumb {
@@ -2518,7 +2564,7 @@ body {
     display: block;
     padding: 4px 6px;
     font-family: var(--type-mono);
-    font-size: 10px;
+    font-size: 11px;
     color: var(--ink-soft);
 }
 
@@ -2553,8 +2599,61 @@ body {
     color: var(--paper-bright);
     padding: 2px 6px;
     font-family: var(--type-mono);
-    font-size: 9px;
+    font-size: 10px;
     text-transform: uppercase;
     letter-spacing: 0.08em;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   FOLIO FRAME — double-rule border + corner ornaments on the main
+   card containers, echoing the docs-site cards and hero. Drawn purely
+   with pointer-events:none pseudo-elements at inset:0, so they add NO
+   layout reflow — they overlay the container edges as thin brass rules.
+   ═══════════════════════════════════════════════════════════════ */
+
+.generate-layout,
+.video-layout,
+.result-panel,
+.settings-card {
+    position: relative;
+}
+
+/* Double-rule: brass border at the edge + a faint brass rule inset 4px. */
+.generate-layout::before,
+.video-layout::before,
+.result-panel::before,
+.settings-card::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 4;
+    border: 1px solid var(--accent-brass);
+    border-radius: 2px;
+    box-shadow: inset 0 0 0 4px var(--accent-brass-soft);
+}
+
+/* Corner ornaments: short L-brackets at each of the four corners. */
+.generate-layout::after,
+.video-layout::after,
+.result-panel::after,
+.settings-card::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 5;
+    --bc: var(--accent-brass);
+    --bl: 13px;  /* bracket arm length */
+    --bw: 1.5px; /* bracket stroke    */
+    background:
+        linear-gradient(var(--bc), var(--bc)) top left     / var(--bl) var(--bw) no-repeat,
+        linear-gradient(var(--bc), var(--bc)) top left     / var(--bw) var(--bl) no-repeat,
+        linear-gradient(var(--bc), var(--bc)) top right    / var(--bl) var(--bw) no-repeat,
+        linear-gradient(var(--bc), var(--bc)) top right    / var(--bw) var(--bl) no-repeat,
+        linear-gradient(var(--bc), var(--bc)) bottom left  / var(--bl) var(--bw) no-repeat,
+        linear-gradient(var(--bc), var(--bc)) bottom left  / var(--bw) var(--bl) no-repeat,
+        linear-gradient(var(--bc), var(--bc)) bottom right / var(--bl) var(--bw) no-repeat,
+        linear-gradient(var(--bc), var(--bc)) bottom right / var(--bw) var(--bl) no-repeat;
 }
 
