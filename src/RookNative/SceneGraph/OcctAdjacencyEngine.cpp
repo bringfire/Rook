@@ -139,7 +139,7 @@ ExactAdjacencyCore OcctAdjacencyEngine::Evaluate(
 
     ExactAdjacencyCore core;
     core.objectId = source.objectId;
-    OcctTrace("ENTER Evaluate ncand=%zu srcHasBrep=%d", candidates.size(), source.brep ? 1 : 0);
+    OcctTrace("ENTER Evaluate ncand=%zu srcHasBrep=%d core.cands.cap=%zu data=%p", candidates.size(), source.brep ? 1 : 0, core.candidates.capacity(), (void*)core.candidates.data());
 
     const double tol = toleranceModelUnits > 0.0 ? toleranceModelUnits : 0.0;
 
@@ -165,8 +165,8 @@ ExactAdjacencyCore OcctAdjacencyEngine::Evaluate(
     // ── Convert source once; derive its capability from the conversion. ──
     OcctTrace("convert SOURCE begin");
     OcctFaceSet srcFs = ConvertBrepFaces(*source.brep);
-    { int hc = _heapchk(); OcctTrace("convert SOURCE done faces=%d failed=%zu HEAPCHK=%d(%s)",
-        srcFs.faceCount(), srcFs.failedFaceIndices().size(), hc, hc==_HEAPOK?"OK":"BAD"); }
+    { int hc = _heapchk(); OcctTrace("convert SOURCE done faces=%d failed=%zu HEAPCHK=%d(%s) core.cands.cap=%zu data=%p",
+        srcFs.faceCount(), srcFs.failedFaceIndices().size(), hc, hc==_HEAPOK?"OK":"BAD", core.candidates.capacity(), (void*)core.candidates.data()); }
     core.sourceCapability = CapabilityFromConversion(srcFs);
     for (int fi : srcFs.failedFaceIndices())
         core.diagnostics.push_back("source:convert_failed_face:" + std::to_string(fi));
