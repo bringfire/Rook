@@ -170,7 +170,28 @@
       <AdditionalIncludeDirectories>C:\Users\aryan\source\repos\OCCT\build-rook\inc;$(RhinoSdkDir)openNURBS;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
+    <!-- Task 6: OCCT-PURE engine primitives (CapabilityToString + SharedFaceArea).
+         No openNURBS — shared with the offline OcctPrimitiveTests target. -->
+    <ClCompile Include="SceneGraph\OcctSharedFaceArea.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)'=='Debug'">NotUsing</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)'=='Release'">NotUsing</PrecompiledHeader>
+      <AdditionalIncludeDirectories>C:\Users\aryan\source\repos\OCCT\build-rook\inc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <!-- Task 6: OCCT exact-adjacency engine. OCCT-only TU (NotUsing PCH); pulls
+         OCCT + openNURBS (ON_Brep through the converter). Per-file OCCT include
+         path; /bigobj for OCCT templates. Additive — not wired to production. -->
+    <ClCompile Include="SceneGraph\OcctAdjacencyEngine.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)'=='Debug'">NotUsing</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)'=='Release'">NotUsing</PrecompiledHeader>
+      <AdditionalIncludeDirectories>C:\Users\aryan\source\repos\OCCT\build-rook\inc;$(RhinoSdkDir)openNURBS;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
     <ClCompile Include="Handlers\SceneGraphHandler.cpp" />
+    <!-- Task 6 dev route. Separate TU: the OCCT contract reuses legacy type names
+         in namespace Rook, so it cannot share a TU with SceneGraphHandler.cpp
+         (which owns the legacy ExactAdjacencyTypes.h). Normal PCH. -->
+    <ClCompile Include="Handlers\OcctAdjacencyValidateHandler.cpp" />
     <ClCompile Include="Handlers\CommandInteractiveHandler.cpp" />
     <ClCompile Include="Handlers\PromptHandler.cpp" />
     <ClCompile Include="Handlers\GumballHandler.cpp" />
@@ -249,6 +270,10 @@
     <ClInclude Include="SceneGraph\ExactAdjacencyService.h" />
     <ClInclude Include="SceneGraph\OcctProbe.h" />
     <ClInclude Include="SceneGraph\OnBrepToOcct.h" />
+    <ClInclude Include="SceneGraph\OnBrepToOcct_internal.h" />
+    <ClInclude Include="SceneGraph\OcctAdjacencyTypes.h" />
+    <ClInclude Include="SceneGraph\OcctAdjacencyEngine.h" />
+    <ClInclude Include="SceneGraph\OcctAdjacencyEngine_internal.h" />
     <ClInclude Include="SceneGraph\OcctAdjacencyTypes.h" />
     <ClInclude Include="SceneGraph\SceneGraph.h" />
     <ClInclude Include="SceneGraph\SceneGraphWatcher.h" />

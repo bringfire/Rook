@@ -1799,6 +1799,9 @@ void CRookServer::RegisterRoutes()
     m_server->Post("/scene/occt_validate_converter", [this](const httplib::Request& req, httplib::Response& res) {
         Rook::Handlers::HandleOcctValidateConverter(req, res);   // Task 4 dev route (removed in Task 8)
     });
+    m_server->Post("/scene/occt_validate_adjacency", [this](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleOcctValidateAdjacency(req, res);   // Task 6 dev route (removed in Task 8)
+    });
 
     // Phase 5: Command Interactive
     m_server->Get("/command/prompt", [this](const httplib::Request& req, httplib::Response& res) {

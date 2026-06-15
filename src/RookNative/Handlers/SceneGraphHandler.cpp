@@ -822,9 +822,9 @@ void HandleOcctProbe(const httplib::Request& req, httplib::Response& res)
 //   POST /scene/occt_validate_converter
 //   body: { objectId: "<guid>", expectedMm2?: <number override> }
 // Resolves the live ON_Brep on the MAIN thread, deep-copies it (no Rhino
-// pointer escapes), then runs the surface-only converter under the OCCT
-// mutex and sums untrimmed face area. Untrimmed area OVER-reports vs the
-// trimmed oracle until Task 5 adds trims — that's expected this task.
+// pointer escapes), then runs the TRIMMED converter under the OCCT mutex and
+// sums trimmed face area. As of Task 5 the converter is trimmed + orientation-
+// faithful, so the summed area matches the trimmed STEP oracle.
 // Same dev visibility as /scene/occt_probe; removed in Task 8.
 // ================================================================
 void HandleOcctValidateConverter(const httplib::Request& req, httplib::Response& res)
@@ -992,11 +992,12 @@ void HandleOcctValidateConverter(const httplib::Request& req, httplib::Response&
     }
     out["faceIndexMapOk"]     = faceIndexMapOk;
     out["modelUnitsToMm"]     = ex.unitsToMm;
-    diagnostics.push_back("untrimmed_surfaces_only_task4_overreports_vs_trimmed_oracle");
+    diagnostics.push_back("trimmed_faces_task5_matches_trimmed_oracle");
     out["diagnostics"]        = diagnostics;
 
     CRookServer::SendSuccess(res, out);
 }
+
 
 } // namespace Handlers
 } // namespace Rook

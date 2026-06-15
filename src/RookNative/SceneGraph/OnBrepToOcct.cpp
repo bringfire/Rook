@@ -23,7 +23,10 @@
 //   - Each pcurve -> Geom2d_BSplineCurve (same homogeneous ÷W + clamped-knot
 //     recipe as the 3D surface, but in 2D: gp_Pnt2d poles).
 //   - BRepBuilderAPI_MakeEdge(Handle(Geom2d_Curve), Handle(Geom_Surface)) builds
-//     the edge FROM the pcurve on the surface. trim.m_bRev3d -> reverse the edge.
+//     the edge FROM the pcurve on the surface. trim.m_bRev3d is the 2d-pcurve-vs-
+//     3d-edge orientation relationship, NOT the loop-traversal direction; the
+//     pcurves are already loop-oriented, so m_bRev3d must NOT be applied (applying
+//     it would double-account and mis-direct the wire).
 //   - Singular trims (sphere/cone poles) -> OCCT degenerated edges (NOT dropped:
 //     dropping leaves an open wire). Seam trims appear on both sides so periodic
 //     surfaces (cylinders) close.
@@ -34,6 +37,7 @@
 //   - ShapeFix_Face is a tolerance/ordering safety net, NOT a corrector.
 
 #include "SceneGraph/OnBrepToOcct.h"
+#include "SceneGraph/OnBrepToOcct_internal.h"  // OCCT-aware accessor (defined below)
 
 // ── openNURBS (Rhino SDK; include path supplied per-file in the vcxproj) ──────
 // This TU does NOT include RhinoSdk.h (which would define OPENNURBS_IMPORTS for us),
@@ -66,7 +70,6 @@
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepLib.hxx>
 #include <ShapeFix_Face.hxx>
-#include <ShapeFix_Wire.hxx>
 #include <BRepGProp.hxx>
 #include <GProp_GProps.hxx>
 #include <Precision.hxx>
@@ -74,7 +77,6 @@
 #include <TopoDS_Edge.hxx>
 #include <TopoDS_Wire.hxx>
 #include <TopoDS_Face.hxx>
-#include <TopAbs_Orientation.hxx>
 #include <Standard_Failure.hxx>
 
 #include <vector>
@@ -107,6 +109,12 @@ const std::vector<int>& OcctFaceSet::failedFaceIndices() const {
 }
 OcctFaceSet::Impl* OcctFaceSet::impl() { return m_impl.get(); }
 const OcctFaceSet::Impl* OcctFaceSet::impl() const { return m_impl.get(); }
+
+// OCCT-aware internal accessor (declared in OnBrepToOcct_internal.h). Defined
+// here where OcctFaceSet::Impl is a complete type. Additive; no behavior change.
+const TopoDS_Face& OcctFaceAt(const OcctFaceSet& set, int slot) {
+    return set.impl()->faces[static_cast<size_t>(slot)];
+}
 
 namespace {
 
