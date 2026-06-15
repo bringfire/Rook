@@ -148,7 +148,13 @@ namespace Rook.UI.Chat
                 // Verify claude CLI is available before launching
                 if (!IsClaudeCliAvailable())
                 {
-                    OnError?.Invoke("Claude Code CLI not found. Please install it with: npm install -g @anthropic-ai/claude-code");
+                    OnError?.Invoke(
+                        "Claude Code CLI not found.\n\n" +
+                        "Install it on Windows (PowerShell):\n" +
+                        "irm https://claude.ai/install.ps1 | iex\n\n" +
+                        "Or with WinGet:\n" +
+                        "winget install Anthropic.ClaudeCode\n\n" +
+                        "Setup guide: https://code.claude.com/docs/en/quickstart");
                     return;
                 }
 

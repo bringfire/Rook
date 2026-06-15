@@ -403,7 +403,7 @@ namespace Rook.UI.Chat
             }
             else
             {
-                _cliStatusLabel.Text = "Not found - npm install -g @anthropic-ai/claude-code";
+                _cliStatusLabel.Text = "Not found — PowerShell: irm https://claude.ai/install.ps1 | iex";
                 _cliStatusLabel.TextColor = Colors.Red;
             }
 
