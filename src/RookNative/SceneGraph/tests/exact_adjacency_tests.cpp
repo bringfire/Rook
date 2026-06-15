@@ -27,13 +27,13 @@
 //   reported sourceCapability are therefore the MAX of the two enum values.
 //   combine(a,b) = static_cast<Capability>(max((int)a,(int)b)).
 
-#include "SceneGraph/PlanarAdjacencyEngine.h"
+#include "SceneGraph/legacy/LegacyPlanarAdjacency.h"
 #include <cstdio>
 #include <cmath>
 #include <vector>
 #include <array>
 #include <string>
-using namespace Rook;
+using namespace Rook::Legacy;
 
 static int g_failures = 0;
 #define CHECK(cond) do { if(!(cond)){ printf("FAIL %s:%d: %s\n",__FILE__,__LINE__,#cond); ++g_failures; } } while(0)

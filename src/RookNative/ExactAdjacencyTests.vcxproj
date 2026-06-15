@@ -83,7 +83,7 @@
 
   <ItemGroup>
     <ClCompile Include="SceneGraph\tests\exact_adjacency_tests.cpp" />
-    <ClCompile Include="SceneGraph\PlanarAdjacencyEngine.cpp">
+    <ClCompile Include="SceneGraph\legacy\LegacyPlanarAdjacency.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="vendor\clipper2\src\clipper.engine.cpp">
@@ -92,8 +92,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ClInclude Include="SceneGraph\PlanarAdjacencyEngine.h" />
-    <ClInclude Include="SceneGraph\ExactAdjacencyTypes.h" />
+    <ClInclude Include="SceneGraph\legacy\LegacyPlanarAdjacency.h" />
   </ItemGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
