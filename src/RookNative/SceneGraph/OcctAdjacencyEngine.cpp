@@ -15,12 +15,27 @@
 // single-UI-thread Rhino marshalling make this the conservative correct choice;
 // finer-grained parallelism is a later optimization, not a Task-6 concern.
 //
+// CRASH/UNWIND CONTRACT: an OCCT fault inside this TU surfaces as a
+// Standard_Failure synthesized by OCCT's OSD::SetSignal SEH translator. Under the
+// default /EHsc model that SEH-translated throw does NOT reliably run C++
+// destructors during unwind, so the lock_guard below could be skipped and leave
+// s_engineMutex permanently locked — the next pooled httplib worker then deadlocks
+// (EDEADLK: "resource deadlock would occur") trying to re-lock the held mutex.
+// This TU is therefore compiled with /EHa (Async exceptions; set per-file in
+// RookNative.vcxproj) so SEH-translated throws unwind the stack and run the
+// lock_guard destructor — releasing the mutex on every fault path. Do NOT drop
+// the /EHa flag.
+//
 // METHOD:
 //   - Convert source + each candidate ON_Brep to OCCT faces ONCE (proven converter).
 //   - Capability per object derives from the converter's failed-face set.
-//   - Broad phase: per (source-face, candidate-face) pair, reject if their OCCT
-//     bounding boxes don't overlap within tolerance (Bnd_Box::IsOut after enlarging
-//     by the tolerance gap). Cheap, conservative — never a false NEGATIVE.
+//   - v1: NO broad-phase prefilter. The earlier OCCT bbox prefilter
+//     (BRepBndLib::Add) was the recurring fault origin (access violation; it can
+//     also trigger OCCT triangulation/parallelism). At Spike-B scale the narrow
+//     phase alone is fast enough, and it is the ONLY phase with its own crash
+//     guard. Every (source-face, candidate-face) pair goes straight to the
+//     narrow phase. Reinstate an openNURBS-side bbox prefilter later if
+//     Spike-B-scale perf demands it.
 //   - Narrow phase: SharedFaceArea = area of BRepAlgoAPI_Common(face_a, face_b)
 //     under a fuzzy value. Coincident (mated) faces -> the shared planar/curved
 //     region survives Common with nonzero surface area; non-touching faces -> 0.
@@ -46,9 +61,9 @@
 // ── OCCT ──
 // CapabilityToString + SharedFaceArea live in the OCCT-PURE TU
 // (OcctSharedFaceArea.cpp) so the offline test can link them without openNURBS.
+// v1: no BRepBndLib/Bnd_Box — the broad-phase prefilter was removed (it was the
+// fault origin). The narrow phase (SharedFaceArea) is self-guarding.
 #include <TopoDS_Face.hxx>
-#include <BRepBndLib.hxx>
-#include <Bnd_Box.hxx>
 #include <Standard_Failure.hxx>
 
 #include <exception>
@@ -83,35 +98,6 @@ Capability CapabilityFromConversion(const OcctFaceSet& fs) {
                               : Capability::UnsupportedGeometry;
 }
 
-// Bounding box of an OCCT face. Returned by value (Bnd_Box is copyable).
-//
-// CRASH BOUNDARY: BRepBndLib::Add is the ONE OCCT call in the broad phase that is
-// NOT inside SharedFaceArea's guard. On a face that converted to a non-null
-// TopoDS_Face but carries degenerate / missing internal geometry (no triangulation,
-// a null Geom handle along the bbox path), BRepBndLib::Add can fault with a
-// null-pointer WRITE; OCCT's OSD::SetSignal translator turns that access violation
-// into a Standard_Failure. If it escaped here it would propagate straight out of
-// Evaluate (this was the observed `evaluate_failed: ACCESS VIOLATION ... WRITE`).
-// Guard it: on ANY failure return a VOID (empty) Bnd_Box. A void box is treated by
-// Bnd_Box::IsOut as "always overlapping" (IsOut returns false), so the prefilter
-// CANNOT false-skip the pair — it conservatively falls through to the narrow phase,
-// which runs under SharedFaceArea's own crash guard. `failed` is set so the caller
-// can record an honest `engine:` diagnostic. Never crashes.
-Bnd_Box FaceBox(const TopoDS_Face& f, bool& failed) {
-    failed = false;
-    try {
-        Bnd_Box box;
-        BRepBndLib::Add(f, box);
-        return box;
-    } catch (const Standard_Failure&) {
-        failed = true;
-        return Bnd_Box();   // void box -> IsOut == false -> never skipped
-    } catch (...) {
-        failed = true;
-        return Bnd_Box();
-    }
-}
-
 } // namespace
 
 ExactAdjacencyCore OcctAdjacencyEngine::Evaluate(
@@ -137,11 +123,13 @@ ExactAdjacencyCore OcctAdjacencyEngine::Evaluate(
 
     // ── OUTER CRASH BOUNDARY ──────────────────────────────────────────────
     // Every OCCT call below is individually guarded (ConvertBrepFaces guards
-    // per face, FaceBox guards each bbox, SharedFaceArea guards each pair). This
-    // outer guard is the backstop: if any OCCT fault still escapes an inner guard
-    // (or an OCCT global-state fault fires between calls), it must NOT propagate
-    // out of Evaluate as an access violation. It degrades to a diagnostic on the
+    // per face, SharedFaceArea guards each pair). This outer guard is the
+    // backstop: if any OCCT fault still escapes an inner guard (or an OCCT
+    // global-state fault fires between calls), it must NOT propagate out of
+    // Evaluate as an access violation. It degrades to a diagnostic on the
     // partially-built core. The whole point is honest degradation, never a crash.
+    // NOTE: the outer try only HELPS if the SEH-translated throw actually unwinds
+    // — which it does because this TU is compiled /EHa (see the header comment).
     try {
 
     // ── Convert source once; derive its capability from the conversion. ──
@@ -151,18 +139,6 @@ ExactAdjacencyCore OcctAdjacencyEngine::Evaluate(
         core.diagnostics.push_back("source:convert_failed_face:" + std::to_string(fi));
 
     const int srcCount = srcFs.faceCount();
-
-    // Precompute source face bounding boxes (guarded; a failed box stays void
-    // so the prefilter never false-skips that face's pairs).
-    std::vector<Bnd_Box> srcBoxes;
-    srcBoxes.reserve(static_cast<size_t>(srcCount));
-    for (int s = 0; s < srcCount; ++s) {
-        bool boxFailed = false;
-        srcBoxes.push_back(FaceBox(OcctFaceAt(srcFs, s), boxFailed));
-        if (boxFailed)
-            core.diagnostics.push_back(
-                "engine:bbox_failed:source_face:" + std::to_string(srcFs.sourceFaceIndex(s)));
-    }
 
     // ── Per-candidate evaluation. ──
     for (const ObjectBrepPayload& cand : candidates) {
@@ -187,30 +163,15 @@ ExactAdjacencyCore OcctAdjacencyEngine::Evaluate(
                 "cand:" + cand.objectId + ":convert_failed_face:" + std::to_string(fi));
         const int candCount = candFs.faceCount();
 
-        // Precompute candidate face bounding boxes (guarded; same conservative
-        // void-box-on-failure policy as the source side).
-        std::vector<Bnd_Box> candBoxes;
-        candBoxes.reserve(static_cast<size_t>(candCount));
-        for (int c = 0; c < candCount; ++c) {
-            bool boxFailed = false;
-            candBoxes.push_back(FaceBox(OcctFaceAt(candFs, c), boxFailed));
-            if (boxFailed)
-                core.diagnostics.push_back(
-                    "engine:bbox_failed:cand:" + cand.objectId + ":face:" +
-                    std::to_string(candFs.sourceFaceIndex(c)));
-        }
-
         double edgeArea = 0.0;
         std::vector<FacePair> facePairs;
 
         for (int si = 0; si < srcCount; ++si) {
             for (int ci = 0; ci < candCount; ++ci) {
-                // Broad phase: skip non-overlapping boxes (gap > tol). IsOut with
-                // a tolerance gap; conservative (enlarge the candidate box by tol).
-                Bnd_Box cb = candBoxes[ci];
-                if (tol > 0.0) cb.Enlarge(tol);
-                if (srcBoxes[si].IsOut(cb)) continue;
-
+                // v1: no broad-phase prefilter — every pair goes straight to the
+                // guarded narrow phase. SharedFaceArea has its own
+                // Standard_Failure/.../HasErrors() guard and returns crashed/0,
+                // so the narrow phase is safe and self-degrading.
                 bool crashed = false;
                 double pairArea = SharedFaceArea(
                     OcctFaceAt(srcFs, si), OcctFaceAt(candFs, ci), tol, crashed);

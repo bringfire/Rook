@@ -159,6 +159,11 @@
       <PrecompiledHeader Condition="'$(Configuration)'=='Debug'">NotUsing</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)'=='Release'">NotUsing</PrecompiledHeader>
       <AdditionalIncludeDirectories>C:\Users\aryan\source\repos\OCCT\build-rook\inc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <!-- /EHa (Async): OCCT's OSD::SetSignal translates SEH faults to
+           Standard_Failure; under /EHsc those throws don't reliably unwind C++
+           destructors, so a fault could leak a held lock_guard (EDEADLK on the
+           next pooled worker). /EHa makes SEH-translated throws unwind properly. -->
+      <ExceptionHandling>Async</ExceptionHandling>
       <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <!-- Task 4: ON_Brep->OCCT surface converter. OCCT-only TU (NotUsing PCH);
@@ -168,6 +173,9 @@
       <PrecompiledHeader Condition="'$(Configuration)'=='Debug'">NotUsing</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)'=='Release'">NotUsing</PrecompiledHeader>
       <AdditionalIncludeDirectories>C:\Users\aryan\source\repos\OCCT\build-rook\inc;$(RhinoSdkDir)openNURBS;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <!-- /EHa (Async): see OcctProbe.cpp note — SEH-translated OCCT faults must
+           unwind C++ destructors so guarded locks/RAII release on any fault. -->
+      <ExceptionHandling>Async</ExceptionHandling>
       <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <!-- Task 6: OCCT-PURE engine primitives (CapabilityToString + SharedFaceArea).
@@ -176,6 +184,9 @@
       <PrecompiledHeader Condition="'$(Configuration)'=='Debug'">NotUsing</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)'=='Release'">NotUsing</PrecompiledHeader>
       <AdditionalIncludeDirectories>C:\Users\aryan\source\repos\OCCT\build-rook\inc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <!-- /EHa (Async): see OcctProbe.cpp note — SharedFaceArea runs BRepAlgoAPI
+           Common; its Standard_Failure/... guards must unwind under /EHa. -->
+      <ExceptionHandling>Async</ExceptionHandling>
       <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <!-- Task 6: OCCT exact-adjacency engine. OCCT-only TU (NotUsing PCH); pulls
@@ -185,9 +196,22 @@
       <PrecompiledHeader Condition="'$(Configuration)'=='Debug'">NotUsing</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)'=='Release'">NotUsing</PrecompiledHeader>
       <AdditionalIncludeDirectories>C:\Users\aryan\source\repos\OCCT\build-rook\inc;$(RhinoSdkDir)openNURBS;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <!-- /EHa (Async): the EDEADLK fix. SEH-translated OCCT faults must unwind the
+           Evaluate body so the static s_engineMutex lock_guard releases on any
+           fault path; otherwise a faulted request leaves the mutex held and the
+           next pooled httplib worker deadlocks. See the TU header comment. -->
+      <ExceptionHandling>Async</ExceptionHandling>
       <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
-    <ClCompile Include="Handlers\SceneGraphHandler.cpp" />
+    <!-- /EHa (Async): this TU hosts the dev OCCT routes (HandleOcctProbe,
+         HandleOcctValidateConverter) which hold a static std::mutex across OCCT
+         calls. Same EDEADLK exposure as the engine: a SEH-translated OCCT fault
+         under /EHsc would skip the lock_guard destructor and wedge the dev route's
+         mutex. /EHa makes those throws unwind so the lock always releases.
+         (Safe superset of /EHsc for the other handlers in this TU.) -->
+    <ClCompile Include="Handlers\SceneGraphHandler.cpp">
+      <ExceptionHandling>Async</ExceptionHandling>
+    </ClCompile>
     <!-- Task 6 dev route. Separate TU: the OCCT contract reuses legacy type names
          in namespace Rook, so it cannot share a TU with SceneGraphHandler.cpp
          (which owns the legacy ExactAdjacencyTypes.h). Normal PCH. -->
