@@ -202,6 +202,12 @@
            next pooled httplib worker deadlocks. See the TU header comment. -->
       <ExceptionHandling>Async</ExceptionHandling>
       <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
+      <!-- TEMPORARY DIAGNOSTIC (data-breakpoint build): /Od + GL off for THIS TU only
+           so `core` is a real watchable stack local (Release /O2 optimized it away).
+           Disabling GL here also stops LTCG from inlining ConvertBrepFaces into
+           Evaluate. REVERT once the in-Rhino `core` stomp is root-caused. -->
+      <Optimization Condition="'$(Configuration)'=='Release'">Disabled</Optimization>
+      <WholeProgramOptimization Condition="'$(Configuration)'=='Release'">false</WholeProgramOptimization>
     </ClCompile>
     <!-- Task 6b: the single dedicated serialized OCCT worker thread. Calls
          OcctProbeInit() (OSD::SetSignal) ONCE on its worker thread so SE
