@@ -238,9 +238,11 @@ Handle(Geom2d_BSplineCurve) ToOcct2dCurve(const ON_NurbsCurve& nc)
     NCollection_Array1<double>   weights(1, n);
 
     for (int i = 0; i < n; ++i) {
-        // GetCV in homogeneous form: (wx, wy, w) for a 2D rational curve.
-        ON_4dPoint cp;
-        nc.GetCV(i, cp);   // homogeneous CV; for dim=2, z is unused, w is weight
+        // Homogeneous CV (wx,wy,w for a 2D rational curve). Use the by-value
+        // ControlPoint(i) — symmetric with ToOcctSurface's ns.ControlPoint(i,j),
+        // and avoids the uninitialized-ON_4dPoint + GetCV-into-caller pattern that
+        // was the prime suspect for the `core` stack-stomp (see 2026-06-14 doc §0).
+        ON_4dPoint cp = nc.ControlPoint(i);
         double w = cp.w;
         if (w == 0.0) w = 1.0;
         poles.SetValue(i + 1, gp_Pnt2d(cp.x / w, cp.y / w));
