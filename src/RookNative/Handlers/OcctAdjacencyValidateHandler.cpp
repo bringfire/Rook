@@ -28,6 +28,8 @@
 
 #include <string>
 #include <vector>
+#include <cstdio>
+#include <cstdlib>
 
 using json = nlohmann::json;
 
@@ -147,6 +149,16 @@ void HandleOcctValidateAdjacency(const httplib::Request& req, httplib::Response&
     // dedicated OCCT worker thread inside OcctExecutor; OcctAdjacencyEngine::Evaluate
     // routes its OCCT compute through that executor. No per-handler call_once /
     // mutex is needed — the engine call below is serialized + SE-translated there.
+    // TEMP ODR PROBE: log sizeof from the HANDLER TU (PCH/stdafx context) to compare
+    // against the engine TU's sizeof. A mismatch == ODR/ABI layout divergence.
+    { const char* tmp = std::getenv("TEMP");
+      std::string p = (tmp ? std::string(tmp) : std::string("C:")) + "/rook_occt_trace.log";
+      if (FILE* f = std::fopen(p.c_str(), "a")) {
+        std::fprintf(f, "HANDLER-TU sizeof(Core)=%zu sizeof(vec<ExactCandidate>)=%zu sizeof(string)=%zu sizeof(ExactCandidate)=%zu\n",
+            sizeof(ExactAdjacencyCore), sizeof(std::vector<ExactCandidate>), sizeof(std::string), sizeof(ExactCandidate));
+        std::fclose(f);
+      } }
+
     ExactAdjacencyCore core;
     try {
         core = OcctAdjacencyEngine().Evaluate(source, candidates, tolModelUnits);

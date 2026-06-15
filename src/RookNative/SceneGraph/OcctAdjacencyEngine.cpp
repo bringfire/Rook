@@ -139,6 +139,8 @@ ExactAdjacencyCore OcctAdjacencyEngine::Evaluate(
 
     ExactAdjacencyCore core;
     core.objectId = source.objectId;
+    OcctTrace("ENGINE-TU sizeof(Core)=%zu sizeof(vec<ExactCandidate>)=%zu sizeof(string)=%zu sizeof(ExactCandidate)=%zu",
+        sizeof(ExactAdjacencyCore), sizeof(std::vector<ExactCandidate>), sizeof(std::string), sizeof(ExactCandidate));
     OcctTrace("ENTER Evaluate ncand=%zu srcHasBrep=%d core.cands.cap=%zu data=%p", candidates.size(), source.brep ? 1 : 0, core.candidates.capacity(), (void*)core.candidates.data());
 
     const double tol = toleranceModelUnits > 0.0 ? toleranceModelUnits : 0.0;
