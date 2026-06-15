@@ -308,6 +308,11 @@ The kernel (Task 6) reaches the OCCT faces via `OcctFaceSet::impl()` inside the 
 //   CHECK_NEAR(conv * 645.16, oracle, oracle * 1e-4);    // model in^2 vs STEP mm^2
 // (occtFaceSetTotalArea + stepTotalSurfaceArea are test helpers in the OCCT-aware test TU.)
 ```
+> **Implementer note:** the helper names above (`occtFaceSetTotalArea`,
+> `stepTotalSurfaceArea`, `sumFaceAreas`) and OCCT call shapes are **illustrative
+> scaffolding, not a literal required API**. Converter internals are compiler-and-oracle-
+> driven (see Self-Review notes); the binding contract is the oracle area match within
+> 1e-4 and the `OcctFaceSet`/`ConvertBrepFaces` signatures in `OnBrepToOcct.h`.
 
 - [ ] **Step 2: Create `OcctAdjacencyTests.vcxproj`** — copy `ExactAdjacencyTests.vcxproj`, change `ProjectGuid` (new GUID), `TargetName`/`RootNamespace` → `OcctAdjacencyTests`. Compile `SceneGraph\tests\occt_adjacency_tests.cpp` + `SceneGraph\OnBrepToOcct.cpp`. Add include dirs: `$(OcctRoot)\inc` and the openNURBS include dir (find it from RookNative.vcxproj's Rhino SDK include path). Link: OCCT modeling + DataExchange TK\* libs (the full Spike-G list is fine for the test target) from `$(OcctRoot)\win64\vc14\lib`, plus the openNURBS lib (`opennurbs_public.lib` or the Rhino SDK's `opennurbs.lib` — resolve from the Rhino SDK lib dir). Set `$(OcctRoot)` via an MSBuild property defaulting to `C:\Users\aryan\source\repos\OCCT\build-rook` (Task 9 makes this an env var across all projects).
 
@@ -505,9 +510,9 @@ Iterate the link list until it links with the minimal set; record the measured D
 
 - [ ] **Step 4: LGPL attribution.** Grep for the existing about/version/licenses surface (e.g. `grep -rn "Uses\|License\|Copyright\|RhinoCommon" src/Rook src/RookNative --include=*.cpp --include=*.cs -l`), add a line: "This software uses Open CASCADE Technology (https://www.opencascade.com), licensed under LGPL 2.1." Confirm OCCT is dynamically linked (it is — DLLs).
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Commit** (replace `<licenses-file>` with the actual path located in Step 4 — e.g. an about/version `.cpp` in `src/RookNative` or a `.cs` in `src/Rook`; do NOT commit a literal placeholder)
 ```
-git add src/RookNative/RookNative.vcxproj src/RookNative/OcctAdjacencyTests.vcxproj docs/rook_docs/occt-build-7.9.3.md <licenses-file>
+git add src/RookNative/RookNative.vcxproj src/RookNative/OcctAdjacencyTests.vcxproj docs/rook_docs/occt-build-7.9.3.md <licenses-file-from-step-4>
 git commit -m "build(occt): pin 7.9.3, \$(OcctRoot) property, measured non-DataExchange DLL closure, LGPL attribution"
 ```
 
