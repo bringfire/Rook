@@ -1,6 +1,6 @@
 # OcctAdjacencyEngine — Production Exact-Adjacency Engine (design spec)
 
-> **Status (2026-06-15): DESIGN APPROVED via brainstorming — ready for writing-plans.**
+> **Status (2026-06-15): APPROVED via brainstorming + reviewer gate — ready for writing-plans.**
 > This spec defines the production `OcctAdjacencyEngine` that replaces the Gate-4
 > hand-rolled Clipper2 planar engine behind the existing `IExactAdjacencyEngine`
 > seam. It is **adjacency-only**. The uniform-OCCT *decision* and its empirical
@@ -131,6 +131,25 @@ half-compiled paths.
   (exact; lower-risk than the 3D-edge reproject that failed in
   `spike_strengthener1_trimface.py`). Validated in-plugin against the live `ON_Brep` and
   cross-checked against the temp-STEP oracle (in² × 645.16).
+- **Orientation & topology fidelity (explicit requirement — not optional):** the converter
+  MUST preserve, not approximate:
+  - **Face reversal** — `ON_BrepFace::m_bRev` maps to the OCCT face orientation
+    (`TopoDS_Face` reversed flag); a converted face's natural normal must match the
+    `ON_Brep`'s oriented normal.
+  - **Trim traversal direction** — each `ON_BrepTrim::m_bRev3d` / 2d sense maps to the
+    OCCT edge orientation within the wire, so the wire is consistently directed.
+  - **Outer vs inner loop semantics** — `ON_BrepLoop::outer` builds the bounding wire;
+    `ON_BrepLoop::inner` (holes) are added as reversed wires so `MakeFace` subtracts them.
+    Holes must remain holes, not become separate faces.
+  - **Seam trims** (`ON_BrepLoop`/trim seam type) — handled so periodic/closed surfaces
+    (cylinders, full revolves) build a valid closed face rather than an open gap.
+  - **Singular trims** (collapsed edges, e.g. sphere/cone poles) — represented as OCCT
+    degenerated edges, not dropped (dropping them leaves an invalid wire).
+  Rationale: without these, the first implementation can build *plausible but wrong* faces
+  that still look "mostly working" on simple boxes and fail silently on real geometry.
+  `ShapeFix_Face` is a safety net, **not** a substitute for correct orientation — a
+  converted face whose area or normal disagrees with the `ON_Brep`/STEP oracle is a
+  converter bug, not a fixup opportunity.
 - **Face-index preservation (first-class requirement):** the converter returns a stable
   mapping **source `ON_Brep` face index → OCCT `TopoDS_Face`**, carried alongside the
   converted shape (not reconstructed by re-exploring). Every coincidence edge can then
@@ -154,11 +173,17 @@ half-compiled paths.
   planar-style *coplanar* prefilter is **not** generally valid for curved/NURBS shared
   surfaces and must not be used — the prefilter only excludes pairs whose bounding boxes
   cannot touch within tolerance.
-- **Edge emission:** `sharedArea > areaTol` → emit `ExactEdge{sourceId, targetId,
-  "adjacent_exact", sharedArea}` and record the contributing face-index pairs in
-  diagnostics. `areaTol` is a **numerical noise floor** (model-units²), not a duplicate/
-  graze semantic policy — a coincident-duplicate object honestly reporting full-surface
-  overlap is correct geometry; semantic classification belongs to a later layer.
+- **Edge emission:** `sharedArea > areaTol` → emit an `ExactEdge` carrying
+  `{sourceId, targetId, "adjacent_exact", sharedArea}` **plus a structured
+  `facePairs` array** — `[{sourceFaceIndex, candidateFaceIndex, sharedArea}, …]` — one
+  entry per contributing coincident face pair (areas sum to the edge `sharedArea`). This
+  is **first-class structured data on the edge**, not only a human-readable diagnostic
+  string: it makes regression tests precise and is directly consumable by the future graph
+  projection layer. (Per-pair diagnostic strings may still be emitted for `engine:…`
+  failures, but the *successful* contributions live in `facePairs`.) `areaTol` is a
+  **numerical noise floor** (model-units²), not a duplicate/graze semantic policy — a
+  coincident-duplicate object honestly reporting full-surface overlap is correct geometry;
+  semantic classification belongs to a later layer.
 - **Serialized** via the service's worker discipline / mutex (v1 concurrency policy).
 
 ### 3.3 Unit contract
@@ -238,6 +263,18 @@ candidate.
   compare its per-face / total surface area against the **temp-STEP oracle** for the same
   object (in² × 645.16). This is where temp-STEP legitimately lives. Covers the
   Strengthener-1 trimmed-face proof in C++ at last.
+  - **Oracle generation (separate dev/test artifact):** oracle STEP files are produced
+    **out-of-band, ahead of the test run** — exported once per fixture object from Rhino
+    (interactive `-_Export` / `FileStp`, or the existing spike export) into a committed,
+    gitignored fixtures dir (mirroring `docs/rook_docs/occt-spike/steps/`, which is
+    gitignored — user geometry is never committed). The test harness **reads** these
+    pre-existing `.stp` files via `STEPControl_Reader`; it never generates them.
+  - **Hard separation from runtime:** STEP export and the STEP oracle are **dev/test-only
+    artifacts**. They are **never** invoked by the `POST /scene/graph/adjacency/exact`
+    route, by `ExactAdjacencyService`, or by any live-verification path, and the
+    DataExchange/STEP toolkits are **not linked into the production `.rhp`** (§5). This is
+    the enforcement of the no-STEP-runtime invariant (§1): the only code that can touch a
+    STEP file is the offline harness target.
 - **Engine correctness (in-plugin, live Rhino):** `POST /scene/graph/adjacency/exact` on
   `SpatialTest.3dm`; assert the validated solid-pair areas and the open-floorplate
   abutments; assert honest reason codes for a mesh and a SubD object; assert `ExactBrep`
@@ -260,7 +297,7 @@ candidate.
 - `ExactAdjacencyService` orchestration + cache + three-thread-hop (payload type and
   engine swap aside).
 - HTTP route `POST /scene/graph/adjacency/exact` + handler shell (response fields extend:
-  `lengthUnit`, `areaUnit`, new capability strings).
+  `lengthUnit`, `areaUnit`, new capability strings, and per-edge `facePairs`).
 - `OcctProbe.{h,cpp}` may be retired or folded into the converter/kernel once the real
   engine subsumes it (the tracer's `Common`-over-face-pairs is the kernel seed).
 
