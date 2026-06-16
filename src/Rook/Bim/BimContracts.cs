@@ -23,6 +23,10 @@ namespace Rook.Bim
         LinkedElementUnsupported,
         CapabilityUnavailable,
         SelectionFailed,
+        QueryTruncated,
+        OutputPathInvalid,
+        NoExportableGeometry,
+        ExportFailed,
         InternalError
     }
 
@@ -491,5 +495,147 @@ namespace Rook.Bim
     public sealed class BimSelectElementsRequest
     {
         public List<BimElementIdentity> Identities { get; set; } = new List<BimElementIdentity>();
+    }
+
+    public enum BimRoomsMode
+    {
+        Both,
+        LabelsOnly,
+        Exclude
+    }
+
+    public sealed class BimExportOutput
+    {
+        public string? Directory { get; set; }
+
+        public string? Name { get; set; }
+
+        public string Units { get; set; } = "meters";
+
+        public bool Overwrite { get; set; }
+    }
+
+    public sealed class BimExportElementsRequest
+    {
+        public BimQueryElementsRequest? Selector { get; set; }
+
+        public List<BimElementIdentity>? Identities { get; set; }
+
+        public BimExportOutput Output { get; set; } = new BimExportOutput();
+
+        public BimRoomsMode? Rooms { get; set; }
+
+        public bool AllowTruncated { get; set; }
+
+        public bool AllowBboxProxy { get; set; }
+
+        public BimRoomsMode EffectiveRooms
+        {
+            get { return Rooms ?? BimRoomsMode.Both; }
+        }
+
+        public bool HasSelector
+        {
+            get { return Selector != null; }
+        }
+
+        public bool HasIdentities
+        {
+            get { return Identities != null && Identities.Count > 0; }
+        }
+
+        public BimValidationResult Validate()
+        {
+            if (HasSelector == HasIdentities)
+            {
+                return Fail(
+                    BimErrorCode.InvalidScope,
+                    "export-elements requires exactly one of 'selector' or 'identities'.");
+            }
+
+            if (HasSelector)
+            {
+                var selectorValidation = Selector!.Validate();
+                if (!selectorValidation.Success)
+                {
+                    return selectorValidation;
+                }
+            }
+
+            // Task 1 does ONLY local output-shape validation so it is independently green.
+            // Task 2 swaps this for the full BimExportPathPolicy.ValidateRequestShape.
+            if (Output == null ||
+                string.IsNullOrWhiteSpace(Output.Directory) ||
+                string.IsNullOrWhiteSpace(Output.Name))
+            {
+                return Fail(
+                    BimErrorCode.OutputPathInvalid,
+                    "export-elements requires output.directory and output.name.");
+            }
+
+            return BimValidationResult.Ok;
+        }
+
+        private static BimValidationResult Fail(BimErrorCode code, string message)
+        {
+            return new BimValidationResult
+            {
+                Success = false,
+                ErrorCode = code,
+                Message = message
+            };
+        }
+    }
+
+    public sealed class BimExportArtifactPaths
+    {
+        public string Model3dm { get; set; } = string.Empty;
+
+        public string Sidecar { get; set; } = string.Empty;
+
+        public string Validation { get; set; } = string.Empty;
+    }
+
+    public sealed class BimExportCounts
+    {
+        public int Requested { get; set; }
+
+        public int Resolved { get; set; }
+
+        public int ExportedBrep { get; set; }
+
+        public int ExportedMesh { get; set; }
+
+        public int ExportedBboxProxy { get; set; }
+
+        public int Failed { get; set; }
+
+        public int Rooms { get; set; }
+
+        public bool Truncated { get; set; }
+    }
+
+    public sealed class BimExportVerification
+    {
+        public bool Ok { get; set; }
+
+        public List<string> Discrepancies { get; set; } = new List<string>();
+    }
+
+    public sealed class BimExportResult
+    {
+        public int SchemaVersion { get; set; } = 1;
+
+        public BimExportArtifactPaths Paths { get; set; } = new BimExportArtifactPaths();
+
+        public BimExportCounts Counts { get; set; } = new BimExportCounts();
+
+        public BimExportVerification Verification { get; set; } = new BimExportVerification();
+
+        public string SourceUnits { get; set; } = "feet";
+
+        public string TargetUnits { get; set; } = "meters";
+
+        public double UnitScaleFactor { get; set; } = 1.0;
     }
 }
