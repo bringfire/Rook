@@ -36,6 +36,30 @@ namespace RookBim.Tests
             Assert.DoesNotContain("Transaction", src);
         }
 
+        [Fact]
+        public void LabelExtractor_EmitsProvenanceTaggedLabels()
+        {
+            var src = Read("src/RookBim/Revit/RevitLabelExtractor.cs");
+
+            Assert.Contains("value", src);
+            Assert.Contains("source", src);
+            Assert.Contains("confidence", src);
+            Assert.Contains("missingReason", src);
+
+            Assert.Contains("\"revit_api\"", src);
+            Assert.Contains("\"parameter\"", src);
+            Assert.Contains("\"derived\"", src);
+            Assert.Contains("\"unavailable\"", src);
+
+            // Relationship labels.
+            Assert.Contains("LevelId", src);
+            Assert.Contains("HostId", src);
+            Assert.Contains("ContainingRoom", src);
+            Assert.Contains("ContainingSpace", src);
+
+            Assert.DoesNotContain("Transaction", src);
+        }
+
         internal static string Read(string relativePath)
         {
             return File.ReadAllText(Path.Combine(RepoRoot, relativePath.Replace('/', Path.DirectorySeparatorChar)));
