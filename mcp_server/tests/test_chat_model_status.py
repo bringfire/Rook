@@ -522,3 +522,104 @@ def test_build_persona_status_uses_prompt_builder_resolution(monkeypatch):
             "routing": "local",
         }
     ]
+
+
+def test_conversation_applies_model_override_atomically():
+    from rook.agent.chat.conversation_store import Conversation
+
+    conv = Conversation(id="conv_test", persona="worker")
+    conv.pending_model = "ollama_chat/old"
+    conv.pending_api_base = ""
+    conv.pending_model_source = "agent_tool"
+    conv.pending_api_base_source = "none"
+    conv.pending_model_reason = "old pending switch"
+    resolution = model_status.ModelOverrideResolution(
+        model_override="openai/lmstudio-community/qwen",
+        api_base="http://127.0.0.1:1234/v1",
+        routing="local",
+        provider="openai",
+        api_base_source="detected_lmstudio",
+    )
+
+    payload = conv.apply_model_override(
+        resolution,
+        source="start_override",
+        reason="user requested local model",
+    )
+
+    assert conv.model == "openai/lmstudio-community/qwen"
+    assert conv.api_base == "http://127.0.0.1:1234/v1"
+    assert conv.model_source == "start_override"
+    assert conv.api_base_source == "detected_lmstudio"
+    assert conv.pending_model == ""
+    assert conv.pending_api_base == ""
+    assert conv.pending_model_source == ""
+    assert conv.pending_api_base_source == ""
+    assert conv.pending_model_reason == ""
+    assert payload == {
+        "active_model": "openai/lmstudio-community/qwen",
+        "active_routing": "local",
+        "model_source": "start_override",
+        "api_base_source": "detected_lmstudio",
+    }
+    assert "api_base" not in payload
+
+
+def test_conversation_stages_and_applies_pending_model():
+    from rook.agent.chat.conversation_store import Conversation
+
+    conv = Conversation(id="conv_test", persona="worker")
+    conv.model = "anthropic/worker"
+    conv.api_base = ""
+    conv.model_source = "persona"
+    conv.api_base_source = "none"
+    resolution = model_status.ModelOverrideResolution(
+        model_override="ollama_chat/qwen3:30b",
+        api_base="",
+        routing="local",
+        provider="ollama_chat",
+        api_base_source="none",
+    )
+
+    staged = conv.stage_model_override(
+        resolution,
+        source="agent_tool",
+        reason="use local qwen",
+    )
+
+    assert staged == {
+        "pending_model": "ollama_chat/qwen3:30b",
+        "pending_routing": "local",
+        "model_source": "agent_tool",
+        "api_base_source": "none",
+        "applies_to": "next_turn",
+    }
+    assert "api_base" not in staged
+    assert conv.model == "anthropic/worker"
+    assert conv.api_base == ""
+    assert conv.model_source == "persona"
+    assert conv.api_base_source == "none"
+    assert conv.pending_model == "ollama_chat/qwen3:30b"
+    assert conv.pending_api_base == ""
+    assert conv.pending_model_source == "agent_tool"
+    assert conv.pending_api_base_source == "none"
+    assert conv.pending_model_reason == "use local qwen"
+
+    applied = conv.apply_pending_model_override()
+
+    assert applied == {
+        "active_model": "ollama_chat/qwen3:30b",
+        "active_routing": "local",
+        "model_source": "agent_tool",
+        "api_base_source": "none",
+    }
+    assert conv.model == "ollama_chat/qwen3:30b"
+    assert conv.api_base == ""
+    assert conv.model_source == "agent_tool"
+    assert conv.api_base_source == "none"
+    assert conv.pending_model == ""
+    assert conv.pending_api_base == ""
+    assert conv.pending_model_source == ""
+    assert conv.pending_api_base_source == ""
+    assert conv.pending_model_reason == ""
+    assert conv.apply_pending_model_override() is None

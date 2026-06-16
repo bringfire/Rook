@@ -17,6 +17,13 @@ class Conversation:
     document_serial_number: int = 0
     model: str = ""
     api_base: str = ""                     # For local providers (LM Studio, vLLM, Ollama)
+    model_source: str = ""
+    api_base_source: str = ""
+    pending_model: str = ""
+    pending_api_base: str = ""
+    pending_model_source: str = ""
+    pending_api_base_source: str = ""
+    pending_model_reason: str = ""
     messages: List[Dict[str, Any]] = field(default_factory=list)
     abort_event: asyncio.Event = field(default_factory=asyncio.Event)
     active_run_id: Optional[str] = None
@@ -26,6 +33,86 @@ class Conversation:
     def touch(self):
         """Update last activity timestamp."""
         self.last_activity = time.time()
+
+    def _model_payload(
+        self,
+        *,
+        active: bool,
+        applies_to: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        prefix = "active" if active else "pending"
+        model = self.model if active else self.pending_model
+        api_base = self.api_base if active else self.pending_api_base
+        model_source = self.model_source if active else self.pending_model_source
+        api_base_source = (
+            self.api_base_source if active else self.pending_api_base_source
+        )
+        routing = (
+            "local"
+            if api_base or model.startswith(("ollama_chat/", "ollama/"))
+            else "cloud"
+        )
+        payload: Dict[str, Any] = {
+            f"{prefix}_model": model,
+            f"{prefix}_routing": routing,
+            "model_source": model_source,
+            "api_base_source": api_base_source,
+        }
+        if applies_to:
+            payload["applies_to"] = applies_to
+        return payload
+
+    def apply_model_override(
+        self,
+        resolution: Any,
+        *,
+        source: str,
+        reason: str = "",
+    ) -> Dict[str, Any]:
+        """Atomically apply an active model/api_base pair."""
+        self.model = resolution.model_override
+        self.api_base = resolution.api_base
+        self.model_source = source
+        self.api_base_source = resolution.api_base_source
+        self.pending_model = ""
+        self.pending_api_base = ""
+        self.pending_model_source = ""
+        self.pending_api_base_source = ""
+        self.pending_model_reason = ""
+        self.touch()
+        return self._model_payload(active=True)
+
+    def stage_model_override(
+        self,
+        resolution: Any,
+        *,
+        source: str,
+        reason: str = "",
+    ) -> Dict[str, Any]:
+        """Stage a model/api_base pair for the next turn."""
+        self.pending_model = resolution.model_override
+        self.pending_api_base = resolution.api_base
+        self.pending_model_source = source
+        self.pending_api_base_source = resolution.api_base_source
+        self.pending_model_reason = reason
+        self.touch()
+        return self._model_payload(active=False, applies_to="next_turn")
+
+    def apply_pending_model_override(self) -> Optional[Dict[str, Any]]:
+        """Promote a staged model/api_base pair to active, if present."""
+        if not self.pending_model:
+            return None
+        self.model = self.pending_model
+        self.api_base = self.pending_api_base
+        self.model_source = self.pending_model_source
+        self.api_base_source = self.pending_api_base_source
+        self.pending_model = ""
+        self.pending_api_base = ""
+        self.pending_model_source = ""
+        self.pending_api_base_source = ""
+        self.pending_model_reason = ""
+        self.touch()
+        return self._model_payload(active=True)
 
 
 class ConversationStore:
@@ -73,6 +160,9 @@ class ConversationStore:
                 "persona": c.persona,
                 "document_serial_number": c.document_serial_number,
                 "model": c.model,
+                "api_base_source": c.api_base_source,
+                "pending_model": c.pending_model or None,
+                "pending_api_base_source": c.pending_api_base_source or None,
                 "created_at": c.created_at,
                 "last_activity": c.last_activity,
                 "message_count": len(c.messages),
