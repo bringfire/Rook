@@ -513,6 +513,27 @@ class TestChatServerWithNonce(AioHTTPTestCase):
         data = await resp.json()
         assert "session" in data["error"].lower()
 
+    async def test_models_with_nonce_succeeds(self):
+        payload = {
+            "active_profile": "cloud",
+            "profile_source": "file",
+            "roles": {},
+            "personas": [],
+            "local_providers": {},
+            "allowed_model_overrides": [],
+        }
+        with patch(
+            "rook.agent.chat.server.model_status.build_models_payload",
+            new=AsyncMock(return_value=payload),
+        ):
+            resp = await self.client.get(
+                "/agent/chat/models",
+                headers={"X-Rook-Session": self.nonce},
+            )
+
+        assert resp.status == 200
+        assert await resp.json() == payload
+
     async def test_request_with_wrong_nonce_is_rejected(self):
         resp = await self.client.post(
             "/agent/chat/start",
