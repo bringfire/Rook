@@ -1311,6 +1311,13 @@ void HandleBimClearSelection(const httplib::Request& req, httplib::Response& res
         ForwardBimDispatch(req, res, "POST /bim/clear-selection", "clear_selection", body);
 }
 
+void HandleBimExportElements(const httplib::Request& req, httplib::Response& res)
+{
+    nlohmann::json body;
+    if (ParseBimPostBody(req, res, "export_elements", body))
+        ForwardBimDispatch(req, res, "POST /bim/export-elements", "export_elements", body);
+}
+
 void HandleManagedUvPlanar(const httplib::Request& req, httplib::Response& res)
 {
     const auto registration = GetGhBridgeRegistrationSnapshot();
