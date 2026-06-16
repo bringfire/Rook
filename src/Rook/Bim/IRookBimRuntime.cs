@@ -17,5 +17,7 @@ namespace Rook.Bim
         BimApiResponse SelectElements(BimSelectElementsRequest request);
 
         BimApiResponse ClearSelection();
+
+        BimApiResponse ExportElements(BimExportElementsRequest request);
     }
 }
