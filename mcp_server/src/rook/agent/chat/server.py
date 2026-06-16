@@ -344,6 +344,9 @@ async def handle_message(request: web.Request) -> web.StreamResponse:
     if document_serial_number > 0:
         conv.document_serial_number = document_serial_number
 
+    preparing_run_id = "server_preparing"
+    conv.active_run_id = preparing_run_id
+
     builder = request.app.get(_BUILDER_KEY) or _get_builder()
     runner = request.app.get(_RUNNER_KEY) or _get_runner()
     system_prompt = builder.build_system(conv.persona)
@@ -360,31 +363,35 @@ async def handle_message(request: web.Request) -> web.StreamResponse:
             "Cache-Control": "no-cache",
         },
     )
-    await response.prepare(request)
 
     turn_events = None
     try:
-        with rhino_request_context(
-            process_id=request.app.get(_RHINO_PROCESS_ID_KEY, 0),
-            document_serial_number=conv.document_serial_number,
-        ):
-            turn_events = runner.run_turn(
-                conv,
-                message,
-                system_prompt,
-                model_payload_builder=model_payload_builder,
-            )
-            async for event in turn_events:
-                line = json.dumps(event.to_dict()) + "\n"
-                await response.write(line.encode("utf-8"))
-    except (ConnectionResetError, ConnectionError, asyncio.CancelledError):
-        logger.info(f"Client disconnected during streaming for conversation {conv_id}")
-        conv.abort_event.set()
+        await response.prepare(request)
+        try:
+            with rhino_request_context(
+                process_id=request.app.get(_RHINO_PROCESS_ID_KEY, 0),
+                document_serial_number=conv.document_serial_number,
+            ):
+                turn_events = runner.run_turn(
+                    conv,
+                    message,
+                    system_prompt,
+                    model_payload_builder=model_payload_builder,
+                )
+                async for event in turn_events:
+                    line = json.dumps(event.to_dict()) + "\n"
+                    await response.write(line.encode("utf-8"))
+        except (ConnectionResetError, ConnectionError, asyncio.CancelledError):
+            logger.info(f"Client disconnected during streaming for conversation {conv_id}")
+            conv.abort_event.set()
+        finally:
+            if turn_events is not None:
+                close = getattr(turn_events, "aclose", None)
+                if close is not None:
+                    await close()
     finally:
-        if turn_events is not None:
-            close = getattr(turn_events, "aclose", None)
-            if close is not None:
-                await close()
+        if conv.active_run_id == preparing_run_id:
+            conv.active_run_id = None
 
     try:
         await response.write_eof()
@@ -439,6 +446,9 @@ async def handle_ui_response(request: web.Request) -> web.StreamResponse:
     if document_serial_number > 0:
         conv.document_serial_number = document_serial_number
 
+    preparing_run_id = "server_preparing"
+    conv.active_run_id = preparing_run_id
+
     # Serialize the structured UI response as the user_message for run_turn.
     # run_turn appends it to conv.messages itself.
     user_message = json.dumps({
@@ -462,33 +472,37 @@ async def handle_ui_response(request: web.Request) -> web.StreamResponse:
             "Cache-Control": "no-cache",
         },
     )
-    await response.prepare(request)
 
     turn_events = None
     try:
-        with rhino_request_context(
-            process_id=request.app.get(_RHINO_PROCESS_ID_KEY, 0),
-            document_serial_number=conv.document_serial_number,
-        ):
-            turn_events = runner.run_turn(
-                conv,
-                user_message,
-                system_prompt,
-                model_payload_builder=model_payload_builder,
+        await response.prepare(request)
+        try:
+            with rhino_request_context(
+                process_id=request.app.get(_RHINO_PROCESS_ID_KEY, 0),
+                document_serial_number=conv.document_serial_number,
+            ):
+                turn_events = runner.run_turn(
+                    conv,
+                    user_message,
+                    system_prompt,
+                    model_payload_builder=model_payload_builder,
+                )
+                async for event in turn_events:
+                    line = json.dumps(event.to_dict()) + "\n"
+                    await response.write(line.encode("utf-8"))
+        except (ConnectionResetError, ConnectionError, asyncio.CancelledError):
+            logger.info(
+                f"Client disconnected during ui-response streaming for conversation {conv_id}"
             )
-            async for event in turn_events:
-                line = json.dumps(event.to_dict()) + "\n"
-                await response.write(line.encode("utf-8"))
-    except (ConnectionResetError, ConnectionError, asyncio.CancelledError):
-        logger.info(
-            f"Client disconnected during ui-response streaming for conversation {conv_id}"
-        )
-        conv.abort_event.set()
+            conv.abort_event.set()
+        finally:
+            if turn_events is not None:
+                close = getattr(turn_events, "aclose", None)
+                if close is not None:
+                    await close()
     finally:
-        if turn_events is not None:
-            close = getattr(turn_events, "aclose", None)
-            if close is not None:
-                await close()
+        if conv.active_run_id == preparing_run_id:
+            conv.active_run_id = None
 
     try:
         await response.write_eof()

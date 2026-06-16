@@ -283,6 +283,110 @@ class TestChatServer(AioHTTPTestCase):
         assert conv.model == "anthropic/current"
         assert conv.api_base == ""
 
+    async def _exercise_prepare_model_set_race(self, handler, body):
+        class FakeRequest:
+            def __init__(self, app, request_body):
+                self.app = app
+                self._body = request_body
+
+            async def json(self):
+                return self._body
+
+        class PreparingStreamResponse:
+            nested_response = None
+
+            def __init__(self, *args, **kwargs):
+                self.status = kwargs.get("status", 200)
+
+            async def prepare(self, request):
+                model_request = FakeRequest(request.app, {
+                    "conversation_id": body["conversation_id"],
+                    "model_override": "ollama_chat/qwen3",
+                })
+                self.__class__.nested_response = await chat_server.handle_set_model(
+                    model_request
+                )
+                return None
+
+            async def write(self, data):
+                return None
+
+            async def write_eof(self):
+                return None
+
+        class CapturingRunner:
+            def __init__(self):
+                self.turn_start_models = []
+
+            async def run_turn(
+                self, conv, message, system_prompt, model_payload_builder=None
+            ):
+                self.turn_start_models.append(conv.model)
+                yield ChatEvent("done", usage={})
+
+        conv = self.store.create("worker")
+        conv.model = "anthropic/current"
+        conv.api_base = ""
+        body["conversation_id"] = conv.id
+        runner = CapturingRunner()
+        app = {
+            chat_server._STORE_KEY: self.store,
+            chat_server._BUILDER_KEY: self.builder,
+            chat_server._RUNNER_KEY: runner,
+            chat_server._RHINO_PROCESS_ID_KEY: 0,
+        }
+        resolution = model_status.ModelOverrideResolution(
+            model_override="ollama_chat/qwen3",
+            api_base="http://127.0.0.1:11434",
+            routing="local",
+            provider="ollama_chat",
+            api_base_source="active_profile",
+        )
+
+        with patch(
+            "rook.agent.chat.server.web.StreamResponse",
+            PreparingStreamResponse,
+        ), patch(
+            "rook.agent.chat.server.model_status.resolve_allowed_model_override",
+            new=AsyncMock(return_value=resolution),
+        ):
+            response = await handler(FakeRequest(app, body))
+
+        return conv, runner, response, PreparingStreamResponse.nested_response
+
+    async def test_message_rejects_model_set_during_stream_prepare(self):
+        conv, runner, response, nested_response = await self._exercise_prepare_model_set_race(
+            chat_server.handle_message,
+            {
+                "message": "start this turn",
+            },
+        )
+
+        assert response.status == 200
+        assert nested_response.status == 409
+        data = json.loads(nested_response.text)
+        assert data["code"] == "conversation_processing"
+        assert runner.turn_start_models == ["anthropic/current"]
+        assert conv.model == "anthropic/current"
+        assert conv.active_run_id is None
+
+    async def test_ui_response_rejects_model_set_during_stream_prepare(self):
+        conv, runner, response, nested_response = await self._exercise_prepare_model_set_race(
+            chat_server.handle_ui_response,
+            {
+                "block_id": "blk_prepare_race",
+                "value": {"accepted": True},
+            },
+        )
+
+        assert response.status == 200
+        assert nested_response.status == 409
+        data = json.loads(nested_response.text)
+        assert data["code"] == "conversation_processing"
+        assert runner.turn_start_models == ["anthropic/current"]
+        assert conv.model == "anthropic/current"
+        assert conv.active_run_id is None
+
     async def test_stop_conversation(self):
         # Start one first
         resp = await self.client.post(
