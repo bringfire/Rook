@@ -1,6 +1,18 @@
 # Spatial Graph — Projection, Ontology & Intelligence (design direction)
 
-> **Status (2026-06-14): DESIGN DIRECTION captured for later — NOT yet executed.**
+> **Status (2026-06-16): PARTIALLY EXECUTED — two slices shipped + live-verified; track PAUSED for a RookBIM pivot.**
+> §8 step-1 is DONE: **Exact Adjacency Projection v1** (`scene_exact_neighbors`) and
+> **Semantic Containment Refinement v1** (`scene_refine_containment`) are both complete and
+> live-verified on `feature/spatial-intelligence` (86 Python tests pass; both live smokes pass).
+> The OCCT exact-adjacency production route underneath them is also complete.
+> **Return checkpoint:** `docs/rook_docs/2026-06-16-spatial-intelligence-pivot-checkpoint.md`
+> (read it FIRST on return). **Key caveat:** `contains_semantic` is **provisional evidence**
+> until a labeled threshold-calibration slice — do NOT let rooms/zones/circulation rely on
+> containment confidence tiers yet. Recommended return slice: **Threshold Calibration v1**
+> (preferably with BIM/Revit-derived labeled fixtures). Forks A–G and §6 IFC ontology below
+> are still the grounded direction for the remaining layers (hosting/apertures, circulation, zones).
+>
+> **Status (2026-06-14): DESIGN DIRECTION captured for later — NOT yet executed.** (superseded above)
 > This is the *intelligence* layer that sits on top of the adjacency engine. The
 > OCCT engine (see `2026-06-14-occt-uniform-engine-decision.md`) produces the
 > **edges** (exact relations); this doc is about the **graph** those edges feed and
