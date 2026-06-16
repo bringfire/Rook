@@ -50,6 +50,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from rook.agent.chat import model_status
+from rook.agent.model_profiles import ModelSet
 
 
 @pytest.fixture(autouse=True)
@@ -60,23 +61,22 @@ def reset_model_status_cache():
 
 
 def test_roles_apply_planner_and_worker_env_overrides(monkeypatch):
+    monkeypatch.delenv("ROOK_MODEL_PROFILE", raising=False)
     monkeypatch.setenv("ROOK_PLANNER_MODEL", "anthropic/env-planner")
     monkeypatch.setenv("ROOK_WORKER_MODEL", "ollama_chat/env-worker")
+    model_set = ModelSet(
+        planner="anthropic/profile-planner",
+        worker="anthropic/profile-worker",
+        specialist="anthropic/profile-specialist",
+        guardian="anthropic/profile-guardian",
+        dspy="anthropic/profile-dspy",
+        api_base=None,
+    )
+    monkeypatch.setattr(model_status, "get_active_profile_name", lambda: "cloud")
     monkeypatch.setattr(
         model_status,
-        "_get_profile_model_set",
-        lambda: (
-            "cloud",
-            "file",
-            model_status.ModelSet(
-                planner="anthropic/profile-planner",
-                worker="anthropic/profile-worker",
-                specialist="anthropic/profile-specialist",
-                guardian="anthropic/profile-guardian",
-                dspy="anthropic/profile-dspy",
-                api_base=None,
-            ),
-        ),
+        "get_models",
+        lambda profile_name=None: model_set,
     )
 
     roles = model_status.build_role_status()["roles"]
@@ -91,22 +91,21 @@ def test_roles_apply_planner_and_worker_env_overrides(monkeypatch):
 
 
 def test_allowed_overrides_use_effective_models_and_detected_local(monkeypatch):
+    monkeypatch.delenv("ROOK_MODEL_PROFILE", raising=False)
     monkeypatch.setenv("ROOK_WORKER_MODEL", "anthropic/env-worker")
+    model_set = ModelSet(
+        planner="anthropic/profile-planner",
+        worker="anthropic/profile-worker",
+        specialist="anthropic/profile-specialist",
+        guardian="anthropic/profile-guardian",
+        dspy="anthropic/profile-dspy",
+        api_base=None,
+    )
+    monkeypatch.setattr(model_status, "get_active_profile_name", lambda: "cloud")
     monkeypatch.setattr(
         model_status,
-        "_get_profile_model_set",
-        lambda: (
-            "cloud",
-            "file",
-            model_status.ModelSet(
-                planner="anthropic/profile-planner",
-                worker="anthropic/profile-worker",
-                specialist="anthropic/profile-specialist",
-                guardian="anthropic/profile-guardian",
-                dspy="anthropic/profile-dspy",
-                api_base=None,
-            ),
-        ),
+        "get_models",
+        lambda profile_name=None: model_set,
     )
     local_providers = {
         "ollama": {
