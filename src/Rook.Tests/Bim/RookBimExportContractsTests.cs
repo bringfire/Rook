@@ -1,9 +1,10 @@
+using System.Collections.Generic;
 using Rook.Bim;
 using Xunit;
 
 namespace Rook.Tests.Bim
 {
-    public class BimExportContractsTests
+    public class RookBimExportContractsTests
     {
         private static BimExportOutput ValidOutput() =>
             new BimExportOutput { Directory = @"C:\fixtures", Name = "walls" };
@@ -24,7 +25,7 @@ namespace Rook.Tests.Bim
             {
                 Output = ValidOutput(),
                 Selector = new BimQueryElementsRequest { Category = "Walls" },
-                Identities = new System.Collections.Generic.List<BimElementIdentity>
+                Identities = new List<BimElementIdentity>
                 {
                     new BimElementIdentity { UniqueId = "abc" },
                 },
@@ -72,6 +73,19 @@ namespace Rook.Tests.Bim
             var result = request.Validate();
             Assert.False(result.Success);
             Assert.Equal(BimErrorCode.UnboundedDocumentQuery, result.ErrorCode);
+        }
+
+        [Fact]
+        public void Validate_RejectsDefaultConstructedOutput()
+        {
+            var request = new BimExportElementsRequest
+            {
+                Selector = new BimQueryElementsRequest { Category = "Walls" },
+                Output = new BimExportOutput(),
+            };
+            var result = request.Validate();
+            Assert.False(result.Success);
+            Assert.Equal(BimErrorCode.OutputPathInvalid, result.ErrorCode);
         }
     }
 }

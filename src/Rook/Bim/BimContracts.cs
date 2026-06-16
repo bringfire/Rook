@@ -562,8 +562,7 @@ namespace Rook.Bim
                 }
             }
 
-            // Task 1 does ONLY local output-shape validation so it is independently green.
-            // Task 2 swaps this for the full BimExportPathPolicy.ValidateRequestShape.
+            // Local output-shape validation; full path-policy validation is added alongside BimExportPathPolicy.
             if (Output == null ||
                 string.IsNullOrWhiteSpace(Output.Directory) ||
                 string.IsNullOrWhiteSpace(Output.Name))
