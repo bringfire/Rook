@@ -348,6 +348,9 @@ async def handle_message(request: web.Request) -> web.StreamResponse:
     runner = request.app.get(_RUNNER_KEY) or _get_runner()
     system_prompt = builder.build_system(conv.persona)
 
+    async def model_payload_builder():
+        return await model_status.build_models_payload(builder=builder)
+
     # Stream response using chunked transfer encoding
     response = web.StreamResponse(
         status=200,
@@ -365,7 +368,12 @@ async def handle_message(request: web.Request) -> web.StreamResponse:
             process_id=request.app.get(_RHINO_PROCESS_ID_KEY, 0),
             document_serial_number=conv.document_serial_number,
         ):
-            turn_events = runner.run_turn(conv, message, system_prompt)
+            turn_events = runner.run_turn(
+                conv,
+                message,
+                system_prompt,
+                model_payload_builder=model_payload_builder,
+            )
             async for event in turn_events:
                 line = json.dumps(event.to_dict()) + "\n"
                 await response.write(line.encode("utf-8"))
@@ -443,6 +451,9 @@ async def handle_ui_response(request: web.Request) -> web.StreamResponse:
     runner = request.app.get(_RUNNER_KEY) or _get_runner()
     system_prompt = builder.build_system(conv.persona)
 
+    async def model_payload_builder():
+        return await model_status.build_models_payload(builder=builder)
+
     response = web.StreamResponse(
         status=200,
         reason="OK",
@@ -459,7 +470,12 @@ async def handle_ui_response(request: web.Request) -> web.StreamResponse:
             process_id=request.app.get(_RHINO_PROCESS_ID_KEY, 0),
             document_serial_number=conv.document_serial_number,
         ):
-            turn_events = runner.run_turn(conv, user_message, system_prompt)
+            turn_events = runner.run_turn(
+                conv,
+                user_message,
+                system_prompt,
+                model_payload_builder=model_payload_builder,
+            )
             async for event in turn_events:
                 line = json.dumps(event.to_dict()) + "\n"
                 await response.write(line.encode("utf-8"))

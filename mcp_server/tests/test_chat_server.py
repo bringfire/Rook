@@ -313,7 +313,7 @@ class TestChatServer(AioHTTPTestCase):
         captured: list[dict] = []
 
         class CapturingRunner:
-            async def run_turn(self, conv, message, system_prompt):
+            async def run_turn(self, conv, message, system_prompt, model_payload_builder=None):
                 captured.append({"message": message, "conv_id": conv.id})
                 yield ChatEvent("done", usage={})
 
@@ -398,7 +398,7 @@ class TestChatServer(AioHTTPTestCase):
         captured: list[dict] = []
 
         class ContextCapturingRunner:
-            async def run_turn(self, conv, message, system_prompt):
+            async def run_turn(self, conv, message, system_prompt, model_payload_builder=None):
                 captured.append({
                     "conversation_document": conv.document_serial_number,
                     **bridge.get_rhino_request_context(),
@@ -443,7 +443,7 @@ class TestChatServer(AioHTTPTestCase):
         captured: list[dict[str, int | None]] = []
 
         class ContextCapturingRunner:
-            async def run_turn(self, conv, message, system_prompt):
+            async def run_turn(self, conv, message, system_prompt, model_payload_builder=None):
                 captured.append({
                     "conversation_document": conv.document_serial_number,
                     **bridge.get_rhino_request_context(),
@@ -480,6 +480,45 @@ class TestChatServer(AioHTTPTestCase):
         conv = self.store.get(conv_id)
         assert conv is not None
         assert conv.document_serial_number == 91
+
+    async def test_message_passes_model_payload_builder_to_runner(self):
+        captured: dict[str, object] = {}
+
+        class CapturingRunner:
+            async def run_turn(self, conv, message, system_prompt, model_payload_builder=None):
+                captured["builder"] = model_payload_builder
+                yield ChatEvent("done", usage={})
+
+        self.app[chat_server._RUNNER_KEY] = CapturingRunner()
+
+        start = await self.client.post(
+            "/agent/chat/start",
+            json={"persona": "worker"},
+        )
+        assert start.status == 200
+        conv_id = (await start.json())["conversation_id"]
+
+        resp = await self.client.post(
+            "/agent/chat/message",
+            json={
+                "conversation_id": conv_id,
+                "message": "list models",
+            },
+        )
+        assert resp.status == 200
+        await resp.text()
+
+        assert captured["builder"] is not None
+
+        build_models_payload = AsyncMock(return_value={"allowed_model_overrides": []})
+        with patch(
+            "rook.agent.chat.server.model_status.build_models_payload",
+            new=build_models_payload,
+        ):
+            payload = await captured["builder"]()
+
+        assert payload == {"allowed_model_overrides": []}
+        build_models_payload.assert_awaited_once_with(builder=self.builder)
 
 
 def test_message_disconnect_closes_turn_generator_before_return():
