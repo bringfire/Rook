@@ -223,3 +223,71 @@ def test_refiner_never_calls_exact_projector(monkeypatch):
                  contains_edges=[("BOX", "SM")])
     r._evaluate_candidate("BOX", "SM")
     assert called["n"] == 0
+
+
+def test_prepare_is_pure_then_commit_writes_edges_and_annotations():
+    r = _refiner({
+        "BOX": _attrs(geometry_type="Brep", shape_class="compact",
+                      bbox_min=(0, 0, 0), bbox_max=(10, 10, 10)),
+        "SM": _attrs(geometry_type="Brep", shape_class="compact",
+                     bbox_min=(2, 2, 2), bbox_max=(4, 4, 4)),
+    }, contains_edges=[("BOX", "SM")])
+    g = r._analytics.graph
+
+    delta = r._prepare_request_delta(["BOX"], graph_sequence=5)
+    # prepare must not mutate the graph
+    assert not any(k == SEMANTIC_CONTAINS_KEY for _, _, k in g.edges(keys=True))
+    assert "containment_status" not in g["BOX"]["SM"][0]
+
+    r._commit_request_delta(delta)
+    # positive verdict -> one semantic edge BOX->SM
+    se = [(u, v, k) for u, v, k in g.edges(keys=True) if k == SEMANTIC_CONTAINS_KEY]
+    assert se == [("BOX", "SM", SEMANTIC_CONTAINS_KEY)]
+    edge = g["BOX"]["SM"][SEMANTIC_CONTAINS_KEY]
+    assert edge["relationship"] == "contains_semantic" and edge["provenance"] == "semantic_refiner"
+    assert edge["verdict"] == "contains_semantic" and edge["confidence"] == "high"
+    # bbox contains edge annotated
+    bbox = g["BOX"]["SM"][0]
+    assert bbox["containment_status"] == "contains_semantic"
+    assert bbox["containment_confidence"] == "high"
+    assert isinstance(bbox["containment_evidence"], list)
+
+
+def test_disqualified_and_insufficient_make_no_semantic_edge_but_annotate():
+    r = _refiner({
+        "WALL": _attrs(geometry_type="Brep", shape_class="vertical-planar", domain_label="wall",
+                       bbox_min=(0, 0, 0), bbox_max=(10, 0.2, 10), thin_axis="Y"),
+        "COL": _attrs(geometry_type="Brep", shape_class="thin-vertical", domain_label="column",
+                      bbox_min=(2, 0, 0), bbox_max=(3, 0.2, 10)),  # spans Y (thin) -> penetration
+    }, contains_edges=[("WALL", "COL")])
+    g = r._analytics.graph
+    r._commit_request_delta(r._prepare_request_delta(["WALL"], graph_sequence=1))
+    assert not any(k == SEMANTIC_CONTAINS_KEY for _, _, k in g.edges(keys=True))
+    assert g["WALL"]["COL"][0]["containment_status"] == "disqualified"
+    assert g["WALL"]["COL"][0]["containment_reason"] == "likely_penetration"
+
+
+def test_commit_atomicity_failed_candidate_no_partial_mutation(monkeypatch):
+    r = _refiner({
+        "BOX": _attrs(geometry_type="Brep", shape_class="compact",
+                      bbox_min=(0, 0, 0), bbox_max=(10, 10, 10)),
+        "SM": _attrs(geometry_type="Brep", shape_class="compact",
+                     bbox_min=(2, 2, 2), bbox_max=(4, 4, 4)),
+        "BAD": _attrs(bbox_min=(1, 1, 1), bbox_max=(3, 3, 3)),
+    }, contains_edges=[("BOX", "SM"), ("BOX", "BAD")])
+    g = r._analytics.graph
+    orig_eval = r._evaluate_candidate
+
+    def maybe_raise(container, contained):
+        if contained == "BAD":
+            raise ValueError("boom")
+        return orig_eval(container, contained)
+
+    monkeypatch.setattr(r, "_evaluate_candidate", maybe_raise)
+    delta = r._prepare_request_delta(["BOX"], graph_sequence=1)
+    r._commit_request_delta(delta)
+    # SM committed; BAD failed -> no semantic edge, no annotation for BAD
+    assert g.has_edge("BOX", "SM", key=SEMANTIC_CONTAINS_KEY)
+    assert "containment_status" not in g["BOX"]["BAD"][0]
+    bad = next(res for res in delta.results if res.contained_id == "BAD")
+    assert bad.verdict == "failed" and bad.error

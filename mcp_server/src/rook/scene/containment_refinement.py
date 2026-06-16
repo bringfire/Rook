@@ -93,6 +93,15 @@ class _CandidateResult:
     error: str | None = None                # set only when verdict == "failed"
 
 
+@dataclass
+class _RequestDelta:
+    """Prepared (not yet committed) refinement for one request."""
+    graph_sequence: int
+    results: list = field(default_factory=list)            # list[_CandidateResult]
+    edge_upserts: list = field(default_factory=list)       # (container, contained, attrs)
+    annotations: list = field(default_factory=list)        # (container, contained, ann_dict)
+
+
 def _bbox_volume(attrs: dict) -> float:
     mn = attrs.get("bbox_min") or [0, 0, 0]
     mx = attrs.get("bbox_max") or [0, 0, 0]
@@ -280,3 +289,56 @@ class ContainmentRefiner:
             container_id=container_id, contained_id=contained_id,
             verdict=verdict, confidence=confidence, reason=reason, evidence=evidence,
         )
+
+    def _prepare_request_delta(self, object_ids, graph_sequence: int) -> "_RequestDelta":
+        """PURE: evaluate every candidate, plan mutations for non-failed ones. No graph writes."""
+        delta = _RequestDelta(graph_sequence=graph_sequence)
+        for container_id, contained_id in self._candidate_contains_edges(object_ids):
+            try:
+                res = self._evaluate_candidate(container_id, contained_id)
+            except Exception as ex:  # isolate a bad candidate; no partial mutation
+                logger.warning("containment eval failed for (%s,%s): %s", container_id, contained_id, ex)
+                res = _CandidateResult(
+                    candidate_id=candidate_id(container_id, contained_id),
+                    container_id=container_id, contained_id=contained_id,
+                    verdict="failed", confidence="none", reason=None, evidence=[], error=str(ex))
+                delta.results.append(res)
+                continue
+            delta.results.append(res)
+            ann = {
+                "containment_status": res.verdict,
+                "containment_confidence": res.confidence,
+                "containment_reason": res.reason,
+                "containment_evidence": res.evidence,
+                "containment_graphSequence": graph_sequence,
+            }
+            delta.annotations.append((container_id, contained_id, ann))
+            if res.verdict == "contains_semantic":
+                delta.edge_upserts.append((container_id, contained_id, {
+                    "relationship": SEMANTIC_RELATIONSHIP,
+                    "provenance": SEMANTIC_PROVENANCE,
+                    "verdict": res.verdict,
+                    "confidence": res.confidence,
+                    "reason": res.reason,
+                    "evidence": res.evidence,
+                    "graphSequence": graph_sequence,
+                    "engineVersion": ENGINE_VERSION,
+                }))
+        return delta
+
+    def _commit_request_delta(self, delta: "_RequestDelta") -> None:
+        """Apply all planned edges + annotations in one pass; invalidate analytics caches."""
+        g = self._analytics.graph
+        mutated = False
+        for container_id, contained_id, attrs in delta.edge_upserts:
+            g.add_edge(container_id, contained_id, key=SEMANTIC_CONTAINS_KEY, **attrs)
+            mutated = True
+        for container_id, contained_id, ann in delta.annotations:
+            if not g.has_edge(container_id, contained_id):
+                continue
+            for _k, edata in g[container_id][contained_id].items():
+                if edata.get("relationship") == "contains":
+                    edata.update(ann)
+                    mutated = True
+        if mutated:
+            self._analytics._invalidate_caches()
