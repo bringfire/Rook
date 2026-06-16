@@ -91,3 +91,97 @@ class _CandidateResult:
     reason: str | None = None
     evidence: list = field(default_factory=list)
     error: str | None = None                # set only when verdict == "failed"
+
+
+def _bbox_volume(attrs: dict) -> float:
+    mn = attrs.get("bbox_min") or [0, 0, 0]
+    mx = attrs.get("bbox_max") or [0, 0, 0]
+    return (max(0.0, mx[0] - mn[0]) * max(0.0, mx[1] - mn[1]) * max(0.0, mx[2] - mn[2]))
+
+
+def _axis_clearances(c: dict, b: dict) -> list[tuple[float, float]]:
+    """(low_clearance, high_clearance) of contained b within container c, per axis."""
+    cmn, cmx = c.get("bbox_min") or [0, 0, 0], c.get("bbox_max") or [0, 0, 0]
+    bmn, bmx = b.get("bbox_min") or [0, 0, 0], b.get("bbox_max") or [0, 0, 0]
+    return [(bmn[i] - cmn[i], cmx[i] - bmx[i]) for i in range(3)]
+
+
+def _evidence_bbox_margin(c: dict, b: dict) -> dict:
+    cl = _axis_clearances(c, b)
+    flush = [("X", "Y", "Z")[i] for i, (lo, hi) in enumerate(cl) if lo <= MARGIN_EPS or hi <= MARGIN_EPS]
+    if flush:
+        return {"signal": "bbox_margin", "polarity": "weakens",
+                "detail": f"flush on {','.join(flush)}"}
+    return {"signal": "bbox_margin", "polarity": "supports", "detail": "positive clearance all axes"}
+
+
+def _evidence_containment_depth(c: dict, b: dict) -> dict:
+    cmn, cmx = c.get("bbox_min") or [0, 0, 0], c.get("bbox_max") or [0, 0, 0]
+    cl = _axis_clearances(c, b)
+    meaningful = 0
+    for i, (lo, hi) in enumerate(cl):
+        ext = cmx[i] - cmn[i]
+        if ext <= 0:
+            continue
+        if (min(lo, hi) / ext) >= DEPTH_MEANINGFUL_FRAC:
+            meaningful += 1
+    if meaningful >= DEPTH_MIN_AXES:
+        return {"signal": "containment_depth", "polarity": "supports",
+                "detail": f"meaningful inset on {meaningful} axes"}
+    return {"signal": "containment_depth", "polarity": "weakens",
+            "detail": f"shallow inset ({meaningful} axes)"}
+
+
+def _evidence_container_solidity(c: dict) -> dict | None:
+    gt = c.get("geometry_type", "")
+    if gt in SOLID_TYPES:
+        return {"signal": "container_solidity", "polarity": "supports", "detail": gt}
+    if gt in NON_SOLID_TYPES:
+        return {"signal": "container_solidity", "polarity": "disqualifies", "detail": f"not_a_solid:{gt}"}
+    if gt in OPEN_SURFACE_TYPES:
+        return {"signal": "container_solidity", "polarity": "weakens", "detail": f"open:{gt}"}
+    return None  # Mesh/SubD/InstanceReference/unknown -> neutral (closure unknown)
+
+
+def _evidence_class_pair(c: dict) -> dict | None:
+    classes = {c.get("shape_class", ""), c.get("domain_label", "")}
+    if classes & COMPACT_CONTAINER_CLASSES:
+        return {"signal": "class_pair", "polarity": "supports", "detail": "compact/block container"}
+    if classes & THIN_CLASSES:
+        thin = ",".join(sorted(x for x in classes & THIN_CLASSES if x))
+        return {"signal": "class_pair", "polarity": "weakens", "detail": f"thin container ({thin})"}
+    return None
+
+
+def _evidence_volume_ratio(c: dict, b: dict) -> dict | None:
+    cv = _bbox_volume(c)
+    if cv <= 0:
+        return None
+    ratio = _bbox_volume(b) / cv
+    if ratio <= VOLUME_RATIO_SMALL:
+        return {"signal": "bbox_volume_ratio", "polarity": "supports", "detail": f"ratio {ratio:.3f}"}
+    if ratio >= VOLUME_RATIO_NEAR:
+        return {"signal": "bbox_volume_ratio", "polarity": "weakens", "detail": f"near-coincident {ratio:.3f}"}
+    return None
+
+
+def _evidence_grouping(c: dict, b: dict) -> dict | None:
+    # v1 is LAYER-ONLY. Name- and user-string-based grouping are DEFERRED: user strings are
+    # not in the mirror's node attrs, and name heuristics are noisy. Revisit when the mirror
+    # carries normalized grouping metadata.
+    cl, bl = c.get("layer", ""), b.get("layer", "")
+    if cl and cl == bl:
+        return {"signal": "grouping_hint", "polarity": "supports", "detail": f"shared layer '{cl}'"}
+    return None
+
+
+def _spans_thin_axis(c: dict, b: dict) -> bool:
+    """True if contained fills the container's thin dimension (flush both sides) = penetration."""
+    cmn, cmx = c.get("bbox_min") or [0, 0, 0], c.get("bbox_max") or [0, 0, 0]
+    axis = _AXIS_INDEX.get(c.get("thin_axis", ""))
+    if axis is None:
+        exts = [cmx[i] - cmn[i] for i in range(3)]
+        axis = exts.index(min(exts))
+    bmn, bmx = b.get("bbox_min") or [0, 0, 0], b.get("bbox_max") or [0, 0, 0]
+    low, high = bmn[axis] - cmn[axis], cmx[axis] - bmx[axis]
+    return low <= MARGIN_EPS and high <= MARGIN_EPS
