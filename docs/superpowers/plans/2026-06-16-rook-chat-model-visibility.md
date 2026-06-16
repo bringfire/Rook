@@ -23,6 +23,7 @@
   - Sets `Cache-Control: no-store` on the response.
 - Create `mcp_server/tests/test_chat_model_status.py`
   - Unit tests for helper behavior without aiohttp.
+  - Resets the helper's module-level local-provider cache around each test.
 - Modify `mcp_server/tests/test_chat_server.py`
   - Endpoint-level tests for response shape, nonce enforcement, and cache-control header.
 
@@ -39,6 +40,7 @@
 Create `mcp_server/tests/test_chat_model_status.py` with this initial content:
 
 ```python
+import pytest
 import sys
 from pathlib import Path
 
@@ -48,6 +50,13 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from rook.agent.chat import model_status
+
+
+@pytest.fixture(autouse=True)
+def reset_model_status_cache():
+    model_status.reset_local_provider_status_cache()
+    yield
+    model_status.reset_local_provider_status_cache()
 
 
 def test_roles_apply_planner_and_worker_env_overrides(monkeypatch):
@@ -99,33 +108,31 @@ def test_allowed_overrides_use_effective_models_and_detected_local(monkeypatch):
             ),
         ),
     )
-    monkeypatch.setattr(
-        model_status,
-        "get_cached_local_provider_status",
-        lambda force_refresh=False: {
-            "ollama": {
-                "available": True,
-                "models": [
-                    {
-                        "id": "qwen3:30b",
-                        "model_override": "ollama_chat/qwen3:30b",
-                        "size": None,
-                    }
-                ],
-                "recommended_model_override": "ollama_chat/qwen3:30b",
-                "error": None,
-            },
-            "lmstudio": {
-                "available": False,
-                "models": [],
-                "recommended_model_override": None,
-                "api_base": "http://127.0.0.1:1234/v1",
-                "error": "connection refused",
-            },
+    local_providers = {
+        "ollama": {
+            "available": True,
+            "models": [
+                {
+                    "id": "qwen3:30b",
+                    "model_override": "ollama_chat/qwen3:30b",
+                    "size": None,
+                }
+            ],
+            "recommended_model_override": "ollama_chat/qwen3:30b",
+            "error": None,
         },
-    )
+        "lmstudio": {
+            "available": False,
+            "models": [],
+            "recommended_model_override": None,
+            "api_base": "http://127.0.0.1:1234/v1",
+            "error": "connection refused",
+        },
+    }
 
-    allowed = model_status.compute_allowed_model_overrides()
+    allowed = model_status.compute_allowed_model_overrides(
+        local_providers=local_providers
+    )
 
     assert "anthropic/env-worker" in allowed
     assert "anthropic/profile-worker" not in allowed
@@ -174,7 +181,6 @@ from typing import Any, Dict, Optional, Tuple
 
 from ..config import AgentConfig
 from ..model_profiles import (
-    FALLBACK_MODELS,
     ModelSet,
     api_base_for_model,
     detect_lmstudio_models,
@@ -190,6 +196,12 @@ LOCAL_DETECTION_TIMEOUT_SECONDS = 1.5
 
 _local_cache_payload: Optional[Dict[str, Any]] = None
 _local_cache_time: float = 0.0
+
+
+def reset_local_provider_status_cache() -> None:
+    global _local_cache_payload, _local_cache_time
+    _local_cache_payload = None
+    _local_cache_time = 0.0
 
 
 def _get_profile_model_set() -> Tuple[str, str, ModelSet]:
@@ -401,8 +413,9 @@ def get_cached_local_provider_status(force_refresh: bool = False) -> Dict[str, A
 
 def compute_allowed_model_overrides(
     local_providers: Optional[Dict[str, Any]] = None,
+    role_status: Optional[Dict[str, Any]] = None,
 ) -> list[str]:
-    role_status = build_role_status()
+    role_status = role_status or build_role_status()
     allowed = {
         row["effective_model"]
         for row in role_status["roles"].values()
@@ -420,8 +433,10 @@ def compute_allowed_model_overrides(
 async def compute_allowed_model_overrides_async(
     force_refresh: bool = False,
 ) -> list[str]:
+    role_status = build_role_status()
     return compute_allowed_model_overrides(
-        await get_cached_local_provider_status_async(force_refresh=force_refresh)
+        await get_cached_local_provider_status_async(force_refresh=force_refresh),
+        role_status=role_status,
     )
 
 
@@ -452,7 +467,10 @@ async def build_models_payload(builder: Optional[PromptBuilder] = None) -> Dict[
         **role_status,
         "personas": build_persona_status(builder),
         "local_providers": local_providers,
-        "allowed_model_overrides": compute_allowed_model_overrides(local_providers),
+        "allowed_model_overrides": compute_allowed_model_overrides(
+            local_providers,
+            role_status=role_status,
+        ),
     }
 ```
 
@@ -672,6 +690,11 @@ Open a follow-up issue or add an implementation note in the PR body:
 Slice 2 should reuse rook.agent.chat.model_status.compute_allowed_model_overrides_async()
 or get_cached_local_provider_status_snapshot() to validate /agent/chat/start
 model_override without probing local providers on the hot path.
+
+When Slice 2 accepts a detected LM Studio override (`openai/<id>`), it must
+route that conversation with the server-side detected LM Studio api_base from
+the cached local-provider status. Do not rely on the active profile api_base,
+because a cloud profile has no LM Studio base and would misroute the override.
 ```
 
 Expected: reviewer can see the helper is intentionally reusable and Slice 2 validation will not duplicate detection logic.
@@ -682,4 +705,5 @@ Expected: reviewer can see the helper is intentionally reusable and Slice 2 vali
 
 - Spec coverage: The plan covers the approved Slice 1 endpoint, env-aware roles, persona resolution through `PromptBuilder`, bounded cached detection, no-store response, nonce enforcement, and effective-model allowed overrides.
 - Scope check: The plan excludes persistent profile writes and selector UI, keeping Slice 1 independently reviewable.
-- Type consistency: Function names are consistent across tasks: `build_role_status`, `get_cached_local_provider_status_async`, `compute_allowed_model_overrides`, `build_persona_status`, and `build_models_payload`.
+- Type consistency: Function names are consistent across tasks: `reset_local_provider_status_cache`, `build_role_status`, `get_cached_local_provider_status_async`, `compute_allowed_model_overrides`, `build_persona_status`, and `build_models_payload`.
+- Review feedback folded in: The plan avoids double role resolution in `build_models_payload`, resets the module-level detection cache around helper tests, and records the Slice 2 LM Studio `api_base` routing requirement.

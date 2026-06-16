@@ -185,4 +185,5 @@ Slice 1 tests should cover:
 
 - Decide whether the profile `guardian` role should wire into spawned Guardian analysis or be removed from the profile schema.
 - In Slice 2, add per-conversation selector UI using `allowed_model_overrides` and existing `/start` `model_override`.
+- In Slice 2, when a `model_override` matches a detected LM Studio model, route it with the server-side detected `local_providers["lmstudio"]["api_base"]` instead of the active profile `api_base`. This keeps cloud profiles from misrouting `openai/<lmstudio-id>` overrides to real OpenAI while still avoiding client-supplied `api_base`.
 - In Slice 3, if persistent profile writes are added, invalidate the local detection cache after profile writes and reconfigure DSPy or make DSPy liveness limitations explicit in UI.
