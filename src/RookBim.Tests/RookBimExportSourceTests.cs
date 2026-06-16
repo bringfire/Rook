@@ -41,10 +41,10 @@ namespace RookBim.Tests
         {
             var src = Read("src/RookBim/Revit/RevitLabelExtractor.cs");
 
-            Assert.Contains("value", src);
-            Assert.Contains("source", src);
-            Assert.Contains("confidence", src);
-            Assert.Contains("missingReason", src);
+            Assert.Contains("Value", src);
+            Assert.Contains("Source", src);
+            Assert.Contains("Confidence", src);
+            Assert.Contains("MissingReason", src);
 
             Assert.Contains("\"revit_api\"", src);
             Assert.Contains("\"parameter\"", src);
