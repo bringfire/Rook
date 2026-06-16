@@ -137,20 +137,26 @@ weakens, disqualifies}`:
 | `class_pair` | `shape_class`/`domain_label` of A & B | compact/block container → **supports**; **thin** container (wall/column/beam; vertical-planar/thin-*) → **weakens strongly** (NOT an automatic veto — walls/cabinets/blocks can legitimately contain embedded objects) |
 | `bbox_volume_ratio` | bbox volumes (named to avoid implying mass/solid volume) | contained ≪ container → **supports**; contained ≈ container (near-coincident) → **weakens** |
 | `grouping_hint` | layer / name / user-strings | shared layer / assembly-ish naming / user-strings → **supports** (weak only — never reaches `high` on its own) |
-| `touching_exact` | an **already-projected** `adjacent_exact` edge for the pair | present → **disqualifies** (`disqualified_by_touching_exact` — shared face = adjacent/bounding, not contained). Used **only if already in the mirror**; the refiner never calls the exact projector itself |
+| `touching_exact` | an **already-projected** `adjacent_exact` edge for the pair | present → **weakens** (disambiguation: a shared face *suggests* adjacency/bounding rather than containment) — but **NOT a standalone veto**, because a contained object can legitimately rest flush against an interior container face. It contributes to the compound `likely_penetration` veto (below). Used **only if already in the mirror**; the refiner never calls the exact projector itself |
 
 ### Hard vetoes (→ `disqualified`, confidence `none`)
-Exactly three conditions disqualify:
+Exactly **two** conditions disqualify:
 1. **`not_a_solid`** — container `geometry_type` cannot be a container (Curve/Point/Annotation/Light/Hatch/TextDot).
-2. **`touching_exact`** — an already-projected `adjacent_exact` edge exists for the pair.
-3. **`likely_penetration`** — a **compound** pattern only: thin container class **AND** flush/poor
-   `bbox_margin` **AND** contained spans through the container's depth. (Thin class *alone*
-   strongly weakens, never vetoes — this avoids brittle class folklore while still catching the
-   slab-bbox-"contains"-column false positive when geometry agrees.)
+2. **`likely_penetration`** — a **compound** pattern only: thin container class **AND** flush/poor
+   `bbox_margin`/`containment_depth` **AND** contained spans through the container's depth —
+   optionally **reinforced by `touching_exact`** (a shared face on a thin, poorly-clearing pair is
+   strong penetration evidence). (Thin class *alone* strongly weakens, never vetoes; `touching_exact`
+   *alone* weakens, never vetoes — this avoids brittle folklore and the "inside-but-touching" false
+   negative, while still catching the slab-bbox-"contains"-column false positive when geometry agrees.)
+
+`touching_exact` is **not** a standalone veto: contact and containment are not mutually exclusive
+(a contained object can rest flush against an interior face). It is a strong disambiguation
+*weakener* that can tip a thin/poor-margin pair into the compound penetration veto.
 
 ### Verdict mapping
-- **`disqualified`** (confidence `none`): a hard geometry/type veto, exact touching, or the
-  compound penetration pattern; record `reason`.
+- **`disqualified`** (confidence `none`): a hard geometry/type veto (`not_a_solid`) or the
+  compound penetration pattern (`likely_penetration`); record `reason`. (Exact touching alone does
+  NOT disqualify — see vetoes above.)
 - **`contains_semantic` / `high`**: strong positive bbox clearance + plausible solid/container
   class + favorable bbox volume ratio + no weakens/disqualifiers.
 - **`contains_semantic` / `medium`**: strong bbox clearance + plausible container, but
@@ -200,16 +206,27 @@ bbox_edge["containment_graphSequence"] = <mirror seq>
   live only in the bbox-edge annotation and the tool response.
 - **`reason` is a controlled vocabulary**, not free prose: positive codes (e.g.
   `strong_clearance_plausible_container`, `enclosed_thin_evidence`) and negative codes
-  (`disqualified_by_touching_exact`, `not_a_solid`, `likely_penetration`, `insufficient_evidence`).
+  (`not_a_solid`, `likely_penetration`, `insufficient_evidence`). (Note: `touching_exact` is an
+  *evidence signal*, not a disqualification reason — it only reinforces `likely_penetration`.)
 - **Prune-on-sequence-advance** removes `semantic:contains` / `provenance=="semantic_refiner"`
   edges and strips `containment_status`/`containment_confidence`/`containment_reason`/
   `containment_evidence`/`containment_graphSequence` from bbox edges; invalidates analytics caches.
-- **Prepare-then-commit atomicity** per source: build the delta in memory, apply in one shot; a
-  parse/evaluation failure for a source mutates nothing for that source.
+- **Prepare-then-commit atomicity, request-level (candidate-oriented):** because candidates are
+  directional and deduped across the queried set (`A|contains|B` is evaluated once even if both A
+  and B are queried), atomicity is defined over the **request's candidate delta**, not per source.
+  Build the full candidate delta (edges + annotations + per-candidate results) in memory, then
+  commit all evaluated candidates in one shot; derive each affected source block from that prepared
+  result. A candidate whose evaluation raises is dropped to `failed` and contributes **no** partial
+  edge/annotation; the source blocks referencing it are marked accordingly.
 
-### IFC alignment
-`contains_semantic` ≙ `IfcRelContainedInSpatialStructure` (the §6 ontology), adopting the
-edge-type meaning, not the IFC data model.
+### IFC alignment (IFC-aware, NOT IFC-exportable in v1)
+`contains_semantic` here refines **arbitrary object↔object** containment, which is broader than any
+single IFC relation. In IFC, `IfcRelContainedInSpatialStructure` is specifically containment in a
+*spatial structure* element (site/building/storey/space) — which this slice explicitly excludes
+(no rooms/spaces). So v1's edge is **IFC-aware but not directly IFC-exportable**: it may map to
+`IfcRelContainedInSpatialStructure` only once the container is later classified as a spatial
+structure, and arbitrary object↔object containment may otherwise map to aggregation/nesting/hosting
+or remain a Rook-local relation. v1 makes **no** IFC export claim.
 
 ---
 
@@ -221,11 +238,12 @@ edge-type meaning, not the IFC data model.
    MCP and agent-direct paths behave identically).
 2. **Prune-if-advanced** — if `graphSequence` advanced since the last refine, purge artifacts (§5)
    and clear the request cache *before* evaluating.
-3. **Request cache** — if `(graphSequence, tuple(sorted(object_ids)))` is cached, return it;
+3. **Request cache** — if `(graphSequence, tuple(sorted(set(object_ids))))` is cached, return it;
    else continue.
-4. **Collect candidates** (§3), **evaluate** each (§4) into an in-memory delta, **commit** per
-   source (§5, prepare-then-commit).
-5. **Cache** the request result (only if all sources are `ok`/`skipped`) and **return** (§6 contract).
+4. **Collect candidates** (§3, deduped by ordered pair), **evaluate** each (§4) into an in-memory
+   **request-level candidate delta**, then **commit** all evaluated candidates in one shot (§5,
+   prepare-then-commit); derive each `bySource` block from the prepared result.
+5. **Cache** the request result (only if no source is `failed`) and **return** (§6 contract).
 
 **Candidate-oriented `refined[]` + per-source role index** (resolves the directional/multi-role
 ambiguity — each candidate appears once; queried ids reference it by `candidateId` and role):
@@ -240,8 +258,10 @@ ambiguity — each candidate appears once; queried ids reference it by `candidat
       "reason": "strong_clearance_plausible_container",
       "evidence": [ {"signal":"bbox_margin","polarity":"supports","detail":"clearance 0.4m all axes"}, ... ] },
     { "candidateId": "A|contains|C", "containerId": "A", "containedId": "C",
-      "verdict": "disqualified", "confidence": "none",
-      "reason": "disqualified_by_touching_exact", "evidence": [ ... ] }
+      "verdict": "disqualified", "confidence": "none", "reason": "likely_penetration",
+      "evidence": [ {"signal":"class_pair","polarity":"weakens","detail":"thin container (wall)"},
+                    {"signal":"bbox_margin","polarity":"weakens","detail":"flush on 2 axes"},
+                    {"signal":"touching_exact","polarity":"weakens","detail":"shared face present"} ] }
   ],
   "bySource": {
     "A": { "status": "ok", "error": null, "asContainer": ["A|contains|B","A|contains|C"], "asContained": [] },
@@ -263,11 +283,10 @@ Contract rules:
   `payload.success is false` (the Projection v1 finding-4 lesson).
 
 ### Cache & invalidation
-- **Request-level cache**, key = `(graphSequence, tuple(sorted(object_ids)))`. Identical repeat
-  calls hit; different object sets recompute (acceptable — pure read-model, bounded). Candidate-
-  level caching is a later optimization.
-- Cache only durable outcomes (any request whose sources are all `ok`/`skipped`); a request that
-  produced a `failed` source is **not** cached.
+- **Request-level cache**, key = `(graphSequence, tuple(sorted(set(object_ids))))` — duplicate
+  query ids are deduped (not meaningful). Identical repeat calls hit; different object sets
+  recompute (acceptable — pure read-model, bounded). Candidate-level caching is a later optimization.
+- Cache only durable outcomes; a request that produced any `failed` source is **not** cached.
 - **Active prune on `graphSequence` advance** clears the cache and purges graph artifacts (§5).
 
 ### NL via `get_context`
@@ -295,13 +314,17 @@ edge is in the mirror.
 
 ## 8. Error handling
 
-- Per-source isolation: one source's evaluation failure never aborts the batch (`failed` +
-  `error`); other sources still evaluate; approximate graph stays usable.
-- Queried object missing from the mirror after sync → `skipped` + `error="object_not_in_scene"`.
-- Malformed/partial graph data → defensive `.get()` parsing; degrade to that source's `failed`,
-  never a crash.
-- **Atomic per source** (prepare-delta-then-commit): build edges + annotations + response in
-  memory, apply in one shot; on parse/evaluation failure, apply nothing for that source.
+- Per-candidate isolation: one candidate's evaluation failure never aborts the request; other
+  candidates still commit. Affected `bySource` blocks are marked `failed` (with `error`); the
+  approximate graph stays usable.
+- Queried object missing from the mirror after sync → that source block `skipped` +
+  `error="object_not_in_scene"` (no candidates collected for it).
+- Malformed/partial graph data → defensive `.get()` parsing; degrade the affected candidate to
+  `failed`, never a crash.
+- **Atomic, request-level candidate delta** (prepare-delta-then-commit): build all edges +
+  annotations + per-candidate results in memory, apply in one shot; a candidate whose evaluation
+  raises is dropped to `failed` and partially annotates nothing — source blocks referencing it are
+  marked from the prepared result.
 
 ---
 
@@ -310,19 +333,24 @@ edge is in the mirror.
 - **Unit (pytest, no Rhino) — carries verdict confidence.** Synthetic mirror with bbox `contains`
   edges + node attrs (`geometry_type`, `shape_class`/`domain_label`, bbox, layer/name). Assert:
   - each verdict/confidence tier (`high`/`medium`/`low`/`insufficient_evidence`);
-  - the three hard vetoes: `not_a_solid` (Curve container), `touching_exact` (pre-seeded
-    `adjacent_exact` edge), compound `likely_penetration` (thin class + flush margin + spans depth);
+  - the **two** hard vetoes: `not_a_solid` (Curve container) and compound `likely_penetration`
+    (thin class + flush margin + spans depth, optionally reinforced by `touching_exact`);
+  - **`touching_exact` alone weakens but does NOT veto** (regression guard: an `adjacent_exact`
+    edge present + otherwise strong containment evidence still yields `contains_semantic`, not
+    `disqualified` — the "inside-but-touching" case);
   - thin-class-alone **weakens but does not veto** (regression guard against brittle class folklore);
   - both-role evaluation + ordered-pair dedup + multi-edge annotation;
   - semantic edge only on positive; bbox annotation on **all** evaluated; negatives non-edged;
   - `candidateId` format; `bySource` references candidateIds; `refined[]` candidate-oriented;
-  - **projection-artifact interaction**: with an `adjacent_exact` edge present → used as
-    `touching_exact`; **with projection artifacts absent → the refiner does NOT call the exact
-    projector** (guards the pure-read-model boundary);
-  - **request-level cache** hit (same `sorted(object_ids)`) + miss (different set) + failed-uncached;
+  - **projection-artifact interaction**: with an `adjacent_exact` edge present → consumed as the
+    `touching_exact` signal; **with projection artifacts absent → the refiner does NOT call the
+    exact projector** (guards the pure-read-model boundary);
+  - **request-level cache** hit (same `sorted(set(object_ids))`, incl. duplicate-id dedup) + miss
+    (different set) + failed-uncached;
   - **prune + cache invalidation on `graphSequence` advance** (edges + annotations stripped,
     analytics caches invalidated, request cache cleared);
-  - prepare-then-commit atomicity (malformed → no mutation);
+  - **request-level prepare-then-commit atomicity** (a candidate raising → no partial edge/annotation
+    anywhere; other candidates still commit);
   - `status` ok/skipped/failed; NL render of `contains_semantic`;
   - targeting policy classification (`requires_rhino`/`read`) + `_ALL_KNOWN_TOOLS` membership;
   - registration: `TOOL_GROUPS` membership + `build_local_tools()` handler + handler propagates
