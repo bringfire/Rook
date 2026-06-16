@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import copy
 import os
-import threading
 import time
 from typing import Optional
 
@@ -299,53 +298,12 @@ def get_cached_local_provider_status_snapshot() -> Optional[dict]:
     return copy.deepcopy(_local_cache_payload)
 
 
-def _run_async_from_sync(coro) -> dict:
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        return asyncio.run(coro)
-
-    result: dict = {}
-    error: list[BaseException] = []
-
-    def runner() -> None:
-        try:
-            result["value"] = asyncio.run(coro)
-        except BaseException as exc:  # pragma: no cover - defensive bridge
-            error.append(exc)
-
-    thread = threading.Thread(target=runner, daemon=True)
-    thread.start()
-    thread.join()
-
-    if error:
-        raise error[0]
-    return result["value"]
-
-
-def get_cached_local_provider_status(force_refresh: bool = False) -> dict:
-    """Synchronous compatibility wrapper for cached local provider status.
-
-    Async server paths should prefer get_cached_local_provider_status_async().
-    """
-    if not force_refresh and _cache_is_fresh():
-        return copy.deepcopy(_local_cache_payload)
-    return _run_async_from_sync(
-        get_cached_local_provider_status_async(force_refresh=force_refresh)
-    )
-
-
 def compute_allowed_model_overrides(
-    local_providers: Optional[dict] = None,
+    local_providers: dict,
     role_status: Optional[dict] = None,
 ) -> list[str]:
     """Return sorted allowed model overrides for chat conversations."""
     status = role_status or build_role_status()
-    providers = (
-        local_providers
-        if local_providers is not None
-        else get_cached_local_provider_status()
-    )
 
     allowed = {
         role.get("effective_model")
@@ -353,7 +311,7 @@ def compute_allowed_model_overrides(
         if role.get("effective_model")
     }
 
-    for provider in (providers or {}).values():
+    for provider in (local_providers or {}).values():
         for model in provider.get("models") or []:
             override = model.get("model_override")
             if override:

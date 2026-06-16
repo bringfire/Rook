@@ -393,25 +393,8 @@ def get_cached_local_provider_status_snapshot() -> Optional[Dict[str, Any]]:
     return _local_cache_payload
 
 
-def get_cached_local_provider_status(force_refresh: bool = False) -> Dict[str, Any]:
-    global _local_cache_payload, _local_cache_time
-    now = time.monotonic()
-    if (
-        not force_refresh
-        and _local_cache_payload is not None
-        and now - _local_cache_time < LOCAL_DETECTION_TTL_SECONDS
-    ):
-        return _local_cache_payload
-    _local_cache_payload = {
-        "ollama": _normalize_ollama(detect_ollama_models(timeout=LOCAL_DETECTION_TIMEOUT_SECONDS)),
-        "lmstudio": _normalize_lmstudio(detect_lmstudio_models(timeout=LOCAL_DETECTION_TIMEOUT_SECONDS)),
-    }
-    _local_cache_time = now
-    return _local_cache_payload
-
-
 def compute_allowed_model_overrides(
-    local_providers: Optional[Dict[str, Any]] = None,
+    local_providers: Dict[str, Any],
     role_status: Optional[Dict[str, Any]] = None,
 ) -> list[str]:
     role_status = role_status or build_role_status()
@@ -420,8 +403,7 @@ def compute_allowed_model_overrides(
         for row in role_status["roles"].values()
         if row.get("effective_model")
     }
-    providers = local_providers or get_cached_local_provider_status()
-    for provider in providers.values():
+    for provider in (local_providers or {}).values():
         for model in provider.get("models", []) or []:
             override = model.get("model_override")
             if override:
@@ -433,8 +415,11 @@ async def compute_allowed_model_overrides_async(
     force_refresh: bool = False,
 ) -> list[str]:
     role_status = build_role_status()
+    local_providers = await get_cached_local_provider_status_async(
+        force_refresh=force_refresh,
+    )
     return compute_allowed_model_overrides(
-        await get_cached_local_provider_status_async(force_refresh=force_refresh),
+        local_providers=local_providers,
         role_status=role_status,
     )
 
@@ -686,9 +671,11 @@ Expected: no staged files. Existing unrelated `third_party/ffmpeg/*` modificatio
 Open a follow-up issue or add an implementation note in the PR body:
 
 ```text
-Slice 2 should reuse rook.agent.chat.model_status.compute_allowed_model_overrides_async()
-or get_cached_local_provider_status_snapshot() to validate /agent/chat/start
-model_override without probing local providers on the hot path.
+Slice 2 should reuse rook.agent.chat.model_status.compute_allowed_model_overrides()
+with get_cached_local_provider_status_snapshot() to validate /agent/chat/start
+model_override without probing local providers on the hot path. Provider
+detection remains async-only; synchronous allowed-override computation requires
+an explicit local-provider payload.
 
 When Slice 2 accepts a detected LM Studio override (`openai/<id>`), it must
 route that conversation with the server-side detected LM Studio api_base from

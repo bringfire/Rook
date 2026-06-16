@@ -53,6 +53,7 @@ def test_roles_apply_planner_and_worker_env_overrides(monkeypatch):
 
 def test_unknown_env_profile_reports_fallback(monkeypatch):
     monkeypatch.setenv("ROOK_MODEL_PROFILE", "missing-profile")
+    monkeypatch.setattr(model_status, "get_profile_names", lambda: ["cloud"])
     monkeypatch.setattr(
         model_status,
         "get_models",
@@ -72,6 +73,7 @@ def test_unknown_file_active_profile_reports_fallback(monkeypatch):
         "get_active_profile_name",
         lambda: "missing-profile",
     )
+    monkeypatch.setattr(model_status, "get_profile_names", lambda: ["cloud"])
     monkeypatch.setattr(
         model_status,
         "get_models",
