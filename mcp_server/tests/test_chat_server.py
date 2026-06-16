@@ -39,6 +39,32 @@ class TestChatServer(AioHTTPTestCase):
         assert "persona" in data[0]
         assert "label" in data[0]
 
+    async def test_models_endpoint_returns_payload_with_no_store_headers(self):
+        payload = {
+            "active_profile": "cloud",
+            "profile_source": "file",
+            "roles": {
+                "worker": {
+                    "profile_model": "anthropic/profile-worker",
+                    "effective_model": "anthropic/profile-worker",
+                }
+            },
+            "personas": [],
+            "local_providers": {"ollama": {"available": False, "models": []}},
+            "allowed_model_overrides": ["anthropic/profile-worker"],
+        }
+        with patch(
+            "rook.agent.chat.server.model_status.build_models_payload",
+            new=AsyncMock(return_value=payload),
+        ):
+            resp = await self.client.get("/agent/chat/models")
+
+        assert resp.status == 200
+        assert await resp.json() == payload
+        assert resp.headers["Cache-Control"] == "no-store"
+        assert resp.headers["Pragma"] == "no-cache"
+        assert resp.headers["Expires"] == "0"
+
     async def test_health(self):
         with patch("rook.agent.chat.server.collect_runtime_facts", new=AsyncMock(return_value={
             "rhino": {"connected": True, "data": "pong"},
@@ -477,6 +503,12 @@ class TestChatServerWithNonce(AioHTTPTestCase):
             "/agent/chat/start",
             json={"persona": "worker"},
         )
+        assert resp.status == 403
+        data = await resp.json()
+        assert "session" in data["error"].lower()
+
+    async def test_models_requires_nonce(self):
+        resp = await self.client.get("/agent/chat/models")
         assert resp.status == 403
         data = await resp.json()
         assert "session" in data["error"].lower()
