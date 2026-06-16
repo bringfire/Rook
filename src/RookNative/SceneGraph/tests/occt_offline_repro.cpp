@@ -64,16 +64,16 @@ int main() {
     }
 
     auto mk = [&](const char* g) {
-        Rook::ObjectBrepPayload p;
+        Rook::occt::ObjectBrepPayload p;
         p.objectId = g;
         p.modelUnitsToMillimeters = 25.4;  // inches
         p.brep = GetBrep(model, g);
-        p.capability = p.brep ? Rook::Capability::ExactBrep
-                              : Rook::Capability::FailedWithDiagnostics;
+        p.capability = p.brep ? Rook::occt::Capability::ExactBrep
+                              : Rook::occt::Capability::FailedWithDiagnostics;
         return p;
     };
 
-    Rook::ObjectBrepPayload source = mk("08d4dedf-1387-453a-9938-7f3ab516b8ac");
+    Rook::occt::ObjectBrepPayload source = mk("08d4dedf-1387-453a-9938-7f3ab516b8ac");
     printf("source brep=%p\n", (void*)source.brep.get());
 
     const char* cg[] = {
@@ -83,9 +83,9 @@ int main() {
         "7e80db98-d133-4a05-b9fe-ee6d37d9069d",
         "26b2c012-24cf-4656-9e48-8083dc072cad",
     };
-    std::vector<Rook::ObjectBrepPayload> cands;
+    std::vector<Rook::occt::ObjectBrepPayload> cands;
     for (auto g : cg) {
-        Rook::ObjectBrepPayload p = mk(g);
+        Rook::occt::ObjectBrepPayload p = mk(g);
         printf("cand %s brep=%p\n", g, (void*)p.brep.get());
         cands.push_back(std::move(p));
     }
@@ -94,8 +94,8 @@ int main() {
     printf("calling Evaluate... tol=%.8f\n", tol);
     fflush(stdout);
 
-    Rook::ExactAdjacencyCore core =
-        Rook::OcctAdjacencyEngine().Evaluate(source, cands, tol);
+    Rook::occt::ExactAdjacencyCore core =
+        Rook::occt::OcctAdjacencyEngine().Evaluate(source, cands, tol);
 
     printf("DONE edges=%zu cap-check survived\n", core.edges.size());
     for (auto& e : core.edges)

@@ -202,12 +202,6 @@
            next pooled httplib worker deadlocks. See the TU header comment. -->
       <ExceptionHandling>Async</ExceptionHandling>
       <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
-      <!-- DIAGNOSTIC/FIX TEST: keep /O2 but turn OFF /GL (whole-program/LTCG) for THIS
-           TU only. Evidence (core.candidates garbage at construction, sizeof identical
-           across TUs, clean offline + at /Od) points to an LTCG folding miscompilation
-           of Evaluate, not a layout bug. If this yields no-crash + 5 correct edges it
-           is the fix (negligible cost: orchestration TU, not the hot OCCT math). -->
-      <WholeProgramOptimization Condition="'$(Configuration)'=='Release'">false</WholeProgramOptimization>
     </ClCompile>
     <!-- Task 6b: the single dedicated serialized OCCT worker thread. Calls
          OcctProbeInit() (OSD::SetSignal) ONCE on its worker thread so SE

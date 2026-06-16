@@ -74,30 +74,11 @@
 #include <exception>
 #include <string>
 #include <vector>
-#include <cstdio>
-#include <cstdarg>
-#include <cstdlib>
-#include <malloc.h>   // _heapchk — TEMPORARY diagnostic (heap-corruption probe)
 
 namespace Rook {
+namespace occt {   // OCCT exact-adjacency contract namespace (ODR-isolation; see OcctAdjacencyTypes.h)
 
 namespace {
-
-// ── DIAGNOSTIC TRACE (TEMPORARY — pinpoints the OCCT call that hard-crashes the
-//    process via terminate during exception unwind; see 2026-06-14 doc §0). Opens/
-//    flushes/closes per line so the LAST line before a hard crash names the failing
-//    step. REMOVE once root-caused. Logs candidate INDEX (not objectId) to stay
-//    crash-safe regardless of string state. ──
-void OcctTrace(const char* fmt, ...) {
-    const char* tmp = std::getenv("TEMP");
-    std::string path = (tmp ? std::string(tmp) : std::string("C:")) + "/rook_occt_trace.log";
-    FILE* f = std::fopen(path.c_str(), "a");
-    if (!f) return;
-    va_list ap; va_start(ap, fmt); std::vfprintf(f, fmt, ap); va_end(ap);
-    std::fputc('\n', f);
-    std::fflush(f);
-    std::fclose(f);
-}
 
 // "worse of" two capabilities (the combined candidate capability). Ordered from
 // best to worst: ExactBrep < PartialExactBrep < UnsupportedGeometry <
@@ -139,9 +120,6 @@ ExactAdjacencyCore OcctAdjacencyEngine::Evaluate(
 
     ExactAdjacencyCore core;
     core.objectId = source.objectId;
-    OcctTrace("ENGINE-TU sizeof(Core)=%zu sizeof(vec<ExactCandidate>)=%zu sizeof(string)=%zu sizeof(ExactCandidate)=%zu",
-        sizeof(ExactAdjacencyCore), sizeof(std::vector<ExactCandidate>), sizeof(std::string), sizeof(ExactCandidate));
-    OcctTrace("ENTER Evaluate ncand=%zu srcHasBrep=%d core.cands.cap=%zu data=%p", candidates.size(), source.brep ? 1 : 0, core.candidates.capacity(), (void*)core.candidates.data());
 
     const double tol = toleranceModelUnits > 0.0 ? toleranceModelUnits : 0.0;
 
@@ -165,10 +143,7 @@ ExactAdjacencyCore OcctAdjacencyEngine::Evaluate(
     try {
 
     // ── Convert source once; derive its capability from the conversion. ──
-    OcctTrace("convert SOURCE begin");
     OcctFaceSet srcFs = ConvertBrepFaces(*source.brep);
-    { int hc = _heapchk(); OcctTrace("convert SOURCE done faces=%d failed=%zu HEAPCHK=%d(%s) core.cands.cap=%zu data=%p",
-        srcFs.faceCount(), srcFs.failedFaceIndices().size(), hc, hc==_HEAPOK?"OK":"BAD", core.candidates.capacity(), (void*)core.candidates.data()); }
     core.sourceCapability = CapabilityFromConversion(srcFs);
     for (int fi : srcFs.failedFaceIndices())
         core.diagnostics.push_back("source:convert_failed_face:" + std::to_string(fi));
@@ -176,16 +151,9 @@ ExactAdjacencyCore OcctAdjacencyEngine::Evaluate(
     const int srcCount = srcFs.faceCount();
 
     // ── Per-candidate evaluation. ──
-    int candIdx = -1;
     for (const ObjectBrepPayload& cand : candidates) {
-        ++candIdx;
-        OcctTrace("cand[%d] begin hasBrep=%d", candIdx, cand.brep ? 1 : 0);
-        { int hc = _heapchk(); OcctTrace("cand[%d] preflight HEAPCHK=%d(%s) objId.size=%zu candidates.cap=%zu",
-            candIdx, hc, hc==_HEAPOK?"OK":"BAD", cand.objectId.size(), core.candidates.capacity()); }
         const Capability combined = CombineCapability(core.sourceCapability, cand.capability);
-        OcctTrace("cand[%d] before push_back", candIdx);
         core.candidates.push_back(ExactCandidate{cand.objectId, combined});
-        OcctTrace("cand[%d] after push_back", candIdx);
 
         // Candidate unsupported / failed at extraction: record reason, no edge.
         if (!cand.brep) {
@@ -199,9 +167,7 @@ ExactAdjacencyCore OcctAdjacencyEngine::Evaluate(
             continue;
         }
 
-        OcctTrace("cand[%d] convert begin", candIdx);
         OcctFaceSet candFs = ConvertBrepFaces(*cand.brep);
-        OcctTrace("cand[%d] convert done faces=%d failed=%zu", candIdx, candFs.faceCount(), candFs.failedFaceIndices().size());
         for (int fi : candFs.failedFaceIndices())
             core.diagnostics.push_back(
                 "cand:" + cand.objectId + ":convert_failed_face:" + std::to_string(fi));
@@ -216,11 +182,9 @@ ExactAdjacencyCore OcctAdjacencyEngine::Evaluate(
                 // guarded narrow phase. SharedFaceArea has its own
                 // Standard_Failure/.../HasErrors() guard and returns crashed/0,
                 // so the narrow phase is safe and self-degrading.
-                OcctTrace("cand[%d] pair si=%d ci=%d begin", candIdx, si, ci);
                 bool crashed = false;
                 double pairArea = SharedFaceArea(
                     OcctFaceAt(srcFs, si), OcctFaceAt(candFs, ci), tol, crashed);
-                OcctTrace("cand[%d] pair si=%d ci=%d done area=%.3f crashed=%d", candIdx, si, ci, pairArea, crashed ? 1 : 0);
                 if (crashed) {
                     core.diagnostics.push_back(
                         "engine:common_failed:" + std::to_string(srcFs.sourceFaceIndex(si)) +
@@ -250,10 +214,7 @@ ExactAdjacencyCore OcctAdjacencyEngine::Evaluate(
         // error — emit no diagnostic.
     }
 
-    OcctTrace("LOOP DONE edges=%zu di. reached clean end", core.edges.size());
-
     } catch (const Standard_Failure& e) {
-        OcctTrace("CAUGHT Standard_Failure");
         const char* msg = e.what();
         core.diagnostics.push_back(
             std::string("engine:evaluate_caught:") + (msg ? msg : "Standard_Failure"));
@@ -269,4 +230,5 @@ ExactAdjacencyCore OcctAdjacencyEngine::Evaluate(
     });  // OcctExecutor::Instance().Run
 }
 
+} // namespace occt
 } // namespace Rook

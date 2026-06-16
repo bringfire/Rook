@@ -13,6 +13,18 @@
 class ON_Brep;   // fwd-decl; only the service/engine TUs include opennurbs
 
 namespace Rook {
+// ── OCCT exact-adjacency contract lives in a DEDICATED nested namespace `occt`. ──
+// CRITICAL (root-cause of the 2026-06-15 in-Rhino heisenbug): the LEGACY
+// ExactAdjacencyTypes.h defines DIFFERENT structs under the SAME names
+// (Capability / ExactEdge / ExactCandidate / ExactAdjacencyCore / FacePair) directly
+// in `Rook`. Two layouts for one mangled name, both linked into RookNative.rhp, is an
+// ODR violation: std::vector<Rook::ExactEdge> gets instantiated in both worlds and the
+// linker (esp. under /GL/LTCG) folds them to ONE — so engine code drives the vector
+// with the WRONG element stride, corrupting _Mylast / the heap (dropped edge + teardown
+// crash). The `occt` namespace gives these types DISTINCT mangled names so both
+// contracts coexist safely until Task 8 strips the legacy one. DO NOT move these back
+// into bare `Rook` while ExactAdjacencyTypes.h still defines the same names.
+namespace occt {
 
 enum class Capability {
     ExactBrep,             // all relevant analytic Brep faces converted + evaluated
@@ -74,4 +86,5 @@ public:
         double toleranceModelUnits) const = 0;
 };
 
+} // namespace occt
 } // namespace Rook

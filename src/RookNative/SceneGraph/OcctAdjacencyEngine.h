@@ -14,6 +14,7 @@
 #include "SceneGraph/OcctAdjacencyTypes.h"
 
 namespace Rook {
+namespace occt {
 
 class OcctAdjacencyEngine : public IExactAdjacencyEngine {
 public:
@@ -23,4 +24,5 @@ public:
         double toleranceModelUnits) const override;
 };
 
+} // namespace occt
 } // namespace Rook

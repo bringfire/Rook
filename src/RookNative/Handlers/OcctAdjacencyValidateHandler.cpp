@@ -4,12 +4,16 @@
 //   POST /scene/occt_validate_adjacency
 //   body: { sourceId: "<guid>", candidateIds: ["<guid>", ...], fuzzMm?: <number> }
 //
-// SEPARATE TU on purpose: the Task-6 contract (OcctAdjacencyTypes.h) reuses the
-// same type names (ExactEdge/ExactCandidate/ExactAdjacencyCore/Capability/FacePair)
-// in namespace Rook as the LEGACY ExactAdjacencyTypes.h. The two cannot coexist
-// in one translation unit. SceneGraphHandler.cpp owns the legacy types (production
-// /scene/graph/adjacency/exact route); this file owns the OCCT contract and never
-// includes the legacy header. Both are dev-only; removed in Task 8.
+// NAMESPACE-ISOLATED ON PURPOSE: the LEGACY ExactAdjacencyTypes.h defines structs with
+// the SAME names (ExactEdge/ExactCandidate/ExactAdjacencyCore/Capability/FacePair) directly
+// in namespace Rook, used by the production /scene/graph/adjacency/exact route in
+// SceneGraphHandler.cpp. The Task-6 OCCT contract therefore lives in the DISTINCT nested
+// namespace Rook::occt (OcctAdjacencyTypes.h) so the two definitions have different mangled
+// names and CANNOT collide via ODR. (They did before: std::vector<Rook::ExactEdge> was
+// instantiated against both layouts and the linker folded them to one under /GL, driving the
+// engine's vector with the wrong element stride — the 2026-06-15 in-Rhino heisenbug.) This
+// file uses Rook::occt exclusively and never includes the legacy header. The legacy contract
+// is stripped in Task 8; until then the namespaces keep both routes safe.
 //
 // Resolves the source + each candidate ON_Brep on the MAIN thread, deep-copies
 // each into an ObjectBrepPayload (mesh/SubD/non-Brep -> brep=nullptr + capability
@@ -28,20 +32,24 @@
 
 #include <string>
 #include <vector>
-#include <cstdio>
-#include <cstdlib>
 
 using json = nlohmann::json;
 
 namespace Rook {
 namespace Handlers {
 
+// The OCCT exact-adjacency contract lives in Rook::occt (ODR-isolation from the legacy
+// Rook::* contract — see OcctAdjacencyTypes.h). An explicit alias + per-use qualification
+// (rather than `using namespace`) makes it impossible to accidentally bind a legacy
+// Rook::* name and keeps the namespace boundary visible at every call site.
+namespace ro = ::Rook::occt;
+
 namespace {
 
 // Main-thread extraction of ONE object into an ObjectBrepPayload. Returns the
 // payload by value; brep is an owned deep-copy (null if unsupported / not found).
-ObjectBrepPayload ExtractPayload(const std::string& id,
-                                 double& unitsToMmOut, bool& foundOut)
+ro::ObjectBrepPayload ExtractPayload(const std::string& id,
+                                     double& unitsToMmOut, bool& foundOut)
 {
     ON_UUID uuid = ON_UuidFromString(id.c_str());
     struct Raw { ON_Brep* brep = nullptr; double unitsToMm = 1.0;
@@ -78,24 +86,24 @@ ObjectBrepPayload ExtractPayload(const std::string& id,
     try { raw = fut.get(); }
     catch (...) { raw = Raw{}; }
 
-    ObjectBrepPayload p;
+    ro::ObjectBrepPayload p;
     p.objectId = id;
     unitsToMmOut = raw.unitsToMm;
     foundOut = raw.found;
     p.modelUnitsToMillimeters = raw.unitsToMm;
     if (!raw.found) {
-        p.capability = Capability::FailedWithDiagnostics;
+        p.capability = ro::Capability::FailedWithDiagnostics;
         p.diagnostics.push_back("object_not_found");
         return p;
     }
     if (raw.kind == "brep" && raw.brep) {
         p.brep.reset(raw.brep);   // unique_ptr<const ON_Brep> takes ownership
-        p.capability = Capability::ExactBrep;   // refined by the engine on convert
+        p.capability = ro::Capability::ExactBrep;   // refined by the engine on convert
     } else if (raw.kind == "mesh" || raw.kind == "subd") {
-        p.capability = Capability::UnsupportedGeometry;
+        p.capability = ro::Capability::UnsupportedGeometry;
         p.diagnostics.push_back(std::string("unsupported_") + raw.kind);
     } else {
-        p.capability = Capability::FailedWithDiagnostics;
+        p.capability = ro::Capability::FailedWithDiagnostics;
         p.diagnostics.push_back("no_brep");
     }
     return p;
@@ -107,7 +115,7 @@ void HandleOcctValidateAdjacency(const httplib::Request& req, httplib::Response&
 {
     std::string sourceId;
     std::vector<std::string> candidateIds;
-    double fuzzMm = kDefaultFuzzMm;
+    double fuzzMm = ro::kDefaultFuzzMm;
     try {
         auto body = json::parse(req.body);
         if (!body.contains("sourceId")) {
@@ -128,13 +136,13 @@ void HandleOcctValidateAdjacency(const httplib::Request& req, httplib::Response&
 
     double srcUnitsToMm = 1.0;
     bool srcFound = false;
-    ObjectBrepPayload source = ExtractPayload(sourceId, srcUnitsToMm, srcFound);
+    ro::ObjectBrepPayload source = ExtractPayload(sourceId, srcUnitsToMm, srcFound);
     if (!srcFound) {
         CRookServer::SendSuccess(res, {{"error", "source_not_found"}, {"sourceId", sourceId}});
         return;
     }
 
-    std::vector<ObjectBrepPayload> candidates;
+    std::vector<ro::ObjectBrepPayload> candidates;
     candidates.reserve(candidateIds.size());
     for (const std::string& cid : candidateIds) {
         double um = 1.0; bool found = false;
@@ -149,19 +157,9 @@ void HandleOcctValidateAdjacency(const httplib::Request& req, httplib::Response&
     // dedicated OCCT worker thread inside OcctExecutor; OcctAdjacencyEngine::Evaluate
     // routes its OCCT compute through that executor. No per-handler call_once /
     // mutex is needed — the engine call below is serialized + SE-translated there.
-    // TEMP ODR PROBE: log sizeof from the HANDLER TU (PCH/stdafx context) to compare
-    // against the engine TU's sizeof. A mismatch == ODR/ABI layout divergence.
-    { const char* tmp = std::getenv("TEMP");
-      std::string p = (tmp ? std::string(tmp) : std::string("C:")) + "/rook_occt_trace.log";
-      if (FILE* f = std::fopen(p.c_str(), "a")) {
-        std::fprintf(f, "HANDLER-TU sizeof(Core)=%zu sizeof(vec<ExactCandidate>)=%zu sizeof(string)=%zu sizeof(ExactCandidate)=%zu\n",
-            sizeof(ExactAdjacencyCore), sizeof(std::vector<ExactCandidate>), sizeof(std::string), sizeof(ExactCandidate));
-        std::fclose(f);
-      } }
-
-    ExactAdjacencyCore core;
+    ro::ExactAdjacencyCore core;
     try {
-        core = OcctAdjacencyEngine().Evaluate(source, candidates, tolModelUnits);
+        core = ro::OcctAdjacencyEngine().Evaluate(source, candidates, tolModelUnits);
     } catch (const std::exception& e) {
         CRookServer::SendError(res, std::string("evaluate_failed: ") + e.what());
         return;
@@ -173,9 +171,9 @@ void HandleOcctValidateAdjacency(const httplib::Request& req, httplib::Response&
     const double areaScale = srcUnitsToMm * srcUnitsToMm;  // model area -> mm^2
 
     json edges = json::array();
-    for (const ExactEdge& e : core.edges) {
+    for (const ro::ExactEdge& e : core.edges) {
         json fps = json::array();
-        for (const FacePair& fp : e.facePairs) {
+        for (const ro::FacePair& fp : e.facePairs) {
             fps.push_back({
                 {"sourceFaceIndex", fp.sourceFaceIndex},
                 {"candidateFaceIndex", fp.candidateFaceIndex},
@@ -192,16 +190,16 @@ void HandleOcctValidateAdjacency(const httplib::Request& req, httplib::Response&
     }
 
     json cands = json::array();
-    for (const ExactCandidate& c : core.candidates) {
+    for (const ro::ExactCandidate& c : core.candidates) {
         cands.push_back({
             {"id", c.id},
-            {"capability", CapabilityToString(c.capability)}
+            {"capability", ro::CapabilityToString(c.capability)}
         });
     }
 
     json out;
     out["sourceId"]         = sourceId;
-    out["sourceCapability"] = CapabilityToString(core.sourceCapability);
+    out["sourceCapability"] = ro::CapabilityToString(core.sourceCapability);
     out["modelUnitsToMm"]   = srcUnitsToMm;
     out["fuzzMm"]           = fuzzMm;
     out["tolModelUnits"]    = tolModelUnits;

@@ -15,6 +15,52 @@
 Rook's hand-rolled planar adjacency engine (Gate 4) with a single OCCT-based engine
 that handles planar + curved + open + closed geometry uniformly.
 
+> ## ✅ RESOLVED (2026-06-15) — the in-Rhino heisenbug was an ODR VIOLATION. Root-caused by inspection, fixed by a namespace, live + offline verified. The long debug saga below is kept for the record but is SUPERSEDED by this block.
+>
+> **Root cause:** the **legacy** `ExactAdjacencyTypes.h` and the **new** `OcctAdjacencyTypes.h`
+> each define structs with the SAME names directly in `namespace Rook`
+> (`ExactEdge` / `ExactCandidate` / `ExactAdjacencyCore` / `Capability` / `FacePair`) with
+> **different layouts** (the new `ExactEdge` adds a `std::vector<FacePair> facePairs` →
+> 128 bytes vs the legacy 104). Both are linked into `RookNative.rhp`
+> (`SceneGraphHandler.cpp` uses the legacy contract for the production
+> `/scene/graph/adjacency/exact` route; the engine + dev route use the new one). The C++
+> mangled name of `std::vector<Rook::ExactEdge>::push_back/_Reallocate/~` depends only on
+> the **type name**, not its layout, so the two instantiations collide and the linker
+> (aggressively under `/GL`/LTCG COMDAT-folding) keeps ONE — the engine then drives the
+> vector with the **wrong element stride**, advancing `_Mylast` incorrectly → dropped edge
+> (`edges=4`) + heap/`_Mylast` corruption → teardown crash. Classic cross-TU **ODR UB**,
+> which is exactly why every optimizer / thread / stack-layout / executor change *moved*
+> the symptom instead of fixing it.
+>
+> **Why only `core.edges` (not `core.candidates`):** `ExactCandidate` is byte-identical (40)
+> in both headers; `ExactEdge` differs by 24. **Why ASan-clean offline:** the offline harness
+> never links the legacy TU, so only one `ExactEdge` exists there — no collision.
+>
+> **The earlier "ODR refuted" claim was INVALID** (see the "sizeof probe ... IDENTICAL"
+> and "ODR/ABI layout mismatch REFUTED" notes below): that probe compared the **engine TU**
+> vs the **validate-handler TU**, and **both include the NEW header** (`OcctAdjacencyTypes.h`),
+> so by construction it could only ever print identical sizes. It never compared the **legacy**
+> `Rook::ExactEdge` (104) against the new one (128). ODR was never actually tested, let alone refuted.
+>
+> **Fix:** move the entire new OCCT contract into a dedicated nested namespace **`Rook::occt`**
+> (types + constants + `CapabilityToString` + `IExactAdjacencyEngine` + the engine class), so
+> `std::vector<Rook::occt::ExactEdge>` has a DISTINCT mangled name and both contracts coexist
+> until Task 8 strips the legacy one. Consumers (`OcctAdjacencyEngine.{h,cpp}`,
+> `OcctSharedFaceArea.cpp` [`CapabilityToString` only; `SharedFaceArea` stays in `Rook`],
+> `OcctAdjacencyValidateHandler.cpp` via `namespace ro = ::Rook::occt;` + explicit qualification,
+> `occt_offline_repro.cpp`) updated. `OcctPrimitiveTests.cpp` unchanged (uses only `Rook::SharedFaceArea`).
+>
+> **Verification (production shape — stack `core` + `OcctExecutor::Instance().Run`, Release `/O2 /GL`):**
+> live `POST /scene/occt_validate_adjacency` (`08d4dedf` × 5 abutments) = **8/8 runs, 5/5 exact edges**
+> (3311.978 / 5440.438 / 5423.437 / 1040.005 / 1055.000 in²), Rhino survives, no trace recreated
+> (probes removed). Offline: `OcctPrimitiveTests` 17/17 PASS; `OcctOfflineRepro` (ASan) `edges=5`, clean.
+>
+> **All diagnostics from the saga were reverted** (heap-`core`, inline-bypass, `/GL`-off-this-TU,
+> `OcctTrace`/`_heapchk`/sizeof/EDGE-PUSH/handler-split probes). The `GetCV`→`ControlPoint`
+> change (`360ba57a`) was kept (genuine improvement). **NEXT:** Tasks 7→8→9→10 of the plan
+> (`docs/superpowers/plans/2026-06-15-occt-adjacency-engine.md`) — Task 8 strips the legacy
+> engine-contract types, at which point the `Rook::occt` namespace could optionally be flattened.
+
 **Read these first, in order:**
 1. This doc (decision + spikes + numbers + remaining work).
 2. `docs/rook_docs/2026-06-13-spatial-intelligence-foundation.md` (the gated roadmap; this supersedes its Gate-4 narrow-phase choice).
@@ -74,7 +120,7 @@ that handles planar + curved + open + closed geometry uniformly.
 > Methodically eliminated, each by test:
 > - **VS data breakpoint** on `core.candidates._Myfirst/_Mylast/_Myend` (needed Just-My-Code OFF + NATIVE attach + `RookNative.pdb`): at `/O2` `core` is optimized away (unwatchable). Built `/Od`-for-this-TU-only (`806ab060`) to make `core` watchable → the data breakpoint then fired only in **normal teardown** (`~ExactAdjacencyCore`), i.e. **`/Od` = NOREPRO** (clean run).
 > - **Non-perturbing `/O2` bracket probe** (`c2dcbc75`, logs `core.candidates.capacity()`+`data()` at ENTER / post-source / cand[0]): **`core.candidates` is GARBAGE AT CONSTRUCTION** — `cap≈2^64`, `data=` a *module address* (`00007FF9…`), BEFORE `ConvertBrepFaces` or anything. So nothing "writes" it at runtime; it's wrong from the start.
-> - **`sizeof` probe, engine TU vs handler TU** (`52158c77`): **IDENTICAL** (Core=192, vec=24, string=32, ExactCandidate=40). → **ODR/ABI layout mismatch REFUTED.** Not packing, not container-ABI.
+> - **`sizeof` probe, engine TU vs handler TU** (`52158c77`): **IDENTICAL** (Core=192, vec=24, string=32, ExactCandidate=40). → **ODR/ABI layout mismatch REFUTED.** Not packing, not container-ABI. **⚠️ INVALID — see the RESOLVED banner at the top of §0:** both of those TUs include the NEW `OcctAdjacencyTypes.h`, so this probe could only ever print identical sizes. The real collision is the NEW `Rook::ExactEdge` (128) vs the LEGACY `Rook::ExactEdge` (104) in `SceneGraphHandler.cpp`/`ExactAdjacencyTypes.h`, which this probe never compared. ODR was the cause all along.
 > - **`/O2` + `/GL`-off for the engine TU** (`dd07bfc4`): the hard crash mostly stops — `Evaluate` now **completes** (`LOOP DONE`) like `/Od`, BUT still **`edges=4` not 5** (all 5 candidates compute correct areas — 3311.978/5440.438/5423.437/1040.005/1055.000 — yet one `core.edges.push_back` is silently dropped) AND an **intermittent** post-completion error/crash (two identical fires → HTTPError then ConnectionReset).
 > **PATTERN ⇒ HEISENBUG:** severity scales with optimization (`/O2/GL`→garbage-at-construction→crash; `/GL`-off/`/Od`→completes but drops one `core.edges` element + intermittent), **in-Rhino-only** (offline harness clean at every opt level — but it's a *different binary* that never compiled the PCH handler TU), **ASan-clean**, **intermittent**. That fingerprint = a **race or lifetime UB** in the `OcctAdjacencyEngine::Evaluate` → `OcctExecutor::Run` → `std::packaged_task<ExactAdjacencyCore()>` → `[&]`-lambda → worker-thread path (or a genuine LTCG miscompile of it).
 > **NEXT EXPERIMENTS (fresh session — do NOT deploy-guess further at depth):**

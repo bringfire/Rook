@@ -25,6 +25,7 @@
 #include <Standard_Failure.hxx>
 
 namespace Rook {
+namespace occt {
 
 const char* CapabilityToString(Capability c) {
     switch (c) {
@@ -36,6 +37,11 @@ const char* CapabilityToString(Capability c) {
     return "failed_with_diagnostics";
 }
 
+} // namespace occt — CapabilityToString uses occt::Capability
+
+// SharedFaceArea stays in bare `Rook` (declared in OcctAdjacencyEngine_internal.h).
+// It touches only TopoDS_Shape (no contract types), so it has no ODR exposure and
+// the OCCT-only offline test links it as Rook::SharedFaceArea unchanged.
 double SharedFaceArea(const TopoDS_Shape& a, const TopoDS_Shape& b,
                       double fuzz, bool& crashed) {
     crashed = false;
