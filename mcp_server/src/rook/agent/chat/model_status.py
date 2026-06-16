@@ -6,6 +6,7 @@ import asyncio
 import copy
 import os
 import time
+from dataclasses import dataclass
 from typing import Optional
 
 from ..config import AgentConfig
@@ -33,6 +34,43 @@ _GUARDIAN_NOTE = (
 
 _local_cache_payload: Optional[dict] = None
 _local_cache_time: Optional[float] = None
+
+
+@dataclass(frozen=True)
+class ModelOverrideResolution:
+    """Validated chat model override with server-side routing metadata."""
+
+    model_override: str
+    api_base: str
+    routing: str
+    provider: str
+    api_base_source: str
+
+    def to_payload(self) -> dict:
+        return {
+            "model_override": self.model_override,
+            "api_base": self.api_base,
+            "routing": self.routing,
+            "provider": self.provider,
+            "api_base_source": self.api_base_source,
+        }
+
+
+class ModelOverrideUnavailable(ValueError):
+    """Raised when a requested chat model override is not currently allowed."""
+
+    def __init__(self, model_override: str, allowed_model_overrides: list[str]):
+        super().__init__("Model override is not currently available.")
+        self.model_override = model_override
+        self.allowed_model_overrides = allowed_model_overrides
+
+    def to_payload(self) -> dict:
+        return {
+            "error": "Model override is not currently available. Refresh the model list and try again.",
+            "code": "model_override_unavailable",
+            "model_override": self.model_override,
+            "allowed_model_overrides": self.allowed_model_overrides,
+        }
 
 
 def reset_local_provider_status_cache() -> None:
@@ -85,6 +123,51 @@ def _routing_info(model: str, profile_api_base: Optional[str]) -> dict:
         "routing": routing,
         "api_base": api_base,
     }
+
+
+def _provider_for_model(model: str) -> str:
+    return model.split("/", 1)[0] if "/" in model else "local"
+
+
+def _detected_lmstudio_api_base(
+    model_override: str,
+    local_providers: dict,
+) -> Optional[str]:
+    lmstudio = (local_providers or {}).get("lmstudio") or {}
+    for model in lmstudio.get("models") or []:
+        if model.get("model_override") == model_override:
+            return lmstudio.get("api_base") or ""
+    return None
+
+
+def _bound_routing(
+    model_override: str,
+    *,
+    detected_lmstudio_api_base: Optional[str],
+) -> ModelOverrideResolution:
+    provider = _provider_for_model(model_override)
+    if detected_lmstudio_api_base is not None:
+        return ModelOverrideResolution(
+            model_override=model_override,
+            api_base=detected_lmstudio_api_base,
+            routing="local",
+            provider=provider,
+            api_base_source="detected_lmstudio",
+        )
+
+    model_set = get_models()
+    api_base = api_base_for_model(model_override, model_set.api_base) or ""
+    is_ollama = model_override.startswith("ollama_chat/") or model_override.startswith(
+        "ollama/"
+    )
+    routing = "local" if api_base or is_ollama else "cloud"
+    return ModelOverrideResolution(
+        model_override=model_override,
+        api_base=api_base,
+        routing=routing,
+        provider=provider,
+        api_base_source="active_profile" if api_base else "none",
+    )
 
 
 def _role_entry(
@@ -331,6 +414,33 @@ async def compute_allowed_model_overrides_async(
     return compute_allowed_model_overrides(
         local_providers=local_providers,
         role_status=role_status,
+    )
+
+
+async def resolve_allowed_model_override(
+    model_override: str,
+    *,
+    force_refresh: bool = False,
+) -> ModelOverrideResolution:
+    """Validate a chat override and bind routing metadata for the server."""
+    role_status = build_role_status()
+    local_providers = await get_cached_local_provider_status_async(
+        force_refresh=force_refresh
+    )
+    allowed_model_overrides = compute_allowed_model_overrides(
+        local_providers=local_providers,
+        role_status=role_status,
+    )
+
+    if model_override not in allowed_model_overrides:
+        raise ModelOverrideUnavailable(model_override, allowed_model_overrides)
+
+    return _bound_routing(
+        model_override,
+        detected_lmstudio_api_base=_detected_lmstudio_api_base(
+            model_override,
+            local_providers,
+        ),
     )
 
 

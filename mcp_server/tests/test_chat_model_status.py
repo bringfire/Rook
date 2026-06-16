@@ -137,6 +137,130 @@ def test_allowed_overrides_use_effective_models_and_detected_local(monkeypatch):
     assert "ollama_chat/qwen3:30b" in allowed
 
 
+@pytest.mark.asyncio
+async def test_resolve_allowed_model_override_rejects_unavailable(monkeypatch):
+    role_status = {
+        "active_profile": "cloud",
+        "profile_source": "file",
+        "roles": {"worker": {"effective_model": "anthropic/worker"}},
+    }
+    local_providers = {"ollama": {"models": []}, "lmstudio": {"models": []}}
+
+    monkeypatch.setattr(model_status, "build_role_status", lambda: role_status)
+
+    async def fake_get_cached_local_provider_status_async(force_refresh=False):
+        return local_providers
+
+    monkeypatch.setattr(
+        model_status,
+        "get_cached_local_provider_status_async",
+        fake_get_cached_local_provider_status_async,
+    )
+
+    with pytest.raises(model_status.ModelOverrideUnavailable) as exc_info:
+        await model_status.resolve_allowed_model_override("openai/not-allowed")
+
+    assert exc_info.value.to_payload() == {
+        "error": "Model override is not currently available. Refresh the model list and try again.",
+        "code": "model_override_unavailable",
+        "model_override": "openai/not-allowed",
+        "allowed_model_overrides": ["anthropic/worker"],
+    }
+
+
+@pytest.mark.asyncio
+async def test_resolve_allowed_model_override_uses_detected_lmstudio_api_base(
+    monkeypatch,
+):
+    role_status = {
+        "active_profile": "cloud",
+        "profile_source": "file",
+        "roles": {"worker": {"effective_model": "anthropic/worker"}},
+    }
+    local_providers = {
+        "ollama": {"models": []},
+        "lmstudio": {
+            "available": True,
+            "api_base": "http://127.0.0.1:1234/v1",
+            "models": [
+                {
+                    "id": "lmstudio-community/qwen",
+                    "model_override": "openai/lmstudio-community/qwen",
+                    "size": None,
+                }
+            ],
+        },
+    }
+
+    monkeypatch.setattr(model_status, "build_role_status", lambda: role_status)
+
+    async def fake_get_cached_local_provider_status_async(force_refresh=False):
+        return local_providers
+
+    monkeypatch.setattr(
+        model_status,
+        "get_cached_local_provider_status_async",
+        fake_get_cached_local_provider_status_async,
+    )
+
+    resolution = await model_status.resolve_allowed_model_override(
+        "openai/lmstudio-community/qwen"
+    )
+
+    assert resolution.to_payload() == {
+        "model_override": "openai/lmstudio-community/qwen",
+        "api_base": "http://127.0.0.1:1234/v1",
+        "routing": "local",
+        "provider": "openai",
+        "api_base_source": "detected_lmstudio",
+    }
+
+
+@pytest.mark.asyncio
+async def test_resolve_allowed_model_override_uses_profile_for_profile_models(
+    monkeypatch,
+):
+    role_status = {
+        "active_profile": "cloud",
+        "profile_source": "file",
+        "roles": {"worker": {"effective_model": "anthropic/worker"}},
+    }
+    local_providers = {"ollama": {"models": []}, "lmstudio": {"models": []}}
+
+    monkeypatch.setattr(model_status, "build_role_status", lambda: role_status)
+    monkeypatch.setattr(
+        model_status,
+        "get_models",
+        lambda profile_name=None: ModelSet(
+            planner="anthropic/planner",
+            worker="anthropic/worker",
+            specialist="anthropic/specialist",
+            guardian="anthropic/guardian",
+            dspy="anthropic/dspy",
+            api_base=None,
+        ),
+    )
+
+    async def fake_get_cached_local_provider_status_async(force_refresh=False):
+        return local_providers
+
+    monkeypatch.setattr(
+        model_status,
+        "get_cached_local_provider_status_async",
+        fake_get_cached_local_provider_status_async,
+    )
+
+    resolution = await model_status.resolve_allowed_model_override("anthropic/worker")
+
+    assert resolution.to_payload() == {
+        "model_override": "anthropic/worker",
+        "api_base": "",
+        "routing": "cloud",
+        "provider": "anthropic",
+        "api_base_source": "none",
+    }
+
+
 def test_normalize_ollama_maps_detection_shape():
     normalized = model_status._normalize_ollama(
         {
