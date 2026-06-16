@@ -39,6 +39,34 @@ class TestChatServer(AioHTTPTestCase):
         assert "persona" in data[0]
         assert "label" in data[0]
 
+    async def test_models_endpoint_returns_payload_with_no_store_headers(self):
+        payload = {
+            "active_profile": "cloud",
+            "profile_source": "file",
+            "roles": {
+                "worker": {
+                    "profile_model": "anthropic/profile-worker",
+                    "effective_model": "anthropic/profile-worker",
+                }
+            },
+            "personas": [],
+            "local_providers": {"ollama": {"available": False, "models": []}},
+            "allowed_model_overrides": ["anthropic/profile-worker"],
+        }
+        build_models_payload = AsyncMock(return_value=payload)
+        with patch(
+            "rook.agent.chat.server.model_status.build_models_payload",
+            new=build_models_payload,
+        ):
+            resp = await self.client.get("/agent/chat/models")
+
+        assert resp.status == 200
+        assert await resp.json() == payload
+        build_models_payload.assert_awaited_once_with(builder=self.builder)
+        assert resp.headers["Cache-Control"] == "no-store"
+        assert resp.headers["Pragma"] == "no-cache"
+        assert resp.headers["Expires"] == "0"
+
     async def test_health(self):
         with patch("rook.agent.chat.server.collect_runtime_facts", new=AsyncMock(return_value={
             "rhino": {"connected": True, "data": "pong"},
@@ -480,6 +508,35 @@ class TestChatServerWithNonce(AioHTTPTestCase):
         assert resp.status == 403
         data = await resp.json()
         assert "session" in data["error"].lower()
+
+    async def test_models_requires_nonce(self):
+        resp = await self.client.get("/agent/chat/models")
+        assert resp.status == 403
+        data = await resp.json()
+        assert "session" in data["error"].lower()
+
+    async def test_models_with_nonce_succeeds(self):
+        payload = {
+            "active_profile": "cloud",
+            "profile_source": "file",
+            "roles": {},
+            "personas": [],
+            "local_providers": {},
+            "allowed_model_overrides": [],
+        }
+        build_models_payload = AsyncMock(return_value=payload)
+        with patch(
+            "rook.agent.chat.server.model_status.build_models_payload",
+            new=build_models_payload,
+        ):
+            resp = await self.client.get(
+                "/agent/chat/models",
+                headers={"X-Rook-Session": self.nonce},
+            )
+
+        assert resp.status == 200
+        assert await resp.json() == payload
+        build_models_payload.assert_awaited_once_with(builder=self.builder)
 
     async def test_request_with_wrong_nonce_is_rejected(self):
         resp = await self.client.post(

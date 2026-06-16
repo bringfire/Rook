@@ -14,6 +14,7 @@ from ...bridge import rhino_request_context
 from .conversation_store import ConversationStore
 from .prompt_builder import PromptBuilder
 from .chat_runner import ChatRunner
+from . import model_status
 from .runtime_health import collect_runtime_facts
 
 from ..personas import available_personas, load_display_config
@@ -142,6 +143,20 @@ async def handle_personas(request: web.Request) -> web.Response:
             "model_role": config.get("model_role", "worker"),
         })
     return web.json_response(result)
+
+
+async def handle_models(request: web.Request) -> web.Response:
+    """GET /agent/chat/models — report active model routing and local models."""
+    builder = request.app.get(_BUILDER_KEY) or _get_builder()
+    payload = await model_status.build_models_payload(builder=builder)
+    return web.json_response(
+        payload,
+        headers={
+            "Cache-Control": "no-store",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
 
 
 async def handle_health(request: web.Request) -> web.Response:
@@ -496,6 +511,7 @@ def create_chat_app(
 
     app.router.add_get("/agent/chat/health", handle_health)
     app.router.add_get("/agent/chat/personas", handle_personas)
+    app.router.add_get("/agent/chat/models", handle_models)
     app.router.add_post("/agent/chat/start", handle_start)
     app.router.add_post("/agent/chat/message", handle_message)
     app.router.add_post("/agent/chat/stop", handle_stop)
