@@ -57,10 +57,29 @@ that handles planar + curved + open + closed geometry uniformly.
 >
 > **All diagnostics from the saga were reverted** (heap-`core`, inline-bypass, `/GL`-off-this-TU,
 > `OcctTrace`/`_heapchk`/sizeof/EDGE-PUSH/handler-split probes). The `GetCV`→`ControlPoint`
-> change (`360ba57a`) was kept (genuine improvement). **NEXT:** Tasks 7→8→9→10 of the plan
-> (`docs/superpowers/plans/2026-06-15-occt-adjacency-engine.md`) — Task 8 strips the legacy
-> engine-contract types — at which point the ODR hazard is gone, but **`Rook::occt` is KEPT permanently**
+> change (`360ba57a`) was kept (genuine improvement). Task 8 strips the legacy engine-contract
+> types — at which point the ODR hazard is gone, but **`Rook::occt` is KEPT permanently**
 > (user decision): it's cheap insurance and an explicit ownership boundary. Do NOT flatten it back into bare `Rook`.
+>
+> ### ✅ PRODUCTION INTEGRATION DONE (2026-06-15) — Tasks 8 / 9a / 10 shipped on `feature/spatial-intelligence`
+> - **Task 8** (`5c233641`): production route `/scene/graph/adjacency/exact` flipped from the legacy
+>   Clipper `PlanarAdjacencyEngine` to `Rook::occt::OcctAdjacencyEngine`. `ExactAdjacencyService` now
+>   extracts move-only `ObjectBrepPayload`s and runs the OCCT shared-face engine; `ExactAdjacencyTypes.h`
+>   stripped to broad-phase query types (legacy engine/result types deleted → ODR hazard gone at the source);
+>   3 dev routes + `PlanarAdjacencyEngine` + `OcctAdjacencyValidateHandler` retired; `OcctProbe` reduced to
+>   the `OcctProbeInit` SE-translation installer (STEP probe removed → no STEP in any C++ TU). −988 LOC.
+> - **Task 9a** (`1db747ad`): build productionized on the **verified V8_0_0** — `$(OcctRoot)` property
+>   (OCCT_ROOT env override), trimmed non-DataExchange link list, **measured runtime closure = 11 TK DLLs /
+>   20.6 MB** (no tbb), LGPL attribution (`THIRD_PARTY_NOTICES.md`), build doc (`docs/rook_docs/occt-build.md`).
+>   **Task 9b (pin OCCT 7.9.3) is DEFERRED** (documented; use a separate OCCT worktree/build dir, do NOT switch
+>   the shared checkout off V8_0_0).
+> - **Task 10** (`d28c36bb`): live-verified the production route on `SpatialTest.3dm` with the **trimmed
+>   11-DLL closure** — 5/5 abutments exact (3311.978/5440.438/5423.437/1040.005/1055.000 in²), 9 real edges,
+>   `exact_brep` / `inches^2`, cache 50ms→1ms, Rhino stable; the trimmed closure is runtime-complete.
+>   Verify script: `docs/rook_docs/occt-spike/live_verify_occt_adjacency.py`.
+> - **NEXT:** Task 9b (7.9.3 pin, when chosen) + the graph slice **"Exact Adjacency Projection v1"** (project
+>   the production `adjacent_exact` edges into the scene-graph/networkx mirror as typed IFC-aligned relationship
+>   edges) — its own brainstorm → spec → plan; see `2026-06-14-spatial-graph-projection-design.md`.
 
 **Read these first, in order:**
 1. This doc (decision + spikes + numbers + remaining work).
