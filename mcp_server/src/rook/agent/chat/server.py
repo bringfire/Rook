@@ -147,7 +147,8 @@ async def handle_personas(request: web.Request) -> web.Response:
 
 async def handle_models(request: web.Request) -> web.Response:
     """GET /agent/chat/models — report active model routing and local models."""
-    payload = await model_status.build_models_payload()
+    builder = request.app.get(_BUILDER_KEY) or _get_builder()
+    payload = await model_status.build_models_payload(builder=builder)
     return web.json_response(
         payload,
         headers={

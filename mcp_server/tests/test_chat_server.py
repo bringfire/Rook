@@ -53,14 +53,16 @@ class TestChatServer(AioHTTPTestCase):
             "local_providers": {"ollama": {"available": False, "models": []}},
             "allowed_model_overrides": ["anthropic/profile-worker"],
         }
+        build_models_payload = AsyncMock(return_value=payload)
         with patch(
             "rook.agent.chat.server.model_status.build_models_payload",
-            new=AsyncMock(return_value=payload),
+            new=build_models_payload,
         ):
             resp = await self.client.get("/agent/chat/models")
 
         assert resp.status == 200
         assert await resp.json() == payload
+        build_models_payload.assert_awaited_once_with(builder=self.builder)
         assert resp.headers["Cache-Control"] == "no-store"
         assert resp.headers["Pragma"] == "no-cache"
         assert resp.headers["Expires"] == "0"
@@ -522,9 +524,10 @@ class TestChatServerWithNonce(AioHTTPTestCase):
             "local_providers": {},
             "allowed_model_overrides": [],
         }
+        build_models_payload = AsyncMock(return_value=payload)
         with patch(
             "rook.agent.chat.server.model_status.build_models_payload",
-            new=AsyncMock(return_value=payload),
+            new=build_models_payload,
         ):
             resp = await self.client.get(
                 "/agent/chat/models",
@@ -533,6 +536,7 @@ class TestChatServerWithNonce(AioHTTPTestCase):
 
         assert resp.status == 200
         assert await resp.json() == payload
+        build_models_payload.assert_awaited_once_with(builder=self.builder)
 
     async def test_request_with_wrong_nonce_is_rejected(self):
         resp = await self.client.post(
