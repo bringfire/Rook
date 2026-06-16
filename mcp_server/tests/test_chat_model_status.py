@@ -217,6 +217,53 @@ async def test_resolve_allowed_model_override_uses_detected_lmstudio_api_base(
 
 
 @pytest.mark.asyncio
+async def test_resolve_allowed_model_override_defaults_detected_lmstudio_api_base(
+    monkeypatch,
+):
+    role_status = {
+        "active_profile": "cloud",
+        "profile_source": "file",
+        "roles": {"worker": {"effective_model": "anthropic/worker"}},
+    }
+    local_providers = {
+        "ollama": {"models": []},
+        "lmstudio": {
+            "available": True,
+            "models": [
+                {
+                    "id": "lmstudio-community/qwen",
+                    "model_override": "openai/lmstudio-community/qwen",
+                    "size": None,
+                }
+            ],
+        },
+    }
+
+    monkeypatch.setattr(model_status, "build_role_status", lambda: role_status)
+
+    async def fake_get_cached_local_provider_status_async(force_refresh=False):
+        return local_providers
+
+    monkeypatch.setattr(
+        model_status,
+        "get_cached_local_provider_status_async",
+        fake_get_cached_local_provider_status_async,
+    )
+
+    resolution = await model_status.resolve_allowed_model_override(
+        "openai/lmstudio-community/qwen"
+    )
+
+    assert resolution.to_payload() == {
+        "model_override": "openai/lmstudio-community/qwen",
+        "api_base": "http://127.0.0.1:1234/v1",
+        "routing": "local",
+        "provider": "openai",
+        "api_base_source": "detected_lmstudio",
+    }
+
+
+@pytest.mark.asyncio
 async def test_resolve_allowed_model_override_uses_profile_for_profile_models(
     monkeypatch,
 ):

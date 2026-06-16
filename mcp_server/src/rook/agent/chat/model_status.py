@@ -136,7 +136,7 @@ def _detected_lmstudio_api_base(
     lmstudio = (local_providers or {}).get("lmstudio") or {}
     for model in lmstudio.get("models") or []:
         if model.get("model_override") == model_override:
-            return lmstudio.get("api_base") or ""
+            return lmstudio.get("api_base") or "http://127.0.0.1:1234/v1"
     return None
 
 
