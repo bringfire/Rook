@@ -1121,6 +1121,25 @@ def build_local_tools() -> Dict[str, Any]:
     except ImportError:
         logger.debug("scene_exact_neighbors local tool unavailable (import failed)")
 
+    # --- scene_refine_containment (Python-side semantic containment refinement) ---
+    try:
+        from ..scene.scene_graph import get_scene_graph
+        from ..scene.containment_refinement import get_containment_refiner
+
+        async def _scene_refine_containment(object_ids=None, port: int | None = None, **kwargs) -> dict:
+            if not object_ids:
+                return {"success": False, "data": "Missing object_ids parameter"}
+            sg = get_scene_graph()
+            refiner = get_containment_refiner(sg)
+            payload = await refiner.refine(object_ids, port=port)
+            if not payload.get("success", True):
+                return {"success": False, "data": payload.get("error", "containment refine failed")}
+            return {"success": True, "data": payload}
+
+        tools["scene_refine_containment"] = _scene_refine_containment
+    except ImportError:
+        logger.debug("scene_refine_containment local tool unavailable (import failed)")
+
     tools["gh_update_script"] = _local_gh_update_script
     tools["gh_set_script_pins"] = _local_gh_set_script_pins
 
