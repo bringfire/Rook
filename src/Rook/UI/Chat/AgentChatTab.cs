@@ -27,6 +27,7 @@ namespace Rook.UI.Chat
         private readonly SemaphoreSlim _initializeGate = new SemaphoreSlim(1, 1);
         private bool _connectionBannerShown;
         private string? _activeUIBlockId;
+        private string? _activeModelLabel;
 
         public AgentChatTab(
             string persona,
@@ -70,6 +71,7 @@ namespace Rook.UI.Chat
                     {
                         ApplyHealthStatus(_lastHealth);
                     }
+                    await RefreshModelStatusAsync();
                     return;
                 }
 
@@ -101,7 +103,9 @@ namespace Rook.UI.Chat
                 var info = await _client.StartAsync(_persona, currentDocument);
                 _conversationId = info.ConversationId;
                 _conversationBaseUri = info.BaseUri;
+                _activeModelLabel = info.Model;
                 ApplyHealthStatus(health);
+                await RefreshModelStatusAsync();
 
                 // Set persona color and initial on the WebView
                 var hex = $"#{(int)(TabColor.R * 255):X2}{(int)(TabColor.G * 255):X2}{(int)(TabColor.B * 255):X2}";
@@ -141,6 +145,7 @@ namespace Rook.UI.Chat
             {
                 _conversationId = null;
                 _conversationBaseUri = null;
+                _activeModelLabel = null;
                 _connectionBannerShown = false;
             }
             finally
@@ -158,6 +163,59 @@ namespace Rook.UI.Chat
             }
 
             await InitializeAsync();
+        }
+
+        private async Task RefreshModelStatusAsync(CancellationToken ct = default)
+        {
+            var baseUri = _conversationBaseUri;
+            var conversationId = _conversationId;
+            if (baseUri == null || string.IsNullOrEmpty(conversationId))
+            {
+                return;
+            }
+
+            try
+            {
+                var models = await _client.GetModelsAsync(baseUri, conversationId, ct);
+                var conversation = models.Conversation;
+                var activeModel = conversation?.ActiveModel;
+                if (string.IsNullOrEmpty(activeModel))
+                {
+                    return;
+                }
+
+                _activeModelLabel = activeModel;
+                var status = string.IsNullOrEmpty(conversation.PendingModel)
+                    ? $"Model: {activeModel}"
+                    : $"Model: {activeModel}; next turn: {conversation.PendingModel}";
+
+                Application.Instance.Invoke(() =>
+                {
+                    SetStatus(status, Colors.Blue);
+                });
+            }
+            catch
+            {
+                // Model status is best-effort feedback only.
+            }
+        }
+
+        private void ApplyModelUpdateEvent(ChatEvent evt)
+        {
+            if (string.IsNullOrEmpty(evt.Model))
+            {
+                return;
+            }
+
+            if (evt.AppliesTo == "next_turn")
+            {
+                var active = _activeModelLabel ?? evt.Model;
+                SetStatus($"Model: {active}; next turn: {evt.Model}", Colors.Blue);
+                return;
+            }
+
+            _activeModelLabel = evt.Model;
+            SetStatus($"Model: {evt.Model}", Colors.Blue);
         }
 
         private void ApplyHealthStatus(ChatServiceHealth health)
@@ -300,6 +358,11 @@ namespace Rook.UI.Chat
                             $"window.chatAPI.renderUIBlock('{EscapeForJavaScript(evt.BlockId ?? "")}', '{EscapeForJavaScript(evt.BlockType ?? "")}', {blockConfigJson})");
                         break;
 
+                    case "model_update":
+                        ApplyModelUpdateEvent(evt);
+                        _ = RefreshModelStatusAsync();
+                        break;
+
                     case "done":
                         if (_activeUIBlockId != null)
                         {
@@ -318,6 +381,7 @@ namespace Rook.UI.Chat
                             SetStatus("Ready", Colors.Green);
                         }
                         SetProcessing(false);
+                        _ = RefreshModelStatusAsync();
                         break;
 
                     case "error":

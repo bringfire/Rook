@@ -44,14 +44,50 @@ namespace Rook.UI.Chat
         public Uri? BaseUri { get; set; }
     }
 
+    public class ChatConversationModelInfo
+    {
+        [JsonPropertyName("conversation_id")]
+        public string ConversationId { get; set; } = "";
+
+        public string Persona { get; set; } = "";
+
+        [JsonPropertyName("active_model")]
+        public string? ActiveModel { get; set; }
+
+        [JsonPropertyName("active_routing")]
+        public string? ActiveRouting { get; set; }
+
+        [JsonPropertyName("pending_model")]
+        public string? PendingModel { get; set; }
+
+        [JsonPropertyName("pending_routing")]
+        public string? PendingRouting { get; set; }
+
+        [JsonPropertyName("pending_applies_to")]
+        public string? PendingAppliesTo { get; set; }
+
+        [JsonPropertyName("api_base_source")]
+        public string? ApiBaseSource { get; set; }
+    }
+
+    public class ChatModelsInfo
+    {
+        [JsonPropertyName("conversation")]
+        public ChatConversationModelInfo? Conversation { get; set; }
+    }
+
     public class ChatEvent
     {
         public string Type { get; set; } = "";
         public string? Content { get; set; }
         public string? Name { get; set; }
+        public string? Model { get; set; }
         public JsonElement? Params { get; set; }
         public string? Result { get; set; }
         public JsonElement? Usage { get; set; }
+
+        [JsonPropertyName("applies_to")]
+        public string? AppliesTo { get; set; }
 
         [JsonPropertyName("tool_call_id")]
         public string? ToolCallId { get; set; }
@@ -159,6 +195,24 @@ namespace Rook.UI.Chat
                        ?? new ConversationInfo();
             info.BaseUri = baseUri;
             return info;
+        }
+
+        public async Task<ChatModelsInfo> GetModelsAsync(
+            Uri baseUri,
+            string? conversationId = null,
+            CancellationToken ct = default)
+        {
+            var path = "/agent/chat/models";
+            if (!string.IsNullOrEmpty(conversationId))
+            {
+                path += "?conversation_id=" + Uri.EscapeDataString(conversationId);
+            }
+
+            var resp = await _client.GetAsync(new Uri(baseUri, path), ct);
+            resp.EnsureSuccessStatusCode();
+            var json = await resp.Content.ReadAsStringAsync();
+            return JsonSerializer.Deserialize<ChatModelsInfo>(json, JsonOptions)
+                   ?? new ChatModelsInfo();
         }
 
         /// <summary>
