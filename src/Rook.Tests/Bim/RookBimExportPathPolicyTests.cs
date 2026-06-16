@@ -21,6 +21,8 @@ namespace Rook.Tests.Bim
         }
 
         [Theory]
+        [InlineData(null)]
+        [InlineData("walls.")]
         [InlineData("walls/foo")]
         [InlineData("walls\\foo")]
         [InlineData("..walls")]
@@ -33,7 +35,7 @@ namespace Rook.Tests.Bim
         [InlineData("PRN")]
         [InlineData("AUX")]
         [InlineData("CON.json")]  // reserved base name with extension
-        public void ValidateRequestShape_RejectsUnsafeName(string name)
+        public void ValidateRequestShape_RejectsUnsafeName(string? name)
         {
             var result = BimExportPathPolicy.ValidateRequestShape(
                 new BimExportOutput { Directory = @"C:\fixtures", Name = name });
@@ -82,7 +84,7 @@ namespace Rook.Tests.Bim
             Assert.EndsWith("walls.3dm", paths.Model3dm);
             Assert.EndsWith("walls.sidecar.json", paths.Sidecar);
             Assert.EndsWith("walls.validation.json", paths.Validation);
-            Assert.StartsWith(@"C:\fixtures", paths.Model3dm);
+            Assert.StartsWith(@"C:\fixtures\", paths.Model3dm);
         }
 
         [Fact]
@@ -90,6 +92,13 @@ namespace Rook.Tests.Bim
         {
             Assert.True(BimExportPathPolicy.EscapesIntendedDirectory(@"C:\other\walls.3dm", @"C:\fixtures"));
             Assert.False(BimExportPathPolicy.EscapesIntendedDirectory(@"C:\fixtures\walls.3dm", @"C:\fixtures"));
+
+            // prefix-escape: a sibling dir sharing a name prefix must NOT count as inside
+            Assert.True(BimExportPathPolicy.EscapesIntendedDirectory(@"C:\fixtures-evil\walls.3dm", @"C:\fixtures"));
+            // case-insensitive: same dir, different case, is inside
+            Assert.False(BimExportPathPolicy.EscapesIntendedDirectory(@"C:\FIXTURES\walls.3dm", @"C:\fixtures"));
+            // ..-traversal normalizes outside the intended dir
+            Assert.True(BimExportPathPolicy.EscapesIntendedDirectory(@"C:\fixtures\..\other\walls.3dm", @"C:\fixtures"));
         }
     }
 }

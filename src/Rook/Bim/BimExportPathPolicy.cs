@@ -76,6 +76,11 @@ namespace Rook.Bim
                 return false;
             }
 
+            if (name.EndsWith(".", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
             // Reject Windows reserved device names (base name, ignoring any extension): CON, NUL, COM1, ...
             var dotIndex = name.IndexOf('.');
             var baseName = dotIndex >= 0 ? name.Substring(0, dotIndex) : name;
