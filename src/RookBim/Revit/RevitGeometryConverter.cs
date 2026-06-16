@@ -23,6 +23,7 @@ namespace RookBim.Revit
         public const string RepresentationBrep = "brep";
         public const string RepresentationMesh = "mesh";
         public const string RepresentationBboxProxy = "bbox_proxy";
+        public const string RepresentationNone = "none";
 
         private const string RhinoInsideAssemblyName = "RhinoInside.Revit";
         private const double FeetToMeters = 0.3048;
@@ -129,6 +130,8 @@ namespace RookBim.Revit
                 }
                 else if (obj is GeometryInstance instance)
                 {
+                    // GetInstanceGeometry() returns geometry already placed by the instance transform
+                    // (world space) — deliberately NOT GetSymbolGeometry() (untransformed symbol space).
                     foreach (var inner in CollectSolids(instance.GetInstanceGeometry()))
                     {
                         yield return inner;
@@ -320,7 +323,7 @@ namespace RookBim.Revit
         {
             return new RevitGeometryConversion
             {
-                Representation = RevitGeometryConverter.RepresentationBboxProxy,
+                Representation = RevitGeometryConverter.RepresentationNone,
                 Quality = RevitGeometryConverter.QualityFailed,
                 FallbackReason = reason
             };
