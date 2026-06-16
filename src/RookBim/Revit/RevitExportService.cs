@@ -83,6 +83,7 @@ namespace RookBim.Revit
                 Truncated = resolution.Truncated
             };
             var exportedKeys = new HashSet<string>(StringComparer.Ordinal);
+            var exportedRoomKeys = new HashSet<string>(StringComparer.Ordinal);
 
             foreach (var element in resolution.Elements)
             {
@@ -130,7 +131,7 @@ namespace RookBim.Revit
                 counts.Rooms = rooms.Count;
                 foreach (var room in rooms)
                 {
-                    var rep = MaterializeRoom(file, roomLayerIndex, room, scale, includeGeometry);
+                    var rep = MaterializeRoom(file, roomLayerIndex, room, scale, includeGeometry, exportedRoomKeys);
                     roomRecords.Add(new
                     {
                         roomId = room.UniqueId,
@@ -153,7 +154,7 @@ namespace RookBim.Revit
             }
 
             // 6. Verify the bijection BEFORE writing.
-            var verification = VerifyBijection(file, exportedKeys);
+            var verification = VerifyBijection(file, exportedKeys, exportedRoomKeys);
 
             // 7. Assemble sidecar + validation; write all three path-safely.
             var sidecar = BuildSidecar(document, request, resolution, elementRecords, roomRecords);
@@ -365,44 +366,23 @@ namespace RookBim.Revit
             };
         }
 
-        private static BimExportVerification VerifyBijection(Rhino.FileIO.File3dm file, HashSet<string> exportedKeys)
+        private static BimExportVerification VerifyBijection(
+            Rhino.FileIO.File3dm file, HashSet<string> exportedKeys, HashSet<string> exportedRoomKeys)
         {
-            var verification = new BimExportVerification { Ok = true };
-            var objectKeys = new HashSet<string>(StringComparer.Ordinal);
-
+            // Every .3dm object carries a revit.uniqueId user string; collect them all (including
+            // nulls, which the pure helper flags). The expected set is the union of geometry-bearing
+            // element keys and rooms that actually emitted a geometry object. Multiple objects per
+            // key are VALID (a multi-solid element emits one object per Brep).
+            var objectKeys = new List<string?>();
             foreach (var obj in file.Objects)
             {
-                var key = obj.Attributes.GetUserString("revit.uniqueId");
-                if (string.IsNullOrEmpty(key))
-                {
-                    verification.Ok = false;
-                    verification.Discrepancies.Add("A .3dm object has no revit.uniqueId user string.");
-                    continue;
-                }
-
-                if (!objectKeys.Add(key))
-                {
-                    verification.Ok = false;
-                    verification.Discrepancies.Add($"Duplicate .3dm object for key {key}.");
-                }
-
-                if (!exportedKeys.Contains(key))
-                {
-                    verification.Ok = false;
-                    verification.Discrepancies.Add($".3dm object key {key} has no exported element record.");
-                }
+                objectKeys.Add(obj.Attributes.GetUserString("revit.uniqueId"));
             }
 
-            foreach (var key in exportedKeys)
-            {
-                if (!objectKeys.Contains(key))
-                {
-                    verification.Ok = false;
-                    verification.Discrepancies.Add($"Exported element {key} has no .3dm object.");
-                }
-            }
+            var expected = new HashSet<string>(exportedKeys, StringComparer.Ordinal);
+            expected.UnionWith(exportedRoomKeys);
 
-            return verification;
+            return BimExportBijection.Verify(objectKeys, expected);
         }
 
         private void AddGeometry(Rhino.FileIO.File3dm file, int layerIndex, Element element, RevitGeometryConversion conversion)
@@ -431,7 +411,9 @@ namespace RookBim.Revit
             }
         }
 
-        private string MaterializeRoom(Rhino.FileIO.File3dm file, int layerIndex, RevitRoomExport room, double scale, bool includeGeometry)
+        private string MaterializeRoom(
+            Rhino.FileIO.File3dm file, int layerIndex, RevitRoomExport room, double scale, bool includeGeometry,
+            HashSet<string> exportedRoomKeys)
         {
             if (!includeGeometry || room.Solid == null)
             {
@@ -475,6 +457,7 @@ namespace RookBim.Revit
             attrs.SetUserString("revit.uniqueId", room.UniqueId);
             attrs.SetUserString("rookbim.referenceGeometry", "true");
             file.Objects.AddMesh(mesh, attrs);
+            exportedRoomKeys.Add(room.UniqueId);
             return RevitRoomExporter.RepMesh;
         }
 
