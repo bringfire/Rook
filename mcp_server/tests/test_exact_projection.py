@@ -324,3 +324,25 @@ def test_project_invalidates_analytics_caches_on_commit(monkeypatch):
 
 async def _should_not_be_called(*a, **k):
     raise AssertionError("call_rhino must not be called for a skipped source")
+
+
+from rook.scene.scene_graph import _inverse_rel
+
+
+def test_get_context_renders_exact_adjacency():
+    proj = _projector_with_nodes("A", "B")
+    sg = proj._analytics
+    sg.graph.nodes["A"]["domain_label"] = "floor"
+    sg.graph.nodes["B"]["domain_label"] = "wall"
+    sg.graph.nodes["B"]["name"] = "Wall-01"
+    proj._upsert_exact_edge("A", "B", {
+        "relationship": EXACT_RELATIONSHIP, "provenance": EXACT_PROVENANCE,
+        "sharedArea": 3311.978, "areaUnit": "inches^2", "graphSequence": 1})
+    text = sg.get_context(["A"])
+    assert "adjacent to (exact)" in text or "exact" in text.lower()
+    assert "3311.98" in text
+    assert "inches^2" in text  # rendered from the edge's own areaUnit, not hardcoded
+
+
+def test_inverse_rel_knows_adjacent_exact():
+    assert _inverse_rel("adjacent_exact") == "adjacent to (exact)"
