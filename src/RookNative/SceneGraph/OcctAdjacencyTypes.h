@@ -2,10 +2,12 @@
 // Production exact-adjacency contract for the OCCT engine. openNURBS-based
 // (carries an owned ON_Brep); NO Rhino SDK types. Includable by the engine and
 // the Rhino-facing service. See 2026-06-15-occt-adjacency-engine-design.md.
-// PHASE 1: standalone. PHASE 2: add the ExactAdjacencyTypes.h include below for the
-// shared broad-phase query types once that header is stripped of engine-contract types.
+// STANDALONE on purpose (deviation from the plan's "uncomment in Phase 2"): this header
+// does NOT include ExactAdjacencyTypes.h. The engine contract here never needs the
+// broad-phase QUERY types, and pulling ExactAdjacencyTypes.h would drag SceneGraphModels.h
+// + ShapeMetrics.h into the lean OCCT-only engine TU for no benefit. The one consumer that
+// needs BOTH (ExactAdjacencyService) includes this header AND ExactAdjacencyTypes.h directly.
 #pragma once
-// #include "SceneGraph/ExactAdjacencyTypes.h"   // <-- uncomment in Phase 2 (query types)
 #include <string>
 #include <vector>
 #include <memory>

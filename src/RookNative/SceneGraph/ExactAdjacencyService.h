@@ -1,18 +1,20 @@
 // ExactAdjacencyService.h
 //
-// Rhino-facing orchestrator for exact (planar) adjacency. Ties together:
+// Rhino-facing orchestrator for exact adjacency. Ties together:
 //   candidate query (CSceneGraph, processor thread)
 //   -> result cache
-//   -> main-thread Brep face-summary extraction (Task 7)
-//   -> pure PlanarAdjacencyEngine (Task 4, Rhino-free)
+//   -> main-thread ON_Brep deep-copy extraction (-> Rook::occt::ObjectBrepPayload)
+//   -> pure Rook::occt::OcctAdjacencyEngine (OCCT shared-face area, Rhino-free)
 //   -> cache store
 //
-// Lean header: NO Rhino SDK includes, NO engine include. Only the plain-data
-// DTOs are referenced here so callers and the engine can share this surface
-// without pulling Rhino.
+// Lean header: NO Rhino SDK includes, NO OCCT headers. Only the OCCT-header-free
+// plain-data DTOs are referenced here (query types from ExactAdjacencyTypes.h in
+// bare `Rook`; engine/result contract from OcctAdjacencyTypes.h in `Rook::occt`) so
+// callers and the engine share this surface without pulling Rhino or OCCT.
 
 #pragma once
-#include "SceneGraph/ExactAdjacencyTypes.h"
+#include "SceneGraph/ExactAdjacencyTypes.h"   // broad-phase query types (bare Rook)
+#include "SceneGraph/OcctAdjacencyTypes.h"    // OCCT engine/result contract (Rook::occt)
 #include <string>
 #include <unordered_map>
 #include <mutex>
@@ -38,19 +40,23 @@ public:
     static ExactAdjacencyService& Instance();
 
     // Worker-thread entry point. Orchestrates: candidate query (processor thread)
-    // -> cache lookup -> main-thread face extraction -> pure engine -> cache store.
+    // -> cache lookup -> main-thread ON_Brep extraction -> pure OCCT engine -> cache store.
     // Returns the exact CORE only (no coarse decoration — that is the handler's job).
-    ExactAdjacencyCore Compute(const std::string& objectId, const CandidateQueryOptions& opts);
+    // `fuzzMm` is the OCCT coincidence fuzzy in MILLIMETERS (converted to model units per
+    // call). It is DISTINCT from opts.tolerance (broad-phase, model units) — see plan issue-5.
+    occt::ExactAdjacencyCore Compute(const std::string& objectId,
+                                     const CandidateQueryOptions& opts,
+                                     double fuzzMm = occt::kDefaultFuzzMm);
 
 private:
     ExactAdjacencyService() = default;
 
     std::mutex m_cacheMutex;
-    std::unordered_map<std::string, ExactAdjacencyCore> m_cache;  // key = CacheKey()
+    std::unordered_map<std::string, occt::ExactAdjacencyCore> m_cache;  // key = CacheKey()
     int m_lastSeenSequence = -1;
 
     static std::string CacheKey(const std::string& objectId, int graphSequence,
-                                double tolerance, int maxCandidates, int engineVersion);
+                                double tolerance, double fuzzMm, int maxCandidates, int engineVersion);
 };
 
 } // namespace Rook

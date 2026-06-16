@@ -7,9 +7,9 @@
 // OcctAdjacencyEngine.cpp (a NotUsing-PCH, per-file-OCCT-include-path TU, same
 // build shape as OnBrepToOcct.cpp).
 //
-// Not wired into the production /scene/graph/adjacency/exact route — that stays
-// on the Clipper PlanarAdjacencyEngine until Task 8. Reachable in-plugin only
-// via the dev validation route.
+// WIRED into the production /scene/graph/adjacency/exact route (Task 8): the
+// ExactAdjacencyService extracts move-only Rook::occt::ObjectBrepPayloads on the main
+// thread and calls Evaluate here (OCCT serialized on the OcctExecutor worker thread).
 #pragma once
 #include "SceneGraph/OcctAdjacencyTypes.h"
 

@@ -1,20 +1,20 @@
 // OcctProbe.h
 //
-// Spike G tracer: minimal OCCT-in-plugin probe. Proves OCCT links, initializes,
-// and runs BRepAlgoAPI_Common inside RookNative. Plain interface (no OCCT types in
-// the header) so the Rhino-facing handler can call it WITHOUT pulling OCCT headers
-// (avoids any OpenNURBS<->OCCT header clash). Mirrors the eventual pure-engine seam.
+// OCCT process initialization for in-plugin OCCT work. Installs OCCT's per-thread
+// SEH->Standard_Failure translation (OSD::SetSignal) so an OCCT fault surfaces as a
+// catchable Standard_Failure instead of killing the Rhino process. Plain interface (no
+// OCCT types in the header) so callers don't pull OCCT headers. Called once on the
+// dedicated OCCT worker thread (see OcctExecutor::WorkerLoop).
+//
+// [The Spike-G STEP probe (OcctProbeSharedArea) that used to live here was removed in
+//  Task 8 — no STEP is read anywhere in the C++ build. The filename is retained to avoid
+//  churning OcctExecutor's include during the Phase-2 integration; rename is later polish.]
 #pragma once
-#include <string>
 
 namespace Rook {
 
-// Call once before any probe (OSD::SetSignal + allocator setup). Idempotent.
+// Install OCCT's SEH->Standard_Failure translator on the CURRENT thread.
+// Call once per OCCT worker thread before any OCCT call. Idempotent in practice.
 void OcctProbeInit();
-
-// Reads two STEP files, sums face-pair Common() areas (the Spike-A primitive),
-// returns shared area in the STEP's units (mm^2) or -1 on read failure.
-// `diag` receives a short status string.
-double OcctProbeSharedArea(const std::string& stepA, const std::string& stepB, std::string& diag);
 
 } // namespace Rook

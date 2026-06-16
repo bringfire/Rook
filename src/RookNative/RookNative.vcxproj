@@ -148,13 +148,11 @@
     <ClCompile Include="SceneGraph\SceneGraph.cpp" />
     <ClCompile Include="SceneGraph\SceneGraphWatcher.cpp" />
     <ClCompile Include="SceneGraph\SceneGraphConduit.cpp" />
-    <ClCompile Include="SceneGraph\PlanarAdjacencyEngine.cpp">
-      <PrecompiledHeader Condition="'$(Configuration)'=='Debug'">NotUsing</PrecompiledHeader>
-      <PrecompiledHeader Condition="'$(Configuration)'=='Release'">NotUsing</PrecompiledHeader>
-    </ClCompile>
     <ClCompile Include="SceneGraph\ExactAdjacencyService.cpp" />
-    <!-- Spike G tracer: OCCT-only unit. No stdafx (NotUsing PCH); per-file OCCT
-         include path so OCCT headers don't leak into other TUs; /bigobj for OCCT templates. -->
+    <!-- OCCT process init (OcctProbeInit = OSD::SetSignal SE-translation installer; used
+         by OcctExecutor's worker thread). OCCT-only unit: no stdafx (NotUsing PCH);
+         per-file OCCT include path so OCCT headers don't leak into other TUs. (The Spike-G
+         STEP probe was removed in Task 8 — no STEP is read in the C++ build.) -->
     <ClCompile Include="SceneGraph\OcctProbe.cpp">
       <PrecompiledHeader Condition="'$(Configuration)'=='Debug'">NotUsing</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)'=='Release'">NotUsing</PrecompiledHeader>
@@ -216,19 +214,11 @@
       <ExceptionHandling>Async</ExceptionHandling>
       <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
-    <!-- /EHa (Async): this TU hosts the dev OCCT routes (HandleOcctProbe,
-         HandleOcctValidateConverter) which hold a static std::mutex across OCCT
-         calls. Same EDEADLK exposure as the engine: a SEH-translated OCCT fault
-         under /EHsc would skip the lock_guard destructor and wedge the dev route's
-         mutex. /EHa makes those throws unwind so the lock always releases.
-         (Safe superset of /EHsc for the other handlers in this TU.) -->
-    <ClCompile Include="Handlers\SceneGraphHandler.cpp">
-      <ExceptionHandling>Async</ExceptionHandling>
-    </ClCompile>
-    <!-- Task 6 dev route. Separate TU: the OCCT contract reuses legacy type names
-         in namespace Rook, so it cannot share a TU with SceneGraphHandler.cpp
-         (which owns the legacy ExactAdjacencyTypes.h). Normal PCH. -->
-    <ClCompile Include="Handlers\OcctAdjacencyValidateHandler.cpp" />
+    <!-- SceneGraphHandler.cpp no longer makes OCCT calls (the dev OCCT routes were
+         removed in Task 8; OCCT work is serialized inside OcctAdjacencyEngine on the
+         OcctExecutor thread, and SceneGraphHandler.cpp includes only the OCCT-header-free
+         contract). Plain PCH TU, project-default exception model. -->
+    <ClCompile Include="Handlers\SceneGraphHandler.cpp" />
     <ClCompile Include="Handlers\CommandInteractiveHandler.cpp" />
     <ClCompile Include="Handlers\PromptHandler.cpp" />
     <ClCompile Include="Handlers\GumballHandler.cpp" />
@@ -303,7 +293,6 @@
     <ClInclude Include="Handlers\GameExportHandler.h" />
     <ClInclude Include="SceneGraph\SceneGraphModels.h" />
     <ClInclude Include="SceneGraph\ExactAdjacencyTypes.h" />
-    <ClInclude Include="SceneGraph\PlanarAdjacencyEngine.h" />
     <ClInclude Include="SceneGraph\ExactAdjacencyService.h" />
     <ClInclude Include="SceneGraph\OcctProbe.h" />
     <ClInclude Include="SceneGraph\OcctExecutor.h" />
