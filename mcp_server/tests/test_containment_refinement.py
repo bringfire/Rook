@@ -100,3 +100,58 @@ def test_spans_thin_axis_detects_penetration():
     assert _spans_thin_axis(c, b) is True
     b2 = _attrs(bbox_min=(2, 2, 0.2), bbox_max=(3, 3, 0.8))  # inset on Z
     assert _spans_thin_axis(c, b2) is False
+
+
+from rook.scene.containment_refinement import _verdict_from_evidence
+
+
+def _ev(signal, polarity):
+    return {"signal": signal, "polarity": polarity, "detail": ""}
+
+
+def test_verdict_not_a_solid_veto():
+    ev = [_ev("container_solidity", "disqualifies")]
+    verdict, conf, reason = _verdict_from_evidence(ev, penetration=False)
+    assert (verdict, conf, reason) == ("disqualified", "none", "not_a_solid")
+
+
+def test_verdict_penetration_veto():
+    ev = [_ev("class_pair", "weakens"), _ev("bbox_margin", "weakens")]
+    verdict, conf, reason = _verdict_from_evidence(ev, penetration=True)
+    assert (verdict, conf, reason) == ("disqualified", "none", "likely_penetration")
+
+
+def test_verdict_high_when_solid_margin_class_no_weakens():
+    ev = [_ev("container_solidity", "supports"), _ev("bbox_margin", "supports"),
+          _ev("class_pair", "supports"), _ev("bbox_volume_ratio", "supports")]
+    verdict, conf, reason = _verdict_from_evidence(ev, penetration=False)
+    assert verdict == "contains_semantic" and conf == "high"
+
+
+def test_verdict_medium_with_one_weakener():
+    ev = [_ev("container_solidity", "supports"), _ev("bbox_margin", "supports"),
+          _ev("bbox_volume_ratio", "weakens")]
+    verdict, conf, reason = _verdict_from_evidence(ev, penetration=False)
+    assert verdict == "contains_semantic" and conf == "medium"
+
+
+def test_verdict_low_when_thin_positive():
+    ev = [_ev("bbox_margin", "supports"), _ev("class_pair", "weakens"),
+          _ev("grouping_hint", "supports")]
+    verdict, conf, reason = _verdict_from_evidence(ev, penetration=False)
+    assert verdict == "contains_semantic" and conf == "low"
+
+
+def test_verdict_insufficient_when_unknown_solidity_no_class():
+    # Mesh container: no solidity evidence, only bbox margin -> cannot responsibly assert
+    ev = [_ev("bbox_margin", "supports")]
+    verdict, conf, reason = _verdict_from_evidence(ev, penetration=False)
+    assert verdict == "insufficient_evidence" and conf == "none"
+
+
+def test_verdict_touching_exact_alone_does_not_veto():
+    # Regression guard: touching_exact weakens but, with strong containment, stays semantic.
+    ev = [_ev("container_solidity", "supports"), _ev("bbox_margin", "supports"),
+          _ev("class_pair", "supports"), _ev("touching_exact", "weakens")]
+    verdict, conf, reason = _verdict_from_evidence(ev, penetration=False)
+    assert verdict == "contains_semantic"  # NOT disqualified

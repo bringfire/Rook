@@ -185,3 +185,31 @@ def _spans_thin_axis(c: dict, b: dict) -> bool:
     bmn, bmx = b.get("bbox_min") or [0, 0, 0], b.get("bbox_max") or [0, 0, 0]
     low, high = bmn[axis] - cmn[axis], cmx[axis] - bmx[axis]
     return low <= MARGIN_EPS and high <= MARGIN_EPS
+
+
+def _verdict_from_evidence(evidence: list, penetration: bool) -> tuple[str, str, str | None]:
+    """Map accumulated evidence (+ penetration flag) to (verdict, confidence, reason).
+
+    Two hard vetoes: not_a_solid (a disqualifies-polarity item) and likely_penetration.
+    Otherwise additive ordinal mapping. Confidence is ordinal, never probabilistic.
+    """
+    if any(e["polarity"] == "disqualifies" for e in evidence):
+        return "disqualified", "none", "not_a_solid"
+    if penetration:
+        return "disqualified", "none", "likely_penetration"
+
+    supports = [e for e in evidence if e["polarity"] == "supports"]
+    weakens = [e for e in evidence if e["polarity"] == "weakens"]
+    sig = lambda name, pol: any(e["signal"] == name and e["polarity"] == pol for e in evidence)  # noqa: E731
+
+    has_solid = sig("container_solidity", "supports")
+    has_margin = sig("bbox_margin", "supports")
+    has_class = sig("class_pair", "supports")
+
+    if has_solid and has_margin and has_class and not weakens:
+        return "contains_semantic", "high", "strong_clearance_plausible_container"
+    if has_solid and has_margin and len(weakens) <= 1:
+        return "contains_semantic", "medium", "clear_containment_minor_gaps"
+    if len(supports) >= 2 and len(supports) > len(weakens) and (has_margin or has_solid):
+        return "contains_semantic", "low", "weak_positive_containment"
+    return "insufficient_evidence", "none", "insufficient_evidence"
