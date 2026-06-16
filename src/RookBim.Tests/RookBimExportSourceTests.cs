@@ -119,6 +119,19 @@ namespace RookBim.Tests
             Assert.DoesNotContain("Transaction", src);
         }
 
+        [Fact]
+        public void Runtime_WiresExportElementsThroughDispatcherWithExportTimeout()
+        {
+            var src = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
+
+            Assert.Contains("public BimApiResponse ExportElements(BimExportElementsRequest request)", src);
+            Assert.Contains("private readonly RevitExportService export", src);
+            Assert.Contains("ExportDispatchTimeout", src);
+            Assert.Contains("export.Export(", src);
+            // Export uses a longer timeout than the default 5s op timeout.
+            Assert.Contains("DispatchWithTimeout", src);
+        }
+
         internal static string Read(string relativePath)
         {
             return File.ReadAllText(Path.Combine(RepoRoot, relativePath.Replace('/', Path.DirectorySeparatorChar)));
