@@ -44,7 +44,8 @@ NON_SOLID_TYPES = {                                  # cannot be a container -> 
     "Point", "PointSet", "Curve", "Light",
     "Annotation", "TextDot", "Hatch", "ClipPlane",
 }
-WEAK_SOLID_TYPES = {"Mesh", "SubD", "InstanceReference"}  # unknown closure -> neutral (no evidence)
+# Mesh / SubD / InstanceReference: unknown closure -> neutral (no solidity evidence emitted;
+# handled by the fall-through in _evidence_container_solidity, not a named set).
 OPEN_SURFACE_TYPES = {"Surface"}                          # open -> weakens
 
 # Thin container classes (penetration risk). Checked against shape_class AND domain_label.
