@@ -344,9 +344,6 @@ async def handle_message(request: web.Request) -> web.StreamResponse:
     if document_serial_number > 0:
         conv.document_serial_number = document_serial_number
 
-    preparing_run_id = "server_preparing"
-    conv.active_run_id = preparing_run_id
-
     builder = request.app.get(_BUILDER_KEY) or _get_builder()
     runner = request.app.get(_RUNNER_KEY) or _get_runner()
     system_prompt = builder.build_system(conv.persona)
@@ -365,7 +362,9 @@ async def handle_message(request: web.Request) -> web.StreamResponse:
     )
 
     turn_events = None
+    preparing_run_id = "server_preparing"
     try:
+        conv.active_run_id = preparing_run_id
         await response.prepare(request)
         try:
             with rhino_request_context(
@@ -446,9 +445,6 @@ async def handle_ui_response(request: web.Request) -> web.StreamResponse:
     if document_serial_number > 0:
         conv.document_serial_number = document_serial_number
 
-    preparing_run_id = "server_preparing"
-    conv.active_run_id = preparing_run_id
-
     # Serialize the structured UI response as the user_message for run_turn.
     # run_turn appends it to conv.messages itself.
     user_message = json.dumps({
@@ -474,7 +470,9 @@ async def handle_ui_response(request: web.Request) -> web.StreamResponse:
     )
 
     turn_events = None
+    preparing_run_id = "server_preparing"
     try:
+        conv.active_run_id = preparing_run_id
         await response.prepare(request)
         try:
             with rhino_request_context(

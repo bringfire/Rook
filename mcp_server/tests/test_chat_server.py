@@ -387,6 +387,50 @@ class TestChatServer(AioHTTPTestCase):
         assert conv.model == "anthropic/current"
         assert conv.active_run_id is None
 
+    async def _exercise_build_system_failure_does_not_reserve(self, handler, body):
+        class FakeRequest:
+            def __init__(self, app, request_body):
+                self.app = app
+                self._body = request_body
+
+            async def json(self):
+                return self._body
+
+        class BrokenBuilder:
+            def build_system(self, persona):
+                raise RuntimeError(f"prompt build failed for {persona}")
+
+        conv = self.store.create("worker")
+        body["conversation_id"] = conv.id
+        app = {
+            chat_server._STORE_KEY: self.store,
+            chat_server._BUILDER_KEY: BrokenBuilder(),
+            chat_server._RUNNER_KEY: self.runner,
+            chat_server._RHINO_PROCESS_ID_KEY: 0,
+        }
+
+        with pytest.raises(RuntimeError, match="prompt build failed"):
+            await handler(FakeRequest(app, body))
+
+        assert conv.active_run_id is None
+
+    async def test_message_build_system_failure_does_not_leave_processing_sentinel(self):
+        await self._exercise_build_system_failure_does_not_reserve(
+            chat_server.handle_message,
+            {
+                "message": "start this turn",
+            },
+        )
+
+    async def test_ui_response_build_system_failure_does_not_leave_processing_sentinel(self):
+        await self._exercise_build_system_failure_does_not_reserve(
+            chat_server.handle_ui_response,
+            {
+                "block_id": "blk_prompt_failure",
+                "value": {"accepted": True},
+            },
+        )
+
     async def test_stop_conversation(self):
         # Start one first
         resp = await self.client.post(
