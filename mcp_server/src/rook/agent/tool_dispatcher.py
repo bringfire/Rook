@@ -452,6 +452,7 @@ BRIDGE_ROUTES: Dict[str, Tuple[str, str]] = {
     "rookbim_element_parameters": ("/bim/element-parameters", "POST"),
     "rookbim_select_elements":    ("/bim/select-elements", "POST"),
     "rookbim_clear_selection":    ("/bim/clear-selection", "POST"),
+    "rookbim_export_elements":    ("/bim/export-elements", "POST"),
 
     # --- Vision Video (PR-V4) ---
     # Body-only / no-param tools live here. Path-param tools

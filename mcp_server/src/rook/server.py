@@ -502,6 +502,46 @@ def _rookbim_select_elements_schema() -> dict[str, Any]:
     }
 
 
+def _rookbim_export_elements_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "selector": _rookbim_query_elements_schema(),
+            "identities": {
+                "type": "array",
+                "items": _rookbim_identity_schema(),
+                "minItems": 1,
+                "maxItems": 1000,
+            },
+            "output": {
+                "type": "object",
+                "properties": {
+                    "directory": {"type": "string", "description": "Absolute local output directory."},
+                    "name": {"type": "string", "description": "Bundle name ([A-Za-z0-9._-], no separators)."},
+                    "units": {
+                        "type": "string",
+                        "enum": ["meters", "millimeters", "centimeters", "feet", "inches"],
+                        "default": "meters",
+                    },
+                    "overwrite": {"type": "boolean", "default": False},
+                },
+                "required": ["directory", "name"],
+                "additionalProperties": False,
+            },
+            "rooms": {
+                "type": "string",
+                "enum": ["both", "labels_only", "exclude"],
+                "default": "both",
+            },
+            "allowTruncated": {"type": "boolean", "default": False},
+            "allowBboxProxy": {"type": "boolean", "default": False},
+            "port": _rookbim_port_schema(),
+        },
+        "required": ["output"],
+        "additionalProperties": False,
+    }
+
+
 def _interactive_command_learning_enabled() -> bool:
     if os.getenv("ROOK_MCP_TARGET_MODE") == "panel_locked":
         return False
@@ -12262,6 +12302,15 @@ Returns the full profile JSON including features, surfaces, and elements.""",
             ),
             inputSchema=_rookbim_empty_input_schema(),
         ),
+        Tool(
+            name="rookbim_export_elements",
+            description=(
+                "Export selected Revit elements to a Rhino-consumable .3dm + sidecar + validation "
+                "bundle (geometry + identity + semantic labels). Read-only on the Revit/Rhino "
+                "documents; writes files to disk. Provide exactly one of 'selector' or 'identities'."
+            ),
+            inputSchema=_rookbim_export_elements_schema(),
+        ),
 
         # ─── Vision Video (PR-V4) ───────────────────────────────────────
         # Seven MCP tools wrapping the V2/V3 video routes plus the two
@@ -19556,6 +19605,11 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
         case "rookbim_clear_selection":
             result = await call_rhino(
                 "/bim/clear-selection", "POST", None, port=port
+            )
+
+        case "rookbim_export_elements":
+            result = await call_rhino(
+                "/bim/export-elements", "POST", arguments, port=port
             )
 
         # ─── Vision Video (PR-V4) ────────────────────────────────────

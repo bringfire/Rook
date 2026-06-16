@@ -535,6 +535,7 @@ _ALL_KNOWN_TOOLS = {
     "rookbim_clear_selection",
     "rookbim_element_info",
     "rookbim_element_parameters",
+    "rookbim_export_elements",
     "rookbim_list_categories",
     "rookbim_query_elements",
     "rookbim_select_elements",
