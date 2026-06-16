@@ -73,11 +73,20 @@ scene/exact_projection.py
   _instance singleton via get_exact_projector(analytics)
 ```
 
-- `server.py` gains one new tool case `scene_exact_neighbors` that: syncs the mirror,
-  constructs/reuses the projector, calls `project(...)`, returns the structured JSON.
 - The projector **reads and writes the mirror's `MultiDiGraph`** but owns no graph of its
   own — the mirror stays the single source of truth.
 - Cache + projection-artifact bookkeeping live on the projector singleton.
+
+### Tool registration scope (all three required)
+Surfacing the tool reliably needs three coordinated edits, not just a dispatch case:
+1. **Dispatch case** — `server.py` gains a `scene_exact_neighbors` case that syncs the mirror,
+   constructs/reuses the projector, calls `project(...)`, returns the structured JSON.
+2. **Tool schema** — register the `scene_exact_neighbors` `Tool(...)` in `list_tools` (next to
+   the other `scene_*` tools, ~`server.py:11063`).
+3. **Tool group** — add `"scene_exact_neighbors"` to the `scene_graph` group in
+   `mcp_server/src/rook/agent/tool_groups.py:452` (alongside the other Python-side scene tools),
+   so progressive tool disclosure surfaces it. Omitting this leaves the tool callable but
+   undiscoverable to agents.
 
 ### Unit Contract Invariant (load-bearing)
 > Exact projection preserves the native route's unit contract. `/scene/graph/adjacency/exact`
@@ -164,7 +173,9 @@ table. v1 adopts the edge-type *name + meaning*, not the IFC data model.
    bbox annotations, and the response block (neighbors / refuted / failed). Classify each
    considered candidate into confirmed / refuted / failed.
 5. **Commit delta** — apply all graph mutations for that source in one shot (prepare-then-commit
-   atomicity). If parse/classify failed, apply nothing for that source.
+   atomicity). If parse/classify failed, apply nothing for that source. **Every commit that
+   adds/removes edges or annotations calls `analytics._invalidate_caches()`** (or a small public
+   wrapper) so cached `community`/`centrality` results computed before projection are not reused.
 6. **Cache** the per-source result under its key.
 7. **Return** the structured JSON (§5).
 
@@ -176,7 +187,8 @@ table. v1 adopts the edge-type *name + meaning*, not the IFC data model.
   the agent). On advance the projector:
   - removes every edge with `key == "occt:adjacent_exact"` (and any `provenance == "occt"` edge);
   - strips projection-owned bbox annotations: `approximate`, `exact_status`, `exact_reason`,
-    `exact_diagnostics`, `exact_graphSequence`.
+    `exact_diagnostics`, `exact_graphSequence`;
+  - calls `analytics._invalidate_caches()` (prune mutates the graph too);
   - Then new explicit calls repopulate for the requested ids.
 - **Invariant:** exact facts are **ephemeral read-model enrichment, valid only for the
   `graphSequence` they were computed against.**
@@ -197,8 +209,13 @@ table. v1 adopts the edge-type *name + meaning*, not the IFC data model.
 **New MCP tool** (the only new tool in v1):
 
 ```
-scene_exact_neighbors(object_ids: [str], candidate_scope="broad_phase_default", port?)
+scene_exact_neighbors(object_ids: [str], candidate_scope?, port?)
 ```
+
+`candidate_scope` is an **enum with a single v1 value** `"broad_phase_default"` (default).
+It is constrained in the tool schema so radius / whole-model scopes are not implied to be
+supported. (Kept as a named param only as a forward-compat seam; if it adds friction it may be
+dropped until a second scope exists.)
 
 **Return** — structured JSON is the contract:
 
@@ -289,7 +306,10 @@ display-unit abbreviation map (`inches^2` → `in²`) is a later, opt-in nicety.
   - cache hit / miss accounting and `fromCache`;
   - **unit pass-through** — no conversion; `unitsUniform:false` path when sources disagree;
   - per-source isolation on injected route failure / timeout / `skipped` (object_not_in_scene);
-  - prepare-then-commit atomicity — a parse failure leaves the graph unmutated for that source.
+  - prepare-then-commit atomicity — a parse failure leaves the graph unmutated for that source;
+  - **analytics-cache invalidation** — compute `centrality()`/`community_detection()`, then
+    project (and separately, prune), then verify the cached object is recomputed (not the stale
+    pre-projection object).
 - **Live smoke (Rhino open, SpatialTest.3dm) — proves wiring only, does not revalidate the
   engine.** One urllib script (sibling to `live_verify_occt_adjacency.py`) calling
   `scene_exact_neighbors` for floorplate `08d4dedf`: the 5 `adjacent_exact` edges land in the
