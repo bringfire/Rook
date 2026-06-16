@@ -369,3 +369,24 @@ def test_get_containment_refiner_singleton_binds_scene_graph():
     a = get_containment_refiner()
     b = get_containment_refiner()
     assert a is b
+
+
+from rook.scene.scene_graph import _inverse_rel, _forward_rel
+
+
+def test_nl_forward_and_inverse_for_contains_semantic():
+    assert _forward_rel("contains_semantic") == "contains (semantic)"
+    assert _inverse_rel("contains_semantic") == "within (semantic)"
+
+
+def test_get_context_renders_contains_semantic_with_confidence():
+    r = _refiner({"BOX": _attrs(geometry_type="Brep", shape_class="compact",
+                                bbox_min=(0, 0, 0), bbox_max=(10, 10, 10)),
+                  "SM": _attrs(geometry_type="Brep", shape_class="compact", domain_label="panel",
+                               bbox_min=(2, 2, 2), bbox_max=(4, 4, 4))},
+                 contains_edges=[("BOX", "SM")])
+    sg = r._analytics
+    r._commit_request_delta(r._prepare_request_delta(["BOX"], graph_sequence=1))
+    text = sg.get_context(["BOX"])
+    assert "contains (semantic" in text
+    assert "high" in text  # confidence rendered

@@ -467,6 +467,7 @@ _INVERSE_RELS = {
     "adjacent": "adjacent to",
     "adjacent_exact": "adjacent to (exact)",
     "near": "near",
+    "contains_semantic": "within (semantic)",
 }
 
 
@@ -479,6 +480,7 @@ def _inverse_rel(rel: str) -> str:
 # both directions (it is one canonical edge serving both endpoints).
 _FORWARD_RELS = {
     "adjacent_exact": "adjacent to (exact)",
+    "contains_semantic": "contains (semantic)",
 }
 
 
@@ -488,6 +490,9 @@ def _forward_rel(rel: str) -> str:
 
 def _edge_detail(edata: dict) -> str:
     """Trailing detail string for an edge line (exact area, distance, direction)."""
+    if edata.get("relationship") == "contains_semantic":
+        conf = edata.get("confidence", "")
+        return f" ({conf})" if conf else ""
     if edata.get("relationship") == "adjacent_exact":
         area = edata.get("sharedArea")
         unit = edata.get("areaUnit", "")
