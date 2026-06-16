@@ -244,6 +244,11 @@ namespace Rook.Tests.Capabilities
             {
                 throw new NotSupportedException();
             }
+
+            public BimApiResponse ExportElements(BimExportElementsRequest request)
+            {
+                throw new NotSupportedException();
+            }
         }
     }
 }
