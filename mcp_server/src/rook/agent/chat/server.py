@@ -241,6 +241,16 @@ async def handle_start(request: web.Request) -> web.Response:
 
 async def handle_set_model(request: web.Request) -> web.Response:
     """POST /agent/chat/model — apply a validated model override."""
+
+    def conversation_processing_response() -> web.Response:
+        return web.json_response(
+            {
+                "error": "Conversation already processing. Try again after the current turn completes.",
+                "code": "conversation_processing",
+            },
+            status=409,
+        )
+
     try:
         body = await request.json()
     except json.JSONDecodeError:
@@ -260,18 +270,15 @@ async def handle_set_model(request: web.Request) -> web.Response:
         return web.json_response({"error": "Conversation not found"}, status=404)
 
     if conv.active_run_id is not None:
-        return web.json_response(
-            {
-                "error": "Conversation already processing. Try again after the current turn completes.",
-                "code": "conversation_processing",
-            },
-            status=409,
-        )
+        return conversation_processing_response()
 
     try:
         resolution = await model_status.resolve_allowed_model_override(model_override)
     except model_status.ModelOverrideUnavailable as exc:
         return web.json_response(exc.to_payload(), status=400)
+
+    if conv.active_run_id is not None:
+        return conversation_processing_response()
 
     payload = conv.apply_model_override(
         resolution,

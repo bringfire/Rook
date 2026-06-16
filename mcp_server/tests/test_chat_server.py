@@ -216,6 +216,40 @@ class TestChatServer(AioHTTPTestCase):
         assert conv.api_base_source == "active_profile"
         resolver.assert_awaited_once_with("ollama_chat/qwen3")
 
+    async def test_set_conversation_model_rejects_if_conversation_becomes_active_during_resolution(self):
+        conv = self.store.create("worker")
+        conv.model = "anthropic/current"
+        conv.api_base = ""
+        resolution = model_status.ModelOverrideResolution(
+            model_override="ollama_chat/qwen3",
+            api_base="http://127.0.0.1:11434",
+            routing="local",
+            provider="ollama_chat",
+            api_base_source="active_profile",
+        )
+
+        async def resolve_with_race(model_override):
+            conv.active_run_id = "running"
+            return resolution
+
+        with patch(
+            "rook.agent.chat.server.model_status.resolve_allowed_model_override",
+            new=resolve_with_race,
+        ):
+            resp = await self.client.post(
+                "/agent/chat/model",
+                json={
+                    "conversation_id": conv.id,
+                    "model_override": "ollama_chat/qwen3",
+                },
+            )
+
+        assert resp.status == 409
+        data = await resp.json()
+        assert data["code"] == "conversation_processing"
+        assert conv.model == "anthropic/current"
+        assert conv.api_base == ""
+
     async def test_stop_conversation(self):
         # Start one first
         resp = await self.client.post(
