@@ -21,7 +21,6 @@ from __future__ import annotations
 import copy
 import logging
 from dataclasses import dataclass, field
-from typing import Any
 
 from ..bridge import call_rhino
 from .scene_graph import SceneGraphAnalytics, get_scene_graph
