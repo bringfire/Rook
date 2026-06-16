@@ -222,3 +222,105 @@ class ExactAdjacencyProjector:
             self._purge_projection_artifacts()
             self._cache.clear()
             self._cache_sequence = graph_sequence
+
+    @staticmethod
+    def _cache_key(graph_sequence: int, source_id: str, candidate_scope: str) -> tuple:
+        return (graph_sequence, source_id, candidate_scope, ENGINE_VERSION)
+
+    @staticmethod
+    def _empty_block(source_id: str, status: str, error: str | None) -> dict:
+        return {
+            "sourceId": source_id, "routeStatus": status, "error": error,
+            "sourceCapability": "", "capabilitiesById": {},
+            "lengthUnit": None, "areaUnit": None,
+            "neighbors": [], "refuted": [], "failed": [], "diagnostics": [],
+        }
+
+    @staticmethod
+    def _delta_to_block(delta: _SourceDelta) -> dict:
+        return {
+            "sourceId": delta.source_id, "routeStatus": delta.route_status,
+            "error": delta.error, "sourceCapability": delta.source_capability,
+            "capabilitiesById": delta.capabilities_by_id,
+            "lengthUnit": delta.length_unit, "areaUnit": delta.area_unit,
+            "neighbors": delta.neighbors, "refuted": delta.refuted,
+            "failed": delta.failed, "diagnostics": delta.diagnostics,
+        }
+
+    async def _project_one(self, source_id, candidate_scope, graph_sequence, port) -> dict:
+        if not self._analytics.graph.has_node(source_id):
+            return self._empty_block(source_id, "skipped", "object_not_in_scene")
+        try:
+            resp = await call_rhino(
+                "/scene/graph/adjacency/exact", "POST",
+                {"objectId": source_id, "candidateScope": candidate_scope}, port=port)
+        except Exception as ex:  # transport-level failure
+            logger.warning("exact route raised for %s: %s", source_id, ex)
+            return self._empty_block(source_id, "failed", str(ex))
+        if not resp.get("success"):
+            err = str(resp.get("data", "exact route failed"))
+            status = "timeout" if "timeout" in err.lower() else "failed"
+            return self._empty_block(source_id, status, err)
+        try:
+            delta = self._prepare_source_delta(source_id, resp.get("data") or {}, graph_sequence)
+            self._commit_source_delta(delta)
+        except Exception as ex:  # malformed payload -> isolate, graph untouched (prepare-then-commit)
+            logger.warning("exact projection parse failed for %s: %s", source_id, ex)
+            return self._empty_block(source_id, "failed", f"parse_error: {ex}")
+        return self._delta_to_block(delta)
+
+    async def project(self, object_ids, *, candidate_scope=DEFAULT_CANDIDATE_SCOPE, port=None) -> dict:
+        # Validate scope in the projector (not just the MCP schema) so the agent-direct
+        # path is guarded too. v1 supports a single scope.
+        if candidate_scope != DEFAULT_CANDIDATE_SCOPE:
+            return {"success": False,
+                    "error": f"unsupported candidate_scope {candidate_scope!r}; "
+                             f"v1 supports only {DEFAULT_CANDIDATE_SCOPE!r}"}
+        await self._analytics.sync(port=port)
+        graph_sequence = self._analytics.sequence
+        self._prune_if_advanced(graph_sequence)
+
+        projected: list[dict] = []
+        hits = misses = 0
+        unit_pairs: set[tuple] = set()
+        for source_id in object_ids:
+            key = self._cache_key(graph_sequence, source_id, candidate_scope)
+            if key in self._cache:
+                block = copy.deepcopy(self._cache[key])
+                for n in block.get("neighbors", []):
+                    n["fromCache"] = True
+                hits += 1
+            else:
+                block = await self._project_one(source_id, candidate_scope, graph_sequence, port)
+                # Cache only durable outcomes. A transient route failure/timeout must NOT
+                # become sticky until graphSequence changes.
+                if block.get("routeStatus") in ("ok", "skipped"):
+                    self._cache[key] = copy.deepcopy(block)
+                misses += 1
+            projected.append(block)
+            lu, au = block.get("lengthUnit"), block.get("areaUnit")
+            if lu is not None or au is not None:
+                unit_pairs.add((lu, au))
+
+        result = {
+            "success": True, "graphSequence": graph_sequence,
+            "projected": projected, "cache": {"hits": hits, "misses": misses},
+        }
+        if len(unit_pairs) == 1:
+            lu, au = next(iter(unit_pairs))
+            result.update({"unitsUniform": True, "lengthUnit": lu, "areaUnit": au})
+        else:
+            # no units seen -> vacuously uniform; conflicting units -> not uniform, omit top-level
+            result["unitsUniform"] = (len(unit_pairs) == 0)
+        return result
+
+
+_projector: ExactAdjacencyProjector | None = None
+
+
+def get_exact_projector(analytics: SceneGraphAnalytics | None = None) -> ExactAdjacencyProjector:
+    """Module singleton, bound to the shared scene-graph analytics mirror."""
+    global _projector
+    if _projector is None:
+        _projector = ExactAdjacencyProjector(analytics or get_scene_graph())
+    return _projector

@@ -174,3 +174,153 @@ def test_prune_if_advanced_only_on_sequence_change():
     proj._prune_if_advanced(6)
     assert proj._cache == {}
     assert proj._cache_sequence == 6
+
+
+import rook.scene.exact_projection as ep
+from rook.scene.exact_projection import get_exact_projector
+
+
+def _stub_sync(analytics, sequence):
+    """Replace analytics.sync with an async no-op that sets the sequence."""
+    async def _sync(port=None):
+        analytics._sequence = sequence
+        return {"synced": True, "sequence": sequence}
+    analytics.sync = _sync  # type: ignore[assignment]
+
+
+def test_project_full_payload_and_cache_hit(monkeypatch):
+    proj = _projector_with_nodes("A", "B", "C", "D", "E")
+    _stub_sync(proj._analytics, 7)
+
+    calls = {"n": 0}
+
+    async def fake_call_rhino(endpoint, method="GET", data=None, port=None, **kw):
+        calls["n"] += 1
+        assert endpoint == "/scene/graph/adjacency/exact"
+        assert data["objectId"] == "A"
+        return {"success": True, "data": _ROUTE_PAYLOAD}
+
+    monkeypatch.setattr(ep, "call_rhino", fake_call_rhino)
+
+    out = asyncio.run(proj.project(["A"]))
+    assert out["success"] is True
+    assert out["graphSequence"] == 7
+    assert out["unitsUniform"] is True
+    assert out["areaUnit"] == "inches^2"
+    block = out["projected"][0]
+    assert block["routeStatus"] == "ok"
+    assert {n["id"] for n in block["neighbors"]} == {"B", "C"}
+    assert all(n["fromCache"] is False for n in block["neighbors"])
+    assert out["cache"] == {"hits": 0, "misses": 1}
+
+    # Second call: cache hit, no new route call, neighbors flagged fromCache.
+    out2 = asyncio.run(proj.project(["A"]))
+    assert calls["n"] == 1
+    assert out2["cache"] == {"hits": 1, "misses": 0}
+    assert all(n["fromCache"] is True for n in out2["projected"][0]["neighbors"])
+
+
+def test_project_skipped_when_object_not_in_scene(monkeypatch):
+    proj = _projector_with_nodes("A")  # 'Z' absent
+    _stub_sync(proj._analytics, 1)
+    monkeypatch.setattr(ep, "call_rhino", _should_not_be_called)
+    out = asyncio.run(proj.project(["Z"]))
+    block = out["projected"][0]
+    assert block["routeStatus"] == "skipped"
+    assert block["error"] == "object_not_in_scene"
+    assert block["neighbors"] == []
+
+
+def test_project_isolates_route_failure(monkeypatch):
+    proj = _projector_with_nodes("A", "B")
+    _stub_sync(proj._analytics, 1)
+
+    async def failing(endpoint, method="GET", data=None, port=None, **kw):
+        return {"success": False, "data": "boom"}
+
+    monkeypatch.setattr(ep, "call_rhino", failing)
+    out = asyncio.run(proj.project(["A"]))
+    block = out["projected"][0]
+    assert block["routeStatus"] == "failed"
+    assert block["error"] == "boom"
+    # Approximate graph still usable: no exact edges, no crash.
+    assert not any(k == EXACT_EDGE_KEY for _, _, k in proj._analytics.graph.edges(keys=True))
+
+
+def test_project_does_not_cache_transient_failure(monkeypatch):
+    proj = _projector_with_nodes("A", "B")
+    _stub_sync(proj._analytics, 1)
+    calls = {"n": 0}
+
+    async def failing(endpoint, method="GET", data=None, port=None, **kw):
+        calls["n"] += 1
+        return {"success": False, "data": "request timeout"}
+
+    monkeypatch.setattr(ep, "call_rhino", failing)
+    out1 = asyncio.run(proj.project(["A"]))
+    assert out1["projected"][0]["routeStatus"] == "timeout"
+    # Second call must RETRY (not serve a cached failure).
+    out2 = asyncio.run(proj.project(["A"]))
+    assert calls["n"] == 2
+    assert out2["cache"] == {"hits": 0, "misses": 1}
+
+
+def test_project_rejects_unsupported_candidate_scope():
+    proj = _projector_with_nodes("A")
+    _stub_sync(proj._analytics, 1)
+    out = asyncio.run(proj.project(["A"], candidate_scope="radius"))
+    assert out["success"] is False
+    assert "unsupported candidate_scope" in out["error"]
+
+
+def test_project_units_not_uniform_omits_top_level(monkeypatch):
+    proj = _projector_with_nodes("A", "B", "M", "N")
+    _stub_sync(proj._analytics, 3)
+    payload_in = {"objectId": "A", "sourceCapability": "exact_brep",
+                  "lengthUnit": "inches", "areaUnit": "inches^2",
+                  "edges": [{"targetId": "B", "sharedArea": 1.0, "facePairs": []}],
+                  "candidates": [{"id": "B", "capability": "exact_brep"}]}
+    payload_mm = {"objectId": "M", "sourceCapability": "exact_brep",
+                  "lengthUnit": "millimeters", "areaUnit": "millimeters^2",
+                  "edges": [{"targetId": "N", "sharedArea": 2.0, "facePairs": []}],
+                  "candidates": [{"id": "N", "capability": "exact_brep"}]}
+
+    async def fake(endpoint, method="GET", data=None, port=None, **kw):
+        return {"success": True, "data": payload_in if data["objectId"] == "A" else payload_mm}
+
+    monkeypatch.setattr(ep, "call_rhino", fake)
+    out = asyncio.run(proj.project(["A", "M"]))
+    assert out["unitsUniform"] is False
+    assert "areaUnit" not in out  # top-level units omitted on conflict
+    assert "lengthUnit" not in out
+    # edge-level units remain the source of truth
+    assert out["projected"][0]["areaUnit"] == "inches^2"
+    assert out["projected"][1]["areaUnit"] == "millimeters^2"
+
+
+def test_project_invalidates_analytics_caches_on_commit(monkeypatch):
+    proj = _projector_with_nodes("A", "B")
+    _stub_sync(proj._analytics, 4)
+    # Pin cache_sequence to the synced sequence so _prune_if_advanced is a no-op:
+    # this isolates the COMMIT path as the thing that invalidates the caches.
+    proj._cache_sequence = 4
+    # Prime analytics caches BEFORE projecting.
+    proj._analytics._communities = {"group_0": ["A", "B"]}
+    proj._analytics._centrality = {"A": 1.0}
+
+    async def fake(endpoint, method="GET", data=None, port=None, **kw):
+        return {"success": True, "data": {
+            "objectId": "A", "sourceCapability": "exact_brep",
+            "lengthUnit": "inches", "areaUnit": "inches^2",
+            "edges": [{"targetId": "B", "sharedArea": 9.0, "facePairs": []}],
+            "candidates": [{"id": "B", "capability": "exact_brep"}]}}
+
+    monkeypatch.setattr(ep, "call_rhino", fake)
+    asyncio.run(proj.project(["A"]))
+    # The commit mutated the graph -> cached analytics objects dropped.
+    assert proj._analytics._communities is None
+    assert proj._analytics._centrality is None
+
+
+async def _should_not_be_called(*a, **k):
+    raise AssertionError("call_rhino must not be called for a skipped source")
