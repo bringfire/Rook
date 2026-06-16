@@ -120,7 +120,9 @@ body (still on-thread — acceptable for v1; an off-thread write optimization is
   "output": {
     "directory": "<absolute local dir>",   // required, must be absolute + local
     "name":      "walls-fixture",          // required, sanitized: no path separators / traversal
-    "units":     "meters",                 // output .3dm unit system; default meters
+    "units":     "meters",                 // output .3dm unit system; default meters. MUST be one of
+                                           // meters|millimeters|centimeters|feet|inches — an unknown
+                                           // unit is rejected at validation (no silent fallback).
     "overwrite": false                     // default false — refuse to clobber an existing bundle
   },
 

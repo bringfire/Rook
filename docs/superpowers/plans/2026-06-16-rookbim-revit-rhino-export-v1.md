@@ -39,7 +39,9 @@
 - `targeting.py` (MODIFY) — add to `_ALL_KNOWN_TOOLS` only (auto-classified mutate).
 
 **Tests:**
-- `src/Rook.Tests/Bim/BimExportContractsTests.cs` (CREATE) — request validation + path policy (behavioral).
+- `src/Rook.Tests/Bim/RookBimExportContractsTests.cs` (CREATE) — request validation (behavioral).
+- `src/Rook.Tests/Bim/RookBimExportPathPolicyTests.cs` (CREATE) — path-safety + units validation (behavioral).
+- `src/Rook.Tests/Bim/RookBimUnavailableExportTests.cs` (CREATE) — Unavailable runtime (behavioral).
 - `src/Rook.Tests/Handlers/BimHandlerExportSourceTests.cs` (CREATE) — handler wiring (source-text).
 - `src/Rook.Tests/Handlers/NativeBimDispatchSourceTests.cs` (MODIFY) — native route row.
 - `src/RookBim.Tests/RookBimExportSourceTests.cs` (CREATE) — RookBim service source-text tests.
@@ -333,11 +335,11 @@ git commit -m "feat(bim): export request contract, error codes, result POCOs"
 
 **Files:**
 - Create: `src/Rook/Bim/BimExportPathPolicy.cs`
-- Test: `src/Rook.Tests/Bim/BimExportPathPolicyTests.cs`
+- Test: `src/Rook.Tests/Bim/RookBimExportPathPolicyTests.cs` (folder convention is `RookBim*`)
 
 - [ ] **Step 1: Write the failing test**
 
-Create `src/Rook.Tests/Bim/BimExportPathPolicyTests.cs`:
+Create `src/Rook.Tests/Bim/RookBimExportPathPolicyTests.cs`:
 
 ```csharp
 using Rook.Bim;
@@ -345,7 +347,7 @@ using Xunit;
 
 namespace Rook.Tests.Bim
 {
-    public class BimExportPathPolicyTests
+    public class RookBimExportPathPolicyTests
     {
         [Theory]
         [InlineData(null)]
@@ -383,6 +385,32 @@ namespace Rook.Tests.Bim
             Assert.Equal(BimErrorCode.OutputPathInvalid, result.ErrorCode);
         }
 
+        [Theory]
+        [InlineData("meters")]
+        [InlineData("Meters")]      // case-insensitive
+        [InlineData("millimeters")]
+        [InlineData("centimeters")]
+        [InlineData("feet")]
+        [InlineData("inches")]
+        public void ValidateRequestShape_AcceptsSupportedUnits(string units)
+        {
+            var result = BimExportPathPolicy.ValidateRequestShape(
+                new BimExportOutput { Directory = @"C:\fixtures", Name = "walls", Units = units });
+            Assert.True(result.Success);
+        }
+
+        [Theory]
+        [InlineData("cubits")]
+        [InlineData("")]
+        [InlineData("mm")]          // aliases are NOT part of the public unit contract
+        public void ValidateRequestShape_RejectsUnsupportedUnits(string units)
+        {
+            var result = BimExportPathPolicy.ValidateRequestShape(
+                new BimExportOutput { Directory = @"C:\fixtures", Name = "walls", Units = units });
+            Assert.False(result.Success);
+            Assert.Equal(BimErrorCode.OutputPathInvalid, result.ErrorCode);
+        }
+
         [Fact]
         public void ValidateRequestShape_AcceptsAbsoluteDirAndSafeName()
         {
@@ -413,7 +441,7 @@ namespace Rook.Tests.Bim
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter BimExportPathPolicyTests`
+Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter RookBimExportPathPolicyTests`
 Expected: FAIL — `BimExportPathPolicy` does not exist.
 
 - [ ] **Step 3: Implement the policy**
@@ -443,6 +471,13 @@ namespace Rook.Bim
             },
             StringComparer.OrdinalIgnoreCase);
 
+        // The supported output unit systems — kept in lockstep with the MCP tool schema enum and
+        // RevitGeometryConverter.ScaleFromFeet. Validating here means an unknown unit fails fast at
+        // the request boundary rather than silently degrading to a default downstream.
+        private static readonly HashSet<string> SupportedUnits = new HashSet<string>(
+            new[] { "meters", "millimeters", "centimeters", "feet", "inches" },
+            StringComparer.OrdinalIgnoreCase);
+
         public static BimValidationResult ValidateRequestShape(BimExportOutput? output)
         {
             if (output == null)
@@ -459,6 +494,12 @@ namespace Rook.Bim
             {
                 return Fail(
                     "output.name must be non-empty and contain only [A-Za-z0-9._-] (no separators, no '..').");
+            }
+
+            if (string.IsNullOrWhiteSpace(output.Units) || !SupportedUnits.Contains(output.Units))
+            {
+                return Fail(
+                    "output.units must be one of: meters, millimeters, centimeters, feet, inches.");
             }
 
             return BimValidationResult.Ok;
@@ -584,14 +625,14 @@ directory/name, the same code Task 1 asserted).
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "BimExportPathPolicyTests|BimExportContractsTests"`
+Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "RookBimExportPathPolicyTests|RookBimExportContractsTests"`
 Expected: PASS (all of Task 1 + Task 2).
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/Rook/Bim/BimExportPathPolicy.cs src/Rook/Bim/BimContracts.cs src/Rook.Tests/Bim/BimExportPathPolicyTests.cs
-git commit -m "feat(bim): pure path-safety policy for export bundles"
+git add src/Rook/Bim/BimExportPathPolicy.cs src/Rook/Bim/BimContracts.cs src/Rook.Tests/Bim/RookBimExportPathPolicyTests.cs
+git commit -m "feat(bim): pure path-safety policy + units validation for export bundles"
 ```
 
 ---
@@ -601,11 +642,11 @@ git commit -m "feat(bim): pure path-safety policy for export bundles"
 **Files:**
 - Modify: `src/Rook/Bim/IRookBimRuntime.cs`
 - Modify: `src/Rook/Bim/RookBimUnavailableRuntime.cs`
-- Test: `src/Rook.Tests/Bim/BimUnavailableExportTests.cs`
+- Test: `src/Rook.Tests/Bim/RookBimUnavailableExportTests.cs`
 
 - [ ] **Step 1: Write the failing test**
 
-Create `src/Rook.Tests/Bim/BimUnavailableExportTests.cs`:
+Create `src/Rook.Tests/Bim/RookBimUnavailableExportTests.cs`:
 
 ```csharp
 using Rook.Bim;
@@ -613,7 +654,7 @@ using Xunit;
 
 namespace Rook.Tests.Bim
 {
-    public class BimUnavailableExportTests
+    public class RookBimUnavailableExportTests
     {
         [Fact]
         public void ExportElements_ReturnsUnavailable()
@@ -630,7 +671,7 @@ namespace Rook.Tests.Bim
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter BimUnavailableExportTests`
+Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter RookBimUnavailableExportTests`
 Expected: FAIL — `IRookBimRuntime` has no `ExportElements`.
 
 - [ ] **Step 3: Add to the interface**
@@ -654,13 +695,13 @@ In `src/Rook/Bim/RookBimUnavailableRuntime.cs`, add after `ClearSelection()`:
 
 - [ ] **Step 5: Run test to verify it passes**
 
-Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter BimUnavailableExportTests`
+Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter RookBimUnavailableExportTests`
 Expected: PASS.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/Rook/Bim/IRookBimRuntime.cs src/Rook/Bim/RookBimUnavailableRuntime.cs src/Rook.Tests/Bim/BimUnavailableExportTests.cs
+git add src/Rook/Bim/IRookBimRuntime.cs src/Rook/Bim/RookBimUnavailableRuntime.cs src/Rook.Tests/Bim/RookBimUnavailableExportTests.cs
 git commit -m "feat(bim): add ExportElements to runtime interface + Unavailable impl"
 ```
 
