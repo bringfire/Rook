@@ -9,6 +9,7 @@ from aiohttp import web
 from aiohttp.test_utils import AioHTTPTestCase
 from unittest.mock import AsyncMock, MagicMock, patch
 from rook.agent.chat import server as chat_server
+from rook.agent.chat import model_status
 from rook.agent.chat.server import create_chat_app
 from rook.agent.chat.conversation_store import ConversationStore
 from rook.agent.chat.prompt_builder import PromptBuilder
@@ -39,19 +40,14 @@ class TestChatServer(AioHTTPTestCase):
         assert "persona" in data[0]
         assert "label" in data[0]
 
-    async def test_models_endpoint_returns_payload_with_no_store_headers(self):
+    async def test_models_without_conversation_id_preserves_slice1_payload(self):
         payload = {
             "active_profile": "cloud",
             "profile_source": "file",
-            "roles": {
-                "worker": {
-                    "profile_model": "anthropic/profile-worker",
-                    "effective_model": "anthropic/profile-worker",
-                }
-            },
+            "roles": {},
             "personas": [],
-            "local_providers": {"ollama": {"available": False, "models": []}},
-            "allowed_model_overrides": ["anthropic/profile-worker"],
+            "local_providers": {},
+            "allowed_model_overrides": [],
         }
         build_models_payload = AsyncMock(return_value=payload)
         with patch(
@@ -66,6 +62,44 @@ class TestChatServer(AioHTTPTestCase):
         assert resp.headers["Cache-Control"] == "no-store"
         assert resp.headers["Pragma"] == "no-cache"
         assert resp.headers["Expires"] == "0"
+
+    async def test_models_with_conversation_id_includes_conversation_status(self):
+        conv = self.store.create("worker")
+        conv.model = "anthropic/worker"
+        conv.api_base = ""
+        conv.model_source = "persona"
+        conv.api_base_source = "none"
+        conv.pending_model = "ollama_chat/qwen3:30b"
+        conv.pending_api_base = ""
+        conv.pending_model_source = "agent_tool"
+        conv.pending_api_base_source = "none"
+
+        payload = {
+            "active_profile": "cloud",
+            "profile_source": "file",
+            "roles": {},
+            "personas": [],
+            "local_providers": {},
+            "allowed_model_overrides": [],
+        }
+        with patch(
+            "rook.agent.chat.server.model_status.build_models_payload",
+            new=AsyncMock(return_value=payload),
+        ):
+            resp = await self.client.get(
+                f"/agent/chat/models?conversation_id={conv.id}"
+            )
+
+        assert resp.status == 200
+        data = await resp.json()
+        assert data["conversation"]["conversation_id"] == conv.id
+        assert data["conversation"]["active_model"] == "anthropic/worker"
+        assert data["conversation"]["pending_model"] == "ollama_chat/qwen3:30b"
+        assert "api_base" not in data["conversation"]
+
+    async def test_models_with_unknown_conversation_id_returns_404(self):
+        resp = await self.client.get("/agent/chat/models?conversation_id=conv_missing")
+        assert resp.status == 404
 
     async def test_health(self):
         with patch("rook.agent.chat.server.collect_runtime_facts", new=AsyncMock(return_value={
@@ -101,6 +135,302 @@ class TestChatServer(AioHTTPTestCase):
         assert conv.document_serial_number == 77
         assert data["documentSerialNumber"] == 77
 
+    async def test_start_rejects_unavailable_model_override(self):
+        resolver = AsyncMock(
+            side_effect=model_status.ModelOverrideUnavailable(
+                "openai/not-allowed",
+                ["anthropic/worker"],
+            )
+        )
+
+        with patch(
+            "rook.agent.chat.server.model_status.resolve_allowed_model_override",
+            new=resolver,
+        ):
+            resp = await self.client.post(
+                "/agent/chat/start",
+                json={
+                    "persona": "worker",
+                    "model_override": "openai/not-allowed",
+                    "api_base": "https://malicious.example/v1",
+                },
+            )
+
+        assert resp.status == 400
+        data = await resp.json()
+        assert data["code"] == "model_override_unavailable"
+        assert data["model_override"] == "openai/not-allowed"
+        assert len(self.store._conversations) == 0
+        resolver.assert_awaited_once_with("openai/not-allowed")
+
+    async def test_start_applies_detected_lmstudio_resolution(self):
+        resolution = model_status.ModelOverrideResolution(
+            model_override="openai/lmstudio-community/qwen",
+            api_base="http://127.0.0.1:1234/v1",
+            routing="local",
+            provider="openai",
+            api_base_source="detected_lmstudio",
+        )
+        resolver = AsyncMock(return_value=resolution)
+
+        with patch(
+            "rook.agent.chat.server.model_status.resolve_allowed_model_override",
+            new=resolver,
+        ):
+            resp = await self.client.post(
+                "/agent/chat/start",
+                json={
+                    "persona": "worker",
+                    "model_override": "openai/lmstudio-community/qwen",
+                    "api_base": "https://malicious.example/v1",
+                },
+            )
+
+        assert resp.status == 200
+        data = await resp.json()
+        conv = self.store.get(data["conversation_id"])
+        assert conv is not None
+        assert data["model"] == "openai/lmstudio-community/qwen"
+        assert conv.model == "openai/lmstudio-community/qwen"
+        assert conv.api_base == "http://127.0.0.1:1234/v1"
+        assert conv.model_source == "start_override"
+        assert conv.api_base_source == "detected_lmstudio"
+        resolver.assert_awaited_once_with("openai/lmstudio-community/qwen")
+
+    async def test_set_conversation_model_rejects_while_active(self):
+        conv = self.store.create("worker")
+        conv.active_run_id = "running"
+
+        resp = await self.client.post(
+            "/agent/chat/model",
+            json={
+                "conversation_id": conv.id,
+                "model_override": "ollama_chat/qwen3",
+            },
+        )
+
+        assert resp.status == 409
+        data = await resp.json()
+        assert data["code"] == "conversation_processing"
+
+    async def test_set_conversation_model_applies_when_inactive(self):
+        conv = self.store.create("worker")
+        resolution = model_status.ModelOverrideResolution(
+            model_override="ollama_chat/qwen3",
+            api_base="http://127.0.0.1:11434",
+            routing="local",
+            provider="ollama_chat",
+            api_base_source="active_profile",
+        )
+        resolver = AsyncMock(return_value=resolution)
+
+        with patch(
+            "rook.agent.chat.server.model_status.resolve_allowed_model_override",
+            new=resolver,
+        ):
+            resp = await self.client.post(
+                "/agent/chat/model",
+                json={
+                    "conversation_id": conv.id,
+                    "model_override": "ollama_chat/qwen3",
+                    "api_base": "https://malicious.example/v1",
+                    "reason": "panel selected model",
+                },
+            )
+
+        assert resp.status == 200
+        data = await resp.json()
+        assert data["conversation_id"] == conv.id
+        assert data["persona"] == "worker"
+        assert data["active_model"] == "ollama_chat/qwen3"
+        assert conv.model == "ollama_chat/qwen3"
+        assert conv.api_base == "http://127.0.0.1:11434"
+        assert conv.model_source == "panel_endpoint"
+        assert conv.api_base_source == "active_profile"
+        resolver.assert_awaited_once_with("ollama_chat/qwen3")
+
+    async def test_set_conversation_model_rejects_if_conversation_becomes_active_during_resolution(self):
+        conv = self.store.create("worker")
+        conv.model = "anthropic/current"
+        conv.api_base = ""
+        resolution = model_status.ModelOverrideResolution(
+            model_override="ollama_chat/qwen3",
+            api_base="http://127.0.0.1:11434",
+            routing="local",
+            provider="ollama_chat",
+            api_base_source="active_profile",
+        )
+
+        async def resolve_with_race(model_override):
+            conv.active_run_id = "running"
+            return resolution
+
+        with patch(
+            "rook.agent.chat.server.model_status.resolve_allowed_model_override",
+            new=resolve_with_race,
+        ):
+            resp = await self.client.post(
+                "/agent/chat/model",
+                json={
+                    "conversation_id": conv.id,
+                    "model_override": "ollama_chat/qwen3",
+                },
+            )
+
+        assert resp.status == 409
+        data = await resp.json()
+        assert data["code"] == "conversation_processing"
+        assert conv.model == "anthropic/current"
+        assert conv.api_base == ""
+
+    async def _exercise_prepare_model_set_race(self, handler, body):
+        class FakeRequest:
+            def __init__(self, app, request_body):
+                self.app = app
+                self._body = request_body
+
+            async def json(self):
+                return self._body
+
+        class PreparingStreamResponse:
+            nested_response = None
+
+            def __init__(self, *args, **kwargs):
+                self.status = kwargs.get("status", 200)
+
+            async def prepare(self, request):
+                model_request = FakeRequest(request.app, {
+                    "conversation_id": body["conversation_id"],
+                    "model_override": "ollama_chat/qwen3",
+                })
+                self.__class__.nested_response = await chat_server.handle_set_model(
+                    model_request
+                )
+                return None
+
+            async def write(self, data):
+                return None
+
+            async def write_eof(self):
+                return None
+
+        class CapturingRunner:
+            def __init__(self):
+                self.turn_start_models = []
+
+            async def run_turn(
+                self, conv, message, system_prompt, model_payload_builder=None
+            ):
+                self.turn_start_models.append(conv.model)
+                yield ChatEvent("done", usage={})
+
+        conv = self.store.create("worker")
+        conv.model = "anthropic/current"
+        conv.api_base = ""
+        body["conversation_id"] = conv.id
+        runner = CapturingRunner()
+        app = {
+            chat_server._STORE_KEY: self.store,
+            chat_server._BUILDER_KEY: self.builder,
+            chat_server._RUNNER_KEY: runner,
+            chat_server._RHINO_PROCESS_ID_KEY: 0,
+        }
+        resolution = model_status.ModelOverrideResolution(
+            model_override="ollama_chat/qwen3",
+            api_base="http://127.0.0.1:11434",
+            routing="local",
+            provider="ollama_chat",
+            api_base_source="active_profile",
+        )
+
+        with patch(
+            "rook.agent.chat.server.web.StreamResponse",
+            PreparingStreamResponse,
+        ), patch(
+            "rook.agent.chat.server.model_status.resolve_allowed_model_override",
+            new=AsyncMock(return_value=resolution),
+        ):
+            response = await handler(FakeRequest(app, body))
+
+        return conv, runner, response, PreparingStreamResponse.nested_response
+
+    async def test_message_rejects_model_set_during_stream_prepare(self):
+        conv, runner, response, nested_response = await self._exercise_prepare_model_set_race(
+            chat_server.handle_message,
+            {
+                "message": "start this turn",
+            },
+        )
+
+        assert response.status == 200
+        assert nested_response.status == 409
+        data = json.loads(nested_response.text)
+        assert data["code"] == "conversation_processing"
+        assert runner.turn_start_models == ["anthropic/current"]
+        assert conv.model == "anthropic/current"
+        assert conv.active_run_id is None
+
+    async def test_ui_response_rejects_model_set_during_stream_prepare(self):
+        conv, runner, response, nested_response = await self._exercise_prepare_model_set_race(
+            chat_server.handle_ui_response,
+            {
+                "block_id": "blk_prepare_race",
+                "value": {"accepted": True},
+            },
+        )
+
+        assert response.status == 200
+        assert nested_response.status == 409
+        data = json.loads(nested_response.text)
+        assert data["code"] == "conversation_processing"
+        assert runner.turn_start_models == ["anthropic/current"]
+        assert conv.model == "anthropic/current"
+        assert conv.active_run_id is None
+
+    async def _exercise_build_system_failure_does_not_reserve(self, handler, body):
+        class FakeRequest:
+            def __init__(self, app, request_body):
+                self.app = app
+                self._body = request_body
+
+            async def json(self):
+                return self._body
+
+        class BrokenBuilder:
+            def build_system(self, persona):
+                raise RuntimeError(f"prompt build failed for {persona}")
+
+        conv = self.store.create("worker")
+        body["conversation_id"] = conv.id
+        app = {
+            chat_server._STORE_KEY: self.store,
+            chat_server._BUILDER_KEY: BrokenBuilder(),
+            chat_server._RUNNER_KEY: self.runner,
+            chat_server._RHINO_PROCESS_ID_KEY: 0,
+        }
+
+        with pytest.raises(RuntimeError, match="prompt build failed"):
+            await handler(FakeRequest(app, body))
+
+        assert conv.active_run_id is None
+
+    async def test_message_build_system_failure_does_not_leave_processing_sentinel(self):
+        await self._exercise_build_system_failure_does_not_reserve(
+            chat_server.handle_message,
+            {
+                "message": "start this turn",
+            },
+        )
+
+    async def test_ui_response_build_system_failure_does_not_leave_processing_sentinel(self):
+        await self._exercise_build_system_failure_does_not_reserve(
+            chat_server.handle_ui_response,
+            {
+                "block_id": "blk_prompt_failure",
+                "value": {"accepted": True},
+            },
+        )
+
     async def test_stop_conversation(self):
         # Start one first
         resp = await self.client.post(
@@ -131,7 +461,7 @@ class TestChatServer(AioHTTPTestCase):
         captured: list[dict] = []
 
         class CapturingRunner:
-            async def run_turn(self, conv, message, system_prompt):
+            async def run_turn(self, conv, message, system_prompt, model_payload_builder=None):
                 captured.append({"message": message, "conv_id": conv.id})
                 yield ChatEvent("done", usage={})
 
@@ -216,7 +546,7 @@ class TestChatServer(AioHTTPTestCase):
         captured: list[dict] = []
 
         class ContextCapturingRunner:
-            async def run_turn(self, conv, message, system_prompt):
+            async def run_turn(self, conv, message, system_prompt, model_payload_builder=None):
                 captured.append({
                     "conversation_document": conv.document_serial_number,
                     **bridge.get_rhino_request_context(),
@@ -261,7 +591,7 @@ class TestChatServer(AioHTTPTestCase):
         captured: list[dict[str, int | None]] = []
 
         class ContextCapturingRunner:
-            async def run_turn(self, conv, message, system_prompt):
+            async def run_turn(self, conv, message, system_prompt, model_payload_builder=None):
                 captured.append({
                     "conversation_document": conv.document_serial_number,
                     **bridge.get_rhino_request_context(),
@@ -298,6 +628,45 @@ class TestChatServer(AioHTTPTestCase):
         conv = self.store.get(conv_id)
         assert conv is not None
         assert conv.document_serial_number == 91
+
+    async def test_message_passes_model_payload_builder_to_runner(self):
+        captured: dict[str, object] = {}
+
+        class CapturingRunner:
+            async def run_turn(self, conv, message, system_prompt, model_payload_builder=None):
+                captured["builder"] = model_payload_builder
+                yield ChatEvent("done", usage={})
+
+        self.app[chat_server._RUNNER_KEY] = CapturingRunner()
+
+        start = await self.client.post(
+            "/agent/chat/start",
+            json={"persona": "worker"},
+        )
+        assert start.status == 200
+        conv_id = (await start.json())["conversation_id"]
+
+        resp = await self.client.post(
+            "/agent/chat/message",
+            json={
+                "conversation_id": conv_id,
+                "message": "list models",
+            },
+        )
+        assert resp.status == 200
+        await resp.text()
+
+        assert captured["builder"] is not None
+
+        build_models_payload = AsyncMock(return_value={"allowed_model_overrides": []})
+        with patch(
+            "rook.agent.chat.server.model_status.build_models_payload",
+            new=build_models_payload,
+        ):
+            payload = await captured["builder"]()
+
+        assert payload == {"allowed_model_overrides": []}
+        build_models_payload.assert_awaited_once_with(builder=self.builder)
 
 
 def test_message_disconnect_closes_turn_generator_before_return():
@@ -514,6 +883,16 @@ class TestChatServerWithNonce(AioHTTPTestCase):
         assert resp.status == 403
         data = await resp.json()
         assert "session" in data["error"].lower()
+
+    async def test_set_conversation_model_requires_nonce(self):
+        resp = await self.client.post(
+            "/agent/chat/model",
+            json={
+                "conversation_id": "conv_test",
+                "model_override": "ollama_chat/qwen3",
+            },
+        )
+        assert resp.status == 403
 
     async def test_models_with_nonce_succeeds(self):
         payload = {

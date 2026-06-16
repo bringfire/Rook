@@ -8,6 +8,7 @@ Uses the ToolRegistry for progressive tool disclosure:
 
 The LLM starts with a small, focused tool set and dynamically loads more as needed.
 """
+import inspect
 import json
 import logging
 import time
@@ -17,6 +18,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional, Set
 
 import litellm
 
+from . import model_status
 from .conversation_store import Conversation
 # execution_policy verification (needs_verification + annotate_result) is now
 # handled inside ToolDispatcher.dispatch() — the single enforcement point.
@@ -101,12 +103,14 @@ def _patch_orphaned_tool_calls(messages: List[Dict[str, Any]]) -> int:
 @dataclass
 class ChatEvent:
     """A streaming event emitted during a conversation turn."""
-    type: str  # text_delta, tool_start, tool_result, done, error, ui_block
+    type: str  # text_delta, tool_start, tool_result, done, error, ui_block, model_update
     content: Optional[str] = None
     name: Optional[str] = None
     params: Optional[Dict] = None
     result: Optional[str] = None
     usage: Optional[Dict] = None
+    model: Optional[str] = None
+    applies_to: Optional[str] = None
     # ── Adaptive UI fields ──
     tool_call_id: Optional[str] = None
     block_id: Optional[str] = None
@@ -127,6 +131,10 @@ class ChatEvent:
             d["result"] = self.result
         if self.usage is not None:
             d["usage"] = self.usage
+        if self.model is not None:
+            d["model"] = self.model
+        if self.applies_to is not None:
+            d["applies_to"] = self.applies_to
         if self.tool_call_id is not None:
             d["tool_call_id"] = self.tool_call_id
         if self.block_id is not None:
@@ -216,6 +224,9 @@ _TOOL_DESCRIPTIONS: Dict[str, str] = {
     "session_history": "Get individual command records with per-command success/failure status and error messages. Use after geometry operations to verify the result.",
     # Adaptive UI
     "ui_block": "Present an interactive UI element (slider, buttons, text input, confirmation) to the user. The user's response arrives as a ui_response message.",
+    # Chat model controls
+    "list_chat_models": "List chat models available for this conversation, including local provider status and allowed model overrides.",
+    "set_chat_model": "Stage a chat model override for the next conversation turn. Use model_override from list_chat_models; do not provide api_base.",
 }
 
 
@@ -278,6 +289,47 @@ _UI_BLOCK_SCHEMA: dict = {
     },
 }
 
+_LIST_CHAT_MODELS_SCHEMA: dict = {
+    "type": "function",
+    "function": {
+        "name": "list_chat_models",
+        "description": _TOOL_DESCRIPTIONS["list_chat_models"],
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+    },
+}
+
+_SET_CHAT_MODEL_SCHEMA: dict = {
+    "type": "function",
+    "function": {
+        "name": "set_chat_model",
+        "description": _TOOL_DESCRIPTIONS["set_chat_model"],
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "model_override": {
+                    "type": "string",
+                    "description": "Allowed model override from list_chat_models.",
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Short reason for switching models.",
+                },
+            },
+            "required": ["model_override"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+_CHAT_MODEL_TOOL_SCHEMAS: Dict[str, dict] = {
+    "list_chat_models": _LIST_CHAT_MODELS_SCHEMA,
+    "set_chat_model": _SET_CHAT_MODEL_SCHEMA,
+}
+
 _GH_UPDATE_SCRIPT_SCHEMA: dict = {
     "type": "function",
     "function": {
@@ -333,6 +385,9 @@ def _build_local_tool_catalog(local_tools: dict) -> Dict[str, dict]:
         # Use the typed schema for ui_block instead of the generic fallback
         if name == "ui_block":
             catalog[name] = _UI_BLOCK_SCHEMA
+            continue
+        if name in _CHAT_MODEL_TOOL_SCHEMAS:
+            catalog[name] = _CHAT_MODEL_TOOL_SCHEMAS[name]
             continue
         if name == "gh_update_script":
             catalog[name] = _GH_UPDATE_SCRIPT_SCHEMA
@@ -419,15 +474,21 @@ class ChatRunner:
         if self._dispatcher:
             local_catalog = _build_local_tool_catalog(self._dispatcher._local_tools)
             catalog.update(local_catalog)
+        catalog.update(_CHAT_MODEL_TOOL_SCHEMAS)
 
         # Build registry with appropriate tier0
+        chat_model_tier0 = {"list_chat_models", "set_chat_model"}
         if tool_access == "readonly":
             return ToolRegistry(
                 catalog=catalog,
-                tier0=READONLY_TIER_0,
+                tier0=READONLY_TIER_0 | chat_model_tier0,
                 agent_mode=True,
             )
-        return ToolRegistry(catalog=catalog, agent_mode=True)
+        return ToolRegistry(
+            catalog=catalog,
+            tier0=AGENT_TIER_0 | chat_model_tier0,
+            agent_mode=True,
+        )
 
     def _build_tool_section(self) -> str:
         """Build dynamic tool documentation to inject into the system prompt.
@@ -503,11 +564,69 @@ class ChatRunner:
         )
         return section
 
+    async def _handle_list_chat_models(self, model_payload_builder: Optional[Any]) -> dict:
+        """Return the chat model payload as an inline tool result."""
+        if model_payload_builder is not None:
+            payload = model_payload_builder()
+            if inspect.isawaitable(payload):
+                payload = await payload
+        else:
+            payload = await model_status.build_models_payload()
+        return payload
+
+    async def _handle_set_chat_model(
+        self,
+        conversation: Conversation,
+        params: dict,
+    ) -> dict:
+        """Validate and stage a chat model override for the next turn."""
+        if "api_base" in params:
+            return {
+                "success": False,
+                "data": {
+                    "error": "api_base is not allowed for set_chat_model.",
+                    "code": "api_base_not_allowed",
+                },
+            }
+
+        model_override = params.get("model_override")
+        if not model_override:
+            return {
+                "success": False,
+                "data": {
+                    "error": "Missing required parameter: model_override",
+                    "code": "missing_model_override",
+                },
+            }
+
+        try:
+            resolution = await model_status.resolve_allowed_model_override(model_override)
+        except model_status.ModelOverrideUnavailable as exc:
+            return {"success": False, "data": exc.to_payload()}
+
+        reason = params.get("reason") or ""
+        staged = conversation.stage_model_override(
+            resolution,
+            source="agent_tool",
+            reason=reason,
+        )
+        return {
+            "success": True,
+            "model_override": resolution.model_override,
+            "routing": resolution.routing,
+            "provider": resolution.provider,
+            "api_base_source": resolution.api_base_source,
+            "applies_to": "next_turn",
+            "message": "Model override staged for the next turn.",
+            "staged": staged,
+        }
+
     async def run_turn(
         self,
         conversation: Conversation,
         user_message: str,
         system_prompt: str,
+        model_payload_builder: Optional[Any] = None,
     ) -> AsyncGenerator[ChatEvent, None]:
         """Run one conversation turn. Yields ChatEvent objects as they occur.
 
@@ -682,6 +801,45 @@ class ChatRunner:
                         })
                         continue
 
+                    if tool_name in _CHAT_MODEL_TOOL_SCHEMAS:
+                        meta_only_round = False
+                        tools_used.add(tool_name)
+                        yield ChatEvent(
+                            "tool_start",
+                            name=tool_name,
+                            params=params,
+                            tool_call_id=tc.id,
+                        )
+
+                        if tool_name == "list_chat_models":
+                            result = await self._handle_list_chat_models(model_payload_builder)
+                        else:
+                            result = await self._handle_set_chat_model(conversation, params)
+                        result_str = json.dumps(result)
+
+                        conversation.messages.append({
+                            "role": "tool",
+                            "tool_call_id": tc.id,
+                            "content": result_str,
+                        })
+
+                        yield ChatEvent(
+                            "tool_result",
+                            name=tool_name,
+                            result=result_str,
+                            tool_call_id=tc.id,
+                        )
+
+                        if tool_name == "set_chat_model" and result.get("success"):
+                            yield ChatEvent(
+                                "model_update",
+                                content=result.get("message"),
+                                model=result.get("model_override"),
+                                applies_to="next_turn",
+                                result=result_str,
+                            )
+                        continue
+
                     yield ChatEvent("tool_start", name=tool_name, params=params, tool_call_id=tc.id)
 
                     # Handle meta-tools internally (request_tools, search_tools)
@@ -789,6 +947,7 @@ class ChatRunner:
                     patched_post,
                 )
 
+            applied_model_update = conversation.apply_pending_model_override()
             wall_time = time.time() - start_time
             conversation.active_run_id = None
             conversation.touch()
@@ -805,6 +964,18 @@ class ChatRunner:
                 "prompt_available": runtime_facts.get("prompt", {}).get("available", False),
             }
             if not closing_due_to_generator_exit:
+                if applied_model_update:
+                    active_model = applied_model_update.get("active_model")
+                    yield ChatEvent(
+                        "model_update",
+                        content=(
+                            "Model switch applied. Future turns in this conversation will use "
+                            f"{active_model}."
+                        ),
+                        model=active_model,
+                        applies_to="active",
+                        result=json.dumps(applied_model_update),
+                    )
                 yield ChatEvent("done", usage=done_usage)
 
     def _handle_meta_tool(self, name: str, params: dict) -> dict:

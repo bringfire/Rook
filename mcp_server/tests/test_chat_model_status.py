@@ -137,6 +137,177 @@ def test_allowed_overrides_use_effective_models_and_detected_local(monkeypatch):
     assert "ollama_chat/qwen3:30b" in allowed
 
 
+@pytest.mark.asyncio
+async def test_resolve_allowed_model_override_rejects_unavailable(monkeypatch):
+    role_status = {
+        "active_profile": "cloud",
+        "profile_source": "file",
+        "roles": {"worker": {"effective_model": "anthropic/worker"}},
+    }
+    local_providers = {"ollama": {"models": []}, "lmstudio": {"models": []}}
+
+    monkeypatch.setattr(model_status, "build_role_status", lambda: role_status)
+
+    async def fake_get_cached_local_provider_status_async(force_refresh=False):
+        return local_providers
+
+    monkeypatch.setattr(
+        model_status,
+        "get_cached_local_provider_status_async",
+        fake_get_cached_local_provider_status_async,
+    )
+
+    with pytest.raises(model_status.ModelOverrideUnavailable) as exc_info:
+        await model_status.resolve_allowed_model_override("openai/not-allowed")
+
+    assert exc_info.value.to_payload() == {
+        "error": "Model override is not currently available. Refresh the model list and try again.",
+        "code": "model_override_unavailable",
+        "model_override": "openai/not-allowed",
+        "allowed_model_overrides": ["anthropic/worker"],
+    }
+
+
+@pytest.mark.asyncio
+async def test_resolve_allowed_model_override_uses_detected_lmstudio_api_base(
+    monkeypatch,
+):
+    role_status = {
+        "active_profile": "cloud",
+        "profile_source": "file",
+        "roles": {"worker": {"effective_model": "anthropic/worker"}},
+    }
+    local_providers = {
+        "ollama": {"models": []},
+        "lmstudio": {
+            "available": True,
+            "api_base": "http://127.0.0.1:1234/v1",
+            "models": [
+                {
+                    "id": "lmstudio-community/qwen",
+                    "model_override": "openai/lmstudio-community/qwen",
+                    "size": None,
+                }
+            ],
+        },
+    }
+
+    monkeypatch.setattr(model_status, "build_role_status", lambda: role_status)
+
+    async def fake_get_cached_local_provider_status_async(force_refresh=False):
+        return local_providers
+
+    monkeypatch.setattr(
+        model_status,
+        "get_cached_local_provider_status_async",
+        fake_get_cached_local_provider_status_async,
+    )
+
+    resolution = await model_status.resolve_allowed_model_override(
+        "openai/lmstudio-community/qwen"
+    )
+
+    assert resolution.to_payload() == {
+        "model_override": "openai/lmstudio-community/qwen",
+        "api_base": "http://127.0.0.1:1234/v1",
+        "routing": "local",
+        "provider": "openai",
+        "api_base_source": "detected_lmstudio",
+    }
+
+
+@pytest.mark.asyncio
+async def test_resolve_allowed_model_override_defaults_detected_lmstudio_api_base(
+    monkeypatch,
+):
+    role_status = {
+        "active_profile": "cloud",
+        "profile_source": "file",
+        "roles": {"worker": {"effective_model": "anthropic/worker"}},
+    }
+    local_providers = {
+        "ollama": {"models": []},
+        "lmstudio": {
+            "available": True,
+            "models": [
+                {
+                    "id": "lmstudio-community/qwen",
+                    "model_override": "openai/lmstudio-community/qwen",
+                    "size": None,
+                }
+            ],
+        },
+    }
+
+    monkeypatch.setattr(model_status, "build_role_status", lambda: role_status)
+
+    async def fake_get_cached_local_provider_status_async(force_refresh=False):
+        return local_providers
+
+    monkeypatch.setattr(
+        model_status,
+        "get_cached_local_provider_status_async",
+        fake_get_cached_local_provider_status_async,
+    )
+
+    resolution = await model_status.resolve_allowed_model_override(
+        "openai/lmstudio-community/qwen"
+    )
+
+    assert resolution.to_payload() == {
+        "model_override": "openai/lmstudio-community/qwen",
+        "api_base": "http://127.0.0.1:1234/v1",
+        "routing": "local",
+        "provider": "openai",
+        "api_base_source": "detected_lmstudio",
+    }
+
+
+@pytest.mark.asyncio
+async def test_resolve_allowed_model_override_uses_profile_for_profile_models(
+    monkeypatch,
+):
+    role_status = {
+        "active_profile": "cloud",
+        "profile_source": "file",
+        "roles": {"worker": {"effective_model": "anthropic/worker"}},
+    }
+    local_providers = {"ollama": {"models": []}, "lmstudio": {"models": []}}
+
+    monkeypatch.setattr(model_status, "build_role_status", lambda: role_status)
+    monkeypatch.setattr(
+        model_status,
+        "get_models",
+        lambda profile_name=None: ModelSet(
+            planner="anthropic/planner",
+            worker="anthropic/worker",
+            specialist="anthropic/specialist",
+            guardian="anthropic/guardian",
+            dspy="anthropic/dspy",
+            api_base=None,
+        ),
+    )
+
+    async def fake_get_cached_local_provider_status_async(force_refresh=False):
+        return local_providers
+
+    monkeypatch.setattr(
+        model_status,
+        "get_cached_local_provider_status_async",
+        fake_get_cached_local_provider_status_async,
+    )
+
+    resolution = await model_status.resolve_allowed_model_override("anthropic/worker")
+
+    assert resolution.to_payload() == {
+        "model_override": "anthropic/worker",
+        "api_base": "",
+        "routing": "cloud",
+        "provider": "anthropic",
+        "api_base_source": "none",
+    }
+
+
 def test_normalize_ollama_maps_detection_shape():
     normalized = model_status._normalize_ollama(
         {
@@ -351,3 +522,104 @@ def test_build_persona_status_uses_prompt_builder_resolution(monkeypatch):
             "routing": "local",
         }
     ]
+
+
+def test_conversation_applies_model_override_atomically():
+    from rook.agent.chat.conversation_store import Conversation
+
+    conv = Conversation(id="conv_test", persona="worker")
+    conv.pending_model = "ollama_chat/old"
+    conv.pending_api_base = ""
+    conv.pending_model_source = "agent_tool"
+    conv.pending_api_base_source = "none"
+    conv.pending_model_reason = "old pending switch"
+    resolution = model_status.ModelOverrideResolution(
+        model_override="openai/lmstudio-community/qwen",
+        api_base="http://127.0.0.1:1234/v1",
+        routing="local",
+        provider="openai",
+        api_base_source="detected_lmstudio",
+    )
+
+    payload = conv.apply_model_override(
+        resolution,
+        source="start_override",
+        reason="user requested local model",
+    )
+
+    assert conv.model == "openai/lmstudio-community/qwen"
+    assert conv.api_base == "http://127.0.0.1:1234/v1"
+    assert conv.model_source == "start_override"
+    assert conv.api_base_source == "detected_lmstudio"
+    assert conv.pending_model == ""
+    assert conv.pending_api_base == ""
+    assert conv.pending_model_source == ""
+    assert conv.pending_api_base_source == ""
+    assert conv.pending_model_reason == ""
+    assert payload == {
+        "active_model": "openai/lmstudio-community/qwen",
+        "active_routing": "local",
+        "model_source": "start_override",
+        "api_base_source": "detected_lmstudio",
+    }
+    assert "api_base" not in payload
+
+
+def test_conversation_stages_and_applies_pending_model():
+    from rook.agent.chat.conversation_store import Conversation
+
+    conv = Conversation(id="conv_test", persona="worker")
+    conv.model = "anthropic/worker"
+    conv.api_base = ""
+    conv.model_source = "persona"
+    conv.api_base_source = "none"
+    resolution = model_status.ModelOverrideResolution(
+        model_override="ollama_chat/qwen3:30b",
+        api_base="",
+        routing="local",
+        provider="ollama_chat",
+        api_base_source="none",
+    )
+
+    staged = conv.stage_model_override(
+        resolution,
+        source="agent_tool",
+        reason="use local qwen",
+    )
+
+    assert staged == {
+        "pending_model": "ollama_chat/qwen3:30b",
+        "pending_routing": "local",
+        "model_source": "agent_tool",
+        "api_base_source": "none",
+        "applies_to": "next_turn",
+    }
+    assert "api_base" not in staged
+    assert conv.model == "anthropic/worker"
+    assert conv.api_base == ""
+    assert conv.model_source == "persona"
+    assert conv.api_base_source == "none"
+    assert conv.pending_model == "ollama_chat/qwen3:30b"
+    assert conv.pending_api_base == ""
+    assert conv.pending_model_source == "agent_tool"
+    assert conv.pending_api_base_source == "none"
+    assert conv.pending_model_reason == "use local qwen"
+
+    applied = conv.apply_pending_model_override()
+
+    assert applied == {
+        "active_model": "ollama_chat/qwen3:30b",
+        "active_routing": "local",
+        "model_source": "agent_tool",
+        "api_base_source": "none",
+    }
+    assert conv.model == "ollama_chat/qwen3:30b"
+    assert conv.api_base == ""
+    assert conv.model_source == "agent_tool"
+    assert conv.api_base_source == "none"
+    assert conv.pending_model == ""
+    assert conv.pending_api_base == ""
+    assert conv.pending_model_source == ""
+    assert conv.pending_api_base_source == ""
+    assert conv.pending_model_reason == ""
+    assert conv.apply_pending_model_override() is None
