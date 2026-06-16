@@ -562,14 +562,10 @@ namespace Rook.Bim
                 }
             }
 
-            // Local output-shape validation; full path-policy validation is added alongside BimExportPathPolicy.
-            if (Output == null ||
-                string.IsNullOrWhiteSpace(Output.Directory) ||
-                string.IsNullOrWhiteSpace(Output.Name))
+            var outputValidation = BimExportPathPolicy.ValidateRequestShape(Output);
+            if (!outputValidation.Success)
             {
-                return Fail(
-                    BimErrorCode.OutputPathInvalid,
-                    "export-elements requires output.directory and output.name.");
+                return outputValidation;
             }
 
             return BimValidationResult.Ok;
