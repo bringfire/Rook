@@ -119,26 +119,22 @@ namespace RookBim.Revit
     /// </summary>
     internal sealed class BimSemanticLabel
     {
-        // Backing fields use camelCase names to match the JSON contract shape:
-        //   { value, source, confidence, missingReason }
-#pragma warning disable IDE1006 // Naming Styles — intentional camelCase for JSON contract
-        public string? value { get; private set; }
+        public string? Value { get; private set; }
 
-        public string source { get; private set; } = "unavailable";
+        public string Source { get; private set; } = "unavailable";
 
-        public string? confidence { get; private set; }
+        public string? Confidence { get; private set; }
 
-        public string? missingReason { get; private set; }
-#pragma warning restore IDE1006
+        public string? MissingReason { get; private set; }
 
         public static BimSemanticLabel Present(string labelValue, string labelSource, string labelConfidence)
         {
             return new BimSemanticLabel
             {
-                value = labelValue,
-                source = labelSource,
-                confidence = labelConfidence,
-                missingReason = null
+                Value = labelValue,
+                Source = labelSource,
+                Confidence = labelConfidence,
+                MissingReason = null
             };
         }
 
@@ -146,10 +142,10 @@ namespace RookBim.Revit
         {
             return new BimSemanticLabel
             {
-                value = null,
-                source = "unavailable",
-                confidence = null,
-                missingReason = reason
+                Value = null,
+                Source = "unavailable",
+                Confidence = null,
+                MissingReason = reason
             };
         }
     }
