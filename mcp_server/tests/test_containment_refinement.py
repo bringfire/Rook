@@ -390,3 +390,22 @@ def test_get_context_renders_contains_semantic_with_confidence():
     text = sg.get_context(["BOX"])
     assert "contains (semantic" in text
     assert "high" in text  # confidence rendered
+
+
+def test_tool_in_group_and_local_handler_and_policy():
+    from rook.agent.tool_groups import TOOL_GROUPS
+    from rook.agent.tool_dispatcher import build_local_tools
+    from rook import targeting
+    assert "scene_refine_containment" in TOOL_GROUPS["scene_graph"]
+    tools = build_local_tools()
+    assert "scene_refine_containment" in tools and callable(tools["scene_refine_containment"])
+    pol = targeting.policy_for_tool("scene_refine_containment")
+    assert pol.requires_rhino is True and pol.risk == "read"
+    assert "scene_refine_containment" in targeting._ALL_KNOWN_TOOLS
+
+
+def test_local_handler_propagates_failure_and_missing_ids():
+    from rook.agent.tool_dispatcher import build_local_tools
+    handler = build_local_tools()["scene_refine_containment"]
+    out = asyncio.run(handler(object_ids=[]))
+    assert out["success"] is False
