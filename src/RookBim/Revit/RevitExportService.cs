@@ -67,7 +67,6 @@ namespace RookBim.Revit
                 return resolution.Failure;
             }
 
-            var requested = resolution.Elements.Count;
             var scale = RevitGeometryConverter.ScaleFromFeet(request.Output.Units);
             var converter = new RevitGeometryConverter(scale);
 
@@ -77,32 +76,48 @@ namespace RookBim.Revit
             var modelLayerIndex = EnsureLayer(file, ModelLayer);
 
             var elementRecords = new List<object>();
-            var counts = new BimExportCounts { Requested = requested, Resolved = requested, Truncated = resolution.Truncated };
+            var counts = new BimExportCounts
+            {
+                Requested = resolution.RequestedCount,
+                Resolved = resolution.Elements.Count,
+                Truncated = resolution.Truncated
+            };
             var exportedKeys = new HashSet<string>(StringComparer.Ordinal);
 
             foreach (var element in resolution.Elements)
             {
-                var conversion = converter.Convert(element, request.AllowBboxProxy);
                 var key = element.UniqueId;
-                var labelSet = labels.Extract(document, element);
-
-                if (conversion.HasGeometry)
+                try
                 {
-                    AddGeometry(file, modelLayerIndex, element, conversion);
-                    exportedKeys.Add(key);
-                    switch (conversion.Quality)
+                    // Order the throw-prone Revit calls (geometry conversion, label extraction,
+                    // record building) BEFORE any geometry/bijection mutation so a throw never
+                    // leaves a .3dm object without a matching exported key.
+                    var conversion = converter.Convert(element, request.AllowBboxProxy);
+                    var labelSet = labels.Extract(document, element);
+                    elementRecords.Add(BuildElementRecord(document, element, conversion, labelSet));
+
+                    if (conversion.HasGeometry)
                     {
-                        case RevitGeometryConverter.QualityConvertedBrep: counts.ExportedBrep++; break;
-                        case RevitGeometryConverter.QualityMeshFallback: counts.ExportedMesh++; break;
-                        case RevitGeometryConverter.QualityBboxOnly: counts.ExportedBboxProxy++; break;
+                        AddGeometry(file, modelLayerIndex, element, conversion);
+                        exportedKeys.Add(key);
+                        switch (conversion.Quality)
+                        {
+                            case RevitGeometryConverter.QualityConvertedBrep: counts.ExportedBrep++; break;
+                            case RevitGeometryConverter.QualityMeshFallback: counts.ExportedMesh++; break;
+                            case RevitGeometryConverter.QualityBboxOnly: counts.ExportedBboxProxy++; break;
+                        }
+                    }
+                    else
+                    {
+                        counts.Failed++;
                     }
                 }
-                else
+                catch (Exception ex)
                 {
+                    // A single degenerate element must not abort the whole export.
                     counts.Failed++;
+                    elementRecords.Add(BuildFailedElementRecord(element, ex));
                 }
-
-                elementRecords.Add(BuildElementRecord(document, element, conversion, labelSet));
             }
 
             // 4. Rooms (typed separately).
@@ -129,7 +144,7 @@ namespace RookBim.Revit
             }
 
             // 5. NoExportableGeometry guard.
-            if (requested > 0 && counts.ExportedBrep + counts.ExportedMesh + counts.ExportedBboxProxy == 0)
+            if (resolution.Elements.Count > 0 && counts.ExportedBrep + counts.ExportedMesh + counts.ExportedBboxProxy == 0)
             {
                 return BimApiResponse.Fail(
                     BimErrorCode.NoExportableGeometry,
@@ -144,26 +159,34 @@ namespace RookBim.Revit
             var sidecar = BuildSidecar(document, request, resolution, elementRecords, roomRecords);
             var sidecarJson = JsonSerializer.Serialize(sidecar, JsonOptions);
 
+            // Only paths this run actually attempts to write are eligible for cleanup; with
+            // overwrite=true a pre-existing sibling we never wrote must never be deleted.
+            var written = new List<string>();
+
             try
             {
+                // A failed/partial File3dm.Write can still leave a partial file, so it is cleanable.
+                written.Add(paths.Model3dm);
                 if (!file.Write(paths.Model3dm, 7))
                 {
-                    return CleanupAndFail(paths, "Failed to write the .3dm bundle artifact.");
+                    return CleanupAndFail(written, "Failed to write the .3dm bundle artifact.");
                 }
 
                 File.WriteAllText(paths.Sidecar, sidecarJson, new UTF8Encoding(false));
+                written.Add(paths.Sidecar);
 
                 var validation = BuildValidation(document, counts, scale, request.Output.Units, paths, sidecarJson);
                 File.WriteAllText(paths.Validation, JsonSerializer.Serialize(validation, JsonOptions), new UTF8Encoding(false));
+                written.Add(paths.Validation);
             }
             catch (Exception ex)
             {
-                return CleanupAndFail(paths, $"Bundle write failed: {ex.GetType().Name}: {ex.Message}");
+                return CleanupAndFail(written, $"Bundle write failed: {ex.GetType().Name}: {ex.Message}");
             }
 
             if (!verification.Ok)
             {
-                CleanupBundle(paths);
+                CleanupBundle(written);
                 var failure = BimApiResponse.Fail(
                     BimErrorCode.ExportFailed, "Export bijection verification failed; bundle is not a trustworthy fixture.", 500);
                 failure.Data = new { verification };
@@ -200,7 +223,7 @@ namespace RookBim.Revit
                     elements.Add(resolved.Element!);
                 }
 
-                return ElementResolution.Ok(elements, truncated: false);
+                return ElementResolution.Ok(elements, truncated: false, requestedCount: request.Identities!.Count);
             }
 
             var queryResponse = query.Query(document, activeView, request.Selector!);
@@ -226,7 +249,7 @@ namespace RookBim.Revit
                 .Select(r => r.Element!)
                 .ToList();
 
-            return ElementResolution.Ok(resolvedElements, queryResult.Query.Truncated);
+            return ElementResolution.Ok(resolvedElements, queryResult.Query.Truncated, requestedCount: queryResult.Query.Returned);
         }
 
         private object BuildElementRecord(Document document, Element element, RevitGeometryConversion conversion, RevitElementLabels labelSet)
@@ -251,6 +274,32 @@ namespace RookBim.Revit
                     containingSpaceId = Label(labelSet.ContainingSpace)
                 }
             };
+        }
+
+        private object BuildFailedElementRecord(Element element, Exception ex)
+        {
+            object identity;
+            try { identity = RevitIdentitySerializer.ElementIdentity(element); }
+            catch { identity = new { source = "revit", uniqueId = TryUniqueId(element) }; }
+
+            return new
+            {
+                identity,
+                category = (string?)null,
+                family = (string?)null,
+                type = (string?)null,
+                name = (string?)null,
+                bbox = (double[]?)null,
+                geometryRepresentation = RevitGeometryConverter.RepresentationNone,
+                geometryQuality = RevitGeometryConverter.QualityFailed,
+                fallbackReason = $"{ex.GetType().Name}: {ex.Message}",
+                labels = (object?)null
+            };
+        }
+
+        private static string? TryUniqueId(Element element)
+        {
+            try { return element.UniqueId; } catch { return null; }
         }
 
         private static object Label(BimSemanticLabel label)
@@ -452,15 +501,15 @@ namespace RookBim.Revit
             }
         }
 
-        private BimApiResponse CleanupAndFail(BimExportArtifactPaths paths, string message)
+        private BimApiResponse CleanupAndFail(IEnumerable<string> paths, string message)
         {
             CleanupBundle(paths);
             return BimApiResponse.Fail(BimErrorCode.ExportFailed, message, 500);
         }
 
-        private static void CleanupBundle(BimExportArtifactPaths paths)
+        private static void CleanupBundle(IEnumerable<string> paths)
         {
-            foreach (var path in new[] { paths.Model3dm, paths.Sidecar, paths.Validation })
+            foreach (var path in paths)
             {
                 try { if (File.Exists(path)) { File.Delete(path); } }
                 catch (Exception) { /* best-effort cleanup */ }
@@ -486,11 +535,15 @@ namespace RookBim.Revit
 
             public bool Truncated { get; private set; }
 
+            // True pre-resolution query/identity count, before any silent drop of elements that
+            // failed to re-resolve. Defaults to 0 for the failure path.
+            public int RequestedCount { get; private set; }
+
             public BimApiResponse? Failure { get; private set; }
 
-            public static ElementResolution Ok(IReadOnlyList<Element> elements, bool truncated)
+            public static ElementResolution Ok(IReadOnlyList<Element> elements, bool truncated, int requestedCount)
             {
-                return new ElementResolution { Elements = elements, Truncated = truncated };
+                return new ElementResolution { Elements = elements, Truncated = truncated, RequestedCount = requestedCount };
             }
 
             public static ElementResolution Fail(BimApiResponse failure)
