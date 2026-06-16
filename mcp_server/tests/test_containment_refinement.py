@@ -291,3 +291,81 @@ def test_commit_atomicity_failed_candidate_no_partial_mutation(monkeypatch):
     assert "containment_status" not in g["BOX"]["BAD"][0]
     bad = next(res for res in delta.results if res.contained_id == "BAD")
     assert bad.verdict == "failed" and bad.error
+
+
+import rook.scene.containment_refinement as cr
+from rook.scene.containment_refinement import get_containment_refiner
+
+
+def _stub_sync(analytics, sequence):
+    async def _sync(port=None):
+        analytics._sequence = sequence
+        return {"synced": True, "sequence": sequence}
+    analytics.sync = _sync  # type: ignore[assignment]
+
+
+def test_refine_contract_and_bysource():
+    r = _refiner({
+        "BOX": _attrs(geometry_type="Brep", shape_class="compact",
+                      bbox_min=(0, 0, 0), bbox_max=(10, 10, 10)),
+        "SM": _attrs(geometry_type="Brep", shape_class="compact",
+                     bbox_min=(2, 2, 2), bbox_max=(4, 4, 4)),
+    }, contains_edges=[("BOX", "SM")])
+    _stub_sync(r._analytics, 5)
+    out = asyncio.run(r.refine(["BOX"]))
+    assert out["success"] is True and out["graphSequence"] == 5
+    assert len(out["refined"]) == 1
+    cand = out["refined"][0]
+    assert cand["candidateId"] == "BOX|contains|SM"
+    assert cand["containerId"] == "BOX" and cand["containedId"] == "SM"
+    assert cand["verdict"] == "contains_semantic"
+    assert out["bySource"]["BOX"]["status"] == "ok"
+    assert out["bySource"]["BOX"]["asContainer"] == ["BOX|contains|SM"]
+    assert out["bySource"]["BOX"]["asContained"] == []
+    assert out["cache"] == {"hits": 0, "misses": 1}
+    # second identical call -> cache hit
+    out2 = asyncio.run(r.refine(["BOX"]))
+    assert out2["cache"] == {"hits": 1, "misses": 0}
+
+
+def test_refine_skipped_when_not_in_scene():
+    r = _refiner({"BOX": _attrs()})
+    _stub_sync(r._analytics, 1)
+    out = asyncio.run(r.refine(["GHOST"]))
+    assert out["bySource"]["GHOST"]["status"] == "skipped"
+    assert out["bySource"]["GHOST"]["error"] == "object_not_in_scene"
+
+
+def test_refine_cache_key_dedups_duplicate_ids():
+    r = _refiner({"BOX": _attrs(), "SM": _attrs(bbox_min=(2, 2, 2), bbox_max=(4, 4, 4))},
+                 contains_edges=[("BOX", "SM")])
+    _stub_sync(r._analytics, 1)
+    asyncio.run(r.refine(["BOX"]))
+    out = asyncio.run(r.refine(["BOX", "BOX"]))  # same set after dedup -> hit
+    assert out["cache"] == {"hits": 1, "misses": 0}
+
+
+def test_prune_on_sequence_advance_strips_artifacts_and_invalidates():
+    r = _refiner({"BOX": _attrs(geometry_type="Brep", shape_class="compact",
+                                bbox_min=(0, 0, 0), bbox_max=(10, 10, 10)),
+                  "SM": _attrs(geometry_type="Brep", shape_class="compact",
+                               bbox_min=(2, 2, 2), bbox_max=(4, 4, 4))},
+                 contains_edges=[("BOX", "SM")])
+    g = r._analytics.graph
+    _stub_sync(r._analytics, 1)
+    asyncio.run(r.refine(["BOX"]))
+    assert g.has_edge("BOX", "SM", key=SEMANTIC_CONTAINS_KEY)
+    r._analytics._communities = {"g": ["BOX"]}
+    r._analytics._centrality = {"BOX": 1.0}
+    # advance the sequence and refine again -> artifacts pruned first
+    _stub_sync(r._analytics, 2)
+    asyncio.run(r.refine([]))
+    assert not any(k == SEMANTIC_CONTAINS_KEY for _, _, k in g.edges(keys=True))
+    assert "containment_status" not in g["BOX"]["SM"][0]
+    assert r._analytics._communities is None and r._analytics._centrality is None
+
+
+def test_get_containment_refiner_singleton_binds_scene_graph():
+    a = get_containment_refiner()
+    b = get_containment_refiner()
+    assert a is b

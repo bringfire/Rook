@@ -342,3 +342,89 @@ class ContainmentRefiner:
                     mutated = True
         if mutated:
             self._analytics._invalidate_caches()
+
+    def _purge_artifacts(self) -> None:
+        g = self._analytics.graph
+        to_remove = [
+            (u, v, k) for u, v, k, d in g.edges(keys=True, data=True)
+            if k == SEMANTIC_CONTAINS_KEY or d.get("provenance") == SEMANTIC_PROVENANCE
+        ]
+        for u, v, k in to_remove:
+            g.remove_edge(u, v, key=k)
+        for _u, _v, _k, edata in g.edges(keys=True, data=True):
+            for fld in _CONTAINMENT_ANNOTATION_FIELDS:
+                edata.pop(fld, None)
+        self._analytics._invalidate_caches()
+
+    def _prune_if_advanced(self, graph_sequence: int) -> None:
+        if graph_sequence != self._cache_sequence:
+            self._purge_artifacts()
+            self._cache.clear()
+            self._cache_sequence = graph_sequence
+
+    @staticmethod
+    def _cache_key(graph_sequence: int, object_ids) -> tuple:
+        return (graph_sequence, tuple(sorted(set(object_ids))), ENGINE_VERSION)
+
+    def _build_payload(self, graph_sequence: int, object_ids, delta: "_RequestDelta") -> dict:
+        g = self._analytics.graph
+        refined = [{
+            "candidateId": res.candidate_id, "containerId": res.container_id,
+            "containedId": res.contained_id, "verdict": res.verdict,
+            "confidence": res.confidence, "reason": res.reason,
+            "evidence": res.evidence, "error": res.error,
+        } for res in delta.results]
+
+        by_source: dict[str, dict] = {}
+        for x in dict.fromkeys(object_ids):  # preserve order, unique
+            if not g.has_node(x):
+                by_source[x] = {"status": "skipped", "error": "object_not_in_scene",
+                                "asContainer": [], "asContained": []}
+                continue
+            as_container, as_contained, failed = [], [], False
+            for res in delta.results:
+                if res.container_id == x:
+                    as_container.append(res.candidate_id)
+                    failed = failed or res.verdict == "failed"
+                if res.contained_id == x:
+                    as_contained.append(res.candidate_id)
+                    failed = failed or res.verdict == "failed"
+            by_source[x] = {"status": "failed" if failed else "ok",
+                            "error": "candidate_evaluation_failed" if failed else None,
+                            "asContainer": as_container, "asContained": as_contained}
+        return {"success": True, "graphSequence": graph_sequence,
+                "refined": refined, "bySource": by_source}
+
+    async def refine(self, object_ids, *, port=None) -> dict:
+        await self._analytics.sync(port=port)
+        graph_sequence = self._analytics.sequence
+        self._prune_if_advanced(graph_sequence)
+
+        key = self._cache_key(graph_sequence, object_ids)
+        if key in self._cache:
+            payload = copy.deepcopy(self._cache[key])
+            payload["cache"] = {"hits": 1, "misses": 0}
+            return payload
+
+        delta = self._prepare_request_delta(object_ids, graph_sequence)
+        self._commit_request_delta(delta)
+        payload = self._build_payload(graph_sequence, object_ids, delta)
+        payload["cache"] = {"hits": 0, "misses": 1}
+
+        # Cache only durable outcomes: no source is `failed`.
+        if all(b["status"] != "failed" for b in payload["bySource"].values()):
+            cached = copy.deepcopy(payload)
+            cached.pop("cache", None)
+            self._cache[key] = cached
+        return payload
+
+
+_refiner: ContainmentRefiner | None = None
+
+
+def get_containment_refiner(analytics: SceneGraphAnalytics | None = None) -> ContainmentRefiner:
+    """Module singleton, bound to the shared scene-graph analytics mirror."""
+    global _refiner
+    if _refiner is None:
+        _refiner = ContainmentRefiner(analytics or get_scene_graph())
+    return _refiner
