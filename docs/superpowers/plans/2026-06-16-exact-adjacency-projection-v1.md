@@ -23,7 +23,8 @@
 | `mcp_server/src/rook/scene/scene_graph.py` | NL surface gains `adjacent_exact` rendering (`_inverse_rel` + `_format_node`). | **Modify** |
 | `mcp_server/src/rook/server.py` | `scene_exact_neighbors` `Tool` schema in `list_tools` + dispatch `case`. | **Modify** |
 | `mcp_server/src/rook/agent/tool_groups.py` | Add `scene_exact_neighbors` to the `scene_graph` group. | **Modify (line ~452)** |
-| `docs/rook_docs/occt-spike/live_verify_exact_projection.py` | Manual live wiring smoke on SpatialTest.3dm. | **Create** |
+| `mcp_server/src/rook/agent/tool_dispatcher.py` | Local handler in `build_local_tools()` so the agent-direct path can execute the tool. | **Modify (line ~1031)** |
+| `docs/rook_docs/occt-spike/live_verify_exact_projection.py` | Live smoke that drives the projector on SpatialTest.3dm. | **Create** |
 
 All projected facts are ephemeral, valid only for the `graphSequence` they were computed against (spec §4).
 
@@ -668,6 +669,32 @@ def test_project_isolates_route_failure(monkeypatch):
     assert not any(k == EXACT_EDGE_KEY for _, _, k in proj._analytics.graph.edges(keys=True))
 
 
+def test_project_does_not_cache_transient_failure(monkeypatch):
+    proj = _projector_with_nodes("A", "B")
+    _stub_sync(proj._analytics, 1)
+    calls = {"n": 0}
+
+    async def failing(endpoint, method="GET", data=None, port=None, **kw):
+        calls["n"] += 1
+        return {"success": False, "data": "request timeout"}
+
+    monkeypatch.setattr(ep, "call_rhino", failing)
+    out1 = asyncio.run(proj.project(["A"]))
+    assert out1["projected"][0]["routeStatus"] == "timeout"
+    # Second call must RETRY (not serve a cached failure).
+    out2 = asyncio.run(proj.project(["A"]))
+    assert calls["n"] == 2
+    assert out2["cache"] == {"hits": 0, "misses": 1}
+
+
+def test_project_rejects_unsupported_candidate_scope():
+    proj = _projector_with_nodes("A")
+    _stub_sync(proj._analytics, 1)
+    out = asyncio.run(proj.project(["A"], candidate_scope="radius"))
+    assert out["success"] is False
+    assert "unsupported candidate_scope" in out["error"]
+
+
 async def _should_not_be_called(*a, **k):
     raise AssertionError("call_rhino must not be called for a skipped source")
 
@@ -777,6 +804,12 @@ Expected: FAIL — `AttributeError: ... has no attribute 'project'`
         return self._delta_to_block(delta)
 
     async def project(self, object_ids, *, candidate_scope=DEFAULT_CANDIDATE_SCOPE, port=None) -> dict:
+        # Validate scope in the projector (not just the MCP schema) so the agent-direct
+        # path is guarded too. v1 supports a single scope.
+        if candidate_scope != DEFAULT_CANDIDATE_SCOPE:
+            return {"success": False,
+                    "error": f"unsupported candidate_scope {candidate_scope!r}; "
+                             f"v1 supports only {DEFAULT_CANDIDATE_SCOPE!r}"}
         await self._analytics.sync(port=port)
         graph_sequence = self._analytics.sequence
         self._prune_if_advanced(graph_sequence)
@@ -793,7 +826,10 @@ Expected: FAIL — `AttributeError: ... has no attribute 'project'`
                 hits += 1
             else:
                 block = await self._project_one(source_id, candidate_scope, graph_sequence, port)
-                self._cache[key] = copy.deepcopy(block)
+                # Cache only durable outcomes. A transient route failure/timeout must NOT
+                # become sticky until graphSequence changes.
+                if block.get("routeStatus") in ("ok", "skipped"):
+                    self._cache[key] = copy.deepcopy(block)
                 misses += 1
             projected.append(block)
             lu, au = block.get("lengthUnit"), block.get("areaUnit")
@@ -827,7 +863,7 @@ def get_exact_projector(analytics: SceneGraphAnalytics | None = None) -> ExactAd
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `cd mcp_server && python -m pytest tests/test_exact_projection.py -v`
-Expected: PASS (12 tests)
+Expected: PASS (14 tests)
 
 - [ ] **Step 5: Commit**
 
@@ -951,13 +987,14 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ---
 
-### Task 7: MCP tool registration (dispatch + schema + tool group)
+### Task 7: Tool registration — MCP path (dispatch + schema + group) AND agent-direct path (local handler)
 
-All three coordinated edits (spec §2). Unit-test the deterministic part (group membership); the schema + dispatch are exercised by the live smoke in Task 8.
+Four coordinated edits. The MCP path (schema + dispatch + group) makes the tool usable through the MCP server. **The agent-direct path matters too:** `tool_dispatcher.py` has no `scene` references, so the existing `scene_context`/`scene_stats` are MCP-only; without a `build_local_tools()` handler a direct agent would *discover* `scene_exact_neighbors` via its `scene_graph` group but fail to *execute* it ("unknown tool"). Since the roadmap wants agent semantic reasoning over exact adjacency, we register a local handler. Unit-test the deterministic parts (group membership + local-handler presence); schema + dispatch are exercised by the live smoke in Task 8.
 
 **Files:**
-- Modify: `mcp_server/src/rook/server.py` (`Tool(...)` list in `list_tools` ~line 11063; dispatch `case` ~line 19127)
+- Modify: `mcp_server/src/rook/server.py` (`Tool(...)` list in `list_tools` ~line 11073; dispatch `case` ~line 19135)
 - Modify: `mcp_server/src/rook/agent/tool_groups.py` (line 452, `scene_graph` group)
+- Modify: `mcp_server/src/rook/agent/tool_dispatcher.py` (`build_local_tools()` ~line 1031)
 - Test: `mcp_server/tests/test_exact_projection.py`
 
 - [ ] **Step 1: Write the failing test**
@@ -965,16 +1002,23 @@ All three coordinated edits (spec §2). Unit-test the deterministic part (group 
 ```python
 # append to tests/test_exact_projection.py
 def test_tool_registered_in_scene_graph_group():
-    from rook.agent.tool_groups import TOOL_GROUPS  # noqa: WPS433
+    from rook.agent.tool_groups import TOOL_GROUPS
     assert "scene_exact_neighbors" in TOOL_GROUPS["scene_graph"]
+
+
+def test_local_handler_registered_for_agent_direct_path():
+    from rook.agent.tool_dispatcher import build_local_tools
+    tools = build_local_tools()
+    assert "scene_exact_neighbors" in tools
+    assert callable(tools["scene_exact_neighbors"])
 ```
 
-(Confirmed: the dict is `TOOL_GROUPS: Dict[str, List[str]]` at `tool_groups.py:102`, with the `"scene_graph"` group at line 452.)
+(Confirmed: the group dict is `TOOL_GROUPS: Dict[str, List[str]]` at `tool_groups.py:102`, `"scene_graph"` group at line 452; `build_local_tools()` is at `tool_dispatcher.py:1031` and returns a `name -> async handler` dict.)
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd mcp_server && python -m pytest tests/test_exact_projection.py -k "tool_registered" -v`
-Expected: FAIL — `assert 'scene_exact_neighbors' in [...]`
+Run: `cd mcp_server && python -m pytest tests/test_exact_projection.py -k "tool_registered or local_handler" -v`
+Expected: FAIL — `scene_exact_neighbors` is in neither the group nor the local-tools dict.
 
 - [ ] **Step 3: Write minimal implementation**
 
@@ -1036,30 +1080,58 @@ For each object id, computes precise boundary adjacency via the native OCCT engi
                 result = {"success": True, "data": payload}
 ```
 
-- [ ] **Step 4: Run test + import sanity**
+3d. In `agent/tool_dispatcher.py`, inside `build_local_tools()` (after the `gh_knowledge_query` block, ~line 1100, before `tools["gh_update_script"] = ...`), add a local handler so the agent-direct dispatcher can execute the tool:
 
-Run: `cd mcp_server && python -m pytest tests/test_exact_projection.py -k "tool_registered" -v`
+```python
+    # --- scene_exact_neighbors (Python-side projection over the OCCT exact route) ---
+    try:
+        from ..scene.scene_graph import get_scene_graph
+        from ..scene.exact_projection import get_exact_projector
+
+        async def _scene_exact_neighbors(
+            object_ids=None, candidate_scope="broad_phase_default",
+            port: int | None = None, **kwargs,
+        ) -> dict:
+            if not object_ids:
+                return {"success": False, "data": "Missing object_ids parameter"}
+            sg = get_scene_graph()
+            projector = get_exact_projector(sg)
+            payload = await projector.project(
+                object_ids, candidate_scope=candidate_scope, port=port)
+            return {"success": True, "data": payload}
+
+        tools["scene_exact_neighbors"] = _scene_exact_neighbors
+    except ImportError:
+        logger.debug("scene_exact_neighbors local tool unavailable (import failed)")
+```
+
+- [ ] **Step 4: Run tests + import sanity**
+
+Run: `cd mcp_server && python -m pytest tests/test_exact_projection.py -k "tool_registered or local_handler" -v`
 Expected: PASS
 
-Run: `cd mcp_server && python -c "import rook.server"`
-Expected: no SyntaxError / ImportError (the new `Tool` + `case` parse and import cleanly).
+Run: `cd mcp_server && python -c "import rook.server; from rook.agent.tool_dispatcher import build_local_tools; assert 'scene_exact_neighbors' in build_local_tools()"`
+Expected: no SyntaxError / ImportError / AssertionError (the new `Tool`, `case`, and local handler parse, import, and register cleanly).
 
 - [ ] **Step 5: Commit**
 
 ```bash
 cd /c/Users/aryan/source/repos/rook-spatial
 test "$(git branch --show-current)" = "feature/spatial-intelligence"
-git add mcp_server/src/rook/server.py mcp_server/src/rook/agent/tool_groups.py mcp_server/tests/test_exact_projection.py
-git commit -m "feat(spatial): register scene_exact_neighbors MCP tool (schema + dispatch + group)
+git add mcp_server/src/rook/server.py mcp_server/src/rook/agent/tool_groups.py mcp_server/src/rook/agent/tool_dispatcher.py mcp_server/tests/test_exact_projection.py
+git commit -m "feat(spatial): register scene_exact_neighbors (MCP schema+dispatch+group, agent-direct local handler)
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ```
 
 ---
 
-### Task 8: Live wiring smoke (manual, Rhino open on SpatialTest.3dm)
+### Task 8: Live projection smoke (manual, Rhino open on SpatialTest.3dm)
 
-Proves end-to-end wiring against the real route; does **not** revalidate the OCCT engine (that's the engine's own gate). urllib only — never curl.
+Proves the **Python projection layer** end-to-end by importing and driving
+`ExactAdjacencyProjector.project(...)` against the live native route — not by re-polling
+the engine route. Does **not** revalidate the OCCT engine (that's
+`live_verify_occt_adjacency.py`'s job). urllib only for port discovery — never curl.
 
 **Files:**
 - Create: `docs/rook_docs/occt-spike/live_verify_exact_projection.py`
@@ -1068,35 +1140,38 @@ Proves end-to-end wiring against the real route; does **not** revalidate the OCC
 
 ```python
 # docs/rook_docs/occt-spike/live_verify_exact_projection.py
-"""Live wiring smoke for scene_exact_neighbors / ExactAdjacencyProjector.
+"""Live smoke for the ExactAdjacencyProjector (Python projection layer).
 
 Requires Rhino OPEN on C:/Users/aryan/Desktop/SpatialTest.3dm with RookNative loaded.
-Proves the Python projection layer wires to the production exact route end-to-end.
-Does NOT revalidate the OCCT engine (that is live_verify_occt_adjacency.py's job).
+Imports the actual projector and drives project([SOURCE]) against the live native
+route, then asserts the mirror was enriched and the cache works. Does NOT revalidate
+the OCCT engine (that is live_verify_occt_adjacency.py's job).
 
-urllib only (never curl). Auto-discovers the native port or accepts argv[1].
+Port discovery uses urllib only (never curl). Pass the port as argv[1] or auto-discover.
 
   python live_verify_exact_projection.py [port]
 """
+import asyncio
 import json
+import pathlib
 import subprocess
 import sys
 import urllib.request
 
+# Make the rook package importable from this docs-tree script.
+REPO = pathlib.Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(REPO / "mcp_server" / "src"))
+
+from rook.scene.scene_graph import get_scene_graph          # noqa: E402
+from rook.scene.exact_projection import (                   # noqa: E402
+    get_exact_projector, EXACT_EDGE_KEY,
+)
+
 SOURCE = "08d4dedf-1387-453a-9938-7f3ab516b8ac"  # the floorplate (5 abutments)
-EXPECT_PREFIXES = {"71065f57", "5c12cc83", "be0ca730", "7e80db98", "26b2c012"}
 
 
-def get(port, path, timeout=8):
+def _get(port, path, timeout=5):
     with urllib.request.urlopen(f"http://127.0.0.1:{port}{path}", timeout=timeout) as r:
-        return json.loads(r.read().decode("utf-8", "replace"))
-
-
-def post(port, path, body, timeout=120):
-    req = urllib.request.Request(
-        f"http://127.0.0.1:{port}{path}", data=json.dumps(body).encode(),
-        headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read().decode("utf-8", "replace"))
 
 
@@ -1116,7 +1191,7 @@ def discover_port():
             if "127.0.0.1:" in local and pid in pidset:
                 port = int(local.rsplit(":", 1)[1])
                 try:
-                    get(port, "/scene/graph/stats", 3)
+                    _get(port, "/scene/graph/stats", 3)
                     return port
                 except Exception:
                     continue
@@ -1128,35 +1203,51 @@ def main():
     if not port:
         print("FAIL: could not discover the native port (is Rhino open with RookNative?)")
         return 1
+    print("port =", port)
 
-    # The projection layer lives in the MCP server, not the native plugin. This smoke
-    # exercises the NATIVE route the projector consumes, then mirrors the projector's
-    # own logic (canonical edge + areaUnit pass-through) to prove the contract the
-    # Python layer depends on is present. (Full MCP-tool exercise = manual /mcp call.)
+    sg = get_scene_graph()
+    projector = get_exact_projector(sg)
     fails = []
-    d = post(port, "/scene/graph/adjacency/exact",
-             {"objectId": SOURCE, "candidateScope": "broad_phase_default"}).get("data", {})
-    if d.get("areaUnit") != "inches^2":
-        fails.append(f"areaUnit={d.get('areaUnit')!r}")
-    if d.get("lengthUnit") != "inches":
-        fails.append(f"lengthUnit={d.get('lengthUnit')!r}")
-    got = {e.get("targetId", "")[:8] for e in d.get("edges", [])}
-    missing = EXPECT_PREFIXES - got
-    if missing:
-        fails.append(f"missing abutments {missing}")
-    for e in d.get("edges", []):
-        if not e.get("facePairs"):
-            fails.append(f"edge {e.get('targetId','')[:8]} has no facePairs")
+
+    # First projection — drives sync + the exact route + edge upsert into the mirror.
+    out = asyncio.run(projector.project([SOURCE], port=port))
+    block = out["projected"][0]
+    if block["routeStatus"] != "ok":
+        fails.append(f"routeStatus={block['routeStatus']!r} error={block.get('error')!r}")
+    if len(block["neighbors"]) != 5:
+        fails.append(f"expected 5 neighbors, got {len(block['neighbors'])}")
+    if any(n["fromCache"] for n in block["neighbors"]):
+        fails.append("first call should not be fromCache")
+    if block["neighbors"] and block["neighbors"][0].get("areaUnit") != "inches^2":
+        fails.append(f"areaUnit={block['neighbors'][0].get('areaUnit')!r}")
+
+    # The mirror now holds 5 canonical occt edges incident to SOURCE.
+    occt_incident = [
+        (u, v) for u, v, k in sg.graph.edges(keys=True)
+        if k == EXACT_EDGE_KEY and SOURCE in (u, v)
+    ]
+    if len(occt_incident) != 5:
+        fails.append(f"expected 5 occt edges incident to source, got {len(occt_incident)}")
+
+    # NL surface renders the exact edges.
+    ctx = sg.get_context([SOURCE])
+    if "exact" not in ctx.lower() or "inches^2" not in ctx:
+        fails.append("get_context did not render exact adjacency with areaUnit")
+
+    # Second projection — cache hit, no new route call, neighbors flagged fromCache.
+    out2 = asyncio.run(projector.project([SOURCE], port=port))
+    if out2["cache"]["hits"] != 1:
+        fails.append(f"expected cache hit, got {out2['cache']}")
+    if not all(n["fromCache"] for n in out2["projected"][0]["neighbors"]):
+        fails.append("second call neighbors should be fromCache")
 
     if fails:
         print("RESULT: FAIL")
         for f in fails:
             print("  -", f)
         return 1
-    print(f"RESULT: PASS — route returns 5 abutments + units + facePairs (port {port}).")
-    print("Next (manual): call the scene_exact_neighbors MCP tool with object_ids=["
-          f"'{SOURCE}'] and confirm projected[0].neighbors has 5 entries with "
-          "fromCache False, then call again and confirm fromCache True (cache hit).")
+    print("RESULT: ALL PASS — projector enriched the mirror with 5 exact edges, "
+          "NL rendered, cache hit on re-call.")
     return 0
 
 
@@ -1167,15 +1258,14 @@ if __name__ == "__main__":
 - [ ] **Step 2: Run the smoke (Rhino open on SpatialTest.3dm)**
 
 Run: `python docs/rook_docs/occt-spike/live_verify_exact_projection.py`
-Expected: `RESULT: PASS — route returns 5 abutments + units + facePairs`.
+Expected: `RESULT: ALL PASS — projector enriched the mirror with 5 exact edges, NL rendered, cache hit on re-call.`
 
-- [ ] **Step 3: Manual MCP-tool exercise**
+- [ ] **Step 3: (Optional) Manual MCP-tool exercise — confirms server registration**
 
 In an MCP session against the running Rhino, call `scene_exact_neighbors` with
-`{"object_ids": ["08d4dedf-1387-453a-9938-7f3ab516b8ac"]}`. Confirm:
-- `projected[0].routeStatus == "ok"`, 5 neighbors, each `fromCache == false`, `areaUnit == "inches^2"`;
-- a second identical call returns the same neighbors with `fromCache == true` and `cache.hits == 1`;
-- `scene_context` with that id now renders `adjacent to (exact): ... shared face <area> inches^2`.
+`{"object_ids": ["08d4dedf-1387-453a-9938-7f3ab516b8ac"]}` and confirm `projected[0]`
+has 5 neighbors with `routeStatus == "ok"`. (The projector logic itself is already
+proven by Step 2; this only checks the MCP schema + dispatch wiring.)
 
 - [ ] **Step 4: Commit**
 
