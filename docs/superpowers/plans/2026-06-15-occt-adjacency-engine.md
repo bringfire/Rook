@@ -22,6 +22,66 @@
 
 ---
 
+## ⏩ PLAN REFRESH (2026-06-15, post-ODR-fix) — READ BEFORE EXECUTING TASKS 7–10
+
+Tasks 1–6 are DONE and the OCCT engine is in-plugin-verified — BUT a vicious in-Rhino **ODR
+bug** was found and fixed (commit `d09dc653`) *after* this plan was written, changing the
+namespace reality the plan assumed. **Binding rules for the remaining tasks (7–10):**
+
+1. **The OCCT contract lives in `Rook::occt`, PERMANENTLY.** `d09dc653` moved the entire
+   contract (`Capability`, `ObjectBrepPayload`, `FacePair`, `ExactEdge`, `ExactCandidate`,
+   `ExactAdjacencyCore`, `IExactAdjacencyEngine`, `OcctAdjacencyEngine`, constants,
+   `CapabilityToString`) into `namespace Rook::occt`. The Task-2 code listing below shows bare
+   `namespace Rook` — **SUPERSEDED**; the as-built + required namespace is `Rook { occt { … } }`.
+   **Root cause was ODR:** legacy `ExactAdjacencyTypes.h` defines DIFFERENT structs under the
+   SAME bare-`Rook` names (e.g. `Rook::ExactEdge` 104B vs new 128B); both linked into the
+   `.rhp` → `std::vector<Rook::ExactEdge>` folded to one instantiation under `/GL` → wrong
+   element stride → `_Mylast` corruption (dropped edge + teardown crash). See the §0 RESOLVED
+   banner in `2026-06-14-occt-uniform-engine-decision.md`.
+
+2. **DO NOT flatten `Rook::occt` or move OCCT contract types back into bare `Rook`** — not even
+   after Task 8 strips the legacy types. The nested namespace is the explicit ownership boundary
+   and cheap insurance against re-introducing the collision (user decision — keep the scar
+   tissue). Wherever the original Task 8 implied the types coexist "in separate TUs": separate
+   TUs do **not** prevent ODR UB — the `Rook::occt` namespace does.
+
+3. **`ExactAdjacencyTypes.h` strip (Task 8 Step 1) — split by namespace, not wholesale move.**
+   The broad-phase QUERY types (`CandidateQueryOptions`, `ScoredCandidate`, `CandidateQueryResult`)
+   STAY in **bare `Rook`** (they never collided — distinct names). Only the legacy ENGINE/RESULT
+   types are removed (`FaceKind`/`PlanarFace`/`FaceSummary`/`ObjectFaceSummary`/old `Capability`/
+   old `ExactEdge`/`ExactCandidate`/`ExactAdjacencyCore`/`CandidateOutcome`/`kNormalTol`/old
+   `kAreaTol`/`kClipperPrecision`/old `kEngineVersion`). After the strip the ONLY
+   `Rook::ExactEdge`/`ExactAdjacencyCore` definitions are GONE (legacy removed; the live ones are
+   `Rook::occt::`) → ODR hazard eliminated at its source. `OcctAdjacencyTypes.h` then `#include`s
+   `ExactAdjacencyTypes.h` for the bare-`Rook` query types (the include sits at file scope, before
+   `namespace Rook { namespace occt {`, so it is clean).
+
+4. **Service/handler migration (Task 8 Steps 2–3, 5) — explicit `Rook::occt::` + wire translation.**
+   `ExactAdjacencyService.{h,cpp}` and `SceneGraphHandler.cpp` today `#include
+   "SceneGraph/ExactAdjacencyTypes.h"` and use bare-`Rook` legacy types. After migration they
+   `#include "SceneGraph/OcctAdjacencyEngine.h"` (pulls `OcctAdjacencyTypes.h`) and reference the
+   contract as **`Rook::occt::ObjectBrepPayload`/`…::ExactAdjacencyCore`/`…::OcctAdjacencyEngine`**
+   via a file-scoped `namespace ro = ::Rook::occt;` alias + explicit `ro::` qualification (the
+   pattern proven in `OcctAdjacencyValidateHandler.cpp`), NOT `using namespace`. The handler does an
+   **explicit translation** from `Rook::occt::ExactAdjacencyCore` → the production JSON wire
+   response (`lengthUnit`/`areaUnit`/per-edge `facePairs`/4-state capability strings); the wire
+   SHAPE is unchanged, only the C++ source types become `Rook::occt::`. The broad phase still
+   returns `Rook::CandidateQueryResult` (bare `Rook`) and feeds `Rook::occt::ObjectBrepPayload`s
+   to the engine.
+
+5. **Dev routes to retire in Task 8 Step 5 (as-built = THREE, more than the plan listed):**
+   `/scene/occt_probe` (`OcctProbe.{h,cpp}`), `/scene/occt_validate_converter` (handler in
+   `SceneGraphHandler.cpp`), and `/scene/occt_validate_adjacency` (its OWN TU
+   `Handlers/OcctAdjacencyValidateHandler.cpp`). Remove all three routes + handlers;
+   `git rm OcctProbe.{h,cpp}` and `Handlers/OcctAdjacencyValidateHandler.cpp`; drop their
+   `RookServer.cpp` registrations and `RookNative.vcxproj` `<ClCompile>`/`<ClInclude>` entries.
+
+6. **Unchanged:** single red→green integration block (Task 8 = one build, one commit); in-plugin
+   test venue; `fuzzMm` vs `opts.tolerance` separation; move-only payloads; `kEngineVersion=2`
+   cache drop; no STEP/DataExchange in any C++ TU.
+
+---
+
 ## File Structure
 
 **Legacy (frozen, excluded from `.rhp`):**
@@ -470,7 +530,7 @@ git commit -m "feat(scene): engine-internal diagnostic propagation (source/cand/
 - Modify: `src/RookNative/RookServer.cpp` (remove `/scene/occt_validate_converter` + `/scene/occt_probe` routes)
 - Modify: `src/RookNative/RookNative.vcxproj` (remove `PlanarAdjacencyEngine.cpp` + `OcctProbe.cpp`; `OnBrepToOcct.cpp`/`OcctAdjacencyEngine.cpp` were ALREADY added additively in Tasks 4/6 — leave them)
 
-- [ ] **Step 1: Remove the old engine + strip types.** `git rm src/RookNative/SceneGraph/PlanarAdjacencyEngine.h src/RookNative/SceneGraph/PlanarAdjacencyEngine.cpp`. Apply **Task 2 Step 3** (strip `ExactAdjacencyTypes.h` to the broad-phase query types only; uncomment the `#include "SceneGraph/ExactAdjacencyTypes.h"` in `OcctAdjacencyTypes.h`).
+- [ ] **Step 1: Remove the old engine + strip types.** `git rm src/RookNative/SceneGraph/PlanarAdjacencyEngine.h src/RookNative/SceneGraph/PlanarAdjacencyEngine.cpp`. Apply **Task 2 Step 3** (strip `ExactAdjacencyTypes.h` to the broad-phase query types only; uncomment the `#include "SceneGraph/ExactAdjacencyTypes.h"` in `OcctAdjacencyTypes.h`). **⚠️ See PLAN REFRESH rule 3:** the QUERY types stay in **bare `Rook`**; only the legacy ENGINE/RESULT types are removed; the live contract stays `Rook::occt::` (do NOT flatten). After this strip the bare-`Rook` `ExactEdge`/`ExactAdjacencyCore` definitions no longer exist (legacy gone; live ones are `Rook::occt::`), which is what permanently kills the ODR hazard.
 
 - [ ] **Step 2: Migrate `ExactAdjacencyService` extraction (Task 3 content).** Replace `ExtractObjectFaceSummary` with `ExtractObjectBrepPayload(CRhinoDoc&, const std::string&) -> ObjectBrepPayload` (main thread only):
   - bad uuid / `object_not_found` / `no_geometry` → `FailedWithDiagnostics` + reason code, `brep=nullptr`.
@@ -494,7 +554,7 @@ git commit -m "feat(scene): engine-internal diagnostic propagation (source/cand/
 
 - [ ] **Step 4: `RookNative.vcxproj` — remove old engine + tracer (the new cpps are ALREADY present).** `OnBrepToOcct.cpp` (Task 4) and `OcctAdjacencyEngine.cpp` (Task 6) were already added additively, so do NOT re-add them. Remove the `PlanarAdjacencyEngine.cpp` and `OcctProbe.cpp` `ClCompile` blocks and the `OcctProbe.h` `ClInclude`. `ExactAdjacencyService.cpp`/`SceneGraphHandler.cpp` keep the PCH and include only the OCCT-header-free `OcctAdjacencyEngine.h`/`OnBrepToOcct.h` — OCCT headers never leak into PCH TUs.
 
-- [ ] **Step 5: Production handler migration + `fuzzMm` + remove dev routes/tracer.** In `SceneGraphHandler.cpp::HandleSceneGraphExactAdjacency`: parse optional `fuzzMm` (default `kDefaultFuzzMm`) and pass to `Compute`; serialize `out["lengthUnit"]`/`out["areaUnit"]`; per edge add `facePairs`; `CapabilityToString` emits `exact_brep`/`partial_exact_brep`/`unsupported_geometry`/`failed_with_diagnostics` (no `exact_planar`). **Remove the dev validation route(s)** added in Tasks 4/6 — delete `HandleOcctValidateConverter` (+ the Evaluate-mode sibling) and `HandleOcctProbe`, their `#include "SceneGraph/OcctProbe.h"`, and the `m_server->Post("/scene/occt_validate_converter", …)` + `/scene/occt_probe` registrations in `RookServer.cpp`. `git rm src/RookNative/SceneGraph/OcctProbe.h src/RookNative/SceneGraph/OcctProbe.cpp`. (The dev routes have served Tasks 4–7; the real `/scene/graph/adjacency/exact` route + Task 10's live verify replace them. `OnBrepToOcct`/`OcctAdjacencyEngine` STAY — they are the production engine now.)
+- [ ] **Step 5: Production handler migration + `fuzzMm` + remove dev routes/tracer.** In `SceneGraphHandler.cpp::HandleSceneGraphExactAdjacency`: parse optional `fuzzMm` (default `kDefaultFuzzMm`) and pass to `Compute`; serialize `out["lengthUnit"]`/`out["areaUnit"]`; per edge add `facePairs`; `CapabilityToString` emits `exact_brep`/`partial_exact_brep`/`unsupported_geometry`/`failed_with_diagnostics` (no `exact_planar`). **⚠️ See PLAN REFRESH rule 4:** `SceneGraphHandler.cpp` must swap its `#include "SceneGraph/ExactAdjacencyTypes.h"` for `OcctAdjacencyEngine.h`, add `namespace ro = ::Rook::occt;`, and explicitly translate `ro::ExactAdjacencyCore` → the JSON response (`ro::ExactEdge`/`ro::FacePair`/`ro::CapabilityToString`). **Remove ALL THREE dev routes (PLAN REFRESH rule 5)** — `HandleOcctValidateConverter` + `HandleOcctProbe` in `SceneGraphHandler.cpp`, AND the separate-TU `HandleOcctValidateAdjacency` (`Handlers/OcctAdjacencyValidateHandler.cpp`); drop their `#include "SceneGraph/OcctProbe.h"` and the `m_server->Post("/scene/occt_probe" | "/scene/occt_validate_converter" | "/scene/occt_validate_adjacency", …)` registrations in `RookServer.cpp`. `git rm src/RookNative/SceneGraph/OcctProbe.h src/RookNative/SceneGraph/OcctProbe.cpp src/RookNative/Handlers/OcctAdjacencyValidateHandler.cpp` and remove its `<ClCompile>` from `RookNative.vcxproj`. (The dev routes served Tasks 4–7; the real `/scene/graph/adjacency/exact` route + Task 10's live verify replace them. `OnBrepToOcct`/`OcctAdjacencyEngine` STAY — they are the production engine now.)
 
 - [ ] **Step 6: Build the `.rhp` (the green restore) + the OCCT-only primitive matrix**
 ```

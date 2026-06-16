@@ -59,7 +59,8 @@ that handles planar + curved + open + closed geometry uniformly.
 > `OcctTrace`/`_heapchk`/sizeof/EDGE-PUSH/handler-split probes). The `GetCV`→`ControlPoint`
 > change (`360ba57a`) was kept (genuine improvement). **NEXT:** Tasks 7→8→9→10 of the plan
 > (`docs/superpowers/plans/2026-06-15-occt-adjacency-engine.md`) — Task 8 strips the legacy
-> engine-contract types, at which point the `Rook::occt` namespace could optionally be flattened.
+> engine-contract types — at which point the ODR hazard is gone, but **`Rook::occt` is KEPT permanently**
+> (user decision): it's cheap insurance and an explicit ownership boundary. Do NOT flatten it back into bare `Rook`.
 
 **Read these first, in order:**
 1. This doc (decision + spikes + numbers + remaining work).
