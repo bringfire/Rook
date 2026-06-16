@@ -9,6 +9,7 @@ from aiohttp import web
 from aiohttp.test_utils import AioHTTPTestCase
 from unittest.mock import AsyncMock, MagicMock, patch
 from rook.agent.chat import server as chat_server
+from rook.agent.chat import model_status
 from rook.agent.chat.server import create_chat_app
 from rook.agent.chat.conversation_store import ConversationStore
 from rook.agent.chat.prompt_builder import PromptBuilder
@@ -100,6 +101,120 @@ class TestChatServer(AioHTTPTestCase):
         assert conv is not None
         assert conv.document_serial_number == 77
         assert data["documentSerialNumber"] == 77
+
+    async def test_start_rejects_unavailable_model_override(self):
+        resolver = AsyncMock(
+            side_effect=model_status.ModelOverrideUnavailable(
+                "openai/not-allowed",
+                ["anthropic/worker"],
+            )
+        )
+
+        with patch(
+            "rook.agent.chat.server.model_status.resolve_allowed_model_override",
+            new=resolver,
+        ):
+            resp = await self.client.post(
+                "/agent/chat/start",
+                json={
+                    "persona": "worker",
+                    "model_override": "openai/not-allowed",
+                    "api_base": "https://malicious.example/v1",
+                },
+            )
+
+        assert resp.status == 400
+        data = await resp.json()
+        assert data["code"] == "model_override_unavailable"
+        assert data["model_override"] == "openai/not-allowed"
+        assert len(self.store._conversations) == 0
+        resolver.assert_awaited_once_with("openai/not-allowed")
+
+    async def test_start_applies_detected_lmstudio_resolution(self):
+        resolution = model_status.ModelOverrideResolution(
+            model_override="openai/lmstudio-community/qwen",
+            api_base="http://127.0.0.1:1234/v1",
+            routing="local",
+            provider="openai",
+            api_base_source="detected_lmstudio",
+        )
+        resolver = AsyncMock(return_value=resolution)
+
+        with patch(
+            "rook.agent.chat.server.model_status.resolve_allowed_model_override",
+            new=resolver,
+        ):
+            resp = await self.client.post(
+                "/agent/chat/start",
+                json={
+                    "persona": "worker",
+                    "model_override": "openai/lmstudio-community/qwen",
+                    "api_base": "https://malicious.example/v1",
+                },
+            )
+
+        assert resp.status == 200
+        data = await resp.json()
+        conv = self.store.get(data["conversation_id"])
+        assert conv is not None
+        assert data["model"] == "openai/lmstudio-community/qwen"
+        assert conv.model == "openai/lmstudio-community/qwen"
+        assert conv.api_base == "http://127.0.0.1:1234/v1"
+        assert conv.model_source == "start_override"
+        assert conv.api_base_source == "detected_lmstudio"
+        resolver.assert_awaited_once_with("openai/lmstudio-community/qwen")
+
+    async def test_set_conversation_model_rejects_while_active(self):
+        conv = self.store.create("worker")
+        conv.active_run_id = "running"
+
+        resp = await self.client.post(
+            "/agent/chat/model",
+            json={
+                "conversation_id": conv.id,
+                "model_override": "ollama_chat/qwen3",
+            },
+        )
+
+        assert resp.status == 409
+        data = await resp.json()
+        assert data["code"] == "conversation_processing"
+
+    async def test_set_conversation_model_applies_when_inactive(self):
+        conv = self.store.create("worker")
+        resolution = model_status.ModelOverrideResolution(
+            model_override="ollama_chat/qwen3",
+            api_base="http://127.0.0.1:11434",
+            routing="local",
+            provider="ollama_chat",
+            api_base_source="active_profile",
+        )
+        resolver = AsyncMock(return_value=resolution)
+
+        with patch(
+            "rook.agent.chat.server.model_status.resolve_allowed_model_override",
+            new=resolver,
+        ):
+            resp = await self.client.post(
+                "/agent/chat/model",
+                json={
+                    "conversation_id": conv.id,
+                    "model_override": "ollama_chat/qwen3",
+                    "api_base": "https://malicious.example/v1",
+                    "reason": "panel selected model",
+                },
+            )
+
+        assert resp.status == 200
+        data = await resp.json()
+        assert data["conversation_id"] == conv.id
+        assert data["persona"] == "worker"
+        assert data["active_model"] == "ollama_chat/qwen3"
+        assert conv.model == "ollama_chat/qwen3"
+        assert conv.api_base == "http://127.0.0.1:11434"
+        assert conv.model_source == "panel_endpoint"
+        assert conv.api_base_source == "active_profile"
+        resolver.assert_awaited_once_with("ollama_chat/qwen3")
 
     async def test_stop_conversation(self):
         # Start one first
@@ -514,6 +629,16 @@ class TestChatServerWithNonce(AioHTTPTestCase):
         assert resp.status == 403
         data = await resp.json()
         assert "session" in data["error"].lower()
+
+    async def test_set_conversation_model_requires_nonce(self):
+        resp = await self.client.post(
+            "/agent/chat/model",
+            json={
+                "conversation_id": "conv_test",
+                "model_override": "ollama_chat/qwen3",
+            },
+        )
+        assert resp.status == 403
 
     async def test_models_with_nonce_succeeds(self):
         payload = {

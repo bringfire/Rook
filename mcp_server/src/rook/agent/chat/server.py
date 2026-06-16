@@ -199,25 +199,33 @@ async def handle_start(request: web.Request) -> web.Response:
     store = request.app.get(_STORE_KEY) or _get_store()
     builder = request.app.get(_BUILDER_KEY) or _get_builder()
 
+    resolved_model, resolved_base = builder.resolve_model_and_base(persona)
+    model_override = body.get("model_override")
+    override_resolution = None
+    if model_override:
+        try:
+            override_resolution = await model_status.resolve_allowed_model_override(
+                model_override
+            )
+        except model_status.ModelOverrideUnavailable as exc:
+            return web.json_response(exc.to_payload(), status=400)
+
     try:
         conv = store.create(persona, document_serial_number=document_serial_number)
     except RuntimeError as e:
         return web.json_response({"error": str(e)}, status=429)
 
-    # Resolve model, api_base, and display config.
-    resolved_model, resolved_base = builder.resolve_model_and_base(persona)
-    model_override = body.get("model_override")
-    conv.model = model_override or resolved_model
-
-    # When model_override changes the provider, re-filter api_base for the
-    # actual model.  resolved_base was filtered for resolved_model's provider,
-    # so it's wrong if the override swaps between cloud and local.
-    if model_override and model_override != resolved_model:
-        from ..model_profiles import get_models, api_base_for_model
-        model_set = get_models()
-        conv.api_base = api_base_for_model(conv.model, model_set.api_base) or ""
+    if override_resolution is not None:
+        conv.apply_model_override(
+            override_resolution,
+            source="start_override",
+            reason="model_override supplied to /agent/chat/start",
+        )
     else:
+        conv.model = resolved_model
         conv.api_base = resolved_base or ""
+        conv.model_source = "persona"
+        conv.api_base_source = "prompt_builder" if resolved_base else "none"
     display = builder.get_display_config(persona)
 
     return web.json_response({
@@ -229,6 +237,50 @@ async def handle_start(request: web.Request) -> web.Response:
         "tool_access": display.get("tool_access", "full"),
         "documentSerialNumber": conv.document_serial_number,
     })
+
+
+async def handle_set_model(request: web.Request) -> web.Response:
+    """POST /agent/chat/model — apply a validated model override."""
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+
+    conv_id = body.get("conversation_id")
+    model_override = body.get("model_override")
+    if not conv_id or not model_override:
+        return web.json_response(
+            {"error": "Missing conversation_id or model_override"},
+            status=400,
+        )
+
+    store = request.app.get(_STORE_KEY) or _get_store()
+    conv = store.get(conv_id)
+    if conv is None:
+        return web.json_response({"error": "Conversation not found"}, status=404)
+
+    if conv.active_run_id is not None:
+        return web.json_response(
+            {
+                "error": "Conversation already processing. Try again after the current turn completes.",
+                "code": "conversation_processing",
+            },
+            status=409,
+        )
+
+    try:
+        resolution = await model_status.resolve_allowed_model_override(model_override)
+    except model_status.ModelOverrideUnavailable as exc:
+        return web.json_response(exc.to_payload(), status=400)
+
+    payload = conv.apply_model_override(
+        resolution,
+        source="panel_endpoint",
+        reason=str(body.get("reason") or ""),
+    )
+    payload["conversation_id"] = conv.id
+    payload["persona"] = conv.persona
+    return web.json_response(payload)
 
 
 async def handle_message(request: web.Request) -> web.StreamResponse:
@@ -513,6 +565,7 @@ def create_chat_app(
     app.router.add_get("/agent/chat/personas", handle_personas)
     app.router.add_get("/agent/chat/models", handle_models)
     app.router.add_post("/agent/chat/start", handle_start)
+    app.router.add_post("/agent/chat/model", handle_set_model)
     app.router.add_post("/agent/chat/message", handle_message)
     app.router.add_post("/agent/chat/stop", handle_stop)
     app.router.add_post("/agent/chat/ui-response", handle_ui_response)
