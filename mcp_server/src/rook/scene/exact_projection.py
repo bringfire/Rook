@@ -97,3 +97,107 @@ class ExactAdjacencyProjector:
         self._analytics.graph.add_edge(
             canon_src, canon_tgt, key=EXACT_EDGE_KEY, **attrs
         )
+
+    def _prepare_source_delta(self, source_id: str, data: dict, graph_sequence: int) -> _SourceDelta:
+        """Parse a route payload into an in-memory delta. No graph mutation here."""
+        g = self._analytics.graph
+        length_unit = data.get("lengthUnit")
+        area_unit = data.get("areaUnit")
+        source_capability = data.get("sourceCapability", "")
+        candidates = data.get("candidates") or []
+        # raises if candidates is not a list of dicts -> drives commit atomicity
+        cap_map = {c.get("id"): c.get("capability", "") for c in candidates if c.get("id")}
+        edges = data.get("edges") or []
+
+        delta = _SourceDelta(
+            source_id=source_id, route_status="ok",
+            source_capability=source_capability,
+            length_unit=length_unit, area_unit=area_unit,
+        )
+        delta.capabilities_by_id[source_id] = source_capability
+
+        edge_targets: set[str] = set()
+        for e in edges:
+            tgt = e.get("targetId")
+            if not tgt:
+                continue
+            edge_targets.add(tgt)
+            shared_area = e.get("sharedArea", 0.0)
+            face_pairs = e.get("facePairs") or []
+            tgt_cap = cap_map.get(tgt, "")
+            delta.capabilities_by_id[tgt] = tgt_cap
+
+            canon_src, canon_tgt = _canonical_pair(source_id, tgt)
+            delta.edge_upserts.append((canon_src, canon_tgt, {
+                "relationship": EXACT_RELATIONSHIP,
+                "provenance": EXACT_PROVENANCE,
+                "symmetric": True,
+                "canonical": True,
+                "queriedSourceId": source_id,
+                "queriedTargetId": tgt,
+                "facePairsFrom": "queried_source_to_candidate",
+                "sharedArea": shared_area,
+                "lengthUnit": length_unit,
+                "areaUnit": area_unit,
+                "facePairs": face_pairs,
+                "capabilitiesById": {source_id: source_capability, tgt: tgt_cap},
+                "graphSequence": graph_sequence,
+                "engineVersion": ENGINE_VERSION,
+            }))
+            if self._has_bbox_pair(source_id, tgt):
+                delta.bbox_annotations.append((source_id, tgt, {
+                    "approximate": True,
+                    "exact_status": "exact_confirmed",
+                    "exact_graphSequence": graph_sequence,
+                }))
+            delta.neighbors.append({
+                "id": tgt,
+                "relationship": EXACT_RELATIONSHIP,
+                "sharedArea": shared_area,
+                "lengthUnit": length_unit,
+                "areaUnit": area_unit,
+                "facePairs": face_pairs,
+                "targetCapability": tgt_cap,
+                "fromCache": False,
+            })
+
+        for cid, cap in cap_map.items():
+            if cid == source_id or cid in edge_targets:
+                continue
+            delta.capabilities_by_id[cid] = cap
+            if cap in EVALUABLE_CAPS:
+                delta.refuted.append({"id": cid, "reason": "no_shared_face"})
+                ann = {"approximate": True, "exact_status": "exact_refuted",
+                       "exact_reason": "no_shared_face", "exact_graphSequence": graph_sequence}
+            else:
+                delta.failed.append({"id": cid, "reason": cap or "unsupported_geometry",
+                                     "diagnostics": []})
+                ann = {"approximate": True, "exact_status": "exact_failed",
+                       "exact_diagnostics": [], "exact_graphSequence": graph_sequence}
+            if self._has_bbox_pair(source_id, cid):
+                delta.bbox_annotations.append((source_id, cid, ann))
+        return delta
+
+    def _has_bbox_pair(self, a: str, b: str) -> bool:
+        g = self._analytics.graph
+        return g.has_edge(a, b) or g.has_edge(b, a)
+
+    def _commit_source_delta(self, delta: _SourceDelta) -> None:
+        """Apply the prepared delta in one shot; invalidate analytics caches if mutated."""
+        if delta.route_status != "ok":
+            return
+        g = self._analytics.graph
+        mutated = False
+        for canon_src, canon_tgt, attrs in delta.edge_upserts:
+            self._upsert_exact_edge(canon_src, canon_tgt, attrs)
+            mutated = True
+        for a, b, ann in delta.bbox_annotations:
+            for u, v in ((a, b), (b, a)):
+                if not g.has_edge(u, v):
+                    continue
+                for _key, edata in g[u][v].items():
+                    if edata.get("relationship") == "adjacent":
+                        edata.update(ann)
+                        mutated = True
+        if mutated:
+            self._analytics._invalidate_caches()
