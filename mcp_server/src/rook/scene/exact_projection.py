@@ -107,6 +107,9 @@ class ExactAdjacencyProjector:
         # raises if candidates is not a list of dicts -> drives commit atomicity
         cap_map = {c.get("id"): c.get("capability", "") for c in candidates if c.get("id")}
         edges = data.get("edges") or []
+        # Native route diagnostics (vector<string>); per-candidate lines are prefixed
+        # "cand:<id>:". Preserve them so honest-degradation is not silently dropped.
+        route_diagnostics = [d for d in (data.get("diagnostics") or []) if isinstance(d, str)]
 
         delta = _SourceDelta(
             source_id=source_id, route_status="ok",
@@ -114,6 +117,7 @@ class ExactAdjacencyProjector:
             length_unit=length_unit, area_unit=area_unit,
         )
         delta.capabilities_by_id[source_id] = source_capability
+        delta.diagnostics = list(route_diagnostics)
 
         edge_targets: set[str] = set()
         for e in edges:
@@ -169,10 +173,11 @@ class ExactAdjacencyProjector:
                 ann = {"approximate": True, "exact_status": "exact_refuted",
                        "exact_reason": "no_shared_face", "exact_graphSequence": graph_sequence}
             else:
+                cand_diag = [d for d in route_diagnostics if d.startswith(f"cand:{cid}:")]
                 delta.failed.append({"id": cid, "reason": cap or "unsupported_geometry",
-                                     "diagnostics": []})
+                                     "diagnostics": cand_diag})
                 ann = {"approximate": True, "exact_status": "exact_failed",
-                       "exact_diagnostics": [], "exact_graphSequence": graph_sequence}
+                       "exact_diagnostics": cand_diag, "exact_graphSequence": graph_sequence}
             if self._has_bbox_pair(source_id, cid):
                 delta.bbox_annotations.append((source_id, cid, ann))
         return delta
@@ -260,8 +265,19 @@ class ExactAdjacencyProjector:
             err = str(resp.get("data", "exact route failed"))
             status = "timeout" if "timeout" in err.lower() else "failed"
             return self._empty_block(source_id, status, err)
+        data = resp.get("data") or {}
+        # Guard against a scene change between our mirror sync and the exact compute:
+        # if the route computed against a different graph state, its facts would be
+        # committed as precise truth for the wrong geometry. Fail (uncached) so the
+        # next call re-syncs and retries against a consistent state.
+        payload_seq = data.get("graphSequence")
+        if payload_seq is not None and payload_seq != graph_sequence:
+            logger.warning(
+                "exact route graphSequence %s != mirror %s for %s; skipping commit",
+                payload_seq, graph_sequence, source_id)
+            return self._empty_block(source_id, "failed", "graph_sequence_mismatch")
         try:
-            delta = self._prepare_source_delta(source_id, resp.get("data") or {}, graph_sequence)
+            delta = self._prepare_source_delta(source_id, data, graph_sequence)
             self._commit_source_delta(delta)
         except Exception as ex:  # malformed payload -> isolate, graph untouched (prepare-then-commit)
             logger.warning("exact projection parse failed for %s: %s", source_id, ex)

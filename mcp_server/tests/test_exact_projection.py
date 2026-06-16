@@ -358,3 +358,80 @@ def test_local_handler_registered_for_agent_direct_path():
     tools = build_local_tools()
     assert "scene_exact_neighbors" in tools
     assert callable(tools["scene_exact_neighbors"])
+
+
+# --- Post-review hardening (findings 1-5) ---------------------------------
+
+def test_targeting_policy_for_scene_exact_neighbors():
+    # Finding 1: the exposed tool must be classified — requires Rhino, read-only.
+    from rook import targeting
+    pol = targeting.policy_for_tool("scene_exact_neighbors")
+    assert pol.requires_rhino is True
+    assert pol.risk == "read"
+    assert "scene_exact_neighbors" in targeting._ALL_KNOWN_TOOLS
+
+
+def test_project_graph_sequence_mismatch_not_committed(monkeypatch):
+    # Finding 2: route computed against a different graph state than our mirror ->
+    # do not commit stale exact facts; fail (uncached) so the next call retries.
+    proj = _projector_with_nodes("A", "B")
+    _stub_sync(proj._analytics, 5)
+    calls = {"n": 0}
+
+    async def fake(endpoint, method="GET", data=None, port=None, **kw):
+        calls["n"] += 1
+        return {"success": True, "data": {
+            "objectId": "A", "graphSequence": 6,  # mismatch vs mirror sequence 5
+            "sourceCapability": "exact_brep", "lengthUnit": "inches", "areaUnit": "inches^2",
+            "edges": [{"targetId": "B", "sharedArea": 1.0, "facePairs": []}],
+            "candidates": [{"id": "B", "capability": "exact_brep"}]}}
+
+    monkeypatch.setattr(ep, "call_rhino", fake)
+    out = asyncio.run(proj.project(["A"]))
+    block = out["projected"][0]
+    assert block["routeStatus"] == "failed"
+    assert block["error"] == "graph_sequence_mismatch"
+    assert not any(k == EXACT_EDGE_KEY for _, _, k in proj._analytics.graph.edges(keys=True))
+    # mismatch failure is not cached -> retried on the next call
+    asyncio.run(proj.project(["A"]))
+    assert calls["n"] == 2
+
+
+def test_diagnostics_copied_and_filtered_to_failed_candidate():
+    # Finding 3: native diagnostics must survive into the per-source block, and
+    # cand:<id>: lines route to the matching failed candidate.
+    proj = _projector_with_nodes("A", "E")
+    payload = {
+        "objectId": "A", "graphSequence": 1, "sourceCapability": "exact_brep",
+        "lengthUnit": "inches", "areaUnit": "inches^2",
+        "edges": [],
+        "candidates": [{"id": "E", "capability": "unsupported_geometry"}],
+        "diagnostics": ["cand:E:mesh geometry not supported", "source: ok"],
+    }
+    delta = proj._prepare_source_delta("A", payload, graph_sequence=1)
+    assert delta.diagnostics == ["cand:E:mesh geometry not supported", "source: ok"]
+    failed = {f["id"]: f for f in delta.failed}
+    assert failed["E"]["diagnostics"] == ["cand:E:mesh geometry not supported"]
+
+
+def test_local_handler_propagates_projector_failure():
+    # Finding 4: a projector {"success": False} (e.g. bad scope) must surface as a
+    # top-level failure on the agent-direct path, not be wrapped as success.
+    from rook.agent.tool_dispatcher import build_local_tools
+    handler = build_local_tools()["scene_exact_neighbors"]
+    out = asyncio.run(handler(object_ids=["x"], candidate_scope="radius"))
+    assert out["success"] is False
+    assert "unsupported candidate_scope" in str(out["data"])
+
+
+def test_get_context_outgoing_exact_uses_friendly_phrase():
+    # Finding 5: outgoing exact edge reads the friendly phrase, not the raw rel name.
+    proj = _projector_with_nodes("AAA", "ZZZ")  # AAA<ZZZ -> canonical edge is OUTGOING from AAA
+    sg = proj._analytics
+    sg.graph.nodes["ZZZ"]["domain_label"] = "wall"
+    proj._upsert_exact_edge("AAA", "ZZZ", {
+        "relationship": EXACT_RELATIONSHIP, "provenance": EXACT_PROVENANCE,
+        "sharedArea": 12.0, "areaUnit": "inches^2", "graphSequence": 1})
+    text = sg.get_context(["AAA"])
+    assert "adjacent to (exact)" in text
+    assert "adjacent_exact:" not in text  # raw relationship name not shown
