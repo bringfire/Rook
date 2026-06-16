@@ -40,19 +40,14 @@ class TestChatServer(AioHTTPTestCase):
         assert "persona" in data[0]
         assert "label" in data[0]
 
-    async def test_models_endpoint_returns_payload_with_no_store_headers(self):
+    async def test_models_without_conversation_id_preserves_slice1_payload(self):
         payload = {
             "active_profile": "cloud",
             "profile_source": "file",
-            "roles": {
-                "worker": {
-                    "profile_model": "anthropic/profile-worker",
-                    "effective_model": "anthropic/profile-worker",
-                }
-            },
+            "roles": {},
             "personas": [],
-            "local_providers": {"ollama": {"available": False, "models": []}},
-            "allowed_model_overrides": ["anthropic/profile-worker"],
+            "local_providers": {},
+            "allowed_model_overrides": [],
         }
         build_models_payload = AsyncMock(return_value=payload)
         with patch(
@@ -67,6 +62,44 @@ class TestChatServer(AioHTTPTestCase):
         assert resp.headers["Cache-Control"] == "no-store"
         assert resp.headers["Pragma"] == "no-cache"
         assert resp.headers["Expires"] == "0"
+
+    async def test_models_with_conversation_id_includes_conversation_status(self):
+        conv = self.store.create("worker")
+        conv.model = "anthropic/worker"
+        conv.api_base = ""
+        conv.model_source = "persona"
+        conv.api_base_source = "none"
+        conv.pending_model = "ollama_chat/qwen3:30b"
+        conv.pending_api_base = ""
+        conv.pending_model_source = "agent_tool"
+        conv.pending_api_base_source = "none"
+
+        payload = {
+            "active_profile": "cloud",
+            "profile_source": "file",
+            "roles": {},
+            "personas": [],
+            "local_providers": {},
+            "allowed_model_overrides": [],
+        }
+        with patch(
+            "rook.agent.chat.server.model_status.build_models_payload",
+            new=AsyncMock(return_value=payload),
+        ):
+            resp = await self.client.get(
+                f"/agent/chat/models?conversation_id={conv.id}"
+            )
+
+        assert resp.status == 200
+        data = await resp.json()
+        assert data["conversation"]["conversation_id"] == conv.id
+        assert data["conversation"]["active_model"] == "anthropic/worker"
+        assert data["conversation"]["pending_model"] == "ollama_chat/qwen3:30b"
+        assert "api_base" not in data["conversation"]
+
+    async def test_models_with_unknown_conversation_id_returns_404(self):
+        resp = await self.client.get("/agent/chat/models?conversation_id=conv_missing")
+        assert resp.status == 404
 
     async def test_health(self):
         with patch("rook.agent.chat.server.collect_runtime_facts", new=AsyncMock(return_value={

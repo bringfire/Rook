@@ -129,6 +129,14 @@ def _provider_for_model(model: str) -> str:
     return model.split("/", 1)[0] if "/" in model else "local"
 
 
+def _conversation_routing(model: str, api_base: str) -> str:
+    if api_base:
+        return "local"
+    if model.startswith("ollama_chat/") or model.startswith("ollama/"):
+        return "local"
+    return "cloud"
+
+
 def _detected_lmstudio_api_base(
     model_override: str,
     local_providers: dict,
@@ -479,4 +487,30 @@ async def build_models_payload(builder: Optional[PromptBuilder] = None) -> dict:
         "personas": build_persona_status(builder),
         "local_providers": local_providers,
         "allowed_model_overrides": allowed_model_overrides,
+    }
+
+
+def build_conversation_model_status(conversation) -> dict:
+    """Return model visibility for one conversation without exposing api_base."""
+    pending_model = conversation.pending_model or None
+    pending_routing = (
+        _conversation_routing(conversation.pending_model, conversation.pending_api_base)
+        if pending_model
+        else None
+    )
+    return {
+        "conversation_id": conversation.id,
+        "persona": conversation.persona,
+        "active_model": conversation.model,
+        "active_routing": _conversation_routing(
+            conversation.model,
+            conversation.api_base,
+        ),
+        "model_source": conversation.model_source,
+        "api_base_source": conversation.api_base_source,
+        "pending_model": pending_model,
+        "pending_routing": pending_routing,
+        "pending_model_source": conversation.pending_model_source or None,
+        "pending_api_base_source": conversation.pending_api_base_source or None,
+        "pending_applies_to": "next_turn" if pending_model else None,
     }

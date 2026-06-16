@@ -149,6 +149,26 @@ async def handle_models(request: web.Request) -> web.Response:
     """GET /agent/chat/models — report active model routing and local models."""
     builder = request.app.get(_BUILDER_KEY) or _get_builder()
     payload = await model_status.build_models_payload(builder=builder)
+
+    conv_id = request.query.get("conversation_id")
+    if conv_id:
+        store = request.app.get(_STORE_KEY) or _get_store()
+        conv = store.get(conv_id)
+        if conv is None:
+            return web.json_response(
+                {"error": "Conversation not found"},
+                status=404,
+                headers={
+                    "Cache-Control": "no-store",
+                    "Pragma": "no-cache",
+                    "Expires": "0",
+                },
+            )
+        payload = {
+            **payload,
+            "conversation": model_status.build_conversation_model_status(conv),
+        }
+
     return web.json_response(
         payload,
         headers={
