@@ -572,7 +572,7 @@ class ChatRunner:
                 payload = await payload
         else:
             payload = await model_status.build_models_payload()
-        return {"success": True, "data": payload}
+        return payload
 
     async def _handle_set_chat_model(
         self,
@@ -580,6 +580,15 @@ class ChatRunner:
         params: dict,
     ) -> dict:
         """Validate and stage a chat model override for the next turn."""
+        if "api_base" in params:
+            return {
+                "success": False,
+                "data": {
+                    "error": "api_base is not allowed for set_chat_model.",
+                    "code": "api_base_not_allowed",
+                },
+            }
+
         model_override = params.get("model_override")
         if not model_override:
             return {
@@ -824,6 +833,7 @@ class ChatRunner:
                         if tool_name == "set_chat_model" and result.get("success"):
                             yield ChatEvent(
                                 "model_update",
+                                content=result.get("message"),
                                 model=result.get("model_override"),
                                 applies_to="next_turn",
                                 result=result_str,
@@ -955,9 +965,14 @@ class ChatRunner:
             }
             if not closing_due_to_generator_exit:
                 if applied_model_update:
+                    active_model = applied_model_update.get("active_model")
                     yield ChatEvent(
                         "model_update",
-                        model=applied_model_update.get("active_model"),
+                        content=(
+                            "Model switch applied. Future turns in this conversation will use "
+                            f"{active_model}."
+                        ),
+                        model=active_model,
                         applies_to="active",
                         result=json.dumps(applied_model_update),
                     )

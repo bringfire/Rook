@@ -109,16 +109,19 @@ async def test_set_chat_model_stages_pending_and_does_not_change_current_turn():
     model_updates = [event for event in events if event.type == "model_update"]
     assert any(
         event.model == "ollama_chat/qwen3:30b" and event.applies_to == "next_turn"
+        and event.content == "Model override staged for the next turn."
         for event in model_updates
     )
     assert any(
         event.model == "ollama_chat/qwen3:30b" and event.applies_to == "active"
+        and event.content
+        == "Model switch applied. Future turns in this conversation will use ollama_chat/qwen3:30b."
         for event in model_updates
     )
 
 
 @pytest.mark.asyncio
-async def test_set_chat_model_applies_pending_even_when_turn_errors_or_aborts():
+async def test_set_chat_model_applies_pending_even_when_turn_aborts():
     conv = Conversation(id="conv_test", persona="worker", model="anthropic/current", api_base="")
     runner = ChatRunner(tool_executor=AsyncMock())
 
@@ -153,6 +156,105 @@ async def test_set_chat_model_applies_pending_even_when_turn_errors_or_aborts():
         event.type == "model_update"
         and event.model == "ollama_chat/qwen3:30b"
         and event.applies_to == "active"
+        and event.content
+        == "Model switch applied. Future turns in this conversation will use ollama_chat/qwen3:30b."
+        for event in events
+    )
+
+
+@pytest.mark.asyncio
+async def test_set_chat_model_rejects_api_base_without_staging_or_resolving():
+    conv = Conversation(id="conv_test", persona="worker", model="anthropic/current", api_base="")
+    runner = ChatRunner(tool_executor=AsyncMock())
+
+    call_count = 0
+
+    async def mock_acompletion(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return _make_tool_response(
+                "set_chat_model",
+                {
+                    "model_override": "ollama_chat/qwen3:30b",
+                    "api_base": "http://127.0.0.1:11434",
+                },
+                "call_set_model",
+            )
+        return _make_text_response("I cannot set api_base.")
+
+    resolver = AsyncMock(return_value=_qwen_resolution())
+    events = []
+    with (
+        patch("rook.agent.chat.chat_runner.litellm.acompletion", side_effect=mock_acompletion),
+        patch("rook.agent.chat.model_status.resolve_allowed_model_override", resolver),
+        _runtime_facts_patch(),
+    ):
+        async for event in runner.run_turn(conv, "use qwen with api base", "system"):
+            events.append(event)
+
+    resolver.assert_not_awaited()
+    assert conv.model == "anthropic/current"
+    assert conv.pending_model == ""
+    assert not any(
+        event.type == "model_update" and event.applies_to == "next_turn"
+        for event in events
+    )
+
+    tool_results = [
+        event for event in events
+        if event.type == "tool_result" and event.name == "set_chat_model"
+    ]
+    assert len(tool_results) == 1
+    result = json.loads(tool_results[0].result)
+    assert result["success"] is False
+    assert result["data"]["code"] == "api_base_not_allowed"
+
+
+@pytest.mark.asyncio
+async def test_set_chat_model_applies_pending_even_when_later_llm_call_errors():
+    conv = Conversation(id="conv_test", persona="worker", model="anthropic/current", api_base="")
+    runner = ChatRunner(tool_executor=AsyncMock())
+    call_count = 0
+
+    async def mock_acompletion(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return _make_tool_response(
+                "set_chat_model",
+                {
+                    "model_override": "ollama_chat/qwen3:30b",
+                    "reason": "Use local Qwen for the next turn.",
+                },
+                "call_set_model",
+            )
+        raise RuntimeError("forced llm failure")
+
+    events = []
+    with (
+        patch("rook.agent.chat.chat_runner.litellm.acompletion", side_effect=mock_acompletion),
+        patch(
+            "rook.agent.chat.model_status.resolve_allowed_model_override",
+            new=AsyncMock(return_value=_qwen_resolution()),
+        ),
+        _runtime_facts_patch(),
+    ):
+        async for event in runner.run_turn(conv, "use qwen", "system"):
+            events.append(event)
+
+    assert conv.model == "ollama_chat/qwen3:30b"
+    assert conv.pending_model == ""
+    assert any(
+        event.type == "error" and event.content == "LLM error: forced llm failure"
+        for event in events
+    )
+    assert any(
+        event.type == "model_update"
+        and event.model == "ollama_chat/qwen3:30b"
+        and event.applies_to == "active"
+        and event.content
+        == "Model switch applied. Future turns in this conversation will use ollama_chat/qwen3:30b."
         for event in events
     )
 
@@ -191,7 +293,9 @@ async def test_list_chat_models_returns_inline_tool_result():
 
     tool_messages = [message for message in conv.messages if message.get("role") == "tool"]
     assert len(tool_messages) == 1
-    assert json.loads(tool_messages[0]["content"])["data"] == payload
+    tool_payload = json.loads(tool_messages[0]["content"])
+    assert tool_payload["allowed_model_overrides"] == payload["allowed_model_overrides"]
+    assert tool_payload == payload
     assert any(
         event.type == "tool_result" and event.name == "list_chat_models"
         for event in events
