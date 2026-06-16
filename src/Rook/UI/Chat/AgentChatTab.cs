@@ -71,7 +71,7 @@ namespace Rook.UI.Chat
                     {
                         ApplyHealthStatus(_lastHealth);
                     }
-                    await RefreshModelStatusAsync();
+                    await RefreshModelStatusAsync(_conversationId);
                     return;
                 }
 
@@ -105,7 +105,7 @@ namespace Rook.UI.Chat
                 _conversationBaseUri = info.BaseUri;
                 _activeModelLabel = info.Model;
                 ApplyHealthStatus(health);
-                await RefreshModelStatusAsync();
+                await RefreshModelStatusAsync(_conversationId);
 
                 // Set persona color and initial on the WebView
                 var hex = $"#{(int)(TabColor.R * 255):X2}{(int)(TabColor.G * 255):X2}{(int)(TabColor.B * 255):X2}";
@@ -165,32 +165,43 @@ namespace Rook.UI.Chat
             await InitializeAsync();
         }
 
-        private async Task RefreshModelStatusAsync(CancellationToken ct = default)
+        private async Task RefreshModelStatusAsync(string? expectedConversationId = null, CancellationToken ct = default)
         {
             var baseUri = _conversationBaseUri;
-            var conversationId = _conversationId;
-            if (baseUri == null || string.IsNullOrEmpty(conversationId))
+            var conversationId = expectedConversationId ?? _conversationId;
+            if (baseUri == null || conversationId == null || conversationId.Length == 0)
             {
                 return;
             }
+            var currentConversationId = conversationId;
 
             try
             {
-                var models = await _client.GetModelsAsync(baseUri, conversationId, ct);
+                var models = await _client.GetModelsAsync(baseUri, currentConversationId, ct);
                 var conversation = models.Conversation;
-                var activeModel = conversation?.ActiveModel;
-                if (string.IsNullOrEmpty(activeModel))
+                if (conversation == null || string.IsNullOrEmpty(conversation.ActiveModel))
+                {
+                    return;
+                }
+                var activeModel = conversation.ActiveModel;
+
+                if (!IsCurrentConversation(currentConversationId))
                 {
                     return;
                 }
 
-                _activeModelLabel = activeModel;
                 var status = string.IsNullOrEmpty(conversation.PendingModel)
                     ? $"Model: {activeModel}"
                     : $"Model: {activeModel}; next turn: {conversation.PendingModel}";
 
                 Application.Instance.Invoke(() =>
                 {
+                    if (!IsCurrentConversation(currentConversationId))
+                    {
+                        return;
+                    }
+
+                    _activeModelLabel = activeModel;
                     SetStatus(status, Colors.Blue);
                 });
             }
@@ -198,6 +209,11 @@ namespace Rook.UI.Chat
             {
                 // Model status is best-effort feedback only.
             }
+        }
+
+        private bool IsCurrentConversation(string expectedConversationId)
+        {
+            return string.Equals(_conversationId, expectedConversationId, StringComparison.Ordinal);
         }
 
         private void ApplyModelUpdateEvent(ChatEvent evt)
@@ -360,7 +376,7 @@ namespace Rook.UI.Chat
 
                     case "model_update":
                         ApplyModelUpdateEvent(evt);
-                        _ = RefreshModelStatusAsync();
+                        _ = RefreshModelStatusAsync(_conversationId);
                         break;
 
                     case "done":
@@ -381,7 +397,7 @@ namespace Rook.UI.Chat
                             SetStatus("Ready", Colors.Green);
                         }
                         SetProcessing(false);
-                        _ = RefreshModelStatusAsync();
+                        _ = RefreshModelStatusAsync(_conversationId);
                         break;
 
                     case "error":
