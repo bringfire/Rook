@@ -501,7 +501,9 @@ def _verdict_from_evidence(evidence: list, penetration: bool) -> tuple[str, str,
         return "contains_semantic", "high", "strong_clearance_plausible_container"
     if has_solid and has_margin and len(weakens) <= 1:
         return "contains_semantic", "medium", "clear_containment_minor_gaps"
-    if len(supports) > len(weakens) and (has_margin or has_solid):
+    # low requires >= 2 supporting signals: a lone weak support (e.g. only bbox_margin on a
+    # Mesh container) cannot responsibly assert containment -> insufficient_evidence.
+    if len(supports) >= 2 and len(supports) > len(weakens) and (has_margin or has_solid):
         return "contains_semantic", "low", "weak_positive_containment"
     return "insufficient_evidence", "none", "insufficient_evidence"
 ```
