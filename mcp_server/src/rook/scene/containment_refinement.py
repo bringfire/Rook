@@ -213,3 +213,70 @@ def _verdict_from_evidence(evidence: list, penetration: bool) -> tuple[str, str,
     if len(supports) >= 2 and len(supports) > len(weakens) and (has_margin or has_solid):
         return "contains_semantic", "low", "weak_positive_containment"
     return "insufficient_evidence", "none", "insufficient_evidence"
+
+
+class ContainmentRefiner:
+    """Refines bbox `contains` candidates into semantic containment in a SceneGraphAnalytics mirror.
+
+    Owns no graph; reads/refines the analytics mirror. Reasons only over evidence already
+    present — never calls the exact projector or any new geometry route.
+    """
+
+    def __init__(self, analytics: SceneGraphAnalytics) -> None:
+        self._analytics = analytics
+        self._cache: dict[tuple, dict] = {}
+        self._cache_sequence: int = -1
+
+    def _candidate_contains_edges(self, object_ids) -> list[tuple[str, str]]:
+        """Ordered (container, contained) pairs from bbox `contains` edges incident to the ids
+        in EITHER role, deduped by ordered pair."""
+        g = self._analytics.graph
+        seen: set[tuple[str, str]] = set()
+        out: list[tuple[str, str]] = []
+        for x in object_ids:
+            if not g.has_node(x):
+                continue
+            for _u, v, d in g.out_edges(x, data=True):
+                if d.get("relationship") == "contains" and (x, v) not in seen:
+                    seen.add((x, v)); out.append((x, v))
+            for u, _v, d in g.in_edges(x, data=True):
+                if d.get("relationship") == "contains" and (u, x) not in seen:
+                    seen.add((u, x)); out.append((u, x))
+        return out
+
+    def _has_adjacent_exact(self, a: str, b: str) -> bool:
+        g = self._analytics.graph
+        for u, v in ((a, b), (b, a)):
+            if g.has_edge(u, v):
+                for _k, d in g[u][v].items():
+                    if d.get("relationship") == ADJACENT_EXACT_RELATIONSHIP:
+                        return True
+        return False
+
+    def _evaluate_candidate(self, container_id: str, contained_id: str) -> _CandidateResult:
+        g = self._analytics.graph
+        c = g.nodes[container_id]
+        b = g.nodes[contained_id]
+        evidence: list[dict] = []
+        for fn in (_evidence_container_solidity, _evidence_class_pair):
+            item = fn(c)
+            if item:
+                evidence.append(item)
+        evidence.append(_evidence_bbox_margin(c, b))
+        evidence.append(_evidence_containment_depth(c, b))
+        for item in (_evidence_volume_ratio(c, b), _evidence_grouping(c, b)):
+            if item:
+                evidence.append(item)
+        if self._has_adjacent_exact(container_id, contained_id):
+            evidence.append({"signal": "touching_exact", "polarity": "weakens",
+                             "detail": "adjacent_exact edge present"})
+
+        thin = bool({c.get("shape_class", ""), c.get("domain_label", "")} & THIN_CLASSES)
+        penetration = thin and _spans_thin_axis(c, b)
+
+        verdict, confidence, reason = _verdict_from_evidence(evidence, penetration)
+        return _CandidateResult(
+            candidate_id=candidate_id(container_id, contained_id),
+            container_id=container_id, contained_id=contained_id,
+            verdict=verdict, confidence=confidence, reason=reason, evidence=evidence,
+        )

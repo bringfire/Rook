@@ -155,3 +155,71 @@ def test_verdict_touching_exact_alone_does_not_veto():
           _ev("class_pair", "supports"), _ev("touching_exact", "weakens")]
     verdict, conf, reason = _verdict_from_evidence(ev, penetration=False)
     assert verdict == "contains_semantic"  # NOT disqualified
+
+
+from rook.scene.containment_refinement import ContainmentRefiner
+from rook.scene.scene_graph import SceneGraphAnalytics
+
+
+def _refiner(nodes: dict, contains_edges=(), exact_edges=()) -> ContainmentRefiner:
+    """nodes: {id: attrs}; contains_edges: [(container, contained)]; exact_edges: [(a,b)]."""
+    sg = SceneGraphAnalytics()
+    for nid, attrs in nodes.items():
+        sg.graph.add_node(nid, **attrs)
+    for u, v in contains_edges:
+        sg.graph.add_edge(u, v, relationship="contains", distance=0, overlap=0, direction="")
+    for a, b in exact_edges:
+        lo, hi = sorted((a, b))
+        sg.graph.add_edge(lo, hi, key="occt:adjacent_exact", relationship="adjacent_exact")
+    return ContainmentRefiner(sg)
+
+
+def test_candidate_collection_both_roles_and_dedup():
+    r = _refiner(
+        {"A": _attrs(), "B": _attrs(), "C": _attrs()},
+        contains_edges=[("A", "B"), ("C", "A")],
+    )
+    # Query A: it is container of B and contained of C -> two candidates.
+    cands = r._candidate_contains_edges(["A"])
+    assert set(cands) == {("A", "B"), ("C", "A")}
+    # Query both A and C: the (C,A) candidate must appear once (dedup by ordered pair).
+    cands2 = r._candidate_contains_edges(["A", "C"])
+    assert sorted(cands2) == [("A", "B"), ("C", "A")]
+
+
+def test_evaluate_candidate_high_confidence():
+    r = _refiner({
+        "BOX": _attrs(geometry_type="Brep", shape_class="compact",
+                      bbox_min=(0, 0, 0), bbox_max=(10, 10, 10)),
+        "SM": _attrs(geometry_type="Brep", shape_class="compact",
+                     bbox_min=(2, 2, 2), bbox_max=(4, 4, 4), layer="X"),
+    }, contains_edges=[("BOX", "SM")])
+    res = r._evaluate_candidate("BOX", "SM")
+    assert res.verdict == "contains_semantic" and res.confidence == "high"
+
+
+def test_evaluate_candidate_touching_exact_used_only_if_present():
+    # Pre-seed an adjacent_exact edge -> touching_exact evidence appears.
+    r = _refiner({
+        "BOX": _attrs(geometry_type="Brep", shape_class="compact",
+                      bbox_min=(0, 0, 0), bbox_max=(10, 10, 10)),
+        "SM": _attrs(geometry_type="Brep", shape_class="compact",
+                     bbox_min=(2, 2, 2), bbox_max=(4, 4, 4)),
+    }, contains_edges=[("BOX", "SM")], exact_edges=[("BOX", "SM")])
+    res = r._evaluate_candidate("BOX", "SM")
+    assert any(e["signal"] == "touching_exact" for e in res.evidence)
+
+
+def test_refiner_never_calls_exact_projector(monkeypatch):
+    import rook.scene.exact_projection as ep
+    called = {"n": 0}
+
+    def boom(*a, **k):
+        called["n"] += 1
+        raise AssertionError("refiner must not call the exact projector")
+
+    monkeypatch.setattr(ep, "get_exact_projector", boom)
+    r = _refiner({"BOX": _attrs(), "SM": _attrs(bbox_min=(2, 2, 2), bbox_max=(4, 4, 4))},
+                 contains_edges=[("BOX", "SM")])
+    r._evaluate_candidate("BOX", "SM")
+    assert called["n"] == 0
