@@ -307,9 +307,12 @@ The export result includes a `verification` block, and a gated live script re-pr
 - **MCP** (`server.py`): `rookbim_export_elements` tool — input schema (one-of selector/identities,
   output block, rooms/allowTruncated/allowBboxProxy, port), dispatch case →
   `call_rhino("/bim/export-elements", "POST", arguments, port=port)`. Add to the bim
-  `TOOL_GROUPS` entry. **Targeting policy:** `requires_rhino=True`, `risk="write"` (it writes files
-  to disk — classified as a mutating/export op even though Revit/Rhino docs are untouched), and add
-  to `_ALL_KNOWN_TOOLS`.
+  `TOOL_GROUPS` entry. **Targeting policy:** `requires_rhino=True`, `risk="mutate"` — the valid
+  `Risk = Literal["read", "mutate", "meta"]` has no `"write"` value, and the mutation here is
+  **filesystem artifact creation only; both the Revit and Rhino documents remain read-only**. Add
+  to `_ALL_KNOWN_TOOLS`. Place `rookbim_export_elements` in the **full `rookbim` group only** — do
+  **NOT** add it to `rookbim_readonly` / `READONLY_ALLOWED_GROUPS` (it is not read-only, and a
+  broader file-writing-tool policy model is out of scope for v1).
 - `NoExportableGeometry` is returned when a selection resolves to ≥1 element but **zero** produce any
   geometry **and** `allowBboxProxy` is false (the bundle would be all-`failed`) — a clear signal to
   retry with `allowBboxProxy: true` or a different selection.
