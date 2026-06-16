@@ -23,6 +23,7 @@ namespace Rook.Tests.Handlers
             "element_parameters",
             "select_elements",
             "clear_selection",
+            "export_elements",
         };
 
         [Fact]
