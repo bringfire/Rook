@@ -4,7 +4,7 @@
 
 **Goal:** Refine the scene graph's approximate bbox `contains` edges into semantic, ordinal-confidence, evidence-backed containment between actual modeled objects, exposed by a new `scene_refine_containment` MCP tool.
 
-**Architecture:** A Python read-model layer only — **zero C++ changes**. A new isolated module `scene/containment_refinement.py` holds `ContainmentRefiner`, which (after syncing the mirror) evaluates the bbox `contains` candidates incident to queried objects using only evidence already in the mirror, classifies each into a verdict + ordinal confidence + evidence list, and atomically commits parallel `semantic:contains` edges (positive verdicts only) plus non-destructive annotations on the bbox edges. It NEVER calls the exact projector or any native route; `adjacent_exact` edges are used only if already present (as a disambiguation weakener). Request-level `graphSequence`-keyed cache with active prune on advance.
+**Architecture:** A Python read-model layer only — **zero C++ changes**. A new isolated module `scene/containment_refinement.py` holds `ContainmentRefiner`, which (after syncing the mirror) evaluates the bbox `contains` candidates incident to queried objects using only evidence already in the mirror, classifies each into a verdict + ordinal confidence + evidence list, and atomically commits parallel `semantic:contains` edges (positive verdicts only) plus non-destructive annotations on the bbox edges. It never calls the exact projector, the exact-adjacency route, a point-in-solid route, or any new geometry route — the **only** native interaction is the existing `SceneGraphAnalytics.sync()` mirror refresh. `adjacent_exact` edges are used only if already present (as a disambiguation weakener). Request-level `graphSequence`-keyed cache with active prune on advance.
 
 **Tech Stack:** Python 3.11+, networkx `MultiDiGraph`, pytest (`asyncio.run`, no live Rhino), MCP `Tool` registration, tool-group + targeting-policy registration.
 
@@ -99,8 +99,10 @@ Spec: docs/superpowers/specs/2026-06-16-semantic-containment-refinement-v1-desig
 
 Invariants:
   - No C++ changes; reasons only over evidence already in the mirror.
-  - NEVER calls the exact projector or any native route. adjacent_exact edges are used
-    only if already present (a disambiguation weakener), never fetched.
+  - The ONLY native interaction is the existing SceneGraphAnalytics.sync() mirror refresh.
+    Never calls the exact projector, the exact-adjacency route, a point-in-solid route, or
+    any new geometry route. adjacent_exact edges are used only if already present (a
+    disambiguation weakener), never fetched.
   - Verdicts are semantic + ordinal confidence, NEVER geometrically exact (closure is
     unverifiable from current mirror metadata). No contains_exact in this slice.
   - Facts are ephemeral, valid only for the graphSequence they were computed against;
@@ -361,7 +363,9 @@ def _evidence_volume_ratio(c: dict, b: dict) -> dict | None:
 
 
 def _evidence_grouping(c: dict, b: dict) -> dict | None:
-    # NOTE: user-strings are NOT in the mirror's node attrs; v1 uses layer only.
+    # v1 is LAYER-ONLY. Name- and user-string-based grouping are DEFERRED: user strings are
+    # not in the mirror's node attrs, and name heuristics are noisy. Revisit when the mirror
+    # carries normalized grouping metadata.
     cl, bl = c.get("layer", ""), b.get("layer", "")
     if cl and cl == bl:
         return {"signal": "grouping_hint", "polarity": "supports", "detail": f"shared layer '{cl}'"}
