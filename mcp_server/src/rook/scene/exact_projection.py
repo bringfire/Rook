@@ -201,3 +201,24 @@ class ExactAdjacencyProjector:
                         mutated = True
         if mutated:
             self._analytics._invalidate_caches()
+
+    def _purge_projection_artifacts(self) -> None:
+        """Remove all projection-owned edges + bbox annotations from the mirror."""
+        g = self._analytics.graph
+        to_remove = [
+            (u, v, k) for u, v, k, d in g.edges(keys=True, data=True)
+            if k == EXACT_EDGE_KEY or d.get("provenance") == EXACT_PROVENANCE
+        ]
+        for u, v, k in to_remove:
+            g.remove_edge(u, v, key=k)
+        for _u, _v, _k, edata in g.edges(keys=True, data=True):
+            for fld in _BBOX_ANNOTATION_FIELDS:
+                edata.pop(fld, None)
+        self._analytics._invalidate_caches()
+
+    def _prune_if_advanced(self, graph_sequence: int) -> None:
+        """Purge stale projection state when the source graph sequence advances."""
+        if graph_sequence != self._cache_sequence:
+            self._purge_projection_artifacts()
+            self._cache.clear()
+            self._cache_sequence = graph_sequence

@@ -133,3 +133,44 @@ def test_commit_atomicity_parse_failure_leaves_graph_unmutated():
         delta = proj._prepare_source_delta("A", bad_payload, graph_sequence=1)
         proj._commit_source_delta(delta)
     assert not any(k == EXACT_EDGE_KEY for _, _, k in g.edges(keys=True))
+
+
+def test_prune_on_advance_removes_artifacts_and_invalidates_caches():
+    proj = _projector_with_nodes("A", "B")
+    g = proj._analytics.graph
+    g.add_edge("A", "B", relationship="adjacent", distance=0.0)
+    # Project an exact edge + annotate the bbox edge.
+    proj._upsert_exact_edge("A", "B", {
+        "relationship": EXACT_RELATIONSHIP, "provenance": EXACT_PROVENANCE,
+        "sharedArea": 10.0, "graphSequence": 1, "engineVersion": ENGINE_VERSION})
+    g["A"]["B"][0].update({"approximate": True, "exact_status": "exact_confirmed",
+                           "exact_graphSequence": 1})
+    # Prime analytics caches.
+    proj._analytics._communities = {"group_0": ["A", "B"]}
+    proj._analytics._centrality = {"A": 1.0}
+
+    proj._purge_projection_artifacts()
+
+    # occt edge gone; bbox edge kept but annotations stripped.
+    assert not any(k == EXACT_EDGE_KEY for _, _, k in g.edges(keys=True))
+    assert g.has_edge("A", "B")
+    bbox = g["A"]["B"][0]
+    for fld in ("approximate", "exact_status", "exact_reason",
+                "exact_diagnostics", "exact_graphSequence"):
+        assert fld not in bbox
+    # analytics caches invalidated
+    assert proj._analytics._communities is None
+    assert proj._analytics._centrality is None
+
+
+def test_prune_if_advanced_only_on_sequence_change():
+    proj = _projector_with_nodes("A")
+    proj._cache[("k",)] = {"sourceId": "A"}
+    proj._cache_sequence = 5
+    # Same sequence: cache preserved.
+    proj._prune_if_advanced(5)
+    assert proj._cache != {}
+    # Advanced sequence: cache cleared + sequence updated.
+    proj._prune_if_advanced(6)
+    assert proj._cache == {}
+    assert proj._cache_sequence == 6
