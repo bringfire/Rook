@@ -72,3 +72,28 @@ class _SourceDelta:
     refuted: list = field(default_factory=list)
     failed: list = field(default_factory=list)
     diagnostics: list = field(default_factory=list)
+
+
+class ExactAdjacencyProjector:
+    """Projects exact OCCT adjacency edges into a SceneGraphAnalytics mirror.
+
+    Owns no graph of its own — reads/writes the analytics mirror, which stays the
+    single source of truth. Caches per-source results keyed by graphSequence.
+    """
+
+    def __init__(self, analytics: SceneGraphAnalytics) -> None:
+        self._analytics = analytics
+        self._cache: dict[tuple, dict] = {}
+        self._cache_sequence: int = -1
+
+    def _upsert_exact_edge(self, id_a: str, id_b: str, attrs: dict) -> None:
+        """Idempotent upsert of the symmetric adjacency fact as one canonical edge.
+
+        MultiDiGraph.add_edge with a fixed key updates the existing edge's data
+        in place when (canon_src, canon_tgt, EXACT_EDGE_KEY) already exists — so
+        re-projecting from the other endpoint never creates a parallel duplicate.
+        """
+        canon_src, canon_tgt = _canonical_pair(id_a, id_b)
+        self._analytics.graph.add_edge(
+            canon_src, canon_tgt, key=EXACT_EDGE_KEY, **attrs
+        )
