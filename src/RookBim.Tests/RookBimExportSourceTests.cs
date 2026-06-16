@@ -60,6 +60,26 @@ namespace RookBim.Tests
             Assert.DoesNotContain("Transaction", src);
         }
 
+        [Fact]
+        public void RoomExporter_TypesRoomsSeparatelyAndDegradesPerRoom()
+        {
+            var src = Read("src/RookBim/Revit/RevitRoomExporter.cs");
+
+            // Per-room degrade ladder.
+            Assert.Contains("\"room_volume_brep\"", src);
+            Assert.Contains("\"room_mesh\"", src);
+            Assert.Contains("\"boundary_2d\"", src);
+            Assert.Contains("\"label_only\"", src);
+
+            // Separate reference layer + flag.
+            Assert.Contains("RookBim::Rooms", src);
+            Assert.Contains("referenceGeometry", src);
+
+            // Read-only spatial geometry.
+            Assert.Contains("SpatialElementGeometryCalculator", src);
+            Assert.DoesNotContain("Transaction", src);
+        }
+
         internal static string Read(string relativePath)
         {
             return File.ReadAllText(Path.Combine(RepoRoot, relativePath.Replace('/', Path.DirectorySeparatorChar)));
