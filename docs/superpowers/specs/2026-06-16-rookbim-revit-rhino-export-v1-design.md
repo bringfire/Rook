@@ -283,10 +283,15 @@ and content hashes (`.3dm` sha256, sidecar sha256) so a consumer can detect drif
 The export result includes a `verification` block, and a gated live script re-proves it end-to-end:
 
 - **Bijection:** every geometry object written to the `.3dm` has join-key user-strings that resolve
-  to **exactly one** `elements[]`/`rooms[]` sidecar record, and **every** sidecar record that
-  claims a geometry representation (`brep`/`mesh`/`bbox_proxy`, or a room with non-`label_only`
-  geometry) has **exactly one** matching `.3dm` object. `failed`/`label_only` records have **no**
-  `.3dm` object by definition (and verification asserts that too).
+  to a known exported record (an `elements[]` element OR a `rooms[]` room with geometry), and
+  **every** exported record that claims a geometry representation (`brep`/`mesh`/`bbox_proxy`, or a
+  room with non-`label_only` geometry) has **at least one** matching `.3dm` object. A single key may
+  map to **more than one** object — a multi-solid element legitimately emits one Brep object per
+  solid — so multiple-objects-per-key is valid, not a duplicate error. `failed`/`label_only` records
+  have **no** `.3dm` object by definition (and verification asserts that too). (Implementation: the
+  reconciliation is a pure, unit-tested `Rook.Bim.BimExportBijection.Verify` over the stamped object
+  keys vs. the union of element + room-geometry keys; room objects live on the `RookBim::Rooms`
+  layer, elements on `RookBim::Model`.)
 - **Reconciliation:** `requested == resolved` (or `resolved < requested` only with `truncated`/
   filtered-out reasons enumerated); `resolved == exported + failed`; counts agree across sidecar and
   validation.
