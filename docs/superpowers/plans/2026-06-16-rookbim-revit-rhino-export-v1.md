@@ -2768,3 +2768,57 @@ compiles the real Revit/RhinoCommon code (Task 4 also adds the required `RhinoCo
 `RookBim.csproj`). The native route adds a `scripts\build-native.bat` gate (Task 10).
 
 **Type consistency:** `BimExportElementsRequest`/`BimExportOutput`/`BimRoomsMode`/`BimExportResult`/`BimExportPathPolicy.{ValidateRequestShape,ResolveBundlePaths,EscapesIntendedDirectory}`/`RevitGeometryConverter.{ScaleFromFeet,Convert}`/`RevitGeometryConversion`/`RevitElementLabels`/`BimSemanticLabel`/`RevitRoomExport`/`RevitExportService.Export`/`ExportElements`/`DispatchWithTimeout` are defined once and referenced consistently. Error-code wire strings (`query_truncated`, `output_path_invalid`, `no_exportable_geometry`, `export_failed`) match between `BimHandler.MapErrorCode` (Task 9) and their `BimErrorCode` enum members (Task 1).
+
+---
+
+## Implementation Reconciliation (post-execution, 2026-06-16)
+
+All 13 tasks executed via subagent-driven development on `feature/spatial-intelligence` with per-task
+two-stage review at the gate tasks (2, 4, 7, 10) and the final gate (13). Final regression:
+**Rook.Tests 2627 passed / 0 failed; RookBim.Tests 35 passed / 0 failed; RookBim build gate 0 errors;
+Python targeting/tool-group/rookbim suite 147 passed** (the lone failure, `rhino_vision_presentation`
+missing a policy entry, is pre-existing branch drift from main's #254 — unrelated to this feature and
+documented in the pivot checkpoint); **no `Transaction` in `src/RookBim/Revit/*.cs`.**
+
+Deltas from the as-written plan that surfaced during execution (the committed code is the source of
+truth; these were verified by the build gates + reviews):
+
+1. **Test-file naming** — the three new `Rook.Tests/Bim` test files use the folder's `RookBim*`
+   convention: `RookBimExportContractsTests`, `RookBimExportPathPolicyTests`,
+   `RookBimUnavailableExportTests` (plan Task 1/2/3 prose shows the un-prefixed names).
+2. **Units validation home** — `output.units` is validated against the supported set
+   (`meters|millimeters|centimeters|feet|inches`) inside `BimExportPathPolicy.ValidateRequestShape`
+   (Task 2), not in Task 1 — fail-fast, no silent fallback. Spec §3 updated.
+3. **`RevitGeometryConversion` factory rename** — the plan declared both a `Mesh` property and a
+   `Mesh(...)` factory (illegal C#, CS0102). Factories renamed `FromBrep`/`FromMesh`/`FromBboxProxy`
+   (`Failed` kept); the consumed read surface (`Breps`/`Mesh`/`Bbox`/`Quality`/`Representation`/
+   `FallbackReason`/`HasGeometry`) is unchanged.
+4. **Failed-element representation** — `Failed(...)` reports `geometryRepresentation = "none"`
+   (`RepresentationNone`), not `bbox_proxy`, so a no-geometry element is distinguishable from a real
+   bbox proxy. Spec §5 updated.
+5. **`BimSemanticLabel` is idiomatic PascalCase** (`Value`/`Source`/`Confidence`/`MissingReason`);
+   the camelCase JSON contract is produced by `RevitExportService`'s serialization projection, not by
+   the property names (plan Task 5 test prose shows the camelCase identifiers).
+6. **RhinoCommon `File3dm` API fixes (Task 7)** — `File3dm.Objects.AddBox` doesn't exist →
+   `AddBrep(box.ToBrep())`; `File3dmLayerTable.Add` returns void → `EnsureLayer` pins the index via
+   `AllLayers.Count`; Revit mesh accessors `Vertices[v]`/`get_Index(n)`.
+7. **Export-service robustness (Task 7 review)** — per-element conversion/label/record building is
+   wrapped so one bad element is counted `Failed` (with a `none`/`failed` record) instead of aborting
+   the export; `BimExportCounts.Requested` reflects the pre-resolution query count (selector drops are
+   visible as `Requested - Resolved`); on failure, cleanup deletes only files written *this run*
+   (never a pre-existing sibling under `overwrite=true`).
+8. **Path policy hardening (Task 2 review)** — rejects trailing-dot names (Windows footgun) in
+   addition to the spec'd separators/`..`/reserved-device-names; added prefix-escape (`C:\fixtures-evil`)
+   and `..`-traversal regression tests.
+9. **Necessary collateral** — adding `ExportElements` to `IRookBimRuntime` required `ExportElements`
+   stubs on 6 in-test `IRookBimRuntime` doubles (Task 3); the `BimHandlerTests` exact-ops list gained
+   `export_elements` (Task 9); the MCP `BRIDGE_ROUTES` + `ROOKBIM_TOOL_ROUTES` guard dicts gained the
+   new tool (Task 11).
+10. **Minor accepted-as-is** — `RevitRoomExporter` carries a documentary
+    `SidecarKeyReferenceGeometry = "referenceGeometry"` const (the camelCase JSON key is emitted by
+    `RevitExportService`; the const is harmless and never read at runtime).
+
+**Live verification still pending** — the gated `live_verify_rookbim_export.py` (Task 12) must be run
+against a live Rhino.Inside.Revit session with an open Revit model before the bundle is trusted as a
+calibration fixture; static review + build gates cannot exercise the RIR Brep reflection path, real
+geometry/room extraction, or `File3dm.Write`.

@@ -191,7 +191,9 @@ Revit Solid/Face geometry
   it false, an element that yields neither Brep nor mesh is recorded `failed` (and still gets its
   identity/label record — it just has no geometry object in the `.3dm`).
 - **Never-silent fallback:** every exported record carries
-  - `geometryRepresentation` ∈ { `brep`, `mesh`, `bbox_proxy` }
+  - `geometryRepresentation` ∈ { `brep`, `mesh`, `bbox_proxy`, `none` } (`none` for a `failed`
+    element that produced no geometry object — distinct from `bbox_proxy`, so a consumer never
+    mistakes "made nothing" for "made a box")
   - `geometryQuality` ∈ { `converted_brep`, `mesh_fallback`, `bbox_only`, `failed` }
   - `fallbackReason` (null on `converted_brep`; else why it degraded)
   - `sourceRevitGeometryKind` (e.g. `solid`, `mesh`, `geometry_instance`, `none`)
