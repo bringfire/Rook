@@ -77,16 +77,21 @@ scene/exact_projection.py
   own — the mirror stays the single source of truth.
 - Cache + projection-artifact bookkeeping live on the projector singleton.
 
-### Tool registration scope (all three required)
-Surfacing the tool reliably needs three coordinated edits, not just a dispatch case:
+### Tool registration scope (all four required)
+Surfacing the tool reliably needs four coordinated edits, not just a dispatch case:
 1. **Dispatch case** — `server.py` gains a `scene_exact_neighbors` case that syncs the mirror,
    constructs/reuses the projector, calls `project(...)`, returns the structured JSON.
 2. **Tool schema** — register the `scene_exact_neighbors` `Tool(...)` in `list_tools` (next to
-   the other `scene_*` tools, ~`server.py:11063`).
+   the other `scene_*` tools, ~`server.py:11073`).
 3. **Tool group** — add `"scene_exact_neighbors"` to the `scene_graph` group in
-   `mcp_server/src/rook/agent/tool_groups.py:452` (alongside the other Python-side scene tools),
-   so progressive tool disclosure surfaces it. Omitting this leaves the tool callable but
-   undiscoverable to agents.
+   `mcp_server/src/rook/agent/tool_groups.py:452`, so progressive tool disclosure surfaces it.
+   Omitting this leaves the tool undiscoverable to agents.
+4. **Agent-direct local handler** — register a `scene_exact_neighbors` handler in
+   `mcp_server/src/rook/agent/tool_dispatcher.py::build_local_tools()`. `tool_dispatcher.py` has
+   no `scene` references, so the existing `scene_context`/`scene_stats` are MCP-only; without a
+   local handler a direct agent would *discover* `scene_exact_neighbors` via its group but fail
+   to *execute* it ("unknown tool"). The handler calls `get_scene_graph()` + `get_exact_projector()`
+   + `project(...)`. Required because the roadmap wants agent semantic reasoning over exact adjacency.
 
 ### Unit Contract Invariant (load-bearing)
 > Exact projection preserves the native route's unit contract. `/scene/graph/adjacency/exact`
@@ -182,6 +187,10 @@ table. v1 adopts the edge-type *name + meaning*, not the IFC data model.
 ### Cache & invalidation
 - Cache lives on the projector singleton, keyed `(graphSequence, sourceId, frozenset(options),
   engineVersion)`. Unit / `engineVersion` mismatch also invalidates.
+- **Only durable outcomes are cached** — a per-source block is cached when
+  `routeStatus ∈ {ok, skipped}`. `failed` / `timeout` are **never cached**, so a transient
+  Rhino/UI-thread timeout is retried on the next call rather than becoming sticky until the
+  sequence advances.
 - **Active prune on `graphSequence` advance** (load-bearing — stale exact edges are worse than
   none; they present old geometry as precise truth to `get_context`/`scene_stats`/`find_path`/
   the agent). On advance the projector:
@@ -213,9 +222,10 @@ scene_exact_neighbors(object_ids: [str], candidate_scope?, port?)
 ```
 
 `candidate_scope` is an **enum with a single v1 value** `"broad_phase_default"` (default).
-It is constrained in the tool schema so radius / whole-model scopes are not implied to be
-supported. (Kept as a named param only as a forward-compat seam; if it adds friction it may be
-dropped until a second scope exists.)
+It is constrained in the tool schema AND **validated inside `project()`** (not only in the MCP
+schema) so the agent-direct path is guarded too — any other value returns
+`{"success": false, "error": "unsupported candidate_scope ..."}`. (Kept as a named param only as
+a forward-compat seam; if it adds friction it may be dropped until a second scope exists.)
 
 **Return** — structured JSON is the contract:
 
@@ -306,6 +316,10 @@ display-unit abbreviation map (`inches^2` → `in²`) is a later, opt-in nicety.
   - cache hit / miss accounting and `fromCache`;
   - **unit pass-through** — no conversion; `unitsUniform:false` path when sources disagree;
   - per-source isolation on injected route failure / timeout / `skipped` (object_not_in_scene);
+  - **transient failure/timeout is not cached** — a second call retries (no sticky failure);
+  - **`candidate_scope` rejection** — an unsupported scope returns `success:false` with an error;
+  - **agent-direct registration** — `build_local_tools()` contains a `scene_exact_neighbors`
+    handler and `TOOL_GROUPS["scene_graph"]` lists it;
   - prepare-then-commit atomicity — a parse failure leaves the graph unmutated for that source;
   - **analytics-cache invalidation** — compute `centrality()`/`community_detection()`, then
     project (and separately, prune), then verify the cached object is recomputed (not the stale
