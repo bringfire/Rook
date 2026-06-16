@@ -231,10 +231,15 @@ Append to `src/Rook/Bim/BimContracts.cs` (inside `namespace Rook.Bim`, after `Bi
                 }
             }
 
-            var outputValidation = BimExportPathPolicy.ValidateRequestShape(Output);
-            if (!outputValidation.Success)
+            // Task 1 does ONLY local output-shape validation so it is independently green.
+            // Task 2 swaps this for the full BimExportPathPolicy.ValidateRequestShape.
+            if (Output == null ||
+                string.IsNullOrWhiteSpace(Output.Directory) ||
+                string.IsNullOrWhiteSpace(Output.Name))
             {
-                return outputValidation;
+                return Fail(
+                    BimErrorCode.OutputPathInvalid,
+                    "export-elements requires output.directory and output.name.");
             }
 
             return BimValidationResult.Ok;
@@ -310,12 +315,10 @@ Append to `src/Rook/Bim/BimContracts.cs`:
     }
 ```
 
-(Note: `BimExportPathPolicy.ValidateRequestShape` is created in Task 2; this task will not compile standalone — implement Task 2 before re-running. Alternatively run Tasks 1 and 2 together before testing.)
-
-- [ ] **Step 6: Run tests (after Task 2) to verify they pass**
+- [ ] **Step 6: Run tests to verify they pass**
 
 Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter BimExportContractsTests`
-Expected: PASS (5 tests).
+Expected: PASS (5 tests). Task 1 is now self-contained — it has no dependency on Task 2.
 
 - [ ] **Step 7: Commit**
 
@@ -348,7 +351,10 @@ namespace Rook.Tests.Bim
         [InlineData(null)]
         [InlineData("")]
         [InlineData("relative/dir")]
-        public void ValidateRequestShape_RejectsNonAbsoluteDirectory(string? dir)
+        [InlineData("C:fixtures")]   // drive-relative — Path.IsPathRooted returns true, but it is NOT absolute
+        [InlineData("C:")]
+        [InlineData(@"\\server\share\fixtures")]  // UNC — ambiguous local target
+        public void ValidateRequestShape_RejectsNonAbsoluteOrNonLocalDirectory(string? dir)
         {
             var result = BimExportPathPolicy.ValidateRequestShape(
                 new BimExportOutput { Directory = dir, Name = "walls" });
@@ -362,6 +368,13 @@ namespace Rook.Tests.Bim
         [InlineData("..walls")]
         [InlineData("wall:s")]
         [InlineData("")]
+        [InlineData("CON")]       // reserved device name
+        [InlineData("nul")]       // case-insensitive
+        [InlineData("COM1")]
+        [InlineData("LPT1")]
+        [InlineData("PRN")]
+        [InlineData("AUX")]
+        [InlineData("CON.json")]  // reserved base name with extension
         public void ValidateRequestShape_RejectsUnsafeName(string name)
         {
             var result = BimExportPathPolicy.ValidateRequestShape(
@@ -409,6 +422,7 @@ Create `src/Rook/Bim/BimExportPathPolicy.cs`:
 
 ```csharp
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 
@@ -419,6 +433,16 @@ namespace Rook.Bim
         private static readonly char[] DisallowedNameChars =
             new[] { '/', '\\', ':', '*', '?', '"', '<', '>', '|' };
 
+        // Windows reserved device names — illegal as file base names even with an extension.
+        private static readonly HashSet<string> ReservedDeviceNames = new HashSet<string>(
+            new[]
+            {
+                "CON", "PRN", "AUX", "NUL",
+                "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+                "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+            },
+            StringComparer.OrdinalIgnoreCase);
+
         public static BimValidationResult ValidateRequestShape(BimExportOutput? output)
         {
             if (output == null)
@@ -426,11 +450,9 @@ namespace Rook.Bim
                 return Fail("export output is required.");
             }
 
-            if (string.IsNullOrWhiteSpace(output.Directory) ||
-                !Path.IsPathRooted(output.Directory) ||
-                !IsLocalAbsolute(output.Directory!))
+            if (!IsFullyQualifiedLocalDirectory(output.Directory))
             {
-                return Fail("output.directory must be an absolute local directory path.");
+                return Fail("output.directory must be an absolute, fully-qualified local directory path.");
             }
 
             if (!IsSafeName(output.Name))
@@ -459,7 +481,15 @@ namespace Rook.Bim
                 return false;
             }
 
-            return name.All(c => char.IsLetterOrDigit(c) || c == '.' || c == '_' || c == '-');
+            if (!name.All(c => char.IsLetterOrDigit(c) || c == '.' || c == '_' || c == '-'))
+            {
+                return false;
+            }
+
+            // Reject Windows reserved device names (base name, ignoring any extension): CON, NUL, COM1, ...
+            var dotIndex = name.IndexOf('.');
+            var baseName = dotIndex >= 0 ? name.Substring(0, dotIndex) : name;
+            return !ReservedDeviceNames.Contains(baseName);
         }
 
         public static BimExportArtifactPaths ResolveBundlePaths(string directory, string name)
@@ -480,18 +510,27 @@ namespace Rook.Bim
             return !fullFile.StartsWith(normalizedDir, StringComparison.OrdinalIgnoreCase);
         }
 
-        private static bool IsLocalAbsolute(string directory)
+        // net48 has no Path.IsPathFullyQualified, so check manually:
+        //  - must be drive-rooted "X:\..." or "X:/..." (NOT drive-relative "X:foo", which
+        //    Path.IsPathRooted accepts), and
+        //  - must NOT be a UNC path "\\server\share" (ambiguous local target).
+        private static bool IsFullyQualifiedLocalDirectory(string? directory)
         {
-            try
-            {
-                var full = Path.GetFullPath(directory);
-                // Reject UNC (\\server\share) — ambiguous local target.
-                return !full.StartsWith(@"\\", StringComparison.Ordinal);
-            }
-            catch (Exception)
+            if (string.IsNullOrWhiteSpace(directory))
             {
                 return false;
             }
+
+            var dir = directory!;
+            if (dir.StartsWith(@"\\", StringComparison.Ordinal) || dir.StartsWith("//", StringComparison.Ordinal))
+            {
+                return false; // UNC
+            }
+
+            return dir.Length >= 3 &&
+                ((dir[0] >= 'A' && dir[0] <= 'Z') || (dir[0] >= 'a' && dir[0] <= 'z')) &&
+                dir[1] == ':' &&
+                (dir[2] == '\\' || dir[2] == '/');
         }
 
         private static BimValidationResult Fail(string message)
@@ -507,15 +546,51 @@ namespace Rook.Bim
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [ ] **Step 4: Upgrade `Validate()` to delegate to the policy**
+
+Now that `BimExportPathPolicy` exists, replace the local output-shape check in
+`BimExportElementsRequest.Validate()` (`src/Rook/Bim/BimContracts.cs`) so the request reuses the
+full policy. Replace this block:
+
+```csharp
+            // Task 1 does ONLY local output-shape validation so it is independently green.
+            // Task 2 swaps this for the full BimExportPathPolicy.ValidateRequestShape.
+            if (Output == null ||
+                string.IsNullOrWhiteSpace(Output.Directory) ||
+                string.IsNullOrWhiteSpace(Output.Name))
+            {
+                return Fail(
+                    BimErrorCode.OutputPathInvalid,
+                    "export-elements requires output.directory and output.name.");
+            }
+
+            return BimValidationResult.Ok;
+```
+
+with:
+
+```csharp
+            var outputValidation = BimExportPathPolicy.ValidateRequestShape(Output);
+            if (!outputValidation.Success)
+            {
+                return outputValidation;
+            }
+
+            return BimValidationResult.Ok;
+```
+
+The Task 1 tests still pass (`ValidateRequestShape` returns `OutputPathInvalid` for a missing
+directory/name, the same code Task 1 asserted).
+
+- [ ] **Step 5: Run tests to verify they pass**
 
 Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "BimExportPathPolicyTests|BimExportContractsTests"`
 Expected: PASS (all of Task 1 + Task 2).
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add src/Rook/Bim/BimExportPathPolicy.cs src/Rook.Tests/Bim/BimExportPathPolicyTests.cs
+git add src/Rook/Bim/BimExportPathPolicy.cs src/Rook/Bim/BimContracts.cs src/Rook.Tests/Bim/BimExportPathPolicyTests.cs
 git commit -m "feat(bim): pure path-safety policy for export bundles"
 ```
 
@@ -1007,15 +1082,52 @@ namespace RookBim.Revit
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **Step 4: Add the RhinoCommon reference to `RookBim.csproj`**
+
+This is the **first** RookBim code to use RhinoCommon (`Rhino.Geometry.*`, `Rhino.FileIO.File3dm`).
+RhinoCommon reaches RookBim today only as a transitive `<Reference>` of `Rook.csproj`, and raw
+assembly `<Reference>`s do **not** flow transitively through a `ProjectReference` — so RookBim must
+reference RhinoCommon directly or it will not compile. In `src/RookBim/RookBim.csproj`, add a
+`RhinoSystemDir` default and a `RhinoCommon` reference (verified present at
+`C:\Program Files\Rhino 8\System\RhinoCommon.dll`). Add inside the existing
+`<PropertyGroup>` that defines `RevitInstallDir`:
+
+```xml
+    <RhinoSystemDir Condition="'$(RhinoSystemDir)' == ''">$(ProgramFiles)\Rhino 8\System</RhinoSystemDir>
+```
+
+and add to the `<ItemGroup>` that holds the Revit references:
+
+```xml
+    <Reference Include="RhinoCommon">
+      <HintPath>$(RhinoSystemDir)\RhinoCommon.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+```
+
+(This does not break `RookBimProject_TargetsNet48AndReferencesRevitApisPrivately` — that test asserts
+the two Revit references with `Private=false` and a single `ProjectReference`; a third assembly
+`<Reference>` for RhinoCommon is fine, and RhinoCommon ≠ RhinoInside.Revit.)
+
+- [ ] **Step 5: Run the source-text test to verify it passes**
 
 Run: `dotnet test src/RookBim.Tests/RookBim.Tests.csproj --filter RookBimExportSourceTests`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: BUILD GATE — compile the real Revit/RhinoCommon code**
+
+The source-text test does NOT compile `RevitGeometryConverter.cs` (`RookBim.Tests` has no
+`ProjectReference` to `RookBim`). Compile the actual assembly to catch Revit/RhinoCommon API
+signature mismatches:
+
+Run: `dotnet build src/RookBim/RookBim.csproj /p:RevitInstallDir="C:\Program Files\Autodesk\Revit 2024" /p:RhinoSystemDir="C:\Program Files\Rhino 8\System"`
+Expected: build succeeds. If the RhinoInside `GeometryDecoder.ToBrep`/`Face.Triangulate`/
+`Mesh.get_Triangle` signatures differ on the installed SDKs, fix them here until the build is green.
+
+- [ ] **Step 7: Commit**
 
 ```bash
-git add src/RookBim/Revit/RevitGeometryConverter.cs src/RookBim.Tests/RookBimExportSourceTests.cs
+git add src/RookBim/Revit/RevitGeometryConverter.cs src/RookBim/RookBim.csproj src/RookBim.Tests/RookBimExportSourceTests.cs
 git commit -m "feat(rookbim): Revit->Rhino geometry converter (brep/mesh/bbox)"
 ```
 
@@ -1216,7 +1328,12 @@ namespace RookBim.Revit
 Run: `dotnet test src/RookBim.Tests/RookBim.Tests.csproj --filter LabelExtractor_EmitsProvenanceTaggedLabels`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: BUILD GATE — compile the real code**
+
+Run: `dotnet build src/RookBim/RookBim.csproj /p:RevitInstallDir="C:\Program Files\Autodesk\Revit 2024" /p:RhinoSystemDir="C:\Program Files\Rhino 8\System"`
+Expected: build succeeds. Fix any Revit API mismatches (`element.LevelId`, `FamilyInstance.Room`/`.Space`, `BuiltInParameter` names, `DB.Architecture`/`DB.Mechanical` namespaces) until green.
+
+- [ ] **Step 6: Commit**
 
 ```bash
 git add src/RookBim/Revit/RevitLabelExtractor.cs src/RookBim.Tests/RookBimExportSourceTests.cs
@@ -1387,7 +1504,12 @@ namespace RookBim.Revit
 Run: `dotnet test src/RookBim.Tests/RookBim.Tests.csproj --filter RoomExporter_TypesRoomsSeparatelyAndDegradesPerRoom`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: BUILD GATE — compile the real code**
+
+Run: `dotnet build src/RookBim/RookBim.csproj /p:RevitInstallDir="C:\Program Files\Autodesk\Revit 2024" /p:RhinoSystemDir="C:\Program Files\Rhino 8\System"`
+Expected: build succeeds. Fix any mismatches (`SpatialElementGeometryCalculator`, `SpatialElementGeometryResults.GetGeometry()`, `Room.GetBoundarySegments`, `FilteredElementCollector.OfClass(typeof(SpatialElement))`) until green.
+
+- [ ] **Step 6: Commit**
 
 ```bash
 git add src/RookBim/Revit/RevitRoomExporter.cs src/RookBim.Tests/RookBimExportSourceTests.cs
@@ -1955,7 +2077,12 @@ namespace RookBim.Revit
 Run: `dotnet test src/RookBim.Tests/RookBim.Tests.csproj --filter ExportService_FreezesIdentitiesGuardsTruncationWritesBundleAndVerifies`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: BUILD GATE — compile the real code**
+
+Run: `dotnet build src/RookBim/RookBim.csproj /p:RevitInstallDir="C:\Program Files\Autodesk\Revit 2024" /p:RhinoSystemDir="C:\Program Files\Rhino 8\System"`
+Expected: build succeeds. This is the largest RhinoCommon surface — fix any mismatches (`File3dm.Objects.AddBrep/AddMesh/AddBox`, `File3dm.AllLayers.Add`, `ObjectAttributes.SetUserString`, `File3dm.Write(path, version)`, `ElementType.FamilyName`) until green.
+
+- [ ] **Step 6: Commit**
 
 ```bash
 git add src/RookBim/Revit/RevitExportService.cs src/RookBim.Tests/RookBimExportSourceTests.cs
@@ -2084,7 +2211,12 @@ In `src/RookBim/Revit/RevitRookBimRuntime.cs`:
 Run: `dotnet test src/RookBim.Tests/RookBim.Tests.csproj --filter Runtime_WiresExportElementsThroughDispatcherWithExportTimeout`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: BUILD GATE — compile the real code**
+
+Run: `dotnet build src/RookBim/RookBim.csproj /p:RevitInstallDir="C:\Program Files\Autodesk\Revit 2024" /p:RhinoSystemDir="C:\Program Files\Rhino 8\System"`
+Expected: build succeeds — `RevitRookBimRuntime` now implements the full `IRookBimRuntime` (including `ExportElements`) and the new `DispatchWithTimeout` overload compiles.
+
+- [ ] **Step 6: Commit**
 
 ```bash
 git add src/RookBim/Revit/RevitRookBimRuntime.cs src/RookBim.Tests/RookBimExportSourceTests.cs
@@ -2452,7 +2584,18 @@ import tempfile
 import urllib.request
 from pathlib import Path
 
-from rook.bridge import discover_native_port  # adjust import if discovery helper differs
+from rook.bridge import discover_instances
+
+
+def _native_port() -> int:
+    """Resolve the live native (C++) listener port from the discovery files."""
+    instances = discover_instances()
+    native = [i for i in instances if i.get("pluginType") == "native" and isinstance(i.get("port"), int)]
+    if not native:
+        raise RuntimeError(
+            "No native Rook instance found. Is Rhino.Inside.Revit running with the Rook plugins loaded?"
+        )
+    return int(native[0]["port"])
 
 
 def _post(port: int, path: str, payload: dict) -> dict:
@@ -2468,7 +2611,7 @@ def _post(port: int, path: str, payload: dict) -> dict:
 
 def main() -> int:
     out_dir = sys.argv[1] if len(sys.argv) > 1 else tempfile.mkdtemp(prefix="rookbim_export_")
-    port = discover_native_port()
+    port = _native_port()
 
     result = _post(port, "/bim/export-elements", {
         "selector": {"scope": "active_view", "category": "Walls", "limit": 50},
@@ -2509,7 +2652,7 @@ if __name__ == "__main__":
 - [ ] **Step 2: Sanity-check it imports (syntax only — full run is gated)**
 
 Run: `cd mcp_server && python -c "import ast; ast.parse(open('../docs/rook_docs/rookbim-export-spike/live_verify_rookbim_export.py').read())"`
-Expected: no output (parses cleanly). The `discover_native_port` import path may need adjustment to match the real bridge helper — verify against `mcp_server/src/rook/bridge.py` during execution.
+Expected: no output (parses cleanly). `discover_instances` is the real helper in `mcp_server/src/rook/bridge.py` (returns dicts with `port`/`pluginType`); `_native_port()` filters for `pluginType == "native"`.
 
 - [ ] **Step 3: Commit**
 
@@ -2571,6 +2714,16 @@ Expected: `LIVE VERIFY PASS`.
 - §9 registration + error model + `risk="mutate"` → Task 3, 9, 10, 11.
 - §10 testing (source-text + pure + live) → Tasks 1–12.
 
-**Placeholder scan:** no TBD/TODO; every code step shows complete code; the only deferred constant (`discover_native_port` import path) is flagged for execution-time verification against `bridge.py`.
+**Placeholder scan:** no TBD/TODO; every code step shows complete code. The live-verify script uses
+the real `discover_instances()` bridge API (no invented helper).
+
+**Independent green-per-task:** Task 1's `Validate()` does only local output-shape checks (no
+dependency on Task 2's `BimExportPathPolicy`); Task 2 then upgrades `Validate()` to delegate to the
+policy. Every task commits green on its own.
+
+**Build gates (not just source-text):** `RookBim.Tests` is source-text only (no `ProjectReference`
+to `RookBim`), so Tasks 4–8 each add an explicit `dotnet build src/RookBim/RookBim.csproj` gate that
+compiles the real Revit/RhinoCommon code (Task 4 also adds the required `RhinoCommon` reference to
+`RookBim.csproj`). The native route adds a `scripts\build-native.bat` gate (Task 10).
 
 **Type consistency:** `BimExportElementsRequest`/`BimExportOutput`/`BimRoomsMode`/`BimExportResult`/`BimExportPathPolicy.{ValidateRequestShape,ResolveBundlePaths,EscapesIntendedDirectory}`/`RevitGeometryConverter.{ScaleFromFeet,Convert}`/`RevitGeometryConversion`/`RevitElementLabels`/`BimSemanticLabel`/`RevitRoomExport`/`RevitExportService.Export`/`ExportElements`/`DispatchWithTimeout` are defined once and referenced consistently. Error-code wire strings (`query_truncated`, `output_path_invalid`, `no_exportable_geometry`, `export_failed`) match between `BimHandler.MapErrorCode` (Task 9) and their `BimErrorCode` enum members (Task 1).
