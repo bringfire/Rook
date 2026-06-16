@@ -11072,6 +11072,29 @@ Filter by any combination of: object IDs, layers, relationship types, bounding b
             }
         ),
         Tool(
+            name="scene_exact_neighbors",
+            description="""Project EXACT (OCCT shared-face) adjacency for specific objects into the scene graph.
+
+For each object id, computes precise boundary adjacency via the native OCCT engine and returns its exact neighbors with shared-face area and face-pair detail. Use this when approximate bbox 'adjacent' is not enough and you need to know what *actually* touches an object (e.g. which walls truly abut a floorplate). Progressive disclosure: call again with newly discovered neighbor ids to expand the exact frontier. Approximate bbox edges are preserved and annotated, never replaced.""",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "object_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "GUIDs to compute exact neighbors for (1..N)",
+                    },
+                    "candidate_scope": {
+                        "type": "string",
+                        "enum": ["broad_phase_default"],
+                        "description": "Candidate-set policy (v1: broad_phase_default only)",
+                    },
+                    "port": {"type": "integer", "description": "Rhino instance port"},
+                },
+                "required": ["object_ids"],
+            },
+        ),
+        Tool(
             name="scene_classify",
             description="""Force reclassification of objects in the scene graph. Optionally switch the domain profile (general or architecture).
 
@@ -19133,6 +19156,22 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
             sg = get_scene_graph()
             await sg.sync(port=port)
             result = {"success": True, "data": sg.get_stats()}
+
+        case "scene_exact_neighbors":
+            object_ids = arguments.get("object_ids", [])
+            if not object_ids:
+                result = {"success": False, "data": "Missing object_ids parameter"}
+            else:
+                from .scene.scene_graph import get_scene_graph
+                from .scene.exact_projection import get_exact_projector
+                sg = get_scene_graph()
+                projector = get_exact_projector(sg)
+                payload = await projector.project(
+                    object_ids,
+                    candidate_scope=arguments.get("candidate_scope", "broad_phase_default"),
+                    port=port,
+                )
+                result = {"success": True, "data": payload}
 
         case "scene_classify":
             classify_args = {k: v for k, v in arguments.items() if k != "port"}

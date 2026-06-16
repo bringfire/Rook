@@ -346,3 +346,15 @@ def test_get_context_renders_exact_adjacency():
 
 def test_inverse_rel_knows_adjacent_exact():
     assert _inverse_rel("adjacent_exact") == "adjacent to (exact)"
+
+
+def test_tool_registered_in_scene_graph_group():
+    from rook.agent.tool_groups import TOOL_GROUPS
+    assert "scene_exact_neighbors" in TOOL_GROUPS["scene_graph"]
+
+
+def test_local_handler_registered_for_agent_direct_path():
+    from rook.agent.tool_dispatcher import build_local_tools
+    tools = build_local_tools()
+    assert "scene_exact_neighbors" in tools
+    assert callable(tools["scene_exact_neighbors"])
