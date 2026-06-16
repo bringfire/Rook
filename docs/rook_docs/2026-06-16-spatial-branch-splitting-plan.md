@@ -53,7 +53,7 @@ it is **not** part of slices A–D; it is already in `main` and we extract *on t
 
 Slices are contiguous in history (linear branch). Boundary hashes given for ranges.
 
-### Slice A — OCCT exact adjacency engine `c020b9d9..ccfe2b88` (53 commits)
+### Slice A — OCCT exact adjacency engine `c020b9d9..ccfe2b88` (63 commits)
 Includes the **superseded Clipper2 Gate-4 planar engine** (added, then retired in T8 but
 the vendored source still sits in-tree — see §3 dead-code note) and a **fat foundation
 commit** that also bundles the FreeCAD-BIM spike (see §5/E).
@@ -124,10 +124,10 @@ d28c36bb test(scene): in-plugin live verification on SpatialTest.3dm (Task 10)
 ccfe2b88 docs(occt): record Tasks 8/9a/10 done (production route live on OCCT)
 ```
 
-> Note: the 53 commits above include ~30 diagnostic/`docs(occt)` heisenbug-hunt commits.
+> Note: the 63 commits above include ~30 diagnostic/`docs(occt)` heisenbug-hunt commits.
 > History is faithful but noisy; see §6 for the squash-vs-preserve decision.
 
-### Slice B — Exact Adjacency Projection v1 `ccfe2b88..d1162d09` (10 commits)
+### Slice B — Exact Adjacency Projection v1 `ccfe2b88..d1162d09` (15 commits)
 ```
 166c6fc4 docs(spatial): approved design for Exact Adjacency Projection v1
 70a00dee docs(spatial): refine Projection v1 spec (cache invalidation, registration, scope)
@@ -173,7 +173,7 @@ Touches only `docs/rook_docs/2026-06-14-spatial-graph-projection-design.md` and 
 `docs/rook_docs/2026-06-16-spatial-intelligence-pivot-checkpoint.md`. Pure narrative —
 ride it along with whichever branch is most convenient, or park it. **Not load-bearing.**
 
-### Slice D — RookBIM Revit→Rhino export v1 `dd404ccd..HEAD` (28 commits)
+### Slice D — RookBIM Revit→Rhino export v1 `dd404ccd..HEAD` (25 commits)
 ```
 9b9ce901 docs: spec RookBIM Revit->Rhino export v1 (calibration fixtures)
 894cd3df docs: fix RookBIM export targeting policy risk to "mutate"
@@ -300,8 +300,8 @@ constraint relative to anything. Recommended human merge sequence: **A → B →
 
 | Item | Where | Disposition |
 |------|-------|-------------|
-| FreeCAD-BIM spike (`docs/rook_docs/freecad-spike/*`, `2026-06-13-freecad-rook-bim-architecture.md`, ~5631 LOC of `.py`/`.FCStd`/`.step`/`.ifc`) | bundled inside `38fa3046` (A's foundation commit) | **Conceptually separate track.** Either (a) leave inside A's foundation docs (simplest), or (b) peel into a docs-only branch `docs/freecad-bim-spike` via commit-split of `38fa3046`. Recommend (a) unless reviewers object to A's doc weight. |
-| Spatial-intelligence foundation + projection/ontology direction docs | `38fa3046`, `587b4dde`, `dd404ccd` | Narrative scaffolding. Ride with A (foundation) and B/C (their respective design docs already live in-slice). |
+| FreeCAD-BIM spike (`docs/rook_docs/freecad-spike/*`, `2026-06-13-freecad-rook-bim-architecture.md`, ~5631 LOC of `.py`/`.FCStd`/`.step`/`.ifc`) | bundled inside `38fa3046` (A's foundation commit) | **DECIDED (2026-06-16): peel/omit from Slice A.** It is not part of the OCCT adjacency deliverable and would distract reviewers. Leave it parked on the archival `feature/spatial-intelligence` branch; if preservation is wanted, ship it later as a separate docs-only branch/PR `docs/freecad-bim-spike`. Because A is rebuilt from final state via curated commits (§7.1.1), this is simply "don't author a commit that adds `freecad-spike/*`" — no commit-split surgery needed. |
+| Spatial-intelligence foundation + projection/ontology direction docs | `38fa3046`, `587b4dde`, `dd404ccd` | Narrative scaffolding. Carry **only the OCCT-relevant** foundation/decision docs into A's curated docs commit; B/C design docs already live in-slice. |
 | `2026-06-16-spatial-intelligence-pivot-checkpoint.md` | `dd404ccd` | Park or attach to whichever branch ships last. |
 | Dirty working-tree files (`contextual_mab.pkl`, `component_observations.json`, `launchSettings.json`) | uncommitted | **DO NOT touch.** Runtime/learning artifacts; out of scope for every slice. |
 
@@ -355,26 +355,46 @@ bump, vision restyle, and chat-model-visibility docs). No branch touches `main` 
 > never in-place on `feature/spatial-intelligence`. **Nothing below is executed by this pass.**
 
 ### 7.1 `feature/occt-adjacency-engine`  (Slice A)
-- **Range:** `c020b9d9..ccfe2b88` (53 commits) — or squash the ~30 heisenbug `diag/docs(occt)` commits into the milestone commits for a reviewable history.
+- **Range:** `c020b9d9..ccfe2b88` (63 commits) — **do NOT mechanically cherry-pick the raw range.** Reconstruct a curated history from the *final tree state* (see §7.1.1) so reviewers get the OCCT deliverable, not the 30-commit debugging journey.
 - **Expected conflicts vs current main:** **none likely** — A is native-C++/docs only and `main`'s 11 commits don't touch `src/RookNative/SceneGraph/*`; `THIRD_PARTY_NOTICES.md` is **absent on main** (clean add). Verify `RookServer.cpp` adjacency-route hunk still applies (main didn't touch it).
 - **Verification:** §6-A.
 - **Independent PR?** ✅ Yes — foundational, no upstream slice dependency. **Merge first.**
-- **Decisions:** (i) squash heisenbug noise? (ii) prune dead Clipper2/legacy (§3)? (iii) keep or peel the FreeCAD spike (§5-E)?
+- **DECISIONS (resolved 2026-06-16, user):** (i) **squash** the heisenbug diagnostic history — keep the lesson in docs, not the 30 probe commits; (ii) **prune** dead Clipper2 + `LegacyPlanarAdjacency` (§3), conditioned only on build/test staying green after removal; (iii) **peel/omit** the FreeCAD spike (§5-E). No "keep raw range" option survives.
+
+#### 7.1.1 Curated-history reconstruction for Slice A (the chosen mechanic)
+
+Do **not** cherry-pick the 63-commit range. Create `feature/occt-adjacency-engine` from
+current `main` and rebuild a reviewable history of **~5–8 logical commits from the final
+tree state** (i.e. `git checkout ccfe2b88 -- <paths>` per group, stage, commit). Proposed
+commit shape:
+
+1. **docs(occt):** OCCT-only spec + plan + decision docs (`2026-06-14-occt-uniform-engine-decision.md`, `2026-06-15-occt-adjacency-engine-design.md` spec, the OCCT plan, `2026-06-13-spatial-intelligence-foundation.md` trimmed to OCCT-relevant scope). **Excludes** `freecad-spike/*` and the FreeCAD arch doc.
+2. **feat(scene):** OCCT contract/types + `ON_Brep`→OCCT converter (`OcctAdjacencyTypes.h` under `Rook::occt`, `OnBrepToOcct*`).
+3. **feat(scene):** OCCT engine/kernel/executor + `ExactAdjacencyService` + `SceneGraph`/`SceneGraphHandler` (`OcctAdjacencyEngine*`, `OcctExecutor*`, `OcctProbe*`, `OcctSharedFaceArea.cpp`).
+4. **test(scene):** offline test targets + fixtures (`OcctPrimitiveTests.vcxproj`, `OcctOfflineRepro.vcxproj`, `ExactAdjacencyTests.vcxproj`, `tests/*`, STEP-oracle fixtures + `.gitignore`).
+5. **feat(api):** production `POST /scene/graph/adjacency/exact` route integration (`RookServer.cpp`, the Task-8 wiring) — already OCCT-only; **no** legacy/Clipper paths carried in.
+6. **build(occt):** `RookNative.vcxproj(.filters)` `$(OcctRoot)` param + trimmed DLL closure + `THIRD_PARTY_NOTICES.md` (LGPL) + `docs/rook_docs/occt-build.md`. Confirm **no** `vendor/clipper2/*` or `SceneGraph/legacy/*` is added (the prune is realized by simply never staging them).
+7. **docs(occt):** distilled ODR-heisenbug postmortem (the *story*, one doc) + Tasks 8/9a/10 live-verification record. This is where the debugging lesson is preserved without the probe commits.
+
+Net: the ~30 `diag/docs(occt)` commits collapse into commit 7's narrative; Clipper2/legacy
+and FreeCAD never enter the tree because they are never staged. Build + run §6-A gates on
+the reconstructed branch **before** opening the PR — a curated history must still produce a
+byte-faithful OCCT engine and pass the live `SpatialTest.3dm` check.
 
 ### 7.2 `feature/exact-adjacency-projection-v1`  (Slice B)
-- **Range:** `ccfe2b88..d1162d09` (15 commits incl. design docs).
+- **Range:** `ccfe2b88..d1162d09` (15 commits incl. design docs). Cherry-pick the range as-is — it is clean and small.
 - **Expected conflicts vs current main:** `targeting.py` (+2) brushes main #254 (+1) — trivial. `server.py` / `tool_groups.py` / `tool_dispatcher.py` / `scene_graph.py` are clean vs main (main didn't touch them).
 - **Verification:** §6-B.
 - **Independent PR?** ✅ Yes as a *PR*, but **merge after A** (runtime route dependency / live-verify). Note the dependency in the PR.
 
 ### 7.3 `feature/semantic-containment-refinement-v1`  (Slice C)
-- **Range:** `d1162d09..096372c5` (15 commits incl. design docs). Optionally also carry `dd404ccd` (pivot checkpoint doc).
+- **Range:** `d1162d09..096372c5` (15 commits incl. design docs). Cherry-pick as-is. Optionally also carry `dd404ccd` (pivot checkpoint doc).
 - **Expected conflicts vs current main:** `targeting.py` (+2) vs #254 (+1) — trivial. If C is *stacked* on B, additionally expect `server.py`/`scene_graph.py`/`tool_groups.py`/`tool_dispatcher.py` line-adjacency collisions with B's appends — **avoid by branching C directly off `main`, not off B.** C does not need B's code.
 - **Verification:** §6-C (ship-with-calibration-caveat).
 - **Independent PR?** ✅ Yes — independent of A and B. Can merge in parallel.
 
 ### 7.4 `feature/rookbim-revit-rhino-export-v1`  (Slice D)
-- **Range:** `dd404ccd..2580041d` (28 commits incl. spec/plan). `dd404ccd` is a docs checkpoint — include or drop; harmless either way.
+- **Range:** `dd404ccd..2580041d` (25 commits incl. spec/plan). Cherry-pick as-is. `dd404ccd` is a docs checkpoint — include or drop; harmless either way.
 - **Expected conflicts vs current main:** `targeting.py` `mutate` entry vs #254 (1 line — resolve per §6-D). `server.py`/`tool_groups.py`/`tool_dispatcher.py` clean vs main. Native `RookServer.cpp`/`GrasshopperProxyHandler.*` clean vs main. C#/`RookBim` tree is net-new — no conflict.
 - **Verification:** §6-D (live-verify remains an OPEN gate).
 - **Independent PR?** ✅ Yes — fully independent. Can merge any time after its own gates pass; **does not** require A/B/C. Keep parked until the live Rhino.Inside.Revit verify is run if you want green-before-merge.
@@ -383,11 +403,11 @@ bump, vision restyle, and chat-model-visibility docs). No branch touches `main` 
 
 ## 8. Recommended extraction order & high-risk summary
 
-**Extraction (mechanical) order — lowest-risk first:**
-1. **A** `feature/occt-adjacency-engine` — zero expected conflicts, foundational, unblocks B's live-verify.
-2. **D** `feature/rookbim-revit-rhino-export-v1` — disjoint surface (C#/native/own tool); only the 1-line `targeting.py` vs #254.
-3. **C** `feature/semantic-containment-refinement-v1` — branch off `main` (not off B); trivial `targeting.py` overlap.
-4. **B** `feature/exact-adjacency-projection-v1` — extract last so it can be **merged right after A** for a live route.
+**Extraction order — lowest-risk first. Note A is a curated reconstruction (§7.1.1); B/C/D are cherry-picks of their ranges:**
+1. **A** `feature/occt-adjacency-engine` — **curated 5–8 commits from final state** (squash diagnostics, prune dead vendor, omit FreeCAD); zero expected conflicts, foundational, unblocks B's live-verify. **Start here** and ship its §6-A gates before the others.
+2. **D** `feature/rookbim-revit-rhino-export-v1` — cherry-pick range; disjoint surface (C#/native/own tool); only the 1-line `targeting.py` vs #254.
+3. **C** `feature/semantic-containment-refinement-v1` — cherry-pick range; branch off `main` (not off B); trivial `targeting.py` overlap.
+4. **B** `feature/exact-adjacency-projection-v1` — cherry-pick range; extract last so it can be **merged right after A** for a live route.
 
 **Recommended merge order:** **A → B → (C ∥ D)**, with C and D parallelizable.
 
@@ -398,7 +418,8 @@ bump, vision restyle, and chat-model-visibility docs). No branch touches `main` 
 - **C calibration** — mechanism ships, but verdict thresholds uncalibrated (27/28 positives); block downstream reliance.
 - **D live-verify** — `live_verify_rookbim_export.py` is unrun (needs Rhino.Inside.Revit); treat as an open gate, not a regression.
 - **OCCT 9b** — never repoint the shared OCCT checkout off the verified `V8_0_0`.
-- **Dead vendor** — Clipper2 + `LegacyPlanarAdjacency.*` are unwired dead code in A; prune opportunistically (optional).
+- **Dead vendor** — Clipper2 + `LegacyPlanarAdjacency.*` are unwired dead code; **prune from A** (decided) — realized by never staging them in the curated reconstruction; gate on green build/test.
+- **Slice A history** — curated reconstruction, **not** a raw 63-commit cherry-pick (§7.1.1); the reconstructed branch must still build byte-faithfully and pass live `SpatialTest.3dm` before PR.
 - **Dirty working files** — `contextual_mab.pkl`, `component_observations.json`, `launchSettings.json` stay untouched throughout.
 
 ---
@@ -406,6 +427,14 @@ bump, vision restyle, and chat-model-visibility docs). No branch touches `main` 
 ## 9. Status of this pass
 
 Audit/planning only. No merge, rebase, cherry-pick, branch creation, or destructive git was
-performed. `main` untouched. The only write is this document and its single commit.
-Next action is a human decision on the §7.1 options (squash / prune / FreeCAD-peel) before
-any extraction begins.
+performed. `main` untouched.
+
+**Slice A cleanup decisions are RESOLVED (2026-06-16, user):** squash diagnostics, prune
+dead Clipper2/legacy vendor, peel/omit the FreeCAD spike — implemented via the curated
+reconstruction in §7.1.1, **not** a raw range cherry-pick. Commit counts patched to verified
+values (A=63, B=15, C=15, D=25; checkpoint=1).
+
+**Next action:** begin Slice A extraction — create `feature/occt-adjacency-engine` off
+current `main` and reconstruct the §7.1.1 curated history in a scratch worktree, then run
+the §6-A gates before opening the PR. B/C/D follow as range cherry-picks per §7; D waits on
+its Rhino.Inside.Revit live-verify before merge.
