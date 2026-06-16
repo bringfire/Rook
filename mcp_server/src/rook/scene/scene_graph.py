@@ -300,7 +300,7 @@ class SceneGraphAnalytics:
             t_attrs = self.graph.nodes.get(target, {})
             t_label = (t_attrs.get("domain_label") or t_attrs.get("shape_class") or "?").upper()
             t_name = t_attrs.get("name") or target[:8]
-            lines.append(f'  {rel}: {t_label} "{t_name}"{_edge_detail(edata)}')
+            lines.append(f'  {_forward_rel(rel)}: {t_label} "{t_name}"{_edge_detail(edata)}')
 
         # Incoming edges (this node is target)
         for source, _, edata in self.graph.in_edges(node_id, data=True):
@@ -472,6 +472,18 @@ _INVERSE_RELS = {
 
 def _inverse_rel(rel: str) -> str:
     return _INVERSE_RELS.get(rel, rel)
+
+
+# Forward-direction display labels. Most relationships read fine as their raw name,
+# but the symmetric exact-adjacency edge should read the same friendly phrase in
+# both directions (it is one canonical edge serving both endpoints).
+_FORWARD_RELS = {
+    "adjacent_exact": "adjacent to (exact)",
+}
+
+
+def _forward_rel(rel: str) -> str:
+    return _FORWARD_RELS.get(rel, rel)
 
 
 def _edge_detail(edata: dict) -> str:

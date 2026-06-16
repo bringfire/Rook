@@ -1113,6 +1113,8 @@ def build_local_tools() -> Dict[str, Any]:
             projector = get_exact_projector(sg)
             payload = await projector.project(
                 object_ids, candidate_scope=candidate_scope, port=port)
+            if not payload.get("success", True):
+                return {"success": False, "data": payload.get("error", "exact projection failed")}
             return {"success": True, "data": payload}
 
         tools["scene_exact_neighbors"] = _scene_exact_neighbors

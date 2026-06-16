@@ -19171,7 +19171,10 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                     candidate_scope=arguments.get("candidate_scope", "broad_phase_default"),
                     port=port,
                 )
-                result = {"success": True, "data": payload}
+                if not payload.get("success", True):
+                    result = {"success": False, "data": payload.get("error", "exact projection failed")}
+                else:
+                    result = {"success": True, "data": payload}
 
         case "scene_classify":
             classify_args = {k: v for k, v in arguments.items() if k != "port"}
