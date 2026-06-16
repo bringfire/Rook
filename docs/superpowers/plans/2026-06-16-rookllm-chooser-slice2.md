@@ -1030,6 +1030,18 @@ async def test_list_chat_models_returns_inline_tool_result(monkeypatch):
         "anthropic/current"
     ]
     assert any(e.type == "tool_result" and e.name == "list_chat_models" for e in events)
+
+
+def test_chat_model_tools_are_offered_in_fresh_runner_active_schemas():
+    runner = ChatRunner(tool_executor=AsyncMock())
+
+    tool_names = {
+        schema["function"]["name"]
+        for schema in runner._registry.get_active_schemas()
+    }
+
+    assert "list_chat_models" in tool_names
+    assert "set_chat_model" in tool_names
 ```
 
 - [ ] **Step 2: Run tests and verify failure**
@@ -1040,7 +1052,7 @@ Run:
 python -m pytest tests/test_chat_runner_model_tools.py -q
 ```
 
-Expected: failure because the pseudo-tools and `model_update` event fields are not implemented.
+Expected: failure because the pseudo-tools, `model_update` event fields, and active schema surfacing are not implemented.
 
 - [ ] **Step 3: Add sentinel local tools**
 
@@ -1292,6 +1304,8 @@ python -m pytest tests/test_chat_runner_model_tools.py -q
 ```
 
 Expected: all pseudo-tool tests pass.
+
+The surfacing test is load-bearing. It proves the tools are actually present in `get_active_schemas()` for a fresh chat runner, rather than only proving that the interception branch works if a mocked LLM calls hidden tool names.
 
 - [ ] **Step 8: Commit Task 4**
 
