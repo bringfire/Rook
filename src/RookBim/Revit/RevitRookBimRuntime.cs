@@ -258,6 +258,17 @@ namespace RookBim.Revit
             }
         }
 
+        // TEMPORARY placeholder — Task 8 ("RevitRookBimRuntime.ExportElements wiring") replaces this
+        // with the real export pipeline. Added in Task 4 only so the project compiles after the
+        // IRookBimRuntime.ExportElements interface member was introduced. Do NOT build on this.
+        public BimApiResponse ExportElements(BimExportElementsRequest request)
+        {
+            return BimApiResponse.Fail(
+                BimErrorCode.ExportFailed,
+                "not yet implemented",
+                500);
+        }
+
         private T Dispatch<T>(Func<UIApplication, T> work)
         {
             var dispatch = dispatcher.InvokeAbandonable(work);

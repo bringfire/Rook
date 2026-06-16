@@ -16,6 +16,7 @@
 
   <PropertyGroup>
     <RevitInstallDir Condition="'$(RevitInstallDir)' == ''">$(ProgramFiles)\Autodesk\Revit 2024</RevitInstallDir>
+    <RhinoSystemDir Condition="'$(RhinoSystemDir)' == ''">$(ProgramFiles)\Rhino 8\System</RhinoSystemDir>
   </PropertyGroup>
 
   <ItemGroup>
@@ -29,6 +30,10 @@
     </Reference>
     <Reference Include="RevitAPIUI">
       <HintPath>$(RevitInstallDir)\RevitAPIUI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="RhinoCommon">
+      <HintPath>$(RhinoSystemDir)\RhinoCommon.dll</HintPath>
       <Private>false</Private>
     </Reference>
   </ItemGroup>
