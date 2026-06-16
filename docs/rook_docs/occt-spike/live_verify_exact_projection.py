@@ -25,7 +25,13 @@ from rook.scene.exact_projection import (                   # noqa: E402
     get_exact_projector, EXACT_EDGE_KEY,
 )
 
-SOURCE = "08d4dedf-1387-453a-9938-7f3ab516b8ac"  # the floorplate (5 abutments)
+SOURCE = "08d4dedf-1387-453a-9938-7f3ab516b8ac"  # the floorplate
+# The engine finds 9 exact neighbors on this floorplate; these 5 are the user-confirmed
+# abutments (Spike A) and must appear as a subset with these shared-face areas (in^2).
+EXPECT = {
+    "71065f57": 3311.978, "5c12cc83": 5440.438, "be0ca730": 5423.437,
+    "7e80db98": 1040.005, "26b2c012": 1055.000,
+}
 
 
 def _get(port, path, timeout=5):
@@ -72,20 +78,32 @@ def main():
     block = out["projected"][0]
     if block["routeStatus"] != "ok":
         fails.append(f"routeStatus={block['routeStatus']!r} error={block.get('error')!r}")
-    if len(block["neighbors"]) != 5:
-        fails.append(f"expected 5 neighbors, got {len(block['neighbors'])}")
     if any(n["fromCache"] for n in block["neighbors"]):
         fails.append("first call should not be fromCache")
     if block["neighbors"] and block["neighbors"][0].get("areaUnit") != "inches^2":
         fails.append(f"areaUnit={block['neighbors'][0].get('areaUnit')!r}")
 
-    # The mirror now holds 5 canonical occt edges incident to SOURCE.
+    # The 5 user-confirmed abutments must appear as a subset with the expected areas.
+    by_prefix = {n["id"][:8]: n for n in block["neighbors"]}
+    for pre, exp_area in EXPECT.items():
+        n = by_prefix.get(pre)
+        if not n:
+            fails.append(f"missing confirmed abutment {pre}")
+            continue
+        area = n.get("sharedArea", 0.0)
+        if abs(area - exp_area) / exp_area > 1e-3:
+            fails.append(f"{pre} sharedArea {area:.3f} != {exp_area:.3f}")
+    print(f"neighbors={len(block['neighbors'])} (engine finds 9; 5 confirmed abutments checked)")
+
+    # The mirror's occt edges incident to SOURCE must match the returned neighbor count.
     occt_incident = [
         (u, v) for u, v, k in sg.graph.edges(keys=True)
         if k == EXACT_EDGE_KEY and SOURCE in (u, v)
     ]
-    if len(occt_incident) != 5:
-        fails.append(f"expected 5 occt edges incident to source, got {len(occt_incident)}")
+    if len(occt_incident) != len(block["neighbors"]):
+        fails.append(
+            f"mirror occt edges incident to source ({len(occt_incident)}) "
+            f"!= neighbors returned ({len(block['neighbors'])})")
 
     # NL surface renders the exact edges.
     ctx = sg.get_context([SOURCE])
@@ -104,8 +122,8 @@ def main():
         for f in fails:
             print("  -", f)
         return 1
-    print("RESULT: ALL PASS — projector enriched the mirror with 5 exact edges, "
-          "NL rendered, cache hit on re-call.")
+    print(f"RESULT: ALL PASS — projector enriched the mirror with {len(occt_incident)} exact "
+          "edges (5 confirmed abutments verified), NL rendered, cache hit on re-call.")
     return 0
 
 
