@@ -80,6 +80,45 @@ namespace RookBim.Tests
             Assert.DoesNotContain("Transaction", src);
         }
 
+        [Fact]
+        public void ExportService_FreezesIdentitiesGuardsTruncationWritesBundleAndVerifies()
+        {
+            var src = Read("src/RookBim/Revit/RevitExportService.cs");
+
+            // Strict one-of already validated upstream; service resolves both selector + identities.
+            Assert.Contains("RevitQueryService", src);
+            Assert.Contains("RevitIdentitySerializer.Resolve", src);
+
+            // No-silent-truncation guard.
+            Assert.Contains("AllowTruncated", src);
+            Assert.Contains("BimErrorCode.QueryTruncated", src);
+
+            // Path safety BEFORE writing.
+            Assert.Contains("BimExportPathPolicy.ValidateRequestShape", src);
+            Assert.Contains("BimExportPathPolicy.ResolveBundlePaths", src);
+            Assert.Contains("BimExportPathPolicy.EscapesIntendedDirectory", src);
+            Assert.Contains("Overwrite", src);
+            Assert.Contains("BimErrorCode.OutputPathInvalid", src);
+
+            // Three-file bundle.
+            Assert.Contains(".3dm", src);
+            Assert.Contains(".sidecar.json", src);
+            Assert.Contains(".validation.json", src);
+            Assert.Contains("File3dm", src);
+
+            // Join-key user strings.
+            Assert.Contains("revit.uniqueId", src);
+            Assert.Contains("rook.source", src);
+            Assert.Contains("RookBim::Model", src);
+
+            // Bijection verification + NoExportableGeometry.
+            Assert.Contains("BimExportVerification", src);
+            Assert.Contains("BimErrorCode.NoExportableGeometry", src);
+
+            // Read-only.
+            Assert.DoesNotContain("Transaction", src);
+        }
+
         internal static string Read(string relativePath)
         {
             return File.ReadAllText(Path.Combine(RepoRoot, relativePath.Replace('/', Path.DirectorySeparatorChar)));
