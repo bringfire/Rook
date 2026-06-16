@@ -19,6 +19,15 @@
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
 
+  <!-- OCCT root. Override via the OCCT_ROOT env var (or /p:OcctRoot=...); else default to
+       the currently VERIFIED OCCT V8_0_0 build tree. The deferred 7.9.3 production pin
+       (Task 9b) will point OCCT_ROOT at a SEPARATE build dir without disturbing the
+       known-good V8_0_0 checkout — see docs/rook_docs/occt-build.md. -->
+  <PropertyGroup Label="OcctRoot">
+    <OcctRoot Condition="'$(OcctRoot)'==''">$(OCCT_ROOT)</OcctRoot>
+    <OcctRoot Condition="'$(OcctRoot)'==''">C:\Users\aryan\source\repos\OCCT\build-rook</OcctRoot>
+  </PropertyGroup>
+
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
 
   <PropertyGroup Label="Configuration" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -89,10 +98,11 @@
     <Link>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
-      <!-- Spike G: OCCT (modeling + STEP), built from source at OCCT/build-rook.
-           Absolute path is a tracer shortcut; production should use a property/env var. -->
-      <AdditionalLibraryDirectories>C:\Users\aryan\source\repos\OCCT\build-rook\win64\vc14\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>TKernel.lib;TKMath.lib;TKG2d.lib;TKG3d.lib;TKGeomBase.lib;TKGeomAlgo.lib;TKBRep.lib;TKTopAlgo.lib;TKPrim.lib;TKBO.lib;TKBool.lib;TKShHealing.lib;TKDESTEP.lib;TKXSBase.lib;TKDE.lib;TKDECascade.lib;TKCAF.lib;TKLCAF.lib;TKXCAF.lib;TKCDF.lib;TKExpress.lib;TKMesh.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <!-- OCCT modeling kernel via $(OcctRoot) (OCCT_ROOT env var, else verified V8_0_0
+           build tree). NO DataExchange/STEP libs — no C++ TU reads STEP anymore (Task 8/9).
+           Dropped: TKDESTEP/TKXSBase/TKDE/TKDECascade/TKCAF/TKLCAF/TKXCAF/TKCDF/TKExpress. -->
+      <AdditionalLibraryDirectories>$(OcctRoot)\win64\vc14\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>TKernel.lib;TKMath.lib;TKG2d.lib;TKG3d.lib;TKGeomBase.lib;TKGeomAlgo.lib;TKBRep.lib;TKTopAlgo.lib;TKPrim.lib;TKBO.lib;TKBool.lib;TKShHealing.lib;TKMesh.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
 
@@ -156,7 +166,7 @@
     <ClCompile Include="SceneGraph\OcctProbe.cpp">
       <PrecompiledHeader Condition="'$(Configuration)'=='Debug'">NotUsing</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)'=='Release'">NotUsing</PrecompiledHeader>
-      <AdditionalIncludeDirectories>C:\Users\aryan\source\repos\OCCT\build-rook\inc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(OcctRoot)\inc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <!-- /EHa (Async): OCCT's OSD::SetSignal translates SEH faults to
            Standard_Failure; under /EHsc those throws don't reliably unwind C++
            destructors, so a fault could leak a held lock_guard (EDEADLK on the
@@ -170,7 +180,7 @@
     <ClCompile Include="SceneGraph\OnBrepToOcct.cpp">
       <PrecompiledHeader Condition="'$(Configuration)'=='Debug'">NotUsing</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)'=='Release'">NotUsing</PrecompiledHeader>
-      <AdditionalIncludeDirectories>C:\Users\aryan\source\repos\OCCT\build-rook\inc;$(RhinoSdkDir)openNURBS;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(OcctRoot)\inc;$(RhinoSdkDir)openNURBS;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <!-- /EHa (Async): see OcctProbe.cpp note — SEH-translated OCCT faults must
            unwind C++ destructors so guarded locks/RAII release on any fault. -->
       <ExceptionHandling>Async</ExceptionHandling>
@@ -181,7 +191,7 @@
     <ClCompile Include="SceneGraph\OcctSharedFaceArea.cpp">
       <PrecompiledHeader Condition="'$(Configuration)'=='Debug'">NotUsing</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)'=='Release'">NotUsing</PrecompiledHeader>
-      <AdditionalIncludeDirectories>C:\Users\aryan\source\repos\OCCT\build-rook\inc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(OcctRoot)\inc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <!-- /EHa (Async): see OcctProbe.cpp note — SharedFaceArea runs BRepAlgoAPI
            Common; its Standard_Failure/... guards must unwind under /EHa. -->
       <ExceptionHandling>Async</ExceptionHandling>
@@ -193,7 +203,7 @@
     <ClCompile Include="SceneGraph\OcctAdjacencyEngine.cpp">
       <PrecompiledHeader Condition="'$(Configuration)'=='Debug'">NotUsing</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)'=='Release'">NotUsing</PrecompiledHeader>
-      <AdditionalIncludeDirectories>C:\Users\aryan\source\repos\OCCT\build-rook\inc;$(RhinoSdkDir)openNURBS;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(OcctRoot)\inc;$(RhinoSdkDir)openNURBS;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <!-- /EHa (Async): the EDEADLK fix. SEH-translated OCCT faults must unwind the
            Evaluate body so the static s_engineMutex lock_guard releases on any
            fault path; otherwise a faulted request leaves the mutex held and the
@@ -210,7 +220,7 @@
     <ClCompile Include="SceneGraph\OcctExecutor.cpp">
       <PrecompiledHeader Condition="'$(Configuration)'=='Debug'">NotUsing</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)'=='Release'">NotUsing</PrecompiledHeader>
-      <AdditionalIncludeDirectories>C:\Users\aryan\source\repos\OCCT\build-rook\inc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(OcctRoot)\inc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <ExceptionHandling>Async</ExceptionHandling>
       <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>

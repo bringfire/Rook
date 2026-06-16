@@ -669,7 +669,7 @@ void HandleSceneGraphOverlay(const httplib::Request& req, httplib::Response& res
 }
 
 // ================================================================
-// POST /scene/graph/adjacency/exact — Exact (planar) adjacency
+// POST /scene/graph/adjacency/exact — Exact OCCT/Brep adjacency (shared-face area)
 //   + optional coarse decoration (live, never cached)
 // ================================================================
 
