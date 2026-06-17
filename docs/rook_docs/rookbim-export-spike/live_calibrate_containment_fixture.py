@@ -180,19 +180,30 @@ def _hydrate_user_strings(port: int, runtime_id: str, existing: dict) -> dict:
 
 
 def open_fixture_in_isolated_context(port: int, model3dm: str) -> dict:
+    fixture_path = str(Path(model3dm))
     document_response = _post(port, "/document/new", {})
     document_status = _status_from_response(document_response)
     if not document_status["succeeded"]:
         raise RuntimeError(f"failed to create fresh document: {document_status['errors'][0]}")
 
-    import_response = _post(port, "/import", {"path": model3dm})
-    import_status = _status_from_response(import_response)
-    if not import_status["succeeded"]:
-        raise RuntimeError(f"failed to import fixture: {import_status['errors'][0]}")
+    if Path(model3dm).suffix.casefold() == ".3dm":
+        fixture_load_route = "/document/open"
+        import_response = _post(port, fixture_load_route, {"path": fixture_path})
+        import_status = _status_from_response(import_response)
+        if not import_status["succeeded"]:
+            raise RuntimeError(f"failed to open fixture: {import_status['errors'][0]}")
+        imported_ids = []
+    else:
+        fixture_load_route = "/import"
+        import_response = _post(port, fixture_load_route, {"path": fixture_path})
+        import_status = _status_from_response(import_response)
+        if not import_status["succeeded"]:
+            raise RuntimeError(f"failed to import fixture: {import_status['errors'][0]}")
 
-    import_data = _response_data(import_response)
-    imported_ids = import_data.get("importedIds") or import_response.get("importedIds") or []
-    imported_id_set = {str(value) for value in imported_ids if value}
+        import_data = _response_data(import_response)
+        imported_ids = import_data.get("importedIds") or import_response.get("importedIds") or []
+    imported_id_filter = {str(value) for value in imported_ids if value}
+    fixture_object_ids: set[str] = set(imported_id_filter)
 
     graph_response = _get(port, f"/scene/graph?{parse.urlencode({'depth': 'full'})}")
     graph_status = _status_from_response(graph_response)
@@ -209,8 +220,9 @@ def open_fixture_in_isolated_context(port: int, model3dm: str) -> dict:
         runtime_id = _runtime_object_id(node)
         if not runtime_id:
             continue
-        if imported_id_set and runtime_id not in imported_id_set:
+        if imported_id_filter and runtime_id not in imported_id_filter:
             continue
+        fixture_object_ids.add(runtime_id)
         imported_node_count += 1
         user_strings = _hydrate_user_strings(port, runtime_id, _runtime_object_user_strings(node))
         if not _runtime_object_revit_uid({"userStrings": user_strings}):
@@ -222,9 +234,9 @@ def open_fixture_in_isolated_context(port: int, model3dm: str) -> dict:
             "userStrings": user_strings,
         })
 
-    if imported_id_set and imported_node_count == 0:
+    if imported_id_filter and imported_node_count == 0:
         raise RuntimeError("Imported fixture ids were not present in the full scene graph snapshot.")
-    if imported_id_set and not runtime_objects:
+    if imported_id_filter and not runtime_objects:
         raise RuntimeError(
             "Imported fixture objects were found, but none exposed 'revit.uniqueId' metadata "
             "through scene graph nodes or /usertext/object-get."
@@ -234,8 +246,9 @@ def open_fixture_in_isolated_context(port: int, model3dm: str) -> dict:
         "freshDocument": True,
         "documentStatus": document_status,
         "importStatus": import_status,
+        "fixtureLoadRoute": fixture_load_route,
         "graphStatus": graph_status,
-        "importedIds": sorted(imported_id_set),
+        "importedIds": sorted(fixture_object_ids),
         "runtimeObjects": runtime_objects,
         "graphSequence": graph_data.get("sequence"),
     }
@@ -396,6 +409,7 @@ def run_live(args) -> dict:
     )
     report["fixtures"][0]["runtime"]["documentStatus"] = context.get("documentStatus")
     report["fixtures"][0]["runtime"]["importStatus"] = context.get("importStatus")
+    report["fixtures"][0]["runtime"]["fixtureLoadRoute"] = context.get("fixtureLoadRoute")
     report["fixtures"][0]["runtime"]["sceneGraphStatus"] = context.get("graphStatus")
     cal.write_report_bundle(report, args.output_dir, args.name)
     return report

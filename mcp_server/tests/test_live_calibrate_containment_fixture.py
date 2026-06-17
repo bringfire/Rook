@@ -274,7 +274,7 @@ def test_open_fixture_in_isolated_context_hydrates_usertext_when_scene_graph_lac
     monkeypatch.setattr(script, "_post", fake_post)
     monkeypatch.setattr(script, "_get", fake_get)
 
-    context = script.open_fixture_in_isolated_context(9876, "fixture.3dm")
+    context = script.open_fixture_in_isolated_context(9876, "fixture.obj")
 
     assert context["graphSequence"] == 9
     assert context["runtimeObjects"] == [{
@@ -287,6 +287,101 @@ def test_open_fixture_in_isolated_context_hydrates_usertext_when_scene_graph_lac
             "revit.category": "Walls",
         },
     }]
+
+
+def test_open_fixture_in_isolated_context_opens_3dm_fixture_instead_of_importing(monkeypatch):
+    script = _load_script()
+    calls = []
+
+    def fake_post(port, path, payload):
+        calls.append((path, payload))
+        if path == "/document/new":
+            return {"success": True, "data": {}}
+        if path == "/document/open":
+            assert payload == {"path": "fixture.3dm"}
+            return {"success": True, "data": {"objectCount": 1, "path": "fixture.3dm"}}
+        if path == "/import":
+            raise AssertionError(".3dm fixtures should use /document/open, not /import")
+        if path == "/usertext/object-get":
+            return {
+                "success": True,
+                "data": {
+                    "id": "rook-wall",
+                    "userStrings": {
+                        "revit.uniqueId": "uid-wall",
+                        "revit.elementId": "101",
+                        "revit.category": "Walls",
+                    },
+                },
+            }
+        raise AssertionError(path)
+
+    def fake_get(port, path):
+        assert path == "/scene/graph?depth=full"
+        return {
+            "success": True,
+            "data": {
+                "sequence": 9,
+                "nodes": [
+                    {"id": "rook-wall", "name": "Wall 101", "layer": "RookBim::L1::Walls"},
+                ],
+            },
+        }
+
+    monkeypatch.setattr(script, "_post", fake_post)
+    monkeypatch.setattr(script, "_get", fake_get)
+
+    context = script.open_fixture_in_isolated_context(9876, "fixture.3dm")
+
+    assert calls[0] == ("/document/new", {})
+    assert calls[1] == ("/document/open", {"path": "fixture.3dm"})
+    assert context["fixtureLoadRoute"] == "/document/open"
+    assert context["importedIds"] == ["rook-wall"]
+    assert context["runtimeObjects"][0]["runtimeId"] == "rook-wall"
+
+
+def test_open_fixture_in_isolated_context_keeps_all_opened_3dm_graph_nodes(monkeypatch):
+    script = _load_script()
+
+    def fake_post(port, path, payload):
+        if path == "/document/new":
+            return {"success": True, "data": {}}
+        if path == "/document/open":
+            return {"success": True, "data": {"objectCount": 2, "path": "fixture.3dm"}}
+        if path == "/usertext/object-get":
+            runtime_id = payload["id"]
+            return {
+                "success": True,
+                "data": {
+                    "id": runtime_id,
+                    "userStrings": {
+                        "revit.uniqueId": f"uid-{runtime_id}",
+                        "revit.elementId": runtime_id,
+                        "revit.category": "Walls",
+                    },
+                },
+            }
+        raise AssertionError(path)
+
+    def fake_get(port, path):
+        return {
+            "success": True,
+            "data": {
+                "sequence": 9,
+                "nodes": [
+                    {"id": "rook-wall-1", "name": "Wall 1", "layer": "RookBim::L1::Walls"},
+                    {"id": "rook-wall-2", "name": "Wall 2", "layer": "RookBim::L1::Walls"},
+                ],
+            },
+        }
+
+    monkeypatch.setattr(script, "_post", fake_post)
+    monkeypatch.setattr(script, "_get", fake_get)
+
+    context = script.open_fixture_in_isolated_context(9876, "fixture.3dm")
+
+    assert context["importedIds"] == ["rook-wall-1", "rook-wall-2"]
+    assert [obj["runtimeId"] for obj in context["runtimeObjects"]] == ["rook-wall-1", "rook-wall-2"]
 
 
 def test_open_fixture_in_isolated_context_raises_when_imported_nodes_lack_revit_metadata(monkeypatch):
@@ -316,7 +411,7 @@ def test_open_fixture_in_isolated_context_raises_when_imported_nodes_lack_revit_
     monkeypatch.setattr(script, "_get", fake_get)
 
     with pytest.raises(RuntimeError) as exc:
-        script.open_fixture_in_isolated_context(9876, "fixture.3dm")
+        script.open_fixture_in_isolated_context(9876, "fixture.obj")
 
     assert "revit.uniqueId" in str(exc.value)
 
