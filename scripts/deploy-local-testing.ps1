@@ -463,7 +463,17 @@ function Sync-AppPayload {
     foreach ($file in @('AGENT_SETUP.md', 'BUILDING.md', 'LICENSE', 'QUICK_START.md')) {
         Copy-OptionalFile (Join-Path $RepoRoot $file) (Join-Path $InstallRoot $file)
     }
-    Copy-RequiredFile (Join-Path $RepoRoot 'installer\post_install.py') (Join-Path $InstallRoot 'post_install.py')
+    $requiredInstallerModules = @('post_install.py', 'python_runtime_install.py', 'process_rebuild_guard.py')
+    foreach ($module in $requiredInstallerModules) {
+        $modulePath = Join-Path $RepoRoot "installer\$module"
+        if (-not (Test-Path $modulePath)) {
+            throw "Required installer Python module not found: $modulePath"
+        }
+    }
+
+    Get-ChildItem (Join-Path $RepoRoot 'installer') -Filter '*.py' -File | ForEach-Object {
+        Copy-RequiredFile $_.FullName (Join-Path $InstallRoot $_.Name)
+    }
     Copy-OptionalFile (Join-Path $RepoRoot 'installer\rook-icon.ico') (Join-Path $InstallRoot 'rook-icon.ico')
     Copy-OptionalFile (Join-Path $RepoRoot 'installer\CLAUDE.md') (Join-Path $InstallRoot 'CLAUDE.md')
     Copy-OptionalFile (Join-Path $RepoRoot 'installer\AGENTS.md') (Join-Path $InstallRoot 'AGENTS.md')
