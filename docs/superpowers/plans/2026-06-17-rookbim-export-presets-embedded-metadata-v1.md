@@ -70,7 +70,7 @@
 - Test: `src/Rook.Tests/Bim/BimExportPresetContractsTests.cs`
 
 **Interfaces:**
-- Produces: `BimErrorCode.UnknownPreset`, `BimErrorCode.NoCategoriesResolved`; `class BimExportPresetRequest { string? Preset; BimExportOutput Output; string? Scope; List<string>? IncludeCategories; List<string>? ExcludeCategories; string? LayerPolicy; string? NamePolicy; string? MetadataProfile; string? Rooms; int? LimitPerCategory; bool AllowTruncated; bool AllowBboxProxy; BimQueryScope EffectiveScope; BimValidationResult Validate(); }`. Task 2 upgrades `Validate()` to check catalog membership.
+- Produces: `BimErrorCode.UnknownPreset`, `BimErrorCode.NoCategoriesResolved`; `class BimExportPresetRequest { string? Preset; BimExportOutput Output; string? Scope; List<string>? IncludeCategories; List<string>? ExcludeCategories; string? LayerPolicy; string? NamePolicy; string? MetadataProfile; string? Rooms; int? LimitPerCategory; bool AllowTruncated; bool AllowBboxProxy; BimQueryScope EffectiveScope; BimValidationResult Validate(); }`. Task 3 (catalog) upgrades `Validate()` to check catalog membership.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -241,7 +241,345 @@ git commit -m "feat(bim): export-preset request contract + UnknownPreset/NoCateg
 
 ---
 
-## Task 2: Preset catalog (pure)
+## Task 2: Organization policy (pure)
+
+**Files:**
+- Create: `src/Rook/Bim/BimExportOrganizationPolicy.cs`
+- Test: `src/Rook.Tests/Bim/BimExportOrganizationPolicyTests.cs`
+
+**Interfaces:**
+- Produces: `enum BimLayerScheme { Flat, ByCategory, ByLevelThenCategory }`; `enum BimNameScheme { None, RevitName, TypeOnly, Readable, ReadableWithId }`; `enum BimMetadataProfile { Minimal, Standard, Full }`; `sealed class BimExportOrganizationPolicy { BimLayerScheme LayerScheme; BimNameScheme NameScheme; BimMetadataProfile MetadataProfile; static BimExportOrganizationPolicy Legacy; static bool TryParseLayer/TryParseName/TryParseProfile; static BimValidationResult Resolve(BimPresetDefinition def, string? layerOverride, string? nameOverride, string? profileOverride, out BimExportOrganizationPolicy policy); static string LayerToWire(BimLayerScheme); static string NameToWire(BimNameScheme); static string ProfileToWire(BimMetadataProfile); static string RoomsToWire(BimRoomsMode); }`. The `*ToWire` helpers emit the **wire format** (`by_level_then_category`, not the C# enum name `ByLevelThenCategory`) and are the single source for every policy echo in summaries/sidecars/validation. Task 3's catalog stores these enums.
+
+- [ ] **Step 1: Write the failing test**
+
+Create `src/Rook.Tests/Bim/BimExportOrganizationPolicyTests.cs`:
+
+```csharp
+using Rook.Bim;
+using Xunit;
+
+namespace Rook.Tests.Bim
+{
+    public class BimExportOrganizationPolicyTests
+    {
+        [Fact]
+        public void Legacy_IsFlatNoNameMinimal()
+        {
+            var p = BimExportOrganizationPolicy.Legacy;
+            Assert.Equal(BimLayerScheme.Flat, p.LayerScheme);
+            Assert.Equal(BimNameScheme.None, p.NameScheme);
+            Assert.Equal(BimMetadataProfile.Minimal, p.MetadataProfile);
+        }
+
+        [Theory]
+        [InlineData("by_category", BimLayerScheme.ByCategory)]
+        [InlineData("by_level_then_category", BimLayerScheme.ByLevelThenCategory)]
+        [InlineData("flat", BimLayerScheme.Flat)]
+        public void TryParseLayer_ParsesKnownSchemes(string raw, BimLayerScheme expected)
+        {
+            Assert.True(BimExportOrganizationPolicy.TryParseLayer(raw, out var scheme));
+            Assert.Equal(expected, scheme);
+        }
+
+        [Fact]
+        public void TryParseLayer_RejectsUnknown()
+        {
+            Assert.False(BimExportOrganizationPolicy.TryParseLayer("spiral", out _));
+        }
+
+        [Theory]
+        [InlineData("readable_with_id", BimNameScheme.ReadableWithId)]
+        [InlineData("type_only", BimNameScheme.TypeOnly)]
+        [InlineData("revit_name", BimNameScheme.RevitName)]
+        [InlineData("none", BimNameScheme.None)]
+        public void TryParseName_ParsesKnownSchemes(string raw, BimNameScheme expected)
+        {
+            Assert.True(BimExportOrganizationPolicy.TryParseName(raw, out var scheme));
+            Assert.Equal(expected, scheme);
+        }
+
+        [Theory]
+        [InlineData("minimal", BimMetadataProfile.Minimal)]
+        [InlineData("standard", BimMetadataProfile.Standard)]
+        [InlineData("full", BimMetadataProfile.Full)]
+        public void TryParseProfile_ParsesKnownProfiles(string raw, BimMetadataProfile expected)
+        {
+            Assert.True(BimExportOrganizationPolicy.TryParseProfile(raw, out var profile));
+            Assert.Equal(expected, profile);
+        }
+
+        [Fact]
+        public void WireHelpers_EmitWireFormatNotEnumNames()
+        {
+            Assert.Equal("flat", BimExportOrganizationPolicy.LayerToWire(BimLayerScheme.Flat));
+            Assert.Equal("by_category", BimExportOrganizationPolicy.LayerToWire(BimLayerScheme.ByCategory));
+            Assert.Equal("by_level_then_category", BimExportOrganizationPolicy.LayerToWire(BimLayerScheme.ByLevelThenCategory));
+            Assert.Equal("readable_with_id", BimExportOrganizationPolicy.NameToWire(BimNameScheme.ReadableWithId));
+            Assert.Equal("type_only", BimExportOrganizationPolicy.NameToWire(BimNameScheme.TypeOnly));
+            Assert.Equal("none", BimExportOrganizationPolicy.NameToWire(BimNameScheme.None));
+            Assert.Equal("standard", BimExportOrganizationPolicy.ProfileToWire(BimMetadataProfile.Standard));
+            Assert.Equal("full", BimExportOrganizationPolicy.ProfileToWire(BimMetadataProfile.Full));
+            Assert.Equal("both", BimExportOrganizationPolicy.RoomsToWire(BimRoomsMode.Both));
+            Assert.Equal("labels_only", BimExportOrganizationPolicy.RoomsToWire(BimRoomsMode.LabelsOnly));
+            Assert.Equal("exclude", BimExportOrganizationPolicy.RoomsToWire(BimRoomsMode.Exclude));
+        }
+
+        [Fact]
+        public void Resolve_UsesPresetDefaultsWhenNoOverrides()
+        {
+            var def = new BimPresetDefinition
+            {
+                DefaultLayerScheme = BimLayerScheme.ByLevelThenCategory,
+                DefaultNameScheme = BimNameScheme.ReadableWithId,
+                DefaultMetadataProfile = BimMetadataProfile.Full,
+            };
+            var result = BimExportOrganizationPolicy.Resolve(def, null, null, null, out var policy);
+            Assert.True(result.Success);
+            Assert.Equal(BimLayerScheme.ByLevelThenCategory, policy.LayerScheme);
+            Assert.Equal(BimNameScheme.ReadableWithId, policy.NameScheme);
+            Assert.Equal(BimMetadataProfile.Full, policy.MetadataProfile);
+        }
+
+        [Fact]
+        public void Resolve_AppliesOverrides()
+        {
+            var def = new BimPresetDefinition
+            {
+                DefaultLayerScheme = BimLayerScheme.ByLevelThenCategory,
+                DefaultNameScheme = BimNameScheme.ReadableWithId,
+                DefaultMetadataProfile = BimMetadataProfile.Standard,
+            };
+            var result = BimExportOrganizationPolicy.Resolve(def, "by_category", "type_only", "minimal", out var policy);
+            Assert.True(result.Success);
+            Assert.Equal(BimLayerScheme.ByCategory, policy.LayerScheme);
+            Assert.Equal(BimNameScheme.TypeOnly, policy.NameScheme);
+            Assert.Equal(BimMetadataProfile.Minimal, policy.MetadataProfile);
+        }
+
+        [Fact]
+        public void Resolve_RejectsBadOverrideWithInvalidScope()
+        {
+            var def = new BimPresetDefinition();
+            var result = BimExportOrganizationPolicy.Resolve(def, "spiral", null, null, out _);
+            Assert.False(result.Success);
+            Assert.Equal(BimErrorCode.InvalidScope, result.ErrorCode);
+        }
+    }
+}
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter BimExportOrganizationPolicyTests`
+Expected: FAIL — types do not exist.
+
+- [ ] **Step 3: Implement the policy**
+
+Create `src/Rook/Bim/BimExportOrganizationPolicy.cs`:
+
+```csharp
+using System;
+
+namespace Rook.Bim
+{
+    public enum BimLayerScheme
+    {
+        Flat,
+        ByCategory,
+        ByLevelThenCategory
+    }
+
+    public enum BimNameScheme
+    {
+        None,
+        RevitName,
+        TypeOnly,
+        Readable,
+        ReadableWithId
+    }
+
+    public enum BimMetadataProfile
+    {
+        Minimal,
+        Standard,
+        Full
+    }
+
+    public sealed class BimExportOrganizationPolicy
+    {
+        public BimLayerScheme LayerScheme { get; set; } = BimLayerScheme.Flat;
+
+        public BimNameScheme NameScheme { get; set; } = BimNameScheme.None;
+
+        public BimMetadataProfile MetadataProfile { get; set; } = BimMetadataProfile.Minimal;
+
+        // The raw rookbim_export_elements path uses Legacy so its output stays semantically identical:
+        // flat RookBim::Model layer, the four user strings, no object names.
+        public static BimExportOrganizationPolicy Legacy
+        {
+            get
+            {
+                return new BimExportOrganizationPolicy
+                {
+                    LayerScheme = BimLayerScheme.Flat,
+                    NameScheme = BimNameScheme.None,
+                    MetadataProfile = BimMetadataProfile.Minimal,
+                };
+            }
+        }
+
+        public static bool TryParseLayer(string? raw, out BimLayerScheme scheme)
+        {
+            switch ((raw ?? string.Empty).Trim().ToLowerInvariant())
+            {
+                case "flat": scheme = BimLayerScheme.Flat; return true;
+                case "by_category": scheme = BimLayerScheme.ByCategory; return true;
+                case "by_level_then_category": scheme = BimLayerScheme.ByLevelThenCategory; return true;
+                default: scheme = BimLayerScheme.Flat; return false;
+            }
+        }
+
+        public static bool TryParseName(string? raw, out BimNameScheme scheme)
+        {
+            switch ((raw ?? string.Empty).Trim().ToLowerInvariant())
+            {
+                case "none": scheme = BimNameScheme.None; return true;
+                case "revit_name": scheme = BimNameScheme.RevitName; return true;
+                case "type_only": scheme = BimNameScheme.TypeOnly; return true;
+                case "readable": scheme = BimNameScheme.Readable; return true;
+                case "readable_with_id": scheme = BimNameScheme.ReadableWithId; return true;
+                default: scheme = BimNameScheme.None; return false;
+            }
+        }
+
+        public static bool TryParseProfile(string? raw, out BimMetadataProfile profile)
+        {
+            switch ((raw ?? string.Empty).Trim().ToLowerInvariant())
+            {
+                case "minimal": profile = BimMetadataProfile.Minimal; return true;
+                case "standard": profile = BimMetadataProfile.Standard; return true;
+                case "full": profile = BimMetadataProfile.Full; return true;
+                default: profile = BimMetadataProfile.Standard; return false;
+            }
+        }
+
+        // Wire-format serializers — the SINGLE source for every policy echo (summary/sidecar/
+        // validation). Emits the request's wire vocabulary, never the C# enum name.
+        public static string LayerToWire(BimLayerScheme scheme)
+        {
+            switch (scheme)
+            {
+                case BimLayerScheme.ByCategory: return "by_category";
+                case BimLayerScheme.ByLevelThenCategory: return "by_level_then_category";
+                default: return "flat";
+            }
+        }
+
+        public static string NameToWire(BimNameScheme scheme)
+        {
+            switch (scheme)
+            {
+                case BimNameScheme.RevitName: return "revit_name";
+                case BimNameScheme.TypeOnly: return "type_only";
+                case BimNameScheme.Readable: return "readable";
+                case BimNameScheme.ReadableWithId: return "readable_with_id";
+                default: return "none";
+            }
+        }
+
+        public static string ProfileToWire(BimMetadataProfile profile)
+        {
+            switch (profile)
+            {
+                case BimMetadataProfile.Standard: return "standard";
+                case BimMetadataProfile.Full: return "full";
+                default: return "minimal";
+            }
+        }
+
+        public static string RoomsToWire(BimRoomsMode rooms)
+        {
+            switch (rooms)
+            {
+                case BimRoomsMode.LabelsOnly: return "labels_only";
+                case BimRoomsMode.Exclude: return "exclude";
+                default: return "both";
+            }
+        }
+
+        public static BimValidationResult Resolve(
+            BimPresetDefinition definition,
+            string? layerOverride,
+            string? nameOverride,
+            string? profileOverride,
+            out BimExportOrganizationPolicy policy)
+        {
+            var layer = definition.DefaultLayerScheme;
+            var name = definition.DefaultNameScheme;
+            var profile = definition.DefaultMetadataProfile;
+
+            if (!string.IsNullOrWhiteSpace(layerOverride))
+            {
+                if (!TryParseLayer(layerOverride, out layer))
+                {
+                    return Bad("layerPolicy", layerOverride!, out policy);
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(nameOverride))
+            {
+                if (!TryParseName(nameOverride, out name))
+                {
+                    return Bad("namePolicy", nameOverride!, out policy);
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(profileOverride))
+            {
+                if (!TryParseProfile(profileOverride, out profile))
+                {
+                    return Bad("metadataProfile", profileOverride!, out policy);
+                }
+            }
+
+            policy = new BimExportOrganizationPolicy
+            {
+                LayerScheme = layer,
+                NameScheme = name,
+                MetadataProfile = profile,
+            };
+            return BimValidationResult.Ok;
+        }
+
+        private static BimValidationResult Bad(string field, string value, out BimExportOrganizationPolicy policy)
+        {
+            policy = Legacy;
+            return new BimValidationResult
+            {
+                Success = false,
+                ErrorCode = BimErrorCode.InvalidScope,
+                Message = $"Invalid {field} override '{value}'.",
+            };
+        }
+    }
+}
+```
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter BimExportOrganizationPolicyTests`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/Rook/Bim/BimExportOrganizationPolicy.cs src/Rook.Tests/Bim/BimExportOrganizationPolicyTests.cs
+git commit -m "feat(bim): export organization policy (layer/name/metadata schemes) + Legacy + parse + wire serializers"
+```
+
+---
+
+## Task 3: Preset catalog (pure)
 
 **Files:**
 - Create: `src/Rook/Bim/BimPresetCatalog.cs`
@@ -249,10 +587,8 @@ git commit -m "feat(bim): export-preset request contract + UnknownPreset/NoCateg
 - Test: `src/Rook.Tests/Bim/BimPresetCatalogTests.cs`
 
 **Interfaces:**
-- Consumes: `BimRoomsMode` (existing). Will reference `BimLayerScheme`/`BimNameScheme`/`BimMetadataProfile` from Task 3 — **Task 3 must be implemented before this compiles**; if implementing in order, define the enums (Task 3 Step 3) first, then this. To keep Task 2 independently testable, the catalog stores the **default policy as enums** introduced in Task 3.
+- Consumes: `BimRoomsMode` (existing) and `BimLayerScheme`/`BimNameScheme`/`BimMetadataProfile` (Task 2). Task 2 ships first, so these enums already exist.
 - Produces: `sealed class BimPresetDefinition { string Name; IReadOnlyList<string> Categories; BimLayerScheme DefaultLayerScheme; BimNameScheme DefaultNameScheme; BimMetadataProfile DefaultMetadataProfile; BimRoomsMode DefaultRooms; int DefaultLimitPerCategory; bool RoomsDriven; }`; `static class BimPresetCatalog { bool TryGet(string preset, out BimPresetDefinition def); IReadOnlyList<string> Names; }`.
-
-> **Ordering note:** Task 2 and Task 3 are mutually referential (the catalog stores Task 3's enums; Task 1's `Validate()` upgrade needs Task 2's catalog). Implement **Task 3 first** (enums + policy), then this task. The subagent runner should treat Tasks 2–3 as an ordered pair; the build of `Rook.csproj` after Task 2 must be green.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -500,286 +836,6 @@ Expected: PASS.
 ```bash
 git add src/Rook/Bim/BimPresetCatalog.cs src/Rook/Bim/BimContracts.cs src/Rook.Tests/Bim/BimPresetCatalogTests.cs
 git commit -m "feat(bim): preset catalog (architectural_shell..calibration_fixture) + catalog-aware validation"
-```
-
----
-
-## Task 3: Organization policy (pure)
-
-> **Implement before Task 2** (the catalog stores these enums). See Task 2's ordering note.
-
-**Files:**
-- Create: `src/Rook/Bim/BimExportOrganizationPolicy.cs`
-- Test: `src/Rook.Tests/Bim/BimExportOrganizationPolicyTests.cs`
-
-**Interfaces:**
-- Produces: `enum BimLayerScheme { Flat, ByCategory, ByLevelThenCategory }`; `enum BimNameScheme { None, RevitName, TypeOnly, Readable, ReadableWithId }`; `enum BimMetadataProfile { Minimal, Standard, Full }`; `sealed class BimExportOrganizationPolicy { BimLayerScheme LayerScheme; BimNameScheme NameScheme; BimMetadataProfile MetadataProfile; static BimExportOrganizationPolicy Legacy; static bool TryParseLayer(string?, out BimLayerScheme); static bool TryParseName(string?, out BimNameScheme); static bool TryParseProfile(string?, out BimMetadataProfile); static BimValidationResult Resolve(BimPresetDefinition def, string? layerOverride, string? nameOverride, string? profileOverride, out BimExportOrganizationPolicy policy); }`.
-
-- [ ] **Step 1: Write the failing test**
-
-Create `src/Rook.Tests/Bim/BimExportOrganizationPolicyTests.cs`:
-
-```csharp
-using Rook.Bim;
-using Xunit;
-
-namespace Rook.Tests.Bim
-{
-    public class BimExportOrganizationPolicyTests
-    {
-        [Fact]
-        public void Legacy_IsFlatNoNameMinimal()
-        {
-            var p = BimExportOrganizationPolicy.Legacy;
-            Assert.Equal(BimLayerScheme.Flat, p.LayerScheme);
-            Assert.Equal(BimNameScheme.None, p.NameScheme);
-            Assert.Equal(BimMetadataProfile.Minimal, p.MetadataProfile);
-        }
-
-        [Theory]
-        [InlineData("by_category", BimLayerScheme.ByCategory)]
-        [InlineData("by_level_then_category", BimLayerScheme.ByLevelThenCategory)]
-        [InlineData("flat", BimLayerScheme.Flat)]
-        public void TryParseLayer_ParsesKnownSchemes(string raw, BimLayerScheme expected)
-        {
-            Assert.True(BimExportOrganizationPolicy.TryParseLayer(raw, out var scheme));
-            Assert.Equal(expected, scheme);
-        }
-
-        [Fact]
-        public void TryParseLayer_RejectsUnknown()
-        {
-            Assert.False(BimExportOrganizationPolicy.TryParseLayer("spiral", out _));
-        }
-
-        [Theory]
-        [InlineData("readable_with_id", BimNameScheme.ReadableWithId)]
-        [InlineData("type_only", BimNameScheme.TypeOnly)]
-        [InlineData("revit_name", BimNameScheme.RevitName)]
-        [InlineData("none", BimNameScheme.None)]
-        public void TryParseName_ParsesKnownSchemes(string raw, BimNameScheme expected)
-        {
-            Assert.True(BimExportOrganizationPolicy.TryParseName(raw, out var scheme));
-            Assert.Equal(expected, scheme);
-        }
-
-        [Theory]
-        [InlineData("minimal", BimMetadataProfile.Minimal)]
-        [InlineData("standard", BimMetadataProfile.Standard)]
-        [InlineData("full", BimMetadataProfile.Full)]
-        public void TryParseProfile_ParsesKnownProfiles(string raw, BimMetadataProfile expected)
-        {
-            Assert.True(BimExportOrganizationPolicy.TryParseProfile(raw, out var profile));
-            Assert.Equal(expected, profile);
-        }
-
-        [Fact]
-        public void Resolve_UsesPresetDefaultsWhenNoOverrides()
-        {
-            var def = new BimPresetDefinition
-            {
-                DefaultLayerScheme = BimLayerScheme.ByLevelThenCategory,
-                DefaultNameScheme = BimNameScheme.ReadableWithId,
-                DefaultMetadataProfile = BimMetadataProfile.Full,
-            };
-            var result = BimExportOrganizationPolicy.Resolve(def, null, null, null, out var policy);
-            Assert.True(result.Success);
-            Assert.Equal(BimLayerScheme.ByLevelThenCategory, policy.LayerScheme);
-            Assert.Equal(BimNameScheme.ReadableWithId, policy.NameScheme);
-            Assert.Equal(BimMetadataProfile.Full, policy.MetadataProfile);
-        }
-
-        [Fact]
-        public void Resolve_AppliesOverrides()
-        {
-            var def = new BimPresetDefinition
-            {
-                DefaultLayerScheme = BimLayerScheme.ByLevelThenCategory,
-                DefaultNameScheme = BimNameScheme.ReadableWithId,
-                DefaultMetadataProfile = BimMetadataProfile.Standard,
-            };
-            var result = BimExportOrganizationPolicy.Resolve(def, "by_category", "type_only", "minimal", out var policy);
-            Assert.True(result.Success);
-            Assert.Equal(BimLayerScheme.ByCategory, policy.LayerScheme);
-            Assert.Equal(BimNameScheme.TypeOnly, policy.NameScheme);
-            Assert.Equal(BimMetadataProfile.Minimal, policy.MetadataProfile);
-        }
-
-        [Fact]
-        public void Resolve_RejectsBadOverrideWithInvalidScope()
-        {
-            var def = new BimPresetDefinition();
-            var result = BimExportOrganizationPolicy.Resolve(def, "spiral", null, null, out _);
-            Assert.False(result.Success);
-            Assert.Equal(BimErrorCode.InvalidScope, result.ErrorCode);
-        }
-    }
-}
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter BimExportOrganizationPolicyTests`
-Expected: FAIL — types do not exist.
-
-- [ ] **Step 3: Implement the policy**
-
-Create `src/Rook/Bim/BimExportOrganizationPolicy.cs`:
-
-```csharp
-using System;
-
-namespace Rook.Bim
-{
-    public enum BimLayerScheme
-    {
-        Flat,
-        ByCategory,
-        ByLevelThenCategory
-    }
-
-    public enum BimNameScheme
-    {
-        None,
-        RevitName,
-        TypeOnly,
-        Readable,
-        ReadableWithId
-    }
-
-    public enum BimMetadataProfile
-    {
-        Minimal,
-        Standard,
-        Full
-    }
-
-    public sealed class BimExportOrganizationPolicy
-    {
-        public BimLayerScheme LayerScheme { get; set; } = BimLayerScheme.Flat;
-
-        public BimNameScheme NameScheme { get; set; } = BimNameScheme.None;
-
-        public BimMetadataProfile MetadataProfile { get; set; } = BimMetadataProfile.Minimal;
-
-        // The raw rookbim_export_elements path uses Legacy so its output stays semantically identical:
-        // flat RookBim::Model layer, the four user strings, no object names.
-        public static BimExportOrganizationPolicy Legacy
-        {
-            get
-            {
-                return new BimExportOrganizationPolicy
-                {
-                    LayerScheme = BimLayerScheme.Flat,
-                    NameScheme = BimNameScheme.None,
-                    MetadataProfile = BimMetadataProfile.Minimal,
-                };
-            }
-        }
-
-        public static bool TryParseLayer(string? raw, out BimLayerScheme scheme)
-        {
-            switch ((raw ?? string.Empty).Trim().ToLowerInvariant())
-            {
-                case "flat": scheme = BimLayerScheme.Flat; return true;
-                case "by_category": scheme = BimLayerScheme.ByCategory; return true;
-                case "by_level_then_category": scheme = BimLayerScheme.ByLevelThenCategory; return true;
-                default: scheme = BimLayerScheme.Flat; return false;
-            }
-        }
-
-        public static bool TryParseName(string? raw, out BimNameScheme scheme)
-        {
-            switch ((raw ?? string.Empty).Trim().ToLowerInvariant())
-            {
-                case "none": scheme = BimNameScheme.None; return true;
-                case "revit_name": scheme = BimNameScheme.RevitName; return true;
-                case "type_only": scheme = BimNameScheme.TypeOnly; return true;
-                case "readable": scheme = BimNameScheme.Readable; return true;
-                case "readable_with_id": scheme = BimNameScheme.ReadableWithId; return true;
-                default: scheme = BimNameScheme.None; return false;
-            }
-        }
-
-        public static bool TryParseProfile(string? raw, out BimMetadataProfile profile)
-        {
-            switch ((raw ?? string.Empty).Trim().ToLowerInvariant())
-            {
-                case "minimal": profile = BimMetadataProfile.Minimal; return true;
-                case "standard": profile = BimMetadataProfile.Standard; return true;
-                case "full": profile = BimMetadataProfile.Full; return true;
-                default: profile = BimMetadataProfile.Standard; return false;
-            }
-        }
-
-        public static BimValidationResult Resolve(
-            BimPresetDefinition definition,
-            string? layerOverride,
-            string? nameOverride,
-            string? profileOverride,
-            out BimExportOrganizationPolicy policy)
-        {
-            var layer = definition.DefaultLayerScheme;
-            var name = definition.DefaultNameScheme;
-            var profile = definition.DefaultMetadataProfile;
-
-            if (!string.IsNullOrWhiteSpace(layerOverride))
-            {
-                if (!TryParseLayer(layerOverride, out layer))
-                {
-                    return Bad("layerPolicy", layerOverride!, out policy);
-                }
-            }
-
-            if (!string.IsNullOrWhiteSpace(nameOverride))
-            {
-                if (!TryParseName(nameOverride, out name))
-                {
-                    return Bad("namePolicy", nameOverride!, out policy);
-                }
-            }
-
-            if (!string.IsNullOrWhiteSpace(profileOverride))
-            {
-                if (!TryParseProfile(profileOverride, out profile))
-                {
-                    return Bad("metadataProfile", profileOverride!, out policy);
-                }
-            }
-
-            policy = new BimExportOrganizationPolicy
-            {
-                LayerScheme = layer,
-                NameScheme = name,
-                MetadataProfile = profile,
-            };
-            return BimValidationResult.Ok;
-        }
-
-        private static BimValidationResult Bad(string field, string value, out BimExportOrganizationPolicy policy)
-        {
-            policy = Legacy;
-            return new BimValidationResult
-            {
-                Success = false,
-                ErrorCode = BimErrorCode.InvalidScope,
-                Message = $"Invalid {field} override '{value}'.",
-            };
-        }
-    }
-}
-```
-
-- [ ] **Step 4: Run tests to verify they pass**
-
-Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter BimExportOrganizationPolicyTests`
-Expected: PASS.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/Rook/Bim/BimExportOrganizationPolicy.cs src/Rook.Tests/Bim/BimExportOrganizationPolicyTests.cs
-git commit -m "feat(bim): export organization policy (layer/name/metadata schemes) + Legacy + parse"
 ```
 
 ---
@@ -1509,11 +1565,14 @@ In `src/RookBim/Revit/RevitExportService.cs`, replace the **public `Export` meth
                 File.WriteAllText(paths.Sidecar, sidecarJson, new UTF8Encoding(false));
                 written.Add(paths.Sidecar);
 
+                // Audit computed from the ACTUAL written File3dm objects — proves names + stamps were
+                // applied to the .3dm, not merely recorded in the sidecar. Preset-path-only.
+                var modelAudit = presetContext == null ? null : BuildModelObjectAudit(file);
                 var summary = presetContext == null
                     ? null
                     : BuildSummary(presetContext, counts, perCategoryExport, roomRepCounts, layerCache.Count, paths);
                 var validation = BuildValidation(
-                    document, counts, scale, request.Output.Units, paths, sidecarJson, presetContext, summary, relationships);
+                    document, counts, scale, request.Output.Units, paths, sidecarJson, presetContext, summary, relationships, modelAudit);
                 File.WriteAllText(paths.Validation, JsonSerializer.Serialize(validation, JsonOptions), new UTF8Encoding(false));
                 written.Add(paths.Validation);
 
@@ -1526,7 +1585,7 @@ In `src/RookBim/Revit/RevitExportService.cs`, replace the **public `Export` meth
                     return failure;
                 }
 
-                return BimApiResponse.Ok(BuildResult(paths, counts, verification, scale, request.Output.Units, presetContext, summary, relationships));
+                return BimApiResponse.Ok(BuildResult(paths, counts, verification, scale, request.Output.Units, presetContext, summary, relationships, modelAudit));
             }
             catch (Exception ex)
             {
@@ -1776,10 +1835,10 @@ Replace the existing `BuildSidecar(...)` and `BuildValidation(...)` signatures, 
                 {
                     preset = presetContext.Preset,
                     effectiveCategories = presetContext.EffectiveCategories,
-                    rooms = presetContext.EffectiveRooms.ToString(),
-                    layerPolicy = presetContext.Policy.LayerScheme.ToString(),
-                    namePolicy = presetContext.Policy.NameScheme.ToString(),
-                    metadataProfile = presetContext.Policy.MetadataProfile.ToString(),
+                    rooms = BimExportOrganizationPolicy.RoomsToWire(presetContext.EffectiveRooms),
+                    layerPolicy = BimExportOrganizationPolicy.LayerToWire(presetContext.Policy.LayerScheme),
+                    namePolicy = BimExportOrganizationPolicy.NameToWire(presetContext.Policy.NameScheme),
+                    metadataProfile = BimExportOrganizationPolicy.ProfileToWire(presetContext.Policy.MetadataProfile),
                     limitPerCategory = presetContext.LimitPerCategory,
                     allowTruncated = request.AllowTruncated,
                     allowBboxProxy = request.AllowBboxProxy
@@ -1818,7 +1877,8 @@ Replace the existing `BuildSidecar(...)` and `BuildValidation(...)` signatures, 
             string sidecarJson,
             RevitPresetContext? presetContext,
             object? summary,
-            RevitRelationshipIndex relationships)
+            RevitRelationshipIndex relationships,
+            object? modelAudit)
         {
             var validation = new Dictionary<string, object?>
             {
@@ -1837,6 +1897,7 @@ Replace the existing `BuildSidecar(...)` and `BuildValidation(...)` signatures, 
             {
                 validation["summary"] = summary;
                 validation["relationships"] = relationships.ToWire();
+                validation["objects"] = modelAudit;
             }
 
             return validation;
@@ -1850,7 +1911,8 @@ Replace the existing `BuildSidecar(...)` and `BuildValidation(...)` signatures, 
             string targetUnits,
             RevitPresetContext? presetContext,
             object? summary,
-            RevitRelationshipIndex relationships)
+            RevitRelationshipIndex relationships,
+            object? modelAudit)
         {
             var result = BimApiResponse.Ok(new BimExportResult
             {
@@ -1879,7 +1941,8 @@ Replace the existing `BuildSidecar(...)` and `BuildValidation(...)` signatures, 
                 targetUnits,
                 unitScaleFactor = scale,
                 summary,
-                relationships = relationships.ToWire()
+                relationships = relationships.ToWire(),
+                objects = modelAudit
             };
         }
 ```
@@ -1908,6 +1971,61 @@ Add to `RevitExportService.cs` (these keep the file compiling now; Task 9 implem
         {
             // Task 9 fills this. Stub keeps the preset path returning a present-but-minimal summary.
             return new { digest = string.Empty };
+        }
+
+        // Reads the ACTUAL written File3dm objects to prove names + user-string stamps reached the
+        // .3dm (not just the sidecar records). Preset-path-only.
+        private static object BuildModelObjectAudit(Rhino.FileIO.File3dm file)
+        {
+            var total = 0;
+            var named = 0;
+            var withUniqueId = 0;
+            var withLevelStamp = 0;
+            var withFamilyStamp = 0;
+            var sampleNames = new List<string>();
+            var sampleStampKeys = new List<string>();
+            var layerNames = new List<string>();
+            foreach (var layer in file.AllLayers)
+            {
+                // EnsureLayer stores the FULL "RookBim::Level::Category" path in Layer.Name.
+                layerNames.Add(layer.Name);
+            }
+
+            foreach (var obj in file.Objects)
+            {
+                total++;
+                var attrs = obj.Attributes;
+                if (!string.IsNullOrEmpty(attrs.Name))
+                {
+                    named++;
+                    if (sampleNames.Count < 3) { sampleNames.Add(attrs.Name); }
+                }
+
+                if (!string.IsNullOrEmpty(attrs.GetUserString("revit.uniqueId"))) { withUniqueId++; }
+                if (!string.IsNullOrEmpty(attrs.GetUserString("revit.level"))) { withLevelStamp++; }
+                if (!string.IsNullOrEmpty(attrs.GetUserString("revit.family"))) { withFamilyStamp++; }
+
+                if (sampleStampKeys.Count == 0)
+                {
+                    var strings = attrs.GetUserStrings();
+                    foreach (var key in strings.AllKeys)
+                    {
+                        if (!string.IsNullOrEmpty(key)) { sampleStampKeys.Add(key); }
+                    }
+                }
+            }
+
+            return new
+            {
+                objectCount = total,
+                namedObjectCount = named,
+                withUniqueIdCount = withUniqueId,
+                withLevelStampCount = withLevelStamp,
+                withFamilyStampCount = withFamilyStamp,
+                sampleNames,
+                sampleStampKeys,
+                layerNames,
+            };
         }
 ```
 
@@ -2274,6 +2392,14 @@ Add to `src/RookBim.Tests/RookBimExportPresetSourceTests.cs`:
             Assert.Contains("layerPolicy", service);
             Assert.Contains("warnings", service);
 
+            // Policy echoes use the wire serializers, NOT C# enum names.
+            Assert.Contains("BimExportOrganizationPolicy.LayerToWire", service);
+            Assert.DoesNotContain("Policy.LayerScheme.ToString()", service);
+
+            // Model audit proves names + stamps from the actual File3dm objects.
+            Assert.Contains("BuildModelObjectAudit", service);
+            Assert.Contains("namedObjectCount", service);
+
             // Relationships are facts only (carry source/confidence), three membership lists.
             Assert.Contains("roomMembership", rel);
             Assert.Contains("hostMembership", rel);
@@ -2339,9 +2465,9 @@ In `src/RookBim/Revit/RevitExportService.cs`, replace the `BuildSummary` stub wi
                 digest,
                 preset = presetContext.Preset,
                 effectiveCategories = presetContext.EffectiveCategories,
-                layerPolicy = presetContext.Policy.LayerScheme.ToString(),
-                namePolicy = presetContext.Policy.NameScheme.ToString(),
-                metadataProfile = presetContext.Policy.MetadataProfile.ToString(),
+                layerPolicy = BimExportOrganizationPolicy.LayerToWire(presetContext.Policy.LayerScheme),
+                namePolicy = BimExportOrganizationPolicy.NameToWire(presetContext.Policy.NameScheme),
+                metadataProfile = BimExportOrganizationPolicy.ProfileToWire(presetContext.Policy.MetadataProfile),
                 limitPerCategory = presetContext.LimitPerCategory,
                 resolvedCategories,
                 geometryQuality = new
@@ -3010,22 +3136,41 @@ def main() -> int:
     raw_text = Path(paths["sidecar"]).read_text(encoding="utf-8")
     assert "RookBIM::" not in raw_text, "wrong-cased layer root present"
 
-    # NON-VACUOUS gate 3: summary present + structured.
+    # NON-VACUOUS gate 3: summary present + structured + WIRE-FORMAT policy echo.
     summary = data["summary"]
     assert summary["digest"], "summary digest missing"
     assert summary["preset"] == "architectural_shell"
-    assert summary["layerPolicy"] == "ByLevelThenCategory"
+    assert summary["layerPolicy"] == "by_level_then_category", f"policy not wire-format: {summary['layerPolicy']}"
+    assert summary["namePolicy"] == "readable_with_id"
+    assert summary["metadataProfile"] == "standard"
     assert summary["resolvedCategories"], "no resolved categories in summary"
     assert summary["geometryQuality"]["brep"] >= 1 or summary["geometryQuality"]["mesh"] >= 1
 
-    # NON-VACUOUS gate 4: standard metadata stamps + populated object names reach the sidecar records.
-    first = elements[0]
-    assert first.get("name"), "element record missing name"
-    assert first.get("type") is not None or first.get("category") is not None
+    # NON-VACUOUS gate 4: object NAMES + metadata STAMPS proven from the actual .3dm objects
+    # (validation.objects is computed from File3dm.Objects, not the sidecar records).
+    audit = validation["objects"]
+    assert audit["objectCount"] >= 1, "no objects in .3dm"
+    assert audit["namedObjectCount"] >= 1, f"no named .3dm objects: {audit}"
+    assert audit["withUniqueIdCount"] >= 1, "no revit.uniqueId stamps on .3dm objects"
+    assert audit["withLevelStampCount"] >= 1 or audit["withFamilyStampCount"] >= 1, \
+        f"standard stamps (revit.level/revit.family) missing on objects: {audit}"
+    assert audit["sampleNames"], "no sample object names captured"
 
-    # NON-VACUOUS gate 5: relationship index present (facts only).
-    rel = validation["relationships"]
-    assert set(rel.keys()) >= {"roomMembership", "hostMembership", "levelMembership"}
+    # NON-VACUOUS gate 5a: namespaced metadata stamp keys reached the objects.
+    assert any("." in k for k in audit["sampleStampKeys"]), f"no namespaced stamp keys: {audit['sampleStampKeys']}"
+
+    # NON-VACUOUS gate 5b: hierarchical RookBim:: layers exist in the .3dm (by_level_then_category
+    # nests level + category, so a layer path has at least two '::' separators).
+    layer_names = audit["layerNames"]
+    assert any(n.startswith("RookBim::") for n in layer_names), f"no RookBim:: layers: {layer_names}"
+    assert not any(n.startswith("RookBIM::") for n in layer_names), "wrong-cased layer root"
+    assert any(n.count("::") >= 2 for n in layer_names), f"no hierarchical (level::category) layers: {layer_names}"
+
+    # NON-VACUOUS gate 6: relationship index present (facts only) in response, sidecar, AND validation.
+    members = {"roomMembership", "hostMembership", "levelMembership"}
+    assert set(data["relationships"].keys()) >= members, "relationships missing in response"
+    assert set(sidecar["relationships"].keys()) >= members, "relationships missing in sidecar"
+    assert set(validation["relationships"].keys()) >= members, "relationships missing in validation"
 
     print("LIVE VERIFY PASS (preset)")
     print(f"  preset=architectural_shell resolved={counts['resolved']} exported={exported} "
@@ -3065,10 +3210,16 @@ When a live Rhino.Inside.Revit session is available on a sample architectural mo
 - §5 layer schemes + `RookBim::` root + fallbacks + sanitize + count guard → Task 4 (namer) + Task 9 (`layer_count_high`). ✓
 - §6 object naming → Task 5. ✓
 - §7 metadata profiles + value-only + omit-missing → Task 7 (`StampObject`). ✓
-- §8 summary + relationships, both response & validation, facts-only → Task 9. ✓
-- §9 request contract + catalog + `limitPerCategory` default 1000 → Tasks 1, 2, 8. ✓
+- §8 summary + relationships in response, sidecar, AND validation, facts-only → Task 9 (builders in Task 7), live gate 6 checks all three. ✓
+- §9 request contract (Task 1) + catalog + `limitPerCategory` default 1000 (Task 3) + resolution (Task 8). ✓
 - §10 error codes + registration + targeting → Tasks 1, 11, 12. ✓
 - §11 testing (legacy parity, no Revit outside RookBim, no Transactions, registration, live smoke, relationship presence) → Tasks 7, 8, 11, 12, 13. ✓
+
+**Review patches folded (2026-06-17 plan review):**
+1. **Task renumber:** Task 2 = organization policy/enums, Task 3 = preset catalog (the dependency now flows ascending; no "ordered pair" workaround). ✓
+2. **Wire-format policy strings:** `BimExportOrganizationPolicy.LayerToWire/NameToWire/ProfileToWire/RoomsToWire` (Task 2) are the single source for every policy echo; summary/sidecar use them (Tasks 7, 9); Task 9 test asserts `LayerToWire` is used and `Policy.LayerScheme.ToString()` is absent; live gate asserts `by_level_then_category`/`readable_with_id`/`standard`. ✓
+3. **`.3dm` object names/stamps proven, not assumed:** `BuildModelObjectAudit` reads the actual `File3dm.Objects` + `AllLayers` (Task 7), surfaced as `validation.objects` + response `objects`; live gates 4/5 assert `namedObjectCount`, stamp keys, and hierarchical `RookBim::` layers from the real bundle. ✓
+4. **Relationships in all promised locations:** response (`BuildResult`), sidecar (`BuildSidecar`), validation (`BuildValidation`) — Task 7; live gate 6 asserts all three. ✓
 
 **Placeholder scan:** `BuildSummary`/`RevitRelationshipIndex` are explicitly stubbed in Task 7 and filled in Task 9 (each is real code at each step, not a "TODO"). No `TBD`/`implement later`. ✓
 
