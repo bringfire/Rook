@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from rook.scene import calibration as cal
@@ -531,3 +533,86 @@ def test_missed_host_relation_respects_evaluated_scope():
     )
 
     assert missed == []
+
+
+def _classified_candidates():
+    fixture = cal.validate_fixture_payload(_sidecar(), _validation())
+    join = cal.build_runtime_join_map(_runtime_objects(), fixture)
+    raw = cal.build_candidate_records({
+        "refined": [{
+            "candidateId": "rook-wall|contains|rook-door",
+            "containerId": "rook-wall",
+            "containedId": "rook-door",
+            "verdict": "contains_semantic",
+            "confidence": "high",
+            "reason": "strong_clearance_plausible_container",
+            "evidence": [{"signal": "bbox_margin", "polarity": "supports", "detail": "positive"}],
+        }]
+    }, join, fixture)
+    return fixture, [cal.classify_candidate(c, fixture) for c in raw]
+
+
+def test_build_live_calibration_report_counts_by_family():
+    fixture, candidates = _classified_candidates()
+
+    report = cal.build_live_calibration_report(
+        fixture,
+        paths=cal.FixturePaths("C:/tmp/shell-preset.3dm", "C:/tmp/shell-preset.sidecar.json", "C:/tmp/shell-preset.validation.json"),
+        fixture_id="shell-preset",
+        runtime=cal.RuntimeSummary(
+            project_exact_adjacency=True,
+            fresh_document=True,
+            graph_sequence=9,
+            scene_exact_neighbors={"attempted": True, "succeeded": True, "errors": []},
+            scene_refine_containment={"attempted": True, "succeeded": True, "errors": []},
+            input_object_count=2,
+            joined_object_count=2,
+            evaluated_object_count=2,
+            category_filters=["Walls", "Doors"],
+            cap=100,
+        ),
+        candidates=candidates,
+    )
+
+    fx = report["fixtures"][0]
+    assert report["mode"] == "live_calibration"
+    assert fx["runtime"]["projectExactAdjacency"] is True
+    assert fx["metrics"]["byLabelFamily"]["host"]["host_supported_positive"] == 1
+    assert fx["summary"]["reviewCounts"]["host_supported_positive"] == 1
+    assert fx["candidates"][0]["metricEligible"]["host"] is True
+
+
+def test_render_markdown_summary_mentions_no_global_accuracy():
+    fixture, candidates = _classified_candidates()
+    report = cal.build_live_calibration_report(
+        fixture,
+        paths=cal.FixturePaths("C:/tmp/shell-preset.3dm", "C:/tmp/shell-preset.sidecar.json", "C:/tmp/shell-preset.validation.json"),
+        fixture_id="shell-preset",
+        runtime=cal.RuntimeSummary(True, True, 9, {"attempted": True, "succeeded": True, "errors": []}, {"attempted": True, "succeeded": True, "errors": []}, 2, 2, 2, [], None),
+        candidates=candidates,
+    )
+
+    md = cal.render_markdown_summary(report)
+
+    assert "# Threshold Calibration Report" in md
+    assert "shell-preset" in md
+    assert "No global accuracy/F1 is computed" in md
+    assert "host_supported_positive" in md
+
+
+def test_write_report_bundle_is_only_disk_writer(tmp_path):
+    fixture, candidates = _classified_candidates()
+    report = cal.build_live_calibration_report(
+        fixture,
+        paths=cal.FixturePaths("C:/tmp/shell-preset.3dm", "C:/tmp/shell-preset.sidecar.json", "C:/tmp/shell-preset.validation.json"),
+        fixture_id="shell-preset",
+        runtime=cal.RuntimeSummary(True, True, 9, {"attempted": True, "succeeded": True, "errors": []}, {"attempted": True, "succeeded": True, "errors": []}, 2, 2, 2, [], None),
+        candidates=candidates,
+    )
+
+    paths = cal.write_report_bundle(report, tmp_path, "shell-preset")
+
+    assert Path(paths["json"]).exists()
+    assert Path(paths["markdown"]).exists()
+    assert Path(paths["json"]).name == "shell-preset.calibration.json"
+    assert Path(paths["markdown"]).read_text(encoding="utf-8").startswith("# Threshold Calibration Report")

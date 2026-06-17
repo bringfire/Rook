@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 SCHEMA_VERSION = 1
-MODE_LIVE = "live_threshold_calibration"
+MODE_LIVE = "live_calibration"
 MODE_OFFLINE = "offline_fixture_validation"
 REQUIRED_RELATIONSHIPS = (
     "hostMembership",
@@ -71,6 +71,20 @@ class RuntimeJoinMap:
     by_runtime_id: dict[str, JoinedRuntimeObject]
     by_revit_unique_id: dict[str, list[JoinedRuntimeObject]]
     not_joinable: dict[str, str]
+
+
+@dataclass(frozen=True)
+class RuntimeSummary:
+    project_exact_adjacency: bool
+    fresh_document: bool | None
+    graph_sequence: int | None
+    scene_exact_neighbors: dict[str, Any]
+    scene_refine_containment: dict[str, Any]
+    input_object_count: int
+    joined_object_count: int
+    evaluated_object_count: int
+    category_filters: list[str]
+    cap: int | None
 
 
 def json_dumps(value: Any) -> str:
@@ -328,6 +342,121 @@ def build_offline_fixture_validation_report(
             }
         ],
     }
+
+
+def _runtime_payload(runtime: RuntimeSummary) -> dict[str, Any]:
+    return {
+        "projectExactAdjacency": runtime.project_exact_adjacency,
+        "freshDocument": runtime.fresh_document,
+        "graphSequence": runtime.graph_sequence,
+        "sceneExactNeighbors": runtime.scene_exact_neighbors,
+        "sceneRefineContainment": runtime.scene_refine_containment,
+        "inputObjectCount": runtime.input_object_count,
+        "joinedObjectCount": runtime.joined_object_count,
+        "evaluatedObjectCount": runtime.evaluated_object_count,
+        "categoryFilters": runtime.category_filters,
+        "cap": runtime.cap,
+    }
+
+
+def _count(values: list[str]) -> dict[str, int]:
+    out: dict[str, int] = {}
+    for value in values:
+        out[value] = out.get(value, 0) + 1
+    return out
+
+
+def _metrics(candidates: list[dict[str, Any]]) -> dict[str, Any]:
+    host = _count([c["hostBucket"] for c in candidates])
+    room = _count([c["roomBucket"] for c in candidates])
+    level = _count([c["levelBucket"] for c in candidates])
+    by_pair: dict[str, dict[str, dict[str, int]]] = {}
+    by_conf: dict[str, dict[str, int]] = {}
+    for c in candidates:
+        pair = f"{c['container'].get('category')}->{c['contained'].get('category')}"
+        by_pair.setdefault(pair, {"host": {}, "room": {}, "level": {}})
+        for fam, bucket_name in (("host", "hostBucket"), ("room", "roomBucket"), ("level", "levelBucket")):
+            bucket = c[bucket_name]
+            by_pair[pair][fam][bucket] = by_pair[pair][fam].get(bucket, 0) + 1
+        conf = str(c.get("rook", {}).get("confidence") or "none")
+        by_conf.setdefault(conf, {})
+        review = c.get("reviewBucket", "not_applicable")
+        by_conf[conf][review] = by_conf[conf].get(review, 0) + 1
+    return {
+        "byLabelFamily": {"host": host, "room": room, "level": level},
+        "byCategoryPair": by_pair,
+        "byConfidence": by_conf,
+    }
+
+
+def build_live_calibration_report(
+    fixture: FixtureData,
+    *,
+    paths: FixturePaths,
+    fixture_id: str,
+    runtime: RuntimeSummary,
+    candidates: list[dict[str, Any]],
+) -> dict[str, Any]:
+    metrics = _metrics(candidates)
+    review_counts = _count([c.get("reviewBucket", "not_applicable") for c in candidates])
+    return {
+        "schemaVersion": SCHEMA_VERSION,
+        "mode": MODE_LIVE,
+        "generatedAt": _utc_now_iso(),
+        "fixtures": [
+            {
+                "fixtureId": fixture_id,
+                "paths": {
+                    "model3dm": paths.model3dm,
+                    "sidecar": paths.sidecar,
+                    "validation": paths.validation,
+                },
+                "runtime": _runtime_payload(runtime),
+                "summary": {
+                    "metricsComputed": True,
+                    "reviewCounts": review_counts,
+                    "notJoinableCount": review_counts.get("not_joinable", 0),
+                    "ambiguousCount": review_counts.get("ambiguous", 0),
+                    "candidateCount": len(candidates),
+                },
+                "metrics": metrics,
+                "candidates": candidates,
+            }
+        ],
+    }
+
+
+def render_markdown_summary(report: dict[str, Any]) -> str:
+    fx = report["fixtures"][0]
+    lines = [
+        "# Threshold Calibration Report",
+        "",
+        f"- Mode: `{report['mode']}`",
+        f"- Fixture: `{fx['fixtureId']}`",
+        f"- Model: `{fx['paths']['model3dm']}`",
+        f"- Exact adjacency projected: `{fx['runtime'].get('projectExactAdjacency')}`",
+        f"- Graph sequence: `{fx['runtime'].get('graphSequence')}`",
+        "",
+        "No global accuracy/F1 is computed. Host, room, and level are separate review families.",
+        "",
+        "## Review Counts",
+    ]
+    for key, value in sorted((fx.get("summary", {}).get("reviewCounts") or {}).items()):
+        lines.append(f"- `{key}`: {value}")
+    lines.extend(["", "## Label-Family Metrics"])
+    for family, counts in (fx.get("metrics", {}).get("byLabelFamily") or {}).items():
+        lines.append(f"- `{family}`: {counts}")
+    return "\n".join(lines) + "\n"
+
+
+def write_report_bundle(report: dict[str, Any], output_dir: str | Path, name: str) -> dict[str, str]:
+    out = Path(output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    json_path = out / f"{name}.calibration.json"
+    md_path = out / f"{name}.calibration.md"
+    json_path.write_text(json_dumps(report), encoding="utf-8")
+    md_path.write_text(render_markdown_summary(report), encoding="utf-8")
+    return {"json": str(json_path), "markdown": str(md_path)}
 
 
 def _user_strings(obj: dict[str, Any]) -> dict[str, Any]:
