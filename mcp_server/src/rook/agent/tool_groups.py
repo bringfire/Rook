@@ -260,6 +260,7 @@ TOOL_GROUPS: Dict[str, List[str]] = {
         "rookbim_select_elements",
         "rookbim_clear_selection",
         "rookbim_export_elements",
+        "rookbim_export_preset",
     ],
     "rookbim_readonly": [
         "rookbim_status",
