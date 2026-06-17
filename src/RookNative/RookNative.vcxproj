@@ -19,6 +19,15 @@
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
 
+  <!-- OCCT root. Override via the OCCT_ROOT env var (or /p:OcctRoot=...); else default to
+       the currently VERIFIED OCCT V8_0_0 build tree. The deferred 7.9.3 production pin
+       (Task 9b) will point OCCT_ROOT at a SEPARATE build dir without disturbing the
+       known-good V8_0_0 checkout — see docs/rook_docs/occt-build.md. -->
+  <PropertyGroup Label="OcctRoot">
+    <OcctRoot Condition="'$(OcctRoot)'==''">$(OCCT_ROOT)</OcctRoot>
+    <OcctRoot Condition="'$(OcctRoot)'==''">C:\Users\aryan\source\repos\OCCT\build-rook</OcctRoot>
+  </PropertyGroup>
+
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
 
   <PropertyGroup Label="Configuration" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -89,6 +98,11 @@
     <Link>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
+      <!-- OCCT modeling kernel via $(OcctRoot) (OCCT_ROOT env var, else verified V8_0_0
+           build tree). NO DataExchange/STEP libs — no C++ TU reads STEP anymore (Task 8/9).
+           Dropped: TKDESTEP/TKXSBase/TKDE/TKDECascade/TKCAF/TKLCAF/TKXCAF/TKCDF/TKExpress. -->
+      <AdditionalLibraryDirectories>$(OcctRoot)\win64\vc14\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>TKernel.lib;TKMath.lib;TKG2d.lib;TKG3d.lib;TKGeomBase.lib;TKGeomAlgo.lib;TKBRep.lib;TKTopAlgo.lib;TKPrim.lib;TKBO.lib;TKBool.lib;TKShHealing.lib;TKMesh.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
 
@@ -144,6 +158,76 @@
     <ClCompile Include="SceneGraph\SceneGraph.cpp" />
     <ClCompile Include="SceneGraph\SceneGraphWatcher.cpp" />
     <ClCompile Include="SceneGraph\SceneGraphConduit.cpp" />
+    <ClCompile Include="SceneGraph\ExactAdjacencyService.cpp" />
+    <!-- OCCT process init (OcctProbeInit = OSD::SetSignal SE-translation installer; used
+         by OcctExecutor's worker thread). OCCT-only unit: no stdafx (NotUsing PCH);
+         per-file OCCT include path so OCCT headers don't leak into other TUs. (The Spike-G
+         STEP probe was removed in Task 8 — no STEP is read in the C++ build.) -->
+    <ClCompile Include="SceneGraph\OcctProbe.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)'=='Debug'">NotUsing</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)'=='Release'">NotUsing</PrecompiledHeader>
+      <AdditionalIncludeDirectories>$(OcctRoot)\inc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <!-- /EHa (Async): OCCT's OSD::SetSignal translates SEH faults to
+           Standard_Failure; under /EHsc those throws don't reliably unwind C++
+           destructors, so a fault could leak a held lock_guard (EDEADLK on the
+           next pooled worker). /EHa makes SEH-translated throws unwind properly. -->
+      <ExceptionHandling>Async</ExceptionHandling>
+      <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <!-- Task 4: ON_Brep->OCCT surface converter. OCCT-only TU (NotUsing PCH);
+         the ONE unit that includes BOTH openNURBS (from Rhino props) and OCCT.
+         Per-file OCCT include path; /bigobj for OCCT templates. -->
+    <ClCompile Include="SceneGraph\OnBrepToOcct.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)'=='Debug'">NotUsing</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)'=='Release'">NotUsing</PrecompiledHeader>
+      <AdditionalIncludeDirectories>$(OcctRoot)\inc;$(RhinoSdkDir)openNURBS;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <!-- /EHa (Async): see OcctProbe.cpp note — SEH-translated OCCT faults must
+           unwind C++ destructors so guarded locks/RAII release on any fault. -->
+      <ExceptionHandling>Async</ExceptionHandling>
+      <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <!-- Task 6: OCCT-PURE engine primitives (CapabilityToString + SharedFaceArea).
+         No openNURBS — shared with the offline OcctPrimitiveTests target. -->
+    <ClCompile Include="SceneGraph\OcctSharedFaceArea.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)'=='Debug'">NotUsing</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)'=='Release'">NotUsing</PrecompiledHeader>
+      <AdditionalIncludeDirectories>$(OcctRoot)\inc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <!-- /EHa (Async): see OcctProbe.cpp note — SharedFaceArea runs BRepAlgoAPI
+           Common; its Standard_Failure/... guards must unwind under /EHa. -->
+      <ExceptionHandling>Async</ExceptionHandling>
+      <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <!-- Task 6: OCCT exact-adjacency engine. OCCT-only TU (NotUsing PCH); pulls
+         OCCT + openNURBS (ON_Brep through the converter). Per-file OCCT include
+         path; /bigobj for OCCT templates. Additive — not wired to production. -->
+    <ClCompile Include="SceneGraph\OcctAdjacencyEngine.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)'=='Debug'">NotUsing</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)'=='Release'">NotUsing</PrecompiledHeader>
+      <AdditionalIncludeDirectories>$(OcctRoot)\inc;$(RhinoSdkDir)openNURBS;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <!-- /EHa (Async): the EDEADLK fix. SEH-translated OCCT faults must unwind the
+           Evaluate body so the static s_engineMutex lock_guard releases on any
+           fault path; otherwise a faulted request leaves the mutex held and the
+           next pooled httplib worker deadlocks. See the TU header comment. -->
+      <ExceptionHandling>Async</ExceptionHandling>
+      <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <!-- Task 6b: the single dedicated serialized OCCT worker thread. Calls
+         OcctProbeInit() (OSD::SetSignal) ONCE on its worker thread so SE
+         translation is active on the only thread that touches OCCT. Same build
+         shape as the sibling OCCT TUs: NotUsing PCH, per-file OCCT include path,
+         /bigobj. /EHa (Async) is required so the worker's per-task try/catch and
+         RAII reliably unwind SEH-translated OCCT faults. -->
+    <ClCompile Include="SceneGraph\OcctExecutor.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)'=='Debug'">NotUsing</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)'=='Release'">NotUsing</PrecompiledHeader>
+      <AdditionalIncludeDirectories>$(OcctRoot)\inc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <ExceptionHandling>Async</ExceptionHandling>
+      <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <!-- SceneGraphHandler.cpp no longer makes OCCT calls (the dev OCCT routes were
+         removed in Task 8; OCCT work is serialized inside OcctAdjacencyEngine on the
+         OcctExecutor thread, and SceneGraphHandler.cpp includes only the OCCT-header-free
+         contract). Plain PCH TU, project-default exception model. -->
     <ClCompile Include="Handlers\SceneGraphHandler.cpp" />
     <ClCompile Include="Handlers\CommandInteractiveHandler.cpp" />
     <ClCompile Include="Handlers\PromptHandler.cpp" />
@@ -212,6 +296,16 @@
     <ClInclude Include="Handlers\TextureMappingHandler.h" />
     <ClInclude Include="Handlers\GameExportHandler.h" />
     <ClInclude Include="SceneGraph\SceneGraphModels.h" />
+    <ClInclude Include="SceneGraph\ExactAdjacencyTypes.h" />
+    <ClInclude Include="SceneGraph\ExactAdjacencyService.h" />
+    <ClInclude Include="SceneGraph\OcctProbe.h" />
+    <ClInclude Include="SceneGraph\OcctExecutor.h" />
+    <ClInclude Include="SceneGraph\OnBrepToOcct.h" />
+    <ClInclude Include="SceneGraph\OnBrepToOcct_internal.h" />
+    <ClInclude Include="SceneGraph\OcctAdjacencyTypes.h" />
+    <ClInclude Include="SceneGraph\OcctAdjacencyEngine.h" />
+    <ClInclude Include="SceneGraph\OcctAdjacencyEngine_internal.h" />
+    <ClInclude Include="SceneGraph\OcctAdjacencyTypes.h" />
     <ClInclude Include="SceneGraph\SceneGraph.h" />
     <ClInclude Include="SceneGraph\SceneGraphWatcher.h" />
     <ClInclude Include="SceneGraph\SceneGraphConduit.h" />
