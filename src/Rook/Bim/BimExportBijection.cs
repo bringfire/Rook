@@ -27,12 +27,16 @@ namespace Rook.Bim
                     continue;
                 }
 
-                seen.Add(key); // multiple objects per key are allowed (multi-solid element / multi-Brep)
+                // Past the IsNullOrEmpty guard, key is non-null + non-empty. .NET Framework's
+                // string.IsNullOrEmpty lacks [NotNullWhen(false)], so narrow explicitly here.
+                var presentKey = key!;
 
-                if (!expectedKeys.Contains(key))
+                seen.Add(presentKey); // multiple objects per key are allowed (multi-solid element / multi-Brep)
+
+                if (!expectedKeys.Contains(presentKey))
                 {
                     verification.Ok = false;
-                    verification.Discrepancies.Add($".3dm object key {key} has no exported record.");
+                    verification.Discrepancies.Add($".3dm object key {presentKey} has no exported record.");
                 }
             }
 
