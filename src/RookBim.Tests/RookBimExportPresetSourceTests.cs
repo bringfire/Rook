@@ -89,6 +89,17 @@ namespace RookBim.Tests
             Assert.Contains("presetContext == null", service);
         }
 
+        [Fact]
+        public void Runtime_WiresExportPresetThroughResolverAndExportTimeout()
+        {
+            var src = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
+
+            Assert.Contains("public BimApiResponse ExportPreset(BimExportPresetRequest request)", src);
+            Assert.Contains("RevitPresetResolver", src);
+            Assert.Contains("ExportResolved", src);
+            Assert.Contains("ExportDispatchTimeout", src);
+        }
+
         internal static string Read(string relativePath)
         {
             return File.ReadAllText(Path.Combine(RepoRoot, relativePath.Replace('/', Path.DirectorySeparatorChar)));
