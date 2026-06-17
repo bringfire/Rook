@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pytest
 
 from rook.scene import calibration as cal
@@ -87,6 +85,98 @@ def test_validate_fixture_normalizes_real_sidecar_shape():
     assert fixture.relationships["levelMembership"]["uid-door"] == "L1"
 
 
+def test_validate_fixture_rejects_duplicate_relationship_sources():
+    sidecar = _sidecar()
+    sidecar["relationships"]["roomMembership"].append(
+        {"elementUniqueId": "uid-door", "roomUniqueId": "room-1", "source": "revit_api", "confidence": "high"}
+    )
+    validation = _validation()
+    validation["relationships"]["roomMembership"]["count"] = 3
+
+    with pytest.raises(cal.FixtureValidationError) as exc:
+        cal.validate_fixture_payload(sidecar, validation)
+
+    message = str(exc.value)
+    assert "roomMembership" in message
+    assert "uid-door" in message
+
+
+@pytest.mark.parametrize(
+    ("mutate", "expected"),
+    [
+        (
+            lambda sidecar: sidecar["relationships"]["hostMembership"].__setitem__(
+                0, {**sidecar["relationships"]["hostMembership"][0], "elementUniqueId": "missing-door"}
+            ),
+            "hostMembership source element missing-door",
+        ),
+        (
+            lambda sidecar: sidecar["relationships"]["hostMembership"].__setitem__(
+                0, {**sidecar["relationships"]["hostMembership"][0], "hostUniqueId": "missing-wall"}
+            ),
+            "hostMembership target host missing-wall",
+        ),
+        (
+            lambda sidecar: sidecar["relationships"]["roomMembership"].__setitem__(
+                0, {**sidecar["relationships"]["roomMembership"][0], "elementUniqueId": "missing-door"}
+            ),
+            "roomMembership source element missing-door",
+        ),
+        (
+            lambda sidecar: sidecar["relationships"]["roomMembership"].__setitem__(
+                0, {**sidecar["relationships"]["roomMembership"][0], "roomUniqueId": "missing-room"}
+            ),
+            "roomMembership target room missing-room",
+        ),
+        (
+            lambda sidecar: sidecar["relationships"]["levelMembership"].__setitem__(
+                0, {**sidecar["relationships"]["levelMembership"][0], "elementUniqueId": "missing-door"}
+            ),
+            "levelMembership source element missing-door",
+        ),
+        (
+            lambda sidecar: sidecar["relationships"]["levelMembership"].__setitem__(
+                0, {**sidecar["relationships"]["levelMembership"][0], "levelName": ""}
+            ),
+            "levelMembership level name",
+        ),
+    ],
+)
+def test_validate_fixture_checks_relationship_referential_integrity(mutate, expected):
+    sidecar = _sidecar()
+    mutate(sidecar)
+
+    with pytest.raises(cal.FixtureValidationError) as exc:
+        cal.validate_fixture_payload(sidecar, _validation())
+
+    assert expected in str(exc.value)
+
+
+def test_validate_fixture_accepts_dict_relationship_maps():
+    sidecar = _sidecar()
+    sidecar["relationships"] = {
+        "hostMembership": {"uid-door": "uid-wall"},
+        "roomMembership": {"uid-door": "room-1", "uid-wall": "room-1"},
+        "levelMembership": {"uid-door": "L1", "uid-wall": "L1"},
+    }
+
+    fixture = cal.validate_fixture_payload(sidecar, _validation())
+
+    assert fixture.relationships == sidecar["relationships"]
+
+
+def test_validate_fixture_accepts_top_level_unique_id_fallbacks():
+    sidecar = _sidecar()
+    sidecar["elements"][0].pop("identity")
+    sidecar["elements"][0]["uniqueId"] = "uid-wall"
+    sidecar["elements"][1].pop("identity")
+    sidecar["elements"][1]["revitUniqueId"] = "uid-door"
+
+    fixture = cal.validate_fixture_payload(sidecar, _validation())
+
+    assert set(fixture.elements_by_unique_id) == {"uid-wall", "uid-door"}
+
+
 def test_build_offline_fixture_validation_report_schema():
     fixture = cal.validate_fixture_payload(_sidecar(), _validation())
 
@@ -130,3 +220,33 @@ def test_load_fixture_bundle_reads_three_paths(tmp_path):
 
     assert loaded.fixture.elements_by_unique_id["uid-door"]["category"] == "Doors"
     assert loaded.paths.model3dm == str(model)
+
+
+def test_load_fixture_bundle_wraps_invalid_sidecar_json(tmp_path):
+    model = tmp_path / "shell-preset.3dm"
+    sidecar = tmp_path / "shell-preset.sidecar.json"
+    validation = tmp_path / "shell-preset.validation.json"
+    model.write_bytes(b"fake-3dm-for-path-validation")
+    sidecar.write_text("{", encoding="utf-8")
+    validation.write_text(cal.json_dumps(_validation()), encoding="utf-8")
+
+    with pytest.raises(cal.FixtureValidationError) as exc:
+        cal.load_fixture_bundle(cal.FixturePaths(str(model), str(sidecar), str(validation)))
+
+    assert "sidecar" in str(exc.value)
+    assert str(sidecar) in str(exc.value)
+
+
+def test_load_fixture_bundle_wraps_invalid_validation_json(tmp_path):
+    model = tmp_path / "shell-preset.3dm"
+    sidecar = tmp_path / "shell-preset.sidecar.json"
+    validation = tmp_path / "shell-preset.validation.json"
+    model.write_bytes(b"fake-3dm-for-path-validation")
+    sidecar.write_text(cal.json_dumps(_sidecar()), encoding="utf-8")
+    validation.write_text("{", encoding="utf-8")
+
+    with pytest.raises(cal.FixtureValidationError) as exc:
+        cal.load_fixture_bundle(cal.FixturePaths(str(model), str(sidecar), str(validation)))
+
+    assert "validation" in str(exc.value)
+    assert str(validation) in str(exc.value)

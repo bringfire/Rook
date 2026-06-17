@@ -105,6 +105,11 @@ def validate_fixture_payload(
             rooms_by_unique_id[unique_id] = room_dict
 
     relationships = _normalize_relationships(sidecar)
+    _validate_relationship_integrity(
+        relationships,
+        elements_by_unique_id=elements_by_unique_id,
+        rooms_by_unique_id=rooms_by_unique_id,
+    )
     _validate_relationship_counts(relationships, validation)
 
     return FixtureData(
@@ -173,9 +178,47 @@ def _normalize_membership(
             )
         if value is None:
             continue
-        normalized[str(element_unique_id)] = value
+        element_key = str(element_unique_id)
+        if element_key in normalized:
+            raise FixtureValidationError(
+                f"duplicate {relationship_name} relationship for element {element_key}"
+            )
+        normalized[element_key] = value
 
     return normalized
+
+
+def _validate_relationship_integrity(
+    relationships: dict[str, dict[str, Any]],
+    *,
+    elements_by_unique_id: dict[str, dict[str, Any]],
+    rooms_by_unique_id: dict[str, dict[str, Any]],
+) -> None:
+    for element_unique_id, host_unique_id in relationships["hostMembership"].items():
+        _require_known_element("hostMembership", "source element", element_unique_id, elements_by_unique_id)
+        _require_known_element("hostMembership", "target host", host_unique_id, elements_by_unique_id)
+
+    for element_unique_id, room_unique_id in relationships["roomMembership"].items():
+        _require_known_element("roomMembership", "source element", element_unique_id, elements_by_unique_id)
+        if room_unique_id not in rooms_by_unique_id:
+            raise FixtureValidationError(f"roomMembership target room {room_unique_id} is not in rooms")
+
+    for element_unique_id, level_name in relationships["levelMembership"].items():
+        _require_known_element("levelMembership", "source element", element_unique_id, elements_by_unique_id)
+        if not isinstance(level_name, str) or not level_name:
+            raise FixtureValidationError(
+                f"levelMembership level name for element {element_unique_id} must be a non-empty string"
+            )
+
+
+def _require_known_element(
+    relationship_name: str,
+    role: str,
+    unique_id: Any,
+    elements_by_unique_id: dict[str, dict[str, Any]],
+) -> None:
+    if unique_id not in elements_by_unique_id:
+        raise FixtureValidationError(f"{relationship_name} {role} {unique_id} is not in elements")
 
 
 def _validate_relationship_counts(
@@ -218,10 +261,17 @@ def load_fixture_bundle(paths: FixturePaths) -> LoadedFixture:
         if not path.exists():
             raise FixtureValidationError(f"{name} path does not exist: {path}")
 
-    sidecar = json.loads(sidecar_path.read_text(encoding="utf-8"))
-    validation = json.loads(validation_path.read_text(encoding="utf-8"))
+    sidecar = _read_json_file(sidecar_path, "sidecar")
+    validation = _read_json_file(validation_path, "validation")
     fixture = validate_fixture_payload(sidecar, validation)
     return LoadedFixture(paths=paths, fixture=fixture)
+
+
+def _read_json_file(path: Path, label: str) -> Any:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise FixtureValidationError(f"invalid {label} JSON at {path}: {exc}") from exc
 
 
 def build_offline_fixture_validation_report(
