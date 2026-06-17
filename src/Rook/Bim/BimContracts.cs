@@ -27,6 +27,8 @@ namespace Rook.Bim
         OutputPathInvalid,
         NoExportableGeometry,
         ExportFailed,
+        UnknownPreset,
+        NoCategoriesResolved,
         InternalError
     }
 
@@ -632,5 +634,70 @@ namespace Rook.Bim
         public string TargetUnits { get; set; } = "meters";
 
         public double UnitScaleFactor { get; set; } = 1.0;
+    }
+
+    public sealed class BimExportPresetRequest
+    {
+        public string? Preset { get; set; }
+
+        public BimExportOutput Output { get; set; } = new BimExportOutput();
+
+        public string? Scope { get; set; }
+
+        public List<string>? IncludeCategories { get; set; }
+
+        public List<string>? ExcludeCategories { get; set; }
+
+        public string? LayerPolicy { get; set; }
+
+        public string? NamePolicy { get; set; }
+
+        public string? MetadataProfile { get; set; }
+
+        public string? Rooms { get; set; }
+
+        public int? LimitPerCategory { get; set; }
+
+        public bool AllowTruncated { get; set; }
+
+        public bool AllowBboxProxy { get; set; }
+
+        public BimQueryScope EffectiveScope
+        {
+            get
+            {
+                return string.Equals(Scope, "document", StringComparison.OrdinalIgnoreCase)
+                    ? BimQueryScope.Document
+                    : BimQueryScope.ActiveView;
+            }
+        }
+
+        public BimValidationResult Validate()
+        {
+            if (string.IsNullOrWhiteSpace(Preset))
+            {
+                return Fail(BimErrorCode.UnknownPreset, "export-preset requires a 'preset' name.");
+            }
+
+            if (!string.IsNullOrWhiteSpace(Scope) &&
+                !string.Equals(Scope, "active_view", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(Scope, "document", StringComparison.OrdinalIgnoreCase))
+            {
+                return Fail(BimErrorCode.InvalidScope, "scope must be 'active_view' or 'document'.");
+            }
+
+            var outputValidation = BimExportPathPolicy.ValidateRequestShape(Output);
+            if (!outputValidation.Success)
+            {
+                return outputValidation;
+            }
+
+            return BimValidationResult.Ok;
+        }
+
+        private static BimValidationResult Fail(BimErrorCode code, string message)
+        {
+            return new BimValidationResult { Success = false, ErrorCode = code, Message = message };
+        }
     }
 }
