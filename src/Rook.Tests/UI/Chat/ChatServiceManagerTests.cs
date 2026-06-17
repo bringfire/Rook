@@ -179,6 +179,65 @@ namespace Rook.Tests.UI.Chat
             Assert.True(terminalReturnIndex < autoGenerateIndex);
         }
 
+        [Theory]
+        [InlineData(true, false, false, true, "ReuseHealthyService")]
+        [InlineData(true, false, true, true, "ReuseHealthyService")]
+        [InlineData(true, false, false, false, "RestartBecauseNonceMissing")]
+        [InlineData(true, false, true, false, "RestartBecauseNonceMissing")]
+        public void ShouldStartChatService_HealthyServiceDecision(
+            bool existingServiceAvailable,
+            bool trackedProcessExists,
+            bool trackedProcessHasExited,
+            bool sessionNoncePresent,
+            string expected)
+        {
+            var decision = ChatServiceManager.ShouldStartChatService(
+                trackedProcessExists,
+                trackedProcessHasExited,
+                existingServiceAvailable,
+                sessionNoncePresent);
+
+            Assert.Equal(expected, decision.ToString());
+        }
+
+        [Theory]
+        [InlineData(true, false, false, false, "WaitForTrackedProcess")]
+        [InlineData(true, false, false, true, "WaitForTrackedProcess")]
+        [InlineData(true, true, false, true, "StartNewProcess")]
+        [InlineData(false, false, false, true, "StartNewProcess")]
+        public void ShouldStartChatService_TrackedProcessDecision(
+            bool trackedProcessExists,
+            bool trackedProcessHasExited,
+            bool existingServiceAvailable,
+            bool sessionNoncePresent,
+            string expected)
+        {
+            var decision = ChatServiceManager.ShouldStartChatService(
+                trackedProcessExists,
+                trackedProcessHasExited,
+                existingServiceAvailable,
+                sessionNoncePresent);
+
+            Assert.Equal(expected, decision.ToString());
+        }
+
+        [Fact]
+        public void EnsureStartedAndStartProcessKeepLifecycleLockAndPinnedInterpreter()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Chat", "ChatServiceManager.cs");
+            var ensureStarted = ExtractMethod(source, "public async Task<ChatServiceHealth> EnsureStartedAsync(");
+            var startProcess = ExtractMethod(source, "private void StartProcess(");
+
+            Assert.Contains("await _gate.WaitAsync(ct);", ensureStarted);
+            Assert.Contains("ShouldStartChatService(", ensureStarted);
+            Assert.Contains("ChatServiceStartDecision.RestartBecauseNonceMissing", ensureStarted);
+            Assert.Contains("StartProcess(manifest);", ensureStarted);
+            Assert.Contains("FileName = manifest.PythonPath", startProcess);
+            Assert.Contains("ShouldStartChatService(", startProcess);
+            Assert.DoesNotContain("DiscoverPython()", startProcess);
+            Assert.DoesNotContain("DiscoverManagedVenvPython()", startProcess);
+        }
+
         private static string CreateTempFile(string fileName)
         {
             var dir = Directory.CreateDirectory(

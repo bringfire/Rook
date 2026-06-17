@@ -54,6 +54,14 @@ namespace Rook.UI.Chat
             new ChatServiceRuntimeValidation(true, "", false);
     }
 
+    internal enum ChatServiceStartDecision
+    {
+        ReuseHealthyService,
+        RestartBecauseNonceMissing,
+        WaitForTrackedProcess,
+        StartNewProcess,
+    }
+
     public class ChatServiceHealth
     {
         public bool ServiceAvailable { get; set; }
@@ -213,14 +221,19 @@ namespace Rook.UI.Chat
                 CleanupStaleChatDiscoveryFiles();
 
                 var existing = await GetHealthInternalAsync(startIfNeeded: false, ct: ct);
-                if (existing.ServiceAvailable)
+                var startDecision = ShouldStartChatService(
+                    trackedProcessExists: _ownedProcess != null,
+                    trackedProcessHasExited: _ownedProcess?.HasExited ?? true,
+                    existingServiceAvailable: existing.ServiceAvailable,
+                    sessionNoncePresent: !string.IsNullOrEmpty(SessionNonce));
+                if (startDecision == ChatServiceStartDecision.ReuseHealthyService)
                 {
-                    if (!string.IsNullOrEmpty(SessionNonce))
-                    {
-                        // Session nonce is still valid — reuse the running service.
-                        return existing;
-                    }
+                    // Session nonce is still valid — reuse the running service.
+                    return existing;
+                }
 
+                if (startDecision == ChatServiceStartDecision.RestartBecauseNonceMissing)
+                {
                     // Service is running but we lost the nonce (companion reload,
                     // panel recreation, etc.).  The Python process still enforces
                     // the old nonce, so every non-health request would 403.  Stop
@@ -415,6 +428,27 @@ namespace Rook.UI.Chat
             }
 
             return ChatServiceRuntimeValidation.Valid;
+        }
+
+        internal static ChatServiceStartDecision ShouldStartChatService(
+            bool trackedProcessExists,
+            bool trackedProcessHasExited,
+            bool existingServiceAvailable,
+            bool sessionNoncePresent)
+        {
+            if (existingServiceAvailable)
+            {
+                return sessionNoncePresent
+                    ? ChatServiceStartDecision.ReuseHealthyService
+                    : ChatServiceStartDecision.RestartBecauseNonceMissing;
+            }
+
+            if (trackedProcessExists && !trackedProcessHasExited)
+            {
+                return ChatServiceStartDecision.WaitForTrackedProcess;
+            }
+
+            return ChatServiceStartDecision.StartNewProcess;
         }
 
         private static string GetDiscoveryFolder()
@@ -1245,7 +1279,12 @@ namespace Rook.UI.Chat
 
         private void StartProcess(ChatServiceManifest manifest)
         {
-            if (_ownedProcess != null && !_ownedProcess.HasExited)
+            var startDecision = ShouldStartChatService(
+                trackedProcessExists: _ownedProcess != null,
+                trackedProcessHasExited: _ownedProcess?.HasExited ?? true,
+                existingServiceAvailable: false,
+                sessionNoncePresent: !string.IsNullOrEmpty(SessionNonce));
+            if (startDecision == ChatServiceStartDecision.WaitForTrackedProcess)
             {
                 return;
             }
