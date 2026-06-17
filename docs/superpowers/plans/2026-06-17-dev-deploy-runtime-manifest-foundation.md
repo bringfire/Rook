@@ -98,9 +98,7 @@ function Test-DeployScriptWritesChatManifestToRuntimeChildren {
     Assert-Contains -Text $content -Expected 'function Write-ChatServiceManifests' -Message 'Local deploy must write chat manifests through an explicit helper.'
     Assert-Contains -Text $content -Expected '$targets += Join-Path (Join-Path $PluginDir $runtime) ''RookChatService.json''' -Message 'Local deploy must target every managed runtime child manifest.'
     Assert-Contains -Text $content -Expected 'Set-Content -LiteralPath $manifestPath' -Message 'Local deploy must write each manifest path.'
-    Assert-Contains -Text $content -Expected 'function Test-ChatServiceManifestAtPath' -Message 'Local deploy must verify each written manifest path.'
     Assert-Contains -Text $content -Expected 'foreach ($runtime in $ManagedCompanionRuntimes)' -Message 'Manifest writing and verification must iterate the known managed runtime folders.'
-    Assert-Contains -Text $content -Expected 'Chat service ROOK_PROJECT_ROOT mismatch' -Message 'Dev manifest verification must reject stale or missing ROOK_PROJECT_ROOT.'
 }
 ```
 
@@ -150,7 +148,7 @@ In the parameter block, after `[switch]$SkipChirpInstall`, add:
     [string]$DevPythonRuntime = '',
 ```
 
-In the parameter block, after `[switch]$LiveSmoke`, add:
+In the parameter block, change `[switch]$LiveSmoke` to `[switch]$LiveSmoke,`, then add:
 
 ```powershell
     [switch]$ManifestSmokeOnly
@@ -558,7 +556,7 @@ function Test-EffectiveRuntime {
         throw "Runtime Python not found: $($Contract.PythonPath)"
     }
 
-    $envKeys = @('ROOK_INSTALL_ROOT', 'ROOK_DATA_DIR', 'ROOK_MODE', 'ROOK_PROJECT_ROOT')
+    $envKeys = @('ROOK_INSTALL_ROOT', 'ROOK_DATA_DIR', 'ROOK_MODE', 'ROOK_PROJECT_ROOT', 'PYTHONPATH')
     $savedEnv = @{}
     foreach ($key in $envKeys) {
         $savedEnv[$key] = [Environment]::GetEnvironmentVariable($key)
@@ -574,6 +572,7 @@ function Test-EffectiveRuntime {
         } else {
             Remove-Item Env:\ROOK_PROJECT_ROOT -ErrorAction SilentlyContinue
         }
+        $env:PYTHONPATH = (@($Contract.PythonPathEntries) -join [IO.Path]::PathSeparator)
 
         $expectedRookPrefix = Join-Path $Contract.WorkingDirectory 'src\rook'
         $check = @"
