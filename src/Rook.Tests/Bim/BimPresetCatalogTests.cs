@@ -75,5 +75,20 @@ namespace Rook.Tests.Bim
         {
             Assert.Equal(6, BimPresetCatalog.Names.Count);
         }
+
+        [Theory]
+        [InlineData("architectural_shell")]
+        [InlineData("interiors")]
+        [InlineData("openings_and_hosts")]
+        [InlineData("structural")]
+        [InlineData("rooms_and_spaces")]
+        [InlineData("calibration_fixture")]
+        public void EveryPreset_DefaultsToReadableWithIdNames(string preset)
+        {
+            // Spec default namePolicy = readable_with_id; only the raw export path (Legacy policy)
+            // opts back to None. A preset defaulting to None would emit unnamed Rhino objects.
+            BimPresetCatalog.TryGet(preset, out var def);
+            Assert.Equal(BimNameScheme.ReadableWithId, def.DefaultNameScheme);
+        }
     }
 }

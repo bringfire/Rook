@@ -734,7 +734,9 @@ namespace Rook.Bim
 
         public BimLayerScheme DefaultLayerScheme { get; set; } = BimLayerScheme.Flat;
 
-        public BimNameScheme DefaultNameScheme { get; set; } = BimNameScheme.None;
+        // Presets default to readable object names (spec default namePolicy = readable_with_id).
+        // Only BimExportOrganizationPolicy.Legacy (the raw export path) opts back to None.
+        public BimNameScheme DefaultNameScheme { get; set; } = BimNameScheme.ReadableWithId;
 
         public BimMetadataProfile DefaultMetadataProfile { get; set; } = BimMetadataProfile.Minimal;
 
