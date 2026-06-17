@@ -29,6 +29,35 @@ namespace RookBim.Tests
             Assert.DoesNotContain("Transaction", src);
         }
 
+        [Fact]
+        public void PresetResolver_LoopsCategoriesUnionsByIdentityAndDegradesGracefully()
+        {
+            var src = Read("src/RookBim/Revit/RevitPresetResolver.cs");
+
+            // Reuses the existing single-category query path per category.
+            Assert.Contains("RevitQueryService", src);
+            Assert.Contains("BimPresetCatalog.TryGet", src);
+
+            // Dedup by document GUID + unique id, not display name.
+            Assert.Contains("documentGuid", src);
+            Assert.Contains("UniqueId", src);
+
+            // include/exclude overrides.
+            Assert.Contains("IncludeCategories", src);
+            Assert.Contains("ExcludeCategories", src);
+
+            // Missing category = warning; all-missing (non rooms-driven) = NoCategoriesResolved.
+            Assert.Contains("category_unavailable", src);
+            Assert.Contains("NoCategoriesResolved", src);
+            Assert.Contains("RoomsDriven", src);
+
+            // Per-category truncation honors allowTruncated (same rule as v1).
+            Assert.Contains("QueryTruncated", src);
+
+            // Read-only.
+            Assert.DoesNotContain("Transaction", src);
+        }
+
         internal static string Read(string relativePath)
         {
             return File.ReadAllText(Path.Combine(RepoRoot, relativePath.Replace('/', Path.DirectorySeparatorChar)));
