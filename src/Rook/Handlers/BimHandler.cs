@@ -33,6 +33,7 @@ namespace Rook.Handlers
             "select_elements",
             "clear_selection",
             "export_elements",
+            "export_preset",
         };
 
         private static readonly HashSet<string> ExpectedBimOpSet =
@@ -102,6 +103,9 @@ namespace Rook.Handlers
                     "export_elements" => FromBimResponse(
                         "export_elements",
                         runtime.ExportElements(DeserializeRequest<BimExportElementsRequest>(body))),
+                    "export_preset" => FromBimResponse(
+                        "export_preset",
+                        runtime.ExportPreset(DeserializeRequest<BimExportPresetRequest>(body))),
                     _ => Fail(BimErrorCode.InvalidScope, $"Unknown BIM op '{op}'.", 400),
                 };
             }
@@ -311,6 +315,8 @@ namespace Rook.Handlers
                 BimErrorCode.OutputPathInvalid => "output_path_invalid",
                 BimErrorCode.NoExportableGeometry => "no_exportable_geometry",
                 BimErrorCode.ExportFailed => "export_failed",
+                BimErrorCode.UnknownPreset => "unknown_preset",
+                BimErrorCode.NoCategoriesResolved => "no_categories_resolved",
                 BimErrorCode.InternalError => "internal_error",
                 BimErrorCode.None => "internal_error",
                 _ => "internal_error",
@@ -450,6 +456,7 @@ namespace Rook.Handlers
                 "select_elements" => "POST /bim/select-elements",
                 "clear_selection" => "POST /bim/clear-selection",
                 "export_elements" => "POST /bim/export-elements",
+                "export_preset" => "POST /bim/export-preset",
                 _ => "POST /bim",
             };
         }

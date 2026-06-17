@@ -1088,6 +1088,7 @@ void CRookServer::RegisterRoutes()
     m_server->Post("/bim/select-elements", Rook::Handlers::HandleBimSelectElements);
     m_server->Post("/bim/clear-selection", Rook::Handlers::HandleBimClearSelection);
     m_server->Post("/bim/export-elements", Rook::Handlers::HandleBimExportElements);
+    m_server->Post("/bim/export-preset", Rook::Handlers::HandleBimExportPreset);
 
     m_server->Get("/display-modes", [this](const httplib::Request& req, httplib::Response& res) {
         HandleGetDisplayModes(req, res);
