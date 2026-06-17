@@ -49,26 +49,39 @@ it is **not** part of slices A–D; it is already in `main` and we extract *on t
 
 ---
 
-## 0.5 AS-BUILT (extraction executed 2026-06-16)
+## 0.5 AS-BUILT (extraction 2026-06-16; rebased onto `origin/main` 2026-06-16)
 
-All four slices were extracted, built, and tested. `main` (`8260dba7`) and
+All four slices were extracted, built, and tested. `main` (local `8260dba7`) and
 `feature/spatial-intelligence` (`47cd3cfc`) were **never modified**. The sections below are
 the original plan; where reality diverged it is annotated "AS-BUILT". The one material
 correction: **C stacks on B** (it is not parallel — see §4 correction 2 / §7.3).
+
+**Base reconciliation (before PRs):** initial extraction was off **local `main` `8260dba7`**.
+By the time the branches were PR-ready, `origin/main` had advanced to **`26019a0e`** (#257
+RookChat model visibility + #258 RookLLM chooser per-conversation model setting), diverging
+from local `8260dba7` (which carried 3 local-only chat-planning doc commits not on the
+remote). **All four branches were rebased onto `origin/main` `26019a0e`** via
+`git rebase --onto origin/main 8260dba7 <branch>` (C onto the rebased B), dropping the 3
+local-only commits. **Every rebase was rc=0 with zero manual conflicts** — #257/#258's only
+slice-relevant touch is `tool_dispatcher.py` (chat-model sentinels at ~L1532), which git
+auto-merged against each slice's tool registration (different regions). Additive
+preservation verified: `list_chat_models`/`set_chat_model` coexist with `scene_exact_neighbors`
+(B/C), `scene_refine_containment` (C), and `rookbim_export_elements` (D). **PR base for all
+four is `origin/main` `26019a0e`**, not local `main`.
 
 **As-built dependency graph:**
 
 ```
 A ──→ B ──→ C        linear stack (C's PR base is B, not main)
-└──→ D               D touches no scene_graph.py — genuinely parallel from main
+└──→ D               D touches no scene_graph.py — genuinely parallel from origin/main
 ```
 
-| Slice | Branch | Base | Commits | Build / tests | Remaining gate |
-|-------|--------|------|---------|---------------|----------------|
-| **A** | `feature/occt-adjacency-engine` | `main` | 9 (curated) | native Release build **green** (toolset 14.44.35207) | live `SpatialTest.3dm` → 5/5 exact (reviewer) |
-| **B** | `feature/exact-adjacency-projection-v1` | `main` | 15 (cherry-pick, auto-merged) | **23** tests pass | live-verify needs **A deployed** (9 floorplate neighbors) |
-| **C** | `feature/semantic-containment-refinement-v1` | **B** | 30 total / 15 own | **32** tests pass | **calibration** before downstream reliance (27/28 positives) |
-| **D** | `feature/rookbim-revit-rhino-export-v1` | `main` | 26 (25 + 1 hygiene) | native build **green**; **46** Py + Bim-scoped `Rook.Tests` + **35** `RookBim.Tests` pass (filtered count varies with the filter expression) | Rhino.Inside.Revit live verify (`live_verify_rookbim_export.py`) |
+| Slice | Branch | Base | Tip (rebased) | Commits | Build / tests (re-run post-rebase) | Remaining gate |
+|-------|--------|------|---------------|---------|---------------|----------------|
+| **A** | `feature/occt-adjacency-engine` | `origin/main` `26019a0e` | `25139f5b` | 9 (curated) | native Release build **green** (toolset 14.44.35207) | live `SpatialTest.3dm` → 5/5 exact (reviewer) |
+| **B** | `feature/exact-adjacency-projection-v1` | `origin/main` `26019a0e` | `08c6fbe8` | 15 (cherry-pick, auto-merged) | **23** tests pass | live-verify needs **A deployed** (9 floorplate neighbors) |
+| **C** | `feature/semantic-containment-refinement-v1` | **B** (`08c6fbe8`) | `5dfbd254` | 30 total / 15 own | **32** tests pass | **calibration** before downstream reliance (27/28 positives) |
+| **D** | `feature/rookbim-revit-rhino-export-v1` | `origin/main` `26019a0e` | `ea542f62` | 26 (25 + 1 hygiene) | native build **green**; **46** Py + Bim-scoped `Rook.Tests` (123) + **35** `RookBim.Tests` pass | Rhino.Inside.Revit live verify (`live_verify_rookbim_export.py`) |
 
 **Merge discipline (as-built):**
 - **A first** — gated on its live `SpatialTest` verify.
@@ -83,7 +96,9 @@ A ──→ B ──→ C        linear stack (C's PR base is B, not main)
 (2) B and D registration-file collisions **auto-merged cleanly** (no manual conflict
 resolution); (3) A docs reconciled with the prune via extraction-note banners + projection-
 design companion included; (4) one new CS8604 nullable warning in D's `BimExportBijection.cs`
-fixed as a hygiene commit.
+fixed as a hygiene commit; (5) **all four branches rebased onto `origin/main` `26019a0e`**
+before review (origin advanced past local `8260dba7` via #257/#258) — zero conflicts, all
+focused gates re-run green post-rebase.
 
 ---
 
