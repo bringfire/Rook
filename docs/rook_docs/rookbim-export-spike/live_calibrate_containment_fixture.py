@@ -316,6 +316,8 @@ def run_containment_refinement(port: int, object_ids: list[str]) -> dict:
 def _bounded_object_ids(runtime_objects: list[dict], categories: list[str], cap: int | None) -> list[str]:
     if cap is not None and cap < 0:
         raise ValueError("cap must be >= 0")
+    if cap == 0:
+        return []
 
     category_filter = {value.casefold() for value in categories}
     object_ids: list[str] = []
@@ -340,6 +342,11 @@ def run_live(args) -> dict:
     runtime_objects = context.get("runtimeObjects") or []
     join = cal.build_runtime_join_map(runtime_objects, loaded.fixture)
     object_ids = _bounded_object_ids(runtime_objects, args.category, args.cap)
+    if not object_ids:
+        raise RuntimeError(
+            "No evaluable runtime objects were found for live calibration. "
+            "The bounded runtime scope is empty."
+        )
 
     exact_status = {
         "attempted": False,
@@ -355,21 +362,10 @@ def run_live(args) -> dict:
         "payload": {"success": True, "graphSequence": context.get("graphSequence"), "refined": [], "bySource": {}},
     }
 
-    if not object_ids:
-        explicit_empty = args.cap == 0 or bool(args.category)
-        if not explicit_empty:
-            imported_ids = context.get("importedIds") or []
-            if imported_ids:
-                raise RuntimeError(
-                    "No evaluable runtime objects were found after importing the fixture. "
-                    "Check runtime metadata hydration and filters."
-                )
-            raise RuntimeError("No evaluable runtime objects were found for live calibration.")
-    else:
-        if args.project_exact_adjacency:
-            exact_status = run_exact_projection(port, object_ids)
+    if args.project_exact_adjacency:
+        exact_status = run_exact_projection(port, object_ids)
 
-        refinement = run_containment_refinement(port, object_ids)
+    refinement = run_containment_refinement(port, object_ids)
     candidates = cal.build_candidate_records(refinement["payload"], join, loaded.fixture)
     classified = [cal.classify_candidate(candidate, loaded.fixture) for candidate in candidates]
     classified = cal.add_missed_labeled_relation_records(
