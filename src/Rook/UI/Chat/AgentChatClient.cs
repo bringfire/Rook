@@ -74,6 +74,22 @@ namespace Rook.UI.Chat
     {
         [JsonPropertyName("conversation")]
         public ChatConversationModelInfo? Conversation { get; set; }
+
+        [JsonPropertyName("allowed_model_overrides")]
+        public List<string> AllowedModelOverrides { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Outcome of POST /agent/chat/model. Success reflects HTTP 2xx, not any body
+    /// envelope; known error fields are parsed opportunistically.
+    /// </summary>
+    public class SetModelResult
+    {
+        public bool Success { get; set; }
+        public int StatusCode { get; set; }
+        public string? ErrorCode { get; set; }
+        public string? Message { get; set; }
+        public List<string>? AllowedModelOverrides { get; set; }
     }
 
     public class ChatEvent
@@ -213,6 +229,79 @@ namespace Rook.UI.Chat
             var json = await resp.Content.ReadAsStringAsync();
             return JsonSerializer.Deserialize<ChatModelsInfo>(json, JsonOptions)
                    ?? new ChatModelsInfo();
+        }
+
+        /// <summary>
+        /// Pure parse of a /agent/chat/model response. Success is HTTP-2xx-derived;
+        /// the body is parsed opportunistically and never throws on malformed JSON.
+        /// </summary>
+        internal static SetModelResult ParseSetModelResult(int statusCode, bool isSuccess, string body)
+        {
+            var result = new SetModelResult
+            {
+                Success = isSuccess,
+                StatusCode = statusCode,
+            };
+
+            if (string.IsNullOrWhiteSpace(body))
+                return result;
+
+            try
+            {
+                using var doc = JsonDocument.Parse(body);
+                var root = doc.RootElement;
+                if (root.ValueKind == JsonValueKind.Object)
+                {
+                    if (root.TryGetProperty("code", out var code) && code.ValueKind == JsonValueKind.String)
+                        result.ErrorCode = code.GetString();
+                    if (root.TryGetProperty("error", out var err) && err.ValueKind == JsonValueKind.String)
+                        result.Message = err.GetString();
+                    if (root.TryGetProperty("allowed_model_overrides", out var allowed)
+                        && allowed.ValueKind == JsonValueKind.Array)
+                    {
+                        var list = new List<string>();
+                        foreach (var item in allowed.EnumerateArray())
+                        {
+                            if (item.ValueKind == JsonValueKind.String)
+                            {
+                                var s = item.GetString();
+                                if (!string.IsNullOrEmpty(s))
+                                    list.Add(s!);
+                            }
+                        }
+                        result.AllowedModelOverrides = list;
+                    }
+                }
+            }
+            catch (JsonException)
+            {
+                // Malformed body — keep HTTP-derived success/status, no error fields.
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Apply a per-conversation model override via POST /agent/chat/model.
+        /// The session nonce is auto-attached via the shared HttpClient headers.
+        /// </summary>
+        public async Task<SetModelResult> SetModelAsync(
+            Uri baseUri,
+            string conversationId,
+            string modelOverride,
+            string reason,
+            CancellationToken ct = default)
+        {
+            var body = JsonSerializer.Serialize(new
+            {
+                conversation_id = conversationId,
+                model_override = modelOverride,
+                reason = reason,
+            });
+            var content = new StringContent(body, Encoding.UTF8, "application/json");
+            var resp = await _client.PostAsync(new Uri(baseUri, "/agent/chat/model"), content, ct);
+            var respBody = await resp.Content.ReadAsStringAsync();
+            return ParseSetModelResult((int)resp.StatusCode, resp.IsSuccessStatusCode, respBody);
         }
 
         /// <summary>
