@@ -366,24 +366,33 @@ def _count(values: list[str]) -> dict[str, int]:
     return out
 
 
+def _increment_count(counts: dict[str, int], bucket: str) -> None:
+    counts[bucket] = counts.get(bucket, 0) + 1
+
+
 def _metrics(candidates: list[dict[str, Any]]) -> dict[str, Any]:
-    host = _count([c["hostBucket"] for c in candidates])
-    room = _count([c["roomBucket"] for c in candidates])
-    level = _count([c["levelBucket"] for c in candidates])
+    by_family: dict[str, dict[str, int]] = {"host": {}, "room": {}, "level": {}}
     by_pair: dict[str, dict[str, dict[str, int]]] = {}
-    by_conf: dict[str, dict[str, int]] = {}
+    by_conf: dict[str, dict[str, dict[str, int]]] = {}
     for c in candidates:
-        pair = f"{c['container'].get('category')}->{c['contained'].get('category')}"
-        by_pair.setdefault(pair, {"host": {}, "room": {}, "level": {}})
-        for fam, bucket_name in (("host", "hostBucket"), ("room", "roomBucket"), ("level", "levelBucket")):
-            bucket = c[bucket_name]
-            by_pair[pair][fam][bucket] = by_pair[pair][fam].get(bucket, 0) + 1
+        eligible = c.get("metricEligible") or {}
+        pair_counts: dict[str, dict[str, int]] | None = None
         conf = str(c.get("rook", {}).get("confidence") or "none")
-        by_conf.setdefault(conf, {})
-        review = c.get("reviewBucket", "not_applicable")
-        by_conf[conf][review] = by_conf[conf].get(review, 0) + 1
+        conf_counts: dict[str, dict[str, int]] | None = None
+        for fam, bucket_name in (("host", "hostBucket"), ("room", "roomBucket"), ("level", "levelBucket")):
+            if eligible.get(fam) is not True:
+                continue
+            bucket = c[bucket_name]
+            _increment_count(by_family[fam], bucket)
+            if pair_counts is None:
+                pair = f"{c['container'].get('category')}->{c['contained'].get('category')}"
+                pair_counts = by_pair.setdefault(pair, {"host": {}, "room": {}, "level": {}})
+            _increment_count(pair_counts[fam], bucket)
+            if conf_counts is None:
+                conf_counts = by_conf.setdefault(conf, {"host": {}, "room": {}, "level": {}})
+            _increment_count(conf_counts[fam], bucket)
     return {
-        "byLabelFamily": {"host": host, "room": room, "level": level},
+        "byLabelFamily": by_family,
         "byCategoryPair": by_pair,
         "byConfidence": by_conf,
     }
@@ -446,6 +455,12 @@ def render_markdown_summary(report: dict[str, Any]) -> str:
     lines.extend(["", "## Label-Family Metrics"])
     for family, counts in (fx.get("metrics", {}).get("byLabelFamily") or {}).items():
         lines.append(f"- `{family}`: {counts}")
+    lines.extend(["", "## Category-Pair Metrics"])
+    for pair, counts in sorted((fx.get("metrics", {}).get("byCategoryPair") or {}).items()):
+        lines.append(f"- `{pair}`: {counts}")
+    lines.extend(["", "## Confidence Metrics"])
+    for confidence, counts in sorted((fx.get("metrics", {}).get("byConfidence") or {}).items()):
+        lines.append(f"- `{confidence}`: {counts}")
     return "\n".join(lines) + "\n"
 
 
