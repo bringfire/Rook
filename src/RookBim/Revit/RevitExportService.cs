@@ -164,7 +164,7 @@ namespace RookBim.Revit
             if (effectiveRooms != BimRoomsMode.Exclude)
             {
                 var includeGeometry = effectiveRooms == BimRoomsMode.Both;
-                var roomLayerIndex = EnsureLayer(file, layerCache, RevitRoomExporter.RoomsLayer);
+                var roomLayerIndex = EnsureLayerPath(file, layerCache, RevitRoomExporter.RoomsLayer);
                 var rooms = new RevitRoomExporter(scale).ExportRooms(document);
                 counts.Rooms = rooms.Count;
                 foreach (var room in rooms)
@@ -182,6 +182,14 @@ namespace RookBim.Revit
                     roomRepCounts.TryGetValue(rep, out var n);
                     roomRepCounts[rep] = n + 1;
                 }
+            }
+
+            if (presetContext != null && presetContext.RoomsDriven && counts.Rooms == 0)
+            {
+                return BimApiResponse.Fail(
+                    BimErrorCode.NoCategoriesResolved,
+                    $"Rooms-driven preset '{presetContext.Preset}' resolved no rooms in the selected scope.",
+                    422);
             }
 
             // 4. NoExportableGeometry guard (unchanged: only when elements resolved but none had geometry).
@@ -351,18 +359,84 @@ namespace RookBim.Revit
             };
         }
 
-        private static int EnsureLayer(Rhino.FileIO.File3dm file, Dictionary<string, int> cache, string name)
+        private static int EnsureLayerPath(Rhino.FileIO.File3dm file, Dictionary<string, int> cache, string path)
         {
-            if (cache.TryGetValue(name, out var existing))
+            if (cache.TryGetValue(path, out var existing))
             {
                 return existing;
             }
 
+            var segments = path.Split(new[] { "::" }, StringSplitOptions.RemoveEmptyEntries);
+            if (segments.Length == 0)
+            {
+                segments = new[] { "RookBim", "_Other" };
+            }
+
+            int? parentIndex = null;
+            var currentPath = string.Empty;
+            for (var i = 0; i < segments.Length; i++)
+            {
+                var segment = segments[i].Trim();
+                if (string.IsNullOrEmpty(segment))
+                {
+                    segment = "_Other";
+                }
+
+                currentPath = i == 0 ? segment : currentPath + "::" + segment;
+                if (cache.TryGetValue(currentPath, out var cached))
+                {
+                    parentIndex = cached;
+                    continue;
+                }
+
+                var childIndex = FindChildLayer(file, parentIndex, segment);
+                if (childIndex < 0)
+                {
+                    childIndex = AddLayer(file, segment, parentIndex);
+                }
+
+                cache[currentPath] = childIndex;
+                parentIndex = childIndex;
+            }
+
+            var finalIndex = parentIndex ?? -1;
+            cache[path] = finalIndex;
+            return finalIndex;
+        }
+
+        private static int AddLayer(Rhino.FileIO.File3dm file, string name, int? parentIndex)
+        {
             var index = file.AllLayers.Count;
-            var layer = new Rhino.DocObjects.Layer { Name = name, Index = index };
+            var layer = new Rhino.DocObjects.Layer
+            {
+                Id = Guid.NewGuid(),
+                Name = name,
+                Index = index,
+            };
+
+            if (parentIndex.HasValue)
+            {
+                layer.ParentLayerId = LayerAt(file, parentIndex.Value).Id;
+            }
+
             file.AllLayers.Add(layer);
-            cache[name] = index;
             return index;
+        }
+
+        private static int FindChildLayer(Rhino.FileIO.File3dm file, int? parentIndex, string name)
+        {
+            var parentId = parentIndex.HasValue ? LayerAt(file, parentIndex.Value).Id : Guid.Empty;
+            for (var i = 0; i < file.AllLayers.Count; i++)
+            {
+                var layer = LayerAt(file, i);
+                if (string.Equals(layer.Name, name, StringComparison.OrdinalIgnoreCase) &&
+                    layer.ParentLayerId == parentId)
+                {
+                    return i;
+                }
+            }
+
+            return -1;
         }
 
         private static int EnsureLayerForElement(
@@ -374,7 +448,7 @@ namespace RookBim.Revit
         {
             var levelValue = labelSet.Level?.Value;
             var layerName = BimExportLayerNamer.LayerPath(policy.LayerScheme, stamp.Category, levelValue);
-            return EnsureLayer(file, cache, layerName);
+            return EnsureLayerPath(file, cache, layerName);
         }
 
         private void AddGeometryWithPolicy(
@@ -734,10 +808,23 @@ namespace RookBim.Revit
             var sampleNames = new List<string>();
             var sampleStampKeys = new List<string>();
             var layerNames = new List<string>();
-            foreach (var layer in file.AllLayers)
+            var layerPaths = new List<string>();
+            var layerRecords = new List<object>();
+            var objectLayerPaths = new List<string>();
+            for (var i = 0; i < file.AllLayers.Count; i++)
             {
-                // EnsureLayer stores the FULL "RookBim::Level::Category" path in Layer.Name.
+                var layer = LayerAt(file, i);
                 layerNames.Add(layer.Name);
+                var path = BuildLayerPath(file, i);
+                layerPaths.Add(path);
+                layerRecords.Add(new
+                {
+                    name = layer.Name,
+                    path,
+                    id = layer.Id.ToString(),
+                    parentLayerId = layer.ParentLayerId.ToString(),
+                    hasParent = layer.ParentLayerId != Guid.Empty,
+                });
             }
 
             foreach (var obj in file.Objects)
@@ -762,6 +849,15 @@ namespace RookBim.Revit
                         if (!string.IsNullOrEmpty(key)) { sampleStampKeys.Add(key); }
                     }
                 }
+
+                if (attrs.LayerIndex >= 0 && attrs.LayerIndex < file.AllLayers.Count)
+                {
+                    var objectLayerPath = BuildLayerPath(file, attrs.LayerIndex);
+                    if (!objectLayerPaths.Contains(objectLayerPath))
+                    {
+                        objectLayerPaths.Add(objectLayerPath);
+                    }
+                }
             }
 
             return new
@@ -774,7 +870,69 @@ namespace RookBim.Revit
                 sampleNames,
                 sampleStampKeys,
                 layerNames,
+                layerPaths,
+                layerRecords,
+                objectLayerPaths,
             };
+        }
+
+        private static string BuildLayerPath(Rhino.FileIO.File3dm file, int layerIndex)
+        {
+            if (layerIndex < 0 || layerIndex >= file.AllLayers.Count)
+            {
+                return string.Empty;
+            }
+
+            var segments = new Stack<string>();
+            var visited = new HashSet<Guid>();
+            var current = LayerAt(file, layerIndex);
+            while (current != null)
+            {
+                segments.Push(current.Name);
+                if (current.ParentLayerId == Guid.Empty || !visited.Add(current.Id))
+                {
+                    break;
+                }
+
+                var parentIndex = FindLayerById(file, current.ParentLayerId);
+                if (parentIndex < 0)
+                {
+                    break;
+                }
+
+                current = LayerAt(file, parentIndex);
+            }
+
+            return string.Join("::", segments);
+        }
+
+        private static int FindLayerById(Rhino.FileIO.File3dm file, Guid id)
+        {
+            for (var i = 0; i < file.AllLayers.Count; i++)
+            {
+                if (LayerAt(file, i).Id == id)
+                {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+
+        private static Rhino.DocObjects.Layer LayerAt(Rhino.FileIO.File3dm file, int index)
+        {
+            var i = 0;
+            foreach (var layer in file.AllLayers)
+            {
+                if (i == index)
+                {
+                    return layer;
+                }
+
+                i++;
+            }
+
+            throw new ArgumentOutOfRangeException(nameof(index), index, "Layer index is outside the File3dm layer table.");
         }
 
         private static BimExportVerification VerifyBijection(

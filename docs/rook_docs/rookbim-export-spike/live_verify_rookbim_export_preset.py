@@ -96,12 +96,22 @@ def main() -> int:
     # NON-VACUOUS gate 5a: namespaced metadata stamp keys reached the objects.
     assert any("." in k for k in audit["sampleStampKeys"]), f"no namespaced stamp keys: {audit['sampleStampKeys']}"
 
-    # NON-VACUOUS gate 5b: hierarchical RookBim:: layers exist in the .3dm (by_level_then_category
-    # nests level + category, so a layer path has at least two '::' separators).
+    # NON-VACUOUS gate 5b: structural hierarchical RookBim layers exist in the .3dm. Rhino
+    # displays nested paths with "::", but each Layer.Name must be a single segment and children
+    # must point at a parent layer id.
     layer_names = audit["layerNames"]
-    assert any(n.startswith("RookBim::") for n in layer_names), f"no RookBim:: layers: {layer_names}"
-    assert not any(n.startswith("RookBIM::") for n in layer_names), "wrong-cased layer root"
-    assert any(n.count("::") >= 2 for n in layer_names), f"no hierarchical (level::category) layers: {layer_names}"
+    layer_paths = audit["layerPaths"]
+    layer_records = audit["layerRecords"]
+    object_layer_paths = audit["objectLayerPaths"]
+    assert "RookBim" in layer_names, f"no RookBim root layer: {layer_names}"
+    assert not any("::" in n for n in layer_names), f"flat path-encoded layer names found: {layer_names}"
+    assert not any(n.startswith("RookBIM") for n in layer_names), "wrong-cased layer root"
+    assert any(p.startswith("RookBim::") for p in layer_paths), f"no RookBim child paths: {layer_paths}"
+    assert any(p.count("::") >= 2 for p in layer_paths), f"no level::category layer paths: {layer_paths}"
+    assert any(p.startswith("RookBim::") and p.count("::") >= 2 for p in object_layer_paths), \
+        f"object layers do not resolve under nested RookBim tree: {object_layer_paths}"
+    assert any(r["name"] != "RookBim" and r["hasParent"] for r in layer_records), \
+        f"RookBim child layers have no parent id: {layer_records}"
 
     # NON-VACUOUS gate 6: relationship index present (facts only) in response, sidecar, AND validation.
     members = {"roomMembership", "hostMembership", "levelMembership"}

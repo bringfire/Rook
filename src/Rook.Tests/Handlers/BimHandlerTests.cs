@@ -24,6 +24,7 @@ namespace Rook.Tests.Handlers
             "select_elements",
             "clear_selection",
             "export_elements",
+            "export_preset",
         };
 
         [Fact]

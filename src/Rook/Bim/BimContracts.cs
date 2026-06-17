@@ -711,6 +711,14 @@ namespace Rook.Bim
                 return Fail(BimErrorCode.InvalidScope, "scope must be 'active_view' or 'document'.");
             }
 
+            if (LimitPerCategory.HasValue &&
+                (LimitPerCategory.Value < 1 || LimitPerCategory.Value > BimQueryElementsRequest.HardMaxLimit))
+            {
+                return Fail(
+                    BimErrorCode.QueryLimitExceeded,
+                    $"limitPerCategory must be between 1 and {BimQueryElementsRequest.HardMaxLimit}.");
+            }
+
             var outputValidation = BimExportPathPolicy.ValidateRequestShape(Output);
             if (!outputValidation.Success)
             {

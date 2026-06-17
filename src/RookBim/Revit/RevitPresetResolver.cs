@@ -36,6 +36,14 @@ namespace RookBim.Revit
                 return RevitPresetResolution.Fail(roomsError);
             }
 
+            if (definition.RoomsDriven && effectiveRooms == BimRoomsMode.Exclude)
+            {
+                return RevitPresetResolution.Fail(BimApiResponse.Fail(
+                    BimErrorCode.NoCategoriesResolved,
+                    $"Rooms-driven preset '{definition.Name}' cannot export with rooms='exclude'.",
+                    422));
+            }
+
             var limitPerCategory = request.LimitPerCategory ?? definition.DefaultLimitPerCategory;
             var categories = EffectiveCategories(definition, request);
 

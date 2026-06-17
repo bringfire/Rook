@@ -44,6 +44,40 @@ namespace Rook.Tests.Bim
             Assert.Equal(BimErrorCode.InvalidScope, result.ErrorCode);
         }
 
+        [Theory]
+        [InlineData(0)]
+        [InlineData(-1)]
+        public void Validate_RejectsLimitPerCategoryBelowRange(int limit)
+        {
+            var request = new BimExportPresetRequest
+            {
+                Preset = "architectural_shell",
+                Output = ValidOutput(),
+                LimitPerCategory = limit,
+            };
+
+            var result = request.Validate();
+
+            Assert.False(result.Success);
+            Assert.Equal(BimErrorCode.QueryLimitExceeded, result.ErrorCode);
+        }
+
+        [Fact]
+        public void Validate_RejectsLimitPerCategoryAboveHardMaximum()
+        {
+            var request = new BimExportPresetRequest
+            {
+                Preset = "architectural_shell",
+                Output = ValidOutput(),
+                LimitPerCategory = BimQueryElementsRequest.HardMaxLimit + 1,
+            };
+
+            var result = request.Validate();
+
+            Assert.False(result.Success);
+            Assert.Equal(BimErrorCode.QueryLimitExceeded, result.ErrorCode);
+        }
+
         [Fact]
         public void EffectiveScope_DefaultsToActiveView()
         {

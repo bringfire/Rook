@@ -59,6 +59,36 @@ namespace RookBim.Tests
         }
 
         [Fact]
+        public void PresetResolver_RejectsRoomsDrivenPresetsWhenRoomsAreExcluded()
+        {
+            var src = Read("src/RookBim/Revit/RevitPresetResolver.cs");
+
+            Assert.Contains("definition.RoomsDriven && effectiveRooms == BimRoomsMode.Exclude", src);
+            Assert.Contains("Rooms-driven preset", src);
+        }
+
+        [Fact]
+        public void ExportService_FailsRoomsDrivenPresetWhenNoRoomsExported()
+        {
+            var src = Read("src/RookBim/Revit/RevitExportService.cs");
+
+            Assert.Contains("presetContext.RoomsDriven && counts.Rooms == 0", src);
+            Assert.Contains("resolved no rooms", src);
+        }
+
+        [Fact]
+        public void ExportService_CreatesStructuralLayerHierarchy()
+        {
+            var src = Read("src/RookBim/Revit/RevitExportService.cs");
+
+            Assert.Contains("EnsureLayerPath", src);
+            Assert.Contains("Split(new[] { \"::\" }", src);
+            Assert.Contains("ParentLayerId = LayerAt(file, parentIndex.Value).Id", src);
+            Assert.Contains("FindChildLayer", src);
+            Assert.DoesNotContain("var layer = new Rhino.DocObjects.Layer { Name = name, Index = index };", src);
+        }
+
+        [Fact]
         public void Summary_AndRelationships_ArePresetPathOnlyAndFactual()
         {
             var service = Read("src/RookBim/Revit/RevitExportService.cs");
