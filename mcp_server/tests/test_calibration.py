@@ -347,6 +347,32 @@ def test_classify_candidate_host_supported_positive():
     assert classified["metricEligible"] == {"host": True, "room": False, "level": False}
 
 
+def test_host_supported_candidate_keeps_host_review_when_room_contradicts():
+    sidecar = _sidecar()
+    sidecar["rooms"].append({"uniqueId": "room-2", "number": "102", "name": "Lab", "level": {"value": "L1"}})
+    sidecar["relationships"]["roomMembership"][1]["roomUniqueId"] = "room-2"
+    sidecar["elements"][0]["labels"]["containingRoomId"]["value"] = "room-2"
+    fixture = cal.validate_fixture_payload(sidecar, _validation())
+    join = cal.build_runtime_join_map(_runtime_objects(), fixture)
+    candidate = cal.build_candidate_records({
+        "refined": [{
+            "candidateId": "rook-wall|contains|rook-door",
+            "containerId": "rook-wall",
+            "containedId": "rook-door",
+            "verdict": "contains_semantic",
+            "confidence": "high",
+            "reason": "strong_clearance_plausible_container",
+            "evidence": [],
+        }]
+    }, join, fixture)[0]
+
+    classified = cal.classify_candidate(candidate, fixture)
+
+    assert classified["hostBucket"] == "host_supported_positive"
+    assert classified["roomBucket"] == "room_contradicted_positive"
+    assert classified["reviewBucket"] == "host_supported_positive"
+
+
 def test_classify_candidate_host_contradicted_positive():
     fixture = cal.validate_fixture_payload(_sidecar(), _validation())
     join = cal.build_runtime_join_map(_runtime_objects(), fixture)
@@ -431,6 +457,66 @@ def test_add_missed_host_relation_when_no_positive_candidate_exists_inside_evalu
     assert missed[0]["candidateId"] == "rook-wall|contains|rook-door|missed_host"
     assert missed[0]["hostBucket"] == "host_missed_labeled_relation"
     assert missed[0]["metricEligible"]["host"] is True
+
+
+def test_existing_host_missed_candidate_suppresses_synthetic_duplicate():
+    fixture = cal.validate_fixture_payload(_sidecar(), _validation())
+    join = cal.build_runtime_join_map(_runtime_objects(), fixture)
+    candidate = cal.build_candidate_records({
+        "refined": [{
+            "candidateId": "rook-wall|contains|rook-door",
+            "containerId": "rook-wall",
+            "containedId": "rook-door",
+            "verdict": "insufficient_evidence",
+            "confidence": "low",
+            "reason": "clearance_not_decisive",
+            "evidence": [],
+        }]
+    }, join, fixture)[0]
+    classified = cal.classify_candidate(candidate, fixture)
+
+    with_missed = cal.add_missed_labeled_relation_records(
+        [classified],
+        join,
+        fixture,
+        evaluated_runtime_ids={"rook-wall", "rook-door"},
+    )
+
+    relation_records = [
+        record for record in with_missed
+        if record["container"].get("revitUniqueId") == "uid-wall"
+        and record["contained"].get("revitUniqueId") == "uid-door"
+    ]
+    assert len(relation_records) == 1
+    assert relation_records[0]["hostBucket"] == "host_missed_labeled_relation"
+
+
+def test_positive_host_candidate_suppresses_synthetic_miss():
+    fixture = cal.validate_fixture_payload(_sidecar(), _validation())
+    join = cal.build_runtime_join_map(_runtime_objects(), fixture)
+    candidate = cal.build_candidate_records({
+        "refined": [{
+            "candidateId": "rook-wall|contains|rook-door",
+            "containerId": "rook-wall",
+            "containedId": "rook-door",
+            "verdict": "contains_semantic",
+            "confidence": "high",
+            "reason": "strong_clearance_plausible_container",
+            "evidence": [],
+        }]
+    }, join, fixture)[0]
+    classified = cal.classify_candidate(candidate, fixture)
+
+    with_missed = cal.add_missed_labeled_relation_records(
+        [classified],
+        join,
+        fixture,
+        evaluated_runtime_ids={"rook-wall", "rook-door"},
+    )
+
+    assert len(with_missed) == 1
+    assert with_missed[0]["candidateId"] == "rook-wall|contains|rook-door"
+    assert with_missed[0]["hostBucket"] == "host_supported_positive"
 
 
 def test_missed_host_relation_respects_evaluated_scope():

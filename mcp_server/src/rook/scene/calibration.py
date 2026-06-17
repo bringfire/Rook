@@ -516,6 +516,29 @@ def _level_bucket(candidate: dict[str, Any], fixture: FixtureData) -> tuple[str,
     return "level_not_applicable", "same_level", False
 
 
+def _review_bucket(
+    host_bucket: str,
+    room_bucket: str,
+    level_bucket: str,
+) -> str:
+    meaningful_host_buckets = {
+        "host_supported_positive",
+        "host_contradicted_positive",
+        "host_missed_labeled_relation",
+        "host_missing_label",
+    }
+    if host_bucket in meaningful_host_buckets:
+        return host_bucket
+
+    context_buckets = [room_bucket, level_bucket]
+    review = next((bucket for bucket in context_buckets if "contradicted_positive" in bucket), None)
+    if review is None:
+        review = next((bucket for bucket in context_buckets if "missed_labeled_relation" in bucket), None)
+    if review is None:
+        review = next((bucket for bucket in context_buckets if "supported_positive" in bucket), None)
+    return review or "not_applicable"
+
+
 def classify_candidate(candidate: dict[str, Any], fixture: FixtureData) -> dict[str, Any]:
     if candidate["container"].get("joinStatus") != "joined" or candidate["contained"].get("joinStatus") != "joined":
         out = dict(candidate)
@@ -532,15 +555,7 @@ def classify_candidate(candidate: dict[str, Any], fixture: FixtureData) -> dict[
     host_bucket, host_basis, host_eligible = _host_bucket(candidate, fixture)
     room_bucket, room_basis, room_eligible = _room_bucket(candidate, fixture)
     level_bucket, level_basis, level_eligible = _level_bucket(candidate, fixture)
-
-    buckets = [host_bucket, room_bucket, level_bucket]
-    review_bucket = next((bucket for bucket in buckets if "contradicted_positive" in bucket), None)
-    if review_bucket is None:
-        review_bucket = next((bucket for bucket in buckets if "missed_labeled_relation" in bucket), None)
-    if review_bucket is None:
-        review_bucket = next((bucket for bucket in buckets if "supported_positive" in bucket), None)
-    if review_bucket is None:
-        review_bucket = "not_applicable"
+    review_bucket = _review_bucket(host_bucket, room_bucket, level_bucket)
 
     out = dict(candidate)
     out.update({
@@ -554,11 +569,9 @@ def classify_candidate(candidate: dict[str, Any], fixture: FixtureData) -> dict[
     return out
 
 
-def _positive_uid_pairs(candidates: list[dict[str, Any]]) -> set[tuple[str, str]]:
+def _candidate_uid_pairs(candidates: list[dict[str, Any]]) -> set[tuple[str, str]]:
     pairs: set[tuple[str, str]] = set()
     for candidate in candidates:
-        if not _positive(candidate):
-            continue
         container_uid = _uid(candidate.get("container", {}))
         contained_uid = _uid(candidate.get("contained", {}))
         if container_uid and contained_uid:
@@ -575,11 +588,11 @@ def add_missed_labeled_relation_records(
 ) -> list[dict[str, Any]]:
     """Append in-scope host misses without using labels in runtime/refiner inputs."""
     out = list(classified_candidates)
-    positive_pairs = _positive_uid_pairs(out)
+    existing_pairs = _candidate_uid_pairs(out)
     host_map = fixture.relationships.get("hostMembership") or {}
 
     for contained_uid, host_uid in host_map.items():
-        if not contained_uid or not host_uid or (host_uid, contained_uid) in positive_pairs:
+        if not contained_uid or not host_uid or (host_uid, contained_uid) in existing_pairs:
             continue
 
         host_objects = join.by_revit_unique_id.get(host_uid) or []
