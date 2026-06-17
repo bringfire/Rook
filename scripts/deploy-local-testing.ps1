@@ -18,7 +18,10 @@ param(
     [switch]$AllowRunning,
     [switch]$SkipBuild,
     [switch]$SkipChirpInstall,
-    [switch]$LiveSmoke
+    [switch]$UseRepoVenv,
+    [string]$DevPythonRuntime = '',
+    [switch]$LiveSmoke,
+    [switch]$ManifestSmokeOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -106,6 +109,23 @@ function Assert-DeployMode {
     if ($LiveSmoke -and -not ($PayloadOnly -and $AllowRunning)) {
         throw "-LiveSmoke requires -PayloadOnly -AllowRunning. Run the full deploy first, restart Rhino/Grasshopper, then run payload-only live smoke."
     }
+
+    if ($UseRepoVenv -and -not [string]::IsNullOrWhiteSpace($DevPythonRuntime)) {
+        throw "-UseRepoVenv cannot be combined with -DevPythonRuntime. Pick one explicit dev runtime source."
+    }
+
+    $hasDevRuntime = $UseRepoVenv -or -not [string]::IsNullOrWhiteSpace($DevPythonRuntime)
+    if ($NativeOnly -and $hasDevRuntime) {
+        throw "-NativeOnly cannot be combined with -UseRepoVenv or -DevPythonRuntime. Native-only deploy does not use Python, MCP, or chat manifests."
+    }
+
+    if ($LiveSmoke -and $hasDevRuntime) {
+        throw "-LiveSmoke cannot be combined with -UseRepoVenv or -DevPythonRuntime in this PR. Live smoke remains release-runtime-only."
+    }
+
+    if ($ManifestSmokeOnly -and -not $hasDevRuntime) {
+        throw "-ManifestSmokeOnly is only useful with -UseRepoVenv or -DevPythonRuntime."
+    }
 }
 
 function Assert-NoRunningFullDeployBlockers {
@@ -184,6 +204,60 @@ function Resolve-BootstrapPython {
     }
 
     throw "Python 3.10+ was not found."
+}
+
+function Resolve-DevPythonRuntime {
+    if ($UseRepoVenv) {
+        $candidate = Join-Path $RepoRoot 'mcp_server\.venv\Scripts\python.exe'
+    } else {
+        $candidate = $DevPythonRuntime
+    }
+
+    if ([string]::IsNullOrWhiteSpace($candidate)) {
+        return $null
+    }
+
+    if (-not (Test-Path $candidate)) {
+        throw "Dev Python runtime not found: $candidate"
+    }
+
+    return (Resolve-Path $candidate).Path
+}
+
+function Resolve-DeployRuntimeContract {
+    $devPython = Resolve-DevPythonRuntime
+    if ($devPython) {
+        $devMcpServerDir = Join-Path $RepoRoot 'mcp_server'
+        $devSrcDir = Join-Path $devMcpServerDir 'src'
+        if (-not (Test-Path $devMcpServerDir)) {
+            throw "Dev MCP server directory not found: $devMcpServerDir"
+        }
+        if (-not (Test-Path $devSrcDir)) {
+            throw "Dev MCP source directory not found: $devSrcDir"
+        }
+
+        return [pscustomobject]@{
+            Mode = 'dev'
+            IsDev = $true
+            PythonPath = $devPython
+            WorkingDirectory = (Resolve-Path $devMcpServerDir).Path
+            PythonPathEntries = @((Resolve-Path $devSrcDir).Path)
+            InstallRoot = (Resolve-Path $RepoRoot).Path
+            DataRoot = $DataRoot
+            ProjectRoot = (Resolve-Path $RepoRoot).Path
+        }
+    }
+
+    return [pscustomobject]@{
+        Mode = 'release'
+        IsDev = $false
+        PythonPath = $VenvPython
+        WorkingDirectory = Join-Path $InstallRoot 'mcp_server'
+        PythonPathEntries = @((Join-Path $InstallRoot 'mcp_server\src'))
+        InstallRoot = $InstallRoot
+        DataRoot = $DataRoot
+        ProjectRoot = ''
+    }
 }
 
 function Invoke-NativeBuild {
@@ -806,6 +880,17 @@ asyncio.run(main())
 
 Set-Location $RepoRoot
 Assert-DeployMode
+$RuntimeContract = Resolve-DeployRuntimeContract
+
+if ($ManifestSmokeOnly) {
+    Write-Step "Dev manifest smoke"
+    Write-Host "Mode:             $($RuntimeContract.Mode)"
+    Write-Host "Python:           $($RuntimeContract.PythonPath)"
+    Write-Host "WorkingDirectory: $($RuntimeContract.WorkingDirectory)"
+    Write-Host "ProjectRoot:      $($RuntimeContract.ProjectRoot)"
+    Write-Host "SourcePath:       $(@($RuntimeContract.PythonPathEntries)[0])"
+    exit 0
+}
 
 if ($NativeOnly) {
     Write-Step "Native-only deploy surfaces"
