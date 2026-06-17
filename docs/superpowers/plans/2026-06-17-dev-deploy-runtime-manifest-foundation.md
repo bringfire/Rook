@@ -630,7 +630,7 @@ Test-ChirpRuntime
 
 Write-Step "Verify MCP client config and chat manifest"
 Test-McpClientConfigs
-Test-ChatServiceManifest -Contract $RuntimeContract
+Test-ChatServiceManifest
 ```
 
 with:
@@ -655,15 +655,15 @@ if ($RuntimeContract.IsDev) {
 
 This keeps release deploy strict while allowing the explicit dev runtime path to validate only the contract it owns in PR 1.
 
-- [ ] **Step 4: Pass the runtime contract at any remaining manifest call site**
+- [ ] **Step 4: Check for remaining bare chat-manifest call sites**
 
-Replace:
+Run:
 
 ```powershell
-Test-ChatServiceManifest
+rg -n "Test-ChatServiceManifest\s*$" scripts/deploy-local-testing.ps1
 ```
 
-with:
+Expected: no remaining bare `Test-ChatServiceManifest` calls. If this finds a call site, update that specific call to:
 
 ```powershell
 Test-ChatServiceManifest -Contract $RuntimeContract
