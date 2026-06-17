@@ -358,6 +358,120 @@ def test_run_live_raises_when_no_evaluated_objects_without_filters(monkeypatch, 
     assert not (tmp_path / "fixture.calibration.json").exists()
 
 
+def test_run_live_raises_when_cap_zero_produces_empty_scope(monkeypatch, tmp_path):
+    script = _load_script()
+    model = tmp_path / "a.3dm"
+    sidecar = tmp_path / "a.sidecar.json"
+    validation = tmp_path / "a.validation.json"
+    model.write_bytes(b"fake")
+    sidecar.write_text(cal.json_dumps({
+        "elements": [{"identity": {"uniqueId": "uid-wall", "elementId": 101}, "category": "Walls", "labels": {}}],
+        "rooms": [],
+        "relationships": {"hostMembership": {}, "roomMembership": {}, "levelMembership": {}},
+    }), encoding="utf-8")
+    validation.write_text(cal.json_dumps({"relationships": {"hostMembership": {}, "roomMembership": {}, "levelMembership": {}}}), encoding="utf-8")
+
+    monkeypatch.setattr(script, "discover_port", lambda: 9876)
+    monkeypatch.setattr(script, "open_fixture_in_isolated_context", lambda port, path: {
+        "freshDocument": True,
+        "documentStatus": {"attempted": True, "succeeded": True, "errors": []},
+        "importStatus": {"attempted": True, "succeeded": True, "errors": []},
+        "graphStatus": {"attempted": True, "succeeded": True, "errors": []},
+        "graphSequence": 7,
+        "importedIds": ["rook-wall"],
+        "runtimeObjects": [{
+            "runtimeId": "rook-wall",
+            "name": "Wall 101",
+            "layer": "RookBim::L1::Walls",
+            "userStrings": {
+                "revit.uniqueId": "uid-wall",
+                "revit.elementId": "101",
+                "revit.category": "Walls",
+            },
+        }],
+    })
+
+    def fail_exact(port, object_ids):
+        raise AssertionError("run_exact_projection should not be called for an empty live scope")
+
+    def fail_refine(port, object_ids):
+        raise AssertionError("run_containment_refinement should not be called for an empty live scope")
+
+    monkeypatch.setattr(script, "run_exact_projection", fail_exact)
+    monkeypatch.setattr(script, "run_containment_refinement", fail_refine)
+
+    with pytest.raises(RuntimeError) as exc:
+        script.main([
+            "--model3dm", str(model),
+            "--sidecar", str(sidecar),
+            "--validation", str(validation),
+            "--output-dir", str(tmp_path),
+            "--name", "fixture",
+            "--cap", "0",
+        ])
+
+    assert "No evaluable runtime objects" in str(exc.value)
+    assert "live calibration" in str(exc.value).lower()
+    assert not (tmp_path / "fixture.calibration.json").exists()
+
+
+def test_run_live_raises_when_category_filter_matches_no_runtime_objects(monkeypatch, tmp_path):
+    script = _load_script()
+    model = tmp_path / "a.3dm"
+    sidecar = tmp_path / "a.sidecar.json"
+    validation = tmp_path / "a.validation.json"
+    model.write_bytes(b"fake")
+    sidecar.write_text(cal.json_dumps({
+        "elements": [{"identity": {"uniqueId": "uid-wall", "elementId": 101}, "category": "Walls", "labels": {}}],
+        "rooms": [],
+        "relationships": {"hostMembership": {}, "roomMembership": {}, "levelMembership": {}},
+    }), encoding="utf-8")
+    validation.write_text(cal.json_dumps({"relationships": {"hostMembership": {}, "roomMembership": {}, "levelMembership": {}}}), encoding="utf-8")
+
+    monkeypatch.setattr(script, "discover_port", lambda: 9876)
+    monkeypatch.setattr(script, "open_fixture_in_isolated_context", lambda port, path: {
+        "freshDocument": True,
+        "documentStatus": {"attempted": True, "succeeded": True, "errors": []},
+        "importStatus": {"attempted": True, "succeeded": True, "errors": []},
+        "graphStatus": {"attempted": True, "succeeded": True, "errors": []},
+        "graphSequence": 7,
+        "importedIds": ["rook-wall"],
+        "runtimeObjects": [{
+            "runtimeId": "rook-wall",
+            "name": "Wall 101",
+            "layer": "RookBim::L1::Walls",
+            "userStrings": {
+                "revit.uniqueId": "uid-wall",
+                "revit.elementId": "101",
+                "revit.category": "Walls",
+            },
+        }],
+    })
+
+    def fail_exact(port, object_ids):
+        raise AssertionError("run_exact_projection should not be called for an empty live scope")
+
+    def fail_refine(port, object_ids):
+        raise AssertionError("run_containment_refinement should not be called for an empty live scope")
+
+    monkeypatch.setattr(script, "run_exact_projection", fail_exact)
+    monkeypatch.setattr(script, "run_containment_refinement", fail_refine)
+
+    with pytest.raises(RuntimeError) as exc:
+        script.main([
+            "--model3dm", str(model),
+            "--sidecar", str(sidecar),
+            "--validation", str(validation),
+            "--output-dir", str(tmp_path),
+            "--name", "fixture",
+            "--category", "Windows",
+        ])
+
+    assert "No evaluable runtime objects" in str(exc.value)
+    assert "runtime objects" in str(exc.value).lower()
+    assert not (tmp_path / "fixture.calibration.json").exists()
+
+
 def test_run_exact_projection_marks_skipped_sources_unsuccessful(monkeypatch):
     script = _load_script()
     import rook.scene.exact_projection as exact_projection
