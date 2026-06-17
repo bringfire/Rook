@@ -34,6 +34,26 @@ namespace Rook.UI.Chat
         public string Owner { get; set; } = "rhino-panel";
     }
 
+    internal readonly struct ChatServiceRuntimeValidation
+    {
+        public ChatServiceRuntimeValidation(
+            bool isValid,
+            string message,
+            bool isTerminalInvalidManifest)
+        {
+            IsValid = isValid;
+            Message = message ?? "";
+            IsTerminalInvalidManifest = isTerminalInvalidManifest;
+        }
+
+        public bool IsValid { get; }
+        public string Message { get; }
+        public bool IsTerminalInvalidManifest { get; }
+
+        public static ChatServiceRuntimeValidation Valid =>
+            new ChatServiceRuntimeValidation(true, "", false);
+    }
+
     public class ChatServiceHealth
     {
         public bool ServiceAvailable { get; set; }
@@ -224,30 +244,13 @@ namespace Rook.UI.Chat
                     };
                 }
 
-                if (!File.Exists(manifest.PythonPath))
+                var runtimeValidation = ValidateManifestRuntime(manifest);
+                if (!runtimeValidation.IsValid)
                 {
                     return new ChatServiceHealth
                     {
                         ServiceAvailable = false,
-                        ServiceMessage = $"Python runtime not found: {manifest.PythonPath}",
-                    };
-                }
-
-                if (!Directory.Exists(manifest.WorkingDirectory))
-                {
-                    return new ChatServiceHealth
-                    {
-                        ServiceAvailable = false,
-                        ServiceMessage = $"Chat service working directory not found: {manifest.WorkingDirectory}",
-                    };
-                }
-
-                if (!string.Equals(manifest.Owner, ExpectedOwner, StringComparison.OrdinalIgnoreCase))
-                {
-                    return new ChatServiceHealth
-                    {
-                        ServiceAvailable = false,
-                        ServiceMessage = $"Unsupported chat service owner '{manifest.Owner}'. Expected '{ExpectedOwner}'.",
+                        ServiceMessage = runtimeValidation.Message,
                     };
                 }
 
@@ -374,10 +377,44 @@ namespace Rook.UI.Chat
             };
         }
 
+        internal static string ResolveManifestPath(string assemblyLocation)
+        {
+            var pluginDir = Path.GetDirectoryName(assemblyLocation) ?? "";
+            return Path.Combine(pluginDir, "RookChatService.json");
+        }
+
         private static string GetManifestPath()
         {
-            var pluginDir = Path.GetDirectoryName(typeof(ChatServiceManager).Assembly.Location) ?? "";
-            return Path.Combine(pluginDir, "RookChatService.json");
+            return ResolveManifestPath(typeof(ChatServiceManager).Assembly.Location);
+        }
+
+        internal static ChatServiceRuntimeValidation ValidateManifestRuntime(ChatServiceManifest manifest)
+        {
+            if (!File.Exists(manifest.PythonPath))
+            {
+                return new ChatServiceRuntimeValidation(
+                    false,
+                    $"Python runtime not found: {manifest.PythonPath}",
+                    true);
+            }
+
+            if (!Directory.Exists(manifest.WorkingDirectory))
+            {
+                return new ChatServiceRuntimeValidation(
+                    false,
+                    $"Chat service working directory not found: {manifest.WorkingDirectory}",
+                    false);
+            }
+
+            if (!string.Equals(manifest.Owner, ExpectedOwner, StringComparison.OrdinalIgnoreCase))
+            {
+                return new ChatServiceRuntimeValidation(
+                    false,
+                    $"Unsupported chat service owner '{manifest.Owner}'. Expected '{ExpectedOwner}'.",
+                    false);
+            }
+
+            return ChatServiceRuntimeValidation.Valid;
         }
 
         private static string GetDiscoveryFolder()
