@@ -54,6 +54,25 @@ class LoadedFixture:
     fixture: FixtureData
 
 
+@dataclass(frozen=True)
+class JoinedRuntimeObject:
+    runtime_id: str
+    revit_unique_id: str
+    revit_element_id: str | None
+    revit_category: str | None
+    name: str
+    layer: str
+    user_strings: dict[str, Any]
+    element: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class RuntimeJoinMap:
+    by_runtime_id: dict[str, JoinedRuntimeObject]
+    by_revit_unique_id: dict[str, list[JoinedRuntimeObject]]
+    not_joinable: dict[str, str]
+
+
 def json_dumps(value: Any) -> str:
     """Serialize fixture JSON consistently for tests and report artifacts."""
     return json.dumps(value, indent=2, sort_keys=True)
@@ -309,3 +328,97 @@ def build_offline_fixture_validation_report(
             }
         ],
     }
+
+
+def _user_strings(obj: dict[str, Any]) -> dict[str, Any]:
+    raw = obj.get("userStrings") or obj.get("user_strings") or {}
+    return raw if isinstance(raw, dict) else {}
+
+
+def _runtime_id(obj: dict[str, Any]) -> str:
+    return str(obj.get("runtimeId") or obj.get("id") or obj.get("objectId") or "")
+
+
+def build_runtime_join_map(runtime_objects: list[dict[str, Any]], fixture: FixtureData) -> RuntimeJoinMap:
+    by_runtime: dict[str, JoinedRuntimeObject] = {}
+    by_uid: dict[str, list[JoinedRuntimeObject]] = {}
+    not_joinable: dict[str, str] = {}
+    for obj in runtime_objects:
+        rid = _runtime_id(obj)
+        if not rid:
+            continue
+        strings = _user_strings(obj)
+        uid = strings.get("revit.uniqueId")
+        if not isinstance(uid, str) or not uid:
+            not_joinable[rid] = "missing_revit_unique_id"
+            continue
+        element = fixture.elements_by_unique_id.get(uid) or fixture.rooms_by_unique_id.get(uid)
+        if element is None:
+            not_joinable[rid] = "unknown_revit_unique_id"
+            continue
+        joined = JoinedRuntimeObject(
+            runtime_id=rid,
+            revit_unique_id=uid,
+            revit_element_id=str(strings.get("revit.elementId")) if strings.get("revit.elementId") is not None else None,
+            revit_category=str(strings.get("revit.category")) if strings.get("revit.category") is not None else None,
+            name=str(obj.get("name") or ""),
+            layer=str(obj.get("layer") or ""),
+            user_strings=strings,
+            element=element,
+        )
+        by_runtime[rid] = joined
+        by_uid.setdefault(uid, []).append(joined)
+    return RuntimeJoinMap(by_runtime_id=by_runtime, by_revit_unique_id=by_uid, not_joinable=not_joinable)
+
+
+def _endpoint_payload(joined: JoinedRuntimeObject | None, runtime_id: str) -> dict[str, Any]:
+    if joined is None:
+        return {"runtimeId": runtime_id, "joinStatus": "not_joinable"}
+    identity = joined.element.get("identity") if isinstance(joined.element.get("identity"), dict) else {}
+    labels = joined.element.get("labels") if isinstance(joined.element.get("labels"), dict) else {}
+    return {
+        "runtimeId": joined.runtime_id,
+        "joinStatus": "joined",
+        "revitUniqueId": joined.revit_unique_id,
+        "revitElementId": joined.revit_element_id or identity.get("elementId"),
+        "category": joined.element.get("category") or joined.revit_category,
+        "family": joined.element.get("family"),
+        "type": joined.element.get("type"),
+        "name": joined.name or joined.element.get("name"),
+        "layer": joined.layer,
+        "labels": {
+            "host": labels.get("hostId"),
+            "room": labels.get("containingRoomId"),
+            "level": labels.get("level"),
+        },
+    }
+
+
+def build_candidate_records(
+    refinement_result: dict[str, Any],
+    join: RuntimeJoinMap,
+    fixture: FixtureData,
+) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for item in refinement_result.get("refined") or []:
+        container_id = str(item.get("containerId") or "")
+        contained_id = str(item.get("containedId") or "")
+        container = join.by_runtime_id.get(container_id)
+        contained = join.by_runtime_id.get(contained_id)
+        records.append({
+            "candidateId": item.get("candidateId") or f"{container_id}|contains|{contained_id}",
+            "container": _endpoint_payload(container, container_id),
+            "contained": _endpoint_payload(contained, contained_id),
+            "rook": {
+                "verdict": item.get("verdict"),
+                "confidence": item.get("confidence"),
+                "reason": item.get("reason"),
+                "evidence": item.get("evidence") or [],
+            },
+            "fixtureRelationships": {
+                "hostMembership": fixture.relationships.get("hostMembership", {}),
+                "roomMembership": fixture.relationships.get("roomMembership", {}),
+                "levelMembership": fixture.relationships.get("levelMembership", {}),
+            },
+        })
+    return records

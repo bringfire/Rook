@@ -250,3 +250,74 @@ def test_load_fixture_bundle_wraps_invalid_validation_json(tmp_path):
 
     assert "validation" in str(exc.value)
     assert str(validation) in str(exc.value)
+
+
+def _runtime_objects():
+    return [
+        {
+            "runtimeId": "rook-wall",
+            "name": "Wall 101",
+            "layer": "RookBim::L1::Walls",
+            "userStrings": {
+                "revit.uniqueId": "uid-wall",
+                "revit.elementId": "101",
+                "revit.category": "Walls",
+            },
+        },
+        {
+            "runtimeId": "rook-door",
+            "name": "Door 202",
+            "layer": "RookBim::L1::Doors",
+            "userStrings": {
+                "revit.uniqueId": "uid-door",
+                "revit.elementId": "202",
+                "revit.category": "Doors",
+            },
+        },
+        {
+            "runtimeId": "unjoined-box",
+            "name": "No Revit Key",
+            "layer": "Default",
+            "userStrings": {},
+        },
+    ]
+
+
+def test_build_runtime_join_map_by_revit_unique_id():
+    fixture = cal.validate_fixture_payload(_sidecar(), _validation())
+
+    join = cal.build_runtime_join_map(_runtime_objects(), fixture)
+
+    assert join.by_runtime_id["rook-door"].revit_unique_id == "uid-door"
+    assert join.by_runtime_id["rook-door"].element["category"] == "Doors"
+    assert join.not_joinable["unjoined-box"] == "missing_revit_unique_id"
+
+
+def test_build_candidate_records_join_endpoints_and_preserve_runtime_verdict():
+    fixture = cal.validate_fixture_payload(_sidecar(), _validation())
+    join = cal.build_runtime_join_map(_runtime_objects(), fixture)
+    refinement = {
+        "success": True,
+        "graphSequence": 9,
+        "refined": [
+            {
+                "candidateId": "rook-wall|contains|rook-door",
+                "containerId": "rook-wall",
+                "containedId": "rook-door",
+                "verdict": "contains_semantic",
+                "confidence": "high",
+                "reason": "strong_clearance_plausible_container",
+                "evidence": [{"signal": "bbox_margin", "polarity": "supports", "detail": "positive"}],
+            }
+        ],
+    }
+
+    candidates = cal.build_candidate_records(refinement, join, fixture)
+
+    assert len(candidates) == 1
+    c = candidates[0]
+    assert c["candidateId"] == "rook-wall|contains|rook-door"
+    assert c["container"]["revitUniqueId"] == "uid-wall"
+    assert c["contained"]["revitUniqueId"] == "uid-door"
+    assert c["rook"]["verdict"] == "contains_semantic"
+    assert c["rook"]["confidence"] == "high"
