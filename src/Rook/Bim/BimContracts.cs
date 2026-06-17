@@ -506,6 +506,29 @@ namespace Rook.Bim
         Exclude
     }
 
+    public enum BimLayerScheme
+    {
+        Flat,
+        ByCategory,
+        ByLevelThenCategory
+    }
+
+    public enum BimNameScheme
+    {
+        None,
+        RevitName,
+        TypeOnly,
+        Readable,
+        ReadableWithId
+    }
+
+    public enum BimMetadataProfile
+    {
+        Minimal,
+        Standard,
+        Full
+    }
+
     public sealed class BimExportOutput
     {
         public string? Directory { get; set; }
@@ -699,5 +722,14 @@ namespace Rook.Bim
         {
             return new BimValidationResult { Success = false, ErrorCode = code, Message = message };
         }
+    }
+
+    public sealed class BimPresetDefinition
+    {
+        public BimLayerScheme DefaultLayerScheme { get; set; } = BimLayerScheme.Flat;
+
+        public BimNameScheme DefaultNameScheme { get; set; } = BimNameScheme.None;
+
+        public BimMetadataProfile DefaultMetadataProfile { get; set; } = BimMetadataProfile.Minimal;
     }
 }
