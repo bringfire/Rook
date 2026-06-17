@@ -79,7 +79,7 @@ function Test-DeployScriptVerifiesRookImportOrigin {
 
     Assert-Contains -Text $content -Expected 'expected_rook_prefix' -Message 'Local deploy must compute the expected installed rook package path.'
     Assert-Contains -Text $content -Expected 'rook imported from stale location' -Message 'Local deploy must reject stale repo/worktree rook imports.'
-    Assert-Contains -Text $content -Expected 'mcp_server\src\rook' -Message 'Local deploy must anchor rook imports to the installed AppData MCP source tree.'
+    Assert-Contains -Text $content -Expected 'Join-Path $Contract.WorkingDirectory ''src\rook''' -Message 'Local deploy must anchor rook imports to the active runtime contract source tree.'
 }
 
 function Test-DeployScriptParsesMcpConfigs {
@@ -108,6 +108,11 @@ function Test-DeployScriptVerifiesChatManifest {
     Assert-Contains -Text $content -Expected 'Chat service workingDirectory mismatch' -Message 'Local deploy must reject stale chat service working directories.'
     Assert-Contains -Text $content -Expected 'rook.agent.chat.service_main' -Message 'Local deploy must verify the chat service module.'
     Assert-Contains -Text $content -Expected 'pythonPathEntries' -Message 'Local deploy must verify the chat service source path entry.'
+    Assert-Contains -Text $content -Expected 'Test-ChatServiceManifestAtPath' -Message 'Local deploy must verify each chat manifest path independently.'
+    Assert-Contains -Text $content -Expected 'Chat service environment missing' -Message 'Local deploy must verify chat manifest environment blocks.'
+    Assert-Contains -Text $content -Expected 'Chat service ROOK_MODE mismatch' -Message 'Local deploy must verify chat manifest runtime mode.'
+    Assert-Contains -Text $content -Expected 'Chat service ROOK_PROJECT_ROOT mismatch' -Message 'Local deploy must verify dev chat manifests point at the repo root.'
+    Assert-Contains -Text $content -Expected 'Skipping release MCP client config and Chirp venv verification because an explicit dev runtime was selected.' -Message 'Explicit dev runtime mode must not run release-only MCP/Chirp verification.'
 }
 
 function Test-DeployScriptSeedsChatEnvWithoutOverwriting {
