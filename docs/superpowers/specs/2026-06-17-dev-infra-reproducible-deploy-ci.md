@@ -34,9 +34,10 @@ Bug inventory (all observed 2026-06-17 on a clean desktop), each with the fix:
 
 2. **`post_install` requires a bundled private Python runtime** (`…\Rook\python\cpython-3.11.9`)
    the full installer ships but the dev deploy doesn't → MCP-venv step exits 1, fails the whole
-   deploy. **Fix:** a dev/`-SkipRuntimeInstall` path that reuses the existing managed/repo venv
-   instead of the private runtime; or make `post_install` fall back to an existing venv under
-   `%LOCALAPPDATA%\Rook\venv` rather than hard-failing.
+   deploy. **Fix (decided):** add an **explicit dev-runtime flag** to `deploy-local-testing.ps1`
+   (e.g. `-UseRepoVenv` / `-DevPythonRuntime <path>`) that reuses the repo/managed venv. The full
+   installer / `post_install` release path must still **fail loudly** if the bundled private
+   runtime is missing — **no silent fallback** (silent fallback would mask release-packaging bugs).
 
 3. **OCCT runtime DLLs not deployed.** The payload-deploy step never copies the OCCT `TK*.dll`
    next to `RookNative.rhp`, so the OCCT-linked native won't load. **Fix:** in the payload step,
@@ -53,9 +54,11 @@ Bug inventory (all observed 2026-06-17 on a clean desktop), each with the fix:
    root by priority `ROOK_PROJECT_ROOT → ancestor .mcp.json → release install root`. On a dev box
    with no `ROOK_PROJECT_ROOT` and a plugin dir under `AppData\McNeel` (no repo ancestor), it
    falls to the **release install root** → emits a `ROOK_MODE=release` manifest → a stale `rook`
-   without `/agent/chat/models` → 404 (this is what blanked the model selector). **Fix:** dev
-   deploy sets `ROOK_PROJECT_ROOT` to the repo; and/or reorder auto-gen to prefer a detected repo
-   checkout over the release root when one is present.
+   without `/agent/chat/models` → 404 (this is what blanked the model selector). **Fix (decided):**
+   dev deploy writes `ROOK_PROJECT_ROOT` to the repo and manifest generation honors it. Do **not**
+   broadly reorder auto-gen to prefer any detected repo over the release install — without a strong
+   guard that risks release builds picking up a repo. With no `ROOK_PROJECT_ROOT`, the release
+   install stays the release install.
 
 6. **Wrong-TFM registration.** Deploy registers `net7.0\Rook.rhp` but Rhino 8 loads the **net8.0**
    companion. **Fix:** register the TFM matching the active Rhino runtime (net8.0 for current
@@ -72,8 +75,11 @@ manifest in the right place, and a working chat server — no manual workarounds
 
 ## Part 2 — OCCT made machine-agnostic
 
-- **`OCCT_ROOT` convention on every machine** (done on both). The single source of truth for OCCT
-  location; no machine depends on another's user path.
+- **`OCCT_ROOT` convention on every machine** — the target single source of truth for OCCT
+  location; no machine depends on another's user path. `OCCT_ROOT` is **set (persistent) on both
+  machines**, and both have built native with it set, but via an **inline** env var, not yet from
+  a genuinely fresh shell that inherited the persistent value — so persistent-env fresh-shell build
+  verification on both machines is still **pending**.
 - **Neutralize the vcxproj hardcoded default** (`C:\Users\aryan\…` → `C:\OCCT\build-rook`) in
   `RookNative.vcxproj` + `OcctPrimitiveTests.vcxproj`. Safe now that both machines resolve via
   `OCCT_ROOT`. Its own tiny PR.
@@ -95,10 +101,11 @@ Canonical, reproducible bring-up for any new machine (or a wipe):
 
 GitHub Actions on every PR; branch protection on `main` requires green.
 
-- **Native build** — the TFM Rhino loads (net8.0). Needs OCCT: **restore a cached relocatable
-  OCCT install artifact** (the 35 MB install tree produced this session) from Actions cache or a
-  release asset, set `OCCT_ROOT`, build. *This cached-artifact approach is the key enabler — it
-  avoids a 30–60 min OCCT source build per CI run.*
+- **Native build** — the TFM Rhino loads (net8.0). Needs OCCT: restore the relocatable OCCT
+  install artifact (the 35 MB install tree produced this session), set `OCCT_ROOT`, build. **The
+  durable source of truth is a versioned release asset** (survives cache eviction, shareable with
+  dev machines); **Actions cache is only an acceleration layer** keyed off the artifact version.
+  *This is the key enabler — it avoids a 30–60 min OCCT source build per CI run.*
 - **Managed build** — companion (all TFMs) + RookBim built against **Revit reference assemblies**
   (RookBim.csproj already parameterizes `-RevitInstallDir`; CI uses a reference-assembly NuGet or
   stub, not a full Revit install).
@@ -117,22 +124,54 @@ GitHub Actions on every PR; branch protection on `main` requires green.
 Branch-per-task → PR → review → CI-green-before-merge; both machines track the same `main`. Short
 `CONTRIBUTING`/AGENTS note codifies it.
 
+## Cross-machine effect & the explicit-inputs principle
+
+These deploy changes affect **both** machines the same way — but only after they land in `main`
+and each machine pulls them. The intended effect is positive: laptop and desktop both stop
+depending on hidden local state and use the same deploy rules. Concretely:
+
+- **OCCT:** both use `OCCT_ROOT` (laptop `C:\Users\aryan\…\build-rook`, desktop `C:\OCCT\build-rook`).
+  The deploy reads the env var, so paths differ but behavior matches.
+- **Python/chat runtime:** deploy explicitly uses the repo/dev runtime instead of accidentally
+  falling back to an old release install — so neither machine tests stale chat code.
+- **Manifest location:** deploy writes the chat manifest where the loaded companion actually reads
+  it, so both launch the intended server.
+- **TFM registration:** deploy registers the runtime Rhino actually loads, so the two machines
+  don't silently load different companion builds.
+- **OCCT DLL closure:** deploy copies the required `TK*.dll` beside the native plugin on both, so
+  native-load behavior is reproducible.
+- **Revit/RookBim:** each machine supplies its own Revit path; the build/deploy flow is identical.
+
+**Design rule (load-bearing):** the risk is making deploy "too clever" so it silently falls back
+to machine-specific paths. Prefer **explicit inputs** over magic: `OCCT_ROOT`, `ROOK_PROJECT_ROOT`,
+explicit `RevitInstallDir`, explicit dev-runtime flag. The other machine is never *broken* — it
+just needs those inputs set once, after which the **same command works on both**.
+
 ## Sequencing
 
 1. **Part 1** deploy-script + launcher fixes — highest leverage; makes both machines deploy
-   cleanly and removes today's manual workarounds. Each fix should land with a deploy-smoke
-   regression check.
+   cleanly and removes today's manual workarounds. Shipped as the focused **PR 1–4 groups** above,
+   each landing with its deploy-smoke regression check.
 2. **Part 2** OCCT default cleanup (tiny PR) + the "install tree" doc.
 3. **Part 3** `AGENT_SETUP.md`.
 4. **Part 4** CI, built on 1–3 (and the cached-OCCT artifact from Part 2).
 
-## Open questions for review
+## Decisions (resolved 2026-06-17 review)
 
-1. Dev deploy vs private runtime (bug #2): add a `-SkipRuntimeInstall`/dev flag, or make
-   `post_install` fall back to an existing venv? (Affects whether dev boxes ever need the bundled
-   cpython.)
-2. Auto-gen reorder (bug #5): is preferring a detected repo checkout over the release root on dev
-   machines acceptable, or do we keep release-priority and rely solely on `ROOK_PROJECT_ROOT`?
-3. CI native build: cache the OCCT install tree in **Actions cache** vs a **versioned release
-   asset** (the latter is more durable across cache evictions and shareable with dev machines).
-4. Scope of the first PR: all of Part 1 at once, or one bug-fix-per-PR with its deploy-smoke check?
+1. **Dev runtime:** explicit dev-runtime flag (`-UseRepoVenv`/`-DevPythonRuntime`); **no silent
+   fallback** — the release `post_install` path still fails loudly if the bundled private runtime
+   is missing.
+2. **Auto-gen:** rely on `ROOK_PROJECT_ROOT` for dev; do **not** broadly prefer a detected repo
+   over the release install without a strong guard. No `ROOK_PROJECT_ROOT` → release stays release.
+3. **CI OCCT artifact:** a **versioned release asset** is the durable source of truth; Actions
+   cache is acceleration only.
+4. **PR scope:** focused, reviewable groups — **not** all of Part 1 at once.
+
+### PR grouping (decided)
+
+- **PR 1 (runtime/manifest group):** copy all `installer/*.py` modules needed by `post_install`
+  (bug 1); explicit dev-runtime flag (bug 2); write the chat manifest into the loaded TFM subdirs
+  + set `ROOK_PROJECT_ROOT` in dev deploy (bugs 4 + 5); deploy-smoke checks for all of these.
+- **PR 2:** OCCT DLL deploy closure (bug 3) + its deploy-smoke check.
+- **PR 3:** TFM registration fix (bug 6).
+- **PR 4:** launcher robustness — single-spawn + honor the pinned interpreter (bug 7).
