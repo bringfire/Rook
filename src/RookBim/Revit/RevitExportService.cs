@@ -12,18 +12,23 @@ using Rook.Bim;
 namespace RookBim.Revit
 {
     /// <summary>
-    /// Orchestrates a read-only Revit -> Rhino export: resolve the element set, freeze identities,
+    /// Orchestrates a read-only Revit -&gt; Rhino export: resolve the element set, freeze identities,
     /// convert geometry, assemble an in-memory File3dm + sidecar + validation, write the bundle
-    /// path-safely, and verify the Rhino-object <-> sidecar-record bijection. Never mutates the
+    /// path-safely, and verify the Rhino-object &lt;-&gt; sidecar-record bijection. Never mutates the
     /// active Rhino document and never mutates the Revit model (no write scope is ever opened).
+    ///
+    /// Legacy flat-scheme layer: RookBim::Model  (BimExportLayerNamer.LayerPath(Flat, ...) returns this).
     /// </summary>
     internal sealed class RevitExportService
     {
-        private const string ModelLayer = "RookBim::Model";
+        // _pendingRelationships is set in ExportResolved immediately before BuildSidecar so the
+        // sidecar serialization can reference the accumulated index.
+        private RevitRelationshipIndex? _pendingRelationships;
 
         private static readonly JsonSerializerOptions JsonOptions = new JsonSerializerOptions
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            DictionaryKeyPolicy = JsonNamingPolicy.CamelCase,
             WriteIndented = true,
             DefaultIgnoreCondition = JsonIgnoreCondition.Never
         };
@@ -33,15 +38,42 @@ namespace RookBim.Revit
 
         public BimApiResponse Export(Document document, View? activeView, BimExportElementsRequest request)
         {
-            // 1. Output-path safety (revalidate at the service boundary).
+            var resolution = ResolveElements(document, activeView, request);
+            if (resolution.Failure != null)
+            {
+                return resolution.Failure;
+            }
+
+            return ExportResolved(
+                document,
+                resolution.Elements,
+                resolution.Truncated,
+                resolution.RequestedCount,
+                request,
+                BimExportOrganizationPolicy.Legacy,
+                presetContext: null);
+        }
+
+        // Shared assembly core. The raw path passes Legacy + null context (no new decoration);
+        // the preset path passes a resolved policy + context (summary + relationships, Task 9).
+        // The bundle is exactly three sibling artifacts: <name>.3dm (geometry), <name>.sidecar.json
+        // (element/room records + frozen identities), <name>.validation.json (counts + hashes).
+        internal BimApiResponse ExportResolved(
+            Document document,
+            IReadOnlyList<Element> elements,
+            bool truncated,
+            int requestedCount,
+            BimExportElementsRequest request,
+            BimExportOrganizationPolicy policy,
+            RevitPresetContext? presetContext)
+        {
+            // 1. Output-path safety.
             var pathShape = BimExportPathPolicy.ValidateRequestShape(request.Output);
             if (!pathShape.Success)
             {
                 return BimApiResponse.Fail(pathShape.ErrorCode, pathShape.Message ?? "Invalid output path.", 400);
             }
 
-            // The bundle is exactly three sibling artifacts: <name>.3dm (geometry), <name>.sidecar.json
-            // (element/room records + frozen identities), <name>.validation.json (counts + hashes).
             var paths = BimExportPathPolicy.ResolveBundlePaths(request.Output.Directory!, request.Output.Name!);
             foreach (var path in new[] { paths.Model3dm, paths.Sidecar, paths.Validation })
             {
@@ -60,47 +92,48 @@ namespace RookBim.Revit
                 }
             }
 
-            // 2. Resolve the element set + freeze identities.
-            var resolution = ResolveElements(document, activeView, request);
-            if (resolution.Failure != null)
-            {
-                return resolution.Failure;
-            }
-
             var scale = RevitGeometryConverter.ScaleFromFeet(request.Output.Units);
             var converter = new RevitGeometryConverter(scale);
 
-            // 3. Build the in-memory File3dm + element records.
+            // 2. Build the in-memory File3dm + element records.
             var file = new Rhino.FileIO.File3dm();
             file.Settings.ModelUnitSystem = MapUnits(request.Output.Units);
-            var modelLayerIndex = EnsureLayer(file, ModelLayer);
+            var layerCache = new Dictionary<string, int>(StringComparer.Ordinal);
 
             var elementRecords = new List<object>();
             var counts = new BimExportCounts
             {
-                Requested = resolution.RequestedCount,
-                Resolved = resolution.Elements.Count,
-                Truncated = resolution.Truncated
+                Requested = requestedCount,
+                Resolved = elements.Count,
+                Truncated = truncated,
             };
             var exportedKeys = new HashSet<string>(StringComparer.Ordinal);
             var exportedRoomKeys = new HashSet<string>(StringComparer.Ordinal);
+            var relationships = new RevitRelationshipIndex();
+            var perCategoryExport = new Dictionary<string, RevitCategoryExportTally>(StringComparer.OrdinalIgnoreCase);
+            var exportId = 0;
 
-            foreach (var element in resolution.Elements)
+            foreach (var element in elements)
             {
                 var key = element.UniqueId;
                 try
                 {
-                    // Order the throw-prone Revit calls (geometry conversion, label extraction,
-                    // record building) BEFORE any geometry/bijection mutation so a throw never
-                    // leaves a .3dm object without a matching exported key.
                     var conversion = converter.Convert(element, request.AllowBboxProxy);
                     var labelSet = labels.Extract(document, element);
-                    elementRecords.Add(BuildElementRecord(document, element, conversion, labelSet));
+                    var stamp = BuildStampData(document, element, conversion, presetContext, exportId);
+                    elementRecords.Add(BuildElementRecord(document, element, conversion, labelSet, stamp));
+
+                    if (presetContext != null)
+                    {
+                        relationships.Accumulate(element.UniqueId, labelSet);
+                    }
 
                     if (conversion.HasGeometry)
                     {
-                        AddGeometry(file, modelLayerIndex, element, conversion);
+                        var layerIndex = EnsureLayerForElement(file, layerCache, policy, stamp, labelSet);
+                        AddGeometryWithPolicy(file, layerIndex, element, conversion, policy, stamp, labelSet);
                         exportedKeys.Add(key);
+                        TallyExport(perCategoryExport, stamp.Category, conversion.Quality, failed: false);
                         switch (conversion.Quality)
                         {
                             case RevitGeometryConverter.QualityConvertedBrep: counts.ExportedBrep++; break;
@@ -111,22 +144,27 @@ namespace RookBim.Revit
                     else
                     {
                         counts.Failed++;
+                        TallyExport(perCategoryExport, stamp.Category, conversion.Quality, failed: true);
                     }
+
+                    exportId++;
                 }
                 catch (Exception ex)
                 {
-                    // A single degenerate element must not abort the whole export.
                     counts.Failed++;
                     elementRecords.Add(BuildFailedElementRecord(element, ex));
+                    exportId++;
                 }
             }
 
-            // 4. Rooms (typed separately).
+            // 3. Rooms (typed separately).
             var roomRecords = new List<object>();
-            if (request.EffectiveRooms != BimRoomsMode.Exclude)
+            var effectiveRooms = presetContext?.EffectiveRooms ?? request.EffectiveRooms;
+            var roomRepCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+            if (effectiveRooms != BimRoomsMode.Exclude)
             {
-                var includeGeometry = request.EffectiveRooms == BimRoomsMode.Both;
-                var roomLayerIndex = EnsureLayer(file, RevitRoomExporter.RoomsLayer);
+                var includeGeometry = effectiveRooms == BimRoomsMode.Both;
+                var roomLayerIndex = EnsureLayerPath(file, layerCache, RevitRoomExporter.RoomsLayer);
                 var rooms = new RevitRoomExporter(scale).ExportRooms(document);
                 counts.Rooms = rooms.Count;
                 foreach (var room in rooms)
@@ -141,11 +179,21 @@ namespace RookBim.Revit
                         geometryRepresentation = rep,
                         referenceGeometry = true
                     });
+                    roomRepCounts.TryGetValue(rep, out var n);
+                    roomRepCounts[rep] = n + 1;
                 }
             }
 
-            // 5. NoExportableGeometry guard.
-            if (resolution.Elements.Count > 0 && counts.ExportedBrep + counts.ExportedMesh + counts.ExportedBboxProxy == 0)
+            if (presetContext != null && presetContext.RoomsDriven && counts.Rooms == 0)
+            {
+                return BimApiResponse.Fail(
+                    BimErrorCode.NoCategoriesResolved,
+                    $"Rooms-driven preset '{presetContext.Preset}' resolved no rooms in the selected scope.",
+                    422);
+            }
+
+            // 4. NoExportableGeometry guard (unchanged: only when elements resolved but none had geometry).
+            if (elements.Count > 0 && counts.ExportedBrep + counts.ExportedMesh + counts.ExportedBboxProxy == 0)
             {
                 return BimApiResponse.Fail(
                     BimErrorCode.NoExportableGeometry,
@@ -153,20 +201,17 @@ namespace RookBim.Revit
                     422);
             }
 
-            // 6. Verify the bijection BEFORE writing.
+            // 5. Verify the bijection BEFORE writing.
             var verification = VerifyBijection(file, exportedKeys, exportedRoomKeys);
 
-            // 7. Assemble sidecar + validation; write all three path-safely.
-            var sidecar = BuildSidecar(document, request, resolution, elementRecords, roomRecords);
+            // 6. Assemble sidecar + validation; write all three path-safely.
+            _pendingRelationships = presetContext == null ? null : relationships;
+            var sidecar = BuildSidecar(document, request, elements, truncated, elementRecords, roomRecords, presetContext);
             var sidecarJson = JsonSerializer.Serialize(sidecar, JsonOptions);
-
-            // Only paths this run actually attempts to write are eligible for cleanup; with
-            // overwrite=true a pre-existing sibling we never wrote must never be deleted.
             var written = new List<string>();
 
             try
             {
-                // A failed/partial File3dm.Write can still leave a partial file, so it is cleanable.
                 written.Add(paths.Model3dm);
                 if (!file.Write(paths.Model3dm, 7))
                 {
@@ -176,33 +221,32 @@ namespace RookBim.Revit
                 File.WriteAllText(paths.Sidecar, sidecarJson, new UTF8Encoding(false));
                 written.Add(paths.Sidecar);
 
-                var validation = BuildValidation(document, counts, scale, request.Output.Units, paths, sidecarJson);
+                // Audit computed from the ACTUAL written File3dm objects — proves names + stamps were
+                // applied to the .3dm, not merely recorded in the sidecar. Preset-path-only.
+                var modelAudit = presetContext == null ? null : BuildModelObjectAudit(file);
+                var summary = presetContext == null
+                    ? null
+                    : BuildSummary(presetContext, counts, perCategoryExport, roomRepCounts, layerCache.Count, paths);
+                var validation = BuildValidation(
+                    document, counts, scale, request.Output.Units, paths, sidecarJson, presetContext, summary, relationships, modelAudit);
                 File.WriteAllText(paths.Validation, JsonSerializer.Serialize(validation, JsonOptions), new UTF8Encoding(false));
                 written.Add(paths.Validation);
+
+                if (!verification.Ok)
+                {
+                    CleanupBundle(written);
+                    var failure = BimApiResponse.Fail(
+                        BimErrorCode.ExportFailed, "Export bijection verification failed; bundle is not a trustworthy fixture.", 500);
+                    failure.Data = new { verification };
+                    return failure;
+                }
+
+                return BimApiResponse.Ok(BuildResult(paths, counts, verification, scale, request.Output.Units, presetContext, summary, relationships, modelAudit));
             }
             catch (Exception ex)
             {
                 return CleanupAndFail(written, $"Bundle write failed: {ex.GetType().Name}: {ex.Message}");
             }
-
-            if (!verification.Ok)
-            {
-                CleanupBundle(written);
-                var failure = BimApiResponse.Fail(
-                    BimErrorCode.ExportFailed, "Export bijection verification failed; bundle is not a trustworthy fixture.", 500);
-                failure.Data = new { verification };
-                return failure;
-            }
-
-            return BimApiResponse.Ok(new BimExportResult
-            {
-                Paths = paths,
-                Counts = counts,
-                Verification = verification,
-                SourceUnits = "feet",
-                TargetUnits = request.Output.Units,
-                UnitScaleFactor = scale
-            });
         }
 
         private ElementResolution ResolveElements(Document document, View? activeView, BimExportElementsRequest request)
@@ -253,15 +297,16 @@ namespace RookBim.Revit
             return ElementResolution.Ok(resolvedElements, queryResult.Query.Truncated, requestedCount: queryResult.Query.Returned);
         }
 
-        private object BuildElementRecord(Document document, Element element, RevitGeometryConversion conversion, RevitElementLabels labelSet)
+        private object BuildElementRecord(
+            Document document, Element element, RevitGeometryConversion conversion, RevitElementLabels labelSet, RevitStampData stamp)
         {
             var bb = element.get_BoundingBox(null);
             return new
             {
                 identity = RevitIdentitySerializer.ElementIdentity(element),
-                category = element.Category?.Name,
-                family = (document.GetElement(element.GetTypeId()) as ElementType)?.FamilyName,
-                type = (document.GetElement(element.GetTypeId()) as ElementType)?.Name,
+                category = stamp.Category,
+                family = stamp.Family,
+                type = stamp.Type,
                 name = element.Name,
                 bbox = bb == null ? null : new[] { bb.Min.X, bb.Min.Y, bb.Min.Z, bb.Max.X, bb.Max.Y, bb.Max.Z },
                 geometryRepresentation = conversion.Representation,
@@ -314,34 +359,297 @@ namespace RookBim.Revit
             };
         }
 
+        private static int EnsureLayerPath(Rhino.FileIO.File3dm file, Dictionary<string, int> cache, string path)
+        {
+            if (cache.TryGetValue(path, out var existing))
+            {
+                return existing;
+            }
+
+            var segments = path.Split(new[] { "::" }, StringSplitOptions.RemoveEmptyEntries);
+            if (segments.Length == 0)
+            {
+                segments = new[] { "RookBim", "_Other" };
+            }
+
+            int? parentIndex = null;
+            var currentPath = string.Empty;
+            for (var i = 0; i < segments.Length; i++)
+            {
+                var segment = segments[i].Trim();
+                if (string.IsNullOrEmpty(segment))
+                {
+                    segment = "_Other";
+                }
+
+                currentPath = i == 0 ? segment : currentPath + "::" + segment;
+                if (cache.TryGetValue(currentPath, out var cached))
+                {
+                    parentIndex = cached;
+                    continue;
+                }
+
+                var childIndex = FindChildLayer(file, parentIndex, segment);
+                if (childIndex < 0)
+                {
+                    childIndex = AddLayer(file, segment, parentIndex);
+                }
+
+                cache[currentPath] = childIndex;
+                parentIndex = childIndex;
+            }
+
+            var finalIndex = parentIndex ?? -1;
+            cache[path] = finalIndex;
+            return finalIndex;
+        }
+
+        private static int AddLayer(Rhino.FileIO.File3dm file, string name, int? parentIndex)
+        {
+            var index = file.AllLayers.Count;
+            var layer = new Rhino.DocObjects.Layer
+            {
+                Id = Guid.NewGuid(),
+                Name = name,
+                Index = index,
+            };
+
+            if (parentIndex.HasValue)
+            {
+                layer.ParentLayerId = LayerAt(file, parentIndex.Value).Id;
+            }
+
+            file.AllLayers.Add(layer);
+            return index;
+        }
+
+        private static int FindChildLayer(Rhino.FileIO.File3dm file, int? parentIndex, string name)
+        {
+            var parentId = parentIndex.HasValue ? LayerAt(file, parentIndex.Value).Id : Guid.Empty;
+            for (var i = 0; i < file.AllLayers.Count; i++)
+            {
+                var layer = LayerAt(file, i);
+                if (string.Equals(layer.Name, name, StringComparison.OrdinalIgnoreCase) &&
+                    layer.ParentLayerId == parentId)
+                {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+
+        private static int EnsureLayerForElement(
+            Rhino.FileIO.File3dm file,
+            Dictionary<string, int> cache,
+            BimExportOrganizationPolicy policy,
+            RevitStampData stamp,
+            RevitElementLabels labelSet)
+        {
+            var levelValue = labelSet.Level?.Value;
+            var layerName = BimExportLayerNamer.LayerPath(policy.LayerScheme, stamp.Category, levelValue);
+            return EnsureLayerPath(file, cache, layerName);
+        }
+
+        private void AddGeometryWithPolicy(
+            Rhino.FileIO.File3dm file,
+            int layerIndex,
+            Element element,
+            RevitGeometryConversion conversion,
+            BimExportOrganizationPolicy policy,
+            RevitStampData stamp,
+            RevitElementLabels labelSet)
+        {
+            var attrs = new Rhino.DocObjects.ObjectAttributes { LayerIndex = layerIndex };
+            StampObject(attrs, element, conversion, policy, stamp, labelSet);
+
+            var name = BimExportObjectNamer.ObjectName(
+                policy.NameScheme, stamp.Category, stamp.Type, stamp.ElementIdValue, stamp.RevitName);
+            if (!string.IsNullOrEmpty(name))
+            {
+                attrs.Name = name;
+            }
+
+            if (conversion.Breps.Count > 0)
+            {
+                foreach (var brep in conversion.Breps)
+                {
+                    file.Objects.AddBrep(brep, attrs);
+                }
+            }
+            else if (conversion.Mesh != null)
+            {
+                file.Objects.AddMesh(conversion.Mesh, attrs);
+            }
+            else if (conversion.Bbox != null)
+            {
+                file.Objects.AddBrep(conversion.Bbox.Value.ToBrep(), attrs);
+            }
+        }
+
+        // Value-only user strings. minimal = the legacy four; standard/full add Rook-derived +
+        // raw Revit facts. Missing/low-confidence labels are omitted, never stamped as "unknown".
+        private static void StampObject(
+            Rhino.DocObjects.ObjectAttributes attrs,
+            Element element,
+            RevitGeometryConversion conversion,
+            BimExportOrganizationPolicy policy,
+            RevitStampData stamp,
+            RevitElementLabels labelSet)
+        {
+            attrs.SetUserString("rook.source", "revit");
+            attrs.SetUserString("revit.uniqueId", element.UniqueId);
+            attrs.SetUserString("revit.elementId", element.Id.Value.ToString());
+            attrs.SetUserString("revit.category", stamp.Category ?? string.Empty);
+
+            if (policy.MetadataProfile == BimMetadataProfile.Minimal)
+            {
+                return;
+            }
+
+            attrs.SetUserString("rookbim.exportId", stamp.ExportId.ToString());
+            if (!string.IsNullOrEmpty(stamp.Preset)) { attrs.SetUserString("rookbim.preset", stamp.Preset); }
+            attrs.SetUserString("rookbim.geometryRepresentation", conversion.Representation);
+            attrs.SetUserString("rookbim.geometryQuality", conversion.Quality);
+            StampIfPresent(attrs, "revit.family", stamp.Family);
+            StampIfPresent(attrs, "revit.type", stamp.Type);
+            StampIfPresent(attrs, "revit.name", stamp.RevitName);
+            StampLabel(attrs, "revit.level", labelSet.Level);
+
+            if (policy.MetadataProfile != BimMetadataProfile.Full)
+            {
+                return;
+            }
+
+            StampLabel(attrs, "revit.hostId", labelSet.HostId);
+            StampLabel(attrs, "revit.containingRoomId", labelSet.ContainingRoom);
+            StampLabel(attrs, "revit.containingSpaceId", labelSet.ContainingSpace);
+        }
+
+        private static void StampIfPresent(Rhino.DocObjects.ObjectAttributes attrs, string key, string? value)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                attrs.SetUserString(key, value);
+            }
+        }
+
+        private static void StampLabel(Rhino.DocObjects.ObjectAttributes attrs, string key, BimSemanticLabel? label)
+        {
+            if (label != null && !string.IsNullOrWhiteSpace(label.Value))
+            {
+                attrs.SetUserString(key, label.Value);
+            }
+        }
+
+        private static RevitStampData BuildStampData(
+            Document document,
+            Element element,
+            RevitGeometryConversion conversion,
+            RevitPresetContext? presetContext,
+            int exportId)
+        {
+            var type = document.GetElement(element.GetTypeId()) as ElementType;
+            return new RevitStampData
+            {
+                Category = element.Category?.Name,
+                Family = type?.FamilyName,
+                Type = type?.Name,
+                RevitName = NullIfWhiteSpace(element.Name),
+                ElementIdValue = element.Id.Value,
+                ExportId = exportId,
+                Preset = presetContext?.Preset ?? string.Empty,
+            };
+        }
+
+        private static void TallyExport(
+            Dictionary<string, RevitCategoryExportTally> tallies, string? category, string quality, bool failed)
+        {
+            var key = string.IsNullOrWhiteSpace(category) ? "_Other" : category!;
+            if (!tallies.TryGetValue(key, out var tally))
+            {
+                tally = new RevitCategoryExportTally();
+                tallies[key] = tally;
+            }
+
+            if (failed) { tally.Failed++; } else { tally.Exported++; }
+        }
+
+        private static string? NullIfWhiteSpace(string? value)
+        {
+            return string.IsNullOrWhiteSpace(value) ? null : value;
+        }
+
+        private sealed class RevitStampData
+        {
+            public string? Category { get; set; }
+            public string? Family { get; set; }
+            public string? Type { get; set; }
+            public string? RevitName { get; set; }
+            public long ElementIdValue { get; set; }
+            public int ExportId { get; set; }
+            public string Preset { get; set; } = string.Empty;
+        }
+
+        private sealed class RevitCategoryExportTally
+        {
+            public int Exported { get; set; }
+            public int Failed { get; set; }
+        }
+
         private object BuildSidecar(
             Document document,
             BimExportElementsRequest request,
-            ElementResolution resolution,
+            IReadOnlyList<Element> elements,
+            bool truncated,
             List<object> elementRecords,
-            List<object> roomRecords)
+            List<object> roomRecords,
+            RevitPresetContext? presetContext)
         {
-            return new
-            {
-                schemaVersion = 1,
-                document = RevitIdentitySerializer.DocumentIdentity(document),
-                request = new
+            var requestSection = presetContext == null
+                ? (object)new
                 {
                     hasSelector = request.HasSelector,
                     hasIdentities = request.HasIdentities,
                     rooms = request.EffectiveRooms.ToString(),
                     allowTruncated = request.AllowTruncated,
                     allowBboxProxy = request.AllowBboxProxy
-                },
-                resolved = new
+                }
+                : new
                 {
-                    count = resolution.Elements.Count,
-                    truncated = resolution.Truncated,
-                    identities = resolution.Elements.Select(RevitIdentitySerializer.ElementIdentity).ToList()
+                    preset = presetContext.Preset,
+                    effectiveCategories = presetContext.EffectiveCategories,
+                    rooms = BimExportOrganizationPolicy.RoomsToWire(presetContext.EffectiveRooms),
+                    layerPolicy = BimExportOrganizationPolicy.LayerToWire(presetContext.Policy.LayerScheme),
+                    namePolicy = BimExportOrganizationPolicy.NameToWire(presetContext.Policy.NameScheme),
+                    metadataProfile = BimExportOrganizationPolicy.ProfileToWire(presetContext.Policy.MetadataProfile),
+                    limitPerCategory = presetContext.LimitPerCategory,
+                    allowTruncated = request.AllowTruncated,
+                    allowBboxProxy = request.AllowBboxProxy
+                };
+
+            var sidecar = new Dictionary<string, object?>
+            {
+                ["schemaVersion"] = 1,
+                ["document"] = RevitIdentitySerializer.DocumentIdentity(document),
+                ["request"] = requestSection,
+                ["resolved"] = new
+                {
+                    count = elements.Count,
+                    truncated = truncated,
+                    identities = elements.Select(RevitIdentitySerializer.ElementIdentity).ToList()
                 },
-                elements = elementRecords,
-                rooms = roomRecords
+                ["elements"] = elementRecords,
+                ["rooms"] = roomRecords,
             };
+
+            // Preset-only: relationships index lives in the sidecar too (Task 9 fills it).
+            if (presetContext != null)
+            {
+                sidecar["relationships"] = _pendingRelationships?.ToWire() ?? RevitRelationshipIndex.EmptyWire();
+            }
+
+            return sidecar;
         }
 
         private object BuildValidation(
@@ -350,20 +658,281 @@ namespace RookBim.Revit
             double scale,
             string targetUnits,
             BimExportArtifactPaths paths,
-            string sidecarJson)
+            string sidecarJson,
+            RevitPresetContext? presetContext,
+            object? summary,
+            RevitRelationshipIndex relationships,
+            object? modelAudit)
         {
-            return new
+            var validation = new Dictionary<string, object?>
             {
-                schemaVersion = 1,
-                document = RevitIdentitySerializer.DocumentIdentity(document),
-                units = new { source = "feet", target = targetUnits, scaleFactor = scale },
-                counts,
-                hashes = new
+                ["schemaVersion"] = 1,
+                ["document"] = RevitIdentitySerializer.DocumentIdentity(document),
+                ["units"] = new { source = "feet", target = targetUnits, scaleFactor = scale },
+                ["counts"] = counts,
+                ["hashes"] = new
                 {
                     model3dm = "sha256:" + Sha256File(paths.Model3dm),
                     sidecar = "sha256:" + Sha256String(sidecarJson)
-                }
+                },
             };
+
+            if (presetContext != null)
+            {
+                validation["summary"] = summary;
+                validation["relationships"] = relationships.ToWire();
+                validation["objects"] = modelAudit;
+            }
+
+            return validation;
+        }
+
+        private object BuildResult(
+            BimExportArtifactPaths paths,
+            BimExportCounts counts,
+            BimExportVerification verification,
+            double scale,
+            string targetUnits,
+            RevitPresetContext? presetContext,
+            object? summary,
+            RevitRelationshipIndex relationships,
+            object? modelAudit)
+        {
+            var result = BimApiResponse.Ok(new BimExportResult
+            {
+                Paths = paths,
+                Counts = counts,
+                Verification = verification,
+                SourceUnits = "feet",
+                TargetUnits = targetUnits,
+                UnitScaleFactor = scale
+            });
+
+            // For the preset path, attach summary + relationships to the response Data alongside the
+            // typed result. The raw path returns the bare BimExportResult (unchanged shape).
+            if (presetContext == null)
+            {
+                return result.Data!;
+            }
+
+            return new
+            {
+                schemaVersion = 1,
+                paths,
+                counts,
+                verification,
+                sourceUnits = "feet",
+                targetUnits,
+                unitScaleFactor = scale,
+                summary,
+                relationships = relationships.ToWire(),
+                objects = modelAudit
+            };
+        }
+
+        private static object BuildSummary(
+            RevitPresetContext presetContext,
+            BimExportCounts counts,
+            Dictionary<string, RevitCategoryExportTally> perCategoryExport,
+            Dictionary<string, int> roomRepCounts,
+            int layerCount,
+            BimExportArtifactPaths paths)
+        {
+            var resolvedCategories = presetContext.ResolvedCategories.Select(rc =>
+            {
+                perCategoryExport.TryGetValue(rc.Category, out var tally);
+                return new
+                {
+                    category = rc.Category,
+                    resolved = rc.Resolved,
+                    exported = tally?.Exported ?? 0,
+                    failed = tally?.Failed ?? 0,
+                    status = rc.Status,
+                };
+            }).ToList();
+
+            var warnings = presetContext.Warnings.Select(w => new { code = w.Code, message = w.Message }).ToList();
+            var layerWarnings = new List<object>();
+            const int LayerCountThreshold = 64;
+            if (layerCount > LayerCountThreshold)
+            {
+                layerWarnings.Add(new
+                {
+                    code = "layer_count_high",
+                    message = $"Export produced {layerCount} layers (threshold {LayerCountThreshold}).",
+                });
+            }
+
+            var exportedTotal = counts.ExportedBrep + counts.ExportedMesh + counts.ExportedBboxProxy;
+            var digest =
+                $"Exported {exportedTotal} elements across {presetContext.EffectiveCategories.Count} categories: " +
+                $"{counts.ExportedBrep} Breps, {counts.ExportedMesh} meshes, {counts.ExportedBboxProxy} bbox proxies, " +
+                $"{counts.Failed} failed. {counts.Rooms} rooms included. {warnings.Count} warning(s).";
+
+            return new
+            {
+                digest,
+                preset = presetContext.Preset,
+                effectiveCategories = presetContext.EffectiveCategories,
+                layerPolicy = BimExportOrganizationPolicy.LayerToWire(presetContext.Policy.LayerScheme),
+                namePolicy = BimExportOrganizationPolicy.NameToWire(presetContext.Policy.NameScheme),
+                metadataProfile = BimExportOrganizationPolicy.ProfileToWire(presetContext.Policy.MetadataProfile),
+                limitPerCategory = presetContext.LimitPerCategory,
+                resolvedCategories,
+                geometryQuality = new
+                {
+                    brep = counts.ExportedBrep,
+                    mesh = counts.ExportedMesh,
+                    bbox_proxy = counts.ExportedBboxProxy,
+                    failed = counts.Failed,
+                },
+                rooms = new
+                {
+                    total = counts.Rooms,
+                    byRepresentation = roomRepCounts,
+                },
+                layers = new { count = layerCount, warnings = layerWarnings },
+                warnings,
+            };
+        }
+
+        // Reads the ACTUAL written File3dm objects to prove names + user-string stamps reached the
+        // .3dm (not just the sidecar records). Preset-path-only.
+        private static object BuildModelObjectAudit(Rhino.FileIO.File3dm file)
+        {
+            var total = 0;
+            var named = 0;
+            var withUniqueId = 0;
+            var withLevelStamp = 0;
+            var withFamilyStamp = 0;
+            var sampleNames = new List<string>();
+            var sampleStampKeys = new List<string>();
+            var layerNames = new List<string>();
+            var layerPaths = new List<string>();
+            var layerRecords = new List<object>();
+            var objectLayerPaths = new List<string>();
+            for (var i = 0; i < file.AllLayers.Count; i++)
+            {
+                var layer = LayerAt(file, i);
+                layerNames.Add(layer.Name);
+                var path = BuildLayerPath(file, i);
+                layerPaths.Add(path);
+                layerRecords.Add(new
+                {
+                    name = layer.Name,
+                    path,
+                    id = layer.Id.ToString(),
+                    parentLayerId = layer.ParentLayerId.ToString(),
+                    hasParent = layer.ParentLayerId != Guid.Empty,
+                });
+            }
+
+            foreach (var obj in file.Objects)
+            {
+                total++;
+                var attrs = obj.Attributes;
+                if (!string.IsNullOrEmpty(attrs.Name))
+                {
+                    named++;
+                    if (sampleNames.Count < 3) { sampleNames.Add(attrs.Name); }
+                }
+
+                if (!string.IsNullOrEmpty(attrs.GetUserString("revit.uniqueId"))) { withUniqueId++; }
+                if (!string.IsNullOrEmpty(attrs.GetUserString("revit.level"))) { withLevelStamp++; }
+                if (!string.IsNullOrEmpty(attrs.GetUserString("revit.family"))) { withFamilyStamp++; }
+
+                if (sampleStampKeys.Count == 0)
+                {
+                    var strings = attrs.GetUserStrings();
+                    foreach (var key in strings.AllKeys)
+                    {
+                        if (!string.IsNullOrEmpty(key)) { sampleStampKeys.Add(key); }
+                    }
+                }
+
+                if (attrs.LayerIndex >= 0 && attrs.LayerIndex < file.AllLayers.Count)
+                {
+                    var objectLayerPath = BuildLayerPath(file, attrs.LayerIndex);
+                    if (!objectLayerPaths.Contains(objectLayerPath))
+                    {
+                        objectLayerPaths.Add(objectLayerPath);
+                    }
+                }
+            }
+
+            return new
+            {
+                objectCount = total,
+                namedObjectCount = named,
+                withUniqueIdCount = withUniqueId,
+                withLevelStampCount = withLevelStamp,
+                withFamilyStampCount = withFamilyStamp,
+                sampleNames,
+                sampleStampKeys,
+                layerNames,
+                layerPaths,
+                layerRecords,
+                objectLayerPaths,
+            };
+        }
+
+        private static string BuildLayerPath(Rhino.FileIO.File3dm file, int layerIndex)
+        {
+            if (layerIndex < 0 || layerIndex >= file.AllLayers.Count)
+            {
+                return string.Empty;
+            }
+
+            var segments = new Stack<string>();
+            var visited = new HashSet<Guid>();
+            var current = LayerAt(file, layerIndex);
+            while (current != null)
+            {
+                segments.Push(current.Name);
+                if (current.ParentLayerId == Guid.Empty || !visited.Add(current.Id))
+                {
+                    break;
+                }
+
+                var parentIndex = FindLayerById(file, current.ParentLayerId);
+                if (parentIndex < 0)
+                {
+                    break;
+                }
+
+                current = LayerAt(file, parentIndex);
+            }
+
+            return string.Join("::", segments);
+        }
+
+        private static int FindLayerById(Rhino.FileIO.File3dm file, Guid id)
+        {
+            for (var i = 0; i < file.AllLayers.Count; i++)
+            {
+                if (LayerAt(file, i).Id == id)
+                {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+
+        private static Rhino.DocObjects.Layer LayerAt(Rhino.FileIO.File3dm file, int index)
+        {
+            var i = 0;
+            foreach (var layer in file.AllLayers)
+            {
+                if (i == index)
+                {
+                    return layer;
+                }
+
+                i++;
+            }
+
+            throw new ArgumentOutOfRangeException(nameof(index), index, "Layer index is outside the File3dm layer table.");
         }
 
         private static BimExportVerification VerifyBijection(
@@ -383,32 +952,6 @@ namespace RookBim.Revit
             expected.UnionWith(exportedRoomKeys);
 
             return BimExportBijection.Verify(objectKeys, expected);
-        }
-
-        private void AddGeometry(Rhino.FileIO.File3dm file, int layerIndex, Element element, RevitGeometryConversion conversion)
-        {
-            var attrs = new Rhino.DocObjects.ObjectAttributes { LayerIndex = layerIndex };
-            attrs.SetUserString("rook.source", "revit");
-            attrs.SetUserString("revit.uniqueId", element.UniqueId);
-            attrs.SetUserString("revit.elementId", element.Id.Value.ToString());
-            attrs.SetUserString("revit.category", element.Category?.Name ?? string.Empty);
-
-            if (conversion.Breps.Count > 0)
-            {
-                foreach (var brep in conversion.Breps)
-                {
-                    file.Objects.AddBrep(brep, attrs);
-                }
-            }
-            else if (conversion.Mesh != null)
-            {
-                file.Objects.AddMesh(conversion.Mesh, attrs);
-            }
-            else if (conversion.Bbox != null)
-            {
-                // RhinoCommon 8 File3dmObjectTable exposes no AddBox; add the box proxy as its Brep.
-                file.Objects.AddBrep(conversion.Bbox.Value.ToBrep(), attrs);
-            }
         }
 
         private string MaterializeRoom(
@@ -459,17 +1002,6 @@ namespace RookBim.Revit
             file.Objects.AddMesh(mesh, attrs);
             exportedRoomKeys.Add(room.UniqueId);
             return RevitRoomExporter.RepMesh;
-        }
-
-        private static int EnsureLayer(Rhino.FileIO.File3dm file, string name)
-        {
-            // RhinoCommon 8 File3dmLayerTable.Add returns void, so pin the index explicitly to the
-            // next table slot before adding. This keeps ObjectAttributes.LayerIndex correct for the
-            // bijection/verification (objects reference this exact index).
-            var index = file.AllLayers.Count;
-            var layer = new Rhino.DocObjects.Layer { Name = name, Index = index };
-            file.AllLayers.Add(layer);
-            return index;
         }
 
         private static Rhino.UnitSystem MapUnits(string units)

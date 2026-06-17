@@ -24,6 +24,7 @@ namespace Rook.Tests.Handlers
             "select_elements",
             "clear_selection",
             "export_elements",
+            "export_preset",
         };
 
         [Fact]
@@ -556,6 +557,7 @@ namespace Rook.Tests.Handlers
             public BimApiResponse SelectElements(BimSelectElementsRequest request) => BimApiResponse.Ok(null);
             public BimApiResponse ClearSelection() => BimApiResponse.Ok(null);
             public BimApiResponse ExportElements(BimExportElementsRequest request) => BimApiResponse.Ok(null);
+            public BimApiResponse ExportPreset(BimExportPresetRequest request) => BimApiResponse.Ok(null);
         }
 
         private sealed class NoActiveDocumentRuntime : IRookBimRuntime
@@ -588,6 +590,7 @@ namespace Rook.Tests.Handlers
             public BimApiResponse SelectElements(BimSelectElementsRequest request) => BimApiResponse.Ok(null);
             public BimApiResponse ClearSelection() => BimApiResponse.Ok(null);
             public BimApiResponse ExportElements(BimExportElementsRequest request) => BimApiResponse.Ok(null);
+            public BimApiResponse ExportPreset(BimExportPresetRequest request) => BimApiResponse.Ok(null);
         }
 
         private sealed class DetailFailureRuntime : IRookBimRuntime
@@ -649,6 +652,11 @@ namespace Rook.Tests.Handlers
             {
                 return BimApiResponse.Ok(null);
             }
+
+            public BimApiResponse ExportPreset(BimExportPresetRequest request)
+            {
+                return BimApiResponse.Ok(null);
+            }
         }
 
         private sealed class CategoryFailureRuntime : IRookBimRuntime
@@ -707,6 +715,11 @@ namespace Rook.Tests.Handlers
             }
 
             public BimApiResponse ExportElements(BimExportElementsRequest request)
+            {
+                return BimApiResponse.Ok(null);
+            }
+
+            public BimApiResponse ExportPreset(BimExportPresetRequest request)
             {
                 return BimApiResponse.Ok(null);
             }

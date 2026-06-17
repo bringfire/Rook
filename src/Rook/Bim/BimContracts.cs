@@ -27,6 +27,8 @@ namespace Rook.Bim
         OutputPathInvalid,
         NoExportableGeometry,
         ExportFailed,
+        UnknownPreset,
+        NoCategoriesResolved,
         InternalError
     }
 
@@ -504,6 +506,29 @@ namespace Rook.Bim
         Exclude
     }
 
+    public enum BimLayerScheme
+    {
+        Flat,
+        ByCategory,
+        ByLevelThenCategory
+    }
+
+    public enum BimNameScheme
+    {
+        None,
+        RevitName,
+        TypeOnly,
+        Readable,
+        ReadableWithId
+    }
+
+    public enum BimMetadataProfile
+    {
+        Minimal,
+        Standard,
+        Full
+    }
+
     public sealed class BimExportOutput
     {
         public string? Directory { get; set; }
@@ -632,5 +657,101 @@ namespace Rook.Bim
         public string TargetUnits { get; set; } = "meters";
 
         public double UnitScaleFactor { get; set; } = 1.0;
+    }
+
+    public sealed class BimExportPresetRequest
+    {
+        public string? Preset { get; set; }
+
+        public BimExportOutput Output { get; set; } = new BimExportOutput();
+
+        public string? Scope { get; set; }
+
+        public List<string>? IncludeCategories { get; set; }
+
+        public List<string>? ExcludeCategories { get; set; }
+
+        public string? LayerPolicy { get; set; }
+
+        public string? NamePolicy { get; set; }
+
+        public string? MetadataProfile { get; set; }
+
+        public string? Rooms { get; set; }
+
+        public int? LimitPerCategory { get; set; }
+
+        public bool AllowTruncated { get; set; }
+
+        public bool AllowBboxProxy { get; set; }
+
+        public BimQueryScope EffectiveScope
+        {
+            get
+            {
+                return string.Equals(Scope, "document", StringComparison.OrdinalIgnoreCase)
+                    ? BimQueryScope.Document
+                    : BimQueryScope.ActiveView;
+            }
+        }
+
+        public BimValidationResult Validate()
+        {
+            if (string.IsNullOrWhiteSpace(Preset) || !BimPresetCatalog.TryGet(Preset, out _))
+            {
+                return Fail(
+                    BimErrorCode.UnknownPreset,
+                    $"Unknown export preset '{Preset}'. Known presets: {string.Join(", ", BimPresetCatalog.Names)}.");
+            }
+
+            if (!string.IsNullOrWhiteSpace(Scope) &&
+                !string.Equals(Scope, "active_view", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(Scope, "document", StringComparison.OrdinalIgnoreCase))
+            {
+                return Fail(BimErrorCode.InvalidScope, "scope must be 'active_view' or 'document'.");
+            }
+
+            if (LimitPerCategory.HasValue &&
+                (LimitPerCategory.Value < 1 || LimitPerCategory.Value > BimQueryElementsRequest.HardMaxLimit))
+            {
+                return Fail(
+                    BimErrorCode.QueryLimitExceeded,
+                    $"limitPerCategory must be between 1 and {BimQueryElementsRequest.HardMaxLimit}.");
+            }
+
+            var outputValidation = BimExportPathPolicy.ValidateRequestShape(Output);
+            if (!outputValidation.Success)
+            {
+                return outputValidation;
+            }
+
+            return BimValidationResult.Ok;
+        }
+
+        private static BimValidationResult Fail(BimErrorCode code, string message)
+        {
+            return new BimValidationResult { Success = false, ErrorCode = code, Message = message };
+        }
+    }
+
+    public sealed class BimPresetDefinition
+    {
+        public string Name { get; set; } = string.Empty;
+
+        public IReadOnlyList<string> Categories { get; set; } = Array.Empty<string>();
+
+        public BimLayerScheme DefaultLayerScheme { get; set; } = BimLayerScheme.Flat;
+
+        // Presets default to readable object names (spec default namePolicy = readable_with_id).
+        // Only BimExportOrganizationPolicy.Legacy (the raw export path) opts back to None.
+        public BimNameScheme DefaultNameScheme { get; set; } = BimNameScheme.ReadableWithId;
+
+        public BimMetadataProfile DefaultMetadataProfile { get; set; } = BimMetadataProfile.Minimal;
+
+        public BimRoomsMode DefaultRooms { get; set; } = BimRoomsMode.Both;
+
+        public int DefaultLimitPerCategory { get; set; } = 1000;
+
+        public bool RoomsDriven { get; set; }
     }
 }

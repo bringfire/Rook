@@ -69,6 +69,11 @@ namespace Rook.Bim
             return Unavailable();
         }
 
+        public BimApiResponse ExportPreset(BimExportPresetRequest request)
+        {
+            return Unavailable();
+        }
+
         private BimApiResponse Unavailable()
         {
             return BimApiResponse.Fail(

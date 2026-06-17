@@ -542,6 +542,60 @@ def _rookbim_export_elements_schema() -> dict[str, Any]:
     }
 
 
+def _rookbim_export_preset_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "preset": {
+                "type": "string",
+                "enum": [
+                    "architectural_shell",
+                    "interiors",
+                    "openings_and_hosts",
+                    "structural",
+                    "rooms_and_spaces",
+                    "calibration_fixture",
+                ],
+                "description": "Curated export recipe (category bundle + default organization policy).",
+            },
+            "output": {
+                "type": "object",
+                "properties": {
+                    "directory": {"type": "string", "description": "Absolute local output directory."},
+                    "name": {"type": "string", "description": "Bundle name ([A-Za-z0-9._-], no separators)."},
+                    "units": {
+                        "type": "string",
+                        "enum": ["meters", "millimeters", "centimeters", "feet", "inches"],
+                        "default": "meters",
+                    },
+                    "overwrite": {"type": "boolean", "default": False},
+                },
+                "required": ["directory", "name"],
+                "additionalProperties": False,
+            },
+            "scope": {"type": "string", "enum": ["active_view", "document"], "default": "active_view"},
+            "includeCategories": {"type": "array", "items": {"type": "string"}},
+            "excludeCategories": {"type": "array", "items": {"type": "string"}},
+            "layerPolicy": {
+                "type": "string",
+                "enum": ["flat", "by_category", "by_level_then_category"],
+            },
+            "namePolicy": {
+                "type": "string",
+                "enum": ["none", "revit_name", "type_only", "readable", "readable_with_id"],
+            },
+            "metadataProfile": {"type": "string", "enum": ["minimal", "standard", "full"]},
+            "rooms": {"type": "string", "enum": ["both", "labels_only", "exclude"]},
+            "limitPerCategory": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 1000},
+            "allowTruncated": {"type": "boolean", "default": False},
+            "allowBboxProxy": {"type": "boolean", "default": False},
+            "port": _rookbim_port_schema(),
+        },
+        "required": ["preset", "output"],
+        "additionalProperties": False,
+    }
+
+
 def _interactive_command_learning_enabled() -> bool:
     if os.getenv("ROOK_MCP_TARGET_MODE") == "panel_locked":
         return False
@@ -12311,6 +12365,16 @@ Returns the full profile JSON including features, surfaces, and elements.""",
             ),
             inputSchema=_rookbim_export_elements_schema(),
         ),
+        Tool(
+            name="rookbim_export_preset",
+            description=(
+                "Export a curated Revit recipe (architectural_shell, interiors, openings_and_hosts, "
+                "structural, rooms_and_spaces, calibration_fixture) to an organized Rhino bundle: "
+                "multi-category selection, RookBim:: layers, readable names, embedded metadata, a "
+                "summary + relationship index. Read-only on Revit/Rhino; writes files to disk."
+            ),
+            inputSchema=_rookbim_export_preset_schema(),
+        ),
 
         # ─── Vision Video (PR-V4) ───────────────────────────────────────
         # Seven MCP tools wrapping the V2/V3 video routes plus the two
@@ -19610,6 +19674,11 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
         case "rookbim_export_elements":
             result = await call_rhino(
                 "/bim/export-elements", "POST", arguments, port=port
+            )
+
+        case "rookbim_export_preset":
+            result = await call_rhino(
+                "/bim/export-preset", "POST", arguments, port=port
             )
 
         # ─── Vision Video (PR-V4) ────────────────────────────────────

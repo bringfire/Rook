@@ -17,6 +17,7 @@ namespace RookBim.Revit
         private readonly RevitQueryService query;
         private readonly RevitSelectionService selection;
         private readonly RevitExportService export;
+        private readonly RevitPresetResolver presetResolver;
 
         public RevitRookBimRuntime()
             : this(new RevitApiDispatcher())
@@ -30,6 +31,7 @@ namespace RookBim.Revit
             this.query = new RevitQueryService();
             this.selection = new RevitSelectionService();
             this.export = new RevitExportService();
+            this.presetResolver = new RevitPresetResolver();
         }
 
         public BimStatusResponse Status()
@@ -251,6 +253,77 @@ namespace RookBim.Revit
 
                     return selection.Clear(uidoc);
                 });
+            }
+            catch (Exception ex)
+            {
+                return BimApiResponse.Fail(
+                    BimErrorCode.NotRhinoInside,
+                    $"RookBIM could not enter the Revit API context: {DescribeDispatchException(ex)}",
+                    503);
+            }
+        }
+
+        public BimApiResponse ExportPreset(BimExportPresetRequest request)
+        {
+            if (request == null)
+            {
+                return BimApiResponse.Fail(BimErrorCode.InvalidScope, "export-preset request is required.", 400);
+            }
+
+            var validation = request.Validate();
+            if (!validation.Success)
+            {
+                return BimApiResponse.Fail(
+                    validation.ErrorCode, validation.Message ?? "export-preset validation failed.", 400);
+            }
+
+            try
+            {
+                return DispatchWithTimeout(uiapp =>
+                {
+                    var uidoc = RevitContext.ActiveUiDocument(uiapp);
+                    if (uidoc == null || uidoc.Document == null)
+                    {
+                        return BimApiResponse.Fail(BimErrorCode.NoActiveDocument, "No active Revit document is open.", 409);
+                    }
+
+                    var document = uidoc.Document;
+                    var view = uidoc.ActiveView ?? document.ActiveView;
+                    try
+                    {
+                        var resolution = presetResolver.Resolve(document, view, request);
+                        if (resolution.Failure != null)
+                        {
+                            return resolution.Failure;
+                        }
+
+                        // Build the inner export request that the resolved core consumes (identities path
+                        // semantics; rooms come from the resolved preset context).
+                        var innerRequest = new BimExportElementsRequest
+                        {
+                            Output = request.Output,
+                            Rooms = resolution.Context.EffectiveRooms,
+                            AllowTruncated = request.AllowTruncated,
+                            AllowBboxProxy = request.AllowBboxProxy,
+                        };
+
+                        return export.ExportResolved(
+                            document,
+                            resolution.Elements,
+                            resolution.Truncated,
+                            resolution.RequestedCount,
+                            innerRequest,
+                            resolution.Context.Policy,
+                            resolution.Context);
+                    }
+                    catch (Exception ex)
+                    {
+                        return BimApiResponse.Fail(
+                            BimErrorCode.ExportFailed,
+                            $"RookBIM preset export failed inside the Revit document context: {DescribeDispatchException(ex)}",
+                            500);
+                    }
+                }, ExportDispatchTimeout);
             }
             catch (Exception ex)
             {
