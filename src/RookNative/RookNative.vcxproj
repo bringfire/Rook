@@ -197,17 +197,20 @@
       <ExceptionHandling>Async</ExceptionHandling>
       <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
-    <!-- Task 6: OCCT exact-adjacency engine. OCCT-only TU (NotUsing PCH); pulls
+    <!-- OCCT exact-adjacency engine. OCCT-only TU (NotUsing PCH); pulls
          OCCT + openNURBS (ON_Brep through the converter). Per-file OCCT include
-         path; /bigobj for OCCT templates. Additive — not wired to production. -->
+         path; /bigobj for OCCT templates. Production path: the
+         /scene/graph/adjacency/exact route -> ExactAdjacencyService -> this engine,
+         serialized on the OcctExecutor worker thread. -->
     <ClCompile Include="SceneGraph\OcctAdjacencyEngine.cpp">
       <PrecompiledHeader Condition="'$(Configuration)'=='Debug'">NotUsing</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)'=='Release'">NotUsing</PrecompiledHeader>
       <AdditionalIncludeDirectories>$(OcctRoot)\inc;$(RhinoSdkDir)openNURBS;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <!-- /EHa (Async): the EDEADLK fix. SEH-translated OCCT faults must unwind the
-           Evaluate body so the static s_engineMutex lock_guard releases on any
-           fault path; otherwise a faulted request leaves the mutex held and the
-           next pooled httplib worker deadlocks. See the TU header comment. -->
+      <!-- /EHa (Async): SEH-translated OCCT faults must unwind the Evaluate body
+           cleanly. OCCT calls are serialized on the dedicated OcctExecutor worker
+           thread (which replaced the earlier static engine mutex — the EDEADLK fix);
+           /EHa lets a faulted Evaluate return an error to the executor instead of
+           tearing down the worker. See the TU header comment. -->
       <ExceptionHandling>Async</ExceptionHandling>
       <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
@@ -305,7 +308,6 @@
     <ClInclude Include="SceneGraph\OcctAdjacencyTypes.h" />
     <ClInclude Include="SceneGraph\OcctAdjacencyEngine.h" />
     <ClInclude Include="SceneGraph\OcctAdjacencyEngine_internal.h" />
-    <ClInclude Include="SceneGraph\OcctAdjacencyTypes.h" />
     <ClInclude Include="SceneGraph\SceneGraph.h" />
     <ClInclude Include="SceneGraph\SceneGraphWatcher.h" />
     <ClInclude Include="SceneGraph\SceneGraphConduit.h" />
