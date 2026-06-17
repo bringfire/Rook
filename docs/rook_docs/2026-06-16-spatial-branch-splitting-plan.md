@@ -68,7 +68,7 @@ A ──→ B ──→ C        linear stack (C's PR base is B, not main)
 | **A** | `feature/occt-adjacency-engine` | `main` | 9 (curated) | native Release build **green** (toolset 14.44.35207) | live `SpatialTest.3dm` → 5/5 exact (reviewer) |
 | **B** | `feature/exact-adjacency-projection-v1` | `main` | 15 (cherry-pick, auto-merged) | **23** tests pass | live-verify needs **A deployed** (9 floorplate neighbors) |
 | **C** | `feature/semantic-containment-refinement-v1` | **B** | 30 total / 15 own | **32** tests pass | **calibration** before downstream reliance (27/28 positives) |
-| **D** | `feature/rookbim-revit-rhino-export-v1` | `main` | 26 (25 + 1 hygiene) | native build **green**; **46** Py + **123** Bim-filtered + **35** RookBim.Tests pass | Rhino.Inside.Revit live verify (`live_verify_rookbim_export.py`) |
+| **D** | `feature/rookbim-revit-rhino-export-v1` | `main` | 26 (25 + 1 hygiene) | native build **green**; **46** Py + Bim-scoped `Rook.Tests` + **35** `RookBim.Tests` pass (filtered count varies with the filter expression) | Rhino.Inside.Revit live verify (`live_verify_rookbim_export.py`) |
 
 **Merge discipline (as-built):**
 - **A first** — gated on its live `SpatialTest` verify.
@@ -388,6 +388,7 @@ accounted for in §0, and is *not* on this branch.
 - **Python:** `pytest mcp_server/tests/test_rookbim_export_tool.py mcp_server/tests/test_rookbim_mcp_tools.py`; `rookbim_export_elements` tool registered with **`mutate`** targeting policy.
 - **CAVEAT — live-verify still gated/pending:** `docs/rook_docs/rookbim-export-spike/live_verify_rookbim_export.py` requires a live **Rhino.Inside.Revit** session and has **not** been run. Branch ships code-complete; mark live-verify as an open gate in the PR. (This matches the parked status of the slice.)
 - **CAVEAT — targeting vs main #254:** D adds a `mutate` entry to `targeting.py` near #254's vision-presentation classification line. Expect a 1-line conflict on extraction; resolve by re-applying D's entry above/below #254's. Read the rebuilt `targeting.py` to confirm no policy was dropped.
+- **CAVEAT — managed tests touch the local install:** `dotnet test` on the managed projects builds + **deploys `Rook.rhp` into `%AppData%`** (a brief file-copy retry can occur if Rhino holds the file). Harmless here, but for live-plugin-sensitive work, run managed tests when no Rhino instance is loading the companion, or expect the local install to be refreshed.
 
 ---
 
@@ -465,7 +466,7 @@ byte-faithful OCCT engine and pass the live `SpatialTest.3dm` check.
 1. **A** `feature/occt-adjacency-engine` — **curated 9 commits from final state** (squashed diagnostics, pruned dead Clipper2/legacy, omitted FreeCAD); zero conflicts; native Release build green. Off `main`.
 2. **B** `feature/exact-adjacency-projection-v1` — cherry-pick `ccfe2b88..d1162d09` off `main`; 15 commits; registration files **auto-merged** (rc=0) vs main #254; 23 tests pass.
 3. **C** `feature/semantic-containment-refinement-v1` — cherry-pick `d1162d09..096372c5` **onto B** (not main — see §7.3); 30 total / 15 own; rc=0; 32 tests pass.
-4. **D** `feature/rookbim-revit-rhino-export-v1` — cherry-pick `dd404ccd..2580041d` off `main`; 25 commits (+1 nullable-warning hygiene fix = 26); auto-merged incl. `RookServer.cpp`/`RookBim.csproj`; native build green; 46 Py + 123 Bim-filtered + 35 RookBim.Tests pass. Independent of A/B/C.
+4. **D** `feature/rookbim-revit-rhino-export-v1` — cherry-pick `dd404ccd..2580041d` off `main`; 25 commits (+1 nullable-warning hygiene fix = 26); auto-merged incl. `RookServer.cpp`/`RookBim.csproj`; native build green; 46 Py + Bim-scoped `Rook.Tests` + 35 `RookBim.Tests` pass. Independent of A/B/C.
 
 **Recommended merge order (AS-BUILT):** **A → B → C** (linear stack), **D parallel** (any time after its Revit gate). C is stacked on B, not parallel.
 
