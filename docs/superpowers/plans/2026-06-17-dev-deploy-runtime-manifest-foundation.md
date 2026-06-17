@@ -19,6 +19,7 @@ This PR implements only the runtime/manifest deploy foundation:
 - write chat manifests into root plus `net8.0`, `net7.0`, and `net48` subdirs
 - set and verify `ROOK_PROJECT_ROOT` for dev manifests
 - add deploy-smoke guard coverage for those regressions
+- reject invalid mode combinations so native-only and live-smoke paths cannot validate or exercise the wrong runtime
 
 Defer these to later PRs:
 
@@ -77,11 +78,17 @@ function Test-DeployScriptHasExplicitDevRuntimeContract {
 
     Assert-Contains -Text $content -Expected '[switch]$UseRepoVenv' -Message 'Local deploy must expose an explicit repo venv dev-runtime flag.'
     Assert-Contains -Text $content -Expected "[string]`$DevPythonRuntime = ''" -Message 'Local deploy must expose an explicit dev Python runtime path override.'
+    Assert-Contains -Text $content -Expected '[switch]$ManifestSmokeOnly' -Message 'Local deploy must expose a non-mutating manifest smoke mode.'
     Assert-Contains -Text $content -Expected 'function Resolve-DeployRuntimeContract' -Message 'Local deploy must resolve runtime paths through one explicit contract helper.'
     Assert-Contains -Text $content -Expected '-UseRepoVenv cannot be combined with -DevPythonRuntime' -Message 'Dev runtime flags must be mutually exclusive.'
+    Assert-Contains -Text $content -Expected '-NativeOnly cannot be combined with -UseRepoVenv or -DevPythonRuntime' -Message 'Native-only mode must reject dev-runtime flags instead of validating unused Python paths.'
+    Assert-Contains -Text $content -Expected '-LiveSmoke cannot be combined with -UseRepoVenv or -DevPythonRuntime' -Message 'Live smoke must stay release-runtime-only until made contract-aware.'
+    Assert-Contains -Text $content -Expected '-ManifestSmokeOnly is only useful with -UseRepoVenv or -DevPythonRuntime' -Message 'Manifest smoke must require an explicit dev runtime.'
     Assert-Contains -Text $content -Expected 'Dev Python runtime not found' -Message 'Dev runtime mode must fail loudly when the requested interpreter is missing.'
     Assert-Contains -Text $content -Expected 'mcp_server\.venv\Scripts\python.exe' -Message 'Repo venv mode must resolve the repository MCP venv explicitly.'
     Assert-Contains -Text $content -Expected 'ROOK_PROJECT_ROOT' -Message 'Dev runtime mode must carry ROOK_PROJECT_ROOT into generated manifests/config.'
+    Assert-Contains -Text $content -Expected 'Dev manifest smoke' -Message 'Manifest smoke mode must report the resolved contract.'
+    Assert-Contains -Text $content -Expected 'exit 0' -Message 'Manifest smoke mode must exit before deploy mutation.'
     Assert-Contains -Text $content -Expected 'Skipping release post_install.py because an explicit dev runtime was selected.' -Message 'Dev runtime mode must be explicit about bypassing release post_install.'
 }
 
@@ -128,10 +135,11 @@ git commit -m "test(dev-infra): guard local deploy runtime manifest contract"
 
 ---
 
-### Task 2: Add An Explicit Runtime Contract To Local Deploy
+### Task 2: Add An Explicit Runtime Contract And Non-Mutating Smoke To Local Deploy
 
 **Files:**
 - Modify: `scripts/deploy-local-testing.ps1`
+- Modify: `scripts/tests/deploy-local-testing-guards.tests.ps1`
 
 - [ ] **Step 1: Add explicit dev-runtime parameters**
 
@@ -142,6 +150,12 @@ In the parameter block, after `[switch]$SkipChirpInstall`, add:
     [string]$DevPythonRuntime = '',
 ```
 
+In the parameter block, after `[switch]$LiveSmoke`, add:
+
+```powershell
+    [switch]$ManifestSmokeOnly
+```
+
 - [ ] **Step 2: Extend deploy-mode validation**
 
 In `Assert-DeployMode`, after the `-PayloadOnly` / `-LiveSmoke` checks, add:
@@ -149,6 +163,19 @@ In `Assert-DeployMode`, after the `-PayloadOnly` / `-LiveSmoke` checks, add:
 ```powershell
     if ($UseRepoVenv -and -not [string]::IsNullOrWhiteSpace($DevPythonRuntime)) {
         throw "-UseRepoVenv cannot be combined with -DevPythonRuntime. Pick one explicit dev runtime source."
+    }
+
+    $hasDevRuntime = $UseRepoVenv -or -not [string]::IsNullOrWhiteSpace($DevPythonRuntime)
+    if ($NativeOnly -and $hasDevRuntime) {
+        throw "-NativeOnly cannot be combined with -UseRepoVenv or -DevPythonRuntime. Native-only deploy does not use Python, MCP, or chat manifests."
+    }
+
+    if ($LiveSmoke -and $hasDevRuntime) {
+        throw "-LiveSmoke cannot be combined with -UseRepoVenv or -DevPythonRuntime in this PR. Live smoke remains release-runtime-only."
+    }
+
+    if ($ManifestSmokeOnly -and -not $hasDevRuntime) {
+        throw "-ManifestSmokeOnly is only useful with -UseRepoVenv or -DevPythonRuntime."
     }
 ```
 
@@ -218,7 +245,19 @@ After `Assert-DeployMode`, add:
 
 ```powershell
 $RuntimeContract = Resolve-DeployRuntimeContract
+
+if ($ManifestSmokeOnly) {
+    Write-Step "Dev manifest smoke"
+    Write-Host "Mode:             $($RuntimeContract.Mode)"
+    Write-Host "Python:           $($RuntimeContract.PythonPath)"
+    Write-Host "WorkingDirectory: $($RuntimeContract.WorkingDirectory)"
+    Write-Host "ProjectRoot:      $($RuntimeContract.ProjectRoot)"
+    Write-Host "SourcePath:       $(@($RuntimeContract.PythonPathEntries)[0])"
+    exit 0
+}
 ```
+
+This smoke mode intentionally exits before process guards, build steps, AppData writes, plugin registration, or Rhino install mutation.
 
 - [ ] **Step 5: Run PowerShell parse check**
 
@@ -244,10 +283,29 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\tests\deploy-local-t
 
 Expected: still FAIL, because manifest writing and installer module copying are not implemented yet.
 
-- [ ] **Step 7: Commit runtime contract scaffolding**
+- [ ] **Step 7: Run smoke-only command**
+
+Run:
 
 ```powershell
-git add scripts/deploy-local-testing.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy-local-testing.ps1 -UseRepoVenv -ManifestSmokeOnly
+```
+
+Expected output includes:
+
+```text
+== Dev manifest smoke ==
+Mode:             dev
+Python:           C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe
+WorkingDirectory: C:\UDEV\Rook\mcp_server
+ProjectRoot:      C:\UDEV\Rook
+SourcePath:       C:\UDEV\Rook\mcp_server\src
+```
+
+- [ ] **Step 8: Commit runtime contract and smoke scaffolding**
+
+```powershell
+git add scripts/deploy-local-testing.ps1 scripts/tests/deploy-local-testing-guards.tests.ps1
 git commit -m "feat(dev-infra): add explicit local deploy runtime contract"
 ```
 
@@ -500,17 +558,25 @@ function Test-EffectiveRuntime {
         throw "Runtime Python not found: $($Contract.PythonPath)"
     }
 
-    $env:ROOK_INSTALL_ROOT = $Contract.InstallRoot.Replace('\', '/')
-    $env:ROOK_DATA_DIR = $Contract.DataRoot.Replace('\', '/')
-    $env:ROOK_MODE = $Contract.Mode
-    if ($Contract.IsDev) {
-        $env:ROOK_PROJECT_ROOT = $Contract.ProjectRoot.Replace('\', '/')
-    } else {
-        Remove-Item Env:\ROOK_PROJECT_ROOT -ErrorAction SilentlyContinue
+    $envKeys = @('ROOK_INSTALL_ROOT', 'ROOK_DATA_DIR', 'ROOK_MODE', 'ROOK_PROJECT_ROOT')
+    $savedEnv = @{}
+    foreach ($key in $envKeys) {
+        $savedEnv[$key] = [Environment]::GetEnvironmentVariable($key)
     }
 
-    $expectedRookPrefix = Join-Path $Contract.WorkingDirectory 'src\rook'
-    $check = @"
+    $checkPath = $null
+    try {
+        $env:ROOK_INSTALL_ROOT = $Contract.InstallRoot.Replace('\', '/')
+        $env:ROOK_DATA_DIR = $Contract.DataRoot.Replace('\', '/')
+        $env:ROOK_MODE = $Contract.Mode
+        if ($Contract.IsDev) {
+            $env:ROOK_PROJECT_ROOT = $Contract.ProjectRoot.Replace('\', '/')
+        } else {
+            Remove-Item Env:\ROOK_PROJECT_ROOT -ErrorAction SilentlyContinue
+        }
+
+        $expectedRookPrefix = Join-Path $Contract.WorkingDirectory 'src\rook'
+        $check = @"
 import json
 from rook.runtime_paths import resolve_runtime_paths
 import rook
@@ -535,15 +601,19 @@ if not actual_rook_file.startswith(expected_rook_prefix):
     raise SystemExit(f"rook imported from stale location: {rook.__file__}")
 "@
 
-    $checkPath = Join-Path $env:TEMP 'rook_deploy_local_testing_check.py'
-    Set-Content -Path $checkPath -Value $check -Encoding UTF8
-    try {
+        $checkPath = Join-Path $env:TEMP 'rook_deploy_local_testing_check.py'
+        Set-Content -Path $checkPath -Value $check -Encoding UTF8
         & $Contract.PythonPath $checkPath
         if ($LASTEXITCODE -ne 0) {
             throw "Runtime verification failed."
         }
     } finally {
-        Remove-Item -LiteralPath $checkPath -ErrorAction SilentlyContinue
+        if ($checkPath) {
+            Remove-Item -LiteralPath $checkPath -ErrorAction SilentlyContinue
+        }
+        foreach ($key in $envKeys) {
+            [Environment]::SetEnvironmentVariable($key, $savedEnv[$key])
+        }
     }
 }
 ```
@@ -635,110 +705,7 @@ git commit -m "test(dev-infra): verify dev runtime manifest contract"
 
 ---
 
-### Task 6: Add A Non-Mutating Dev Manifest Smoke Command
-
-**Files:**
-- Modify: `scripts/deploy-local-testing.ps1`
-- Modify: `scripts/tests/deploy-local-testing-guards.tests.ps1`
-
-- [ ] **Step 1: Add a smoke-only flag**
-
-In the parameter block, after `[switch]$LiveSmoke`, add:
-
-```powershell
-    [switch]$ManifestSmokeOnly
-```
-
-In `Assert-DeployMode`, add:
-
-```powershell
-    if ($ManifestSmokeOnly -and -not ($UseRepoVenv -or -not [string]::IsNullOrWhiteSpace($DevPythonRuntime))) {
-        throw "-ManifestSmokeOnly is only useful with -UseRepoVenv or -DevPythonRuntime."
-    }
-```
-
-- [ ] **Step 2: Add smoke-only execution before process guards**
-
-After `$RuntimeContract = Resolve-DeployRuntimeContract`, add:
-
-```powershell
-if ($ManifestSmokeOnly) {
-    Write-Step "Dev manifest smoke"
-    Write-Host "Mode:             $($RuntimeContract.Mode)"
-    Write-Host "Python:           $($RuntimeContract.PythonPath)"
-    Write-Host "WorkingDirectory: $($RuntimeContract.WorkingDirectory)"
-    Write-Host "ProjectRoot:      $($RuntimeContract.ProjectRoot)"
-    Write-Host "SourcePath:       $(@($RuntimeContract.PythonPathEntries)[0])"
-    exit 0
-}
-```
-
-This mode intentionally does not copy files, register plugins, write AppData, stop processes, or mutate Rhino installs.
-
-- [ ] **Step 3: Add guard coverage for smoke-only mode**
-
-Append this function to `scripts/tests/deploy-local-testing-guards.tests.ps1`:
-
-```powershell
-function Test-DeployScriptHasDevManifestSmokeOnlyMode {
-    $content = Get-Content -Path $DeployScript -Raw
-
-    Assert-Contains -Text $content -Expected '[switch]$ManifestSmokeOnly' -Message 'Local deploy must expose a non-mutating manifest smoke mode.'
-    Assert-Contains -Text $content -Expected '-ManifestSmokeOnly is only useful with -UseRepoVenv or -DevPythonRuntime' -Message 'Manifest smoke must require an explicit dev runtime.'
-    Assert-Contains -Text $content -Expected 'Dev manifest smoke' -Message 'Manifest smoke mode must report the resolved contract.'
-    Assert-Contains -Text $content -Expected 'exit 0' -Message 'Manifest smoke mode must exit before deploy mutation.'
-}
-```
-
-Add it to the invocation block:
-
-```powershell
-Test-DeployScriptHasDevManifestSmokeOnlyMode
-```
-
-- [ ] **Step 4: Run smoke-only command**
-
-Run:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy-local-testing.ps1 -UseRepoVenv -ManifestSmokeOnly
-```
-
-Expected output includes:
-
-```text
-== Dev manifest smoke ==
-Mode:             dev
-Python:           C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe
-WorkingDirectory: C:\UDEV\Rook\mcp_server
-ProjectRoot:      C:\UDEV\Rook
-SourcePath:       C:\UDEV\Rook\mcp_server\src
-```
-
-- [ ] **Step 5: Run guard tests**
-
-Run:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\tests\deploy-local-testing-guards.tests.ps1
-```
-
-Expected:
-
-```text
-Local testing deploy guard tests passed.
-```
-
-- [ ] **Step 6: Commit smoke-only mode**
-
-```powershell
-git add scripts/deploy-local-testing.ps1 scripts/tests/deploy-local-testing-guards.tests.ps1
-git commit -m "test(dev-infra): add dev manifest smoke mode"
-```
-
----
-
-### Task 7: Final Verification And PR Handoff
+### Task 6: Final Verification And PR Handoff
 
 **Files:**
 - Verify: `scripts/deploy-local-testing.ps1`
