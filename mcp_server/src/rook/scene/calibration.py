@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -93,7 +93,7 @@ def json_dumps(value: Any) -> str:
 
 
 def _utc_now_iso() -> str:
-    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def _require_dict(value: Any, name: str) -> dict[str, Any]:
@@ -564,11 +564,6 @@ def build_candidate_records(
                 "reason": item.get("reason"),
                 "evidence": item.get("evidence") or [],
             },
-            "fixtureRelationships": {
-                "hostMembership": fixture.relationships.get("hostMembership", {}),
-                "roomMembership": fixture.relationships.get("roomMembership", {}),
-                "levelMembership": fixture.relationships.get("levelMembership", {}),
-            },
         })
     return records
 
@@ -763,11 +758,6 @@ def add_missed_labeled_relation_records(
                 "confidence": "none",
                 "reason": "no_contains_semantic_candidate",
                 "evidence": [],
-            },
-            "fixtureRelationships": {
-                "hostMembership": fixture.relationships.get("hostMembership", {}),
-                "roomMembership": fixture.relationships.get("roomMembership", {}),
-                "levelMembership": fixture.relationships.get("levelMembership", {}),
             },
             "hostBucket": "host_missed_labeled_relation",
             "roomBucket": "room_not_applicable",

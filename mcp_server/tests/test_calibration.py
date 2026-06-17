@@ -5,6 +5,13 @@ import pytest
 from rook.scene import calibration as cal
 
 
+def test_calibration_module_avoids_python_311_datetime_utc_symbol():
+    source = Path(cal.__file__).read_text(encoding="utf-8")
+
+    assert "from datetime import UTC" not in source
+    assert "datetime.now(UTC)" not in source
+
+
 def _sidecar():
     return {
         "schemaVersion": 1,
@@ -354,6 +361,7 @@ def test_build_candidate_records_join_endpoints_and_preserve_runtime_verdict():
     assert c["contained"]["revitUniqueId"] == "uid-door"
     assert c["rook"]["verdict"] == "contains_semantic"
     assert c["rook"]["confidence"] == "high"
+    assert "fixtureRelationships" not in c
 
 
 def test_classify_candidate_host_supported_positive():
@@ -490,6 +498,7 @@ def test_add_missed_host_relation_when_no_positive_candidate_exists_inside_evalu
     assert missed[0]["candidateId"] == "rook-wall|contains|rook-door|missed_host"
     assert missed[0]["hostBucket"] == "host_missed_labeled_relation"
     assert missed[0]["metricEligible"]["host"] is True
+    assert "fixtureRelationships" not in missed[0]
 
 
 def test_existing_host_missed_candidate_suppresses_synthetic_duplicate():
