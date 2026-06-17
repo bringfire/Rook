@@ -1,0 +1,3 @@
+# STEP oracle fixtures are user geometry — never commit them. Regenerate per README.md.
+*.stp
+*.step

@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>17.0</VCProjectVersion>
+    <ProjectGuid>{2F9C1A4D-7E63-4B82-A0D5-3C8E1F6A9B27}</ProjectGuid>
+    <RootNamespace>OcctOfflineRepro</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+
+  <!-- ASan-friendly config: Application/Console, NO WholeProgramOptimization
+       (/GL is incompatible with ASan), debug-style /Od + /Zi for readable
+       traces. NOT UseDebugLibraries (we keep /MD + NDEBUG below so the std
+       container layout matches the crashing Release plugin: _ITERATOR_DEBUG_LEVEL=0). -->
+  <PropertyGroup Label="Configuration" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+  </PropertyGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+
+  <PropertyGroup>
+    <TargetName>OcctOfflineRepro</TargetName>
+    <OutDir>$(SolutionDir)bin\tests\$(Configuration)\$(Platform)\</OutDir>
+    <IntDir>$(SolutionDir)obj\$(ProjectName)\$(Configuration)\$(Platform)\</IntDir>
+    <!-- $(RhinoSdkDir) is normally defined by the SDK prop sheet; hardcode the
+         fallback for this standalone harness. -->
+    <RhinoSdkDir Condition="'$(RhinoSdkDir)'==''">C:\Program Files\Rhino 8 SDK\</RhinoSdkDir>
+  </PropertyGroup>
+
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <!-- $(ProjectDir) so "SceneGraph/..." resolves; OCCT inc; openNURBS inc. -->
+      <AdditionalIncludeDirectories>$(ProjectDir);C:\Users\aryan\source\repos\OCCT\build-rook\inc;$(RhinoSdkDir)openNURBS;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <!-- NDEBUG + /MD (MultiThreadedDLL) => _ITERATOR_DEBUG_LEVEL=0, matching the
+           deployed Release plugin's container ABI. Do NOT use /MDd here. -->
+      <PreprocessorDefinitions>NDEBUG;NOMINMAX;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <!-- Exp 1: /O2 + inlining (GL stays OFF for ASan) to expose opt-sensitive UB. -->
+      <Optimization>MaxSpeed</Optimization>
+      <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <!-- /RTC is ASan-incompatible; ensure it is OFF. -->
+      <BasicRuntimeChecks>Default</BasicRuntimeChecks>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <WarningLevel>Level3</WarningLevel>
+      <SDLCheck>false</SDLCheck>
+      <ConformanceMode>true</ConformanceMode>
+      <!-- Exp 2: ASan OFF, /GL ON (WholeProgramOptimization) to match deployed Release codegen. -->
+      <WholeProgramOptimization>true</WholeProgramOptimization>
+      <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <!-- ASan needs incremental linking OFF (and so does LTCG). -->
+      <LinkIncremental>false</LinkIncremental>
+      <!-- Exp 2: LTCG to match deployed Release link. -->
+      <LinkTimeCodeGeneration>UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
+      <AdditionalLibraryDirectories>C:\Users\aryan\source\repos\OCCT\build-rook\win64\vc14\lib;$(RhinoSdkDir)lib\Release;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <!-- OCCT MODELING subset + STEP reader (OcctProbe.cpp::ReadStep, not on the
+           Evaluate path but in the linked TU) + openNURBS. -->
+      <AdditionalDependencies>TKernel.lib;TKMath.lib;TKG2d.lib;TKG3d.lib;TKGeomBase.lib;TKGeomAlgo.lib;TKBRep.lib;TKTopAlgo.lib;TKPrim.lib;TKBO.lib;TKBool.lib;TKShHealing.lib;TKMesh.lib;TKDESTEP.lib;TKDE.lib;TKXSBase.lib;opennurbs.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+
+  <ItemGroup>
+    <!-- The harness -->
+    <ClCompile Include="SceneGraph\tests\occt_offline_repro.cpp" />
+    <!-- The REAL engine TUs (compiled in, not copied) — the exact in-plugin path. -->
+    <ClCompile Include="SceneGraph\OnBrepToOcct.cpp" />
+    <ClCompile Include="SceneGraph\OcctAdjacencyEngine.cpp" />
+    <ClCompile Include="SceneGraph\OcctSharedFaceArea.cpp" />
+    <ClCompile Include="SceneGraph\OcctExecutor.cpp" />
+    <ClCompile Include="SceneGraph\OcctProbe.cpp" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ClInclude Include="SceneGraph\OcctAdjacencyEngine.h" />
+    <ClInclude Include="SceneGraph\OcctAdjacencyEngine_internal.h" />
+    <ClInclude Include="SceneGraph\OcctAdjacencyTypes.h" />
+    <ClInclude Include="SceneGraph\OnBrepToOcct.h" />
+    <ClInclude Include="SceneGraph\OnBrepToOcct_internal.h" />
+    <ClInclude Include="SceneGraph\OcctExecutor.h" />
+    <ClInclude Include="SceneGraph\OcctProbe.h" />
+  </ItemGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+
+</Project>
