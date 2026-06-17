@@ -83,35 +83,47 @@ def _sidecar():
         "schemaVersion": 1,
         "elements": [
             {
-                "uniqueId": "uid-wall",
+                "identity": {"uniqueId": "uid-wall", "elementId": 101, "source": "revit"},
                 "elementId": 101,
                 "category": "Walls",
                 "family": "Basic Wall",
                 "type": "Generic - 200mm",
                 "name": "Wall 101",
-                "level": {"value": "L1", "source": "revit_api", "confidence": "high", "missingReason": None},
-                "hostId": {"value": None, "source": "unavailable", "confidence": "low", "missingReason": "no_host"},
-                "containingRoomId": {"value": "room-1", "source": "revit_api", "confidence": "high", "missingReason": None},
+                "labels": {
+                    "level": {"value": "L1", "source": "revit_api", "confidence": "high", "missingReason": None},
+                    "hostId": {"value": None, "source": "unavailable", "confidence": "low", "missingReason": "no_host"},
+                    "containingRoomId": {"value": "room-1", "source": "revit_api", "confidence": "high", "missingReason": None},
+                },
             },
             {
-                "uniqueId": "uid-door",
+                "identity": {"uniqueId": "uid-door", "elementId": 202, "source": "revit"},
                 "elementId": 202,
                 "category": "Doors",
                 "family": "Single Flush",
                 "type": "0915 x 2134mm",
                 "name": "Door 202",
-                "level": {"value": "L1", "source": "revit_api", "confidence": "high", "missingReason": None},
-                "hostId": {"value": "uid-wall", "source": "revit_api", "confidence": "high", "missingReason": None},
-                "containingRoomId": {"value": "room-1", "source": "revit_api", "confidence": "high", "missingReason": None},
+                "labels": {
+                    "level": {"value": "L1", "source": "revit_api", "confidence": "high", "missingReason": None},
+                    "hostId": {"value": "uid-wall", "source": "revit_api", "confidence": "high", "missingReason": None},
+                    "containingRoomId": {"value": "room-1", "source": "revit_api", "confidence": "high", "missingReason": None},
+                },
             },
         ],
         "rooms": [
             {"uniqueId": "room-1", "number": "101", "name": "Office", "level": {"value": "L1"}}
         ],
         "relationships": {
-            "hostMembership": {"uid-door": "uid-wall"},
-            "roomMembership": {"uid-door": "room-1", "uid-wall": "room-1"},
-            "levelMembership": {"uid-door": "L1", "uid-wall": "L1"},
+            "hostMembership": [
+                {"elementUniqueId": "uid-door", "hostUniqueId": "uid-wall", "source": "revit_api", "confidence": "high"}
+            ],
+            "roomMembership": [
+                {"elementUniqueId": "uid-door", "roomUniqueId": "room-1", "source": "revit_api", "confidence": "high"},
+                {"elementUniqueId": "uid-wall", "roomUniqueId": "room-1", "source": "revit_api", "confidence": "high"},
+            ],
+            "levelMembership": [
+                {"elementUniqueId": "uid-door", "levelName": "L1", "source": "revit_api", "confidence": "high"},
+                {"elementUniqueId": "uid-wall", "levelName": "L1", "source": "revit_api", "confidence": "high"},
+            ],
         },
     }
 
@@ -137,6 +149,15 @@ def test_validate_fixture_requires_relationship_indexes():
         cal.validate_fixture_payload(sidecar, _validation())
 
     assert "hostMembership" in str(exc.value)
+
+
+def test_validate_fixture_normalizes_real_sidecar_shape():
+    fixture = cal.validate_fixture_payload(_sidecar(), _validation())
+
+    assert fixture.elements_by_unique_id["uid-door"]["labels"]["hostId"]["value"] == "uid-wall"
+    assert fixture.relationships["hostMembership"] == {"uid-door": "uid-wall"}
+    assert fixture.relationships["roomMembership"]["uid-wall"] == "room-1"
+    assert fixture.relationships["levelMembership"]["uid-door"] == "L1"
 
 
 def test_build_offline_fixture_validation_report_schema():
@@ -275,7 +296,7 @@ def validate_fixture_payload(sidecar: dict[str, Any], validation: dict[str, Any]
     for idx, element in enumerate(elements):
         if not isinstance(element, dict):
             raise FixtureValidationError(f"sidecar.elements[{idx}] must be an object")
-        uid = element.get("uniqueId") or element.get("revitUniqueId")
+        uid = _element_unique_id(element)
         if not isinstance(uid, str) or not uid:
             raise FixtureValidationError(f"sidecar.elements[{idx}] missing uniqueId")
         elements_by_uid[uid] = element
@@ -294,8 +315,54 @@ def validate_fixture_payload(sidecar: dict[str, Any], validation: dict[str, Any]
         validation=validation,
         elements_by_unique_id=elements_by_uid,
         rooms_by_unique_id=rooms_by_uid,
-        relationships=relationships,
+        relationships=_normalize_relationships(relationships),
     )
+
+
+def _element_unique_id(element: dict[str, Any]) -> str | None:
+    identity = element.get("identity")
+    if isinstance(identity, dict) and isinstance(identity.get("uniqueId"), str):
+        return identity["uniqueId"]
+    for key in ("uniqueId", "revitUniqueId"):
+        value = element.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
+def _normalize_relationships(raw: dict[str, Any]) -> dict[str, dict[str, str]]:
+    return {
+        "hostMembership": _normalize_membership(
+            raw.get("hostMembership"),
+            source_key="elementUniqueId",
+            target_key="hostUniqueId",
+        ),
+        "roomMembership": _normalize_membership(
+            raw.get("roomMembership"),
+            source_key="elementUniqueId",
+            target_key="roomUniqueId",
+        ),
+        "levelMembership": _normalize_membership(
+            raw.get("levelMembership"),
+            source_key="elementUniqueId",
+            target_key="levelName",
+        ),
+    }
+
+
+def _normalize_membership(value: Any, *, source_key: str, target_key: str) -> dict[str, str]:
+    if isinstance(value, dict):
+        return {str(k): str(v) for k, v in value.items() if k and v}
+    out: dict[str, str] = {}
+    if isinstance(value, list):
+        for item in value:
+            if not isinstance(item, dict):
+                continue
+            source = item.get(source_key)
+            target = item.get(target_key)
+            if source and target:
+                out[str(source)] = str(target)
+    return out
 
 
 def load_fixture_bundle(paths: FixturePaths) -> LoadedFixture:
@@ -540,20 +607,22 @@ def build_runtime_join_map(runtime_objects: list[dict[str, Any]], fixture: Fixtu
 def _endpoint_payload(joined: JoinedRuntimeObject | None, runtime_id: str) -> dict[str, Any]:
     if joined is None:
         return {"runtimeId": runtime_id, "joinStatus": "not_joinable"}
+    identity = joined.element.get("identity") if isinstance(joined.element.get("identity"), dict) else {}
+    labels = joined.element.get("labels") if isinstance(joined.element.get("labels"), dict) else {}
     return {
         "runtimeId": joined.runtime_id,
         "joinStatus": "joined",
         "revitUniqueId": joined.revit_unique_id,
-        "revitElementId": joined.revit_element_id,
+        "revitElementId": joined.revit_element_id or identity.get("elementId"),
         "category": joined.element.get("category") or joined.revit_category,
         "family": joined.element.get("family"),
         "type": joined.element.get("type"),
         "name": joined.name or joined.element.get("name"),
         "layer": joined.layer,
         "labels": {
-            "host": joined.element.get("hostId"),
-            "room": joined.element.get("containingRoomId"),
-            "level": joined.element.get("level"),
+            "host": labels.get("hostId"),
+            "room": labels.get("containingRoomId"),
+            "level": labels.get("level"),
         },
     }
 
@@ -669,7 +738,7 @@ def test_classify_candidate_host_contradicted_positive():
 
 def test_classify_missing_labels_are_not_ambiguous():
     sidecar = _sidecar()
-    sidecar["elements"][1]["hostId"] = {"value": None, "source": "unavailable", "confidence": "low", "missingReason": "no_host"}
+    sidecar["elements"][1]["labels"]["hostId"] = {"value": None, "source": "unavailable", "confidence": "low", "missingReason": "no_host"}
     sidecar["relationships"]["hostMembership"] = {}
     fixture = cal.validate_fixture_payload(sidecar, _validation())
     join = cal.build_runtime_join_map(_runtime_objects(), fixture)
@@ -712,16 +781,35 @@ def test_not_joinable_candidate_is_excluded_from_metrics():
     assert classified["metricEligible"] == {"host": False, "room": False, "level": False}
 
 
-def test_add_missed_host_relation_when_no_positive_candidate_exists():
+def test_add_missed_host_relation_when_no_positive_candidate_exists_inside_evaluated_scope():
     fixture = cal.validate_fixture_payload(_sidecar(), _validation())
     join = cal.build_runtime_join_map(_runtime_objects(), fixture)
 
-    missed = cal.add_missed_labeled_relation_records([], join, fixture)
+    missed = cal.add_missed_labeled_relation_records(
+        [],
+        join,
+        fixture,
+        evaluated_runtime_ids={"rook-wall", "rook-door"},
+    )
 
     assert len(missed) == 1
     assert missed[0]["candidateId"] == "rook-wall|contains|rook-door|missed_host"
     assert missed[0]["hostBucket"] == "host_missed_labeled_relation"
     assert missed[0]["metricEligible"]["host"] is True
+
+
+def test_missed_host_relation_respects_evaluated_scope():
+    fixture = cal.validate_fixture_payload(_sidecar(), _validation())
+    join = cal.build_runtime_join_map(_runtime_objects(), fixture)
+
+    missed = cal.add_missed_labeled_relation_records(
+        [],
+        join,
+        fixture,
+        evaluated_runtime_ids={"rook-wall"},
+    )
+
+    assert missed == []
 ```
 
 - [ ] **Step 2: Run tests and verify they fail**
@@ -870,11 +958,15 @@ def add_missed_labeled_relation_records(
     classified_candidates: list[dict[str, Any]],
     join: RuntimeJoinMap,
     fixture: FixtureData,
+    *,
+    evaluated_runtime_ids: set[str],
 ) -> list[dict[str, Any]]:
-    """Add host missed-relation records for labeled host relations absent from positives.
+    """Add in-scope host missed-relation records for labeled host relations absent from positives.
 
     v1 only synthesizes host misses. Room/level misses are weaker contextual families and remain
     review-only until a later slice defines expected candidate generation for spatial structures.
+    Both endpoints must be inside the evaluated runtime-id set so category filters/caps do not
+    contaminate missed-relation metrics.
     """
     out = list(classified_candidates)
     positive_pairs = _positive_uid_pairs(out)
@@ -888,6 +980,8 @@ def add_missed_labeled_relation_records(
             continue
         host_obj = host_objects[0]
         contained_obj = contained_objects[0]
+        if host_obj.runtime_id not in evaluated_runtime_ids or contained_obj.runtime_id not in evaluated_runtime_ids:
+            continue
         record = {
             "candidateId": f"{host_obj.runtime_id}|contains|{contained_obj.runtime_id}|missed_host",
             "container": _endpoint_payload(host_obj, host_obj.runtime_id),
@@ -1241,7 +1335,7 @@ def test_offline_main_writes_schema_report(monkeypatch, tmp_path):
     validation = tmp_path / "a.validation.json"
     model.write_bytes(b"fake")
     sidecar.write_text(cal.json_dumps({
-        "elements": [{"uniqueId": "u1", "category": "Walls"}],
+        "elements": [{"identity": {"uniqueId": "u1", "elementId": 1}, "category": "Walls", "labels": {}}],
         "rooms": [],
         "relationships": {"hostMembership": {}, "roomMembership": {}, "levelMembership": {}},
     }), encoding="utf-8")
@@ -1380,11 +1474,15 @@ def test_live_orchestration_runs_exact_before_refinement_and_never_passes_labels
     model.write_bytes(b"fake")
     sidecar.write_text(cal.json_dumps({
         "elements": [
-            {"uniqueId": "uid-wall", "category": "Walls", "hostId": {"value": None}, "containingRoomId": {"value": "room-1"}, "level": {"value": "L1"}},
-            {"uniqueId": "uid-door", "category": "Doors", "hostId": {"value": "uid-wall"}, "containingRoomId": {"value": "room-1"}, "level": {"value": "L1"}},
+            {"identity": {"uniqueId": "uid-wall", "elementId": 101}, "category": "Walls", "labels": {"hostId": {"value": None}, "containingRoomId": {"value": "room-1"}, "level": {"value": "L1"}}},
+            {"identity": {"uniqueId": "uid-door", "elementId": 202}, "category": "Doors", "labels": {"hostId": {"value": "uid-wall"}, "containingRoomId": {"value": "room-1"}, "level": {"value": "L1"}}},
         ],
         "rooms": [],
-        "relationships": {"hostMembership": {"uid-door": "uid-wall"}, "roomMembership": {"uid-door": "room-1", "uid-wall": "room-1"}, "levelMembership": {"uid-door": "L1", "uid-wall": "L1"}},
+        "relationships": {
+            "hostMembership": [{"elementUniqueId": "uid-door", "hostUniqueId": "uid-wall"}],
+            "roomMembership": [{"elementUniqueId": "uid-door", "roomUniqueId": "room-1"}, {"elementUniqueId": "uid-wall", "roomUniqueId": "room-1"}],
+            "levelMembership": [{"elementUniqueId": "uid-door", "levelName": "L1"}, {"elementUniqueId": "uid-wall", "levelName": "L1"}],
+        },
     }), encoding="utf-8")
     validation.write_text(cal.json_dumps({"relationships": {"hostMembership": {}, "roomMembership": {}, "levelMembership": {}}}), encoding="utf-8")
     calls = []
@@ -1400,7 +1498,14 @@ def test_live_orchestration_runs_exact_before_refinement_and_never_passes_labels
 
     def fake_exact(port, object_ids):
         calls.append(("exact", list(object_ids)))
-        return {"attempted": True, "succeeded": True, "errors": [], "graphSequence": 7}
+        return {
+            "attempted": True,
+            "succeeded": True,
+            "errors": [],
+            "graphSequence": 7,
+            "attemptedObjectCount": len(object_ids),
+            "elapsedMs": 12,
+        }
 
     def fake_refine(port, object_ids):
         calls.append(("refine", list(object_ids)))
@@ -1457,6 +1562,7 @@ Modify `docs/rook_docs/rookbim-export-spike/live_calibrate_containment_fixture.p
 ```python
 import asyncio
 import json
+import time
 import urllib.request
 
 from rook.bridge import discover_instances
@@ -1484,28 +1590,44 @@ def _post(port: int, path: str, payload: dict, timeout: int = 180) -> dict:
         return json.loads(resp.read().decode("utf-8"))
 
 
+def _get(port: int, path: str, timeout: int = 180) -> dict:
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}{path}", timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
 def open_fixture_in_isolated_context(port: int, model3dm: str) -> dict:
-    # Use an existing Rhino command route if available. This script-level seam is intentionally
-    # isolated so the live command can be adjusted without changing calibration.py.
-    result = _post(port, "/command", {"command": f'_-New None _Enter _-Import "{model3dm}" _Enter'})
-    if not result.get("success"):
-        raise RuntimeError(f"failed to import fixture: {result}")
-    graph = _post(port, "/scene/graph", {"depth": "full"})
+    new_doc = _post(port, "/document/new", {})
+    if not new_doc.get("success"):
+        raise RuntimeError(f"failed to create fresh document: {new_doc}")
+    imported = _post(port, "/import", {"path": model3dm})
+    if not imported.get("success"):
+        raise RuntimeError(f"failed to import fixture: {imported}")
+    imported_ids = set((imported.get("data") or {}).get("importedIds") or [])
+    graph = _get(port, "/scene/graph?depth=full")
     data = graph.get("data", {}) if graph.get("success") else {}
     runtime_objects = []
     for node in data.get("nodes", []):
+        node_id = node.get("id")
+        if imported_ids and node_id not in imported_ids:
+            continue
         user_strings = node.get("userStrings") or node.get("user_strings") or {}
         if isinstance(user_strings, dict) and user_strings.get("revit.uniqueId"):
             runtime_objects.append({
-                "runtimeId": node.get("id"),
+                "runtimeId": node_id,
                 "name": node.get("name", ""),
                 "layer": node.get("layer", ""),
                 "userStrings": user_strings,
             })
-    return {"freshDocument": True, "runtimeObjects": runtime_objects, "graphSequence": data.get("sequence")}
+    return {
+        "freshDocument": True,
+        "importedIds": sorted(imported_ids),
+        "runtimeObjects": runtime_objects,
+        "graphSequence": data.get("sequence"),
+    }
 
 
 def run_exact_projection(port: int, object_ids: list[str]) -> dict:
+    start = time.perf_counter()
     try:
         analytics = get_scene_graph()
         projector = get_exact_projector(analytics)
@@ -1515,9 +1637,17 @@ def run_exact_projection(port: int, object_ids: list[str]) -> dict:
             "succeeded": bool(result.get("success")),
             "errors": [] if result.get("success") else [str(result.get("error") or result)],
             "graphSequence": result.get("graphSequence"),
+            "attemptedObjectCount": len(object_ids),
+            "elapsedMs": int((time.perf_counter() - start) * 1000),
         }
     except Exception as exc:
-        return {"attempted": True, "succeeded": False, "errors": [str(exc)]}
+        return {
+            "attempted": True,
+            "succeeded": False,
+            "errors": [str(exc)],
+            "attemptedObjectCount": len(object_ids),
+            "elapsedMs": int((time.perf_counter() - start) * 1000),
+        }
 
 
 def run_containment_refinement(port: int, object_ids: list[str]) -> dict:
@@ -1566,7 +1696,12 @@ def run_live(args) -> dict:
         cal.classify_candidate(c, loaded.fixture)
         for c in cal.build_candidate_records(refine["payload"], join, loaded.fixture)
     ]
-    candidates = cal.add_missed_labeled_relation_records(candidates, join, loaded.fixture)
+    candidates = cal.add_missed_labeled_relation_records(
+        candidates,
+        join,
+        loaded.fixture,
+        evaluated_runtime_ids=set(object_ids),
+    )
     runtime = cal.RuntimeSummary(
         project_exact_adjacency=args.project_exact_adjacency,
         fresh_document=imported.get("freshDocument"),
@@ -1689,6 +1824,8 @@ Expected:
 - JSON report has `"mode": "live_calibration"`.
 - `runtime.projectExactAdjacency` is `true`.
 - `runtime.sceneExactNeighbors.attempted` is `true`.
+- `runtime.sceneExactNeighbors.attemptedObjectCount <= 500`.
+- `runtime.sceneExactNeighbors.elapsedMs` is present.
 - `runtime.sceneRefineContainment.succeeded` is `true`.
 - `runtime.evaluatedObjectCount <= 500`.
 - Candidate records include per-family buckets, `comparisonBasis`, and `metricEligible`.
