@@ -49,6 +49,44 @@ it is **not** part of slices A–D; it is already in `main` and we extract *on t
 
 ---
 
+## 0.5 AS-BUILT (extraction executed 2026-06-16)
+
+All four slices were extracted, built, and tested. `main` (`8260dba7`) and
+`feature/spatial-intelligence` (`47cd3cfc`) were **never modified**. The sections below are
+the original plan; where reality diverged it is annotated "AS-BUILT". The one material
+correction: **C stacks on B** (it is not parallel — see §4 correction 2 / §7.3).
+
+**As-built dependency graph:**
+
+```
+A ──→ B ──→ C        linear stack (C's PR base is B, not main)
+└──→ D               D touches no scene_graph.py — genuinely parallel from main
+```
+
+| Slice | Branch | Base | Commits | Build / tests | Remaining gate |
+|-------|--------|------|---------|---------------|----------------|
+| **A** | `feature/occt-adjacency-engine` | `main` | 9 (curated) | native Release build **green** (toolset 14.44.35207) | live `SpatialTest.3dm` → 5/5 exact (reviewer) |
+| **B** | `feature/exact-adjacency-projection-v1` | `main` | 15 (cherry-pick, auto-merged) | **23** tests pass | live-verify needs **A deployed** (9 floorplate neighbors) |
+| **C** | `feature/semantic-containment-refinement-v1` | **B** | 30 total / 15 own | **32** tests pass | **calibration** before downstream reliance (27/28 positives) |
+| **D** | `feature/rookbim-revit-rhino-export-v1` | `main` | 26 (25 + 1 hygiene) | native build **green**; **46** Py + **123** Bim-filtered + **35** RookBim.Tests pass | Rhino.Inside.Revit live verify (`live_verify_rookbim_export.py`) |
+
+**Merge discipline (as-built):**
+- **A first** — gated on its live `SpatialTest` verify.
+- **B after A** — B's live route behavior depends on A's `/scene/graph/adjacency/exact`.
+- **C after B** — C is **stacked on B**; PR base = `feature/exact-adjacency-projection-v1`;
+  review diff = `feature/exact-adjacency-projection-v1..feature/semantic-containment-refinement-v1`.
+- **D parallel** — independent of A/B/C; merges any time after its Rhino.Inside.Revit gate.
+- **C ships mechanism only** — verdict-threshold **calibration still pending**; do not let
+  downstream features rely on its confidence scores until calibrated.
+
+**Notable as-built deltas from the plan:** (1) C re-based onto B (plan assumed off-main);
+(2) B and D registration-file collisions **auto-merged cleanly** (no manual conflict
+resolution); (3) A docs reconciled with the prune via extraction-note banners + projection-
+design companion included; (4) one new CS8604 nullable warning in D's `BimExportBijection.cs`
+fixed as a hygiene commit.
+
+---
+
 ## 1. Commit inventory (grouped by slice, chronological)
 
 Slices are contiguous in history (linear branch). Boundary hashes given for ranges.
@@ -262,15 +300,19 @@ The code says something slightly different and **looser**:
                          ▼
             ┌─────────────────────────┐
             │ B · Projection v1 (py)   │  reads OCCT exact edges → networkx mirror
-            └─────────────────────────┘
-
-   C · Containment v1 (py)  ── INDEPENDENT of A and B ──
-        refines bbox `contains` edges (scene-graph derived, NOT OCCT);
-        "pure read-model: only analytics.sync(), never the exact projector."
+            └────────────┬────────────┘  + introduces scene_graph.py get_context
+                         │ BRANCH dep — C extends B's rendering helpers (see correction 2)
+                         ▼
+            ┌─────────────────────────┐
+            │ C · Containment v1 (py)  │  refines bbox `contains` edges (scene-graph
+            └─────────────────────────┘  derived, NOT OCCT); renders via B's helpers
 
    D · RookBIM export (C#/native/py) ── FULLY INDEPENDENT ──
         only shares the 4 py registration files + targeting (main #254).
 ```
+
+> **AS-BUILT correction (2026-06-16):** the diagram above replaces the original plan's
+> "C ⊥ A and B". Extraction proved **C stacks on B** (see §0.5 / correction 2).
 
 **Corrections to the assumed order:**
 
@@ -280,19 +322,26 @@ The code says something slightly different and **looser**:
    without A deployed. ⇒ **B can be its own PR**, but its *live-verify* and its *merge*
    should follow A landing, or the route 404s.
 
-2. **C does NOT depend on B.** Containment refines bbox `contains` edges and is a pure
-   read-model that never calls the exact projector (per the shipped design + memory). The
-   only reason C came *after* B in history is sequencing, not dependency. ⇒ **C can extract
-   and merge in parallel with B**, independent of A. The single coupling is that B and C
-   both edit `scene_graph.py` `get_context` and the four registration files — a *textual*
-   adjacency, not a logic dependency.
+2. **C stacks on B — CORRECTED AS-BUILT (2026-06-16).** The original plan claimed "C does
+   NOT depend on B." That is true at the **module** level — C's `containment_refinement.py`
+   never imports/​calls B's `exact_projection` projector — but it is **false at the
+   `scene_graph.py` rendering level**. C's `get_context` rendering of `contains_semantic`
+   edges plugs into the `_forward_rel` / `_edge_detail` / `_FORWARD_RELS` helpers **and the
+   render-loop call sites** that **B introduced** (`f335932f`); `main` has none of them.
+   Extraction confirmed this empirically: cherry-picking C onto bare `main` produced a real
+   `scene_graph.py` conflict, and even resolved, `contains_semantic` would never render
+   (main's loop doesn't call `_edge_detail`). ⇒ **C must branch off B, not `main`.** It was
+   re-based onto `feature/exact-adjacency-projection-v1`, where it applies cleanly. The
+   honest chain is **A → B → C** (linear stack). C's PR base is **B**, and its review diff is
+   `feature/exact-adjacency-projection-v1..feature/semantic-containment-refinement-v1`.
 
 3. **D is fully independent** (C# + native + its own MCP tool). Its only shared surface is
    the four registration files and `targeting.py` (where it collides with main #254, not
    with A/B/C since they're on separate branches).
 
-**Net merge-order constraint:** `A` before `B` (runtime). `C` and `D` have **no** ordering
-constraint relative to anything. Recommended human merge sequence: **A → B → (C ∥ D)**.
+**Net merge-order constraint (AS-BUILT):** `A` before `B` (runtime route) before `C` (C is
+stacked on B). `D` is independent of all three. Recommended human merge sequence:
+**A → B → C, with D parallel** (D merges any time after its own Revit gate).
 
 ---
 
@@ -387,11 +436,20 @@ byte-faithful OCCT engine and pass the live `SpatialTest.3dm` check.
 - **Verification:** §6-B.
 - **Independent PR?** ✅ Yes as a *PR*, but **merge after A** (runtime route dependency / live-verify). Note the dependency in the PR.
 
-### 7.3 `feature/semantic-containment-refinement-v1`  (Slice C)
-- **Range:** `d1162d09..096372c5` (15 commits incl. design docs). Cherry-pick as-is. Optionally also carry `dd404ccd` (pivot checkpoint doc).
-- **Expected conflicts vs current main:** `targeting.py` (+2) vs #254 (+1) — trivial. If C is *stacked* on B, additionally expect `server.py`/`scene_graph.py`/`tool_groups.py`/`tool_dispatcher.py` line-adjacency collisions with B's appends — **avoid by branching C directly off `main`, not off B.** C does not need B's code.
-- **Verification:** §6-C (ship-with-calibration-caveat).
-- **Independent PR?** ✅ Yes — independent of A and B. Can merge in parallel.
+### 7.3 `feature/semantic-containment-refinement-v1`  (Slice C) — **stacked on B (as-built)**
+- **Range:** `d1162d09..096372c5` (15 commits incl. design docs), cherry-picked **onto B's
+  branch**, NOT `main`. (Optionally also carry `dd404ccd` pivot checkpoint doc.)
+- **AS-BUILT correction:** the original plan said "branch C directly off `main`, not off B —
+  C does not need B's code." **That was wrong** (see §4 correction 2): C's `scene_graph.py`
+  `get_context` rendering extends B's helpers, so on bare `main` it conflicts and would not
+  render. C was therefore cherry-picked onto `feature/exact-adjacency-projection-v1` and
+  applied **cleanly, rc=0, no conflicts**.
+- **Branch shape:** 30 commits off `main` = 15 (B) + 15 (C). C's own delta = 15 commits / 10
+  files. **PR base = B**; review diff =
+  `feature/exact-adjacency-projection-v1..feature/semantic-containment-refinement-v1`.
+- **Verification:** §6-C — **32 tests pass**; ship-with-calibration-caveat (downstream
+  reliance waits for verdict-threshold calibration; 27/28 positives on SpatialTest).
+- **Independent PR?** ❌ No — **stacked on B**, merges **after B** (hence after A).
 
 ### 7.4 `feature/rookbim-revit-rhino-export-v1`  (Slice D)
 - **Range:** `dd404ccd..2580041d` (25 commits incl. spec/plan). Cherry-pick as-is. `dd404ccd` is a docs checkpoint — include or drop; harmless either way.
@@ -403,13 +461,13 @@ byte-faithful OCCT engine and pass the live `SpatialTest.3dm` check.
 
 ## 8. Recommended extraction order & high-risk summary
 
-**Extraction order — lowest-risk first. Note A is a curated reconstruction (§7.1.1); B/C/D are cherry-picks of their ranges:**
-1. **A** `feature/occt-adjacency-engine` — **curated 5–8 commits from final state** (squash diagnostics, prune dead vendor, omit FreeCAD); zero expected conflicts, foundational, unblocks B's live-verify. **Start here** and ship its §6-A gates before the others.
-2. **D** `feature/rookbim-revit-rhino-export-v1` — cherry-pick range; disjoint surface (C#/native/own tool); only the 1-line `targeting.py` vs #254.
-3. **C** `feature/semantic-containment-refinement-v1` — cherry-pick range; branch off `main` (not off B); trivial `targeting.py` overlap.
-4. **B** `feature/exact-adjacency-projection-v1` — cherry-pick range; extract last so it can be **merged right after A** for a live route.
+**Extraction order — AS-BUILT (all four extracted 2026-06-16). A is a curated reconstruction (§7.1.1); B/C/D are cherry-picks:**
+1. **A** `feature/occt-adjacency-engine` — **curated 9 commits from final state** (squashed diagnostics, pruned dead Clipper2/legacy, omitted FreeCAD); zero conflicts; native Release build green. Off `main`.
+2. **B** `feature/exact-adjacency-projection-v1` — cherry-pick `ccfe2b88..d1162d09` off `main`; 15 commits; registration files **auto-merged** (rc=0) vs main #254; 23 tests pass.
+3. **C** `feature/semantic-containment-refinement-v1` — cherry-pick `d1162d09..096372c5` **onto B** (not main — see §7.3); 30 total / 15 own; rc=0; 32 tests pass.
+4. **D** `feature/rookbim-revit-rhino-export-v1` — cherry-pick `dd404ccd..2580041d` off `main`; 25 commits (+1 nullable-warning hygiene fix = 26); auto-merged incl. `RookServer.cpp`/`RookBim.csproj`; native build green; 46 Py + 123 Bim-filtered + 35 RookBim.Tests pass. Independent of A/B/C.
 
-**Recommended merge order:** **A → B → (C ∥ D)**, with C and D parallelizable.
+**Recommended merge order (AS-BUILT):** **A → B → C** (linear stack), **D parallel** (any time after its Revit gate). C is stacked on B, not parallel.
 
 **High-risk / watch items:**
 - **`targeting.py` is the one true conflict file** — 4-way touch (main #254 + B + C + D), but each is 1–2 append lines. After every extraction, **read the rebuilt `targeting.py`** and confirm no policy entry was dropped (especially D's `mutate` and #254's vision classification).
@@ -426,15 +484,18 @@ byte-faithful OCCT engine and pass the live `SpatialTest.3dm` check.
 
 ## 9. Status of this pass
 
-Audit/planning only. No merge, rebase, cherry-pick, branch creation, or destructive git was
-performed. `main` untouched.
+**EXECUTED (2026-06-16).** Planning → extraction is complete: all four slices are built,
+tested, and parked on their own branches in separate worktrees. `main` (`8260dba7`) and
+`feature/spatial-intelligence` (`47cd3cfc`) were never modified. See **§0.5 AS-BUILT** for
+the authoritative current state (branch tips, commit counts, test/build results, gates).
 
-**Slice A cleanup decisions are RESOLVED (2026-06-16, user):** squash diagnostics, prune
-dead Clipper2/legacy vendor, peel/omit the FreeCAD spike — implemented via the curated
-reconstruction in §7.1.1, **not** a raw range cherry-pick. Commit counts patched to verified
-values (A=63, B=15, C=15, D=25; checkpoint=1).
+**Slice A cleanup decisions RESOLVED + DONE:** squashed diagnostics, pruned dead
+Clipper2/legacy, omitted FreeCAD — via the §7.1.1 curated reconstruction (9 commits), plus a
+docs-reconciliation commit (extraction-note banners + projection-design companion) and a
+vcxproj-metadata hygiene commit. Plan commit counts (A=63, B=15, C=15, D=25; checkpoint=1)
+are the **source-range** sizes; the extracted-branch commit counts are in §0.5.
 
-**Next action:** begin Slice A extraction — create `feature/occt-adjacency-engine` off
-current `main` and reconstruct the §7.1.1 curated history in a scratch worktree, then run
-the §6-A gates before opening the PR. B/C/D follow as range cherry-picks per §7; D waits on
-its Rhino.Inside.Revit live-verify before merge.
+**Next action:** open PRs in dependency order. **A first** (gated on live `SpatialTest.3dm`),
+then **B** (after A is deployed/merged), then **C** (PR base = B). **D** in parallel, gated on
+its Rhino.Inside.Revit live verify. Nothing is merged yet — these are review-ready branches
+awaiting the live gates.
