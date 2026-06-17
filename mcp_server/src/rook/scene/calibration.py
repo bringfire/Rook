@@ -268,11 +268,16 @@ def _validate_relationship_counts(
         validation_record = validation_relationships.get(relationship_name)
         if validation_record is None:
             continue
-        if not isinstance(validation_record, dict):
-            raise FixtureValidationError(f"validation.relationships.{relationship_name} must be an object")
-        expected_count = validation_record.get("count")
-        if expected_count is None:
-            continue
+        if isinstance(validation_record, list):
+            expected_count = len(validation_record)
+        elif isinstance(validation_record, dict):
+            expected_count = validation_record.get("count")
+            if expected_count is None:
+                continue
+        else:
+            raise FixtureValidationError(
+                f"validation.relationships.{relationship_name} must be an object or list"
+            )
         if expected_count != len(relationships[relationship_name]):
             raise FixtureValidationError(
                 f"{relationship_name} count mismatch: validation has "

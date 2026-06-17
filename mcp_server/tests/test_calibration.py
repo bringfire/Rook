@@ -87,6 +87,37 @@ def test_validate_fixture_normalizes_real_sidecar_shape():
     assert fixture.relationships["levelMembership"]["uid-door"] == "L1"
 
 
+def test_validate_fixture_accepts_validation_relationship_lists_from_real_export_shape():
+    sidecar = _sidecar()
+    validation = _validation()
+    validation["relationships"] = {
+        name: list(records) for name, records in sidecar["relationships"].items()
+    }
+
+    fixture = cal.validate_fixture_payload(sidecar, validation)
+
+    assert fixture.relationships["hostMembership"] == {"uid-door": "uid-wall"}
+    assert fixture.relationships["roomMembership"] == {"uid-door": "room-1", "uid-wall": "room-1"}
+    assert fixture.relationships["levelMembership"] == {"uid-door": "L1", "uid-wall": "L1"}
+
+
+def test_validate_fixture_rejects_validation_relationship_list_count_mismatch():
+    sidecar = _sidecar()
+    validation = _validation()
+    validation["relationships"] = {
+        name: list(records) for name, records in sidecar["relationships"].items()
+    }
+    validation["relationships"]["hostMembership"] = validation["relationships"]["hostMembership"][:-1]
+
+    with pytest.raises(cal.FixtureValidationError) as exc:
+        cal.validate_fixture_payload(sidecar, validation)
+
+    message = str(exc.value)
+    assert "hostMembership" in message
+    assert "validation has 0" in message
+    assert "sidecar has 1" in message
+
+
 def test_validate_fixture_rejects_duplicate_relationship_sources():
     sidecar = _sidecar()
     sidecar["relationships"]["roomMembership"].append(
