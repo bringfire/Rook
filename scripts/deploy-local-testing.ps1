@@ -526,6 +526,48 @@ function Register-NativeOnlyPlugins {
     & $register -NativeRhpPath (Join-Path $PluginDir 'RookNative.rhp') -NativeOnlyPreserveCompanion
 }
 
+function Write-ChatServiceManifests {
+    param([Parameter(Mandatory = $true)]$Contract)
+
+    $manifest = [ordered]@{
+        pythonPath = $Contract.PythonPath
+        workingDirectory = $Contract.WorkingDirectory
+        module = 'rook.agent.chat.service_main'
+        owner = 'rhino-panel'
+        pythonPathEntries = @($Contract.PythonPathEntries)
+        environment = [ordered]@{
+            PYTHONHOME = ''
+            ROOK_INSTALL_ROOT = $Contract.InstallRoot.Replace('\', '/')
+            ROOK_DATA_DIR = $Contract.DataRoot.Replace('\', '/')
+            ROOK_MODE = $Contract.Mode
+            DSPY_CACHEDIR = (Join-Path $Contract.DataRoot 'dspy-cache').Replace('\', '/')
+            ROOK_DSPY_RESTRICT_PICKLE = '1'
+            CHIRP_HOME = $ChirpInstallRoot.Replace('\', '/')
+        }
+    }
+
+    if ($Contract.IsDev) {
+        $manifest.environment.ROOK_PROJECT_ROOT = $Contract.ProjectRoot.Replace('\', '/')
+    } else {
+        $manifest.environment.PYTHONPATH = ''
+    }
+
+    $json = $manifest | ConvertTo-Json -Depth 6
+    $targets = @((Join-Path $PluginDir 'RookChatService.json'))
+    foreach ($runtime in $ManagedCompanionRuntimes) {
+        $runtimeDir = Join-Path $PluginDir $runtime
+        if (Test-Path $runtimeDir) {
+            $targets += Join-Path (Join-Path $PluginDir $runtime) 'RookChatService.json'
+        }
+    }
+
+    foreach ($manifestPath in $targets) {
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $manifestPath) | Out-Null
+        Set-Content -LiteralPath $manifestPath -Value $json -Encoding UTF8
+        Write-Host "Wrote chat service manifest: $manifestPath"
+    }
+}
+
 function Test-EffectiveRuntime {
     if (-not (Test-Path $VenvPython)) {
         throw "Installed venv Python not found: $VenvPython"
@@ -967,8 +1009,15 @@ Sync-AppPayload
 Write-Step "Sync installed Chirp payload"
 Sync-ChirpPayload
 
-Write-Step "Refresh MCP, Chirp, and config installs"
-Invoke-PostInstallConfig
+if ($RuntimeContract.IsDev) {
+    Write-Step "Refresh dev chat runtime manifest"
+    Write-Host "Skipping release post_install.py because an explicit dev runtime was selected."
+    Write-ChatServiceManifests -Contract $RuntimeContract
+} else {
+    Write-Step "Refresh MCP, Chirp, and config installs"
+    Invoke-PostInstallConfig
+    Write-ChatServiceManifests -Contract $RuntimeContract
+}
 
 Write-Step "Verify effective installed runtime"
 Test-EffectiveRuntime

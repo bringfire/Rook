@@ -38,6 +38,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy-local-testing
 # Copy existing build outputs without rebuilding.
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy-local-testing.ps1 -SkipBuild
 
+# Dev chat/runtime iteration: use the repo MCP venv and write dev manifests.
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy-local-testing.ps1 -UseRepoVenv
+
+# Dev chat/runtime iteration with an explicit venv path.
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy-local-testing.ps1 -DevPythonRuntime "C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe"
+
 # After a full deploy and Rhino restart, verify live Rhino, Grasshopper, and Chirp.
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy-local-testing.ps1 -PayloadOnly -AllowRunning -LiveSmoke
 ```
@@ -48,6 +54,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy-local-testing
 - Default deploy intentionally requires Revit API assemblies for the RookBIM build; Rhino-only native iteration should use `-NativeOnly`, and payload-only sync after a previous build should use `-PayloadOnly -AllowRunning`.
 - `-NativeOnly` must fail if Rhino is running, but must not inspect, kill, block on, sync, or reconfigure running `python -m rook` MCP processes.
 - `-NativeOnly` is for native route/plugin iteration only: it copies/registers the native payload and preserves existing companion/MCP paths from a prior full deploy.
+- `-UseRepoVenv` and `-DevPythonRuntime` are explicit dev-runtime modes; they must never be inferred from a missing release private runtime.
+- Release deploy without a dev-runtime flag still runs `post_install.py` and must fail loudly when the bundled release Python runtime is missing.
 - Default deploy syncs sibling `..\Chirp` into `%LOCALAPPDATA%\Rook\app\chirp` and refreshes the Chirp editable install.
 - Never overwrite `%LOCALAPPDATA%\Rook\data`, logs, `.env`, venvs, caches, or local generated artifacts.
 - Repo `knowledge` is bundled seed content only and syncs to `%LOCALAPPDATA%\Rook\app\knowledge`.
