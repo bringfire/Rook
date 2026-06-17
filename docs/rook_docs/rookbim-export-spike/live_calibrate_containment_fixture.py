@@ -10,6 +10,7 @@ import json
 import sys
 import time
 from pathlib import Path
+from urllib.error import HTTPError
 from urllib import parse, request
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -85,6 +86,25 @@ def _decode_response(response) -> dict:
     return json.loads(response.read().decode("utf-8"))
 
 
+def _decode_http_error_payload(exc: HTTPError) -> dict:
+    body = ""
+    if exc.fp is not None:
+        try:
+            body = exc.read().decode("utf-8")
+        except Exception:
+            body = ""
+    if body:
+        try:
+            payload = json.loads(body)
+        except json.JSONDecodeError:
+            payload = None
+        if isinstance(payload, dict):
+            return payload
+        if payload is not None:
+            return {"success": False, "error": payload}
+    return {"success": False, "error": str(exc)}
+
+
 def _post(port: int, path: str, payload: dict) -> dict:
     req = request.Request(
         f"http://127.0.0.1:{port}{path}",
@@ -92,13 +112,19 @@ def _post(port: int, path: str, payload: dict) -> dict:
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with request.urlopen(req, timeout=180) as response:
-        return _decode_response(response)
+    try:
+        with request.urlopen(req, timeout=180) as response:
+            return _decode_response(response)
+    except HTTPError as exc:
+        return _decode_http_error_payload(exc)
 
 
 def _get(port: int, path: str) -> dict:
-    with request.urlopen(f"http://127.0.0.1:{port}{path}", timeout=180) as response:
-        return _decode_response(response)
+    try:
+        with request.urlopen(f"http://127.0.0.1:{port}{path}", timeout=180) as response:
+            return _decode_response(response)
+    except HTTPError as exc:
+        return _decode_http_error_payload(exc)
 
 
 def _response_data(payload: dict) -> dict:
@@ -138,6 +164,21 @@ def _runtime_object_category(obj: dict) -> str | None:
     return str(value) if value else None
 
 
+def _hydrate_user_strings(port: int, runtime_id: str, existing: dict) -> dict:
+    if _runtime_object_revit_uid({"userStrings": existing}):
+        return existing
+
+    response = _post(port, "/usertext/object-get", {"id": runtime_id})
+    status = _status_from_response(response)
+    if not status["succeeded"]:
+        raise RuntimeError(f"failed to read user strings for imported object {runtime_id}: {status['errors'][0]}")
+
+    hydrated = _response_data(response).get("userStrings")
+    if isinstance(hydrated, dict):
+        return hydrated
+    return existing
+
+
 def open_fixture_in_isolated_context(port: int, model3dm: str) -> dict:
     document_response = _post(port, "/document/new", {})
     document_status = _status_from_response(document_response)
@@ -161,6 +202,7 @@ def open_fixture_in_isolated_context(port: int, model3dm: str) -> dict:
     graph_data = _response_data(graph_response) or graph_response
     nodes = graph_data.get("nodes") or []
     runtime_objects = []
+    imported_node_count = 0
     for node in nodes:
         if not isinstance(node, dict):
             continue
@@ -169,14 +211,24 @@ def open_fixture_in_isolated_context(port: int, model3dm: str) -> dict:
             continue
         if imported_id_set and runtime_id not in imported_id_set:
             continue
-        if not _runtime_object_revit_uid(node):
+        imported_node_count += 1
+        user_strings = _hydrate_user_strings(port, runtime_id, _runtime_object_user_strings(node))
+        if not _runtime_object_revit_uid({"userStrings": user_strings}):
             continue
         runtime_objects.append({
             "runtimeId": runtime_id,
             "name": str(node.get("name") or ""),
             "layer": str(node.get("layer") or ""),
-            "userStrings": _runtime_object_user_strings(node),
+            "userStrings": user_strings,
         })
+
+    if imported_id_set and imported_node_count == 0:
+        raise RuntimeError("Imported fixture ids were not present in the full scene graph snapshot.")
+    if imported_id_set and not runtime_objects:
+        raise RuntimeError(
+            "Imported fixture objects were found, but none exposed 'revit.uniqueId' metadata "
+            "through scene graph nodes or /usertext/object-get."
+        )
 
     return {
         "freshDocument": True,
@@ -215,7 +267,7 @@ def run_exact_projection(port: int, object_ids: list[str]) -> dict:
         if not isinstance(block, dict):
             continue
         route_status = block.get("routeStatus")
-        if route_status in ("ok", "skipped", None):
+        if route_status == "ok":
             continue
         source_id = block.get("sourceId")
         error = block.get("error") or route_status
@@ -241,12 +293,19 @@ def run_containment_refinement(port: int, object_ids: list[str]) -> dict:
     if result.get("success") is not True:
         raise RuntimeError(f"scene_refine_containment failed: {result}")
 
-    failed_sources = [
-        source_id for source_id, block in (result.get("bySource") or {}).items()
-        if isinstance(block, dict) and block.get("status") == "failed"
-    ]
-    if failed_sources:
-        raise RuntimeError(f"scene_refine_containment failed for sources: {', '.join(failed_sources)}")
+    by_source = result.get("bySource") if isinstance(result.get("bySource"), dict) else {}
+    source_errors = []
+    for source_id in dict.fromkeys(object_ids):
+        block = by_source.get(source_id)
+        if not isinstance(block, dict):
+            source_errors.append(f"{source_id}: missing")
+            continue
+        status = block.get("status")
+        if status != "ok":
+            detail = block.get("error") or status or "unknown"
+            source_errors.append(f"{source_id}: {status or 'missing'} ({detail})")
+    if source_errors:
+        raise RuntimeError(f"scene_refine_containment failed for sources: {'; '.join(source_errors)}")
 
     return {
         "status": {"attempted": True, "succeeded": True, "errors": []},
@@ -291,10 +350,26 @@ def run_live(args) -> dict:
         "attemptedObjectCount": len(object_ids),
         "elapsedMs": 0,
     }
-    if args.project_exact_adjacency:
-        exact_status = run_exact_projection(port, object_ids)
+    refinement = {
+        "status": {"attempted": False, "succeeded": False, "skipped": True, "errors": []},
+        "payload": {"success": True, "graphSequence": context.get("graphSequence"), "refined": [], "bySource": {}},
+    }
 
-    refinement = run_containment_refinement(port, object_ids)
+    if not object_ids:
+        explicit_empty = args.cap == 0 or bool(args.category)
+        if not explicit_empty:
+            imported_ids = context.get("importedIds") or []
+            if imported_ids:
+                raise RuntimeError(
+                    "No evaluable runtime objects were found after importing the fixture. "
+                    "Check runtime metadata hydration and filters."
+                )
+            raise RuntimeError("No evaluable runtime objects were found for live calibration.")
+    else:
+        if args.project_exact_adjacency:
+            exact_status = run_exact_projection(port, object_ids)
+
+        refinement = run_containment_refinement(port, object_ids)
     candidates = cal.build_candidate_records(refinement["payload"], join, loaded.fixture)
     classified = [cal.classify_candidate(candidate, loaded.fixture) for candidate in candidates]
     classified = cal.add_missed_labeled_relation_records(
