@@ -321,3 +321,127 @@ def test_build_candidate_records_join_endpoints_and_preserve_runtime_verdict():
     assert c["contained"]["revitUniqueId"] == "uid-door"
     assert c["rook"]["verdict"] == "contains_semantic"
     assert c["rook"]["confidence"] == "high"
+
+
+def test_classify_candidate_host_supported_positive():
+    fixture = cal.validate_fixture_payload(_sidecar(), _validation())
+    join = cal.build_runtime_join_map(_runtime_objects(), fixture)
+    candidate = cal.build_candidate_records({
+        "refined": [{
+            "candidateId": "rook-wall|contains|rook-door",
+            "containerId": "rook-wall",
+            "containedId": "rook-door",
+            "verdict": "contains_semantic",
+            "confidence": "high",
+            "reason": "strong_clearance_plausible_container",
+            "evidence": [],
+        }]
+    }, join, fixture)[0]
+
+    classified = cal.classify_candidate(candidate, fixture)
+
+    assert classified["hostBucket"] == "host_supported_positive"
+    assert classified["roomBucket"] == "room_not_applicable"
+    assert classified["levelBucket"] == "level_not_applicable"
+    assert classified["comparisonBasis"]["host"] == "host_unique_id"
+    assert classified["metricEligible"] == {"host": True, "room": False, "level": False}
+
+
+def test_classify_candidate_host_contradicted_positive():
+    fixture = cal.validate_fixture_payload(_sidecar(), _validation())
+    join = cal.build_runtime_join_map(_runtime_objects(), fixture)
+    candidate = cal.build_candidate_records({
+        "refined": [{
+            "candidateId": "rook-door|contains|rook-wall",
+            "containerId": "rook-door",
+            "containedId": "rook-wall",
+            "verdict": "contains_semantic",
+            "confidence": "high",
+            "reason": "strong_clearance_plausible_container",
+            "evidence": [],
+        }]
+    }, join, fixture)[0]
+
+    classified = cal.classify_candidate(candidate, fixture)
+
+    assert classified["hostBucket"] == "host_contradicted_positive"
+    assert classified["comparisonBasis"]["host"] == "host_unique_id"
+    assert classified["metricEligible"]["host"] is True
+
+
+def test_classify_missing_labels_are_not_ambiguous():
+    sidecar = _sidecar()
+    sidecar["elements"][1]["labels"]["hostId"] = {"value": None, "source": "unavailable", "confidence": "low", "missingReason": "no_host"}
+    sidecar["relationships"]["hostMembership"] = {}
+    validation = _validation()
+    validation["relationships"]["hostMembership"]["count"] = 0
+    fixture = cal.validate_fixture_payload(sidecar, validation)
+    join = cal.build_runtime_join_map(_runtime_objects(), fixture)
+    candidate = cal.build_candidate_records({
+        "refined": [{
+            "candidateId": "rook-wall|contains|rook-door",
+            "containerId": "rook-wall",
+            "containedId": "rook-door",
+            "verdict": "contains_semantic",
+            "confidence": "medium",
+            "reason": "clear_containment_minor_gaps",
+            "evidence": [],
+        }]
+    }, join, fixture)[0]
+
+    classified = cal.classify_candidate(candidate, fixture)
+
+    assert classified["hostBucket"] == "host_missing_label"
+    assert classified["reviewBucket"] != "ambiguous"
+
+
+def test_not_joinable_candidate_is_excluded_from_metrics():
+    fixture = cal.validate_fixture_payload(_sidecar(), _validation())
+    join = cal.build_runtime_join_map(_runtime_objects(), fixture)
+    candidate = cal.build_candidate_records({
+        "refined": [{
+            "candidateId": "rook-wall|contains|unjoined-box",
+            "containerId": "rook-wall",
+            "containedId": "unjoined-box",
+            "verdict": "contains_semantic",
+            "confidence": "low",
+            "reason": "weak_positive_containment",
+            "evidence": [],
+        }]
+    }, join, fixture)[0]
+
+    classified = cal.classify_candidate(candidate, fixture)
+
+    assert classified["reviewBucket"] == "not_joinable"
+    assert classified["metricEligible"] == {"host": False, "room": False, "level": False}
+
+
+def test_add_missed_host_relation_when_no_positive_candidate_exists_inside_evaluated_scope():
+    fixture = cal.validate_fixture_payload(_sidecar(), _validation())
+    join = cal.build_runtime_join_map(_runtime_objects(), fixture)
+
+    missed = cal.add_missed_labeled_relation_records(
+        [],
+        join,
+        fixture,
+        evaluated_runtime_ids={"rook-wall", "rook-door"},
+    )
+
+    assert len(missed) == 1
+    assert missed[0]["candidateId"] == "rook-wall|contains|rook-door|missed_host"
+    assert missed[0]["hostBucket"] == "host_missed_labeled_relation"
+    assert missed[0]["metricEligible"]["host"] is True
+
+
+def test_missed_host_relation_respects_evaluated_scope():
+    fixture = cal.validate_fixture_payload(_sidecar(), _validation())
+    join = cal.build_runtime_join_map(_runtime_objects(), fixture)
+
+    missed = cal.add_missed_labeled_relation_records(
+        [],
+        join,
+        fixture,
+        evaluated_runtime_ids={"rook-wall"},
+    )
+
+    assert missed == []

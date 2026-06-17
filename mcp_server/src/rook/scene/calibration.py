@@ -422,3 +422,197 @@ def build_candidate_records(
             },
         })
     return records
+
+
+def _label_value(label: Any) -> Any:
+    if isinstance(label, dict):
+        return label.get("value")
+    return label
+
+
+def _uid(endpoint: dict[str, Any]) -> str | None:
+    value = endpoint.get("revitUniqueId")
+    return value if isinstance(value, str) and value else None
+
+
+def _positive(candidate: dict[str, Any]) -> bool:
+    return candidate.get("rook", {}).get("verdict") == "contains_semantic"
+
+
+def _host_bucket(candidate: dict[str, Any], fixture: FixtureData) -> tuple[str, str, bool]:
+    container_uid = _uid(candidate["container"])
+    contained_uid = _uid(candidate["contained"])
+    if not container_uid or not contained_uid:
+        return "host_not_applicable", "none", False
+
+    host_map = fixture.relationships.get("hostMembership") or {}
+    container_labels = candidate["container"].get("labels", {})
+    contained_labels = candidate["contained"].get("labels", {})
+    expected_host = host_map.get(contained_uid) or _label_value(contained_labels.get("host"))
+    container_host = host_map.get(container_uid) or _label_value(container_labels.get("host"))
+
+    if _positive(candidate):
+        if container_host == contained_uid:
+            return "host_contradicted_positive", "host_unique_id", True
+        if not expected_host:
+            return "host_missing_label", "none", False
+        if expected_host == container_uid:
+            return "host_supported_positive", "host_unique_id", True
+        return "host_contradicted_positive", "host_unique_id", True
+
+    if not expected_host:
+        return "host_missing_label", "none", False
+    if expected_host == container_uid:
+        return "host_missed_labeled_relation", "host_unique_id", True
+    return "host_not_applicable", "none", False
+
+
+def _room_bucket(candidate: dict[str, Any], fixture: FixtureData) -> tuple[str, str, bool]:
+    container_uid = _uid(candidate["container"])
+    contained_uid = _uid(candidate["contained"])
+    if not container_uid or not contained_uid:
+        return "room_not_applicable", "none", False
+
+    room_map = fixture.relationships.get("roomMembership") or {}
+    container_labels = candidate["container"].get("labels", {})
+    contained_labels = candidate["contained"].get("labels", {})
+    container_room = room_map.get(container_uid) or _label_value(container_labels.get("room"))
+    contained_room = room_map.get(contained_uid) or _label_value(contained_labels.get("room"))
+
+    if container_uid in fixture.rooms_by_unique_id:
+        if not contained_room:
+            return "room_missing_label", "room_endpoint", False
+        if _positive(candidate) and contained_room == container_uid:
+            return "room_supported_positive", "room_endpoint", True
+        if _positive(candidate):
+            return "room_contradicted_positive", "room_endpoint", True
+        if contained_room == container_uid:
+            return "room_missed_labeled_relation", "room_endpoint", True
+        return "room_not_applicable", "none", False
+
+    if not container_room or not contained_room:
+        return "room_missing_label", "same_room", False
+    if _positive(candidate) and container_room != contained_room:
+        return "room_contradicted_positive", "same_room", True
+    return "room_not_applicable", "same_room", False
+
+
+def _level_bucket(candidate: dict[str, Any], fixture: FixtureData) -> tuple[str, str, bool]:
+    container_uid = _uid(candidate["container"])
+    contained_uid = _uid(candidate["contained"])
+    if not container_uid or not contained_uid:
+        return "level_not_applicable", "none", False
+
+    level_map = fixture.relationships.get("levelMembership") or {}
+    container_labels = candidate["container"].get("labels", {})
+    contained_labels = candidate["contained"].get("labels", {})
+    container_level = level_map.get(container_uid) or _label_value(container_labels.get("level"))
+    contained_level = level_map.get(contained_uid) or _label_value(contained_labels.get("level"))
+
+    if not container_level or not contained_level:
+        return "level_missing_label", "same_level", False
+    if _positive(candidate) and container_level != contained_level:
+        return "level_contradicted_positive", "same_level", True
+    return "level_not_applicable", "same_level", False
+
+
+def classify_candidate(candidate: dict[str, Any], fixture: FixtureData) -> dict[str, Any]:
+    if candidate["container"].get("joinStatus") != "joined" or candidate["contained"].get("joinStatus") != "joined":
+        out = dict(candidate)
+        out.update({
+            "hostBucket": "not_joinable",
+            "roomBucket": "not_joinable",
+            "levelBucket": "not_joinable",
+            "reviewBucket": "not_joinable",
+            "comparisonBasis": {"host": "none", "room": "none", "level": "none"},
+            "metricEligible": {"host": False, "room": False, "level": False},
+        })
+        return out
+
+    host_bucket, host_basis, host_eligible = _host_bucket(candidate, fixture)
+    room_bucket, room_basis, room_eligible = _room_bucket(candidate, fixture)
+    level_bucket, level_basis, level_eligible = _level_bucket(candidate, fixture)
+
+    buckets = [host_bucket, room_bucket, level_bucket]
+    review_bucket = next((bucket for bucket in buckets if "contradicted_positive" in bucket), None)
+    if review_bucket is None:
+        review_bucket = next((bucket for bucket in buckets if "missed_labeled_relation" in bucket), None)
+    if review_bucket is None:
+        review_bucket = next((bucket for bucket in buckets if "supported_positive" in bucket), None)
+    if review_bucket is None:
+        review_bucket = "not_applicable"
+
+    out = dict(candidate)
+    out.update({
+        "hostBucket": host_bucket,
+        "roomBucket": room_bucket,
+        "levelBucket": level_bucket,
+        "reviewBucket": review_bucket,
+        "comparisonBasis": {"host": host_basis, "room": room_basis, "level": level_basis},
+        "metricEligible": {"host": host_eligible, "room": room_eligible, "level": level_eligible},
+    })
+    return out
+
+
+def _positive_uid_pairs(candidates: list[dict[str, Any]]) -> set[tuple[str, str]]:
+    pairs: set[tuple[str, str]] = set()
+    for candidate in candidates:
+        if not _positive(candidate):
+            continue
+        container_uid = _uid(candidate.get("container", {}))
+        contained_uid = _uid(candidate.get("contained", {}))
+        if container_uid and contained_uid:
+            pairs.add((container_uid, contained_uid))
+    return pairs
+
+
+def add_missed_labeled_relation_records(
+    classified_candidates: list[dict[str, Any]],
+    join: RuntimeJoinMap,
+    fixture: FixtureData,
+    *,
+    evaluated_runtime_ids: set[str],
+) -> list[dict[str, Any]]:
+    """Append in-scope host misses without using labels in runtime/refiner inputs."""
+    out = list(classified_candidates)
+    positive_pairs = _positive_uid_pairs(out)
+    host_map = fixture.relationships.get("hostMembership") or {}
+
+    for contained_uid, host_uid in host_map.items():
+        if not contained_uid or not host_uid or (host_uid, contained_uid) in positive_pairs:
+            continue
+
+        host_objects = join.by_revit_unique_id.get(host_uid) or []
+        contained_objects = join.by_revit_unique_id.get(contained_uid) or []
+        if not host_objects or not contained_objects:
+            continue
+
+        host_obj = host_objects[0]
+        contained_obj = contained_objects[0]
+        if host_obj.runtime_id not in evaluated_runtime_ids or contained_obj.runtime_id not in evaluated_runtime_ids:
+            continue
+
+        out.append({
+            "candidateId": f"{host_obj.runtime_id}|contains|{contained_obj.runtime_id}|missed_host",
+            "container": _endpoint_payload(host_obj, host_obj.runtime_id),
+            "contained": _endpoint_payload(contained_obj, contained_obj.runtime_id),
+            "rook": {
+                "verdict": "missing_positive",
+                "confidence": "none",
+                "reason": "no_contains_semantic_candidate",
+                "evidence": [],
+            },
+            "fixtureRelationships": {
+                "hostMembership": fixture.relationships.get("hostMembership", {}),
+                "roomMembership": fixture.relationships.get("roomMembership", {}),
+                "levelMembership": fixture.relationships.get("levelMembership", {}),
+            },
+            "hostBucket": "host_missed_labeled_relation",
+            "roomBucket": "room_not_applicable",
+            "levelBucket": "level_not_applicable",
+            "reviewBucket": "host_missed_labeled_relation",
+            "comparisonBasis": {"host": "host_unique_id", "room": "none", "level": "none"},
+            "metricEligible": {"host": True, "room": False, "level": False},
+        })
+
+    return out
