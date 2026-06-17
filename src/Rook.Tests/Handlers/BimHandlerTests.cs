@@ -23,6 +23,7 @@ namespace Rook.Tests.Handlers
             "element_parameters",
             "select_elements",
             "clear_selection",
+            "export_elements",
         };
 
         [Fact]
@@ -554,6 +555,7 @@ namespace Rook.Tests.Handlers
             public BimApiResponse ElementParameters(BimElementRequest request) => BimApiResponse.Ok(null);
             public BimApiResponse SelectElements(BimSelectElementsRequest request) => BimApiResponse.Ok(null);
             public BimApiResponse ClearSelection() => BimApiResponse.Ok(null);
+            public BimApiResponse ExportElements(BimExportElementsRequest request) => BimApiResponse.Ok(null);
         }
 
         private sealed class NoActiveDocumentRuntime : IRookBimRuntime
@@ -585,6 +587,7 @@ namespace Rook.Tests.Handlers
             public BimApiResponse ElementParameters(BimElementRequest request) => BimApiResponse.Ok(null);
             public BimApiResponse SelectElements(BimSelectElementsRequest request) => BimApiResponse.Ok(null);
             public BimApiResponse ClearSelection() => BimApiResponse.Ok(null);
+            public BimApiResponse ExportElements(BimExportElementsRequest request) => BimApiResponse.Ok(null);
         }
 
         private sealed class DetailFailureRuntime : IRookBimRuntime
@@ -641,6 +644,11 @@ namespace Rook.Tests.Handlers
             {
                 return BimApiResponse.Ok(null);
             }
+
+            public BimApiResponse ExportElements(BimExportElementsRequest request)
+            {
+                return BimApiResponse.Ok(null);
+            }
         }
 
         private sealed class CategoryFailureRuntime : IRookBimRuntime
@@ -694,6 +702,11 @@ namespace Rook.Tests.Handlers
             }
 
             public BimApiResponse ClearSelection()
+            {
+                return BimApiResponse.Ok(null);
+            }
+
+            public BimApiResponse ExportElements(BimExportElementsRequest request)
             {
                 return BimApiResponse.Ok(null);
             }

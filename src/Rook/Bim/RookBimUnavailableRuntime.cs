@@ -64,6 +64,11 @@ namespace Rook.Bim
             return Unavailable();
         }
 
+        public BimApiResponse ExportElements(BimExportElementsRequest request)
+        {
+            return Unavailable();
+        }
+
         private BimApiResponse Unavailable()
         {
             return BimApiResponse.Fail(

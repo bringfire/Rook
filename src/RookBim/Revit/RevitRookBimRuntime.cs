@@ -11,10 +11,12 @@ namespace RookBim.Revit
     {
         private const string ModuleName = "RookBim.dll";
         private static readonly TimeSpan DispatchTimeout = TimeSpan.FromSeconds(5);
+        private static readonly TimeSpan ExportDispatchTimeout = TimeSpan.FromSeconds(120);
         private readonly RevitApiDispatcher dispatcher;
         private readonly RevitCategoryResolver categories;
         private readonly RevitQueryService query;
         private readonly RevitSelectionService selection;
+        private readonly RevitExportService export;
 
         public RevitRookBimRuntime()
             : this(new RevitApiDispatcher())
@@ -27,6 +29,7 @@ namespace RookBim.Revit
             this.categories = new RevitCategoryResolver();
             this.query = new RevitQueryService();
             this.selection = new RevitSelectionService();
+            this.export = new RevitExportService();
         }
 
         public BimStatusResponse Status()
@@ -258,10 +261,70 @@ namespace RookBim.Revit
             }
         }
 
+        public BimApiResponse ExportElements(BimExportElementsRequest request)
+        {
+            if (request == null)
+            {
+                return BimApiResponse.Fail(BimErrorCode.InvalidScope, "export-elements request is required.", 400);
+            }
+
+            var validation = request.Validate();
+            if (!validation.Success)
+            {
+                return BimApiResponse.Fail(
+                    validation.ErrorCode, validation.Message ?? "export-elements validation failed.", 400);
+            }
+
+            try
+            {
+                return DispatchWithTimeout(uiapp =>
+                {
+                    var uidoc = RevitContext.ActiveUiDocument(uiapp);
+                    if (uidoc == null || uidoc.Document == null)
+                    {
+                        return BimApiResponse.Fail(BimErrorCode.NoActiveDocument, "No active Revit document is open.", 409);
+                    }
+
+                    var document = uidoc.Document;
+                    var view = uidoc.ActiveView ?? document.ActiveView;
+                    try
+                    {
+                        return export.Export(document, view, request);
+                    }
+                    catch (Exception ex)
+                    {
+                        return BimApiResponse.Fail(
+                            BimErrorCode.ExportFailed,
+                            $"RookBIM export failed inside the Revit document context: {DescribeDispatchException(ex)}",
+                            500);
+                    }
+                }, ExportDispatchTimeout);
+            }
+            catch (Exception ex)
+            {
+                return BimApiResponse.Fail(
+                    BimErrorCode.NotRhinoInside,
+                    $"RookBIM could not enter the Revit API context: {DescribeDispatchException(ex)}",
+                    503);
+            }
+        }
+
         private T Dispatch<T>(Func<UIApplication, T> work)
         {
             var dispatch = dispatcher.InvokeAbandonable(work);
             if (Task.WaitAny(new Task[] { dispatch.Task }, DispatchTimeout) < 0)
+            {
+                dispatch.Abandon();
+                throw new TimeoutException("Timed out waiting for RhinoInside Revit idling-queue execution.");
+            }
+
+            return dispatch.Task.GetAwaiter().GetResult();
+        }
+
+        private T DispatchWithTimeout<T>(Func<UIApplication, T> work, TimeSpan timeout)
+        {
+            var dispatch = dispatcher.InvokeAbandonable(work);
+            if (Task.WaitAny(new Task[] { dispatch.Task }, timeout) < 0)
             {
                 dispatch.Abandon();
                 throw new TimeoutException("Timed out waiting for RhinoInside Revit idling-queue execution.");
