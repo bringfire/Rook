@@ -14,6 +14,7 @@
 #pragma once
 
 #include "SceneGraph/SceneGraphModels.h"
+#include "SceneGraph/ExactAdjacencyTypes.h"
 #include <thread>
 #include <mutex>
 #include <condition_variable>
@@ -71,6 +72,11 @@ public:
     SceneGraphDiff GetDiff(int sinceSequence) const;
     std::string GetNodeSummary(const std::string& objectId,
         std::shared_ptr<const SceneGraphSnapshot> snapshot = nullptr) const;
+
+    // Lazy candidate query for exact-adjacency refinement. Runs on the processor
+    // thread (RTree-safe). Returns a deterministic nearest-first, then capped, set.
+    std::future<CandidateQueryResult>
+    QueryCandidatesAsync(const std::string& objectId, const CandidateQueryOptions& opts);
 
     // ─── Built-in profiles ──────────────────────────────────────
     static DomainProfile BuildGeneralProfile();

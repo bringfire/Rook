@@ -1167,6 +1167,85 @@ std::vector<std::string> CSceneGraph::FindNeighborIds(const SceneNode& node)
 }
 
 // ================================================================
+// Candidate Query (exact-adjacency refinement)
+// ================================================================
+//
+// Processor-thread-safe lazy candidate query. The body runs entirely inside
+// EnqueueAction (i.e. on the processor thread) so m_rtree / m_rtreeIdOrder /
+// m_nodes are only ever touched from their owning thread. We score every RTree
+// neighbor (self excluded), deterministically sort, then cap — never relying on
+// the nondeterministic RTree iteration order.
+
+std::future<CandidateQueryResult>
+CSceneGraph::QueryCandidatesAsync(const std::string& objectId, const CandidateQueryOptions& opts)
+{
+    return EnqueueAction([this, objectId, opts]() -> CandidateQueryResult {
+        CandidateQueryResult result;
+        result.graphSequence = 0;
+        result.sourceFound = false;
+        result.capped = false;
+        result.totalCandidateCount = 0;
+
+        // m_sequence is protected by m_diffMutex (not atomic). Read it under the
+        // lock, then release before touching the RTree.
+        {
+            std::lock_guard<std::mutex> lk(m_diffMutex);
+            result.graphSequence = m_sequence;
+        }
+
+        auto it = m_nodes.find(objectId);
+        if (it == m_nodes.end())
+            return result;                 // sourceFound stays false
+        result.sourceFound = true;
+        result.sourceNode = it->second;    // plain copy
+
+        if (!m_rtree)
+            return result;                 // empty scene guard
+
+        // Gather RTree neighbors (FindNeighborIds includes the source itself).
+        std::vector<ScoredCandidate> scored;
+        for (const std::string& nid : FindNeighborIds(result.sourceNode))
+        {
+            if (nid == objectId)
+                continue;                  // exclude self
+            auto nit = m_nodes.find(nid);
+            if (nit == m_nodes.end())
+                continue;
+            const SceneNode& nb = nit->second;
+            ScoredCandidate sc;
+            sc.id = nid;
+            sc.bboxDistance = BBoxDistance(result.sourceNode.bboxMin, result.sourceNode.bboxMax,
+                                           nb.bboxMin, nb.bboxMax);
+            sc.bboxOverlap  = BBoxOverlapVolume(result.sourceNode.bboxMin, result.sourceNode.bboxMax,
+                                                nb.bboxMin, nb.bboxMax);
+            scored.push_back(std::move(sc));
+        }
+
+        result.totalCandidateCount = static_cast<int>(scored.size());
+
+        // Deterministic total order: bboxDistance asc, bboxOverlap desc, id asc.
+        // (== on doubles is intentional in the tie-break chain — exact-equal
+        // scores fall through to the id tie-break, which is fully deterministic.)
+        std::sort(scored.begin(), scored.end(),
+            [](const ScoredCandidate& a, const ScoredCandidate& b) {
+                if (a.bboxDistance != b.bboxDistance) return a.bboxDistance < b.bboxDistance;
+                if (a.bboxOverlap  != b.bboxOverlap)  return a.bboxOverlap  > b.bboxOverlap;
+                return a.id < b.id;
+            });
+
+        // Cap AFTER sorting so the retained set is the deterministic nearest-first prefix.
+        int limit = opts.maxCandidates > 0 ? opts.maxCandidates : 64;
+        if (result.totalCandidateCount > limit)
+        {
+            result.capped = true;
+            scored.resize(static_cast<size_t>(limit));
+        }
+        result.candidates = std::move(scored);
+        return result;
+    });
+}
+
+// ================================================================
 // Geometry Helpers
 // ================================================================
 
