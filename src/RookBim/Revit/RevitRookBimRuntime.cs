@@ -261,6 +261,13 @@ namespace RookBim.Revit
             }
         }
 
+        public BimApiResponse ExportPreset(BimExportPresetRequest request)
+        {
+            // Temporary stub so RookBim compiles after IRookBimRuntime gains ExportPreset.
+            // Task 10 replaces this with the real resolver-backed wiring.
+            return BimApiResponse.Fail(BimErrorCode.InternalError, "export-preset not yet wired.", 500);
+        }
+
         public BimApiResponse ExportElements(BimExportElementsRequest request)
         {
             if (request == null)

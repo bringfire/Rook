@@ -249,6 +249,11 @@ namespace Rook.Tests.Capabilities
             {
                 throw new NotSupportedException();
             }
+
+            public BimApiResponse ExportPreset(BimExportPresetRequest request)
+            {
+                throw new NotSupportedException();
+            }
         }
     }
 }
