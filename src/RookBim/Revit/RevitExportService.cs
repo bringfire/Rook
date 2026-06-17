@@ -28,6 +28,7 @@ namespace RookBim.Revit
         private static readonly JsonSerializerOptions JsonOptions = new JsonSerializerOptions
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            DictionaryKeyPolicy = JsonNamingPolicy.CamelCase,
             WriteIndented = true,
             DefaultIgnoreCondition = JsonIgnoreCondition.Never
         };
@@ -663,8 +664,62 @@ namespace RookBim.Revit
             int layerCount,
             BimExportArtifactPaths paths)
         {
-            // Task 9 fills this. Stub keeps the preset path returning a present-but-minimal summary.
-            return new { digest = string.Empty };
+            var resolvedCategories = presetContext.ResolvedCategories.Select(rc =>
+            {
+                perCategoryExport.TryGetValue(rc.Category, out var tally);
+                return new
+                {
+                    category = rc.Category,
+                    resolved = rc.Resolved,
+                    exported = tally?.Exported ?? 0,
+                    failed = tally?.Failed ?? 0,
+                    status = rc.Status,
+                };
+            }).ToList();
+
+            var warnings = presetContext.Warnings.Select(w => new { code = w.Code, message = w.Message }).ToList();
+            var layerWarnings = new List<object>();
+            const int LayerCountThreshold = 64;
+            if (layerCount > LayerCountThreshold)
+            {
+                layerWarnings.Add(new
+                {
+                    code = "layer_count_high",
+                    message = $"Export produced {layerCount} layers (threshold {LayerCountThreshold}).",
+                });
+            }
+
+            var exportedTotal = counts.ExportedBrep + counts.ExportedMesh + counts.ExportedBboxProxy;
+            var digest =
+                $"Exported {exportedTotal} elements across {presetContext.EffectiveCategories.Count} categories: " +
+                $"{counts.ExportedBrep} Breps, {counts.ExportedMesh} meshes, {counts.ExportedBboxProxy} bbox proxies, " +
+                $"{counts.Failed} failed. {counts.Rooms} rooms included. {warnings.Count} warning(s).";
+
+            return new
+            {
+                digest,
+                preset = presetContext.Preset,
+                effectiveCategories = presetContext.EffectiveCategories,
+                layerPolicy = BimExportOrganizationPolicy.LayerToWire(presetContext.Policy.LayerScheme),
+                namePolicy = BimExportOrganizationPolicy.NameToWire(presetContext.Policy.NameScheme),
+                metadataProfile = BimExportOrganizationPolicy.ProfileToWire(presetContext.Policy.MetadataProfile),
+                limitPerCategory = presetContext.LimitPerCategory,
+                resolvedCategories,
+                geometryQuality = new
+                {
+                    brep = counts.ExportedBrep,
+                    mesh = counts.ExportedMesh,
+                    bbox_proxy = counts.ExportedBboxProxy,
+                    failed = counts.Failed,
+                },
+                rooms = new
+                {
+                    total = counts.Rooms,
+                    byRepresentation = roomRepCounts,
+                },
+                layers = new { count = layerCount, warnings = layerWarnings },
+                warnings,
+            };
         }
 
         // Reads the ACTUAL written File3dm objects to prove names + user-string stamps reached the

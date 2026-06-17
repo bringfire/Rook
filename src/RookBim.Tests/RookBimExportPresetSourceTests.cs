@@ -58,6 +58,37 @@ namespace RookBim.Tests
             Assert.DoesNotContain("Transaction", src);
         }
 
+        [Fact]
+        public void Summary_AndRelationships_ArePresetPathOnlyAndFactual()
+        {
+            var service = Read("src/RookBim/Revit/RevitExportService.cs");
+            var rel = Read("src/RookBim/Revit/RevitRelationshipIndex.cs");
+
+            // Summary structured fields + digest.
+            Assert.Contains("digest", service);
+            Assert.Contains("resolvedCategories", service);
+            Assert.Contains("geometryQuality", service);
+            Assert.Contains("layerPolicy", service);
+            Assert.Contains("warnings", service);
+
+            // Policy echoes use the wire serializers, NOT C# enum names.
+            Assert.Contains("BimExportOrganizationPolicy.LayerToWire", service);
+            Assert.DoesNotContain("Policy.LayerScheme.ToString()", service);
+
+            // Model audit proves names + stamps from the actual File3dm objects.
+            Assert.Contains("BuildModelObjectAudit", service);
+            Assert.Contains("namedObjectCount", service);
+
+            // Relationships are facts only (carry source/confidence), three membership lists.
+            Assert.Contains("roomMembership", rel);
+            Assert.Contains("hostMembership", rel);
+            Assert.Contains("levelMembership", rel);
+            Assert.Contains("confidence", rel);
+
+            // Decoration stays gated on the preset context.
+            Assert.Contains("presetContext == null", service);
+        }
+
         internal static string Read(string relativePath)
         {
             return File.ReadAllText(Path.Combine(RepoRoot, relativePath.Replace('/', Path.DirectorySeparatorChar)));
