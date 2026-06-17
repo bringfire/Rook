@@ -697,9 +697,11 @@ namespace Rook.Bim
 
         public BimValidationResult Validate()
         {
-            if (string.IsNullOrWhiteSpace(Preset))
+            if (string.IsNullOrWhiteSpace(Preset) || !BimPresetCatalog.TryGet(Preset, out _))
             {
-                return Fail(BimErrorCode.UnknownPreset, "export-preset requires a 'preset' name.");
+                return Fail(
+                    BimErrorCode.UnknownPreset,
+                    $"Unknown export preset '{Preset}'. Known presets: {string.Join(", ", BimPresetCatalog.Names)}.");
             }
 
             if (!string.IsNullOrWhiteSpace(Scope) &&
@@ -726,10 +728,20 @@ namespace Rook.Bim
 
     public sealed class BimPresetDefinition
     {
+        public string Name { get; set; } = string.Empty;
+
+        public IReadOnlyList<string> Categories { get; set; } = Array.Empty<string>();
+
         public BimLayerScheme DefaultLayerScheme { get; set; } = BimLayerScheme.Flat;
 
         public BimNameScheme DefaultNameScheme { get; set; } = BimNameScheme.None;
 
         public BimMetadataProfile DefaultMetadataProfile { get; set; } = BimMetadataProfile.Minimal;
+
+        public BimRoomsMode DefaultRooms { get; set; } = BimRoomsMode.Both;
+
+        public int DefaultLimitPerCategory { get; set; } = 1000;
+
+        public bool RoomsDriven { get; set; }
     }
 }
