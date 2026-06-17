@@ -11105,6 +11105,24 @@ For each object id, computes precise boundary adjacency via the native OCCT engi
             },
         ),
         Tool(
+            name="scene_refine_containment",
+            description="""Refine APPROXIMATE bbox `contains` relationships into SEMANTIC, confidence-scored containment for specific objects.
+
+For each object id, evaluates the existing bbox `contains` candidates it participates in (as container and as contained) using evidence already in the scene graph (bbox clearance, geometry type, classification, layer), and returns a verdict (contains_semantic / insufficient_evidence / disqualified) with ordinal confidence (high/medium/low) and an explicit evidence list. Semantic, never geometrically exact. Use it when bbox 'contains' is too coarse and you need to know whether an object is genuinely inside another. Approximate bbox edges are preserved and annotated, never replaced.""",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "object_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "GUIDs to refine containment for (1..N)",
+                    },
+                    "port": {"type": "integer", "description": "Rhino instance port"},
+                },
+                "required": ["object_ids"],
+            },
+        ),
+        Tool(
             name="scene_classify",
             description="""Force reclassification of objects in the scene graph. Optionally switch the domain profile (general or architecture).
 
@@ -19201,6 +19219,21 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                 )
                 if not payload.get("success", True):
                     result = {"success": False, "data": payload.get("error", "exact projection failed")}
+                else:
+                    result = {"success": True, "data": payload}
+
+        case "scene_refine_containment":
+            object_ids = arguments.get("object_ids", [])
+            if not object_ids:
+                result = {"success": False, "data": "Missing object_ids parameter"}
+            else:
+                from .scene.scene_graph import get_scene_graph
+                from .scene.containment_refinement import get_containment_refiner
+                sg = get_scene_graph()
+                refiner = get_containment_refiner(sg)
+                payload = await refiner.refine(object_ids, port=port)
+                if not payload.get("success", True):
+                    result = {"success": False, "data": payload.get("error", "containment refine failed")}
                 else:
                     result = {"success": True, "data": payload}
 
