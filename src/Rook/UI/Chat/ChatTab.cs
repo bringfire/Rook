@@ -30,6 +30,7 @@ namespace Rook.UI.Chat
         private Button _clearButton = null!;
         private Button _stopButton = null!;
         private Label _statusLabel = null!;
+        private StackLayout _statusStack = null!;
 
         // ─── Fallback chat (when WebView is unavailable) ──────────────
         private TextArea? _fallbackChat;
@@ -147,6 +148,19 @@ namespace Rook.UI.Chat
             if (chatContainer is TextArea fallback)
                 _fallbackChat = fallback;
 
+            // Status cell is a vertical stack: the status label, plus an optional
+            // auxiliary row that subclasses fill via SetAuxiliaryRow. With a single
+            // item, StackLayout applies no inter-item spacing, so tabs that never
+            // set an auxiliary row (e.g. ClaudeCodeTab) render identically to the
+            // original single-label status row.
+            _statusStack = new StackLayout
+            {
+                Orientation = Orientation.Vertical,
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Spacing = 5,
+            };
+            _statusStack.Items.Add(new StackLayoutItem(_statusLabel, HorizontalAlignment.Left));
+
             var layout = new TableLayout
             {
                 Padding = new Padding(5),
@@ -155,11 +169,7 @@ namespace Rook.UI.Chat
                 {
                     new TableRow(chatContainer) { ScaleHeight = true },
 
-                    new TableRow(new TableLayout
-                    {
-                        Spacing = new Size(5, 0),
-                        Rows = { new TableRow(_statusLabel, null) }
-                    }),
+                    new TableRow(_statusStack),
 
                     new TableRow(_inputArea),
 
@@ -312,6 +322,23 @@ namespace Rook.UI.Chat
         }
 
         /// <summary>
+        /// Set (or clear) an optional control shown directly beneath the status
+        /// label. Passing null removes it, restoring the bare status row. The
+        /// auxiliary control is only ever parented to the status stack, so this
+        /// never re-parents shared controls. Neutral: the base attaches no
+        /// meaning to the row's contents.
+        /// </summary>
+        protected void SetAuxiliaryRow(Control? row)
+        {
+            // Keep item 0 (the status label); drop any previously-set aux item.
+            while (_statusStack.Items.Count > 1)
+                _statusStack.Items.RemoveAt(_statusStack.Items.Count - 1);
+
+            if (row != null)
+                _statusStack.Items.Add(new StackLayoutItem(row, HorizontalAlignment.Left));
+        }
+
+        /// <summary>
         /// Read-only view of the chat-tab's processing state for subclasses
         /// that need to coordinate side-channel input (e.g. WebView UI block
         /// submissions) with the typed-message lifecycle. The base class
@@ -414,6 +441,17 @@ namespace Rook.UI.Chat
             _sendButton.Enabled = !_isProcessing;
             _stopButton.Enabled = _isProcessing;
             _inputArea.Enabled = !_isProcessing;
+            OnUIStateUpdated();
+        }
+
+        /// <summary>
+        /// Called at the end of UpdateUIState (a runtime method, never invoked
+        /// during construction). Subclasses override to re-evaluate their own
+        /// controls on processing-state transitions, including the base-owned
+        /// Stop button. Default is a no-op.
+        /// </summary>
+        protected virtual void OnUIStateUpdated()
+        {
         }
 
         // ─── Chat-specific Web Surface ───────────────────────────────

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
@@ -28,6 +29,11 @@ namespace Rook.UI.Chat
         private bool _connectionBannerShown;
         private string? _activeUIBlockId;
         private string? _activeModelLabel;
+        private DropDown? _modelDropDown;
+        private Button? _applyModelButton;
+        private bool _suppressModelSelectionEvents;
+        private bool _modelListAvailable;
+        private bool _modelSelectionDirty;
 
         public AgentChatTab(
             string persona,
@@ -42,6 +48,202 @@ namespace Rook.UI.Chat
             _documentSerialNumberProvider = documentSerialNumberProvider;
             _documentSerialNumber = documentSerialNumber;
             _client = new AgentChatClient();
+            BuildModelSelector();
+        }
+
+        private void BuildModelSelector()
+        {
+            _modelDropDown = new DropDown();
+            _modelDropDown.SelectedValueChanged += (s, e) =>
+            {
+                if (_suppressModelSelectionEvents)
+                    return;
+                _modelSelectionDirty = !string.Equals(
+                    _modelDropDown?.SelectedKey, _activeModelLabel, StringComparison.Ordinal);
+                UpdateApplyEnabled();
+            };
+
+            _applyModelButton = new Button { Text = "Apply", Width = 70, Enabled = false };
+            _applyModelButton.Click += OnApplyModelClicked;
+
+            var label = new Label
+            {
+                Text = "Model:",
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+
+            var row = new StackLayout
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 5,
+                VerticalContentAlignment = VerticalAlignment.Center,
+                Items =
+                {
+                    new StackLayoutItem(label),
+                    new StackLayoutItem(_modelDropDown, expand: true),
+                    new StackLayoutItem(_applyModelButton),
+                }
+            };
+
+            SetAuxiliaryRow(row);
+        }
+
+        private void PopulateModelSelector(List<string> allowed, string activeModel)
+        {
+            if (_modelDropDown == null)
+                return;
+
+            // Preserve a deliberate, still-valid user selection across refreshes
+            // (e.g. a pending choice made while a turn was streaming).
+            var previousSelectedKey = _modelDropDown.SelectedKey;
+
+            // Items = allowed overrides, with the active model guaranteed present
+            // (prepended) so the control always reflects the true active model.
+            var items = new List<string>();
+            if (!string.IsNullOrEmpty(activeModel))
+                items.Add(activeModel);
+            foreach (var m in allowed)
+            {
+                if (!string.IsNullOrEmpty(m) && !items.Contains(m))
+                    items.Add(m);
+            }
+
+            _modelListAvailable = items.Count > 0;
+
+            var preservePending =
+                _modelSelectionDirty
+                && !string.IsNullOrEmpty(previousSelectedKey)
+                && items.Contains(previousSelectedKey!)
+                && !string.Equals(previousSelectedKey, activeModel, StringComparison.Ordinal);
+
+            var selectedKey = preservePending ? previousSelectedKey! : activeModel;
+            if (!preservePending)
+                _modelSelectionDirty = false;
+
+            _suppressModelSelectionEvents = true;
+            try
+            {
+                _modelDropDown.Items.Clear();
+                foreach (var m in items)
+                    _modelDropDown.Items.Add(new ListItem { Text = m, Key = m });
+                _modelDropDown.SelectedKey = selectedKey;
+            }
+            finally
+            {
+                _suppressModelSelectionEvents = false;
+            }
+
+            UpdateApplyEnabled();
+        }
+
+        private void UpdateApplyEnabled()
+        {
+            if (_applyModelButton == null || _modelDropDown == null)
+                return;
+
+            _applyModelButton.Enabled = ShouldEnableApply(
+                hasConversation: !string.IsNullOrEmpty(_conversationId),
+                isProcessing: IsProcessing,
+                listAvailable: _modelListAvailable,
+                selectedModel: _modelDropDown.SelectedKey,
+                activeModel: _activeModelLabel);
+        }
+
+        /// <summary>
+        /// Reset selector state when the conversation identity is cleared, so no
+        /// stale models or enabled Apply linger from a prior conversation. Must
+        /// run on the UI thread (touches Eto controls).
+        /// </summary>
+        private void ClearModelSelector()
+        {
+            _modelListAvailable = false;
+            _activeModelLabel = null;
+            _modelSelectionDirty = false;
+
+            if (_modelDropDown != null)
+            {
+                _suppressModelSelectionEvents = true;
+                try
+                {
+                    _modelDropDown.Items.Clear();
+                }
+                finally
+                {
+                    _suppressModelSelectionEvents = false;
+                }
+            }
+
+            UpdateApplyEnabled();
+        }
+
+        protected override void OnUIStateUpdated()
+        {
+            UpdateApplyEnabled();
+        }
+
+        private async void OnApplyModelClicked(object? sender, EventArgs e)
+        {
+            var dropDown = _modelDropDown;
+            var baseUri = _conversationBaseUri;
+            var conversationId = _conversationId;
+            if (dropDown == null || baseUri == null || string.IsNullOrEmpty(conversationId))
+                return;
+
+            var selected = dropDown.SelectedKey;
+            if (string.IsNullOrEmpty(selected) || selected == _activeModelLabel || IsProcessing)
+                return;
+
+            if (_applyModelButton != null)
+                _applyModelButton.Enabled = false;
+            SetStatus($"Switching model to {selected}...", Colors.Blue);
+
+            try
+            {
+                var result = await _client.SetModelAsync(baseUri, conversationId!, selected!, "panel selector");
+                Application.Instance.Invoke(() =>
+                {
+                    if (!IsCurrentConversation(conversationId!))
+                        return;
+
+                    if (result.Success)
+                    {
+                        _ = RefreshModelStatusAsync(conversationId);
+                    }
+                    else if (result.StatusCode == 409 || result.ErrorCode == "conversation_processing")
+                    {
+                        SetStatus("Finish the current reply before changing models.",
+                            Color.FromArgb(0xd9, 0x77, 0x06));
+                        UpdateApplyEnabled();
+                    }
+                    else if (result.StatusCode == 400 || result.ErrorCode == "model_override_unavailable")
+                    {
+                        SetStatus("That model is no longer available — list refreshed.",
+                            Color.FromArgb(0xd9, 0x77, 0x06));
+                        _ = RefreshModelStatusAsync(conversationId);
+                    }
+                    else if (result.StatusCode == 404)
+                    {
+                        _conversationId = null;
+                        _conversationBaseUri = null;
+                        ClearModelSelector();
+                        SetStatus("Conversation not found — restart chat.", Colors.Red);
+                    }
+                    else
+                    {
+                        SetStatus(string.IsNullOrEmpty(result.Message)
+                            ? "Model switch failed." : result.Message!, Colors.Red);
+                        UpdateApplyEnabled();
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                Application.Instance.Invoke(() =>
+                {
+                    SetStatus($"Model switch failed: {ex.Message}", Colors.Red);
+                    UpdateApplyEnabled();
+                });
+            }
         }
 
         private uint GetCurrentDocumentSerialNumber()
@@ -153,6 +355,8 @@ namespace Rook.UI.Chat
                 _initializeGate.Release();
             }
 
+            Application.Instance.Invoke(ClearModelSelector);
+
             SetStatus("Starting chat service...", Colors.Blue);
             var health = await _client.GetHealthAsync(startIfNeeded: true);
             if (!health.ServiceAvailable)
@@ -184,6 +388,7 @@ namespace Rook.UI.Chat
                     return;
                 }
                 var activeModel = conversation.ActiveModel;
+                var allowed = models.AllowedModelOverrides ?? new List<string>();
 
                 if (!IsCurrentConversation(currentConversationId))
                 {
@@ -203,11 +408,38 @@ namespace Rook.UI.Chat
 
                     _activeModelLabel = activeModel;
                     SetStatus(status, Colors.Blue);
+                    PopulateModelSelector(allowed, activeModel!);
                 });
             }
-            catch
+            catch (OperationCanceledException)
             {
-                // Model status is best-effort feedback only.
+                // Refresh cancelled (e.g. conversation teardown) — nothing to surface.
+            }
+            catch (Exception)
+            {
+                // /agent/chat/models failed (e.g. a stale or mismatched chat runtime
+                // returning 404). Don't blank the selector silently: fall back to the
+                // locally-known active model and surface that the override list is
+                // unavailable, so a runtime mismatch can never look "healthy".
+                Application.Instance.Invoke(() =>
+                {
+                    if (!IsCurrentConversation(currentConversationId))
+                    {
+                        return;
+                    }
+
+                    var active = _activeModelLabel;
+                    if (!string.IsNullOrEmpty(active))
+                    {
+                        PopulateModelSelector(new List<string>(), active!);
+                    }
+
+                    SetStatus(
+                        string.IsNullOrEmpty(active)
+                            ? "Model list unavailable"
+                            : $"Model: {active} (list unavailable)",
+                        Color.FromArgb(0xd9, 0x77, 0x06));
+                });
             }
         }
 
@@ -539,6 +771,26 @@ namespace Rook.UI.Chat
             // Nothing to reset — agent server keeps its own history
         }
 
+        /// <summary>
+        /// Pure decision for whether the panel Apply button should be enabled.
+        /// Pending model is intentionally not an input: panel Apply uses
+        /// /agent/chat/model only while inactive and applies to the next turn,
+        /// so "selected equals active" is the sole disqualifier beyond gating.
+        /// </summary>
+        internal static bool ShouldEnableApply(
+            bool hasConversation,
+            bool isProcessing,
+            bool listAvailable,
+            string? selectedModel,
+            string? activeModel)
+        {
+            if (!hasConversation || isProcessing || !listAvailable)
+                return false;
+            if (string.IsNullOrEmpty(selectedModel))
+                return false;
+            return !string.Equals(selectedModel, activeModel, StringComparison.Ordinal);
+        }
+
         public override void OnTabClosed()
         {
             if (!CloseWebSurface())
@@ -550,6 +802,7 @@ namespace Rook.UI.Chat
                 _conversationId = null;
                 _conversationBaseUri = null;
             }
+            ClearModelSelector();
             _cts?.Cancel();
             _cts?.Dispose();
             _cts = null;
