@@ -477,6 +477,15 @@ namespace Rook.UI.Chat
                     var manifest = JsonSerializer.Deserialize<ChatServiceManifest>(json, JsonOptions);
                     if (manifest != null)
                     {
+                        var runtimeValidation = ValidateManifestRuntime(manifest);
+                        if (!runtimeValidation.IsValid && runtimeValidation.IsTerminalInvalidManifest)
+                        {
+                            RhinoApp.WriteLine(
+                                "Rook: chat service manifest is invalid "
+                                + $"({runtimeValidation.Message}).");
+                            return manifest;
+                        }
+
                         if (IsManifestCurrent(manifest, out var staleReason))
                         {
                             return manifest;

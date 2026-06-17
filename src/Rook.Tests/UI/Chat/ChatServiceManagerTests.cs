@@ -151,6 +151,34 @@ namespace Rook.Tests.UI.Chat
             }
         }
 
+        [Fact]
+        public void LoadManifest_DoesNotRegenerateWhenPinnedPythonIsMissing()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Chat", "ChatServiceManager.cs");
+            var loadManifest = ExtractMethod(source, "private ChatServiceManifest? LoadManifest()");
+
+            Assert.Contains("ValidateManifestRuntime(manifest)", loadManifest);
+            Assert.Contains("runtimeValidation.IsTerminalInvalidManifest", loadManifest);
+            var terminalInvalidIndex = loadManifest.IndexOf(
+                "runtimeValidation.IsTerminalInvalidManifest",
+                StringComparison.Ordinal);
+            var terminalReturnIndex = loadManifest.IndexOf(
+                "return manifest;",
+                terminalInvalidIndex,
+                StringComparison.Ordinal);
+            var staleCheckIndex = loadManifest.IndexOf(
+                "IsManifestCurrent(manifest",
+                StringComparison.Ordinal);
+            var autoGenerateIndex = loadManifest.IndexOf(
+                "TryAutoGenerateManifest(manifestPath)",
+                StringComparison.Ordinal);
+
+            Assert.True(terminalInvalidIndex >= 0);
+            Assert.True(terminalReturnIndex > terminalInvalidIndex);
+            Assert.True(terminalReturnIndex < staleCheckIndex);
+            Assert.True(terminalReturnIndex < autoGenerateIndex);
+        }
+
         private static string CreateTempFile(string fileName)
         {
             var dir = Directory.CreateDirectory(
@@ -187,6 +215,53 @@ namespace Rook.Tests.UI.Chat
             catch
             {
             }
+        }
+
+        private static string ReadSourceFile(params string[] pathParts)
+        {
+            var dir = new DirectoryInfo(AppContext.BaseDirectory);
+            while (dir != null)
+            {
+                var candidate = Path.Combine(dir.FullName, Path.Combine(pathParts));
+                if (File.Exists(candidate))
+                    return File.ReadAllText(candidate);
+
+                dir = dir.Parent;
+            }
+
+            throw new FileNotFoundException("Could not locate source file " + string.Join("/", pathParts));
+        }
+
+        private static string ExtractMethod(string source, string signatureStartText)
+        {
+            var signatureStart = source.IndexOf(signatureStartText, StringComparison.Ordinal);
+            if (signatureStart < 0)
+                throw new InvalidOperationException("Method not found: " + signatureStartText);
+
+            var bodyStart = source.IndexOf('{', signatureStart);
+            if (bodyStart < 0)
+                throw new InvalidOperationException("Method body not found: " + signatureStartText);
+
+            var bodyEnd = FindMatchingBrace(source, bodyStart);
+            return source.Substring(signatureStart, bodyEnd - signatureStart + 1);
+        }
+
+        private static int FindMatchingBrace(string source, int openBraceIndex)
+        {
+            var depth = 0;
+            for (var i = openBraceIndex; i < source.Length; i++)
+            {
+                if (source[i] == '{')
+                    depth++;
+                else if (source[i] == '}')
+                {
+                    depth--;
+                    if (depth == 0)
+                        return i;
+                }
+            }
+
+            throw new InvalidOperationException("Brace did not close at index " + openBraceIndex);
         }
     }
 }
