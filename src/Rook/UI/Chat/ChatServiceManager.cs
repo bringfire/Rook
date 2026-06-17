@@ -34,6 +34,34 @@ namespace Rook.UI.Chat
         public string Owner { get; set; } = "rhino-panel";
     }
 
+    internal readonly struct ChatServiceRuntimeValidation
+    {
+        public ChatServiceRuntimeValidation(
+            bool isValid,
+            string message,
+            bool isTerminalInvalidManifest)
+        {
+            IsValid = isValid;
+            Message = message ?? "";
+            IsTerminalInvalidManifest = isTerminalInvalidManifest;
+        }
+
+        public bool IsValid { get; }
+        public string Message { get; }
+        public bool IsTerminalInvalidManifest { get; }
+
+        public static ChatServiceRuntimeValidation Valid =>
+            new ChatServiceRuntimeValidation(true, "", false);
+    }
+
+    internal enum ChatServiceStartDecision
+    {
+        ReuseHealthyService,
+        RestartBecauseNonceMissing,
+        WaitForTrackedProcess,
+        StartNewProcess,
+    }
+
     public class ChatServiceHealth
     {
         public bool ServiceAvailable { get; set; }
@@ -193,14 +221,19 @@ namespace Rook.UI.Chat
                 CleanupStaleChatDiscoveryFiles();
 
                 var existing = await GetHealthInternalAsync(startIfNeeded: false, ct: ct);
-                if (existing.ServiceAvailable)
+                var startDecision = ShouldStartChatService(
+                    trackedProcessExists: _ownedProcess != null,
+                    trackedProcessHasExited: _ownedProcess?.HasExited ?? true,
+                    existingServiceAvailable: existing.ServiceAvailable,
+                    sessionNoncePresent: !string.IsNullOrEmpty(SessionNonce));
+                if (startDecision == ChatServiceStartDecision.ReuseHealthyService)
                 {
-                    if (!string.IsNullOrEmpty(SessionNonce))
-                    {
-                        // Session nonce is still valid — reuse the running service.
-                        return existing;
-                    }
+                    // Session nonce is still valid — reuse the running service.
+                    return existing;
+                }
 
+                if (startDecision == ChatServiceStartDecision.RestartBecauseNonceMissing)
+                {
                     // Service is running but we lost the nonce (companion reload,
                     // panel recreation, etc.).  The Python process still enforces
                     // the old nonce, so every non-health request would 403.  Stop
@@ -224,30 +257,13 @@ namespace Rook.UI.Chat
                     };
                 }
 
-                if (!File.Exists(manifest.PythonPath))
+                var runtimeValidation = ValidateManifestRuntime(manifest);
+                if (!runtimeValidation.IsValid)
                 {
                     return new ChatServiceHealth
                     {
                         ServiceAvailable = false,
-                        ServiceMessage = $"Python runtime not found: {manifest.PythonPath}",
-                    };
-                }
-
-                if (!Directory.Exists(manifest.WorkingDirectory))
-                {
-                    return new ChatServiceHealth
-                    {
-                        ServiceAvailable = false,
-                        ServiceMessage = $"Chat service working directory not found: {manifest.WorkingDirectory}",
-                    };
-                }
-
-                if (!string.Equals(manifest.Owner, ExpectedOwner, StringComparison.OrdinalIgnoreCase))
-                {
-                    return new ChatServiceHealth
-                    {
-                        ServiceAvailable = false,
-                        ServiceMessage = $"Unsupported chat service owner '{manifest.Owner}'. Expected '{ExpectedOwner}'.",
+                        ServiceMessage = runtimeValidation.Message,
                     };
                 }
 
@@ -374,10 +390,65 @@ namespace Rook.UI.Chat
             };
         }
 
+        internal static string ResolveManifestPath(string assemblyLocation)
+        {
+            var pluginDir = Path.GetDirectoryName(assemblyLocation) ?? "";
+            return Path.Combine(pluginDir, "RookChatService.json");
+        }
+
         private static string GetManifestPath()
         {
-            var pluginDir = Path.GetDirectoryName(typeof(ChatServiceManager).Assembly.Location) ?? "";
-            return Path.Combine(pluginDir, "RookChatService.json");
+            return ResolveManifestPath(typeof(ChatServiceManager).Assembly.Location);
+        }
+
+        internal static ChatServiceRuntimeValidation ValidateManifestRuntime(ChatServiceManifest manifest)
+        {
+            if (!File.Exists(manifest.PythonPath))
+            {
+                return new ChatServiceRuntimeValidation(
+                    false,
+                    $"Python runtime not found: {manifest.PythonPath}",
+                    true);
+            }
+
+            if (!Directory.Exists(manifest.WorkingDirectory))
+            {
+                return new ChatServiceRuntimeValidation(
+                    false,
+                    $"Chat service working directory not found: {manifest.WorkingDirectory}",
+                    false);
+            }
+
+            if (!string.Equals(manifest.Owner, ExpectedOwner, StringComparison.OrdinalIgnoreCase))
+            {
+                return new ChatServiceRuntimeValidation(
+                    false,
+                    $"Unsupported chat service owner '{manifest.Owner}'. Expected '{ExpectedOwner}'.",
+                    false);
+            }
+
+            return ChatServiceRuntimeValidation.Valid;
+        }
+
+        internal static ChatServiceStartDecision ShouldStartChatService(
+            bool trackedProcessExists,
+            bool trackedProcessHasExited,
+            bool existingServiceAvailable,
+            bool sessionNoncePresent)
+        {
+            if (existingServiceAvailable)
+            {
+                return sessionNoncePresent
+                    ? ChatServiceStartDecision.ReuseHealthyService
+                    : ChatServiceStartDecision.RestartBecauseNonceMissing;
+            }
+
+            if (trackedProcessExists && !trackedProcessHasExited)
+            {
+                return ChatServiceStartDecision.WaitForTrackedProcess;
+            }
+
+            return ChatServiceStartDecision.StartNewProcess;
         }
 
         private static string GetDiscoveryFolder()
@@ -440,6 +511,15 @@ namespace Rook.UI.Chat
                     var manifest = JsonSerializer.Deserialize<ChatServiceManifest>(json, JsonOptions);
                     if (manifest != null)
                     {
+                        var runtimeValidation = ValidateManifestRuntime(manifest);
+                        if (!runtimeValidation.IsValid && runtimeValidation.IsTerminalInvalidManifest)
+                        {
+                            RhinoApp.WriteLine(
+                                "Rook: chat service manifest is invalid "
+                                + $"({runtimeValidation.Message}).");
+                            return manifest;
+                        }
+
                         if (IsManifestCurrent(manifest, out var staleReason))
                         {
                             return manifest;
@@ -1199,7 +1279,12 @@ namespace Rook.UI.Chat
 
         private void StartProcess(ChatServiceManifest manifest)
         {
-            if (_ownedProcess != null && !_ownedProcess.HasExited)
+            var startDecision = ShouldStartChatService(
+                trackedProcessExists: _ownedProcess != null,
+                trackedProcessHasExited: _ownedProcess?.HasExited ?? true,
+                existingServiceAvailable: false,
+                sessionNoncePresent: !string.IsNullOrEmpty(SessionNonce));
+            if (startDecision == ChatServiceStartDecision.WaitForTrackedProcess)
             {
                 return;
             }
