@@ -1098,6 +1098,29 @@ def build_local_tools() -> Dict[str, Any]:
     except ImportError:
         logger.debug("gh_knowledge_query local tool unavailable (import failed)")
 
+    # --- scene_exact_neighbors (Python-side projection over the OCCT exact route) ---
+    try:
+        from ..scene.scene_graph import get_scene_graph
+        from ..scene.exact_projection import get_exact_projector
+
+        async def _scene_exact_neighbors(
+            object_ids=None, candidate_scope="broad_phase_default",
+            port: int | None = None, **kwargs,
+        ) -> dict:
+            if not object_ids:
+                return {"success": False, "data": "Missing object_ids parameter"}
+            sg = get_scene_graph()
+            projector = get_exact_projector(sg)
+            payload = await projector.project(
+                object_ids, candidate_scope=candidate_scope, port=port)
+            if not payload.get("success", True):
+                return {"success": False, "data": payload.get("error", "exact projection failed")}
+            return {"success": True, "data": payload}
+
+        tools["scene_exact_neighbors"] = _scene_exact_neighbors
+    except ImportError:
+        logger.debug("scene_exact_neighbors local tool unavailable (import failed)")
+
     tools["gh_update_script"] = _local_gh_update_script
     tools["gh_set_script_pins"] = _local_gh_set_script_pins
 

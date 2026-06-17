@@ -297,31 +297,19 @@ class SceneGraphAnalytics:
         # Outgoing edges (this node is source)
         for _, target, edata in self.graph.out_edges(node_id, data=True):
             rel = edata.get("relationship", "?")
-            dist = edata.get("distance", 0)
-            direction = edata.get("direction", "")
             t_attrs = self.graph.nodes.get(target, {})
             t_label = (t_attrs.get("domain_label") or t_attrs.get("shape_class") or "?").upper()
             t_name = t_attrs.get("name") or target[:8]
-
-            detail = ""
-            if dist > 0:
-                detail = f", {dist:.2f}m"
-            if direction:
-                detail += f", {direction}"
-
-            lines.append(f'  {rel}: {t_label} "{t_name}"{detail}')
+            lines.append(f'  {_forward_rel(rel)}: {t_label} "{t_name}"{_edge_detail(edata)}')
 
         # Incoming edges (this node is target)
         for source, _, edata in self.graph.in_edges(node_id, data=True):
             rel = edata.get("relationship", "?")
-            dist = edata.get("distance", 0)
             s_attrs = self.graph.nodes.get(source, {})
             s_label = (s_attrs.get("domain_label") or s_attrs.get("shape_class") or "?").upper()
             s_name = s_attrs.get("name") or source[:8]
-
             inverse = _inverse_rel(rel)
-            detail = f", {dist:.2f}m" if dist > 0 else ""
-            lines.append(f'  {inverse}: {s_label} "{s_name}"{detail}')
+            lines.append(f'  {inverse}: {s_label} "{s_name}"{_edge_detail(edata)}')
 
         return "\n".join(lines)
 
@@ -477,9 +465,40 @@ _INVERSE_RELS = {
     "above": "below",
     "intersects": "intersects",
     "adjacent": "adjacent to",
+    "adjacent_exact": "adjacent to (exact)",
     "near": "near",
 }
 
 
 def _inverse_rel(rel: str) -> str:
     return _INVERSE_RELS.get(rel, rel)
+
+
+# Forward-direction display labels. Most relationships read fine as their raw name,
+# but the symmetric exact-adjacency edge should read the same friendly phrase in
+# both directions (it is one canonical edge serving both endpoints).
+_FORWARD_RELS = {
+    "adjacent_exact": "adjacent to (exact)",
+}
+
+
+def _forward_rel(rel: str) -> str:
+    return _FORWARD_RELS.get(rel, rel)
+
+
+def _edge_detail(edata: dict) -> str:
+    """Trailing detail string for an edge line (exact area, distance, direction)."""
+    if edata.get("relationship") == "adjacent_exact":
+        area = edata.get("sharedArea")
+        unit = edata.get("areaUnit", "")
+        if area is not None:
+            return f", shared face {area:.2f} {unit}".rstrip()
+        return ""
+    dist = edata.get("distance", 0)
+    direction = edata.get("direction", "")
+    detail = ""
+    if dist > 0:
+        detail = f", {dist:.2f}m"
+    if direction:
+        detail += f", {direction}"
+    return detail
