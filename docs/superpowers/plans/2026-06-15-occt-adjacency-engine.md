@@ -1,5 +1,11 @@
 # OcctAdjacencyEngine Implementation Plan
 
+> **⚠ Extraction note (Slice A, `feature/occt-adjacency-engine`):** This plan migrates from the
+> Gate-4 Clipper2 engine to OCCT and includes tasks that **freeze/retain** a `LegacyPlanarAdjacency`
+> unit and the Clipper2 vendor code. Those legacy/Clipper2 artifacts were **pruned from this OCCT
+> extraction branch** (archived on `feature/spatial-intelligence`); only the OCCT engine ships here.
+> The "freeze the Clipper engine as a legacy unit" / "vendor Clipper2" steps are historical.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the Gate-4 hand-rolled Clipper2 planar adjacency engine with a production OCCT-based engine that computes geometric shared-face-area adjacency over arbitrary Breps (planar + curved, open + closed), behind the existing `IExactAdjacencyEngine` seam.

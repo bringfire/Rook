@@ -1,5 +1,12 @@
 # Gate 4 — Exact Planar Adjacency Service (design spec)
 
+> **⚠ Extraction note (Slice A, `feature/occt-adjacency-engine`):** This document describes the
+> **superseded Gate-4 Clipper2 planar prototype**. The Clipper2 vendor code (`vendor/clipper2/`) and
+> the `PlanarAdjacencyEngine`/`LegacyPlanarAdjacency` it describes are **NOT present on this OCCT
+> extraction branch** — they are archived on `feature/spatial-intelligence`. Retained here as
+> historical design context; the shipping engine is OCCT-only (see
+> `docs/rook_docs/2026-06-14-occt-uniform-engine-decision.md`).
+
 > **Status: DRAFT — revised 2026-06-14 (round 3).** Adopts Clipper2 for the 2D
 > polygon boolean (replacing hand-rolled Sutherland-Hodgman) and addresses Codex
 > findings 1-10. Awaiting re-confirmation before `writing-plans`. First gate that

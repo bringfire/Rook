@@ -1,5 +1,11 @@
 # Gate 4 — Exact Planar Adjacency: Live-Rhino Smoke Results
 
+> **⚠ Extraction note (Slice A, `feature/occt-adjacency-engine`):** These are smoke results for the
+> **superseded Gate-4 Clipper2 planar engine**, retained as historical acceptance-case evidence. The
+> Clipper2 code these results exercised is **not present on this OCCT extraction branch** (archived
+> on `feature/spatial-intelligence`); the shipping engine is OCCT-only, and its live verification is
+> `docs/rook_docs/occt-spike/live_verify_occt_adjacency.py`.
+
 **Date:** 2026-06-14
 **Branch:** `feature/spatial-intelligence` (worktree `rook-spatial`)
 **Plugin build:** Release `RookNative.rhp` from this branch, deployed and loaded

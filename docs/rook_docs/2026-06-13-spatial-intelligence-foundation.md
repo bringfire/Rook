@@ -1,5 +1,12 @@
 # Rook Spatial Intelligence — Foundational Document
 
+> **⚠ Extraction note (Slice A, `feature/occt-adjacency-engine`):** This roadmap is retained as the
+> parent context for the OCCT engine docs. The FreeCAD grounding-spike harnesses it cites as Gate
+> 0–3 evidence (`freecad-spike/*.py` and the `.FCStd`/`.step`/`.ifc` fixtures) and the companion
+> `2026-06-13-freecad-rook-bim-architecture.md` are **archived on `feature/spatial-intelligence` and
+> omitted from this clean OCCT extraction** — those paths are historical evidence pointers, not
+> files present on this branch.
+
 > **Status: FOUNDATIONAL. Thesis UNPROVEN. Discipline-mandated.**
 > This document defines the spatial-intelligence core of Rook — a native
 > topology/relationship layer that augments the scene graph. It is deliberately

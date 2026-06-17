@@ -1,5 +1,13 @@
 # OcctAdjacencyEngine — Production Exact-Adjacency Engine (design spec)
 
+> **⚠ Extraction note (Slice A, `feature/occt-adjacency-engine`):** This spec describes the OCCT
+> engine that ships on this branch, plus a *temporarily-retained* `LegacyPlanarAdjacency` unit +
+> Clipper2 vendor code used during migration. Those legacy/Clipper2 artifacts were **pruned from
+> this OCCT extraction branch** (archived on `feature/spatial-intelligence`); only the OCCT engine
+> ships here. The downstream graph layer this engine feeds
+> (`docs/rook_docs/2026-06-14-spatial-graph-projection-design.md`) is included as a docs-only
+> companion and is implemented in Slice B (Exact Adjacency Projection v1).
+
 > **Status (2026-06-15): APPROVED via brainstorming + reviewer gate — ready for writing-plans.**
 > This spec defines the production `OcctAdjacencyEngine` that replaces the Gate-4
 > hand-rolled Clipper2 planar engine behind the existing `IExactAdjacencyEngine`

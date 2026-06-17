@@ -1,5 +1,11 @@
 # Gate 4 — Exact Planar Adjacency Service Implementation Plan
 
+> **⚠ Extraction note (Slice A, `feature/occt-adjacency-engine`):** This is the implementation plan
+> for the **superseded Gate-4 Clipper2 planar prototype**. The Clipper2 vendor steps and the
+> `PlanarAdjacencyEngine` it builds are **NOT present on this OCCT extraction branch** — they are
+> archived on `feature/spatial-intelligence`. Retained as historical context; the shipping engine is
+> OCCT-only (see `docs/superpowers/plans/2026-06-15-occt-adjacency-engine.md`).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development
 > (recommended) or superpowers:executing-plans to implement this plan task-by-task.
 > Steps use checkbox (`- [ ]`) syntax. **All work happens in the `rook-spatial`

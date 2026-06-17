@@ -1,5 +1,11 @@
 # Spatial Adjacency — Uniform-OCCT Engine Decision & Spike Campaign
 
+> **⚠ Extraction note (Slice A, `feature/occt-adjacency-engine`):** On this clean OCCT extraction
+> branch the shipping engine is **OCCT-only**. The Clipper2 vendor code (`vendor/clipper2/`) and the
+> legacy `PlanarAdjacencyEngine` that the text below describes as "vendored/shelved" were **pruned**
+> from this branch (archived on `feature/spatial-intelligence`); the `IExactAdjacencyEngine` seam is
+> retained. Mentions of Clipper2 are historical Gate-4 context.
+
 > **Status (2026-06-14): DECISION MADE and EMPIRICALLY VALIDATED end-to-end (lab + in-plugin).**
 > Adopt a **uniform OCCT adjacency engine** behind the existing pluggable seam.
 > Spikes A–E (Python/OCP on real geometry) + Spike G (OCCT linked & running inside
@@ -215,7 +221,7 @@ The Gate 4 service architecture is engine-agnostic chassis — almost all of it 
 - `IExactAdjacencyEngine` seam (SceneGraph/PlanarAdjacencyEngine.h) — the swap point.
 - HTTP route `POST /scene/graph/adjacency/exact` + response DTO (SceneGraphHandler.cpp).
 - Test fixtures/expected areas (re-point at the OCCT engine as its correctness spec).
-- Clipper2 vendored (`vendor/clipper2/`) — harmless; available if a planar accelerator is ever measured-necessary.
+- Clipper2 vendor code + legacy `PlanarAdjacencyEngine` — **removed from the Slice A OCCT extraction branch** (`feature/occt-adjacency-engine`); archived on `feature/spatial-intelligence`. The `IExactAdjacencyEngine` seam is retained, so a planar accelerator can be re-vendored if ever measured-necessary.
 
 **REPLACE / SHELVE:**
 - `PlanarAdjacencyEngine` (Clipper2 + opposing-normal + projection) → shelved behind the seam; a new `OcctAdjacencyEngine` becomes default.
