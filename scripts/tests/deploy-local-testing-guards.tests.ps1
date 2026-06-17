@@ -79,7 +79,7 @@ function Test-DeployScriptVerifiesRookImportOrigin {
 
     Assert-Contains -Text $content -Expected 'expected_rook_prefix' -Message 'Local deploy must compute the expected installed rook package path.'
     Assert-Contains -Text $content -Expected 'rook imported from stale location' -Message 'Local deploy must reject stale repo/worktree rook imports.'
-    Assert-Contains -Text $content -Expected 'mcp_server\src\rook' -Message 'Local deploy must anchor rook imports to the installed AppData MCP source tree.'
+    Assert-Contains -Text $content -Expected 'Join-Path $Contract.WorkingDirectory ''src\rook''' -Message 'Local deploy must anchor rook imports to the active runtime contract source tree.'
 }
 
 function Test-DeployScriptParsesMcpConfigs {
@@ -108,6 +108,11 @@ function Test-DeployScriptVerifiesChatManifest {
     Assert-Contains -Text $content -Expected 'Chat service workingDirectory mismatch' -Message 'Local deploy must reject stale chat service working directories.'
     Assert-Contains -Text $content -Expected 'rook.agent.chat.service_main' -Message 'Local deploy must verify the chat service module.'
     Assert-Contains -Text $content -Expected 'pythonPathEntries' -Message 'Local deploy must verify the chat service source path entry.'
+    Assert-Contains -Text $content -Expected 'Test-ChatServiceManifestAtPath' -Message 'Local deploy must verify each chat manifest path independently.'
+    Assert-Contains -Text $content -Expected 'Chat service environment missing' -Message 'Local deploy must verify chat manifest environment blocks.'
+    Assert-Contains -Text $content -Expected 'Chat service ROOK_MODE mismatch' -Message 'Local deploy must verify chat manifest runtime mode.'
+    Assert-Contains -Text $content -Expected 'Chat service ROOK_PROJECT_ROOT mismatch' -Message 'Local deploy must verify dev chat manifests point at the repo root.'
+    Assert-Contains -Text $content -Expected 'Skipping release MCP client config and Chirp venv verification because an explicit dev runtime was selected.' -Message 'Explicit dev runtime mode must not run release-only MCP/Chirp verification.'
 }
 
 function Test-DeployScriptSeedsChatEnvWithoutOverwriting {
@@ -117,6 +122,43 @@ function Test-DeployScriptSeedsChatEnvWithoutOverwriting {
     Assert-Contains -Text $content -Expected 'Join-Path $RepoRoot ''mcp_server\.env''' -Message 'Local deploy must use the repo mcp_server .env as the source for the installed chat service.'
     Assert-Contains -Text $content -Expected 'Join-Path $InstallRoot ''mcp_server\.env''' -Message 'Local deploy must seed the installed chat service mcp_server .env path.'
     Assert-Contains -Text $content -Expected '-not (Test-Path $Destination)' -Message 'Local deploy must preserve an existing installed .env file.'
+}
+
+function Test-DeployScriptCopiesAllInstallerPythonModules {
+    $content = Get-Content -Path $DeployScript -Raw
+
+    Assert-Contains -Text $content -Expected "Get-ChildItem (Join-Path `$RepoRoot 'installer') -Filter '*.py' -File" -Message 'Local deploy must enumerate every top-level installer Python module.'
+    Assert-Contains -Text $content -Expected "Copy-RequiredFile `$_.FullName (Join-Path `$InstallRoot `$_.Name)" -Message 'Local deploy must copy every top-level installer Python module into the AppData app root.'
+    Assert-Contains -Text $content -Expected 'python_runtime_install.py' -Message 'Local deploy guard must cover post_install.py sibling module copying.'
+    Assert-Contains -Text $content -Expected 'process_rebuild_guard.py' -Message 'Local deploy guard must cover rebuild guard module copying.'
+}
+
+function Test-DeployScriptHasExplicitDevRuntimeContract {
+    $content = Get-Content -Path $DeployScript -Raw
+
+    Assert-Contains -Text $content -Expected '[switch]$UseRepoVenv' -Message 'Local deploy must expose an explicit repo venv dev-runtime flag.'
+    Assert-Contains -Text $content -Expected "[string]`$DevPythonRuntime = ''" -Message 'Local deploy must expose an explicit dev Python runtime path override.'
+    Assert-Contains -Text $content -Expected '[switch]$ManifestSmokeOnly' -Message 'Local deploy must expose a non-mutating manifest smoke mode.'
+    Assert-Contains -Text $content -Expected 'function Resolve-DeployRuntimeContract' -Message 'Local deploy must resolve runtime paths through one explicit contract helper.'
+    Assert-Contains -Text $content -Expected '-UseRepoVenv cannot be combined with -DevPythonRuntime' -Message 'Dev runtime flags must be mutually exclusive.'
+    Assert-Contains -Text $content -Expected '-NativeOnly cannot be combined with -UseRepoVenv or -DevPythonRuntime' -Message 'Native-only mode must reject dev-runtime flags instead of validating unused Python paths.'
+    Assert-Contains -Text $content -Expected '-LiveSmoke cannot be combined with -UseRepoVenv or -DevPythonRuntime' -Message 'Live smoke must stay release-runtime-only until made contract-aware.'
+    Assert-Contains -Text $content -Expected '-ManifestSmokeOnly is only useful with -UseRepoVenv or -DevPythonRuntime' -Message 'Manifest smoke must require an explicit dev runtime.'
+    Assert-Contains -Text $content -Expected 'Dev Python runtime not found' -Message 'Dev runtime mode must fail loudly when the requested interpreter is missing.'
+    Assert-Contains -Text $content -Expected 'mcp_server\.venv\Scripts\python.exe' -Message 'Repo venv mode must resolve the repository MCP venv explicitly.'
+    Assert-Contains -Text $content -Expected 'ROOK_PROJECT_ROOT' -Message 'Dev runtime mode must carry ROOK_PROJECT_ROOT into generated manifests/config.'
+    Assert-Contains -Text $content -Expected 'Dev manifest smoke' -Message 'Manifest smoke mode must report the resolved contract.'
+    Assert-Contains -Text $content -Expected 'exit 0' -Message 'Manifest smoke mode must exit before deploy mutation.'
+    Assert-Contains -Text $content -Expected 'Skipping release post_install.py because an explicit dev runtime was selected.' -Message 'Dev runtime mode must be explicit about bypassing release post_install.'
+}
+
+function Test-DeployScriptWritesChatManifestToRuntimeChildren {
+    $content = Get-Content -Path $DeployScript -Raw
+
+    Assert-Contains -Text $content -Expected 'function Write-ChatServiceManifests' -Message 'Local deploy must write chat manifests through an explicit helper.'
+    Assert-Contains -Text $content -Expected '$targets += Join-Path (Join-Path $PluginDir $runtime) ''RookChatService.json''' -Message 'Local deploy must target every managed runtime child manifest.'
+    Assert-Contains -Text $content -Expected 'Set-Content -LiteralPath $manifestPath' -Message 'Local deploy must write each manifest path.'
+    Assert-Contains -Text $content -Expected 'foreach ($runtime in $ManagedCompanionRuntimes)' -Message 'Manifest writing and verification must iterate the known managed runtime folders.'
 }
 
 function Test-DeployScriptLiveSmokeIsExplicit {
@@ -216,6 +258,9 @@ Test-DeployScriptVerifiesRookImportOrigin
 Test-DeployScriptParsesMcpConfigs
 Test-DeployScriptVerifiesChatManifest
 Test-DeployScriptSeedsChatEnvWithoutOverwriting
+Test-DeployScriptCopiesAllInstallerPythonModules
+Test-DeployScriptHasExplicitDevRuntimeContract
+Test-DeployScriptWritesChatManifestToRuntimeChildren
 Test-DeployScriptLiveSmokeIsExplicit
 Test-DeployScriptNativeOnlyIsNarrow
 Test-DeployScriptUsesMultiRuntimeCompanionLayout

@@ -18,7 +18,10 @@ param(
     [switch]$AllowRunning,
     [switch]$SkipBuild,
     [switch]$SkipChirpInstall,
-    [switch]$LiveSmoke
+    [switch]$UseRepoVenv,
+    [string]$DevPythonRuntime = '',
+    [switch]$LiveSmoke,
+    [switch]$ManifestSmokeOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -106,6 +109,23 @@ function Assert-DeployMode {
     if ($LiveSmoke -and -not ($PayloadOnly -and $AllowRunning)) {
         throw "-LiveSmoke requires -PayloadOnly -AllowRunning. Run the full deploy first, restart Rhino/Grasshopper, then run payload-only live smoke."
     }
+
+    if ($UseRepoVenv -and -not [string]::IsNullOrWhiteSpace($DevPythonRuntime)) {
+        throw "-UseRepoVenv cannot be combined with -DevPythonRuntime. Pick one explicit dev runtime source."
+    }
+
+    $hasDevRuntime = $UseRepoVenv -or -not [string]::IsNullOrWhiteSpace($DevPythonRuntime)
+    if ($NativeOnly -and $hasDevRuntime) {
+        throw "-NativeOnly cannot be combined with -UseRepoVenv or -DevPythonRuntime. Native-only deploy does not use Python, MCP, or chat manifests."
+    }
+
+    if ($LiveSmoke -and $hasDevRuntime) {
+        throw "-LiveSmoke cannot be combined with -UseRepoVenv or -DevPythonRuntime in this PR. Live smoke remains release-runtime-only."
+    }
+
+    if ($ManifestSmokeOnly -and -not $hasDevRuntime) {
+        throw "-ManifestSmokeOnly is only useful with -UseRepoVenv or -DevPythonRuntime."
+    }
 }
 
 function Assert-NoRunningFullDeployBlockers {
@@ -184,6 +204,60 @@ function Resolve-BootstrapPython {
     }
 
     throw "Python 3.10+ was not found."
+}
+
+function Resolve-DevPythonRuntime {
+    if ($UseRepoVenv) {
+        $candidate = Join-Path $RepoRoot 'mcp_server\.venv\Scripts\python.exe'
+    } else {
+        $candidate = $DevPythonRuntime
+    }
+
+    if ([string]::IsNullOrWhiteSpace($candidate)) {
+        return $null
+    }
+
+    if (-not (Test-Path $candidate)) {
+        throw "Dev Python runtime not found: $candidate"
+    }
+
+    return (Resolve-Path $candidate).Path
+}
+
+function Resolve-DeployRuntimeContract {
+    $devPython = Resolve-DevPythonRuntime
+    if ($devPython) {
+        $devMcpServerDir = Join-Path $RepoRoot 'mcp_server'
+        $devSrcDir = Join-Path $devMcpServerDir 'src'
+        if (-not (Test-Path $devMcpServerDir)) {
+            throw "Dev MCP server directory not found: $devMcpServerDir"
+        }
+        if (-not (Test-Path $devSrcDir)) {
+            throw "Dev MCP source directory not found: $devSrcDir"
+        }
+
+        return [pscustomobject]@{
+            Mode = 'dev'
+            IsDev = $true
+            PythonPath = $devPython
+            WorkingDirectory = (Resolve-Path $devMcpServerDir).Path
+            PythonPathEntries = @((Resolve-Path $devSrcDir).Path)
+            InstallRoot = (Resolve-Path $RepoRoot).Path
+            DataRoot = $DataRoot
+            ProjectRoot = (Resolve-Path $RepoRoot).Path
+        }
+    }
+
+    return [pscustomobject]@{
+        Mode = 'release'
+        IsDev = $false
+        PythonPath = $VenvPython
+        WorkingDirectory = Join-Path $InstallRoot 'mcp_server'
+        PythonPathEntries = @((Join-Path $InstallRoot 'mcp_server\src'))
+        InstallRoot = $InstallRoot
+        DataRoot = $DataRoot
+        ProjectRoot = ''
+    }
 }
 
 function Invoke-NativeBuild {
@@ -389,7 +463,17 @@ function Sync-AppPayload {
     foreach ($file in @('AGENT_SETUP.md', 'BUILDING.md', 'LICENSE', 'QUICK_START.md')) {
         Copy-OptionalFile (Join-Path $RepoRoot $file) (Join-Path $InstallRoot $file)
     }
-    Copy-RequiredFile (Join-Path $RepoRoot 'installer\post_install.py') (Join-Path $InstallRoot 'post_install.py')
+    $requiredInstallerModules = @('post_install.py', 'python_runtime_install.py', 'process_rebuild_guard.py')
+    foreach ($module in $requiredInstallerModules) {
+        $modulePath = Join-Path $RepoRoot "installer\$module"
+        if (-not (Test-Path $modulePath)) {
+            throw "Required installer Python module not found: $modulePath"
+        }
+    }
+
+    Get-ChildItem (Join-Path $RepoRoot 'installer') -Filter '*.py' -File | ForEach-Object {
+        Copy-RequiredFile $_.FullName (Join-Path $InstallRoot $_.Name)
+    }
     Copy-OptionalFile (Join-Path $RepoRoot 'installer\rook-icon.ico') (Join-Path $InstallRoot 'rook-icon.ico')
     Copy-OptionalFile (Join-Path $RepoRoot 'installer\CLAUDE.md') (Join-Path $InstallRoot 'CLAUDE.md')
     Copy-OptionalFile (Join-Path $RepoRoot 'installer\AGENTS.md') (Join-Path $InstallRoot 'AGENTS.md')
@@ -442,16 +526,75 @@ function Register-NativeOnlyPlugins {
     & $register -NativeRhpPath (Join-Path $PluginDir 'RookNative.rhp') -NativeOnlyPreserveCompanion
 }
 
-function Test-EffectiveRuntime {
-    if (-not (Test-Path $VenvPython)) {
-        throw "Installed venv Python not found: $VenvPython"
+function Write-ChatServiceManifests {
+    param([Parameter(Mandatory = $true)]$Contract)
+
+    $manifest = [ordered]@{
+        pythonPath = $Contract.PythonPath
+        workingDirectory = $Contract.WorkingDirectory
+        module = 'rook.agent.chat.service_main'
+        owner = 'rhino-panel'
+        pythonPathEntries = @($Contract.PythonPathEntries)
+        environment = [ordered]@{
+            PYTHONHOME = ''
+            ROOK_INSTALL_ROOT = $Contract.InstallRoot.Replace('\', '/')
+            ROOK_DATA_DIR = $Contract.DataRoot.Replace('\', '/')
+            ROOK_MODE = $Contract.Mode
+            DSPY_CACHEDIR = (Join-Path $Contract.DataRoot 'dspy-cache').Replace('\', '/')
+            ROOK_DSPY_RESTRICT_PICKLE = '1'
+            CHIRP_HOME = $ChirpInstallRoot.Replace('\', '/')
+        }
     }
 
-    $env:ROOK_INSTALL_ROOT = $InstallRoot.Replace('\', '/')
-    $env:ROOK_DATA_DIR = $DataRoot.Replace('\', '/')
-    $env:ROOK_MODE = 'release'
+    if ($Contract.IsDev) {
+        $manifest.environment.ROOK_PROJECT_ROOT = $Contract.ProjectRoot.Replace('\', '/')
+    } else {
+        $manifest.environment.PYTHONPATH = ''
+    }
 
-    $check = @"
+    $json = $manifest | ConvertTo-Json -Depth 6
+    $targets = @((Join-Path $PluginDir 'RookChatService.json'))
+    foreach ($runtime in $ManagedCompanionRuntimes) {
+        $runtimeDir = Join-Path $PluginDir $runtime
+        if (Test-Path $runtimeDir) {
+            $targets += Join-Path (Join-Path $PluginDir $runtime) 'RookChatService.json'
+        }
+    }
+
+    foreach ($manifestPath in $targets) {
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $manifestPath) | Out-Null
+        Set-Content -LiteralPath $manifestPath -Value $json -Encoding UTF8
+        Write-Host "Wrote chat service manifest: $manifestPath"
+    }
+}
+
+function Test-EffectiveRuntime {
+    param([Parameter(Mandatory = $true)]$Contract)
+
+    if (-not (Test-Path $Contract.PythonPath)) {
+        throw "Runtime Python not found: $($Contract.PythonPath)"
+    }
+
+    $envKeys = @('ROOK_INSTALL_ROOT', 'ROOK_DATA_DIR', 'ROOK_MODE', 'ROOK_PROJECT_ROOT', 'PYTHONPATH')
+    $savedEnv = @{}
+    foreach ($key in $envKeys) {
+        $savedEnv[$key] = [Environment]::GetEnvironmentVariable($key)
+    }
+
+    $checkPath = $null
+    try {
+        $env:ROOK_INSTALL_ROOT = $Contract.InstallRoot.Replace('\', '/')
+        $env:ROOK_DATA_DIR = $Contract.DataRoot.Replace('\', '/')
+        $env:ROOK_MODE = $Contract.Mode
+        if ($Contract.IsDev) {
+            $env:ROOK_PROJECT_ROOT = $Contract.ProjectRoot.Replace('\', '/')
+        } else {
+            Remove-Item Env:\ROOK_PROJECT_ROOT -ErrorAction SilentlyContinue
+        }
+        $env:PYTHONPATH = (@($Contract.PythonPathEntries) -join [IO.Path]::PathSeparator)
+
+        $expectedRookPrefix = Join-Path $Contract.WorkingDirectory 'src\rook'
+        $check = @"
 import json
 from rook.runtime_paths import resolve_runtime_paths
 import rook
@@ -464,29 +607,32 @@ payload = {
     "mcp_server_dir": str(paths.mcp_server_dir),
 }
 print(json.dumps(payload, sort_keys=True))
-if paths.mode != "release":
-    raise SystemExit("ROOK_MODE did not resolve to release")
-if str(paths.install_root).replace("\\", "/").lower() != r"$($InstallRoot.Replace('\','/').ToLowerInvariant())":
+if paths.mode != "$($Contract.Mode)":
+    raise SystemExit("ROOK_MODE did not resolve to $($Contract.Mode)")
+if str(paths.install_root).replace("\\", "/").lower() != r"$($Contract.InstallRoot.Replace('\','/').ToLowerInvariant())":
     raise SystemExit("ROOK_INSTALL_ROOT mismatch")
-if str(paths.data_root).replace("\\", "/").lower() != r"$($DataRoot.Replace('\','/').ToLowerInvariant())":
+if str(paths.data_root).replace("\\", "/").lower() != r"$($Contract.DataRoot.Replace('\','/').ToLowerInvariant())":
     raise SystemExit("ROOK_DATA_DIR mismatch")
-expected_rook_prefix = r"$(((Join-Path $InstallRoot 'mcp_server\src\rook').Replace('\','/')).ToLowerInvariant())"
+expected_rook_prefix = r"$($expectedRookPrefix.Replace('\','/').ToLowerInvariant())"
 actual_rook_file = str(rook.__file__).replace("\\", "/").lower()
 if not actual_rook_file.startswith(expected_rook_prefix):
     raise SystemExit(f"rook imported from stale location: {rook.__file__}")
 "@
 
-    $checkPath = Join-Path $env:TEMP 'rook_deploy_local_testing_check.py'
-    Set-Content -Path $checkPath -Value $check -Encoding UTF8
-    try {
-        & $VenvPython $checkPath
+        $checkPath = Join-Path $env:TEMP 'rook_deploy_local_testing_check.py'
+        Set-Content -Path $checkPath -Value $check -Encoding UTF8
+        & $Contract.PythonPath $checkPath
         if ($LASTEXITCODE -ne 0) {
-            throw "Installed runtime verification failed."
+            throw "Runtime verification failed."
         }
     } finally {
-        Remove-Item -LiteralPath $checkPath -ErrorAction SilentlyContinue
+        if ($checkPath) {
+            Remove-Item -LiteralPath $checkPath -ErrorAction SilentlyContinue
+        }
+        foreach ($key in $envKeys) {
+            [Environment]::SetEnvironmentVariable($key, $savedEnv[$key])
+        }
     }
-
 }
 
 function Normalize-PathForCompare {
@@ -673,30 +819,65 @@ function Test-McpClientConfigs {
     }
 }
 
-function Test-ChatServiceManifest {
-    $manifestPath = Join-Path $PluginDir 'RookChatService.json'
+function Test-ChatServiceManifestAtPath {
+    param(
+        [Parameter(Mandatory = $true)][string]$ManifestPath,
+        [Parameter(Mandatory = $true)]$Contract
+    )
+
     if (-not (Test-Path $manifestPath)) {
         throw "Chat service manifest not found: $manifestPath"
     }
 
     $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-    $expectedPython = Normalize-PathForCompare $VenvPython
-    $expectedWorkingDirectory = Normalize-PathForCompare (Join-Path $InstallRoot 'mcp_server')
-    $expectedSourcePath = Normalize-PathForCompare (Join-Path $InstallRoot 'mcp_server\src')
+    $expectedPython = Normalize-PathForCompare $Contract.PythonPath
+    $expectedWorkingDirectory = Normalize-PathForCompare $Contract.WorkingDirectory
+    $expectedSourcePath = Normalize-PathForCompare ([string]@($Contract.PythonPathEntries)[0])
 
     if ((Normalize-PathForCompare ([string]$manifest.pythonPath)) -ne $expectedPython) {
-        throw "Chat service pythonPath mismatch: $($manifest.pythonPath)"
+        throw "Chat service pythonPath mismatch in $ManifestPath`: $($manifest.pythonPath)"
     }
     if ((Normalize-PathForCompare ([string]$manifest.workingDirectory)) -ne $expectedWorkingDirectory) {
-        throw "Chat service workingDirectory mismatch: $($manifest.workingDirectory)"
+        throw "Chat service workingDirectory mismatch in $ManifestPath`: $($manifest.workingDirectory)"
     }
     if ($manifest.module -ne 'rook.agent.chat.service_main') {
-        throw "Chat service module mismatch: $($manifest.module)"
+        throw "Chat service module mismatch in $ManifestPath`: $($manifest.module)"
     }
 
     $entries = @($manifest.pythonPathEntries)
     if ($entries.Count -lt 1 -or (Normalize-PathForCompare ([string]$entries[0])) -ne $expectedSourcePath) {
-        throw "Chat service pythonPathEntries mismatch: $($entries -join ', ')"
+        throw "Chat service pythonPathEntries mismatch in $ManifestPath`: $($entries -join ', ')"
+    }
+
+    $envBlock = $manifest.environment
+    if (-not $envBlock) {
+        throw "Chat service environment missing in $ManifestPath"
+    }
+    if ([string]$envBlock.ROOK_MODE -ne $Contract.Mode) {
+        throw "Chat service ROOK_MODE mismatch in $ManifestPath`: $($envBlock.ROOK_MODE)"
+    }
+    if ((Normalize-PathForCompare ([string]$envBlock.ROOK_INSTALL_ROOT)) -ne (Normalize-PathForCompare $Contract.InstallRoot)) {
+        throw "Chat service ROOK_INSTALL_ROOT mismatch in $ManifestPath`: $($envBlock.ROOK_INSTALL_ROOT)"
+    }
+    if ((Normalize-PathForCompare ([string]$envBlock.ROOK_DATA_DIR)) -ne (Normalize-PathForCompare $Contract.DataRoot)) {
+        throw "Chat service ROOK_DATA_DIR mismatch in $ManifestPath`: $($envBlock.ROOK_DATA_DIR)"
+    }
+    if ($Contract.IsDev) {
+        if ((Normalize-PathForCompare ([string]$envBlock.ROOK_PROJECT_ROOT)) -ne (Normalize-PathForCompare $Contract.ProjectRoot)) {
+            throw "Chat service ROOK_PROJECT_ROOT mismatch in $ManifestPath`: $($envBlock.ROOK_PROJECT_ROOT)"
+        }
+    }
+}
+
+function Test-ChatServiceManifest {
+    param([Parameter(Mandatory = $true)]$Contract)
+
+    Test-ChatServiceManifestAtPath -ManifestPath (Join-Path $PluginDir 'RookChatService.json') -Contract $Contract
+    foreach ($runtime in $ManagedCompanionRuntimes) {
+        $runtimeDir = Join-Path $PluginDir $runtime
+        if (Test-Path $runtimeDir) {
+            Test-ChatServiceManifestAtPath -ManifestPath (Join-Path $runtimeDir 'RookChatService.json') -Contract $Contract
+        }
     }
 }
 
@@ -806,6 +987,17 @@ asyncio.run(main())
 
 Set-Location $RepoRoot
 Assert-DeployMode
+$RuntimeContract = Resolve-DeployRuntimeContract
+
+if ($ManifestSmokeOnly) {
+    Write-Step "Dev manifest smoke"
+    Write-Host "Mode:             $($RuntimeContract.Mode)"
+    Write-Host "Python:           $($RuntimeContract.PythonPath)"
+    Write-Host "WorkingDirectory: $($RuntimeContract.WorkingDirectory)"
+    Write-Host "ProjectRoot:      $($RuntimeContract.ProjectRoot)"
+    Write-Host "SourcePath:       $(@($RuntimeContract.PythonPathEntries)[0])"
+    exit 0
+}
 
 if ($NativeOnly) {
     Write-Step "Native-only deploy surfaces"
@@ -872,18 +1064,31 @@ Sync-AppPayload
 Write-Step "Sync installed Chirp payload"
 Sync-ChirpPayload
 
-Write-Step "Refresh MCP, Chirp, and config installs"
-Invoke-PostInstallConfig
+if ($RuntimeContract.IsDev) {
+    Write-Step "Refresh dev chat runtime manifest"
+    Write-Host "Skipping release post_install.py because an explicit dev runtime was selected."
+    Write-ChatServiceManifests -Contract $RuntimeContract
+} else {
+    Write-Step "Refresh MCP, Chirp, and config installs"
+    Invoke-PostInstallConfig
+    Write-ChatServiceManifests -Contract $RuntimeContract
+}
 
-Write-Step "Verify effective installed runtime"
-Test-EffectiveRuntime
+Write-Step "Verify effective runtime"
+Test-EffectiveRuntime -Contract $RuntimeContract
 
-Write-Step "Verify installed Chirp runtime"
-Test-ChirpRuntime
+if ($RuntimeContract.IsDev) {
+    Write-Step "Verify dev chat manifest"
+    Write-Host "Skipping release MCP client config and Chirp venv verification because an explicit dev runtime was selected."
+    Test-ChatServiceManifest -Contract $RuntimeContract
+} else {
+    Write-Step "Verify installed Chirp runtime"
+    Test-ChirpRuntime
 
-Write-Step "Verify MCP client config and chat manifest"
-Test-McpClientConfigs
-Test-ChatServiceManifest
+    Write-Step "Verify MCP client config and chat manifest"
+    Test-McpClientConfigs
+    Test-ChatServiceManifest -Contract $RuntimeContract
+}
 
 if ($LiveSmoke) {
     Write-Step "Run live Rhino/Grasshopper/Chirp smoke"
