@@ -552,6 +552,21 @@ def _classified_candidates():
     return fixture, [cal.classify_candidate(c, fixture) for c in raw]
 
 
+def _runtime_summary():
+    return cal.RuntimeSummary(
+        True,
+        True,
+        9,
+        {"attempted": True, "succeeded": True, "errors": []},
+        {"attempted": True, "succeeded": True, "errors": []},
+        2,
+        2,
+        2,
+        [],
+        None,
+    )
+
+
 def test_build_live_calibration_report_counts_by_family():
     fixture, candidates = _classified_candidates()
 
@@ -588,7 +603,7 @@ def test_render_markdown_summary_mentions_no_global_accuracy():
         fixture,
         paths=cal.FixturePaths("C:/tmp/shell-preset.3dm", "C:/tmp/shell-preset.sidecar.json", "C:/tmp/shell-preset.validation.json"),
         fixture_id="shell-preset",
-        runtime=cal.RuntimeSummary(True, True, 9, {"attempted": True, "succeeded": True, "errors": []}, {"attempted": True, "succeeded": True, "errors": []}, 2, 2, 2, [], None),
+        runtime=_runtime_summary(),
         candidates=candidates,
     )
 
@@ -606,7 +621,7 @@ def test_write_report_bundle_is_only_disk_writer(tmp_path):
         fixture,
         paths=cal.FixturePaths("C:/tmp/shell-preset.3dm", "C:/tmp/shell-preset.sidecar.json", "C:/tmp/shell-preset.validation.json"),
         fixture_id="shell-preset",
-        runtime=cal.RuntimeSummary(True, True, 9, {"attempted": True, "succeeded": True, "errors": []}, {"attempted": True, "succeeded": True, "errors": []}, 2, 2, 2, [], None),
+        runtime=_runtime_summary(),
         candidates=candidates,
     )
 
@@ -616,3 +631,108 @@ def test_write_report_bundle_is_only_disk_writer(tmp_path):
     assert Path(paths["markdown"]).exists()
     assert Path(paths["json"]).name == "shell-preset.calibration.json"
     assert Path(paths["markdown"]).read_text(encoding="utf-8").startswith("# Threshold Calibration Report")
+
+
+def test_live_report_review_counts_include_not_joinable_without_metric_counts():
+    fixture = cal.validate_fixture_payload(_sidecar(), _validation())
+    join = cal.build_runtime_join_map(_runtime_objects(), fixture)
+    candidate = cal.build_candidate_records({
+        "refined": [{
+            "candidateId": "rook-wall|contains|unjoined-box",
+            "containerId": "rook-wall",
+            "containedId": "unjoined-box",
+            "verdict": "contains_semantic",
+            "confidence": "low",
+            "reason": "weak_positive_containment",
+            "evidence": [],
+        }]
+    }, join, fixture)[0]
+    classified = cal.classify_candidate(candidate, fixture)
+
+    report = cal.build_live_calibration_report(
+        fixture,
+        paths=cal.FixturePaths("C:/tmp/shell-preset.3dm", "C:/tmp/shell-preset.sidecar.json", "C:/tmp/shell-preset.validation.json"),
+        fixture_id="shell-preset",
+        runtime=_runtime_summary(),
+        candidates=[classified],
+    )
+
+    fx = report["fixtures"][0]
+    assert fx["summary"]["reviewCounts"]["not_joinable"] == 1
+    assert fx["metrics"]["byLabelFamily"] == {"host": {}, "room": {}, "level": {}}
+    assert fx["metrics"]["byCategoryPair"] == {}
+    assert fx["metrics"]["byConfidence"] == {}
+
+
+def test_live_report_counts_eligible_host_and_room_when_review_bucket_is_host_first():
+    sidecar = _sidecar()
+    sidecar["rooms"].append({"uniqueId": "room-2", "number": "102", "name": "Lab", "level": {"value": "L1"}})
+    sidecar["relationships"]["roomMembership"][1]["roomUniqueId"] = "room-2"
+    sidecar["elements"][0]["labels"]["containingRoomId"]["value"] = "room-2"
+    fixture = cal.validate_fixture_payload(sidecar, _validation())
+    join = cal.build_runtime_join_map(_runtime_objects(), fixture)
+    candidate = cal.build_candidate_records({
+        "refined": [{
+            "candidateId": "rook-wall|contains|rook-door",
+            "containerId": "rook-wall",
+            "containedId": "rook-door",
+            "verdict": "contains_semantic",
+            "confidence": "high",
+            "reason": "strong_clearance_plausible_container",
+            "evidence": [],
+        }]
+    }, join, fixture)[0]
+    classified = cal.classify_candidate(candidate, fixture)
+
+    report = cal.build_live_calibration_report(
+        fixture,
+        paths=cal.FixturePaths("C:/tmp/shell-preset.3dm", "C:/tmp/shell-preset.sidecar.json", "C:/tmp/shell-preset.validation.json"),
+        fixture_id="shell-preset",
+        runtime=_runtime_summary(),
+        candidates=[classified],
+    )
+
+    fx = report["fixtures"][0]
+    assert classified["reviewBucket"] == "host_supported_positive"
+    assert fx["summary"]["reviewCounts"]["host_supported_positive"] == 1
+    assert fx["metrics"]["byLabelFamily"]["host"]["host_supported_positive"] == 1
+    assert fx["metrics"]["byLabelFamily"]["room"]["room_contradicted_positive"] == 1
+    assert fx["metrics"]["byCategoryPair"]["Walls->Doors"]["host"]["host_supported_positive"] == 1
+    assert fx["metrics"]["byCategoryPair"]["Walls->Doors"]["room"]["room_contradicted_positive"] == 1
+
+
+def test_live_report_confidence_breakdown_preserves_family_buckets():
+    sidecar = _sidecar()
+    sidecar["rooms"].append({"uniqueId": "room-2", "number": "102", "name": "Lab", "level": {"value": "L1"}})
+    sidecar["relationships"]["roomMembership"][1]["roomUniqueId"] = "room-2"
+    sidecar["elements"][0]["labels"]["containingRoomId"]["value"] = "room-2"
+    fixture = cal.validate_fixture_payload(sidecar, _validation())
+    join = cal.build_runtime_join_map(_runtime_objects(), fixture)
+    candidate = cal.build_candidate_records({
+        "refined": [{
+            "candidateId": "rook-wall|contains|rook-door",
+            "containerId": "rook-wall",
+            "containedId": "rook-door",
+            "verdict": "contains_semantic",
+            "confidence": "high",
+            "reason": "strong_clearance_plausible_container",
+            "evidence": [],
+        }]
+    }, join, fixture)[0]
+    classified = cal.classify_candidate(candidate, fixture)
+
+    report = cal.build_live_calibration_report(
+        fixture,
+        paths=cal.FixturePaths("C:/tmp/shell-preset.3dm", "C:/tmp/shell-preset.sidecar.json", "C:/tmp/shell-preset.validation.json"),
+        fixture_id="shell-preset",
+        runtime=_runtime_summary(),
+        candidates=[classified],
+    )
+
+    assert report["fixtures"][0]["metrics"]["byConfidence"] == {
+        "high": {
+            "host": {"host_supported_positive": 1},
+            "room": {"room_contradicted_positive": 1},
+            "level": {},
+        }
+    }
