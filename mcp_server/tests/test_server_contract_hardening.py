@@ -2237,6 +2237,96 @@ async def test_gh_update_script_compile_failure_returns_failed_with_component_er
     )
 
 
+@pytest.mark.asyncio
+async def test_gh_update_script_unrelated_canvas_errors_remain_success(
+    monkeypatch, patched_server
+):
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        if route == "/gh/script" and "script" not in (payload or {}):
+            return {"success": True, "data": {"Type": "CSharpScriptComponent"}}
+        if route == "/gh/script":
+            return {"success": True, "data": {"guid": "cs-guid"}}
+        if route == "/gh/component":
+            return {
+                "success": True,
+                "data": {
+                    "Params": {
+                        "Inputs": [{"Name": "R"}],
+                        "Outputs": [{"Name": "out"}, {"Name": "A"}],
+                    }
+                },
+            }
+        if route == "/gh/errors":
+            return {
+                "success": True,
+                "data": {
+                    "errors": [{"guid": "other-guid", "errors": ["Other component is broken"]}],
+                    "warnings": [],
+                },
+            }
+        if route == "/gh/document":
+            return {"success": True, "data": {"name": "contract.gh", "path": ""}}
+        raise AssertionError(f"Unexpected route: {route}")
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    payload = _decode_response(await server.call_tool(
+        "gh_update_script",
+        {"guid": "cs-guid", "code": "A = R;", "mode": "body"},
+    ))
+
+    assert payload["success"] is True
+    data = payload["data"]
+    assert data["component_errors"] == []
+    assert data["canvas_error_count"] == 1
+    assert data["unrelated_error_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_gh_update_script_target_warnings_remain_success(
+    monkeypatch, patched_server
+):
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        if route == "/gh/script" and "script" not in (payload or {}):
+            return {"success": True, "data": {"Type": "CSharpScriptComponent"}}
+        if route == "/gh/script":
+            return {"success": True, "data": {"guid": "cs-guid"}}
+        if route == "/gh/component":
+            return {
+                "success": True,
+                "data": {
+                    "Params": {
+                        "Inputs": [],
+                        "Outputs": [{"Name": "out"}, {"Name": "B"}],
+                    }
+                },
+            }
+        if route == "/gh/errors":
+            return {
+                "success": True,
+                "data": {
+                    "errors": [],
+                    "warnings": [{"guid": "cs-guid", "warnings": ["Unused using directive"]}],
+                },
+            }
+        if route == "/gh/document":
+            return {"success": True, "data": {"name": "contract.gh", "path": ""}}
+        raise AssertionError(f"Unexpected route: {route}")
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    payload = _decode_response(await server.call_tool(
+        "gh_update_script",
+        {"guid": "cs-guid", "code": "B = 1;", "mode": "body"},
+    ))
+
+    assert payload["success"] is True
+    data = payload["data"]
+    assert data["component_errors"] == []
+    assert data["component_warnings"] == ["Unused using directive"]
+    assert data["canvas_warning_count"] == 1
+
+
 def _schema_type_permits_array(schema_type):
     return schema_type == "array" or (
         isinstance(schema_type, list) and "array" in schema_type
