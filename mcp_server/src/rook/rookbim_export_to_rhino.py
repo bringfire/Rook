@@ -194,6 +194,7 @@ async def export_preset_to_rhino(
     project_relationships_fn,
     query_bim_facts_fn,
     now: dt.datetime | None = None,
+    projection_exception_types: tuple[type[BaseException], ...] = (),
 ) -> dict[str, Any]:
     request, effective_output = build_export_request(arguments, now=now)
     port = arguments.get("port")
@@ -243,13 +244,23 @@ async def export_preset_to_rhino(
                 paths=paths,
                 import_result=import_block,
             )
-        projection_block = await project_relationships_fn(
-            sidecar_path=paths["sidecar"],
-            object_ids=ids,
-            include_rooms=arguments.get("includeRooms", True),
-            include_levels=arguments.get("includeLevels", True),
-            port=port,
-        )
+        try:
+            projection_block = await project_relationships_fn(
+                sidecar_path=paths["sidecar"],
+                object_ids=ids,
+                include_rooms=arguments.get("includeRooms", True),
+                include_levels=arguments.get("includeLevels", True),
+                port=port,
+            )
+        except projection_exception_types as exc:
+            return stage_failure(
+                "projection",
+                "bim_projection_invalid_sidecar",
+                f"BIM relationship projection failed: {exc}",
+                export=export_block,
+                paths=paths,
+                import_result=import_block,
+            )
         if isinstance(projection_block, dict) and projection_block.get("success") is False:
             return stage_failure(
                 "projection",

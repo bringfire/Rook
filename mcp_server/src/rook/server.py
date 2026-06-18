@@ -19876,7 +19876,10 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
         case "rookbim_export_preset_to_rhino":
             from . import rookbim_export_to_rhino
             from .scene.bim_facts_query import query_bim_facts
-            from .scene.bim_relationship_projection import project_bim_relationships_for_tool
+            from .scene.bim_relationship_projection import (
+                BimProjectionValidationError,
+                project_bim_relationships_for_tool,
+            )
             from .scene.scene_graph import get_scene_graph
 
             def _query_bim_facts_for_workflow(**kwargs):
@@ -19890,6 +19893,7 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                 call_rhino_fn=call_rhino,
                 project_relationships_fn=project_bim_relationships_for_tool,
                 query_bim_facts_fn=_query_bim_facts_for_workflow,
+                projection_exception_types=(BimProjectionValidationError,),
             )
             if payload.get("success") is False:
                 result = {"success": False, "data": payload}

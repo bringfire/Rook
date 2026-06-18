@@ -411,6 +411,40 @@ async def test_workflow_projection_failure_preserves_export_and_import_blocks(tm
 
 
 @pytest.mark.asyncio
+async def test_workflow_projection_validation_exception_preserves_completed_blocks(tmp_path):
+    class ProjectionValidationError(ValueError):
+        pass
+
+    async def fake_call_rhino(path, method="GET", payload=None, *, port=None):
+        if path == "/bim/export-preset":
+            return {"success": True, "data": {}}
+        if path == "/import":
+            return {"success": True, "data": {"importedIds": ["rh-1"]}}
+        raise AssertionError(path)
+
+    async def fake_project(**kwargs):
+        raise ProjectionValidationError("invalid sidecar: missing relationships")
+
+    result = await workflow.export_preset_to_rhino(
+        {"preset": "openings_and_hosts", "output": {"directory": str(tmp_path), "name": "model"}},
+        call_rhino_fn=fake_call_rhino,
+        project_relationships_fn=fake_project,
+        query_bim_facts_fn=lambda **kwargs: {"success": True},
+        projection_exception_types=(ProjectionValidationError,),
+    )
+
+    assert result["success"] is False
+    assert result["partialSuccess"] is True
+    assert result["stage"] == "projection"
+    assert result["error"] == "bim_projection_invalid_sidecar"
+    assert "invalid sidecar" in result["message"]
+    assert "projection" in result["message"].lower()
+    assert result["export"]["response"]["success"] is True
+    assert result["paths"]["sidecar"] == str(tmp_path / "model.sidecar.json")
+    assert result["import"]["importedIds"] == ["rh-1"]
+
+
+@pytest.mark.asyncio
 async def test_workflow_relationship_summary_false_skips_bim_facts(tmp_path):
     fact_calls = []
     project_calls = []
