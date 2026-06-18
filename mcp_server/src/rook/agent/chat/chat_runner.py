@@ -23,7 +23,7 @@ from .conversation_store import Conversation
 # execution_policy verification (needs_verification + annotate_result) is now
 # handled inside ToolDispatcher.dispatch() — the single enforcement point.
 from .runtime_health import collect_runtime_facts
-from .tool_contracts import normalize_catalog
+from .tool_contracts import closed_no_arg_parameters, normalize_catalog
 from ..substrate_analytics import (
     _compact_error as _substrate_compact_error,
     extract_substrate_observation,
@@ -288,6 +288,8 @@ def _build_fallback_catalog() -> Dict[str, dict]:
                 },
             },
         }
+    catalog["gh_update_script"] = _GH_UPDATE_SCRIPT_SCHEMA
+    catalog.update(_GH_CREATE_SCRIPT_SCHEMAS)
     return normalize_catalog(catalog)
 
 
@@ -319,11 +321,7 @@ _LIST_CHAT_MODELS_SCHEMA: dict = {
     "function": {
         "name": "list_chat_models",
         "description": _TOOL_DESCRIPTIONS["list_chat_models"],
-        "parameters": {
-            "type": "object",
-            "properties": {},
-            "additionalProperties": False,
-        },
+        "parameters": closed_no_arg_parameters(),
     },
 }
 
@@ -414,6 +412,7 @@ _GH_UPDATE_SCRIPT_SCHEMA: dict = {
                 },
             },
             "required": ["guid", "code"],
+            "additionalProperties": False,
         },
     },
 }
@@ -428,15 +427,17 @@ _GH_SCRIPT_PIN_ARRAY_SCHEMA: dict = {
                 "properties": {
                     "name": {"type": "string"},
                     "type": {"type": "string"},
+                    "nick": {"type": "string"},
                     "access": {
                         "type": "string",
                         "enum": ["item", "list", "tree"],
                     },
                     "optional": {"type": "boolean"},
                     "description": {"type": "string"},
+                    "hidden": {"type": "boolean"},
                 },
                 "required": ["name"],
-                "additionalProperties": True,
+                "additionalProperties": False,
             },
         ]
     },
