@@ -652,7 +652,7 @@ namespace Rook.UI.Chat
         private static string BuildToolSummary(ChatEvent evt)
         {
             if (string.IsNullOrEmpty(evt.Result))
-                return "Done";
+                return evt.ToolStatus == "failed" ? "Failed" : "Done";
 
             try
             {
@@ -706,7 +706,12 @@ namespace Rook.UI.Chat
             catch
             {
                 // Not valid JSON or unexpected structure
+                if (evt.ToolStatus == "failed")
+                    return evt.Result ?? "Failed";
             }
+
+            if (evt.ToolStatus == "failed")
+                return "Failed";
 
             return "Done";
         }

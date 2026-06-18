@@ -780,12 +780,31 @@ async def _local_gh_update_script(port: int | None = None, **kwargs) -> dict:
     return await _execute_gh_update_script(kwargs, port)
 
 
+def _normalize_gh_create_script_kwargs(kwargs: dict) -> dict:
+    """Tolerate common local-model argument aliases before strict execution."""
+    normalized = dict(kwargs)
+    nested_params = normalized.pop("params", None)
+    if isinstance(nested_params, dict):
+        for key, value in nested_params.items():
+            normalized.setdefault(key, value)
+
+    if not normalized.get("code"):
+        for alias in ("source", "script", "script_content"):
+            value = normalized.get(alias)
+            if value:
+                normalized["code"] = value
+                break
+
+    return normalized
+
+
 async def _local_gh_create_script(port: int | None = None, **kwargs) -> dict:
     from ..server import _execute_gh_create_script
 
+    normalized = _normalize_gh_create_script_kwargs(kwargs)
     return await _execute_gh_create_script(
-        kwargs.get("language"),
-        kwargs,
+        normalized.get("language"),
+        normalized,
         port,
         tool_name="gh_create_script",
     )
@@ -794,9 +813,10 @@ async def _local_gh_create_script(port: int | None = None, **kwargs) -> dict:
 async def _local_gh_create_python_script(port: int | None = None, **kwargs) -> dict:
     from ..server import _execute_gh_create_script
 
+    normalized = _normalize_gh_create_script_kwargs(kwargs)
     return await _execute_gh_create_script(
         "python",
-        kwargs,
+        normalized,
         port,
         tool_name="gh_create_python_script",
     )
@@ -805,9 +825,10 @@ async def _local_gh_create_python_script(port: int | None = None, **kwargs) -> d
 async def _local_gh_create_csharp_script(port: int | None = None, **kwargs) -> dict:
     from ..server import _execute_gh_create_script
 
+    normalized = _normalize_gh_create_script_kwargs(kwargs)
     return await _execute_gh_create_script(
         "csharp",
-        kwargs,
+        normalized,
         port,
         tool_name="gh_create_csharp_script",
     )

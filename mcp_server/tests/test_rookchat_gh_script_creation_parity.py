@@ -126,6 +126,47 @@ async def test_dispatcher_aliases_force_language_and_preserve_tool_name(
     ]
 
 
+@pytest.mark.asyncio
+async def test_dispatcher_csharp_alias_normalizes_common_model_argument_aliases(monkeypatch):
+    from rook import server
+    from rook.agent.tool_dispatcher import ToolDispatcher, build_local_tools
+
+    calls = []
+
+    async def fake_execute(language, arguments, port, *, tool_name="gh_create_script"):
+        calls.append(
+            {
+                "language": language,
+                "arguments": dict(arguments),
+                "port": port,
+                "tool_name": tool_name,
+            }
+        )
+        return {"success": True, "data": {"component_guid": "csharp-guid"}}
+
+    monkeypatch.setattr(server, "_execute_gh_create_script", fake_execute)
+
+    dispatcher = ToolDispatcher(port=9877, local_tools=build_local_tools())
+    result = await dispatcher.dispatch(
+        "gh_create_csharp_script",
+        {
+            "language": "csharp",
+            "params": {
+                "script": "var box = new Box();",
+                "pins_out": [{"name": "Box", "type": "Brep"}],
+            },
+            "name": "Box Creator",
+        },
+    )
+
+    assert result["success"] is True
+    assert calls[0]["language"] == "csharp"
+    assert calls[0]["tool_name"] == "gh_create_csharp_script"
+    assert calls[0]["arguments"]["code"] == "var box = new Box();"
+    assert calls[0]["arguments"]["pins_out"] == [{"name": "Box", "type": "Brep"}]
+    assert calls[0]["arguments"]["name"] == "Box Creator"
+
+
 def _local_tool_schema(tool_name):
     from rook.agent.chat.chat_runner import _build_local_tool_catalog
 

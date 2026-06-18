@@ -1,5 +1,7 @@
 using System;
 using System.IO;
+using System.Reflection;
+using Rook.UI.Chat;
 using Xunit;
 
 namespace Rook.Tests.UI.Chat
@@ -165,6 +167,18 @@ namespace Rook.Tests.UI.Chat
         }
 
         [Fact]
+        public void AgentChatTab_ToolSummary_FailedToolNeverShowsDone()
+        {
+            var summary = InvokeBuildToolSummary(new ChatEvent
+            {
+                Type = "tool_result",
+                ToolStatus = "failed"
+            });
+
+            Assert.Equal("Failed", summary);
+        }
+
+        [Fact]
         public void AgentChatTab_TerminalEventsHideTypingIndicator()
         {
             var source = ReadSourceFile("src", "Rook", "UI", "Chat", "AgentChatTab.cs");
@@ -216,6 +230,16 @@ namespace Rook.Tests.UI.Chat
 
             throw new FileNotFoundException(
                 "Could not locate source file " + string.Join("/", pathParts));
+        }
+
+        private static string InvokeBuildToolSummary(ChatEvent evt)
+        {
+            var method = typeof(AgentChatTab).GetMethod(
+                "BuildToolSummary",
+                BindingFlags.NonPublic | BindingFlags.Static);
+
+            Assert.NotNull(method);
+            return Assert.IsType<string>(method!.Invoke(null, new object[] { evt }));
         }
     }
 }
