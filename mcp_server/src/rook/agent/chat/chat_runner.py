@@ -272,6 +272,9 @@ def _build_fallback_catalog() -> Dict[str, dict]:
         )
 
     for tool_name, desc in all_tools.items():
+        if tool_name == "gh_errors":
+            catalog[tool_name] = _GH_ERRORS_SCHEMA
+            continue
         catalog[tool_name] = {
             "type": "function",
             "function": {
@@ -349,6 +352,22 @@ _SET_CHAT_MODEL_SCHEMA: dict = {
 _CHAT_MODEL_TOOL_SCHEMAS: Dict[str, dict] = {
     "list_chat_models": _LIST_CHAT_MODELS_SCHEMA,
     "set_chat_model": _SET_CHAT_MODEL_SCHEMA,
+}
+
+_GH_ERRORS_SCHEMA: dict = {
+    "type": "function",
+    "function": {
+        "name": "gh_errors",
+        "description": (
+            _TOOL_DESCRIPTIONS["gh_errors"]
+            + " Takes no arguments; call it after create/update tools to inspect the canvas."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+    },
 }
 
 _GH_UPDATE_SCRIPT_SCHEMA: dict = {

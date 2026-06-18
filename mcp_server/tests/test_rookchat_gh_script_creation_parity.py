@@ -174,6 +174,16 @@ def _local_tool_schema(tool_name):
     return catalog[tool_name]["function"]["parameters"]
 
 
+def test_fallback_gh_errors_schema_rejects_arguments():
+    from rook.agent.chat.chat_runner import _build_fallback_catalog
+
+    schema = _build_fallback_catalog()["gh_errors"]["function"]["parameters"]
+
+    assert schema["type"] == "object"
+    assert schema["properties"] == {}
+    assert schema["additionalProperties"] is False
+
+
 def _schema_text(schema: dict) -> str:
     fn = schema["function"]
     params = fn["parameters"]
