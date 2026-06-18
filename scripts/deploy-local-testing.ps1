@@ -69,6 +69,20 @@ $VenvPython = Join-Path $RuntimeRoot 'venv\Scripts\python.exe'
 $PluginDir = Join-Path ([Environment]::GetFolderPath('ApplicationData')) 'McNeel\Rhinoceros\8.0\Plug-ins\RookNative'
 $ChirpInstallRoot = Join-Path $InstallRoot 'chirp'
 $ManagedCompanionRuntimes = @('net8.0', 'net7.0', 'net48')
+$OcctFallbackRoot = 'C:\Users\aryan\source\repos\OCCT\build-rook'
+$OcctRuntimeDlls = @(
+    'TKernel.dll',
+    'TKMath.dll',
+    'TKG2d.dll',
+    'TKG3d.dll',
+    'TKGeomBase.dll',
+    'TKGeomAlgo.dll',
+    'TKBRep.dll',
+    'TKTopAlgo.dll',
+    'TKPrim.dll',
+    'TKBO.dll',
+    'TKShHealing.dll'
+)
 
 function Write-Step {
     param([string]$Message)
@@ -316,6 +330,33 @@ function Copy-OptionalFile {
     }
 }
 
+function Resolve-OcctRuntimeRoot {
+    if (-not [string]::IsNullOrWhiteSpace($env:OCCT_ROOT)) {
+        return [pscustomobject]@{ Root = $env:OCCT_ROOT; Source = 'OCCT_ROOT' }
+    }
+    return [pscustomobject]@{ Root = $OcctFallbackRoot; Source = 'fallback' }
+}
+
+function Copy-OcctRuntimeDlls {
+    $resolved = Resolve-OcctRuntimeRoot
+    Write-Host "OCCT root source: $($resolved.Source)"
+    Write-Host "OCCT root:        $($resolved.Root)"
+
+    if (-not (Test-Path $resolved.Root)) {
+        throw "OCCT root not found: $($resolved.Root). Set OCCT_ROOT to a valid OCCT build root."
+    }
+
+    $sourceDir = Join-Path $resolved.Root 'win64\vc14\bin'
+    if (-not (Test-Path $sourceDir)) {
+        throw "OCCT runtime bin directory not found: $sourceDir"
+    }
+
+    foreach ($dll in $OcctRuntimeDlls) {
+        $source = Join-Path $sourceDir $dll
+        Copy-RequiredFile $source (Join-Path $PluginDir $dll)
+    }
+}
+
 function Copy-EnvFileIfMissing {
     param(
         [Parameter(Mandatory = $true)][string]$Source,
@@ -366,6 +407,7 @@ function Deploy-NativePayload {
 
     Copy-RequiredFile (Join-Path $nativeDir 'RookNative.rhp') (Join-Path $PluginDir 'RookNative.rhp')
     Copy-OptionalFile (Join-Path $nativeDir 'RookNative.pdb') (Join-Path $PluginDir 'RookNative.pdb')
+    Copy-OcctRuntimeDlls
 }
 
 function Remove-StaleRootCompanionPayload {
@@ -518,7 +560,7 @@ function Invoke-PostInstallConfig {
 
 function Register-Plugins {
     $register = Join-Path $RepoRoot 'scripts\register-rooknative-suite.ps1'
-    & $register -NativeRhpPath (Join-Path $PluginDir 'RookNative.rhp') -CompanionRhpPath (Join-Path $PluginDir 'net7.0\Rook.rhp')
+    & $register -NativeRhpPath (Join-Path $PluginDir 'RookNative.rhp') -CompanionRhpPath (Join-Path $PluginDir 'net8.0\Rook.rhp')
 }
 
 function Register-NativeOnlyPlugins {

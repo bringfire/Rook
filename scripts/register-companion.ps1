@@ -22,8 +22,8 @@ $ErrorActionPreference = 'Stop'
 
 $CompanionGuid = 'b7e4a8c9-1f62-4c7e-9a2b-5d4e8f1c3a7b'
 $RegBase       = "HKCU:\Software\McNeel\Rhinoceros\8.0\Plug-Ins\$CompanionGuid"
-$UnsupportedNet48CompanionMessage = 'net48 Rook companion builds are not supported for registration; use the net7.0 Rook.rhp output.'
-$UnsupportedRuntimeMetadataMessage = 'Rook companion runtime metadata must identify a net7.0 build for registration.'
+$UnsupportedNet48CompanionMessage = 'net48 Rook companion builds are not supported; use net8.0 Rook.rhp. net7.0 is accepted as fallback.'
+$UnsupportedRuntimeMetadataMessage = 'Rook companion runtime metadata must identify a net8.0 or net7.0 build for registration.'
 
 function Test-PathHasExactSegment {
     param(
@@ -51,7 +51,8 @@ function Assert-SupportedCompanionRhpPath {
         throw $UnsupportedNet48CompanionMessage
     }
 
-    if (Test-PathHasExactSegment -Path $Path -Segment 'net7.0') {
+    if ((Test-PathHasExactSegment -Path $Path -Segment 'net8.0') -or
+        (Test-PathHasExactSegment -Path $Path -Segment 'net7.0')) {
         return
     }
 
@@ -67,7 +68,7 @@ function Assert-SupportedCompanionRhpPath {
     }
 
     $tfm = $metadata.runtimeOptions.tfm
-    if ($tfm -eq 'net7.0') {
+    if ($tfm -eq 'net8.0' -or $tfm -eq 'net7.0') {
         return
     }
 
@@ -108,6 +109,7 @@ if (-not $RhpPath) {
     if ($NativeReg -and $NativeReg.FileName) {
         $NativeDir = Split-Path -Parent $NativeReg.FileName
         $ColocatedCandidates = @(
+            (Join-Path $NativeDir 'net8.0\Rook.rhp'),
             (Join-Path $NativeDir 'net7.0\Rook.rhp'),
             (Join-Path $NativeDir 'Rook.rhp')
         )
@@ -124,6 +126,8 @@ if (-not $RhpPath) {
     # Priority 2: Repo build outputs (development workflow).
     if (-not $RhpPath) {
         $Candidates = @(
+            (Join-Path $RepoRoot 'src\Rook\bin\Debug\net8.0\Rook.rhp'),
+            (Join-Path $RepoRoot 'src\Rook\bin\Release\net8.0\Rook.rhp'),
             (Join-Path $RepoRoot 'src\Rook\bin\Debug\net7.0\Rook.rhp'),
             (Join-Path $RepoRoot 'src\Rook\bin\Release\net7.0\Rook.rhp')
         )
@@ -131,7 +135,7 @@ if (-not $RhpPath) {
         foreach ($c in $Candidates) {
             if (Test-Path $c) {
                 $RhpPath = (Resolve-Path $c).Path
-                $RhpSource = 'repo net7.0 build output'
+                $RhpSource = 'repo managed build output'
                 break
             }
         }
@@ -140,9 +144,9 @@ if (-not $RhpPath) {
     if (-not $RhpPath) {
         $msg = "Could not find Rook.rhp.`n"
         $msg += "  Checked runtime payload beside registered RookNative (not found or native not registered).`n"
-        $msg += "  Checked repo net7.0 build outputs (not built).`n`n"
+        $msg += "  Checked repo net8.0/net7.0 build outputs (not built).`n`n"
         $msg += "Build the managed companion first:`n"
-        $msg += "  dotnet build src\Rook\Rook.csproj -f net7.0 -c Debug`n`n"
+        $msg += "  dotnet build src\Rook\Rook.csproj -c Debug`n`n"
         $msg += "Or pass -RhpPath explicitly:`n"
         $msg += "  .\scripts\register-companion.ps1 -RhpPath 'C:\path\to\Rook.rhp'"
         Write-Error $msg
