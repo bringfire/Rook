@@ -2245,6 +2245,41 @@ def _check_script_component_handoff(
     return None
 
 
+def _gh_create_script_component_errors(errors_result: Any, component_guid: str) -> list[Any]:
+    data = errors_result
+    if isinstance(errors_result, dict):
+        wrapped_data = _dict_get_ci(errors_result, "data")
+        if wrapped_data is not None:
+            data = wrapped_data
+    if not isinstance(data, dict):
+        return []
+
+    errors = _dict_get_ci(data, "errors", [])
+    if not isinstance(errors, list):
+        return []
+
+    component_guid_lower = str(component_guid).lower()
+    for entry in errors:
+        if not isinstance(entry, dict):
+            continue
+        entry_guid = _dict_get_ci(entry, "guid")
+        if isinstance(entry_guid, str) and entry_guid.lower() == component_guid_lower:
+            messages = _dict_get_ci(entry, "errors", [])
+            return _gh_update_script_messages(messages)
+    return []
+
+
+def _gh_create_script_result_from_data(data: dict[str, Any]) -> dict[str, Any]:
+    if data.get("compilation_errors"):
+        data["message"] = "Component was created, but the target script component has compile errors."
+        return {
+            "success": False,
+            "message": data["message"],
+            "data": data,
+        }
+    return {"success": True, "data": data}
+
+
 async def _execute_gh_create_script(
     language: Any,
     arguments: dict[str, Any],
@@ -2376,27 +2411,23 @@ async def _execute_gh_create_script(
         )
         component_errors: list[Any] = []
         if errors_result.get("success"):
-            edata = errors_result.get("data", {})
-            for err in edata.get("errors", []):
-                if err.get("guid") == component_guid:
-                    component_errors = err.get("errors", [])
-                    break
+            component_errors = _gh_create_script_component_errors(
+                errors_result,
+                component_guid,
+            )
 
-        result: dict[str, Any] = {
-            "success": True,
-            "data": {
-                "component_guid": component_guid,
-                "pins_in": pin_defs_in,
-                "pins_out": pin_defs_out,
-                "position": {"x": x, "y": y},
-                "name": name or config["default_name"],
-                "code_length": len(full_script),
-            },
+        data: dict[str, Any] = {
+            "component_guid": component_guid,
+            "pins_in": pin_defs_in,
+            "pins_out": pin_defs_out,
+            "position": {"x": x, "y": y},
+            "name": name or config["default_name"],
+            "code_length": len(full_script),
         }
         if component_errors:
-            result["data"]["compilation_errors"] = component_errors
-            result["data"]["warning"] = "Component placed but has compilation errors"
-        return result
+            data["compilation_errors"] = component_errors
+            data["warning"] = "Component placed but has compilation errors"
+        return _gh_create_script_result_from_data(data)
 
     except Exception as exc:
         return {"success": False, "data": f"{tool_name} failed: {exc}"}

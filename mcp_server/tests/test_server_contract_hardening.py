@@ -478,6 +478,141 @@ async def test_gh_create_csharp_script_accepts_rich_pin_objects(monkeypatch, pat
 
 
 @pytest.mark.asyncio
+async def test_gh_create_csharp_script_compile_errors_fail_but_preserve_component_guid(
+    monkeypatch, patched_server
+):
+    component_guid = "12345678-1234-4234-9234-123456789abc"
+
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        if route == "/gh/create-component":
+            return {"success": True, "data": {"guid": component_guid}}
+        if route == "/gh/script-params":
+            return {"success": True, "data": {"guid": component_guid}}
+        if route == "/gh/script":
+            return {"success": True, "data": {"guid": component_guid}}
+        if route == "/gh/errors":
+            return {
+                "success": True,
+                "data": {
+                    "errors": [{"guid": component_guid, "errors": ["The name Boxx does not exist"]}],
+                    "warnings": [],
+                },
+            }
+        if route == "/gh/document":
+            return {"success": True, "data": {"name": "contract.gh", "path": ""}}
+        raise AssertionError(f"Unexpected route: {route}")
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    payload = _decode_response(await server.call_tool(
+        "gh_create_csharp_script",
+        {
+            "code": "B = Boxx;",
+            "pins_in": [],
+            "pins_out": ["B:Brep"],
+            "name": "Box Maker",
+        },
+    ))
+
+    assert payload["success"] is False
+    data = payload["data"]
+    assert data["message"] == (
+        "Component was created, but the target script component has compile errors."
+    )
+    assert data["component_guid"] == component_guid
+    assert data["name"] == "Box Maker"
+    assert data["pins_out"] == [{"name": "B", "type": "Brep"}]
+    assert data["compilation_errors"] == ["The name Boxx does not exist"]
+
+
+@pytest.mark.asyncio
+async def test_gh_create_script_csharp_compile_errors_share_failure_shape(
+    monkeypatch, patched_server
+):
+    component_guid = "12345678-1234-4234-9234-123456789abc"
+
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        if route == "/gh/create-component":
+            return {"success": True, "data": {"guid": component_guid}}
+        if route == "/gh/script-params":
+            return {"success": True, "data": {"guid": component_guid}}
+        if route == "/gh/script":
+            return {"success": True, "data": {"guid": component_guid}}
+        if route == "/gh/errors":
+            return {
+                "success": True,
+                "data": {
+                    "errors": [{"guid": component_guid, "errors": ["Cannot convert Box to Brep"]}],
+                    "warnings": [],
+                },
+            }
+        if route == "/gh/document":
+            return {"success": True, "data": {"name": "contract.gh", "path": ""}}
+        raise AssertionError(f"Unexpected route: {route}")
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    payload = _decode_response(await server.call_tool(
+        "gh_create_script",
+        {
+            "language": "csharp",
+            "code": "B = new Box();",
+            "pins_in": [],
+            "pins_out": ["B:Brep"],
+            "name": "Box Maker",
+        },
+    ))
+
+    assert payload["success"] is False
+    assert payload["data"]["message"] == (
+        "Component was created, but the target script component has compile errors."
+    )
+    assert payload["data"]["component_guid"] == component_guid
+    assert payload["data"]["compilation_errors"] == ["Cannot convert Box to Brep"]
+
+
+@pytest.mark.asyncio
+async def test_gh_create_csharp_script_compile_errors_match_capitalized_live_shape(
+    monkeypatch, patched_server
+):
+    component_guid = "12345678-1234-4234-9234-123456789abc"
+
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        if route == "/gh/create-component":
+            return {"success": True, "data": {"Guid": component_guid}}
+        if route == "/gh/script-params":
+            return {"success": True, "data": {"Guid": component_guid}}
+        if route == "/gh/script":
+            return {"success": True, "data": {"Guid": component_guid}}
+        if route == "/gh/errors":
+            return {
+                "success": True,
+                "Data": {
+                    "Errors": [{"Guid": component_guid, "Errors": ["capitalized compile"]}],
+                    "Warnings": [],
+                },
+            }
+        if route == "/gh/document":
+            return {"success": True, "data": {"name": "contract.gh", "path": ""}}
+        raise AssertionError(f"Unexpected route: {route}")
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    payload = _decode_response(await server.call_tool(
+        "gh_create_csharp_script",
+        {
+            "code": "B = MissingSymbol;",
+            "pins_in": [],
+            "pins_out": ["B:Brep"],
+        },
+    ))
+
+    assert payload["success"] is False
+    assert payload["data"]["component_guid"] == component_guid
+    assert payload["data"]["compilation_errors"] == ["capitalized compile"]
+
+
+@pytest.mark.asyncio
 async def test_gh_create_python_script_accepts_rich_pin_objects(monkeypatch, patched_server):
     async def fake_call_rhino(route, method="GET", payload=None, port=None):
         if route == "/gh/create-component":
