@@ -1284,7 +1284,10 @@ def build_local_tools() -> Dict[str, Any]:
     # --- rookbim_export_preset_to_rhino (Python-side demo workflow orchestration) ---
     try:
         from .. import rookbim_export_to_rhino
-        from ..scene.bim_relationship_projection import project_bim_relationships_for_tool
+        from ..scene.bim_relationship_projection import (
+            BimProjectionValidationError,
+            project_bim_relationships_for_tool,
+        )
         from ..scene.bim_facts_query import query_bim_facts
         from ..scene.scene_graph import get_scene_graph
 
@@ -1297,6 +1300,7 @@ def build_local_tools() -> Dict[str, Any]:
                 call_rhino_fn=call_rhino,
                 project_relationships_fn=project_bim_relationships_for_tool,
                 query_bim_facts_fn=_query_bim_facts_for_workflow,
+                projection_exception_types=(BimProjectionValidationError,),
             )
 
         tools["rookbim_export_preset_to_rhino"] = _rookbim_export_preset_to_rhino
