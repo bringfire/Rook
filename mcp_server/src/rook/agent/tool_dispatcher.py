@@ -453,6 +453,7 @@ BRIDGE_ROUTES: Dict[str, Tuple[str, str]] = {
     "rookbim_select_elements":    ("/bim/select-elements", "POST"),
     "rookbim_clear_selection":    ("/bim/clear-selection", "POST"),
     "rookbim_export_elements":    ("/bim/export-elements", "POST"),
+    "rookbim_export_preset":      ("/bim/export-preset", "POST"),
 
     # --- Vision Video (PR-V4) ---
     # Body-only / no-param tools live here. Path-param tools
@@ -1177,6 +1178,49 @@ def build_local_tools() -> Dict[str, Any]:
     tools["gh_create_script"] = _local_gh_create_script
     tools["gh_create_python_script"] = _local_gh_create_python_script
     tools["gh_create_csharp_script"] = _local_gh_create_csharp_script
+
+    # --- scene_project_bim_relationships (Python-side BIM relationship projection) ---
+    try:
+        from ..scene.bim_relationship_projection import (
+            BimProjectionValidationError,
+            project_bim_relationships_for_tool,
+        )
+
+        async def _scene_project_bim_relationships(
+            sidecar_path=None,
+            object_ids=None,
+            category_filters=None,
+            include_rooms=True,
+            include_levels=True,
+            port: int | None = None,
+            **kwargs,
+        ) -> dict:
+            if not sidecar_path:
+                return {
+                    "success": False,
+                    "error": "bim_projection_invalid_sidecar",
+                    "message": "Missing required sidecar_path parameter.",
+                }
+            try:
+                return await project_bim_relationships_for_tool(
+                    sidecar_path,
+                    object_ids=object_ids,
+                    category_filters=category_filters,
+                    include_rooms=include_rooms,
+                    include_levels=include_levels,
+                    port=port,
+                )
+            except BimProjectionValidationError as exc:
+                return {
+                    "success": False,
+                    "error": "bim_projection_invalid_sidecar",
+                    "message": str(exc),
+                }
+
+        tools["scene_project_bim_relationships"] = _scene_project_bim_relationships
+    except ImportError:
+        logger.debug("scene_project_bim_relationships local tool unavailable (import failed)")
+
     tools["gh_update_script"] = _local_gh_update_script
     tools["gh_set_script_pins"] = _local_gh_set_script_pins
 
