@@ -51,6 +51,37 @@ Before starting, verify the user has:
 > - **Claude Code** — PowerShell: `irm https://claude.ai/install.ps1 | iex` (or `winget install Anthropic.ClaudeCode`) · [quickstart](https://code.claude.com/docs/en/quickstart)
 > - **Codex CLI** — PowerShell: `powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1 | iex"` (or `npm install -g @openai/codex`) · [repo](https://github.com/openai/codex)
 
+## Developer Machine Convention
+
+For source-tree development, use `main` as the shared source of truth and use task
+branches only for isolated work. Do not maintain separate laptop and desktop source
+branches.
+
+Before a local deploy from source:
+
+1. Pull current `main`.
+2. Run:
+
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\rook-dev-doctor.ps1
+   ```
+
+3. Close Rhino and any `python -m rook` process.
+4. Deploy with the repo Python runtime:
+
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy-local-testing.ps1 -UseRepoVenv
+   ```
+
+5. Restart Rhino.
+6. Optionally run the existing payload-only live smoke flow after Rhino and
+   Grasshopper are open.
+
+Prepared dev machines should set `OCCT_ROOT` to the active OCCT build root. The
+native projects still contain a hardcoded fallback path for now; removing that
+fallback is a follow-up after both laptop and desktop pass the doctor from a fresh
+shell.
+
 ## Installation
 
 1. Download the latest `Rook-Setup-<version>.exe` from:
