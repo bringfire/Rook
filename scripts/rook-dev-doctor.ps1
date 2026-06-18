@@ -310,14 +310,11 @@ function Invoke-InnoSetupCheck {
 function Test-ChatManifest {
     param(
         [Parameter(Mandatory = $true)][string]$Label,
-        [Parameter(Mandatory = $true)][string]$Path,
-        [Parameter(Mandatory = $true)][ValidateSet('WARN', 'OMIT')][string]$MissingStatus
+        [Parameter(Mandatory = $true)][string]$Path
     )
 
     if (-not (Test-Path $Path)) {
-        if ($MissingStatus -eq 'WARN') {
-            Write-CheckResult -Status WARN -Name $Label -Detail "Missing RookChatService.json: $Path"
-        }
+        Write-CheckResult -Status WARN -Name $Label -Detail "Missing RookChatService.json: $Path"
         return
     }
 
@@ -336,7 +333,7 @@ function Test-ChatManifest {
 
 function Invoke-ChatManifestChecks {
     $pluginDir = Join-Path ([Environment]::GetFolderPath('ApplicationData')) 'McNeel\Rhinoceros\8.0\Plug-ins\RookNative'
-    Test-ChatManifest -Label 'Chat manifest root' -Path (Join-Path $pluginDir 'RookChatService.json') -MissingStatus WARN
+    Test-ChatManifest -Label 'Chat manifest root' -Path (Join-Path $pluginDir 'RookChatService.json')
 
     $runtimeLabels = @{
         'net8.0' = 'Chat manifest net8.0'
@@ -348,8 +345,7 @@ function Invoke-ChatManifestChecks {
         $label = $runtimeLabels[$runtime]
         $runtimeDir = Join-Path $pluginDir $runtime
         $manifestPath = Join-Path $runtimeDir 'RookChatService.json'
-        $missingStatus = if ($runtime -eq 'net8.0' -or (Test-Path $runtimeDir)) { 'WARN' } else { 'OMIT' }
-        Test-ChatManifest -Label $label -Path $manifestPath -MissingStatus $missingStatus
+        Test-ChatManifest -Label $label -Path $manifestPath
     }
 }
 
