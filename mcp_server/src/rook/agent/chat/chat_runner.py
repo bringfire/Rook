@@ -867,7 +867,8 @@ class ChatRunner:
 
                 # Stream from LLM — emit text tokens as they arrive, accumulate tool calls
                 text_parts: List[str] = []
-                tool_calls_acc: Dict[int, Dict[str, str]] = {}  # index -> {id, name, arguments}
+                tool_calls_acc: List[Dict[str, str]] = []
+                tool_call_slot_by_index: Dict[int, int] = {}
 
                 try:
                     llm_kwargs = dict(
@@ -902,15 +903,27 @@ class ChatRunner:
                         if delta.tool_calls:
                             for tc_delta in delta.tool_calls:
                                 idx = tc_delta.index
-                                if idx not in tool_calls_acc:
-                                    tool_calls_acc[idx] = {"id": "", "name": "", "arguments": ""}
+                                slot = tool_call_slot_by_index.get(idx)
+                                incoming_id = tc_delta.id or ""
+                                if (
+                                    slot is None
+                                    or (
+                                        incoming_id
+                                        and tool_calls_acc[slot]["id"]
+                                        and incoming_id != tool_calls_acc[slot]["id"]
+                                    )
+                                ):
+                                    tool_calls_acc.append({"id": "", "name": "", "arguments": ""})
+                                    slot = len(tool_calls_acc) - 1
+                                    tool_call_slot_by_index[idx] = slot
+                                acc = tool_calls_acc[slot]
                                 if tc_delta.id:
-                                    tool_calls_acc[idx]["id"] = tc_delta.id
+                                    acc["id"] = tc_delta.id
                                 if tc_delta.function:
                                     if tc_delta.function.name:
-                                        tool_calls_acc[idx]["name"] += tc_delta.function.name
+                                        acc["name"] += tc_delta.function.name
                                     if tc_delta.function.arguments:
-                                        tool_calls_acc[idx]["arguments"] += tc_delta.function.arguments
+                                        acc["arguments"] += tc_delta.function.arguments
 
                         if hasattr(chunk, "usage") and chunk.usage:
                             total_input += getattr(chunk.usage, "prompt_tokens", 0)
@@ -923,7 +936,7 @@ class ChatRunner:
 
                 # Reconstruct complete assistant message from accumulated stream
                 full_text = "".join(text_parts)
-                tool_calls_list = [tool_calls_acc[i] for i in sorted(tool_calls_acc.keys())]
+                tool_calls_list = tool_calls_acc
 
                 assistant_msg: Dict[str, Any] = {"role": "assistant"}
                 if full_text:
