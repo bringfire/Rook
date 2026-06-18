@@ -9,6 +9,7 @@ from typing import Any
 
 import networkx as nx
 
+from ..bridge import call_rhino
 from .scene_graph import SceneGraphAnalytics
 
 PROJECTION_KIND = "bim_relationship_v1"
@@ -604,6 +605,232 @@ def prune_bim_relationship_projection(analytics: SceneGraphAnalytics) -> dict[st
         "removedNodes": removed_nodes,
         "cleanedAnnotations": cleaned_annotations,
     }
+
+
+def _scene_candidate_object_ids(
+    analytics: SceneGraphAnalytics,
+    object_ids: list[str] | None,
+) -> list[str]:
+    if object_ids is not None:
+        return list(dict.fromkeys(str(object_id) for object_id in object_ids))
+    return [
+        str(node_id)
+        for node_id, attrs in analytics.graph.nodes(data=True)
+        if not _is_projection_node(attrs)
+    ]
+
+
+def _extract_user_strings(response: dict[str, Any]) -> dict[str, Any] | None:
+    if not response.get("success"):
+        return None
+    data = response.get("data")
+    if not isinstance(data, dict):
+        return None
+    user_strings = data.get("userStrings")
+    return user_strings if isinstance(user_strings, dict) else None
+
+
+async def hydrate_runtime_object_records(
+    object_ids: list[str],
+    *,
+    port: int | None = None,
+) -> tuple[list[RuntimeObjectRecord], dict[str, int]]:
+    records: list[RuntimeObjectRecord] = []
+    diagnostics: dict[str, int] = {}
+
+    for object_id in object_ids:
+        try:
+            response = await call_rhino(
+                "/usertext/object-get",
+                "POST",
+                {"id": object_id},
+                port=port,
+            )
+        except Exception:
+            _bump(diagnostics, "hydrationFailures")
+            continue
+        user_strings = _extract_user_strings(response)
+        if user_strings is None:
+            _bump(diagnostics, "hydrationFailures")
+            continue
+        records.append(RuntimeObjectRecord(object_id=object_id, user_strings=user_strings))
+
+    return records, diagnostics
+
+
+def _default_prune_result() -> dict[str, Any]:
+    return {"pruned": False, "removedEdges": 0, "removedNodes": 0, "cleanedAnnotations": 0}
+
+
+def _flatten_projection_result(
+    projection: dict[str, Any],
+    *,
+    sidecar: ParsedSidecar,
+    fingerprint: SidecarFingerprint,
+    candidate_object_count: int,
+    hydrated_count: int,
+    joinable_count: int,
+    joined_object_count: int,
+    graph_sequence: int,
+    prune_result: dict[str, Any],
+) -> dict[str, Any]:
+    counts = dict(projection.get("counts") or {})
+    return {
+        "success": True,
+        "projectionKind": PROJECTION_KIND,
+        "provenance": PROVENANCE,
+        "sidecarFingerprint": fingerprint.short_id,
+        "sidecarPath": sidecar.source_path,
+        "graphSequence": graph_sequence,
+        "candidateObjectCount": candidate_object_count,
+        "hydratedCount": hydrated_count,
+        "joinableCount": joinable_count,
+        "eligibleObjectCount": counts.get("eligibleObjectCount", 0),
+        "joinedObjectCount": joined_object_count,
+        "annotatedObjectCount": counts.get("annotatedObjectCount", 0),
+        "projectedHostEdges": counts.get("projectedHostEdges", 0),
+        "projectedRoomEdges": counts.get("projectedRoomEdges", 0),
+        "projectedLevelEdges": counts.get("projectedLevelEdges", 0),
+        "roomNodes": counts.get("roomNodes", 0),
+        "createdRoomNodes": counts.get("createdRoomNodes", 0),
+        "levelNodes": counts.get("levelNodes", 0),
+        "createdLevelNodes": counts.get("createdLevelNodes", 0),
+        "diagnostics": projection.get("diagnostics", {}),
+        "counts": counts,
+        "pruned": bool(prune_result.get("pruned")),
+        "prune": prune_result,
+    }
+
+
+def _zero_join_result(
+    *,
+    sidecar: ParsedSidecar,
+    fingerprint: SidecarFingerprint,
+    candidate_object_count: int,
+    hydrated_count: int,
+    join: RuntimeJoinMap,
+    eligible: EligibleObjects,
+    graph_sequence: int,
+    prune_result: dict[str, Any],
+) -> dict[str, Any]:
+    diagnostics = _merge_diagnostics(sidecar.diagnostics, join.diagnostics, eligible.diagnostics)
+    return {
+        "success": False,
+        "error": "bim_projection_no_eligible_scene_objects",
+        "message": "No eligible scene objects could be joined to the BIM relationship sidecar.",
+        "projectionKind": PROJECTION_KIND,
+        "provenance": PROVENANCE,
+        "sidecarFingerprint": fingerprint.short_id,
+        "sidecarPath": sidecar.source_path,
+        "graphSequence": graph_sequence,
+        "candidateObjectCount": candidate_object_count,
+        "hydratedCount": hydrated_count,
+        "joinableCount": len(join.by_object_id),
+        "eligibleObjectCount": len(eligible.object_ids),
+        "joinedObjectCount": 0,
+        "projectedHostEdges": 0,
+        "projectedRoomEdges": 0,
+        "projectedLevelEdges": 0,
+        "roomNodes": 0,
+        "createdRoomNodes": 0,
+        "levelNodes": 0,
+        "createdLevelNodes": 0,
+        "diagnostics": diagnostics,
+        "counts": {
+            "eligibleObjectCount": len(eligible.object_ids),
+            "annotatedObjectCount": 0,
+            "projectedHostEdges": 0,
+            "projectedRoomEdges": 0,
+            "projectedLevelEdges": 0,
+            "roomNodes": 0,
+            "createdRoomNodes": 0,
+            "levelNodes": 0,
+            "createdLevelNodes": 0,
+        },
+        "pruned": bool(prune_result.get("pruned")),
+        "prune": prune_result,
+    }
+
+
+async def project_bim_relationships_for_tool(
+    sidecar_path: str,
+    *,
+    object_ids: list[str] | None = None,
+    category_filters: list[str] | None = None,
+    include_rooms: bool = True,
+    include_levels: bool = True,
+    port: int | None = None,
+    analytics: SceneGraphAnalytics | None = None,
+) -> dict[str, Any]:
+    if analytics is None:
+        from .scene_graph import get_scene_graph
+
+        analytics = get_scene_graph()
+
+    await analytics.sync(port=port)
+    sidecar, fingerprint = load_sidecar_path(
+        sidecar_path,
+        include_rooms=include_rooms,
+        include_levels=include_levels,
+    )
+
+    candidate_object_ids = _scene_candidate_object_ids(analytics, object_ids)
+    hydration_object_ids = candidate_object_ids
+    if object_ids is not None and candidate_object_ids:
+        hydration_object_ids = list(dict.fromkeys([
+            *candidate_object_ids,
+            *_scene_candidate_object_ids(analytics, None),
+        ]))
+    records, hydration_diagnostics = await hydrate_runtime_object_records(hydration_object_ids, port=port)
+    join_base = build_runtime_join_map(records)
+    join = RuntimeJoinMap(
+        by_object_id=join_base.by_object_id,
+        by_revit_uid=join_base.by_revit_uid,
+        diagnostics=_merge_diagnostics(hydration_diagnostics, join_base.diagnostics),
+    )
+    eligible = select_eligible_objects(
+        join,
+        sidecar,
+        object_ids=object_ids,
+        category_filters=category_filters,
+    )
+
+    prune_result = _default_prune_result()
+    if projection_requires_prune(analytics, fingerprint):
+        prune_result = prune_bim_relationship_projection(analytics)
+
+    if not eligible.object_ids:
+        return _zero_join_result(
+            sidecar=sidecar,
+            fingerprint=fingerprint,
+            candidate_object_count=len(candidate_object_ids),
+            hydrated_count=len(records),
+            join=join,
+            eligible=eligible,
+            graph_sequence=analytics.sequence,
+            prune_result=prune_result,
+        )
+
+    projection = project_bim_relationships(
+        analytics,
+        sidecar,
+        fingerprint,
+        join,
+        eligible,
+        include_rooms=include_rooms,
+        include_levels=include_levels,
+    )
+    return _flatten_projection_result(
+        projection,
+        sidecar=sidecar,
+        fingerprint=fingerprint,
+        candidate_object_count=len(candidate_object_ids),
+        hydrated_count=len(records),
+        joinable_count=len(join.by_object_id),
+        joined_object_count=projection["counts"].get("annotatedObjectCount", 0),
+        graph_sequence=analytics.sequence,
+        prune_result=prune_result,
+    )
 
 
 def project_bim_relationships(

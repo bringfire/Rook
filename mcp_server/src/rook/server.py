@@ -11217,6 +11217,41 @@ For each object id, evaluates the existing bbox `contains` candidates it partici
             },
         ),
         Tool(
+            name="scene_project_bim_relationships",
+            description="""Project Revit/BIM relationship sidecar facts into the in-memory scene graph read model.
+
+Syncs the scene graph, reads object user strings via /usertext/object-get, joins scene objects to sidecar elements by revit.uniqueId, then upserts BIM host, room, and level relationship facts. This is read-only with respect to Rhino/Revit documents and mutates only the MCP scene graph read model.""",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "sidecar_path": {
+                        "type": "string",
+                        "description": "Path to the exported BIM relationship sidecar JSON file",
+                    },
+                    "object_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional scene object ids to treat as primary eligible objects",
+                    },
+                    "category_filters": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional Revit category names to include after hydration/join",
+                    },
+                    "include_rooms": {
+                        "type": "boolean",
+                        "description": "Whether to project room reference nodes and room edges (default: true)",
+                    },
+                    "include_levels": {
+                        "type": "boolean",
+                        "description": "Whether to project level reference nodes and level edges (default: true)",
+                    },
+                    "port": {"type": "integer", "description": "Rhino instance port"},
+                },
+                "required": ["sidecar_path"],
+            },
+        ),
+        Tool(
             name="scene_classify",
             description="""Force reclassification of objects in the scene graph. Optionally switch the domain profile (general or architecture).
 
@@ -19349,6 +19384,36 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                     result = {"success": False, "data": payload.get("error", "containment refine failed")}
                 else:
                     result = {"success": True, "data": payload}
+
+        case "scene_project_bim_relationships":
+            sidecar_path = arguments.get("sidecar_path")
+            if not sidecar_path:
+                result = {"success": True, "data": {
+                    "success": False,
+                    "error": "bim_projection_invalid_sidecar",
+                    "message": "Missing required sidecar_path parameter.",
+                }}
+            else:
+                from .scene.bim_relationship_projection import (
+                    BimProjectionValidationError,
+                    project_bim_relationships_for_tool,
+                )
+                try:
+                    payload = await project_bim_relationships_for_tool(
+                        sidecar_path,
+                        object_ids=arguments.get("object_ids"),
+                        category_filters=arguments.get("category_filters"),
+                        include_rooms=arguments.get("include_rooms", True),
+                        include_levels=arguments.get("include_levels", True),
+                        port=port,
+                    )
+                except BimProjectionValidationError as exc:
+                    payload = {
+                        "success": False,
+                        "error": "bim_projection_invalid_sidecar",
+                        "message": str(exc),
+                    }
+                result = {"success": True, "data": payload}
 
         case "scene_classify":
             classify_args = {k: v for k, v in arguments.items() if k != "port"}
