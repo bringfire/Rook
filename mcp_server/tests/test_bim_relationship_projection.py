@@ -639,3 +639,105 @@ def test_sparse_room_node_is_created_when_room_record_missing():
     room_id = bim.room_node_id(fp, "room-1")
     assert sg.graph.nodes[room_id]["recordCompleteness"] == "sparse"
     assert result["diagnostics"]["roomReferenceMissingRecord"] == 1
+
+
+def test_prune_removes_only_bim_relationship_v1_artifacts():
+    sg = _analytics_with_bim_nodes()
+    fp = bim.SidecarFingerprint(full_hash="abcdef" * 11, short_id="abcdefabcdefabcd")
+    sidecar = bim.parse_sidecar_payload(_sidecar())
+    join = _joined_for_projection()
+    eligible = bim.select_eligible_objects(join, sidecar)
+    bim.project_bim_relationships(sg, sidecar, fp, join, eligible)
+    sg.graph.add_edge("rh-door", "rh-wall", key="future:bim", relationship="future_bim", provenance="rookbim_sidecar")
+
+    room_id = bim.room_node_id(fp, "room-1")
+    level_id = bim.level_node_id(fp, "L1")
+    assert sg.graph.has_node(room_id)
+    assert sg.graph.has_node(level_id)
+
+    result = bim.prune_bim_relationship_projection(sg)
+
+    assert result["pruned"] is True
+    assert sg.graph.has_edge("rh-door", "rh-wall", "future:bim")
+    assert not sg.graph.has_edge("rh-door", "rh-wall", "rookbim:hosted_by:abcdefabcdefabcd:uid-door:uid-wall")
+    assert not sg.graph.has_node(room_id)
+    assert not sg.graph.has_node(level_id)
+    assert "revitUniqueId" not in sg.graph.nodes["rh-door"]
+    assert "projectionKind" not in sg.graph.nodes["rh-door"]
+    assert "provenance" not in sg.graph.nodes["rh-door"]
+    assert "rookbimEngineVersion" not in sg.graph.nodes["rh-door"]
+
+
+def test_project_can_skip_room_and_level_families():
+    sg = _analytics_with_bim_nodes()
+    fp = bim.SidecarFingerprint(full_hash="abcdef" * 11, short_id="abcdefabcdefabcd")
+    sidecar = bim.parse_sidecar_payload(_sidecar(), include_rooms=False, include_levels=False)
+    join = _joined_for_projection()
+    eligible = bim.select_eligible_objects(join, sidecar)
+
+    result = bim.project_bim_relationships(
+        sg,
+        sidecar,
+        fp,
+        join,
+        eligible,
+        include_rooms=False,
+        include_levels=False,
+    )
+
+    assert result["counts"]["projectedHostEdges"] == 1
+    assert result["counts"]["projectedRoomEdges"] == 0
+    assert result["counts"]["projectedLevelEdges"] == 0
+    assert result["counts"]["roomNodes"] == 0
+    assert result["counts"]["levelNodes"] == 0
+    assert sg.graph.has_edge("rh-door", "rh-wall", "rookbim:hosted_by:abcdefabcdefabcd:uid-door:uid-wall")
+    assert not sg.graph.has_node(bim.room_node_id(fp, "room-1"))
+    assert not sg.graph.has_node(bim.level_node_id(fp, "L1"))
+
+
+def test_projection_requires_prune_only_for_changed_sequence_or_sidecar():
+    sg = _analytics_with_bim_nodes()
+    fp = bim.SidecarFingerprint(full_hash="abcdef" * 11, short_id="abcdefabcdefabcd")
+    sidecar = bim.parse_sidecar_payload(_sidecar())
+    join = _joined_for_projection()
+    eligible = bim.select_eligible_objects(join, sidecar)
+    bim.project_bim_relationships(sg, sidecar, fp, join, eligible)
+
+    assert bim.projection_requires_prune(sg, fp) is False
+
+    changed_fp = bim.SidecarFingerprint(full_hash="123456" * 11, short_id="1234567890abcdef")
+    assert bim.projection_requires_prune(sg, changed_fp) is True
+
+    sg._sequence += 1
+    assert bim.projection_requires_prune(sg, fp) is True
+
+
+def test_prune_ignores_joined_annotations_not_owned_by_this_projector():
+    sg = _analytics_with_bim_nodes()
+    fp = bim.SidecarFingerprint(full_hash="abcdef" * 11, short_id="abcdefabcdefabcd")
+    sg.graph.nodes["rh-door"].update({
+        "rookbimJoined": True,
+        "rookbimSidecarFingerprint": "otherfingerprint",
+        "rookbimGraphSequence": sg.sequence - 1,
+        "revitUniqueId": "uid-door",
+    })
+    sg.graph.nodes["rh-wall"].update({
+        "projectionKind": "future_bim_relationship_v2",
+        "rookbimJoined": True,
+        "rookbimSidecarFingerprint": "otherfingerprint",
+        "rookbimGraphSequence": sg.sequence - 1,
+        "revitUniqueId": "uid-wall",
+    })
+
+    assert bim.projection_requires_prune(sg, fp) is False
+
+    result = bim.prune_bim_relationship_projection(sg)
+
+    assert result["pruned"] is False
+    assert sg.graph.nodes["rh-door"]["rookbimJoined"] is True
+    assert sg.graph.nodes["rh-door"]["rookbimSidecarFingerprint"] == "otherfingerprint"
+    assert sg.graph.nodes["rh-door"]["revitUniqueId"] == "uid-door"
+    assert sg.graph.nodes["rh-wall"]["projectionKind"] == "future_bim_relationship_v2"
+    assert sg.graph.nodes["rh-wall"]["rookbimJoined"] is True
+    assert sg.graph.nodes["rh-wall"]["rookbimSidecarFingerprint"] == "otherfingerprint"
+    assert sg.graph.nodes["rh-wall"]["revitUniqueId"] == "uid-wall"

@@ -34,6 +34,12 @@ NODE_ATTRS = (
     "revitHostUniqueId",
 )
 
+PROJECTION_META_ATTRS = (
+    "projectionKind",
+    "provenance",
+    "rookbimEngineVersion",
+)
+
 
 class BimProjectionValidationError(ValueError):
     """Raised when the sidecar shape is not valid for BIM relationship projection."""
@@ -534,6 +540,70 @@ def _merge_diagnostics(*sources: dict[str, int]) -> dict[str, int]:
         for key, count in source.items():
             merged[key] = merged.get(key, 0) + count
     return merged
+
+
+def _is_projection_edge(attrs: dict[str, Any]) -> bool:
+    return attrs.get("projectionKind") == PROJECTION_KIND
+
+
+def _is_projection_node(attrs: dict[str, Any]) -> bool:
+    return attrs.get("projectionKind") == PROJECTION_KIND and attrs.get("nodeKind") in {"rookbim_room", "rookbim_level"}
+
+
+def _projection_artifact_attrs(analytics: SceneGraphAnalytics) -> list[dict[str, Any]]:
+    graph = analytics.graph
+    attrs: list[dict[str, Any]] = []
+    attrs.extend(data for _, _, _, data in graph.edges(keys=True, data=True) if _is_projection_edge(data))
+    attrs.extend(data for _, data in graph.nodes(data=True) if _is_projection_node(data))
+    attrs.extend(
+        data
+        for _, data in graph.nodes(data=True)
+        if data.get("projectionKind") == PROJECTION_KIND and data.get("rookbimJoined") is True
+    )
+    return attrs
+
+
+def projection_requires_prune(analytics: SceneGraphAnalytics, fp: SidecarFingerprint) -> bool:
+    for attrs in _projection_artifact_attrs(analytics):
+        artifact_fingerprint = attrs.get("sidecarFingerprint") or attrs.get("rookbimSidecarFingerprint")
+        artifact_sequence = attrs.get("graphSequence") or attrs.get("rookbimGraphSequence")
+        if artifact_fingerprint != fp.short_id:
+            return True
+        if artifact_sequence != analytics.sequence:
+            return True
+    return False
+
+
+def prune_bim_relationship_projection(analytics: SceneGraphAnalytics) -> dict[str, Any]:
+    graph = analytics.graph
+    removed_edges = 0
+    removed_nodes = 0
+    cleaned_annotations = 0
+
+    for u, v, key, attrs in list(graph.edges(keys=True, data=True)):
+        if _is_projection_edge(attrs):
+            graph.remove_edge(u, v, key=key)
+            removed_edges += 1
+
+    for node_id, attrs in list(graph.nodes(data=True)):
+        if _is_projection_node(attrs):
+            graph.remove_node(node_id)
+            removed_nodes += 1
+            continue
+        if attrs.get("projectionKind") == PROJECTION_KIND and attrs.get("rookbimJoined") is True:
+            for key in (*NODE_ATTRS, *PROJECTION_META_ATTRS):
+                attrs.pop(key, None)
+            cleaned_annotations += 1
+
+    if removed_edges or removed_nodes or cleaned_annotations:
+        analytics._invalidate_caches()
+
+    return {
+        "pruned": bool(removed_edges or removed_nodes or cleaned_annotations),
+        "removedEdges": removed_edges,
+        "removedNodes": removed_nodes,
+        "cleanedAnnotations": cleaned_annotations,
+    }
 
 
 def project_bim_relationships(
