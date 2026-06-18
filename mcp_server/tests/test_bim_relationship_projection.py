@@ -98,6 +98,16 @@ def _analytics_with_bim_nodes() -> SceneGraphAnalytics:
     return sg
 
 
+def _analytics_with_multi_fragment_bim_nodes() -> SceneGraphAnalytics:
+    sg = SceneGraphAnalytics()
+    sg.graph.add_node("rh-wall-a", name="Wall A", domain_label="wall", shape_class="vertical-planar")
+    sg.graph.add_node("rh-wall-b", name="Wall B", domain_label="wall", shape_class="vertical-planar")
+    sg.graph.add_node("rh-door-a", name="Door A", domain_label="door", shape_class="compact")
+    sg.graph.add_node("rh-door-b", name="Door B", domain_label="door", shape_class="compact")
+    sg._sequence = 9
+    return sg
+
+
 def _joined_for_projection():
     return bim.build_runtime_join_map([
         bim.RuntimeObjectRecord("rh-wall", {"revit.uniqueId": "uid-wall", "revit.elementId": "100", "revit.category": "Walls"}),
@@ -387,18 +397,18 @@ def test_build_runtime_join_map_extracts_revit_user_strings():
 
     join = bim.build_runtime_join_map(records)
 
-    assert join.by_revit_uid["uid-wall"].object_id == "rh-wall"
+    assert join.by_revit_uid["uid-wall"][0].object_id == "rh-wall"
     assert join.by_object_id["rh-wall"].revit_category == "Walls"
     assert join.diagnostics["objectsMissingRevitUniqueId"] == 1
 
 
-def test_build_runtime_join_map_diagnoses_duplicate_revit_uids_last_record_wins():
+def test_build_runtime_join_map_retains_duplicate_revit_uid_fragments():
     join = bim.build_runtime_join_map([
         bim.RuntimeObjectRecord("rh-wall-a", {"revit.uniqueId": "uid-wall", "revit.category": "Walls"}),
         bim.RuntimeObjectRecord("rh-wall-b", {"revit.uniqueId": "uid-wall", "revit.category": "Walls"}),
     ])
 
-    assert join.by_revit_uid["uid-wall"].object_id == "rh-wall-b"
+    assert [joined.object_id for joined in join.by_revit_uid["uid-wall"]] == ["rh-wall-a", "rh-wall-b"]
     assert join.by_object_id["rh-wall-a"].object_id == "rh-wall-a"
     assert join.by_object_id["rh-wall-b"].object_id == "rh-wall-b"
     assert join.diagnostics["duplicateRuntimeRevitUniqueIds"] == 1
@@ -412,7 +422,7 @@ def test_build_runtime_join_map_diagnoses_duplicate_object_ids_last_record_wins(
 
     assert join.by_object_id["rh-wall"].revit_unique_id == "uid-wall-b"
     assert "uid-wall-a" not in join.by_revit_uid
-    assert join.by_revit_uid["uid-wall-b"].object_id == "rh-wall"
+    assert join.by_revit_uid["uid-wall-b"][0].object_id == "rh-wall"
     assert join.diagnostics["duplicateRuntimeObjectIds"] == 1
 
 
@@ -425,8 +435,8 @@ def test_build_runtime_join_map_handles_mixed_duplicate_uid_and_object_id_replac
 
     assert join.by_object_id["a"].revit_unique_id == "u1"
     assert join.by_object_id["b"].revit_unique_id == "u2"
-    assert join.by_revit_uid["u1"].object_id == "a"
-    assert join.by_revit_uid["u2"].object_id == "b"
+    assert join.by_revit_uid["u1"][0].object_id == "a"
+    assert join.by_revit_uid["u2"][0].object_id == "b"
 
 
 def test_select_eligible_objects_honors_object_ids_and_category_filters():
@@ -573,6 +583,76 @@ def test_project_bim_relationships_upserts_nodes_edges_and_annotations():
         level_id,
         f"rookbim:on_level:abcdefabcdefabcd:uid-door:{level_segment}",
     )
+
+
+def test_project_bim_relationships_projects_all_multi_fragment_uid_edges():
+    sg = _analytics_with_multi_fragment_bim_nodes()
+    sidecar = bim.parse_sidecar_payload(_sidecar(), source_path="C:/tmp/shell.sidecar.json")
+    join = bim.build_runtime_join_map([
+        bim.RuntimeObjectRecord("rh-wall-a", {"revit.uniqueId": "uid-wall", "revit.elementId": "100", "revit.category": "Walls"}),
+        bim.RuntimeObjectRecord("rh-wall-b", {"revit.uniqueId": "uid-wall", "revit.elementId": "100", "revit.category": "Walls"}),
+        bim.RuntimeObjectRecord("rh-door-a", {"revit.uniqueId": "uid-door", "revit.elementId": "200", "revit.category": "Doors"}),
+        bim.RuntimeObjectRecord("rh-door-b", {"revit.uniqueId": "uid-door", "revit.elementId": "200", "revit.category": "Doors"}),
+    ])
+    eligible = bim.select_eligible_objects(join, sidecar)
+    fp = bim.SidecarFingerprint(full_hash="abcdef" * 11, short_id="abcdefabcdefabcd")
+
+    result = bim.project_bim_relationships(
+        sg,
+        sidecar,
+        fp,
+        join,
+        eligible,
+        include_rooms=True,
+        include_levels=True,
+    )
+
+    assert result["counts"]["annotatedObjectCount"] == 4
+    assert result["counts"]["projectedHostEdges"] == 4
+    assert result["counts"]["projectedRoomEdges"] == 2
+    assert result["counts"]["projectedLevelEdges"] == 4
+    assert result["diagnostics"]["duplicateRuntimeRevitUniqueIds"] == 2
+    for object_id in ["rh-wall-a", "rh-wall-b", "rh-door-a", "rh-door-b"]:
+        assert sg.graph.nodes[object_id]["projectionKind"] == bim.PROJECTION_KIND
+
+    host_edges = [
+        (source, target, key)
+        for source, target, key, attrs in sg.graph.edges(keys=True, data=True)
+        if attrs.get("relationship") == bim.REL_HOSTED_BY
+    ]
+    assert sorted((source, target) for source, target, _key in host_edges) == [
+        ("rh-door-a", "rh-wall-a"),
+        ("rh-door-a", "rh-wall-b"),
+        ("rh-door-b", "rh-wall-a"),
+        ("rh-door-b", "rh-wall-b"),
+    ]
+    assert len({key for _source, _target, key in host_edges}) == 4
+
+    room_id = bim.room_node_id(fp, "room-1")
+    room_edges = [
+        (source, target, key)
+        for source, target, key, attrs in sg.graph.edges(keys=True, data=True)
+        if attrs.get("relationship") == bim.REL_IN_ROOM
+    ]
+    assert sorted((source, target) for source, target, _key in room_edges) == [
+        ("rh-door-a", room_id),
+        ("rh-door-b", room_id),
+    ]
+    assert len({key for _source, _target, key in room_edges}) == 2
+
+    level_id = bim.level_node_id(fp, "L1")
+    level_edges = [
+        (source, target, key)
+        for source, target, key, attrs in sg.graph.edges(keys=True, data=True)
+        if attrs.get("relationship") == bim.REL_ON_LEVEL
+    ]
+    assert sorted((source, target) for source, target, _key in level_edges) == [
+        ("rh-door-a", level_id),
+        ("rh-door-b", level_id),
+        ("rh-wall-a", level_id),
+        ("rh-wall-b", level_id),
+    ]
+    assert len({key for _source, _target, key in level_edges}) == 4
 
 
 def test_projection_edge_keys_preserve_raw_revit_uids_except_level_segment():

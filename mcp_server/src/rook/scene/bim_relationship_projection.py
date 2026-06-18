@@ -113,7 +113,7 @@ class JoinedRuntimeObject:
 @dataclass(frozen=True)
 class RuntimeJoinMap:
     by_object_id: dict[str, JoinedRuntimeObject]
-    by_revit_uid: dict[str, JoinedRuntimeObject]
+    by_revit_uid: dict[str, tuple[JoinedRuntimeObject, ...]]
     diagnostics: dict[str, int]
 
 
@@ -178,12 +178,13 @@ def build_runtime_join_map(records: list[RuntimeObjectRecord]) -> RuntimeJoinMap
         )
         by_object_id[record.object_id] = joined
 
-    by_revit_uid: dict[str, JoinedRuntimeObject] = {}
+    by_revit_uid_lists: dict[str, list[JoinedRuntimeObject]] = {}
     for joined in by_object_id.values():
-        if joined.revit_unique_id in by_revit_uid:
+        if joined.revit_unique_id in by_revit_uid_lists:
             _bump(diagnostics, "duplicateRuntimeRevitUniqueIds")
-        by_revit_uid[joined.revit_unique_id] = joined
+        by_revit_uid_lists.setdefault(joined.revit_unique_id, []).append(joined)
 
+    by_revit_uid = {uid: tuple(joined) for uid, joined in by_revit_uid_lists.items()}
     return RuntimeJoinMap(by_object_id=by_object_id, by_revit_uid=by_revit_uid, diagnostics=diagnostics)
 
 
@@ -432,6 +433,63 @@ def level_edge_key(fingerprint: SidecarFingerprint, element_uid: str, level_name
     return (
         f"rookbim:on_level:{fingerprint.short_id}:"
         f"{element_uid}:{_collision_resistant_id_segment(level_name)}"
+    )
+
+
+def _fragment_suffix(*object_ids: str) -> str:
+    return ":".join(_collision_resistant_id_segment(object_id) for object_id in object_ids)
+
+
+def _host_edge_key_for_joined_fragments(
+    fingerprint: SidecarFingerprint,
+    membership: BimMembership,
+    element_join: JoinedRuntimeObject,
+    host_join: JoinedRuntimeObject,
+    *,
+    element_fragment_count: int,
+    host_fragment_count: int,
+) -> str:
+    base_key = host_edge_key(fingerprint, membership.element_uid, membership.target_uid)
+    if element_fragment_count == 1 and host_fragment_count == 1:
+        return base_key
+    return f"{base_key}:{_fragment_suffix(element_join.object_id, host_join.object_id)}"
+
+
+def _room_edge_key_for_joined_fragment(
+    fingerprint: SidecarFingerprint,
+    membership: BimMembership,
+    element_join: JoinedRuntimeObject,
+    *,
+    element_fragment_count: int,
+) -> str:
+    base_key = room_edge_key(fingerprint, membership.element_uid, membership.target_uid)
+    if element_fragment_count == 1:
+        return base_key
+    return f"{base_key}:{_fragment_suffix(element_join.object_id)}"
+
+
+def _level_edge_key_for_joined_fragment(
+    fingerprint: SidecarFingerprint,
+    membership: BimMembership,
+    element_join: JoinedRuntimeObject,
+    *,
+    element_fragment_count: int,
+) -> str:
+    base_key = level_edge_key(fingerprint, membership.element_uid, membership.target_uid)
+    if element_fragment_count == 1:
+        return base_key
+    return f"{base_key}:{_fragment_suffix(element_join.object_id)}"
+
+
+def _eligible_joins_for_uid(
+    join: RuntimeJoinMap,
+    eligible: EligibleObjects,
+    revit_uid: str,
+) -> tuple[JoinedRuntimeObject, ...]:
+    return tuple(
+        joined
+        for joined in join.by_revit_uid.get(revit_uid, ())
+        if joined.object_id in eligible.object_ids
     )
 
 
@@ -878,40 +936,46 @@ def project_bim_relationships(
     for membership in sidecar.host_memberships:
         if membership.element_uid not in eligible.revit_uids:
             continue
-        element_join = join.by_revit_uid.get(membership.element_uid)
-        host_join = join.by_revit_uid.get(membership.target_uid)
-        if element_join is None:
+        element_joins = _eligible_joins_for_uid(join, eligible, membership.element_uid)
+        host_joins = join.by_revit_uid.get(membership.target_uid, ())
+        if not element_joins:
             _bump(diagnostics, "hostMembershipElementNotJoined")
             continue
-        if host_join is None:
+        if not host_joins:
             _bump(diagnostics, "hostMembershipHostNotJoined")
             continue
-        if not graph.has_node(element_join.object_id):
-            _bump(diagnostics, "hostMembershipElementMissingSceneNode")
-            continue
-        if not graph.has_node(host_join.object_id):
-            _bump(diagnostics, "hostMembershipHostMissingSceneNode")
-            continue
-        graph.add_edge(
-            element_join.object_id,
-            host_join.object_id,
-            key=host_edge_key(fingerprint, membership.element_uid, membership.target_uid),
-            **_edge_attrs(REL_HOSTED_BY, membership, base_attrs),
-            revitElementUniqueId=membership.element_uid,
-            revitHostUniqueId=membership.target_uid,
-        )
-        counts["projectedHostEdges"] += 1
+        for element_join in element_joins:
+            if not graph.has_node(element_join.object_id):
+                _bump(diagnostics, "hostMembershipElementMissingSceneNode")
+                continue
+            for host_join in host_joins:
+                if not graph.has_node(host_join.object_id):
+                    _bump(diagnostics, "hostMembershipHostMissingSceneNode")
+                    continue
+                graph.add_edge(
+                    element_join.object_id,
+                    host_join.object_id,
+                    key=_host_edge_key_for_joined_fragments(
+                        fingerprint,
+                        membership,
+                        element_join,
+                        host_join,
+                        element_fragment_count=len(element_joins),
+                        host_fragment_count=len(host_joins),
+                    ),
+                    **_edge_attrs(REL_HOSTED_BY, membership, base_attrs),
+                    revitElementUniqueId=membership.element_uid,
+                    revitHostUniqueId=membership.target_uid,
+                )
+                counts["projectedHostEdges"] += 1
 
     if include_rooms:
         for membership in sidecar.room_memberships:
             if membership.element_uid not in eligible.revit_uids:
                 continue
-            element_join = join.by_revit_uid.get(membership.element_uid)
-            if element_join is None:
+            element_joins = _eligible_joins_for_uid(join, eligible, membership.element_uid)
+            if not element_joins:
                 _bump(diagnostics, "roomMembershipElementNotJoined")
-                continue
-            if not graph.has_node(element_join.object_id):
-                _bump(diagnostics, "roomMembershipElementMissingSceneNode")
                 continue
             node_id, created = _ensure_room_node(
                 graph,
@@ -924,26 +988,32 @@ def project_bim_relationships(
             touched_room_nodes.add(node_id)
             if created:
                 counts["createdRoomNodes"] += 1
-            graph.add_edge(
-                element_join.object_id,
-                node_id,
-                key=room_edge_key(fingerprint, membership.element_uid, membership.target_uid),
-                **_edge_attrs(REL_IN_ROOM, membership, base_attrs),
-                revitElementUniqueId=membership.element_uid,
-                roomUniqueId=membership.target_uid,
-            )
-            counts["projectedRoomEdges"] += 1
+            for element_join in element_joins:
+                if not graph.has_node(element_join.object_id):
+                    _bump(diagnostics, "roomMembershipElementMissingSceneNode")
+                    continue
+                graph.add_edge(
+                    element_join.object_id,
+                    node_id,
+                    key=_room_edge_key_for_joined_fragment(
+                        fingerprint,
+                        membership,
+                        element_join,
+                        element_fragment_count=len(element_joins),
+                    ),
+                    **_edge_attrs(REL_IN_ROOM, membership, base_attrs),
+                    revitElementUniqueId=membership.element_uid,
+                    roomUniqueId=membership.target_uid,
+                )
+                counts["projectedRoomEdges"] += 1
 
     if include_levels:
         for membership in sidecar.level_memberships:
             if membership.element_uid not in eligible.revit_uids:
                 continue
-            element_join = join.by_revit_uid.get(membership.element_uid)
-            if element_join is None:
+            element_joins = _eligible_joins_for_uid(join, eligible, membership.element_uid)
+            if not element_joins:
                 _bump(diagnostics, "levelMembershipElementNotJoined")
-                continue
-            if not graph.has_node(element_join.object_id):
-                _bump(diagnostics, "levelMembershipElementMissingSceneNode")
                 continue
             node_id, created = _ensure_level_node(
                 graph,
@@ -954,15 +1024,24 @@ def project_bim_relationships(
             touched_level_nodes.add(node_id)
             if created:
                 counts["createdLevelNodes"] += 1
-            graph.add_edge(
-                element_join.object_id,
-                node_id,
-                key=level_edge_key(fingerprint, membership.element_uid, membership.target_uid),
-                **_edge_attrs(REL_ON_LEVEL, membership, base_attrs),
-                revitElementUniqueId=membership.element_uid,
-                levelName=membership.target_uid,
-            )
-            counts["projectedLevelEdges"] += 1
+            for element_join in element_joins:
+                if not graph.has_node(element_join.object_id):
+                    _bump(diagnostics, "levelMembershipElementMissingSceneNode")
+                    continue
+                graph.add_edge(
+                    element_join.object_id,
+                    node_id,
+                    key=_level_edge_key_for_joined_fragment(
+                        fingerprint,
+                        membership,
+                        element_join,
+                        element_fragment_count=len(element_joins),
+                    ),
+                    **_edge_attrs(REL_ON_LEVEL, membership, base_attrs),
+                    revitElementUniqueId=membership.element_uid,
+                    levelName=membership.target_uid,
+                )
+                counts["projectedLevelEdges"] += 1
 
     counts["roomNodes"] = len(touched_room_nodes)
     counts["levelNodes"] = len(touched_level_nodes)
