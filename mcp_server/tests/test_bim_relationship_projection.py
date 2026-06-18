@@ -3,6 +3,7 @@ import json
 import pytest
 
 from rook.scene import bim_relationship_projection as bim
+from rook.scene.scene_graph import SceneGraphAnalytics
 
 
 def _sidecar() -> dict:
@@ -85,6 +86,21 @@ def _sidecar() -> dict:
             ],
         },
     }
+
+
+def _analytics_with_bim_nodes() -> SceneGraphAnalytics:
+    sg = SceneGraphAnalytics()
+    sg.graph.add_node("rh-wall", name="Wall", domain_label="wall", shape_class="vertical-planar")
+    sg.graph.add_node("rh-door", name="Door", domain_label="door", shape_class="compact")
+    sg._sequence = 9
+    return sg
+
+
+def _joined_for_projection():
+    return bim.build_runtime_join_map([
+        bim.RuntimeObjectRecord("rh-wall", {"revit.uniqueId": "uid-wall", "revit.elementId": "100", "revit.category": "Walls"}),
+        bim.RuntimeObjectRecord("rh-door", {"revit.uniqueId": "uid-door", "revit.elementId": "200", "revit.category": "Doors"}),
+    ])
 
 
 def test_module_constants():
@@ -459,3 +475,167 @@ def test_select_eligible_objects_matches_sidecar_category_when_runtime_category_
     assert eligible.object_ids == {"rh-door"}
     assert eligible.revit_uids == {"uid-door"}
     assert eligible.diagnostics == {}
+
+
+def test_project_bim_relationships_upserts_nodes_edges_and_annotations():
+    sg = _analytics_with_bim_nodes()
+    sidecar = bim.parse_sidecar_payload(_sidecar(), source_path="C:/tmp/shell.sidecar.json")
+    join = _joined_for_projection()
+    eligible = bim.select_eligible_objects(join, sidecar)
+    fp = bim.SidecarFingerprint(full_hash="abcdef" * 11, short_id="abcdefabcdefabcd")
+
+    result = bim.project_bim_relationships(
+        sg,
+        sidecar,
+        fp,
+        join,
+        eligible,
+        include_rooms=True,
+        include_levels=True,
+    )
+
+    assert result["counts"]["annotatedObjectCount"] == 2
+    assert result["counts"]["projectedHostEdges"] == 1
+    assert result["counts"]["projectedRoomEdges"] == 1
+    assert result["counts"]["projectedLevelEdges"] == 2
+    assert sg.graph.nodes["rh-door"]["revitUniqueId"] == "uid-door"
+    assert sg.graph.nodes["rh-door"]["revitCategory"] == "Doors"
+
+    host_key = "rookbim:hosted_by:abcdefabcdefabcd:uid-door:uid-wall"
+    assert sg.graph["rh-door"]["rh-wall"][host_key]["relationship"] == "revit_hosted_by"
+    assert sg.graph["rh-door"]["rh-wall"][host_key]["projectionKind"] == bim.PROJECTION_KIND
+
+    room_id = bim.room_node_id(fp, "room-1")
+    assert sg.graph.nodes[room_id]["nodeKind"] == "rookbim_room"
+    assert sg.graph.nodes[room_id]["displayName"] == "101 Office"
+    assert sg.graph.nodes[room_id]["name"] == "101 Office"
+    assert sg.graph.nodes[room_id]["domain_label"] == "room"
+    assert sg.graph.nodes[room_id]["shape_class"] == "bim-reference"
+
+    level_id = bim.level_node_id(fp, "L1")
+    assert sg.graph.nodes[level_id]["nodeKind"] == "rookbim_level"
+    assert sg.graph.nodes[level_id]["name"] == "L1"
+    assert sg.graph.nodes[level_id]["domain_label"] == "level"
+    assert sg.graph.nodes[level_id]["shape_class"] == "bim-reference"
+    level_segment = level_id.rsplit(":", 1)[-1]
+    assert sg.graph.has_edge(
+        "rh-door",
+        level_id,
+        f"rookbim:on_level:abcdefabcdefabcd:uid-door:{level_segment}",
+    )
+
+
+def test_projection_edge_keys_preserve_raw_revit_uids_except_level_segment():
+    fp = bim.SidecarFingerprint(full_hash="abcdef" * 11, short_id="abcdefabcdefabcd")
+
+    assert (
+        bim.host_edge_key(fp, "uid:door {A}", "uid:wall/B")
+        == "rookbim:hosted_by:abcdefabcdefabcd:uid:door {A}:uid:wall/B"
+    )
+    assert (
+        bim.room_edge_key(fp, "uid:door {A}", "room:101 A")
+        == "rookbim:in_room:abcdefabcdefabcd:uid:door {A}:room:101 A"
+    )
+    assert (
+        bim.level_edge_key(fp, "uid:door {A}", "Level 1/A")
+        == f"rookbim:on_level:abcdefabcdefabcd:uid:door {{A}}:{bim.level_node_id(fp, 'Level 1/A').rsplit(':', 1)[-1]}"
+    )
+
+
+def test_project_bim_relationships_is_idempotent_for_same_inputs():
+    sg = _analytics_with_bim_nodes()
+    sidecar = bim.parse_sidecar_payload(_sidecar())
+    join = _joined_for_projection()
+    eligible = bim.select_eligible_objects(join, sidecar)
+    fp = bim.SidecarFingerprint(full_hash="abcdef" * 11, short_id="abcdefabcdefabcd")
+
+    bim.project_bim_relationships(sg, sidecar, fp, join, eligible)
+    first_edges = sg.graph.number_of_edges()
+    second = bim.project_bim_relationships(sg, sidecar, fp, join, eligible)
+
+    assert sg.graph.number_of_edges() == first_edges
+    assert second["counts"]["roomNodes"] == 1
+    assert second["counts"]["levelNodes"] == 1
+    assert second["counts"]["createdRoomNodes"] == 0
+    assert second["counts"]["createdLevelNodes"] == 0
+
+
+def test_room_and_level_node_ids_are_collision_resistant_for_same_normalized_values():
+    payload = _sidecar()
+    payload["rooms"] = [
+        {"uniqueId": "room:101 A", "number": "101", "name": "A"},
+        {"uniqueId": "room 101/A", "number": "101", "name": "Slash A"},
+    ]
+    payload["relationships"]["roomMembership"] = [
+        {"elementUniqueId": "uid-door", "roomUniqueId": "room:101 A"},
+        {"elementUniqueId": "uid-door", "roomUniqueId": "room 101/A"},
+    ]
+    payload["relationships"]["levelMembership"] = [
+        {"elementUniqueId": "uid-wall", "levelName": "Level 1/A"},
+        {"elementUniqueId": "uid-door", "levelName": "Level 1 A"},
+    ]
+    sg = _analytics_with_bim_nodes()
+    sidecar = bim.parse_sidecar_payload(payload)
+    join = _joined_for_projection()
+    eligible = bim.select_eligible_objects(join, sidecar)
+    fp = bim.SidecarFingerprint(full_hash="abcdef" * 11, short_id="abcdefabcdefabcd")
+
+    result = bim.project_bim_relationships(sg, sidecar, fp, join, eligible)
+
+    room_a = bim.room_node_id(fp, "room:101 A")
+    room_b = bim.room_node_id(fp, "room 101/A")
+    level_a = bim.level_node_id(fp, "Level 1/A")
+    level_b = bim.level_node_id(fp, "Level 1 A")
+    assert room_a != room_b
+    assert level_a != level_b
+    assert sg.graph.has_node(room_a)
+    assert sg.graph.has_node(room_b)
+    assert sg.graph.has_node(level_a)
+    assert sg.graph.has_node(level_b)
+    assert result["counts"]["roomNodes"] == 2
+    assert result["counts"]["levelNodes"] == 2
+
+
+def test_project_bim_relationships_sums_diagnostics_from_inputs():
+    sg = _analytics_with_bim_nodes()
+    sidecar = bim.parse_sidecar_payload(_sidecar())
+    join = _joined_for_projection()
+    eligible = bim.select_eligible_objects(join, sidecar)
+    sidecar.diagnostics["sharedDiagnostic"] = 1
+    join.diagnostics["sharedDiagnostic"] = 2
+    eligible.diagnostics["sharedDiagnostic"] = 3
+    fp = bim.SidecarFingerprint(full_hash="abcdef" * 11, short_id="abcdefabcdefabcd")
+
+    result = bim.project_bim_relationships(sg, sidecar, fp, join, eligible)
+
+    assert result["diagnostics"]["sharedDiagnostic"] == 6
+
+
+def test_host_edge_requires_host_present_but_not_eligible():
+    sg = _analytics_with_bim_nodes()
+    sidecar = bim.parse_sidecar_payload(_sidecar())
+    join = _joined_for_projection()
+    eligible = bim.select_eligible_objects(join, sidecar, object_ids=["rh-door"])
+    fp = bim.SidecarFingerprint(full_hash="abcdef" * 11, short_id="abcdefabcdefabcd")
+
+    result = bim.project_bim_relationships(sg, sidecar, fp, join, eligible)
+
+    assert result["counts"]["eligibleObjectCount"] == 1
+    assert result["counts"]["projectedHostEdges"] == 1
+    assert sg.graph.has_edge("rh-door", "rh-wall", "rookbim:hosted_by:abcdefabcdefabcd:uid-door:uid-wall")
+
+
+def test_sparse_room_node_is_created_when_room_record_missing():
+    payload = _sidecar()
+    payload["rooms"] = []
+    sidecar = bim.parse_sidecar_payload(payload)
+    sg = _analytics_with_bim_nodes()
+    join = _joined_for_projection()
+    eligible = bim.select_eligible_objects(join, sidecar, object_ids=["rh-door"])
+    fp = bim.SidecarFingerprint(full_hash="abcdef" * 11, short_id="abcdefabcdefabcd")
+
+    result = bim.project_bim_relationships(sg, sidecar, fp, join, eligible)
+
+    room_id = bim.room_node_id(fp, "room-1")
+    assert sg.graph.nodes[room_id]["recordCompleteness"] == "sparse"
+    assert result["diagnostics"]["roomReferenceMissingRecord"] == 1

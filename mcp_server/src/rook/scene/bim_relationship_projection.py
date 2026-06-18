@@ -7,6 +7,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import networkx as nx
+
+from .scene_graph import SceneGraphAnalytics
+
 PROJECTION_KIND = "bim_relationship_v1"
 PROVENANCE = "rookbim_sidecar"
 REL_HOSTED_BY = "revit_hosted_by"
@@ -142,6 +146,10 @@ def _room_display_name(number: str, name: str, fallback_uid: str) -> str:
 def normalize_id_segment(value: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9_.-]+", "-", value.strip()).strip("-")
     return cleaned or "unnamed"
+
+
+def _collision_resistant_id_segment(value: str) -> str:
+    return f"{normalize_id_segment(value)}-{hashlib.sha256(value.encode('utf-8')).hexdigest()[:12]}"
 
 
 def build_runtime_join_map(records: list[RuntimeObjectRecord]) -> RuntimeJoinMap:
@@ -374,3 +382,299 @@ def load_sidecar_path(
         ),
         fingerprint_sidecar_path(path),
     )
+
+
+def _base_projection_attrs(
+    sidecar: ParsedSidecar,
+    fingerprint: SidecarFingerprint,
+    analytics: SceneGraphAnalytics,
+) -> dict[str, Any]:
+    return {
+        "projectionKind": PROJECTION_KIND,
+        "provenance": PROVENANCE,
+        "rookbimSidecarFingerprint": fingerprint.short_id,
+        "rookbimSidecarPath": sidecar.source_path,
+        "rookbimGraphSequence": analytics.sequence,
+        "rookbimEngineVersion": ENGINE_VERSION,
+    }
+
+
+def room_node_id(fingerprint: SidecarFingerprint, room_uid: str) -> str:
+    return f"rookbim:{fingerprint.short_id}:room:{_collision_resistant_id_segment(room_uid)}"
+
+
+def level_node_id(fingerprint: SidecarFingerprint, level_name: str) -> str:
+    return f"rookbim:{fingerprint.short_id}:level:{_collision_resistant_id_segment(level_name)}"
+
+
+def host_edge_key(fingerprint: SidecarFingerprint, element_uid: str, host_uid: str) -> str:
+    return (
+        f"rookbim:hosted_by:{fingerprint.short_id}:"
+        f"{element_uid}:{host_uid}"
+    )
+
+
+def room_edge_key(fingerprint: SidecarFingerprint, element_uid: str, room_uid: str) -> str:
+    return (
+        f"rookbim:in_room:{fingerprint.short_id}:"
+        f"{element_uid}:{room_uid}"
+    )
+
+
+def level_edge_key(fingerprint: SidecarFingerprint, element_uid: str, level_name: str) -> str:
+    return (
+        f"rookbim:on_level:{fingerprint.short_id}:"
+        f"{element_uid}:{_collision_resistant_id_segment(level_name)}"
+    )
+
+
+def _annotate_joined_node(
+    graph: nx.MultiDiGraph,
+    object_id: str,
+    joined: JoinedRuntimeObject,
+    element: BimElement,
+    base_attrs: dict[str, Any],
+) -> bool:
+    if not graph.has_node(object_id):
+        return False
+    graph.nodes[object_id].update({
+        **base_attrs,
+        "rookbimJoined": True,
+        "revitUniqueId": joined.revit_unique_id,
+        "revitElementId": joined.revit_element_id or element.element_id,
+        "revitCategory": joined.revit_category or element.category,
+        "revitFamily": element.family,
+        "revitType": element.type_name,
+        "revitName": element.name,
+        "revitLevel": element.level,
+    })
+    return True
+
+
+def _ensure_room_node(
+    graph: nx.MultiDiGraph,
+    sidecar: ParsedSidecar,
+    fingerprint: SidecarFingerprint,
+    room_uid: str,
+    base_attrs: dict[str, Any],
+    diagnostics: dict[str, int],
+) -> tuple[str, bool]:
+    node_id = room_node_id(fingerprint, room_uid)
+    created = not graph.has_node(node_id)
+    room = sidecar.rooms_by_uid.get(room_uid)
+    if room is None:
+        _bump(diagnostics, "roomReferenceMissingRecord")
+        display_name = _room_display_name("", "", room_uid)
+        attrs = {
+            "id": node_id,
+            "nodeKind": "rookbim_room",
+            "roomUniqueId": room_uid,
+            "displayName": display_name,
+            "name": display_name,
+            "domain_label": "room",
+            "shape_class": "bim-reference",
+            "recordCompleteness": "sparse",
+        }
+    else:
+        attrs = {
+            "id": node_id,
+            "nodeKind": "rookbim_room",
+            "roomUniqueId": room.unique_id,
+            "roomNumber": room.room_number,
+            "roomName": room.room_name,
+            "displayName": room.display_name,
+            "name": room.display_name,
+            "domain_label": "room",
+            "shape_class": "bim-reference",
+            "recordCompleteness": room.completeness,
+        }
+    graph.add_node(node_id, **base_attrs, **attrs)
+    return node_id, created
+
+
+def _ensure_level_node(
+    graph: nx.MultiDiGraph,
+    fingerprint: SidecarFingerprint,
+    level_name: str,
+    base_attrs: dict[str, Any],
+) -> tuple[str, bool]:
+    node_id = level_node_id(fingerprint, level_name)
+    created = not graph.has_node(node_id)
+    graph.add_node(
+        node_id,
+        **base_attrs,
+        id=node_id,
+        nodeKind="rookbim_level",
+        levelName=level_name,
+        displayName=level_name,
+        name=level_name,
+        domain_label="level",
+        shape_class="bim-reference",
+        recordCompleteness="sparse",
+    )
+    return node_id, created
+
+
+def _edge_attrs(
+    relationship: str,
+    membership: BimMembership,
+    base_attrs: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        **base_attrs,
+        "relationship": relationship,
+        "source": membership.source,
+        "confidence": membership.confidence,
+    }
+
+
+def _merge_diagnostics(*sources: dict[str, int]) -> dict[str, int]:
+    merged: dict[str, int] = {}
+    for source in sources:
+        for key, count in source.items():
+            merged[key] = merged.get(key, 0) + count
+    return merged
+
+
+def project_bim_relationships(
+    analytics: SceneGraphAnalytics,
+    sidecar: ParsedSidecar,
+    fingerprint: SidecarFingerprint,
+    join: RuntimeJoinMap,
+    eligible: EligibleObjects,
+    *,
+    include_rooms: bool = True,
+    include_levels: bool = True,
+) -> dict[str, Any]:
+    graph = analytics.graph
+    base_attrs = _base_projection_attrs(sidecar, fingerprint, analytics)
+    diagnostics = _merge_diagnostics(sidecar.diagnostics, join.diagnostics, eligible.diagnostics)
+    counts = {
+        "eligibleObjectCount": len(eligible.object_ids),
+        "annotatedObjectCount": 0,
+        "projectedHostEdges": 0,
+        "projectedRoomEdges": 0,
+        "projectedLevelEdges": 0,
+        "roomNodes": 0,
+        "createdRoomNodes": 0,
+        "levelNodes": 0,
+        "createdLevelNodes": 0,
+    }
+
+    for object_id in sorted(eligible.object_ids):
+        joined = join.by_object_id.get(object_id)
+        if joined is None:
+            _bump(diagnostics, "eligibleObjectMissingJoin")
+            continue
+        element = sidecar.elements_by_uid.get(joined.revit_unique_id)
+        if element is None:
+            _bump(diagnostics, "eligibleObjectMissingElement")
+            continue
+        if _annotate_joined_node(graph, object_id, joined, element, base_attrs):
+            counts["annotatedObjectCount"] += 1
+        else:
+            _bump(diagnostics, "eligibleObjectMissingSceneNode")
+
+    touched_room_nodes: set[str] = set()
+    touched_level_nodes: set[str] = set()
+
+    for membership in sidecar.host_memberships:
+        if membership.element_uid not in eligible.revit_uids:
+            continue
+        element_join = join.by_revit_uid.get(membership.element_uid)
+        host_join = join.by_revit_uid.get(membership.target_uid)
+        if element_join is None:
+            _bump(diagnostics, "hostMembershipElementNotJoined")
+            continue
+        if host_join is None:
+            _bump(diagnostics, "hostMembershipHostNotJoined")
+            continue
+        if not graph.has_node(element_join.object_id):
+            _bump(diagnostics, "hostMembershipElementMissingSceneNode")
+            continue
+        if not graph.has_node(host_join.object_id):
+            _bump(diagnostics, "hostMembershipHostMissingSceneNode")
+            continue
+        graph.add_edge(
+            element_join.object_id,
+            host_join.object_id,
+            key=host_edge_key(fingerprint, membership.element_uid, membership.target_uid),
+            **_edge_attrs(REL_HOSTED_BY, membership, base_attrs),
+            revitElementUniqueId=membership.element_uid,
+            revitHostUniqueId=membership.target_uid,
+        )
+        counts["projectedHostEdges"] += 1
+
+    if include_rooms:
+        for membership in sidecar.room_memberships:
+            if membership.element_uid not in eligible.revit_uids:
+                continue
+            element_join = join.by_revit_uid.get(membership.element_uid)
+            if element_join is None:
+                _bump(diagnostics, "roomMembershipElementNotJoined")
+                continue
+            if not graph.has_node(element_join.object_id):
+                _bump(diagnostics, "roomMembershipElementMissingSceneNode")
+                continue
+            node_id, created = _ensure_room_node(
+                graph,
+                sidecar,
+                fingerprint,
+                membership.target_uid,
+                base_attrs,
+                diagnostics,
+            )
+            touched_room_nodes.add(node_id)
+            if created:
+                counts["createdRoomNodes"] += 1
+            graph.add_edge(
+                element_join.object_id,
+                node_id,
+                key=room_edge_key(fingerprint, membership.element_uid, membership.target_uid),
+                **_edge_attrs(REL_IN_ROOM, membership, base_attrs),
+                revitElementUniqueId=membership.element_uid,
+                roomUniqueId=membership.target_uid,
+            )
+            counts["projectedRoomEdges"] += 1
+
+    if include_levels:
+        for membership in sidecar.level_memberships:
+            if membership.element_uid not in eligible.revit_uids:
+                continue
+            element_join = join.by_revit_uid.get(membership.element_uid)
+            if element_join is None:
+                _bump(diagnostics, "levelMembershipElementNotJoined")
+                continue
+            if not graph.has_node(element_join.object_id):
+                _bump(diagnostics, "levelMembershipElementMissingSceneNode")
+                continue
+            node_id, created = _ensure_level_node(
+                graph,
+                fingerprint,
+                membership.target_uid,
+                base_attrs,
+            )
+            touched_level_nodes.add(node_id)
+            if created:
+                counts["createdLevelNodes"] += 1
+            graph.add_edge(
+                element_join.object_id,
+                node_id,
+                key=level_edge_key(fingerprint, membership.element_uid, membership.target_uid),
+                **_edge_attrs(REL_ON_LEVEL, membership, base_attrs),
+                revitElementUniqueId=membership.element_uid,
+                levelName=membership.target_uid,
+            )
+            counts["projectedLevelEdges"] += 1
+
+    counts["roomNodes"] = len(touched_room_nodes)
+    counts["levelNodes"] = len(touched_level_nodes)
+    analytics._invalidate_caches()
+
+    return {
+        "success": True,
+        "projectionKind": PROJECTION_KIND,
+        "fingerprint": fingerprint.short_id,
+        "counts": counts,
+        "diagnostics": diagnostics,
+    }
