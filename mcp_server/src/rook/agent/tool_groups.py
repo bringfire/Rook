@@ -47,6 +47,10 @@ TIER_0: Set[str] = {
 # gh_canvas tools instead. gh_snapshot gives agents full canvas awareness.
 AGENT_TIER_0: Set[str] = (TIER_0 - {"gh_execute_intent"}) | {
     "gh_snapshot",
+    "gh_create_script",
+    "gh_create_python_script",
+    "gh_create_csharp_script",
+    "gh_update_script",
     "session_history",       # per-command success/failure for post-execution verification
     "rhino_command_interactive_prompt",  # Rhino prompt state — detect non-idle after execution
     "ui_block",              # Adaptive UI pseudo-tool (intercepted by ChatRunner)

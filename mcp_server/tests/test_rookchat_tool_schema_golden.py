@@ -209,3 +209,41 @@ def test_model_visible_gh_canvas_csharp_creation_guidance_survives_registry_path
     assert "RhinoCode C# Script" in text
     assert "GH_Component" in text
     assert "body" in text and "RunScript" in text
+
+
+def _initial_agent_schemas():
+    from rook.agent.chat.chat_runner import ChatRunner
+
+    return _schema_by_name(ChatRunner()._registry.get_active_schemas())
+
+
+def test_initial_agent_schemas_include_csharp_script_creation_affordance():
+    schemas = _initial_agent_schemas()
+
+    assert "gh_create_csharp_script" in schemas
+    csharp_params = schemas["gh_create_csharp_script"]["function"]["parameters"]
+    assert csharp_params["additionalProperties"] is False
+    assert csharp_params["required"] == ["code", "pins_in", "pins_out"]
+
+
+def test_initial_agent_schemas_keep_gh_errors_zero_argument():
+    schemas = _initial_agent_schemas()
+
+    assert schemas["gh_errors"]["function"]["parameters"] == {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": False,
+    }
+
+
+def test_initial_agent_schemas_include_script_create_update_family():
+    schemas = _initial_agent_schemas()
+
+    for tool_name in (
+        "gh_create_script",
+        "gh_create_python_script",
+        "gh_create_csharp_script",
+        "gh_update_script",
+    ):
+        assert tool_name in schemas
+        assert schemas[tool_name]["function"]["parameters"]["additionalProperties"] is False
