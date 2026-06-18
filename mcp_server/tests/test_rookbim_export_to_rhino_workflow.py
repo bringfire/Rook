@@ -135,3 +135,146 @@ def test_partial_failure_envelope_preserves_completed_blocks():
     assert result["export"]["response"]["success"] is True
     assert result["paths"]["model3dm"].endswith("shell.3dm")
     assert result["import"]["importedObjectCount"] == 0
+
+
+@pytest.mark.asyncio
+async def test_workflow_calls_export_import_projection_and_scene_wide_facts(tmp_path):
+    calls = []
+
+    async def fake_call_rhino(path, method="GET", payload=None, *, port=None):
+        calls.append(("rhino", path, method, payload, port))
+        if path == "/bim/export-preset":
+            return {"success": True, "data": {"bundle": {"model3dm": str(tmp_path / "model.3dm")}}}
+        if path == "/import":
+            return {"success": True, "data": {"importedIds": ["rh-door", "rh-wall"]}}
+        raise AssertionError(path)
+
+    async def fake_project(**kwargs):
+        calls.append(("project", kwargs))
+        return {"success": True, "joinedObjectCount": 2}
+
+    def fake_facts(**kwargs):
+        calls.append(("facts", kwargs))
+        return {"success": True, "mode": "relationship_scan", "summary": {"relationshipCounts": {}}}
+
+    result = await workflow.export_preset_to_rhino(
+        {
+            "preset": "openings_and_hosts",
+            "output": {"directory": str(tmp_path), "name": "model"},
+            "includeRooms": True,
+            "includeLevels": False,
+            "relationshipSampleLimit": 7,
+            "port": 9876,
+        },
+        call_rhino_fn=fake_call_rhino,
+        project_relationships_fn=fake_project,
+        query_bim_facts_fn=fake_facts,
+    )
+
+    assert result["success"] is True
+    assert result["workflow"] == workflow.WORKFLOW_NAME
+    assert result["paths"]["model3dm"] == str(tmp_path / "model.3dm")
+    assert result["paths"]["sidecar"] == str(tmp_path / "model.sidecar.json")
+    assert result["import"]["importedIds"] == ["rh-door", "rh-wall"]
+    assert result["import"]["importedObjectCount"] == 2
+    assert result["projection"]["joinedObjectCount"] == 2
+    assert result["bimFacts"]["mode"] == "relationship_scan"
+
+    assert calls[0] == (
+        "rhino",
+        "/bim/export-preset",
+        "POST",
+        {
+            "preset": "openings_and_hosts",
+            "output": {"directory": str(tmp_path), "name": "model"},
+        },
+        9876,
+    )
+    assert calls[1] == (
+        "rhino",
+        "/import",
+        "POST",
+        {"path": str(tmp_path / "model.3dm")},
+        9876,
+    )
+    assert calls[2] == (
+        "project",
+        {
+            "sidecar_path": str(tmp_path / "model.sidecar.json"),
+            "object_ids": ["rh-door", "rh-wall"],
+            "include_rooms": True,
+            "include_levels": False,
+            "port": 9876,
+        },
+    )
+    assert calls[3] == ("facts", {"mode": "relationship_scan", "sample_limit": 7})
+
+
+@pytest.mark.asyncio
+async def test_workflow_omits_target_layer_by_default_and_forwards_when_explicit(tmp_path):
+    import_payloads = []
+
+    async def fake_call_rhino(path, method="GET", payload=None, *, port=None):
+        if path == "/bim/export-preset":
+            return {"success": True, "data": {}}
+        if path == "/import":
+            import_payloads.append(payload)
+            return {"success": True, "data": {"importedIds": ["rh-1"]}}
+        raise AssertionError(path)
+
+    async def fake_project(**kwargs):
+        return {"success": True}
+
+    await workflow.export_preset_to_rhino(
+        {"preset": "openings_and_hosts", "output": {"directory": str(tmp_path), "name": "a"}},
+        call_rhino_fn=fake_call_rhino,
+        project_relationships_fn=fake_project,
+        query_bim_facts_fn=lambda **kwargs: {"success": True},
+    )
+    await workflow.export_preset_to_rhino(
+        {
+            "preset": "openings_and_hosts",
+            "output": {"directory": str(tmp_path), "name": "b"},
+            "targetLayer": "Demo Import",
+        },
+        call_rhino_fn=fake_call_rhino,
+        project_relationships_fn=fake_project,
+        query_bim_facts_fn=lambda **kwargs: {"success": True},
+    )
+    await workflow.export_preset_to_rhino(
+        {
+            "preset": "openings_and_hosts",
+            "output": {"directory": str(tmp_path), "name": "c"},
+            "targetLayer": "",
+        },
+        call_rhino_fn=fake_call_rhino,
+        project_relationships_fn=fake_project,
+        query_bim_facts_fn=lambda **kwargs: {"success": True},
+    )
+
+    assert import_payloads[0] == {"path": str(tmp_path / "a.3dm")}
+    assert import_payloads[1] == {"path": str(tmp_path / "b.3dm"), "targetLayer": "Demo Import"}
+    assert import_payloads[2] == {"path": str(tmp_path / "c.3dm"), "targetLayer": ""}
+
+
+@pytest.mark.asyncio
+async def test_workflow_accepts_positional_dependency_functions(tmp_path):
+    async def fake_call_rhino(path, method="GET", payload=None, *, port=None):
+        if path == "/bim/export-preset":
+            return {"success": True, "data": {}}
+        if path == "/import":
+            return {"success": True, "data": {"importedIds": ["rh-1"]}}
+        raise AssertionError(path)
+
+    async def fake_project(**kwargs):
+        return {"success": True}
+
+    result = await workflow.export_preset_to_rhino(
+        {"preset": "openings_and_hosts", "output": {"directory": str(tmp_path), "name": "a"}},
+        fake_call_rhino,
+        fake_project,
+        lambda **kwargs: {"success": True},
+    )
+
+    assert result["success"] is True
+    assert result["import"]["importedIds"] == ["rh-1"]

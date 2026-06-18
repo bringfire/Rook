@@ -168,3 +168,124 @@ def stage_failure(
     if bimFacts is not None:
         result["bimFacts"] = bimFacts
     return result
+
+
+def _unwrap_data(response: dict[str, Any]) -> Any:
+    if isinstance(response, dict) and "data" in response:
+        return response["data"]
+    return response
+
+
+def _is_success(response: dict[str, Any]) -> bool:
+    return isinstance(response, dict) and response.get("success") is not False
+
+
+def _imported_ids(import_response: dict[str, Any]) -> list[str]:
+    data = _unwrap_data(import_response)
+    if not isinstance(data, dict):
+        return []
+    raw = data.get("importedIds") or data.get("ids") or data.get("objectIds") or []
+    return [str(item) for item in raw if item]
+
+
+async def export_preset_to_rhino(
+    arguments: dict[str, Any],
+    call_rhino_fn,
+    project_relationships_fn,
+    query_bim_facts_fn,
+    now: dt.datetime | None = None,
+) -> dict[str, Any]:
+    request, effective_output = build_export_request(arguments, now=now)
+    port = arguments.get("port")
+
+    export_response = await call_rhino_fn("/bim/export-preset", "POST", request, port=port)
+    export_block = {"request": request, "response": export_response}
+    if not _is_success(export_response):
+        return stage_failure(
+            "export",
+            "export_failed",
+            "RookBIM export preset failed.",
+            partial_success=False,
+            export=export_block,
+        )
+
+    paths = resolve_artifact_paths(export_response, effective_output)
+    import_request = {"path": paths["model3dm"]}
+    if "targetLayer" in arguments:
+        import_request["targetLayer"] = arguments["targetLayer"]
+
+    import_response = await call_rhino_fn("/import", "POST", import_request, port=port)
+    ids = _imported_ids(import_response)
+    import_block = {
+        "request": import_request,
+        "response": import_response,
+        "importedObjectCount": len(ids),
+        "importedIds": ids,
+    }
+    if not _is_success(import_response):
+        return stage_failure(
+            "import",
+            "import_failed",
+            "Rhino import failed.",
+            export=export_block,
+            paths=paths,
+            import_result=import_block,
+        )
+
+    projection_block: dict[str, Any] | None = None
+    if arguments.get("projectRelationships", True):
+        if not ids:
+            return stage_failure(
+                "projection",
+                "no_imported_ids",
+                "Import succeeded but returned no imported object ids; refusing to project over the whole scene.",
+                export=export_block,
+                paths=paths,
+                import_result=import_block,
+            )
+        projection_block = await project_relationships_fn(
+            sidecar_path=paths["sidecar"],
+            object_ids=ids,
+            include_rooms=arguments.get("includeRooms", True),
+            include_levels=arguments.get("includeLevels", True),
+            port=port,
+        )
+        if isinstance(projection_block, dict) and projection_block.get("success") is False:
+            return stage_failure(
+                "projection",
+                str(projection_block.get("error") or "projection_failed"),
+                str(projection_block.get("message") or "BIM relationship projection failed."),
+                export=export_block,
+                paths=paths,
+                import_result=import_block,
+                projection=projection_block,
+            )
+
+    facts_block: dict[str, Any] | None = None
+    if arguments.get("relationshipSummary", True) and projection_block is not None:
+        facts_block = query_bim_facts_fn(
+            mode="relationship_scan",
+            sample_limit=arguments.get("relationshipSampleLimit", 20),
+        )
+        if isinstance(facts_block, dict) and facts_block.get("success") is False:
+            return stage_failure(
+                "bimFacts",
+                str(facts_block.get("error") or "bim_facts_failed"),
+                str(facts_block.get("message") or "BIM relationship scan failed."),
+                export=export_block,
+                paths=paths,
+                import_result=import_block,
+                projection=projection_block,
+                bimFacts=facts_block,
+            )
+
+    return {
+        "success": True,
+        "workflow": WORKFLOW_NAME,
+        "export": export_block,
+        "paths": paths,
+        "import": import_block,
+        "projection": projection_block or {},
+        "bimFacts": facts_block or {},
+        "warnings": [],
+    }
