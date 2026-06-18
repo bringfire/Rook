@@ -15,6 +15,7 @@
 - Create `scripts/rook-dev-doctor.ps1`: read-only dev-machine preflight report with default and `-Strict` exit behavior.
 - Modify `scripts/deploy-local-testing.ps1`: add explicit OCCT runtime DLL list and root resolver; copy the measured OCCT runtime closure next to `RookNative.rhp`; change full deploy registration to `net8.0`.
 - Modify `scripts/register-rooknative-suite.ps1`: update no-argument companion fallback order to `net8.0`, `net7.0`, root.
+- Modify `scripts/register-companion.ps1`: accept `net8.0` or `net7.0` managed companion paths and runtime metadata while still rejecting `net48`.
 - Modify `scripts/tests/deploy-local-testing-guards.tests.ps1`: add static guards for doctor, OCCT copy, net8 registration, and fallback order.
 - Modify `AGENT_SETUP.md`: add a short developer-machine convention section and guard it in the local deploy guard script.
 
@@ -758,6 +759,8 @@ git commit -m "fix: copy occt runtime dlls in local deploy"
 **Files:**
 - Modify: `scripts/deploy-local-testing.ps1`
 - Modify: `scripts/register-rooknative-suite.ps1`
+- Modify: `scripts/register-companion.ps1`
+- Modify: `scripts/tests/deploy-local-testing-guards.tests.ps1`
 
 - [ ] **Step 1: Update full deploy registration path**
 
@@ -784,7 +787,64 @@ In `scripts/register-rooknative-suite.ps1`, replace the `$candidateCompanions` b
 
 Do not change `-NativeOnlyPreserveCompanion` logic.
 
-- [ ] **Step 3: Run guard tests**
+- [ ] **Step 3: Update companion registration validation**
+
+In `scripts/register-companion.ps1`, allow both `net8.0` and `net7.0` while
+continuing to reject `net48`:
+
+```powershell
+$UnsupportedRuntimeMetadataMessage = 'Rook companion runtime metadata must identify a net8.0 or net7.0 build for registration.'
+```
+
+The path segment check should return for either supported runtime:
+
+```powershell
+    if (Test-PathHasExactSegment -Path $Path -Segment 'net8.0') {
+        return
+    }
+
+    if (Test-PathHasExactSegment -Path $Path -Segment 'net7.0') {
+        return
+    }
+```
+
+The runtime metadata check should also return for either supported TFM:
+
+```powershell
+    if ($tfm -eq 'net8.0' -or $tfm -eq 'net7.0') {
+        return
+    }
+```
+
+Do not weaken the `net48` rejection.
+
+- [ ] **Step 4: Add companion registrar guard**
+
+In `scripts/tests/deploy-local-testing-guards.tests.ps1`, add a path variable:
+
+```powershell
+$RegisterCompanionScript = Join-Path $RepoRoot 'scripts\register-companion.ps1'
+```
+
+Add this guard function:
+
+```powershell
+function Test-RegisterCompanionAcceptsNet8Runtime {
+    $content = Get-Content -Path $RegisterCompanionScript -Raw
+
+    Assert-Contains -Text $content -Expected '$UnsupportedRuntimeMetadataMessage = ''Rook companion runtime metadata must identify a net8.0 or net7.0 build for registration.''' -Message 'Companion registration must describe net8.0/net7.0 as supported runtimes.'
+    Assert-Contains -Text $content -Expected 'Test-PathHasExactSegment -Path $Path -Segment ''net8.0''' -Message 'Companion registration must accept explicit net8.0 paths.'
+    Assert-Contains -Text $content -Expected 'Test-PathHasExactSegment -Path $Path -Segment ''net7.0''' -Message 'Companion registration must preserve explicit net7.0 paths.'
+    Assert-Contains -Text $content -Expected '$tfm -eq ''net8.0''' -Message 'Companion registration must accept net8.0 runtime metadata.'
+    Assert-Contains -Text $content -Expected '$tfm -eq ''net7.0''' -Message 'Companion registration must preserve net7.0 runtime metadata.'
+    Assert-Contains -Text $content -Expected '$tfm -eq ''net48''' -Message 'Companion registration must continue rejecting net48 runtime metadata.'
+    Assert-Contains -Text $content -Expected '$UnsupportedNet48CompanionMessage' -Message 'Companion registration must preserve the net48 rejection message path.'
+}
+```
+
+Call it near the other registration guards.
+
+- [ ] **Step 5: Run guard tests**
 
 Run:
 
@@ -794,10 +854,20 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\tests\deploy-local-t
 
 Expected: all guard tests pass.
 
-- [ ] **Step 4: Commit registration change**
+- [ ] **Step 6: Run net48 companion guard**
+
+Run:
 
 ```powershell
-git add scripts\deploy-local-testing.ps1 scripts\register-rooknative-suite.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\tests\issue112-net48-companion-guards.tests.ps1
+```
+
+Expected: pass. This protects the net48 rejection behavior while allowing `net8.0`.
+
+- [ ] **Step 7: Commit registration change**
+
+```powershell
+git add scripts\deploy-local-testing.ps1 scripts\register-rooknative-suite.ps1 scripts\register-companion.ps1 scripts\tests\deploy-local-testing-guards.tests.ps1
 git commit -m "fix: prefer net8 companion registration"
 ```
 
@@ -919,6 +989,7 @@ AGENT_SETUP.md
 docs/superpowers/plans/2026-06-18-dev-deploy-readiness-pr1.md
 docs/superpowers/specs/2026-06-18-dev-deploy-readiness-pr1-design.md
 scripts/deploy-local-testing.ps1
+scripts/register-companion.ps1
 scripts/register-rooknative-suite.ps1
 scripts/rook-dev-doctor.ps1
 scripts/tests/deploy-local-testing-guards.tests.ps1
@@ -947,6 +1018,7 @@ Spec coverage:
 - `-Strict` behavior: Task 2.
 - OCCT root resolution and measured DLL copy: Task 3.
 - net8 full deploy registration and fallback order: Task 4.
+- register-companion net8 validation compatibility: Task 4.
 - AGENT_SETUP convention: Task 5.
 - AGENT_SETUP convention guard: Task 1.
 - Guard tests: Task 1 plus each task's verification.

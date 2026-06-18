@@ -21,6 +21,8 @@ Included:
 - Copy the required OCCT runtime DLL closure during local native payload deploy.
 - Register the full local deploy companion at `net8.0\Rook.rhp`.
 - Prefer `net8.0` in `scripts/register-rooknative-suite.ps1` fallback discovery.
+- Allow `scripts/register-companion.ps1` to validate `net8.0` companion paths
+  and runtime metadata while preserving `net7.0` support and `net48` rejection.
 - Update `AGENT_SETUP.md` with the current solo-dev machine convention.
 - Add lightweight PowerShell guard tests for the script structure.
 
@@ -128,6 +130,11 @@ this order when called without `-CompanionRhpPath`:
 This makes ad hoc registration match the full deploy direction without removing
 legacy fallback support.
 
+`scripts/register-companion.ps1` must also accept `net8.0` as a supported managed
+companion runtime. Otherwise the full deploy and suite fallback changes select
+`net8.0\Rook.rhp` only to be rejected by the final companion registration gate.
+The script should continue to accept `net7.0` and reject `net48`.
+
 ## AGENT_SETUP Update
 
 Add a short developer-machine convention section. Keep it procedural and concise:
@@ -164,6 +171,8 @@ Add guards that assert:
 - Full deploy registers `net8.0\Rook.rhp`.
 - Native-only preserve-companion registration still exists.
 - `register-rooknative-suite.ps1` fallback order prefers `net8.0` before `net7.0`.
+- `register-companion.ps1` accepts `net8.0` and `net7.0` runtime metadata while
+  still rejecting `net48`.
 
 Do not try to enforce "no `.vcxproj` changes" through a source-content guard. Treat
 that as PR review criteria or a separate changed-files check if needed later.
