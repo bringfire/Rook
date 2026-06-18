@@ -290,3 +290,29 @@ async def test_direct_call_tool_marks_missing_sidecar_path_as_error_textcontent(
     payload = json.loads(text[len("Error: "):])
     assert payload["success"] is False
     assert payload["error"] == "bim_projection_invalid_sidecar"
+
+
+@pytest.mark.asyncio
+async def test_scene_context_sync_false_skips_sync_and_reads_current_mirror(monkeypatch):
+    sg = _scene_graph()
+    sg.graph.nodes["rh-door"]["rookbimJoined"] = True
+    sg.graph.nodes["rh-door"]["revitCategory"] = "Doors"
+    called = {"sync": 0}
+
+    async def fake_sync(port=None):
+        called["sync"] += 1
+        return {"synced": True}
+
+    monkeypatch.setattr(sg, "sync", fake_sync)
+    monkeypatch.setattr("rook.scene.scene_graph.get_scene_graph", lambda: sg)
+
+    from rook.server import _call_tool_dispatch
+
+    result = await _call_tool_dispatch(
+        "scene_context",
+        {"object_ids": ["rh-door"], "sync": False},
+    )
+
+    assert result["success"] is True
+    assert called["sync"] == 0
+    assert "BIM:" in result["data"]

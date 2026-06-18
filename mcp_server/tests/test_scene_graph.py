@@ -351,6 +351,81 @@ class TestNLContext:
         assert 'On Revit level: LEVEL "L1"' in text
         assert 'Revit host for: DOOR "Door"' in text
 
+    def test_context_renders_compact_bim_block_with_correct_edge_directions(self):
+        sg = SceneGraphAnalytics()
+        sg.graph.add_node(
+            "door",
+            name="Door-01",
+            domain_label="door",
+            shape_class="compact",
+            rookbimJoined=True,
+            revitUniqueId="uid-door",
+            revitElementId="200",
+            revitCategory="Doors",
+            revitFamily="Single-Flush",
+            revitType="0915 x 2134mm",
+        )
+        sg.graph.add_node(
+            "wall",
+            name="Wall-01",
+            domain_label="wall",
+            shape_class="vertical-planar",
+            rookbimJoined=True,
+            revitUniqueId="uid-wall",
+            revitElementId="100",
+            revitCategory="Walls",
+            revitFamily="Basic Wall",
+            revitType="Generic 200mm",
+        )
+        sg.graph.add_node("room", displayName="101 Office", domain_label="room", nodeKind="rookbim_room")
+        sg.graph.add_node("level", displayName="L1", domain_label="level", nodeKind="rookbim_level")
+        sg.graph.add_edge("door", "wall", relationship="revit_hosted_by")
+        sg.graph.add_edge("door", "room", relationship="revit_in_room")
+        sg.graph.add_edge("door", "level", relationship="revit_on_level")
+
+        text = sg.get_context(["door", "wall"])
+
+        assert "BIM: Doors | Single-Flush | 0915 x 2134mm" in text
+        assert "Revit: element 200, uniqueId uid-door" in text
+        assert "Room: 101 Office" in text
+        assert "Level: L1" in text
+        assert "Hosted by: Wall-01" in text
+        assert "Hosts: 1 element" in text
+
+    def test_context_caps_multiple_bim_rooms_and_levels(self):
+        sg = SceneGraphAnalytics()
+        sg.graph.add_node("obj", name="Obj", rookbimJoined=True, revitCategory="Furniture")
+        sg.graph.add_node("nearby", name="Nearby", domain_label="fixture")
+        for i in range(5):
+            sg.graph.add_node(f"room-{i}", displayName=f"{100 + i} Room", nodeKind="rookbim_room")
+            sg.graph.add_node(f"level-{i}", displayName=f"L{i}", nodeKind="rookbim_level")
+            sg.graph.add_edge("obj", f"room-{i}", relationship="revit_in_room")
+            sg.graph.add_edge("obj", f"level-{i}", relationship="revit_on_level")
+        sg.graph.add_edge("obj", "nearby", relationship="near")
+
+        text = sg.get_context(["obj"])
+
+        assert "Room: 100 Room, 101 Room, 102 Room, +2 more" in text
+        assert "Level: L0, L1, L2, +2 more" in text
+        assert "In Revit room:" not in text
+        assert "On Revit level:" not in text
+        assert 'near: FIXTURE "Nearby"' in text
+
+    def test_context_suppresses_generic_incoming_bim_host_edges_after_compact_block(self):
+        sg = SceneGraphAnalytics()
+        sg.graph.add_node("host", name="Host Wall", rookbimJoined=True, revitCategory="Walls")
+        sg.graph.add_node("nearby", name="Nearby", domain_label="fixture")
+        for i in range(4):
+            sg.graph.add_node(f"child-{i}", name=f"Child {i}", domain_label="fixture", rookbimJoined=True)
+            sg.graph.add_edge(f"child-{i}", "host", relationship="revit_hosted_by")
+        sg.graph.add_edge("nearby", "host", relationship="near")
+
+        text = sg.get_context(["host"])
+
+        assert "Hosts: 4 elements" in text
+        assert "Revit host for:" not in text
+        assert 'near: FIXTURE "Nearby"' in text
+
 
 # ---------------------------------------------------------------------------
 # Tests: Statistics

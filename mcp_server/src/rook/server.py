@@ -11113,6 +11113,10 @@ Use this before modifying objects to understand their spatial role.""",
                         "items": {"type": "string"},
                         "description": "GUIDs of objects to get context for"
                     },
+                    "sync": {
+                        "type": "boolean",
+                        "description": "Whether to sync from Rhino before rendering context. Default true. Use false after scene_project_bim_relationships to preserve Python-only BIM projection facts."
+                    },
                     "port": {"type": "integer", "description": "Rhino instance port"}
                 },
                 "required": ["object_ids"]
@@ -19337,7 +19341,8 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
             else:
                 from .scene.scene_graph import get_scene_graph
                 sg = get_scene_graph()
-                await sg.sync(port=port)
+                if arguments.get("sync", True):
+                    await sg.sync(port=port)
                 context = sg.get_context(object_ids)
                 result = {"success": True, "data": context}
 
