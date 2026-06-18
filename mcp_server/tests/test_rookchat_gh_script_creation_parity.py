@@ -228,6 +228,27 @@ def test_local_csharp_alias_schema_teaches_rhinocode_script_contract():
     assert "B:Brep" in text
 
 
+def test_gh_create_pin_objects_match_server_pin_contract_without_arbitrary_keys():
+    from rook.agent.chat.chat_runner import _build_local_tool_catalog
+
+    catalog = _build_local_tool_catalog({"gh_create_csharp_script": object()})
+    pin_item = (
+        catalog["gh_create_csharp_script"]["function"]["parameters"]
+        ["properties"]["pins_out"]["items"]["oneOf"][1]
+    )
+
+    assert pin_item["additionalProperties"] is False
+    assert set(pin_item["properties"]) == {
+        "name",
+        "type",
+        "nick",
+        "access",
+        "optional",
+        "description",
+        "hidden",
+    }
+
+
 def test_local_unified_schema_teaches_csharp_contract_when_language_is_csharp():
     from rook.agent.chat.chat_runner import _build_local_tool_catalog
 

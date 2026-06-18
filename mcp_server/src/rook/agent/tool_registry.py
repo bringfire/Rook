@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 from ..runtime_paths import resolve_writable_knowledge_path
 
+from .chat.tool_contracts import normalize_catalog, normalize_litellm_tool_schema
 from .tool_groups import (
     TIER_0,
     AGENT_TIER_0,
@@ -41,7 +42,7 @@ def mcp_tool_to_litellm(tool) -> dict:
         {"type": "function", "function": {"name": "...", "description": "...", "parameters": {...}}}
     """
     input_schema = tool.inputSchema if hasattr(tool, "inputSchema") else {}
-    return {
+    return normalize_litellm_tool_schema({
         "type": "function",
         "function": {
             "name": tool.name,
@@ -51,7 +52,7 @@ def mcp_tool_to_litellm(tool) -> dict:
                 "properties": {},
             },
         },
-    }
+    })
 
 
 def build_catalog_from_mcp_tools(tools: list) -> Dict[str, dict]:
@@ -84,7 +85,7 @@ def load_catalog_from_cache(cache_path: Optional[Path] = None) -> Optional[Dict[
         return None
     try:
         with open(cache_path, encoding="utf-8") as f:
-            catalog = json.load(f)
+            catalog = normalize_catalog(json.load(f))
         logger.info(f"Loaded {len(catalog)} schemas from cache: {cache_path.name}")
         return catalog
     except (json.JSONDecodeError, KeyError, OSError):
@@ -146,7 +147,7 @@ class ToolRegistry:
                           Used by planner to enforce read-only access.
             agent_mode: If True, uses AGENT_TIER_0 (excludes gh_execute_intent).
         """
-        self._catalog: Dict[str, dict] = catalog or {}
+        self._catalog: Dict[str, dict] = normalize_catalog(catalog or {})
         self._max_active = max_active
         if tier0 is not None:
             self._tier0 = tier0
@@ -201,7 +202,7 @@ class ToolRegistry:
         )
         group_list = ", ".join(group_names) if group_names else "(no groups)"
 
-        return {
+        schemas = {
             "request_tools": {
                 "type": "function",
                 "function": {
@@ -219,6 +220,7 @@ class ToolRegistry:
                             }
                         },
                         "required": ["group"],
+                        "additionalProperties": False,
                     },
                 },
             },
@@ -239,10 +241,12 @@ class ToolRegistry:
                             }
                         },
                         "required": ["query"],
+                        "additionalProperties": False,
                     },
                 },
             },
         }
+        return normalize_catalog(schemas)
 
     def _initialize_tier0(self) -> None:
         """Activate Tier 0 tools."""
@@ -260,9 +264,9 @@ class ToolRegistry:
         schemas = []
         for name in sorted(self._active):
             if name in self._meta_schemas:
-                schemas.append(self._meta_schemas[name])
+                schemas.append(normalize_litellm_tool_schema(self._meta_schemas[name]))
             elif name in self._catalog:
-                schemas.append(self._catalog[name])
+                schemas.append(normalize_litellm_tool_schema(self._catalog[name]))
         return schemas
 
     def get_active_count(self) -> int:
@@ -515,8 +519,9 @@ class ToolRegistry:
 
         Merges into the existing catalog and rebuilds groups/descriptions.
         """
-        self._catalog.update(catalog)
-        for name, schema in catalog.items():
+        normalized_catalog = normalize_catalog(catalog)
+        self._catalog.update(normalized_catalog)
+        for name, schema in normalized_catalog.items():
             func = schema.get("function", {})
             self._descriptions[name] = func.get("description", "")
             self._locally_registered.add(name)
