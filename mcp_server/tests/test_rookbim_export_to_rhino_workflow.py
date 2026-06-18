@@ -78,3 +78,60 @@ def test_helpers_accept_positional_now(monkeypatch, tmp_path):
     assert output["name"] == "openings_and_hosts-20260618-090405"
     assert request["output"] == effective_output
     assert effective_output["name"] == "openings_and_hosts-20260618-090405"
+
+
+def test_resolve_artifact_paths_prefers_export_response_paths(tmp_path):
+    effective_output = {"directory": str(tmp_path / "derived"), "name": "derived-name"}
+    export_response = {
+        "success": True,
+        "data": {
+            "paths": {
+                "model3dm": "C:/authoritative/model.3dm",
+                "sidecar": "C:/authoritative/model.sidecar.json",
+                "validation": "C:/authoritative/model.validation.json",
+                "directory": "C:/authoritative",
+            }
+        },
+    }
+
+    paths = workflow.resolve_artifact_paths(export_response, effective_output)
+
+    assert paths == {
+        "bundleDirectory": "C:/authoritative",
+        "model3dm": "C:/authoritative/model.3dm",
+        "sidecar": "C:/authoritative/model.sidecar.json",
+        "validation": "C:/authoritative/model.validation.json",
+    }
+
+
+def test_resolve_artifact_paths_falls_back_to_effective_output(tmp_path):
+    effective_output = {"directory": str(tmp_path), "name": "shell"}
+
+    paths = workflow.resolve_artifact_paths({"success": True, "data": {}}, effective_output)
+
+    assert paths == {
+        "bundleDirectory": str(tmp_path),
+        "model3dm": str(tmp_path / "shell.3dm"),
+        "sidecar": str(tmp_path / "shell.sidecar.json"),
+        "validation": str(tmp_path / "shell.validation.json"),
+    }
+
+
+def test_partial_failure_envelope_preserves_completed_blocks():
+    result = workflow.stage_failure(
+        "projection",
+        "no_imported_ids",
+        "Import returned no object ids.",
+        export={"response": {"success": True}},
+        paths={"model3dm": "C:/x/shell.3dm"},
+        import_result={"importedObjectCount": 0, "importedIds": []},
+    )
+
+    assert result["success"] is False
+    assert result["partialSuccess"] is True
+    assert result["workflow"] == workflow.WORKFLOW_NAME
+    assert result["stage"] == "projection"
+    assert result["error"] == "no_imported_ids"
+    assert result["export"]["response"]["success"] is True
+    assert result["paths"]["model3dm"].endswith("shell.3dm")
+    assert result["import"]["importedObjectCount"] == 0
