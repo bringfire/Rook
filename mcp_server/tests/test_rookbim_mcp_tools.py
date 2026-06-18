@@ -24,6 +24,7 @@ ROOKBIM_TOOL_ROUTES = {
     "rookbim_select_elements": ("/bim/select-elements", "POST"),
     "rookbim_clear_selection": ("/bim/clear-selection", "POST"),
     "rookbim_export_elements": ("/bim/export-elements", "POST"),
+    "rookbim_export_preset": ("/bim/export-preset", "POST"),
 }
 
 ROOKBIM_READONLY_TOOLS = [
@@ -221,6 +222,10 @@ async def test_rookbim_server_dispatches_to_expected_bridge_route(name, route):
         "rookbim_export_elements": {
             "output": {"directory": "C:\\fixtures", "name": "walls"},
         },
+        "rookbim_export_preset": {
+            "preset": "architectural_shell",
+            "output": {"directory": "C:\\fixtures", "name": "shell"},
+        },
     }.get(name, {})
 
     with patch.object(server, "call_rhino", new_callable=AsyncMock) as mock:
@@ -249,6 +254,10 @@ async def test_rookbim_dispatcher_dispatches_to_expected_bridge_route(name, rout
         },
         "rookbim_export_elements": {
             "output": {"directory": "C:\\fixtures", "name": "walls"},
+        },
+        "rookbim_export_preset": {
+            "preset": "architectural_shell",
+            "output": {"directory": "C:\\fixtures", "name": "shell"},
         },
     }.get(name, {})
 
