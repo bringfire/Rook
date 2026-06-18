@@ -181,3 +181,19 @@ async def test_local_create_script_required_fields_match_mcp_server_schemas():
     local_language = local_catalog["gh_create_script"]["function"]["parameters"]["properties"]["language"]
     server_language = mcp_tools["gh_create_script"].inputSchema["properties"]["language"]
     assert local_language["enum"] == server_language["enum"]
+
+
+def test_gh_canvas_script_create_tools_are_dispatcher_reachable():
+    from rook.agent.tool_dispatcher import BRIDGE_ROUTES, TRANSFORM_FUNCTIONS, build_local_tools
+    from rook.agent.tool_groups import TOOL_GROUPS
+
+    local_tools = build_local_tools()
+    dispatchable = set(local_tools) | set(TRANSFORM_FUNCTIONS) | set(BRIDGE_ROUTES)
+    script_create_tools = {
+        "gh_create_script",
+        "gh_create_python_script",
+        "gh_create_csharp_script",
+    }
+
+    assert script_create_tools <= set(TOOL_GROUPS["gh_canvas"])
+    assert script_create_tools <= dispatchable
