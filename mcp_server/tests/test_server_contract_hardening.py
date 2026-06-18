@@ -2184,7 +2184,7 @@ async def test_gh_update_script_error_check_failure_is_visible(monkeypatch, patc
 
 
 @pytest.mark.asyncio
-async def test_gh_update_script_compile_failure_returns_component_errors_and_recovery_hint(
+async def test_gh_update_script_compile_failure_returns_failed_with_component_errors_and_recovery_hint(
     monkeypatch, patched_server
 ):
     async def fake_call_rhino(route, method="GET", payload=None, port=None):
@@ -2221,9 +2221,16 @@ async def test_gh_update_script_compile_failure_returns_component_errors_and_rec
         {"guid": "cs-guid", "code": "A = X;", "mode": "body"},
     ))
 
-    assert payload["success"] is True
+    assert payload["success"] is False
     data = payload["data"]
+    assert data["message"] == (
+        "Source was written, but the target script component still has compile errors."
+    )
+    assert data["guid"] == "cs-guid"
     assert data["component_errors"] == ["The name X does not exist"]
+    assert data["component_warnings"] == []
+    assert data["canvas_error_count"] == 1
+    assert data["unrelated_error_count"] == 0
     assert data["recovery_hint"] == (
         "Current inputs are R; outputs are A. To change the signature, call "
         "gh_set_script_pins first, then retry gh_update_script."

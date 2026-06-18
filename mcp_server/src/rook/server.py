@@ -1913,6 +1913,21 @@ def _gh_update_script_should_defer(write_data: Any) -> tuple[bool, dict[str, Any
     return bool(flags.get("verification_deferred")), flags
 
 
+def _gh_update_script_has_target_compile_errors(data: dict[str, Any]) -> bool:
+    return bool(data.get("component_errors"))
+
+
+def _gh_update_script_result_from_data(data: dict[str, Any]) -> dict[str, Any]:
+    if _gh_update_script_has_target_compile_errors(data):
+        data["message"] = "Source was written, but the target script component still has compile errors."
+        return {
+            "success": False,
+            "message": data["message"],
+            "data": data,
+        }
+    return {"success": True, "data": data}
+
+
 async def _await_gh_solve_settle(port: int, scheduled_delay_ms: int = 50) -> None:
     """Best-effort bounded wait for a scheduled GH solve before reading /gh/errors.
 
@@ -2055,7 +2070,7 @@ async def _execute_gh_update_script(arguments: dict[str, Any], port: int) -> dic
                 "To change the signature, call gh_set_script_pins first, then retry gh_update_script."
             )
 
-        return {"success": True, "data": data}
+        return _gh_update_script_result_from_data(data)
     except Exception as exc:
         return {"success": False, "data": f"gh_update_script failed: {exc}"}
 
