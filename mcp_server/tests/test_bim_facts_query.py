@@ -136,6 +136,41 @@ def test_joined_sidecar_annotations_do_not_satisfy_projection_precondition():
     assert result["bimProjectionPresent"] is False
 
 
+def test_projected_joined_object_annotations_satisfy_projection_precondition():
+    sg = SceneGraphAnalytics()
+    sg._sequence = 9
+    sg.graph.add_node(
+        "wall",
+        name="Wall-01",
+        rookbimJoined=True,
+        rookbimSidecarFingerprint="fp1",
+        projectionKind="bim_relationship_v1",
+        provenance="rookbim_sidecar",
+        revitUniqueId="uid-wall",
+        revitElementId="100",
+        revitCategory="Walls",
+        revitFamily="Basic Wall",
+        revitType="Generic 200mm",
+    )
+
+    scan = query.query_bim_facts(sg, mode="relationship_scan")
+
+    assert scan["success"] is True
+    assert scan["bimProjectionPresent"] is True
+    assert scan["sidecarFingerprints"] == ["fp1"]
+    assert scan["summary"]["relationshipCounts"] == {
+        "revit_hosted_by": 0,
+        "revit_in_room": 0,
+        "revit_on_level": 0,
+    }
+
+    context = query.query_bim_facts(sg, mode="object_context", object_ids=["wall"])
+
+    assert context["success"] is True
+    assert context["results"][0]["bimJoined"] is True
+    assert context["results"][0]["identity"]["revitUniqueId"] == "uid-wall"
+
+
 def test_unknown_mode_and_detail_are_input_errors():
     sg = _bim_graph()
 

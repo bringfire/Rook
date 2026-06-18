@@ -88,6 +88,16 @@ def _projection_nodes(graph: Any) -> list[tuple[str, dict[str, Any]]]:
     ]
 
 
+def _projected_joined_nodes(graph: Any) -> list[tuple[str, dict[str, Any]]]:
+    return [
+        (node_id, dict(attrs))
+        for node_id, attrs in graph.nodes(data=True)
+        if attrs.get("projectionKind") == PROJECTION_KIND
+        and attrs.get("provenance") == PROVENANCE
+        and attrs.get("rookbimJoined")
+    ]
+
+
 def _sidecar_fingerprints(graph: Any, edges: list[tuple[str, str, Any, dict[str, Any]]]) -> list[str]:
     values: set[str] = set()
     for _, attrs in _projection_nodes(graph):
@@ -413,9 +423,10 @@ def query_bim_facts(
 
     edges = _projection_edges(graph)
     nodes = _projection_nodes(graph)
+    joined_nodes = _projected_joined_nodes(graph)
     fingerprints = _sidecar_fingerprints(graph, edges)
     relationship_counts = _relationship_counts(edges)
-    bim_projection_present = bool(edges or nodes)
+    bim_projection_present = bool(edges or nodes or joined_nodes)
 
     if mode not in VALID_MODES:
         return _invalid(
