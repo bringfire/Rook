@@ -301,3 +301,161 @@ def test_fingerprint_uses_file_content(tmp_path):
     assert fp_a.short_id != fp_c.short_id
     assert len(fp_a.short_id) == 16
     assert fp_a.full_hash
+
+
+def test_build_runtime_join_map_extracts_revit_user_strings():
+    records = [
+        bim.RuntimeObjectRecord(
+            object_id="rh-wall",
+            user_strings={
+                "revit.uniqueId": "uid-wall",
+                "revit.elementId": "100",
+                "revit.category": "Walls",
+            },
+        ),
+        bim.RuntimeObjectRecord(
+            object_id="rh-no-uid",
+            user_strings={"revit.category": "Doors"},
+        ),
+    ]
+
+    join = bim.build_runtime_join_map(records)
+
+    assert join.by_revit_uid["uid-wall"].object_id == "rh-wall"
+    assert join.by_object_id["rh-wall"].revit_category == "Walls"
+    assert join.diagnostics["objectsMissingRevitUniqueId"] == 1
+
+
+def test_build_runtime_join_map_diagnoses_duplicate_revit_uids_last_record_wins():
+    join = bim.build_runtime_join_map([
+        bim.RuntimeObjectRecord("rh-wall-a", {"revit.uniqueId": "uid-wall", "revit.category": "Walls"}),
+        bim.RuntimeObjectRecord("rh-wall-b", {"revit.uniqueId": "uid-wall", "revit.category": "Walls"}),
+    ])
+
+    assert join.by_revit_uid["uid-wall"].object_id == "rh-wall-b"
+    assert join.by_object_id["rh-wall-a"].object_id == "rh-wall-a"
+    assert join.by_object_id["rh-wall-b"].object_id == "rh-wall-b"
+    assert join.diagnostics["duplicateRuntimeRevitUniqueIds"] == 1
+
+
+def test_build_runtime_join_map_diagnoses_duplicate_object_ids_last_record_wins():
+    join = bim.build_runtime_join_map([
+        bim.RuntimeObjectRecord("rh-wall", {"revit.uniqueId": "uid-wall-a", "revit.category": "Walls"}),
+        bim.RuntimeObjectRecord("rh-wall", {"revit.uniqueId": "uid-wall-b", "revit.category": "Walls"}),
+    ])
+
+    assert join.by_object_id["rh-wall"].revit_unique_id == "uid-wall-b"
+    assert "uid-wall-a" not in join.by_revit_uid
+    assert join.by_revit_uid["uid-wall-b"].object_id == "rh-wall"
+    assert join.diagnostics["duplicateRuntimeObjectIds"] == 1
+
+
+def test_build_runtime_join_map_handles_mixed_duplicate_uid_and_object_id_replacements():
+    join = bim.build_runtime_join_map([
+        bim.RuntimeObjectRecord("a", {"revit.uniqueId": "u1"}),
+        bim.RuntimeObjectRecord("b", {"revit.uniqueId": "u1"}),
+        bim.RuntimeObjectRecord("b", {"revit.uniqueId": "u2"}),
+    ])
+
+    assert join.by_object_id["a"].revit_unique_id == "u1"
+    assert join.by_object_id["b"].revit_unique_id == "u2"
+    assert join.by_revit_uid["u1"].object_id == "a"
+    assert join.by_revit_uid["u2"].object_id == "b"
+
+
+def test_select_eligible_objects_honors_object_ids_and_category_filters():
+    sidecar = bim.parse_sidecar_payload(_sidecar())
+    join = bim.build_runtime_join_map([
+        bim.RuntimeObjectRecord("rh-wall", {"revit.uniqueId": "uid-wall", "revit.category": "Walls"}),
+        bim.RuntimeObjectRecord("rh-door", {"revit.uniqueId": "uid-door", "revit.category": "Doors"}),
+    ])
+
+    eligible = bim.select_eligible_objects(
+        join,
+        sidecar,
+        object_ids=["rh-door"],
+        category_filters=["doors"],
+    )
+
+    assert eligible.object_ids == {"rh-door"}
+    assert eligible.revit_uids == {"uid-door"}
+    assert eligible.diagnostics == {}
+
+
+def test_select_eligible_objects_with_empty_object_ids_selects_none():
+    sidecar = bim.parse_sidecar_payload(_sidecar())
+    join = bim.build_runtime_join_map([
+        bim.RuntimeObjectRecord("rh-wall", {"revit.uniqueId": "uid-wall", "revit.category": "Walls"}),
+        bim.RuntimeObjectRecord("rh-door", {"revit.uniqueId": "uid-door", "revit.category": "Doors"}),
+    ])
+
+    eligible = bim.select_eligible_objects(join, sidecar, object_ids=[])
+
+    assert eligible.object_ids == set()
+    assert eligible.revit_uids == set()
+    assert eligible.diagnostics == {}
+
+
+def test_select_eligible_objects_uses_all_joinable_when_no_filters():
+    sidecar = bim.parse_sidecar_payload(_sidecar())
+    join = bim.build_runtime_join_map([
+        bim.RuntimeObjectRecord("rh-wall", {"revit.uniqueId": "uid-wall", "revit.category": "Walls"}),
+        bim.RuntimeObjectRecord("rh-door", {"revit.uniqueId": "uid-door", "revit.category": "Doors"}),
+    ])
+
+    eligible = bim.select_eligible_objects(join, sidecar)
+
+    assert eligible.object_ids == {"rh-wall", "rh-door"}
+    assert eligible.revit_uids == {"uid-wall", "uid-door"}
+
+
+def test_select_eligible_objects_diagnoses_requested_object_not_joinable():
+    sidecar = bim.parse_sidecar_payload(_sidecar())
+    join = bim.build_runtime_join_map([
+        bim.RuntimeObjectRecord("rh-wall", {"revit.uniqueId": "uid-wall", "revit.category": "Walls"}),
+    ])
+
+    eligible = bim.select_eligible_objects(join, sidecar, object_ids=["rh-missing"])
+
+    assert eligible.object_ids == set()
+    assert eligible.revit_uids == set()
+    assert eligible.diagnostics["requestedObjectNotJoinable"] == 1
+
+
+def test_select_eligible_objects_diagnoses_joined_object_missing_from_sidecar():
+    sidecar = bim.parse_sidecar_payload(_sidecar())
+    join = bim.build_runtime_join_map([
+        bim.RuntimeObjectRecord("rh-window", {"revit.uniqueId": "uid-window", "revit.category": "Windows"}),
+    ])
+
+    eligible = bim.select_eligible_objects(join, sidecar)
+
+    assert eligible.object_ids == set()
+    assert eligible.revit_uids == set()
+    assert eligible.diagnostics["joinedObjectMissingFromSidecar"] == 1
+
+
+def test_select_eligible_objects_diagnoses_category_mismatch():
+    sidecar = bim.parse_sidecar_payload(_sidecar())
+    join = bim.build_runtime_join_map([
+        bim.RuntimeObjectRecord("rh-wall", {"revit.uniqueId": "uid-wall", "revit.category": "Walls"}),
+    ])
+
+    eligible = bim.select_eligible_objects(join, sidecar, category_filters=["doors"])
+
+    assert eligible.object_ids == set()
+    assert eligible.revit_uids == set()
+    assert eligible.diagnostics["filteredByCategory"] == 1
+
+
+def test_select_eligible_objects_matches_sidecar_category_when_runtime_category_is_missing():
+    sidecar = bim.parse_sidecar_payload(_sidecar())
+    join = bim.build_runtime_join_map([
+        bim.RuntimeObjectRecord("rh-door", {"revit.uniqueId": "uid-door"}),
+    ])
+
+    eligible = bim.select_eligible_objects(join, sidecar, category_filters=["doors"])
+
+    assert eligible.object_ids == {"rh-door"}
+    assert eligible.revit_uids == {"uid-door"}
+    assert eligible.diagnostics == {}

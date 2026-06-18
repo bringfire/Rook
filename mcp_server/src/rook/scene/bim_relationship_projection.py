@@ -85,6 +85,34 @@ class ParsedSidecar:
     diagnostics: dict[str, int] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class RuntimeObjectRecord:
+    object_id: str
+    user_strings: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class JoinedRuntimeObject:
+    object_id: str
+    revit_unique_id: str
+    revit_element_id: str
+    revit_category: str
+
+
+@dataclass(frozen=True)
+class RuntimeJoinMap:
+    by_object_id: dict[str, JoinedRuntimeObject]
+    by_revit_uid: dict[str, JoinedRuntimeObject]
+    diagnostics: dict[str, int]
+
+
+@dataclass(frozen=True)
+class EligibleObjects:
+    object_ids: set[str]
+    revit_uids: set[str]
+    diagnostics: dict[str, int]
+
+
 def _bump(diagnostics: dict[str, int], key: str) -> None:
     diagnostics[key] = diagnostics.get(key, 0) + 1
 
@@ -114,6 +142,75 @@ def _room_display_name(number: str, name: str, fallback_uid: str) -> str:
 def normalize_id_segment(value: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9_.-]+", "-", value.strip()).strip("-")
     return cleaned or "unnamed"
+
+
+def build_runtime_join_map(records: list[RuntimeObjectRecord]) -> RuntimeJoinMap:
+    by_object_id: dict[str, JoinedRuntimeObject] = {}
+    diagnostics: dict[str, int] = {}
+
+    for record in records:
+        uid = _clean_str(record.user_strings.get("revit.uniqueId"))
+        if not uid:
+            _bump(diagnostics, "objectsMissingRevitUniqueId")
+            continue
+        if record.object_id in by_object_id:
+            _bump(diagnostics, "duplicateRuntimeObjectIds")
+        joined = JoinedRuntimeObject(
+            object_id=record.object_id,
+            revit_unique_id=uid,
+            revit_element_id=_clean_str(record.user_strings.get("revit.elementId")),
+            revit_category=_clean_str(record.user_strings.get("revit.category")),
+        )
+        by_object_id[record.object_id] = joined
+
+    by_revit_uid: dict[str, JoinedRuntimeObject] = {}
+    for joined in by_object_id.values():
+        if joined.revit_unique_id in by_revit_uid:
+            _bump(diagnostics, "duplicateRuntimeRevitUniqueIds")
+        by_revit_uid[joined.revit_unique_id] = joined
+
+    return RuntimeJoinMap(by_object_id=by_object_id, by_revit_uid=by_revit_uid, diagnostics=diagnostics)
+
+
+def _category_matches(joined: JoinedRuntimeObject, sidecar: ParsedSidecar, filters: set[str]) -> bool:
+    if not filters:
+        return True
+    element = sidecar.elements_by_uid.get(joined.revit_unique_id)
+    candidates = {
+        joined.revit_category.strip().lower(),
+        (element.category.strip().lower() if element else ""),
+    }
+    return any(candidate in filters for candidate in candidates if candidate)
+
+
+def select_eligible_objects(
+    join: RuntimeJoinMap,
+    sidecar: ParsedSidecar,
+    *,
+    object_ids: list[str] | None = None,
+    category_filters: list[str] | None = None,
+) -> EligibleObjects:
+    requested = set(join.by_object_id.keys()) if object_ids is None else set(object_ids)
+    filters = {item.strip().lower() for item in (category_filters or []) if item and item.strip()}
+    diagnostics: dict[str, int] = {}
+    object_out: set[str] = set()
+    uid_out: set[str] = set()
+
+    for object_id in requested:
+        joined = join.by_object_id.get(object_id)
+        if joined is None:
+            _bump(diagnostics, "requestedObjectNotJoinable")
+            continue
+        if joined.revit_unique_id not in sidecar.elements_by_uid:
+            _bump(diagnostics, "joinedObjectMissingFromSidecar")
+            continue
+        if not _category_matches(joined, sidecar, filters):
+            _bump(diagnostics, "filteredByCategory")
+            continue
+        object_out.add(object_id)
+        uid_out.add(joined.revit_unique_id)
+
+    return EligibleObjects(object_ids=object_out, revit_uids=uid_out, diagnostics=diagnostics)
 
 
 def fingerprint_sidecar_path(path: str | Path) -> SidecarFingerprint:
