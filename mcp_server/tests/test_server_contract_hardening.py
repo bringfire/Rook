@@ -2211,8 +2211,11 @@ async def test_gh_update_script_short_id_uses_resolved_guid_for_error_summary(
         {"guid": "C20", "code": "A = R;", "mode": "body"},
     ))
 
-    assert payload["success"] is True
+    assert payload["success"] is False
     data = payload["data"]
+    assert data["message"] == (
+        "Source was written, but the target script component still has compile errors."
+    )
     assert data["guid"] == real_guid
     assert data["target_guid"] == "C20"
     assert data["component_errors"] == ["compile from real guid"]
@@ -2273,8 +2276,11 @@ async def test_gh_update_script_short_id_falls_back_to_snapshot_diagnostics(
         {"guid": "C20", "code": "A = R;", "mode": "body"},
     ))
 
-    assert payload["success"] is True
+    assert payload["success"] is False
     data = payload["data"]
+    assert data["message"] == (
+        "Source was written, but the target script component still has compile errors."
+    )
     assert data["guid"] == "C20"
     assert data["component_errors"] == ["snapshot compile"]
     assert data["component_warnings"] == ["snapshot warn"]
