@@ -242,3 +242,32 @@ def test_gh_canvas_script_create_tools_are_dispatcher_reachable():
 
     assert script_create_tools <= set(TOOL_GROUPS["gh_canvas"])
     assert script_create_tools <= dispatchable
+
+
+@pytest.mark.asyncio
+async def test_gh_errors_rejects_script_creation_arguments(monkeypatch):
+    from rook.agent import tool_dispatcher
+    from rook.agent.tool_dispatcher import ToolDispatcher
+
+    called = False
+
+    async def fake_call_rhino(endpoint, method, data=None, port=None):
+        nonlocal called
+        called = True
+        return {"success": True, "data": {"errorCount": 0, "warningCount": 0}}
+
+    monkeypatch.setattr(tool_dispatcher, "call_rhino", fake_call_rhino)
+
+    dispatcher = ToolDispatcher(port=9876)
+    result = await dispatcher.dispatch(
+        "gh_errors",
+        {
+            "code": "B = box.ToBrep();",
+            "pins_out": ["B:Brep"],
+        },
+    )
+
+    assert called is False
+    assert result["success"] is False
+    assert result["error"] == "unexpected_arguments"
+    assert "gh_create_csharp_script" in result["message"]

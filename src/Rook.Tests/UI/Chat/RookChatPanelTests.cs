@@ -165,6 +165,26 @@ namespace Rook.Tests.UI.Chat
         }
 
         [Fact]
+        public void AgentChatTab_TerminalEventsHideTypingIndicator()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Chat", "AgentChatTab.cs");
+
+            var doneIndex = source.IndexOf("case \"done\":", StringComparison.Ordinal);
+            var errorIndex = source.IndexOf("case \"error\":", StringComparison.Ordinal);
+            var doneHideIndex = source.IndexOf("ShowTypingIndicator(false);", doneIndex, StringComparison.Ordinal);
+            var errorHideIndex = source.IndexOf("ShowTypingIndicator(false);", errorIndex, StringComparison.Ordinal);
+            var doneSetProcessingIndex = source.IndexOf("SetProcessing(false);", doneIndex, StringComparison.Ordinal);
+            var errorSetProcessingIndex = source.IndexOf("SetProcessing(false);", errorIndex, StringComparison.Ordinal);
+
+            Assert.True(doneIndex >= 0, "The done event branch should exist.");
+            Assert.True(errorIndex >= 0, "The error event branch should exist.");
+            Assert.True(doneHideIndex >= 0, "Done events should clear the typing indicator.");
+            Assert.True(errorHideIndex >= 0, "Error events should clear the typing indicator.");
+            Assert.True(doneHideIndex < doneSetProcessingIndex, "Done should clear typing before returning to idle.");
+            Assert.True(errorHideIndex < errorSetProcessingIndex, "Error should clear typing before returning to idle.");
+        }
+
+        [Fact]
         public void ChatWebView_ToolCards_RenderStructuredParamsAndToolStatus()
         {
             var html = ReadSourceFile("src", "Rook", "UI", "Chat", "Resources", "chat.html");

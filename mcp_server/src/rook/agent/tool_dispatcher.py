@@ -52,6 +52,11 @@ GH_READINESS_HOIST_TOOLS: frozenset[str] = frozenset({
 })
 
 
+STRICT_NO_ARGUMENT_BRIDGE_TOOLS: frozenset[str] = frozenset({
+    "gh_errors",
+})
+
+
 _DEPRECATED_INTERACTIVE_COMMAND_TOOLS: frozenset[str] = frozenset({
     "rhino_command_experiment",
     "rhino_command_interactive_start",
@@ -1768,6 +1773,21 @@ class ToolDispatcher:
         # --- Tier 3: Simple bridge passthrough ---
         if name in BRIDGE_ROUTES:
             endpoint, method = BRIDGE_ROUTES[name]
+            if name in STRICT_NO_ARGUMENT_BRIDGE_TOOLS and params:
+                return {
+                    "success": False,
+                    "error": "unexpected_arguments",
+                    "message": (
+                        f"{name} does not accept arguments. To create a C# "
+                        "script component, call gh_create_csharp_script or "
+                        "gh_create_script with language='csharp'."
+                    ),
+                    "data": {
+                        "error": "unexpected_arguments",
+                        "unexpected": sorted(params.keys()),
+                    },
+                    "_pre_dispatch_failure": True,
+                }
             data = params if params else None
             result = await call_rhino(endpoint, method, data, port)
             if name == "gh_status":

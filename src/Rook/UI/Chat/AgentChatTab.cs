@@ -620,6 +620,7 @@ namespace Rook.UI.Chat
                             ExecuteScript(
                                 $"window.chatAPI.updateUIBlock('{EscapeForJavaScript(doneBlockId)}', {{state:'done', result_text:'Submitted'}})");
                         }
+                        ShowTypingIndicator(false);
                         FinalizeStreaming();
                         if (_lastHealth != null)
                         {
@@ -635,6 +636,7 @@ namespace Rook.UI.Chat
 
                     case "error":
                         MarkActiveUIBlockStale();
+                        ShowTypingIndicator(false);
                         FinalizeStreaming();
                         AddMessageToChat("error", evt.Content ?? "Unknown error");
                         SetStatus("Error", Colors.Red);
