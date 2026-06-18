@@ -120,6 +120,95 @@ def test_local_dispatcher_registers_scene_project_bim_relationships():
     assert callable(tools["scene_project_bim_relationships"])
 
 
+def test_tool_group_contains_scene_bim_facts():
+    from rook.agent.tool_groups import TOOL_GROUPS
+
+    assert "scene_bim_facts" in TOOL_GROUPS["scene_graph"]
+
+
+def test_scene_bim_facts_targeting_policy_is_rhino_read():
+    from rook import targeting
+
+    pol = targeting.policy_for_tool("scene_bim_facts")
+
+    assert pol.requires_rhino is True
+    assert pol.risk == "read"
+    assert "scene_bim_facts" in targeting._ALL_KNOWN_TOOLS
+
+
+@pytest.mark.asyncio
+async def test_server_tool_schema_exposes_scene_bim_facts_parameters():
+    from rook.server import list_tools
+
+    tools = {tool.name: tool for tool in await list_tools()}
+    schema = tools["scene_bim_facts"].inputSchema
+
+    assert set(schema["properties"]) >= {
+        "mode",
+        "object_ids",
+        "room_id",
+        "room_name",
+        "level_name",
+        "host_object_id",
+        "detail",
+        "limit",
+        "sample_limit",
+    }
+    assert schema["required"] == ["mode"]
+
+
+def test_local_dispatcher_registers_scene_bim_facts():
+    from rook.agent.tool_dispatcher import build_local_tools
+
+    tools = build_local_tools()
+
+    assert "scene_bim_facts" in tools
+    assert callable(tools["scene_bim_facts"])
+
+
+@pytest.mark.asyncio
+async def test_local_scene_bim_facts_dispatch_uses_current_mirror_without_sync(monkeypatch):
+    sg = _scene_graph()
+    called = {"sync": 0}
+
+    async def fake_sync(port=None):
+        called["sync"] += 1
+        return {"synced": True}
+
+    monkeypatch.setattr(sg, "sync", fake_sync)
+    monkeypatch.setattr("rook.scene.scene_graph.get_scene_graph", lambda: sg)
+
+    from rook.agent.tool_dispatcher import build_local_tools
+
+    tools = build_local_tools()
+    result = await tools["scene_bim_facts"](mode="relationship_scan")
+
+    assert result["success"] is False
+    assert result["error"] == "bim_projection_required"
+    assert called["sync"] == 0
+
+
+@pytest.mark.asyncio
+async def test_server_scene_bim_facts_dispatch_does_not_sync(monkeypatch):
+    sg = _scene_graph()
+    called = {"sync": 0}
+
+    async def fake_sync(port=None):
+        called["sync"] += 1
+        return {"synced": True}
+
+    monkeypatch.setattr(sg, "sync", fake_sync)
+    monkeypatch.setattr("rook.scene.scene_graph.get_scene_graph", lambda: sg)
+
+    from rook.server import _mcp_tool_executor
+
+    result = await _mcp_tool_executor("scene_bim_facts", {"mode": "relationship_scan"})
+
+    assert result["success"] is False
+    assert result["data"]["error"] == "bim_projection_required"
+    assert called["sync"] == 0
+
+
 @pytest.mark.asyncio
 async def test_tool_orchestration_hydrates_projects_and_preserves_same_sequence_facts(tmp_path, monkeypatch):
     sidecar_path = _write_sidecar(tmp_path)
@@ -290,3 +379,29 @@ async def test_direct_call_tool_marks_missing_sidecar_path_as_error_textcontent(
     payload = json.loads(text[len("Error: "):])
     assert payload["success"] is False
     assert payload["error"] == "bim_projection_invalid_sidecar"
+
+
+@pytest.mark.asyncio
+async def test_scene_context_sync_false_skips_sync_and_reads_current_mirror(monkeypatch):
+    sg = _scene_graph()
+    sg.graph.nodes["rh-door"]["rookbimJoined"] = True
+    sg.graph.nodes["rh-door"]["revitCategory"] = "Doors"
+    called = {"sync": 0}
+
+    async def fake_sync(port=None):
+        called["sync"] += 1
+        return {"synced": True}
+
+    monkeypatch.setattr(sg, "sync", fake_sync)
+    monkeypatch.setattr("rook.scene.scene_graph.get_scene_graph", lambda: sg)
+
+    from rook.server import _call_tool_dispatch
+
+    result = await _call_tool_dispatch(
+        "scene_context",
+        {"object_ids": ["rh-door"], "sync": False},
+    )
+
+    assert result["success"] is True
+    assert called["sync"] == 0
+    assert "BIM:" in result["data"]

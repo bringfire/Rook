@@ -294,9 +294,15 @@ class SceneGraphAnalytics:
             intent_part = f' ("{intent}")' if intent else ""
             lines.append(f"  Created by: {created_by}{intent_part}")
 
+        bim_lines = self._format_bim_block(node_id, attrs)
+        lines.extend(bim_lines)
+        suppress_compacted_bim_edges = bool(attrs.get("rookbimJoined") and bim_lines)
+
         # Outgoing edges (this node is source)
         for _, target, edata in self.graph.out_edges(node_id, data=True):
             rel = edata.get("relationship", "?")
+            if suppress_compacted_bim_edges and rel in _COMPACT_BIM_RELATIONSHIPS:
+                continue
             t_attrs = self.graph.nodes.get(target, {})
             t_label = (t_attrs.get("domain_label") or t_attrs.get("shape_class") or "?").upper()
             t_name = t_attrs.get("displayName") or t_attrs.get("name") or target[:8]
@@ -305,6 +311,8 @@ class SceneGraphAnalytics:
         # Incoming edges (this node is target)
         for source, _, edata in self.graph.in_edges(node_id, data=True):
             rel = edata.get("relationship", "?")
+            if suppress_compacted_bim_edges and rel in _COMPACT_BIM_RELATIONSHIPS:
+                continue
             s_attrs = self.graph.nodes.get(source, {})
             s_label = (s_attrs.get("domain_label") or s_attrs.get("shape_class") or "?").upper()
             s_name = s_attrs.get("displayName") or s_attrs.get("name") or source[:8]
@@ -312,6 +320,63 @@ class SceneGraphAnalytics:
             lines.append(f'  {inverse}: {s_label} "{s_name}"{_edge_detail(edata)}')
 
         return "\n".join(lines)
+
+    def _format_bim_block(self, node_id: str, attrs: dict[str, Any]) -> list[str]:
+        if not attrs.get("rookbimJoined"):
+            return []
+
+        category = attrs.get("revitCategory", "")
+        family = attrs.get("revitFamily", "")
+        type_name = attrs.get("revitType", "")
+        title_parts = [str(part) for part in (category, family, type_name) if part]
+        title = " | ".join(title_parts) if title_parts else "joined"
+        lines = [f"  BIM: {title}"]
+
+        element_id = attrs.get("revitElementId", "")
+        unique_id = attrs.get("revitUniqueId", "")
+        revit_parts = []
+        if element_id:
+            revit_parts.append(f"element {element_id}")
+        if unique_id:
+            revit_parts.append(f"uniqueId {unique_id}")
+        if revit_parts:
+            lines.append(f"    Revit: {', '.join(revit_parts)}")
+
+        rooms = self._bim_targets(node_id, "revit_in_room")
+        levels = self._bim_targets(node_id, "revit_on_level")
+        hosted_by = self._bim_targets(node_id, "revit_hosted_by")
+        host_count = sum(
+            1 for _, _, edata in self.graph.in_edges(node_id, data=True)
+            if edata.get("relationship") == "revit_hosted_by"
+        )
+
+        if rooms:
+            lines.append(f"    Room: {self._format_limited_names(rooms)}")
+        if levels:
+            lines.append(f"    Level: {self._format_limited_names(levels)}")
+        if hosted_by:
+            lines.append(f"    Hosted by: {self._format_limited_names(hosted_by)}")
+        if host_count:
+            suffix = "element" if host_count == 1 else "elements"
+            lines.append(f"    Hosts: {host_count} {suffix}")
+
+        return lines
+
+    def _bim_targets(self, node_id: str, relationship: str) -> list[str]:
+        names: list[str] = []
+        for _, target, edata in self.graph.out_edges(node_id, data=True):
+            if edata.get("relationship") != relationship:
+                continue
+            t_attrs = self.graph.nodes.get(target, {})
+            name = t_attrs.get("displayName") or t_attrs.get("name") or target[:8]
+            names.append(str(name))
+        return names
+
+    @staticmethod
+    def _format_limited_names(names: list[str], limit: int = 3) -> str:
+        shown = names[:limit]
+        suffix = f", +{len(names) - limit} more" if len(names) > limit else ""
+        return ", ".join(shown) + suffix
 
     # ================================================================
     # Graph Algorithms
@@ -458,6 +523,12 @@ class SceneGraphAnalytics:
 # ================================================================
 # Helpers
 # ================================================================
+
+_COMPACT_BIM_RELATIONSHIPS = frozenset({
+    "revit_hosted_by",
+    "revit_in_room",
+    "revit_on_level",
+})
 
 _INVERSE_RELS = {
     "contains": "within",
