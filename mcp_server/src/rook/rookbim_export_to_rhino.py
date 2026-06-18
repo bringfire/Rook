@@ -199,6 +199,17 @@ async def export_preset_to_rhino(
     request, effective_output = build_export_request(arguments, now=now)
     port = arguments.get("port")
 
+    try:
+        Path(str(effective_output["directory"])).mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        return stage_failure(
+            "export",
+            "output_directory_failed",
+            f"Failed to create RookBIM export output directory: {exc}",
+            partial_success=False,
+            export={"request": request},
+        )
+
     export_response = await call_rhino_fn("/bim/export-preset", "POST", request, port=port)
     export_block = {"request": request, "response": export_response}
     if not _is_success(export_response):
@@ -251,6 +262,7 @@ async def export_preset_to_rhino(
                 include_rooms=arguments.get("includeRooms", True),
                 include_levels=arguments.get("includeLevels", True),
                 port=port,
+                hydrate_all_scene_when_scoped=False,
             )
         except projection_exception_types as exc:
             return stage_failure(

@@ -1,4 +1,5 @@
 import datetime as dt
+from pathlib import Path
 
 import pytest
 
@@ -134,6 +135,68 @@ def test_build_export_request_preserves_camel_case_fields(monkeypatch, tmp_path)
     assert "relationshipSummary" not in request
     assert "targetLayer" not in request
     assert "port" not in request
+
+
+@pytest.mark.asyncio
+async def test_workflow_creates_default_output_directory_before_export(monkeypatch, tmp_path):
+    monkeypatch.setenv("TEMP", str(tmp_path))
+    export_directory_seen = None
+
+    async def fake_call_rhino(path, method="GET", payload=None, *, port=None):
+        nonlocal export_directory_seen
+        if path == "/bim/export-preset":
+            export_directory_seen = Path(payload["output"]["directory"])
+            assert export_directory_seen.is_dir()
+            return {"success": True, "data": {}}
+        if path == "/import":
+            return {"success": True, "data": {"importedIds": ["rh-1"]}}
+        raise AssertionError(path)
+
+    async def fake_project(**kwargs):
+        return {"success": True}
+
+    result = await workflow.export_preset_to_rhino(
+        {"preset": "openings_and_hosts"},
+        call_rhino_fn=fake_call_rhino,
+        project_relationships_fn=fake_project,
+        query_bim_facts_fn=lambda **kwargs: {"success": True},
+        now=dt.datetime(2026, 6, 18, 9, 4, 5),
+    )
+
+    assert result["success"] is True
+    assert export_directory_seen == tmp_path / "rookbim-export-to-rhino"
+
+
+@pytest.mark.asyncio
+async def test_workflow_output_directory_create_failure_returns_export_failure(tmp_path):
+    output_file = tmp_path / "not-a-directory"
+    output_file.write_text("collision", encoding="utf-8")
+    calls = []
+
+    async def fake_call_rhino(path, method="GET", payload=None, *, port=None):
+        calls.append(path)
+        return {"success": True}
+
+    async def fake_project(**kwargs):
+        raise AssertionError("projection should not run")
+
+    result = await workflow.export_preset_to_rhino(
+        {
+            "preset": "openings_and_hosts",
+            "output": {"directory": str(output_file), "name": "model"},
+        },
+        call_rhino_fn=fake_call_rhino,
+        project_relationships_fn=fake_project,
+        query_bim_facts_fn=lambda **kwargs: {"success": True},
+    )
+
+    assert result["success"] is False
+    assert result["partialSuccess"] is False
+    assert result["stage"] == "export"
+    assert result["error"] == "output_directory_failed"
+    assert "output directory" in result["message"]
+    assert result["export"]["request"]["output"]["directory"] == str(output_file)
+    assert calls == []
 
 
 def test_helpers_accept_positional_now(monkeypatch, tmp_path):
@@ -276,6 +339,7 @@ async def test_workflow_calls_export_import_projection_and_scene_wide_facts(tmp_
             "include_rooms": True,
             "include_levels": False,
             "port": 9876,
+            "hydrate_all_scene_when_scoped": False,
         },
     )
     assert calls[3] == ("facts", {"mode": "relationship_scan", "sample_limit": 7})
@@ -491,6 +555,7 @@ async def test_workflow_relationship_summary_false_skips_bim_facts(tmp_path):
             "include_rooms": True,
             "include_levels": True,
             "port": None,
+            "hydrate_all_scene_when_scoped": False,
         }
     ]
     assert fact_calls == []
