@@ -238,6 +238,25 @@
         // TOOL CARDS (Phase 2)
         // ═══════════════════════════════════════════════════════════
 
+        function formatToolValue(value) {
+            var text = '';
+            if (value === null || value === undefined) {
+                text = 'null';
+            } else if (typeof value === 'string') {
+                text = value;
+            } else if (typeof value === 'number' || typeof value === 'boolean') {
+                text = String(value);
+            } else {
+                try {
+                    text = JSON.stringify(value);
+                } catch (e) {
+                    text = String(value);
+                }
+            }
+            if (text.length > 80) text = text.substring(0, 77) + '...';
+            return text;
+        }
+
         function renderToolCard(toolName, params, toolCallId) {
             // Finalize any in-progress streaming message first
             finalizeStreamingMessage();
@@ -251,9 +270,9 @@
                 var keys = Object.keys(params);
                 var parts = [];
                 for (var i = 0; i < Math.min(keys.length, 3); i++) {
-                    var val = params[keys[i]];
-                    if (typeof val === 'string' && val.length > 30) val = val.substring(0, 30) + '...';
-                    parts.push(keys[i] + ': ' + val);
+                    var key = keys[i];
+                    var formattedValue = formatToolValue(params[key]);
+                    parts.push(key + ': ' + formattedValue);
                 }
                 paramsText = parts.join(', ');
                 if (keys.length > 3) paramsText += ' ...';
@@ -278,7 +297,7 @@
             return cardId;
         }
 
-        function finalizeToolCard(toolCallId, verified, verificationNote, summary) {
+        function finalizeToolCard(toolCallId, verified, verificationNote, summary, toolStatus) {
             // Match by unique tool_call_id for precise card targeting
             var card = null;
             if (toolCallId) {
@@ -292,7 +311,16 @@
             if (!card) return;
 
             var state, badgeClass, badgeIcon;
-            if (verified === true) {
+            // data-state="failed" is used for application-level tool failures.
+            if (toolStatus === 'failed') {
+                state = 'failed';
+                badgeClass = 'failed';
+                badgeIcon = '!';
+            } else if (toolStatus === 'warning') {
+                state = 'done-unverified';
+                badgeClass = 'unverified';
+                badgeIcon = '!';
+            } else if (verified === true) {
                 state = 'done-verified';
                 badgeClass = 'verified';
                 badgeIcon = '\u2713';
@@ -300,11 +328,15 @@
                 state = 'done-unverified';
                 badgeClass = 'unverified';
                 badgeIcon = '!';
+            } else if (toolStatus === 'success') {
+                state = 'done-success';
+                badgeClass = 'success';
+                badgeIcon = '\u2713';
             } else {
                 // No verification info — treat as neutral done
-                state = 'done-verified';
-                badgeClass = 'verified';
-                badgeIcon = '\u2713';
+                state = 'done-unverified';
+                badgeClass = 'unverified';
+                badgeIcon = '\u00b7';
             }
 
             card.setAttribute('data-state', state);

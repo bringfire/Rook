@@ -492,10 +492,12 @@ body {
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .tool-card[data-state="done-verified"] { border-left: 2px solid var(--success); }
+.tool-card[data-state="done-success"] { border-left: 2px solid var(--success); }
 .tool-card[data-state="done-unverified"] { border-left: 2px solid var(--warning); }
 .tool-card[data-state="failed"] { border-left: 2px solid var(--error); }
 
 .tool-card[data-state="done-verified"] .tool-card-spinner,
+.tool-card[data-state="done-success"] .tool-card-spinner,
 .tool-card[data-state="done-unverified"] .tool-card-spinner,
 .tool-card[data-state="failed"] .tool-card-spinner { display: none; }
 
@@ -518,6 +520,11 @@ body {
 }
 
 .verification-badge.verified {
+    background: rgba(var(--success-rgb), 0.15);
+    color: var(--success);
+}
+
+.verification-badge.success {
     background: rgba(var(--success-rgb), 0.15);
     color: var(--success);
 }

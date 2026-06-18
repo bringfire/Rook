@@ -123,6 +123,9 @@ namespace Rook.UI.Chat
 
         [JsonPropertyName("verification_note")]
         public string? VerificationNote { get; set; }
+
+        [JsonPropertyName("tool_status")]
+        public string? ToolStatus { get; set; }
     }
 
     /// <summary>

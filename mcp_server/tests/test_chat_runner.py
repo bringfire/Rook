@@ -101,6 +101,58 @@ def _make_tool_response(tool_name, tool_args, tool_call_id="call_123",
     return _gen()
 
 
+def _make_two_tool_response():
+    async def _gen():
+        chunk = MagicMock()
+        chunk.choices = [MagicMock()]
+        chunk.choices[0].delta.content = None
+        calls = []
+        for idx, name, call_id, args in [
+            (0, "request_tools", "call_request", {"group": "gh_canvas"}),
+            (1, "gh_errors", "call_errors", {}),
+        ]:
+            tc_delta = MagicMock()
+            tc_delta.index = idx
+            tc_delta.id = call_id
+            tc_delta.function.name = name
+            tc_delta.function.arguments = json.dumps(args)
+            calls.append(tc_delta)
+        chunk.choices[0].delta.tool_calls = calls
+        chunk.usage = None
+        yield chunk
+
+        final = MagicMock()
+        final.choices = []
+        final.usage = MagicMock(prompt_tokens=10, completion_tokens=5)
+        yield final
+    return _gen()
+
+
+def _make_two_tool_response_reusing_stream_index():
+    async def _gen():
+        for name, call_id, args in [
+            ("request_tools", "call_request", {"group": "gh_canvas"}),
+            ("gh_errors", "call_errors", {}),
+        ]:
+            chunk = MagicMock()
+            chunk.choices = [MagicMock()]
+            chunk.choices[0].delta.content = None
+            tc_delta = MagicMock()
+            tc_delta.index = 0
+            tc_delta.id = call_id
+            tc_delta.function.name = name
+            tc_delta.function.arguments = json.dumps(args)
+            chunk.choices[0].delta.tool_calls = [tc_delta]
+            chunk.usage = None
+            yield chunk
+
+        final = MagicMock()
+        final.choices = []
+        final.usage = MagicMock(prompt_tokens=10, completion_tokens=5)
+        yield final
+    return _gen()
+
+
 def test_chat_event_creation():
     event = ChatEvent("text_delta", content="hello")
     assert event.type == "text_delta"
@@ -200,6 +252,103 @@ async def test_run_turn_tool_dispatch_roundtrip(conversation):
 
 
 @pytest.mark.asyncio
+async def test_run_turn_emits_distinct_tool_start_names_for_multiple_tool_calls(conversation):
+    mock_executor = AsyncMock(return_value={"success": True})
+    registry = _make_minimal_registry()
+    registry._catalog["gh_errors"] = {
+        "type": "function",
+        "function": {
+            "name": "gh_errors",
+            "description": "GH errors",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    }
+    registry._active.add("gh_errors")
+    runner = ChatRunner(tool_executor=mock_executor, registry=registry)
+
+    text_response = _make_text_response("Checked.")
+    call_count = 0
+
+    async def mock_acompletion(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        return _make_two_tool_response() if call_count == 1 else text_response
+
+    events = []
+    with patch("litellm.acompletion", side_effect=mock_acompletion), _runtime_facts_patch():
+        async for event in runner.run_turn(conversation, "check gh", system_prompt="test"):
+            events.append(event)
+
+    starts = [e for e in events if e.type == "tool_start"]
+    assert [e.name for e in starts[:2]] == ["request_tools", "gh_errors"]
+
+
+@pytest.mark.asyncio
+async def test_run_turn_keeps_sequential_tool_calls_distinct_when_stream_reuses_index(conversation):
+    mock_executor = AsyncMock(return_value={"success": True})
+    registry = _make_minimal_registry()
+    registry._catalog["gh_errors"] = {
+        "type": "function",
+        "function": {
+            "name": "gh_errors",
+            "description": "GH errors",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    }
+    registry._active.add("gh_errors")
+    runner = ChatRunner(tool_executor=mock_executor, registry=registry)
+
+    text_response = _make_text_response("Checked.")
+    call_count = 0
+
+    async def mock_acompletion(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        return _make_two_tool_response_reusing_stream_index() if call_count == 1 else text_response
+
+    events = []
+    with patch("litellm.acompletion", side_effect=mock_acompletion), _runtime_facts_patch():
+        async for event in runner.run_turn(conversation, "check gh", system_prompt="test"):
+            events.append(event)
+
+    starts = [e for e in events if e.type == "tool_start"]
+    assert [e.name for e in starts[:2]] == ["request_tools", "gh_errors"]
+    assert mock_executor.await_args_list[0].args == ("gh_errors", {})
+
+
+@pytest.mark.asyncio
+async def test_tool_result_event_marks_application_failure_separately(conversation):
+    mock_executor = AsyncMock(return_value={
+        "success": False,
+        "error": "Grasshopper is not currently available",
+    })
+    runner = ChatRunner(
+        tool_executor=mock_executor,
+        registry=_make_minimal_registry(),
+    )
+
+    tool_response = _make_tool_response(
+        "rhino_ping", {}, tool_call_id="call_fail"
+    )
+    text_response = _make_text_response("I will ask you to open Grasshopper.")
+    call_count = 0
+
+    async def mock_acompletion(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        return tool_response if call_count == 1 else text_response
+
+    events = []
+    with patch("litellm.acompletion", side_effect=mock_acompletion), _runtime_facts_patch():
+        async for event in runner.run_turn(conversation, "make a script", system_prompt="test"):
+            events.append(event)
+
+    result = next(e for e in events if e.type == "tool_result")
+    assert result.tool_status == "failed"
+    assert result.verified is None
+
+
+@pytest.mark.asyncio
 async def test_run_turn_max_rounds_guard(conversation):
     """Verify the runaway loop guard triggers after MAX_TOOL_ROUNDS."""
     mock_executor = AsyncMock(return_value={"ok": True})
@@ -276,6 +425,40 @@ async def test_meta_tool_request_tools(conversation):
     result_data = json.loads(result_events[0].result)
     assert result_data["success"] is True
     assert "gh_canvas" in result_data.get("group", "")
+
+
+def test_request_tools_reports_already_loaded_group():
+    catalog = {
+        "gh_status": {
+            "type": "function",
+            "function": {
+                "name": "gh_status",
+                "description": "GH status",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        },
+        "gh_errors": {
+            "type": "function",
+            "function": {
+                "name": "gh_errors",
+                "description": "GH errors",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        },
+    }
+    registry = ToolRegistry(catalog=catalog, agent_mode=True)
+    runner = ChatRunner(tool_executor=AsyncMock(), registry=registry)
+
+    first = runner._handle_meta_tool("request_tools", {"group": "gh_canvas"})
+    second = runner._handle_meta_tool("request_tools", {"group": "gh_canvas"})
+
+    assert first["success"] is True
+    assert first["status"] == "loaded"
+    assert second["success"] is True
+    assert second["status"] == "already_loaded"
+    assert second["loaded"] == []
+    assert "already loaded" in second["message"].lower()
+    assert "call the needed Grasshopper tool" in second["next_action"]
 
 
 @pytest.mark.asyncio
@@ -600,11 +783,15 @@ async def test_run_turn_verification_hoisting_on_error(conversation):
         async for event in runner.run_turn(conversation, "fail", system_prompt="test"):
             events.append(event)
 
-    # Should not crash; result should have Error prefix
+    # Should not crash; dispatch exceptions become structured failed results.
     result_events = [e for e in events if e.type == "tool_result"]
     assert len(result_events) == 1
-    assert "Error" in result_events[0].result
-    # Verification fields should be None (no dict to hoist from)
+    assert json.loads(result_events[0].result) == {
+        "success": False,
+        "error": "Bridge timeout",
+    }
+    assert result_events[0].tool_status == "failed"
+    # Verification fields should stay separate from application failure.
     assert result_events[0].verified is None
     assert result_events[0].verification_note is None
 

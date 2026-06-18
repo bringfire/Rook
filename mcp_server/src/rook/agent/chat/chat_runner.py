@@ -100,6 +100,24 @@ def _patch_orphaned_tool_calls(messages: List[Dict[str, Any]]) -> int:
     return patched
 
 
+def _classify_tool_status(result: Any) -> Optional[str]:
+    if not isinstance(result, dict):
+        return None
+    for key in ("success", "ok"):
+        value = result.get(key)
+        if isinstance(value, bool):
+            return "success" if value else "failed"
+    data = result.get("data")
+    if isinstance(data, dict):
+        for key in ("success", "ok"):
+            value = data.get(key)
+            if isinstance(value, bool):
+                return "success" if value else "failed"
+    if result.get("error"):
+        return "failed"
+    return None
+
+
 @dataclass
 class ChatEvent:
     """A streaming event emitted during a conversation turn."""
@@ -118,6 +136,7 @@ class ChatEvent:
     block_config: Optional[Dict] = None
     verified: Optional[bool] = None
     verification_note: Optional[str] = None
+    tool_status: Optional[str] = None
 
     def to_dict(self) -> dict:
         d = {"type": self.type}
@@ -147,6 +166,8 @@ class ChatEvent:
             d["verified"] = self.verified
         if self.verification_note is not None:
             d["verification_note"] = self.verification_note
+        if self.tool_status is not None:
+            d["tool_status"] = self.tool_status
         return d
 
 
@@ -251,6 +272,9 @@ def _build_fallback_catalog() -> Dict[str, dict]:
         )
 
     for tool_name, desc in all_tools.items():
+        if tool_name == "gh_errors":
+            catalog[tool_name] = _GH_ERRORS_SCHEMA
+            continue
         catalog[tool_name] = {
             "type": "function",
             "function": {
@@ -330,6 +354,22 @@ _CHAT_MODEL_TOOL_SCHEMAS: Dict[str, dict] = {
     "set_chat_model": _SET_CHAT_MODEL_SCHEMA,
 }
 
+_GH_ERRORS_SCHEMA: dict = {
+    "type": "function",
+    "function": {
+        "name": "gh_errors",
+        "description": (
+            _TOOL_DESCRIPTIONS["gh_errors"]
+            + " Takes no arguments; call it after create/update tools to inspect the canvas."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+    },
+}
+
 _GH_UPDATE_SCRIPT_SCHEMA: dict = {
     "type": "function",
     "function": {
@@ -402,17 +442,41 @@ _GH_SCRIPT_PIN_ARRAY_SCHEMA: dict = {
 }
 
 
+_GH_CSHARP_SCRIPT_CONTRACT = (
+    "C# mode creates a RhinoCode C# Script component, not a Grasshopper plugin "
+    "component. Prefer body-only RunScript code; the tool wraps it in "
+    "Script_Instance boilerplate. Do not provide a GH_Component subclass. "
+    "Only provide full source when it is a Script_Instance : GH_ScriptInstance "
+    "class or contains void RunScript. Assign outputs directly by output pin "
+    "name, e.g. B = box.ToBrep(). After creating or updating a script, call "
+    "gh_errors when verification is requested. If gh_errors reports script "
+    "errors and gh_update_script is available, fix the existing component with "
+    "gh_update_script; do not just paste corrected code into chat."
+)
+
+_GH_CSHARP_CODE_DESCRIPTION = (
+    "C# source for RhinoCode C# Script. Prefer body-only RunScript code. "
+    "Do not send a GH_Component subclass. Full-source mode must be "
+    "Script_Instance : GH_ScriptInstance or contain void RunScript."
+)
+
+
 def _gh_create_script_schema(
     name: str,
     description: str,
     *,
     required: list[str],
     include_language: bool,
+    code_description: str | None = None,
+    extra_description: str | None = None,
+    pins_out_description: str | None = None,
 ) -> dict:
+    if extra_description:
+        description = f"{description}\n\n{extra_description}"
     properties: dict = {
         "code": {
             "type": "string",
-            "description": "Script source code for the script component.",
+            "description": code_description or "Script source code for the script component.",
         },
         "pins_in": {
             **_GH_SCRIPT_PIN_ARRAY_SCHEMA,
@@ -420,7 +484,8 @@ def _gh_create_script_schema(
         },
         "pins_out": {
             **_GH_SCRIPT_PIN_ARRAY_SCHEMA,
-            "description": 'Output pin definitions as "Name:Type" strings or pin objects.',
+            "description": pins_out_description
+            or 'Output pin definitions as "Name:Type" strings or pin objects.',
         },
         "name": {
             "type": "string",
@@ -467,6 +532,17 @@ _GH_CREATE_SCRIPT_SCHEMA: dict = _gh_create_script_schema(
     ),
     required=["language", "code"],
     include_language=True,
+    code_description=(
+        'Script source code. For language="csharp": '
+        + _GH_CSHARP_CODE_DESCRIPTION
+    ),
+    extra_description=(
+        'When language="csharp": ' + _GH_CSHARP_SCRIPT_CONTRACT
+    ),
+    pins_out_description=(
+        'Output pin definitions as "Name:Type" strings or pin objects. '
+        'For one Brep box output, use ["B:Brep"].'
+    ),
 )
 
 _GH_CREATE_PYTHON_SCRIPT_SCHEMA: dict = _gh_create_script_schema(
@@ -487,6 +563,12 @@ _GH_CREATE_CSHARP_SCRIPT_SCHEMA: dict = _gh_create_script_schema(
     ),
     required=["code", "pins_in", "pins_out"],
     include_language=False,
+    code_description=_GH_CSHARP_CODE_DESCRIPTION,
+    extra_description=_GH_CSHARP_SCRIPT_CONTRACT,
+    pins_out_description=(
+        'Output pin definitions as "Name:Type" strings or pin objects, '
+        'e.g. ["B:Brep"] for one box Brep output.'
+    ),
 )
 
 _GH_CREATE_SCRIPT_SCHEMAS: Dict[str, dict] = {
@@ -804,7 +886,8 @@ class ChatRunner:
 
                 # Stream from LLM — emit text tokens as they arrive, accumulate tool calls
                 text_parts: List[str] = []
-                tool_calls_acc: Dict[int, Dict[str, str]] = {}  # index -> {id, name, arguments}
+                tool_calls_acc: List[Dict[str, str]] = []
+                tool_call_slot_by_index: Dict[int, int] = {}
 
                 try:
                     llm_kwargs = dict(
@@ -839,15 +922,27 @@ class ChatRunner:
                         if delta.tool_calls:
                             for tc_delta in delta.tool_calls:
                                 idx = tc_delta.index
-                                if idx not in tool_calls_acc:
-                                    tool_calls_acc[idx] = {"id": "", "name": "", "arguments": ""}
+                                slot = tool_call_slot_by_index.get(idx)
+                                incoming_id = tc_delta.id or ""
+                                if (
+                                    slot is None
+                                    or (
+                                        incoming_id
+                                        and tool_calls_acc[slot]["id"]
+                                        and incoming_id != tool_calls_acc[slot]["id"]
+                                    )
+                                ):
+                                    tool_calls_acc.append({"id": "", "name": "", "arguments": ""})
+                                    slot = len(tool_calls_acc) - 1
+                                    tool_call_slot_by_index[idx] = slot
+                                acc = tool_calls_acc[slot]
                                 if tc_delta.id:
-                                    tool_calls_acc[idx]["id"] = tc_delta.id
+                                    acc["id"] = tc_delta.id
                                 if tc_delta.function:
                                     if tc_delta.function.name:
-                                        tool_calls_acc[idx]["name"] += tc_delta.function.name
+                                        acc["name"] += tc_delta.function.name
                                     if tc_delta.function.arguments:
-                                        tool_calls_acc[idx]["arguments"] += tc_delta.function.arguments
+                                        acc["arguments"] += tc_delta.function.arguments
 
                         if hasattr(chunk, "usage") and chunk.usage:
                             total_input += getattr(chunk.usage, "prompt_tokens", 0)
@@ -860,7 +955,7 @@ class ChatRunner:
 
                 # Reconstruct complete assistant message from accumulated stream
                 full_text = "".join(text_parts)
-                tool_calls_list = [tool_calls_acc[i] for i in sorted(tool_calls_acc.keys())]
+                tool_calls_list = tool_calls_acc
 
                 assistant_msg: Dict[str, Any] = {"role": "assistant"}
                 if full_text:
@@ -949,6 +1044,7 @@ class ChatRunner:
                             name=tool_name,
                             result=result_str,
                             tool_call_id=tc.id,
+                            tool_status=_classify_tool_status(result),
                         )
 
                         if tool_name == "set_chat_model" and result.get("success"):
@@ -993,7 +1089,8 @@ class ChatRunner:
                                             _persist_exc,
                                         )
                         except Exception as e:
-                            result_str = f"Error: {e}"
+                            result = {"success": False, "error": str(e)}
+                            result_str = json.dumps(result)
                         tools_used.add(tool_name)
 
                     # Hoist verification fields onto the event for frontend rendering
@@ -1010,6 +1107,7 @@ class ChatRunner:
                                 _verification_note = result_data.get("verification_note")
                                 if _verification_note is None and result_data.get("verified") is False:
                                     _verification_note = result_data.get("message")
+                    _tool_status = _classify_tool_status(result)
 
                     # Commit the completed result before yielding it. If the
                     # client disconnects while the event is being written, the
@@ -1028,6 +1126,7 @@ class ChatRunner:
                         tool_call_id=tc.id,
                         verified=_verified,
                         verification_note=_verification_note,
+                        tool_status=_tool_status,
                     )
 
                 # Track consecutive meta-only rounds (tool discovery loops)
@@ -1102,7 +1201,27 @@ class ChatRunner:
     def _handle_meta_tool(self, name: str, params: dict) -> dict:
         """Handle request_tools and search_tools internally."""
         if name == "request_tools":
-            return self._registry.request_group(params.get("group", ""))
+            group = params.get("group", "")
+            result = self._registry.request_group(group)
+            if result.get("success"):
+                loaded = result.get("loaded") or []
+                already_active = result.get("already_active") or []
+                if loaded:
+                    result["status"] = "loaded"
+                    result["message"] = (
+                        f"Loaded {len(loaded)} tool(s) from {group}. "
+                        "Call the needed tool directly next."
+                    )
+                elif already_active:
+                    result["status"] = "already_loaded"
+                    result["message"] = (
+                        f"{group} is already loaded; no new tools were added."
+                    )
+                    result["next_action"] = "call the needed Grasshopper tool directly."
+                else:
+                    result["status"] = "empty"
+                    result["message"] = f"No tools were loaded for {group}."
+            return result
         if name == "search_tools":
             return self._registry.search(
                 params.get("query", ""),

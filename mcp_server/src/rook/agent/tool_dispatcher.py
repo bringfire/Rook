@@ -52,6 +52,11 @@ GH_READINESS_HOIST_TOOLS: frozenset[str] = frozenset({
 })
 
 
+STRICT_NO_ARGUMENT_BRIDGE_TOOLS: frozenset[str] = frozenset({
+    "gh_errors",
+})
+
+
 _DEPRECATED_INTERACTIVE_COMMAND_TOOLS: frozenset[str] = frozenset({
     "rhino_command_experiment",
     "rhino_command_interactive_start",
@@ -775,12 +780,31 @@ async def _local_gh_update_script(port: int | None = None, **kwargs) -> dict:
     return await _execute_gh_update_script(kwargs, port)
 
 
+def _normalize_gh_create_script_kwargs(kwargs: dict) -> dict:
+    """Tolerate common local-model argument aliases before strict execution."""
+    normalized = dict(kwargs)
+    nested_params = normalized.pop("params", None)
+    if isinstance(nested_params, dict):
+        for key, value in nested_params.items():
+            normalized.setdefault(key, value)
+
+    if not normalized.get("code"):
+        for alias in ("source", "script", "script_content"):
+            value = normalized.get(alias)
+            if value:
+                normalized["code"] = value
+                break
+
+    return normalized
+
+
 async def _local_gh_create_script(port: int | None = None, **kwargs) -> dict:
     from ..server import _execute_gh_create_script
 
+    normalized = _normalize_gh_create_script_kwargs(kwargs)
     return await _execute_gh_create_script(
-        kwargs.get("language"),
-        kwargs,
+        normalized.get("language"),
+        normalized,
         port,
         tool_name="gh_create_script",
     )
@@ -789,9 +813,10 @@ async def _local_gh_create_script(port: int | None = None, **kwargs) -> dict:
 async def _local_gh_create_python_script(port: int | None = None, **kwargs) -> dict:
     from ..server import _execute_gh_create_script
 
+    normalized = _normalize_gh_create_script_kwargs(kwargs)
     return await _execute_gh_create_script(
         "python",
-        kwargs,
+        normalized,
         port,
         tool_name="gh_create_python_script",
     )
@@ -800,9 +825,10 @@ async def _local_gh_create_python_script(port: int | None = None, **kwargs) -> d
 async def _local_gh_create_csharp_script(port: int | None = None, **kwargs) -> dict:
     from ..server import _execute_gh_create_script
 
+    normalized = _normalize_gh_create_script_kwargs(kwargs)
     return await _execute_gh_create_script(
         "csharp",
-        kwargs,
+        normalized,
         port,
         tool_name="gh_create_csharp_script",
     )
@@ -1768,6 +1794,21 @@ class ToolDispatcher:
         # --- Tier 3: Simple bridge passthrough ---
         if name in BRIDGE_ROUTES:
             endpoint, method = BRIDGE_ROUTES[name]
+            if name in STRICT_NO_ARGUMENT_BRIDGE_TOOLS and params:
+                return {
+                    "success": False,
+                    "error": "unexpected_arguments",
+                    "message": (
+                        f"{name} does not accept arguments. To create a C# "
+                        "script component, call gh_create_csharp_script or "
+                        "gh_create_script with language='csharp'."
+                    ),
+                    "data": {
+                        "error": "unexpected_arguments",
+                        "unexpected": sorted(params.keys()),
+                    },
+                    "_pre_dispatch_failure": True,
+                }
             data = params if params else None
             result = await call_rhino(endpoint, method, data, port)
             if name == "gh_status":

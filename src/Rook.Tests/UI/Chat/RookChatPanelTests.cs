@@ -1,5 +1,7 @@
 using System;
 using System.IO;
+using System.Reflection;
+using Rook.UI.Chat;
 using Xunit;
 
 namespace Rook.Tests.UI.Chat
@@ -124,6 +126,97 @@ namespace Rook.Tests.UI.Chat
             Assert.Contains("File.Delete", source);
         }
 
+        [Fact]
+        public void AgentChatClient_ChatEvent_ExposesToolStatusSeparatelyFromVerification()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Chat", "AgentChatClient.cs");
+
+            Assert.Contains("public string? ToolStatus { get; set; }", source);
+            Assert.Contains("[JsonPropertyName(\"tool_status\")]", source);
+            Assert.Contains("public bool? Verified { get; set; }", source);
+        }
+
+        [Fact]
+        public void AgentChatTab_ToolResult_PassesToolStatusToWebView()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Chat", "AgentChatTab.cs");
+
+            Assert.Contains("evt.ToolStatus", source);
+            Assert.Contains("finalizeToolCard(", source);
+            Assert.Contains("BuildToolSummary(evt)", source);
+            Assert.DoesNotContain("success.GetBoolean() ? \"Success\" : \"Failed\"", source);
+        }
+
+        [Fact]
+        public void AgentChatTab_ToolSummary_PrefersSuccessfulMessageBeforeGenericSuccess()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Chat", "AgentChatTab.cs");
+
+            var messageIndex = source.IndexOf(
+                "TryReadToolSummaryString(root, \"message\", out var successMessage)",
+                StringComparison.Ordinal);
+            var statusIndex = source.IndexOf(
+                "TryReadToolSummaryString(root, \"status\", out var successStatus)",
+                StringComparison.Ordinal);
+            var fallbackIndex = source.IndexOf("return \"Success\";", StringComparison.Ordinal);
+
+            Assert.True(messageIndex >= 0, "Successful tool summaries should surface root message.");
+            Assert.True(statusIndex >= 0, "Successful tool summaries should surface root status.");
+            Assert.True(messageIndex < fallbackIndex, "Message should be checked before generic Success.");
+            Assert.True(statusIndex < fallbackIndex, "Status should be checked before generic Success.");
+        }
+
+        [Fact]
+        public void AgentChatTab_ToolSummary_FailedToolNeverShowsDone()
+        {
+            var summary = InvokeBuildToolSummary(new ChatEvent
+            {
+                Type = "tool_result",
+                ToolStatus = "failed"
+            });
+
+            Assert.Equal("Failed", summary);
+        }
+
+        [Fact]
+        public void AgentChatTab_TerminalEventsHideTypingIndicator()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Chat", "AgentChatTab.cs");
+
+            var doneIndex = source.IndexOf("case \"done\":", StringComparison.Ordinal);
+            var errorIndex = source.IndexOf("case \"error\":", StringComparison.Ordinal);
+            var doneHideIndex = source.IndexOf("ShowTypingIndicator(false);", doneIndex, StringComparison.Ordinal);
+            var errorHideIndex = source.IndexOf("ShowTypingIndicator(false);", errorIndex, StringComparison.Ordinal);
+            var doneSetProcessingIndex = source.IndexOf("SetProcessing(false);", doneIndex, StringComparison.Ordinal);
+            var errorSetProcessingIndex = source.IndexOf("SetProcessing(false);", errorIndex, StringComparison.Ordinal);
+
+            Assert.True(doneIndex >= 0, "The done event branch should exist.");
+            Assert.True(errorIndex >= 0, "The error event branch should exist.");
+            Assert.True(doneHideIndex >= 0, "Done events should clear the typing indicator.");
+            Assert.True(errorHideIndex >= 0, "Error events should clear the typing indicator.");
+            Assert.True(doneHideIndex < doneSetProcessingIndex, "Done should clear typing before returning to idle.");
+            Assert.True(errorHideIndex < errorSetProcessingIndex, "Error should clear typing before returning to idle.");
+        }
+
+        [Fact]
+        public void ChatWebView_ToolCards_RenderStructuredParamsAndToolStatus()
+        {
+            var html = ReadSourceFile("src", "Rook", "UI", "Chat", "Resources", "chat.html");
+            var css = ReadSourceFile("src", "Rook", "UI", "Chat", "Resources", "chat.css");
+
+            Assert.Contains("formatToolValue", html);
+            Assert.Contains("JSON.stringify", html);
+            Assert.Contains("toolStatus", html);
+            Assert.Contains("data-state=\"failed\"", html);
+            Assert.Contains("done-success", html);
+            Assert.Contains("badgeClass = 'success'", html);
+            Assert.Contains(".verification-badge.success", css);
+            Assert.DoesNotContain("parts.push(keys[i] + ': ' + val);", html);
+            Assert.DoesNotContain(
+                "toolStatus === 'success') {\r\n                state = 'done-verified'",
+                html);
+        }
+
         private static string ReadSourceFile(params string[] pathParts)
         {
             var dir = new DirectoryInfo(AppContext.BaseDirectory);
@@ -137,6 +230,16 @@ namespace Rook.Tests.UI.Chat
 
             throw new FileNotFoundException(
                 "Could not locate source file " + string.Join("/", pathParts));
+        }
+
+        private static string InvokeBuildToolSummary(ChatEvent evt)
+        {
+            var method = typeof(AgentChatTab).GetMethod(
+                "BuildToolSummary",
+                BindingFlags.NonPublic | BindingFlags.Static);
+
+            Assert.NotNull(method);
+            return Assert.IsType<string>(method!.Invoke(null, new object[] { evt }));
         }
     }
 }
