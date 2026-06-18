@@ -362,6 +362,7 @@ function Test-RegisterCompanionAcceptsNet8Runtime {
     Assert-Contains -Text $content -Expected '$tfm -eq ''net8.0''' -Message 'Companion registration must accept net8.0 runtime metadata.'
     Assert-Contains -Text $content -Expected '$tfm -eq ''net7.0''' -Message 'Companion registration must retain net7.0 runtime metadata support.'
     Assert-Contains -Text $content -Expected '$tfm -eq ''net48''' -Message 'Companion registration must keep explicit net48 runtime metadata rejection.'
+    Assert-Contains -Text $content -Expected '$UnsupportedNet48CompanionMessage = ''net48 Rook companion builds are not supported; use net8.0 Rook.rhp. net7.0 is accepted as fallback.''' -Message 'Companion registration net48 guidance must prefer net8.0 and describe net7.0 as fallback only.'
     Assert-Contains -Text $content -Expected '$UnsupportedNet48CompanionMessage' -Message 'Companion registration must keep the net48-specific rejection path.'
     Assert-Contains -Text $content -Expected 'Join-Path $NativeDir ''net8.0\Rook.rhp''' -Message 'Companion registration must discover installed net8.0 payloads beside RookNative.'
     Assert-Contains -Text $content -Expected 'Join-Path $NativeDir ''net7.0\Rook.rhp''' -Message 'Companion registration must preserve installed net7.0 fallback discovery beside RookNative.'
