@@ -282,3 +282,100 @@ async def test_csharp_script_creation_can_run_first_round_without_request_tools(
     assert tool_result_events[1].tool_status == "success"
     assert conv.messages[-1]["role"] == "assistant"
     assert "0 errors" in conv.messages[-1]["content"]
+
+
+@pytest.mark.asyncio
+async def test_gh_update_script_compile_errors_emit_failed_status_with_guid():
+    tool_results = {
+        "gh_update_script": {
+            "success": False,
+            "message": "Source was written, but the target script component still has compile errors.",
+            "data": {
+                "message": "Source was written, but the target script component still has compile errors.",
+                "guid": "script-guid",
+                "component_errors": ["The name Boxx does not exist"],
+                "component_warnings": [],
+                "canvas_error_count": 1,
+                "canvas_warning_count": 0,
+                "recovery_hint": "Current inputs are (none); outputs are B.",
+            },
+        },
+    }
+
+    async def executor(name, params):
+        return tool_results[name]
+
+    runner = ChatRunner(tool_executor=executor)
+    responses = [
+        _tool_stream(
+            _ToolCall(
+                "call_update",
+                "gh_update_script",
+                {
+                    "guid": "script-guid",
+                    "code": "B = Boxx;",
+                    "mode": "body",
+                },
+            )
+        ),
+        _text_stream("The update still has compile errors, so I need to repair script-guid."),
+    ]
+
+    events, conv = await _collect_events(runner, responses)
+
+    update_result = [
+        event for event in events
+        if event.type == "tool_result" and event.name == "gh_update_script"
+    ][0]
+    assert update_result.tool_status == "failed"
+    assert "script-guid" in update_result.result
+    assert "The name Boxx does not exist" in update_result.result
+    assert conv.messages[-1]["role"] == "assistant"
+    assert "repair script-guid" in conv.messages[-1]["content"]
+
+
+@pytest.mark.asyncio
+async def test_gh_create_script_compile_errors_emit_failed_status_with_component_guid():
+    tool_results = {
+        "gh_create_csharp_script": {
+            "success": False,
+            "message": "Component was created, but the target script component has compile errors.",
+            "data": {
+                "message": "Component was created, but the target script component has compile errors.",
+                "component_guid": "created-guid",
+                "name": "Box Maker",
+                "compilation_errors": ["Cannot convert Box to Brep"],
+                "pins_out": [{"name": "B", "type": "Brep", "access": "item"}],
+            },
+        },
+    }
+
+    async def executor(name, params):
+        return tool_results[name]
+
+    runner = ChatRunner(tool_executor=executor)
+    responses = [
+        _tool_stream(
+            _ToolCall(
+                "call_create",
+                "gh_create_csharp_script",
+                {
+                    "code": "B = new Box();",
+                    "pins_in": [],
+                    "pins_out": ["B:Brep"],
+                },
+            )
+        ),
+        _text_stream("The component exists as created-guid, but I need to fix its compile error."),
+    ]
+
+    events, conv = await _collect_events(runner, responses)
+
+    create_result = [
+        event for event in events
+        if event.type == "tool_result" and event.name == "gh_create_csharp_script"
+    ][0]
+    assert create_result.tool_status == "failed"
+    assert "created-guid" in create_result.result
+    assert "Cannot convert Box to Brep" in create_result.result
+    assert "created-guid" in conv.messages[-1]["content"]
