@@ -5,6 +5,8 @@ $RepoRoot = Split-Path -Parent (Split-Path -Parent $TestRoot)
 $DeployScript = Join-Path $RepoRoot 'scripts\deploy-local-testing.ps1'
 $RegisterSuiteScript = Join-Path $RepoRoot 'scripts\register-rooknative-suite.ps1'
 $DeploySkill = Join-Path $RepoRoot '.agents\skills\deploy-local-testing\SKILL.md'
+$DoctorScript = Join-Path $RepoRoot 'scripts\rook-dev-doctor.ps1'
+$AgentSetup = Join-Path $RepoRoot 'AGENT_SETUP.md'
 
 function Assert-True {
     param(
@@ -35,6 +37,77 @@ function Assert-NotContains {
     )
 
     Assert-True -Condition (-not $Text.Contains($Unexpected)) -Message $Message
+}
+
+function Assert-Before {
+    param(
+        [string]$Text,
+        [string]$First,
+        [string]$Second,
+        [string]$Message
+    )
+
+    $firstIndex = $Text.IndexOf($First, [System.StringComparison]::Ordinal)
+    $secondIndex = $Text.IndexOf($Second, [System.StringComparison]::Ordinal)
+    Assert-True -Condition ($firstIndex -ge 0) -Message "Missing first marker for order assertion: $First"
+    Assert-True -Condition ($secondIndex -ge 0) -Message "Missing second marker for order assertion: $Second"
+    Assert-True -Condition ($firstIndex -lt $secondIndex) -Message $Message
+}
+
+function Get-FunctionBodyText {
+    param(
+        [string]$Text,
+        [string]$FunctionName
+    )
+
+    $functionMarker = "function $FunctionName"
+    $functionStart = $Text.IndexOf($functionMarker, [System.StringComparison]::Ordinal)
+    Assert-True -Condition ($functionStart -ge 0) -Message "Missing function marker: $functionMarker"
+
+    $nextFunctionStart = $Text.IndexOf("`nfunction ", $functionStart + $functionMarker.Length, [System.StringComparison]::Ordinal)
+    if ($nextFunctionStart -lt 0) {
+        return $Text.Substring($functionStart)
+    }
+
+    return $Text.Substring($functionStart, $nextFunctionStart - $functionStart)
+}
+
+function Get-TextBeforeNextMarker {
+    param(
+        [string]$Text,
+        [string]$StartMarker,
+        [string]$EndMarker
+    )
+
+    $startIndex = $Text.IndexOf($StartMarker, [System.StringComparison]::Ordinal)
+    Assert-True -Condition ($startIndex -ge 0) -Message "Missing start marker: $StartMarker"
+
+    $endIndex = $Text.IndexOf($EndMarker, $startIndex + $StartMarker.Length, [System.StringComparison]::Ordinal)
+    Assert-True -Condition ($endIndex -ge 0) -Message "Missing end marker after $StartMarker`: $EndMarker"
+
+    return $Text.Substring($startIndex, $endIndex - $startIndex)
+}
+
+function Test-DevDoctorScriptContract {
+    Assert-True -Condition (Test-Path $DoctorScript) -Message 'Dev doctor script must exist at scripts\rook-dev-doctor.ps1.'
+
+    $content = Get-Content -Path $DoctorScript -Raw
+
+    Assert-Contains -Text $content -Expected '[switch]$Strict' -Message 'Dev doctor must expose a -Strict switch.'
+    Assert-Contains -Text $content -Expected 'function Write-CheckResult' -Message 'Dev doctor must report checks through one explicit result helper.'
+    Assert-Contains -Text $content -Expected 'PASS' -Message 'Dev doctor must print PASS statuses.'
+    Assert-Contains -Text $content -Expected 'WARN' -Message 'Dev doctor must print WARN statuses.'
+    Assert-Contains -Text $content -Expected 'FAIL' -Message 'Dev doctor must print FAIL statuses.'
+    Assert-Contains -Text $content -Expected 'OCCT_ROOT' -Message 'Dev doctor must report OCCT_ROOT status.'
+    Assert-Contains -Text $content -Expected 'fallback' -Message 'Dev doctor must report whether the existing hardcoded OCCT fallback would be used.'
+    Assert-Contains -Text $content -Expected 'mcp_server\.venv\Scripts\python.exe' -Message 'Dev doctor must check the repo MCP venv path.'
+    Assert-Contains -Text $content -Expected 'python -m rook' -Message 'Dev doctor must check stale rook MCP processes.'
+    Assert-Contains -Text $content -Expected 'RookChatService.json' -Message 'Dev doctor must report installed chat manifest mode.'
+    Assert-Contains -Text $content -Expected '$ManagedCompanionRuntimes = @(''net8.0'', ''net7.0'', ''net48'')' -Message 'Dev doctor must know the managed runtime child manifest folders.'
+    Assert-Contains -Text $content -Expected 'Chat manifest net8.0' -Message 'Dev doctor must report the net8.0 runtime-child chat manifest.'
+    Assert-NotContains -Text $content -Unexpected 'Set-ItemProperty -Path' -Message 'Dev doctor must not write registry values.'
+    Assert-NotContains -Text $content -Unexpected 'Remove-Item -LiteralPath' -Message 'Dev doctor must not remove files.'
+    Assert-NotContains -Text $content -Unexpected 'New-Item -ItemType Directory' -Message 'Dev doctor must not create directories.'
 }
 
 function Test-DeployScriptSelectsExplicitMsvcToolset {
@@ -152,6 +225,40 @@ function Test-DeployScriptHasExplicitDevRuntimeContract {
     Assert-Contains -Text $content -Expected 'Skipping release post_install.py because an explicit dev runtime was selected.' -Message 'Dev runtime mode must be explicit about bypassing release post_install.'
 }
 
+function Test-DeployScriptCopiesOcctRuntimeClosure {
+    $content = Get-Content -Path $DeployScript -Raw
+
+    Assert-Contains -Text $content -Expected '$OcctFallbackRoot = ''C:\Users\aryan\source\repos\OCCT\build-rook''' -Message 'Local deploy must retain the existing OCCT fallback path without reading vcxproj files.'
+    Assert-Contains -Text $content -Expected '$OcctRuntimeDlls = @(' -Message 'Local deploy must use an explicit OCCT runtime DLL list.'
+    foreach ($dll in @(
+        'TKernel.dll',
+        'TKMath.dll',
+        'TKG2d.dll',
+        'TKG3d.dll',
+        'TKGeomBase.dll',
+        'TKGeomAlgo.dll',
+        'TKBRep.dll',
+        'TKTopAlgo.dll',
+        'TKPrim.dll',
+        'TKBO.dll',
+        'TKShHealing.dll'
+    )) {
+        Assert-Contains -Text $content -Expected "'$dll'" -Message "Local deploy must include measured OCCT runtime DLL $dll."
+    }
+    Assert-NotContains -Text $content -Unexpected "'TKBool.dll'" -Message 'Local deploy must not add linked-but-not-loaded TKBool.dll in PR 1.'
+    Assert-NotContains -Text $content -Unexpected "'TKMesh.dll'" -Message 'Local deploy must not add linked-but-not-loaded TKMesh.dll in PR 1.'
+    Assert-Contains -Text $content -Expected 'function Resolve-OcctRuntimeRoot' -Message 'Local deploy must resolve OCCT root through an explicit helper.'
+    Assert-Contains -Text $content -Expected '$env:OCCT_ROOT' -Message 'Local deploy must prefer OCCT_ROOT.'
+    Assert-Contains -Text $content -Expected '$OcctFallbackRoot' -Message 'Local deploy must fall back to the existing hardcoded OCCT path.'
+    Assert-Contains -Text $content -Expected 'OCCT root source:' -Message 'Local deploy must report whether OCCT_ROOT or fallback was used.'
+    Assert-Contains -Text $content -Expected 'function Copy-OcctRuntimeDlls' -Message 'Local deploy must copy OCCT runtime DLLs through an explicit helper.'
+    Assert-Contains -Text $content -Expected 'Join-Path $resolved.Root ''win64\vc14\bin''' -Message 'Local deploy must copy OCCT DLLs from the resolved runtime bin folder.'
+    Assert-Contains -Text $content -Expected 'Copy-RequiredFile $source (Join-Path $PluginDir $dll)' -Message 'Local deploy must copy OCCT DLLs next to RookNative.rhp.'
+
+    $deployNativePayloadBody = Get-FunctionBodyText -Text $content -FunctionName 'Deploy-NativePayload'
+    Assert-Before -Text $deployNativePayloadBody -First 'Copy-RequiredFile (Join-Path $nativeDir ''RookNative.rhp'')' -Second 'Copy-OcctRuntimeDlls' -Message 'Local deploy must copy RookNative.rhp before copying the OCCT runtime closure inside Deploy-NativePayload.'
+}
+
 function Test-DeployScriptWritesChatManifestToRuntimeChildren {
     $content = Get-Content -Path $DeployScript -Raw
 
@@ -211,9 +318,10 @@ function Test-DeployScriptUsesMultiRuntimeCompanionLayout {
     Assert-Contains -Text $content -Expected 'function Deploy-CompanionRuntimePayload' -Message 'Local deploy must copy companion payloads per runtime child.'
     Assert-Contains -Text $content -Expected 'Copy-RequiredFile (Join-Path $sourceDir ''Rook.runtimeconfig.json'')' -Message 'Local deploy must require .NET Core runtime metadata in runtime-child payloads.'
     Assert-Contains -Text $content -Expected 'Remove-StaleRootCompanionPayload' -Message 'Local deploy must remove stale root-level companion payload files from old installs.'
-    Assert-Contains -Text $content -Expected 'Join-Path $PluginDir ''net7.0\Rook.rhp''' -Message 'Local deploy must register the net7.0 child RHP anchor.'
+    Assert-Contains -Text $content -Expected 'Join-Path $PluginDir ''net8.0\Rook.rhp''' -Message 'Local deploy must register the net8.0 child RHP anchor.'
     Assert-NotContains -Text $content -Unexpected '& dotnet build (Join-Path $RepoRoot ''src\Rook\Rook.csproj'') -f net7.0' -Message 'Local deploy must not build only the net7.0 companion target.'
     Assert-NotContains -Text $content -Unexpected '-CompanionRhpPath (Join-Path $PluginDir ''Rook.rhp'')' -Message 'Local deploy must not register a root-level companion RHP.'
+    Assert-NotContains -Text $content -Unexpected '-CompanionRhpPath (Join-Path $PluginDir ''net7.0\Rook.rhp'')' -Message 'Full local deploy must not register the net7.0 companion anchor.'
 }
 
 function Test-RegisterSuiteSupportsNativeOnlyPreserveCompanion {
@@ -225,6 +333,19 @@ function Test-RegisterSuiteSupportsNativeOnlyPreserveCompanion {
     Assert-Contains -Text $content -Expected 'Resolve-PreservedCompanionRhpPath' -Message 'Preserve-companion mode must resolve existing companion registration before writing native registration.'
     Assert-Contains -Text $content -Expected 'Native-only preserve-companion registration verified.' -Message 'Preserve-companion mode must report its distinct verification path.'
     Assert-Contains -Text $content -Expected 'changed companion registration unexpectedly' -Message 'Preserve-companion mode must verify companion registration remains unchanged.'
+}
+
+function Test-RegisterSuitePrefersNet8CompanionFallback {
+    $content = Get-Content -Path $RegisterSuiteScript -Raw
+
+    Assert-Contains -Text $content -Expected '$candidateCompanions = @(' -Message 'Suite registration must keep explicit companion fallback discovery.'
+    Assert-Contains -Text $content -Expected 'Join-Path $nativeDir ''net8.0\Rook.rhp''' -Message 'Suite registration must discover net8.0 companion payloads.'
+    Assert-Contains -Text $content -Expected 'Join-Path $nativeDir ''net7.0\Rook.rhp''' -Message 'Suite registration must preserve net7.0 fallback compatibility.'
+    Assert-Contains -Text $content -Expected 'Join-Path $nativeDir ''Rook.rhp''' -Message 'Suite registration must preserve root-level fallback compatibility.'
+
+    $candidateCompanionsBlock = Get-TextBeforeNextMarker -Text $content -StartMarker '$candidateCompanions = @(' -EndMarker "`n    foreach "
+    Assert-Before -Text $candidateCompanionsBlock -First 'Join-Path $nativeDir ''net8.0\Rook.rhp''' -Second 'Join-Path $nativeDir ''net7.0\Rook.rhp''' -Message 'Suite registration must prefer net8.0 before net7.0 within candidate companion fallback discovery.'
+    Assert-Before -Text $candidateCompanionsBlock -First 'Join-Path $nativeDir ''net7.0\Rook.rhp''' -Second 'Join-Path $nativeDir ''Rook.rhp''' -Message 'Suite registration must prefer runtime child payloads before root fallback within candidate companion fallback discovery.'
 }
 
 function Test-DeployScriptNativeOnlySkipBuildFastPath {
@@ -250,6 +371,17 @@ function Test-DeploySkillPointsToAuthoritativeScriptAndChirpChecks {
     Assert-Contains -Text $content -Expected 'Only `scripts\validate-local-testing-stack.ps1 -ReleaseReadiness` may justify the phrase release-readiness proven' -Message 'Skill must preserve strict pass/fail language.'
 }
 
+function Test-AgentSetupDocumentsDevDeployConvention {
+    $content = Get-Content -Path $AgentSetup -Raw
+
+    Assert-Contains -Text $content -Expected '## Developer Machine Convention' -Message 'AGENT_SETUP must document the developer-machine convention.'
+    Assert-Contains -Text $content -Expected 'scripts\rook-dev-doctor.ps1' -Message 'AGENT_SETUP must tell developers to run the dev doctor.'
+    Assert-Contains -Text $content -Expected '-UseRepoVenv' -Message 'AGENT_SETUP must document the repo-venv dev deploy command.'
+    Assert-Contains -Text $content -Expected 'OCCT_ROOT' -Message 'AGENT_SETUP must document the OCCT_ROOT expectation.'
+    Assert-Contains -Text $content -Expected 'python -m rook' -Message 'AGENT_SETUP must tell developers to close stale rook MCP processes before deploy.'
+}
+
+Test-DevDoctorScriptContract
 Test-DeployScriptSelectsExplicitMsvcToolset
 Test-DeployScriptSyncsChirpFromSiblingRepo
 Test-DeployScriptInstallsChirpByDefault
@@ -260,12 +392,15 @@ Test-DeployScriptVerifiesChatManifest
 Test-DeployScriptSeedsChatEnvWithoutOverwriting
 Test-DeployScriptCopiesAllInstallerPythonModules
 Test-DeployScriptHasExplicitDevRuntimeContract
+Test-DeployScriptCopiesOcctRuntimeClosure
 Test-DeployScriptWritesChatManifestToRuntimeChildren
 Test-DeployScriptLiveSmokeIsExplicit
 Test-DeployScriptNativeOnlyIsNarrow
 Test-DeployScriptUsesMultiRuntimeCompanionLayout
 Test-RegisterSuiteSupportsNativeOnlyPreserveCompanion
+Test-RegisterSuitePrefersNet8CompanionFallback
 Test-DeployScriptNativeOnlySkipBuildFastPath
 Test-DeploySkillPointsToAuthoritativeScriptAndChirpChecks
+Test-AgentSetupDocumentsDevDeployConvention
 
 Write-Host 'Local testing deploy guard tests passed.'
