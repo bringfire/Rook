@@ -23,6 +23,7 @@ from .conversation_store import Conversation
 # execution_policy verification (needs_verification + annotate_result) is now
 # handled inside ToolDispatcher.dispatch() — the single enforcement point.
 from .runtime_health import collect_runtime_facts
+from .tool_contracts import normalize_catalog
 from ..substrate_analytics import (
     _compact_error as _substrate_compact_error,
     extract_substrate_observation,
@@ -287,7 +288,7 @@ def _build_fallback_catalog() -> Dict[str, dict]:
                 },
             },
         }
-    return catalog
+    return normalize_catalog(catalog)
 
 
 _UI_BLOCK_SCHEMA: dict = {
@@ -608,7 +609,7 @@ def _build_local_tool_catalog(local_tools: dict) -> Dict[str, dict]:
                 },
             },
         }
-    return catalog
+    return normalize_catalog(catalog)
 
 
 class ChatRunner:
