@@ -278,3 +278,114 @@ async def test_workflow_accepts_positional_dependency_functions(tmp_path):
 
     assert result["success"] is True
     assert result["import"]["importedIds"] == ["rh-1"]
+
+
+@pytest.mark.asyncio
+async def test_workflow_import_no_ids_is_projection_failure_without_projection_call(tmp_path):
+    project_calls = []
+
+    async def fake_call_rhino(path, method="GET", payload=None, *, port=None):
+        if path == "/bim/export-preset":
+            return {"success": True, "data": {}}
+        if path == "/import":
+            return {"success": True, "data": {"importedIds": []}}
+        raise AssertionError(path)
+
+    async def fake_project(**kwargs):
+        project_calls.append(kwargs)
+        return {"success": True}
+
+    result = await workflow.export_preset_to_rhino(
+        {
+            "preset": "openings_and_hosts",
+            "output": {"directory": str(tmp_path), "name": "model"},
+        },
+        call_rhino_fn=fake_call_rhino,
+        project_relationships_fn=fake_project,
+        query_bim_facts_fn=lambda **kwargs: {"success": True},
+    )
+
+    assert result["success"] is False
+    assert result["partialSuccess"] is True
+    assert result["stage"] == "projection"
+    assert result["error"] == "no_imported_ids"
+    assert result["import"]["importedObjectCount"] == 0
+    assert project_calls == []
+
+
+@pytest.mark.asyncio
+async def test_workflow_projection_failure_preserves_export_and_import_blocks(tmp_path):
+    async def fake_call_rhino(path, method="GET", payload=None, *, port=None):
+        if path == "/bim/export-preset":
+            return {"success": True, "data": {}}
+        if path == "/import":
+            return {"success": True, "data": {"importedIds": ["rh-1"]}}
+        raise AssertionError(path)
+
+    async def fake_project(**kwargs):
+        return {
+            "success": False,
+            "error": "bim_projection_invalid_sidecar",
+            "message": "bad sidecar",
+        }
+
+    result = await workflow.export_preset_to_rhino(
+        {"preset": "openings_and_hosts", "output": {"directory": str(tmp_path), "name": "model"}},
+        call_rhino_fn=fake_call_rhino,
+        project_relationships_fn=fake_project,
+        query_bim_facts_fn=lambda **kwargs: {"success": True},
+    )
+
+    assert result["success"] is False
+    assert result["partialSuccess"] is True
+    assert result["stage"] == "projection"
+    assert result["error"] == "bim_projection_invalid_sidecar"
+    assert result["export"]["response"]["success"] is True
+    assert result["import"]["importedIds"] == ["rh-1"]
+
+
+@pytest.mark.asyncio
+async def test_workflow_relationship_summary_false_skips_bim_facts(tmp_path):
+    fact_calls = []
+    project_calls = []
+    projection_block = {"success": True, "joinedObjectCount": 1, "source": "projection-still-ran"}
+
+    async def fake_call_rhino(path, method="GET", payload=None, *, port=None):
+        if path == "/bim/export-preset":
+            return {"success": True, "data": {}}
+        if path == "/import":
+            return {"success": True, "data": {"importedIds": ["rh-1"]}}
+        raise AssertionError(path)
+
+    async def fake_project(**kwargs):
+        project_calls.append(kwargs)
+        return projection_block
+
+    def fake_facts(**kwargs):
+        fact_calls.append(kwargs)
+        return {"success": True}
+
+    result = await workflow.export_preset_to_rhino(
+        {
+            "preset": "openings_and_hosts",
+            "output": {"directory": str(tmp_path), "name": "model"},
+            "relationshipSummary": False,
+        },
+        call_rhino_fn=fake_call_rhino,
+        project_relationships_fn=fake_project,
+        query_bim_facts_fn=fake_facts,
+    )
+
+    assert result["success"] is True
+    assert result["projection"] == projection_block
+    assert result["bimFacts"] == {}
+    assert project_calls == [
+        {
+            "sidecar_path": str(tmp_path / "model.sidecar.json"),
+            "object_ids": ["rh-1"],
+            "include_rooms": True,
+            "include_levels": True,
+            "port": None,
+        }
+    ]
+    assert fact_calls == []
