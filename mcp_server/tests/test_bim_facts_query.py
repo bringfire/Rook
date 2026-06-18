@@ -285,3 +285,184 @@ def test_object_context_ignores_non_projection_bim_relationship_edges():
     assert door["hostedElements"]["totalCount"] == 0
     assert door["sameRoomCount"] == 1
     assert door["sameLevelCount"] == 2
+
+
+def test_room_members_matches_conjunctive_room_id_and_name():
+    sg = _bim_graph()
+
+    result = query.query_bim_facts(
+        sg,
+        mode="room_members",
+        room_id="101",
+        room_name="office",
+        detail="compact",
+    )
+
+    assert result["success"] is True
+    assert result["summary"]["totalCount"] == 1
+    assert result["summary"]["effectiveLimit"] == 100
+    assert result["results"][0]["objectId"] == "door"
+
+
+def test_room_members_rejects_missing_selector_and_ambiguous_selector():
+    sg = _bim_graph()
+
+    missing = query.query_bim_facts(sg, mode="room_members")
+    assert missing["success"] is False
+    assert missing["error"] == "invalid_bim_query_input"
+
+    sg.graph.add_node(
+        "room-b",
+        nodeKind="rookbim_room",
+        displayName="101 Office",
+        roomUniqueId="room-2",
+        roomNumber="101",
+        roomName="Office",
+        sidecarFingerprint="fp1",
+        projectionKind="bim_relationship_v1",
+        provenance="rookbim_sidecar",
+    )
+
+    ambiguous = query.query_bim_facts(sg, mode="room_members", room_name="101 Office")
+
+    assert ambiguous["success"] is False
+    assert ambiguous["error"] == "ambiguous_bim_reference"
+    assert len(ambiguous["candidates"]) == 2
+
+
+def test_room_members_rejects_whitespace_only_selectors():
+    by_name = query.query_bim_facts(_bim_graph(), mode="room_members", room_name="   ")
+    assert by_name["success"] is False
+    assert by_name["error"] == "invalid_bim_query_input"
+
+    by_id = query.query_bim_facts(_bim_graph(), mode="room_members", room_id="   ")
+    assert by_id["success"] is False
+    assert by_id["error"] == "invalid_bim_query_input"
+
+
+def test_level_members_and_hosted_elements_return_capped_results():
+    sg = _bim_graph()
+    for i in range(2):
+        oid = f"hosted-door-{i}"
+        sg.graph.add_node(oid, name=f"Hosted Door {i}", rookbimJoined=True, revitUniqueId=f"uid-hosted-{i}")
+        sg.graph.add_edge(
+            oid,
+            "wall",
+            key=f"rookbim:hosted_by:fp1:uid-hosted-{i}:uid-wall",
+            relationship="revit_hosted_by",
+            provenance="rookbim_sidecar",
+            projectionKind="bim_relationship_v1",
+            sidecarFingerprint="fp1",
+        )
+
+    level = query.query_bim_facts(sg, mode="level_members", level_name="l1", limit=1)
+    assert level["success"] is True
+    assert level["summary"]["totalCount"] == 2
+    assert level["summary"]["effectiveLimit"] == 1
+    assert level["truncated"] is True
+    assert len(level["results"]) == 1
+
+    hosted = query.query_bim_facts(sg, mode="hosted_elements", host_object_id="wall", limit=1)
+    assert hosted["success"] is True
+    assert hosted["summary"]["totalCount"] == 3
+    assert hosted["summary"]["effectiveLimit"] == 1
+    assert hosted["truncated"] is True
+    assert len(hosted["results"]) == 1
+    assert hosted["results"][0]["objectId"] == "door"
+
+
+def test_level_members_rejects_whitespace_only_selector():
+    result = query.query_bim_facts(_bim_graph(), mode="level_members", level_name="   ")
+
+    assert result["success"] is False
+    assert result["error"] == "invalid_bim_query_input"
+
+
+def test_hosted_elements_rejects_whitespace_only_host_object_id():
+    result = query.query_bim_facts(_bim_graph(), mode="hosted_elements", host_object_id="   ")
+
+    assert result["success"] is False
+    assert result["error"] == "invalid_bim_query_input"
+
+
+def test_hosted_elements_missing_string_id_does_not_match_character_nodes():
+    sg = SceneGraphAnalytics()
+    sg.graph.add_node("a", name="Host A", rookbimJoined=True)
+    sg.graph.add_node("source", name="Hosted Source", rookbimJoined=True)
+    sg.graph.add_edge(
+        "source",
+        "a",
+        key="rookbim:hosted_by:fp1:source:a",
+        relationship="revit_hosted_by",
+        provenance="rookbim_sidecar",
+        projectionKind="bim_relationship_v1",
+        sidecarFingerprint="fp1",
+    )
+
+    result = query.query_bim_facts(sg, mode="hosted_elements", host_object_id="ab")
+
+    assert result["success"] is True
+    assert result["results"] == []
+    assert result["summary"]["totalCount"] == 0
+
+
+def test_member_modes_projected_but_no_match_returns_empty_success():
+    sg = _bim_graph()
+
+    result = query.query_bim_facts(sg, mode="level_members", level_name="L9")
+
+    assert result["success"] is True
+    assert result["bimProjectionPresent"] is True
+    assert result["results"] == []
+    assert result["summary"]["totalCount"] == 0
+
+    hosted = query.query_bim_facts(sg, mode="hosted_elements", host_object_id="missing-host")
+
+    assert hosted["success"] is True
+    assert hosted["bimProjectionPresent"] is True
+    assert hosted["results"] == []
+    assert hosted["summary"]["totalCount"] == 0
+
+
+def test_relationship_scan_returns_bounded_samples_and_counts():
+    sg = _bim_graph()
+    sg.graph.add_edge(
+        "chair",
+        "room-a",
+        key="legacy:in_room:chair:room-a",
+        relationship="revit_in_room",
+        provenance="legacy",
+        projectionKind="bim_relationship_v1",
+        sidecarFingerprint="legacy-fp",
+    )
+
+    result = query.query_bim_facts(sg, mode="relationship_scan", sample_limit=2)
+
+    assert result["success"] is True
+    assert result["summary"]["relationshipCounts"]["revit_hosted_by"] == 1
+    assert result["summary"]["relationshipCounts"]["revit_in_room"] == 1
+    assert result["summary"]["relationshipCounts"]["revit_on_level"] == 2
+    assert result["summary"]["totalCount"] == 4
+    assert result["summary"]["effectiveLimit"] == 2
+    assert result["truncated"] is True
+    assert len(result["results"]) == 2
+    sample = result["results"][0]
+    assert set(sample) >= {"relationship", "source", "target", "sidecarFingerprint"}
+    assert set(sample["source"]) >= {"objectId", "displayName"}
+    assert set(sample["target"]) >= {"objectId", "displayName"}
+
+
+def test_relationship_scan_samples_use_rookbim_sidecar_fingerprint():
+    sg = _bim_graph()
+    edge = sg.graph["door"]["wall"]["rookbim:hosted_by:fp1:uid-door:uid-wall"]
+    edge.pop("sidecarFingerprint", None)
+    edge["rookbimSidecarFingerprint"] = "fp-real"
+
+    result = query.query_bim_facts(sg, mode="relationship_scan")
+
+    sample = next(
+        row
+        for row in result["results"]
+        if row["source"]["objectId"] == "door" and row["target"]["objectId"] == "wall"
+    )
+    assert sample["sidecarFingerprint"] == "fp-real"

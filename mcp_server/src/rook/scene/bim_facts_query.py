@@ -297,6 +297,104 @@ def _object_context(graph: Any, object_ids: list[str], *, detail: str, effective
     return results, truncated
 
 
+def _matches(value: Any, needle: str) -> bool:
+    normalized_needle = _clean_str(needle)
+    return bool(normalized_needle) and _clean_str(value).casefold() == normalized_needle.casefold()
+
+
+def _node_candidate(graph: Any, node_id: str, attrs: dict[str, Any], fields: list[str]) -> dict[str, Any]:
+    return {
+        "nodeId": node_id,
+        "displayName": _display_name(graph, node_id),
+        **{field: attrs.get(field, "") for field in fields},
+    }
+
+
+def _find_room_nodes(graph: Any, *, room_id: str | None, room_name: str | None) -> tuple[list[str], list[dict[str, Any]]]:
+    room_id = _clean_str(room_id)
+    room_name = _clean_str(room_name)
+    if not room_id and not room_name:
+        raise ValueError("room_members requires room_id or room_name.")
+
+    matches: list[tuple[str, dict[str, Any]]] = []
+    fields = ["roomUniqueId", "roomNumber", "roomName", "displayName"]
+    for node_id, attrs in _projection_nodes(graph):
+        if attrs.get("nodeKind") != "rookbim_room":
+            continue
+
+        values = [node_id, *(attrs.get(field) for field in fields)]
+        id_ok = True if not room_id else any(_matches(value, room_id) for value in values)
+        name_ok = True if not room_name else any(_matches(value, room_name) for value in values)
+        if id_ok and name_ok:
+            matches.append((node_id, attrs))
+
+    return [node_id for node_id, _ in matches], [
+        _node_candidate(graph, node_id, attrs, fields)
+        for node_id, attrs in matches
+    ]
+
+
+def _find_level_nodes(graph: Any, *, level_name: str | None) -> tuple[list[str], list[dict[str, Any]]]:
+    level_name = _clean_str(level_name)
+    if not level_name:
+        raise ValueError("level_members requires level_name.")
+
+    matches: list[tuple[str, dict[str, Any]]] = []
+    fields = ["levelName", "displayName"]
+    for node_id, attrs in _projection_nodes(graph):
+        if attrs.get("nodeKind") != "rookbim_level":
+            continue
+
+        values = [node_id, *(attrs.get(field) for field in fields)]
+        if any(_matches(value, level_name) for value in values):
+            matches.append((node_id, attrs))
+
+    return [node_id for node_id, _ in matches], [
+        _node_candidate(graph, node_id, attrs, fields)
+        for node_id, attrs in matches
+    ]
+
+
+def _incoming_members(
+    graph: Any,
+    target_node: str,
+    relationship: str,
+    *,
+    detail: str,
+    effective_limit: int,
+) -> tuple[list[Any], int, bool]:
+    if target_node not in graph:
+        return [], 0, False
+
+    rows = [
+        _compact_object(graph, source, attrs, detail=detail)
+        for source, _, attrs in graph.in_edges([target_node], data=True)
+        if _is_projected_bim_edge(attrs, relationship)
+    ]
+    total = len(rows)
+    return rows[:effective_limit], total, total > effective_limit
+
+
+def _relationship_samples(
+    graph: Any,
+    edges: list[tuple[str, str, Any, dict[str, Any]]],
+    *,
+    effective_limit: int,
+) -> tuple[list[dict[str, Any]], bool]:
+    rows = [
+        {
+            "relationship": attrs.get("relationship", ""),
+            "source": {"objectId": source, "displayName": _display_name(graph, source)},
+            "target": {"objectId": target, "displayName": _display_name(graph, target)},
+            "sidecarFingerprint": _clean_str(
+                attrs.get("sidecarFingerprint") or attrs.get("rookbimSidecarFingerprint")
+            ),
+        }
+        for source, target, _, attrs in edges
+    ]
+    return rows[:effective_limit], len(rows) > effective_limit
+
+
 def query_bim_facts(
     analytics: Any,
     *,
@@ -347,6 +445,7 @@ def query_bim_facts(
         }
 
     if mode == "relationship_scan":
+        samples, truncated = _relationship_samples(graph, edges, effective_limit=effective_limit)
         return _base_success(
             mode=mode,
             graph_sequence=graph_sequence,
@@ -354,8 +453,9 @@ def query_bim_facts(
             relationship_counts=relationship_counts,
             effective_limit=effective_limit,
             query={"detail": detail, "sampleLimit": effective_limit},
-            results=[],
+            results=samples,
             total_count=sum(relationship_counts.values()),
+            truncated=truncated,
         )
 
     if mode == "object_context":
@@ -382,6 +482,141 @@ def query_bim_facts(
             query={"objectIds": object_ids, "detail": detail, "limit": effective_limit},
             results=results,
             total_count=len(results),
+            truncated=truncated,
+        )
+
+    if mode == "room_members":
+        try:
+            node_ids, candidates = _find_room_nodes(graph, room_id=room_id, room_name=room_name)
+        except ValueError as exc:
+            return _invalid(
+                str(exc),
+                graph_sequence=graph_sequence,
+                bim_projection_present=bim_projection_present,
+                fingerprints=fingerprints,
+            )
+
+        query_payload = {"roomId": room_id, "roomName": room_name, "detail": detail, "limit": effective_limit}
+        if len(node_ids) > 1:
+            return {
+                "success": False,
+                "error": "ambiguous_bim_reference",
+                "message": "Room selector matched multiple BIM room nodes.",
+                "candidates": candidates,
+                "bimProjectionPresent": True,
+                "graphSequence": graph_sequence,
+                "sidecarFingerprints": fingerprints,
+            }
+        if not node_ids:
+            return _base_success(
+                mode=mode,
+                graph_sequence=graph_sequence,
+                fingerprints=fingerprints,
+                relationship_counts=relationship_counts,
+                effective_limit=effective_limit,
+                query=query_payload,
+                results=[],
+                total_count=0,
+            )
+
+        rows, total, truncated = _incoming_members(
+            graph,
+            node_ids[0],
+            REL_IN_ROOM,
+            detail=detail,
+            effective_limit=effective_limit,
+        )
+        return _base_success(
+            mode=mode,
+            graph_sequence=graph_sequence,
+            fingerprints=fingerprints,
+            relationship_counts=relationship_counts,
+            effective_limit=effective_limit,
+            query=query_payload,
+            results=rows,
+            total_count=total,
+            truncated=truncated,
+        )
+
+    if mode == "level_members":
+        try:
+            node_ids, candidates = _find_level_nodes(graph, level_name=level_name)
+        except ValueError as exc:
+            return _invalid(
+                str(exc),
+                graph_sequence=graph_sequence,
+                bim_projection_present=bim_projection_present,
+                fingerprints=fingerprints,
+            )
+
+        query_payload = {"levelName": level_name, "detail": detail, "limit": effective_limit}
+        if len(node_ids) > 1:
+            return {
+                "success": False,
+                "error": "ambiguous_bim_reference",
+                "message": "Level selector matched multiple BIM level nodes.",
+                "candidates": candidates,
+                "bimProjectionPresent": True,
+                "graphSequence": graph_sequence,
+                "sidecarFingerprints": fingerprints,
+            }
+        if not node_ids:
+            return _base_success(
+                mode=mode,
+                graph_sequence=graph_sequence,
+                fingerprints=fingerprints,
+                relationship_counts=relationship_counts,
+                effective_limit=effective_limit,
+                query=query_payload,
+                results=[],
+                total_count=0,
+            )
+
+        rows, total, truncated = _incoming_members(
+            graph,
+            node_ids[0],
+            REL_ON_LEVEL,
+            detail=detail,
+            effective_limit=effective_limit,
+        )
+        return _base_success(
+            mode=mode,
+            graph_sequence=graph_sequence,
+            fingerprints=fingerprints,
+            relationship_counts=relationship_counts,
+            effective_limit=effective_limit,
+            query=query_payload,
+            results=rows,
+            total_count=total,
+            truncated=truncated,
+        )
+
+    if mode == "hosted_elements":
+        host_object_id = _clean_str(host_object_id)
+        if not host_object_id:
+            return _invalid(
+                "hosted_elements requires host_object_id.",
+                graph_sequence=graph_sequence,
+                bim_projection_present=bim_projection_present,
+                fingerprints=fingerprints,
+            )
+
+        rows, total, truncated = _incoming_members(
+            graph,
+            host_object_id,
+            REL_HOSTED_BY,
+            detail=detail,
+            effective_limit=effective_limit,
+        )
+        return _base_success(
+            mode=mode,
+            graph_sequence=graph_sequence,
+            fingerprints=fingerprints,
+            relationship_counts=relationship_counts,
+            effective_limit=effective_limit,
+            query={"hostObjectId": host_object_id, "detail": detail, "limit": effective_limit},
+            results=rows,
+            total_count=total,
             truncated=truncated,
         )
 
