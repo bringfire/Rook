@@ -275,13 +275,19 @@ async def test_rookbim_dispatcher_dispatches_to_expected_bridge_route(name, rout
 
 
 def test_rookbim_tool_groups_match_phase1_scope():
-    assert tool_groups.TOOL_GROUPS["rookbim"] == list(ROOKBIM_TOOL_ROUTES)
+    expected_rookbim = list(ROOKBIM_TOOL_ROUTES) + ["rookbim_export_preset_to_rhino"]
+    assert tool_groups.TOOL_GROUPS["rookbim"] == expected_rookbim
     assert tool_groups.TOOL_GROUPS["rookbim_readonly"] == ROOKBIM_READONLY_TOOLS
     assert "rookbim_select_elements" not in tool_groups.TOOL_GROUPS["rookbim_readonly"]
     assert "rookbim_clear_selection" not in tool_groups.TOOL_GROUPS["rookbim_readonly"]
     assert "rookbim_readonly" in tool_groups.READONLY_ALLOWED_GROUPS
     assert "rookbim" not in tool_groups.MCP_ONLY_GROUPS
     assert "rookbim_readonly" not in tool_groups.MCP_ONLY_GROUPS
+
+
+def test_rookbim_workflow_tool_is_not_raw_bridge_route():
+    assert "rookbim_export_preset_to_rhino" not in ROOKBIM_TOOL_ROUTES
+    assert "rookbim_export_preset_to_rhino" in tool_groups.TOOL_GROUPS["rookbim"]
 
 
 def test_rookbim_context_categories_registered():

@@ -48,6 +48,29 @@ async def test_server_dispatch_uses_workflow_helper(monkeypatch):
     assert calls[0][0] == {"preset": "openings_and_hosts", "port": 9876}
 
 
+@pytest.mark.asyncio
+async def test_local_dispatcher_registers_export_preset_to_rhino(monkeypatch):
+    from rook.agent.tool_dispatcher import build_local_tools
+
+    calls = []
+
+    async def fake_workflow(arguments, **deps):
+        calls.append(arguments)
+        return {"success": True, "workflow": "rookbim_export_preset_to_rhino"}
+
+    monkeypatch.setattr("rook.rookbim_export_to_rhino.export_preset_to_rhino", fake_workflow)
+
+    tools = build_local_tools()
+    result = await tools["rookbim_export_preset_to_rhino"](
+        preset="openings_and_hosts",
+        limitPerCategory=10,
+        port=9876,
+    )
+
+    assert result["success"] is True
+    assert calls == [{"preset": "openings_and_hosts", "limitPerCategory": 10, "port": 9876}]
+
+
 def test_default_output_uses_temp_root_and_safe_timestamp(monkeypatch, tmp_path):
     monkeypatch.setenv("TEMP", str(tmp_path))
     now = dt.datetime(2026, 6, 18, 9, 4, 5)
