@@ -408,3 +408,70 @@ def test_audit_accepts_closed_script_creation_schema():
     ]
 
     assert audit_litellm_tool_schema(schema) == []
+
+
+def test_mcp_tool_to_litellm_closes_root_parameters_when_server_omits_flag():
+    from types import SimpleNamespace
+
+    from rook.agent.tool_registry import mcp_tool_to_litellm
+
+    tool = SimpleNamespace(
+        name="sample_tool",
+        description="Sample tool",
+        inputSchema={
+            "type": "object",
+            "properties": {"value": {"type": "string"}},
+            "required": ["value"],
+        },
+    )
+
+    schema = mcp_tool_to_litellm(tool)
+
+    assert schema["function"]["parameters"]["additionalProperties"] is False
+
+
+def test_load_catalog_from_cache_normalizes_zero_arg_schema(tmp_path):
+    import json
+
+    from rook.agent.tool_registry import load_catalog_from_cache
+
+    cache = tmp_path / "agent_tool_catalog.json"
+    cache.write_text(
+        json.dumps({
+            "gh_errors": {
+                "type": "function",
+                "function": {
+                    "name": "gh_errors",
+                    "description": "Get errors and warnings from Grasshopper",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"code": {"type": "string"}},
+                        "additionalProperties": True,
+                    },
+                },
+            }
+        }),
+        encoding="utf-8",
+    )
+
+    catalog = load_catalog_from_cache(cache)
+
+    assert catalog["gh_errors"]["function"]["parameters"] == {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": False,
+    }
+
+
+def test_meta_tool_schemas_are_closed():
+    from rook.agent.tool_registry import ToolRegistry
+
+    registry = ToolRegistry(catalog={})
+    schemas = {
+        schema["function"]["name"]: schema
+        for schema in registry.get_active_schemas()
+    }
+
+    for name in ("request_tools", "search_tools"):
+        params = schemas[name]["function"]["parameters"]
+        assert params["additionalProperties"] is False
