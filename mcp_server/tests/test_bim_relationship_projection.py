@@ -1,3 +1,4 @@
+import ast
 import json
 from pathlib import Path
 
@@ -121,6 +122,7 @@ def test_projector_source_does_not_call_inference_mutation_or_save_routes():
         / "scene"
         / "bim_relationship_projection.py"
     ).read_text(encoding="utf-8")
+    tree = ast.parse(source)
 
     forbidden = [
         "scene_exact_neighbors",
@@ -133,8 +135,31 @@ def test_projector_source_does_not_call_inference_mutation_or_save_routes():
         "/document/save",
     ]
 
+    docstring_nodes = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            if node.body and isinstance(node.body[0], ast.Expr):
+                value = node.body[0].value
+                if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                    docstring_nodes.add(value)
+
+    executable_tokens = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            if node not in docstring_nodes:
+                executable_tokens.add(node.value)
+        elif isinstance(node, ast.Name):
+            executable_tokens.add(node.id)
+        elif isinstance(node, ast.Attribute):
+            executable_tokens.add(node.attr)
+        elif isinstance(node, ast.alias):
+            executable_tokens.add(node.name)
+            if node.asname:
+                executable_tokens.add(node.asname)
+
+    assert "/usertext/object-get" in executable_tokens
     for token in forbidden:
-        assert token not in source
+        assert not any(token in executable_token for executable_token in executable_tokens)
 
 
 def test_node_attrs_include_bim_projection_annotations():

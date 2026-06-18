@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +18,16 @@ SIDECAR_JSON = Path("C:/Users/aryan/AppData/Local/Temp/rookbim_preset_live_fix/s
 
 
 def _native_port_or_skip() -> int:
+    scoped_port = os.environ.get("ROOK_RHINO_PORT")
+    if scoped_port:
+        try:
+            port = int(scoped_port)
+        except ValueError:
+            pytest.skip(f"ROOK_RHINO_PORT is not a valid integer: {scoped_port!r}")
+        if port > 0:
+            return port
+        pytest.skip(f"ROOK_RHINO_PORT must be positive: {scoped_port!r}")
+
     for instance in discover_instances():
         if not isinstance(instance, dict):
             continue
