@@ -152,3 +152,60 @@ async def test_local_gh_create_required_fields_match_server_mcp_contract():
             == server_tools[tool_name].inputSchema["required"]
             == ["code", "pins_in", "pins_out"]
         )
+
+
+def _active_schemas_after_requesting_gh_canvas():
+    from rook.agent.chat.chat_runner import _build_fallback_catalog, _build_local_tool_catalog
+    from rook.agent.tool_dispatcher import build_local_tools
+    from rook.agent.tool_registry import ToolRegistry
+
+    catalog = _build_fallback_catalog()
+    catalog.update(_build_local_tool_catalog(build_local_tools()))
+    registry = ToolRegistry(catalog=catalog, agent_mode=True)
+    result = registry.request_group("gh_canvas", turn=1)
+    assert result["success"] is True
+    return _schema_by_name(registry.get_active_schemas())
+
+
+def test_model_visible_gh_canvas_schema_has_distinct_script_tools():
+    schemas = _active_schemas_after_requesting_gh_canvas()
+
+    for name in ("gh_create_script", "gh_create_python_script", "gh_create_csharp_script"):
+        assert schemas[name]["function"]["name"] == name
+
+    assert (
+        schemas["gh_create_script"]["function"]["parameters"]["required"]
+        == ["language", "code"]
+    )
+    assert (
+        schemas["gh_create_csharp_script"]["function"]["parameters"]["required"]
+        == ["code", "pins_in", "pins_out"]
+    )
+
+
+def test_model_visible_gh_canvas_schema_has_no_unallowlisted_open_roots():
+    schemas = _active_schemas_after_requesting_gh_canvas()
+    findings = []
+    for schema in schemas.values():
+        findings.extend(audit_litellm_tool_schema(schema))
+
+    assert findings == []
+
+
+def test_model_visible_gh_canvas_schema_keeps_zero_arg_tools_empty():
+    schemas = _active_schemas_after_requesting_gh_canvas()
+
+    assert schemas["gh_errors"]["function"]["parameters"] == {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": False,
+    }
+
+
+def test_model_visible_gh_canvas_csharp_creation_guidance_survives_registry_path():
+    schemas = _active_schemas_after_requesting_gh_canvas()
+    text = str(schemas["gh_create_csharp_script"])
+
+    assert "RhinoCode C# Script" in text
+    assert "GH_Component" in text
+    assert "body" in text and "RunScript" in text
