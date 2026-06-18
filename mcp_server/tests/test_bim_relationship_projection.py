@@ -655,6 +655,39 @@ def test_project_bim_relationships_projects_all_multi_fragment_uid_edges():
     assert len({key for _source, _target, key in level_edges}) == 4
 
 
+def test_project_bim_relationships_skips_room_level_nodes_for_missing_source_fragments():
+    sg = SceneGraphAnalytics()
+    sidecar = bim.parse_sidecar_payload(_sidecar())
+    join = _joined_for_projection()
+    eligible = bim.select_eligible_objects(join, sidecar, object_ids=["rh-door"])
+    fp = bim.SidecarFingerprint(full_hash="abcdef" * 11, short_id="abcdefabcdefabcd")
+
+    result = bim.project_bim_relationships(
+        sg,
+        sidecar,
+        fp,
+        join,
+        eligible,
+        include_rooms=True,
+        include_levels=True,
+    )
+
+    room_id = bim.room_node_id(fp, "room-1")
+    level_id = bim.level_node_id(fp, "L1")
+    assert result["counts"]["annotatedObjectCount"] == 0
+    assert result["counts"]["projectedRoomEdges"] == 0
+    assert result["counts"]["projectedLevelEdges"] == 0
+    assert result["counts"]["roomNodes"] == 0
+    assert result["counts"]["createdRoomNodes"] == 0
+    assert result["counts"]["levelNodes"] == 0
+    assert result["counts"]["createdLevelNodes"] == 0
+    assert result["diagnostics"]["eligibleObjectMissingSceneNode"] == 1
+    assert result["diagnostics"]["roomMembershipElementMissingSceneNode"] == 1
+    assert result["diagnostics"]["levelMembershipElementMissingSceneNode"] == 1
+    assert not sg.graph.has_node(room_id)
+    assert not sg.graph.has_node(level_id)
+
+
 def test_projection_edge_keys_preserve_raw_revit_uids_except_level_segment():
     fp = bim.SidecarFingerprint(full_hash="abcdef" * 11, short_id="abcdefabcdefabcd")
 

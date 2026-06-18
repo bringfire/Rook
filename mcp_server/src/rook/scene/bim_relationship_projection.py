@@ -977,6 +977,14 @@ def project_bim_relationships(
             if not element_joins:
                 _bump(diagnostics, "roomMembershipElementNotJoined")
                 continue
+            valid_element_joins: list[JoinedRuntimeObject] = []
+            for element_join in element_joins:
+                if graph.has_node(element_join.object_id):
+                    valid_element_joins.append(element_join)
+                else:
+                    _bump(diagnostics, "roomMembershipElementMissingSceneNode")
+            if not valid_element_joins:
+                continue
             node_id, created = _ensure_room_node(
                 graph,
                 sidecar,
@@ -988,10 +996,7 @@ def project_bim_relationships(
             touched_room_nodes.add(node_id)
             if created:
                 counts["createdRoomNodes"] += 1
-            for element_join in element_joins:
-                if not graph.has_node(element_join.object_id):
-                    _bump(diagnostics, "roomMembershipElementMissingSceneNode")
-                    continue
+            for element_join in valid_element_joins:
                 graph.add_edge(
                     element_join.object_id,
                     node_id,
@@ -1015,6 +1020,14 @@ def project_bim_relationships(
             if not element_joins:
                 _bump(diagnostics, "levelMembershipElementNotJoined")
                 continue
+            valid_element_joins: list[JoinedRuntimeObject] = []
+            for element_join in element_joins:
+                if graph.has_node(element_join.object_id):
+                    valid_element_joins.append(element_join)
+                else:
+                    _bump(diagnostics, "levelMembershipElementMissingSceneNode")
+            if not valid_element_joins:
+                continue
             node_id, created = _ensure_level_node(
                 graph,
                 fingerprint,
@@ -1024,10 +1037,7 @@ def project_bim_relationships(
             touched_level_nodes.add(node_id)
             if created:
                 counts["createdLevelNodes"] += 1
-            for element_join in element_joins:
-                if not graph.has_node(element_join.object_id):
-                    _bump(diagnostics, "levelMembershipElementMissingSceneNode")
-                    continue
+            for element_join in valid_element_joins:
                 graph.add_edge(
                     element_join.object_id,
                     node_id,
