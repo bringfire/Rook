@@ -224,7 +224,7 @@ async def test_tool_returns_zero_join_failure_with_per_object_hydration_diagnost
 
 
 @pytest.mark.asyncio
-async def test_server_boundary_returns_invalid_sidecar_response(tmp_path, monkeypatch):
+async def test_server_boundary_returns_invalid_sidecar_error_response(tmp_path, monkeypatch):
     bad_sidecar = tmp_path / "bad.sidecar.json"
     bad_sidecar.write_text("{not json", encoding="utf-8")
     sg = _scene_graph()
@@ -243,5 +243,50 @@ async def test_server_boundary_returns_invalid_sidecar_response(tmp_path, monkey
     )
 
     assert result["success"] is False
-    assert result["error"] == "bim_projection_invalid_sidecar"
-    assert "sidecar" in result["message"].lower()
+    payload = result["data"]
+    assert payload["success"] is False
+    assert payload["error"] == "bim_projection_invalid_sidecar"
+    assert "sidecar" in payload["message"].lower()
+
+
+@pytest.mark.asyncio
+async def test_server_boundary_returns_zero_join_as_error_response(tmp_path, monkeypatch):
+    sidecar_path = _write_sidecar(tmp_path)
+    sg = _scene_graph()
+
+    async def fake_sync(port=None):
+        return {"synced": True, "sequence": sg.sequence}
+
+    async def fake_call_rhino(path, method="GET", payload=None, *, port=None):
+        return {"success": True, "data": {"id": payload["id"], "userStrings": {}}}
+
+    monkeypatch.setattr(sg, "sync", fake_sync)
+    monkeypatch.setattr("rook.scene.scene_graph.get_scene_graph", lambda: sg)
+    monkeypatch.setattr(bim, "call_rhino", fake_call_rhino)
+
+    from rook.server import _mcp_tool_executor
+
+    result = await _mcp_tool_executor(
+        "scene_project_bim_relationships",
+        {"sidecar_path": str(sidecar_path)},
+    )
+
+    assert result["success"] is False
+    payload = result["data"]
+    assert payload["success"] is False
+    assert payload["error"] == "bim_projection_no_eligible_scene_objects"
+    assert payload["joinableCount"] == 0
+
+
+@pytest.mark.asyncio
+async def test_direct_call_tool_marks_missing_sidecar_path_as_error_textcontent():
+    from rook.server import call_tool
+
+    result = await call_tool("scene_project_bim_relationships", {})
+
+    assert len(result) == 1
+    text = result[0].text
+    assert text.startswith("Error: ")
+    payload = json.loads(text[len("Error: "):])
+    assert payload["success"] is False
+    assert payload["error"] == "bim_projection_invalid_sidecar"

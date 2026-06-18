@@ -19388,7 +19388,7 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
         case "scene_project_bim_relationships":
             sidecar_path = arguments.get("sidecar_path")
             if not sidecar_path:
-                result = {"success": True, "data": {
+                result = {"success": False, "data": {
                     "success": False,
                     "error": "bim_projection_invalid_sidecar",
                     "message": "Missing required sidecar_path parameter.",
@@ -19413,7 +19413,10 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                         "error": "bim_projection_invalid_sidecar",
                         "message": str(exc),
                     }
-                result = {"success": True, "data": payload}
+                if payload.get("success") is False:
+                    result = {"success": False, "data": payload}
+                else:
+                    result = {"success": True, "data": payload}
 
         case "scene_classify":
             classify_args = {k: v for k, v in arguments.items() if k != "port"}
