@@ -94,6 +94,26 @@ namespace Rook.Tests.UI.Chat
         }
 
         [Fact]
+        public void ChatTab_ClearAndReconnect_ResetTransientTypingAndProcessingState()
+        {
+            var chatTabSource = ReadSourceFile("src", "Rook", "UI", "Chat", "ChatTab.cs");
+            var agentTabSource = ReadSourceFile("src", "Rook", "UI", "Chat", "AgentChatTab.cs");
+
+            Assert.Contains("protected void ResetChatUiState()", chatTabSource);
+            AssertInOrder(chatTabSource, "ResetChatUiState();", "OnClearRequested();");
+            AssertInOrder(agentTabSource, "ResetChatUiState();", "Application.Instance.Invoke(ClearModelSelector);");
+        }
+
+        [Fact]
+        public void ChatWebView_ClearMessages_HidesTypingIndicator()
+        {
+            var chatHtml = ReadSourceFile("src", "Rook", "UI", "Chat", "Resources", "chat.html");
+
+            Assert.Contains("function clearMessages()", chatHtml);
+            Assert.Contains("showTypingIndicator(false);", chatHtml);
+        }
+
+        [Fact]
         public void ClaudeCodeWrapper_UsesStrictPanelMcpConfig()
         {
             var source = ReadSourceFile("src", "Rook", "UI", "Chat", "ClaudeCodeWrapper.cs");
@@ -137,6 +157,18 @@ namespace Rook.Tests.UI.Chat
 
             throw new FileNotFoundException(
                 "Could not locate source file " + string.Join("/", pathParts));
+        }
+
+        private static void AssertInOrder(string source, string first, string second)
+        {
+            var firstIndex = source.IndexOf(first, StringComparison.Ordinal);
+            var secondIndex = source.IndexOf(second, StringComparison.Ordinal);
+
+            Assert.True(firstIndex >= 0, $"Expected to find '{first}'.");
+            Assert.True(secondIndex >= 0, $"Expected to find '{second}'.");
+            Assert.True(
+                firstIndex < secondIndex,
+                $"Expected '{first}' to appear before '{second}'.");
         }
     }
 }

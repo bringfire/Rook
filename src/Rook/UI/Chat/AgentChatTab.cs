@@ -355,6 +355,7 @@ namespace Rook.UI.Chat
                 _initializeGate.Release();
             }
 
+            ResetChatUiState();
             Application.Instance.Invoke(ClearModelSelector);
 
             SetStatus("Starting chat service...", Colors.Blue);

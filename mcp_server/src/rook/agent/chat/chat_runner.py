@@ -100,6 +100,74 @@ def _patch_orphaned_tool_calls(messages: List[Dict[str, Any]]) -> int:
     return patched
 
 
+def _normalize_tool_call_arguments(messages: List[Dict[str, Any]]) -> int:
+    """Ensure stored assistant tool-call arguments are valid single JSON strings.
+
+    Local providers sometimes stream a valid arguments object followed by extra
+    explanatory text, or otherwise malformed arguments. LiteLLM's Ollama adapter
+    reparses prior assistant tool calls while building the next request, so one
+    malformed history entry can break every subsequent turn before the model is
+    called. Keep the history provider-safe at the boundary.
+    """
+    patched = 0
+    decoder = json.JSONDecoder()
+
+    for msg in messages:
+        if msg.get("role") != "assistant":
+            continue
+
+        tool_calls = msg.get("tool_calls")
+        if not isinstance(tool_calls, list):
+            continue
+
+        for tc in tool_calls:
+            if not isinstance(tc, dict):
+                continue
+            fn = tc.get("function")
+            if not isinstance(fn, dict):
+                continue
+
+            arguments = fn.get("arguments", "")
+            normalized: str
+            if isinstance(arguments, str):
+                stripped = arguments.strip()
+                if not stripped:
+                    normalized = "{}"
+                else:
+                    try:
+                        parsed = json.loads(stripped)
+                        normalized = (
+                            json.dumps(parsed, separators=(",", ":"))
+                            if isinstance(parsed, dict)
+                            else "{}"
+                        )
+                    except json.JSONDecodeError:
+                        try:
+                            parsed, _end = decoder.raw_decode(stripped)
+                            normalized = (
+                                json.dumps(parsed, separators=(",", ":"))
+                                if isinstance(parsed, dict)
+                                else "{}"
+                            )
+                        except json.JSONDecodeError:
+                            normalized = "{}"
+            else:
+                try:
+                    normalized = (
+                        json.dumps(arguments, separators=(",", ":"))
+                        if isinstance(arguments, dict)
+                        else "{}"
+                    )
+                except TypeError:
+                    normalized = "{}"
+
+            if normalized != arguments:
+                fn["arguments"] = normalized
+                patched += 1
+
+    return patched
+
+
 @dataclass
 class ChatEvent:
     """A streaming event emitted during a conversation turn."""
@@ -769,6 +837,13 @@ class ChatRunner:
                 conversation.id,
                 patched_pre,
             )
+        normalized_pre = _normalize_tool_call_arguments(conversation.messages)
+        if normalized_pre:
+            logger.info(
+                "Conversation %s: normalized %s malformed prior tool_call argument(s)",
+                conversation.id,
+                normalized_pre,
+            )
 
         # Add user message to history
         conversation.messages.append({"role": "user", "content": user_message})
@@ -861,6 +936,20 @@ class ChatRunner:
                 # Reconstruct complete assistant message from accumulated stream
                 full_text = "".join(text_parts)
                 tool_calls_list = [tool_calls_acc[i] for i in sorted(tool_calls_acc.keys())]
+                for tc in tool_calls_list:
+                    holder = [{
+                        "role": "assistant",
+                        "tool_calls": [{
+                            "id": tc.get("id"),
+                            "type": "function",
+                            "function": {
+                                "name": tc.get("name"),
+                                "arguments": tc.get("arguments", ""),
+                            },
+                        }],
+                    }]
+                    if _normalize_tool_call_arguments(holder):
+                        tc["arguments"] = holder[0]["tool_calls"][0]["function"]["arguments"]
 
                 assistant_msg: Dict[str, Any] = {"role": "assistant"}
                 if full_text:

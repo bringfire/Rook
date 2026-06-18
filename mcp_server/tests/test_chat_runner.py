@@ -802,6 +802,90 @@ def test_patch_orphans_synthetic_content_is_valid_json():
     assert json.loads(messages[1]["content"]) == {"error": "cancelled by user"}
 
 
+def test_normalize_tool_call_arguments_repairs_extra_json_data():
+    """Local providers can emit a valid arguments object plus trailing text.
+
+    LiteLLM's Ollama adapter reparses prior assistant tool-call arguments when
+    building the next request, so Rook history must contain exactly one JSON
+    value per arguments string.
+    """
+    from rook.agent.chat.chat_runner import _normalize_tool_call_arguments
+
+    messages = [
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {
+                    "id": "tc1",
+                    "type": "function",
+                    "function": {
+                        "name": "gh_update_script",
+                        "arguments": '{"guid":"C1"}\nUse this code next',
+                    },
+                }
+            ],
+        }
+    ]
+
+    patched = _normalize_tool_call_arguments(messages)
+
+    assert patched == 1
+    args = messages[0]["tool_calls"][0]["function"]["arguments"]
+    assert json.loads(args) == {"guid": "C1"}
+
+
+def test_normalize_tool_call_arguments_replaces_unparseable_arguments():
+    """Arguments that cannot be decoded at all are made safe for providers."""
+    from rook.agent.chat.chat_runner import _normalize_tool_call_arguments
+
+    messages = [
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {
+                    "id": "tc1",
+                    "type": "function",
+                    "function": {
+                        "name": "gh_update_script",
+                        "arguments": "not json at all",
+                    },
+                }
+            ],
+        }
+    ]
+
+    patched = _normalize_tool_call_arguments(messages)
+
+    assert patched == 1
+    assert messages[0]["tool_calls"][0]["function"]["arguments"] == "{}"
+
+
+def test_normalize_tool_call_arguments_replaces_non_object_json():
+    """Tool-call arguments must be a JSON object string, not a scalar/list."""
+    from rook.agent.chat.chat_runner import _normalize_tool_call_arguments
+
+    messages = [
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {
+                    "id": "tc1",
+                    "type": "function",
+                    "function": {
+                        "name": "gh_update_script",
+                        "arguments": '["not", "an", "object"]',
+                    },
+                }
+            ],
+        }
+    ]
+
+    patched = _normalize_tool_call_arguments(messages)
+
+    assert patched == 1
+    assert messages[0]["tool_calls"][0]["function"]["arguments"] == "{}"
+
+
 def test_run_turn_repairs_history_when_executor_raises_cancelled(conversation, runner):
     """CancelledError during tool dispatch still leaves valid history."""
     import asyncio

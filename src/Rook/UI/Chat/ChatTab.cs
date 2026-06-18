@@ -300,6 +300,22 @@ namespace Rook.UI.Chat
         }
 
         /// <summary>
+        /// Reset transient in-flight UI affordances without changing the
+        /// conversation transcript. Use when a local panel action tears down or
+        /// abandons a stream outside the normal server "done" path.
+        /// </summary>
+        protected void ResetChatUiState()
+        {
+            Application.Instance.Invoke(() =>
+            {
+                ShowTypingIndicator(false);
+                FinalizeStreaming();
+                _isProcessing = false;
+                UpdateUIState();
+            });
+        }
+
+        /// <summary>
         /// Add a base64-encoded image to the chat display.
         /// </summary>
         protected void AddImageToChat(string base64Data)
@@ -353,6 +369,10 @@ namespace Rook.UI.Chat
             _isProcessing = processing;
             Application.Instance.Invoke(() =>
             {
+                if (!processing)
+                {
+                    ShowTypingIndicator(false);
+                }
                 UpdateUIState();
             });
         }
@@ -430,6 +450,8 @@ namespace Rook.UI.Chat
             {
                 _fallbackChat.Text = "";
             }
+
+            ResetChatUiState();
 
             OnClearRequested();
 
