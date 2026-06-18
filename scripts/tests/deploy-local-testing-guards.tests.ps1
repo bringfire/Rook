@@ -363,6 +363,18 @@ function Test-RegisterCompanionAcceptsNet8Runtime {
     Assert-Contains -Text $content -Expected '$tfm -eq ''net7.0''' -Message 'Companion registration must retain net7.0 runtime metadata support.'
     Assert-Contains -Text $content -Expected '$tfm -eq ''net48''' -Message 'Companion registration must keep explicit net48 runtime metadata rejection.'
     Assert-Contains -Text $content -Expected '$UnsupportedNet48CompanionMessage' -Message 'Companion registration must keep the net48-specific rejection path.'
+    Assert-Contains -Text $content -Expected 'Join-Path $NativeDir ''net8.0\Rook.rhp''' -Message 'Companion registration must discover installed net8.0 payloads beside RookNative.'
+    Assert-Contains -Text $content -Expected 'Join-Path $NativeDir ''net7.0\Rook.rhp''' -Message 'Companion registration must preserve installed net7.0 fallback discovery beside RookNative.'
+    Assert-Contains -Text $content -Expected 'src\Rook\bin\Debug\net8.0\Rook.rhp' -Message 'Companion registration must discover repo Debug net8.0 build output.'
+    Assert-Contains -Text $content -Expected 'src\Rook\bin\Release\net8.0\Rook.rhp' -Message 'Companion registration must discover repo Release net8.0 build output.'
+
+    $colocatedCandidatesBlock = Get-TextBeforeNextMarker -Text $content -StartMarker '$ColocatedCandidates = @(' -EndMarker "`n        foreach "
+    Assert-Before -Text $colocatedCandidatesBlock -First 'Join-Path $NativeDir ''net8.0\Rook.rhp''' -Second 'Join-Path $NativeDir ''net7.0\Rook.rhp''' -Message 'Companion registration must prefer installed net8.0 before net7.0 beside RookNative.'
+
+    $repoCandidatesBlock = Get-TextBeforeNextMarker -Text $content -StartMarker '$Candidates = @(' -EndMarker "`n        foreach "
+    Assert-Before -Text $repoCandidatesBlock -First 'src\Rook\bin\Debug\net8.0\Rook.rhp' -Second 'src\Rook\bin\Debug\net7.0\Rook.rhp' -Message 'Companion registration must prefer repo Debug net8.0 before Debug net7.0.'
+    Assert-Before -Text $repoCandidatesBlock -First 'src\Rook\bin\Release\net8.0\Rook.rhp' -Second 'src\Rook\bin\Release\net7.0\Rook.rhp' -Message 'Companion registration must prefer repo Release net8.0 before Release net7.0.'
+    Assert-Before -Text $repoCandidatesBlock -First 'src\Rook\bin\Release\net8.0\Rook.rhp' -Second 'src\Rook\bin\Debug\net7.0\Rook.rhp' -Message 'Companion registration must check all repo net8.0 candidates before net7.0 fallbacks.'
 }
 
 function Test-DeployScriptNativeOnlySkipBuildFastPath {

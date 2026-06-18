@@ -109,6 +109,7 @@ if (-not $RhpPath) {
     if ($NativeReg -and $NativeReg.FileName) {
         $NativeDir = Split-Path -Parent $NativeReg.FileName
         $ColocatedCandidates = @(
+            (Join-Path $NativeDir 'net8.0\Rook.rhp'),
             (Join-Path $NativeDir 'net7.0\Rook.rhp'),
             (Join-Path $NativeDir 'Rook.rhp')
         )
@@ -125,6 +126,8 @@ if (-not $RhpPath) {
     # Priority 2: Repo build outputs (development workflow).
     if (-not $RhpPath) {
         $Candidates = @(
+            (Join-Path $RepoRoot 'src\Rook\bin\Debug\net8.0\Rook.rhp'),
+            (Join-Path $RepoRoot 'src\Rook\bin\Release\net8.0\Rook.rhp'),
             (Join-Path $RepoRoot 'src\Rook\bin\Debug\net7.0\Rook.rhp'),
             (Join-Path $RepoRoot 'src\Rook\bin\Release\net7.0\Rook.rhp')
         )
@@ -132,7 +135,7 @@ if (-not $RhpPath) {
         foreach ($c in $Candidates) {
             if (Test-Path $c) {
                 $RhpPath = (Resolve-Path $c).Path
-                $RhpSource = 'repo net7.0 build output'
+                $RhpSource = 'repo managed build output'
                 break
             }
         }
@@ -141,9 +144,9 @@ if (-not $RhpPath) {
     if (-not $RhpPath) {
         $msg = "Could not find Rook.rhp.`n"
         $msg += "  Checked runtime payload beside registered RookNative (not found or native not registered).`n"
-        $msg += "  Checked repo net7.0 build outputs (not built).`n`n"
+        $msg += "  Checked repo net8.0/net7.0 build outputs (not built).`n`n"
         $msg += "Build the managed companion first:`n"
-        $msg += "  dotnet build src\Rook\Rook.csproj -f net7.0 -c Debug`n`n"
+        $msg += "  dotnet build src\Rook\Rook.csproj -c Debug`n`n"
         $msg += "Or pass -RhpPath explicitly:`n"
         $msg += "  .\scripts\register-companion.ps1 -RhpPath 'C:\path\to\Rook.rhp'"
         Write-Error $msg
