@@ -588,8 +588,9 @@ namespace Rook.UI.Chat
                             : "null";
                         var note = EscapeForJavaScript(evt.VerificationNote ?? "");
                         var summary = BuildToolSummary(evt);
+                        var toolStatus = EscapeForJavaScript(evt.ToolStatus ?? "");
                         ExecuteScript(
-                            $"window.chatAPI.finalizeToolCard('{EscapeForJavaScript(evt.ToolCallId ?? "")}', {verified}, '{note}', '{EscapeForJavaScript(summary)}')");
+                            $"window.chatAPI.finalizeToolCard('{EscapeForJavaScript(evt.ToolCallId ?? "")}', {verified}, '{note}', '{EscapeForJavaScript(summary)}', '{toolStatus}')");
                         break;
 
                     case "ui_block":
@@ -666,7 +667,38 @@ namespace Rook.UI.Chat
                 // Check for success field
                 if (root.TryGetProperty("success", out var success))
                 {
-                    return success.GetBoolean() ? "Success" : "Failed";
+                    if (success.ValueKind == JsonValueKind.False)
+                    {
+                        if (root.TryGetProperty("error", out var error) &&
+                            error.ValueKind == JsonValueKind.String)
+                            return error.GetString() ?? "Failed";
+                        if (root.TryGetProperty("message", out var message) &&
+                            message.ValueKind == JsonValueKind.String)
+                            return message.GetString() ?? "Failed";
+                        if (root.TryGetProperty("data", out var dataElement) &&
+                            dataElement.ValueKind == JsonValueKind.String)
+                            return dataElement.GetString() ?? "Failed";
+                        if (root.TryGetProperty("data", out dataElement) &&
+                            dataElement.ValueKind == JsonValueKind.Object)
+                        {
+                            if (dataElement.TryGetProperty("error", out var dataError) &&
+                                dataError.ValueKind == JsonValueKind.String)
+                                return dataError.GetString() ?? "Failed";
+                            if (dataElement.TryGetProperty("message", out var dataMessage) &&
+                                dataMessage.ValueKind == JsonValueKind.String)
+                                return dataMessage.GetString() ?? "Failed";
+                        }
+                        return "Failed";
+                    }
+
+                    if (success.ValueKind == JsonValueKind.True)
+                    {
+                        if (TryReadToolSummaryString(root, "message", out var successMessage))
+                            return successMessage;
+                        if (TryReadToolSummaryString(root, "status", out var successStatus))
+                            return successStatus;
+                        return "Success";
+                    }
                 }
             }
             catch
@@ -675,6 +707,21 @@ namespace Rook.UI.Chat
             }
 
             return "Done";
+        }
+
+        private static bool TryReadToolSummaryString(JsonElement element, string propertyName, out string value)
+        {
+            value = string.Empty;
+            if (!element.TryGetProperty(propertyName, out var property) ||
+                property.ValueKind != JsonValueKind.String)
+                return false;
+
+            var rawValue = property.GetString();
+            if (string.IsNullOrWhiteSpace(rawValue))
+                return false;
+
+            value = rawValue!;
+            return true;
         }
 
         protected override void OnStopRequested()

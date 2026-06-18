@@ -133,6 +133,16 @@ def _local_tool_schema(tool_name):
     return catalog[tool_name]["function"]["parameters"]
 
 
+def _schema_text(schema: dict) -> str:
+    fn = schema["function"]
+    params = fn["parameters"]
+    pieces = [fn.get("description", "")]
+    for prop in params.get("properties", {}).values():
+        if isinstance(prop, dict):
+            pieces.append(prop.get("description", ""))
+    return "\n".join(pieces)
+
+
 def test_local_catalog_schema_for_unified_create_script_matches_server_contract():
     schema = _local_tool_schema("gh_create_script")
 
@@ -153,6 +163,41 @@ def test_local_catalog_schema_for_create_aliases_matches_server_required_fields(
     assert "x" in schema["properties"]
     assert "y" in schema["properties"]
     assert schema.get("additionalProperties") is not True
+
+
+def test_local_csharp_alias_schema_teaches_rhinocode_script_contract():
+    from rook.agent.chat.chat_runner import _build_local_tool_catalog
+
+    catalog = _build_local_tool_catalog({"gh_create_csharp_script": object()})
+    text = _schema_text(catalog["gh_create_csharp_script"])
+
+    assert "RhinoCode C# Script" in text
+    assert "body" in text and "RunScript" in text
+    assert "GH_Component" in text and "do not" in text.lower()
+    assert "B:Brep" in text
+
+
+def test_local_unified_schema_teaches_csharp_contract_when_language_is_csharp():
+    from rook.agent.chat.chat_runner import _build_local_tool_catalog
+
+    catalog = _build_local_tool_catalog({"gh_create_script": object()})
+    text = _schema_text(catalog["gh_create_script"])
+
+    assert "language=\"csharp\"" in text or "language: csharp" in text
+    assert "RhinoCode C# Script" in text
+    assert "body" in text and "RunScript" in text
+    assert "GH_Component" in text and "do not" in text.lower()
+
+
+def test_local_csharp_schema_tells_model_to_update_after_errors():
+    from rook.agent.chat.chat_runner import _build_local_tool_catalog
+
+    catalog = _build_local_tool_catalog({"gh_create_csharp_script": object()})
+    text = _schema_text(catalog["gh_create_csharp_script"])
+
+    assert "gh_errors" in text
+    assert "gh_update_script" in text
+    assert "do not just paste" in text.lower()
 
 
 @pytest.mark.asyncio
