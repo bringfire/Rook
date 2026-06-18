@@ -5,6 +5,49 @@ import pytest
 from rook import rookbim_export_to_rhino as workflow
 
 
+@pytest.mark.asyncio
+async def test_server_schema_exposes_export_preset_to_rhino_tool():
+    from rook.server import list_tools
+
+    tools = {tool.name: tool for tool in await list_tools()}
+    schema = tools["rookbim_export_preset_to_rhino"].inputSchema
+    props = schema["properties"]
+
+    assert "preset" in props
+    assert "output" in props
+    assert "projectRelationships" in props
+    assert "includeRooms" in props
+    assert "includeLevels" in props
+    assert "relationshipSummary" in props
+    assert "relationshipSampleLimit" in props
+    assert "targetLayer" in props
+    assert "may destroy exported BIM layer organization" in props["targetLayer"]["description"]
+    assert schema["required"] == ["preset"]
+    assert schema["additionalProperties"] is False
+
+
+@pytest.mark.asyncio
+async def test_server_dispatch_uses_workflow_helper(monkeypatch):
+    from rook.server import _call_tool_dispatch
+
+    calls = []
+
+    async def fake_workflow(arguments, **deps):
+        calls.append((arguments, sorted(deps)))
+        return {"success": True, "workflow": "rookbim_export_preset_to_rhino"}
+
+    monkeypatch.setattr("rook.rookbim_export_to_rhino.export_preset_to_rhino", fake_workflow)
+
+    result = await _call_tool_dispatch(
+        "rookbim_export_preset_to_rhino",
+        {"preset": "openings_and_hosts", "port": 9876},
+    )
+
+    assert result["success"] is True
+    assert result["data"]["workflow"] == "rookbim_export_preset_to_rhino"
+    assert calls[0][0] == {"preset": "openings_and_hosts", "port": 9876}
+
+
 def test_default_output_uses_temp_root_and_safe_timestamp(monkeypatch, tmp_path):
     monkeypatch.setenv("TEMP", str(tmp_path))
     now = dt.datetime(2026, 6, 18, 9, 4, 5)
