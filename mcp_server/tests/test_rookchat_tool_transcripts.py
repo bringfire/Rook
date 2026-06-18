@@ -215,3 +215,70 @@ async def test_missing_code_create_call_surfaces_failed_tool_status():
     ][0]
     assert create_result.tool_status == "failed"
     assert "Missing required parameter: code" in create_result.result
+
+
+@pytest.mark.asyncio
+async def test_csharp_script_creation_can_run_first_round_without_request_tools():
+    tool_results = {
+        "gh_create_csharp_script": {
+            "success": True,
+            "data": {
+                "component_guid": "script-guid",
+                "name": "Box Maker",
+                "pins_out": ["B:Brep"],
+            },
+        },
+        "gh_errors": {
+            "success": True,
+            "data": {"errorCount": 0, "warningCount": 0},
+        },
+    }
+    dispatched = []
+
+    async def executor(name, params):
+        dispatched.append(name)
+        if name == "request_tools":
+            raise AssertionError("request_tools must not be needed for first-round script creation")
+        return tool_results[name]
+
+    runner = ChatRunner(tool_executor=executor)
+    responses = [
+        _tool_stream(
+            _ToolCall(
+                "call_create",
+                "gh_create_csharp_script",
+                {
+                    "code": (
+                        "var box = new Rhino.Geometry.Box("
+                        "Rhino.Geometry.Plane.WorldXY, "
+                        "new Rhino.Geometry.Interval(0, 10), "
+                        "new Rhino.Geometry.Interval(0, 10), "
+                        "new Rhino.Geometry.Interval(0, 10)); "
+                        "B = box.ToBrep();"
+                    ),
+                    "pins_in": [],
+                    "pins_out": ["B:Brep"],
+                    "name": "Box Maker",
+                },
+            )
+        ),
+        _tool_stream(_ToolCall("call_errors", "gh_errors", {})),
+        _text_stream("Created Box Maker. gh_errors returned 0 errors and 0 warnings."),
+    ]
+
+    events, conv = await _collect_events(runner, responses)
+
+    tool_result_events = [
+        event for event in events
+        if event.type == "tool_result"
+    ]
+    assert [event.name for event in tool_result_events] == [
+        "gh_create_csharp_script",
+        "gh_errors",
+    ]
+    assert "request_tools" not in [event.name for event in tool_result_events]
+    assert dispatched == ["gh_create_csharp_script", "gh_errors"]
+    assert tool_result_events[0].tool_status == "success"
+    assert tool_result_events[1].tool_status == "success"
+    assert conv.messages[-1]["role"] == "assistant"
+    assert "0 errors" in conv.messages[-1]["content"]
