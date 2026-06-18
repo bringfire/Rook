@@ -377,6 +377,124 @@ _GH_UPDATE_SCRIPT_SCHEMA: dict = {
     },
 }
 
+_GH_SCRIPT_PIN_ARRAY_SCHEMA: dict = {
+    "type": "array",
+    "items": {
+        "oneOf": [
+            {"type": "string"},
+            {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "type": {"type": "string"},
+                    "access": {
+                        "type": "string",
+                        "enum": ["item", "list", "tree"],
+                    },
+                    "optional": {"type": "boolean"},
+                    "description": {"type": "string"},
+                },
+                "required": ["name"],
+                "additionalProperties": True,
+            },
+        ]
+    },
+}
+
+
+def _gh_create_script_schema(
+    name: str,
+    description: str,
+    *,
+    required: list[str],
+    include_language: bool,
+) -> dict:
+    properties: dict = {
+        "code": {
+            "type": "string",
+            "description": "Script source code for the script component.",
+        },
+        "pins_in": {
+            **_GH_SCRIPT_PIN_ARRAY_SCHEMA,
+            "description": 'Input pin definitions as "Name:Type" strings or pin objects.',
+        },
+        "pins_out": {
+            **_GH_SCRIPT_PIN_ARRAY_SCHEMA,
+            "description": 'Output pin definitions as "Name:Type" strings or pin objects.',
+        },
+        "name": {
+            "type": "string",
+            "description": "Display name for the component.",
+        },
+        "x": {
+            "type": "number",
+            "description": "Canvas X position.",
+        },
+        "y": {
+            "type": "number",
+            "description": "Canvas Y position.",
+        },
+    }
+    if include_language:
+        properties = {
+            "language": {
+                "type": "string",
+                "enum": ["python", "csharp"],
+                "description": "Script language: python or csharp.",
+            },
+            **properties,
+        }
+    return {
+        "type": "function",
+        "function": {
+            "name": name,
+            "description": description,
+            "parameters": {
+                "type": "object",
+                "properties": properties,
+                "required": required,
+                "additionalProperties": False,
+            },
+        },
+    }
+
+
+_GH_CREATE_SCRIPT_SCHEMA: dict = _gh_create_script_schema(
+    "gh_create_script",
+    _TOOL_DESCRIPTIONS.get(
+        "gh_create_script",
+        "Create a Python 3 or C# Script component with pins and code.",
+    ),
+    required=["language", "code"],
+    include_language=True,
+)
+
+_GH_CREATE_PYTHON_SCRIPT_SCHEMA: dict = _gh_create_script_schema(
+    "gh_create_python_script",
+    _TOOL_DESCRIPTIONS.get(
+        "gh_create_python_script",
+        'Alias for gh_create_script(language="python").',
+    ),
+    required=["code", "pins_in", "pins_out"],
+    include_language=False,
+)
+
+_GH_CREATE_CSHARP_SCRIPT_SCHEMA: dict = _gh_create_script_schema(
+    "gh_create_csharp_script",
+    _TOOL_DESCRIPTIONS.get(
+        "gh_create_csharp_script",
+        'Alias for gh_create_script(language="csharp").',
+    ),
+    required=["code", "pins_in", "pins_out"],
+    include_language=False,
+)
+
+_GH_CREATE_SCRIPT_SCHEMAS: Dict[str, dict] = {
+    "gh_create_script": _GH_CREATE_SCRIPT_SCHEMA,
+    "gh_create_python_script": _GH_CREATE_PYTHON_SCRIPT_SCHEMA,
+    "gh_create_csharp_script": _GH_CREATE_CSHARP_SCRIPT_SCHEMA,
+}
+
 
 def _build_local_tool_catalog(local_tools: dict) -> Dict[str, dict]:
     """Build LiteLLM catalog entries for local Python tools."""
@@ -391,6 +509,9 @@ def _build_local_tool_catalog(local_tools: dict) -> Dict[str, dict]:
             continue
         if name == "gh_update_script":
             catalog[name] = _GH_UPDATE_SCRIPT_SCHEMA
+            continue
+        if name in _GH_CREATE_SCRIPT_SCHEMAS:
+            catalog[name] = _GH_CREATE_SCRIPT_SCHEMAS[name]
             continue
         desc = _TOOL_DESCRIPTIONS.get(name, f"Local tool: {name.replace('_', ' ')}")
         catalog[name] = {

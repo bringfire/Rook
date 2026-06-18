@@ -774,6 +774,39 @@ async def _local_gh_update_script(port: int | None = None, **kwargs) -> dict:
     return await _execute_gh_update_script(kwargs, port)
 
 
+async def _local_gh_create_script(port: int | None = None, **kwargs) -> dict:
+    from ..server import _execute_gh_create_script
+
+    return await _execute_gh_create_script(
+        kwargs.get("language"),
+        kwargs,
+        port,
+        tool_name="gh_create_script",
+    )
+
+
+async def _local_gh_create_python_script(port: int | None = None, **kwargs) -> dict:
+    from ..server import _execute_gh_create_script
+
+    return await _execute_gh_create_script(
+        "python",
+        kwargs,
+        port,
+        tool_name="gh_create_python_script",
+    )
+
+
+async def _local_gh_create_csharp_script(port: int | None = None, **kwargs) -> dict:
+    from ..server import _execute_gh_create_script
+
+    return await _execute_gh_create_script(
+        "csharp",
+        kwargs,
+        port,
+        tool_name="gh_create_csharp_script",
+    )
+
+
 def _transform_gh_library(args: dict) -> Tuple[str, str, dict]:
     params = {}
     if args.get("search"):
@@ -1141,6 +1174,9 @@ def build_local_tools() -> Dict[str, Any]:
     except ImportError:
         logger.debug("scene_refine_containment local tool unavailable (import failed)")
 
+    tools["gh_create_script"] = _local_gh_create_script
+    tools["gh_create_python_script"] = _local_gh_create_python_script
+    tools["gh_create_csharp_script"] = _local_gh_create_csharp_script
     tools["gh_update_script"] = _local_gh_update_script
     tools["gh_set_script_pins"] = _local_gh_set_script_pins
 
