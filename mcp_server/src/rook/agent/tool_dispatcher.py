@@ -1281,6 +1281,32 @@ def build_local_tools() -> Dict[str, Any]:
     except ImportError:
         logger.debug("scene_bim_facts local tool unavailable (import failed)")
 
+    # --- rookbim_export_preset_to_rhino (Python-side demo workflow orchestration) ---
+    try:
+        from .. import rookbim_export_to_rhino
+        from ..scene.bim_relationship_projection import (
+            BimProjectionValidationError,
+            project_bim_relationships_for_tool,
+        )
+        from ..scene.bim_facts_query import query_bim_facts
+        from ..scene.scene_graph import get_scene_graph
+
+        async def _rookbim_export_preset_to_rhino(**kwargs) -> dict:
+            def _query_bim_facts_for_workflow(**query_kwargs):
+                return query_bim_facts(get_scene_graph(), **query_kwargs)
+
+            return await rookbim_export_to_rhino.export_preset_to_rhino(
+                dict(kwargs),
+                call_rhino_fn=call_rhino,
+                project_relationships_fn=project_bim_relationships_for_tool,
+                query_bim_facts_fn=_query_bim_facts_for_workflow,
+                projection_exception_types=(BimProjectionValidationError,),
+            )
+
+        tools["rookbim_export_preset_to_rhino"] = _rookbim_export_preset_to_rhino
+    except ImportError:
+        logger.debug("rookbim_export_preset_to_rhino local tool unavailable (import failed)")
+
     tools["gh_update_script"] = _local_gh_update_script
     tools["gh_set_script_pins"] = _local_gh_set_script_pins
 

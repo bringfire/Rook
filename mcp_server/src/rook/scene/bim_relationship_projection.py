@@ -819,6 +819,7 @@ async def project_bim_relationships_for_tool(
     include_levels: bool = True,
     port: int | None = None,
     analytics: SceneGraphAnalytics | None = None,
+    hydrate_all_scene_when_scoped: bool = True,
 ) -> dict[str, Any]:
     if analytics is None:
         from .scene_graph import get_scene_graph
@@ -834,7 +835,7 @@ async def project_bim_relationships_for_tool(
 
     candidate_object_ids = _scene_candidate_object_ids(analytics, object_ids)
     hydration_object_ids = candidate_object_ids
-    if object_ids is not None and candidate_object_ids:
+    if object_ids is not None and candidate_object_ids and hydrate_all_scene_when_scoped:
         hydration_object_ids = list(dict.fromkeys([
             *candidate_object_ids,
             *_scene_candidate_object_ids(analytics, None),

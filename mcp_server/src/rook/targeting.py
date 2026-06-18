@@ -537,6 +537,7 @@ _ALL_KNOWN_TOOLS = {
     "rookbim_element_parameters",
     "rookbim_export_elements",
     "rookbim_export_preset",
+    "rookbim_export_preset_to_rhino",
     "rookbim_list_categories",
     "rookbim_query_elements",
     "rookbim_select_elements",
