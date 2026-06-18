@@ -23,7 +23,7 @@ $ErrorActionPreference = 'Stop'
 $CompanionGuid = 'b7e4a8c9-1f62-4c7e-9a2b-5d4e8f1c3a7b'
 $RegBase       = "HKCU:\Software\McNeel\Rhinoceros\8.0\Plug-Ins\$CompanionGuid"
 $UnsupportedNet48CompanionMessage = 'net48 Rook companion builds are not supported for registration; use the net7.0 Rook.rhp output.'
-$UnsupportedRuntimeMetadataMessage = 'Rook companion runtime metadata must identify a net7.0 build for registration.'
+$UnsupportedRuntimeMetadataMessage = 'Rook companion runtime metadata must identify a net8.0 or net7.0 build for registration.'
 
 function Test-PathHasExactSegment {
     param(
@@ -51,7 +51,8 @@ function Assert-SupportedCompanionRhpPath {
         throw $UnsupportedNet48CompanionMessage
     }
 
-    if (Test-PathHasExactSegment -Path $Path -Segment 'net7.0') {
+    if ((Test-PathHasExactSegment -Path $Path -Segment 'net8.0') -or
+        (Test-PathHasExactSegment -Path $Path -Segment 'net7.0')) {
         return
     }
 
@@ -67,7 +68,7 @@ function Assert-SupportedCompanionRhpPath {
     }
 
     $tfm = $metadata.runtimeOptions.tfm
-    if ($tfm -eq 'net7.0') {
+    if ($tfm -eq 'net8.0' -or $tfm -eq 'net7.0') {
         return
     }
 

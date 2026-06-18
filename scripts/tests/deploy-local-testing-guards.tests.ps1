@@ -4,6 +4,7 @@ $TestRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $TestRoot)
 $DeployScript = Join-Path $RepoRoot 'scripts\deploy-local-testing.ps1'
 $RegisterSuiteScript = Join-Path $RepoRoot 'scripts\register-rooknative-suite.ps1'
+$RegisterCompanionScript = Join-Path $RepoRoot 'scripts\register-companion.ps1'
 $DeploySkill = Join-Path $RepoRoot '.agents\skills\deploy-local-testing\SKILL.md'
 $DoctorScript = Join-Path $RepoRoot 'scripts\rook-dev-doctor.ps1'
 $AgentSetup = Join-Path $RepoRoot 'AGENT_SETUP.md'
@@ -348,6 +349,18 @@ function Test-RegisterSuitePrefersNet8CompanionFallback {
     Assert-Before -Text $candidateCompanionsBlock -First 'Join-Path $nativeDir ''net7.0\Rook.rhp''' -Second 'Join-Path $nativeDir ''Rook.rhp''' -Message 'Suite registration must prefer runtime child payloads before root fallback within candidate companion fallback discovery.'
 }
 
+function Test-RegisterCompanionAcceptsNet8Runtime {
+    $content = Get-Content -Path $RegisterCompanionScript -Raw
+
+    Assert-Contains -Text $content -Expected '$UnsupportedRuntimeMetadataMessage = ''Rook companion runtime metadata must identify a net8.0 or net7.0 build for registration.''' -Message 'Companion registration must describe both supported .NET Core companion TFMs.'
+    Assert-Contains -Text $content -Expected 'Test-PathHasExactSegment -Path $Path -Segment ''net8.0''' -Message 'Companion registration must accept net8.0 runtime-child RHP paths.'
+    Assert-Contains -Text $content -Expected 'Test-PathHasExactSegment -Path $Path -Segment ''net7.0''' -Message 'Companion registration must retain net7.0 runtime-child RHP path support.'
+    Assert-Contains -Text $content -Expected '$tfm -eq ''net8.0''' -Message 'Companion registration must accept net8.0 runtime metadata.'
+    Assert-Contains -Text $content -Expected '$tfm -eq ''net7.0''' -Message 'Companion registration must retain net7.0 runtime metadata support.'
+    Assert-Contains -Text $content -Expected '$tfm -eq ''net48''' -Message 'Companion registration must keep explicit net48 runtime metadata rejection.'
+    Assert-Contains -Text $content -Expected '$UnsupportedNet48CompanionMessage' -Message 'Companion registration must keep the net48-specific rejection path.'
+}
+
 function Test-DeployScriptNativeOnlySkipBuildFastPath {
     $content = Get-Content -Path $DeployScript -Raw
 
@@ -399,6 +412,7 @@ Test-DeployScriptNativeOnlyIsNarrow
 Test-DeployScriptUsesMultiRuntimeCompanionLayout
 Test-RegisterSuiteSupportsNativeOnlyPreserveCompanion
 Test-RegisterSuitePrefersNet8CompanionFallback
+Test-RegisterCompanionAcceptsNet8Runtime
 Test-DeployScriptNativeOnlySkipBuildFastPath
 Test-DeploySkillPointsToAuthoritativeScriptAndChirpChecks
 Test-AgentSetupDocumentsDevDeployConvention
