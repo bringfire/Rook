@@ -11256,6 +11256,48 @@ Syncs the scene graph, reads object user strings via /usertext/object-get, joins
             },
         ),
         Tool(
+            name="scene_bim_facts",
+            description="""Query already-projected RookBIM facts from the current in-memory Python scene graph mirror.
+
+Reads only the current in-memory projected graph. Does not sync Rhino. Does not call Rhino or Revit routes. Run scene_project_bim_relationships first.""",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "mode": {
+                        "type": "string",
+                        "enum": [
+                            "object_context",
+                            "room_members",
+                            "level_members",
+                            "hosted_elements",
+                            "relationship_scan",
+                        ],
+                        "description": "BIM facts query mode",
+                    },
+                    "object_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional scene object ids for object_context mode",
+                    },
+                    "room_id": {"type": "string", "description": "Room node id, unique id, number, or display name"},
+                    "room_name": {"type": "string", "description": "Room name or display name"},
+                    "level_name": {"type": "string", "description": "Level name or display name"},
+                    "host_object_id": {"type": "string", "description": "Scene object id to query hosted elements for"},
+                    "detail": {
+                        "type": "string",
+                        "enum": ["ids", "compact", "full"],
+                        "description": "Result detail level. Default compact.",
+                    },
+                    "limit": {"type": "integer", "description": "Result limit, clamped by mode."},
+                    "sample_limit": {
+                        "type": "integer",
+                        "description": "Relationship scan sample limit, clamped by mode.",
+                    },
+                },
+                "required": ["mode"],
+            },
+        ),
+        Tool(
             name="scene_classify",
             description="""Force reclassification of objects in the scene graph. Optionally switch the domain profile (general or architecture).
 
@@ -19422,6 +19464,28 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                     result = {"success": False, "data": payload}
                 else:
                     result = {"success": True, "data": payload}
+
+        case "scene_bim_facts":
+            from .scene.scene_graph import get_scene_graph
+            from .scene.bim_facts_query import query_bim_facts
+
+            sg = get_scene_graph()
+            payload = query_bim_facts(
+                sg,
+                mode=arguments.get("mode", ""),
+                object_ids=arguments.get("object_ids"),
+                room_id=arguments.get("room_id"),
+                room_name=arguments.get("room_name"),
+                level_name=arguments.get("level_name"),
+                host_object_id=arguments.get("host_object_id"),
+                detail=arguments.get("detail", "compact"),
+                limit=arguments.get("limit"),
+                sample_limit=arguments.get("sample_limit"),
+            )
+            if payload.get("success") is False:
+                result = {"success": False, "data": payload}
+            else:
+                result = {"success": True, "data": payload}
 
         case "scene_classify":
             classify_args = {k: v for k, v in arguments.items() if k != "port"}

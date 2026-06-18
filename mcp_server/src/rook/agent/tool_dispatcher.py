@@ -1247,6 +1247,40 @@ def build_local_tools() -> Dict[str, Any]:
     except ImportError:
         logger.debug("scene_project_bim_relationships local tool unavailable (import failed)")
 
+    # --- scene_bim_facts (Python-side BIM facts query) ---
+    try:
+        from ..scene.scene_graph import get_scene_graph
+        from ..scene.bim_facts_query import query_bim_facts
+
+        async def _scene_bim_facts(
+            mode=None,
+            object_ids=None,
+            room_id=None,
+            room_name=None,
+            level_name=None,
+            host_object_id=None,
+            detail="compact",
+            limit=None,
+            sample_limit=None,
+            **kwargs,
+        ) -> dict:
+            return query_bim_facts(
+                get_scene_graph(),
+                mode=mode or "",
+                object_ids=object_ids,
+                room_id=room_id,
+                room_name=room_name,
+                level_name=level_name,
+                host_object_id=host_object_id,
+                detail=detail,
+                limit=limit,
+                sample_limit=sample_limit,
+            )
+
+        tools["scene_bim_facts"] = _scene_bim_facts
+    except ImportError:
+        logger.debug("scene_bim_facts local tool unavailable (import failed)")
+
     tools["gh_update_script"] = _local_gh_update_script
     tools["gh_set_script_pins"] = _local_gh_set_script_pins
 
