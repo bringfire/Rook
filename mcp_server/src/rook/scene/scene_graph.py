@@ -299,7 +299,7 @@ class SceneGraphAnalytics:
             rel = edata.get("relationship", "?")
             t_attrs = self.graph.nodes.get(target, {})
             t_label = (t_attrs.get("domain_label") or t_attrs.get("shape_class") or "?").upper()
-            t_name = t_attrs.get("name") or target[:8]
+            t_name = t_attrs.get("displayName") or t_attrs.get("name") or target[:8]
             lines.append(f'  {_forward_rel(rel)}: {t_label} "{t_name}"{_edge_detail(edata)}')
 
         # Incoming edges (this node is target)
@@ -307,7 +307,7 @@ class SceneGraphAnalytics:
             rel = edata.get("relationship", "?")
             s_attrs = self.graph.nodes.get(source, {})
             s_label = (s_attrs.get("domain_label") or s_attrs.get("shape_class") or "?").upper()
-            s_name = s_attrs.get("name") or source[:8]
+            s_name = s_attrs.get("displayName") or s_attrs.get("name") or source[:8]
             inverse = _inverse_rel(rel)
             lines.append(f'  {inverse}: {s_label} "{s_name}"{_edge_detail(edata)}')
 
@@ -468,6 +468,9 @@ _INVERSE_RELS = {
     "adjacent_exact": "adjacent to (exact)",
     "near": "near",
     "contains_semantic": "within (semantic)",
+    "revit_hosted_by": "Revit host for",
+    "revit_in_room": "Contains Revit room member",
+    "revit_on_level": "Has Revit level member",
 }
 
 
@@ -481,6 +484,9 @@ def _inverse_rel(rel: str) -> str:
 _FORWARD_RELS = {
     "adjacent_exact": "adjacent to (exact)",
     "contains_semantic": "contains (semantic)",
+    "revit_hosted_by": "Hosted by Revit",
+    "revit_in_room": "In Revit room",
+    "revit_on_level": "On Revit level",
 }
 
 

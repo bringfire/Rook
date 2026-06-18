@@ -320,6 +320,37 @@ class TestNLContext:
         # Should show supported-by from floor
         assert "floor" in ctx.lower() or "Floor" in ctx
 
+    def test_context_formats_bim_relationships_readably(self):
+        sg = SceneGraphAnalytics()
+        sg.graph.add_node("door", name="Door", domain_label="door", shape_class="compact")
+        sg.graph.add_node("wall", name="Wall", domain_label="wall", shape_class="vertical-planar")
+        sg.graph.add_node(
+            "room",
+            name="room-1",
+            displayName="101 Office",
+            nodeKind="rookbim_room",
+            domain_label="room",
+            shape_class="bim-reference",
+        )
+        sg.graph.add_node(
+            "level",
+            name="level-id",
+            displayName="L1",
+            nodeKind="rookbim_level",
+            domain_label="level",
+            shape_class="bim-reference",
+        )
+        sg.graph.add_edge("door", "wall", key="rookbim:hosted_by:fp:uid-door:uid-wall", relationship="revit_hosted_by", provenance="rookbim_sidecar")
+        sg.graph.add_edge("door", "room", key="rookbim:in_room:fp:uid-door:room-1", relationship="revit_in_room", provenance="rookbim_sidecar")
+        sg.graph.add_edge("door", "level", key="rookbim:on_level:fp:uid-door:L1", relationship="revit_on_level", provenance="rookbim_sidecar")
+
+        text = sg.get_context(["door", "wall"])
+
+        assert 'Hosted by Revit: WALL "Wall"' in text
+        assert 'In Revit room: ROOM "101 Office"' in text
+        assert 'On Revit level: LEVEL "L1"' in text
+        assert 'Revit host for: DOOR "Door"' in text
+
 
 # ---------------------------------------------------------------------------
 # Tests: Statistics
