@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 
@@ -110,6 +111,30 @@ def test_module_constants():
     assert bim.REL_IN_ROOM == "revit_in_room"
     assert bim.REL_ON_LEVEL == "revit_on_level"
     assert bim.ENGINE_VERSION == 1
+
+
+def test_projector_source_does_not_call_inference_mutation_or_save_routes():
+    source = (
+        Path(__file__).resolve().parents[1]
+        / "src"
+        / "rook"
+        / "scene"
+        / "bim_relationship_projection.py"
+    ).read_text(encoding="utf-8")
+
+    forbidden = [
+        "scene_exact_neighbors",
+        "scene_refine_containment",
+        "/scene/graph/adjacency/exact",
+        "/bim/",
+        "/usertext/object-set",
+        "/usertext/object-set-batch",
+        "/usertext/object-delete",
+        "/document/save",
+    ]
+
+    for token in forbidden:
+        assert token not in source
 
 
 def test_node_attrs_include_bim_projection_annotations():
