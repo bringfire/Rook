@@ -7,7 +7,8 @@ shown to chat models. It never executes tools and never calls Rhino.
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Iterable
 
 from ..tool_dispatcher import STRICT_NO_ARGUMENT_BRIDGE_TOOLS
 
@@ -18,6 +19,24 @@ ROOT_OPEN_ALLOWLIST: frozenset[str] = frozenset()
 DYNAMIC_NESTED_OBJECT_ALLOWLIST: dict[str, set[tuple[str, ...]]] = {
     "ui_block": {("config",)},
 }
+
+
+@dataclass(frozen=True)
+class DispatchContext:
+    intercepted_names: frozenset[str]
+    local_tool_names: frozenset[str]
+    transform_names: frozenset[str]
+    bridge_names: frozenset[str]
+    excluded_names: frozenset[str]
+    strict_no_argument_names: frozenset[str]
+
+
+@dataclass(frozen=True)
+class DispatchabilityFinding:
+    code: str
+    tool: str
+    classification: str
+    message: str
 
 
 def _is_object_schema(schema: dict[str, Any]) -> bool:
@@ -244,4 +263,98 @@ def audit_litellm_tool_schema(schema: dict[str, Any]) -> list[dict[str, str]]:
         })
 
     findings.extend(_audit_nested_object_schemas(tool_name, parameters))
+    return findings
+
+
+def classify_visible_tool(tool_name: str, context: DispatchContext) -> str:
+    """Classify a model-visible tool against structural dispatch surfaces.
+
+    Precedence is intentional: ChatRunner-intercepted pseudo tools may also
+    have dispatcher sentinel registrations, but the ChatRunner intercept is the
+    real execution path for model-visible calls.
+    """
+    if tool_name in context.intercepted_names:
+        return "chatrunner_intercepted"
+    if tool_name in context.local_tool_names:
+        return "dispatcher_local_tool"
+    if tool_name in context.transform_names:
+        return "dispatcher_transform"
+    if tool_name in context.bridge_names:
+        return "bridge_route"
+    if tool_name in context.excluded_names:
+        return "explicitly_excluded"
+    return "failure"
+
+
+def _closed_empty_parameters(parameters: Any) -> bool:
+    return parameters == closed_no_arg_parameters()
+
+
+def _parameters_for_schema(schema: dict[str, Any]) -> Any:
+    function = schema.get("function")
+    if not isinstance(function, dict):
+        return None
+    return function.get("parameters")
+
+
+def audit_visible_tool_dispatchability(
+    schemas: Iterable[dict[str, Any]],
+    context: DispatchContext,
+) -> list[DispatchabilityFinding]:
+    """Audit model-visible tools for structural dispatchability.
+
+    This function only inspects schema names and static dispatch membership.
+    It must not execute tools, call Rhino, or ask the MCP server to dispatch.
+    """
+    findings: list[DispatchabilityFinding] = []
+    seen: set[str] = set()
+
+    for schema in schemas:
+        tool_name = _tool_name(schema)
+        if not tool_name:
+            findings.append(DispatchabilityFinding(
+                code="missing_function_name",
+                tool="",
+                classification="schema",
+                message="Visible tool schema is missing function.name.",
+            ))
+            continue
+
+        if tool_name in seen:
+            findings.append(DispatchabilityFinding(
+                code="duplicate_visible_name",
+                tool=tool_name,
+                classification="schema",
+                message=f"Tool '{tool_name}' is visible more than once.",
+            ))
+            continue
+        seen.add(tool_name)
+
+        classification = classify_visible_tool(tool_name, context)
+
+        if tool_name in context.strict_no_argument_names:
+            parameters = _parameters_for_schema(schema)
+            if not _closed_empty_parameters(parameters):
+                findings.append(DispatchabilityFinding(
+                    code="strict_no_arg_schema_drift",
+                    tool=tool_name,
+                    classification=classification,
+                    message=(
+                        f"Strict no-argument tool '{tool_name}' does not expose "
+                        "closed empty parameters."
+                    ),
+                ))
+
+        if classification == "failure":
+            findings.append(DispatchabilityFinding(
+                code="not_dispatchable",
+                tool=tool_name,
+                classification=classification,
+                message=(
+                    f"Visible tool '{tool_name}' has no ChatRunner intercept, "
+                    "dispatcher local handler, transform function, bridge route, "
+                    "or named exclusion."
+                ),
+            ))
+
     return findings
