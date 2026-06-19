@@ -992,6 +992,75 @@ namespace Rook.Tests.Artifacts
                 ((JsonObject)reloaded!.Flags["tag"]!)["label"]!.GetValue<string>());
         }
 
+        // ─── ReplaceJsonBlob: atomic JSON blob replacement ─────────
+
+        [Fact]
+        public void ReplaceJsonBlob_ReplacesExistingRoleContent_AndPreservesFiles()
+        {
+            var artifact = _store.Create(
+                "reconstruction_package",
+                new[]
+                {
+                    new BlobInput("model_glb", Bytes("glb"), "glb"),
+                    new BlobInput(
+                        "import_manifest",
+                        Bytes(@"{""schema_version"":1,""imports"":[]}"),
+                        "json"),
+                });
+
+            var updated = _store.ReplaceJsonBlob(
+                artifact.Id,
+                "import_manifest",
+                JsonNode.Parse(@"{""schema_version"":1,""imports"":[{""import_id"":""i1""}]}")!);
+
+            Assert.True(updated.Success);
+            Assert.Equal(ReplaceJsonBlobResultCode.Succeeded, updated.Code);
+            var loaded = _store.Get(artifact.Id);
+            Assert.NotNull(loaded);
+            Assert.Equal(2, loaded!.Files.Count);
+            Assert.Contains(
+                loaded.Files,
+                f => f.Role == "import_manifest" && f.Path == "import_manifest.json");
+            var json = JsonNode.Parse(File.ReadAllText(BlobPath(artifact.Id, "import_manifest.json")))!;
+            Assert.Equal("i1", json["imports"]![0]!["import_id"]!.GetValue<string>());
+        }
+
+        [Fact]
+        public void ReplaceJsonBlob_RejectsMissingRole_AndLeavesArtifactUnchanged()
+        {
+            var artifact = _store.Create(
+                "reconstruction_package",
+                OneBlob("model_glb", "glb", "glb"));
+            var before = ManifestText(artifact.Id);
+
+            var result = _store.ReplaceJsonBlob(
+                artifact.Id,
+                "import_manifest",
+                JsonNode.Parse(@"{""schema_version"":1}")!);
+
+            Assert.False(result.Success);
+            Assert.Equal(ReplaceJsonBlobResultCode.RoleNotFound, result.Code);
+            Assert.Equal(before, ManifestText(artifact.Id));
+            Assert.DoesNotContain(_store.Get(artifact.Id)!.Files, f => f.Role == "import_manifest");
+        }
+
+        [Fact]
+        public void ReplaceJsonBlob_RejectsNonJsonRole_AndLeavesBlobUnchanged()
+        {
+            var artifact = _store.Create(
+                "reconstruction_package",
+                OneBlob("model_glb", "glb", "glb"));
+
+            var result = _store.ReplaceJsonBlob(
+                artifact.Id,
+                "model_glb",
+                JsonNode.Parse(@"{""schema_version"":1}")!);
+
+            Assert.False(result.Success);
+            Assert.Equal(ReplaceJsonBlobResultCode.RoleIsNotJson, result.Code);
+            Assert.Equal("glb", File.ReadAllText(BlobPath(artifact.Id, "model_glb.glb")));
+        }
+
         // ─── AppendBlob: atomic blob append ─────────────────────────
 
         [Fact]

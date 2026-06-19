@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
@@ -710,6 +711,109 @@ namespace Rook.Artifacts
             }
 
             return AppendBlobResult.Succeeded(updated);
+        }
+
+        public ReplaceJsonBlobResult ReplaceJsonBlob(Guid id, string role, JsonNode content)
+        {
+            try
+            {
+                ValidateRoleArg(role);
+            }
+            catch (Exception ex) when (ex is ArgumentException || ex is ArgumentNullException)
+            {
+                return ReplaceJsonBlobResult.Fail(
+                    ReplaceJsonBlobResultCode.InvalidRole,
+                    ex.Message);
+            }
+
+            if (content is null)
+            {
+                return ReplaceJsonBlobResult.Fail(
+                    ReplaceJsonBlobResultCode.StagedWriteFailed,
+                    "ReplaceJsonBlob content is null.");
+            }
+
+            var dirs = FindFinalizedDirs(id);
+            if (dirs.Count == 0)
+                return ReplaceJsonBlobResult.Fail(
+                    ReplaceJsonBlobResultCode.ArtifactNotFound,
+                    $"Artifact '{id}' not found.");
+            if (dirs.Count > 1)
+                return ReplaceJsonBlobResult.Fail(
+                    ReplaceJsonBlobResultCode.ManifestReadFailed,
+                    DuplicateUuid(id).Message);
+
+            var artifactDir = dirs[0];
+            Artifact existing;
+            try
+            {
+                existing = ReadArtifact(artifactDir);
+            }
+            catch (Exception ex)
+            {
+                return ReplaceJsonBlobResult.Fail(
+                    ReplaceJsonBlobResultCode.ManifestReadFailed,
+                    ex.Message);
+            }
+
+            var file = existing.Files.FirstOrDefault(f => f.Role == role);
+            if (file is null)
+            {
+                return ReplaceJsonBlobResult.Fail(
+                    ReplaceJsonBlobResultCode.RoleNotFound,
+                    $"Artifact '{id}' has no blob role '{role}'.");
+            }
+
+            if (!string.Equals(
+                    Path.GetExtension(file.Path),
+                    ".json",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return ReplaceJsonBlobResult.Fail(
+                    ReplaceJsonBlobResultCode.RoleIsNotJson,
+                    $"Blob role '{role}' is not a JSON blob.");
+            }
+
+            var finalPath = Path.Combine(artifactDir, file.Path);
+            var tmpPath = finalPath + ".tmp-" + Guid.NewGuid().ToString("N");
+
+            try
+            {
+                File.WriteAllText(tmpPath, content.ToJsonString(WriteOptions), Encoding.UTF8);
+            }
+            catch (Exception ex)
+            {
+                TryDeleteFile(tmpPath);
+                return ReplaceJsonBlobResult.Fail(
+                    ReplaceJsonBlobResultCode.StagedWriteFailed,
+                    ex.Message);
+            }
+
+            try
+            {
+                File.Replace(
+                    sourceFileName: tmpPath,
+                    destinationFileName: finalPath,
+                    destinationBackupFileName: null);
+            }
+            catch (Exception ex)
+            {
+                TryDeleteFile(tmpPath);
+                return ReplaceJsonBlobResult.Fail(
+                    ReplaceJsonBlobResultCode.FinalizeBlobFailed,
+                    ex.Message);
+            }
+
+            try
+            {
+                return ReplaceJsonBlobResult.Succeeded(ReadArtifact(artifactDir));
+            }
+            catch (Exception ex)
+            {
+                return ReplaceJsonBlobResult.Fail(
+                    ReplaceJsonBlobResultCode.ManifestReadFailed,
+                    ex.Message);
+            }
         }
 
         public string GetBlobAbsolutePath(Guid id, string role)
