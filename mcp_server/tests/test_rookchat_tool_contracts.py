@@ -475,3 +475,166 @@ def test_meta_tool_schemas_are_closed():
     for name in ("request_tools", "search_tools"):
         params = schemas[name]["function"]["parameters"]
         assert params["additionalProperties"] is False
+
+
+def test_normalize_tool_result_top_level_truth_precedence():
+    from rook.agent.chat.tool_contracts import normalize_tool_result
+
+    top_failure = normalize_tool_result({
+        "success": False,
+        "data": {"success": True},
+    })
+    assert top_failure.status == "failed"
+
+    top_success = normalize_tool_result({
+        "success": True,
+        "data": {"success": False, "error": "nested error"},
+    })
+    assert top_success.status == "success"
+    assert top_success.error == "nested error"
+
+    top_ok = normalize_tool_result({
+        "ok": True,
+        "data": {"ok": False},
+    })
+    assert top_ok.status == "success"
+
+
+def test_normalize_tool_result_nested_truth_and_error_fallbacks():
+    from rook.agent.chat.tool_contracts import normalize_tool_result
+
+    nested_success = normalize_tool_result({"data": {"ok": True}})
+    assert nested_success.status == "success"
+
+    top_error = normalize_tool_result({"error": "bad input"})
+    assert top_error.status == "failed"
+    assert top_error.error == "bad input"
+
+    nested_error = normalize_tool_result({"data": {"error": "nested bad input"}})
+    assert nested_error.status == "failed"
+    assert nested_error.error == "nested bad input"
+
+    non_string_error = normalize_tool_result({"error": {"code": "bad_input"}})
+    assert non_string_error.status == "failed"
+    assert non_string_error.error is None
+
+
+def test_normalize_tool_result_ignores_status_strings_and_truth_like_values():
+    from rook.agent.chat.tool_contracts import normalize_tool_result
+
+    status_only = normalize_tool_result({"status": "loaded"})
+    assert status_only.status is None
+
+    string_truth_with_error = normalize_tool_result({
+        "success": "false",
+        "error": "bad",
+    })
+    assert string_truth_with_error.status == "failed"
+    assert string_truth_with_error.error == "bad"
+
+    integer_truth_values = normalize_tool_result({
+        "success": 1,
+        "data": {"ok": 0},
+    })
+    assert integer_truth_values.status is None
+
+
+def test_normalize_tool_result_non_dict_returns_empty_view():
+    from rook.agent.chat.tool_contracts import normalize_tool_result
+
+    view = normalize_tool_result("plain text result")
+
+    assert view.status is None
+    assert view.verified is None
+    assert view.verification_note is None
+    assert view.message is None
+    assert view.error is None
+
+
+def test_normalize_tool_result_does_not_mutate_input_dict():
+    from copy import deepcopy
+
+    from rook.agent.chat.tool_contracts import normalize_tool_result
+
+    raw = {
+        "success": True,
+        "message": "top message",
+        "data": {
+            "success": False,
+            "verified": False,
+            "message": "nested message",
+        },
+    }
+    original = deepcopy(raw)
+
+    view = normalize_tool_result(raw)
+
+    assert view.status == "success"
+    assert view.verified is False
+    assert raw == original
+
+
+def test_normalize_tool_result_message_and_error_extraction_are_string_only():
+    from rook.agent.chat.tool_contracts import normalize_tool_result
+
+    top_strings = normalize_tool_result({
+        "message": "top message",
+        "error": "top error",
+        "data": {
+            "message": "nested message",
+            "error": "nested error",
+        },
+    })
+    assert top_strings.message == "top message"
+    assert top_strings.error == "top error"
+
+    nested_strings = normalize_tool_result({
+        "message": {"text": "not a string"},
+        "error": ["not", "a", "string"],
+        "data": {
+            "message": "nested message",
+            "error": "nested error",
+        },
+    })
+    assert nested_strings.status == "failed"
+    assert nested_strings.message == "nested message"
+    assert nested_strings.error == "nested error"
+
+
+def test_normalize_tool_result_verification_precedence_and_fallback():
+    from rook.agent.chat.tool_contracts import normalize_tool_result
+
+    top_verification = normalize_tool_result({
+        "verified": True,
+        "verification_note": "top note",
+        "data": {
+            "verified": False,
+            "verification_note": "nested note",
+            "message": "nested message",
+        },
+    })
+    assert top_verification.verified is True
+    assert top_verification.verification_note == "top note"
+
+    nested_fallback = normalize_tool_result({
+        "data": {
+            "verified": False,
+            "message": "No active Grasshopper canvas",
+        },
+    })
+    assert nested_fallback.verified is False
+    assert nested_fallback.verification_note == "No active Grasshopper canvas"
+
+    top_message_is_not_verification_note = normalize_tool_result({
+        "verified": False,
+        "message": "This is an ordinary message",
+    })
+    assert top_message_is_not_verification_note.verified is False
+    assert top_message_is_not_verification_note.verification_note is None
+
+    non_string_top_note_falls_back_to_nested_note = normalize_tool_result({
+        "verified": False,
+        "verification_note": {"text": "not a string"},
+        "data": {"verification_note": "nested note"},
+    })
+    assert non_string_top_note_falls_back_to_nested_note.verification_note == "nested note"
