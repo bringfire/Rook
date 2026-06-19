@@ -17,6 +17,8 @@ Implement from `docs/superpowers/specs/2026-06-19-reconstruction-2d-to-3d-design
 ## Preflight Decisions
 
 - Native project files are explicit. Creating `src/RookNative/Handlers/ReconstructionHandler.cpp` and `.h` requires editing `src/RookNative/RookNative.vcxproj` and `.filters`. AGENTS.md says not to modify those project files unless explicitly asked. Before Task 9, ask the user to authorize that project-file edit. If authorization is not granted, place the native route handlers in an existing compiled native file and add a follow-up cleanup item to extract the handler when project-file edits are allowed.
+- Execution must start in a clean isolated worktree created with `superpowers:using-git-worktrees`. Do not execute this plan in the current dirty working tree. The current workspace already has unrelated edits in `knowledge/gh/component_observations.json` and `mcp_server/src/rook/server.py`; Task 10 touches `mcp_server/src/rook/server.py`, so running in-place can accidentally stage unrelated MCP changes.
+- Before any task touches a file that is already dirty, run `git diff -- <path>` and either move to the isolated worktree or explicitly preserve the pre-existing diff. Never stage a broad directory when it contains pre-existing unrelated changes.
 - Do not run live fal jobs in unit tests. Provider calls use fakes; live smoke testing is manual and gated by the existing fal API key.
 - Do not add insertion point, scale, rotation, replace, reimport, automatic preprocessing, or cost-estimate gating in v1.
 
@@ -24,59 +26,59 @@ Implement from `docs/superpowers/specs/2026-06-19-reconstruction-2d-to-3d-design
 
 ### Managed Reconstruction Domain
 
-- Create `src/Rook/Services/Reconstruction/ReconstructionContracts.cs`  
+- Create `src/Rook/Services/Reconstruction/ReconstructionContracts.cs`
   Request/response DTOs, states, stages, failure/warning shapes, package roles, user-text keys.
 
-- Create `src/Rook/Services/Reconstruction/ReconstructionModelCatalog.cs`  
+- Create `src/Rook/Services/Reconstruction/ReconstructionModelCatalog.cs`
   Loads and filters curated model catalog entries by `enabled`, `status`, `include_experimental`, and `include_hidden`.
 
-- Create `src/Rook/Services/Reconstruction/Fal/fal-model-catalog.json`  
+- Create `src/Rook/Services/Reconstruction/Fal/fal-model-catalog.json`
   Curated catalog with Hunyuan rapid stable, Meshy v6 experimental, BiRefNet experimental/manual preprocessing.
 
-- Create `src/Rook/Services/Reconstruction/ReconstructionSourceValidator.cs`  
+- Create `src/Rook/Services/Reconstruction/ReconstructionSourceValidator.cs`
   Validates `source_artifact_id`, source role, artifact kind allowlist, local blob path, image extension/MIME, size, and dimensions.
 
-- Create `src/Rook/Services/Reconstruction/ReconstructionJobLedger.cs`  
+- Create `src/Rook/Services/Reconstruction/ReconstructionJobLedger.cs`
   JSONL ledger contracts and reader/writer for durable job records.
 
-- Create `src/Rook/Services/Reconstruction/ReconstructionPackageMaterializer.cs`  
+- Create `src/Rook/Services/Reconstruction/ReconstructionPackageMaterializer.cs`
   Materializes provider result envelopes into `reconstruction_package` artifacts, including `provider_result_json` and initial `import_manifest`.
 
-- Create `src/Rook/Services/Reconstruction/Fal/FalReconstructionProvider.cs`  
+- Create `src/Rook/Services/Reconstruction/Fal/FalReconstructionProvider.cs`
   Uses existing fal queue/client patterns and `GenerationSecretKeys.FalApiKey`.
 
-- Create `src/Rook/Handlers/ReconstructionOpHandler.cs`  
+- Create `src/Rook/Handlers/ReconstructionOpHandler.cs`
   Managed dispatch boundary for models, submit, list, status, cancel, result, import prepare, and import record.
 
-- Modify `src/Rook/RookSubsystemRoot.cs`  
+- Modify `src/Rook/RookSubsystemRoot.cs`
   Lazy-create reconstruction dependencies from shared `ArtifactStore` and `DpapiGenerationSecretStore`.
 
-- Modify `src/Rook/InternalBridge/NativeGhBridgeRegistrar.cs`  
+- Modify `src/Rook/InternalBridge/NativeGhBridgeRegistrar.cs`
   Register `reconstruction_dispatch` callback and route to `ReconstructionOpHandler`.
 
-- Modify `src/Rook/Capabilities/CapabilityDomainStatus.cs`  
+- Modify `src/Rook/Capabilities/CapabilityDomainStatus.cs`
   Add managed evidence for reconstruction readiness if this file remains the managed capability source for companion evidence.
 
 ### Artifact Store
 
-- Modify `src/Rook/Artifacts/ArtifactStore.cs`  
+- Modify `src/Rook/Artifacts/ArtifactStore.cs`
   Add a scoped atomic JSON blob update/replace primitive for `import_manifest`.
 
-- Modify `src/Rook.Tests/Artifacts/ArtifactStoreTests.cs`  
+- Modify `src/Rook.Tests/Artifacts/ArtifactStoreTests.cs`
   Cover successful JSON blob replacement, missing role, invalid JSON, and atomic failure behavior.
 
 ### Native
 
-- Preferred create, pending project-file authorization:  
+- Preferred create, pending project-file authorization:
   `src/RookNative/Handlers/ReconstructionHandler.cpp` and `src/RookNative/Handlers/ReconstructionHandler.h`
 
-- Required if preferred create path is authorized:  
+- Required if preferred create path is authorized:
   Modify `src/RookNative/RookNative.vcxproj` and `src/RookNative/RookNative.vcxproj.filters`.
 
-- Modify `src/RookNative/Handlers/GrasshopperProxyHandler.cpp` and `.h`  
+- Modify `src/RookNative/Handlers/GrasshopperProxyHandler.cpp` and `.h`
   Add `HasReconstructionDispatchRegistration()` and `InvokeReconstructionDispatchWithBody()`.
 
-- Modify `src/RookNative/RookServer.cpp`  
+- Modify `src/RookNative/RookServer.cpp`
   Register `/reconstruction/2d-to-3d/*` routes and add `reconstruction.2d_to_3d` capability evidence.
 
 - Modify `src/RookNative/Handlers/ImportExportHandler.cpp` only if extracting a helper for import/layer/user-text stamping is simpler than duplicating the existing pattern.
@@ -87,15 +89,15 @@ Implement from `docs/superpowers/specs/2026-06-19-reconstruction-2d-to-3d-design
 
 ### MCP
 
-- Modify `mcp_server/src/rook/server.py`  
+- Modify `mcp_server/src/rook/server.py`
   Register reconstruction tools and dispatch cases.
 
-- Modify `mcp_server/src/rook/agent/tool_dispatcher.py`  
+- Modify `mcp_server/src/rook/agent/tool_dispatcher.py`
   Add direct bridge routes/path-param transforms for reconstruction tools.
 
 - Modify `mcp_server/src/rook/tool_groups.py` if reconstruction tool grouping is centralized there.
 
-- Create `mcp_server/tests/test_reconstruction_mcp_tools.py`  
+- Create `mcp_server/tests/test_reconstruction_mcp_tools.py`
   Pin tool schemas, dispatch endpoints, path-param encoding, and tool groups.
 
 ### Tests
@@ -838,16 +840,27 @@ Expected: compile failure because materializer does not exist.
 
 - [ ] **Step 3: Implement role mapping**
 
-Implement:
+Implement the materializer as an explicit provider-envelope mapper. Use a synchronous downloader in this task so unit tests do not need async plumbing; a later provider task can wrap HTTP asynchronously before calling the materializer.
 
 ```csharp
 public interface IReconstructionFileDownloader
 {
-    Task<byte[]> DownloadAsync(Uri uri, CancellationToken cancellationToken);
+    byte[] Download(Uri uri);
 }
 
 public sealed class ReconstructionPackageMaterializer
 {
+    private readonly ArtifactStore _store;
+    private readonly IReconstructionFileDownloader _downloader;
+
+    public ReconstructionPackageMaterializer(
+        ArtifactStore store,
+        IReconstructionFileDownloader downloader)
+    {
+        _store = store ?? throw new ArgumentNullException(nameof(store));
+        _downloader = downloader ?? throw new ArgumentNullException(nameof(downloader));
+    }
+
     public Artifact Materialize(
         Guid jobId,
         IReadOnlyList<Guid> sourceArtifactIds,
@@ -855,18 +868,166 @@ public sealed class ReconstructionPackageMaterializer
         string modelId,
         JsonNode providerResultJson)
     {
-        // Map Hunyuan:
-        // - direct model_glb
-        // - model_urls.glb -> model_glb
-        // - model_urls.obj -> model_obj
-        // - model_urls.mtl or material_mtl -> material_mtl
-        // - texture -> texture
-        // - thumbnail -> thumbnail
-        // Map Meshy:
-        // - model_glb -> model_glb
-        // - model_urls entries by extension
-        // - texture_urls and texture maps to texture_* roles
-        // Write provider_result_json and import_manifest JSON roles.
+        var blobs = new List<BlobInput>();
+        AddProviderFiles(providerResultJson, blobs);
+
+        blobs.Add(new BlobInput(
+            ReconstructionFileRoles.ProviderResultJson,
+            Encoding.UTF8.GetBytes(providerResultJson.ToJsonString()),
+            "json"));
+
+        blobs.Add(new BlobInput(
+            ReconstructionFileRoles.ImportManifest,
+            Encoding.UTF8.GetBytes(BuildInitialImportManifest().ToJsonString()),
+            "json"));
+
+        var metadata = new Dictionary<string, JsonNode?>
+        {
+            ["provider"] = JsonValue.Create(provider),
+            ["model_id"] = JsonValue.Create(modelId),
+            ["job_id"] = JsonValue.Create(jobId.ToString("D")),
+            ["asset_roles"] = new JsonArray(blobs.Select(b => JsonValue.Create(b.Role)).ToArray<JsonNode?>()),
+        };
+
+        return _store.Create(
+            ReconstructionArtifactKinds.Package,
+            blobs,
+            parentIds: sourceArtifactIds,
+            metadata: metadata);
+    }
+
+    private void AddProviderFiles(JsonNode providerResultJson, List<BlobInput> blobs)
+    {
+        var root = providerResultJson.AsObject();
+        AddUrl(blobs, ReconstructionFileRoles.ModelGlb,
+            ReadUrl(root["model_glb"]) ?? ReadUrl(Prop(root["model_urls"], "glb")));
+        AddUrl(blobs, ReconstructionFileRoles.ModelObj,
+            ReadUrl(root["model_obj"]) ?? ReadUrl(Prop(root["model_urls"], "obj")));
+        AddUrl(blobs, ReconstructionFileRoles.MaterialMtl,
+            ReadUrl(root["material_mtl"]) ?? ReadUrl(Prop(root["model_urls"], "mtl")));
+        AddUrl(blobs, ReconstructionFileRoles.Texture,
+            ReadUrl(root["texture"]) ?? ReadUrl(Prop(root["texture_urls"], "texture")));
+        AddUrl(blobs, ReconstructionFileRoles.Thumbnail, ReadUrl(root["thumbnail"]));
+
+        AddModelUrlFallbacks(root["model_urls"], blobs);
+        AddTextureUrlFallbacks(root["texture_urls"], blobs);
+    }
+
+    private void AddModelUrlFallbacks(JsonNode? node, List<BlobInput> blobs)
+    {
+        foreach (var url in EnumerateUrls(node))
+        {
+            var role = RoleForModelUrl(url);
+            if (role is not null && blobs.All(b => b.Role != role))
+                AddUrl(blobs, role, url);
+        }
+    }
+
+    private void AddTextureUrlFallbacks(JsonNode? node, List<BlobInput> blobs)
+    {
+        foreach (var url in EnumerateUrls(node))
+        {
+            var role = RoleForTextureUrl(url);
+            if (role is not null && blobs.All(b => b.Role != role))
+                AddUrl(blobs, role, url);
+        }
+    }
+
+    private void AddUrl(List<BlobInput> blobs, string role, string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return;
+        var uri = new Uri(url, UriKind.Absolute);
+        blobs.Add(new BlobInput(role, _downloader.Download(uri), ExtensionFor(uri, role)));
+    }
+
+    private static string? ReadUrl(JsonNode? node)
+    {
+        if (node is JsonValue value && value.TryGetValue<string>(out var text)) return text;
+        if (Prop(node, "url") is JsonValue url && url.TryGetValue<string>(out var nested)) return nested;
+        return null;
+    }
+
+    private static IEnumerable<string> EnumerateUrls(JsonNode? node)
+    {
+        if (node is JsonObject obj)
+        {
+            foreach (var kvp in obj)
+            {
+                var url = ReadUrl(kvp.Value);
+                if (!string.IsNullOrWhiteSpace(url)) yield return url;
+            }
+        }
+        else if (node is JsonArray arr)
+        {
+            foreach (var item in arr)
+            {
+                var url = ReadUrl(item);
+                if (!string.IsNullOrWhiteSpace(url)) yield return url;
+            }
+        }
+    }
+
+    private static JsonNode? Prop(JsonNode? node, string name)
+        => node is JsonObject obj && obj.TryGetPropertyValue(name, out var value) ? value : null;
+
+    private static string? RoleForModelUrl(string url)
+    {
+        var ext = Path.GetExtension(new Uri(url).AbsolutePath).ToLowerInvariant();
+        return ext switch
+        {
+            ".glb" => ReconstructionFileRoles.ModelGlb,
+            ".obj" => ReconstructionFileRoles.ModelObj,
+            ".mtl" => ReconstructionFileRoles.MaterialMtl,
+            ".fbx" => "model_fbx",
+            ".usdz" => "model_usdz",
+            ".stl" => "model_stl",
+            _ => null,
+        };
+    }
+
+    private static string? RoleForTextureUrl(string url)
+    {
+        var lower = new Uri(url).AbsolutePath.ToLowerInvariant();
+        if (lower.Contains("normal")) return "texture_normal";
+        if (lower.Contains("roughness")) return "texture_roughness";
+        if (lower.Contains("metallic")) return "texture_metallic";
+        if (lower.Contains("base") || lower.Contains("albedo") || lower.Contains("color")) return "texture_base_color";
+        return ReconstructionFileRoles.Texture;
+    }
+
+    private static string ExtensionFor(Uri uri, string role)
+    {
+        var ext = Path.GetExtension(uri.AbsolutePath).TrimStart('.').ToLowerInvariant();
+        if (!string.IsNullOrWhiteSpace(ext)) return ext;
+        if (role == ReconstructionFileRoles.MaterialMtl) return "mtl";
+        if (role == ReconstructionFileRoles.ModelGlb) return "glb";
+        if (role == ReconstructionFileRoles.ModelObj) return "obj";
+        if (role == ReconstructionFileRoles.Thumbnail || role.StartsWith("texture", StringComparison.Ordinal)) return "png";
+        return "bin";
+    }
+
+    private static JsonObject BuildInitialImportManifest()
+    {
+        return new JsonObject
+        {
+            ["schema_version"] = 1,
+            ["preferred_asset"] = ReconstructionFileRoles.ModelGlb,
+            ["fallback_order"] = new JsonArray(ReconstructionFileRoles.ModelGlb, ReconstructionFileRoles.ModelObj),
+            ["asset_bindings"] = new JsonObject
+            {
+                [ReconstructionFileRoles.ModelObj] = new JsonObject
+                {
+                    ["companion_roles"] = new JsonArray(ReconstructionFileRoles.MaterialMtl, ReconstructionFileRoles.Texture),
+                },
+            },
+            ["placement"] = new JsonObject
+            {
+                ["mode"] = "document_default",
+                ["transform"] = null,
+                ["units_policy"] = "provider_default",
+            },
+            ["imports"] = new JsonArray(),
+        };
     }
 }
 ```
@@ -1181,15 +1342,33 @@ DpapiGenerationSecretStore
 GenerationSecretKeys.FalApiKey
 ```
 
-- [ ] **Step 5: Register managed callback**
+- [ ] **Step 5: Register managed callback and bump bridge ABI**
 
-In `NativeGhBridgeRegistrar.cs`, add:
+In `NativeGhBridgeRegistrar.cs`, bump the managed ABI constant:
+
+```csharp
+private const uint BridgeAbiVersion = 16;
+```
+
+Extend the managed registration struct by adding a `ReconstructionDispatch` function pointer after `BimDispatch` so existing fields keep their order:
+
+```csharp
+public IntPtr ReconstructionDispatch;
+```
+
+Add the callback:
 
 ```csharp
 private static readonly NativeGhBridgeCallback ReconstructionDispatchCallback = HandleReconstructionDispatch;
 ```
 
-Add the function pointer to the native registration struct in the same style as `VisionDispatch` and `BimDispatch`. Implement `HandleReconstructionDispatch` so async network ops go through `Reconstruction.DispatchAsync` and off-UI ops go through `Reconstruction.DispatchOffUi`.
+Populate the function pointer in the registration payload:
+
+```csharp
+ReconstructionDispatch = Marshal.GetFunctionPointerForDelegate(ReconstructionDispatchCallback),
+```
+
+Implement `HandleReconstructionDispatch` so async network ops go through `Reconstruction.DispatchAsync` and off-UI ops go through `Reconstruction.DispatchOffUi`.
 
 - [ ] **Step 6: Run tests and confirm pass**
 
@@ -1255,6 +1434,18 @@ public void NativeBridge_HasDedicatedReconstructionDispatch()
     Assert.Contains("HasReconstructionDispatchRegistration", text);
     Assert.Contains("InvokeReconstructionDispatchWithBody", text);
 }
+
+[Fact]
+public void BridgeAbiVersion_IsBumpedOnBothSides()
+{
+    var managed = File.ReadAllText(Path.Combine(RepoRoot, "src", "Rook", "InternalBridge", "NativeGhBridgeRegistrar.cs"));
+    var native = File.ReadAllText(Path.Combine(RepoRoot, "src", "RookNative", "Handlers", "GrasshopperProxyHandler.cpp"));
+
+    Assert.Contains("BridgeAbiVersion = 16", managed);
+    Assert.Contains("kGhBridgeAbiVersion = 16", native);
+    Assert.Contains("ReconstructionDispatch", managed);
+    Assert.Contains("reconstruction_dispatch", native);
+}
 ```
 
 - [ ] **Step 3: Run tests and confirm failure**
@@ -1267,9 +1458,21 @@ dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "FullyQualifiedName~Native
 
 Expected: tests fail because native reconstruction routes and bridge helpers do not exist.
 
-- [ ] **Step 4: Add bridge callback slot**
+- [ ] **Step 4: Add bridge callback slot and native ABI readiness**
 
-Modify `GrasshopperProxyHandler.cpp/.h` and the registration struct to add:
+Modify `GrasshopperProxyHandler.cpp/.h` and bump the native ABI constant:
+
+```cpp
+constexpr uint32_t kGhBridgeAbiVersion = 16;
+```
+
+Extend native `GhBridgeRegistration` by adding:
+
+```cpp
+GhBridgeCallbackFn reconstruction_dispatch = nullptr;
+```
+
+The native field order must match `NativeGhBridgeRegistrar.cs`. Add the public helpers:
 
 ```cpp
 bool HasReconstructionDispatchRegistration();
@@ -1282,6 +1485,8 @@ ManagedCreateInvokeResult InvokeReconstructionDispatchWithBody(
 ```
 
 Implementation mirrors `InvokeVisionDispatchWithBody`, but uses `registration.reconstruction_dispatch`.
+
+Extend native registration readiness checks so the bridge registration remains valid only when a v16 struct has a non-null `reconstruction_dispatch`. Add `HasReconstructionDispatchRegistration()` to capability evidence in `RookServer.cpp`.
 
 - [ ] **Step 5: Add non-import route proxy handlers**
 
@@ -1459,36 +1664,107 @@ Expected: MCP reconstruction tests pass.
 - [ ] **Step 6: Commit**
 
 ```powershell
+git status --short -- mcp_server/src/rook/server.py mcp_server/src/rook/agent/tool_dispatcher.py mcp_server/src/rook/tool_groups.py mcp_server/tests/test_reconstruction_mcp_tools.py
+git diff -- mcp_server/src/rook/server.py
 git add mcp_server/src/rook/server.py mcp_server/src/rook/agent/tool_dispatcher.py mcp_server/src/rook/tool_groups.py mcp_server/tests/test_reconstruction_mcp_tools.py
 git commit -m "feat: add reconstruction mcp tools"
 ```
+
+Expected before staging: in the isolated worktree, `mcp_server/src/rook/server.py` contains only this task's reconstruction changes. If it contains unrelated pre-existing edits, stop and move execution to a clean isolated worktree before staging.
 
 ---
 
 ## Task 11: Minimal Vision "Send to 3D" UI
 
 **Files:**
-- Modify: `src/Rook/UI/Vision/Resources/*`
+- Modify: `src/Rook/UI/Vision/Resources/app.js`
+- Modify: `src/Rook/UI/Vision/Resources/index.html`
+- Modify: `src/Rook/UI/Vision/Resources/styles.css`
 - Modify: `src/Rook/UI/Vision/VisionWebSurface.cs`
 - Create or modify: `src/Rook.Tests/Handlers/NativeVisionDispatchSourceTests.cs` only if a source scan is needed for route names.
 
-- [ ] **Step 1: Locate artifact action component**
+- [ ] **Step 1: Add reconstruction bridge channel to VisionWebSurface**
 
-Run:
+`app.js` cannot `fetch()` native HTTP routes because the Vision WebView CSP sets `connect-src 'none'`. Add a separate bridge channel named `reconstruction` in `VisionWebSurface.cs`; do not add hidden Vision ops.
 
-```powershell
-rg -n "approve|consume|artifact|Vision artifact|action" src/Rook/UI/Vision/Resources src/Rook/UI/Vision
+```csharp
+RegisterBridgeHandler("reconstruction", HandleReconstructionBridgeCallAsync);
 ```
 
-Expected: identify the Vision artifact row/action code.
+`HandleReconstructionBridgeCallAsync` must route to `RookSubsystemRoot.Instance.Reconstruction` and preserve reconstruction op names. It must not call `vision_dispatch`.
+
+```csharp
+private async Task<ApiResponse> HandleReconstructionBridgeCallAsync(JsonObject payload)
+{
+    var op = payload["op"]?.GetValue<string>();
+    var body = payload.ToJsonString();
+    return op switch
+    {
+        "submit_job" or "cancel_job" =>
+            await RookSubsystemRoot.Instance.Reconstruction.DispatchAsync(body, CancellationToken.None).ConfigureAwait(false),
+        "models" or "list_jobs" or "job_status" or "job_result" =>
+            await Task.Run(() => RookSubsystemRoot.Instance.Reconstruction.DispatchOffUi(body)).ConfigureAwait(false),
+        _ => BuildFailure($"Unknown reconstruction op: {op}")
+    };
+}
+```
+
+If `BuildFailure` is private to the existing Vision path, add a local equivalent returning `ApiResponse.Failure(...)` with `invalid_request`.
 
 - [ ] **Step 2: Add UI action**
 
-Add a compact action labeled `Send to 3D` or `Reconstruct in 3D` on image-producing artifacts only. The action calls:
+Modify `src/Rook/UI/Vision/Resources/index.html` in the existing modal action block that contains `modal-approve-btn`, `modal-reveal-btn`, and `modal-delete-btn`. Add:
+
+```html
+<button id="modal-reconstruct-btn" class="btn btn-primary hidden" title="Create a Rook reconstruction package from this image">Send to 3D</button>
+```
+
+Modify `src/Rook/UI/Vision/Resources/app.js`:
+
+- add `let reconstructionJobs = new Map();`
+- in `bindElements`, add `el.modalReconstructBtn = $("modal-reconstruct-btn");`
+- add a click handler beside the existing modal approve/reveal/delete handlers:
+
+```javascript
+el.modalReconstructBtn?.addEventListener("click", () => reconstructCurrentArtifact());
+```
+
+Add:
+
+```javascript
+async function reconstructionBridgeCall(op, args) {
+    if (!window.rookBridge || !window.rookBridge.invoke) {
+        throw new Error("Bridge unavailable — is this running inside Rook?");
+    }
+    const response = await window.rookBridge.invoke("reconstruction", Object.assign({ op }, args || {}));
+    if (response && response.success === true) return response.data;
+    const data = response && response.data;
+    throw new Error(data && data.message ? data.message : "Reconstruction op failed.");
+}
+```
+
+In `openArtifactModal`, after `modalArtifact` is loaded, show the button only for image sources:
+
+```javascript
+const canReconstruct = canReconstructArtifact(modalArtifact);
+el.modalReconstructBtn?.classList.toggle("hidden", !canReconstruct);
+```
+
+Add:
+
+```javascript
+function canReconstructArtifact(artifact) {
+    return !!artifact
+        && (artifact.kind === "generated_image" || artifact.kind === "imported_image" || artifact.kind === "captured_viewport")
+        && Array.isArray(artifact.files)
+        && artifact.files.some(f => f.role === "image");
+}
+```
+
+`reconstructCurrentArtifact` submits a default Hunyuan job:
 
 ```json
 {
-  "op": "submit_job",
   "source_artifact_id": "<artifact id>",
   "source_role": "image",
   "model_id": "fal-ai/hunyuan-3d/v3.1/rapid/image-to-3d",
@@ -1500,17 +1776,84 @@ Add a compact action labeled `Send to 3D` or `Reconstruct in 3D` on image-produc
 }
 ```
 
-Route through `/reconstruction/2d-to-3d/jobs`, not `vision_dispatch`.
+Use `reconstructionBridgeCall("submit_job", body)`, not `bridgeCall("...")`.
 
 - [ ] **Step 3: Add status/result/import UI states**
 
-Expose:
+Add a compact status row under the modal action block:
 
-- job id
-- state/stage
-- package id
-- thumbnail role when present
-- import button calling `/reconstruction/2d-to-3d/import`
+```html
+<div id="modal-reconstruction-status" class="reconstruction-status hidden"></div>
+```
+
+Add CSS in `styles.css`:
+
+```css
+.reconstruction-status {
+    margin-top: var(--space-3);
+    font-size: 13px;
+    color: var(--text-muted);
+}
+
+.reconstruction-status.error { color: var(--accent-red); }
+.reconstruction-status.success { color: var(--accent-green); }
+.reconstruction-import-hint {
+    display: block;
+    margin-top: var(--space-2);
+    font-family: var(--font-mono);
+    font-size: 12px;
+}
+```
+
+In `app.js`, add:
+
+```javascript
+async function reconstructCurrentArtifact() {
+    if (!modalArtifact || !canReconstructArtifact(modalArtifact)) return;
+    setReconstructionStatus("Submitting reconstruction...", "info");
+    const job = await reconstructionBridgeCall("submit_job", {
+        source_artifact_id: modalArtifact.artifact_id,
+        source_role: "image",
+        model_id: "fal-ai/hunyuan-3d/v3.1/rapid/image-to-3d",
+        preprocessing_chain: [],
+        options: { enable_pbr: true, enable_geometry: false },
+        estimate_requested: false,
+    });
+    reconstructionJobs.set(job.job_id, job);
+    await pollReconstructionJob(job.job_id);
+}
+
+async function pollReconstructionJob(jobId) {
+    for (let attempt = 0; attempt < 180; attempt++) {
+        const status = await reconstructionBridgeCall("job_status", { job_id: jobId });
+        const job = status.job || status;
+        setReconstructionStatus(`3D ${job.stage || job.state} · ${jobId}`, "info");
+        if (job.state === "complete") {
+            const result = await reconstructionBridgeCall("job_result", { job_id: jobId });
+            setReconstructionStatus(`Package ${result.result_artifact_id}`, "success", result);
+            return;
+        }
+        if (["error", "cancelled", "interrupted"].includes(job.state)) {
+            setReconstructionStatus(`Reconstruction ${job.state}.`, "error");
+            return;
+        }
+        await delay(1500);
+    }
+    setReconstructionStatus("Reconstruction polling timed out.", "error");
+}
+
+function setReconstructionStatus(message, type, result) {
+    if (!el.modalReconstructionStatus) return;
+    const importHint = result && result.result_available
+        ? `<span class="reconstruction-import-hint">Import via /reconstruction/2d-to-3d/import</span>`
+        : "";
+    el.modalReconstructionStatus.className = `reconstruction-status ${type || ""}`;
+    el.modalReconstructionStatus.innerHTML = `${escapeHtml(message)} ${importHint}`;
+    el.modalReconstructionStatus.classList.remove("hidden");
+}
+```
+
+Do not implement Rhino import inside `VisionWebSurface`. The supported v1 import execution remains native `POST /reconstruction/2d-to-3d/import` and MCP `rhino_2d_to_3d_import`; the Vision affordance exposes the package ID/status so that import can be invoked through the reconstruction-owned route without tunneling through Vision.
 
 Do not add model selection, preprocessing editor, cost gate, placement controls, or full Reconstruction panel.
 
