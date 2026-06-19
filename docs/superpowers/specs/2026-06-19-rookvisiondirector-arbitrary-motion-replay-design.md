@@ -220,20 +220,37 @@ id is known independently of when the call returns.
 - Writes **no PNG, no manifest, no run folder**.
 - Runs the replay loop on the Rhino UI thread (apply → redraw → hold), pacing
   `fps × speed` **best-effort** (replay is a preview; if per-frame apply+redraw cannot
-  hit real time, it plays as fast as it can). Between frames it checks, in order: the
-  Rhino **ESC key**, the shared **cancel flag** for this `replay_session_id`, the
-  overall **timeout**, and **client disconnect**.
-- **Restores objects + viewport/display on every exit path** (completion, ESC, cancel,
-  timeout, disconnect, failure) and returns structured **replay evidence**: frames
+  hit real time, it plays as fast as it can).
+- **Interruptible pacing (load-bearing for "live" replay).** The per-frame hold is
+  **never a single blocking sleep** on the UI thread. The effective dwell
+  `min(1/(fps×speed), max_per_frame_dwell)` is sliced into short intervals
+  (**≈16 ms**, ~one display refresh — `pump_slice`). Each slice keeps the window
+  responsive with a **bounded pump that must not drain the HTTP→UI dispatch queue** (no
+  foreign request may mutate the document mid-replay — a reentrancy hazard the
+  implementation plan must verify against RookNative's dispatch mechanism), then checks
+  the exit conditions. Cancel/timeout latency is therefore bounded by the slice
+  (~16 ms), **not** by the frame dwell.
+- **Exit conditions, split by guarantee:**
+  - **Guaranteed, pump-free:** the worker-thread **cancel flag** (an atomic the replay
+    loop reads each slice — it needs no UI pump because the cancel route set it from a
+    different thread) and the running **wall-clock timeout**. These are the exits v1
+    promises.
+  - **Best-effort:** the Rhino **ESC key** and **client disconnect**, which depend on a
+    bounded pump and on cpp-httplib's disconnect being safely observable from the
+    dispatched loop. The implementation plan verifies the exact APIs; if either is not
+    safely observable, the **timeout remains the guaranteed backstop** for an abandoned
+    replay.
+- **Restores objects + viewport/display on every exit path** (completion, cancel,
+  timeout, ESC, disconnect, failure) and returns structured **replay evidence**: frames
   attempted, frames displayed, terminal reason
-  (`completed`/`cancelled`/`esc`/`timeout`/`disconnect`/`failed`), dirty-state flag, and
-  restore status.
-- Replay is **bounded** (frame cap + max dwell; see limits). Because it holds the UI
-  thread for its bounded duration, **v1 treats replay as a foreground interactive
-  operation: other Rook requests queue until it ends.** This is acceptable because the
-  user is actively watching the preview and the agent is waiting on their verdict; the
-  async evolution below is the escape hatch if long replays ever need to run without
-  monopolizing the UI thread.
+  (`completed`/`cancelled`/`timeout`/`esc`/`disconnect`/`failed`), any `pacing_clamped`
+  warning, dirty-state flag, and restore status.
+- Replay is **bounded by explicit duration caps** (see Payload & Duration Limits), so it
+  cannot hold the UI thread longer than `max_effective_replay_duration`. Within that
+  bound, **v1 treats replay as a foreground interactive operation: other Rook requests
+  queue until it ends.** This is acceptable because the user is actively watching the
+  preview and the agent is waiting on their verdict; the async evolution below is the
+  escape hatch if replays ever need to run without holding the UI thread.
 
 `POST /director/replay/cancel`
 
@@ -244,6 +261,22 @@ id is known independently of when the call returns.
   holds the UI thread; if it were routed through the same serialization queue it would
   deadlock behind the replay it is trying to stop. This is the load-bearing threading
   invariant for the whole cancellation story.
+
+**Session lifecycle and races (v1):**
+
+- The server keys an in-memory **replay session registry** by `replay_session_id`. The
+  session is **registered when `/director/replay` is received, before the replay loop is
+  dispatched to the UI thread**, so a cancel arriving immediately after can find it.
+- **One active replay at a time.** A second `/director/replay` while one is active is
+  **rejected** with a structured error — no queued or concurrent replays in v1, because
+  two loops must never contend for the UI thread.
+- **Duplicate `replay_session_id`** (one already registered) is rejected.
+- **Cancel for an unknown or already-finished id is idempotent**: it returns a benign
+  "no active session" result, never an error — a late cancel must not break a caller.
+- **Cancel before the loop starts** sets the flag; the loop sees it on its first slice
+  check and exits immediately with full restore.
+- The session is **unregistered only after the terminal state and after restore
+  completes**, so an id cannot leak or block the next replay.
 
 **Deferred evolution (not v1):** if bounded synchronous replay proves too coarse for
 long tracks, split replay into async `start` / `status` / `cancel` routes with
@@ -270,22 +303,42 @@ null) or an explicit caller override. It resolves the selected frames and sends 
 a concrete frame list with the id and effective fps. Native never loads track files and
 never receives a null fps.
 
-### Payload limits (v1)
+### Payload & duration limits (v1)
 
-Enforced in Python and **independently re-enforced in native** (defense-in-depth, like
-output-root policy):
+**Payload caps**, enforced in Python and **independently re-enforced in native**
+(defense-in-depth, like output-root policy):
 
 - max **3000 frames** per replay request (after range slicing);
 - max **256 animated objects**;
 - max **8 MiB** inline payload.
 
-**All three limits apply simultaneously**, and a request is rejected if it exceeds
-**any** of them. Because 3000 frames × 256 objects of matrix + source-state data far
-exceeds 8 MiB, the **payload-size limit (8 MiB) is usually the binding constraint** in
-practice; the frame and object caps are coarse safety ceilings. Requests exceeding a
-limit fail with a structured error before playback. Python slices the requested range
-before sending; it does not silently truncate; native re-enforces all three
-independently (defense-in-depth, like output-root policy).
+**All three apply simultaneously**, and a request is rejected if it exceeds **any** of
+them. Because 3000 frames × 256 objects of matrix + source-state data far exceeds 8 MiB,
+the **payload-size limit (8 MiB) is usually the binding constraint**; the frame and
+object caps are coarse safety ceilings. Python slices the requested range before sending
+and does not silently truncate.
+
+**Duration caps** — the bound that actually protects the UI thread (payload caps alone
+do not bound *time*):
+
+- **`max_per_frame_dwell` = 250 ms (v1 default).** The effective per-frame hold is
+  `min(1/(fps×speed), max_per_frame_dwell)`. A low-FPS or slow-`speed` request that
+  would dwell longer is **clamped** to this value, and evidence records a
+  `pacing_clamped` warning — the preview plays faster than nominal timing rather than
+  hanging a single frame on the UI thread.
+- **`max_effective_replay_duration` = 60 s (v1 default), enforced two ways:**
+  - **Pre-validation:** if projected duration `frame_count × effective_dwell` exceeds the
+    cap, the request is **rejected before playback** with a structured error (shorten the
+    range, raise FPS/speed, or split the replay) — an upfront error, not a surprise
+    mid-replay stop.
+  - **Runtime:** the running **wall-clock timeout** enforces the same cap during the
+    loop, covering per-frame apply/redraw cost as well as dwell. This is the `timeout`
+    exit.
+- **`pump_slice` ≈ 16 ms (v1 default)** — the granularity at which the hold is sliced and
+  exits are checked; it bounds cancel/timeout latency.
+
+All durations are v1 defaults, tunable, and re-enforced by native independently of
+Python.
 
 ## run_director Refactor + Draft↔Frozen Tracks
 
@@ -453,11 +506,14 @@ One product slice, sequenced into reviewable PRs:
 - The baked track is executable truth; scripts are authoring/provenance only and are
   never imported by playback.
 - `absolute_from_source` keeps replay/video frame-order independent and drift-free.
-- Cancellation is coherent: the caller provides the session id (so it is never learned
-  too late), the cancel route runs purely on a worker thread (never the UI-thread
-  dispatch, so it cannot deadlock behind the replay), and ESC/timeout/disconnect are
-  backstops. The UI-thread monopolization cost of bounded synchronous replay is stated,
-  with an async start/status/cancel evolution as the documented escape hatch.
+- Cancellation is coherent and bounded: caller-provided session id (never learned too
+  late); worker-thread cancel atomic + wall-clock timeout as **guaranteed, pump-free**
+  exits checked every ~16 ms slice; ESC/disconnect as best-effort; the per-frame hold is
+  **sliced, never a blocking sleep**; explicit `max_per_frame_dwell` /
+  `max_effective_replay_duration` caps mean replay cannot hold the UI thread beyond a
+  bounded, validated duration; and a session registry defines registration/duplicate/
+  idempotent-cancel/single-active rules. Async start/status/cancel is the documented
+  evolution.
 - The script boundary is honestly labeled: convention + validation, **not** structural
   prevention. The enforced invariants are no-script-at-playback, validated output, and
   source restore — not a sandbox. Trust model equals existing agent-run scripts.
