@@ -203,3 +203,15 @@ def validate_animation_track(track: dict[str, Any]) -> None:
                 raise AnimationTrackError(
                     "object_transforms.transform must be a 4x4 matrix of finite numbers"
                 )
+
+
+def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
+
+def freeze_animation_track(track: dict[str, Any], path: str | Path) -> None:
+    validate_animation_track(track)
+    _atomic_write_json(Path(path), track)

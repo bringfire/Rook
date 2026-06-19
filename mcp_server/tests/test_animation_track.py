@@ -287,3 +287,25 @@ def test_validate_rejects_nonfinite_bbox():
     ]
     with pytest.raises(animation_track.AnimationTrackError, match="bbox_min"):
         animation_track.validate_animation_track(track)
+
+
+import json
+
+
+def test_freeze_writes_valid_track_json(tmp_path):
+    path = tmp_path / "run" / "animation_track.json"
+    animation_track.freeze_animation_track(_valid_track(), path)
+
+    assert path.is_file()
+    loaded = json.loads(path.read_text(encoding="utf-8"))
+    assert loaded["frame_count"] == 2
+    assert loaded["animated_object_ids"] == ["a"]
+
+
+def test_freeze_rejects_invalid_track_without_writing(tmp_path):
+    path = tmp_path / "run" / "animation_track.json"
+    bad = _valid_track()
+    bad["object_frames"][1]["object_transforms"] = []
+    with pytest.raises(animation_track.AnimationTrackError):
+        animation_track.freeze_animation_track(bad, path)
+    assert not path.exists()
