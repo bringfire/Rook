@@ -166,13 +166,21 @@ not a runtime**:
   `parameters`.
 - **Output:** `object_frames` data, **returned** from a `generate(context) ->
   object_frames` function. The script never writes the track or any file directly.
-- **Constraint enforcement (structural, not sandbox):** the script is executed with a
-  **restricted globals namespace that injects no Rhino/MCP/bridge client and no
-  `call_rhino` transport**. "Must not mutate Rhino" holds because there is no transport
-  to Rhino in scope — not because of a hardened sandbox. The spec states this plainly:
-  **v1 is a constrained namespace, not a security sandbox.** The trust model is
-  identical to agent-authored Rook scripts that already run today
-  (`run_library_script`, durable script artifacts).
+- **Constraint model (convention + validation, NOT structural prevention):** the
+  script is executed with a restricted globals namespace that injects no
+  Rhino/MCP/bridge client and no `call_rhino` transport. This is a **guardrail and
+  convention, not a sandbox** — a determined script could still `import` a client, reach
+  `localhost`, or touch the filesystem, and **v1 does not prevent that**. We explicitly
+  do **not** claim "the script structurally cannot mutate Rhino." The trust model is
+  identical to agent-authored Rook scripts that already run today (`run_library_script`,
+  durable script artifacts): agent-authored, under user oversight. A hardened sandbox
+  for untrusted (non-agent) scripts is a separate future effort, out of v1 scope.
+- **What IS enforced (the load-bearing invariants):** (1) **playback never invokes the
+  script** — only baked frames are replayed/captured; (2) the script's returned
+  `object_frames` are **schema- and source-compat-validated before use**, so a
+  misbehaving script still cannot inject an invalid track into playback; (3) replay and
+  capture **restore source on every exit**. Determinism and safety come from baking +
+  validation + restore, **not** from sandboxing the generator.
 - **Provenance + reuse:** the script is stored via the existing durable
   script-artifact machinery; its artifact id is recorded in
   `object_frames`/`object_provenance`. Playback ignores it.
@@ -193,35 +201,55 @@ internally, but the viewport is only redrawn after the next frame's pose is appl
 **Final state restores to source on completion, cancel, timeout, disconnect, or
 failure.**
 
-### Native route
+### Native route and cancellation model
+
+Replay is a long-running viewport operation in a server where requests serialize
+through the Rhino UI thread. A native route therefore **cannot both *return* a session
+id and *block* until the sequence finishes** — the caller would learn the id too late
+to cancel it. v1 resolves this by having the **caller provide the session id**, so the
+id is known independently of when the call returns.
 
 `POST /director/replay`
 
-- Accepts a **resolved, already-sliced** payload: `frames` (each carrying `camera`,
-  `object_transforms`, `display`), `fps`, and optional `speed`. Range selection
-  (`start_frame` / `end_frame`) lives at the MCP/Python layer and is already applied
-  before native is called — native receives only the frames it should play.
+- Caller (Python) generates and supplies **`replay_session_id`** in the request.
+- Accepts a **resolved, already-sliced** payload: `replay_session_id`, `frames` (each
+  carrying `camera`, `object_transforms`, `display`), an **effective positive `fps`**,
+  and optional `speed`. Range selection (`start_frame`/`end_frame`) is applied at the
+  MCP/Python layer before native is called — native receives only the frames it should
+  play.
 - Writes **no PNG, no manifest, no run folder**.
-- Mints and returns a **`replay_session_id`**.
-- Loops on the Rhino UI thread, checking a shared atomic **cancel flag between
-  frames**. Pacing honors `fps × speed` on a **best-effort** basis (replay is a
-  preview; if per-frame apply+redraw cannot hit real time, it plays as fast as it
-  can).
-- Restores object and viewport/display state on every exit path.
-- Returns structured **replay evidence**: frames attempted, frames displayed,
-  completed vs cancelled, dirty-state flag, and restore status.
+- Runs the replay loop on the Rhino UI thread (apply → redraw → hold), pacing
+  `fps × speed` **best-effort** (replay is a preview; if per-frame apply+redraw cannot
+  hit real time, it plays as fast as it can). Between frames it checks, in order: the
+  Rhino **ESC key**, the shared **cancel flag** for this `replay_session_id`, the
+  overall **timeout**, and **client disconnect**.
+- **Restores objects + viewport/display on every exit path** (completion, ESC, cancel,
+  timeout, disconnect, failure) and returns structured **replay evidence**: frames
+  attempted, frames displayed, terminal reason
+  (`completed`/`cancelled`/`esc`/`timeout`/`disconnect`/`failed`), dirty-state flag, and
+  restore status.
+- Replay is **bounded** (frame cap + max dwell; see limits). Because it holds the UI
+  thread for its bounded duration, **v1 treats replay as a foreground interactive
+  operation: other Rook requests queue until it ends.** This is acceptable because the
+  user is actively watching the preview and the agent is waiting on their verdict; the
+  async evolution below is the escape hatch if long replays ever need to run without
+  monopolizing the UI thread.
 
 `POST /director/replay/cancel`
 
 - Accepts `{ "replay_session_id": "..." }`.
-- Runs on an HTTP worker thread and only **sets the atomic cancel flag** — it does not
-  touch Rhino, so it can be serviced while the replay loop holds the UI thread. This is
-  the mechanism that makes "interruptible mid-run" real given Rook's
-  all-requests-serialize-through-the-UI-thread constraint.
+- **Handled entirely on the HTTP worker thread and explicitly NOT enqueued on the
+  UI-thread dispatch** — it only sets the atomic cancel flag for that session id.
+  Running it on a worker thread is what makes it serviceable *while* the replay loop
+  holds the UI thread; if it were routed through the same serialization queue it would
+  deadlock behind the replay it is trying to stop. This is the load-bearing threading
+  invariant for the whole cancellation story.
 
-**Cancellation backstops:** an overall replay **timeout** and **client-disconnect**
-detection both trigger the same cancel-and-restore path, so a wedged or abandoned
-replay cannot leave the document dirty.
+**Deferred evolution (not v1):** if bounded synchronous replay proves too coarse for
+long tracks, split replay into async `start` / `status` / `cancel` routes with
+timer/idle-driven frame advance, so the UI thread is never held for more than a single
+frame. The frame/track schema and the resolved-frame payload do not change; only the
+route lifecycle does.
 
 ### MCP tool
 
@@ -235,8 +263,12 @@ plus optional `start_frame` / `end_frame` / `speed`:
 ```
 
 Python owns track-path and schema validation, source-compatibility checks, range
-slicing, fps/speed resolution, and provenance. It resolves the selected frames and
-sends native a concrete frame list. Native never loads track files.
+slicing, provenance, and two resolutions native depends on: it **generates the
+`replay_session_id`** and resolves an **effective positive FPS** for pacing — using the
+track's `fps`, or a **default preview FPS** (frame-count-only tracks where `fps` is
+null) or an explicit caller override. It resolves the selected frames and sends native
+a concrete frame list with the id and effective fps. Native never loads track files and
+never receives a null fps.
 
 ### Payload limits (v1)
 
@@ -247,8 +279,13 @@ output-root policy):
 - max **256 animated objects**;
 - max **8 MiB** inline payload.
 
-Requests exceeding a limit fail with a structured error before playback. Python slices
-the requested range before sending; it does not silently truncate.
+**All three limits apply simultaneously**, and a request is rejected if it exceeds
+**any** of them. Because 3000 frames × 256 objects of matrix + source-state data far
+exceeds 8 MiB, the **payload-size limit (8 MiB) is usually the binding constraint** in
+practice; the frame and object caps are coarse safety ceilings. Requests exceeding a
+limit fail with a structured error before playback. Python slices the requested range
+before sending; it does not silently truncate; native re-enforces all three
+independently (defense-in-depth, like output-root policy).
 
 ## run_director Refactor + Draft↔Frozen Tracks
 
@@ -318,9 +355,18 @@ the reveal," and the agent edits and replays again without crossing a skill boun
 - **Track schema validation** on every baked track: shape, finite numeric matrices,
   per-frame completeness against `animated_object_ids`, camera direction/up/aspect
   validity (existing `camera_planner` rules).
-- **Source-compatibility gate** before replay/capture: `source_state`/`state_hash`
-  must match the live objects; mismatched tracks are rejected, not silently applied to
-  the wrong geometry.
+- **Source-compatibility gate** before replay/capture, with **explicit modes driven by
+  `validation_strength`**:
+  - `state_hash` present → **hash match required** (strongest).
+  - `validation_strength == "bbox_only"` (hash null) → **bbox match within tolerance**
+    between the live object and the recorded `source_state` bbox.
+  - **Same-run** baking captures `source_state` fresh, so the gate passes by
+    construction. **Cross-run reuse** is permitted only when the applicable mode passes,
+    and replay/capture evidence records when the weaker bbox-only gate was used so the
+    caller knows the validation strength. A failed gate **rejects** the track — it never
+    silently applies transforms to the wrong geometry. (This is why the schema permits
+    `state_hash: null`: that object is validated in bbox-only mode, not left
+    unchecked.)
 - **Generator/script failures** surface at bake time with structured errors; a
   malformed script output never reaches playback.
 - **Native independence:** native re-validates output-root policy (capture) and
@@ -407,10 +453,14 @@ One product slice, sequenced into reviewable PRs:
 - The baked track is executable truth; scripts are authoring/provenance only and are
   never imported by playback.
 - `absolute_from_source` keeps replay/video frame-order independent and drift-free.
-- Cancellation is a concrete mechanism (session id + worker-thread cancel flag +
-  timeout/disconnect backstops) that respects the UI-thread serialization constraint.
-- The script boundary is honestly labeled (constrained namespace, not a sandbox) with a
-  trust model equal to existing agent-run scripts.
+- Cancellation is coherent: the caller provides the session id (so it is never learned
+  too late), the cancel route runs purely on a worker thread (never the UI-thread
+  dispatch, so it cannot deadlock behind the replay), and ESC/timeout/disconnect are
+  backstops. The UI-thread monopolization cost of bounded synchronous replay is stated,
+  with an async start/status/cancel evolution as the documented escape hatch.
+- The script boundary is honestly labeled: convention + validation, **not** structural
+  prevention. The enforced invariants are no-script-at-playback, validated output, and
+  source restore — not a sandbox. Trust model equals existing agent-run scripts.
 - Approval is separated: `/animate` workflow gates capture on replay acceptance; APIs
   stay deterministic.
 - Object-frame completeness and native-shaped frames remove playback ambiguity and
