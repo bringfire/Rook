@@ -837,6 +837,43 @@ async def test_gh_create_script_python_does_not_run_csharp_output_assignment_pre
 
 
 @pytest.mark.asyncio
+async def test_gh_create_csharp_script_wraps_body_when_full_source_markers_are_trivia(
+    monkeypatch, patched_server
+):
+    recorded_scripts = []
+
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        if route == "/gh/create-component":
+            return {"success": True, "data": {"guid": "script-guid"}}
+        if route == "/gh/script-params":
+            return {"success": True, "data": {"Guid": "script-guid"}}
+        if route == "/gh/script":
+            recorded_scripts.append(payload["script"])
+            return {"success": True, "data": {"Guid": "script-guid"}}
+        if route == "/gh/errors":
+            return {"success": True, "data": {"errors": []}}
+        raise AssertionError(f"Unexpected route: {route}")
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    response = await server.call_tool(
+        "gh_create_csharp_script",
+        {
+            "code": 'var note = "void RunScript";\n// class Script_Instance\nB = 1;',
+            "pins_in": [],
+            "pins_out": ["B:int"],
+        },
+    )
+    payload = _decode_response(response)
+
+    assert payload["success"] is True
+    assert len(recorded_scripts) == 1
+    assert "public class Script_Instance : GH_ScriptInstance" in recorded_scripts[0]
+    assert "private void RunScript(ref object B)" in recorded_scripts[0]
+    assert 'var note = "void RunScript";' in recorded_scripts[0]
+
+
+@pytest.mark.asyncio
 async def test_gh_create_csharp_script_accepts_rich_pin_objects(monkeypatch, patched_server):
     recorded_calls = []
 
@@ -2253,6 +2290,22 @@ def test_gh_update_script_csharp_auto_full_source_passes_through():
         python_preamble=True,
     )
     assert prepared == {"source": code, "mode_used": "full_source", "wrapped": False}
+
+
+def test_gh_update_script_csharp_auto_wraps_body_when_full_source_markers_are_trivia():
+    prepared = server._prepare_gh_update_script_source(
+        code='var note = "void RunScript";\n// class Script_Instance\nA = R;',
+        mode="auto",
+        runtime={"component_type": "CSharpScriptComponent"},
+        inputs=[{"name": "R"}],
+        outputs=[{"name": "A"}],
+        python_preamble=True,
+    )
+
+    assert prepared["mode_used"] == "body"
+    assert prepared["wrapped"] is True
+    assert "private void RunScript(object R, ref object A)" in prepared["source"]
+    assert 'var note = "void RunScript";' in prepared["source"]
 
 
 def test_gh_update_script_python_full_source_never_adds_generated_blocks():

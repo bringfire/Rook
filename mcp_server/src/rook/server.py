@@ -1497,9 +1497,9 @@ def _build_gh_csharp_wrapper(
 ) -> str:
     """Wrap user C# code in the GH_ScriptInstance boilerplate required by RhinoCode C# Script.
 
-    If the user already provides a full class (contains 'class Script_Instance' or
-    'void RunScript'), the code is returned unchanged. Otherwise, the code is treated
-    as the body of RunScript and wrapped automatically.
+    If the user already provides full Script_Instance source, the code is returned
+    unchanged. Otherwise, the code is treated as the body of RunScript and wrapped
+    automatically.
 
     IMPORTANT: RhinoCode C# Script components enforce that RunScript parameters use
     the exact pin names and are always typed as `object`. The wrapper cannot rename
@@ -1507,8 +1507,8 @@ def _build_gh_csharp_wrapper(
     The wrapper does NOT auto-generate casts — the caller (Claude/agent) should write
     code that handles `object` inputs, e.g. `var r = Convert.ToDouble(R);`.
     """
-    # Detect full-class code — pass through unchanged
-    if "class Script_Instance" in code or "void RunScript" in code:
+    # Detect full-class code using the same trivia-aware classifier as preflight.
+    if not _gh_csharp_is_body_source(code):
         return code
 
     # Build RunScript parameter list — all object, matching RhinoCode's enforced signature
@@ -1645,7 +1645,7 @@ def _prepare_gh_update_script_source(
         return {"source": code, "mode_used": "full_source", "wrapped": False}
 
     if component_type in ("CSharpComponent", "CSharpScriptComponent"):
-        is_full_source = "class Script_Instance" in code or "void RunScript" in code
+        is_full_source = not _gh_csharp_is_body_source(code)
         if selected_mode == "full_source":
             if not is_full_source:
                 raise ValueError("C# full_source mode requires Script_Instance or RunScript source")
@@ -8858,8 +8858,8 @@ Your code must cast inputs explicitly, e.g. `var r = Convert.ToDouble(R);` or
 You can provide EITHER:
 - "Body code" — just the code inside RunScript. The tool wraps it in the required
   Script_Instance class with using directives and boilerplate automatically.
-- "Full class code" — a complete Script_Instance : GH_ScriptInstance class. Detected
-  when code contains 'class Script_Instance' or 'void RunScript'.
+- "Full class code" — a complete Script_Instance : GH_ScriptInstance class with
+  RunScript. Marker text inside comments or strings is still treated as body code.
 
 Print() is available for debug output.
 
@@ -8909,8 +8909,8 @@ Language selection:
   generated coercion preamble so geometry references resolve to native types.
 - `language: "csharp"` — RhinoCode C# Script component. Pin types always
   arrive as `object`; user code must cast (e.g. `Convert.ToDouble(R)`).
-  Body-only code is auto-wrapped in a Script_Instance class; full classes
-  containing `class Script_Instance` or `void RunScript` pass through.
+  Body-only code is auto-wrapped in a Script_Instance class; complete
+  Script_Instance classes with RunScript pass through.
 
 Pins may be provided either as legacy "Name:Type" strings or rich pin objects
 with access/optional/description metadata.
