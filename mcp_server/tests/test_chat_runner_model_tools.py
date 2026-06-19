@@ -5,9 +5,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from rook.agent.chat import chat_runner as chat_runner_module
 from rook.agent.chat.conversation_store import Conversation
 from rook.agent.chat.model_status import ModelOverrideResolution
 from rook.agent.chat.chat_runner import ChatRunner
+from rook.agent.chat.tool_contracts import ToolResultView
+from rook.agent.tool_registry import ToolRegistry
 
 
 def _make_text_response(text: str):
@@ -313,3 +316,60 @@ def test_chat_model_tools_are_offered_in_fresh_runner_active_schemas():
 
     assert "list_chat_models" in active_names
     assert "set_chat_model" in active_names
+
+
+@pytest.mark.asyncio
+async def test_chat_model_tool_result_event_uses_tool_result_view(monkeypatch):
+    conv = Conversation(id="conv_test", persona="worker", model="anthropic/current", api_base="")
+    payload = {
+        "allowed_model_overrides": ["anthropic/current", "ollama_chat/qwen3:30b"],
+        "local_providers": {"ollama": {"available": False, "models": []}},
+    }
+    builder = AsyncMock(return_value=payload)
+    runner = ChatRunner(
+        tool_executor=AsyncMock(),
+        registry=ToolRegistry(catalog={}, agent_mode=True),
+    )
+    normalized_inputs = []
+
+    def fake_normalize(result):
+        normalized_inputs.append(result)
+        return ToolResultView(
+            status="failed",
+            verified=False,
+            verification_note="adapter pseudo",
+            message=None,
+            error=None,
+        )
+
+    monkeypatch.setattr(chat_runner_module, "normalize_tool_result", fake_normalize)
+    call_count = 0
+
+    async def mock_acompletion(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return _make_tool_response("list_chat_models", {}, "call_list_models")
+        return _make_text_response("Here are the available models.")
+
+    events = []
+    with (
+        patch("rook.agent.chat.chat_runner.litellm.acompletion", side_effect=mock_acompletion),
+        _runtime_facts_patch(),
+    ):
+        async for event in runner.run_turn(
+            conv,
+            "what models can I use?",
+            "system",
+            model_payload_builder=builder,
+        ):
+            events.append(event)
+
+    result_event = next(
+        event for event in events
+        if event.type == "tool_result" and event.name == "list_chat_models"
+    )
+    assert result_event.tool_status == "failed"
+    assert result_event.verified is False
+    assert result_event.verification_note == "adapter pseudo"
+    assert normalized_inputs == [payload]

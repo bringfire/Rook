@@ -2,8 +2,10 @@
 import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+from rook.agent.chat import chat_runner as chat_runner_module
 from rook.agent.chat.conversation_store import Conversation
 from rook.agent.chat.chat_runner import ChatRunner, ChatEvent, MAX_META_ONLY_ROUNDS
+from rook.agent.chat.tool_contracts import ToolResultView
 from rook.agent.tool_registry import ToolRegistry
 
 
@@ -1044,6 +1046,144 @@ def test_run_turn_repairs_history_when_executor_raises_cancelled(conversation, r
     assert json.loads(conversation.messages[asst_idx + 1]["content"]) == {
         "error": "cancelled by user"
     }
+
+
+@pytest.mark.asyncio
+async def test_meta_tool_result_event_uses_tool_result_view(monkeypatch, conversation):
+    normalized_inputs = []
+
+    def fake_normalize(result):
+        normalized_inputs.append(result)
+        return ToolResultView(
+            status="failed",
+            verified=False,
+            verification_note="adapter meta",
+            message=None,
+            error=None,
+        )
+
+    monkeypatch.setattr(chat_runner_module, "normalize_tool_result", fake_normalize)
+    runner = ChatRunner(tool_executor=AsyncMock(), registry=_make_minimal_registry())
+
+    tool_response = _make_tool_response(
+        "request_tools",
+        {"group": "missing_group"},
+        tool_call_id="call_meta",
+    )
+    text_response = _make_text_response("No tools loaded.")
+    call_count = 0
+
+    async def mock_acompletion(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        return tool_response if call_count == 1 else text_response
+
+    events = []
+    with patch("litellm.acompletion", side_effect=mock_acompletion), _runtime_facts_patch():
+        async for event in runner.run_turn(conversation, "load tools", system_prompt="test"):
+            events.append(event)
+
+    result_event = next(event for event in events if event.type == "tool_result")
+    assert result_event.name == "request_tools"
+    assert result_event.tool_status == "failed"
+    assert result_event.verified is False
+    assert result_event.verification_note == "adapter meta"
+    assert normalized_inputs == [json.loads(result_event.result)]
+
+
+@pytest.mark.asyncio
+async def test_dispatcher_tool_result_event_uses_tool_result_view(monkeypatch, conversation):
+    raw_result = {
+        "success": True,
+        "data": {"verified": False, "message": "legacy nested message"},
+    }
+    normalized_inputs = []
+
+    def fake_normalize(result):
+        normalized_inputs.append(result)
+        return ToolResultView(
+            status="success",
+            verified=False,
+            verification_note="adapter dispatcher",
+            message=None,
+            error=None,
+        )
+
+    async def executor(name, params):
+        assert name == "rhino_objects"
+        assert params == {"layer": "Default"}
+        return raw_result
+
+    monkeypatch.setattr(chat_runner_module, "normalize_tool_result", fake_normalize)
+    runner = ChatRunner(tool_executor=executor, registry=_make_minimal_registry())
+
+    tool_response = _make_tool_response(
+        "rhino_objects",
+        {"layer": "Default"},
+        tool_call_id="call_dispatcher",
+    )
+    text_response = _make_text_response("Done.")
+    call_count = 0
+
+    async def mock_acompletion(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        return tool_response if call_count == 1 else text_response
+
+    events = []
+    with patch("litellm.acompletion", side_effect=mock_acompletion), _runtime_facts_patch():
+        async for event in runner.run_turn(conversation, "query objects", system_prompt="test"):
+            events.append(event)
+
+    result_event = next(event for event in events if event.type == "tool_result")
+    assert result_event.name == "rhino_objects"
+    assert result_event.tool_status == "success"
+    assert result_event.verified is False
+    assert result_event.verification_note == "adapter dispatcher"
+    assert normalized_inputs == [raw_result]
+
+
+@pytest.mark.asyncio
+async def test_exception_tool_result_event_uses_tool_result_view(monkeypatch, conversation):
+    normalized_inputs = []
+
+    def fake_normalize(result):
+        normalized_inputs.append(result)
+        return ToolResultView(
+            status="failed",
+            verified=False,
+            verification_note="adapter exception",
+            message=None,
+            error="Bridge timeout",
+        )
+
+    mock_executor = AsyncMock(side_effect=RuntimeError("Bridge timeout"))
+    monkeypatch.setattr(chat_runner_module, "normalize_tool_result", fake_normalize)
+    runner = ChatRunner(tool_executor=mock_executor, registry=_make_minimal_registry())
+
+    tool_response = _make_tool_response(
+        "rhino_objects",
+        {},
+        tool_call_id="call_exception",
+    )
+    text_response = _make_text_response("That failed.")
+    call_count = 0
+
+    async def mock_acompletion(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        return tool_response if call_count == 1 else text_response
+
+    events = []
+    with patch("litellm.acompletion", side_effect=mock_acompletion), _runtime_facts_patch():
+        async for event in runner.run_turn(conversation, "fail", system_prompt="test"):
+            events.append(event)
+
+    result_event = next(event for event in events if event.type == "tool_result")
+    assert result_event.tool_status == "failed"
+    assert result_event.verified is False
+    assert result_event.verification_note == "adapter exception"
+    assert normalized_inputs == [{"success": False, "error": "Bridge timeout"}]
 
 
 def test_run_turn_repairs_prior_history_before_appending_new_user(conversation, runner):

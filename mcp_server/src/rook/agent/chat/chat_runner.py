@@ -23,7 +23,11 @@ from .conversation_store import Conversation
 # execution_policy verification (needs_verification + annotate_result) is now
 # handled inside ToolDispatcher.dispatch() — the single enforcement point.
 from .runtime_health import collect_runtime_facts
-from .tool_contracts import closed_no_arg_parameters, normalize_catalog
+from .tool_contracts import (
+    closed_no_arg_parameters,
+    normalize_catalog,
+    normalize_tool_result,
+)
 from ..substrate_analytics import (
     _compact_error as _substrate_compact_error,
     extract_substrate_observation,
@@ -102,21 +106,7 @@ def _patch_orphaned_tool_calls(messages: List[Dict[str, Any]]) -> int:
 
 
 def _classify_tool_status(result: Any) -> Optional[str]:
-    if not isinstance(result, dict):
-        return None
-    for key in ("success", "ok"):
-        value = result.get(key)
-        if isinstance(value, bool):
-            return "success" if value else "failed"
-    data = result.get("data")
-    if isinstance(data, dict):
-        for key in ("success", "ok"):
-            value = data.get(key)
-            if isinstance(value, bool):
-                return "success" if value else "failed"
-    if result.get("error"):
-        return "failed"
-    return None
+    return normalize_tool_result(result).status
 
 
 @dataclass
@@ -1041,12 +1031,16 @@ class ChatRunner:
                             "content": result_str,
                         })
 
+                        result_view = normalize_tool_result(result)
+
                         yield ChatEvent(
                             "tool_result",
                             name=tool_name,
                             result=result_str,
                             tool_call_id=tc.id,
-                            tool_status=_classify_tool_status(result),
+                            tool_status=result_view.status,
+                            verified=result_view.verified,
+                            verification_note=result_view.verification_note,
                         )
 
                         if tool_name == "set_chat_model" and result.get("success"):
@@ -1095,22 +1089,6 @@ class ChatRunner:
                             result_str = json.dumps(result)
                         tools_used.add(tool_name)
 
-                    # Hoist verification fields onto the event for frontend rendering
-                    _verified = None
-                    _verification_note = None
-                    if isinstance(result, dict):
-                        _verified = result.get("verified")
-                        _verification_note = result.get("verification_note")
-                        result_data = result.get("data")
-                        if isinstance(result_data, dict):
-                            if _verified is None:
-                                _verified = result_data.get("verified")
-                            if _verification_note is None:
-                                _verification_note = result_data.get("verification_note")
-                                if _verification_note is None and result_data.get("verified") is False:
-                                    _verification_note = result_data.get("message")
-                    _tool_status = _classify_tool_status(result)
-
                     # Commit the completed result before yielding it. If the
                     # client disconnects while the event is being written, the
                     # server closes this generator and the repair pass must see
@@ -1121,14 +1099,16 @@ class ChatRunner:
                         "content": result_str,
                     })
 
+                    result_view = normalize_tool_result(result)
+
                     yield ChatEvent(
                         "tool_result",
                         name=tool_name,
                         result=result_str,
                         tool_call_id=tc.id,
-                        verified=_verified,
-                        verification_note=_verification_note,
-                        tool_status=_tool_status,
+                        verified=result_view.verified,
+                        verification_note=result_view.verification_note,
+                        tool_status=result_view.status,
                     )
 
                 # Track consecutive meta-only rounds (tool discovery loops)
