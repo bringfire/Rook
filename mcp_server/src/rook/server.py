@@ -2374,18 +2374,22 @@ _GH_CSHARP_PLUGIN_SOURCE_PATTERNS: tuple = (
     ("gh_input_param_manager", re.compile(r"\bGH_InputParamManager\b")),
     ("gh_output_param_manager", re.compile(r"\bGH_OutputParamManager\b")),
 )
+_GH_CSHARP_FULL_SOURCE_PATTERNS: tuple = (
+    re.compile(r"\bclass\s+Script_Instance\b"),
+    re.compile(r"\bvoid\s+RunScript\s*\("),
+)
 
 
 def _gh_csharp_is_body_source(code: str) -> bool:
     code_without_trivia = _gh_csharp_code_without_comments_and_literals(code)
-    return "class Script_Instance" not in code_without_trivia and "void RunScript" not in code_without_trivia
+    return not any(pattern.search(code_without_trivia) for pattern in _GH_CSHARP_FULL_SOURCE_PATTERNS)
 
 
 def _gh_csharp_has_output_assignment(code: str, output_name: str) -> bool:
     code_without_trivia = _gh_csharp_code_without_comments_and_literals(code)
     escaped = re.escape(output_name)
     pattern = re.compile(
-        rf"(?<![A-Za-z0-9_\.]){escaped}\s*(?:\?\?=|\+=|-=|\*=|/=|=(?!=))",
+        rf"(?<![A-Za-z0-9_\.]){escaped}\s*(?:\?\?=|\+=|-=|\*=|/=|=(?![=>]))",
     )
     return bool(pattern.search(code_without_trivia))
 

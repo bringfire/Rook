@@ -508,11 +508,34 @@ def test_gh_csharp_create_preflight_does_not_accept_method_call_assignment_evide
     assert any(finding.code == "missing_output_assignment" for finding in findings)
 
 
+def test_gh_csharp_create_preflight_does_not_accept_lambda_arrow_assignment_evidence():
+    findings = server._preflight_gh_csharp_create_script_contract(
+        "Func<object, object> transform = B => value;",
+        [],
+        [{"name": "B", "type": "object"}],
+    )
+
+    assert any(finding.code == "missing_output_assignment" for finding in findings)
+
+
 def test_gh_csharp_create_preflight_skips_assignment_check_for_full_source():
     findings = server._preflight_gh_csharp_create_script_contract(
         (
             "public class Script_Instance : GH_ScriptInstance { "
             "private void RunScript(ref object B) { } }"
+        ),
+        [],
+        [{"name": "B", "type": "object"}],
+    )
+
+    assert not any(finding.code == "missing_output_assignment" for finding in findings)
+
+
+def test_gh_csharp_create_preflight_skips_assignment_check_for_spaced_full_source():
+    findings = server._preflight_gh_csharp_create_script_contract(
+        (
+            "public class\nScript_Instance : GH_ScriptInstance { "
+            "private void\nRunScript(ref object B) { } }"
         ),
         [],
         [{"name": "B", "type": "object"}],
