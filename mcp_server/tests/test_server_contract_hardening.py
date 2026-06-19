@@ -1833,6 +1833,37 @@ def test_gh_update_script_csharp_auto_full_source_passes_through():
     assert prepared == {"source": code, "mode_used": "full_source", "wrapped": False}
 
 
+def test_gh_csharp_wrapper_uses_shared_full_source_predicate():
+    from rook.gh_csharp_preflight import is_recognized_csharp_full_source
+
+    code = "public class Script_Instance : GH_ScriptInstance { }"
+
+    assert is_recognized_csharp_full_source(code) is True
+    assert server._build_gh_csharp_wrapper(
+        code,
+        pins_in=[{"name": "R"}],
+        pins_out=[{"name": "A"}],
+    ) == code
+
+
+def test_gh_update_script_uses_shared_full_source_predicate():
+    from rook.gh_csharp_preflight import is_recognized_csharp_full_source
+
+    code = "private void RunScript(object R, ref object A) { A = R; }"
+
+    assert is_recognized_csharp_full_source(code) is True
+    prepared = server._prepare_gh_update_script_source(
+        code=code,
+        mode="auto",
+        runtime={"component_type": "CSharpScriptComponent"},
+        inputs=[{"name": "R"}],
+        outputs=[{"name": "A"}],
+        python_preamble=True,
+    )
+
+    assert prepared == {"source": code, "mode_used": "full_source", "wrapped": False}
+
+
 def test_gh_update_script_python_full_source_never_adds_generated_blocks():
     code = "A = X"
     prepared = server._prepare_gh_update_script_source(

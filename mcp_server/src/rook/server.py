@@ -22,6 +22,7 @@ from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
 
 from .gh_edit_contract import apply_gh_edit_contract
+from .gh_csharp_preflight import is_recognized_csharp_full_source
 from .gh_status_contract import normalize_gh_status_result
 from .runtime_paths import (
     load_runtime_dotenv,
@@ -1506,7 +1507,7 @@ def _build_gh_csharp_wrapper(
     code that handles `object` inputs, e.g. `var r = Convert.ToDouble(R);`.
     """
     # Detect full-class code — pass through unchanged
-    if "class Script_Instance" in code or "void RunScript" in code:
+    if is_recognized_csharp_full_source(code):
         return code
 
     # Build RunScript parameter list — all object, matching RhinoCode's enforced signature
@@ -1643,7 +1644,7 @@ def _prepare_gh_update_script_source(
         return {"source": code, "mode_used": "full_source", "wrapped": False}
 
     if component_type in ("CSharpComponent", "CSharpScriptComponent"):
-        is_full_source = "class Script_Instance" in code or "void RunScript" in code
+        is_full_source = is_recognized_csharp_full_source(code)
         if selected_mode == "full_source":
             if not is_full_source:
                 raise ValueError("C# full_source mode requires Script_Instance or RunScript source")
