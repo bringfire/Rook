@@ -7,6 +7,7 @@ $RegisterSuiteScript = Join-Path $RepoRoot 'scripts\register-rooknative-suite.ps
 $RegisterCompanionScript = Join-Path $RepoRoot 'scripts\register-companion.ps1'
 $DeploySkill = Join-Path $RepoRoot '.agents\skills\deploy-local-testing\SKILL.md'
 $DoctorScript = Join-Path $RepoRoot 'scripts\rook-dev-doctor.ps1'
+$McpProcessScript = Join-Path $RepoRoot 'scripts\rook-mcp-processes.ps1'
 $AgentSetup = Join-Path $RepoRoot 'AGENT_SETUP.md'
 
 function Assert-True {
@@ -107,6 +108,8 @@ function Test-DevDoctorScriptContract {
     Assert-NotContains -Text $content -Unexpected 'inc\TKernel.hxx' -Message 'Dev doctor must not check TKernel.hxx; TKernel is a toolkit/library, not the install header sentinel.'
     Assert-Contains -Text $content -Expected 'mcp_server\.venv\Scripts\python.exe' -Message 'Dev doctor must check the repo MCP venv path.'
     Assert-Contains -Text $content -Expected 'python -m rook' -Message 'Dev doctor must check stale rook MCP processes.'
+    Assert-Contains -Text $content -Expected 'scripts\rook-mcp-processes.ps1' -Message 'Dev doctor must point developers at the safe Rook MCP process helper.'
+    Assert-Contains -Text $content -Expected "^pythonw?\.exe$" -Message 'Dev doctor must inspect python.exe and pythonw.exe Rook MCP processes.'
     Assert-Contains -Text $content -Expected 'RookChatService.json' -Message 'Dev doctor must report installed chat manifest mode.'
     Assert-Contains -Text $content -Expected '$ManagedCompanionRuntimes = @(''net8.0'', ''net7.0'', ''net48'')' -Message 'Dev doctor must know the managed runtime child manifest folders.'
     Assert-Contains -Text $content -Expected 'Chat manifest root' -Message 'Dev doctor must report the root chat manifest.'
@@ -117,6 +120,24 @@ function Test-DevDoctorScriptContract {
     Assert-NotContains -Text $content -Unexpected 'Set-ItemProperty -Path' -Message 'Dev doctor must not write registry values.'
     Assert-NotContains -Text $content -Unexpected 'Remove-Item -LiteralPath' -Message 'Dev doctor must not remove files.'
     Assert-NotContains -Text $content -Unexpected 'New-Item -ItemType Directory' -Message 'Dev doctor must not create directories.'
+}
+
+function Test-RookMcpProcessHelperContract {
+    Assert-True -Condition (Test-Path $McpProcessScript) -Message 'Rook MCP process helper must exist at scripts\rook-mcp-processes.ps1.'
+
+    $content = Get-Content -Path $McpProcessScript -Raw
+
+    Assert-Contains -Text $content -Expected '[switch]$Stop' -Message 'Rook MCP process helper must be read-only by default and require -Stop to stop processes.'
+    Assert-Contains -Text $content -Expected 'SupportsShouldProcess = $true' -Message 'Rook MCP process helper must support -WhatIf/-Confirm safety.'
+    Assert-Contains -Text $content -Expected 'function Get-RookMcpProcess' -Message 'Rook MCP process helper must centralize process matching.'
+    Assert-Contains -Text $content -Expected "^pythonw?\.exe$" -Message 'Rook MCP process helper must only target python.exe/pythonw.exe processes.'
+    Assert-Contains -Text $content -Expected '(^|\s)-m\s+rook(\s|$)' -Message 'Rook MCP process helper must match only exact python -m rook command lines.'
+    Assert-Contains -Text $content -Expected 'if (-not $Stop)' -Message 'Rook MCP process helper must list only unless -Stop is supplied.'
+    Assert-Contains -Text $content -Expected '$PSCmdlet.ShouldProcess' -Message 'Rook MCP process helper must use ShouldProcess before stopping.'
+    Assert-Contains -Text $content -Expected 'Stop-Process -Id $process.ProcessId -Force -ErrorAction Stop' -Message 'Rook MCP process helper must stop only the explicitly matched process IDs.'
+    Assert-Contains -Text $content -Expected '$WhatIfPreference' -Message 'Rook MCP process helper must let -Stop -WhatIf preview without failing verification.'
+    Assert-Contains -Text $content -Expected 'Some python -m rook processes are still running' -Message 'Rook MCP process helper must verify stop results.'
+    Assert-NotContains -Text $content -Unexpected 'Stop-Process -Name python' -Message 'Rook MCP process helper must never stop all python processes by name.'
 }
 
 function Test-DeployScriptSelectsExplicitMsvcToolset {
@@ -431,12 +452,14 @@ function Test-AgentSetupDocumentsDevDeployConvention {
 
     Assert-Contains -Text $content -Expected '## Developer Machine Convention' -Message 'AGENT_SETUP must document the developer-machine convention.'
     Assert-Contains -Text $content -Expected 'scripts\rook-dev-doctor.ps1' -Message 'AGENT_SETUP must tell developers to run the dev doctor.'
+    Assert-Contains -Text $content -Expected 'scripts\rook-mcp-processes.ps1' -Message 'AGENT_SETUP must document the safe Rook MCP process helper.'
     Assert-Contains -Text $content -Expected '-UseRepoVenv' -Message 'AGENT_SETUP must document the repo-venv dev deploy command.'
     Assert-Contains -Text $content -Expected 'OCCT_ROOT' -Message 'AGENT_SETUP must document the OCCT_ROOT expectation.'
     Assert-Contains -Text $content -Expected 'python -m rook' -Message 'AGENT_SETUP must tell developers to close stale rook MCP processes before deploy.'
 }
 
 Test-DevDoctorScriptContract
+Test-RookMcpProcessHelperContract
 Test-DeployScriptSelectsExplicitMsvcToolset
 Test-DeployScriptSyncsChirpFromSiblingRepo
 Test-DeployScriptInstallsChirpByDefault

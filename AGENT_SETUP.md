@@ -66,7 +66,14 @@ Before a local deploy from source:
    powershell -NoProfile -ExecutionPolicy Bypass -File scripts\rook-dev-doctor.ps1
    ```
 
-3. Close Rhino and any `python -m rook` process.
+3. Close Rhino and any `python -m rook` process. To inspect or stop only Rook
+   MCP Python processes, run:
+
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\rook-mcp-processes.ps1
+   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\rook-mcp-processes.ps1 -Stop
+   ```
+
 4. Deploy with the repo Python runtime:
 
    ```powershell
