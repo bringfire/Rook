@@ -46,6 +46,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy-local-testing
 
 # After a full deploy and Rhino restart, verify live Rhino, Grasshopper, and Chirp.
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy-local-testing.ps1 -PayloadOnly -AllowRunning -LiveSmoke
+
+# Dev runtime live smoke after a -UseRepoVenv deploy and Rhino/Grasshopper restart.
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy-local-testing.ps1 -PayloadOnly -AllowRunning -UseRepoVenv -LiveSmoke
 ```
 
 ## Rules
