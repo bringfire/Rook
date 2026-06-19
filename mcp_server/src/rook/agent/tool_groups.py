@@ -42,10 +42,24 @@ TIER_0: Set[str] = {
     "search_tools",
 }
 
+# These tools are valid MCP/server tools but do not currently have an internal
+# RookChat ToolDispatcher path. Keep them out of local execution-profile Tier 0
+# until they are added as ChatRunner intercepts, local tools, transforms, or
+# bridge routes.
+LOCAL_TIER_0_DISPATCH_EXCLUSIONS: Set[str] = {
+    "scene_graph",
+    "scene_context",
+    "scene_stats",
+}
+
 # Agent Tier 0: excludes gh_execute_intent (556 lines, DSPy-entangled,
 # not dispatchable). Agents compose GH definitions using individual
 # gh_canvas tools instead. gh_snapshot gives agents full canvas awareness.
-AGENT_TIER_0: Set[str] = (TIER_0 - {"gh_execute_intent"}) | {
+AGENT_TIER_0: Set[str] = (
+    TIER_0
+    - {"gh_execute_intent"}
+    - LOCAL_TIER_0_DISPATCH_EXCLUSIONS
+) | {
     "gh_snapshot",
     "gh_create_script",
     "gh_create_python_script",
@@ -69,10 +83,6 @@ READONLY_TIER_0: Set[str] = {
     "gh_knowledge_query",
     "request_tools",
     "search_tools",
-    # Scene graph — spatial awareness for all agents
-    "scene_graph",
-    "scene_context",
-    "scene_stats",
 }
 
 # Groups that contain only read/inspection tools — safe for readonly agents.
@@ -375,8 +385,9 @@ TOOL_GROUPS: Dict[str, List[str]] = {
         "gh_canvas_cleanup", "gh_align", "gh_distribute",
         "gh_straighten_wires",
         "gh_inspect_output", "gh_preview", "gh_bake_output",
-        "gh_canvas_focus", "gh_canvas_zoom", "gh_canvas_image",
-        "chirp_create",
+        # gh_canvas_focus, gh_canvas_zoom, gh_canvas_image, and chirp_create
+        # are MCP/server-side tools today. Do not expose them to local
+        # RookChat execution profiles until ToolDispatcher paths exist.
     ],
 
     # --- GH Canvas Read-Only (subset for explorer/readonly agents) ---

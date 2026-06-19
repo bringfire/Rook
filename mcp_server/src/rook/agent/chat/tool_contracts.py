@@ -7,7 +7,8 @@ shown to chat models. It never executes tools and never calls Rhino.
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Iterable, Literal
 
 from ..tool_dispatcher import STRICT_NO_ARGUMENT_BRIDGE_TOOLS
 
@@ -18,6 +19,125 @@ ROOT_OPEN_ALLOWLIST: frozenset[str] = frozenset()
 DYNAMIC_NESTED_OBJECT_ALLOWLIST: dict[str, set[tuple[str, ...]]] = {
     "ui_block": {("config",)},
 }
+
+
+@dataclass(frozen=True)
+class DispatchContext:
+    intercepted_names: frozenset[str]
+    local_tool_names: frozenset[str]
+    transform_names: frozenset[str]
+    bridge_names: frozenset[str]
+    excluded_names: frozenset[str]
+    strict_no_argument_names: frozenset[str]
+
+
+@dataclass(frozen=True)
+class DispatchabilityFinding:
+    code: str
+    tool: str
+    classification: str
+    message: str
+
+
+@dataclass(frozen=True)
+class ToolResultView:
+    status: Literal["success", "failed"] | None = None
+    verified: bool | None = None
+    verification_note: str | None = None
+    message: str | None = None
+    error: str | None = None
+
+
+def _dict_field(mapping: dict[str, Any], key: str) -> dict[str, Any] | None:
+    value = mapping.get(key)
+    return value if isinstance(value, dict) else None
+
+
+def _bool_field(mapping: dict[str, Any] | None, key: str) -> bool | None:
+    if not isinstance(mapping, dict):
+        return None
+    value = mapping.get(key)
+    return value if isinstance(value, bool) else None
+
+
+def _first_bool_field(
+    mapping: dict[str, Any] | None,
+    keys: tuple[str, ...],
+) -> bool | None:
+    if not isinstance(mapping, dict):
+        return None
+    for key in keys:
+        value = _bool_field(mapping, key)
+        if value is not None:
+            return value
+    return None
+
+
+def _string_field(mapping: dict[str, Any] | None, key: str) -> str | None:
+    if not isinstance(mapping, dict):
+        return None
+    value = mapping.get(key)
+    return value if isinstance(value, str) else None
+
+
+def _truthy_field(mapping: dict[str, Any] | None, key: str) -> bool:
+    return isinstance(mapping, dict) and bool(mapping.get(key))
+
+
+def normalize_tool_result(result: Any) -> ToolResultView:
+    """Normalize legacy tool result dicts for model-visible event decoration.
+
+    This does not execute tools, call Rhino, format MCP wire output, or mutate
+    the input result. It is an internal view over today's result shapes.
+    """
+    if not isinstance(result, dict):
+        return ToolResultView()
+
+    data = _dict_field(result, "data")
+
+    truth = _first_bool_field(result, ("success", "ok"))
+    if truth is None:
+        truth = _first_bool_field(data, ("success", "ok"))
+
+    if truth is True:
+        status: Literal["success", "failed"] | None = "success"
+    elif truth is False:
+        status = "failed"
+    elif _truthy_field(result, "error") or _truthy_field(data, "error"):
+        status = "failed"
+    else:
+        status = None
+
+    top_verified = _bool_field(result, "verified")
+    nested_verified = _bool_field(data, "verified")
+    verified = top_verified if top_verified is not None else nested_verified
+
+    verification_note = _string_field(result, "verification_note")
+    nested_verification_note = _string_field(data, "verification_note")
+    if verification_note is None:
+        verification_note = nested_verification_note
+    if (
+        verification_note is None
+        and top_verified is None
+        and nested_verified is False
+    ):
+        verification_note = _string_field(data, "message")
+
+    message = _string_field(result, "message")
+    if message is None:
+        message = _string_field(data, "message")
+
+    error = _string_field(result, "error")
+    if error is None:
+        error = _string_field(data, "error")
+
+    return ToolResultView(
+        status=status,
+        verified=verified,
+        verification_note=verification_note,
+        message=message,
+        error=error,
+    )
 
 
 def _is_object_schema(schema: dict[str, Any]) -> bool:
@@ -244,4 +364,98 @@ def audit_litellm_tool_schema(schema: dict[str, Any]) -> list[dict[str, str]]:
         })
 
     findings.extend(_audit_nested_object_schemas(tool_name, parameters))
+    return findings
+
+
+def classify_visible_tool(tool_name: str, context: DispatchContext) -> str:
+    """Classify a model-visible tool against structural dispatch surfaces.
+
+    Precedence is intentional: ChatRunner-intercepted pseudo tools may also
+    have dispatcher sentinel registrations, but the ChatRunner intercept is the
+    real execution path for model-visible calls.
+    """
+    if tool_name in context.intercepted_names:
+        return "chatrunner_intercepted"
+    if tool_name in context.local_tool_names:
+        return "dispatcher_local_tool"
+    if tool_name in context.transform_names:
+        return "dispatcher_transform"
+    if tool_name in context.bridge_names:
+        return "bridge_route"
+    if tool_name in context.excluded_names:
+        return "explicitly_excluded"
+    return "failure"
+
+
+def _closed_empty_parameters(parameters: Any) -> bool:
+    return parameters == closed_no_arg_parameters()
+
+
+def _parameters_for_schema(schema: dict[str, Any]) -> Any:
+    function = schema.get("function")
+    if not isinstance(function, dict):
+        return None
+    return function.get("parameters")
+
+
+def audit_visible_tool_dispatchability(
+    schemas: Iterable[dict[str, Any]],
+    context: DispatchContext,
+) -> list[DispatchabilityFinding]:
+    """Audit model-visible tools for structural dispatchability.
+
+    This function only inspects schema names and static dispatch membership.
+    It must not execute tools, call Rhino, or ask the MCP server to dispatch.
+    """
+    findings: list[DispatchabilityFinding] = []
+    seen: set[str] = set()
+
+    for schema in schemas:
+        tool_name = _tool_name(schema)
+        if not tool_name:
+            findings.append(DispatchabilityFinding(
+                code="missing_function_name",
+                tool="",
+                classification="schema",
+                message="Visible tool schema is missing function.name.",
+            ))
+            continue
+
+        if tool_name in seen:
+            findings.append(DispatchabilityFinding(
+                code="duplicate_visible_name",
+                tool=tool_name,
+                classification="schema",
+                message=f"Tool '{tool_name}' is visible more than once.",
+            ))
+            continue
+        seen.add(tool_name)
+
+        classification = classify_visible_tool(tool_name, context)
+
+        if tool_name in context.strict_no_argument_names:
+            parameters = _parameters_for_schema(schema)
+            if not _closed_empty_parameters(parameters):
+                findings.append(DispatchabilityFinding(
+                    code="strict_no_arg_schema_drift",
+                    tool=tool_name,
+                    classification=classification,
+                    message=(
+                        f"Strict no-argument tool '{tool_name}' does not expose "
+                        "closed empty parameters."
+                    ),
+                ))
+
+        if classification == "failure":
+            findings.append(DispatchabilityFinding(
+                code="not_dispatchable",
+                tool=tool_name,
+                classification=classification,
+                message=(
+                    f"Visible tool '{tool_name}' has no ChatRunner intercept, "
+                    "dispatcher local handler, transform function, bridge route, "
+                    "or named exclusion."
+                ),
+            ))
+
     return findings
