@@ -341,6 +341,7 @@ p { margin: 8px 0; line-height: 1.4; }
             // before ConfigureVirtualHost runs and the bridge-unavailable
             // lifecycle fires.
             RegisterBridgeHandler("vision", HandleVisionBridgeCallAsync);
+            RegisterBridgeHandler("reconstruction", HandleReconstructionBridgeCallAsync);
         }
 
         internal VisionWebSurface(
@@ -491,6 +492,50 @@ p { margin: 8px 0; line-height: 1.4; }
                 Log($"Rook: vision bridge op '{op}' threw: {ex.GetType().Name}: {ex.Message}");
                 // Surface a generic failure — never leak exception text to JS.
                 return BuildFailure($"Vision op '{op}' failed.");
+            }
+
+            return ApiResponseToJsonNode(response);
+        }
+
+        /// <summary>
+        /// Thin UI bridge for <c>window.rookBridge.invoke("reconstruction", {op, ...})</c>.
+        /// Keeps the v1 Vision affordance labeled and routed through the
+        /// dedicated Reconstruction domain rather than tunneling through Vision.
+        /// </summary>
+        private async Task<JsonNode?> HandleReconstructionBridgeCallAsync(JsonNode? argsNode)
+        {
+            string? body = argsNode?.ToJsonString();
+            string? op = PeekOp(body);
+
+            if (string.IsNullOrEmpty(op))
+            {
+                return BuildFailure("Reconstruction request missing required 'op' discriminator.");
+            }
+
+            ApiResponse response;
+            try
+            {
+                response = op switch
+                {
+                    "submit_job" or "cancel_job" =>
+                        await RookSubsystemRoot.Instance.Reconstruction.DispatchAsync(
+                            body, CancellationToken.None).ConfigureAwait(false),
+                    "models" or "list_jobs" or "job_status" or "job_result" =>
+                        await Task.Run(
+                            () => RookSubsystemRoot.Instance.Reconstruction.DispatchOffUi(body))
+                            .ConfigureAwait(false),
+                    _ => new ApiResponse
+                    {
+                        Success = false,
+                        Data = $"Unknown reconstruction op '{op}'.",
+                        HttpStatus = 400,
+                    },
+                };
+            }
+            catch (Exception ex)
+            {
+                Log($"Rook: reconstruction bridge op '{op}' threw: {ex.GetType().Name}: {ex.Message}");
+                return BuildFailure($"Reconstruction op '{op}' failed.");
             }
 
             return ApiResponseToJsonNode(response);
