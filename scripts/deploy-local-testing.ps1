@@ -133,10 +133,6 @@ function Assert-DeployMode {
         throw "-NativeOnly cannot be combined with -UseRepoVenv or -DevPythonRuntime. Native-only deploy does not use Python, MCP, or chat manifests."
     }
 
-    if ($LiveSmoke -and $hasDevRuntime) {
-        throw "-LiveSmoke cannot be combined with -UseRepoVenv or -DevPythonRuntime in this PR. Live smoke remains release-runtime-only."
-    }
-
     if ($ManifestSmokeOnly -and -not $hasDevRuntime) {
         throw "-ManifestSmokeOnly is only useful with -UseRepoVenv or -DevPythonRuntime."
     }
@@ -238,6 +234,30 @@ function Resolve-DevPythonRuntime {
     return (Resolve-Path $candidate).Path
 }
 
+function New-DeployRuntimeEnvironment {
+    param(
+        [Parameter(Mandatory = $true)][string]$Mode,
+        [Parameter(Mandatory = $true)][string]$InstallRoot,
+        [Parameter(Mandatory = $true)][string]$DataRoot,
+        [Parameter(Mandatory = $true)][string[]]$PythonPathEntries,
+        [string]$ProjectRoot = ''
+    )
+
+    $environment = [ordered]@{
+        ROOK_MODE = $Mode
+        ROOK_INSTALL_ROOT = $InstallRoot.Replace('\', '/')
+        ROOK_DATA_DIR = $DataRoot.Replace('\', '/')
+        CHIRP_HOME = $ChirpInstallRoot.Replace('\', '/')
+        PYTHONPATH = ($PythonPathEntries -join [IO.Path]::PathSeparator)
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($ProjectRoot)) {
+        $environment.ROOK_PROJECT_ROOT = $ProjectRoot.Replace('\', '/')
+    }
+
+    return [pscustomobject]$environment
+}
+
 function Resolve-DeployRuntimeContract {
     $devPython = Resolve-DevPythonRuntime
     if ($devPython) {
@@ -250,27 +270,46 @@ function Resolve-DeployRuntimeContract {
             throw "Dev MCP source directory not found: $devSrcDir"
         }
 
+        $devWorkingDirectory = (Resolve-Path $devMcpServerDir).Path
+        $devPythonPathEntries = @((Resolve-Path $devSrcDir).Path)
+        $devInstallRoot = (Resolve-Path $RepoRoot).Path
+        $devProjectRoot = (Resolve-Path $RepoRoot).Path
+
         return [pscustomobject]@{
             Mode = 'dev'
             IsDev = $true
             PythonPath = $devPython
-            WorkingDirectory = (Resolve-Path $devMcpServerDir).Path
-            PythonPathEntries = @((Resolve-Path $devSrcDir).Path)
-            InstallRoot = (Resolve-Path $RepoRoot).Path
+            WorkingDirectory = $devWorkingDirectory
+            PythonPathEntries = $devPythonPathEntries
+            InstallRoot = $devInstallRoot
             DataRoot = $DataRoot
-            ProjectRoot = (Resolve-Path $RepoRoot).Path
+            ProjectRoot = $devProjectRoot
+            Environment = New-DeployRuntimeEnvironment `
+                -Mode 'dev' `
+                -InstallRoot $devInstallRoot `
+                -DataRoot $DataRoot `
+                -PythonPathEntries $devPythonPathEntries `
+                -ProjectRoot $devProjectRoot
         }
     }
+
+    $releaseWorkingDirectory = Join-Path $InstallRoot 'mcp_server'
+    $releasePythonPathEntries = @((Join-Path $InstallRoot 'mcp_server\src'))
 
     return [pscustomobject]@{
         Mode = 'release'
         IsDev = $false
         PythonPath = $VenvPython
-        WorkingDirectory = Join-Path $InstallRoot 'mcp_server'
-        PythonPathEntries = @((Join-Path $InstallRoot 'mcp_server\src'))
+        WorkingDirectory = $releaseWorkingDirectory
+        PythonPathEntries = $releasePythonPathEntries
         InstallRoot = $InstallRoot
         DataRoot = $DataRoot
         ProjectRoot = ''
+        Environment = New-DeployRuntimeEnvironment `
+            -Mode 'release' `
+            -InstallRoot $InstallRoot `
+            -DataRoot $DataRoot `
+            -PythonPathEntries $releasePythonPathEntries
     }
 }
 
@@ -963,10 +1002,7 @@ if not str(Path(chirp.__file__).resolve()).replace("\\", "/").lower().startswith
 }
 
 function Test-LiveSmoke {
-    $env:ROOK_INSTALL_ROOT = $InstallRoot.Replace('\', '/')
-    $env:ROOK_DATA_DIR = $DataRoot.Replace('\', '/')
-    $env:ROOK_MODE = 'release'
-    $env:CHIRP_HOME = $ChirpInstallRoot.Replace('\', '/')
+    param([Parameter(Mandatory = $true)][pscustomobject]$Contract)
 
     $smoke = @"
 import asyncio
@@ -1016,13 +1052,46 @@ asyncio.run(main())
 "@
 
     $smokePath = Join-Path $env:TEMP 'rook_deploy_local_testing_live_smoke.py'
+    $environmentNames = @(
+        'ROOK_MODE',
+        'ROOK_INSTALL_ROOT',
+        'ROOK_DATA_DIR',
+        'CHIRP_HOME',
+        'ROOK_PROJECT_ROOT',
+        'PYTHONPATH'
+    )
+    $previousEnvironment = @{}
+    foreach ($name in $environmentNames) {
+        $previousEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
+    }
+
+    $locationPushed = $false
     Set-Content -Path $smokePath -Value $smoke -Encoding UTF8
     try {
-        & $VenvPython $smokePath
+        $environmentPropertyNames = @($Contract.Environment.PSObject.Properties.Name)
+        foreach ($name in $environmentNames) {
+            if ($environmentPropertyNames -contains $name) {
+                [Environment]::SetEnvironmentVariable($name, [string]$Contract.Environment.$name, 'Process')
+            } else {
+                [Environment]::SetEnvironmentVariable($name, $null, 'Process')
+            }
+        }
+
+        Push-Location $Contract.WorkingDirectory
+        $locationPushed = $true
+        & $Contract.PythonPath $smokePath
         if ($LASTEXITCODE -ne 0) {
             throw "Live Rhino/Grasshopper/Chirp smoke failed."
         }
     } finally {
+        if ($locationPushed) {
+            Pop-Location
+        }
+
+        foreach ($name in $environmentNames) {
+            [Environment]::SetEnvironmentVariable($name, $previousEnvironment[$name], 'Process')
+        }
+
         Remove-Item -LiteralPath $smokePath -ErrorAction SilentlyContinue
     }
 }
@@ -1134,10 +1203,11 @@ if ($RuntimeContract.IsDev) {
 
 if ($LiveSmoke) {
     Write-Step "Run live Rhino/Grasshopper/Chirp smoke"
-    Test-LiveSmoke
+    Test-LiveSmoke -Contract $RuntimeContract
 } else {
     Write-Host ""
     Write-Host "Live Rhino/Grasshopper/Chirp smoke not run. Use -PayloadOnly -AllowRunning -LiveSmoke after restarting Rhino."
+    Write-Host "Dev runtime smoke: use -PayloadOnly -AllowRunning -UseRepoVenv -LiveSmoke, or pass -DevPythonRuntime with a Python executable path."
 }
 
 Write-Host ""

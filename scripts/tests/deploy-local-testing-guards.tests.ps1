@@ -224,7 +224,7 @@ function Test-DeployScriptHasExplicitDevRuntimeContract {
     Assert-Contains -Text $content -Expected 'function Resolve-DeployRuntimeContract' -Message 'Local deploy must resolve runtime paths through one explicit contract helper.'
     Assert-Contains -Text $content -Expected '-UseRepoVenv cannot be combined with -DevPythonRuntime' -Message 'Dev runtime flags must be mutually exclusive.'
     Assert-Contains -Text $content -Expected '-NativeOnly cannot be combined with -UseRepoVenv or -DevPythonRuntime' -Message 'Native-only mode must reject dev-runtime flags instead of validating unused Python paths.'
-    Assert-Contains -Text $content -Expected '-LiveSmoke cannot be combined with -UseRepoVenv or -DevPythonRuntime' -Message 'Live smoke must stay release-runtime-only until made contract-aware.'
+    Assert-NotContains -Text $content -Unexpected '-LiveSmoke cannot be combined with -UseRepoVenv or -DevPythonRuntime' -Message 'Dev runtime live smoke must be allowed when -PayloadOnly -AllowRunning are also selected.'
     Assert-Contains -Text $content -Expected '-ManifestSmokeOnly is only useful with -UseRepoVenv or -DevPythonRuntime' -Message 'Manifest smoke must require an explicit dev runtime.'
     Assert-Contains -Text $content -Expected 'Dev Python runtime not found' -Message 'Dev runtime mode must fail loudly when the requested interpreter is missing.'
     Assert-Contains -Text $content -Expected 'mcp_server\.venv\Scripts\python.exe' -Message 'Repo venv mode must resolve the repository MCP venv explicitly.'
@@ -232,6 +232,27 @@ function Test-DeployScriptHasExplicitDevRuntimeContract {
     Assert-Contains -Text $content -Expected 'Dev manifest smoke' -Message 'Manifest smoke mode must report the resolved contract.'
     Assert-Contains -Text $content -Expected 'exit 0' -Message 'Manifest smoke mode must exit before deploy mutation.'
     Assert-Contains -Text $content -Expected 'Skipping release post_install.py because an explicit dev runtime was selected.' -Message 'Dev runtime mode must be explicit about bypassing release post_install.'
+}
+
+function Test-DeployScriptAllowsDevLiveSmoke {
+    $content = Get-Content -Path $DeployScript -Raw
+
+    Assert-Contains -Text $content -Expected 'Environment = New-DeployRuntimeEnvironment' -Message 'Runtime contracts must carry the environment used by live smoke subprocesses.'
+    Assert-Contains -Text $content -Expected 'function New-DeployRuntimeEnvironment' -Message 'Local deploy must build runtime environment through one explicit helper.'
+    Assert-Contains -Text $content -Expected 'PYTHONPATH = ($PythonPathEntries -join [IO.Path]::PathSeparator)' -Message 'Live smoke PYTHONPATH must come from contract PythonPathEntries.'
+    Assert-Contains -Text $content -Expected 'if (-not [string]::IsNullOrWhiteSpace($ProjectRoot))' -Message 'ROOK_PROJECT_ROOT must only be set for non-empty project roots.'
+    Assert-Contains -Text $content -Expected '$environment.ROOK_PROJECT_ROOT = $ProjectRoot.Replace(''\'', ''/'')' -Message 'Dev live smoke must pass ROOK_PROJECT_ROOT from the contract.'
+    Assert-Contains -Text $content -Expected 'Test-LiveSmoke -Contract $RuntimeContract' -Message 'Live smoke must consume the resolved runtime contract.'
+    Assert-Contains -Text $content -Expected 'param([Parameter(Mandatory = $true)][pscustomobject]$Contract)' -Message 'Test-LiveSmoke must require an explicit runtime contract.'
+    Assert-Contains -Text $content -Expected '$environmentPropertyNames = @($Contract.Environment.PSObject.Properties.Name)' -Message 'Test-LiveSmoke must read environment values from the contract.'
+    Assert-Contains -Text $content -Expected '& $Contract.PythonPath $smokePath' -Message 'Live smoke must run with the selected runtime Python.'
+    Assert-NotContains -Text $content -Unexpected '& $VenvPython $smokePath' -Message 'Live smoke must not hardcode the release venv Python.'
+    Assert-Contains -Text $content -Expected 'Push-Location $Contract.WorkingDirectory' -Message 'Live smoke must run from the selected runtime working directory.'
+    Assert-Contains -Text $content -Expected 'Pop-Location' -Message 'Live smoke must restore the prior working directory.'
+    Assert-Contains -Text $content -Expected '[Environment]::SetEnvironmentVariable($name, $null, ''Process'')' -Message 'Live smoke must remove variables that were originally absent.'
+    Assert-Contains -Text $content -Expected 'Remove-Item -LiteralPath $smokePath -ErrorAction SilentlyContinue' -Message 'Live smoke must remove its temporary smoke script.'
+    Assert-Contains -Text $content -Expected '-PayloadOnly -AllowRunning -UseRepoVenv -LiveSmoke' -Message 'Deploy script guidance must document the dev repo-venv live smoke command.'
+    Assert-Contains -Text $content -Expected 'pass -DevPythonRuntime with a Python executable path' -Message 'Deploy script guidance must document the explicit dev Python live smoke command.'
 }
 
 function Test-DeployScriptCopiesOcctRuntimeClosure {
@@ -426,6 +447,7 @@ Test-DeployScriptVerifiesChatManifest
 Test-DeployScriptSeedsChatEnvWithoutOverwriting
 Test-DeployScriptCopiesAllInstallerPythonModules
 Test-DeployScriptHasExplicitDevRuntimeContract
+Test-DeployScriptAllowsDevLiveSmoke
 Test-DeployScriptCopiesOcctRuntimeClosure
 Test-DeployScriptWritesChatManifestToRuntimeChildren
 Test-DeployScriptLiveSmokeIsExplicit
