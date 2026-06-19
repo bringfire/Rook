@@ -163,6 +163,38 @@ def test_build_rejects_bad_frame_count():
             camera_provenance={},
             object_provenance={},
         )
+
+
+def test_build_rejects_first_frame_without_object_transforms():
+    with pytest.raises(animation_track.AnimationTrackError, match="object_transforms"):
+        animation_track.build_animation_track(
+            frame_count=1,
+            fps=24,
+            resolution={"width": 320, "height": 180},
+            camera_per_frame=[_camera([0, 0, 0])],
+            motion_frames=[{"frame_index": 1}],
+            camera_provenance={},
+            object_provenance={},
+        )
+
+
+def test_build_rejects_non_string_object_id():
+    bad_frame = {
+        "frame_index": 1,
+        "object_transforms": [
+            {"object_id": 123, "source_state": {}, "transform": _identity()}
+        ],
+    }
+    with pytest.raises(animation_track.AnimationTrackError, match="object_id"):
+        animation_track.build_animation_track(
+            frame_count=1,
+            fps=24,
+            resolution={"width": 320, "height": 180},
+            camera_per_frame=[_camera([0, 0, 0])],
+            motion_frames=[bad_frame],
+            camera_provenance={},
+            object_provenance={},
+        )
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -207,10 +239,19 @@ def build_animation_track(
     if len(motion_frames) != frame_count:
         raise AnimationTrackError("motion_frames length must equal frame_count")
 
-    animated_object_ids = [
-        transform["object_id"]
-        for transform in motion_frames[0]["object_transforms"]
-    ]
+    first_frame = motion_frames[0]
+    first_transforms = first_frame.get("object_transforms") if isinstance(first_frame, dict) else None
+    if not isinstance(first_transforms, list) or not first_transforms:
+        raise AnimationTrackError(
+            "motion_frames[0].object_transforms must be a non-empty list"
+        )
+    animated_object_ids: list[str] = []
+    for transform in first_transforms:
+        if not isinstance(transform, dict) or not isinstance(transform.get("object_id"), str):
+            raise AnimationTrackError(
+                "motion_frames object_transforms.object_id must be a string"
+            )
+        animated_object_ids.append(transform["object_id"])
     camera_frames = [
         {"frame_index": index + 1, "camera": camera_per_frame[index]}
         for index in range(frame_count)
@@ -261,15 +302,29 @@ git commit -m "feat(director): add animation_track.build_animation_track"
 - Consumes: `build_animation_track` (Task 1), `AnimationTrackError`.
 - Produces: `validate_animation_track(track: dict) -> None` — raises `AnimationTrackError` (message names the field) when the track is structurally invalid; returns `None` on success.
 
-Validation rules (each raises with a message containing the quoted token below):
+Validation rules (each raises `AnimationTrackError` — never a raw `AttributeError`/`IndexError` — with a message containing the quoted token below):
+
+*Metadata:*
 - `schema_version` must equal `1` → `"schema_version"`.
 - `animation_version` must equal `"v1"` → `"animation_version"`.
 - `transform_semantics` must equal `"absolute_from_source"` → `"transform_semantics"`.
-- `frame_count` must be an `int >= 1` → `"frame_count"`.
-- `len(camera_frames) == frame_count` and its `frame_index` values are exactly `1..frame_count` in order → `"camera_frames"`.
-- `len(object_frames) == frame_count` and its `frame_index` values are exactly `1..frame_count` in order → `"object_frames"`.
+- `frame_count` must be an `int >= 1` (reject `bool`) → `"frame_count"`.
+- `fps` must be `None` or a positive `int` (reject `bool`) → `"fps"`.
+- `resolution` is an object with positive-int `width`/`height` (reject `bool`) → `"resolution"`.
+- `animated_object_ids` is a non-empty list of **unique strings** → `"animated_object_ids"`.
+
+*Frame structure (guard entry types before any `.get`):*
+- `camera_frames`/`object_frames` are lists of length `frame_count` whose `frame_index` values are exactly `1..frame_count` in order; each entry is an object → `"camera_frames"` / `"object_frames"`.
+- Each `camera_frames[*].camera` is an object → `"camera_frames"`.
+- Each `object_frames[*].object_transforms` is a list; each entry is an object → `"object_transforms"`.
 - For every object frame, the set of `object_transforms[*].object_id` equals `set(animated_object_ids)` (no missing, no extra) → `"animated_object_ids"`.
-- Every `transform` is a 4×4 list of finite numbers → `"transform"`.
+
+*Per transform entry:*
+- `object_id` is a string → `"object_id"`.
+- `source_state` is an object → `"source_state"`.
+- `source_state.validation_strength` is a string → `"validation_strength"`.
+- when `validation_strength == "bbox_only"`, `bbox_min`/`bbox_max` are each 3 **finite numbers** (reject `bool`/non-number/NaN/inf) → `"bbox_min"` / `"bbox_max"`.
+- `transform` is a 4×4 list of finite numbers → `"transform"`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -366,6 +421,31 @@ def test_validate_rejects_missing_bbox_for_bbox_only():
     del track["object_frames"][0]["object_transforms"][0]["source_state"]["bbox_min"]
     with pytest.raises(animation_track.AnimationTrackError, match="bbox_min"):
         animation_track.validate_animation_track(track)
+
+
+def test_validate_rejects_non_object_camera_frame():
+    track = _valid_track()
+    track["camera_frames"][0] = "not-an-object"
+    with pytest.raises(animation_track.AnimationTrackError, match="camera_frames"):
+        animation_track.validate_animation_track(track)
+
+
+def test_validate_rejects_non_object_transform_entry():
+    track = _valid_track()
+    track["object_frames"][0]["object_transforms"][0] = "not-an-object"
+    with pytest.raises(animation_track.AnimationTrackError, match="object_transforms"):
+        animation_track.validate_animation_track(track)
+
+
+def test_validate_rejects_nonfinite_bbox():
+    track = _valid_track()
+    track["object_frames"][0]["object_transforms"][0]["source_state"]["bbox_min"] = [
+        0.0,
+        math.inf,
+        0.0,
+    ]
+    with pytest.raises(animation_track.AnimationTrackError, match="bbox_min"):
+        animation_track.validate_animation_track(track)
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -401,6 +481,8 @@ def _validate_frame_index_sequence(frames: list[dict[str, Any]], frame_count: in
             f"{field} must contain exactly frame_count ({frame_count}) entries"
         )
     for position, frame in enumerate(frames, start=1):
+        if not isinstance(frame, dict):
+            raise AnimationTrackError(f"{field} entries must be objects")
         if frame.get("frame_index") != position:
             raise AnimationTrackError(
                 f"{field} frame_index must be 1..frame_count in order"
@@ -456,6 +538,9 @@ def validate_animation_track(track: dict[str, Any]) -> None:
         transforms = frame.get("object_transforms")
         if not isinstance(transforms, list):
             raise AnimationTrackError("object_frames.object_transforms must be a list")
+        for transform in transforms:
+            if not isinstance(transform, dict):
+                raise AnimationTrackError("object_transforms entries must be objects")
         frame_ids = [t.get("object_id") for t in transforms]
         if set(frame_ids) != expected_ids or len(frame_ids) != len(expected_ids):
             raise AnimationTrackError(
@@ -478,9 +563,18 @@ def validate_animation_track(track: dict[str, Any]) -> None:
             if strength == "bbox_only":
                 for bbox_field in ("bbox_min", "bbox_max"):
                     box = source_state.get(bbox_field)
-                    if not isinstance(box, list) or len(box) != 3:
+                    if (
+                        not isinstance(box, list)
+                        or len(box) != 3
+                        or not all(
+                            isinstance(value, (int, float))
+                            and not isinstance(value, bool)
+                            and math.isfinite(float(value))
+                            for value in box
+                        )
+                    ):
                         raise AnimationTrackError(
-                            f"source_state.{bbox_field} is required for bbox_only"
+                            f"source_state.{bbox_field} must be 3 finite numbers for bbox_only"
                         )
             if not _is_4x4_finite(transform.get("transform")):
                 raise AnimationTrackError(
@@ -831,10 +925,10 @@ Expected: PASS. (These are the non-live suites touching the director path; live 
 Run: `git status --short`
 Expected: clean working tree (all changes already committed across Tasks 1–5).
 
-- [ ] **Step 3: Confirm PR1 touched only the intended files**
+- [ ] **Step 3: Confirm PR1's code changes are confined to the intended files**
 
 Run: `git diff --name-only main...HEAD`
-Expected: exactly `docs/superpowers/specs/2026-06-19-...-design.md`, `docs/superpowers/plans/2026-06-19-...-pr1.md`, `mcp_server/src/rook/animation_track.py`, `mcp_server/src/rook/director.py`, `mcp_server/tests/test_animation_track.py`, `mcp_server/tests/test_director.py`. No `server.py`, no C++.
+Expected: after implementation, **no files beyond this known set** — the spec/plan docs already committed on this branch (`docs/superpowers/specs/2026-06-19-rookvisiondirector-arbitrary-motion-replay-design.md`, `docs/superpowers/plans/2026-06-19-rookvisiondirector-animation-track-pr1.md`) plus PR1's code/tests (`mcp_server/src/rook/animation_track.py`, `mcp_server/src/rook/director.py`, `mcp_server/tests/test_animation_track.py`, `mcp_server/tests/test_director.py`). The branch may already carry earlier design/plan-doc commits — that is expected. The hard checks: **no `mcp_server/src/rook/server.py`, no `src/RookNative/**` (C++), and none of the unrelated pre-existing dirty files** (`knowledge/gh/component_observations.json`) appear in the implementation commits.
 
 ---
 
