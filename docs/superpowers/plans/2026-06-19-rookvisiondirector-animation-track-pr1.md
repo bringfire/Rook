@@ -19,6 +19,8 @@ These apply to **every** task; values are copied verbatim from the spec (`docs/s
 - **Backward compatibility:** existing `radial_bbox_center` / `keyframes` / `curve_follow_target` requests keep working; the track is **additive**; all existing `manifest.json` fields are preserved. The full existing `mcp_server/tests/test_director.py` suite must stay green.
 - **Out of PR1 scope (do not build here):** native `/director/replay`, MCP tool changes, the agent-script generator, the draft-before-capture lifecycle (PR1 ships the *frozen* artifact + the `build`/`validate`/`freeze` functions the PR2 draft path will reuse), additional generators, video/publish changes. PR1 touches **no** C++ and **no** `server.py`.
 - Style: validation raises a typed exception (`AnimationTrackError`) with a message naming the offending field, mirroring `director.DirectorInputError`. JSON writes are atomic (temp file + `replace`). `animation_track.py` must **not** import `director` (director imports it — avoid a cycle).
+- **Dirty worktree caution:** the repo has unrelated pre-existing modifications (`mcp_server/src/rook/server.py`, `knowledge/gh/component_observations.json`). Every commit stages **only** the explicit files named in its task — never `git add -A` or `git add .`.
+- **Validation strength:** because PR2 (replay) depends on this artifact, validation is comprehensive — input guards in `build_animation_track` (fail with `AnimationTrackError`, never `IndexError`), full top-level metadata checks (`fps`, `resolution`, `animated_object_ids`, `camera_frames[*].camera`), and per-entry `object_transforms` checks (`object_id`, `source_state`, `validation_strength`, bbox fields when `bbox_only`).
 
 **Working directory:** `mcp_server/` (run `pytest` from there). Branch: `feature/rookvisiondirector-arbitrary-motion-replay` (already checked out).
 
@@ -55,6 +57,8 @@ Create `mcp_server/tests/test_animation_track.py`:
 
 ```python
 from __future__ import annotations
+
+import pytest
 
 from rook import animation_track
 
@@ -120,11 +124,50 @@ def test_build_animation_track_assembles_two_sections_and_metadata():
     assert track["object_frames"][0]["object_transforms"][0]["object_id"] == "a"
     assert track["camera_provenance"] == {"strategy": "keyframes"}
     assert track["object_provenance"] == {"generator": "radial_bbox_center"}
+
+
+def test_build_rejects_empty_motion_frames():
+    with pytest.raises(animation_track.AnimationTrackError, match="motion_frames"):
+        animation_track.build_animation_track(
+            frame_count=1,
+            fps=24,
+            resolution={"width": 320, "height": 180},
+            camera_per_frame=[_camera([0, 0, 0])],
+            motion_frames=[],
+            camera_provenance={},
+            object_provenance={},
+        )
+
+
+def test_build_rejects_camera_motion_length_mismatch():
+    with pytest.raises(animation_track.AnimationTrackError, match="frame_count"):
+        animation_track.build_animation_track(
+            frame_count=2,
+            fps=24,
+            resolution={"width": 320, "height": 180},
+            camera_per_frame=[_camera([0, 0, 0])],
+            motion_frames=[_motion_frame(1), _motion_frame(2)],
+            camera_provenance={},
+            object_provenance={},
+        )
+
+
+def test_build_rejects_bad_frame_count():
+    with pytest.raises(animation_track.AnimationTrackError, match="frame_count"):
+        animation_track.build_animation_track(
+            frame_count=0,
+            fps=24,
+            resolution={"width": 320, "height": 180},
+            camera_per_frame=[],
+            motion_frames=[],
+            camera_provenance={},
+            object_provenance={},
+        )
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 2: Run tests to verify they fail**
 
-Run: `python -m pytest tests/test_animation_track.py::test_build_animation_track_assembles_two_sections_and_metadata -v`
+Run: `python -m pytest tests/test_animation_track.py -k build -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'rook.animation_track'`.
 
 - [ ] **Step 3: Write minimal implementation**
@@ -157,6 +200,13 @@ def build_animation_track(
     camera_provenance: dict[str, Any],
     object_provenance: dict[str, Any],
 ) -> dict[str, Any]:
+    if not isinstance(frame_count, int) or isinstance(frame_count, bool) or frame_count < 1:
+        raise AnimationTrackError("frame_count must be an integer >= 1")
+    if len(camera_per_frame) != frame_count:
+        raise AnimationTrackError("camera_per_frame length must equal frame_count")
+    if len(motion_frames) != frame_count:
+        raise AnimationTrackError("motion_frames length must equal frame_count")
+
     animated_object_ids = [
         transform["object_id"]
         for transform in motion_frames[0]["object_transforms"]
@@ -223,12 +273,10 @@ Validation rules (each raises with a message containing the quoted token below):
 
 - [ ] **Step 1: Write the failing tests**
 
-Append to `mcp_server/tests/test_animation_track.py`:
+Append to `mcp_server/tests/test_animation_track.py` (`pytest` is already imported at the top of the file from Task 1):
 
 ```python
 import math
-
-import pytest
 
 
 def _valid_track():
@@ -280,6 +328,43 @@ def test_validate_rejects_bad_transform_semantics():
     track = _valid_track()
     track["transform_semantics"] = "relative_from_previous"
     with pytest.raises(animation_track.AnimationTrackError, match="transform_semantics"):
+        animation_track.validate_animation_track(track)
+
+
+def test_validate_rejects_bool_fps():
+    track = _valid_track()
+    track["fps"] = True
+    with pytest.raises(animation_track.AnimationTrackError, match="fps"):
+        animation_track.validate_animation_track(track)
+
+
+def test_validate_rejects_nonpositive_resolution():
+    track = _valid_track()
+    track["resolution"] = {"width": 0, "height": 180}
+    with pytest.raises(animation_track.AnimationTrackError, match="resolution"):
+        animation_track.validate_animation_track(track)
+
+
+def test_validate_rejects_duplicate_animated_object_ids():
+    track = _valid_track()
+    track["animated_object_ids"] = ["a", "a"]
+    with pytest.raises(animation_track.AnimationTrackError, match="animated_object_ids"):
+        animation_track.validate_animation_track(track)
+
+
+def test_validate_rejects_missing_validation_strength():
+    track = _valid_track()
+    del track["object_frames"][0]["object_transforms"][0]["source_state"][
+        "validation_strength"
+    ]
+    with pytest.raises(animation_track.AnimationTrackError, match="validation_strength"):
+        animation_track.validate_animation_track(track)
+
+
+def test_validate_rejects_missing_bbox_for_bbox_only():
+    track = _valid_track()
+    del track["object_frames"][0]["object_transforms"][0]["source_state"]["bbox_min"]
+    with pytest.raises(animation_track.AnimationTrackError, match="bbox_min"):
         animation_track.validate_animation_track(track)
 ```
 
@@ -336,13 +421,37 @@ def validate_animation_track(track: dict[str, Any]) -> None:
     if not isinstance(frame_count, int) or isinstance(frame_count, bool) or frame_count < 1:
         raise AnimationTrackError("frame_count must be an integer >= 1")
 
+    fps = track.get("fps")
+    if fps is not None and (not isinstance(fps, int) or isinstance(fps, bool) or fps < 1):
+        raise AnimationTrackError("fps must be null or a positive integer")
+
+    resolution = track.get("resolution")
+    if not isinstance(resolution, dict):
+        raise AnimationTrackError("resolution must be an object")
+    for axis in ("width", "height"):
+        value = resolution.get(axis)
+        if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+            raise AnimationTrackError(f"resolution.{axis} must be a positive integer")
+
+    object_ids = track.get("animated_object_ids")
+    if (
+        not isinstance(object_ids, list)
+        or not object_ids
+        or not all(isinstance(oid, str) for oid in object_ids)
+        or len(set(object_ids)) != len(object_ids)
+    ):
+        raise AnimationTrackError(
+            "animated_object_ids must be a non-empty list of unique strings"
+        )
+
     _validate_frame_index_sequence(track.get("camera_frames"), frame_count, "camera_frames")
     _validate_frame_index_sequence(track.get("object_frames"), frame_count, "object_frames")
 
-    expected_ids = set(track.get("animated_object_ids") or [])
-    if not expected_ids:
-        raise AnimationTrackError("animated_object_ids must be non-empty")
+    for frame in track["camera_frames"]:
+        if not isinstance(frame.get("camera"), dict):
+            raise AnimationTrackError("camera_frames[*].camera must be an object")
 
+    expected_ids = set(object_ids)
     for frame in track["object_frames"]:
         transforms = frame.get("object_transforms")
         if not isinstance(transforms, list):
@@ -354,6 +463,25 @@ def validate_animation_track(track: dict[str, Any]) -> None:
                 f"(frame {frame.get('frame_index')})"
             )
         for transform in transforms:
+            if not isinstance(transform.get("object_id"), str):
+                raise AnimationTrackError("object_transforms.object_id must be a string")
+            source_state = transform.get("source_state")
+            if not isinstance(source_state, dict):
+                raise AnimationTrackError(
+                    "object_transforms.source_state must be an object"
+                )
+            strength = source_state.get("validation_strength")
+            if not isinstance(strength, str):
+                raise AnimationTrackError(
+                    "source_state.validation_strength is required"
+                )
+            if strength == "bbox_only":
+                for bbox_field in ("bbox_min", "bbox_max"):
+                    box = source_state.get(bbox_field)
+                    if not isinstance(box, list) or len(box) != 3:
+                        raise AnimationTrackError(
+                            f"source_state.{bbox_field} is required for bbox_only"
+                        )
             if not _is_4x4_finite(transform.get("transform")):
                 raise AnimationTrackError(
                     "object_transforms.transform must be a 4x4 matrix of finite numbers"
@@ -546,13 +674,15 @@ In `run_director`, immediately after the `motion_frames, motion_warnings = expan
     animation_track.validate_animation_track(track)
 ```
 
-- [ ] **Step 5: Freeze the track after the run directories exist**
+- [ ] **Step 5: Freeze the track before manifest/status are written**
 
-In `run_director`, immediately after the existing `_atomic_write_json(run_root / "manifest.json", manifest)` call (~line 365), insert:
+The frozen `animation_track.json` is PR1's deliverable, so it must be written **before** `manifest.json` and `status.json` — a freeze failure must not leave a run folder carrying a manifest but no track. In `run_director`, immediately after the run directories are created (after `logs_dir.mkdir(parents=True, exist_ok=True)`, ~line 291) and before `manifest_frames` is built, insert:
 
 ```python
     animation_track.freeze_animation_track(track, run_root / "animation_track.json")
 ```
+
+(`freeze_animation_track` re-validates before writing, so the in-memory `validate_animation_track` call in Step 4 plus this freeze give two gates; that is intentional and cheap.)
 
 - [ ] **Step 6: Run the new test and the full director suite**
 
@@ -585,46 +715,50 @@ Currently `manifest_frames` (lines ~293–305) is built by zipping `motion_frame
 
 - [ ] **Step 1: Write the failing test**
 
+This test proves the *source of truth* — not just parity. It monkeypatches the track build to inject a sentinel camera location that radial motion / `frame_cameras` would never produce, then asserts the capture payloads carry the sentinel. Before the refactor, capture is sourced from `frame_cameras` (real interpolated locations), so the sentinel assertion **fails**; after the refactor it is sourced from the track and **passes**. An incidental pass is impossible.
+
 Append to `mcp_server/tests/test_director.py`:
 
 ```python
-def test_frame_capture_payloads_match_track_sections(tmp_path):
+def test_capture_is_sourced_from_the_track_not_motion(tmp_path, monkeypatch):
+    real_build = director.animation_track.build_animation_track
+
+    def sentinel_build(**kwargs):
+        track = real_build(**kwargs)
+        for camera_frame in track["camera_frames"]:
+            camera_frame["camera"] = {
+                **camera_frame["camera"],
+                "location": [99.0, 99.0, 99.0],
+            }
+        return track
+
+    monkeypatch.setattr(
+        director.animation_track, "build_animation_track", sentinel_build
+    )
+
     request = _run_request(tmp_path)
-    request["run_id"] = "capture-from-track"
-    request["frame_count"] = 3
-    request["camera_keyframes"] = [
-        {"frame_index": 1, "source": {"kind": "active_view"}},
-        {"frame_index": 3, "source": {"kind": "named_view", "name": "End"}},
-    ]
+    request["run_id"] = "capture-source-of-truth"
     fake = FakeNative(
         [
             {"success": True, "data": {"frame_id": "frame_0001", "dirty_partial_state": False}},
             {"success": True, "data": {"frame_id": "frame_0002", "dirty_partial_state": False}},
-            {"success": True, "data": {"frame_id": "frame_0003", "dirty_partial_state": False}},
         ],
         create_outputs=True,
     )
-    result = asyncio.run(
+    asyncio.run(
         director.run_director(request, call_native=fake, runtime=_runtime(tmp_path))
     )
-    run_root = Path(result["run_root"])
-    track = json.loads((run_root / "animation_track.json").read_text(encoding="utf-8"))
 
     capture_calls = [c for c in fake.calls if c[0] == "/director/frame-capture"]
-    assert len(capture_calls) == 3
-    for index, call in enumerate(capture_calls):
-        payload = call[2]
-        assert payload["camera"] == track["camera_frames"][index]["camera"]
-        assert (
-            payload["object_transforms"]
-            == track["object_frames"][index]["object_transforms"]
-        )
+    assert capture_calls, "expected frame-capture calls"
+    for call in capture_calls:
+        assert call[2]["camera"]["location"] == [99.0, 99.0, 99.0]
 ```
 
-- [ ] **Step 2: Run test to verify it fails or passes incidentally**
+- [ ] **Step 2: Run test to verify it fails**
 
-Run: `python -m pytest tests/test_director.py::test_frame_capture_payloads_match_track_sections -v`
-Expected: PASS is acceptable here (Task 4 already makes the track equal the manifest, and capture reads the manifest frames). This test **locks** the parity so Step 3's refactor cannot drift. If it fails, the track build in Task 4 is wrong — fix that before continuing.
+Run: `python -m pytest tests/test_director.py::test_capture_is_sourced_from_the_track_not_motion -v`
+Expected: FAIL — capture still reads `frame_cameras` (real interpolated location `[4.0, -4.0, 3.0]`), not the sentinel `[99.0, 99.0, 99.0]`. This proves the test is red before the refactor.
 
 - [ ] **Step 3: Rebuild `manifest_frames` from the track**
 
@@ -668,7 +802,7 @@ with a version sourced from the track:
 
 - [ ] **Step 4: Run the new test and the full suites**
 
-Run: `python -m pytest tests/test_director.py::test_frame_capture_payloads_match_track_sections tests/test_director.py::test_run_writes_animation_track_in_parity_with_manifest -v`
+Run: `python -m pytest tests/test_director.py::test_capture_is_sourced_from_the_track_not_motion tests/test_director.py::test_run_writes_animation_track_in_parity_with_manifest -v`
 Expected: PASS.
 
 Run: `python -m pytest tests/test_director.py tests/test_animation_track.py -v`
@@ -708,6 +842,7 @@ Expected: exactly `docs/superpowers/specs/2026-06-19-...-design.md`, `docs/super
 
 **Spec coverage (PR1 slice = "schema + radial port + `run_director` captures-from-track, draft↔frozen, parity test"):**
 - Animation-track schema (two sections, `absolute_from_source`, `animated_object_ids`, completeness) → Tasks 1–2.
+- Hardened validation for the PR2 dependency: build-time input guards (Task 1: empty/length/frame_count), full metadata validation, and per-entry `source_state`/`validation_strength`/bbox checks (Task 2) → so no malformed track can be frozen.
 - `object_frames` use native `object_transforms` shape (lossless) → Task 1 (`motion_frames` passed through unchanged).
 - Radial port emits track `object_frames` → Task 4 (radial `motion_frames` feed `build_animation_track`; `object_provenance.generator == "radial_bbox_center"`).
 - Camera section from existing planner → Task 4 (`frame_cameras` → `camera_per_frame`).
