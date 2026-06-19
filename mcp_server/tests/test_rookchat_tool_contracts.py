@@ -500,6 +500,17 @@ def test_normalize_tool_result_top_level_truth_precedence():
     assert top_ok.status == "success"
 
 
+def test_tool_result_view_marks_csharp_preflight_failure_failed():
+    from rook.agent.chat.tool_contracts import normalize_tool_result
+
+    view = normalize_tool_result({
+        "success": False,
+        "data": "C# script preflight failed: C# body-style code cannot contain top-level using directives.",
+    })
+
+    assert view.status == "failed"
+
+
 def test_normalize_tool_result_nested_truth_and_error_fallbacks():
     from rook.agent.chat.tool_contracts import normalize_tool_result
 

@@ -1833,6 +1833,37 @@ def test_gh_update_script_csharp_auto_full_source_passes_through():
     assert prepared == {"source": code, "mode_used": "full_source", "wrapped": False}
 
 
+def test_gh_csharp_wrapper_uses_shared_full_source_predicate():
+    from rook.gh_csharp_preflight import is_recognized_csharp_full_source
+
+    code = "public class Script_Instance : GH_ScriptInstance { }"
+
+    assert is_recognized_csharp_full_source(code) is True
+    assert server._build_gh_csharp_wrapper(
+        code,
+        pins_in=[{"name": "R"}],
+        pins_out=[{"name": "A"}],
+    ) == code
+
+
+def test_gh_update_script_uses_shared_full_source_predicate():
+    from rook.gh_csharp_preflight import is_recognized_csharp_full_source
+
+    code = "private void RunScript(object R, ref object A) { A = R; }"
+
+    assert is_recognized_csharp_full_source(code) is True
+    prepared = server._prepare_gh_update_script_source(
+        code=code,
+        mode="auto",
+        runtime={"component_type": "CSharpScriptComponent"},
+        inputs=[{"name": "R"}],
+        outputs=[{"name": "A"}],
+        python_preamble=True,
+    )
+
+    assert prepared == {"source": code, "mode_used": "full_source", "wrapped": False}
+
+
 def test_gh_update_script_python_full_source_never_adds_generated_blocks():
     code = "A = X"
     prepared = server._prepare_gh_update_script_source(
@@ -2376,6 +2407,61 @@ async def test_gh_update_script_compile_failure_returns_failed_with_component_er
         "Current inputs are R; outputs are A. To change the signature, call "
         "gh_set_script_pins first, then retry gh_update_script."
     )
+
+
+def test_gh_update_script_csharp_preflight_rejects_body_using_before_wrap():
+    with pytest.raises(ValueError, match="C# script preflight failed:"):
+        server._prepare_gh_update_script_source(
+            code="using Rhino.Geometry;\nA = Point3d.Origin;",
+            mode="body",
+            runtime={"component_type": "CSharpScriptComponent"},
+            inputs=[],
+            outputs=[{"name": "A", "type": "Point3d"}],
+            python_preamble=True,
+        )
+
+
+@pytest.mark.asyncio
+async def test_gh_update_script_csharp_preflight_blocks_script_write(monkeypatch):
+    calls = []
+
+    async def fake_call_rhino(endpoint, method, data=None, port=None):
+        calls.append((endpoint, method, data or {}))
+        if endpoint == "/gh/script" and method == "POST" and data == {"guid": "target-guid"}:
+            return {
+                "success": True,
+                "data": {"Type": "CSharpScriptComponent"},
+            }
+        if endpoint == "/gh/component" and method == "GET":
+            return {
+                "success": True,
+                "data": {
+                    "Params": {
+                        "Inputs": [],
+                        "Outputs": [{"Name": "A", "TypeName": "Point3d"}],
+                    }
+                },
+            }
+        raise AssertionError(f"unexpected mutation/read: {endpoint} {method} {data}")
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    result = await server._execute_gh_update_script(
+        {
+            "guid": "target-guid",
+            "language": "csharp",
+            "code": "using Rhino.Geometry;\nA = Point3d.Origin;",
+            "mode": "body",
+        },
+        port=9876,
+    )
+
+    assert result["success"] is False
+    assert result["data"].startswith("gh_update_script failed: C# script preflight failed:")
+    assert calls == [
+        ("/gh/script", "POST", {"guid": "target-guid"}),
+        ("/gh/component", "GET", {"guid": "target-guid"}),
+    ]
 
 
 @pytest.mark.asyncio
