@@ -69,7 +69,6 @@ $VenvPython = Join-Path $RuntimeRoot 'venv\Scripts\python.exe'
 $PluginDir = Join-Path ([Environment]::GetFolderPath('ApplicationData')) 'McNeel\Rhinoceros\8.0\Plug-ins\RookNative'
 $ChirpInstallRoot = Join-Path $InstallRoot 'chirp'
 $ManagedCompanionRuntimes = @('net8.0', 'net7.0', 'net48')
-$OcctFallbackRoot = 'C:\Users\aryan\source\repos\OCCT\build-rook'
 $OcctRuntimeDlls = @(
     'TKernel.dll',
     'TKMath.dll',
@@ -373,7 +372,7 @@ function Resolve-OcctRuntimeRoot {
     if (-not [string]::IsNullOrWhiteSpace($env:OCCT_ROOT)) {
         return [pscustomobject]@{ Root = $env:OCCT_ROOT; Source = 'OCCT_ROOT' }
     }
-    return [pscustomobject]@{ Root = $OcctFallbackRoot; Source = 'fallback' }
+    throw "OCCT_ROOT is not set. Set OCCT_ROOT to a valid OCCT build root before native deploy."
 }
 
 function Copy-OcctRuntimeDlls {

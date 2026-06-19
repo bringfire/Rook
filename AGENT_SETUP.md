@@ -84,10 +84,9 @@ Before a local deploy from source:
 6. Optionally run the existing payload-only live smoke flow after Rhino and
    Grasshopper are open.
 
-Prepared dev machines should set `OCCT_ROOT` to the active OCCT build root. The
-native projects still contain a hardcoded fallback path for now; removing that
-fallback is a follow-up after both laptop and desktop pass the doctor from a fresh
-shell.
+Prepared dev machines must set `OCCT_ROOT` to the active OCCT build root. Native
+builds no longer use a hardcoded OCCT fallback path; pass `/p:OcctRoot=...` only
+when intentionally overriding the shell environment for one build.
 
 ## Installation
 

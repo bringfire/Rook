@@ -15,6 +15,15 @@
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
 
+  <!-- OCCT root: set OCCT_ROOT env var or pass /p:OcctRoot=... -->
+  <PropertyGroup Label="OcctRoot">
+    <OcctRoot Condition="'$(OcctRoot)'==''">$(OCCT_ROOT)</OcctRoot>
+  </PropertyGroup>
+
+  <Target Name="ValidateOcctRoot" BeforeTargets="PrepareForBuild" Condition="'$(OcctRoot)'==''">
+    <Error Text="OCCT root is required. Set OCCT_ROOT or pass /p:OcctRoot=... See docs/rook_docs/occt-build.md." />
+  </Target>
+
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
 
   <!-- ASan-friendly config: Application/Console, NO WholeProgramOptimization
@@ -44,7 +53,7 @@
     <ClCompile>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <!-- $(ProjectDir) so "SceneGraph/..." resolves; OCCT inc; openNURBS inc. -->
-      <AdditionalIncludeDirectories>$(ProjectDir);C:\Users\aryan\source\repos\OCCT\build-rook\inc;$(RhinoSdkDir)openNURBS;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir);$(OcctRoot)\inc;$(RhinoSdkDir)openNURBS;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <!-- NDEBUG + /MD (MultiThreadedDLL) => _ITERATOR_DEBUG_LEVEL=0, matching the
            deployed Release plugin's container ABI. Do NOT use /MDd here. -->
       <PreprocessorDefinitions>NDEBUG;NOMINMAX;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
@@ -72,7 +81,7 @@
       <LinkIncremental>false</LinkIncremental>
       <!-- Exp 2: LTCG to match deployed Release link. -->
       <LinkTimeCodeGeneration>UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
-      <AdditionalLibraryDirectories>C:\Users\aryan\source\repos\OCCT\build-rook\win64\vc14\lib;$(RhinoSdkDir)lib\Release;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>$(OcctRoot)\win64\vc14\lib;$(RhinoSdkDir)lib\Release;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <!-- OCCT MODELING subset + STEP reader (OcctProbe.cpp::ReadStep, not on the
            Evaluate path but in the linked TU) + openNURBS. -->
       <AdditionalDependencies>TKernel.lib;TKMath.lib;TKG2d.lib;TKG3d.lib;TKGeomBase.lib;TKGeomAlgo.lib;TKBRep.lib;TKTopAlgo.lib;TKPrim.lib;TKBO.lib;TKBool.lib;TKShHealing.lib;TKMesh.lib;TKDESTEP.lib;TKDE.lib;TKXSBase.lib;opennurbs.lib;%(AdditionalDependencies)</AdditionalDependencies>
