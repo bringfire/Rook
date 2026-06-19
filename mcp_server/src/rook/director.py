@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from . import camera_planner, timeline
+from . import camera_planner, timeline, animation_track
 from .bridge import call_rhino
 from .runtime_paths import resolve_runtime_paths
 
@@ -284,11 +284,36 @@ async def run_director(
         per_object_scale=dict(motion_params.get("per_object_scale") or {}),
     )
 
+    object_provenance = {
+        "generator": "radial_bbox_center",
+        "parameters": motion_params,
+        "script_artifact_id": None,
+        "warnings": motion_warnings,
+    }
+    camera_provenance = {
+        "strategy": camera_plan["strategy"],
+        "request_shape": plan_provenance.get("request_shape"),
+        "aspect_authority": plan_provenance.get("aspect_authority"),
+        "optics_authority": plan_provenance.get("optics_authority"),
+    }
+    track = animation_track.build_animation_track(
+        frame_count=frame_count,
+        fps=timeline_manifest.get("fps"),
+        resolution=request["resolution"],
+        camera_per_frame=frame_cameras,
+        motion_frames=motion_frames,
+        camera_provenance=camera_provenance,
+        object_provenance=object_provenance,
+    )
+    animation_track.validate_animation_track(track)
+
     run_root = (output_root / run_id).resolve()
     frames_dir = run_root / "frames"
     logs_dir = run_root / "logs"
     frames_dir.mkdir(parents=True, exist_ok=False)
     logs_dir.mkdir(parents=True, exist_ok=True)
+
+    animation_track.freeze_animation_track(track, run_root / "animation_track.json")
 
     manifest_frames = []
     for frame in motion_frames:

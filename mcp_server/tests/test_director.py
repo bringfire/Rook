@@ -848,3 +848,43 @@ def test_parallel_camera_rejected_before_run_directory_creation(tmp_path):
     with pytest.raises(director.DirectorInputError, match="parallel"):
         asyncio.run(director.run_director(request, call_native=fake, runtime=_runtime(tmp_path)))
     assert not (tmp_path / "data" / "rookvision_director" / "parallel-camera").exists()
+
+
+def test_run_writes_animation_track_in_parity_with_manifest(tmp_path):
+    request = _run_request(tmp_path)
+    request["run_id"] = "track-parity"
+    request["frame_count"] = 3
+    request["camera_keyframes"] = [
+        {"frame_index": 1, "source": {"kind": "active_view"}},
+        {"frame_index": 3, "source": {"kind": "named_view", "name": "End"}},
+    ]
+    fake = FakeNative(
+        [
+            {"success": True, "data": {"frame_id": "frame_0001", "dirty_partial_state": False}},
+            {"success": True, "data": {"frame_id": "frame_0002", "dirty_partial_state": False}},
+            {"success": True, "data": {"frame_id": "frame_0003", "dirty_partial_state": False}},
+        ],
+        create_outputs=True,
+    )
+    result = asyncio.run(
+        director.run_director(request, call_native=fake, runtime=_runtime(tmp_path))
+    )
+    run_root = Path(result["run_root"])
+
+    track = json.loads((run_root / "animation_track.json").read_text(encoding="utf-8"))
+    manifest = json.loads((run_root / "manifest.json").read_text(encoding="utf-8"))
+
+    assert track["schema_version"] == 1
+    assert track["animation_version"] == "v1"
+    assert track["transform_semantics"] == "absolute_from_source"
+    assert track["frame_count"] == 3
+    assert track["animated_object_ids"] == ["a"]
+    assert track["object_provenance"]["generator"] == "radial_bbox_center"
+
+    # Parity: each track section equals the corresponding manifest frame value.
+    for index, manifest_frame in enumerate(manifest["frames"]):
+        assert track["camera_frames"][index]["camera"] == manifest_frame["camera"]
+        assert (
+            track["object_frames"][index]["object_transforms"]
+            == manifest_frame["object_transforms"]
+        )
