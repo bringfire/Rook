@@ -13,8 +13,9 @@ This is model-backed reconstruction, not RookCAD. Line, curve, floor-plan, const
 Reconstruction is a first-class Rook domain from day one:
 
 - `RookNative` remains the only public HTTP surface.
-- Native `/reconstruction/...` routes are thin public proxies.
-- The managed companion owns provider calls, job ledger, package materialization, artifact metadata, and UI affordances.
+- Model, job, result, and cancellation routes are native public entry points that forward to managed reconstruction dispatch.
+- `POST /reconstruction/2d-to-3d/import` is a hybrid/native-owned route: managed code resolves package/import plans and records package/ledger history; native code performs Rhino `_Import`, target-layer handling, `ObjectDiffTracker`, and object user-text stamping in one main-thread operation.
+- The managed companion owns provider calls, job ledger, package materialization, artifact metadata, import planning/history, and UI affordances.
 - Shipped architecture uses a dedicated managed `ReconstructionOpHandler` and a dedicated `reconstruction_dispatch` bridge callback, not `vision_dispatch`.
 - Vision remains the image source/artifact surface. Reconstruction consumes Vision artifacts and writes reconstruction packages.
 - The full Rook Reconstruction panel is deferred to slice 2. V1 UI is a minimal Vision "Send to 3D" affordance that calls reconstruction-owned routes.
@@ -86,7 +87,7 @@ Meshy v6 is a contract pressure test and follow-up implementation target because
 
 ## Routes
 
-All public routes are registered in `RookNative` and proxy into the managed reconstruction dispatch boundary.
+All public routes are registered in `RookNative`. Job, model, result, and cancellation routes proxy into the managed reconstruction dispatch boundary. The import route uses that dispatch boundary for package planning and history, but owns the Rhino import operation natively.
 
 ```text
 GET  /reconstruction/2d-to-3d/models
@@ -152,6 +153,137 @@ Partial import failure example:
 }
 ```
 
+## Route Response Data
+
+When present, `warnings` is an array of structured warning objects:
+
+```json
+{
+  "code": "result_artifact_missing",
+  "message": "The reconstruction package artifact is no longer available.",
+  "details": {}
+}
+```
+
+`GET /reconstruction/2d-to-3d/models` returns shipped/enabled models by default. Experimental or hidden entries appear only when explicitly requested.
+
+```json
+{
+  "models": [
+    {
+      "model_id": "fal-ai/hunyuan-3d/v3.1/rapid/image-to-3d",
+      "provider": "fal",
+      "task": "single_image_to_3d",
+      "status": "stable",
+      "enabled": true,
+      "pipeline_roles": ["single_image_to_3d"],
+      "preferred_asset_role": "model_glb",
+      "fallback_order": ["model_glb", "model_obj"]
+    }
+  ],
+  "count": 1,
+  "include_experimental": false,
+  "include_hidden": false,
+  "warnings": []
+}
+```
+
+`GET /reconstruction/2d-to-3d/jobs` returns ledger summaries, not package file lists.
+
+```json
+{
+  "jobs": [
+    {
+      "job_id": "00000000-0000-0000-0000-000000000000",
+      "state": "complete",
+      "stage": "complete",
+      "model_id": "fal-ai/hunyuan-3d/v3.1/rapid/image-to-3d",
+      "source_artifact_id": "00000000-0000-0000-0000-000000000000",
+      "result_artifact_id": "00000000-0000-0000-0000-000000000000",
+      "result_available": true,
+      "created_at": "2026-06-19T00:00:00Z",
+      "updated_at": "2026-06-19T00:05:00Z"
+    }
+  ],
+  "count": 1,
+  "applied_limit": 100,
+  "warnings": []
+}
+```
+
+`GET /reconstruction/2d-to-3d/jobs/{job_id}` returns the current ledger record plus result availability.
+
+```json
+{
+  "job": {
+    "job_id": "00000000-0000-0000-0000-000000000000",
+    "state": "running",
+    "stage": "polling",
+    "provider": "fal",
+    "model_id": "fal-ai/hunyuan-3d/v3.1/rapid/image-to-3d",
+    "provider_job_id": "fal-request-id",
+    "result_artifact_id": null
+  },
+  "result_available": false,
+  "warnings": []
+}
+```
+
+`POST /reconstruction/2d-to-3d/jobs/{job_id}/cancel` is best-effort and reports what happened, including whether remote provider cancellation was attempted.
+
+```json
+{
+  "job_id": "00000000-0000-0000-0000-000000000000",
+  "state": "cancellation_requested",
+  "stage": "polling",
+  "remote_cancel": {
+    "attempted": true,
+    "succeeded": true,
+    "provider_job_id": "fal-request-id"
+  },
+  "warnings": []
+}
+```
+
+`GET /reconstruction/2d-to-3d/jobs/{job_id}/result` returns a compact package summary when the package exists.
+
+```json
+{
+  "job_id": "00000000-0000-0000-0000-000000000000",
+  "state": "complete",
+  "result_artifact_id": "00000000-0000-0000-0000-000000000000",
+  "result_available": true,
+  "package": {
+    "artifact_id": "00000000-0000-0000-0000-000000000000",
+    "kind": "reconstruction_package",
+    "preferred_asset_role": "model_glb",
+    "asset_roles": ["model_glb", "model_obj", "material_mtl", "texture", "thumbnail"],
+    "thumbnail_role": "thumbnail",
+    "import_count": 0
+  },
+  "warnings": []
+}
+```
+
+If the job completed but the package has been deleted or quarantined, result retrieval still succeeds against the ledger and reports that the payload is gone:
+
+```json
+{
+  "job_id": "00000000-0000-0000-0000-000000000000",
+  "state": "complete",
+  "result_artifact_id": "00000000-0000-0000-0000-000000000000",
+  "result_available": false,
+  "package": null,
+  "warnings": [
+    {
+      "code": "result_artifact_missing",
+      "message": "The reconstruction package artifact is no longer available.",
+      "details": {}
+    }
+  ]
+}
+```
+
 ## Submit Contract
 
 V1 submit accepts source artifacts only. It does not accept arbitrary local image paths.
@@ -169,6 +301,31 @@ V1 submit accepts source artifacts only. It does not accept arbitrary local imag
   "estimate_requested": false
 }
 ```
+
+Manual preprocessing request shape:
+
+```json
+{
+  "source_artifact_id": "00000000-0000-0000-0000-000000000000",
+  "source_role": "image",
+  "model_id": "fal-ai/hunyuan-3d/v3.1/rapid/image-to-3d",
+  "preprocessing_chain": [
+    {
+      "role": "remove_background",
+      "model_id": "fal-ai/birefnet",
+      "input_role": "image",
+      "output_role": "preprocessed_image",
+      "options": {}
+    }
+  ],
+  "options": {
+    "enable_pbr": true,
+    "enable_geometry": false
+  }
+}
+```
+
+V1 accepts either an empty `preprocessing_chain` or one manual stage. The only v1 stage role is `remove_background`; its model must be a cataloged manual preprocessing model. `input_role` defaults to the current source role, `output_role` defaults to `preprocessed_image`, and `options` is provider-adapter validated.
 
 Success data:
 
@@ -401,6 +558,8 @@ The materializer should be lossless relative to the sanitized fal result envelop
 
 `asset_bindings` makes OBJ + MTL + texture association explicit rather than relying only on role names.
 
+`import_manifest` is a mutable JSON blob role after package creation. Import history is appended by a scoped artifact-store JSON update/replace primitive, not by `ArtifactStore.AppendBlob`, because blob roles are unique. The update primitive must preserve the same role and file identity, write atomically, and fail observably if the manifest cannot be updated after import.
+
 V1 import options are intentionally minimal:
 
 - `targetLayer`
@@ -428,15 +587,15 @@ Request:
 
 `assetRole` is optional. If omitted, the route uses `import_manifest.preferred_asset` and `fallback_order`. If present, the route validates that the role exists in the package.
 
-The route wraps:
+The route split is:
 
-- package lookup and validation
-- import manifest read/validation
-- preferred/fallback asset selection
-- Rhino import via main-thread `_Import` and `ObjectDiffTracker`
-- optional target layer move
-- object association writes
-- import history append to the package/import manifest
+1. Native receives the public request and validates transport-level shape.
+2. Native calls managed `reconstruction_dispatch` to prepare the import plan.
+3. Managed code validates the package, reads `import_manifest`, selects the preferred/fallback asset, resolves companion roles from `asset_bindings`, and returns absolute local import inputs plus package/job metadata.
+4. Native executes Rhino import on the main thread using `_Import`, `ObjectDiffTracker`, optional target-layer move, and object user-text association.
+5. Native reports the import outcome back to managed `reconstruction_dispatch`.
+6. Managed code appends import history to `import_manifest` using the scoped JSON update/replace primitive and records a compact ledger import summary.
+7. Native returns the combined import and association result.
 
 Success data:
 
@@ -598,15 +757,16 @@ Full Rook Reconstruction panel is slice 2, after backend data and package/import
 
 ## Implementation Slices
 
-1. Managed reconstruction contracts: catalog models, ledger records, package/import manifest models, failure shape helpers.
+1. Managed reconstruction contracts: catalog models, ledger records, package/import manifest models, route response models, preprocessing request models, failure shape helpers.
 2. Fal Hunyuan rapid provider adapter using existing fal client and shared fal API key.
 3. Reconstruction job manager with submit/status/list/result/cancel and JSONL durability.
-4. Package materializer producing `reconstruction_package` artifacts with provider result JSON and import manifest.
+4. Package materializer producing `reconstruction_package` artifacts with provider result JSON and initial import manifest.
 5. Dedicated managed `ReconstructionOpHandler` and `reconstruction_dispatch` callback.
 6. Native `/reconstruction/2d-to-3d/*` route proxies and capabilities domain.
-7. Reconstruction import route using native import/ObjectDiffTracker pattern and object user text association.
-8. MCP tool registration and dispatcher parity tests.
-9. Minimal Vision "Send to 3D" affordance that calls reconstruction routes.
+7. Scoped artifact-store JSON blob update/replace primitive for mutable `import_manifest` history.
+8. Hybrid reconstruction import route using managed import planning/history plus native import/ObjectDiffTracker and object user-text association.
+9. MCP tool registration and dispatcher parity tests.
+10. Minimal Vision "Send to 3D" affordance that calls reconstruction routes.
 
 ## Validation Strategy
 
