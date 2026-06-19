@@ -888,3 +888,38 @@ def test_run_writes_animation_track_in_parity_with_manifest(tmp_path):
             track["object_frames"][index]["object_transforms"]
             == manifest_frame["object_transforms"]
         )
+
+
+def test_capture_is_sourced_from_the_track_not_motion(tmp_path, monkeypatch):
+    real_build = director.animation_track.build_animation_track
+
+    def sentinel_build(**kwargs):
+        track = real_build(**kwargs)
+        for camera_frame in track["camera_frames"]:
+            camera_frame["camera"] = {
+                **camera_frame["camera"],
+                "location": [99.0, 99.0, 99.0],
+            }
+        return track
+
+    monkeypatch.setattr(
+        director.animation_track, "build_animation_track", sentinel_build
+    )
+
+    request = _run_request(tmp_path)
+    request["run_id"] = "capture-source-of-truth"
+    fake = FakeNative(
+        [
+            {"success": True, "data": {"frame_id": "frame_0001", "dirty_partial_state": False}},
+            {"success": True, "data": {"frame_id": "frame_0002", "dirty_partial_state": False}},
+        ],
+        create_outputs=True,
+    )
+    asyncio.run(
+        director.run_director(request, call_native=fake, runtime=_runtime(tmp_path))
+    )
+
+    capture_calls = [c for c in fake.calls if c[0] == "/director/frame-capture"]
+    assert capture_calls, "expected frame-capture calls"
+    for call in capture_calls:
+        assert call[2]["camera"]["location"] == [99.0, 99.0, 99.0]

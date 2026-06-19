@@ -316,15 +316,17 @@ async def run_director(
     animation_track.freeze_animation_track(track, run_root / "animation_track.json")
 
     manifest_frames = []
-    for frame in motion_frames:
-        index = frame["frame_index"]
+    for camera_frame, object_frame in zip(
+        track["camera_frames"], track["object_frames"]
+    ):
+        index = camera_frame["frame_index"]
         frame_name = _frame_id(index)
         manifest_frames.append(
             {
                 "frame_index": index,
                 "frame_id": frame_name,
-                "camera": frame_cameras[index - 1],
-                "object_transforms": frame["object_transforms"],
+                "camera": camera_frame["camera"],
+                "object_transforms": object_frame["object_transforms"],
                 "output_path": str((frames_dir / f"{frame_name}.png").resolve()),
             }
         )
