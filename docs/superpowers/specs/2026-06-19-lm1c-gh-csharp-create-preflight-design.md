@@ -34,7 +34,8 @@ judge.
   `gh_create_script(language="csharp")`.
 - Run the preflight after pin normalization and before `/gh/create-component`.
 - Reject invalid or duplicate C# pin variable names.
-- Reject invalid pin access values.
+- Validate normalized pin access values without changing legacy raw-access
+  alias behavior.
 - Reject obvious plugin-component source patterns.
 - Conservatively reject body-style scripts that do not visibly assign declared
   outputs.
@@ -179,18 +180,25 @@ Duplicate detection should be case-sensitive unless current RhinoCode behavior
 or existing helper behavior already enforces case-insensitive uniqueness. LM1C
 should not invent a broader naming policy than the execution path needs.
 
-### Access Values
+### Normalized Access Values
 
-Pin `access` must be one of:
+After existing pin normalization, pin `access` must be one of:
 
 - `item`
 - `list`
 - `tree`
 
-The existing pin normalizer already rejects invalid access in many paths.
-LM1C should still keep access in the preflight rule set because the contract
-payload should be complete and future LM2 capability records need an explicit
-contract fact.
+The existing pin normalizer owns raw access parsing. It currently accepts
+`single` as an alias for `item` and rejects other invalid raw access values
+before LM1C's post-normalization preflight can run. LM1C must preserve that
+behavior. Invalid raw access therefore keeps the current normalizer failure
+shape rather than being converted into `preflight_errors`.
+
+LM1C should still keep normalized access in the preflight rule set because the
+contract payload should be complete and future LM2 capability records need an
+explicit contract fact. Direct helper tests may construct a normalized pin with
+an invalid access value to prove the contract rule, but call-path tests should
+not expect raw invalid access to reach the LM1C preflight formatter.
 
 ### Plugin-Component Source Misuse
 
@@ -287,8 +295,10 @@ Unit tests should cover:
 - invalid pin identifier fails;
 - C# reserved keyword pin fails;
 - duplicate input/output namespace fails;
-- invalid access finding behavior, if direct helper tests can construct such a
-  pin without going through the normalizer;
+- normalized invalid access finding behavior, if direct helper tests can
+  construct such a pin without going through the normalizer;
+- `single` raw access remains accepted through the existing normalizer as
+  `item`;
 - `GH_Component` subclass source fails;
 - `SolveInstance`, `RegisterInputParams`, `RegisterOutputParams`, and
   `IGH_DataAccess` source fails;
@@ -308,6 +318,8 @@ Call-path tests should prove:
 - Python `gh_create_script(language="python")` is unaffected;
 - public `server.call_tool()` failure text includes parseable `data["message"]`
   and `preflight_errors` after stripping the `Error: ` prefix.
+- raw invalid access keeps the existing normalizer failure shape and is not
+  required to include `preflight_errors`.
 
 Regression tests should continue to cover compile-error truthfulness after
 mutation. LM1C preflight is not a replacement for compile verification.
@@ -319,6 +331,8 @@ mutation. LM1C preflight is not a replacement for compile verification.
   the same preflight gate.
 - The preflight runs after pin normalization and before `/gh/create-component`.
 - Invalid/duplicate C# pin variable names fail before mutation.
+- Normalized invalid C# pin access values fail before mutation, while existing
+  raw access alias behavior such as `single` -> `item` is preserved.
 - Obvious plugin-component source fails before mutation.
 - Simple missing body-output assignment fails before mutation.
 - Preflight failures return `success: false`, top-level `message`, nested
