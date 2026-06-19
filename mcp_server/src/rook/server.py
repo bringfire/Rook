@@ -2674,6 +2674,17 @@ async def _execute_gh_create_script(
             postamble = _build_gh_python_output_postamble(pin_defs_out)
             full_script = preamble + code + postamble
         else:  # csharp
+            preflight_findings = _preflight_gh_csharp_create_script_contract(
+                str(code),
+                pin_defs_in,
+                pin_defs_out,
+            )
+            if preflight_findings:
+                return _gh_csharp_create_preflight_failure(
+                    preflight_findings,
+                    pin_defs_in,
+                    pin_defs_out,
+                )
             full_script = _build_gh_csharp_wrapper(code, pin_defs_in, pin_defs_out)
 
         # Step 1: Create the component by fixed RhinoCode GUID.

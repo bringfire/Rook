@@ -418,6 +418,18 @@ def _preflight_codes(findings):
     return {finding.code for finding in findings}
 
 
+def _call_rhino_rejecting_component_create(recorded_routes):
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        recorded_routes.append(route)
+        if route == "/gh/create-component":
+            raise AssertionError("preflight should block component creation")
+        if route == "/gh/document":
+            return {"success": False, "data": "no document during preflight test"}
+        raise AssertionError(f"Unexpected route: {route}")
+
+    return fake_call_rhino
+
+
 def test_gh_csharp_create_preflight_accepts_simple_body_assignment():
     findings = server._preflight_gh_csharp_create_script_contract(
         "A = Convert.ToDouble(R);",
@@ -632,6 +644,183 @@ def test_gh_csharp_create_preflight_ignores_raw_string_full_source_markers():
         finding.code == "missing_output_assignment" and finding.pin == "B"
         for finding in findings
     )
+
+
+@pytest.mark.asyncio
+async def test_gh_create_csharp_script_preflight_failure_does_not_create_component(
+    monkeypatch, patched_server
+):
+    recorded_routes = []
+    monkeypatch.setattr(server, "call_rhino", _call_rhino_rejecting_component_create(recorded_routes))
+
+    response = await server.call_tool(
+        "gh_create_csharp_script",
+        {
+            "code": "B = null;",
+            "pins_in": [],
+            "pins_out": ["1B:Brep"],
+        },
+    )
+    payload = _decode_response(response)
+
+    assert payload["success"] is False
+    assert payload["data"]["message"] == "C# script preflight failed."
+    assert payload["data"]["pins_out"] == [{"name": "1B", "type": "Brep"}]
+    assert any(
+        error["code"] == "invalid_pin_identifier" and error["pin"] == "1B"
+        for error in payload["data"]["preflight_errors"]
+    )
+    assert "/gh/create-component" not in recorded_routes
+
+
+@pytest.mark.asyncio
+async def test_gh_create_script_csharp_preflight_failure_does_not_create_component(
+    monkeypatch, patched_server
+):
+    recorded_routes = []
+    monkeypatch.setattr(server, "call_rhino", _call_rhino_rejecting_component_create(recorded_routes))
+
+    response = await server.call_tool(
+        "gh_create_script",
+        {
+            "language": "csharp",
+            "code": "public class BadComponent : GH_Component { }",
+            "pins_in": [],
+            "pins_out": ["B:Brep"],
+        },
+    )
+    payload = _decode_response(response)
+
+    assert payload["success"] is False
+    assert payload["data"]["message"] == "C# script preflight failed."
+    assert any(
+        error["code"] == "plugin_component_source"
+        for error in payload["data"]["preflight_errors"]
+    )
+    assert "/gh/create-component" not in recorded_routes
+
+
+@pytest.mark.asyncio
+async def test_gh_create_csharp_script_preflight_failure_has_public_parseable_message(
+    monkeypatch, patched_server
+):
+    recorded_routes = []
+    monkeypatch.setattr(server, "call_rhino", _call_rhino_rejecting_component_create(recorded_routes))
+
+    response = await server.call_tool(
+        "gh_create_csharp_script",
+        {
+            "code": "var radius = 5.0;",
+            "pins_in": [],
+            "pins_out": ["B:Brep"],
+        },
+    )
+
+    raw_text = response[0].text
+    assert raw_text.startswith("Error: ")
+    parsed = json.loads(raw_text[len("Error: "):])
+    assert parsed["message"] == "C# script preflight failed."
+    assert parsed["pins_out"] == [{"name": "B", "type": "Brep"}]
+    assert any(
+        error["code"] == "missing_output_assignment" and error["pin"] == "B"
+        for error in parsed["preflight_errors"]
+    )
+    assert "/gh/create-component" not in recorded_routes
+
+
+@pytest.mark.asyncio
+async def test_gh_create_csharp_script_raw_single_access_still_normalizes_to_item(
+    monkeypatch, patched_server
+):
+    recorded_calls = []
+
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        recorded_calls.append((route, method, payload))
+        if route == "/gh/create-component":
+            return {"success": True, "data": {"guid": "script-guid"}}
+        if route == "/gh/script-params":
+            assert payload["inputs"][0]["access"] == "item"
+            return {"success": True, "data": {"Guid": "script-guid"}}
+        if route == "/gh/script":
+            return {"success": True, "data": {"Guid": "script-guid"}}
+        if route == "/gh/errors":
+            return {"success": True, "data": {"errors": []}}
+        raise AssertionError(f"Unexpected route: {route}")
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    response = await server.call_tool(
+        "gh_create_csharp_script",
+        {
+            "code": "B = A;",
+            "pins_in": [{"name": "A", "type": "object", "access": "single"}],
+            "pins_out": ["B:object"],
+        },
+    )
+    payload = _decode_response(response)
+
+    assert payload["success"] is True
+    assert payload["data"]["pins_in"][0]["access"] == "item"
+    assert any(route == "/gh/create-component" for route, _, _ in recorded_calls)
+
+
+@pytest.mark.asyncio
+async def test_gh_create_csharp_script_raw_invalid_access_keeps_normalizer_failure_shape(
+    monkeypatch, patched_server
+):
+    recorded_routes = []
+    monkeypatch.setattr(server, "call_rhino", _call_rhino_rejecting_component_create(recorded_routes))
+
+    response = await server.call_tool(
+        "gh_create_csharp_script",
+        {
+            "code": "B = A;",
+            "pins_in": [{"name": "A", "type": "object", "access": "matrix"}],
+            "pins_out": ["B:object"],
+        },
+    )
+    payload = _decode_response(response)
+
+    assert payload["success"] is False
+    assert isinstance(payload["data"], str)
+    assert "Invalid pin access 'matrix'" in payload["data"]
+    assert "preflight_errors" not in payload["data"]
+    assert "/gh/create-component" not in recorded_routes
+
+
+@pytest.mark.asyncio
+async def test_gh_create_script_python_does_not_run_csharp_output_assignment_preflight(
+    monkeypatch, patched_server
+):
+    recorded_calls = []
+
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        recorded_calls.append((route, method, payload))
+        if route == "/gh/create-component":
+            return {"success": True, "data": {"guid": "py-script-guid"}}
+        if route == "/gh/script-params":
+            return {"success": True, "data": {"Guid": "py-script-guid"}}
+        if route == "/gh/script":
+            return {"success": True, "data": {"Guid": "py-script-guid"}}
+        if route == "/gh/errors":
+            return {"success": True, "data": {"errors": []}}
+        raise AssertionError(f"Unexpected route: {route}")
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    response = await server.call_tool(
+        "gh_create_script",
+        {
+            "language": "python",
+            "code": "radius = 5.0",
+            "pins_in": [],
+            "pins_out": ["B:Brep"],
+        },
+    )
+    payload = _decode_response(response)
+
+    assert payload["success"] is True
+    assert any(route == "/gh/create-component" for route, _, _ in recorded_calls)
 
 
 @pytest.mark.asyncio
