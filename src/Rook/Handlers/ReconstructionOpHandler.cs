@@ -232,6 +232,7 @@ namespace Rook.Handlers
             return Ok(new Dictionary<string, object?>
             {
                 ["package_id"] = packageId.ToString("D"),
+                ["job_id"] = ReadString(package.Metadata, "job_id"),
                 ["asset_role"] = assetRole,
                 ["path"] = _store.GetBlobAbsolutePath(packageId, assetRole!),
                 ["targetLayer"] = GetStringArg(args, "targetLayer"),
@@ -563,6 +564,15 @@ namespace Rook.Handlers
 
         private static string? ReadString(JsonObject obj, string name)
             => obj.TryGetPropertyValue(name, out var node)
+                && node is JsonValue value
+                && value.TryGetValue<string>(out var text)
+                    ? text
+                    : null;
+
+        private static string? ReadString(
+            IReadOnlyDictionary<string, JsonNode?> values,
+            string name)
+            => values.TryGetValue(name, out var node)
                 && node is JsonValue value
                 && value.TryGetValue<string>(out var text)
                     ? text

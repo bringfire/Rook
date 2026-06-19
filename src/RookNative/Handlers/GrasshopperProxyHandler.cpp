@@ -79,7 +79,7 @@ int EnsureMake2dHiddenLayer(CRhinoDoc* pDoc, int parentLayerIdx)
 }
 
 constexpr auto kDiscoveryFolderName = "rook";
-constexpr uint32_t kGhBridgeAbiVersion = 15;
+constexpr uint32_t kGhBridgeAbiVersion = 16;
 
 using GhBridgeCallbackFn = int(__stdcall*)(
     const char* request_json_utf8,
@@ -180,6 +180,9 @@ struct GhBridgeRegistration
     // ABI v15: BIM domain (single generic dispatch; op carried in
     // request JSON). Native /bim/* remains the only public HTTP surface.
     GhBridgeCallbackFn bim_dispatch = nullptr;
+    // ABI v16: Reconstruction domain (single generic dispatch; op carried
+    // in request JSON). Native /reconstruction/* remains public surface.
+    GhBridgeCallbackFn reconstruction_dispatch = nullptr;
 };
 
 enum class BridgeInvokeResult
@@ -948,6 +951,13 @@ bool HasBimDispatchRegistration()
         && g_ghBridgeRegistration.bim_dispatch != nullptr;
 }
 
+bool HasReconstructionDispatchRegistration()
+{
+    std::lock_guard<std::mutex> lock(g_ghBridgeMutex);
+    return g_ghBridgeRegistration.version == kGhBridgeAbiVersion
+        && g_ghBridgeRegistration.reconstruction_dispatch != nullptr;
+}
+
 bool HasViewportCaptureTier3Registration()
 {
     std::lock_guard<std::mutex> lock(g_ghBridgeMutex);
@@ -1148,6 +1158,219 @@ ManagedCreateInvokeResult InvokeBimDispatchWithBody(
     default:
         return ManagedCreateInvokeResult::Failed;
     }
+}
+
+ManagedCreateInvokeResult InvokeReconstructionDispatchWithBody(
+    const std::string& requestJson,
+    std::string& responseJson,
+    int& statusCode,
+    std::string& error)
+{
+    const auto registration = GetGhBridgeRegistrationSnapshot();
+    if (registration.reconstruction_dispatch == nullptr)
+    {
+        error = "Reconstruction dispatch callback is not registered.";
+        return ManagedCreateInvokeResult::Unavailable;
+    }
+
+    const auto result = TryInvokeRegisteredCallbackWithBody(
+        registration.reconstruction_dispatch,
+        requestJson,
+        responseJson,
+        statusCode,
+        error);
+
+    switch (result)
+    {
+    case BridgeInvokeResult::Completed:
+        return ManagedCreateInvokeResult::Ok;
+    case BridgeInvokeResult::Unavailable:
+        return ManagedCreateInvokeResult::Unavailable;
+    case BridgeInvokeResult::Failed:
+    default:
+        return ManagedCreateInvokeResult::Failed;
+    }
+}
+
+bool ParseReconstructionBodyAsObject(
+    const httplib::Request& req,
+    httplib::Response& res,
+    const char* op,
+    nlohmann::json& out)
+{
+    if (!req.body.empty())
+    {
+        try
+        {
+            out = nlohmann::json::parse(req.body);
+        }
+        catch (const std::exception& ex)
+        {
+            CRookServer::SendError(
+                res,
+                std::string("Invalid JSON body for /reconstruction/") + op + ": " + ex.what());
+            res.status = 400;
+            res.set_header("X-Rook-Reconstruction-Op", op);
+            return false;
+        }
+
+        if (!out.is_object())
+        {
+            CRookServer::SendError(
+                res,
+                std::string("Reconstruction request body must be a JSON object (got ") +
+                    out.type_name() + ").");
+            res.status = 400;
+            res.set_header("X-Rook-Reconstruction-Op", op);
+            return false;
+        }
+    }
+    else
+    {
+        out = nlohmann::json::object();
+    }
+
+    return true;
+}
+
+void ForwardReconstructionDispatch(
+    httplib::Response& res,
+    const char* op,
+    nlohmann::json& body)
+{
+    body["op"] = op;
+
+    std::string responseJson;
+    int statusCode = 0;
+    std::string invokeError;
+    const auto result = InvokeReconstructionDispatchWithBody(
+        body.dump(),
+        responseJson,
+        statusCode,
+        invokeError);
+
+    switch (result)
+    {
+    case ManagedCreateInvokeResult::Ok:
+        res.status = statusCode == 0 ? 200 : statusCode;
+        res.set_content(responseJson, "application/json");
+        res.set_header("X-Rook-Reconstruction-Op", op);
+        return;
+    case ManagedCreateInvokeResult::Unavailable:
+        CRookServer::SendError(
+            res,
+            "Reconstruction routes require the Rook companion plugin. "
+            "Ensure Rook.rhp is loaded in Rhino, then retry.");
+        res.status = 503;
+        res.set_header("X-Rook-Reconstruction-Op", op);
+        return;
+    case ManagedCreateInvokeResult::Failed:
+    default:
+        CRookServer::SendError(
+            res,
+            std::string("Reconstruction dispatch failed for op '") + op + "': " + invokeError);
+        res.status = 500;
+        res.set_header("X-Rook-Reconstruction-Op", op);
+        return;
+    }
+}
+
+void DispatchReconstructionOp(
+    const httplib::Request& req,
+    httplib::Response& res,
+    const char* op)
+{
+    nlohmann::json body;
+    if (!ParseReconstructionBodyAsObject(req, res, op, body)) return;
+    ForwardReconstructionDispatch(res, op, body);
+}
+
+void DispatchReconstructionOpWithJobId(
+    const httplib::Request& req,
+    httplib::Response& res,
+    const char* op)
+{
+    nlohmann::json body;
+    if (!ParseReconstructionBodyAsObject(req, res, op, body)) return;
+    body["job_id"] = req.matches[1].str();
+    ForwardReconstructionDispatch(res, op, body);
+}
+
+bool IsCanonicalIntegerStringForReconstruction(const std::string& s)
+{
+    if (s.empty()) return false;
+    size_t i = 0;
+    if (s[0] == '-')
+    {
+        if (s.size() == 1) return false;
+        i = 1;
+    }
+    for (; i < s.size(); ++i)
+    {
+        if (s[i] < '0' || s[i] > '9') return false;
+    }
+    return true;
+}
+
+void HandleReconstructionModels(const httplib::Request& req, httplib::Response& res)
+{
+    nlohmann::json body = nlohmann::json::object();
+    if (req.has_param("include_experimental"))
+    {
+        const auto raw = req.get_param_value("include_experimental");
+        body["include_experimental"] = raw == "true" || raw == "1";
+    }
+    if (req.has_param("include_hidden"))
+    {
+        const auto raw = req.get_param_value("include_hidden");
+        body["include_hidden"] = raw == "true" || raw == "1";
+    }
+    ForwardReconstructionDispatch(res, "models", body);
+}
+
+void HandleReconstructionSubmit(const httplib::Request& req, httplib::Response& res)
+{
+    DispatchReconstructionOp(req, res, "submit_job");
+}
+
+void HandleReconstructionJobsList(const httplib::Request& req, httplib::Response& res)
+{
+    nlohmann::json body = nlohmann::json::object();
+    if (req.has_param("limit"))
+    {
+        const auto raw = req.get_param_value("limit");
+        if (IsCanonicalIntegerStringForReconstruction(raw))
+        {
+            try
+            {
+                body["limit"] = std::stoi(raw);
+            }
+            catch (const std::out_of_range&)
+            {
+                body["limit"] = raw;
+            }
+        }
+        else
+        {
+            body["limit"] = raw;
+        }
+    }
+    ForwardReconstructionDispatch(res, "list_jobs", body);
+}
+
+void HandleReconstructionStatus(const httplib::Request& req, httplib::Response& res)
+{
+    DispatchReconstructionOpWithJobId(req, res, "job_status");
+}
+
+void HandleReconstructionCancel(const httplib::Request& req, httplib::Response& res)
+{
+    DispatchReconstructionOpWithJobId(req, res, "cancel_job");
+}
+
+void HandleReconstructionResult(const httplib::Request& req, httplib::Response& res)
+{
+    DispatchReconstructionOpWithJobId(req, res, "job_result");
 }
 
 void SendBimDispatchError(
