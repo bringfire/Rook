@@ -119,6 +119,29 @@ def test_normalize_tool_result_non_dict_returns_empty_view():
     assert view.error is None
 
 
+def test_normalize_tool_result_does_not_mutate_input_dict():
+    from copy import deepcopy
+
+    from rook.agent.chat.tool_contracts import normalize_tool_result
+
+    raw = {
+        "success": True,
+        "message": "top message",
+        "data": {
+            "success": False,
+            "verified": False,
+            "message": "nested message",
+        },
+    }
+    original = deepcopy(raw)
+
+    view = normalize_tool_result(raw)
+
+    assert view.status == "success"
+    assert view.verified is False
+    assert raw == original
+
+
 def test_normalize_tool_result_message_and_error_extraction_are_string_only():
     from rook.agent.chat.tool_contracts import normalize_tool_result
 
@@ -523,6 +546,7 @@ In `mcp_server/tests/test_chat_runner_model_tools.py`, add:
 ```python
 from rook.agent.chat import chat_runner as chat_runner_module
 from rook.agent.chat.tool_contracts import ToolResultView
+from rook.agent.tool_registry import ToolRegistry
 ```
 
 - [ ] **Step 4: Append chat-model pseudo-tool adapter test**
@@ -538,7 +562,10 @@ async def test_chat_model_tool_result_event_uses_tool_result_view(monkeypatch):
         "local_providers": {"ollama": {"available": False, "models": []}},
     }
     builder = AsyncMock(return_value=payload)
-    runner = ChatRunner(tool_executor=AsyncMock())
+    runner = ChatRunner(
+        tool_executor=AsyncMock(),
+        registry=ToolRegistry(catalog={}, agent_mode=True),
+    )
     normalized_inputs = []
 
     def fake_normalize(result):
