@@ -21,7 +21,7 @@ namespace Rook.InternalBridge
     /// </summary>
     public static class NativeGhBridgeRegistrar
     {
-        private const uint BridgeAbiVersion = 15;
+        private const uint BridgeAbiVersion = 16;
         private static readonly object Sync = new();
         private static readonly IGrasshopperCore Core = new GrasshopperCore();
         private static readonly GrasshopperHandler Handler = new();
@@ -205,6 +205,7 @@ namespace Rook.InternalBridge
         private static readonly NativeGhBridgeCallback ViewportCaptureTier3Callback = HandleViewportCaptureTier3;
         private static readonly NativeGhBridgeCallback VisionDispatchCallback = HandleVisionDispatch;
         private static readonly NativeGhBridgeCallback BimDispatchCallback = HandleBimDispatch;
+        private static readonly NativeGhBridgeCallback ReconstructionDispatchCallback = HandleReconstructionDispatch;
 
         private static bool _isRegistered;
         private static bool _registrationErrorLogged;
@@ -319,6 +320,8 @@ namespace Rook.InternalBridge
             // discriminator is carried in the request JSON and routed
             // inside BimHandler.cs.
             public IntPtr BimDispatch;
+            // ABI v16: Reconstruction domain — single generic dispatch.
+            public IntPtr ReconstructionDispatch;
         }
 
         [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Ansi)]
@@ -418,6 +421,7 @@ namespace Rook.InternalBridge
                     ViewportCaptureTier3 = Marshal.GetFunctionPointerForDelegate(ViewportCaptureTier3Callback),
                     VisionDispatch = Marshal.GetFunctionPointerForDelegate(VisionDispatchCallback),
                     BimDispatch = Marshal.GetFunctionPointerForDelegate(BimDispatchCallback),
+                    ReconstructionDispatch = Marshal.GetFunctionPointerForDelegate(ReconstructionDispatchCallback),
                 };
 
                 var rc = registerBridge(ref registration);
@@ -1793,6 +1797,94 @@ namespace Rook.InternalBridge
                 responseJsonCapacity,
                 responseJsonLength,
                 httpStatusCode);
+        }
+
+        private static int HandleReconstructionDispatch(
+            IntPtr requestJsonUtf8,
+            int requestJsonLength,
+            IntPtr responseJsonUtf8,
+            int responseJsonCapacity,
+            IntPtr responseJsonLength,
+            IntPtr httpStatusCode)
+        {
+            string requestJson;
+            try
+            {
+                requestJson = ReadUtf8(requestJsonUtf8, requestJsonLength);
+            }
+            catch (Exception ex)
+            {
+                return WriteUtf8Response(
+                    responseJsonUtf8,
+                    responseJsonCapacity,
+                    responseJsonLength,
+                    httpStatusCode,
+                    JsonSerializer.Serialize(new
+                    {
+                        success = false,
+                        data = new
+                        {
+                            code = "invalid_request",
+                            message = $"Reconstruction dispatch failed to read request: {ex.Message}",
+                            retryable = false,
+                            field = "body",
+                            details = new { },
+                        },
+                    }, JsonOptions),
+                    400);
+            }
+
+            var op = PeekVisionOp(requestJson);
+            switch (op)
+            {
+                case ReconstructionOpHandler.OpSubmit:
+                case ReconstructionOpHandler.OpCancel:
+                    return ExecuteAsyncApiResponseCallback(
+                        responseJsonUtf8,
+                        responseJsonCapacity,
+                        responseJsonLength,
+                        httpStatusCode,
+                        requestJson,
+                        (reqJson, ct) => RookSubsystemRoot.Instance.Reconstruction.DispatchAsync(reqJson, ct),
+                        timeoutSeconds: 180);
+
+                case ReconstructionOpHandler.OpModels:
+                case ReconstructionOpHandler.OpListJobs:
+                case ReconstructionOpHandler.OpStatus:
+                case ReconstructionOpHandler.OpResult:
+                case ReconstructionOpHandler.OpPrepareImport:
+                case ReconstructionOpHandler.OpRecordImport:
+                    return ExecuteOffUiApiResponseCallback(
+                        responseJsonUtf8,
+                        responseJsonCapacity,
+                        responseJsonLength,
+                        httpStatusCode,
+                        requestJson,
+                        reqJson => RookSubsystemRoot.Instance.Reconstruction.DispatchOffUi(reqJson),
+                        timeoutSeconds: 30);
+
+                default:
+                    return WriteUtf8Response(
+                        responseJsonUtf8,
+                        responseJsonCapacity,
+                        responseJsonLength,
+                        httpStatusCode,
+                        JsonSerializer.Serialize(new
+                        {
+                            success = false,
+                            data = new
+                            {
+                                code = "invalid_request",
+                                message = string.IsNullOrEmpty(op)
+                                    ? "Reconstruction request missing required 'op' discriminator."
+                                    : $"Unknown reconstruction op '{op}'.",
+                                retryable = false,
+                                field = "op",
+                                details = new { },
+                            },
+                        }, JsonOptions),
+                        400);
+            }
         }
 
         private static int ExecuteBimDispatchCallback(

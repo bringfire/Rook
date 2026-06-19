@@ -1,8 +1,10 @@
 using System;
+using System.IO;
 using System.Net.Http;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
+using Rook.Artifacts;
 using Rook.Services.Vision.Fal;
 using Rook.Services.Vision.Generation;
 
@@ -64,6 +66,57 @@ public interface IFalReconstructionQueueClient
     Task<JsonNode> GetStatusAsync(string modelId, string providerJobId, CancellationToken ct);
     Task<JsonNode> GetResultAsync(string modelId, string providerJobId, CancellationToken ct);
     Task<ProviderCancelOutcome> CancelAsync(string modelId, string providerJobId, CancellationToken ct);
+}
+
+public sealed class FalReconstructionSourceImagePublisher : IReconstructionSourceImagePublisher
+{
+    public const int SourceImageExpirationSeconds = 3600;
+
+    private readonly FalApiClient _client;
+    private readonly IGenerationSecretStore _secrets;
+
+    public FalReconstructionSourceImagePublisher(
+        FalApiClient client,
+        IGenerationSecretStore secrets)
+    {
+        _client = client ?? throw new ArgumentNullException(nameof(client));
+        _secrets = secrets ?? throw new ArgumentNullException(nameof(secrets));
+    }
+
+    public async Task<Uri> PublishAsync(
+        Artifact artifact,
+        string role,
+        string absolutePath,
+        CancellationToken ct)
+    {
+        if (artifact is null) throw new ArgumentNullException(nameof(artifact));
+        if (string.IsNullOrWhiteSpace(absolutePath))
+            throw new ArgumentException("Source image path is required.", nameof(absolutePath));
+
+        var apiKey = _secrets.GetSecret(GenerationSecretKeys.FalApiKey);
+        if (string.IsNullOrWhiteSpace(apiKey))
+            throw new InvalidOperationException("fal API key is required for reconstruction.");
+
+        var fileName = $"rook-reconstruction-{artifact.Id:D}-{role}{Path.GetExtension(absolutePath)}";
+        var fileUrl = await _client.UploadFileToCdnAsync(
+            apiKey!,
+            fileName,
+            File.ReadAllBytes(absolutePath),
+            ContentTypeFor(absolutePath),
+            FalUploadPlatformHeaders.ForSourceUpload(SourceImageExpirationSeconds),
+            ct).ConfigureAwait(false);
+        return new Uri(fileUrl, UriKind.Absolute);
+    }
+
+    private static string ContentTypeFor(string path)
+    {
+        return Path.GetExtension(path).ToLowerInvariant() switch
+        {
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".webp" => "image/webp",
+            _ => "image/png",
+        };
+    }
 }
 
 public sealed class FalReconstructionProvider : IReconstructionProvider
@@ -172,20 +225,23 @@ public sealed class FalReconstructionProvider : IReconstructionProvider
 public sealed class FalReconstructionQueueClient : IFalReconstructionQueueClient
 {
     private readonly FalApiClient _client;
-    private readonly string _apiKey;
+    private readonly Func<string?> _apiKeyProvider;
 
     public FalReconstructionQueueClient(FalApiClient client, string apiKey)
+        : this(client, () => apiKey)
+    {
+    }
+
+    public FalReconstructionQueueClient(FalApiClient client, Func<string?> apiKeyProvider)
     {
         _client = client ?? throw new ArgumentNullException(nameof(client));
-        _apiKey = string.IsNullOrWhiteSpace(apiKey)
-            ? throw new ArgumentException("fal API key must be non-empty.", nameof(apiKey))
-            : apiKey;
+        _apiKeyProvider = apiKeyProvider ?? throw new ArgumentNullException(nameof(apiKeyProvider));
     }
 
     public async Task<JsonNode> SubmitAsync(string modelId, JsonObject payload, CancellationToken ct)
     {
         var response = await _client.PostJsonAsync(
-            _apiKey,
+            ApiKey(),
             QueueUri(modelId),
             payload.ToJsonString(),
             ct).ConfigureAwait(false);
@@ -195,7 +251,7 @@ public sealed class FalReconstructionQueueClient : IFalReconstructionQueueClient
     public async Task<JsonNode> GetStatusAsync(string modelId, string providerJobId, CancellationToken ct)
     {
         var response = await _client.GetAsync(
-            _apiKey,
+            ApiKey(),
             QueueUri(modelId, providerJobId, "status"),
             ct).ConfigureAwait(false);
         return ParseSuccess(response, "fal reconstruction status failed.");
@@ -204,7 +260,7 @@ public sealed class FalReconstructionQueueClient : IFalReconstructionQueueClient
     public async Task<JsonNode> GetResultAsync(string modelId, string providerJobId, CancellationToken ct)
     {
         var response = await _client.GetAsync(
-            _apiKey,
+            ApiKey(),
             QueueUri(modelId, providerJobId, null),
             ct).ConfigureAwait(false);
         return ParseSuccess(response, "fal reconstruction result failed.");
@@ -216,7 +272,7 @@ public sealed class FalReconstructionQueueClient : IFalReconstructionQueueClient
         CancellationToken ct)
     {
         var response = await _client.SendAsync(
-            _apiKey,
+            ApiKey(),
             HttpMethod.Put,
             QueueUri(modelId, providerJobId, "cancel"),
             bodyJson: null,
@@ -227,6 +283,14 @@ public sealed class FalReconstructionQueueClient : IFalReconstructionQueueClient
                 GenerationErrorCode.DependencyUnavailable,
                 "fal reconstruction cancel failed.",
                 Retryable: true));
+    }
+
+    private string ApiKey()
+    {
+        var apiKey = _apiKeyProvider();
+        if (string.IsNullOrWhiteSpace(apiKey))
+            throw new InvalidOperationException("fal API key is required for reconstruction.");
+        return apiKey!;
     }
 
     private static Uri QueueUri(string modelId)

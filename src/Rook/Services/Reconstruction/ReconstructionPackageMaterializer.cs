@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.Http;
 using System.Text;
 using System.Text.Json.Nodes;
 using Rook.Artifacts;
@@ -10,6 +11,25 @@ namespace Rook.Services.Reconstruction;
 public interface IReconstructionFileDownloader
 {
     byte[] Download(Uri uri);
+}
+
+public sealed class HttpReconstructionFileDownloader : IReconstructionFileDownloader
+{
+    private readonly HttpClient _client;
+
+    public HttpReconstructionFileDownloader(HttpClient? client = null)
+    {
+        _client = client ?? new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
+    }
+
+    public byte[] Download(Uri uri)
+    {
+        if (uri is null) throw new ArgumentNullException(nameof(uri));
+        if (!uri.IsAbsoluteUri || uri.Scheme != Uri.UriSchemeHttps)
+            throw new ArgumentException("Reconstruction download URI must be absolute HTTPS.", nameof(uri));
+
+        return _client.GetByteArrayAsync(uri).GetAwaiter().GetResult();
+    }
 }
 
 public sealed class ReconstructionPackageMaterializer

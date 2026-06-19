@@ -779,7 +779,7 @@ namespace Rook.Artifacts
 
             try
             {
-                File.WriteAllText(tmpPath, content.ToJsonString(WriteOptions), Encoding.UTF8);
+                File.WriteAllText(tmpPath, content.ToJsonString(), Encoding.UTF8);
             }
             catch (Exception ex)
             {

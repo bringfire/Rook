@@ -1,8 +1,14 @@
 using System;
+using System.IO;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using Rook.Artifacts;
+using Rook.Handlers;
+using Rook.Services.Reconstruction;
+using Rook.Services.Reconstruction.Fal;
 using Rook.Services.Vision;
+using Rook.Services.Vision.Fal;
 using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Image;
 using Rook.Services.Vision.Image.Jobs;
@@ -86,6 +92,7 @@ namespace Rook
         private readonly Lazy<VideoSubsystemBundle> _video;
         private readonly Lazy<ImageJobSubsystemBundle> _imageJobs;
         private readonly Lazy<MediaImportJobManager> _mediaImports;
+        private readonly Lazy<ReconstructionOpHandler> _reconstruction;
         private readonly IVideoSidecarBackfillTaskScheduler _backfillScheduler;
 
         /// <summary>
@@ -134,6 +141,18 @@ namespace Rook
             }
         }
 
+        public ReconstructionOpHandler Reconstruction
+        {
+            get
+            {
+                if (Volatile.Read(ref _disposed) != 0)
+                    throw new ObjectDisposedException(
+                        nameof(RookSubsystemRoot),
+                        "Reconstruction subsystem accessed after shutdown.");
+                return _reconstruction.Value;
+            }
+        }
+
         private int _reconcileFired = 0;
         private int _videoSidecarBackfillFired = 0;
         private int _imageReconcileFired = 0;
@@ -177,6 +196,9 @@ namespace Rook
             _mediaImports = new Lazy<MediaImportJobManager>(
                 () => MediaImportSubsystemFactory.Build(SharedArtifactStore),
                 LazyThreadSafetyMode.ExecutionAndPublication);
+            _reconstruction = new Lazy<ReconstructionOpHandler>(
+                CreateReconstruction,
+                LazyThreadSafetyMode.ExecutionAndPublication);
             _imageJobs = new Lazy<ImageJobSubsystemBundle>(
                 () =>
                 {
@@ -204,6 +226,44 @@ namespace Rook
                     return new ImageJobSubsystemBundle(manager, registry);
                 },
                 LazyThreadSafetyMode.ExecutionAndPublication);
+        }
+
+        private ReconstructionOpHandler CreateReconstruction()
+        {
+            var catalog = LoadReconstructionCatalog();
+            var falClient = new FalApiClient();
+            var provider = new FalReconstructionProvider(
+                new FalReconstructionQueueClient(
+                    falClient,
+                    () => SharedGenerationSecretStore.GetSecret(
+                        GenerationSecretKeys.FalApiKey)));
+            var materializer = new ReconstructionPackageMaterializer(
+                SharedArtifactStore,
+                new HttpReconstructionFileDownloader());
+            var manager = new ReconstructionJobManager(
+                SharedArtifactStore,
+                catalog,
+                new JsonlReconstructionJobLedger(
+                    JsonlReconstructionJobLedger.DefaultPath()),
+                provider,
+                materializer,
+                new FalReconstructionSourceImagePublisher(
+                    falClient,
+                    SharedGenerationSecretStore));
+
+            return new ReconstructionOpHandler(catalog, manager, SharedArtifactStore);
+        }
+
+        private static ReconstructionModelCatalog LoadReconstructionCatalog()
+        {
+            var assembly = Assembly.GetExecutingAssembly();
+            const string resourceName =
+                "Rook.Services.Reconstruction.Fal.fal-model-catalog.json";
+            using var stream = assembly.GetManifestResourceStream(resourceName)
+                ?? throw new InvalidOperationException(
+                    "Embedded reconstruction model catalog was not found.");
+            using var reader = new StreamReader(stream);
+            return ReconstructionModelCatalog.FromJson(reader.ReadToEnd());
         }
 
         /// <summary>
