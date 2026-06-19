@@ -22,7 +22,10 @@ from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
 
 from .gh_edit_contract import apply_gh_edit_contract
-from .gh_csharp_preflight import is_recognized_csharp_full_source
+from .gh_csharp_preflight import (
+    is_recognized_csharp_full_source,
+    preflight_csharp_script,
+)
 from .gh_status_contract import normalize_gh_status_result
 from .runtime_paths import (
     load_runtime_dotenv,
@@ -1645,6 +1648,17 @@ def _prepare_gh_update_script_source(
 
     if component_type in ("CSharpComponent", "CSharpScriptComponent"):
         is_full_source = is_recognized_csharp_full_source(code)
+        preflight_mode = "full_source" if (
+            selected_mode == "full_source" or (selected_mode == "auto" and is_full_source)
+        ) else "body"
+        preflight = preflight_csharp_script(
+            code=code,
+            pins_in=inputs,
+            pins_out=outputs,
+            mode=preflight_mode,
+        )
+        if not preflight.ok:
+            raise ValueError(f"C# script preflight failed: {preflight.message}")
         if selected_mode == "full_source":
             if not is_full_source:
                 raise ValueError("C# full_source mode requires Script_Instance or RunScript source")
@@ -2394,6 +2408,19 @@ async def _execute_gh_create_script(
         pin_defs_out = _normalize_gh_script_pins(arguments.get("pins_out", []))
         if not pin_defs_in and not pin_defs_out:
             raise ValueError("Must provide at least pins_in or pins_out")
+
+        if language == "csharp":
+            preflight = preflight_csharp_script(
+                code=code,
+                pins_in=pin_defs_in,
+                pins_out=pin_defs_out,
+                mode="auto",
+            )
+            if not preflight.ok:
+                return {
+                    "success": False,
+                    "data": f"C# script preflight failed: {preflight.message}",
+                }
 
         # Language-specific code preparation
         if language == "python":

@@ -1,3 +1,5 @@
+from unittest.mock import AsyncMock
+
 import pytest
 
 
@@ -9,6 +11,94 @@ def test_build_local_tools_registers_script_creation_tools():
     assert "gh_create_script" in local_tools
     assert "gh_create_python_script" in local_tools
     assert "gh_create_csharp_script" in local_tools
+
+
+@pytest.mark.asyncio
+async def test_csharp_create_preflight_rejects_before_create_component(monkeypatch):
+    from rook import server
+
+    calls = []
+
+    async def fake_call_rhino(endpoint, method, data=None, port=None):
+        calls.append((endpoint, method, data))
+        return {"success": True, "data": {"guid": "created-guid"}}
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    result = await server._execute_gh_create_script(
+        "csharp",
+        {
+            "code": "public class MyComponent : GH_Component { }",
+            "pins_in": [],
+            "pins_out": ["A:object"],
+        },
+        port=9876,
+        tool_name="gh_create_csharp_script",
+    )
+
+    assert result["success"] is False
+    assert result["data"].startswith("C# script preflight failed:")
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_unified_csharp_create_preflight_rejects_before_create_component(monkeypatch):
+    from rook import server
+
+    calls = []
+
+    async def fake_call_rhino(endpoint, method, data=None, port=None):
+        calls.append((endpoint, method, data))
+        return {"success": True, "data": {"guid": "created-guid"}}
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    result = await server._execute_gh_create_script(
+        "csharp",
+        {
+            "language": "csharp",
+            "code": "using Rhino.Geometry;\nA = Point3d.Origin;",
+            "pins_in": [],
+            "pins_out": ["A:Point3d"],
+        },
+        port=9876,
+        tool_name="gh_create_script",
+    )
+
+    assert result["success"] is False
+    assert "top-level using" in result["data"]
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_python_create_path_is_not_csharp_preflighted(monkeypatch):
+    from rook import server
+
+    calls = []
+
+    async def fake_call_rhino(endpoint, method, data=None, port=None):
+        calls.append((endpoint, method, data))
+        if endpoint == "/gh/create-component":
+            return {"success": True, "data": {"guid": "python-guid"}}
+        return {"success": True, "data": {}}
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+    monkeypatch.setattr(server.asyncio, "sleep", AsyncMock())
+
+    result = await server._execute_gh_create_script(
+        "python",
+        {
+            "language": "python",
+            "code": "A = 1",
+            "pins_in": [],
+            "pins_out": ["A:int"],
+        },
+        port=9876,
+        tool_name="gh_create_script",
+    )
+
+    assert result["success"] is True
+    assert calls[0][0] == "/gh/create-component"
 
 
 @pytest.mark.asyncio

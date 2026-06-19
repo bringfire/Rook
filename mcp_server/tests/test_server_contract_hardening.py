@@ -2409,6 +2409,61 @@ async def test_gh_update_script_compile_failure_returns_failed_with_component_er
     )
 
 
+def test_gh_update_script_csharp_preflight_rejects_body_using_before_wrap():
+    with pytest.raises(ValueError, match="C# script preflight failed:"):
+        server._prepare_gh_update_script_source(
+            code="using Rhino.Geometry;\nA = Point3d.Origin;",
+            mode="body",
+            runtime={"component_type": "CSharpScriptComponent"},
+            inputs=[],
+            outputs=[{"name": "A", "type": "Point3d"}],
+            python_preamble=True,
+        )
+
+
+@pytest.mark.asyncio
+async def test_gh_update_script_csharp_preflight_blocks_script_write(monkeypatch):
+    calls = []
+
+    async def fake_call_rhino(endpoint, method, data=None, port=None):
+        calls.append((endpoint, method, data or {}))
+        if endpoint == "/gh/script" and method == "POST" and data == {"guid": "target-guid"}:
+            return {
+                "success": True,
+                "data": {"Type": "CSharpScriptComponent"},
+            }
+        if endpoint == "/gh/component" and method == "GET":
+            return {
+                "success": True,
+                "data": {
+                    "Params": {
+                        "Inputs": [],
+                        "Outputs": [{"Name": "A", "TypeName": "Point3d"}],
+                    }
+                },
+            }
+        raise AssertionError(f"unexpected mutation/read: {endpoint} {method} {data}")
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    result = await server._execute_gh_update_script(
+        {
+            "guid": "target-guid",
+            "language": "csharp",
+            "code": "using Rhino.Geometry;\nA = Point3d.Origin;",
+            "mode": "body",
+        },
+        port=9876,
+    )
+
+    assert result["success"] is False
+    assert result["data"].startswith("gh_update_script failed: C# script preflight failed:")
+    assert calls == [
+        ("/gh/script", "POST", {"guid": "target-guid"}),
+        ("/gh/component", "GET", {"guid": "target-guid"}),
+    ]
+
+
 @pytest.mark.asyncio
 async def test_gh_update_script_unrelated_canvas_errors_remain_success(
     monkeypatch, patched_server
