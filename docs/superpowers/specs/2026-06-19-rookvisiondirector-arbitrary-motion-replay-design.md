@@ -198,8 +198,9 @@ evaluated **without** producing durable frames or video.
 **Frame-isolated playback (not accumulated).** For each displayed frame, the visible
 state is *source plus that frame's absolute transforms*. Native may restore/apply
 internally, but the viewport is only redrawn after the next frame's pose is applied.
-**Final state restores to source on completion, cancel, timeout, disconnect, or
-failure.**
+**Final state restores to source on completion, cancel, timeout, ESC, detected
+disconnect, or failure** — with cancel and timeout as the guaranteed exits and
+ESC/disconnect best-effort.
 
 ### Native route and cancellation model
 
@@ -434,7 +435,8 @@ the reveal," and the agent edits and replays again without crossing a skill boun
   payload limits (replay), and rejects non-perspective projection before mutation
   (v1).
 - **Restore guarantee:** replay and capture both restore objects + viewport/display on
-  every exit path including cancel, timeout, disconnect, and failure.
+  every exit path — cancel, timeout, ESC, detected disconnect, and failure (cancel and
+  timeout guaranteed; ESC/disconnect best-effort).
 - **Capture safety:** in the `/animate` workflow, durable capture is gated behind
   replay approval so a bad track cannot silently produce durable output.
 
@@ -457,9 +459,10 @@ Existing `rhino_director_run` requests using `radial_bbox_center`, `keyframes`, 
   rejection, finite matrices); `radial_bbox_center` port **parity** against the current
   inline output; draft↔frozen lifecycle; range slicing and payload-limit enforcement;
   source-compatibility gate.
-- **Native source/contract:** `/director/replay` restore-on-cancel, restore-on-timeout,
-  restore-on-disconnect; `/director/replay/cancel` flips the flag without touching
-  Rhino; payload-limit re-enforcement.
+- **Native source/contract:** `/director/replay` restore-on-cancel and
+  restore-on-timeout (guaranteed exits); best-effort restore-on-detected-disconnect;
+  `/director/replay/cancel` flips the flag without touching Rhino; payload- and
+  duration-limit re-enforcement.
 - **Live proof (the thesis test):** one **non-radial, agent-authored** custom motion
   (e.g. per-object staggered timing or a sinusoidal path) that the old
   `radial_bbox_center`-only request **could not express** → bake → validate → replay →
@@ -509,7 +512,9 @@ One product slice, sequenced into reviewable PRs:
    synchronous replay** (cancel + wall-clock timeout stay guaranteed and pump-free; ESC
    is dropped) **or switches replay to the async `start`/`status`/`cancel` model**. The
    track/frame architecture does not change either way — only replay's pump/route
-   lifecycle.
+   lifecycle. **Critically, the "remove pumping" fallback still keeps the sliced
+   wait/check loop** — it means "no UI message pump," never "go back to a blocking
+   sleep"; the per-`pump_slice` cancel/timeout checks remain.
 3. **Agent-script generator path + non-radial custom-motion proof** (constrained
    namespace, schema validation, live thesis test).
 4. **`/design-animation` and `/animate` skills.**
