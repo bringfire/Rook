@@ -2377,15 +2377,103 @@ _GH_CSHARP_PLUGIN_SOURCE_PATTERNS: tuple = (
 
 
 def _gh_csharp_is_body_source(code: str) -> bool:
-    return "class Script_Instance" not in code and "void RunScript" not in code
+    code_without_trivia = _gh_csharp_code_without_comments_and_literals(code)
+    return "class Script_Instance" not in code_without_trivia and "void RunScript" not in code_without_trivia
 
 
 def _gh_csharp_has_output_assignment(code: str, output_name: str) -> bool:
+    code_without_trivia = _gh_csharp_code_without_comments_and_literals(code)
     escaped = re.escape(output_name)
     pattern = re.compile(
         rf"(?<![A-Za-z0-9_\.]){escaped}\s*(?:\?\?=|\+=|-=|\*=|/=|=(?!=))",
     )
-    return bool(pattern.search(code))
+    return bool(pattern.search(code_without_trivia))
+
+
+def _gh_csharp_code_without_comments_and_literals(code: str) -> str:
+    result: list[str] = []
+    i = 0
+    length = len(code)
+
+    def append_trivia_char(value: str) -> None:
+        result.append(value if value in "\r\n" else " ")
+
+    while i < length:
+        ch = code[i]
+        nxt = code[i + 1] if i + 1 < length else ""
+
+        if ch == "/" and nxt == "/":
+            append_trivia_char(ch)
+            append_trivia_char(nxt)
+            i += 2
+            while i < length and code[i] not in "\r\n":
+                append_trivia_char(code[i])
+                i += 1
+            continue
+
+        if ch == "/" and nxt == "*":
+            append_trivia_char(ch)
+            append_trivia_char(nxt)
+            i += 2
+            while i < length:
+                ch = code[i]
+                nxt = code[i + 1] if i + 1 < length else ""
+                append_trivia_char(ch)
+                i += 1
+                if ch == "*" and nxt == "/":
+                    append_trivia_char(nxt)
+                    i += 1
+                    break
+            continue
+
+        if ch == "@" and nxt == '"':
+            append_trivia_char(ch)
+            append_trivia_char(nxt)
+            i += 2
+            while i < length:
+                ch = code[i]
+                nxt = code[i + 1] if i + 1 < length else ""
+                append_trivia_char(ch)
+                i += 1
+                if ch == '"' and nxt == '"':
+                    append_trivia_char(nxt)
+                    i += 1
+                elif ch == '"':
+                    break
+            continue
+
+        if ch == '"':
+            append_trivia_char(ch)
+            i += 1
+            while i < length:
+                ch = code[i]
+                append_trivia_char(ch)
+                i += 1
+                if ch == "\\" and i < length:
+                    append_trivia_char(code[i])
+                    i += 1
+                elif ch == '"':
+                    break
+            continue
+
+        if ch == "'":
+            append_trivia_char(ch)
+            i += 1
+            while i < length:
+                ch = code[i]
+                append_trivia_char(ch)
+                i += 1
+                if ch == "\\" and i < length:
+                    append_trivia_char(code[i])
+                    i += 1
+                elif ch == "'":
+                    break
+            continue
+
+        result.append(ch)
+        i += 1
+
+    return "".join(result)
 
 
 def _preflight_gh_csharp_create_script_contract(
@@ -2395,6 +2483,7 @@ def _preflight_gh_csharp_create_script_contract(
 ) -> list[GhCSharpCreatePreflightFinding]:
     findings: list[GhCSharpCreatePreflightFinding] = []
     seen_names: dict[str, str] = {}
+    code_without_trivia = _gh_csharp_code_without_comments_and_literals(code)
 
     for field, pins in (("pins_in", pins_in), ("pins_out", pins_out)):
         for pin in pins:
@@ -2440,7 +2529,7 @@ def _preflight_gh_csharp_create_script_contract(
                 seen_names[name] = field
 
     for _pattern_name, pattern in _GH_CSHARP_PLUGIN_SOURCE_PATTERNS:
-        if pattern.search(code):
+        if pattern.search(code_without_trivia):
             findings.append(GhCSharpCreatePreflightFinding(
                 code="plugin_component_source",
                 message=(
