@@ -1100,6 +1100,25 @@ public async Task Submit_HunyuanRapid_UsesImageUrlAndBooleanOptions()
     Assert.True(client.LastPayload["enable_pbr"]!.GetValue<bool>());
     Assert.False(client.LastPayload["enable_geometry"]!.GetValue<bool>());
 }
+
+[Fact]
+public async Task GetStatus_UsesFalQueueStatusEndpointAndMapsPollingState()
+{
+    var client = new RecordingFalQueueClient
+    {
+        StatusJson = JsonNode.Parse(@"{""status"":""IN_PROGRESS"",""request_id"":""req-123""}")!
+    };
+    var provider = new FalReconstructionProvider(client);
+
+    var status = await provider.GetStatusAsync(
+        "fal-ai/hunyuan-3d/v3.1/rapid/image-to-3d",
+        "req-123",
+        CancellationToken.None);
+
+    Assert.Equal("req-123", status.ProviderJobId);
+    Assert.Equal(ReconstructionProviderLifecycleState.Polling, status.State);
+    Assert.False(status.IsTerminal);
+}
 ```
 
 - [ ] **Step 2: Run tests and confirm failure**
@@ -1126,10 +1145,34 @@ public sealed record ReconstructionProviderSubmitResult(
     string ProviderJobId,
     JsonNode ProviderSubmitJson);
 
+public enum ReconstructionProviderLifecycleState
+{
+    Queued,
+    Polling,
+    Materializing,
+    Complete,
+    Error,
+    Cancelled,
+    Unknown,
+}
+
+public sealed record ReconstructionProviderStatusResult(
+    string ProviderJobId,
+    ReconstructionProviderLifecycleState State,
+    bool IsTerminal,
+    bool IsSuccess,
+    JsonNode ProviderStatusJson,
+    ReconstructionFailure? Error);
+
 public interface IReconstructionProvider
 {
     Task<ReconstructionProviderSubmitResult> SubmitAsync(
         ReconstructionProviderSubmitRequest request,
+        CancellationToken cancellationToken);
+
+    Task<ReconstructionProviderStatusResult> GetStatusAsync(
+        string modelId,
+        string providerJobId,
         CancellationToken cancellationToken);
 
     Task<JsonNode> GetResultAsync(
@@ -1143,6 +1186,8 @@ public interface IReconstructionProvider
         CancellationToken cancellationToken);
 }
 ```
+
+`GetStatusAsync` is not optional. It must call the fal queue status operation for the provider request ID and map provider lifecycle values into `ReconstructionProviderLifecycleState`. `GetResultAsync` is called only after status reports a successful terminal state. Do not poll by repeatedly calling result and treating "not ready" errors as status.
 
 - [ ] **Step 4: Run tests and confirm pass**
 
@@ -1204,6 +1249,27 @@ public async Task Cancel_PollingJob_AttemptsRemoteCancelAndReturnsCancellationRe
     Assert.Equal(ReconstructionJobState.CancellationRequested, result.State);
     Assert.True(bundle.Provider.CancelCalls.Contains(providerJobId));
 }
+
+[Fact]
+public async Task PollActiveJob_StatusComplete_MaterializesPackageAndRecordsComplete()
+{
+    var bundle = ReconstructionJobManagerFixture.CreateWithPollingJob(out var jobId, out _);
+    bundle.Provider.StatusResults.Enqueue(new ReconstructionProviderStatusResult(
+        ProviderJobId: "req-123",
+        State: ReconstructionProviderLifecycleState.Complete,
+        IsTerminal: true,
+        IsSuccess: true,
+        ProviderStatusJson: JsonNode.Parse(@"{""status"":""COMPLETED""}")!,
+        Error: null));
+    bundle.Provider.ResultJson = JsonNode.Parse(@"{""model_urls"":{""glb"":""https://example.test/model.glb""}}")!;
+
+    await bundle.Manager.PollActiveJobAsync(jobId, CancellationToken.None);
+
+    var status = bundle.Manager.Status(jobId);
+    Assert.Equal(ReconstructionJobState.Complete, status.Job.State);
+    Assert.Equal(ReconstructionJobStage.Complete, status.Job.Stage);
+    Assert.True(status.ResultAvailable);
+}
 ```
 
 - [ ] **Step 2: Run tests and confirm failure**
@@ -1226,12 +1292,16 @@ public ReconstructionJobListResult List(int limit);
 public ReconstructionJobStatusResult Status(Guid jobId);
 public Task<ReconstructionCancelResult> CancelAsync(Guid jobId, CancellationToken ct);
 public ReconstructionJobResultEnvelope Result(Guid jobId);
+public Task PollActiveJobAsync(Guid jobId, CancellationToken ct);
 ```
 
 Rules:
 
 - Submit validates source artifact and catalog model before provider submission.
 - Submit records `queued`, `submitting`, `polling`, `materializing`, and terminal transitions.
+- Polling calls `IReconstructionProvider.GetStatusAsync` for the active provider request ID and records status snapshots without blocking the caller thread indefinitely.
+- Polling calls `IReconstructionProvider.GetResultAsync` only after `GetStatusAsync` reports terminal success, then materializes the package and records `complete`.
+- Polling records terminal provider errors as `state:error`, `stage:error`, with sanitized structured failure data.
 - Preprocessing chain is inline; v1 supports zero stages or one `remove_background` stage.
 - Cancellation sets local cancellation requested first, then attempts provider cancel if an active provider job ID exists.
 - Result returns `result_available:false` and warning `result_artifact_missing` when ledger points to a missing package artifact.
@@ -1691,25 +1761,45 @@ Expected before staging: in the isolated worktree, `mcp_server/src/rook/server.p
 RegisterBridgeHandler("reconstruction", HandleReconstructionBridgeCallAsync);
 ```
 
-`HandleReconstructionBridgeCallAsync` must route to `RookSubsystemRoot.Instance.Reconstruction` and preserve reconstruction op names. It must not call `vision_dispatch`.
+`HandleReconstructionBridgeCallAsync` must match the existing `RookWebSurface` bridge handler shape: `Task<JsonNode?>`, not `Task<ApiResponse>`. It must route to `RookSubsystemRoot.Instance.Reconstruction`, wrap `ApiResponse` with `ApiResponseToJsonNode`, preserve reconstruction op names, and never call `vision_dispatch`.
 
 ```csharp
-private async Task<ApiResponse> HandleReconstructionBridgeCallAsync(JsonObject payload)
+private async Task<JsonNode?> HandleReconstructionBridgeCallAsync(JsonNode? argsNode)
 {
-    var op = payload["op"]?.GetValue<string>();
-    var body = payload.ToJsonString();
-    return op switch
+    string? body = argsNode?.ToJsonString();
+    string? op = PeekOp(body);
+
+    if (string.IsNullOrEmpty(op))
+        return BuildFailure("Reconstruction request missing required 'op' discriminator.");
+
+    ApiResponse response;
+    try
     {
-        "submit_job" or "cancel_job" =>
-            await RookSubsystemRoot.Instance.Reconstruction.DispatchAsync(body, CancellationToken.None).ConfigureAwait(false),
-        "models" or "list_jobs" or "job_status" or "job_result" =>
-            await Task.Run(() => RookSubsystemRoot.Instance.Reconstruction.DispatchOffUi(body)).ConfigureAwait(false),
-        _ => BuildFailure($"Unknown reconstruction op: {op}")
-    };
+        response = op switch
+        {
+            "submit_job" or "cancel_job" =>
+                await RookSubsystemRoot.Instance.Reconstruction.DispatchAsync(body, CancellationToken.None).ConfigureAwait(false),
+            "models" or "list_jobs" or "job_status" or "job_result" =>
+                await Task.Run(() => RookSubsystemRoot.Instance.Reconstruction.DispatchOffUi(body)).ConfigureAwait(false),
+            _ => new ApiResponse
+            {
+                Success = false,
+                Data = $"Unknown reconstruction op '{op}'.",
+                HttpStatus = 400,
+            },
+        };
+    }
+    catch (Exception ex)
+    {
+        Log($"Rook: reconstruction bridge op '{op}' threw: {ex.GetType().Name}: {ex.Message}");
+        return BuildFailure($"Reconstruction op '{op}' failed.");
+    }
+
+    return ApiResponseToJsonNode(response);
 }
 ```
 
-If `BuildFailure` is private to the existing Vision path, add a local equivalent returning `ApiResponse.Failure(...)` with `invalid_request`.
+This follows the existing `HandleVisionBridgeCallAsync` pattern: bridge handlers return JSON envelopes, while `ApiResponse` remains the managed handler contract.
 
 - [ ] **Step 2: Add UI action**
 
@@ -1869,7 +1959,7 @@ Open Rhino/Rook Vision panel and verify:
 
 - artifact row has `Send to 3D`
 - submit shows job status
-- complete result exposes import action
+- complete result exposes package ID and import route hint
 - failed submit shows structured error text
 
 - [ ] **Step 5: Commit**
