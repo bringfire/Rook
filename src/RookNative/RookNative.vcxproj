@@ -19,14 +19,15 @@
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
 
-  <!-- OCCT root. Override via the OCCT_ROOT env var (or /p:OcctRoot=...); else default to
-       the currently VERIFIED OCCT V8_0_0 build tree. The deferred 7.9.3 production pin
-       (Task 9b) will point OCCT_ROOT at a SEPARATE build dir without disturbing the
-       known-good V8_0_0 checkout — see docs/rook_docs/occt-build.md. -->
+  <!-- OCCT root. Set the OCCT_ROOT env var or pass /p:OcctRoot=...
+       See docs/rook_docs/occt-build.md. -->
   <PropertyGroup Label="OcctRoot">
     <OcctRoot Condition="'$(OcctRoot)'==''">$(OCCT_ROOT)</OcctRoot>
-    <OcctRoot Condition="'$(OcctRoot)'==''">C:\Users\aryan\source\repos\OCCT\build-rook</OcctRoot>
   </PropertyGroup>
+
+  <Target Name="ValidateOcctRoot" BeforeTargets="PrepareForBuild" Condition="'$(OcctRoot)'==''">
+    <Error Text="OCCT root is required. Set OCCT_ROOT or pass /p:OcctRoot=... See docs/rook_docs/occt-build.md." />
+  </Target>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
 
@@ -98,8 +99,8 @@
     <Link>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
-      <!-- OCCT modeling kernel via $(OcctRoot) (OCCT_ROOT env var, else verified V8_0_0
-           build tree). NO DataExchange/STEP libs — no C++ TU reads STEP anymore (Task 8/9).
+      <!-- OCCT modeling kernel via $(OcctRoot). NO DataExchange/STEP libs
+           because no C++ TU reads STEP anymore (Task 8/9).
            Dropped: TKDESTEP/TKXSBase/TKDE/TKDECascade/TKCAF/TKLCAF/TKXCAF/TKCDF/TKExpress. -->
       <AdditionalLibraryDirectories>$(OcctRoot)\win64\vc14\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>TKernel.lib;TKMath.lib;TKG2d.lib;TKG3d.lib;TKGeomBase.lib;TKGeomAlgo.lib;TKBRep.lib;TKTopAlgo.lib;TKPrim.lib;TKBO.lib;TKBool.lib;TKShHealing.lib;TKMesh.lib;%(AdditionalDependencies)</AdditionalDependencies>

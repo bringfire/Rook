@@ -14,7 +14,6 @@ $ErrorActionPreference = 'Stop'
 $ScriptDir = Split-Path -Parent $PSCommandPath
 $RepoRoot = Split-Path -Parent $ScriptDir
 
-$OcctFallbackRoot = 'C:\Users\aryan\source\repos\OCCT\build-rook'
 $ManagedCompanionRuntimes = @('net8.0', 'net7.0', 'net48')
 $OcctRequiredHeaders = @('Standard.hxx','TopoDS_Shape.hxx','BRep_Builder.hxx','Geom_BSplineSurface.hxx','gp_Pnt.hxx','OSD.hxx')
 $OcctRuntimeDlls = @('TKernel.dll','TKMath.dll','TKG2d.dll','TKG3d.dll','TKGeomBase.dll','TKGeomAlgo.dll','TKBRep.dll','TKTopAlgo.dll','TKPrim.dll','TKBO.dll','TKShHealing.dll')
@@ -88,10 +87,7 @@ function Resolve-OcctRuntimeRoot {
         }
     }
 
-    return [pscustomobject]@{
-        Root = $OcctFallbackRoot
-        Source = 'fallback'
-    }
+    return $null
 }
 
 function Invoke-GitChecks {
@@ -226,7 +222,12 @@ function Invoke-MsvcChecks {
 
 function Invoke-OcctChecks {
     $occt = Resolve-OcctRuntimeRoot
-    Write-CheckResult -Status PASS -Name 'OCCT root source' -Detail "Using $($occt.Source): $($occt.Root). OCCT_ROOT is preferred; fallback is $OcctFallbackRoot."
+    if (-not $occt) {
+        Write-CheckResult -Status FAIL -Name 'OCCT root source' -Detail 'OCCT_ROOT is not set. Set OCCT_ROOT to the active OCCT build root before native build or deploy.'
+        return
+    }
+
+    Write-CheckResult -Status PASS -Name 'OCCT root source' -Detail "Using $($occt.Source): $($occt.Root)."
 
     $required = @(
         (Join-Path $occt.Root 'win64\vc14\lib\TKernel.lib'),

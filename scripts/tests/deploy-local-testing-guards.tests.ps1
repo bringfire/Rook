@@ -9,6 +9,9 @@ $DeploySkill = Join-Path $RepoRoot '.agents\skills\deploy-local-testing\SKILL.md
 $DoctorScript = Join-Path $RepoRoot 'scripts\rook-dev-doctor.ps1'
 $McpProcessScript = Join-Path $RepoRoot 'scripts\rook-mcp-processes.ps1'
 $AgentSetup = Join-Path $RepoRoot 'AGENT_SETUP.md'
+$RookNativeProject = Join-Path $RepoRoot 'src\RookNative\RookNative.vcxproj'
+$OcctPrimitiveTestsProject = Join-Path $RepoRoot 'src\RookNative\OcctPrimitiveTests.vcxproj'
+$OcctOfflineReproProject = Join-Path $RepoRoot 'src\RookNative\OcctOfflineRepro.vcxproj'
 
 function Assert-True {
     param(
@@ -101,7 +104,7 @@ function Test-DevDoctorScriptContract {
     Assert-Contains -Text $content -Expected 'WARN' -Message 'Dev doctor must print WARN statuses.'
     Assert-Contains -Text $content -Expected 'FAIL' -Message 'Dev doctor must print FAIL statuses.'
     Assert-Contains -Text $content -Expected 'OCCT_ROOT' -Message 'Dev doctor must report OCCT_ROOT status.'
-    Assert-Contains -Text $content -Expected 'fallback' -Message 'Dev doctor must report whether the existing hardcoded OCCT fallback would be used.'
+    Assert-Contains -Text $content -Expected 'OCCT_ROOT is not set' -Message 'Dev doctor must fail clearly when OCCT_ROOT is missing.'
     Assert-Contains -Text $content -Expected '$OcctRequiredHeaders = @(' -Message 'Dev doctor must validate actual OCCT headers used by Rook.'
     Assert-Contains -Text $content -Expected "'Standard.hxx'" -Message 'Dev doctor must validate a real OCCT core header, not a toolkit/library name.'
     Assert-Contains -Text $content -Expected "'TopoDS_Shape.hxx'" -Message 'Dev doctor must validate a real OCCT shape header used by Rook.'
@@ -279,7 +282,6 @@ function Test-DeployScriptAllowsDevLiveSmoke {
 function Test-DeployScriptCopiesOcctRuntimeClosure {
     $content = Get-Content -Path $DeployScript -Raw
 
-    Assert-Contains -Text $content -Expected '$OcctFallbackRoot = ''C:\Users\aryan\source\repos\OCCT\build-rook''' -Message 'Local deploy must retain the existing OCCT fallback path without reading vcxproj files.'
     Assert-Contains -Text $content -Expected '$OcctRuntimeDlls = @(' -Message 'Local deploy must use an explicit OCCT runtime DLL list.'
     foreach ($dll in @(
         'TKernel.dll',
@@ -299,15 +301,42 @@ function Test-DeployScriptCopiesOcctRuntimeClosure {
     Assert-NotContains -Text $content -Unexpected "'TKBool.dll'" -Message 'Local deploy must not add linked-but-not-loaded TKBool.dll in PR 1.'
     Assert-NotContains -Text $content -Unexpected "'TKMesh.dll'" -Message 'Local deploy must not add linked-but-not-loaded TKMesh.dll in PR 1.'
     Assert-Contains -Text $content -Expected 'function Resolve-OcctRuntimeRoot' -Message 'Local deploy must resolve OCCT root through an explicit helper.'
-    Assert-Contains -Text $content -Expected '$env:OCCT_ROOT' -Message 'Local deploy must prefer OCCT_ROOT.'
-    Assert-Contains -Text $content -Expected '$OcctFallbackRoot' -Message 'Local deploy must fall back to the existing hardcoded OCCT path.'
-    Assert-Contains -Text $content -Expected 'OCCT root source:' -Message 'Local deploy must report whether OCCT_ROOT or fallback was used.'
+    Assert-Contains -Text $content -Expected '$env:OCCT_ROOT' -Message 'Local deploy must read OCCT_ROOT.'
+    Assert-Contains -Text $content -Expected 'OCCT_ROOT is not set' -Message 'Local deploy must fail clearly when OCCT_ROOT is missing.'
+    Assert-NotContains -Text $content -Unexpected '$OcctFallbackRoot' -Message 'Local deploy must not retain the hardcoded OCCT fallback root.'
+    Assert-Contains -Text $content -Expected 'OCCT root source:' -Message 'Local deploy must report OCCT_ROOT as the runtime source.'
     Assert-Contains -Text $content -Expected 'function Copy-OcctRuntimeDlls' -Message 'Local deploy must copy OCCT runtime DLLs through an explicit helper.'
     Assert-Contains -Text $content -Expected 'Join-Path $resolved.Root ''win64\vc14\bin''' -Message 'Local deploy must copy OCCT DLLs from the resolved runtime bin folder.'
     Assert-Contains -Text $content -Expected 'Copy-RequiredFile $source (Join-Path $PluginDir $dll)' -Message 'Local deploy must copy OCCT DLLs next to RookNative.rhp.'
 
     $deployNativePayloadBody = Get-FunctionBodyText -Text $content -FunctionName 'Deploy-NativePayload'
     Assert-Before -Text $deployNativePayloadBody -First 'Copy-RequiredFile (Join-Path $nativeDir ''RookNative.rhp'')' -Second 'Copy-OcctRuntimeDlls' -Message 'Local deploy must copy RookNative.rhp before copying the OCCT runtime closure inside Deploy-NativePayload.'
+}
+
+function Test-OcctRootRequiresExplicitConfiguration {
+    $activeFiles = @(
+        $DeployScript,
+        $DoctorScript,
+        $RookNativeProject,
+        $OcctPrimitiveTestsProject,
+        $OcctOfflineReproProject
+    )
+
+    foreach ($path in $activeFiles) {
+        $content = Get-Content -Path $path -Raw
+        Assert-NotContains -Text $content -Unexpected 'C:\Users\aryan\source\repos\OCCT\build-rook' -Message "Active OCCT config must not contain hardcoded fallback path: $path"
+    }
+
+    foreach ($path in @($RookNativeProject, $OcctPrimitiveTestsProject, $OcctOfflineReproProject)) {
+        $content = Get-Content -Path $path -Raw
+        Assert-Contains -Text $content -Expected '<OcctRoot Condition="''$(OcctRoot)''==''''">$(OCCT_ROOT)</OcctRoot>' -Message "Project must resolve OcctRoot from OCCT_ROOT: $path"
+        Assert-Contains -Text $content -Expected '<Target Name="ValidateOcctRoot" BeforeTargets="PrepareForBuild" Condition="''$(OcctRoot)''==''''">' -Message "Project must fail clearly when OcctRoot is missing: $path"
+        Assert-Contains -Text $content -Expected 'Set OCCT_ROOT or pass /p:OcctRoot=' -Message "Project missing-OCCT message must document both supported configuration paths: $path"
+    }
+
+    $offline = Get-Content -Path $OcctOfflineReproProject -Raw
+    Assert-Contains -Text $offline -Expected '$(OcctRoot)\inc;$(RhinoSdkDir)openNURBS' -Message 'Offline repro must use $(OcctRoot) for OCCT includes.'
+    Assert-Contains -Text $offline -Expected '$(OcctRoot)\win64\vc14\lib;$(RhinoSdkDir)lib\Release' -Message 'Offline repro must use $(OcctRoot) for OCCT libraries.'
 }
 
 function Test-DeployScriptWritesChatManifestToRuntimeChildren {
@@ -472,6 +501,7 @@ Test-DeployScriptCopiesAllInstallerPythonModules
 Test-DeployScriptHasExplicitDevRuntimeContract
 Test-DeployScriptAllowsDevLiveSmoke
 Test-DeployScriptCopiesOcctRuntimeClosure
+Test-OcctRootRequiresExplicitConfiguration
 Test-DeployScriptWritesChatManifestToRuntimeChildren
 Test-DeployScriptLiveSmokeIsExplicit
 Test-DeployScriptNativeOnlyIsNarrow

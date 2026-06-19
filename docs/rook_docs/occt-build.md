@@ -17,8 +17,10 @@ Both `RookNative.vcxproj` and `OcctPrimitiveTests.vcxproj` resolve OCCT via the 
 MSBuild property:
 
 1. `/p:OcctRoot=<path>` on the msbuild command line, else
-2. the `OCCT_ROOT` environment variable, else
-3. the default: `C:\Users\aryan\source\repos\OCCT\build-rook` (the verified **V8_0_0** tree).
+2. the `OCCT_ROOT` environment variable.
+
+There is no hardcoded fallback in the project files. A missing OCCT root fails
+the build with a clear MSBuild error.
 
 Include path = `$(OcctRoot)\inc`; lib path = `$(OcctRoot)\win64\vc14\lib`.
 
@@ -53,7 +55,7 @@ proven on the known-good V8_0_0.
 When picked up:
 1. **Do NOT switch the shared `C:/Users/aryan/source/repos/OCCT` checkout off `V8_0_0`.** Use a
    separate OCCT **source worktree** (or clone) at `V7_9_3`, built into a separate dir
-   (e.g. `build-rook-793`). This keeps the verified V8_0_0 tree intact as a fallback.
+   (e.g. `build-rook-793`). This keeps the verified V8_0_0 tree intact as a manual fallback.
 2. `git fetch` the `V7_9_3` tag (not present locally today), checkout in the worktree.
 3. cmake **modeling modules only** (no DataExchange) → Release build.
 4. Point `OCCT_ROOT` (or `/p:OcctRoot=`) at `build-rook-793`; no vcxproj edit needed (already
