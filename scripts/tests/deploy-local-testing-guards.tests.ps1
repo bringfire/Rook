@@ -467,6 +467,7 @@ function Test-DeploySkillPointsToAuthoritativeScriptAndChirpChecks {
 
     Assert-Contains -Text $content -Expected 'Use the repo script as the authority' -Message 'Skill must keep the script authoritative.'
     Assert-Contains -Text $content -Expected '-LiveSmoke' -Message 'Skill must document the live smoke gate.'
+    Assert-Contains -Text $content -Expected '-PayloadOnly -AllowRunning -UseRepoVenv -LiveSmoke' -Message 'Skill must document the dev-runtime live smoke command.'
     Assert-Contains -Text $content -Expected '-NativeOnly' -Message 'Skill must document the native-only development deploy path.'
     Assert-Contains -Text $content -Expected '-RevitInstallDir' -Message 'Skill must document the RookBIM Revit API location override.'
     Assert-Contains -Text $content -Expected 'Default deploy intentionally requires Revit API assemblies for the RookBIM build' -Message 'Skill must document the full-deploy RookBIM/Revit API prerequisite.'
@@ -483,7 +484,10 @@ function Test-AgentSetupDocumentsDevDeployConvention {
     Assert-Contains -Text $content -Expected 'scripts\rook-dev-doctor.ps1' -Message 'AGENT_SETUP must tell developers to run the dev doctor.'
     Assert-Contains -Text $content -Expected 'scripts\rook-mcp-processes.ps1' -Message 'AGENT_SETUP must document the safe Rook MCP process helper.'
     Assert-Contains -Text $content -Expected '-UseRepoVenv' -Message 'AGENT_SETUP must document the repo-venv dev deploy command.'
+    Assert-Contains -Text $content -Expected '-PayloadOnly -AllowRunning -UseRepoVenv -LiveSmoke' -Message 'AGENT_SETUP must document the dev-runtime live smoke proof command.'
     Assert-Contains -Text $content -Expected 'OCCT_ROOT' -Message 'AGENT_SETUP must document the OCCT_ROOT expectation.'
+    Assert-Contains -Text $content -Expected 'To prove a second dev machine is ready' -Message 'AGENT_SETUP must document the two-machine proof checklist.'
+    Assert-Contains -Text $content -Expected 'OCCT root source' -Message 'AGENT_SETUP two-machine proof must capture the OCCT source line.'
     Assert-Contains -Text $content -Expected 'python -m rook' -Message 'AGENT_SETUP must tell developers to close stale rook MCP processes before deploy.'
 }
 

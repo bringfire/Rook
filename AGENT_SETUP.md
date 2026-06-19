@@ -60,6 +60,11 @@ branches.
 Before a local deploy from source:
 
 1. Pull current `main`.
+
+   ```powershell
+   git switch main
+   git pull --ff-only origin main
+   ```
 2. Run:
 
    ```powershell
@@ -80,13 +85,24 @@ Before a local deploy from source:
    powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy-local-testing.ps1 -UseRepoVenv
    ```
 
-5. Restart Rhino.
-6. Optionally run the existing payload-only live smoke flow after Rhino and
-   Grasshopper are open.
+5. Restart Rhino and open Grasshopper.
+6. Optionally run the developer-open live smoke flow:
+
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy-local-testing.ps1 -PayloadOnly -AllowRunning -UseRepoVenv -LiveSmoke
+   ```
 
 Prepared dev machines must set `OCCT_ROOT` to the active OCCT build root. Native
 builds no longer use a hardcoded OCCT fallback path; pass `/p:OcctRoot=...` only
 when intentionally overriding the shell environment for one build.
+
+To prove a second dev machine is ready, run the same sequence from a fresh shell
+on current `main` and record:
+
+- `rook-dev-doctor.ps1` summary and the `OCCT root source` line.
+- Whether `rook-mcp-processes.ps1 -Stop` stopped stale MCP processes.
+- `deploy-local-testing.ps1 -UseRepoVenv` result.
+- The developer-open live smoke result after Rhino and Grasshopper are open.
 
 ## Installation
 
