@@ -295,17 +295,21 @@ async def run_director(
         "request_shape": plan_provenance.get("request_shape"),
         "aspect_authority": plan_provenance.get("aspect_authority"),
         "optics_authority": plan_provenance.get("optics_authority"),
+        "plan": plan_provenance,
     }
-    track = animation_track.build_animation_track(
-        frame_count=frame_count,
-        fps=timeline_manifest.get("fps"),
-        resolution=request["resolution"],
-        camera_per_frame=frame_cameras,
-        motion_frames=motion_frames,
-        camera_provenance=camera_provenance,
-        object_provenance=object_provenance,
-    )
-    animation_track.validate_animation_track(track)
+    try:
+        track = animation_track.build_animation_track(
+            frame_count=frame_count,
+            fps=timeline_manifest.get("fps"),
+            resolution=request["resolution"],
+            camera_per_frame=frame_cameras,
+            motion_frames=motion_frames,
+            camera_provenance=camera_provenance,
+            object_provenance=object_provenance,
+        )
+        animation_track.validate_animation_track(track)
+    except animation_track.AnimationTrackError as ex:
+        raise DirectorInputError(str(ex)) from ex
 
     run_root = (output_root / run_id).resolve()
     frames_dir = run_root / "frames"
@@ -313,7 +317,10 @@ async def run_director(
     frames_dir.mkdir(parents=True, exist_ok=False)
     logs_dir.mkdir(parents=True, exist_ok=True)
 
-    animation_track.freeze_animation_track(track, run_root / "animation_track.json")
+    try:
+        animation_track.freeze_animation_track(track, run_root / "animation_track.json")
+    except animation_track.AnimationTrackError as ex:
+        raise DirectorInputError(str(ex)) from ex
 
     manifest_frames = []
     for camera_frame, object_frame in zip(

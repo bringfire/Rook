@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+import math
+
 import pytest
 
 from rook import animation_track
@@ -167,7 +170,17 @@ def test_build_rejects_non_list_motion_frames():
         )
 
 
-import math
+def test_build_rejects_non_list_camera_per_frame():
+    with pytest.raises(animation_track.AnimationTrackError, match="camera_per_frame"):
+        animation_track.build_animation_track(
+            frame_count=1,
+            fps=24,
+            resolution={"width": 320, "height": 180},
+            camera_per_frame=None,
+            motion_frames=[_motion_frame(1)],
+            camera_provenance={},
+            object_provenance={},
+        )
 
 
 def _valid_track():
@@ -287,9 +300,6 @@ def test_validate_rejects_nonfinite_bbox():
     ]
     with pytest.raises(animation_track.AnimationTrackError, match="bbox_min"):
         animation_track.validate_animation_track(track)
-
-
-import json
 
 
 def test_freeze_writes_valid_track_json(tmp_path):

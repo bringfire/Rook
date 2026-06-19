@@ -890,6 +890,65 @@ def test_run_writes_animation_track_in_parity_with_manifest(tmp_path):
         )
 
 
+def test_animation_track_error_surfaces_as_director_error(tmp_path, monkeypatch):
+    def boom(**kwargs):
+        raise director.animation_track.AnimationTrackError("bad track")
+
+    monkeypatch.setattr(director.animation_track, "build_animation_track", boom)
+    request = _run_request(tmp_path)
+    request["run_id"] = "track-error-contract"
+    with pytest.raises(director.DirectorError):
+        asyncio.run(
+            director.run_director(
+                request, call_native=FakeNative([]), runtime=_runtime(tmp_path)
+            )
+        )
+    assert not (tmp_path / "data" / "rookvision_director" / "track-error-contract").exists()
+
+
+@pytest.mark.asyncio
+async def test_curve_follow_camera_provenance_includes_plan_details(tmp_path):
+    curve_id = "00000000-0000-0000-0000-000000000002"
+    native = FakeNative(
+        [
+            {"success": True, "data": {"frame_id": "frame_0001", "dirty_partial_state": False}},
+            {"success": True, "data": {"frame_id": "frame_0002", "dirty_partial_state": False}},
+            {"success": True, "data": {"frame_id": "frame_0003", "dirty_partial_state": False}},
+        ],
+        create_outputs=True,
+    )
+    allowed_root = tmp_path / "data" / "rookvision_director"
+
+    result = await director.run_director(
+        {
+            "run_id": "curve-follow-provenance",
+            "object_ids": ["a"],
+            "timeline": {"fps": 24, "duration_seconds": 0.125},
+            "resolution": {"width": 320, "height": 180},
+            "camera": {
+                "strategy": "curve_follow_target",
+                "curve_id": curve_id,
+                "target": [0.0, 0.0, 0.0],
+                "up": [0.0, 0.0, 1.0],
+                "sampling": {
+                    "mode": "normalized_parameter",
+                    "start": 0.0,
+                    "end": 1.0,
+                },
+                "lens_length": 35.0,
+            },
+            "output_root": str(allowed_root),
+        },
+        call_native=native,
+        runtime=_runtime(tmp_path),
+    )
+
+    track = json.loads(
+        (Path(result["run_root"]) / "animation_track.json").read_text(encoding="utf-8")
+    )
+    assert track["camera_provenance"]["plan"]["curve_id"] == curve_id
+
+
 def test_capture_is_sourced_from_the_track_not_motion(tmp_path, monkeypatch):
     real_build = director.animation_track.build_animation_track
 
