@@ -228,8 +228,11 @@ id is known independently of when the call returns.
   responsive with a **bounded pump that must not drain the HTTP→UI dispatch queue** (no
   foreign request may mutate the document mid-replay — a reentrancy hazard the
   implementation plan must verify against RookNative's dispatch mechanism), then checks
-  the exit conditions. Cancel/timeout latency is therefore bounded by the slice
-  (~16 ms), **not** by the frame dwell.
+  the exit conditions. Cancel/timeout latency is therefore bounded by **one
+  non-interruptible `apply → redraw` step plus one pump slice — not by the frame
+  dwell**. It is *not* literally ~16 ms: a heavy frame (many object transforms or an
+  expensive redraw) extends the non-interruptible step, and cancel/timeout can only be
+  observed after that step completes.
 - **Exit conditions, split by guarantee:**
   - **Guaranteed, pump-free:** the worker-thread **cancel flag** (an atomic the replay
     loop reads each slice — it needs no UI pump because the cancel route set it from a
@@ -240,9 +243,12 @@ id is known independently of when the call returns.
     dispatched loop. The implementation plan verifies the exact APIs; if either is not
     safely observable, the **timeout remains the guaranteed backstop** for an abandoned
     replay.
-- **Restores objects + viewport/display on every exit path** (completion, cancel,
-  timeout, ESC, disconnect, failure) and returns structured **replay evidence**: frames
-  attempted, frames displayed, terminal reason
+- **Restores objects + viewport/display on every exit path** — completion, cancel,
+  timeout, ESC, **detected** disconnect, and failure. Disconnect-triggered restore is
+  best-effort (it fires only if the disconnect is observed); when a client abandons a
+  replay without a detectable disconnect, the **wall-clock timeout is the guaranteed
+  abandoned-client backstop** that restores and ends the session. Returns structured
+  **replay evidence**: frames attempted, frames displayed, terminal reason
   (`completed`/`cancelled`/`timeout`/`esc`/`disconnect`/`failed`), any `pacing_clamped`
   warning, dirty-state flag, and restore status.
 - Replay is **bounded by explicit duration caps** (see Payload & Duration Limits), so it
@@ -335,7 +341,9 @@ do not bound *time*):
     loop, covering per-frame apply/redraw cost as well as dwell. This is the `timeout`
     exit.
 - **`pump_slice` ≈ 16 ms (v1 default)** — the granularity at which the hold is sliced and
-  exits are checked; it bounds cancel/timeout latency.
+  exits are checked. Cancel/timeout latency = one non-interruptible `apply → redraw` step
+  + one `pump_slice` (a heavy frame extends the apply/redraw step), **not** the frame
+  dwell and not literally one slice.
 
 All durations are v1 defaults, tunable, and re-enforced by native independently of
 Python.
@@ -494,7 +502,14 @@ One product slice, sequenced into reviewable PRs:
 1. **Schema + radial port + `run_director` captures-from-track** (draft↔frozen, parity
    test).
 2. **Native `/director/replay` + `/director/replay/cancel` + MCP wrapper** (frame
-   resolution, limits, restore/cancel contract tests).
+   resolution, limits, restore/cancel contract tests). **PR2 must begin with a small
+   native spike that verifies the "bounded pump that must not drain the HTTP→UI dispatch
+   queue" assumption** (no foreign request mutates the document mid-replay; ESC is
+   observable). If that pump cannot be done safely, the plan **removes pumping from
+   synchronous replay** (cancel + wall-clock timeout stay guaranteed and pump-free; ESC
+   is dropped) **or switches replay to the async `start`/`status`/`cancel` model**. The
+   track/frame architecture does not change either way — only replay's pump/route
+   lifecycle.
 3. **Agent-script generator path + non-radial custom-motion proof** (constrained
    namespace, schema validation, live thesis test).
 4. **`/design-animation` and `/animate` skills.**
@@ -508,7 +523,8 @@ One product slice, sequenced into reviewable PRs:
 - `absolute_from_source` keeps replay/video frame-order independent and drift-free.
 - Cancellation is coherent and bounded: caller-provided session id (never learned too
   late); worker-thread cancel atomic + wall-clock timeout as **guaranteed, pump-free**
-  exits checked every ~16 ms slice; ESC/disconnect as best-effort; the per-frame hold is
+  exits (latency = one non-interruptible apply/redraw step + one pump slice, not
+  literally ~16 ms); ESC/disconnect as best-effort; the per-frame hold is
   **sliced, never a blocking sleep**; explicit `max_per_frame_dwell` /
   `max_effective_replay_duration` caps mean replay cannot hold the UI thread beyond a
   bounded, validated duration; and a session registry defines registration/duplicate/
