@@ -1648,7 +1648,9 @@ def _prepare_gh_update_script_source(
         is_full_source = not _gh_csharp_is_body_source(code)
         if selected_mode == "full_source":
             if not is_full_source:
-                raise ValueError("C# full_source mode requires Script_Instance or RunScript source")
+                raise ValueError(
+                    "C# full_source mode requires a complete Script_Instance class with RunScript source"
+                )
             return {"source": code, "mode_used": "full_source", "wrapped": False}
         if selected_mode == "auto" and is_full_source:
             return {"source": code, "mode_used": "full_source", "wrapped": False}
