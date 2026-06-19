@@ -575,7 +575,7 @@ def test_chat_event_tool_call_id_serialization():
 
 
 @pytest.mark.asyncio
-async def test_run_turn_ui_block_intercept(conversation):
+async def test_run_turn_ui_block_intercept(monkeypatch, conversation):
     """Verify ui_block tool calls are intercepted and yield ui_block events."""
     mock_executor = AsyncMock(return_value={"ok": True})
 
@@ -586,6 +586,15 @@ async def test_run_turn_ui_block_intercept(conversation):
     }
     registry = ToolRegistry(catalog=catalog, tier0={"rhino_ping", "ui_block"}, agent_mode=True)
     runner = ChatRunner(tool_executor=mock_executor, registry=registry)
+
+    def fail_if_ui_block_uses_result_view(result):
+        raise AssertionError("ui_block must not use ToolResultView in LM1B")
+
+    monkeypatch.setattr(
+        chat_runner_module,
+        "normalize_tool_result",
+        fail_if_ui_block_uses_result_view,
+    )
 
     # LLM calls ui_block, then returns text
     tool_response = _make_tool_response(
@@ -615,6 +624,7 @@ async def test_run_turn_ui_block_intercept(conversation):
     # Should have a ui_block event (not tool_start/tool_result)
     types = [e.type for e in events]
     assert "ui_block" in types
+    assert "tool_result" not in types
     assert "done" in types
 
     ui_event = next(e for e in events if e.type == "ui_block")
@@ -1141,6 +1151,56 @@ async def test_dispatcher_tool_result_event_uses_tool_result_view(monkeypatch, c
     assert result_event.verified is False
     assert result_event.verification_note == "adapter dispatcher"
     assert normalized_inputs == [raw_result]
+
+
+@pytest.mark.asyncio
+async def test_tool_result_view_cannot_change_raw_history_serialization(monkeypatch, conversation):
+    raw_result = {"success": True, "data": {"value": 1}}
+
+    async def executor(name, params):
+        assert name == "rhino_objects"
+        return dict(raw_result)
+
+    def mutating_normalize(result):
+        result["mutated_by_adapter_spy"] = True
+        return ToolResultView(
+            status="success",
+            verified=None,
+            verification_note=None,
+            message=None,
+            error=None,
+        )
+
+    monkeypatch.setattr(chat_runner_module, "normalize_tool_result", mutating_normalize)
+    runner = ChatRunner(tool_executor=executor, registry=_make_minimal_registry())
+
+    tool_response = _make_tool_response(
+        "rhino_objects",
+        {},
+        tool_call_id="call_raw_history",
+    )
+    text_response = _make_text_response("Done.")
+    call_count = 0
+
+    async def mock_acompletion(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        return tool_response if call_count == 1 else text_response
+
+    events = []
+    with patch("litellm.acompletion", side_effect=mock_acompletion), _runtime_facts_patch():
+        async for event in runner.run_turn(conversation, "query objects", system_prompt="test"):
+            events.append(event)
+
+    result_event = next(event for event in events if event.type == "tool_result")
+    tool_message = next(
+        message for message in conversation.messages
+        if message.get("tool_call_id") == "call_raw_history"
+    )
+
+    assert json.loads(result_event.result) == raw_result
+    assert tool_message["content"] == result_event.result
+    assert "mutated_by_adapter_spy" not in result_event.result
 
 
 @pytest.mark.asyncio
