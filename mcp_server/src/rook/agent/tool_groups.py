@@ -103,6 +103,7 @@ READONLY_ALLOWED_GROUPS: Set[str] = {
     "scene_graph",
     "director_readonly",
     "rookbim_readonly",
+    "reconstruction_readonly",
 }
 
 
@@ -261,6 +262,27 @@ TOOL_GROUPS: Dict[str, List[str]] = {
         "rhino_video_estimate",
         "rhino_video_status", "rhino_video_result",
         "rhino_video_jobs", "rhino_video_models",
+    ],
+
+    # --- Rook Reconstruction (2D to 3D): package/job lifecycle ---
+    # Agent-direct dispatch is wired via BRIDGE_ROUTES (submit/import)
+    # and TRANSFORM_FUNCTIONS (models/jobs/status/cancel/result).
+    "reconstruction": [
+        "rhino_2d_to_3d_models",
+        "rhino_2d_to_3d_submit",
+        "rhino_2d_to_3d_jobs",
+        "rhino_2d_to_3d_status",
+        "rhino_2d_to_3d_cancel",
+        "rhino_2d_to_3d_result",
+        "rhino_2d_to_3d_import",
+    ],
+    # Read-only subset: excludes submit (creates provider job), cancel
+    # (mutates job state), and import (mutates Rhino document).
+    "reconstruction_readonly": [
+        "rhino_2d_to_3d_models",
+        "rhino_2d_to_3d_jobs",
+        "rhino_2d_to_3d_status",
+        "rhino_2d_to_3d_result",
     ],
 
     # --- RookBIM (Revit bridge, Phase 1) ---

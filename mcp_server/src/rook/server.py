@@ -12481,6 +12481,117 @@ Returns the full profile JSON including features, surfaces, and elements.""",
             },
         ),
 
+        # --- Rook Reconstruction (2D to 3D) ---
+        Tool(
+            name="rhino_2d_to_3d_models",
+            description=(
+                "List curated Rook Reconstruction 2D-to-3D models. "
+                "Returns shipped/enabled models by default; pass "
+                "include_experimental or include_hidden only when explicitly "
+                "debugging catalog entries."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "include_experimental": {"type": "boolean", "description": "Include experimental catalog entries."},
+                    "include_hidden": {"type": "boolean", "description": "Include hidden catalog entries for debug/dev use."},
+                    "port": {"type": "integer", "description": "Specific Rhino port to target."},
+                },
+                "required": [],
+            },
+        ),
+        Tool(
+            name="rhino_2d_to_3d_submit",
+            description=(
+                "Submit a Rook Reconstruction single-image 2D-to-3D job "
+                "from an existing image artifact. The v1 contract is "
+                "artifact-only: provide source_artifact_id, not a local path."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "source_artifact_id": {"type": "string", "description": "Source image artifact id."},
+                    "source_role": {"type": "string", "description": "Source artifact file role (default image)."},
+                    "model_id": {"type": "string", "description": "Full fal model id; default Hunyuan rapid when omitted by managed contract."},
+                    "preprocessing_chain": {
+                        "type": "array",
+                        "items": {"type": "object"},
+                        "description": "Optional manual preprocessing stages; v1 supports at most one explicit stage.",
+                    },
+                    "options": {"type": "object", "description": "Model options such as enable_pbr and enable_geometry."},
+                    "estimate_requested": {"type": "boolean", "description": "Request advisory pricing metadata when available."},
+                    "port": {"type": "integer", "description": "Specific Rhino port to target."},
+                },
+                "required": ["source_artifact_id"],
+            },
+        ),
+        Tool(
+            name="rhino_2d_to_3d_jobs",
+            description="List durable Rook Reconstruction 2D-to-3D jobs. Default limit is managed server-defined.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "Optional max jobs to return."},
+                    "port": {"type": "integer", "description": "Specific Rhino port to target."},
+                },
+                "required": [],
+            },
+        ),
+        Tool(
+            name="rhino_2d_to_3d_status",
+            description="Get status for one Rook Reconstruction 2D-to-3D job.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "job_id": {"type": "string", "description": "Reconstruction job id."},
+                    "port": {"type": "integer", "description": "Specific Rhino port to target."},
+                },
+                "required": ["job_id"],
+            },
+        ),
+        Tool(
+            name="rhino_2d_to_3d_cancel",
+            description="Best-effort cancel for a queued or active Rook Reconstruction 2D-to-3D job.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "job_id": {"type": "string", "description": "Reconstruction job id."},
+                    "port": {"type": "integer", "description": "Specific Rhino port to target."},
+                },
+                "required": ["job_id"],
+            },
+        ),
+        Tool(
+            name="rhino_2d_to_3d_result",
+            description="Get the terminal result/package summary for one Rook Reconstruction 2D-to-3D job.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "job_id": {"type": "string", "description": "Reconstruction job id."},
+                    "port": {"type": "integer", "description": "Specific Rhino port to target."},
+                },
+                "required": ["job_id"],
+            },
+        ),
+        Tool(
+            name="rhino_2d_to_3d_import",
+            description=(
+                "Import a reconstruction_package through the reconstruction-owned "
+                "native route. Wraps package asset selection, Rhino import, "
+                "object user-text association, and import-history recording."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "package_id": {"type": "string", "description": "Reconstruction package artifact id."},
+                    "targetLayer": {"type": "string", "description": "Optional target layer for imported objects."},
+                    "assetRole": {"type": "string", "description": "Optional asset role override for debugging/agent use."},
+                    "port": {"type": "integer", "description": "Specific Rhino port to target."},
+                },
+                "required": ["package_id"],
+            },
+        ),
+
         # --- RookBIM (Revit bridge, Phase 1) ---
         Tool(
             name="rookbim_status",
@@ -13221,6 +13332,27 @@ def _encode_video_job_id(jid: Any) -> tuple[str | None, dict | None]:
     ``_encode_*`` rename to a generic ``_encode_path_id`` is a
     mechanical follow-up.
     """
+    from urllib.parse import quote as _quote
+
+    if not isinstance(jid, str) or not jid:
+        return None, {
+            "success": False,
+            "data": "job_id must be a non-empty string.",
+        }
+    if "/" in jid or "\\" in jid:
+        return None, {
+            "success": False,
+            "data": (
+                f"job_id must not contain '/' or '\\\\' "
+                f"(got: {jid!r}). Supply a canonical GUID — e.g. "
+                "12345678-1234-1234-1234-123456789abc."
+            ),
+        }
+    return _quote(jid, safe=""), None
+
+
+def _encode_reconstruction_job_id(jid: Any) -> tuple[str | None, dict | None]:
+    """Pre-validate and URL-encode reconstruction job_id path params."""
     from urllib.parse import quote as _quote
 
     if not isinstance(jid, str) or not jid:
@@ -19872,6 +20004,67 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
             action = arguments.get("action", "")
             result = await call_rhino(
                 "/vision/presentation", "POST", {"action": action}, port=port
+            )
+
+        case "rhino_2d_to_3d_models":
+            from urllib.parse import urlencode as _urlencode
+            _params = {}
+            if "include_experimental" in arguments:
+                _value = arguments["include_experimental"]
+                _params["include_experimental"] = "true" if _value is True else "false" if _value is False else str(_value)
+            if "include_hidden" in arguments:
+                _value = arguments["include_hidden"]
+                _params["include_hidden"] = "true" if _value is True else "false" if _value is False else str(_value)
+            _endpoint = "/reconstruction/2d-to-3d/models"
+            if _params:
+                _endpoint = f"{_endpoint}?{_urlencode(_params)}"
+            result = await call_rhino(_endpoint, "GET", None, port=port)
+
+        case "rhino_2d_to_3d_submit":
+            result = await call_rhino(
+                "/reconstruction/2d-to-3d/jobs", "POST", arguments, port=port
+            )
+
+        case "rhino_2d_to_3d_jobs":
+            from urllib.parse import quote as _quote_recon_jobs
+            if "limit" in arguments:
+                _raw_limit = arguments["limit"]
+                _limit_str = "" if _raw_limit is None else str(_raw_limit)
+                _endpoint = f"/reconstruction/2d-to-3d/jobs?limit={_quote_recon_jobs(_limit_str, safe='')}"
+            else:
+                _endpoint = "/reconstruction/2d-to-3d/jobs"
+            result = await call_rhino(_endpoint, "GET", None, port=port)
+
+        case "rhino_2d_to_3d_status":
+            _encoded, _err = _encode_reconstruction_job_id(arguments.get("job_id", ""))
+            if _err is not None:
+                result = _err
+            else:
+                result = await call_rhino(
+                    f"/reconstruction/2d-to-3d/jobs/{_encoded}", "GET", None, port=port
+                )
+
+        case "rhino_2d_to_3d_cancel":
+            _encoded, _err = _encode_reconstruction_job_id(arguments.get("job_id", ""))
+            if _err is not None:
+                result = _err
+            else:
+                result = await call_rhino(
+                    f"/reconstruction/2d-to-3d/jobs/{_encoded}/cancel", "POST", {}, port=port
+                )
+
+        case "rhino_2d_to_3d_result":
+            _encoded, _err = _encode_reconstruction_job_id(arguments.get("job_id", ""))
+            if _err is not None:
+                result = _err
+            else:
+                result = await call_rhino(
+                    f"/reconstruction/2d-to-3d/jobs/{_encoded}/result", "GET", None, port=port
+                )
+
+        case "rhino_2d_to_3d_import":
+            result = await call_rhino(
+                "/reconstruction/2d-to-3d/import", "POST", arguments, port=port
             )
 
         # --- RookBIM (Revit bridge, Phase 1) ---
