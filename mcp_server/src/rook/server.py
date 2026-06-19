@@ -11,8 +11,10 @@ import copy
 import json
 import logging
 import os
+import re
 import tempfile
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -2323,6 +2325,166 @@ def _gh_create_script_result_from_data(data: dict[str, Any]) -> dict[str, Any]:
             "data": data,
         }
     return {"success": True, "data": data}
+
+
+@dataclass(frozen=True)
+class GhCSharpCreatePreflightFinding:
+    code: str
+    message: str
+    field: str | None = None
+    pin: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        result: dict[str, Any] = {
+            "code": self.code,
+            "message": self.message,
+        }
+        if self.field is not None:
+            result["field"] = self.field
+        if self.pin is not None:
+            result["pin"] = self.pin
+        return result
+
+
+_GH_CSHARP_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+_GH_CSHARP_RESERVED_KEYWORDS = frozenset({
+    "abstract", "as", "base", "bool", "break", "byte", "case", "catch",
+    "char", "checked", "class", "const", "continue", "decimal", "default",
+    "delegate", "do", "double", "else", "enum", "event", "explicit",
+    "extern", "false", "finally", "fixed", "float", "for", "foreach",
+    "goto", "if", "implicit", "in", "int", "interface", "internal", "is",
+    "lock", "long", "namespace", "new", "null", "object", "operator",
+    "out", "override", "params", "private", "protected", "public",
+    "readonly", "ref", "return", "sbyte", "sealed", "short", "sizeof",
+    "stackalloc", "static", "string", "struct", "switch", "this", "throw",
+    "true", "try", "typeof", "uint", "ulong", "unchecked", "unsafe",
+    "ushort", "using", "virtual", "void", "volatile", "while",
+})
+
+_GH_CSHARP_PLUGIN_SOURCE_PATTERNS: tuple = (
+    (
+        "class_extends_gh_component",
+        re.compile(r"\bclass\s+[A-Za-z_][A-Za-z0-9_]*\s*:\s*(?:[A-Za-z_][A-Za-z0-9_]*\.)*GH_Component\b"),
+    ),
+    ("solve_instance", re.compile(r"\bSolveInstance\s*\(")),
+    ("register_input_params", re.compile(r"\bRegisterInputParams\s*\(")),
+    ("register_output_params", re.compile(r"\bRegisterOutputParams\s*\(")),
+    ("igh_data_access", re.compile(r"\bIGH_DataAccess\b")),
+    ("gh_input_param_manager", re.compile(r"\bGH_InputParamManager\b")),
+    ("gh_output_param_manager", re.compile(r"\bGH_OutputParamManager\b")),
+)
+
+
+def _gh_csharp_is_body_source(code: str) -> bool:
+    return "class Script_Instance" not in code and "void RunScript" not in code
+
+
+def _gh_csharp_has_output_assignment(code: str, output_name: str) -> bool:
+    escaped = re.escape(output_name)
+    pattern = re.compile(
+        rf"(?<![A-Za-z0-9_\.]){escaped}\s*(?:\?\?=|\+=|-=|\*=|/=|=(?!=))",
+    )
+    return bool(pattern.search(code))
+
+
+def _preflight_gh_csharp_create_script_contract(
+    code: str,
+    pins_in: list[dict[str, Any]],
+    pins_out: list[dict[str, Any]],
+) -> list[GhCSharpCreatePreflightFinding]:
+    findings: list[GhCSharpCreatePreflightFinding] = []
+    seen_names: dict[str, str] = {}
+
+    for field, pins in (("pins_in", pins_in), ("pins_out", pins_out)):
+        for pin in pins:
+            name = str(pin.get("name") or "")
+            if not _GH_CSHARP_IDENTIFIER_RE.match(name):
+                findings.append(GhCSharpCreatePreflightFinding(
+                    code="invalid_pin_identifier",
+                    message=f"Pin name '{name}' is not a valid C# identifier.",
+                    field=field,
+                    pin=name,
+                ))
+            elif name in _GH_CSHARP_RESERVED_KEYWORDS:
+                findings.append(GhCSharpCreatePreflightFinding(
+                    code="reserved_pin_identifier",
+                    message=f"Pin name '{name}' is a reserved C# keyword.",
+                    field=field,
+                    pin=name,
+                ))
+
+            access = pin.get("access")
+            if access is not None and access not in {"item", "list", "tree"}:
+                findings.append(GhCSharpCreatePreflightFinding(
+                    code="invalid_pin_access",
+                    message=(
+                        f"Pin '{name}' has normalized access '{access}'. "
+                        "Expected one of item, list, tree."
+                    ),
+                    field=field,
+                    pin=name,
+                ))
+
+            if name in seen_names:
+                findings.append(GhCSharpCreatePreflightFinding(
+                    code="duplicate_pin_identifier",
+                    message=(
+                        f"Pin name '{name}' appears in both the C# RunScript "
+                        "parameter namespace and cannot be duplicated."
+                    ),
+                    field=field,
+                    pin=name,
+                ))
+            else:
+                seen_names[name] = field
+
+    for _pattern_name, pattern in _GH_CSHARP_PLUGIN_SOURCE_PATTERNS:
+        if pattern.search(code):
+            findings.append(GhCSharpCreatePreflightFinding(
+                code="plugin_component_source",
+                message=(
+                    "C# script components require RhinoCode Script_Instance or "
+                    "body-style RunScript code, not a GH_Component plugin class."
+                ),
+                field="code",
+            ))
+            break
+
+    if _gh_csharp_is_body_source(code):
+        for pin in pins_out:
+            name = str(pin.get("name") or "")
+            if _GH_CSHARP_IDENTIFIER_RE.match(name) and not _gh_csharp_has_output_assignment(code, name):
+                findings.append(GhCSharpCreatePreflightFinding(
+                    code="missing_output_assignment",
+                    message=(
+                        f"Output pin '{name}' is declared but body-style C# code "
+                        "does not visibly assign it."
+                    ),
+                    field="pins_out",
+                    pin=name,
+                ))
+
+    return findings
+
+
+def _gh_csharp_create_preflight_failure(
+    findings: list[GhCSharpCreatePreflightFinding],
+    pins_in: list[dict[str, Any]],
+    pins_out: list[dict[str, Any]],
+) -> dict[str, Any]:
+    message = "C# script preflight failed."
+    data = {
+        "message": message,
+        "preflight_errors": [finding.to_dict() for finding in findings],
+        "pins_in": pins_in,
+        "pins_out": pins_out,
+    }
+    return {
+        "success": False,
+        "message": message,
+        "data": data,
+    }
 
 
 async def _execute_gh_create_script(

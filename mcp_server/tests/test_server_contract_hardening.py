@@ -414,6 +414,113 @@ async def test_gh_record_investigation_records_grounded_success(monkeypatch, pat
     assert saved_obs["observations"]["obs-success"]["learned"] == "E must be 0 for open pipe"
 
 
+def _preflight_codes(findings):
+    return {finding.code for finding in findings}
+
+
+def test_gh_csharp_create_preflight_accepts_simple_body_assignment():
+    findings = server._preflight_gh_csharp_create_script_contract(
+        "A = Convert.ToDouble(R);",
+        [{"name": "R", "type": "double"}],
+        [{"name": "A", "type": "double"}],
+    )
+
+    assert findings == []
+
+
+def test_gh_csharp_create_preflight_rejects_invalid_keyword_and_duplicate_pins():
+    findings = server._preflight_gh_csharp_create_script_contract(
+        "A = 1;",
+        [{"name": "class", "type": "double"}, {"name": "A", "type": "double"}],
+        [{"name": "A", "type": "double"}, {"name": "1B", "type": "Brep"}],
+    )
+
+    codes = _preflight_codes(findings)
+    assert "reserved_pin_identifier" in codes
+    assert "duplicate_pin_identifier" in codes
+    assert "invalid_pin_identifier" in codes
+
+
+def test_gh_csharp_create_preflight_rejects_normalized_invalid_access():
+    findings = server._preflight_gh_csharp_create_script_contract(
+        "A = 1;",
+        [{"name": "R", "type": "double", "access": "matrix"}],
+        [{"name": "A", "type": "double"}],
+    )
+
+    assert any(
+        finding.code == "invalid_pin_access" and finding.pin == "R"
+        for finding in findings
+    )
+
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        "public class BadComponent : GH_Component { }",
+        "protected override void SolveInstance(IGH_DataAccess DA) { }",
+        "protected override void RegisterInputParams(GH_InputParamManager pManager) { }",
+        "protected override void RegisterOutputParams(GH_OutputParamManager pManager) { }",
+        "private void Helper(IGH_DataAccess DA) { }",
+    ],
+)
+def test_gh_csharp_create_preflight_rejects_plugin_component_source(code):
+    findings = server._preflight_gh_csharp_create_script_contract(
+        code,
+        [],
+        [{"name": "B", "type": "Brep"}],
+    )
+
+    assert any(finding.code == "plugin_component_source" for finding in findings)
+
+
+def test_gh_csharp_create_preflight_requires_body_output_assignment():
+    findings = server._preflight_gh_csharp_create_script_contract(
+        "var radius = 5.0;",
+        [],
+        [{"name": "B", "type": "Brep"}],
+    )
+
+    assert any(
+        finding.code == "missing_output_assignment" and finding.pin == "B"
+        for finding in findings
+    )
+
+
+@pytest.mark.parametrize("operator", ["=", "+=", "-=", "*=", "/=", "??="])
+def test_gh_csharp_create_preflight_accepts_simple_output_assignment_operators(operator):
+    findings = server._preflight_gh_csharp_create_script_contract(
+        f"B {operator} value;",
+        [],
+        [{"name": "B", "type": "Brep"}],
+    )
+
+    assert not any(finding.code == "missing_output_assignment" for finding in findings)
+
+
+def test_gh_csharp_create_preflight_does_not_accept_method_call_assignment_evidence():
+    findings = server._preflight_gh_csharp_create_script_contract(
+        "B.Add(value);",
+        [],
+        [{"name": "B", "type": "object"}],
+    )
+
+    assert any(finding.code == "missing_output_assignment" for finding in findings)
+
+
+def test_gh_csharp_create_preflight_skips_assignment_check_for_full_source():
+    findings = server._preflight_gh_csharp_create_script_contract(
+        (
+            "public class Script_Instance : GH_ScriptInstance { "
+            "private void RunScript(ref object B) { } }"
+        ),
+        [],
+        [{"name": "B", "type": "object"}],
+    )
+
+    assert not any(finding.code == "missing_output_assignment" for finding in findings)
+
+
 @pytest.mark.asyncio
 async def test_gh_create_csharp_script_accepts_rich_pin_objects(monkeypatch, patched_server):
     recorded_calls = []
