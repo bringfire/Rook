@@ -257,6 +257,54 @@ async def test_dispatcher_csharp_alias_normalizes_common_model_argument_aliases(
     assert calls[0]["arguments"]["name"] == "Box Creator"
 
 
+@pytest.mark.asyncio
+async def test_dispatcher_csharp_alias_normalized_script_reaches_preflight(monkeypatch):
+    from rook import server
+    from rook.agent.tool_dispatcher import ToolDispatcher, build_local_tools
+
+    calls = []
+
+    async def fake_call_rhino(endpoint, method, data=None, port=None):
+        calls.append((endpoint, method, data))
+        return {"success": True, "data": {"guid": "created-guid"}}
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    dispatcher = ToolDispatcher(port=9877, local_tools=build_local_tools())
+    result = await dispatcher.dispatch(
+        "gh_create_csharp_script",
+        {
+            "params": {
+                "script": "public class MyComponent : GH_Component { }",
+                "pins_out": [{"name": "A", "type": "object"}],
+            },
+            "name": "Invalid Component",
+        },
+    )
+
+    assert result["success"] is False
+    assert result["data"].startswith("C# script preflight failed:")
+    assert calls == []
+
+
+def test_gh_set_script_transform_remains_raw_escape_hatch():
+    from rook.agent.tool_dispatcher import _transform_gh_set_script
+
+    endpoint, method, payload = _transform_gh_set_script(
+        {
+            "guid": "script-guid",
+            "script": "public class MyComponent : GH_Component { }",
+        }
+    )
+
+    assert endpoint == "/gh/script"
+    assert method == "POST"
+    assert payload == {
+        "guid": "script-guid",
+        "script": "public class MyComponent : GH_Component { }",
+    }
+
+
 def _local_tool_schema(tool_name):
     from rook.agent.chat.chat_runner import _build_local_tool_catalog
 
