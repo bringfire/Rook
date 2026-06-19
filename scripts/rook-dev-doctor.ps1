@@ -177,11 +177,14 @@ function Invoke-ProcessChecks {
     }
 
     try {
-        $rookPython = @(Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" |
-            Where-Object { $_.CommandLine -match '(^|\s)-m\s+rook(\s|$)' })
+        $rookPython = @(Get-CimInstance Win32_Process |
+            Where-Object {
+                $_.Name -match '^pythonw?\.exe$' -and
+                $_.CommandLine -match '(^|\s)-m\s+rook(\s|$)'
+            })
         if ($rookPython.Count -gt 0) {
             $ids = ($rookPython | Select-Object -ExpandProperty ProcessId) -join ', '
-            Write-CheckResult -Status WARN -Name 'python -m rook processes' -Detail "Detected python -m rook process IDs: $ids"
+            Write-CheckResult -Status WARN -Name 'python -m rook processes' -Detail "Detected python -m rook process IDs: $ids. Use scripts\rook-mcp-processes.ps1 to list them, or add -Stop to stop only these processes."
         } else {
             Write-CheckResult -Status PASS -Name 'python -m rook processes' -Detail 'No stale rook MCP process detected.'
         }
