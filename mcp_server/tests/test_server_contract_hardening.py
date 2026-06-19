@@ -570,6 +570,47 @@ def test_gh_csharp_create_preflight_ignores_full_source_markers_in_comments_and_
     )
 
 
+def test_gh_csharp_create_preflight_ignores_raw_string_assignment_text():
+    findings = server._preflight_gh_csharp_create_script_contract(
+        'var s = """\n"B = value;"\n""";',
+        [],
+        [{"name": "B", "type": "object"}],
+    )
+
+    assert any(
+        finding.code == "missing_output_assignment" and finding.pin == "B"
+        for finding in findings
+    )
+
+
+def test_gh_csharp_create_preflight_ignores_raw_string_plugin_patterns():
+    findings = server._preflight_gh_csharp_create_script_contract(
+        'var s = """\n"public class BadComponent : GH_Component { }"\n'
+        '"protected override void SolveInstance(IGH_DataAccess DA) { }"\n""";\n'
+        "B = value;",
+        [],
+        [{"name": "B", "type": "object"}],
+    )
+
+    assert not any(finding.code == "plugin_component_source" for finding in findings)
+
+
+def test_gh_csharp_create_preflight_ignores_raw_string_full_source_markers():
+    findings = server._preflight_gh_csharp_create_script_contract(
+        'var s = """\n'
+        '"public class Script_Instance : GH_ScriptInstance { }"\n'
+        '"void RunScript(ref object B) { }"\n'
+        '""";',
+        [],
+        [{"name": "B", "type": "object"}],
+    )
+
+    assert any(
+        finding.code == "missing_output_assignment" and finding.pin == "B"
+        for finding in findings
+    )
+
+
 @pytest.mark.asyncio
 async def test_gh_create_csharp_script_accepts_rich_pin_objects(monkeypatch, patched_server):
     recorded_calls = []

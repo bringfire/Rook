@@ -2443,6 +2443,25 @@ def _gh_csharp_code_without_comments_and_literals(code: str) -> str:
             continue
 
         if ch == '"':
+            quote_count = 0
+            while i + quote_count < length and code[i + quote_count] == '"':
+                quote_count += 1
+            if quote_count >= 3:
+                for _ in range(quote_count):
+                    append_trivia_char('"')
+                i += quote_count
+                closing = '"' * quote_count
+                while i < length:
+                    if code.startswith(closing, i):
+                        for _ in range(quote_count):
+                            append_trivia_char('"')
+                        i += quote_count
+                        break
+                    append_trivia_char(code[i])
+                    i += 1
+                continue
+
+        if ch == '"':
             append_trivia_char(ch)
             i += 1
             while i < length:
