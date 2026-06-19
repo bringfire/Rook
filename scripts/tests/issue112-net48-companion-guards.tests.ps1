@@ -4,7 +4,7 @@ $TestRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $TestRoot)
 $InstallScript = Join-Path $RepoRoot 'install.ps1'
 $RegisterCompanionScript = Join-Path $RepoRoot 'scripts\register-companion.ps1'
-$ExpectedNet48Message = 'net48 Rook companion builds are not supported for registration; use the net7.0 Rook.rhp output.'
+$ExpectedNet48Message = 'net48 Rook companion builds are not supported; use net8.0 Rook.rhp. net7.0 is accepted as fallback.'
 
 function Assert-True {
     param(

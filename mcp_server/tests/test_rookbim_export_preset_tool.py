@@ -39,3 +39,17 @@ def test_export_preset_derives_mutate_policy():
 def test_export_preset_in_full_group_not_readonly():
     assert "rookbim_export_preset" in tool_groups.TOOL_GROUPS["rookbim"]
     assert "rookbim_export_preset" not in tool_groups.TOOL_GROUPS["rookbim_readonly"]
+
+
+def test_export_preset_to_rhino_derives_mutate_policy():
+    assert policy_for_tool("rookbim_export_preset_to_rhino") == RhinoToolPolicy(True, "mutate")
+    assert "rookbim_export_preset_to_rhino" in _ALL_KNOWN_TOOLS
+    assert "rookbim_export_preset_to_rhino" not in _META_TOOLS
+    assert "rookbim_export_preset_to_rhino" not in _RHINO_READ_TOOLS
+    assert "rookbim_export_preset_to_rhino" not in _RHINO_INDEPENDENT_READ_TOOLS
+    assert "rookbim_export_preset_to_rhino" not in _RHINO_INDEPENDENT_MUTATE_TOOLS
+
+
+def test_export_preset_to_rhino_in_full_group_not_readonly():
+    assert "rookbim_export_preset_to_rhino" in tool_groups.TOOL_GROUPS["rookbim"]
+    assert "rookbim_export_preset_to_rhino" not in tool_groups.TOOL_GROUPS["rookbim_readonly"]

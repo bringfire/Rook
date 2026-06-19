@@ -192,6 +192,7 @@ if ($NativeOnlyPreserveCompanion) {
 $nativeDir = Split-Path -Parent $resolvedNative
 if (-not $CompanionRhpPath) {
     $candidateCompanions = @(
+        (Join-Path $nativeDir 'net8.0\Rook.rhp'),
         (Join-Path $nativeDir 'net7.0\Rook.rhp'),
         (Join-Path $nativeDir 'Rook.rhp')
     )

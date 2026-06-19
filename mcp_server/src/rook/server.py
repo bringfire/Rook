@@ -596,6 +596,51 @@ def _rookbim_export_preset_schema() -> dict[str, Any]:
     }
 
 
+def _rookbim_export_preset_to_rhino_schema() -> dict[str, Any]:
+    schema = _rookbim_export_preset_schema()
+    props = dict(schema["properties"])
+    props["projectRelationships"] = {
+        "type": "boolean",
+        "default": True,
+        "description": "Project the exported sidecar into the Python scene graph after import.",
+    }
+    props["includeRooms"] = {
+        "type": "boolean",
+        "default": True,
+        "description": "When projecting relationships, include room reference nodes and revit_in_room edges.",
+    }
+    props["includeLevels"] = {
+        "type": "boolean",
+        "default": True,
+        "description": "When projecting relationships, include level reference nodes and revit_on_level edges.",
+    }
+    props["relationshipSummary"] = {
+        "type": "boolean",
+        "default": True,
+        "description": "Return a scene-wide scene_bim_facts relationship_scan after projection.",
+    }
+    props["relationshipSampleLimit"] = {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 100,
+        "default": 20,
+        "description": "Sample limit passed to scene_bim_facts relationship_scan.",
+    }
+    props["targetLayer"] = {
+        "type": "string",
+        "description": (
+            "Advanced/discouraged: passes targetLayer to /import and may destroy exported BIM "
+            "layer organization such as RookBim > Level > Category."
+        ),
+    }
+    return {
+        "type": "object",
+        "properties": props,
+        "required": ["preset"],
+        "additionalProperties": False,
+    }
+
+
 def _interactive_command_learning_enabled() -> bool:
     if os.getenv("ROOK_MCP_TARGET_MODE") == "panel_locked":
         return False
@@ -12502,6 +12547,16 @@ Returns the full profile JSON including features, surfaces, and elements.""",
             ),
             inputSchema=_rookbim_export_preset_schema(),
         ),
+        Tool(
+            name="rookbim_export_preset_to_rhino",
+            description=(
+                "Demo workflow: export a RookBIM preset bundle, import the generated .3dm into "
+                "the current Rhino/Rhino.Inside document, project BIM sidecar facts for the "
+                "imported objects, and optionally return a scene-wide BIM relationship summary. "
+                "Mutates Rhino by importing geometry; does not modify Revit."
+            ),
+            inputSchema=_rookbim_export_preset_to_rhino_schema(),
+        ),
 
         # ─── Vision Video (PR-V4) ───────────────────────────────────────
         # Seven MCP tools wrapping the V2/V3 video routes plus the two
@@ -19863,6 +19918,33 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
             result = await call_rhino(
                 "/bim/export-preset", "POST", arguments, port=port
             )
+
+        case "rookbim_export_preset_to_rhino":
+            from . import rookbim_export_to_rhino
+            from .scene.bim_facts_query import query_bim_facts
+            from .scene.bim_relationship_projection import (
+                BimProjectionValidationError,
+                project_bim_relationships_for_tool,
+            )
+            from .scene.scene_graph import get_scene_graph
+
+            def _query_bim_facts_for_workflow(**kwargs):
+                return query_bim_facts(get_scene_graph(), **kwargs)
+
+            workflow_arguments = dict(arguments)
+            if port is not None:
+                workflow_arguments["port"] = port
+            payload = await rookbim_export_to_rhino.export_preset_to_rhino(
+                workflow_arguments,
+                call_rhino_fn=call_rhino,
+                project_relationships_fn=project_bim_relationships_for_tool,
+                query_bim_facts_fn=_query_bim_facts_for_workflow,
+                projection_exception_types=(BimProjectionValidationError,),
+            )
+            if payload.get("success") is False:
+                result = {"success": False, "data": payload}
+            else:
+                result = {"success": True, "data": payload}
 
         # ─── Vision Video (PR-V4) ────────────────────────────────────
         # All seven calls pass explicit method + data so the wire
