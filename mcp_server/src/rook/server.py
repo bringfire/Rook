@@ -2382,7 +2382,7 @@ _GH_CSHARP_FULL_SOURCE_PATTERNS: tuple = (
 
 def _gh_csharp_is_body_source(code: str) -> bool:
     code_without_trivia = _gh_csharp_code_without_comments_and_literals(code)
-    return not any(pattern.search(code_without_trivia) for pattern in _GH_CSHARP_FULL_SOURCE_PATTERNS)
+    return not all(pattern.search(code_without_trivia) for pattern in _GH_CSHARP_FULL_SOURCE_PATTERNS)
 
 
 def _gh_csharp_has_output_assignment(code: str, output_name: str) -> bool:

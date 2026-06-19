@@ -556,6 +556,19 @@ def test_gh_csharp_create_preflight_skips_assignment_check_for_spaced_full_sourc
     assert not any(finding.code == "missing_output_assignment" for finding in findings)
 
 
+def test_gh_csharp_create_preflight_requires_assignment_for_body_run_script_helper():
+    findings = server._preflight_gh_csharp_create_script_contract(
+        "void RunScript(object value) { }",
+        [],
+        [{"name": "B", "type": "object"}],
+    )
+
+    assert any(
+        finding.code == "missing_output_assignment" and finding.pin == "B"
+        for finding in findings
+    )
+
+
 @pytest.mark.parametrize("code", ['// B = value;', 'var note = "B = value";'])
 def test_gh_csharp_create_preflight_ignores_assignment_text_in_comments_and_strings(code):
     findings = server._preflight_gh_csharp_create_script_contract(
