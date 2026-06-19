@@ -16,6 +16,7 @@ $RepoRoot = Split-Path -Parent $ScriptDir
 
 $OcctFallbackRoot = 'C:\Users\aryan\source\repos\OCCT\build-rook'
 $ManagedCompanionRuntimes = @('net8.0', 'net7.0', 'net48')
+$OcctRequiredHeaders = @('Standard.hxx','TopoDS_Shape.hxx','BRep_Builder.hxx','Geom_BSplineSurface.hxx','gp_Pnt.hxx','OSD.hxx')
 $OcctRuntimeDlls = @('TKernel.dll','TKMath.dll','TKG2d.dll','TKG3d.dll','TKGeomBase.dll','TKGeomAlgo.dll','TKBRep.dll','TKTopAlgo.dll','TKPrim.dll','TKBO.dll','TKShHealing.dll')
 
 $script:PassCount = 0
@@ -60,6 +61,25 @@ function Test-RequiredPath {
     }
 }
 
+function Invoke-Git {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$Arguments
+    )
+
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $output = @(& git @Arguments 2>$null)
+        return [pscustomobject]@{
+            ExitCode = $LASTEXITCODE
+            Output = $output
+        }
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+}
+
 function Resolve-OcctRuntimeRoot {
     if (-not [string]::IsNullOrWhiteSpace($env:OCCT_ROOT)) {
         return [pscustomobject]@{
@@ -83,40 +103,45 @@ function Invoke-GitChecks {
 
     Write-CheckResult -Status PASS -Name 'Git command' -Detail $gitCommand.Source
 
-    $insideRepo = ((& git -C $RepoRoot rev-parse --is-inside-work-tree 2>$null) -join '').Trim()
-    if ($LASTEXITCODE -ne 0 -or $insideRepo -ne 'true') {
+    $insideRepoResult = Invoke-Git -Arguments @('-C', $RepoRoot, 'rev-parse', '--is-inside-work-tree')
+    $insideRepo = (($insideRepoResult.Output) -join '').Trim()
+    if ($insideRepoResult.ExitCode -ne 0 -or $insideRepo -ne 'true') {
         Write-CheckResult -Status FAIL -Name 'Git repo inspect' -Detail "git could not inspect $RepoRoot."
         return
     }
 
     Write-CheckResult -Status PASS -Name 'Git repo inspect' -Detail $RepoRoot
 
-    $branch = ((& git -C $RepoRoot rev-parse --abbrev-ref HEAD 2>$null) -join '').Trim()
-    if ($LASTEXITCODE -eq 0 -and $branch) {
+    $branchResult = Invoke-Git -Arguments @('-C', $RepoRoot, 'rev-parse', '--abbrev-ref', 'HEAD')
+    $branch = (($branchResult.Output) -join '').Trim()
+    if ($branchResult.ExitCode -eq 0 -and $branch) {
         Write-CheckResult -Status PASS -Name 'Git branch' -Detail $branch
     } else {
         Write-CheckResult -Status WARN -Name 'Git branch' -Detail 'Unable to determine current branch.'
     }
 
-    $dirty = @(& git -C $RepoRoot status --porcelain 2>$null)
-    if ($LASTEXITCODE -eq 0 -and $dirty.Count -gt 0) {
+    $dirtyResult = Invoke-Git -Arguments @('-C', $RepoRoot, 'status', '--porcelain')
+    $dirty = @($dirtyResult.Output)
+    if ($dirtyResult.ExitCode -eq 0 -and $dirty.Count -gt 0) {
         Write-CheckResult -Status WARN -Name 'Git working tree' -Detail "$($dirty.Count) changed path(s)."
-    } elseif ($LASTEXITCODE -eq 0) {
+    } elseif ($dirtyResult.ExitCode -eq 0) {
         Write-CheckResult -Status PASS -Name 'Git working tree' -Detail 'Clean.'
     } else {
         Write-CheckResult -Status WARN -Name 'Git working tree' -Detail 'Unable to inspect working tree status.'
     }
 
-    $upstream = ((& git -C $RepoRoot rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>$null) -join '').Trim()
-    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($upstream)) {
+    $upstreamResult = Invoke-Git -Arguments @('-C', $RepoRoot, 'rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}')
+    $upstream = (($upstreamResult.Output) -join '').Trim()
+    if ($upstreamResult.ExitCode -ne 0 -or [string]::IsNullOrWhiteSpace($upstream)) {
         Write-CheckResult -Status WARN -Name 'Git upstream' -Detail 'No upstream branch configured.'
         return
     }
 
     Write-CheckResult -Status PASS -Name 'Git upstream' -Detail $upstream
 
-    $aheadBehind = ((& git -C $RepoRoot rev-list --left-right --count 'HEAD...@{u}' 2>$null) -join '').Trim()
-    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($aheadBehind)) {
+    $aheadBehindResult = Invoke-Git -Arguments @('-C', $RepoRoot, 'rev-list', '--left-right', '--count', 'HEAD...@{u}')
+    $aheadBehind = (($aheadBehindResult.Output) -join '').Trim()
+    if ($aheadBehindResult.ExitCode -ne 0 -or [string]::IsNullOrWhiteSpace($aheadBehind)) {
         Write-CheckResult -Status WARN -Name 'Git upstream sync' -Detail 'Unable to compare ahead/behind state.'
         return
     }
@@ -201,7 +226,6 @@ function Invoke-OcctChecks {
     Write-CheckResult -Status PASS -Name 'OCCT root source' -Detail "Using $($occt.Source): $($occt.Root). OCCT_ROOT is preferred; fallback is $OcctFallbackRoot."
 
     $required = @(
-        (Join-Path $occt.Root 'inc\TKernel.hxx'),
         (Join-Path $occt.Root 'win64\vc14\lib\TKernel.lib'),
         (Join-Path $occt.Root 'win64\vc14\bin')
     )
@@ -211,6 +235,16 @@ function Invoke-OcctChecks {
             Write-CheckResult -Status PASS -Name 'OCCT required path' -Detail $path
         } else {
             Write-CheckResult -Status FAIL -Name 'OCCT required path' -Detail "Missing: $path"
+        }
+    }
+
+    $includeRoot = Join-Path $occt.Root 'inc'
+    foreach ($header in $OcctRequiredHeaders) {
+        $headerPath = Join-Path $includeRoot $header
+        if (Test-Path $headerPath) {
+            Write-CheckResult -Status PASS -Name "OCCT header $header" -Detail $headerPath
+        } else {
+            Write-CheckResult -Status FAIL -Name "OCCT header $header" -Detail "Missing: $headerPath"
         }
     }
 
@@ -224,13 +258,13 @@ function Invoke-OcctChecks {
         }
     }
 
-    $header = Join-Path $occt.Root 'inc\TKernel.hxx'
+    $header = Join-Path $includeRoot 'Standard.hxx'
     if (Test-Path $header) {
         $firstLines = (Get-Content -Path $header -TotalCount 20) -join "`n"
         if ($firstLines -match [regex]::Escape('C:\Users\aryan\source\repos\OCCT')) {
-            Write-CheckResult -Status FAIL -Name 'OCCT header forwarding' -Detail 'inc\TKernel.hxx appears to forward to C:\Users\aryan\source\repos\OCCT.'
+            Write-CheckResult -Status FAIL -Name 'OCCT header forwarding' -Detail 'inc\Standard.hxx appears to forward to C:\Users\aryan\source\repos\OCCT.'
         } else {
-            Write-CheckResult -Status PASS -Name 'OCCT header forwarding' -Detail 'inc\TKernel.hxx does not expose a local source-tree forwarding path in its first lines.'
+            Write-CheckResult -Status PASS -Name 'OCCT header forwarding' -Detail 'inc\Standard.hxx does not expose a local source-tree forwarding path in its first lines.'
         }
     }
 }
