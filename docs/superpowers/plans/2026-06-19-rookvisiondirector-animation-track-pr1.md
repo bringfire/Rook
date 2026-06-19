@@ -50,6 +50,7 @@ These apply to **every** task; values are copied verbatim from the spec (`docs/s
     - `camera_per_frame`: list length `frame_count`, each an explicit camera dict.
     - `motion_frames`: list length `frame_count`, each `{"frame_index": int, "object_transforms": [{object_id, source_state, transform}]}` (exactly what `director.expand_radial_bbox_center` returns).
     - Returns the track dict: `schema_version`, `animation_version`, `frame_count`, `fps`, `resolution`, `transform_semantics`, `animated_object_ids` (list, derived from `motion_frames[0]`), `camera_frames` (`[{frame_index, camera}]`), `object_frames` (`[{frame_index, object_transforms}]`), `camera_provenance`, `object_provenance`.
+    - Raises `AnimationTrackError` (never a raw `TypeError`/`KeyError`/`IndexError`) for any malformed input: non-list `camera_per_frame`/`motion_frames`, length mismatch with `frame_count`, or **any** motion frame (not just the first) that is not an object, lacks an integer `frame_index`, lacks a non-empty list `object_transforms`, or carries a non-string `object_id`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -195,6 +196,34 @@ def test_build_rejects_non_string_object_id():
             camera_provenance={},
             object_provenance={},
         )
+
+
+def test_build_rejects_malformed_non_first_motion_frame():
+    # First frame is well-formed; the second is missing object_transforms.
+    # Guards must cover every frame, not just motion_frames[0].
+    with pytest.raises(animation_track.AnimationTrackError, match="object_transforms"):
+        animation_track.build_animation_track(
+            frame_count=2,
+            fps=24,
+            resolution={"width": 320, "height": 180},
+            camera_per_frame=[_camera([0, 0, 0]), _camera([1, 0, 0])],
+            motion_frames=[_motion_frame(1), {"frame_index": 2}],
+            camera_provenance={},
+            object_provenance={},
+        )
+
+
+def test_build_rejects_non_list_motion_frames():
+    with pytest.raises(animation_track.AnimationTrackError, match="motion_frames"):
+        animation_track.build_animation_track(
+            frame_count=1,
+            fps=24,
+            resolution={"width": 320, "height": 180},
+            camera_per_frame=[_camera([0, 0, 0])],
+            motion_frames=None,
+            camera_provenance={},
+            object_provenance={},
+        )
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -234,24 +263,36 @@ def build_animation_track(
 ) -> dict[str, Any]:
     if not isinstance(frame_count, int) or isinstance(frame_count, bool) or frame_count < 1:
         raise AnimationTrackError("frame_count must be an integer >= 1")
+    if not isinstance(camera_per_frame, list):
+        raise AnimationTrackError("camera_per_frame must be a list")
+    if not isinstance(motion_frames, list):
+        raise AnimationTrackError("motion_frames must be a list")
     if len(camera_per_frame) != frame_count:
         raise AnimationTrackError("camera_per_frame length must equal frame_count")
     if len(motion_frames) != frame_count:
         raise AnimationTrackError("motion_frames length must equal frame_count")
 
-    first_frame = motion_frames[0]
-    first_transforms = first_frame.get("object_transforms") if isinstance(first_frame, dict) else None
-    if not isinstance(first_transforms, list) or not first_transforms:
-        raise AnimationTrackError(
-            "motion_frames[0].object_transforms must be a non-empty list"
-        )
-    animated_object_ids: list[str] = []
-    for transform in first_transforms:
-        if not isinstance(transform, dict) or not isinstance(transform.get("object_id"), str):
+    for frame in motion_frames:
+        if not isinstance(frame, dict):
+            raise AnimationTrackError("motion_frames entries must be objects")
+        frame_index = frame.get("frame_index")
+        if not isinstance(frame_index, int) or isinstance(frame_index, bool):
+            raise AnimationTrackError("motion_frames frame_index must be an integer")
+        transforms = frame.get("object_transforms")
+        if not isinstance(transforms, list) or not transforms:
             raise AnimationTrackError(
-                "motion_frames object_transforms.object_id must be a string"
+                "motion_frames object_transforms must be a non-empty list"
             )
-        animated_object_ids.append(transform["object_id"])
+        for transform in transforms:
+            if not isinstance(transform, dict) or not isinstance(transform.get("object_id"), str):
+                raise AnimationTrackError(
+                    "motion_frames object_transforms.object_id must be a string"
+                )
+
+    animated_object_ids = [
+        transform["object_id"]
+        for transform in motion_frames[0]["object_transforms"]
+    ]
     camera_frames = [
         {"frame_index": index + 1, "camera": camera_per_frame[index]}
         for index in range(frame_count)
@@ -305,6 +346,7 @@ git commit -m "feat(director): add animation_track.build_animation_track"
 Validation rules (each raises `AnimationTrackError` — never a raw `AttributeError`/`IndexError` — with a message containing the quoted token below):
 
 *Metadata:*
+- `track` itself must be an object (reject `None`/list/str up front, before any `.get`) → `"track"`.
 - `schema_version` must equal `1` → `"schema_version"`.
 - `animation_version` must equal `"v1"` → `"animation_version"`.
 - `transform_semantics` must equal `"absolute_from_source"` → `"transform_semantics"`.
@@ -348,6 +390,11 @@ def _valid_track():
 
 def test_validate_accepts_well_formed_track():
     animation_track.validate_animation_track(_valid_track())
+
+
+def test_validate_rejects_non_dict_track():
+    with pytest.raises(animation_track.AnimationTrackError, match="track"):
+        animation_track.validate_animation_track(None)
 
 
 def test_validate_rejects_missing_object_in_a_frame():
@@ -490,6 +537,8 @@ def _validate_frame_index_sequence(frames: list[dict[str, Any]], frame_count: in
 
 
 def validate_animation_track(track: dict[str, Any]) -> None:
+    if not isinstance(track, dict):
+        raise AnimationTrackError("track must be an object")
     if track.get("schema_version") != ANIMATION_SCHEMA_VERSION:
         raise AnimationTrackError("schema_version must be 1")
     if track.get("animation_version") != ANIMATION_VERSION:
