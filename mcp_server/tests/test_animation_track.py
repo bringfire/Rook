@@ -165,3 +165,125 @@ def test_build_rejects_non_list_motion_frames():
             camera_provenance={},
             object_provenance={},
         )
+
+
+import math
+
+
+def _valid_track():
+    return animation_track.build_animation_track(
+        frame_count=2,
+        fps=24,
+        resolution={"width": 320, "height": 180},
+        camera_per_frame=[_camera([4, -4, 3]), _camera([6, -4, 3])],
+        motion_frames=[_motion_frame(1), _motion_frame(2)],
+        camera_provenance={"strategy": "keyframes"},
+        object_provenance={"generator": "radial_bbox_center"},
+    )
+
+
+def test_validate_accepts_well_formed_track():
+    animation_track.validate_animation_track(_valid_track())
+
+
+def test_validate_rejects_non_dict_track():
+    with pytest.raises(animation_track.AnimationTrackError, match="track"):
+        animation_track.validate_animation_track(None)
+
+
+def test_validate_rejects_missing_object_in_a_frame():
+    track = _valid_track()
+    track["object_frames"][1]["object_transforms"] = []
+    with pytest.raises(animation_track.AnimationTrackError, match="animated_object_ids"):
+        animation_track.validate_animation_track(track)
+
+
+def test_validate_rejects_extra_object_in_a_frame():
+    track = _valid_track()
+    extra = _motion_frame(2, object_id="b")["object_transforms"][0]
+    track["object_frames"][1]["object_transforms"].append(extra)
+    with pytest.raises(animation_track.AnimationTrackError, match="animated_object_ids"):
+        animation_track.validate_animation_track(track)
+
+
+def test_validate_rejects_camera_frame_count_mismatch():
+    track = _valid_track()
+    track["camera_frames"] = track["camera_frames"][:1]
+    with pytest.raises(animation_track.AnimationTrackError, match="camera_frames"):
+        animation_track.validate_animation_track(track)
+
+
+def test_validate_rejects_non_finite_transform():
+    track = _valid_track()
+    track["object_frames"][0]["object_transforms"][0]["transform"][0][3] = math.inf
+    with pytest.raises(animation_track.AnimationTrackError, match="transform"):
+        animation_track.validate_animation_track(track)
+
+
+def test_validate_rejects_bad_transform_semantics():
+    track = _valid_track()
+    track["transform_semantics"] = "relative_from_previous"
+    with pytest.raises(animation_track.AnimationTrackError, match="transform_semantics"):
+        animation_track.validate_animation_track(track)
+
+
+def test_validate_rejects_bool_fps():
+    track = _valid_track()
+    track["fps"] = True
+    with pytest.raises(animation_track.AnimationTrackError, match="fps"):
+        animation_track.validate_animation_track(track)
+
+
+def test_validate_rejects_nonpositive_resolution():
+    track = _valid_track()
+    track["resolution"] = {"width": 0, "height": 180}
+    with pytest.raises(animation_track.AnimationTrackError, match="resolution"):
+        animation_track.validate_animation_track(track)
+
+
+def test_validate_rejects_duplicate_animated_object_ids():
+    track = _valid_track()
+    track["animated_object_ids"] = ["a", "a"]
+    with pytest.raises(animation_track.AnimationTrackError, match="animated_object_ids"):
+        animation_track.validate_animation_track(track)
+
+
+def test_validate_rejects_missing_validation_strength():
+    track = _valid_track()
+    del track["object_frames"][0]["object_transforms"][0]["source_state"][
+        "validation_strength"
+    ]
+    with pytest.raises(animation_track.AnimationTrackError, match="validation_strength"):
+        animation_track.validate_animation_track(track)
+
+
+def test_validate_rejects_missing_bbox_for_bbox_only():
+    track = _valid_track()
+    del track["object_frames"][0]["object_transforms"][0]["source_state"]["bbox_min"]
+    with pytest.raises(animation_track.AnimationTrackError, match="bbox_min"):
+        animation_track.validate_animation_track(track)
+
+
+def test_validate_rejects_non_object_camera_frame():
+    track = _valid_track()
+    track["camera_frames"][0] = "not-an-object"
+    with pytest.raises(animation_track.AnimationTrackError, match="camera_frames"):
+        animation_track.validate_animation_track(track)
+
+
+def test_validate_rejects_non_object_transform_entry():
+    track = _valid_track()
+    track["object_frames"][0]["object_transforms"][0] = "not-an-object"
+    with pytest.raises(animation_track.AnimationTrackError, match="object_transforms"):
+        animation_track.validate_animation_track(track)
+
+
+def test_validate_rejects_nonfinite_bbox():
+    track = _valid_track()
+    track["object_frames"][0]["object_transforms"][0]["source_state"]["bbox_min"] = [
+        0.0,
+        math.inf,
+        0.0,
+    ]
+    with pytest.raises(animation_track.AnimationTrackError, match="bbox_min"):
+        animation_track.validate_animation_track(track)
