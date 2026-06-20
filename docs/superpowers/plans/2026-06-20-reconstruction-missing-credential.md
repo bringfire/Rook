@@ -8,6 +8,8 @@
 
 **Tech Stack:** C# (net48), xUnit. Spec: `docs/superpowers/specs/2026-06-20-reconstruction-missing-credential-design.md`.
 
+**Command environment:** verification/test commands are run via the Bash tool (Git Bash), where `grep`/`tail` are available; the pipelines below are written for that shell. (The interactive session shell is PowerShell — if running there, substitute `Select-String` for `grep` and `-Tail N` for `tail`.)
+
 ## Global Constraints
 
 - Reconstruction-local only. Do **not** change `GenerationErrorCode` or any file under `src/Rook/Services/Vision/`.
@@ -575,10 +577,27 @@ Expected: `Passed!` with `Failed: 0`. No "Deployed Rook" line. (Baseline before 
 Run: `python -m pytest mcp_server/tests/test_reconstruction_mcp_tools.py -q 2>&1 | tail -3`
 Expected: `17 passed` (the `.pytest_cache` permission warning is pre-existing and fine).
 
-- [ ] **Step 3: Confirm the constraint greps are clean**
+- [ ] **Step 3: Confirm the constraint gates (diff-scoped)**
 
-Run: `grep -rn "GenerationErrorCode" src/Rook/Services/Reconstruction/ ; git diff --name-only origin/main | grep -i "Services/Vision" || echo "NO Vision files touched"`
-Expected: no new `GenerationErrorCode` usage introduced in reconstruction by this slice; `NO Vision files touched`.
+The constraint is "this slice adds **no** Vision-file change and **no** shared-enum addition / new `missing_credential` construction site" — NOT "no reconstruction file may mention `GenerationErrorCode`" (legitimate existing references remain, e.g. `ReconstructionErrorMapping.MapCode`). Scope the checks to **this slice's diff** (`origin/main...HEAD`):
+
+Run (Bash tool):
+
+```bash
+# (a) no Vision files touched by the slice
+git diff --name-only origin/main...HEAD | grep -i "Services/Vision" && echo "VIOLATION: Vision file touched" || echo "OK: no Vision files touched"
+
+# (b) no shared-enum add and no inline missing_credential construction (the factory uses target-typed
+#     `new(...)`, so any literal `new ReconstructionFailure("missing_credential"` is unwanted drift)
+git diff origin/main...HEAD -- src/Rook/Services/Reconstruction src/Rook.Tests/Services/Reconstruction \
+  | grep -nE 'GenerationErrorCode\.MissingCredential|new ReconstructionFailure\(\s*"missing_credential"' \
+  && echo "VIOLATION: shared-enum add or inline missing_credential construction" \
+  || echo "OK: no shared-enum add; sole construction site is the factory"
+```
+
+Expected: `OK: no Vision files touched` and `OK: no shared-enum add; sole construction site is the factory`.
+
+Manual confirmation: the only place a `missing_credential` `ReconstructionFailure` is built is `ReconstructionErrorMapping.MissingCredentialFailure()`; submit/poll/cancel all call that factory (no inline duplication).
 
 - [ ] **Step 4: No commit** (verification only). If anything is red, return to the owning task.
 
