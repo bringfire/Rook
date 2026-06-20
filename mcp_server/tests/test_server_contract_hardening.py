@@ -572,6 +572,213 @@ async def test_gh_create_script_csharp_compile_errors_share_failure_shape(
 
 
 @pytest.mark.asyncio
+async def test_gh_create_csharp_script_compile_error_adds_script_receipt(
+    monkeypatch, patched_server
+):
+    component_guid = "12345678-1234-4234-9234-123456789abc"
+
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        if route == "/gh/create-component":
+            return {"success": True, "data": {"guid": component_guid}}
+        if route == "/gh/script-params":
+            return {"success": True, "data": {"guid": component_guid}}
+        if route == "/gh/script":
+            return {"success": True, "data": {"guid": component_guid}}
+        if route == "/gh/errors":
+            return {
+                "success": True,
+                "data": {
+                    "errors": [{"guid": component_guid, "errors": ["Cannot convert Box to Brep"]}],
+                    "warnings": [],
+                },
+            }
+        if route == "/gh/document":
+            return {"success": True, "data": {"name": "contract.gh", "path": ""}}
+        raise AssertionError(f"Unexpected route: {route}")
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    payload = _decode_response(await server.call_tool(
+        "gh_create_csharp_script",
+        {
+            "code": "B = new Box();",
+            "pins_in": [],
+            "pins_out": ["B:Brep"],
+            "name": "Box Maker",
+        },
+    ))
+
+    assert payload["success"] is False
+    data = payload["data"]
+    assert data["component_guid"] == component_guid
+    assert data["compilation_errors"] == ["Cannot convert Box to Brep"]
+    receipt = data["script_receipt"]
+    assert receipt["version"] == 1
+    assert receipt["operation"] == "create"
+    assert receipt["language"] == "csharp"
+    assert receipt["mutation"] == {
+        "status": "created",
+        "method": "gh_create_component_then_script",
+        "component_guid": component_guid,
+        "note": None,
+    }
+    assert receipt["verification"]["status"] == "failed"
+    assert receipt["verification"]["method"] == "gh_errors"
+    assert receipt["verification"]["target_error_count"] == 1
+    assert receipt["verification"]["target_warning_count"] == 0
+    assert receipt["verification"]["unrelated_error_count"] == 0
+    assert receipt["verification"]["unrelated_warning_count"] == 0
+    assert receipt["artifact_status"] == "created_with_errors"
+    assert receipt["repair_anchor"]["component_guid"] == component_guid
+    assert receipt["repair_anchor"]["language"] == "csharp"
+    assert receipt["repair_anchor"]["mode_used"] == "body"
+    assert receipt["repair_anchor"]["wrapped"] is True
+    assert receipt["repair_anchor"]["pins_out"] == [{"name": "B", "type": "Brep"}]
+    assert receipt["repair_anchor"]["source_shape"]["input_code_length"] == len("B = new Box();")
+    assert receipt["repair_anchor"]["source_shape"]["prepared_source_length"] == data["code_length"]
+    assert receipt["repair_anchor"]["source_shape"]["full_source_detected"] is False
+    assert receipt["repair_anchor"]["target_errors"] == ["Cannot convert Box to Brep"]
+    assert receipt["repair_anchor"]["target_warnings"] == []
+
+
+@pytest.mark.asyncio
+async def test_gh_create_script_verification_unavailable_keeps_success_and_adds_unknown_receipt(
+    monkeypatch, patched_server
+):
+    component_guid = "12345678-1234-4234-9234-123456789abc"
+
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        if route == "/gh/create-component":
+            return {"success": True, "data": {"guid": component_guid}}
+        if route == "/gh/script-params":
+            return {"success": True, "data": {"guid": component_guid}}
+        if route == "/gh/script":
+            return {"success": True, "data": {"guid": component_guid}}
+        if route == "/gh/errors":
+            return {"success": False, "data": "gh errors unavailable"}
+        if route == "/gh/document":
+            return {"success": True, "data": {"name": "contract.gh", "path": ""}}
+        raise AssertionError(f"Unexpected route: {route}")
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    payload = _decode_response(await server.call_tool(
+        "gh_create_script",
+        {
+            "language": "csharp",
+            "code": "A = 1;",
+            "pins_out": ["A:int"],
+        },
+    ))
+
+    assert payload["success"] is True
+    assert "compilation_errors" not in payload["data"]
+    receipt = payload["data"]["script_receipt"]
+    assert receipt["verification"]["status"] == "unavailable"
+    assert receipt["verification"]["method"] == "gh_errors"
+    assert receipt["verification"]["target_error_count"] is None
+    assert receipt["verification"]["target_warning_count"] is None
+    assert receipt["verification"]["unrelated_error_count"] is None
+    assert receipt["verification"]["unrelated_warning_count"] is None
+    assert receipt["artifact_status"] == "unknown"
+    assert receipt["repair_anchor"]["target_errors"] is None
+    assert receipt["repair_anchor"]["target_warnings"] is None
+
+
+@pytest.mark.asyncio
+async def test_gh_create_script_malformed_success_verification_is_unavailable(
+    monkeypatch, patched_server
+):
+    component_guid = "12345678-1234-4234-9234-123456789abc"
+
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        if route == "/gh/create-component":
+            return {"success": True, "data": {"guid": component_guid}}
+        if route == "/gh/script-params":
+            return {"success": True, "data": {"guid": component_guid}}
+        if route == "/gh/script":
+            return {"success": True, "data": {"guid": component_guid}}
+        if route == "/gh/errors":
+            return {"success": True, "data": {"errors": []}}
+        if route == "/gh/document":
+            return {"success": True, "data": {"name": "contract.gh", "path": ""}}
+        raise AssertionError(f"Unexpected route: {route}")
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    payload = _decode_response(await server.call_tool(
+        "gh_create_csharp_script",
+        {
+            "code": "A = 1;",
+            "pins_out": ["A:int"],
+        },
+    ))
+
+    assert payload["success"] is True
+    receipt = payload["data"]["script_receipt"]
+    assert receipt["verification"]["status"] == "unavailable"
+    assert receipt["verification"]["target_error_count"] is None
+    assert receipt["artifact_status"] == "unknown"
+    assert receipt["repair_anchor"]["target_errors"] is None
+
+
+@pytest.mark.asyncio
+async def test_gh_create_python_script_structured_success_adds_script_receipt(
+    monkeypatch, patched_server
+):
+    component_guid = "12345678-1234-4234-9234-123456789abc"
+
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        if route == "/gh/create-component":
+            return {"success": True, "data": {"guid": component_guid}}
+        if route == "/gh/script-params":
+            return {"success": True, "data": {"guid": component_guid}}
+        if route == "/gh/script":
+            assert "# \u2500\u2500 Auto-generated GH input coercion" in payload["script"]
+            return {"success": True, "data": {"guid": component_guid}}
+        if route == "/gh/errors":
+            return {"success": True, "data": {"errors": [], "warnings": []}}
+        if route == "/gh/document":
+            return {"success": True, "data": {"name": "contract.gh", "path": ""}}
+        raise AssertionError(f"Unexpected route: {route}")
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    payload = _decode_response(await server.call_tool(
+        "gh_create_python_script",
+        {
+            "code": "Result = Pts",
+            "pins_in": [{"name": "Pts", "type": "Point3d", "access": "list"}],
+            "pins_out": ["Result:Point3d"],
+            "name": "Py Receipt",
+        },
+    ))
+
+    assert payload["success"] is True
+    data = payload["data"]
+    assert data["component_guid"] == component_guid
+    assert data["name"] == "Py Receipt"
+    receipt = data["script_receipt"]
+    assert receipt["operation"] == "create"
+    assert receipt["language"] == "python"
+    assert receipt["verification"]["status"] == "passed"
+    assert receipt["verification"]["target_error_count"] == 0
+    assert receipt["verification"]["target_warning_count"] == 0
+    assert receipt["artifact_status"] == "usable"
+    assert receipt["repair_anchor"]["mode_used"] == "body"
+    assert receipt["repair_anchor"]["wrapped"] is True
+    assert receipt["repair_anchor"]["pins_in"] == [{
+        "name": "Pts",
+        "type": "Point3d",
+        "access": "list",
+        "optional": True,
+    }]
+    assert receipt["repair_anchor"]["pins_out"] == [{"name": "Result", "type": "Point3d"}]
+    assert receipt["repair_anchor"]["target_errors"] == []
+    assert receipt["repair_anchor"]["target_warnings"] == []
+
+
+@pytest.mark.asyncio
 async def test_gh_create_csharp_script_compile_errors_match_capitalized_live_shape(
     monkeypatch, patched_server
 ):
