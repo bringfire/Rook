@@ -120,6 +120,27 @@ public sealed class FalReconstructionProviderTests
     }
 
     [Fact]
+    public void Transport_MissingApiKey_ThrowsCredentialMissing_Synchronously()
+    {
+        // Key() is evaluated synchronously before the Task is returned, so this throws synchronously
+        // (assert with Assert.Throws, NOT Assert.ThrowsAsync).
+        var transport = new FalApiTransport(new FalApiClient(), () => null);
+
+        Assert.Throws<ReconstructionCredentialMissingException>(() =>
+        {
+            _ = transport.PostJsonAsync(new Uri("https://queue.fal.run/req"), "{}", CancellationToken.None);
+        });
+        Assert.Throws<ReconstructionCredentialMissingException>(() =>
+        {
+            _ = transport.GetAsync(new Uri("https://queue.fal.run/req"), CancellationToken.None);
+        });
+        Assert.Throws<ReconstructionCredentialMissingException>(() =>
+        {
+            _ = transport.SendAsync(HttpMethod.Put, new Uri("https://queue.fal.run/req"), null, CancellationToken.None);
+        });
+    }
+
+    [Fact]
     public async Task Status_TransportThrows_ReturnsFailedDependencyUnavailableRetryable()
     {
         var transport = new FakeTransport { GetException = new HttpRequestException("connection reset") };

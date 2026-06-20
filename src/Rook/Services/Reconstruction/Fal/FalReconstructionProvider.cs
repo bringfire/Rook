@@ -9,6 +9,21 @@ using Rook.Services.Vision.Generation;
 
 namespace Rook.Services.Reconstruction.Fal;
 
+/// <summary>
+/// Internal signal that the fal API key is not configured, raised at the reconstruction fal edge
+/// (<see cref="FalApiTransport"/> / <see cref="FalReconstructionSourceImagePublisher"/>) and caught at
+/// the <c>ReconstructionJobManager</c> boundary, which maps it to the public <c>missing_credential</c>
+/// failure. NOT part of the public contract. Carries a short diagnostic only — the public remediation
+/// text is owned by <c>ReconstructionErrorMapping.MissingCredentialFailure()</c>.
+/// </summary>
+internal sealed class ReconstructionCredentialMissingException : Exception
+{
+    public ReconstructionCredentialMissingException()
+        : base("fal API key is not configured.")
+    {
+    }
+}
+
 public sealed record ReconstructionProviderSubmitRequest(
     string ModelId,
     Uri InputImageUrl,
@@ -42,7 +57,7 @@ public sealed class FalApiTransport : IFalTransport
     {
         var apiKey = _apiKey();
         if (string.IsNullOrWhiteSpace(apiKey))
-            throw new InvalidOperationException("fal API key is required for reconstruction.");
+            throw new ReconstructionCredentialMissingException();
         return apiKey!;
     }
 
@@ -114,7 +129,7 @@ public sealed class FalReconstructionSourceImagePublisher : IReconstructionSourc
 
         var apiKey = _secrets.GetSecret(GenerationSecretKeys.FalApiKey);
         if (string.IsNullOrWhiteSpace(apiKey))
-            throw new InvalidOperationException("fal API key is required for reconstruction.");
+            throw new ReconstructionCredentialMissingException();
 
         var fileUrl = await _client.UploadFileToCdnAsync(
             apiKey!,

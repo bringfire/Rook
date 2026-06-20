@@ -157,6 +157,13 @@ public sealed class ReconstructionJobManager : IDisposable
         {
             throw;
         }
+        catch (ReconstructionCredentialMissingException)
+        {
+            // Missing fal key (publisher edge, or provider edge if the key vanished mid-submit). Map to
+            // the canonical typed failure rather than the generic submit_failed below. MUST stay before
+            // the FalApiException/Exception catches.
+            return RecordSubmitFailure(submitting, ReconstructionErrorMapping.MissingCredentialFailure());
+        }
         catch (FalApiException ex)
         {
             // The fal CDN source-image upload failed (transport fault or non-2xx). That is a provider
@@ -341,7 +348,21 @@ public sealed class ReconstructionJobManager : IDisposable
         }
 
         if (!string.IsNullOrWhiteSpace(job.ProviderJobId))
-            await _provider.CancelAsync(HandleFor(job), ct).ConfigureAwait(false);
+        {
+            try
+            {
+                await _provider.CancelAsync(HandleFor(job), ct).ConfigureAwait(false);
+            }
+            catch (ReconstructionCredentialMissingException)
+            {
+                // Best-effort remote cancel hit a missing fal key. CancellationRequested was already
+                // recorded above; surface a typed failure instead of an unhandled throw. Ledger
+                // semantics unchanged.
+                return new ReconstructionCancelResult(
+                    ReconstructionJobState.CancellationRequested,
+                    ReconstructionErrorMapping.MissingCredentialFailure());
+            }
+        }
 
         return new ReconstructionCancelResult(ReconstructionJobState.CancellationRequested, null);
     }
@@ -472,6 +493,22 @@ public sealed class ReconstructionJobManager : IDisposable
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             throw;
+        }
+        catch (ReconstructionCredentialMissingException)
+        {
+            // Missing fal key during status/result polling → typed missing_credential, not the opaque
+            // poll_failed below. MUST stay before the generic Exception catch.
+            var latest = FindJob(jobId);
+            if (latest is null)
+                throw;
+
+            _ledger.Append(latest with
+            {
+                State = ReconstructionJobState.Error,
+                Stage = ReconstructionJobStage.Error,
+                Error = ReconstructionErrorMapping.MissingCredentialFailure(),
+                UpdatedAt = DateTimeOffset.UtcNow,
+            });
         }
         catch (Exception ex)
         {

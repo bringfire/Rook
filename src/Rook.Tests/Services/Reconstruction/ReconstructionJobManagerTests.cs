@@ -466,6 +466,36 @@ public sealed class ReconstructionJobManagerTests : IDisposable
     }
 
     [Fact]
+    public async Task Submit_MissingApiKey_RecordsMissingCredential_NotSubmitFailed()
+    {
+        // Real source publisher + a secret store with no fal key → PublishAsync throws the typed
+        // credential exception at the fal edge, which the submit boundary maps to missing_credential.
+        var root = NewTempRoot();
+        var store = new ArtifactStore(Path.Combine(root, "artifacts"));
+        var ledger = new JsonlReconstructionJobLedger(Path.Combine(root, "ledger.jsonl"));
+        var manager = new ReconstructionJobManager(
+            store,
+            ReconstructionModelCatalog.FromJson(CatalogJson),
+            ledger,
+            new FakeReconstructionProvider(),
+            new ReconstructionPackageMaterializer(store, new FakeDownloader()),
+            new FalReconstructionSourceImagePublisher(new FalApiClient(), new NullSecretStore()));
+        _managers.Add(manager);
+        var source = store.Create(
+            "generated_image",
+            new[] { new BlobInput("image", new byte[] { 1, 2, 3 }, "png") });
+
+        var result = await manager.SubmitAsync(Request(source.Id), CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Equal("missing_credential", result.Failure!.Code);
+        Assert.False(result.Failure.Retryable);
+        var terminal = manager.List(10).Jobs.Single();
+        Assert.Equal(ReconstructionJobState.Error, terminal.State);
+        Assert.Equal("missing_credential", terminal.Error!.Code);
+    }
+
+    [Fact]
     public async Task Submit_FalUploadFailure_RecordsProviderUnavailable_NotSubmitFailed()
     {
         // The source-image CDN upload failing (FalApiException) is a provider dependency failure, not a
@@ -484,6 +514,80 @@ public sealed class ReconstructionJobManagerTests : IDisposable
         var status = fixture.Manager.List(10).Jobs.Single();
         Assert.Equal(ReconstructionJobState.Error, status.State);
         Assert.Equal("provider_unavailable", status.Error!.Code);
+    }
+
+    [Fact]
+    public async Task Cancel_MissingApiKey_ReturnsCancellationRequestedWithMissingCredential_NoThrow()
+    {
+        // Real provider over a transport with no key. Seed a polling job, then cancel → remote cancel
+        // hits Key() → typed missing_credential returned (not an unhandled throw). CancellationRequested
+        // is still recorded first.
+        var root = NewTempRoot();
+        var store = new ArtifactStore(Path.Combine(root, "artifacts"));
+        var ledger = new JsonlReconstructionJobLedger(Path.Combine(root, "ledger.jsonl"));
+        var manager = new ReconstructionJobManager(
+            store,
+            ReconstructionModelCatalog.FromJson(CatalogJson),
+            ledger,
+            new FalReconstructionProvider(new FalApiTransport(new FalApiClient(), () => null)),
+            new ReconstructionPackageMaterializer(store, new FakeDownloader()),
+            new FakeSourceImagePublisher());
+        _managers.Add(manager);
+
+        var jobId = Guid.NewGuid();
+        ledger.Append(ReconstructionJobLedgerRecord.Queued(jobId, HunyuanModelId, Guid.NewGuid(), "image") with
+        {
+            State = ReconstructionJobState.Running,
+            Stage = ReconstructionJobStage.Polling,
+            ProviderJobId = "req-1",
+            ProviderStatusUrl = "https://queue.fal.run/status/req-1",
+            ProviderResponseUrl = "https://queue.fal.run/response/req-1",
+            ProviderCancelUrl = "https://queue.fal.run/cancel/req-1",
+            ProviderCancelHttpMethod = "PUT",
+        });
+
+        var cancel = await manager.CancelAsync(jobId, CancellationToken.None);
+
+        Assert.Equal(ReconstructionJobState.CancellationRequested, cancel.State);
+        Assert.Equal("missing_credential", cancel.Failure!.Code);
+        Assert.False(cancel.Failure.Retryable);
+    }
+
+    [Fact]
+    public async Task Poll_MissingApiKey_RecordsMissingCredential_NotPollFailed()
+    {
+        // Real provider over a transport with no key. Seed a polling job directly (submit would itself
+        // fail on the missing key), then poll → GetStatus → Key() throws → typed missing_credential.
+        var root = NewTempRoot();
+        var store = new ArtifactStore(Path.Combine(root, "artifacts"));
+        var ledger = new JsonlReconstructionJobLedger(Path.Combine(root, "ledger.jsonl"));
+        var manager = new ReconstructionJobManager(
+            store,
+            ReconstructionModelCatalog.FromJson(CatalogJson),
+            ledger,
+            new FalReconstructionProvider(new FalApiTransport(new FalApiClient(), () => null)),
+            new ReconstructionPackageMaterializer(store, new FakeDownloader()),
+            new FakeSourceImagePublisher());
+        _managers.Add(manager);
+
+        var jobId = Guid.NewGuid();
+        ledger.Append(ReconstructionJobLedgerRecord.Queued(jobId, HunyuanModelId, Guid.NewGuid(), "image") with
+        {
+            State = ReconstructionJobState.Running,
+            Stage = ReconstructionJobStage.Polling,
+            ProviderJobId = "req-1",
+            ProviderStatusUrl = "https://queue.fal.run/status/req-1",
+            ProviderResponseUrl = "https://queue.fal.run/response/req-1",
+            ProviderCancelUrl = "https://queue.fal.run/cancel/req-1",
+            ProviderCancelHttpMethod = "PUT",
+        });
+
+        await manager.PollActiveJobAsync(jobId, CancellationToken.None);
+
+        var rec = manager.Status(jobId).Job!;
+        Assert.Equal(ReconstructionJobState.Error, rec.State);
+        Assert.Equal("missing_credential", rec.Error!.Code);   // typed, not opaque "poll_failed"
+        Assert.False(rec.Error.Retryable);
     }
 
     [Fact]
@@ -720,6 +824,15 @@ public sealed class ReconstructionJobManagerTests : IDisposable
 
         public Task<FalHttpResponse> SendAsync(HttpMethod method, Uri url, string? bodyJson, CancellationToken ct)
             => SendException is not null ? throw SendException : Task.FromResult(Sends.Dequeue());
+    }
+
+    private sealed class NullSecretStore : IGenerationSecretStore
+    {
+        public string? GetSecret(string secretKey) => null;
+        public void SetSecret(string secretKey, string value) { }
+        public void RemoveSecret(string secretKey) { }
+        public bool HasSecret(string secretKey) => false;
+        public string? GetPreview(string secretKey) => null;
     }
 
     private sealed class FakeSourceImagePublisher : IReconstructionSourceImagePublisher

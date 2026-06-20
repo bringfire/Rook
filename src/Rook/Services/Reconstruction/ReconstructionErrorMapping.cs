@@ -22,6 +22,25 @@ public static class ReconstructionErrorMapping
                 ["provider_error_code"] = error.ProviderErrorCode,
             });
 
+    /// <summary>
+    /// Public, user-facing remediation text for a missing fal credential. Single source of truth so the
+    /// submit/poll/cancel paths cannot drift. Distinct from the internal exception's diagnostic message.
+    /// </summary>
+    public const string MissingCredentialMessage =
+        "fal API key is not configured. Set it in Vision settings before starting reconstruction.";
+
+    /// <summary>
+    /// Canonical missing-credential failure. A missing fal key is a configuration defect, not a transient
+    /// outage, so it is non-retryable. The ONLY place a "missing_credential" failure is constructed.
+    /// </summary>
+    public static ReconstructionFailure MissingCredentialFailure()
+        => new(
+            "missing_credential",
+            MissingCredentialMessage,
+            Retryable: false,
+            Field: null,
+            Details: new Dictionary<string, object?>());
+
     private static string MapCode(GenerationErrorCode code) => code switch
     {
         GenerationErrorCode.InvalidRequest => "invalid_request",
