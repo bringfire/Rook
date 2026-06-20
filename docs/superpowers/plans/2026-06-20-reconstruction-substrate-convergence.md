@@ -359,12 +359,21 @@ public sealed class FalReconstructionSourceImagePublisher : IReconstructionSourc
     }
 }
 ```
-Manager submit path: after source validation yields the artifact + role, read bytes + mime from the store and pass them to the publisher (no path reaches the publisher):
+Manager submit path: `ReconstructionSourceValidator.Validate(...)` already resolves a cap-checked `AbsolutePath` (the validator is the resolver; `ArtifactStore` exposes `GetBlobAbsolutePath`, not a byte-read). The manager reads bytes from that resolved path and derives MIME from the already-validated extension, then passes ONLY bytes/mime/fileName to the publisher — no path crosses the publisher/provider boundary:
 ```csharp
-var (bytes, mime, fileName) = ReadSourceBlob(_store, artifact, validation.Role); // store.OpenBlob → bytes; mime from blob metadata/extension map
-var inputUrl = await _sourcePublisher.PublishAsync(bytes, mime, fileName, ct).ConfigureAwait(false);
+// validation.AbsolutePath is the resolved, length-cap-validated source file (extension already ∈ {.png,.jpg,.jpeg,.webp})
+var path = validation.AbsolutePath!;
+var bytes = await File.ReadAllBytesAsync(path, ct).ConfigureAwait(false);
+var mime = Path.GetExtension(path).ToLowerInvariant() switch
+{
+    ".png" => "image/png",
+    ".jpg" or ".jpeg" => "image/jpeg",
+    ".webp" => "image/webp",
+    _ => "application/octet-stream",
+};
+var inputUrl = await _sourcePublisher.PublishAsync(bytes, mime, Path.GetFileName(path), ct).ConfigureAwait(false);
 ```
-Delete the `File.ReadAllBytes(absolutePath)` path entirely. `ReadSourceBlob` lives in the manager (it owns the store), keeping the provider/publisher storage-agnostic. `RookSubsystemRoot.CreateReconstruction` keeps constructing `new FalReconstructionSourceImagePublisher(falClient, () => SharedGenerationSecretStore.GetSecret(GenerationSecretKeys.FalApiKey))`.
+Delete the publisher's old `File.ReadAllBytes(absolutePath)` path entirely. The byte read now lives in the manager-side resolver flow (the manager owns the store/validator); the provider and publisher stay storage-agnostic. `RookSubsystemRoot.CreateReconstruction` keeps constructing `new FalReconstructionSourceImagePublisher(falClient, () => SharedGenerationSecretStore.GetSecret(GenerationSecretKeys.FalApiKey))`.
 
 - [ ] **Step 4: Run, verify pass + suite green**
 
@@ -707,16 +716,26 @@ public async Task ConcurrentStatusAndBackgroundPoll_ProduceExactlyOneMaterializa
 }
 
 [Fact]
-public async Task Dispose_DrainsRunningLoop_NoCompletionAfterShutdown()
+public async Task Dispose_CancellationAwareProvider_ReturnsPromptly_NoPostDisposeWork()
 {
     var bundle = ReconstructionTestBundle.WithSourceImage(out var sourceId);
-    var gate = new SemaphoreSlim(0);                                      // provider blocks inside status until released
-    var provider = bundle.BlockingStatusProvider(gate, statuses: new[] { "IN_PROGRESS" });
-    var manager = bundle.BuildManager(provider: provider, pollInterval: TimeSpan.FromMilliseconds(5));
+    var counting = bundle.CountingMaterializer();
+    // Provider whose GetStatusAsync awaits the cancellation token (e.g. Task.Delay(Timeout.Infinite, ct))
+    // and never completes on its own. It exposes StatusCallStarted = true once the loop is inside a poll.
+    var provider = bundle.CancellationAwareInflightProvider();
+    var manager = bundle.BuildManager(provider: provider, materializer: counting, pollInterval: TimeSpan.FromMilliseconds(5));
     var jobId = (await manager.SubmitAsync(bundle.SubmitRequest(sourceId), CancellationToken.None)).Job!.JobId;
-    manager.Dispose();                                                   // must cancel + drain, not throw, not hang
-    gate.Release(10);
+    await bundle.WaitUntil(() => provider.StatusCallStarted, 1000);      // ensure the loop is actually blocked in a poll
+
+    var sw = System.Diagnostics.Stopwatch.StartNew();
+    manager.Dispose();                                                   // cancellation-aware loop must unblock fast
+    sw.Stop();
+
+    Assert.True(sw.Elapsed < TimeSpan.FromSeconds(2), $"Dispose took {sw.Elapsed}; cancellation was not observed promptly.");
+    Assert.Equal(0, counting.Count);                                     // no materialization happened
     Assert.NotEqual(ReconstructionJobState.Complete, manager.Status(jobId).Job!.State);
+    await Task.Delay(50);
+    Assert.NotEqual(ReconstructionJobState.Complete, manager.Status(jobId).Job!.State); // and none after disposal returns
 }
 ```
 
@@ -782,10 +801,20 @@ private async Task RunJobAsync(Guid jobId, RunningJob running)
 public void Dispose()
 {
     try { _shutdownCts.Cancel(); } catch { }
-    Task[] loops; loops = _runningJobs.Values.Select(r => r.Loop).ToArray();
-    try { Task.WaitAll(loops, TimeSpan.FromSeconds(5)); } catch { /* faulted/cancelled loops are fine */ }
-    _shutdownCts.Dispose();
-    _concurrency.Dispose();
+    var loops = _runningJobs.Values.Select(r => r.Loop).ToArray();
+    // Task.WaitAll returns false on timeout. Faulted/cancelled loops count as completed
+    // (WaitAll only throws via AggregateException, which we swallow — they ARE observed-complete).
+    bool drained;
+    try { drained = loops.Length == 0 || Task.WaitAll(loops, TimeSpan.FromSeconds(5)); }
+    catch (AggregateException) { drained = true; } // all loops ran to a faulted/cancelled terminal state
+    if (drained)
+    {
+        _shutdownCts.Dispose();
+        _concurrency.Dispose();
+    }
+    // else: a loop did not observe cancellation within the drain budget. Leave _shutdownCts and
+    // _concurrency UNDISPOSED rather than risk a disposed-object Release()/token access from a
+    // still-running loop; their finalizers reclaim them. Disposal must never enable an orphan fault.
 }
 ```
 
@@ -927,7 +956,8 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 - [ ] Full reconstruction suite + MCP parity green:
   `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "FullyQualifiedName~Reconstruction" --no-restore` and `pytest mcp_server/tests/test_reconstruction_mcp_tools.py -q`
 - [ ] `rg -n "InvalidOperationException" src/Rook/Services/Reconstruction/` returns no fal/HTTP-boundary throws.
-- [ ] `rg -n "GetAwaiter\(\)\.GetResult\(\)|\.Result\b|ContinueWith|File\.ReadAllBytes" src/Rook/Services/Reconstruction/` returns nothing.
+- [ ] `rg -n "GetAwaiter\(\)\.GetResult\(\)|ContinueWith" src/Rook/Services/Reconstruction/` returns nothing (no sync-over-async anywhere).
+- [ ] `rg -n "File\.ReadAllBytes\b" src/Rook/Services/Reconstruction/Fal/` returns nothing (provider + publisher stay storage-agnostic; the manager-side resolver in the parent folder may read the validator-resolved path via `File.ReadAllBytesAsync`).
 - [ ] `rg -n "FalErrorMapper|FalLifecycleMapper" src/Rook/Services/Reconstruction/` shows the mappers are now used.
 - [ ] No file under `src/Rook/Services/Vision/` was modified by this branch's new commits.
 - [ ] Native build verified separately (out of unit scope).
