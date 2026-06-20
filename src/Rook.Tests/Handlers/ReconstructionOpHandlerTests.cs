@@ -66,22 +66,17 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
     }
 
     [Fact]
-    public void DispatchOffUi_PrepareImport_ResolvesPreferredAssetPath()
+    public async Task DispatchOffUi_PrepareImport_ResolvesPreferredAssetPath()
     {
         var fixture = CreateFixture();
         fixture.Downloader.Files["https://example.test/model.glb"] = new byte[] { 1, 2, 3 };
-        var package = fixture.Materializer.Materialize(
-            Guid.NewGuid(),
-            Array.Empty<Guid>(),
-            "fal",
-            HunyuanModelId,
-            JsonNode.Parse("""
-            {
-              "model_urls": {
-                "glb": {"url": "https://example.test/model.glb"}
-              }
-            }
-            """)!);
+        var package = await BuildPackageAsync(fixture, JsonNode.Parse("""
+        {
+          "model_urls": {
+            "glb": {"url": "https://example.test/model.glb"}
+          }
+        }
+        """)!);
 
         var response = fixture.Handler.DispatchOffUi(
             "{" +
@@ -97,26 +92,21 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
     }
 
     [Fact]
-    public void DispatchOffUi_PrepareImport_DefaultFallsBackToObjWithCompanions()
+    public async Task DispatchOffUi_PrepareImport_DefaultFallsBackToObjWithCompanions()
     {
         var fixture = CreateFixture();
         fixture.Downloader.Files["https://example.test/model.obj"] = new byte[] { 1, 2, 3 };
         fixture.Downloader.Files["https://example.test/material.mtl"] = new byte[] { 4, 5, 6 };
         fixture.Downloader.Files["https://example.test/texture.png"] = new byte[] { 7, 8, 9 };
-        var package = fixture.Materializer.Materialize(
-            Guid.NewGuid(),
-            Array.Empty<Guid>(),
-            "fal",
-            HunyuanModelId,
-            JsonNode.Parse("""
-            {
-              "model_urls": {
-                "obj": {"url": "https://example.test/model.obj"},
-                "mtl": {"url": "https://example.test/material.mtl"}
-              },
-              "texture": {"url": "https://example.test/texture.png"}
-            }
-            """)!);
+        var package = await BuildPackageAsync(fixture, JsonNode.Parse("""
+        {
+          "model_urls": {
+            "obj": {"url": "https://example.test/model.obj"},
+            "mtl": {"url": "https://example.test/material.mtl"}
+          },
+          "texture": {"url": "https://example.test/texture.png"}
+        }
+        """)!);
 
         var response = fixture.Handler.DispatchOffUi(
             "{" +
@@ -150,26 +140,21 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
     }
 
     [Fact]
-    public void DispatchOffUi_PrepareImport_RootModelGlbObjDoesNotMasqueradeAsGlb()
+    public async Task DispatchOffUi_PrepareImport_RootModelGlbObjDoesNotMasqueradeAsGlb()
     {
         var fixture = CreateFixture();
         fixture.Downloader.Files["https://example.test/hunyuan.obj"] = new byte[] { 1, 2, 3 };
         fixture.Downloader.Files["https://example.test/material.mtl"] = new byte[] { 4, 5, 6 };
         fixture.Downloader.Files["https://example.test/texture.png"] = new byte[] { 7, 8, 9 };
-        var package = fixture.Materializer.Materialize(
-            Guid.NewGuid(),
-            Array.Empty<Guid>(),
-            "fal",
-            HunyuanModelId,
-            JsonNode.Parse("""
-            {
-              "model_glb": {"url": "https://example.test/hunyuan.obj"},
-              "model_urls": {
-                "mtl": {"url": "https://example.test/material.mtl"}
-              },
-              "texture": {"url": "https://example.test/texture.png"}
-            }
-            """)!);
+        var package = await BuildPackageAsync(fixture, JsonNode.Parse("""
+        {
+          "model_glb": {"url": "https://example.test/hunyuan.obj"},
+          "model_urls": {
+            "mtl": {"url": "https://example.test/material.mtl"}
+          },
+          "texture": {"url": "https://example.test/texture.png"}
+        }
+        """)!);
 
         var response = fixture.Handler.DispatchOffUi(
             "{" +
@@ -185,26 +170,21 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
     }
 
     [Fact]
-    public void DispatchOffUi_PrepareImport_ObjFilenameCollisionFailsAndCleansBundle()
+    public async Task DispatchOffUi_PrepareImport_ObjFilenameCollisionFailsAndCleansBundle()
     {
         var fixture = CreateFixture();
         fixture.Downloader.Files["https://example.test/model.obj"] = new byte[] { 1, 2, 3 };
         fixture.Downloader.Files["https://example.test/material.mtl"] = new byte[] { 4, 5, 6 };
         fixture.Downloader.Files["https://example.test/texture.png"] = new byte[] { 7, 8, 9 };
-        var package = fixture.Materializer.Materialize(
-            Guid.NewGuid(),
-            Array.Empty<Guid>(),
-            "fal",
-            HunyuanModelId,
-            JsonNode.Parse("""
-            {
-              "model_urls": {
-                "obj": {"url": "https://example.test/model.obj"},
-                "mtl": {"url": "https://example.test/material.mtl", "file_name": "shared-name.dat"}
-              },
-              "texture": {"url": "https://example.test/texture.png", "file_name": "shared-name.dat"}
-            }
-            """)!);
+        var package = await BuildPackageAsync(fixture, JsonNode.Parse("""
+        {
+          "model_urls": {
+            "obj": {"url": "https://example.test/model.obj"},
+            "mtl": {"url": "https://example.test/material.mtl", "file_name": "shared-name.dat"}
+          },
+          "texture": {"url": "https://example.test/texture.png", "file_name": "shared-name.dat"}
+        }
+        """)!);
 
         var response = fixture.Handler.DispatchOffUi(
             "{" +
@@ -225,26 +205,21 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
     }
 
     [Fact]
-    public void DispatchOffUi_CleanupPreparedImport_RemovesPreparedObjBundle()
+    public async Task DispatchOffUi_CleanupPreparedImport_RemovesPreparedObjBundle()
     {
         var fixture = CreateFixture();
         fixture.Downloader.Files["https://example.test/model.obj"] = new byte[] { 1, 2, 3 };
         fixture.Downloader.Files["https://example.test/material.mtl"] = new byte[] { 4, 5, 6 };
         fixture.Downloader.Files["https://example.test/texture.png"] = new byte[] { 7, 8, 9 };
-        var package = fixture.Materializer.Materialize(
-            Guid.NewGuid(),
-            Array.Empty<Guid>(),
-            "fal",
-            HunyuanModelId,
-            JsonNode.Parse("""
-            {
-              "model_urls": {
-                "obj": {"url": "https://example.test/model.obj"},
-                "mtl": {"url": "https://example.test/material.mtl"}
-              },
-              "texture": {"url": "https://example.test/texture.png"}
-            }
-            """)!);
+        var package = await BuildPackageAsync(fixture, JsonNode.Parse("""
+        {
+          "model_urls": {
+            "obj": {"url": "https://example.test/model.obj"},
+            "mtl": {"url": "https://example.test/material.mtl"}
+          },
+          "texture": {"url": "https://example.test/texture.png"}
+        }
+        """)!);
         const string importId = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee";
         var prepare = fixture.Handler.DispatchOffUi(
             "{" +
@@ -275,22 +250,17 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
     }
 
     [Fact]
-    public void DispatchOffUi_CleanupPreparedImport_RejectsPathOutsideExpectedBundle()
+    public async Task DispatchOffUi_CleanupPreparedImport_RejectsPathOutsideExpectedBundle()
     {
         var fixture = CreateFixture();
         fixture.Downloader.Files["https://example.test/model.obj"] = new byte[] { 1, 2, 3 };
-        var package = fixture.Materializer.Materialize(
-            Guid.NewGuid(),
-            Array.Empty<Guid>(),
-            "fal",
-            HunyuanModelId,
-            JsonNode.Parse("""
-            {
-              "model_urls": {
-                "obj": {"url": "https://example.test/model.obj"}
-              }
-            }
-            """)!);
+        var package = await BuildPackageAsync(fixture, JsonNode.Parse("""
+        {
+          "model_urls": {
+            "obj": {"url": "https://example.test/model.obj"}
+          }
+        }
+        """)!);
         var modelPath = fixture.Store.GetBlobAbsolutePath(package.Id, ReconstructionFileRoles.ModelObj);
 
         var cleanup = fixture.Handler.DispatchOffUi(
@@ -309,26 +279,21 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
     }
 
     [Fact]
-    public void DispatchOffUi_PrepareImport_AllowsExplicitObjDebugOverride()
+    public async Task DispatchOffUi_PrepareImport_AllowsExplicitObjDebugOverride()
     {
         var fixture = CreateFixture();
         fixture.Downloader.Files["https://example.test/model.obj"] = new byte[] { 1, 2, 3 };
         fixture.Downloader.Files["https://example.test/material.mtl"] = new byte[] { 4, 5, 6 };
         fixture.Downloader.Files["https://example.test/texture.png"] = new byte[] { 7, 8, 9 };
-        var package = fixture.Materializer.Materialize(
-            Guid.NewGuid(),
-            Array.Empty<Guid>(),
-            "fal",
-            HunyuanModelId,
-            JsonNode.Parse("""
-            {
-              "model_urls": {
-                "obj": {"url": "https://example.test/model.obj"},
-                "mtl": {"url": "https://example.test/material.mtl"}
-              },
-              "texture": {"url": "https://example.test/texture.png"}
-            }
-            """)!);
+        var package = await BuildPackageAsync(fixture, JsonNode.Parse("""
+        {
+          "model_urls": {
+            "obj": {"url": "https://example.test/model.obj"},
+            "mtl": {"url": "https://example.test/material.mtl"}
+          },
+          "texture": {"url": "https://example.test/texture.png"}
+        }
+        """)!);
 
         var response = fixture.Handler.DispatchOffUi(
             "{" +
@@ -347,13 +312,7 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
     public async Task DispatchAsync_Status_PollsAndReturnsWrappedJob()
     {
         var fixture = CreateFixture();
-        fixture.Provider.StatusResults.Enqueue(new ReconstructionProviderStatusResult(
-            "req-123",
-            ReconstructionProviderLifecycleState.Complete,
-            IsTerminal: true,
-            IsSuccess: true,
-            ProviderStatusJson: JsonNode.Parse(@"{""status"":""COMPLETED""}")!,
-            Error: null));
+        fixture.Provider.StatusComplete.Enqueue(true);
         fixture.Provider.ResultJson = JsonNode.Parse("""
         {
           "model_urls": {
@@ -390,23 +349,18 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
     }
 
     [Fact]
-    public void DispatchOffUi_Result_ReturnsCompactPackageSummary()
+    public async Task DispatchOffUi_Result_ReturnsCompactPackageSummary()
     {
         var fixture = CreateFixture();
         fixture.Downloader.Files["https://example.test/model.glb"] = new byte[] { 1, 2, 3 };
         var jobId = Guid.NewGuid();
-        var package = fixture.Materializer.Materialize(
-            jobId,
-            Array.Empty<Guid>(),
-            "fal",
-            HunyuanModelId,
-            JsonNode.Parse("""
-            {
-              "model_urls": {
-                "glb": {"url": "https://example.test/model.glb"}
-              }
-            }
-            """)!);
+        var package = await BuildPackageAsync(fixture, JsonNode.Parse("""
+        {
+          "model_urls": {
+            "glb": {"url": "https://example.test/model.glb"}
+          }
+        }
+        """)!, jobId);
         fixture.Ledger.Append(ReconstructionJobLedgerRecord.Complete(jobId, package.Id));
 
         var response = fixture.Handler.DispatchOffUi(
@@ -425,22 +379,17 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
     }
 
     [Fact]
-    public void DispatchOffUi_RecordImport_AppendsImportManifestHistory()
+    public async Task DispatchOffUi_RecordImport_AppendsImportManifestHistory()
     {
         var fixture = CreateFixture();
         fixture.Downloader.Files["https://example.test/model.glb"] = new byte[] { 1, 2, 3 };
-        var package = fixture.Materializer.Materialize(
-            Guid.NewGuid(),
-            Array.Empty<Guid>(),
-            "fal",
-            HunyuanModelId,
-            JsonNode.Parse("""
-            {
-              "model_urls": {
-                "glb": {"url": "https://example.test/model.glb"}
-              }
-            }
-            """)!);
+        var package = await BuildPackageAsync(fixture, JsonNode.Parse("""
+        {
+          "model_urls": {
+            "glb": {"url": "https://example.test/model.glb"}
+          }
+        }
+        """)!);
 
         var response = fixture.Handler.DispatchOffUi(
             "{" +
@@ -465,22 +414,17 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
     }
 
     [Fact]
-    public void DispatchOffUi_RecordImport_ReplacesExistingImportId()
+    public async Task DispatchOffUi_RecordImport_ReplacesExistingImportId()
     {
         var fixture = CreateFixture();
         fixture.Downloader.Files["https://example.test/model.glb"] = new byte[] { 1, 2, 3 };
-        var package = fixture.Materializer.Materialize(
-            Guid.NewGuid(),
-            Array.Empty<Guid>(),
-            "fal",
-            HunyuanModelId,
-            JsonNode.Parse("""
-            {
-              "model_urls": {
-                "glb": {"url": "https://example.test/model.glb"}
-              }
-            }
-            """)!);
+        var package = await BuildPackageAsync(fixture, JsonNode.Parse("""
+        {
+          "model_urls": {
+            "glb": {"url": "https://example.test/model.glb"}
+          }
+        }
+        """)!);
         const string importId = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
 
         fixture.Handler.DispatchOffUi(
@@ -513,6 +457,19 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
         Assert.True(imports[0]!["associated"]!.GetValue<bool>());
     }
 
+    private static async Task<Artifact> BuildPackageAsync(Fixture fixture, JsonNode resultJson, Guid? jobId = null)
+    {
+        var result = await fixture.Materializer.MaterializeAsync(
+            jobId ?? Guid.NewGuid(),
+            Array.Empty<Guid>(),
+            "fal",
+            HunyuanModelId,
+            FalReconstructionResultMapper.ToEnvelope(resultJson),
+            CancellationToken.None);
+        Assert.True(result.Success, JsonSerializer.Serialize(result.Error));
+        return result.Package!;
+    }
+
     private Fixture CreateFixture()
     {
         var root = NewTempRoot();
@@ -520,7 +477,7 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
         var ledger = new JsonlReconstructionJobLedger(Path.Combine(root, "ledger.jsonl"));
         var catalog = ReconstructionModelCatalog.FromJson(CatalogJson);
         var provider = new FakeReconstructionProvider();
-        var downloader = new FakeFileDownloader();
+        var downloader = new FakeDownloader();
         var publisher = new FakeSourceImagePublisher();
         var materializer = new ReconstructionPackageMaterializer(store, downloader);
         var manager = new ReconstructionJobManager(
@@ -550,74 +507,65 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
         ArtifactStore Store,
         JsonlReconstructionJobLedger Ledger,
         FakeReconstructionProvider Provider,
-        FakeFileDownloader Downloader,
+        FakeDownloader Downloader,
         ReconstructionPackageMaterializer Materializer,
         ReconstructionOpHandler Handler);
 
     private sealed class FakeReconstructionProvider : IReconstructionProvider
     {
-        public Queue<ReconstructionProviderStatusResult> StatusResults { get; } = new();
+        public Queue<bool> StatusComplete { get; } = new();
         public List<string> ResultCalls { get; } = new();
-        public JsonNode ResultJson { get; set; } = JsonNode.Parse("{}")!;
+        public JsonNode ResultJson { get; set; } =
+            JsonNode.Parse(@"{""model_urls"":{""glb"":{""url"":""https://example.test/model.glb""}}}")!;
 
-        public Task<ReconstructionProviderSubmitResult> SubmitAsync(
+        public Task<ProviderSubmitOutcome> SubmitAsync(
             ReconstructionProviderSubmitRequest request,
             CancellationToken cancellationToken)
-            => Task.FromResult(new ReconstructionProviderSubmitResult(
+            => Task.FromResult<ProviderSubmitOutcome>(new QueuedSubmitOutcome(new ProviderJobHandle(
                 "req-123",
-                new Uri("https://queue.fal.run/status/req-123"),
-                new Uri("https://queue.fal.run/response/req-123"),
-                new Uri("https://queue.fal.run/cancel/req-123"),
-                "PUT",
-                JsonNode.Parse(
-                    @"{""request_id"":""req-123"",""status_url"":""https://queue.fal.run/status/req-123"",""response_url"":""https://queue.fal.run/response/req-123"",""cancel_url"":""https://queue.fal.run/cancel/req-123""}")!));
+                statusUrl: new Uri("https://queue.fal.run/status/req-123"),
+                responseUrl: new Uri("https://queue.fal.run/response/req-123"),
+                cancelUrl: new Uri("https://queue.fal.run/cancel/req-123"),
+                cancelHttpMethod: "PUT")));
 
-        public Task<ReconstructionProviderStatusResult> GetStatusAsync(
-            string modelId,
-            string providerJobId,
-            Uri? providerStatusUrl,
+        public Task<ProviderStatusOutcome> GetStatusAsync(
+            ProviderJobHandle handle,
             CancellationToken cancellationToken)
         {
-            if (StatusResults.Count > 0)
-                return Task.FromResult(StatusResults.Dequeue());
-
-            return Task.FromResult(new ReconstructionProviderStatusResult(
-                    providerJobId,
-                    ReconstructionProviderLifecycleState.Polling,
-                    IsTerminal: false,
-                    IsSuccess: false,
-                    ProviderStatusJson: JsonNode.Parse("{}")!,
-                    Error: null));
+            var complete = StatusComplete.Count > 0 && StatusComplete.Dequeue();
+            return Task.FromResult<ProviderStatusOutcome>(complete
+                ? new ProviderCompleteStatusOutcome(handle)
+                : new InFlightStatusOutcome(GenerationLifecycleState.Running, null));
         }
 
-        public Task<JsonNode> GetResultAsync(
-            string modelId,
-            string providerJobId,
-            Uri? providerResponseUrl,
+        public Task<ProviderResultOutcome> FetchResultAsync(
+            ProviderJobHandle handle,
             CancellationToken cancellationToken)
         {
-            ResultCalls.Add(providerJobId);
-            return Task.FromResult(ResultJson);
+            ResultCalls.Add(handle.ProviderJobId);
+            return Task.FromResult<ProviderResultOutcome>(
+                new SuccessResultOutcome(FalReconstructionResultMapper.ToEnvelope(ResultJson)));
         }
 
         public Task<ProviderCancelOutcome> CancelAsync(
-            string modelId,
-            string providerJobId,
-            Uri? providerCancelUrl,
-            string? providerCancelHttpMethod,
+            ProviderJobHandle handle,
             CancellationToken cancellationToken)
             => Task.FromResult<ProviderCancelOutcome>(new CanceledOutcome());
     }
 
-    private sealed class FakeFileDownloader : IReconstructionFileDownloader
+    private sealed class FakeDownloader : IReconstructionRemoteAssetDownloader
     {
         public Dictionary<string, byte[]> Files { get; } = new();
 
-        public byte[] Download(Uri uri)
+        public Task<ReconstructionDownloadResult> DownloadAsync(Uri url, string role, CancellationToken ct)
         {
-            if (!Files.TryGetValue(uri.ToString(), out var content))
-                throw new InvalidOperationException($"Unexpected download URI '{uri}'.");
-            return content;
+            if (Files.TryGetValue(url.ToString(), out var bytes))
+                return Task.FromResult(new ReconstructionDownloadResult(true, bytes, "application/octet-stream", null));
+            return Task.FromResult(new ReconstructionDownloadResult(
+                false,
+                null,
+                null,
+                new GenerationError(GenerationErrorCode.DependencyUnavailable, $"missing {url}", Retryable: true)));
         }
     }
 

@@ -104,7 +104,7 @@ public sealed class ReconstructionJobManager
             ReconstructionJobStage.Submitting);
         _ledger.Append(submitting);
 
-        ReconstructionProviderSubmitResult providerSubmit;
+        ProviderSubmitOutcome submitOutcome;
         try
         {
             // The validator already resolved + length-cap-validated AbsolutePath (it is the resolver).
@@ -119,7 +119,7 @@ public sealed class ReconstructionJobManager
                 sourceMime,
                 sourceFileName,
                 ct).ConfigureAwait(false);
-            providerSubmit = await _provider.SubmitAsync(
+            submitOutcome = await _provider.SubmitAsync(
                 new ReconstructionProviderSubmitRequest(request.ModelId, sourceUrl, request.Options),
                 ct).ConfigureAwait(false);
         }
@@ -129,6 +129,8 @@ public sealed class ReconstructionJobManager
         }
         catch (Exception ex)
         {
+            // Reserved for source-read/publish/IO faults: the provider itself returns typed Failed*
+            // outcomes for HTTP/parse failures (handled below) rather than throwing.
             var failure = Failure(
                 "submit_failed",
                 "Reconstruction submit failed.",
@@ -148,18 +150,48 @@ public sealed class ReconstructionJobManager
             return new ReconstructionSubmitResult(false, null, failure);
         }
 
-        _ledger.Append(submitting with
+        switch (submitOutcome)
         {
-            Stage = ReconstructionJobStage.Polling,
-            ProviderJobId = providerSubmit.ProviderJobId,
-            ProviderStatusUrl = providerSubmit.ProviderStatusUrl?.ToString(),
-            ProviderResponseUrl = providerSubmit.ProviderResponseUrl?.ToString(),
-            ProviderCancelUrl = providerSubmit.ProviderCancelUrl?.ToString(),
-            ProviderCancelHttpMethod = providerSubmit.ProviderCancelHttpMethod,
-            UpdatedAt = DateTimeOffset.UtcNow,
-        });
+            case QueuedSubmitOutcome queuedOutcome:
+                var handle = queuedOutcome.Handle;
+                _ledger.Append(submitting with
+                {
+                    Stage = ReconstructionJobStage.Polling,
+                    ProviderJobId = handle.ProviderJobId,
+                    ProviderStatusUrl = handle.StatusUrl?.ToString(),
+                    ProviderResponseUrl = handle.ResponseUrl?.ToString(),
+                    ProviderCancelUrl = handle.CancelUrl?.ToString(),
+                    ProviderCancelHttpMethod = handle.CancelHttpMethod,
+                    UpdatedAt = DateTimeOffset.UtcNow,
+                });
+                return new ReconstructionSubmitResult(true, queued, null);
 
-        return new ReconstructionSubmitResult(true, queued, null);
+            case FailedSubmitOutcome failedOutcome:
+                var submitFailure = ReconstructionErrorMapping.ToFailure(failedOutcome.Error);
+                _ledger.Append(submitting with
+                {
+                    State = ReconstructionJobState.Error,
+                    Stage = ReconstructionJobStage.Error,
+                    Error = submitFailure,
+                    UpdatedAt = DateTimeOffset.UtcNow,
+                });
+                return new ReconstructionSubmitResult(false, null, submitFailure);
+
+            default:
+                // fal reconstruction is always queued; a sync result would be a contract violation.
+                var unexpected = Failure(
+                    "submit_failed",
+                    "Reconstruction provider returned an unexpected synchronous result.",
+                    null);
+                _ledger.Append(submitting with
+                {
+                    State = ReconstructionJobState.Error,
+                    Stage = ReconstructionJobStage.Error,
+                    Error = unexpected,
+                    UpdatedAt = DateTimeOffset.UtcNow,
+                });
+                return new ReconstructionSubmitResult(false, null, unexpected);
+        }
     }
 
     // net48-safe async file read (File.ReadAllBytesAsync does not exist on net48).
@@ -240,12 +272,7 @@ public sealed class ReconstructionJobManager
         _ledger.Append(cancelled);
 
         if (!string.IsNullOrWhiteSpace(job.ProviderJobId))
-            await _provider.CancelAsync(
-                job.ModelId,
-                job.ProviderJobId!,
-                OptionalUri(job.ProviderCancelUrl),
-                job.ProviderCancelHttpMethod,
-                ct).ConfigureAwait(false);
+            await _provider.CancelAsync(HandleFor(job), ct).ConfigureAwait(false);
 
         return new ReconstructionCancelResult(ReconstructionJobState.CancellationRequested, null);
     }
@@ -296,71 +323,75 @@ public sealed class ReconstructionJobManager
             if (IsTerminal(job.State) || string.IsNullOrWhiteSpace(job.ProviderJobId))
                 return;
 
-            var status = await _provider.GetStatusAsync(
-                job.ModelId,
-                job.ProviderJobId!,
-                OptionalUri(job.ProviderStatusUrl),
-                ct).ConfigureAwait(false);
+            var statusOutcome = await _provider.GetStatusAsync(HandleFor(job), ct).ConfigureAwait(false);
             var latest = FindJob(jobId) ?? job;
             if (IsTerminal(latest.State))
                 return;
 
-            if (!status.IsTerminal)
+            switch (statusOutcome)
             {
-                _ledger.Append(latest with
-                {
-                    State = latest.State == ReconstructionJobState.CancellationRequested
-                        ? ReconstructionJobState.CancellationRequested
-                        : ReconstructionJobState.Running,
-                    Stage = ReconstructionJobStage.Polling,
-                    UpdatedAt = DateTimeOffset.UtcNow,
-                });
-                return;
+                case InFlightStatusOutcome:
+                    _ledger.Append(latest with
+                    {
+                        State = latest.State == ReconstructionJobState.CancellationRequested
+                            ? ReconstructionJobState.CancellationRequested
+                            : ReconstructionJobState.Running,
+                        Stage = ReconstructionJobStage.Polling,
+                        UpdatedAt = DateTimeOffset.UtcNow,
+                    });
+                    return;
+
+                case FailedStatusOutcome failedStatus:
+                    AppendError(latest, failedStatus.Error);
+                    return;
+
+                case ProviderCompleteStatusOutcome complete:
+                    var materializing = latest with
+                    {
+                        State = ReconstructionJobState.Running,
+                        Stage = ReconstructionJobStage.Materializing,
+                        UpdatedAt = DateTimeOffset.UtcNow,
+                    };
+                    _ledger.Append(materializing);
+
+                    var fetch = await _provider.FetchResultAsync(complete.UpdatedHandle, ct).ConfigureAwait(false);
+                    if (fetch is FailedResultOutcome failedResult)
+                    {
+                        AppendError(materializing, failedResult.Error);
+                        return;
+                    }
+
+                    var envelope = ((SuccessResultOutcome)fetch).Envelope;
+                    var materialized = await _materializer.MaterializeAsync(
+                        materializing.JobId,
+                        new[] { materializing.SourceArtifactId },
+                        materializing.Provider,
+                        materializing.ModelId,
+                        envelope,
+                        ct).ConfigureAwait(false);
+                    if (!materialized.Success)
+                    {
+                        AppendError(materializing, materialized.Error!);
+                        return;
+                    }
+
+                    _ledger.Append(materializing with
+                    {
+                        State = ReconstructionJobState.Complete,
+                        Stage = ReconstructionJobStage.Complete,
+                        ResultArtifactId = materialized.Package!.Id,
+                        ResultAvailable = true,
+                        UpdatedAt = DateTimeOffset.UtcNow,
+                    });
+                    return;
+
+                default:
+                    AppendError(latest, new GenerationError(
+                        GenerationErrorCode.ExecutionFailed,
+                        "Reconstruction provider returned an unexpected status outcome.",
+                        Retryable: false));
+                    return;
             }
-
-            if (!status.IsSuccess)
-            {
-                _ledger.Append(latest with
-                {
-                    State = status.State == ReconstructionProviderLifecycleState.Cancelled
-                        ? ReconstructionJobState.Cancelled
-                        : ReconstructionJobState.Error,
-                    Stage = status.State == ReconstructionProviderLifecycleState.Cancelled
-                        ? ReconstructionJobStage.Cancelled
-                        : ReconstructionJobStage.Error,
-                    Error = status.Error ?? Failure("provider_error", "Reconstruction provider failed.", null),
-                    UpdatedAt = DateTimeOffset.UtcNow,
-                });
-                return;
-            }
-
-            var materializing = latest with
-            {
-                State = ReconstructionJobState.Running,
-                Stage = ReconstructionJobStage.Materializing,
-                UpdatedAt = DateTimeOffset.UtcNow,
-            };
-            _ledger.Append(materializing);
-
-            var resultJson = await _provider.GetResultAsync(
-                job.ModelId,
-                job.ProviderJobId!,
-                OptionalUri(job.ProviderResponseUrl),
-                ct).ConfigureAwait(false);
-            var artifact = _materializer.Materialize(
-                latest.JobId,
-                new[] { latest.SourceArtifactId },
-                latest.Provider,
-                latest.ModelId,
-                resultJson);
-            _ledger.Append(materializing with
-            {
-                State = ReconstructionJobState.Complete,
-                Stage = ReconstructionJobStage.Complete,
-                ResultArtifactId = artifact.Id,
-                ResultAvailable = true,
-                UpdatedAt = DateTimeOffset.UtcNow,
-            });
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -441,4 +472,27 @@ public sealed class ReconstructionJobManager
 
     private static Uri? OptionalUri(string? value)
         => Uri.TryCreate(value, UriKind.Absolute, out var uri) ? uri : null;
+
+    private static ProviderJobHandle HandleFor(ReconstructionJobLedgerRecord job)
+        => new(
+            job.ProviderJobId!,
+            OptionalUri(job.ProviderStatusUrl),
+            OptionalUri(job.ProviderResponseUrl),
+            OptionalUri(job.ProviderCancelUrl),
+            string.IsNullOrWhiteSpace(job.ProviderCancelHttpMethod) ? null : job.ProviderCancelHttpMethod);
+
+    // Maps a shared GenerationError onto the public ReconstructionFailure DTO at the manager
+    // boundary and records a terminal ledger entry. A cancelled provider state maps to the Cancelled
+    // job state/stage; everything else is a job Error.
+    private void AppendError(ReconstructionJobLedgerRecord job, GenerationError error)
+    {
+        var cancelled = error.Code == GenerationErrorCode.Cancelled;
+        _ledger.Append(job with
+        {
+            State = cancelled ? ReconstructionJobState.Cancelled : ReconstructionJobState.Error,
+            Stage = cancelled ? ReconstructionJobStage.Cancelled : ReconstructionJobStage.Error,
+            Error = ReconstructionErrorMapping.ToFailure(error),
+            UpdatedAt = DateTimeOffset.UtcNow,
+        });
+    }
 }

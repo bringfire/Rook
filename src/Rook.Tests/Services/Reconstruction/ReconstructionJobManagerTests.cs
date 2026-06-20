@@ -55,6 +55,25 @@ public sealed class ReconstructionJobManagerTests : IDisposable
     }
 
     [Fact]
+    public async Task Submit_ProviderFailedSubmit_RecordsTypedTerminalError()
+    {
+        var fixture = CreateFixture();
+        fixture.Provider.SubmitOutcome = new FailedSubmitOutcome(new GenerationError(
+            GenerationErrorCode.DependencyUnavailable, "fal request failed with HTTP 401.", Retryable: false));
+        var source = fixture.Store.Create(
+            "generated_image",
+            new[] { new BlobInput("image", new byte[] { 1, 2, 3 }, "png") });
+
+        var result = await fixture.Manager.SubmitAsync(Request(source.Id), CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Equal("provider_unavailable", result.Failure!.Code);
+        var status = fixture.Manager.List(10).Jobs.Single();
+        Assert.Equal(ReconstructionJobState.Error, status.State);
+        Assert.Equal("provider_unavailable", status.Error!.Code);
+    }
+
+    [Fact]
     public async Task Submit_Publisher_ReceivesResolvedBytesAndMime_NotAPath()
     {
         var fixture = CreateFixture();
@@ -105,23 +124,11 @@ public sealed class ReconstructionJobManagerTests : IDisposable
     }
 
     [Fact]
-    public async Task PollActiveJob_StatusComplete_GetsResultAndMaterializesPackage()
+    public async Task PollActiveJob_StatusComplete_FetchesResultAndMaterializesPackage()
     {
         var fixture = CreateFixture();
-        fixture.Provider.StatusResults.Enqueue(new ReconstructionProviderStatusResult(
-            "req-123",
-            ReconstructionProviderLifecycleState.Complete,
-            IsTerminal: true,
-            IsSuccess: true,
-            ProviderStatusJson: JsonNode.Parse(@"{""status"":""COMPLETED"",""request_id"":""req-123""}")!,
-            Error: null));
-        fixture.Provider.ResultJson = JsonNode.Parse("""
-        {
-          "model_urls": {
-            "glb": {"url": "https://example.test/model.glb"}
-          }
-        }
-        """)!;
+        fixture.Provider.StatusComplete.Enqueue(true);
+        fixture.Provider.ResultJson = GlbResultJson;
         fixture.Downloader.Files["https://example.test/model.glb"] = new byte[] { 9, 8, 7 };
         var source = fixture.Store.Create(
             "generated_image",
@@ -146,20 +153,8 @@ public sealed class ReconstructionJobManagerTests : IDisposable
     public async Task StatusAsync_PollingJob_PollsProviderAndMaterializesPackage()
     {
         var fixture = CreateFixture();
-        fixture.Provider.StatusResults.Enqueue(new ReconstructionProviderStatusResult(
-            "req-123",
-            ReconstructionProviderLifecycleState.Complete,
-            IsTerminal: true,
-            IsSuccess: true,
-            ProviderStatusJson: JsonNode.Parse(@"{""status"":""COMPLETED"",""request_id"":""req-123""}")!,
-            Error: null));
-        fixture.Provider.ResultJson = JsonNode.Parse("""
-        {
-          "model_urls": {
-            "glb": {"url": "https://example.test/model.glb"}
-          }
-        }
-        """)!;
+        fixture.Provider.StatusComplete.Enqueue(true);
+        fixture.Provider.ResultJson = GlbResultJson;
         fixture.Downloader.Files["https://example.test/model.glb"] = new byte[] { 9, 8, 7 };
         var source = fixture.Store.Create(
             "generated_image",
@@ -177,16 +172,10 @@ public sealed class ReconstructionJobManagerTests : IDisposable
     }
 
     [Fact]
-    public async Task StatusAsync_MaterializationFailure_RecordsExceptionMessage()
+    public async Task StatusAsync_DownloadFailure_RecordsTypedProviderError_NotOpaquePollFailed()
     {
         var fixture = CreateFixture();
-        fixture.Provider.StatusResults.Enqueue(new ReconstructionProviderStatusResult(
-            "req-123",
-            ReconstructionProviderLifecycleState.Complete,
-            IsTerminal: true,
-            IsSuccess: true,
-            ProviderStatusJson: JsonNode.Parse(@"{""status"":""COMPLETED"",""request_id"":""req-123""}")!,
-            Error: null));
+        fixture.Provider.StatusComplete.Enqueue(true);
         fixture.Provider.ResultJson = JsonNode.Parse("""
         {
           "model_urls": {
@@ -194,6 +183,7 @@ public sealed class ReconstructionJobManagerTests : IDisposable
           }
         }
         """)!;
+        // No downloader entry for missing.glb → the disciplined downloader returns a typed failure.
         var source = fixture.Store.Create(
             "generated_image",
             new[] { new BlobInput("image", new byte[] { 1, 2, 3 }, "png") });
@@ -204,33 +194,18 @@ public sealed class ReconstructionJobManagerTests : IDisposable
 
         Assert.True(status.Success);
         Assert.Equal(ReconstructionJobState.Error, status.Job!.State);
-        Assert.Equal("poll_failed", status.Job.Error!.Code);
-        Assert.Equal("InvalidOperationException", status.Job.Error.Details["exception_type"]);
-        Assert.Contains(
-            "Unexpected download URI 'https://example.test/missing.glb'",
-            Assert.IsType<string>(status.Job.Error.Details["exception_message"]));
+        Assert.Equal("provider_unavailable", status.Job.Error!.Code);   // typed, not opaque "poll_failed"
+        Assert.True(status.Job.Error.Retryable);
     }
 
     [Fact]
     public async Task StatusAsync_ConcurrentCompletionPolls_MaterializesOnce()
     {
         var fixture = CreateFixture();
-        fixture.Provider.FixedStatusResult = new ReconstructionProviderStatusResult(
-            "req-123",
-            ReconstructionProviderLifecycleState.Complete,
-            IsTerminal: true,
-            IsSuccess: true,
-            ProviderStatusJson: JsonNode.Parse(@"{""status"":""COMPLETED"",""request_id"":""req-123""}")!,
-            Error: null);
+        fixture.Provider.FixedStatusComplete = true;
         fixture.Provider.ResultStarted = new TaskCompletionSource<bool>();
         fixture.Provider.ReleaseResult = new TaskCompletionSource<bool>();
-        fixture.Provider.ResultJson = JsonNode.Parse("""
-        {
-          "model_urls": {
-            "glb": {"url": "https://example.test/model.glb"}
-          }
-        }
-        """)!;
+        fixture.Provider.ResultJson = GlbResultJson;
         fixture.Downloader.Files["https://example.test/model.glb"] = new byte[] { 9, 8, 7 };
         var source = fixture.Store.Create(
             "generated_image",
@@ -305,13 +280,21 @@ public sealed class ReconstructionJobManagerTests : IDisposable
         Assert.Contains(result.Warnings, w => w.Code == "result_artifact_missing");
     }
 
+    private static readonly JsonNode GlbResultJson = JsonNode.Parse("""
+    {
+      "model_urls": {
+        "glb": {"url": "https://example.test/model.glb"}
+      }
+    }
+    """)!;
+
     private Fixture CreateFixture()
     {
         var root = NewTempRoot();
         var store = new ArtifactStore(Path.Combine(root, "artifacts"));
         var ledger = new JsonlReconstructionJobLedger(Path.Combine(root, "ledger.jsonl"));
         var provider = new FakeReconstructionProvider();
-        var downloader = new FakeFileDownloader();
+        var downloader = new FakeDownloader();
         var publisher = new FakeSourceImagePublisher();
         var materializer = new ReconstructionPackageMaterializer(store, downloader);
         var manager = new ReconstructionJobManager(
@@ -344,7 +327,7 @@ public sealed class ReconstructionJobManagerTests : IDisposable
         ArtifactStore Store,
         JsonlReconstructionJobLedger Ledger,
         FakeReconstructionProvider Provider,
-        FakeFileDownloader Downloader,
+        FakeDownloader Downloader,
         FakeSourceImagePublisher Publisher,
         ReconstructionJobManager Manager);
 
@@ -353,90 +336,78 @@ public sealed class ReconstructionJobManagerTests : IDisposable
         private int _resultCallCount;
 
         public List<ReconstructionProviderSubmitRequest> SubmitRequests { get; } = new();
-        public Queue<ReconstructionProviderStatusResult> StatusResults { get; } = new();
+        public Queue<bool> StatusComplete { get; } = new();   // true → ProviderComplete, else InFlight
+        public bool FixedStatusComplete { get; set; }
         public List<string> CancelCalls { get; } = new();
         public List<string> ResultCalls { get; } = new();
         public int ResultCallCount => _resultCallCount;
-        public ReconstructionProviderStatusResult? FixedStatusResult { get; set; }
+        public ProviderSubmitOutcome? SubmitOutcome { get; set; }
         public TaskCompletionSource<bool>? ResultStarted { get; set; }
         public TaskCompletionSource<bool>? ReleaseResult { get; set; }
-        public JsonNode ResultJson { get; set; } = JsonNode.Parse("{}")!;
+        public JsonNode ResultJson { get; set; } =
+            JsonNode.Parse(@"{""model_urls"":{""glb"":{""url"":""https://example.test/model.glb""}}}")!;
 
-        public Task<ReconstructionProviderSubmitResult> SubmitAsync(
+        public Task<ProviderSubmitOutcome> SubmitAsync(
             ReconstructionProviderSubmitRequest request,
             CancellationToken cancellationToken)
         {
             SubmitRequests.Add(request);
-            return Task.FromResult(new ReconstructionProviderSubmitResult(
+            return Task.FromResult(SubmitOutcome ?? new QueuedSubmitOutcome(new ProviderJobHandle(
                 "req-123",
-                new Uri("https://queue.fal.run/status/req-123"),
-                new Uri("https://queue.fal.run/response/req-123"),
-                new Uri("https://queue.fal.run/cancel/req-123"),
-                "PUT",
-                JsonNode.Parse(
-                    @"{""request_id"":""req-123"",""status_url"":""https://queue.fal.run/status/req-123"",""response_url"":""https://queue.fal.run/response/req-123"",""cancel_url"":""https://queue.fal.run/cancel/req-123""}")!));
+                statusUrl: new Uri("https://queue.fal.run/status/req-123"),
+                responseUrl: new Uri("https://queue.fal.run/response/req-123"),
+                cancelUrl: new Uri("https://queue.fal.run/cancel/req-123"),
+                cancelHttpMethod: "PUT")));
         }
 
-        public Task<ReconstructionProviderStatusResult> GetStatusAsync(
-            string modelId,
-            string providerJobId,
-            Uri? providerStatusUrl,
+        public Task<ProviderStatusOutcome> GetStatusAsync(
+            ProviderJobHandle handle,
             CancellationToken cancellationToken)
         {
-            if (FixedStatusResult is not null)
-                return Task.FromResult(FixedStatusResult);
-
-            if (StatusResults.Count > 0)
-                return Task.FromResult(StatusResults.Dequeue());
-
-            return Task.FromResult(new ReconstructionProviderStatusResult(
-                providerJobId,
-                ReconstructionProviderLifecycleState.Polling,
-                IsTerminal: false,
-                IsSuccess: false,
-                ProviderStatusJson: JsonNode.Parse(@"{""status"":""IN_PROGRESS""}")!,
-                Error: null));
+            var complete = FixedStatusComplete || (StatusComplete.Count > 0 && StatusComplete.Dequeue());
+            return Task.FromResult<ProviderStatusOutcome>(complete
+                ? new ProviderCompleteStatusOutcome(handle)
+                : new InFlightStatusOutcome(GenerationLifecycleState.Running, null));
         }
 
-        public async Task<JsonNode> GetResultAsync(
-            string modelId,
-            string providerJobId,
-            Uri? providerResponseUrl,
+        public async Task<ProviderResultOutcome> FetchResultAsync(
+            ProviderJobHandle handle,
             CancellationToken cancellationToken)
         {
             Interlocked.Increment(ref _resultCallCount);
             lock (ResultCalls)
             {
-                ResultCalls.Add(providerJobId);
+                ResultCalls.Add(handle.ProviderJobId);
             }
 
             ResultStarted?.TrySetResult(true);
             if (ReleaseResult is not null)
                 await ReleaseResult.Task.ConfigureAwait(false);
-            return ResultJson;
+            return new SuccessResultOutcome(FalReconstructionResultMapper.ToEnvelope(ResultJson));
         }
 
         public Task<ProviderCancelOutcome> CancelAsync(
-            string modelId,
-            string providerJobId,
-            Uri? providerCancelUrl,
-            string? providerCancelHttpMethod,
+            ProviderJobHandle handle,
             CancellationToken cancellationToken)
         {
-            CancelCalls.Add(providerJobId);
+            CancelCalls.Add(handle.ProviderJobId);
             return Task.FromResult<ProviderCancelOutcome>(new CanceledOutcome());
         }
     }
 
-    private sealed class FakeFileDownloader : IReconstructionFileDownloader
+    private sealed class FakeDownloader : IReconstructionRemoteAssetDownloader
     {
         public Dictionary<string, byte[]> Files { get; } = new();
 
-        public byte[] Download(Uri uri)
+        public Task<ReconstructionDownloadResult> DownloadAsync(Uri url, string role, CancellationToken ct)
         {
-            if (!Files.TryGetValue(uri.ToString(), out var content))
-                throw new InvalidOperationException($"Unexpected download URI '{uri}'.");
-            return content;
+            if (Files.TryGetValue(url.ToString(), out var bytes))
+                return Task.FromResult(new ReconstructionDownloadResult(true, bytes, "application/octet-stream", null));
+            return Task.FromResult(new ReconstructionDownloadResult(
+                false,
+                null,
+                null,
+                new GenerationError(GenerationErrorCode.DependencyUnavailable, $"missing {url}", Retryable: true)));
         }
     }
 

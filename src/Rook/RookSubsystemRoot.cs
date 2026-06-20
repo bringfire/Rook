@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Net.Http;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
@@ -232,14 +233,17 @@ namespace Rook
         {
             var catalog = LoadReconstructionCatalog();
             var falClient = new FalApiClient();
+            Func<string?> falApiKey = () => SharedGenerationSecretStore.GetSecret(
+                GenerationSecretKeys.FalApiKey);
             var provider = new FalReconstructionProvider(
-                new FalReconstructionQueueClient(
-                    falClient,
-                    () => SharedGenerationSecretStore.GetSecret(
-                        GenerationSecretKeys.FalApiKey)));
+                new FalApiTransport(falClient, falApiKey));
             var materializer = new ReconstructionPackageMaterializer(
                 SharedArtifactStore,
-                new HttpReconstructionFileDownloader());
+                new ReconstructionRemoteAssetDownloader(
+                    new HttpClient(),
+                    role => role.StartsWith("model_", StringComparison.Ordinal)
+                        ? 100_000_000L
+                        : 25_000_000L));
             var manager = new ReconstructionJobManager(
                 SharedArtifactStore,
                 catalog,
