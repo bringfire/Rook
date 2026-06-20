@@ -7,14 +7,8 @@ Ported from Engram (UE5 sister project). Provides:
 - Conductor: Fleet coordinator across parallel workers
 """
 
-from .config import AgentConfig, PlannerConfig, GuardianConfig, ConductorConfig
-from .events import AgentEvent, EventDispatcher
-from .base_agent import RookAgent
-from .tool_registry import ToolRegistry, build_catalog_from_mcp_tools
-from .guardian import Guardian, GuardianReport
-from .conductor import Conductor, ConductorReport
-from .planner import Planner, Plan, TaskSpec, PlanResult
-from .spawn import run_task, run_swarm, run_plan, SpawnResult, SwarmResult
+from importlib import import_module
+from typing import Any
 
 __all__ = [
     "AgentConfig",
@@ -40,3 +34,41 @@ __all__ = [
     "SpawnResult",
     "SwarmResult",
 ]
+
+_EXPORT_MODULES = {
+    "AgentConfig": ".config",
+    "PlannerConfig": ".config",
+    "GuardianConfig": ".config",
+    "ConductorConfig": ".config",
+    "AgentEvent": ".events",
+    "EventDispatcher": ".events",
+    "RookAgent": ".base_agent",
+    "ToolRegistry": ".tool_registry",
+    "build_catalog_from_mcp_tools": ".tool_registry",
+    "Guardian": ".guardian",
+    "GuardianReport": ".guardian",
+    "Conductor": ".conductor",
+    "ConductorReport": ".conductor",
+    "Planner": ".planner",
+    "Plan": ".planner",
+    "TaskSpec": ".planner",
+    "PlanResult": ".planner",
+    "run_task": ".spawn",
+    "run_swarm": ".spawn",
+    "run_plan": ".spawn",
+    "SpawnResult": ".spawn",
+    "SwarmResult": ".spawn",
+}
+
+
+def __getattr__(name: str) -> Any:
+    module_name = _EXPORT_MODULES.get(name)
+    if module_name is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    value = getattr(import_module(module_name, __name__), name)
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    return sorted((*globals(), *__all__))
