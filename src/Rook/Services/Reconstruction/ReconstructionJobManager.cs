@@ -360,14 +360,21 @@ public sealed class ReconstructionJobManager
                         AppendError(materializing, failedResult.Error);
                         return;
                     }
+                    if (fetch is not SuccessResultOutcome success)
+                    {
+                        AppendError(materializing, new GenerationError(
+                            GenerationErrorCode.ExecutionFailed,
+                            $"Reconstruction provider returned an unexpected result outcome: {fetch.GetType().Name}.",
+                            Retryable: false));
+                        return;
+                    }
 
-                    var envelope = ((SuccessResultOutcome)fetch).Envelope;
                     var materialized = await _materializer.MaterializeAsync(
                         materializing.JobId,
                         new[] { materializing.SourceArtifactId },
                         materializing.Provider,
                         materializing.ModelId,
-                        envelope,
+                        success.Envelope,
                         ct).ConfigureAwait(false);
                     if (!materialized.Success)
                     {
