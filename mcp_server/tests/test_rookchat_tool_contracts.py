@@ -500,6 +500,25 @@ def test_normalize_tool_result_top_level_truth_precedence():
     assert top_ok.status == "success"
 
 
+def test_normalize_tool_result_ignores_script_receipt_for_top_level_truth():
+    from rook.agent.chat.tool_contracts import normalize_tool_result
+
+    view = normalize_tool_result({
+        "success": False,
+        "message": "Component was created, but the target script component has compile errors.",
+        "data": {
+            "component_guid": "created-guid",
+            "script_receipt": {
+                "version": 1,
+                "artifact_status": "created_with_errors",
+            },
+        },
+    })
+
+    assert view.status == "failed"
+    assert view.message == "Component was created, but the target script component has compile errors."
+
+
 def test_tool_result_view_marks_csharp_preflight_failure_failed():
     from rook.agent.chat.tool_contracts import normalize_tool_result
 

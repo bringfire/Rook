@@ -26,6 +26,7 @@ from .gh_csharp_preflight import (
     is_recognized_csharp_full_source,
     preflight_csharp_script,
 )
+from .gh_script_receipts import build_script_receipt
 from .gh_status_contract import normalize_gh_status_result
 from .runtime_paths import (
     load_runtime_dotenv,
@@ -1800,7 +1801,16 @@ def _summarize_gh_update_script_errors(errors_response: Any, guid: str) -> dict[
         if wrapped_data is not None:
             data = wrapped_data
     if not isinstance(data, dict):
-        data = {}
+        summary = _empty_gh_update_script_error_summary()
+        summary["error_check_failed"] = "Invalid /gh/errors response"
+        return summary
+
+    errors = _dict_get_ci(data, "errors")
+    warnings = _dict_get_ci(data, "warnings")
+    if not isinstance(errors, list) or not isinstance(warnings, list):
+        summary = _empty_gh_update_script_error_summary()
+        summary["error_check_failed"] = "Malformed /gh/errors response"
+        return summary
 
     guid_lower = str(guid).lower()
     component_errors: list[Any] = []
@@ -1852,9 +1862,7 @@ def _summarize_gh_update_script_errors(errors_response: Any, guid: str) -> dict[
         return entry_guid, error_messages, warning_messages
 
     for primary_kind in ("errors", "warnings"):
-        entries = _dict_get_ci(data, primary_kind, [])
-        if not isinstance(entries, list):
-            entries = []
+        entries = errors if primary_kind == "errors" else warnings
         for entry in entries:
             entry_guid, error_messages, warning_messages = _entry_messages(entry, primary_kind)
             is_target_entry = isinstance(entry_guid, str) and entry_guid.lower() == guid_lower
@@ -2066,15 +2074,18 @@ async def _execute_gh_update_script(arguments: dict[str, Any], port: int) -> dic
             write_data=write_data,
         )
 
+        verification_method = "gh_errors"
+        check_errors_requested = bool(arguments.get("check_errors", True))
         deferred, solver_flags = _gh_update_script_should_defer(write_data)
         if deferred:
+            verification_method = "none"
             error_summary = _empty_gh_update_script_error_summary()
             error_summary["verification_deferred"] = True   # stays boolean
             error_summary["verification_note"] = (
                 "Grasshopper solver is locked or its state is unknown; the script source was "
                 "written but not recompiled. Unlock the solver and run gh_solve to verify."
             )
-        elif bool(arguments.get("check_errors", True)):
+        elif check_errors_requested:
             await _await_gh_solve_settle(port, scheduled_delay_ms=50)
             error_summary = _summarize_gh_update_script_errors(
                 await call_rhino("/gh/errors", "GET", {}, port=port),
@@ -2097,10 +2108,13 @@ async def _execute_gh_update_script(arguments: dict[str, Any], port: int) -> dic
                 )
                 snapshot_summary = _summarize_gh_update_script_snapshot(snapshot_result, guid)
                 if snapshot_summary.get("component_errors") or snapshot_summary.get("component_warnings"):
+                    verification_method = "gh_snapshot_fallback"
                     error_summary = snapshot_summary
                 elif snapshot_summary.get("snapshot_check_failed"):
+                    verification_method = "gh_snapshot_fallback"
                     error_summary["snapshot_check_failed"] = snapshot_summary["snapshot_check_failed"]
         else:
+            verification_method = "none"
             error_summary = _empty_gh_update_script_error_summary()
 
         data: dict[str, Any] = {
@@ -2129,6 +2143,43 @@ async def _execute_gh_update_script(arguments: dict[str, Any], port: int) -> dic
                 f"Current inputs are {input_names}; outputs are {output_names}. "
                 "To change the signature, call gh_set_script_pins first, then retry gh_update_script."
             )
+
+        unavailable_note = None
+        if data.get("snapshot_check_failed"):
+            unavailable_note = data["snapshot_check_failed"]
+        elif data.get("error_check_failed"):
+            unavailable_note = data["error_check_failed"]
+
+        data["script_receipt"] = build_script_receipt(
+            operation="update",
+            language=data.get("detected_language", "unknown"),
+            mutation_status="written",
+            mutation_method="gh_script_write",
+            component_guid=resolved_guid,
+            mode_used=prepared["mode_used"],
+            wrapped=prepared["wrapped"],
+            pins_in=inputs,
+            pins_out=outputs,
+            input_code_length=len(code),
+            prepared_source_length=len(prepared["source"]),
+            full_source_detected=(
+                runtime["detected_language"] == "csharp"
+                and prepared["mode_used"] == "full_source"
+                and not prepared["wrapped"]
+            ),
+            component_errors=data.get("component_errors", []),
+            component_warnings=data.get("component_warnings", []),
+            unrelated_error_count=data.get("unrelated_error_count"),
+            unrelated_warning_count=data.get("unrelated_warning_count"),
+            verification_method=verification_method,
+            requested_guid=guid,
+            include_requested_guid=_is_gh_short_id(guid),
+            recovery_hint=data.get("recovery_hint"),
+            deferred=bool(data.get("verification_deferred")),
+            not_requested=not check_errors_requested,
+            unavailable_note=unavailable_note,
+            verification_note=data.get("verification_note"),
+        )
 
         return _gh_update_script_result_from_data(data)
     except Exception as exc:
@@ -2305,28 +2356,92 @@ def _check_script_component_handoff(
     return None
 
 
-def _gh_create_script_component_errors(errors_result: Any, component_guid: str) -> list[Any]:
+def _summarize_gh_create_script_verification(errors_result: Any, component_guid: str) -> dict[str, Any]:
+    summary = {
+        "component_errors": [],
+        "component_warnings": [],
+        "unrelated_error_count": 0,
+        "unrelated_warning_count": 0,
+        "unavailable_note": None,
+    }
+    if isinstance(errors_result, dict) and errors_result.get("success") is False:
+        summary["component_errors"] = None
+        summary["component_warnings"] = None
+        summary["unrelated_error_count"] = None
+        summary["unrelated_warning_count"] = None
+        summary["unavailable_note"] = errors_result.get(
+            "data",
+            "Unknown /gh/errors failure",
+        )
+        return summary
+
     data = errors_result
     if isinstance(errors_result, dict):
         wrapped_data = _dict_get_ci(errors_result, "data")
         if wrapped_data is not None:
             data = wrapped_data
     if not isinstance(data, dict):
-        return []
+        summary["component_errors"] = None
+        summary["component_warnings"] = None
+        summary["unrelated_error_count"] = None
+        summary["unrelated_warning_count"] = None
+        summary["unavailable_note"] = "Invalid /gh/errors response"
+        return summary
 
-    errors = _dict_get_ci(data, "errors", [])
-    if not isinstance(errors, list):
-        return []
+    errors = _dict_get_ci(data, "errors")
+    warnings = _dict_get_ci(data, "warnings")
+    if not isinstance(errors, list) or not isinstance(warnings, list):
+        summary["component_errors"] = None
+        summary["component_warnings"] = None
+        summary["unrelated_error_count"] = None
+        summary["unrelated_warning_count"] = None
+        summary["unavailable_note"] = "Malformed /gh/errors response"
+        return summary
 
     component_guid_lower = str(component_guid).lower()
+    seen: set[tuple[str, str, str]] = set()
+
+    def _add_messages(entry_guid: Any, kind: str, messages: Any) -> None:
+        for message in _gh_update_script_messages(messages):
+            dedupe_key = (str(entry_guid or ""), kind, repr(message))
+            if dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
+            is_component = isinstance(entry_guid, str) and entry_guid.lower() == component_guid_lower
+            if kind == "errors":
+                if is_component:
+                    summary["component_errors"].append(message)
+                else:
+                    summary["unrelated_error_count"] += 1
+            else:
+                if is_component:
+                    summary["component_warnings"].append(message)
+                else:
+                    summary["unrelated_warning_count"] += 1
+
     for entry in errors:
         if not isinstance(entry, dict):
             continue
         entry_guid = _dict_get_ci(entry, "guid")
-        if isinstance(entry_guid, str) and entry_guid.lower() == component_guid_lower:
-            messages = _dict_get_ci(entry, "errors", [])
-            return _gh_update_script_messages(messages)
-    return []
+        messages = _dict_get_ci(entry, "errors")
+        if messages is None:
+            messages = _dict_get_ci(entry, "messages")
+        if messages is None:
+            messages = _dict_get_ci(entry, "message")
+        _add_messages(entry_guid, "errors", messages)
+
+    for entry in warnings:
+        if not isinstance(entry, dict):
+            continue
+        entry_guid = _dict_get_ci(entry, "guid")
+        messages = _dict_get_ci(entry, "warnings")
+        if messages is None:
+            messages = _dict_get_ci(entry, "messages")
+        if messages is None:
+            messages = _dict_get_ci(entry, "message")
+        _add_messages(entry_guid, "warnings", messages)
+
+    return summary
 
 
 def _gh_create_script_result_from_data(data: dict[str, Any]) -> dict[str, Any]:
@@ -2372,6 +2487,7 @@ async def _execute_gh_create_script(
                 "code_length": int,              # length of prepared full script
                 "compilation_errors": [...],     # only if present
                 "warning": str,                  # only if compilation_errors present
+                "script_receipt": dict,          # additive; old fields preserved
             }}
         failure:
             {"success": False, "data": <diagnostic string>}
@@ -2427,8 +2543,14 @@ async def _execute_gh_create_script(
             preamble = _build_gh_python_preamble(pin_defs_in)
             postamble = _build_gh_python_output_postamble(pin_defs_out)
             full_script = preamble + code + postamble
+            mode_used = "body"
+            wrapped = bool(preamble or postamble)
+            full_source_detected = False
         else:  # csharp
             full_script = _build_gh_csharp_wrapper(code, pin_defs_in, pin_defs_out)
+            full_source_detected = is_recognized_csharp_full_source(code)
+            mode_used = "full_source" if full_source_detected else "body"
+            wrapped = not full_source_detected
 
         # Step 1: Create the component by fixed RhinoCode GUID.
         create_result = await call_rhino(
@@ -2482,12 +2604,12 @@ async def _execute_gh_create_script(
         errors_result = await call_rhino(
             "/gh/errors", "GET", {}, port=port,
         )
-        component_errors: list[Any] = []
-        if errors_result.get("success"):
-            component_errors = _gh_create_script_component_errors(
-                errors_result,
-                component_guid,
-            )
+        verification_summary = _summarize_gh_create_script_verification(
+            errors_result,
+            component_guid,
+        )
+        component_errors = verification_summary.get("component_errors")
+        component_warnings = verification_summary.get("component_warnings")
 
         data: dict[str, Any] = {
             "component_guid": component_guid,
@@ -2500,6 +2622,26 @@ async def _execute_gh_create_script(
         if component_errors:
             data["compilation_errors"] = component_errors
             data["warning"] = "Component placed but has compilation errors"
+        data["script_receipt"] = build_script_receipt(
+            operation="create",
+            language=language,
+            mutation_status="created",
+            mutation_method="gh_create_component_then_script",
+            component_guid=component_guid,
+            mode_used=mode_used,
+            wrapped=wrapped,
+            pins_in=pin_defs_in,
+            pins_out=pin_defs_out,
+            input_code_length=len(code),
+            prepared_source_length=len(full_script),
+            full_source_detected=full_source_detected,
+            component_errors=component_errors,
+            component_warnings=component_warnings,
+            unrelated_error_count=verification_summary.get("unrelated_error_count"),
+            unrelated_warning_count=verification_summary.get("unrelated_warning_count"),
+            verification_method="gh_errors",
+            unavailable_note=verification_summary.get("unavailable_note"),
+        )
         return _gh_create_script_result_from_data(data)
 
     except Exception as exc:
