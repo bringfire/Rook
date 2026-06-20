@@ -129,7 +129,7 @@ public sealed class FalReconstructionSourceImagePublisher : IReconstructionSourc
 
         var apiKey = _secrets.GetSecret(GenerationSecretKeys.FalApiKey);
         if (string.IsNullOrWhiteSpace(apiKey))
-            throw new InvalidOperationException("fal API key is required for reconstruction.");
+            throw new ReconstructionCredentialMissingException();
 
         var fileUrl = await _client.UploadFileToCdnAsync(
             apiKey!,

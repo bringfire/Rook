@@ -466,6 +466,36 @@ public sealed class ReconstructionJobManagerTests : IDisposable
     }
 
     [Fact]
+    public async Task Submit_MissingApiKey_RecordsMissingCredential_NotSubmitFailed()
+    {
+        // Real source publisher + a secret store with no fal key → PublishAsync throws the typed
+        // credential exception at the fal edge, which the submit boundary maps to missing_credential.
+        var root = NewTempRoot();
+        var store = new ArtifactStore(Path.Combine(root, "artifacts"));
+        var ledger = new JsonlReconstructionJobLedger(Path.Combine(root, "ledger.jsonl"));
+        var manager = new ReconstructionJobManager(
+            store,
+            ReconstructionModelCatalog.FromJson(CatalogJson),
+            ledger,
+            new FakeReconstructionProvider(),
+            new ReconstructionPackageMaterializer(store, new FakeDownloader()),
+            new FalReconstructionSourceImagePublisher(new FalApiClient(), new NullSecretStore()));
+        _managers.Add(manager);
+        var source = store.Create(
+            "generated_image",
+            new[] { new BlobInput("image", new byte[] { 1, 2, 3 }, "png") });
+
+        var result = await manager.SubmitAsync(Request(source.Id), CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Equal("missing_credential", result.Failure!.Code);
+        Assert.False(result.Failure.Retryable);
+        var terminal = manager.List(10).Jobs.Single();
+        Assert.Equal(ReconstructionJobState.Error, terminal.State);
+        Assert.Equal("missing_credential", terminal.Error!.Code);
+    }
+
+    [Fact]
     public async Task Submit_FalUploadFailure_RecordsProviderUnavailable_NotSubmitFailed()
     {
         // The source-image CDN upload failing (FalApiException) is a provider dependency failure, not a
@@ -720,6 +750,15 @@ public sealed class ReconstructionJobManagerTests : IDisposable
 
         public Task<FalHttpResponse> SendAsync(HttpMethod method, Uri url, string? bodyJson, CancellationToken ct)
             => SendException is not null ? throw SendException : Task.FromResult(Sends.Dequeue());
+    }
+
+    private sealed class NullSecretStore : IGenerationSecretStore
+    {
+        public string? GetSecret(string secretKey) => null;
+        public void SetSecret(string secretKey, string value) { }
+        public void RemoveSecret(string secretKey) { }
+        public bool HasSecret(string secretKey) => false;
+        public string? GetPreview(string secretKey) => null;
     }
 
     private sealed class FakeSourceImagePublisher : IReconstructionSourceImagePublisher

@@ -157,6 +157,13 @@ public sealed class ReconstructionJobManager : IDisposable
         {
             throw;
         }
+        catch (ReconstructionCredentialMissingException)
+        {
+            // Missing fal key (publisher edge, or provider edge if the key vanished mid-submit). Map to
+            // the canonical typed failure rather than the generic submit_failed below. MUST stay before
+            // the FalApiException/Exception catches.
+            return RecordSubmitFailure(submitting, ReconstructionErrorMapping.MissingCredentialFailure());
+        }
         catch (FalApiException ex)
         {
             // The fal CDN source-image upload failed (transport fault or non-2xx). That is a provider
