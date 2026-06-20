@@ -71,9 +71,14 @@ state/stage vocabulary, and the Vision materializers/providers.
 ### W0 — Pre-req: resolve the `ReplaceJsonBlob` duplication
 
 Two divergent implementations of the package/import-history JSON-replace primitive exist (worktree
-committed; main uncommitted). Reconcile them, pick the canonical version, and drop/rebase the stray
-**before merge**. This is in-pass, not a separate chore: divergent implementations of the same
-import-history primitive are exactly the checkout fragmentation this pass exists to stop.
+committed; main uncommitted). The plan must **compare both versions, choose the canonical one, and
+incorporate that canonical version into the reconstruction worktree**. This is in-pass, not a
+separate chore: divergent implementations of the same import-history primitive are exactly the
+checkout fragmentation this pass exists to stop.
+
+**Do not revert main's uncommitted changes** as part of this pass. Main is a separate working tree
+with the user's in-progress edits; cleaning up main's copy (if it turns out to be the non-canonical
+one) is a separate, explicit action taken only when directed — never an automatic revert here.
 
 Minor (P4): move `ReplaceJsonBlobResultCode` / `ReplaceJsonBlobResult` beside `AppendBlobResult` in
 `Artifact.cs` for consistency.
@@ -159,6 +164,26 @@ Adopt the Vision execution shape:
 - `StatusAsync` may still opportunistically drive a poll, but it is no longer the **only** progress
   driver
 
+**Lifecycle / shutdown / disposal (required).** Background `Task.Run` work must not outlive the
+plugin. Mirror Vision's lifecycle discipline:
+
+- the manager owns a manager-wide shutdown `CancellationTokenSource` linked into every job's poll
+  loop and download
+- running jobs are tracked (e.g. a registry of in-flight tasks)
+- the manager is disposable; **disposal on plugin unload cancels active jobs** and awaits/abandons
+  them deterministically, leaving no orphaned background work in the Rhino process
+- a job cancelled by shutdown lands in a non-terminal-safe state (its ledger record is left such that
+  startup reconcile will mark it `Interrupted`)
+
+Tested where practical (e.g. dispose mid-poll cancels the loop and stops further transitions).
+
+**Single-flight / race discipline (required).** Because `StatusAsync` may poll while the background
+loop is also polling, every job needs a **per-job gate** (the existing per-job lock), and any code
+path that may fetch the result or materialize the package must **re-read the ledger record after
+acquiring the lock** and bail if the job already advanced. The invariant is absolute: **exactly one
+terminal transition and exactly one package materialization per job**, regardless of how many
+pollers race.
+
 **Startup reconcile semantics (explicit):** on startup, non-terminal ledger jobs are marked
 **`Interrupted`** (mirroring Vision's `ReconcileInterruptedJobs`), wired into `RookSubsystemRoot`.
 There is **no automatic remote resume** in this pass. Provider job id / status / cancel URLs are
@@ -205,8 +230,42 @@ New behavior is pinned by tests, not just happy-path route tests:
 - **Materializer:** no-model envelope → typed failure (job `Error`); multi-asset envelope → correct
   blobs/roles; `provider_result_json` sidecar preserved.
 - **Manager:** background poll drives a job to `Complete`; interrupted-job reconcile on startup marks
-  non-terminal jobs `Interrupted` and preserves provider job id/URLs.
+  non-terminal jobs `Interrupted` and preserves provider job id/URLs; **single-flight** — a
+  background poll and a concurrent `StatusAsync` racing a near-terminal job produce exactly one
+  terminal transition and one materialization; **shutdown** — disposing the manager mid-poll cancels
+  the loop and stops further transitions (no orphaned background work).
 - **Regression:** existing 55 C# + 17 MCP tests stay green.
+
+## Substrate trajectory
+
+This pass is a deliberate slice on the way to a fuller fal-roundtrip substrate, not the whole thing.
+Naming the staircase so the next iteration doesn't re-litigate it:
+
+- **What becomes substrate now (convergence by consumption):** the fal-semantics layer —
+  `FalApiClient` + `FalLifecycleMapper` + `FalErrorMapper`, the secret store, and the shared
+  outcome/envelope primitives (`ProviderJobHandle`, `Provider*Outcome`, `ProviderResultEnvelope` /
+  `ResultArtifact`). After this pass it has **two domains / three modalities** consuming it
+  identically (image, video, reconstruction). The "pulling from fal was hard" bind lived entirely in
+  this layer and cannot recur in code that calls these mappers.
+
+- **What stays "shared pattern, not shared code" (by the B-over-C choice):** the orchestration layer
+  — job manager, ledger, materializer, downloader. Each modality still writes this boilerplate
+  against the proven shape. This is the low-risk duplication (known pattern) rather than the
+  high-risk duplication (subtle fal queue semantics) that hurt us.
+
+- **Why not extract the orchestration substrate now:** rule of three. Extracting a generic
+  job-runner / shared `MediaDownloader` / the `IGenerationProvider<TRequest,TCapability>` generic
+  from a single example (Vision) is how you get an abstraction that fits image/video and then fights
+  reconstruction's multi-asset package. This pass makes reconstruction a clean **second conforming
+  consumer** and mandates the new downloader expose an extractable interface — which de-risks a later
+  extraction by validating the abstraction's shape empirically.
+
+- **The gated follow-up:** once this lands, an "extract shared generation-job substrate" change
+  (shared download discipline, shared submit→poll→materialize runner, possibly the generic provider
+  interface *if it fits all three*) becomes a low-churn lift with golden parity tests. That is the
+  point at which a new fal roundtrip feature really is "write the provider + request/result shape,
+  get the rest for free." It is **out of scope here** and gated on a third consumer / the next fal
+  feature.
 
 ## Non-goals (YAGNI guard)
 
