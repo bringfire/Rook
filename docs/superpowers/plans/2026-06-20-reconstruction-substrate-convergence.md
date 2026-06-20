@@ -968,7 +968,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
   `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "FullyQualifiedName~Reconstruction" --no-restore` and `pytest mcp_server/tests/test_reconstruction_mcp_tools.py -q`
 - [ ] `rg -n "InvalidOperationException" src/Rook/Services/Reconstruction/` returns no fal/HTTP-boundary throws.
 - [ ] `rg -n "GetAwaiter\(\)\.GetResult\(\)|ContinueWith|\)\.Result\b" src/Rook/Services/Reconstruction/` returns nothing (no sync-over-async anywhere). The `)\.Result` form catches a blocked `Task.Result` while avoiding the shared `SyncSubmitOutcome.Result` *property*, which is accessed by name (`sync.Result`) and which reconstruction does not use.
-- [ ] `rg -n "File\.ReadAllBytes\b" src/Rook/Services/Reconstruction/Fal/` returns nothing (provider + publisher stay storage-agnostic; the manager-side resolver in the parent folder may read the validator-resolved path via `File.ReadAllBytesAsync`).
+- [ ] `rg -n "File\.ReadAllBytes\b" src/Rook/Services/Reconstruction/Fal/` returns nothing (provider + publisher stay storage-agnostic; the manager-side resolver in the parent folder may read the validator-resolved path via the `ReadFileBytesAsync` helper (`FileStream(useAsync:true)` + `CopyToAsync`)).
 - [ ] `rg -n "FalErrorMapper|FalLifecycleMapper" src/Rook/Services/Reconstruction/` shows the mappers are now used.
 - [ ] No file under `src/Rook/Services/Vision/` was modified by this branch's new commits.
 - [ ] Native build verified separately (out of unit scope).
