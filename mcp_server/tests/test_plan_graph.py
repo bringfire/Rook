@@ -193,17 +193,36 @@ def test_gh_script_repair_fixture_preserves_opaque_evidence_through_repair():
 
     assert {node.id for node in runnable_nodes(graph)} == {"create_script"}
 
-    receipt = {
-        "component_guid": "7ac403b9-d6a6-4bf0-a065-25e01c829c4f",
-        "artifact_handle": "grasshopper-component:7ac403b9-d6a6-4bf0-a065-25e01c829c4f",
-        "compile_errors": [
-            {"line": 12, "message": "The name 'foo' does not exist"}
-        ],
-    }
     repair_anchor = {
         "component_guid": "7ac403b9-d6a6-4bf0-a065-25e01c829c4f",
         "script_input": "x",
         "preserve_component": True,
+    }
+    receipt = {
+        "version": 1,
+        "operation": "create",
+        "language": "csharp",
+        "artifact_status": "created_with_errors",
+        "artifact": {
+            "component_guid": "7ac403b9-d6a6-4bf0-a065-25e01c829c4f",
+            "artifact_handle": "grasshopper-component:7ac403b9-d6a6-4bf0-a065-25e01c829c4f",
+        },
+        "mutation": {
+            "kind": "create_script",
+            "target": "grasshopper_component",
+            "created": True,
+        },
+        "verification": {
+            "tool_status": "failed",
+            "target_counts": {
+                "components_created": 1,
+                "compile_errors": 1,
+            },
+            "compile_errors": [
+                {"line": 12, "message": "The name 'foo' does not exist"}
+            ],
+        },
+        "repair_anchor": repair_anchor,
     }
 
     # Graph-level succeeded means the artifact handle exists; tool_status failed
