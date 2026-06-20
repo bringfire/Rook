@@ -547,6 +547,34 @@ public sealed class ReconstructionJobManager : IDisposable
         });
     }
 
+    /// <summary>
+    /// Flips every non-terminal ledger job to <see cref="ReconstructionJobState.Interrupted"/> —
+    /// called once on subsystem construction to settle jobs whose background loops were abandoned by a
+    /// plugin reload/crash. Terminal records are left untouched. Provider job id + status/response/
+    /// cancel URLs are preserved (carried by <c>record with { … }</c>) so an explicit cancel can still
+    /// reach the remote job; there is NO automatic remote resume.
+    /// </summary>
+    public void ReconcileInterruptedJobs()
+    {
+        foreach (var record in _ledger.List(int.MaxValue).Jobs)
+        {
+            if (IsTerminal(record.State)) continue;
+
+            _ledger.Append(record with
+            {
+                State = ReconstructionJobState.Interrupted,
+                Stage = ReconstructionJobStage.Error,
+                Error = new ReconstructionFailure(
+                    "interrupted",
+                    "Job interrupted by plugin reload.",
+                    Retryable: true,
+                    Field: null,
+                    Details: new Dictionary<string, object?>()),
+                UpdatedAt = DateTimeOffset.UtcNow,
+            });
+        }
+    }
+
     // Kicks a per-job background poll loop, linked to the shutdown token and tracked for drain on
     // Dispose. The loop reuses PollActiveJobAsync, so it shares the per-job single-flight gate with
     // any on-demand StatusAsync caller — exactly one terminal transition + materialization per job.

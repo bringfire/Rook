@@ -255,6 +255,10 @@ namespace Rook
                     falClient,
                     SharedGenerationSecretStore));
 
+            // Settle any jobs whose background loops were abandoned by a prior plugin reload/crash:
+            // non-terminal ledger records become Interrupted (provider ids preserved; no auto-resume).
+            manager.ReconcileInterruptedJobs();
+
             return new ReconstructionOpHandler(catalog, manager, SharedArtifactStore);
         }
 
@@ -423,6 +427,11 @@ namespace Rook
             if (_video.IsValueCreated)
             {
                 _video.Value.Manager.Dispose();
+            }
+
+            if (_reconstruction.IsValueCreated)
+            {
+                _reconstruction.Value.Manager.Dispose();
             }
         }
     }

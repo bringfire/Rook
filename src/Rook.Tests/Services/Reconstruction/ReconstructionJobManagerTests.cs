@@ -353,6 +353,43 @@ public sealed class ReconstructionJobManagerTests : IDisposable
     }
 
     [Fact]
+    public void ReconcileInterruptedJobs_NonTerminalBecomeInterrupted_PreserveProviderFields_TerminalUntouched()
+    {
+        var fixture = CreateFixture();
+
+        var runningId = Guid.NewGuid();
+        fixture.Ledger.Append(
+            ReconstructionJobLedgerRecord.Queued(runningId, HunyuanModelId, Guid.NewGuid(), "image") with
+            {
+                State = ReconstructionJobState.Running,
+                Stage = ReconstructionJobStage.Polling,
+                ProviderJobId = "req-9",
+                ProviderStatusUrl = "https://queue.fal.run/status/req-9",
+                ProviderResponseUrl = "https://queue.fal.run/response/req-9",
+                ProviderCancelUrl = "https://queue.fal.run/cancel/req-9",
+                ProviderCancelHttpMethod = "PUT",
+            });
+
+        var completeId = Guid.NewGuid();
+        fixture.Ledger.Append(ReconstructionJobLedgerRecord.Complete(completeId, Guid.NewGuid()));
+
+        fixture.Manager.ReconcileInterruptedJobs();
+
+        var running = fixture.Manager.Status(runningId).Job!;
+        Assert.Equal(ReconstructionJobState.Interrupted, running.State);
+        Assert.Equal("req-9", running.ProviderJobId);                                  // provider id preserved
+        Assert.Equal("https://queue.fal.run/status/req-9", running.ProviderStatusUrl);
+        Assert.Equal("https://queue.fal.run/response/req-9", running.ProviderResponseUrl);
+        Assert.Equal("https://queue.fal.run/cancel/req-9", running.ProviderCancelUrl);
+        Assert.Equal("PUT", running.ProviderCancelHttpMethod);
+        Assert.Equal("interrupted", running.Error!.Code);
+        Assert.True(running.Error.Retryable);
+
+        var complete = fixture.Manager.Status(completeId).Job!;
+        Assert.Equal(ReconstructionJobState.Complete, complete.State);                 // terminal left untouched
+    }
+
+    [Fact]
     public void Result_CompleteJobWithDeletedPackage_ReturnsMissingArtifactWarning()
     {
         var fixture = CreateFixture();

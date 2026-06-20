@@ -41,6 +41,10 @@ namespace Rook.Handlers
             _store = store ?? throw new ArgumentNullException(nameof(store));
         }
 
+        // Exposed only so RookSubsystemRoot can dispose the background-execution manager during
+        // subsystem teardown (mirrors the image/video subsystems). Not part of the op surface.
+        internal ReconstructionJobManager Manager => _manager;
+
         public async Task<ApiResponse> DispatchAsync(
             string? body,
             CancellationToken cancellationToken = default)
