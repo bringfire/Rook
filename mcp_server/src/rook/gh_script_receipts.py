@@ -70,7 +70,7 @@ def derive_verification(
             "note": note,
         }
 
-    if unavailable_note:
+    if unavailable_note is not None:
         status = "unavailable"
         return {
             "status": status,
@@ -90,8 +90,8 @@ def derive_verification(
         "method": method,
         "target_error_count": len(errors),
         "target_warning_count": len(warnings),
-        "unrelated_error_count": unrelated_error_count if unrelated_error_count is not None else 0,
-        "unrelated_warning_count": unrelated_warning_count if unrelated_warning_count is not None else 0,
+        "unrelated_error_count": unrelated_error_count,
+        "unrelated_warning_count": unrelated_warning_count,
         "note": note,
     }
 

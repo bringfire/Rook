@@ -68,6 +68,22 @@ def test_derive_verification_failed_counts_target_errors_and_warnings():
     assert verification["unrelated_warning_count"] == 1
 
 
+def test_derive_verification_preserves_unknown_unrelated_counts_for_measured_result():
+    verification = derive_verification(
+        component_errors=[],
+        component_warnings=["Unused variable"],
+        unrelated_error_count=None,
+        unrelated_warning_count=None,
+        method="gh_errors",
+    )
+
+    assert verification["status"] == "passed"
+    assert verification["target_error_count"] == 0
+    assert verification["target_warning_count"] == 1
+    assert verification["unrelated_error_count"] is None
+    assert verification["unrelated_warning_count"] is None
+
+
 def test_derive_verification_deferred_wins_and_uses_unknown_counts():
     verification = derive_verification(
         component_errors=["stale should not matter"],
@@ -131,6 +147,24 @@ def test_derive_verification_unavailable_uses_attempted_method_and_unknown_count
     }
 
 
+def test_derive_verification_empty_unavailable_note_still_marks_unavailable():
+    verification = derive_verification(
+        component_errors=[],
+        component_warnings=[],
+        unrelated_error_count=0,
+        unrelated_warning_count=0,
+        method="gh_snapshot_fallback",
+        unavailable_note="",
+    )
+
+    assert verification["status"] == "unavailable"
+    assert verification["target_error_count"] is None
+    assert verification["target_warning_count"] is None
+    assert verification["unrelated_error_count"] is None
+    assert verification["unrelated_warning_count"] is None
+    assert verification["note"] == ""
+
+
 def test_derive_artifact_status_mapping_and_warning_policy():
     assert derive_artifact_status("create", "passed") == "usable"
     assert derive_artifact_status("update", "passed") == "usable"
@@ -181,6 +215,22 @@ def test_build_script_receipt_contains_version_mutation_verification_and_repair_
     }
 
 
+def test_build_script_receipt_warning_only_verification_is_usable():
+    receipt = build_script_receipt(
+        **_base_receipt_kwargs(
+            operation="create",
+            mutation_status="created",
+            mutation_method="gh_create_component_then_script",
+            component_warnings=["Unused variable"],
+        )
+    )
+
+    assert receipt["verification"]["status"] == "passed"
+    assert receipt["verification"]["target_error_count"] == 0
+    assert receipt["verification"]["target_warning_count"] == 1
+    assert receipt["artifact_status"] == "usable"
+
+
 def test_build_script_receipt_omits_requested_guid_when_not_useful():
     receipt = build_script_receipt(
         **_base_receipt_kwargs(
@@ -213,6 +263,37 @@ def test_build_script_receipt_uses_none_diagnostics_when_verification_unknown():
 
     assert receipt["verification"]["status"] == "deferred"
     assert receipt["verification"]["target_error_count"] is None
+    assert receipt["repair_anchor"]["target_errors"] is None
+    assert receipt["repair_anchor"]["target_warnings"] is None
+    assert receipt["artifact_status"] == "verification_pending"
+
+
+def test_build_script_receipt_uses_none_diagnostics_when_verification_unavailable():
+    receipt = build_script_receipt(
+        **_base_receipt_kwargs(
+            component_errors=["stale should not matter"],
+            component_warnings=["stale should not matter"],
+            unavailable_note="",
+        )
+    )
+
+    assert receipt["verification"]["status"] == "unavailable"
+    assert receipt["repair_anchor"]["target_errors"] is None
+    assert receipt["repair_anchor"]["target_warnings"] is None
+    assert receipt["artifact_status"] == "unknown"
+
+
+def test_build_script_receipt_uses_none_diagnostics_when_verification_not_requested():
+    receipt = build_script_receipt(
+        **_base_receipt_kwargs(
+            component_errors=["stale should not matter"],
+            component_warnings=["stale should not matter"],
+            not_requested=True,
+            verification_note="check_errors was false.",
+        )
+    )
+
+    assert receipt["verification"]["status"] == "not_requested"
     assert receipt["repair_anchor"]["target_errors"] is None
     assert receipt["repair_anchor"]["target_warnings"] is None
     assert receipt["artifact_status"] == "verification_pending"
