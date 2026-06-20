@@ -114,7 +114,7 @@ Expected: both types are declared in `Artifact.cs` (around lines 115/127), besid
 - [ ] **Step 2: Confirm the existing ReplaceJsonBlob tests pass (baseline lock)**
 
 Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "FullyQualifiedName~ArtifactStoreTests.ReplaceJsonBlob" --no-restore`
-Expected: PASS (5 tests).
+Expected: PASS (**3 tests** in the worktree — verified 2026-06-20). Note: main's uncommitted copy has 5 (it adds a finalize-failure test via the `ReplaceJsonBlobFileReplaceOverrideForTests` seam); porting that extra coverage is part of the separate, user-directed main reconciliation, not this pass.
 
 - [ ] **Step 3: No commit unless Step 1 shows the tidy is missing**
 
