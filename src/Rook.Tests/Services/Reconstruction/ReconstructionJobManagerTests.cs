@@ -3,12 +3,14 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using Rook.Artifacts;
 using Rook.Services.Reconstruction;
 using Rook.Services.Reconstruction.Fal;
+using Rook.Services.Vision.Fal;
 using Rook.Services.Vision.Generation;
 using Xunit;
 
@@ -353,6 +355,48 @@ public sealed class ReconstructionJobManagerTests : IDisposable
     }
 
     [Fact]
+    public async Task ProviderQuotaFailure_SurfacesRetryableReconstructionFailure_EndToEnd()
+    {
+        // End-to-end through the REAL provider over a fake transport: submit 200, status 429 with the
+        // fal needs-retry header. Exercises FalErrorMapper -> GenerationError(QuotaExceeded, retryable)
+        // -> manager AppendError -> ReconstructionErrorMapping.ToFailure -> ReconstructionFailure.
+        var root = NewTempRoot();
+        var store = new ArtifactStore(Path.Combine(root, "artifacts"));
+        var ledger = new JsonlReconstructionJobLedger(Path.Combine(root, "ledger.jsonl"));
+        var transport = new FakeFalTransport();
+        transport.Posts.Enqueue(new FalHttpResponse(
+            200,
+            @"{""request_id"":""req-1"",""status_url"":""https://queue.fal.run/status/req-1"",""response_url"":""https://queue.fal.run/response/req-1"",""cancel_url"":""https://queue.fal.run/cancel/req-1""}",
+            EmptyHeaders()));
+        transport.Gets.Enqueue(new FalHttpResponse(
+            429,
+            "{}",
+            new Dictionary<string, IReadOnlyList<string>> { ["x-fal-needs-retry"] = new[] { "true" } }));
+        var downloader = new FakeDownloader();
+        var manager = new ReconstructionJobManager(
+            store,
+            ReconstructionModelCatalog.FromJson(CatalogJson),
+            ledger,
+            new FalReconstructionProvider(transport),
+            new ReconstructionPackageMaterializer(store, downloader),
+            new FakeSourceImagePublisher(),
+            TimeSpan.FromMilliseconds(2));
+        _managers.Add(manager);
+        var source = store.Create(
+            "generated_image",
+            new[] { new BlobInput("image", new byte[] { 1, 2, 3 }, "png") });
+
+        var submit = await manager.SubmitAsync(Request(source.Id), CancellationToken.None);
+        await WaitUntil(
+            () => manager.Status(submit.Job!.JobId).Job!.State == ReconstructionJobState.Error,
+            2000);
+
+        var rec = manager.Status(submit.Job!.JobId).Job!;
+        Assert.Equal("quota_exceeded", rec.Error!.Code);
+        Assert.True(rec.Error.Retryable);
+    }
+
+    [Fact]
     public void ReconcileInterruptedJobs_NonTerminalBecomeInterrupted_PreserveProviderFields_TerminalUntouched()
     {
         var fixture = CreateFixture();
@@ -560,6 +604,27 @@ public sealed class ReconstructionJobManagerTests : IDisposable
                 null,
                 new GenerationError(GenerationErrorCode.DependencyUnavailable, $"missing {url}", Retryable: true)));
         }
+    }
+
+    private static Dictionary<string, IReadOnlyList<string>> EmptyHeaders()
+        => new();
+
+    // Minimal IFalTransport so the real FalReconstructionProvider can be exercised end-to-end against
+    // scripted HTTP responses (used by the GenerationError -> ReconstructionFailure boundary test).
+    private sealed class FakeFalTransport : IFalTransport
+    {
+        public Queue<FalHttpResponse> Posts { get; } = new();
+        public Queue<FalHttpResponse> Gets { get; } = new();
+        public Queue<FalHttpResponse> Sends { get; } = new();
+
+        public Task<FalHttpResponse> PostJsonAsync(Uri url, string bodyJson, CancellationToken ct)
+            => Task.FromResult(Posts.Dequeue());
+
+        public Task<FalHttpResponse> GetAsync(Uri url, CancellationToken ct)
+            => Task.FromResult(Gets.Dequeue());
+
+        public Task<FalHttpResponse> SendAsync(HttpMethod method, Uri url, string? bodyJson, CancellationToken ct)
+            => Task.FromResult(Sends.Dequeue());
     }
 
     private sealed class FakeSourceImagePublisher : IReconstructionSourceImagePublisher
