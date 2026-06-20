@@ -90,13 +90,21 @@ Allowed imports in `plan_graph_outcomes.py`:
 - `rook.learning.plan_graph.NodeEvidence`
 
 The adapter module may import both `tool_contracts` and `plan_graph` because it
-is the bridge between them. Neither core module may import the adapter:
+is the bridge between them. The data flow is:
 
 ```text
 tool_contracts -> plan_graph_outcomes -> plan_graph
 ```
 
-Avoid these reversed dependencies:
+The import direction is:
+
+```text
+plan_graph_outcomes imports tool_contracts and plan_graph
+tool_contracts imports neither plan_graph nor plan_graph_outcomes
+plan_graph imports neither tool_contracts nor plan_graph_outcomes
+```
+
+Avoid these reversed import dependencies:
 
 ```text
 tool_contracts -> plan_graph
