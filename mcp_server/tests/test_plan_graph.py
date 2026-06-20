@@ -53,13 +53,26 @@ def test_initialize_graph_marks_all_roots_ready():
 def test_runnable_nodes_is_read_only():
     graph = initialize_graph(
         PlanGraph(
-            nodes={"root": PlanGraphNode(id="root", intent="Root node")},
+            nodes={
+                "root": PlanGraphNode(
+                    id="root",
+                    intent="Root node",
+                    metadata={"steps": [{"name": "original"}]},
+                    evidence=NodeEvidence(
+                        receipt={"artifact_status": "original"},
+                    ),
+                )
+            },
         )
     )
     before = copy.deepcopy(graph)
 
     first = runnable_nodes(graph)
     second = runnable_nodes(graph)
+    first[0].status = "running"
+    first[0].metadata["steps"][0]["name"] = "mutated"
+    first[0].evidence.receipt["artifact_status"] = "mutated"
+    first[0].retry.attempts = 99
 
     assert [node.id for node in first] == ["root"]
     assert [node.id for node in second] == ["root"]

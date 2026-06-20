@@ -121,7 +121,9 @@ def initialize_graph(graph: PlanGraph) -> PlanGraph:
 
 
 def runnable_nodes(graph: PlanGraph) -> list[PlanGraphNode]:
-    return [node for node in graph.nodes.values() if node.status == "ready"]
+    return [
+        copy.deepcopy(node) for node in graph.nodes.values() if node.status == "ready"
+    ]
 
 
 def graph_status(graph: PlanGraph) -> GraphStatus:
