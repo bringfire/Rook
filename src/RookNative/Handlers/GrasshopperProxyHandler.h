@@ -13,6 +13,7 @@ bool HasGrasshopperBridgeRegistration();
 bool HasGrasshopperCoreRegistration();
 bool HasVisionDispatchRegistration();
 bool HasBimDispatchRegistration();
+bool HasReconstructionDispatchRegistration();
 bool HasViewportCaptureTier3Registration();
 bool HasBlockDefinitionMutationRegistration();
 bool HasCanvasGraphProtocol();
@@ -68,6 +69,20 @@ ManagedCreateInvokeResult InvokeBimDispatchWithBody(
     std::string& responseJson,
     int& statusCode,
     std::string& error);
+
+ManagedCreateInvokeResult InvokeReconstructionDispatchWithBody(
+    const std::string& requestJson,
+    std::string& responseJson,
+    int& statusCode,
+    std::string& error);
+
+void HandleReconstructionModels(const httplib::Request& req, httplib::Response& res);
+void HandleReconstructionSubmit(const httplib::Request& req, httplib::Response& res);
+void HandleReconstructionJobsList(const httplib::Request& req, httplib::Response& res);
+void HandleReconstructionStatus(const httplib::Request& req, httplib::Response& res);
+void HandleReconstructionCancel(const httplib::Request& req, httplib::Response& res);
+void HandleReconstructionResult(const httplib::Request& req, httplib::Response& res);
+
 void HandleBimStatus(const httplib::Request& req, httplib::Response& res);
 void HandleBimActiveDocument(const httplib::Request& req, httplib::Response& res);
 void HandleBimCategories(const httplib::Request& req, httplib::Response& res);

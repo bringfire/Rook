@@ -469,6 +469,13 @@ BRIDGE_ROUTES: Dict[str, Tuple[str, str]] = {
     "rhino_render_video":   ("/vision/video/jobs", "POST"),
     "rhino_video_estimate": ("/vision/video/estimate", "POST"),
     "rhino_video_models":   ("/vision/video/models", "GET"),
+
+    # --- Rook Reconstruction (2D to 3D) ---
+    # Submit/import are simple body passthroughs. Models/jobs/path-param
+    # lifecycle tools live in TRANSFORM_FUNCTIONS for explicit query/path
+    # construction and parity with server.call_tool.
+    "rhino_2d_to_3d_submit": ("/reconstruction/2d-to-3d/jobs", "POST"),
+    "rhino_2d_to_3d_import": ("/reconstruction/2d-to-3d/import", "POST"),
 }
 
 
@@ -1028,6 +1035,84 @@ def _video_jobs(params: dict) -> Tuple[Optional[str], str, Optional[dict]]:
     return "/vision/video/jobs", "GET", None
 
 
+def _encode_reconstruction_job_id(jid: Any) -> tuple[str | None, dict | None]:
+    """Pre-validate and URL-encode reconstruction job_id path params."""
+    from urllib.parse import quote as _quote
+
+    if not isinstance(jid, str) or not jid:
+        return None, {
+            "success": False,
+            "data": "job_id must be a non-empty string.",
+        }
+    if "/" in jid or "\\" in jid:
+        return None, {
+            "success": False,
+            "data": (
+                f"job_id must not contain '/' or '\\\\' "
+                f"(got: {jid!r}). Supply a canonical GUID — e.g. "
+                "12345678-1234-1234-1234-123456789abc."
+            ),
+        }
+    return _quote(jid, safe=""), None
+
+
+def _reconstruction_models(params: dict) -> Tuple[str, str, Optional[dict]]:
+    from urllib.parse import urlencode as _urlencode
+
+    query = {}
+    if "include_experimental" in params:
+        value = params["include_experimental"]
+        query["include_experimental"] = "true" if value is True else "false" if value is False else str(value)
+    if "include_hidden" in params:
+        value = params["include_hidden"]
+        query["include_hidden"] = "true" if value is True else "false" if value is False else str(value)
+
+    endpoint = "/reconstruction/2d-to-3d/models"
+    if query:
+        endpoint = f"{endpoint}?{_urlencode(query)}"
+    return endpoint, "GET", None
+
+
+def _reconstruction_jobs(params: dict) -> Tuple[str, str, Optional[dict]]:
+    from urllib.parse import quote as _quote
+
+    if "limit" in params:
+        raw = params["limit"]
+        if raw is None:
+            return "/reconstruction/2d-to-3d/jobs", "GET", None
+        limit_str = str(raw)
+        return (
+            f"/reconstruction/2d-to-3d/jobs?limit={_quote(limit_str, safe='')}",
+            "GET",
+            None,
+        )
+    return "/reconstruction/2d-to-3d/jobs", "GET", None
+
+
+def _reconstruction_status(params: dict) -> Tuple[Optional[str], str, Optional[dict]]:
+    encoded, err = _encode_reconstruction_job_id(params.get("job_id", ""))
+    if err is not None:
+        err["_pre_dispatch_failure"] = True
+        return None, "", err
+    return f"/reconstruction/2d-to-3d/jobs/{encoded}", "GET", None
+
+
+def _reconstruction_cancel(params: dict) -> Tuple[Optional[str], str, Optional[dict]]:
+    encoded, err = _encode_reconstruction_job_id(params.get("job_id", ""))
+    if err is not None:
+        err["_pre_dispatch_failure"] = True
+        return None, "", err
+    return f"/reconstruction/2d-to-3d/jobs/{encoded}/cancel", "POST", {}
+
+
+def _reconstruction_result(params: dict) -> Tuple[Optional[str], str, Optional[dict]]:
+    encoded, err = _encode_reconstruction_job_id(params.get("job_id", ""))
+    if err is not None:
+        err["_pre_dispatch_failure"] = True
+        return None, "", err
+    return f"/reconstruction/2d-to-3d/jobs/{encoded}/result", "GET", None
+
+
 # Registry of all transform functions
 TRANSFORM_FUNCTIONS: Dict[str, Callable[[dict], Tuple[str, str, dict]]] = {
     "rhino_command":           _transform_rhino_command,
@@ -1066,6 +1151,13 @@ TRANSFORM_FUNCTIONS: Dict[str, Callable[[dict], Tuple[str, str, dict]]] = {
     "rhino_video_cancel":      _video_cancel,
     "rhino_video_result":      _video_result,
     "rhino_video_jobs":        _video_jobs,
+
+    # --- Rook Reconstruction (2D to 3D) ---
+    "rhino_2d_to_3d_models":   _reconstruction_models,
+    "rhino_2d_to_3d_jobs":     _reconstruction_jobs,
+    "rhino_2d_to_3d_status":   _reconstruction_status,
+    "rhino_2d_to_3d_cancel":   _reconstruction_cancel,
+    "rhino_2d_to_3d_result":   _reconstruction_result,
 }
 
 

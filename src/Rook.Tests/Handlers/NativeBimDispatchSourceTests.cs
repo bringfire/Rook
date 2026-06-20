@@ -166,11 +166,13 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
-        public void NativeBridge_DeclaresAbi15BimDispatchSlot()
+        public void NativeBridge_DeclaresBimDispatchSlotUnderCurrentAbi()
         {
             var source = ReadSourceFile("src", "RookNative", "Handlers", "GrasshopperProxyHandler.cpp");
 
-            Assert.Contains("kGhBridgeAbiVersion = 15", source);
+            // ABI tracks the current bridge contract; it was bumped to 16 by the reconstruction
+            // dispatch slot. The BIM dispatch slot must remain declared under that ABI.
+            Assert.Contains("kGhBridgeAbiVersion = 16", source);
             Assert.Contains("GhBridgeCallbackFn vision_dispatch = nullptr;", source);
             Assert.Contains("GhBridgeCallbackFn bim_dispatch = nullptr;", source);
             Assert.Contains("registration.bim_dispatch != nullptr", source);
@@ -179,11 +181,11 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
-        public void ManagedBridge_RegistersAbi15BimDispatchSlot()
+        public void ManagedBridge_RegistersBimDispatchSlotUnderCurrentAbi()
         {
             var source = ReadSourceFile("src", "Rook", "InternalBridge", "NativeGhBridgeRegistrar.cs");
 
-            Assert.Contains("BridgeAbiVersion = 15", source);
+            Assert.Contains("BridgeAbiVersion = 16", source);
             Assert.Contains("public IntPtr VisionDispatch;", source);
             Assert.Contains("public IntPtr BimDispatch;", source);
             Assert.Contains("BimDispatch = Marshal.GetFunctionPointerForDelegate(BimDispatchCallback)", source);

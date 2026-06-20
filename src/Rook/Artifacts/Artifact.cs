@@ -111,4 +111,32 @@ namespace Rook.Artifacts
             string message) =>
             new(code, null, message);
     }
+
+    public enum ReplaceJsonBlobResultCode
+    {
+        Succeeded,
+        ArtifactNotFound,
+        ManifestReadFailed,
+        InvalidRole,
+        RoleNotFound,
+        RoleIsNotJson,
+        StagedWriteFailed,
+        FinalizeBlobFailed,
+    }
+
+    public sealed record ReplaceJsonBlobResult(
+        ReplaceJsonBlobResultCode Code,
+        Artifact? Artifact = null,
+        string? Message = null)
+    {
+        public bool Success => Code == ReplaceJsonBlobResultCode.Succeeded;
+
+        public static ReplaceJsonBlobResult Succeeded(Artifact artifact) =>
+            new(ReplaceJsonBlobResultCode.Succeeded, artifact);
+
+        public static ReplaceJsonBlobResult Fail(
+            ReplaceJsonBlobResultCode code,
+            string message) =>
+            new(code, null, message);
+    }
 }

@@ -1976,6 +1976,27 @@ body {
     flex-wrap: wrap;
 }
 
+.reconstruction-status {
+    margin-top: var(--space-3);
+    font-size: 13px;
+    color: var(--ink-soft);
+}
+
+.reconstruction-status.error {
+    color: var(--accent-red);
+}
+
+.reconstruction-status.success {
+    color: var(--accent-green);
+}
+
+.reconstruction-import-hint {
+    display: block;
+    margin-top: var(--space-2);
+    font-family: var(--type-mono);
+    font-size: 12px;
+}
+
 /* ═══════════════════════════════════════════════════════════════
    RESPONSIVE
    ═══════════════════════════════════════════════════════════════ */

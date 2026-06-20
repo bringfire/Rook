@@ -1076,6 +1076,18 @@ void CRookServer::RegisterRoutes()
         Rook::Handlers::HandleVisionVideoStatus(req, res);
     });
 
+    // Reconstruction v1: public native /reconstruction/* routes proxy
+    // through dedicated reconstruction_dispatch. The import route is
+    // hybrid/native-owned because it performs Rhino _Import and stamps
+    // object user text in the same main-thread operation.
+    m_server->Get("/reconstruction/2d-to-3d/models", Rook::Handlers::HandleReconstructionModels);
+    m_server->Post("/reconstruction/2d-to-3d/jobs", Rook::Handlers::HandleReconstructionSubmit);
+    m_server->Get("/reconstruction/2d-to-3d/jobs", Rook::Handlers::HandleReconstructionJobsList);
+    m_server->Post("/reconstruction/2d-to-3d/import", Rook::Handlers::HandleReconstructionImport);
+    m_server->Post(R"(/reconstruction/2d-to-3d/jobs/([^/]+)/cancel)", Rook::Handlers::HandleReconstructionCancel);
+    m_server->Get(R"(/reconstruction/2d-to-3d/jobs/([^/]+)/result)", Rook::Handlers::HandleReconstructionResult);
+    m_server->Get(R"(/reconstruction/2d-to-3d/jobs/([^/]+))", Rook::Handlers::HandleReconstructionStatus);
+
     // BIM Phase 1: public native /bim/* routes proxy through a single
     // managed bim_dispatch callback (ABI v15). Native injects the op
     // discriminator route-side and forwards the remaining JSON opaquely.
@@ -2072,6 +2084,7 @@ nlohmann::json BuildRookCapabilitiesDocument(
     const bool ghCoreReady = Rook::Handlers::HasGrasshopperCoreRegistration();
     const bool visionReady = Rook::Handlers::HasVisionDispatchRegistration();
     const bool bimDispatchReady = Rook::Handlers::HasBimDispatchRegistration();
+    const bool reconstructionReady = Rook::Handlers::HasReconstructionDispatchRegistration();
     const bool tier3CaptureReady = Rook::Handlers::HasViewportCaptureTier3Registration();
     const bool blockMutationReady = Rook::Handlers::HasBlockDefinitionMutationRegistration();
     const bool canvasGraphProtocolReady = Rook::Handlers::HasCanvasGraphProtocol();
@@ -2116,6 +2129,22 @@ nlohmann::json BuildRookCapabilitiesDocument(
         StringArray({ "POST /vision/generate", "POST /vision/enhance-prompt", "GET /vision/artifacts", "POST /vision/video/jobs" }),
         StringArray({ "image_generation", "prompt_enhancement", "artifact_store", "video_jobs" }), StringArray({ "companion runtime status" }),
         nlohmann::json::array({ Evidence("callback", "visionDispatch", visionReady) }), CompanionEvidenceFor(companionStatus, "vision.media")));
+    domains.push_back(Domain("reconstruction.2d_to_3d", "unknown", reconstructionReady,
+        reconstructionReady ? "unknown" : "not_loaded", false,
+        reconstructionReady ? "operation_state_not_probed_phase1" : "reconstruction_dispatch_callback_not_registered",
+        true, "native_bridge_callback_registration",
+        StringArray({
+            "GET /reconstruction/2d-to-3d/models",
+            "POST /reconstruction/2d-to-3d/jobs",
+            "GET /reconstruction/2d-to-3d/jobs",
+            "GET /reconstruction/2d-to-3d/jobs/{job_id}",
+            "POST /reconstruction/2d-to-3d/jobs/{job_id}/cancel",
+            "GET /reconstruction/2d-to-3d/jobs/{job_id}/result",
+            "POST /reconstruction/2d-to-3d/import" }),
+        StringArray({ "model_catalog", "submit_job", "list_jobs", "job_status", "cancel_job", "job_result", "import_package" }),
+        StringArray({ "companion runtime status" }),
+        nlohmann::json::array({ Evidence("callback", "reconstructionDispatch", reconstructionReady) }),
+        CompanionEvidenceFor(companionStatus, "reconstruction.2d_to_3d")));
     domains.push_back(Domain("viewport.capture", "unknown", tier3CaptureReady, tier3CaptureReady ? "unknown" : "not_loaded", false,
         tier3CaptureReady ? "operation_state_not_probed_phase1" : "managed_bridge_callback_not_registered", true, "native_bridge_callback_registration",
         StringArray({ "POST /viewport" }), StringArray({ "viewport_capture" }), StringArray({ "POST /viewport" }),

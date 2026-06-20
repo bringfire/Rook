@@ -11,6 +11,7 @@ namespace Rook {
 namespace Handlers {
 
 void HandleImport(const httplib::Request& req, httplib::Response& res);
+void HandleReconstructionImport(const httplib::Request& req, httplib::Response& res);
 void HandleExport(const httplib::Request& req, httplib::Response& res);
 
 } // namespace Handlers

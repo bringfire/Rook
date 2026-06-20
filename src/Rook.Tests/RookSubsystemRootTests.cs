@@ -19,6 +19,18 @@ namespace Rook.Tests
             Assert.Contains("new ImageJobManager", source);
         }
 
+        [Fact]
+        public void Reconstruction_subsystem_reconciles_on_create_and_disposes_manager()
+        {
+            var source = File.ReadAllText(FindSourceFile(
+                "src", "Rook", "RookSubsystemRoot.cs"));
+
+            // CreateReconstruction reconciles interrupted jobs after building the manager...
+            Assert.Contains("manager.ReconcileInterruptedJobs();", source);
+            // ...and the teardown path disposes the reconstruction manager.
+            Assert.Contains("_reconstruction.Value.Manager.Dispose();", source);
+        }
+
         private static string FindSourceFile(params string[] parts)
         {
             var dir = new DirectoryInfo(AppContext.BaseDirectory);
