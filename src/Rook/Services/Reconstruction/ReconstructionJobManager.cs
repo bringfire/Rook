@@ -480,6 +480,22 @@ public sealed class ReconstructionJobManager : IDisposable
         {
             throw;
         }
+        catch (ReconstructionCredentialMissingException)
+        {
+            // Missing fal key during status/result polling → typed missing_credential, not the opaque
+            // poll_failed below. MUST stay before the generic Exception catch.
+            var latest = FindJob(jobId);
+            if (latest is null)
+                throw;
+
+            _ledger.Append(latest with
+            {
+                State = ReconstructionJobState.Error,
+                Stage = ReconstructionJobStage.Error,
+                Error = ReconstructionErrorMapping.MissingCredentialFailure(),
+                UpdatedAt = DateTimeOffset.UtcNow,
+            });
+        }
         catch (Exception ex)
         {
             var latest = FindJob(jobId);

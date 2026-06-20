@@ -517,6 +517,43 @@ public sealed class ReconstructionJobManagerTests : IDisposable
     }
 
     [Fact]
+    public async Task Poll_MissingApiKey_RecordsMissingCredential_NotPollFailed()
+    {
+        // Real provider over a transport with no key. Seed a polling job directly (submit would itself
+        // fail on the missing key), then poll → GetStatus → Key() throws → typed missing_credential.
+        var root = NewTempRoot();
+        var store = new ArtifactStore(Path.Combine(root, "artifacts"));
+        var ledger = new JsonlReconstructionJobLedger(Path.Combine(root, "ledger.jsonl"));
+        var manager = new ReconstructionJobManager(
+            store,
+            ReconstructionModelCatalog.FromJson(CatalogJson),
+            ledger,
+            new FalReconstructionProvider(new FalApiTransport(new FalApiClient(), () => null)),
+            new ReconstructionPackageMaterializer(store, new FakeDownloader()),
+            new FakeSourceImagePublisher());
+        _managers.Add(manager);
+
+        var jobId = Guid.NewGuid();
+        ledger.Append(ReconstructionJobLedgerRecord.Queued(jobId, HunyuanModelId, Guid.NewGuid(), "image") with
+        {
+            State = ReconstructionJobState.Running,
+            Stage = ReconstructionJobStage.Polling,
+            ProviderJobId = "req-1",
+            ProviderStatusUrl = "https://queue.fal.run/status/req-1",
+            ProviderResponseUrl = "https://queue.fal.run/response/req-1",
+            ProviderCancelUrl = "https://queue.fal.run/cancel/req-1",
+            ProviderCancelHttpMethod = "PUT",
+        });
+
+        await manager.PollActiveJobAsync(jobId, CancellationToken.None);
+
+        var rec = manager.Status(jobId).Job!;
+        Assert.Equal(ReconstructionJobState.Error, rec.State);
+        Assert.Equal("missing_credential", rec.Error!.Code);   // typed, not opaque "poll_failed"
+        Assert.False(rec.Error.Retryable);
+    }
+
+    [Fact]
     public void ReconcileInterruptedJobs_NonTerminalBecomeInterrupted_PreserveProviderFields_TerminalUntouched()
     {
         var fixture = CreateFixture();
