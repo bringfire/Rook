@@ -363,7 +363,7 @@ Manager submit path: `ReconstructionSourceValidator.Validate(...)` already resol
 ```csharp
 // validation.AbsolutePath is the resolved, length-cap-validated source file (extension already ∈ {.png,.jpg,.jpeg,.webp})
 var path = validation.AbsolutePath!;
-var bytes = await File.ReadAllBytesAsync(path, ct).ConfigureAwait(false);
+var bytes = await ReadFileBytesAsync(path, ct).ConfigureAwait(false);
 var mime = Path.GetExtension(path).ToLowerInvariant() switch
 {
     ".png" => "image/png",
@@ -372,6 +372,16 @@ var mime = Path.GetExtension(path).ToLowerInvariant() switch
     _ => "application/octet-stream",
 };
 var inputUrl = await _sourcePublisher.PublishAsync(bytes, mime, Path.GetFileName(path), ct).ConfigureAwait(false);
+```
+`File.ReadAllBytesAsync` does NOT exist on `net48` (and `src/Rook/Rook.csproj` multi-targets `net48`), so use a multi-target-safe async read helper (`FileStream` with `useAsync: true`; `using`, not `await using`, since `FileStream` is not `IAsyncDisposable` on `net48`):
+```csharp
+private static async Task<byte[]> ReadFileBytesAsync(string path, CancellationToken ct)
+{
+    using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 81920, useAsync: true);
+    using var ms = new MemoryStream();
+    await fs.CopyToAsync(ms, 81920, ct).ConfigureAwait(false);
+    return ms.ToArray();
+}
 ```
 Delete the publisher's old `File.ReadAllBytes(absolutePath)` path entirely. The byte read now lives in the manager-side resolver flow (the manager owns the store/validator); the provider and publisher stay storage-agnostic. `RookSubsystemRoot.CreateReconstruction` keeps constructing `new FalReconstructionSourceImagePublisher(falClient, () => SharedGenerationSecretStore.GetSecret(GenerationSecretKeys.FalApiKey))`.
 
@@ -812,9 +822,10 @@ public void Dispose()
         _shutdownCts.Dispose();
         _concurrency.Dispose();
     }
-    // else: a loop did not observe cancellation within the drain budget. Leave _shutdownCts and
-    // _concurrency UNDISPOSED rather than risk a disposed-object Release()/token access from a
-    // still-running loop; their finalizers reclaim them. Disposal must never enable an orphan fault.
+    // else: a loop did not observe cancellation within the drain budget. INTENTIONALLY leave
+    // _shutdownCts and _concurrency undisposed — a still-running loop may still call _concurrency.Release()
+    // or read the token, and disposing them here would turn a straggler into an ObjectDisposedException
+    // fault. Correctness (never dispose an object another thread may touch) outranks reclaiming them.
 }
 ```
 
@@ -956,7 +967,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 - [ ] Full reconstruction suite + MCP parity green:
   `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "FullyQualifiedName~Reconstruction" --no-restore` and `pytest mcp_server/tests/test_reconstruction_mcp_tools.py -q`
 - [ ] `rg -n "InvalidOperationException" src/Rook/Services/Reconstruction/` returns no fal/HTTP-boundary throws.
-- [ ] `rg -n "GetAwaiter\(\)\.GetResult\(\)|ContinueWith" src/Rook/Services/Reconstruction/` returns nothing (no sync-over-async anywhere).
+- [ ] `rg -n "GetAwaiter\(\)\.GetResult\(\)|ContinueWith|\)\.Result\b" src/Rook/Services/Reconstruction/` returns nothing (no sync-over-async anywhere). The `)\.Result` form catches a blocked `Task.Result` while avoiding the shared `SyncSubmitOutcome.Result` *property*, which is accessed by name (`sync.Result`) and which reconstruction does not use.
 - [ ] `rg -n "File\.ReadAllBytes\b" src/Rook/Services/Reconstruction/Fal/` returns nothing (provider + publisher stay storage-agnostic; the manager-side resolver in the parent folder may read the validator-resolved path via `File.ReadAllBytesAsync`).
 - [ ] `rg -n "FalErrorMapper|FalLifecycleMapper" src/Rook/Services/Reconstruction/` shows the mappers are now used.
 - [ ] No file under `src/Rook/Services/Vision/` was modified by this branch's new commits.
