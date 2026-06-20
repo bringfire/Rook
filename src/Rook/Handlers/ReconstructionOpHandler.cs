@@ -892,7 +892,7 @@ namespace Rook.Handlers
         private static ApiResponse Fail(ReconstructionFailure failure, int status)
             => new() { Success = false, Data = FailureToObj(failure), HttpStatus = status };
 
-        private static int StatusFor(ReconstructionFailure failure)
+        internal static int StatusFor(ReconstructionFailure failure)
             => failure.Code switch
             {
                 "not_found" => 404,
@@ -900,6 +900,13 @@ namespace Rook.Handlers
                     or "invalid_source_role"
                     or "invalid_source_artifact" or "invalid_source_file"
                     or "invalid_source_dimensions" => 400,
+                // Required configuration absent — the request cannot be fulfilled. Not retryable and
+                // not a provider outage (provider_unavailable -> 503 covers that); the body carries the
+                // remediation text.
+                "missing_credential" => 400,
+                "quota_exceeded" => 429,
+                "provider_unavailable" => 503,
+                "content_policy" => 422,
                 _ => 500,
             };
 
