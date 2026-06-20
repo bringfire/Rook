@@ -221,18 +221,32 @@ Evidence is schema-light. LM1E may carry LM1D `script_receipt` and
 ### NodeOutcome
 
 ```python
+OutcomeStatus = Literal[
+    "succeeded",
+    "failed",
+    "blocked",
+    "needs_repair",
+    "needs_escalation",
+    "skipped",
+]
+```
+
+```python
 @dataclass
 class NodeOutcome:
-    status: NodeStatus
+    status: OutcomeStatus
     evidence: NodeEvidence | None = None
     memory_updates: dict[str, Any] = field(default_factory=dict)
     message: str | None = None
     error: str | None = None
 ```
 
-`NodeOutcome.status` uses the same constrained `NodeStatus` values. It is the
-prepared adapter output from a tool/verifier/scaffold layer. The PlanGraph
-reducer accepts it; it does not derive it from receipts.
+`NodeOutcome.status` is constrained to actual outcome states. Administrative
+states such as `pending`, `ready`, and `running` are not valid outcomes because
+applying an outcome increments attempts.
+
+The outcome is the prepared adapter output from a tool/verifier/scaffold layer.
+The PlanGraph reducer accepts it; it does not derive it from receipts.
 
 Only outcome application may move a node into terminal, repair, failure, or
 escalation states.
@@ -347,6 +361,7 @@ Rules:
 
 - Returns a deep-copied graph.
 - Does not mutate the input graph.
+- Raises `ValueError` if `node_id` is unknown.
 - Copies `NodeOutcome`, `NodeEvidence`, `receipt`, `repair_anchor`, metadata, and
   memory updates so caller-owned dictionaries cannot rewrite graph history.
 - Updates the target node:
@@ -360,6 +375,7 @@ Rules:
   - the source outcome/status matches the edge kind;
   - all `requires` dependencies for the target are satisfied;
   - the target is currently `pending`.
+- Raises `ValueError` if an edge references an unknown source or target node.
 - Does not call tools, verifiers, models, planners, or registries.
 - Does not inspect `receipt`, `repair_anchor`, or metadata.
 
@@ -375,8 +391,8 @@ Rules, in precedence order:
 2. `complete` if at least one terminal node exists and all terminal nodes are
    `succeeded` or `skipped`.
 3. `running` if `runnable_nodes(graph)` is non-empty or any node is `running`.
-4. `pending` if no node has attempts/evidence and at least one node is
-   `pending` or `ready`.
+4. `pending` if no node has attempts/evidence, at least one root node exists,
+   and at least one node is `pending` or `ready`.
 5. `failed` if no runnable nodes remain and any node is `failed`.
 6. `blocked` if no runnable nodes remain and any node is `blocked` or still
    `pending`.
@@ -461,6 +477,11 @@ Required non-live tests:
   - `needs_escalation`
 - A graph with a cycle and no roots initializes without ready nodes and derives
   to `blocked`.
+- `apply_outcome` raises `ValueError` for an unknown `node_id`.
+- `apply_outcome` raises `ValueError` when an edge references an unknown source
+  or target.
+- `NodeOutcome` does not accept administrative statuses such as `pending`,
+  `ready`, or `running`.
 - A test-only GH script repair fixture carries an LM1D-style `script_receipt`
   and `repair_anchor` through:
 
