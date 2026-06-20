@@ -517,6 +517,43 @@ public sealed class ReconstructionJobManagerTests : IDisposable
     }
 
     [Fact]
+    public async Task Cancel_MissingApiKey_ReturnsCancellationRequestedWithMissingCredential_NoThrow()
+    {
+        // Real provider over a transport with no key. Seed a polling job, then cancel → remote cancel
+        // hits Key() → typed missing_credential returned (not an unhandled throw). CancellationRequested
+        // is still recorded first.
+        var root = NewTempRoot();
+        var store = new ArtifactStore(Path.Combine(root, "artifacts"));
+        var ledger = new JsonlReconstructionJobLedger(Path.Combine(root, "ledger.jsonl"));
+        var manager = new ReconstructionJobManager(
+            store,
+            ReconstructionModelCatalog.FromJson(CatalogJson),
+            ledger,
+            new FalReconstructionProvider(new FalApiTransport(new FalApiClient(), () => null)),
+            new ReconstructionPackageMaterializer(store, new FakeDownloader()),
+            new FakeSourceImagePublisher());
+        _managers.Add(manager);
+
+        var jobId = Guid.NewGuid();
+        ledger.Append(ReconstructionJobLedgerRecord.Queued(jobId, HunyuanModelId, Guid.NewGuid(), "image") with
+        {
+            State = ReconstructionJobState.Running,
+            Stage = ReconstructionJobStage.Polling,
+            ProviderJobId = "req-1",
+            ProviderStatusUrl = "https://queue.fal.run/status/req-1",
+            ProviderResponseUrl = "https://queue.fal.run/response/req-1",
+            ProviderCancelUrl = "https://queue.fal.run/cancel/req-1",
+            ProviderCancelHttpMethod = "PUT",
+        });
+
+        var cancel = await manager.CancelAsync(jobId, CancellationToken.None);
+
+        Assert.Equal(ReconstructionJobState.CancellationRequested, cancel.State);
+        Assert.Equal("missing_credential", cancel.Failure!.Code);
+        Assert.False(cancel.Failure.Retryable);
+    }
+
+    [Fact]
     public async Task Poll_MissingApiKey_RecordsMissingCredential_NotPollFailed()
     {
         // Real provider over a transport with no key. Seed a polling job directly (submit would itself

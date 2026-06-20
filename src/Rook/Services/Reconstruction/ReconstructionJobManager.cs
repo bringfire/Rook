@@ -348,7 +348,21 @@ public sealed class ReconstructionJobManager : IDisposable
         }
 
         if (!string.IsNullOrWhiteSpace(job.ProviderJobId))
-            await _provider.CancelAsync(HandleFor(job), ct).ConfigureAwait(false);
+        {
+            try
+            {
+                await _provider.CancelAsync(HandleFor(job), ct).ConfigureAwait(false);
+            }
+            catch (ReconstructionCredentialMissingException)
+            {
+                // Best-effort remote cancel hit a missing fal key. CancellationRequested was already
+                // recorded above; surface a typed failure instead of an unhandled throw. Ledger
+                // semantics unchanged.
+                return new ReconstructionCancelResult(
+                    ReconstructionJobState.CancellationRequested,
+                    ReconstructionErrorMapping.MissingCredentialFailure());
+            }
+        }
 
         return new ReconstructionCancelResult(ReconstructionJobState.CancellationRequested, null);
     }
