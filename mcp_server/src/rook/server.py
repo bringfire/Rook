@@ -2306,30 +2306,6 @@ def _check_script_component_handoff(
     return None
 
 
-def _gh_create_script_component_errors(errors_result: Any, component_guid: str) -> list[Any]:
-    data = errors_result
-    if isinstance(errors_result, dict):
-        wrapped_data = _dict_get_ci(errors_result, "data")
-        if wrapped_data is not None:
-            data = wrapped_data
-    if not isinstance(data, dict):
-        return []
-
-    errors = _dict_get_ci(data, "errors", [])
-    if not isinstance(errors, list):
-        return []
-
-    component_guid_lower = str(component_guid).lower()
-    for entry in errors:
-        if not isinstance(entry, dict):
-            continue
-        entry_guid = _dict_get_ci(entry, "guid")
-        if isinstance(entry_guid, str) and entry_guid.lower() == component_guid_lower:
-            messages = _dict_get_ci(entry, "errors", [])
-            return _gh_update_script_messages(messages)
-    return []
-
-
 def _summarize_gh_create_script_verification(errors_result: Any, component_guid: str) -> dict[str, Any]:
     summary = {
         "component_errors": [],
@@ -2461,6 +2437,7 @@ async def _execute_gh_create_script(
                 "code_length": int,              # length of prepared full script
                 "compilation_errors": [...],     # only if present
                 "warning": str,                  # only if compilation_errors present
+                "script_receipt": dict,          # additive; old fields preserved
             }}
         failure:
             {"success": False, "data": <diagnostic string>}
