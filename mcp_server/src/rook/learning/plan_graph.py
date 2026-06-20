@@ -148,5 +148,72 @@ def graph_status(graph: PlanGraph) -> GraphStatus:
     return "blocked"
 
 
+def _validate_edge_endpoints(graph: PlanGraph) -> None:
+    for edge in graph.edges:
+        if edge.source not in graph.nodes:
+            raise ValueError(f"PlanGraph edge has unknown source node: {edge.source}")
+        if edge.target not in graph.nodes:
+            raise ValueError(f"PlanGraph edge has unknown target node: {edge.target}")
+
+
+def _edge_matches(edge: PlanGraphEdge, source_status: NodeStatus) -> bool:
+    if edge.kind == "requires":
+        return source_status == "succeeded"
+    if edge.kind == "on_success":
+        return source_status == "succeeded"
+    if edge.kind == "on_repair":
+        return source_status == "needs_repair"
+    if edge.kind == "on_failure":
+        return source_status in ("failed", "blocked")
+    if edge.kind == "on_escalation":
+        return source_status == "needs_escalation"
+    return False
+
+
+def _requires_satisfied(graph: PlanGraph, target_id: str) -> bool:
+    for edge in graph.edges:
+        if edge.target == target_id and edge.kind == "requires":
+            if graph.nodes[edge.source].status != "succeeded":
+                return False
+    return True
+
+
+def _merge_memory(graph: PlanGraph, node_id: str, memory_updates: dict[str, Any]) -> None:
+    facts = memory_updates.get("facts")
+    if isinstance(facts, dict):
+        graph.memory.facts.update(copy.deepcopy(facts))
+    node_summary = memory_updates.get("node_summary")
+    if isinstance(node_summary, str):
+        graph.memory.node_summaries[node_id] = node_summary
+
+
 def apply_outcome(graph: PlanGraph, node_id: str, outcome: NodeOutcome) -> PlanGraph:
-    raise NotImplementedError("apply_outcome is implemented in the reducer task")
+    next_graph = copy.deepcopy(graph)
+    if node_id not in next_graph.nodes:
+        raise ValueError(f"Unknown PlanGraph node: {node_id}")
+    _validate_edge_endpoints(next_graph)
+
+    outcome_copy = copy.deepcopy(outcome)
+    node = next_graph.nodes[node_id]
+    node.status = outcome_copy.status
+    node.evidence = outcome_copy.evidence
+    node.retry.attempts += 1
+    node.retry.last_error = outcome_copy.error
+    if node.retry.last_error is None and outcome_copy.evidence is not None:
+        node.retry.last_error = outcome_copy.evidence.error
+    node.retry.retry_exhausted = node.retry.attempts >= node.retry.max_attempts
+
+    _merge_memory(next_graph, node_id, outcome_copy.memory_updates)
+
+    for edge in next_graph.edges:
+        if edge.source != node_id:
+            continue
+        target = next_graph.nodes[edge.target]
+        if (
+            target.status == "pending"
+            and _edge_matches(edge, node.status)
+            and _requires_satisfied(next_graph, edge.target)
+        ):
+            target.status = "ready"
+
+    return next_graph
