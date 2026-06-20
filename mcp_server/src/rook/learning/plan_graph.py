@@ -129,6 +129,11 @@ def graph_status(graph: PlanGraph) -> GraphStatus:
         return "needs_escalation"
     if runnable_nodes(graph) or any(node.status == "running" for node in graph.nodes.values()):
         return "running"
+    terminal_nodes = [node for node in graph.nodes.values() if node.is_terminal]
+    if terminal_nodes and all(
+        node.status in ("succeeded", "skipped") for node in terminal_nodes
+    ):
+        return "complete"
     has_activity = any(
         node.retry.attempts > 0 or node.evidence is not None
         for node in graph.nodes.values()

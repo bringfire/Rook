@@ -2,17 +2,10 @@ from __future__ import annotations
 
 import copy
 
-import pytest
-
 from rook.learning.plan_graph import (
-    GraphMemory,
-    NodeEvidence,
-    NodeOutcome,
     PlanGraph,
     PlanGraphEdge,
     PlanGraphNode,
-    RetryState,
-    apply_outcome,
     graph_status,
     initialize_graph,
     runnable_nodes,
@@ -84,6 +77,23 @@ def test_graph_with_cycle_and_no_roots_initializes_blocked_not_pending():
 
     assert runnable_nodes(initialized) == []
     assert graph_status(initialized) == "blocked"
+
+
+def test_graph_status_is_complete_when_all_terminal_nodes_finished():
+    graph = PlanGraph(
+        nodes={
+            "root": PlanGraphNode(id="root", intent="Root", status="succeeded"),
+            "done": PlanGraphNode(
+                id="done",
+                intent="Done",
+                status="skipped",
+                is_terminal=True,
+            ),
+        },
+        edges=[PlanGraphEdge(source="root", target="done", kind="requires")],
+    )
+
+    assert graph_status(graph) == "complete"
 
 
 def test_default_factories_do_not_share_mutable_state():
