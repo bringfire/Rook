@@ -2067,15 +2067,18 @@ async def _execute_gh_update_script(arguments: dict[str, Any], port: int) -> dic
             write_data=write_data,
         )
 
+        verification_method = "gh_errors"
+        check_errors_requested = bool(arguments.get("check_errors", True))
         deferred, solver_flags = _gh_update_script_should_defer(write_data)
         if deferred:
+            verification_method = "none"
             error_summary = _empty_gh_update_script_error_summary()
             error_summary["verification_deferred"] = True   # stays boolean
             error_summary["verification_note"] = (
                 "Grasshopper solver is locked or its state is unknown; the script source was "
                 "written but not recompiled. Unlock the solver and run gh_solve to verify."
             )
-        elif bool(arguments.get("check_errors", True)):
+        elif check_errors_requested:
             await _await_gh_solve_settle(port, scheduled_delay_ms=50)
             error_summary = _summarize_gh_update_script_errors(
                 await call_rhino("/gh/errors", "GET", {}, port=port),
@@ -2098,10 +2101,13 @@ async def _execute_gh_update_script(arguments: dict[str, Any], port: int) -> dic
                 )
                 snapshot_summary = _summarize_gh_update_script_snapshot(snapshot_result, guid)
                 if snapshot_summary.get("component_errors") or snapshot_summary.get("component_warnings"):
+                    verification_method = "gh_snapshot_fallback"
                     error_summary = snapshot_summary
                 elif snapshot_summary.get("snapshot_check_failed"):
+                    verification_method = "gh_snapshot_fallback"
                     error_summary["snapshot_check_failed"] = snapshot_summary["snapshot_check_failed"]
         else:
+            verification_method = "none"
             error_summary = _empty_gh_update_script_error_summary()
 
         data: dict[str, Any] = {
@@ -2130,6 +2136,43 @@ async def _execute_gh_update_script(arguments: dict[str, Any], port: int) -> dic
                 f"Current inputs are {input_names}; outputs are {output_names}. "
                 "To change the signature, call gh_set_script_pins first, then retry gh_update_script."
             )
+
+        unavailable_note = None
+        if data.get("snapshot_check_failed"):
+            unavailable_note = data["snapshot_check_failed"]
+        elif data.get("error_check_failed"):
+            unavailable_note = data["error_check_failed"]
+
+        data["script_receipt"] = build_script_receipt(
+            operation="update",
+            language=data.get("detected_language", "unknown"),
+            mutation_status="written",
+            mutation_method="gh_script_write",
+            component_guid=resolved_guid,
+            mode_used=prepared["mode_used"],
+            wrapped=prepared["wrapped"],
+            pins_in=inputs,
+            pins_out=outputs,
+            input_code_length=len(code),
+            prepared_source_length=len(prepared["source"]),
+            full_source_detected=(
+                runtime["detected_language"] == "csharp"
+                and prepared["mode_used"] == "full_source"
+                and not prepared["wrapped"]
+            ),
+            component_errors=data.get("component_errors", []),
+            component_warnings=data.get("component_warnings", []),
+            unrelated_error_count=data.get("unrelated_error_count"),
+            unrelated_warning_count=data.get("unrelated_warning_count"),
+            verification_method=verification_method,
+            requested_guid=guid,
+            include_requested_guid=_is_gh_short_id(guid),
+            recovery_hint=data.get("recovery_hint"),
+            deferred=bool(data.get("verification_deferred")),
+            not_requested=not check_errors_requested,
+            unavailable_note=unavailable_note,
+            verification_note=data.get("verification_note"),
+        )
 
         return _gh_update_script_result_from_data(data)
     except Exception as exc:

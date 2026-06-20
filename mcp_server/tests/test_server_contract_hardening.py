@@ -2616,6 +2616,248 @@ async def test_gh_update_script_compile_failure_returns_failed_with_component_er
     )
 
 
+@pytest.mark.asyncio
+async def test_gh_update_script_compile_error_adds_script_receipt(
+    monkeypatch, patched_server
+):
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        if route == "/gh/script" and "script" not in (payload or {}):
+            return {"success": True, "data": {"Type": "CSharpScriptComponent"}}
+        if route == "/gh/script":
+            return {"success": True, "data": {"guid": "cs-guid"}}
+        if route == "/gh/component":
+            return {
+                "success": True,
+                "data": {
+                    "Params": {
+                        "Inputs": [{"Name": "R"}],
+                        "Outputs": [{"Name": "out"}, {"Name": "A"}],
+                    }
+                },
+            }
+        if route == "/gh/errors":
+            return {
+                "success": True,
+                "data": {
+                    "errors": [{"guid": "cs-guid", "errors": ["The name X does not exist"]}],
+                    "warnings": [],
+                },
+            }
+        if route == "/gh/document":
+            return {"success": True, "data": {"name": "contract.gh", "path": ""}}
+        raise AssertionError(f"Unexpected route: {route}")
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    payload = _decode_response(await server.call_tool(
+        "gh_update_script",
+        {"guid": "cs-guid", "code": "A = X;", "mode": "body"},
+    ))
+
+    assert payload["success"] is False
+    data = payload["data"]
+    assert data["message"] == (
+        "Source was written, but the target script component still has compile errors."
+    )
+    assert data["component_errors"] == ["The name X does not exist"]
+    assert data["recovery_hint"] == (
+        "Current inputs are R; outputs are A. To change the signature, call "
+        "gh_set_script_pins first, then retry gh_update_script."
+    )
+    receipt = data["script_receipt"]
+    assert receipt["version"] == 1
+    assert receipt["operation"] == "update"
+    assert receipt["language"] == "csharp"
+    assert receipt["mutation"] == {
+        "status": "written",
+        "method": "gh_script_write",
+        "component_guid": "cs-guid",
+        "note": None,
+    }
+    assert receipt["verification"]["status"] == "failed"
+    assert receipt["verification"]["method"] == "gh_errors"
+    assert receipt["verification"]["target_error_count"] == 1
+    assert receipt["verification"]["target_warning_count"] == 0
+    assert receipt["artifact_status"] == "written_with_errors"
+    assert receipt["repair_anchor"]["component_guid"] == "cs-guid"
+    assert receipt["repair_anchor"]["language"] == "csharp"
+    assert receipt["repair_anchor"]["mode_used"] == "body"
+    assert receipt["repair_anchor"]["wrapped"] is True
+    assert receipt["repair_anchor"]["pins_in"] == [{"name": "R"}]
+    assert receipt["repair_anchor"]["pins_out"] == [{"name": "A"}]
+    assert receipt["repair_anchor"]["source_shape"]["input_code_length"] == len("A = X;")
+    assert receipt["repair_anchor"]["source_shape"]["prepared_source_length"] == data["script_length"]
+    assert receipt["repair_anchor"]["source_shape"]["full_source_detected"] is False
+    assert receipt["repair_anchor"]["target_errors"] == ["The name X does not exist"]
+    assert receipt["repair_anchor"]["target_warnings"] == []
+    assert receipt["repair_anchor"]["recovery_hint"] == data["recovery_hint"]
+
+
+@pytest.mark.asyncio
+async def test_gh_update_script_deferred_receipt_uses_unknown_diagnostics(
+    monkeypatch, patched_server
+):
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        if route == "/gh/script" and "script" not in (payload or {}):
+            return {"success": True, "data": {"Type": "CSharpScriptComponent"}}
+        if route == "/gh/script":
+            return {
+                "success": True,
+                "data": {
+                    "guid": "cs-guid",
+                    "verification_deferred": True,
+                    "solver_locked": True,
+                },
+            }
+        if route == "/gh/component":
+            return {
+                "success": True,
+                "data": {"Params": {"Inputs": [], "Outputs": [{"Name": "A"}]}},
+            }
+        if route == "/gh/document":
+            return {"success": True, "data": {"name": "contract.gh", "path": ""}}
+        raise AssertionError(f"Unexpected route: {route}")
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    payload = _decode_response(await server.call_tool(
+        "gh_update_script",
+        {"guid": "cs-guid", "code": "A = 1;", "mode": "body"},
+    ))
+
+    assert payload["success"] is True
+    receipt = payload["data"]["script_receipt"]
+    assert receipt["verification"]["status"] == "deferred"
+    assert receipt["verification"]["method"] == "none"
+    assert receipt["verification"]["target_error_count"] is None
+    assert receipt["verification"]["target_warning_count"] is None
+    assert receipt["verification"]["unrelated_error_count"] is None
+    assert receipt["verification"]["unrelated_warning_count"] is None
+    assert receipt["artifact_status"] == "verification_pending"
+    assert receipt["repair_anchor"]["target_errors"] is None
+    assert receipt["repair_anchor"]["target_warnings"] is None
+
+
+@pytest.mark.asyncio
+async def test_gh_update_script_check_errors_false_receipt_is_not_requested(
+    monkeypatch, patched_server
+):
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        if route == "/gh/script" and "script" not in (payload or {}):
+            return {"success": True, "data": {"Type": "CSharpScriptComponent"}}
+        if route == "/gh/script":
+            return {"success": True, "data": {"guid": "cs-guid"}}
+        if route == "/gh/component":
+            return {
+                "success": True,
+                "data": {"Params": {"Inputs": [], "Outputs": [{"Name": "A"}]}},
+            }
+        if route == "/gh/document":
+            return {"success": True, "data": {"name": "contract.gh", "path": ""}}
+        raise AssertionError(f"Unexpected route: {route}")
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    payload = _decode_response(await server.call_tool(
+        "gh_update_script",
+        {"guid": "cs-guid", "code": "A = 1;", "mode": "body", "check_errors": False},
+    ))
+
+    receipt = payload["data"]["script_receipt"]
+    assert receipt["verification"]["status"] == "not_requested"
+    assert receipt["verification"]["method"] == "none"
+    assert receipt["verification"]["target_error_count"] is None
+    assert receipt["verification"]["target_warning_count"] is None
+    assert receipt["artifact_status"] == "verification_pending"
+    assert receipt["repair_anchor"]["target_errors"] is None
+    assert receipt["repair_anchor"]["target_warnings"] is None
+
+
+@pytest.mark.asyncio
+async def test_gh_update_script_error_check_failed_receipt_is_unavailable(
+    monkeypatch, patched_server
+):
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        if route == "/gh/script" and "script" not in (payload or {}):
+            return {"success": True, "data": {"Type": "CSharpScriptComponent"}}
+        if route == "/gh/script":
+            return {"success": True, "data": {"guid": "cs-guid"}}
+        if route == "/gh/component":
+            return {
+                "success": True,
+                "data": {"Params": {"Inputs": [], "Outputs": [{"Name": "A"}]}},
+            }
+        if route == "/gh/errors":
+            return {"success": False, "data": "gh errors unavailable"}
+        if route == "/gh/document":
+            return {"success": True, "data": {"name": "contract.gh", "path": ""}}
+        raise AssertionError(f"Unexpected route: {route}")
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    payload = _decode_response(await server.call_tool(
+        "gh_update_script",
+        {"guid": "cs-guid", "code": "A = 1;", "mode": "body"},
+    ))
+
+    receipt = payload["data"]["script_receipt"]
+    assert receipt["verification"]["status"] == "unavailable"
+    assert receipt["verification"]["method"] == "gh_errors"
+    assert receipt["verification"]["target_error_count"] is None
+    assert receipt["verification"]["target_warning_count"] is None
+    assert receipt["artifact_status"] == "unknown"
+    assert receipt["repair_anchor"]["target_errors"] is None
+    assert receipt["repair_anchor"]["target_warnings"] is None
+
+
+@pytest.mark.asyncio
+async def test_gh_update_script_snapshot_failure_receipt_uses_snapshot_method(
+    monkeypatch, patched_server
+):
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        if route == "/gh/script" and "script" not in (payload or {}):
+            return {"success": True, "data": {"Type": "CSharpScriptComponent", "Guid": "C1"}}
+        if route == "/gh/script":
+            return {"success": True, "data": {"guid": "C1"}}
+        if route == "/gh/component":
+            return {
+                "success": True,
+                "data": {
+                    "Guid": "C1",
+                    "Params": {"Inputs": [], "Outputs": [{"Name": "A"}]},
+                },
+            }
+        if route == "/gh/errors":
+            return {
+                "success": True,
+                "data": {
+                    "errors": [{"guid": "other-guid", "errors": ["Other"]}],
+                    "warnings": [],
+                },
+            }
+        if route == "/gh/snapshot":
+            return {"success": False, "data": "snapshot unavailable"}
+        if route == "/gh/document":
+            return {"success": True, "data": {"name": "contract.gh", "path": ""}}
+        raise AssertionError(f"Unexpected route: {route}")
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    payload = _decode_response(await server.call_tool(
+        "gh_update_script",
+        {"guid": "C1", "code": "A = 1;", "mode": "body"},
+    ))
+
+    receipt = payload["data"]["script_receipt"]
+    assert receipt["verification"]["status"] == "unavailable"
+    assert receipt["verification"]["method"] == "gh_snapshot_fallback"
+    assert receipt["verification"]["target_error_count"] is None
+    assert receipt["verification"]["target_warning_count"] is None
+    assert receipt["repair_anchor"]["requested_guid"] == "C1"
+    assert receipt["repair_anchor"]["target_errors"] is None
+    assert receipt["repair_anchor"]["target_warnings"] is None
+
+
 def test_gh_update_script_csharp_preflight_rejects_body_using_before_wrap():
     with pytest.raises(ValueError, match="C# script preflight failed:"):
         server._prepare_gh_update_script_source(
