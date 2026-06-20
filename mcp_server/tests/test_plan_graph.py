@@ -131,6 +131,169 @@ def test_default_factories_do_not_share_mutable_state():
     assert graph_b.memory.facts == {}
 
 
+def _gh_script_repair_fixture() -> PlanGraph:
+    return PlanGraph(
+        nodes={
+            "create_script": PlanGraphNode(
+                id="create_script",
+                intent="Create C# script component",
+                execution_ref="gh_create_csharp_script:v1",
+                verifier_ref="script_receipt_has_artifact_or_errors:v1",
+                repair_policy_ref="repair_same_component_once:v1",
+                metadata={
+                    "contract_hints": {
+                        "artifact": "component_guid",
+                        "receipt": "compile_errors",
+                        "repair_anchor": "same_component",
+                    },
+                },
+            ),
+            "verify_receipt": PlanGraphNode(
+                id="verify_receipt",
+                intent="Verify script receipt",
+                verifier_ref="script_receipt_has_artifact_or_errors:v1",
+            ),
+            "repair_same_component": PlanGraphNode(
+                id="repair_same_component",
+                intent="Repair same component",
+                execution_ref="gh_update_script:v1",
+                repair_policy_ref="repair_same_component_once:v1",
+            ),
+            "verify_clean": PlanGraphNode(
+                id="verify_clean",
+                intent="Verify clean receipt",
+                verifier_ref="script_receipt_clean:v1",
+            ),
+            "done": PlanGraphNode(
+                id="done",
+                intent="Done",
+                is_terminal=True,
+            ),
+        },
+        edges=[
+            PlanGraphEdge(
+                source="create_script", target="verify_receipt", kind="requires"
+            ),
+            PlanGraphEdge(
+                source="verify_receipt",
+                target="repair_same_component",
+                kind="on_repair",
+            ),
+            PlanGraphEdge(
+                source="repair_same_component", target="verify_clean", kind="requires"
+            ),
+            PlanGraphEdge(source="verify_clean", target="done", kind="requires"),
+            PlanGraphEdge(source="verify_receipt", target="done", kind="on_success"),
+        ],
+    )
+
+
+def test_gh_script_repair_fixture_preserves_opaque_evidence_through_repair():
+    graph = initialize_graph(_gh_script_repair_fixture())
+
+    assert {node.id for node in runnable_nodes(graph)} == {"create_script"}
+
+    receipt = {
+        "component_guid": "7ac403b9-d6a6-4bf0-a065-25e01c829c4f",
+        "artifact_handle": "grasshopper-component:7ac403b9-d6a6-4bf0-a065-25e01c829c4f",
+        "compile_errors": [
+            {"line": 12, "message": "The name 'foo' does not exist"}
+        ],
+    }
+    repair_anchor = {
+        "component_guid": "7ac403b9-d6a6-4bf0-a065-25e01c829c4f",
+        "script_input": "x",
+        "preserve_component": True,
+    }
+
+    # Graph-level succeeded means the artifact handle exists; tool_status failed
+    # captures compile errors in evidence.
+    after_create = apply_outcome(
+        graph,
+        "create_script",
+        NodeOutcome(
+            status="succeeded",
+            evidence=NodeEvidence(
+                tool_status="failed",
+                verified=False,
+                receipt=receipt,
+                repair_anchor=repair_anchor,
+                message="created with compile errors",
+            ),
+            memory_updates={
+                "facts": {
+                    "component_guid": "7ac403b9-d6a6-4bf0-a065-25e01c829c4f",
+                    "repair_anchor": repair_anchor,
+                },
+                "node_summary": "created script component with compile errors",
+            },
+        ),
+    )
+
+    assert after_create.nodes["create_script"].evidence is not None
+    assert after_create.nodes["create_script"].evidence.receipt == receipt
+    assert after_create.nodes["create_script"].evidence.repair_anchor == repair_anchor
+    assert (
+        after_create.memory.facts["component_guid"]
+        == "7ac403b9-d6a6-4bf0-a065-25e01c829c4f"
+    )
+    assert after_create.memory.facts["repair_anchor"] == repair_anchor
+    assert (
+        after_create.memory.node_summaries["create_script"]
+        == "created script component with compile errors"
+    )
+    assert {node.id for node in runnable_nodes(after_create)} == {"verify_receipt"}
+
+    after_verify_receipt = apply_outcome(
+        after_create,
+        "verify_receipt",
+        NodeOutcome(
+            status="needs_repair",
+            evidence=NodeEvidence(
+                tool_status="failed",
+                verified=False,
+                receipt=receipt,
+                repair_anchor=repair_anchor,
+                message="receipt has compile errors",
+            ),
+            memory_updates={
+                "node_summary": "receipt requires same-component repair",
+            },
+        ),
+    )
+
+    assert {node.id for node in runnable_nodes(after_verify_receipt)} == {
+        "repair_same_component"
+    }
+
+    after_repair = apply_outcome(
+        after_verify_receipt,
+        "repair_same_component",
+        NodeOutcome(status="succeeded"),
+    )
+
+    assert {node.id for node in runnable_nodes(after_repair)} == {"verify_clean"}
+
+    after_verify_clean = apply_outcome(
+        after_repair,
+        "verify_clean",
+        NodeOutcome(
+            status="succeeded",
+            evidence=NodeEvidence(tool_status="success", verified=True),
+        ),
+    )
+
+    assert {node.id for node in runnable_nodes(after_verify_clean)} == {"done"}
+
+    after_done = apply_outcome(
+        after_verify_clean,
+        "done",
+        NodeOutcome(status="succeeded"),
+    )
+
+    assert graph_status(after_done) == "complete"
+
+
 def test_apply_outcome_updates_node_evidence_retry_and_unlocked_requires_target():
     graph = initialize_graph(
         PlanGraph(
