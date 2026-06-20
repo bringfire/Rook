@@ -165,6 +165,45 @@ def test_derive_verification_empty_unavailable_note_still_marks_unavailable():
     assert verification["note"] == ""
 
 
+def test_derive_verification_missing_errors_marks_unavailable():
+    verification = derive_verification(
+        component_errors=None,
+        component_warnings=[],
+        unrelated_error_count=0,
+        unrelated_warning_count=0,
+        method="gh_errors",
+    )
+
+    assert verification == {
+        "status": "unavailable",
+        "method": "gh_errors",
+        "target_error_count": None,
+        "target_warning_count": None,
+        "unrelated_error_count": None,
+        "unrelated_warning_count": None,
+        "note": "Target diagnostics were not provided; target compile state is unknown.",
+    }
+
+
+def test_derive_verification_missing_warnings_marks_unavailable():
+    verification = derive_verification(
+        component_errors=[],
+        component_warnings=None,
+        unrelated_error_count=0,
+        unrelated_warning_count=0,
+        method="gh_errors",
+    )
+
+    assert verification["status"] == "unavailable"
+    assert verification["method"] == "gh_errors"
+    assert verification["target_error_count"] is None
+    assert verification["target_warning_count"] is None
+    assert (
+        verification["note"]
+        == "Target diagnostics were not provided; target compile state is unknown."
+    )
+
+
 def test_derive_artifact_status_mapping_and_warning_policy():
     assert derive_artifact_status("create", "passed") == "usable"
     assert derive_artifact_status("update", "passed") == "usable"
@@ -283,6 +322,26 @@ def test_build_script_receipt_uses_none_diagnostics_when_verification_unavailabl
     assert receipt["artifact_status"] == "unknown"
 
 
+def test_build_script_receipt_uses_none_diagnostics_when_target_diagnostics_missing():
+    receipt = build_script_receipt(
+        **_base_receipt_kwargs(
+            component_errors=None,
+            component_warnings=[],
+        )
+    )
+
+    assert receipt["verification"]["status"] == "unavailable"
+    assert receipt["verification"]["target_error_count"] is None
+    assert receipt["verification"]["target_warning_count"] is None
+    assert (
+        receipt["verification"]["note"]
+        == "Target diagnostics were not provided; target compile state is unknown."
+    )
+    assert receipt["repair_anchor"]["target_errors"] is None
+    assert receipt["repair_anchor"]["target_warnings"] is None
+    assert receipt["artifact_status"] == "unknown"
+
+
 def test_build_script_receipt_uses_none_diagnostics_when_verification_not_requested():
     receipt = build_script_receipt(
         **_base_receipt_kwargs(
@@ -297,3 +356,54 @@ def test_build_script_receipt_uses_none_diagnostics_when_verification_not_reques
     assert receipt["repair_anchor"]["target_errors"] is None
     assert receipt["repair_anchor"]["target_warnings"] is None
     assert receipt["artifact_status"] == "verification_pending"
+
+
+def test_build_script_receipt_preserves_non_dict_pin_entries():
+    pins_in = [{"name": "R", "metadata": {"nicknames": ["radius"]}}, "legacy-pin"]
+
+    receipt = build_script_receipt(
+        **_base_receipt_kwargs(
+            pins_in=pins_in,
+            pins_out=None,
+        )
+    )
+
+    assert receipt["repair_anchor"]["pins_in"] == [
+        {"name": "R", "metadata": {"nicknames": ["radius"]}},
+        "legacy-pin",
+    ]
+    assert receipt["repair_anchor"]["pins_out"] == []
+
+
+def test_build_script_receipt_deep_copies_pins_and_diagnostics():
+    pins_in = [{"name": "R", "metadata": {"nicknames": ["radius"]}}]
+    pins_out = [{"name": "A", "metadata": {"nicknames": ["area"]}}]
+    errors = [{"message": "Cannot convert", "details": ["Box", "Brep"]}]
+    warnings = [{"message": "Unused", "details": ["x"]}]
+
+    receipt = build_script_receipt(
+        **_base_receipt_kwargs(
+            pins_in=pins_in,
+            pins_out=pins_out,
+            component_errors=errors,
+            component_warnings=warnings,
+        )
+    )
+
+    pins_in[0]["metadata"]["nicknames"].append("mutated")
+    pins_out[0]["metadata"]["nicknames"].append("mutated")
+    errors[0]["details"].append("mutated")
+    warnings[0]["details"].append("mutated")
+
+    assert receipt["repair_anchor"]["pins_in"] == [
+        {"name": "R", "metadata": {"nicknames": ["radius"]}}
+    ]
+    assert receipt["repair_anchor"]["pins_out"] == [
+        {"name": "A", "metadata": {"nicknames": ["area"]}}
+    ]
+    assert receipt["repair_anchor"]["target_errors"] == [
+        {"message": "Cannot convert", "details": ["Box", "Brep"]}
+    ]
+    assert receipt["repair_anchor"]["target_warnings"] == [
+        {"message": "Unused", "details": ["x"]}
+    ]

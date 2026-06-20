@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from typing import Any, Literal, Sequence
 
 
@@ -15,18 +16,21 @@ ArtifactStatus = Literal[
     "verification_pending",
     "unknown",
 ]
+MISSING_TARGET_DIAGNOSTICS_NOTE = (
+    "Target diagnostics were not provided; target compile state is unknown."
+)
 
 
-def _copy_pin_list(value: Sequence[dict[str, Any]] | None) -> list[dict[str, Any]]:
+def _copy_pin_list(value: Sequence[Any] | None) -> list[Any]:
     if value is None:
         return []
-    return [dict(pin) for pin in value if isinstance(pin, dict)]
+    return copy.deepcopy(list(value))
 
 
 def _diagnostics(value: Sequence[Any] | None) -> list[Any]:
     if value is None:
         return []
-    return list(value)
+    return copy.deepcopy(list(value))
 
 
 def _unknown_count(status: VerificationStatus) -> bool:
@@ -82,6 +86,18 @@ def derive_verification(
             "note": unavailable_note,
         }
 
+    if component_errors is None or component_warnings is None:
+        status = "unavailable"
+        return {
+            "status": status,
+            "method": method,
+            "target_error_count": None,
+            "target_warning_count": None,
+            "unrelated_error_count": None,
+            "unrelated_warning_count": None,
+            "note": MISSING_TARGET_DIAGNOSTICS_NOTE,
+        }
+
     errors = _diagnostics(component_errors)
     warnings = _diagnostics(component_warnings)
     status = "failed" if errors else "passed"
@@ -118,8 +134,8 @@ def build_script_receipt(
     component_guid: str,
     mode_used: str | None,
     wrapped: bool | None,
-    pins_in: Sequence[dict[str, Any]] | None,
-    pins_out: Sequence[dict[str, Any]] | None,
+    pins_in: Sequence[Any] | None,
+    pins_out: Sequence[Any] | None,
     input_code_length: int,
     prepared_source_length: int,
     full_source_detected: bool,
