@@ -557,8 +557,13 @@ public sealed class ReconstructionJobManager : IDisposable
 
         var linked = CancellationTokenSource.CreateLinkedTokenSource(_shutdownCts.Token);
         var running = new RunningJob(record, linked);
-        _runningJobs[record.JobId] = running;
+        // Assign Loop BEFORE publishing into _runningJobs. Otherwise Dispose could observe a
+        // half-initialized entry (Loop == Task.CompletedTask), conclude everything is drained, dispose
+        // _shutdownCts/_concurrency, and then the real loop starts and touches disposed primitives.
+        // Task.Run queues to the thread pool, so the loop cannot start — let alone finish and
+        // self-remove — before the publish line below executes on this thread.
         running.Loop = Task.Run(() => RunJobAsync(record.JobId, running), CancellationToken.None);
+        _runningJobs[record.JobId] = running;
     }
 
     private async Task RunJobAsync(Guid jobId, RunningJob running)
