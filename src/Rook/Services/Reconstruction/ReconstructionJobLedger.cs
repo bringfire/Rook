@@ -28,6 +28,10 @@ public sealed record ReconstructionJobLedgerRecord(
     string Provider,
     string ModelId,
     string? ProviderJobId,
+    string? ProviderStatusUrl,
+    string? ProviderResponseUrl,
+    string? ProviderCancelUrl,
+    string? ProviderCancelHttpMethod,
     Guid SourceArtifactId,
     string SourceRole,
     IReadOnlyList<ReconstructionPreprocessingStageRecord> PreprocessingChain,
@@ -54,6 +58,10 @@ public sealed record ReconstructionJobLedgerRecord(
             "fal",
             modelId,
             null,
+            null,
+            null,
+            null,
+            null,
             sourceArtifactId,
             sourceRole,
             Array.Empty<ReconstructionPreprocessingStageRecord>(),
@@ -74,6 +82,10 @@ public sealed record ReconstructionJobLedgerRecord(
             ReconstructionJobStage.Complete,
             "fal",
             string.Empty,
+            null,
+            null,
+            null,
+            null,
             null,
             Guid.Empty,
             "image",
@@ -189,6 +201,10 @@ public sealed class JsonlReconstructionJobLedger
                 ? previous.ModelId
                 : current.ModelId,
             ProviderJobId = current.ProviderJobId ?? previous.ProviderJobId,
+            ProviderStatusUrl = current.ProviderStatusUrl ?? previous.ProviderStatusUrl,
+            ProviderResponseUrl = current.ProviderResponseUrl ?? previous.ProviderResponseUrl,
+            ProviderCancelUrl = current.ProviderCancelUrl ?? previous.ProviderCancelUrl,
+            ProviderCancelHttpMethod = current.ProviderCancelHttpMethod ?? previous.ProviderCancelHttpMethod,
             SourceArtifactId = current.SourceArtifactId == Guid.Empty
                 ? previous.SourceArtifactId
                 : current.SourceArtifactId,
@@ -213,6 +229,10 @@ public sealed class JsonlReconstructionJobLedger
             ["provider"] = record.Provider,
             ["model_id"] = record.ModelId,
             ["provider_job_id"] = record.ProviderJobId,
+            ["provider_status_url"] = record.ProviderStatusUrl,
+            ["provider_response_url"] = record.ProviderResponseUrl,
+            ["provider_cancel_url"] = record.ProviderCancelUrl,
+            ["provider_cancel_http_method"] = record.ProviderCancelHttpMethod,
             ["source_artifact_id"] = record.SourceArtifactId == Guid.Empty
                 ? null
                 : record.SourceArtifactId.ToString("D"),
@@ -317,6 +337,10 @@ public sealed class JsonlReconstructionJobLedger
             ReadString(obj, "provider") ?? string.Empty,
             ReadString(obj, "model_id") ?? string.Empty,
             ReadString(obj, "provider_job_id"),
+            ReadString(obj, "provider_status_url"),
+            ReadString(obj, "provider_response_url"),
+            ReadString(obj, "provider_cancel_url"),
+            ReadString(obj, "provider_cancel_http_method"),
             sourceArtifactId,
             ReadString(obj, "source_role") ?? string.Empty,
             DeserializeStages(obj["preprocessing_chain"]),
@@ -364,7 +388,30 @@ public sealed class JsonlReconstructionJobLedger
             ReadString(obj, "message") ?? string.Empty,
             ReadBool(obj, "retryable") ?? false,
             ReadString(obj, "field"),
-            new Dictionary<string, object?>());
+            DeserializeDetails(obj["details"]));
+    }
+
+    private static Dictionary<string, object?> DeserializeDetails(JsonNode? node)
+    {
+        var result = new Dictionary<string, object?>();
+        if (node is not JsonObject obj)
+            return result;
+
+        foreach (var kvp in obj)
+        {
+            result[kvp.Key] = kvp.Value switch
+            {
+                null => null,
+                JsonValue value when value.TryGetValue<string>(out var text) => text,
+                JsonValue value when value.TryGetValue<bool>(out var boolean) => boolean,
+                JsonValue value when value.TryGetValue<int>(out var integer) => integer,
+                JsonValue value when value.TryGetValue<long>(out var longInteger) => longInteger,
+                JsonValue value when value.TryGetValue<double>(out var number) => number,
+                _ => kvp.Value.ToJsonString(),
+            };
+        }
+
+        return result;
     }
 
     private static ReconstructionWarning Warning(int lineNumber, string code, string message)

@@ -16,7 +16,7 @@ public sealed class FalReconstructionProviderTests
         var client = new RecordingFalQueueClient();
         var provider = new FalReconstructionProvider(client);
 
-        await provider.SubmitAsync(new ReconstructionProviderSubmitRequest(
+        var result = await provider.SubmitAsync(new ReconstructionProviderSubmitRequest(
             ModelId: "fal-ai/hunyuan-3d/v3.1/rapid/image-to-3d",
             InputImageUrl: new Uri("https://rook.local/source.png"),
             Options: JsonNode.Parse(@"{""enable_pbr"":true,""enable_geometry"":false}")!.AsObject()),
@@ -28,6 +28,9 @@ public sealed class FalReconstructionProviderTests
             client.LastPayload!["input_image_url"]!.GetValue<string>());
         Assert.True(client.LastPayload["enable_pbr"]!.GetValue<bool>());
         Assert.False(client.LastPayload["enable_geometry"]!.GetValue<bool>());
+        Assert.Equal("https://queue.fal.run/status/req-123", result.ProviderStatusUrl!.ToString());
+        Assert.Equal("https://queue.fal.run/response/req-123", result.ProviderResponseUrl!.ToString());
+        Assert.Equal("https://queue.fal.run/cancel/req-123", result.ProviderCancelUrl!.ToString());
     }
 
     [Fact]
@@ -42,10 +45,10 @@ public sealed class FalReconstructionProviderTests
         var status = await provider.GetStatusAsync(
             "fal-ai/hunyuan-3d/v3.1/rapid/image-to-3d",
             "req-123",
+            new Uri("https://queue.fal.run/custom-status"),
             CancellationToken.None);
 
-        Assert.Equal("fal-ai/hunyuan-3d/v3.1/rapid/image-to-3d", client.LastStatusModelId);
-        Assert.Equal("req-123", client.LastStatusProviderJobId);
+        Assert.Equal("https://queue.fal.run/custom-status", client.LastStatusUrl!.ToString());
         Assert.Equal("req-123", status.ProviderJobId);
         Assert.Equal(ReconstructionProviderLifecycleState.Polling, status.State);
         Assert.False(status.IsTerminal);
@@ -63,6 +66,7 @@ public sealed class FalReconstructionProviderTests
         var status = await provider.GetStatusAsync(
             "fal-ai/hunyuan-3d/v3.1/rapid/image-to-3d",
             "req-123",
+            new Uri("https://queue.fal.run/custom-status"),
             CancellationToken.None);
 
         Assert.True(status.IsTerminal);
@@ -74,8 +78,7 @@ public sealed class FalReconstructionProviderTests
     {
         public string? LastModelId { get; private set; }
         public JsonObject? LastPayload { get; private set; }
-        public string? LastStatusModelId { get; private set; }
-        public string? LastStatusProviderJobId { get; private set; }
+        public Uri? LastStatusUrl { get; private set; }
         public JsonNode StatusJson { get; set; } =
             JsonNode.Parse(@"{""status"":""IN_QUEUE"",""request_id"":""req-123""}")!;
 
@@ -84,28 +87,26 @@ public sealed class FalReconstructionProviderTests
             LastModelId = modelId;
             LastPayload = payload;
             return Task.FromResult<JsonNode>(
-                JsonNode.Parse(@"{""request_id"":""req-123""}")!);
+                JsonNode.Parse(
+                    @"{""request_id"":""req-123"",""status_url"":""https://queue.fal.run/status/req-123"",""response_url"":""https://queue.fal.run/response/req-123"",""cancel_url"":""https://queue.fal.run/cancel/req-123""}")!);
         }
 
         public Task<JsonNode> GetStatusAsync(
-            string modelId,
-            string providerJobId,
+            Uri statusUrl,
             CancellationToken ct)
         {
-            LastStatusModelId = modelId;
-            LastStatusProviderJobId = providerJobId;
+            LastStatusUrl = statusUrl;
             return Task.FromResult(StatusJson);
         }
 
         public Task<JsonNode> GetResultAsync(
-            string modelId,
-            string providerJobId,
+            Uri responseUrl,
             CancellationToken ct)
             => Task.FromResult<JsonNode>(JsonNode.Parse("{}")!);
 
         public Task<ProviderCancelOutcome> CancelAsync(
-            string modelId,
-            string providerJobId,
+            Uri cancelUrl,
+            string cancelHttpMethod,
             CancellationToken ct)
             => Task.FromResult<ProviderCancelOutcome>(new CanceledOutcome());
     }

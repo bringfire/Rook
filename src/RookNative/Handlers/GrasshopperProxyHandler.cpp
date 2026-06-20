@@ -1192,6 +1192,30 @@ ManagedCreateInvokeResult InvokeReconstructionDispatchWithBody(
     }
 }
 
+void SendReconstructionDispatchError(
+    httplib::Response& res,
+    const char* op,
+    int status,
+    const std::string& code,
+    const std::string& message,
+    bool retryable,
+    const char* field = nullptr)
+{
+    nlohmann::json envelope;
+    nlohmann::json data;
+    data["code"] = code;
+    data["message"] = message;
+    data["retryable"] = retryable;
+    data["field"] = field == nullptr ? nlohmann::json(nullptr) : nlohmann::json(field);
+    data["details"] = nlohmann::json::object();
+    envelope["success"] = false;
+    envelope["data"] = data;
+
+    res.status = status;
+    res.set_content(envelope.dump(), "application/json");
+    res.set_header("X-Rook-Reconstruction-Op", op);
+}
+
 bool ParseReconstructionBodyAsObject(
     const httplib::Request& req,
     httplib::Response& res,
@@ -1206,22 +1230,28 @@ bool ParseReconstructionBodyAsObject(
         }
         catch (const std::exception& ex)
         {
-            CRookServer::SendError(
+            SendReconstructionDispatchError(
                 res,
-                std::string("Invalid JSON body for /reconstruction/") + op + ": " + ex.what());
-            res.status = 400;
-            res.set_header("X-Rook-Reconstruction-Op", op);
+                op,
+                400,
+                "invalid_json",
+                std::string("Invalid JSON body for /reconstruction/") + op + ": " + ex.what(),
+                false,
+                "body");
             return false;
         }
 
         if (!out.is_object())
         {
-            CRookServer::SendError(
+            SendReconstructionDispatchError(
                 res,
+                op,
+                400,
+                "invalid_request",
                 std::string("Reconstruction request body must be a JSON object (got ") +
-                    out.type_name() + ").");
-            res.status = 400;
-            res.set_header("X-Rook-Reconstruction-Op", op);
+                    out.type_name() + ").",
+                false,
+                "body");
             return false;
         }
     }
@@ -1257,20 +1287,24 @@ void ForwardReconstructionDispatch(
         res.set_header("X-Rook-Reconstruction-Op", op);
         return;
     case ManagedCreateInvokeResult::Unavailable:
-        CRookServer::SendError(
+        SendReconstructionDispatchError(
             res,
+            op,
+            503,
+            "reconstruction_unavailable",
             "Reconstruction routes require the Rook companion plugin. "
-            "Ensure Rook.rhp is loaded in Rhino, then retry.");
-        res.status = 503;
-        res.set_header("X-Rook-Reconstruction-Op", op);
+            "Ensure Rook.rhp is loaded in Rhino, then retry.",
+            true);
         return;
     case ManagedCreateInvokeResult::Failed:
     default:
-        CRookServer::SendError(
+        SendReconstructionDispatchError(
             res,
-            std::string("Reconstruction dispatch failed for op '") + op + "': " + invokeError);
-        res.status = 500;
-        res.set_header("X-Rook-Reconstruction-Op", op);
+            op,
+            500,
+            "reconstruction_dispatch_failed",
+            std::string("Reconstruction dispatch failed for op '") + op + "': " + invokeError,
+            true);
         return;
     }
 }

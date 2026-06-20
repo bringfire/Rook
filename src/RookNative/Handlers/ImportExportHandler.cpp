@@ -17,7 +17,6 @@
 #include "RookServer.h"
 
 #include <filesystem>
-
 namespace fs = std::filesystem;
 
 namespace Rook {
@@ -63,6 +62,25 @@ static std::string JsonStringOr(
     return fallback;
 }
 
+static void SendReconstructionImportFailure(
+    httplib::Response& res,
+    int status,
+    const std::string& code,
+    const std::string& message,
+    bool retryable,
+    const nlohmann::json& field = nullptr,
+    const nlohmann::json& details = nlohmann::json::object())
+{
+    res.status = status;
+    res.set_content(StructuredFailure(
+        code,
+        message,
+        retryable,
+        field,
+        details).dump(), "application/json");
+    res.set_header("X-Rook-Reconstruction-Op", "import_package");
+}
+
 static bool TryPrepareReconstructionImport(
     const nlohmann::json& requestBody,
     httplib::Response& res,
@@ -82,19 +100,23 @@ static bool TryPrepareReconstructionImport(
 
     if (result == ManagedCreateInvokeResult::Unavailable)
     {
-        CRookServer::SendError(
+        SendReconstructionImportFailure(
             res,
+            503,
+            "companion_unavailable",
             "Reconstruction import requires the Rook companion plugin. "
-            "Ensure Rook.rhp is loaded in Rhino, then retry.");
-        res.status = 503;
-        res.set_header("X-Rook-Reconstruction-Op", "import_package");
+            "Ensure Rook.rhp is loaded in Rhino, then retry.",
+            true);
         return false;
     }
     if (result != ManagedCreateInvokeResult::Ok)
     {
-        CRookServer::SendError(res, "Reconstruction import prepare failed: " + error);
-        res.status = 500;
-        res.set_header("X-Rook-Reconstruction-Op", "import_package");
+        SendReconstructionImportFailure(
+            res,
+            500,
+            "prepare_failed",
+            "Reconstruction import prepare failed: " + error,
+            true);
         return false;
     }
 
@@ -105,9 +127,12 @@ static bool TryPrepareReconstructionImport(
     }
     catch (const std::exception& ex)
     {
-        CRookServer::SendError(res, std::string("Reconstruction import prepare returned invalid JSON: ") + ex.what());
-        res.status = 500;
-        res.set_header("X-Rook-Reconstruction-Op", "import_package");
+        SendReconstructionImportFailure(
+            res,
+            500,
+            "prepare_failed",
+            std::string("Reconstruction import prepare returned invalid JSON: ") + ex.what(),
+            true);
         return false;
     }
 
@@ -121,9 +146,12 @@ static bool TryPrepareReconstructionImport(
 
     if (!envelope.contains("data") || !envelope["data"].is_object())
     {
-        CRookServer::SendError(res, "Reconstruction import prepare response was missing data.");
-        res.status = 500;
-        res.set_header("X-Rook-Reconstruction-Op", "import_package");
+        SendReconstructionImportFailure(
+            res,
+            500,
+            "prepare_failed",
+            "Reconstruction import prepare response was missing data.",
+            true);
         return false;
     }
 
@@ -163,6 +191,34 @@ static bool RecordReconstructionImportHistory(
     }
 
     return true;
+}
+
+static void CleanupPreparedReconstructionImport(const nlohmann::json& plan)
+{
+    if (!plan.contains("source_path"))
+        return;
+
+    const std::string packageId = JsonStringOr(plan, "package_id");
+    const std::string importId = JsonStringOr(plan, "import_id");
+    const std::string path = JsonStringOr(plan, "path");
+    if (packageId.empty() || importId.empty() || path.empty())
+        return;
+
+    nlohmann::json cleanupBody = {
+        {"op", "cleanup_prepared_import"},
+        {"package_id", packageId},
+        {"import_id", importId},
+        {"path", path}
+    };
+
+    std::string responseJson;
+    int statusCode = 0;
+    std::string error;
+    (void)InvokeReconstructionDispatchWithBody(
+        cleanupBody.dump(),
+        responseJson,
+        statusCode,
+        error);
 }
 
 // ─── POST /import ───────────────────────────────────────────────────
@@ -309,42 +365,6 @@ void HandleReconstructionImport(const httplib::Request& req, httplib::Response& 
         return;
     }
 
-    nlohmann::json plan;
-    if (!TryPrepareReconstructionImport(body, res, plan))
-        return;
-
-    const std::string packageId = JsonStringOr(
-        plan,
-        "package_id",
-        body["package_id"].get<std::string>());
-    const std::string jobId = JsonStringOr(plan, "job_id");
-    const std::string assetRole = JsonStringOr(plan, "asset_role");
-    const std::string path = JsonStringOr(plan, "path");
-    const std::string targetLayer = JsonStringOr(body, "targetLayer");
-
-    if (path.empty() || assetRole.empty())
-    {
-        res.status = 500;
-        res.set_content(StructuredFailure(
-            "invalid_package",
-            "Reconstruction import plan was missing path or asset_role.",
-            false).dump(), "application/json");
-        res.set_header("X-Rook-Reconstruction-Op", "import_package");
-        return;
-    }
-
-    std::string pathErr = Rook::ValidateFilePath(path);
-    if (!pathErr.empty() || !fs::exists(path))
-    {
-        res.status = 400;
-        res.set_content(StructuredFailure(
-            "invalid_package",
-            pathErr.empty() ? "Reconstruction package asset file was not found." : pathErr,
-            false).dump(), "application/json");
-        res.set_header("X-Rook-Reconstruction-Op", "import_package");
-        return;
-    }
-
     ON_UUID importUuid = ON_nil_uuid;
     if (FAILED(CoCreateGuid(&importUuid)))
     {
@@ -357,12 +377,53 @@ void HandleReconstructionImport(const httplib::Request& req, httplib::Response& 
         return;
     }
     const std::string importId = UuidToString(importUuid);
+    body["import_id"] = importId;
+
+    nlohmann::json plan;
+    if (!TryPrepareReconstructionImport(body, res, plan))
+        return;
+
+    const std::string packageId = JsonStringOr(
+        plan,
+        "package_id",
+        body["package_id"].get<std::string>());
+    const std::string jobId = JsonStringOr(plan, "job_id");
+    const std::string assetRole = JsonStringOr(plan, "asset_role");
+    const std::string path = JsonStringOr(plan, "path");
+    const std::string sourcePath = JsonStringOr(plan, "source_path");
+    const std::string targetLayer = JsonStringOr(body, "targetLayer");
+
+    if (path.empty() || assetRole.empty())
+    {
+        CleanupPreparedReconstructionImport(plan);
+        res.status = 500;
+        res.set_content(StructuredFailure(
+            "invalid_package",
+            "Reconstruction import plan was missing path or asset_role.",
+            false).dump(), "application/json");
+        res.set_header("X-Rook-Reconstruction-Op", "import_package");
+        return;
+    }
+
+    std::string pathErr = Rook::ValidateFilePath(path);
+    if (!pathErr.empty() || !fs::exists(path))
+    {
+        CleanupPreparedReconstructionImport(plan);
+        res.status = 400;
+        res.set_content(StructuredFailure(
+            "invalid_package",
+            pathErr.empty() ? "Reconstruction package asset file was not found." : pathErr,
+            false).dump(), "application/json");
+        res.set_header("X-Rook-Reconstruction-Op", "import_package");
+        return;
+    }
+
     const std::string format = GetExtension(path).empty()
         ? "unknown"
         : GetExtension(path).substr(1);
 
     auto future = CMainThreadDispatcher::Instance().Dispatch(
-        [docSn, path, targetLayer, packageId, jobId, importId, assetRole, format]() -> WriteResult
+        [docSn, path, sourcePath, targetLayer, packageId, jobId, importId, assetRole, format]() -> WriteResult
     {
         CRhinoDoc* pDoc = ResolveDoc(docSn);
         UndoScope undo(pDoc, L"Reconstruction Import");
@@ -459,6 +520,8 @@ void HandleReconstructionImport(const httplib::Request& req, httplib::Response& 
         wr.data["import_id"] = importId;
         wr.data["asset_role"] = assetRole;
         wr.data["path"] = path;
+        if (!sourcePath.empty())
+            wr.data["source_path"] = sourcePath;
         wr.data["format"] = format;
         wr.data["imported_ids"] = importedIds;
         wr.data["associated"] = associated;
@@ -474,6 +537,7 @@ void HandleReconstructionImport(const httplib::Request& req, httplib::Response& 
     }
     catch (const std::exception& ex)
     {
+        CleanupPreparedReconstructionImport(plan);
         res.status = 500;
         res.set_content(StructuredFailure(
             "import_failed",
@@ -485,6 +549,7 @@ void HandleReconstructionImport(const httplib::Request& req, httplib::Response& 
 
     if (!importResult.data.contains("imported_ids"))
     {
+        CleanupPreparedReconstructionImport(plan);
         res.status = 500;
         res.set_content(StructuredFailure(
             "import_failed",
@@ -499,9 +564,12 @@ void HandleReconstructionImport(const httplib::Request& req, httplib::Response& 
         {"job_id", jobId},
         {"import_id", importId},
         {"asset_role", assetRole},
+        {"path", importResult.data["path"]},
         {"imported_ids", importResult.data["imported_ids"]},
         {"associated", importResult.data.value("associated", false)}
     };
+    if (importResult.data.contains("source_path"))
+        recordBody["source_path"] = importResult.data["source_path"];
     if (importResult.data.contains("association_error"))
         recordBody["association_error"] = importResult.data["association_error"];
 

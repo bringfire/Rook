@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json.Nodes;
@@ -46,6 +47,7 @@ public sealed class ReconstructionJobManager
     private readonly IReconstructionProvider _provider;
     private readonly ReconstructionPackageMaterializer _materializer;
     private readonly IReconstructionSourceImagePublisher _sourcePublisher;
+    private readonly ConcurrentDictionary<Guid, SemaphoreSlim> _pollLocks = new();
 
     public ReconstructionJobManager(
         ArtifactStore store,
@@ -68,8 +70,16 @@ public sealed class ReconstructionJobManager
         CancellationToken ct)
     {
         var model = _catalog.Find(request.ModelId);
-        if (model is null || !model.Enabled)
+        if (!IsSubmittableV1Model(model))
             return SubmitFail("invalid_request", "Requested reconstruction model is not available.", "model_id");
+
+        if (request.PreprocessingChain.Count != 0)
+        {
+            return SubmitFail(
+                "invalid_request",
+                "preprocessing_chain execution is not implemented in v0.",
+                "preprocessing_chain");
+        }
 
         var source = _store.Get(request.SourceArtifactId);
         if (source is null)
@@ -93,19 +103,51 @@ public sealed class ReconstructionJobManager
             ReconstructionJobStage.Submitting);
         _ledger.Append(submitting);
 
-        var sourceUrl = await _sourcePublisher.PublishAsync(
-            source,
-            request.SourceRole,
-            sourceValidation.AbsolutePath!,
-            ct).ConfigureAwait(false);
-        var providerSubmit = await _provider.SubmitAsync(
-            new ReconstructionProviderSubmitRequest(request.ModelId, sourceUrl, request.Options),
-            ct).ConfigureAwait(false);
+        ReconstructionProviderSubmitResult providerSubmit;
+        try
+        {
+            var sourceUrl = await _sourcePublisher.PublishAsync(
+                source,
+                request.SourceRole,
+                sourceValidation.AbsolutePath!,
+                ct).ConfigureAwait(false);
+            providerSubmit = await _provider.SubmitAsync(
+                new ReconstructionProviderSubmitRequest(request.ModelId, sourceUrl, request.Options),
+                ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            var failure = Failure(
+                "submit_failed",
+                "Reconstruction submit failed.",
+                null,
+                retryable: true,
+                new Dictionary<string, object?>
+                {
+                    ["exception_type"] = ex.GetType().Name,
+                });
+            _ledger.Append(submitting with
+            {
+                State = ReconstructionJobState.Error,
+                Stage = ReconstructionJobStage.Error,
+                Error = failure,
+                UpdatedAt = DateTimeOffset.UtcNow,
+            });
+            return new ReconstructionSubmitResult(false, null, failure);
+        }
 
         _ledger.Append(submitting with
         {
             Stage = ReconstructionJobStage.Polling,
             ProviderJobId = providerSubmit.ProviderJobId,
+            ProviderStatusUrl = providerSubmit.ProviderStatusUrl?.ToString(),
+            ProviderResponseUrl = providerSubmit.ProviderResponseUrl?.ToString(),
+            ProviderCancelUrl = providerSubmit.ProviderCancelUrl?.ToString(),
+            ProviderCancelHttpMethod = providerSubmit.ProviderCancelHttpMethod,
             UpdatedAt = DateTimeOffset.UtcNow,
         });
 
@@ -124,6 +166,29 @@ public sealed class ReconstructionJobManager
                 null,
                 false,
                 Failure("not_found", "Reconstruction job was not found.", "job_id"));
+        return new ReconstructionJobStatusResult(
+            true,
+            job,
+            ResultAvailable(job),
+            null);
+    }
+
+    public async Task<ReconstructionJobStatusResult> StatusAsync(Guid jobId, CancellationToken ct)
+    {
+        var job = FindJob(jobId);
+        if (job is null)
+            return new ReconstructionJobStatusResult(
+                false,
+                null,
+                false,
+                Failure("not_found", "Reconstruction job was not found.", "job_id"));
+
+        if (!IsTerminal(job.State) && !string.IsNullOrWhiteSpace(job.ProviderJobId))
+        {
+            await PollActiveJobAsync(jobId, ct).ConfigureAwait(false);
+            job = FindJob(jobId) ?? job;
+        }
+
         return new ReconstructionJobStatusResult(
             true,
             job,
@@ -150,7 +215,12 @@ public sealed class ReconstructionJobManager
         _ledger.Append(cancelled);
 
         if (!string.IsNullOrWhiteSpace(job.ProviderJobId))
-            await _provider.CancelAsync(job.ModelId, job.ProviderJobId!, ct).ConfigureAwait(false);
+            await _provider.CancelAsync(
+                job.ModelId,
+                job.ProviderJobId!,
+                OptionalUri(job.ProviderCancelUrl),
+                job.ProviderCancelHttpMethod,
+                ct).ConfigureAwait(false);
 
         return new ReconstructionCancelResult(ReconstructionJobState.CancellationRequested, null);
     }
@@ -191,68 +261,113 @@ public sealed class ReconstructionJobManager
 
     public async Task PollActiveJobAsync(Guid jobId, CancellationToken ct)
     {
-        var job = FindJob(jobId)
-            ?? throw new KeyNotFoundException($"Reconstruction job '{jobId:D}' was not found.");
-        if (IsTerminal(job.State) || string.IsNullOrWhiteSpace(job.ProviderJobId))
-            return;
+        var gate = _pollLocks.GetOrAdd(jobId, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(ct).ConfigureAwait(false);
 
-        var status = await _provider.GetStatusAsync(
-            job.ModelId,
-            job.ProviderJobId!,
-            ct).ConfigureAwait(false);
-        if (!status.IsTerminal)
+        try
         {
-            _ledger.Append(job with
+            var job = FindJob(jobId)
+                ?? throw new KeyNotFoundException($"Reconstruction job '{jobId:D}' was not found.");
+            if (IsTerminal(job.State) || string.IsNullOrWhiteSpace(job.ProviderJobId))
+                return;
+
+            var status = await _provider.GetStatusAsync(
+                job.ModelId,
+                job.ProviderJobId!,
+                OptionalUri(job.ProviderStatusUrl),
+                ct).ConfigureAwait(false);
+            var latest = FindJob(jobId) ?? job;
+            if (IsTerminal(latest.State))
+                return;
+
+            if (!status.IsTerminal)
+            {
+                _ledger.Append(latest with
+                {
+                    State = latest.State == ReconstructionJobState.CancellationRequested
+                        ? ReconstructionJobState.CancellationRequested
+                        : ReconstructionJobState.Running,
+                    Stage = ReconstructionJobStage.Polling,
+                    UpdatedAt = DateTimeOffset.UtcNow,
+                });
+                return;
+            }
+
+            if (!status.IsSuccess)
+            {
+                _ledger.Append(latest with
+                {
+                    State = status.State == ReconstructionProviderLifecycleState.Cancelled
+                        ? ReconstructionJobState.Cancelled
+                        : ReconstructionJobState.Error,
+                    Stage = status.State == ReconstructionProviderLifecycleState.Cancelled
+                        ? ReconstructionJobStage.Cancelled
+                        : ReconstructionJobStage.Error,
+                    Error = status.Error ?? Failure("provider_error", "Reconstruction provider failed.", null),
+                    UpdatedAt = DateTimeOffset.UtcNow,
+                });
+                return;
+            }
+
+            var materializing = latest with
             {
                 State = ReconstructionJobState.Running,
-                Stage = ReconstructionJobStage.Polling,
+                Stage = ReconstructionJobStage.Materializing,
                 UpdatedAt = DateTimeOffset.UtcNow,
-            });
-            return;
-        }
+            };
+            _ledger.Append(materializing);
 
-        if (!status.IsSuccess)
-        {
-            _ledger.Append(job with
+            var resultJson = await _provider.GetResultAsync(
+                job.ModelId,
+                job.ProviderJobId!,
+                OptionalUri(job.ProviderResponseUrl),
+                ct).ConfigureAwait(false);
+            var artifact = _materializer.Materialize(
+                latest.JobId,
+                new[] { latest.SourceArtifactId },
+                latest.Provider,
+                latest.ModelId,
+                resultJson);
+            _ledger.Append(materializing with
             {
-                State = status.State == ReconstructionProviderLifecycleState.Cancelled
-                    ? ReconstructionJobState.Cancelled
-                    : ReconstructionJobState.Error,
-                Stage = status.State == ReconstructionProviderLifecycleState.Cancelled
-                    ? ReconstructionJobStage.Cancelled
-                    : ReconstructionJobStage.Error,
-                Error = status.Error ?? Failure("provider_error", "Reconstruction provider failed.", null),
+                State = ReconstructionJobState.Complete,
+                Stage = ReconstructionJobStage.Complete,
+                ResultArtifactId = artifact.Id,
+                ResultAvailable = true,
                 UpdatedAt = DateTimeOffset.UtcNow,
             });
-            return;
         }
-
-        var materializing = job with
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            State = ReconstructionJobState.Running,
-            Stage = ReconstructionJobStage.Materializing,
-            UpdatedAt = DateTimeOffset.UtcNow,
-        };
-        _ledger.Append(materializing);
-
-        var resultJson = await _provider.GetResultAsync(
-            job.ModelId,
-            job.ProviderJobId!,
-            ct).ConfigureAwait(false);
-        var artifact = _materializer.Materialize(
-            job.JobId,
-            new[] { job.SourceArtifactId },
-            job.Provider,
-            job.ModelId,
-            resultJson);
-        _ledger.Append(materializing with
+            throw;
+        }
+        catch (Exception ex)
         {
-            State = ReconstructionJobState.Complete,
-            Stage = ReconstructionJobStage.Complete,
-            ResultArtifactId = artifact.Id,
-            ResultAvailable = true,
-            UpdatedAt = DateTimeOffset.UtcNow,
-        });
+            var latest = FindJob(jobId);
+            if (latest is null)
+                throw;
+
+            _ledger.Append(latest with
+            {
+                State = ReconstructionJobState.Error,
+                Stage = ReconstructionJobStage.Error,
+                Error = Failure(
+                    "poll_failed",
+                    "Reconstruction polling or materialization failed.",
+                    null,
+                    retryable: true,
+                    new Dictionary<string, object?>
+                    {
+                        ["exception_type"] = ex.GetType().Name,
+                        ["exception_message"] = ex.Message,
+                    }),
+                UpdatedAt = DateTimeOffset.UtcNow,
+            });
+        }
+        finally
+        {
+            gate.Release();
+        }
     }
 
     private ReconstructionJobLedgerRecord? FindJob(Guid jobId)
@@ -278,12 +393,27 @@ public sealed class ReconstructionJobManager
             or ReconstructionJobState.Cancelled
             or ReconstructionJobState.Interrupted;
 
+    private static bool IsSubmittableV1Model(ReconstructionModelEntry? model)
+        => model is not null
+            && model.Enabled
+            && string.Equals(model.Status, "stable", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(model.Task, "single_image_to_3d", StringComparison.Ordinal)
+            && model.PipelineRoles.Contains("single_image_to_3d", StringComparer.Ordinal);
+
     private static ReconstructionSubmitResult SubmitFail(
         string code,
         string message,
         string? field)
         => new(false, null, Failure(code, message, field));
 
-    private static ReconstructionFailure Failure(string code, string message, string? field)
-        => new(code, message, false, field, new Dictionary<string, object?>());
+    private static ReconstructionFailure Failure(
+        string code,
+        string message,
+        string? field,
+        bool retryable = false,
+        IReadOnlyDictionary<string, object?>? details = null)
+        => new(code, message, retryable, field, details ?? new Dictionary<string, object?>());
+
+    private static Uri? OptionalUri(string? value)
+        => Uri.TryCreate(value, UriKind.Absolute, out var uri) ? uri : null;
 }

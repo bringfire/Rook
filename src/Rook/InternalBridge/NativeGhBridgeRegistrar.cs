@@ -1838,6 +1838,7 @@ namespace Rook.InternalBridge
             switch (op)
             {
                 case ReconstructionOpHandler.OpSubmit:
+                case ReconstructionOpHandler.OpStatus:
                 case ReconstructionOpHandler.OpCancel:
                     return ExecuteAsyncApiResponseCallback(
                         responseJsonUtf8,
@@ -1850,7 +1851,6 @@ namespace Rook.InternalBridge
 
                 case ReconstructionOpHandler.OpModels:
                 case ReconstructionOpHandler.OpListJobs:
-                case ReconstructionOpHandler.OpStatus:
                 case ReconstructionOpHandler.OpResult:
                 case ReconstructionOpHandler.OpPrepareImport:
                 case ReconstructionOpHandler.OpRecordImport:

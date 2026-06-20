@@ -19,7 +19,7 @@ public sealed class ReconstructionSubmitRequestParserTests
     }
 
     [Fact]
-    public void Parse_AllowsOneManualRemoveBackgroundStage()
+    public void Parse_RejectsManualRemoveBackgroundStageUntilPreprocessingExecutes()
     {
         var sourceId = Guid.NewGuid();
         var result = ReconstructionSubmitRequestParser.Parse(
@@ -37,11 +37,9 @@ public sealed class ReconstructionSubmitRequestParserTests
             "\"options\":{\"enable_pbr\":true,\"enable_geometry\":false}" +
             "}");
 
-        Assert.True(result.Success);
-        Assert.Equal(sourceId, result.Request!.SourceArtifactId);
-        Assert.Equal("image", result.Request.SourceRole);
-        Assert.Single(result.Request.PreprocessingChain);
-        Assert.True(result.Request.Options["enable_pbr"]!.GetValue<bool>());
+        Assert.False(result.Success);
+        Assert.Equal("preprocessing_chain", result.Failure!.Field);
+        Assert.Contains("not implemented", result.Failure.Message);
     }
 
     [Fact]

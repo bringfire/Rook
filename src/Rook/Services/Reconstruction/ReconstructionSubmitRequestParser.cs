@@ -27,8 +27,6 @@ public sealed record ReconstructionParseResult(
 
 public static class ReconstructionSubmitRequestParser
 {
-    private const string BiRefNetModelId = "fal-ai/birefnet";
-
     public static ReconstructionParseResult Parse(string? body)
     {
         if (string.IsNullOrWhiteSpace(body))
@@ -101,58 +99,16 @@ public static class ReconstructionSubmitRequestParser
             return Array.Empty<ReconstructionPreprocessingStageRequest>();
         }
 
-        if (chain.Count > 1)
+        if (chain.Count > 0)
         {
             failure = Failure(
                 "invalid_request",
-                "v1 supports at most one manual preprocessing stage.",
+                "preprocessing_chain execution is not implemented in v0; submit without preprocessing_chain.",
                 "preprocessing_chain");
             return Array.Empty<ReconstructionPreprocessingStageRequest>();
         }
 
-        if (chain.Count == 0)
-            return Array.Empty<ReconstructionPreprocessingStageRequest>();
-
-        if (chain[0] is not JsonObject stage)
-        {
-            failure = Failure(
-                "invalid_request",
-                "preprocessing_chain entries must be objects.",
-                "preprocessing_chain");
-            return Array.Empty<ReconstructionPreprocessingStageRequest>();
-        }
-
-        var role = ReadString(stage, "role");
-        if (!string.Equals(role, "remove_background", StringComparison.Ordinal))
-        {
-            failure = Failure(
-                "invalid_request",
-                "Only remove_background preprocessing is supported in v1.",
-                "preprocessing_chain");
-            return Array.Empty<ReconstructionPreprocessingStageRequest>();
-        }
-
-        var modelId = ReadString(stage, "model_id");
-        if (!string.Equals(modelId, BiRefNetModelId, StringComparison.Ordinal))
-        {
-            failure = Failure(
-                "invalid_request",
-                "Only fal-ai/birefnet is supported for v1 preprocessing.",
-                "preprocessing_chain");
-            return Array.Empty<ReconstructionPreprocessingStageRequest>();
-        }
-
-        return new[]
-        {
-            new ReconstructionPreprocessingStageRequest(
-                role!,
-                modelId!,
-                ReadString(stage, "input_role") ?? "image",
-                ReadString(stage, "output_role") ?? ReconstructionFileRoles.PreprocessedImage,
-                stage["options"] is JsonObject options
-                    ? (JsonObject)options.DeepClone()
-                    : new JsonObject()),
-        };
+        return Array.Empty<ReconstructionPreprocessingStageRequest>();
     }
 
     private static bool TryReadGuid(JsonObject obj, string name, out Guid value)

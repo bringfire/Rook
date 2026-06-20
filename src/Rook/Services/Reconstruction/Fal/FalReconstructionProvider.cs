@@ -17,6 +17,10 @@ public sealed record ReconstructionProviderSubmitRequest(
 
 public sealed record ReconstructionProviderSubmitResult(
     string ProviderJobId,
+    Uri? ProviderStatusUrl,
+    Uri? ProviderResponseUrl,
+    Uri? ProviderCancelUrl,
+    string? ProviderCancelHttpMethod,
     JsonNode ProviderSubmitJson);
 
 public enum ReconstructionProviderLifecycleState
@@ -47,25 +51,29 @@ public interface IReconstructionProvider
     Task<ReconstructionProviderStatusResult> GetStatusAsync(
         string modelId,
         string providerJobId,
+        Uri? providerStatusUrl,
         CancellationToken cancellationToken);
 
     Task<JsonNode> GetResultAsync(
         string modelId,
         string providerJobId,
+        Uri? providerResponseUrl,
         CancellationToken cancellationToken);
 
     Task<ProviderCancelOutcome> CancelAsync(
         string modelId,
         string providerJobId,
+        Uri? providerCancelUrl,
+        string? providerCancelHttpMethod,
         CancellationToken cancellationToken);
 }
 
 public interface IFalReconstructionQueueClient
 {
     Task<JsonNode> SubmitAsync(string modelId, JsonObject payload, CancellationToken ct);
-    Task<JsonNode> GetStatusAsync(string modelId, string providerJobId, CancellationToken ct);
-    Task<JsonNode> GetResultAsync(string modelId, string providerJobId, CancellationToken ct);
-    Task<ProviderCancelOutcome> CancelAsync(string modelId, string providerJobId, CancellationToken ct);
+    Task<JsonNode> GetStatusAsync(Uri statusUrl, CancellationToken ct);
+    Task<JsonNode> GetResultAsync(Uri responseUrl, CancellationToken ct);
+    Task<ProviderCancelOutcome> CancelAsync(Uri cancelUrl, string cancelHttpMethod, CancellationToken ct);
 }
 
 public sealed class FalReconstructionSourceImagePublisher : IReconstructionSourceImagePublisher
@@ -151,17 +159,23 @@ public sealed class FalReconstructionProvider : IReconstructionProvider
         if (string.IsNullOrWhiteSpace(requestId))
             throw new InvalidOperationException("fal submit response did not include request_id.");
 
-        return new ReconstructionProviderSubmitResult(requestId!, submitJson);
+        return new ReconstructionProviderSubmitResult(
+            requestId!,
+            ReadUri(submitJson, "status_url"),
+            ReadUri(submitJson, "response_url"),
+            ReadUri(submitJson, "cancel_url"),
+            "PUT",
+            submitJson);
     }
 
     public async Task<ReconstructionProviderStatusResult> GetStatusAsync(
         string modelId,
         string providerJobId,
+        Uri? providerStatusUrl,
         CancellationToken cancellationToken)
     {
         var statusJson = await _client.GetStatusAsync(
-            modelId,
-            providerJobId,
+            providerStatusUrl ?? QueueUri(modelId, providerJobId, "status"),
             cancellationToken).ConfigureAwait(false);
         var state = MapStatus(ReadString(statusJson, "status"));
         var isSuccess = state == ReconstructionProviderLifecycleState.Complete;
@@ -183,14 +197,22 @@ public sealed class FalReconstructionProvider : IReconstructionProvider
     public Task<JsonNode> GetResultAsync(
         string modelId,
         string providerJobId,
+        Uri? providerResponseUrl,
         CancellationToken cancellationToken)
-        => _client.GetResultAsync(modelId, providerJobId, cancellationToken);
+        => _client.GetResultAsync(
+            providerResponseUrl ?? QueueUri(modelId, providerJobId, "response"),
+            cancellationToken);
 
     public Task<ProviderCancelOutcome> CancelAsync(
         string modelId,
         string providerJobId,
+        Uri? providerCancelUrl,
+        string? providerCancelHttpMethod,
         CancellationToken cancellationToken)
-        => _client.CancelAsync(modelId, providerJobId, cancellationToken);
+        => _client.CancelAsync(
+            providerCancelUrl ?? QueueUri(modelId, providerJobId, "cancel"),
+            string.IsNullOrWhiteSpace(providerCancelHttpMethod) ? "PUT" : providerCancelHttpMethod!,
+            cancellationToken);
 
     private static ReconstructionProviderLifecycleState MapStatus(string? status)
     {
@@ -215,11 +237,20 @@ public sealed class FalReconstructionProvider : IReconstructionProvider
                 ? text
                 : null;
 
+    private static Uri? ReadUri(JsonNode? node, string name)
+    {
+        var value = ReadString(node, name);
+        return Uri.TryCreate(value, UriKind.Absolute, out var uri) ? uri : null;
+    }
+
     private static ReconstructionFailure Failure(
         string code,
         string message,
         bool retryable)
         => new(code, message, retryable, null, new System.Collections.Generic.Dictionary<string, object?>());
+
+    private static Uri QueueUri(string modelId, string providerJobId, string suffix)
+        => new($"https://queue.fal.run/{modelId}/requests/{Uri.EscapeDataString(providerJobId)}/{suffix}");
 }
 
 public sealed class FalReconstructionQueueClient : IFalReconstructionQueueClient
@@ -248,33 +279,33 @@ public sealed class FalReconstructionQueueClient : IFalReconstructionQueueClient
         return ParseSuccess(response, "fal reconstruction submit failed.");
     }
 
-    public async Task<JsonNode> GetStatusAsync(string modelId, string providerJobId, CancellationToken ct)
+    public async Task<JsonNode> GetStatusAsync(Uri statusUrl, CancellationToken ct)
     {
         var response = await _client.GetAsync(
             ApiKey(),
-            QueueUri(modelId, providerJobId, "status"),
+            statusUrl,
             ct).ConfigureAwait(false);
         return ParseSuccess(response, "fal reconstruction status failed.");
     }
 
-    public async Task<JsonNode> GetResultAsync(string modelId, string providerJobId, CancellationToken ct)
+    public async Task<JsonNode> GetResultAsync(Uri responseUrl, CancellationToken ct)
     {
         var response = await _client.GetAsync(
             ApiKey(),
-            QueueUri(modelId, providerJobId, null),
+            responseUrl,
             ct).ConfigureAwait(false);
         return ParseSuccess(response, "fal reconstruction result failed.");
     }
 
     public async Task<ProviderCancelOutcome> CancelAsync(
-        string modelId,
-        string providerJobId,
+        Uri cancelUrl,
+        string cancelHttpMethod,
         CancellationToken ct)
     {
         var response = await _client.SendAsync(
             ApiKey(),
-            HttpMethod.Put,
-            QueueUri(modelId, providerJobId, "cancel"),
+            new HttpMethod(cancelHttpMethod),
+            cancelUrl,
             bodyJson: null,
             ct).ConfigureAwait(false);
         return response.IsSuccessStatusCode

@@ -145,7 +145,15 @@ async def test_reconstruction_jobs_limit_forwarded_as_query():
         mock.return_value = {"success": True, "data": {"jobs": []}}
         await server.call_tool("rhino_2d_to_3d_jobs", {"limit": None})
     args, _ = mock.call_args
-    assert args == ("/reconstruction/2d-to-3d/jobs?limit=", "GET", None)
+    assert args == ("/reconstruction/2d-to-3d/jobs", "GET", None)
+
+
+def test_reconstruction_dispatcher_jobs_omits_null_limit():
+    endpoint, method, data = tool_dispatcher._reconstruction_jobs({"limit": None})
+
+    assert endpoint == "/reconstruction/2d-to-3d/jobs"
+    assert method == "GET"
+    assert data is None
 
 
 @pytest.mark.asyncio

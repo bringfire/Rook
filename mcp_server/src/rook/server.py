@@ -20029,8 +20029,11 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
             from urllib.parse import quote as _quote_recon_jobs
             if "limit" in arguments:
                 _raw_limit = arguments["limit"]
-                _limit_str = "" if _raw_limit is None else str(_raw_limit)
-                _endpoint = f"/reconstruction/2d-to-3d/jobs?limit={_quote_recon_jobs(_limit_str, safe='')}"
+                if _raw_limit is None:
+                    _endpoint = "/reconstruction/2d-to-3d/jobs"
+                else:
+                    _limit_str = str(_raw_limit)
+                    _endpoint = f"/reconstruction/2d-to-3d/jobs?limit={_quote_recon_jobs(_limit_str, safe='')}"
             else:
                 _endpoint = "/reconstruction/2d-to-3d/jobs"
             result = await call_rhino(_endpoint, "GET", None, port=port)

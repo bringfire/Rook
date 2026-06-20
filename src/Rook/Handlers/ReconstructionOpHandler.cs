@@ -23,6 +23,7 @@ namespace Rook.Handlers
         public const string OpResult = "job_result";
         public const string OpPrepareImport = "prepare_import";
         public const string OpRecordImport = "record_import";
+        public const string OpCleanupPreparedImport = "cleanup_prepared_import";
 
         public const int DefaultListJobsLimit = 50;
 
@@ -60,8 +61,9 @@ namespace Rook.Handlers
                 return op switch
                 {
                     OpSubmit => await SubmitAsync(body, cancellationToken).ConfigureAwait(false),
+                    OpStatus => await StatusAsync(args, cancellationToken).ConfigureAwait(false),
                     OpCancel => await CancelAsync(args, cancellationToken).ConfigureAwait(false),
-                    OpModels or OpListJobs or OpStatus or OpResult or OpPrepareImport or OpRecordImport =>
+                    OpModels or OpListJobs or OpResult or OpPrepareImport or OpRecordImport or OpCleanupPreparedImport =>
                         DispatchOffUi(body),
                     _ => Fail(Failure("invalid_request", $"Unknown reconstruction op '{op}'.", "op"), 400),
                 };
@@ -99,11 +101,11 @@ namespace Rook.Handlers
                 {
                     OpModels => Models(args),
                     OpListJobs => ListJobs(args),
-                    OpStatus => Status(args),
                     OpResult => Result(args),
                     OpPrepareImport => PrepareImport(args),
                     OpRecordImport => RecordImport(args),
-                    OpSubmit or OpCancel => Fail(
+                    OpCleanupPreparedImport => CleanupPreparedImport(args),
+                    OpSubmit or OpStatus or OpCancel => Fail(
                         Failure("invalid_request", $"op '{op}' must be routed through the async dispatcher, not the off-UI dispatcher.", "op"),
                         400),
                     _ => Fail(Failure("invalid_request", $"Unknown reconstruction op '{op}'.", "op"), 400),
@@ -129,6 +131,9 @@ namespace Rook.Handlers
                     .List(includeExperimental, includeHidden)
                     .Select(ModelToObj)
                     .ToArray(),
+                ["include_experimental"] = includeExperimental,
+                ["include_hidden"] = includeHidden,
+                ["warnings"] = Array.Empty<object>(),
             });
         }
 
@@ -160,18 +165,25 @@ namespace Rook.Handlers
             });
         }
 
-        private ApiResponse Status(Dictionary<string, JsonElement> args)
+        private async Task<ApiResponse> StatusAsync(
+            Dictionary<string, JsonElement> args,
+            CancellationToken ct)
         {
             if (!TryParseJobId(args, out var jobId, out var failure))
                 return Fail(failure!, 400);
 
-            var result = _manager.Status(jobId);
+            var result = await _manager.StatusAsync(jobId, ct).ConfigureAwait(false);
             if (!result.Success)
                 return Fail(result.Failure!, StatusFor(result.Failure!));
 
             var job = JobToObj(result.Job!);
             job["result_available"] = result.ResultAvailable;
-            return Ok(job);
+            return Ok(new Dictionary<string, object?>
+            {
+                ["job"] = job,
+                ["result_available"] = result.ResultAvailable,
+                ["warnings"] = Array.Empty<object>(),
+            });
         }
 
         private async Task<ApiResponse> CancelAsync(
@@ -206,6 +218,9 @@ namespace Rook.Handlers
                 ["job_id"] = result.JobId.ToString("D"),
                 ["result_artifact_id"] = result.ResultArtifactId?.ToString("D"),
                 ["result_available"] = result.ResultAvailable,
+                ["package"] = result.ResultArtifactId.HasValue && result.ResultAvailable
+                    ? PackageSummary(result.ResultArtifactId.Value)
+                    : null,
                 ["warnings"] = result.Warnings.Select(WarningToObj).ToArray(),
             });
         }
@@ -228,16 +243,41 @@ namespace Rook.Handlers
                 ?? GetStringArg(args, "asset_role");
             var assetRole = ResolveAssetRole(package, manifest!, requestedRole, out failure);
             if (failure is not null) return Fail(failure, StatusFor(failure));
+            var providerFileNames = ProviderFileNamesByRole(packageId, package);
+            var assetPath = _store.GetBlobAbsolutePath(packageId, assetRole!);
+            var importId = ImportIdForPrepare(args);
+            var primaryFileName = FileNameForRole(providerFileNames, assetRole!, assetPath);
+            var companionFiles = CompanionFiles(package, manifest!, assetRole!, providerFileNames).ToArray();
+            var importPath = assetPath;
+            string? sourcePath = null;
+            if (string.Equals(assetRole, ReconstructionFileRoles.ModelObj, StringComparison.Ordinal)
+                && companionFiles.Length > 0)
+            {
+                var staged = StageObjImportBundle(
+                    assetPath,
+                    primaryFileName,
+                    importId,
+                    companionFiles,
+                    out failure);
+                if (failure is not null) return Fail(failure, StatusFor(failure));
+                importPath = staged!;
+                sourcePath = assetPath;
+            }
 
-            return Ok(new Dictionary<string, object?>
+            var data = new Dictionary<string, object?>
             {
                 ["package_id"] = packageId.ToString("D"),
                 ["job_id"] = ReadString(package.Metadata, "job_id"),
+                ["import_id"] = importId.ToString("D"),
                 ["asset_role"] = assetRole,
-                ["path"] = _store.GetBlobAbsolutePath(packageId, assetRole!),
+                ["path"] = importPath,
+                ["file_name"] = primaryFileName,
                 ["targetLayer"] = GetStringArg(args, "targetLayer"),
-                ["companion_files"] = CompanionFiles(package, manifest!, assetRole!).ToArray(),
-            });
+                ["companion_files"] = companionFiles,
+            };
+            if (!string.IsNullOrWhiteSpace(sourcePath))
+                data["source_path"] = sourcePath;
+            return Ok(data);
         }
 
         private ApiResponse RecordImport(Dictionary<string, JsonElement> args)
@@ -265,16 +305,32 @@ namespace Rook.Handlers
                 manifest["imports"] = imports;
             }
 
-            imports.Add(new JsonObject
+            var importEntry = new JsonObject
             {
                 ["import_id"] = parsedImportId.ToString("D"),
                 ["job_id"] = GetStringArg(args, "job_id"),
                 ["asset_role"] = GetStringArg(args, "asset_role") ?? GetStringArg(args, "assetRole"),
+                ["path"] = GetStringArg(args, "path"),
+                ["source_path"] = GetStringArg(args, "source_path"),
                 ["imported_ids"] = ReadStringArray(args, "imported_ids"),
                 ["associated"] = GetBoolArg(args, "associated") ?? false,
                 ["association_error"] = GetStringArg(args, "association_error"),
                 ["recorded_at"] = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture),
-            });
+            };
+            var replacedExisting = false;
+            for (var i = 0; i < imports.Count; i++)
+            {
+                if (imports[i] is JsonObject existing
+                    && string.Equals(ReadString(existing, "import_id"), parsedImportId.ToString("D"), StringComparison.Ordinal))
+                {
+                    imports[i] = importEntry;
+                    replacedExisting = true;
+                    break;
+                }
+            }
+
+            if (!replacedExisting)
+                imports.Add(importEntry);
 
             var replaced = _store.ReplaceJsonBlob(
                 packageId,
@@ -296,6 +352,81 @@ namespace Rook.Handlers
                 ["package_id"] = packageId.ToString("D"),
                 ["import_id"] = parsedImportId.ToString("D"),
                 ["recorded"] = true,
+                ["idempotent_replay"] = replacedExisting,
+            });
+        }
+
+        private ApiResponse CleanupPreparedImport(Dictionary<string, JsonElement> args)
+        {
+            if (!TryParseGuid(args, "package_id", out var packageId, out var failure))
+                return Fail(failure!, 400);
+            if (!TryParseGuid(args, "import_id", out var importId, out failure))
+                return Fail(failure!, 400);
+
+            var path = GetStringArg(args, "path");
+            if (string.IsNullOrWhiteSpace(path))
+                return Fail(Failure("invalid_request", "path is required.", "path"), 400);
+
+            var package = _store.Get(packageId);
+            if (package is null)
+                return Fail(Failure("not_found", "Reconstruction package was not found.", "package_id"), 404);
+            if (!string.Equals(package.Kind, ReconstructionArtifactKinds.Package, StringComparison.Ordinal))
+                return Fail(Failure("invalid_request", "Artifact is not a reconstruction package.", "package_id"), 400);
+            if (package.Files.Count == 0)
+                return Fail(Failure("invalid_package", "Reconstruction package has no files.", "package_id"), 400);
+
+            var artifactDir = Path.GetDirectoryName(_store.GetBlobAbsolutePath(packageId, package.Files[0].Role));
+            if (string.IsNullOrWhiteSpace(artifactDir))
+                return Fail(Failure("invalid_package", "Reconstruction package directory could not be resolved.", "package_id"), 400);
+
+            var expectedBundleDir = Path.GetFullPath(Path.Combine(artifactDir, $"import_bundle_{importId:N}"));
+            var requestedPath = Path.GetFullPath(path!);
+            var requestedBundleDir = Directory.Exists(requestedPath)
+                ? requestedPath
+                : Path.GetDirectoryName(requestedPath);
+            if (string.IsNullOrWhiteSpace(requestedBundleDir)
+                || !string.Equals(
+                    Path.GetFullPath(requestedBundleDir),
+                    expectedBundleDir,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return Fail(
+                    Failure("invalid_request", "path is not the prepared import bundle for import_id.", "path"),
+                    400);
+            }
+
+            if (!Directory.Exists(expectedBundleDir))
+            {
+                return Ok(new Dictionary<string, object?>
+                {
+                    ["package_id"] = packageId.ToString("D"),
+                    ["import_id"] = importId.ToString("D"),
+                    ["bundle_path"] = expectedBundleDir,
+                    ["removed"] = false,
+                });
+            }
+
+            try
+            {
+                Directory.Delete(expectedBundleDir, recursive: true);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return Fail(
+                    Failure(
+                        "cleanup_failed",
+                        "Prepared reconstruction import bundle could not be removed.",
+                        null,
+                        retryable: true),
+                    500);
+            }
+
+            return Ok(new Dictionary<string, object?>
+            {
+                ["package_id"] = packageId.ToString("D"),
+                ["import_id"] = importId.ToString("D"),
+                ["bundle_path"] = expectedBundleDir,
+                ["removed"] = true,
             });
         }
 
@@ -362,7 +493,8 @@ namespace Rook.Handlers
         private IEnumerable<Dictionary<string, object?>> CompanionFiles(
             Artifact package,
             JsonObject manifest,
-            string assetRole)
+            string assetRole,
+            IReadOnlyDictionary<string, string> providerFileNames)
         {
             var companions = manifest["asset_bindings"]?[assetRole]?["companion_roles"] as JsonArray;
             if (companions is null) yield break;
@@ -376,12 +508,285 @@ namespace Rook.Handlers
                     continue;
                 }
 
+                var path = _store.GetBlobAbsolutePath(package.Id, role);
                 yield return new Dictionary<string, object?>
                 {
                     ["role"] = role,
-                    ["path"] = _store.GetBlobAbsolutePath(package.Id, role),
+                    ["path"] = path,
+                    ["file_name"] = FileNameForRole(providerFileNames, role, path),
                 };
             }
+        }
+
+        private string? StageObjImportBundle(
+            string sourcePath,
+            string primaryFileName,
+            Guid importId,
+            IReadOnlyList<Dictionary<string, object?>> companionFiles,
+            out ReconstructionFailure? failure)
+        {
+            failure = null;
+            var sourceDir = Path.GetDirectoryName(sourcePath);
+            if (string.IsNullOrWhiteSpace(sourceDir) || !File.Exists(sourcePath))
+            {
+                failure = Failure(
+                    "invalid_package",
+                    "Reconstruction OBJ source file was not found.",
+                    "package_id");
+                return null;
+            }
+
+            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (!ReserveImportFileName(names, primaryFileName, out failure))
+                return null;
+
+            foreach (var companion in companionFiles)
+            {
+                var companionPath = companion.TryGetValue("path", out var pathObj)
+                    ? pathObj as string
+                    : null;
+                var companionName = companion.TryGetValue("file_name", out var nameObj)
+                    ? nameObj as string
+                    : null;
+                if (string.IsNullOrWhiteSpace(companionPath) || !File.Exists(companionPath))
+                {
+                    failure = Failure(
+                        "invalid_package",
+                        "Reconstruction OBJ companion file was not found.",
+                        "package_id");
+                    return null;
+                }
+                if (!ReserveImportFileName(names, companionName ?? Path.GetFileName(companionPath), out failure))
+                    return null;
+            }
+
+            var bundleDir = Path.Combine(sourceDir, $"import_bundle_{importId:N}");
+            try
+            {
+                Directory.CreateDirectory(bundleDir);
+                var stagedPrimary = Path.Combine(bundleDir, primaryFileName);
+                File.Copy(sourcePath, stagedPrimary, overwrite: false);
+                foreach (var companion in companionFiles)
+                {
+                    var companionPath = (string)companion["path"]!;
+                    var companionName = (string)companion["file_name"]!;
+                    File.Copy(companionPath, Path.Combine(bundleDir, companionName), overwrite: false);
+                }
+
+                return stagedPrimary;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                TryDeleteDirectory(bundleDir);
+                failure = Failure(
+                    "import_failed",
+                    "Reconstruction OBJ import bundle could not be staged.",
+                    null,
+                    retryable: true);
+                return null;
+            }
+        }
+
+        private static bool ReserveImportFileName(
+            HashSet<string> names,
+            string? fileName,
+            out ReconstructionFailure? failure)
+        {
+            failure = null;
+            var safeName = SafeProviderFileName(fileName);
+            if (string.IsNullOrWhiteSpace(safeName))
+            {
+                failure = Failure(
+                    "invalid_package",
+                    "Reconstruction OBJ import bundle contains an invalid filename.",
+                    "package_id");
+                return false;
+            }
+
+            if (names.Add(safeName!))
+                return true;
+
+            failure = Failure(
+                "filename_collision",
+                $"Reconstruction OBJ import bundle contains duplicate provider filename '{safeName}'.",
+                "package_id");
+            return false;
+        }
+
+        private static void TryDeleteDirectory(string path)
+        {
+            try
+            {
+                if (Directory.Exists(path))
+                    Directory.Delete(path, recursive: true);
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+
+        private Dictionary<string, string> ProviderFileNamesByRole(Guid packageId, Artifact package)
+        {
+            var names = new Dictionary<string, string>(StringComparer.Ordinal);
+            try
+            {
+                var providerJson = JsonNode.Parse(File.ReadAllText(
+                    _store.GetBlobAbsolutePath(packageId, ReconstructionFileRoles.ProviderResultJson))) as JsonObject;
+                if (providerJson is null) return names;
+
+                AddProviderFileName(names, package, ReconstructionFileRoles.ModelGlb, providerJson["model_glb"], normalizeModelRole: true);
+                AddProviderFileName(names, package, ReconstructionFileRoles.ModelObj, providerJson["model_obj"], normalizeModelRole: true);
+                AddProviderFileName(names, package, ReconstructionFileRoles.MaterialMtl, providerJson["material_mtl"], normalizeModelRole: true);
+                AddProviderFileName(names, package, ReconstructionFileRoles.Texture, providerJson["texture"], normalizeModelRole: false);
+                AddProviderFileName(names, package, ReconstructionFileRoles.Thumbnail, providerJson["thumbnail"], normalizeModelRole: false);
+
+                if (providerJson["model_urls"] is JsonObject modelUrls)
+                {
+                    foreach (var kvp in modelUrls)
+                        AddProviderFileName(names, package, FallbackRoleForModelUrlKey(kvp.Key), kvp.Value, normalizeModelRole: true);
+                }
+                if (providerJson["texture_urls"] is JsonObject textureUrls)
+                {
+                    foreach (var kvp in textureUrls)
+                        AddProviderFileName(names, package, ReconstructionFileRoles.Texture, kvp.Value, normalizeModelRole: false);
+                }
+            }
+            catch (Exception ex) when (ex is IOException or JsonException or InvalidOperationException)
+            {
+                return names;
+            }
+
+            return names;
+        }
+
+        private static void AddProviderFileName(
+            Dictionary<string, string> names,
+            Artifact package,
+            string? fallbackRole,
+            JsonNode? node,
+            bool normalizeModelRole)
+        {
+            if (string.IsNullOrWhiteSpace(fallbackRole)) return;
+            var file = ReadProviderFile(node);
+            if (file is null) return;
+
+            var role = normalizeModelRole
+                ? RoleForProviderModelFile(file) ?? fallbackRole
+                : fallbackRole;
+            if (!HasRole(package, role) || names.ContainsKey(role)) return;
+
+            var fileName = SafeProviderFileName(file.FileName)
+                ?? SafeProviderUrlFileName(file.Url);
+            if (!string.IsNullOrWhiteSpace(fileName))
+                names[role] = fileName!;
+        }
+
+        private static ProviderFile? ReadProviderFile(JsonNode? node)
+        {
+            if (node is JsonValue value && value.TryGetValue<string>(out var url))
+                return new ProviderFile(url, null, null);
+            if (node is JsonObject obj
+                && obj.TryGetPropertyValue("url", out var urlNode)
+                && urlNode is JsonValue urlValue
+                && urlValue.TryGetValue<string>(out var nestedUrl))
+            {
+                return new ProviderFile(
+                    nestedUrl,
+                    ReadString(obj, "file_name"),
+                    ReadString(obj, "content_type"));
+            }
+
+            return null;
+        }
+
+        private static string? FallbackRoleForModelUrlKey(string key)
+            => key switch
+            {
+                "glb" => ReconstructionFileRoles.ModelGlb,
+                "obj" => ReconstructionFileRoles.ModelObj,
+                "mtl" => ReconstructionFileRoles.MaterialMtl,
+                "texture" => ReconstructionFileRoles.Texture,
+                "fbx" => "model_fbx",
+                "usdz" => "model_usdz",
+                "stl" => "model_stl",
+                _ => null,
+            };
+
+        private static string? RoleForProviderModelFile(ProviderFile file)
+            => RoleForModelExtension(Path.GetExtension(file.FileName ?? string.Empty))
+                ?? RoleForModelContentType(file.ContentType)
+                ?? RoleForModelExtension(Path.GetExtension(new Uri(file.Url).AbsolutePath));
+
+        private static string? RoleForModelExtension(string? extension)
+            => extension?.ToLowerInvariant() switch
+            {
+                ".glb" => ReconstructionFileRoles.ModelGlb,
+                ".obj" => ReconstructionFileRoles.ModelObj,
+                ".mtl" => ReconstructionFileRoles.MaterialMtl,
+                ".fbx" => "model_fbx",
+                ".usdz" => "model_usdz",
+                ".stl" => "model_stl",
+                _ => null,
+            };
+
+        private static string? RoleForModelContentType(string? contentType)
+            => contentType?.ToLowerInvariant() switch
+            {
+                "model/gltf-binary" => ReconstructionFileRoles.ModelGlb,
+                "model/obj" => ReconstructionFileRoles.ModelObj,
+                "application/wavefront-obj" => ReconstructionFileRoles.ModelObj,
+                "model/vnd.usdz+zip" => "model_usdz",
+                _ => null,
+            };
+
+        private static string FileNameForRole(
+            IReadOnlyDictionary<string, string> providerFileNames,
+            string role,
+            string path)
+            => providerFileNames.TryGetValue(role, out var fileName) && !string.IsNullOrWhiteSpace(fileName)
+                ? fileName
+                : Path.GetFileName(path);
+
+        private static string? SafeProviderFileName(string? fileName)
+        {
+            if (string.IsNullOrWhiteSpace(fileName)) return null;
+            var safe = Path.GetFileName(fileName);
+            return string.IsNullOrWhiteSpace(safe) || safe == "." || safe == ".."
+                ? null
+                : safe;
+        }
+
+        private static string? SafeProviderUrlFileName(string? url)
+        {
+            if (string.IsNullOrWhiteSpace(url)
+                || !Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            {
+                return null;
+            }
+
+            return SafeProviderFileName(Uri.UnescapeDataString(Path.GetFileName(uri.AbsolutePath)));
+        }
+
+        private Dictionary<string, object?>? PackageSummary(Guid packageId)
+        {
+            var package = _store.Get(packageId);
+            if (package is null)
+                return null;
+
+            var preferred = (string?)null;
+            var manifest = ReadImportManifest(packageId, out _);
+            if (manifest is not null)
+                preferred = ReadString(manifest, "preferred_asset");
+
+            return new Dictionary<string, object?>
+            {
+                ["artifact_id"] = package.Id.ToString("D"),
+                ["kind"] = package.Kind,
+                ["asset_roles"] = package.Files
+                    .Select(f => f.Role)
+                    .Where(IsAssetRole)
+                    .ToArray(),
+                ["preferred_asset_role"] = preferred,
+            };
         }
 
         private static Dictionary<string, object?> ModelToObj(ReconstructionModelEntry model)
@@ -454,8 +859,10 @@ namespace Rook.Handlers
             => failure.Code switch
             {
                 "not_found" => 404,
-                "invalid_json" or "invalid_request" or "invalid_source_role"
-                    or "invalid_source_artifact" or "invalid_source_file" => 400,
+                "invalid_json" or "invalid_request" or "filename_collision" or "invalid_package"
+                    or "invalid_source_role"
+                    or "invalid_source_artifact" or "invalid_source_file"
+                    or "invalid_source_dimensions" => 400,
                 _ => 500,
             };
 
@@ -520,6 +927,14 @@ namespace Rook.Handlers
             out ReconstructionFailure? failure)
             => TryParseGuid(args, "job_id", out jobId, out failure);
 
+        private static Guid ImportIdForPrepare(Dictionary<string, JsonElement> args)
+        {
+            var raw = GetStringArg(args, "import_id");
+            return Guid.TryParse(raw, out var importId) && importId != Guid.Empty
+                ? importId
+                : Guid.NewGuid();
+        }
+
         private static bool TryParseGuid(
             Dictionary<string, JsonElement> args,
             string field,
@@ -562,12 +977,20 @@ namespace Rook.Handlers
         private static bool HasRole(Artifact artifact, string role)
             => artifact.Files.Any(f => string.Equals(f.Role, role, StringComparison.Ordinal));
 
+        private static bool IsAssetRole(string role)
+            => role.StartsWith("model_", StringComparison.Ordinal)
+                || string.Equals(role, ReconstructionFileRoles.MaterialMtl, StringComparison.Ordinal)
+                || role.StartsWith("texture", StringComparison.Ordinal)
+                || string.Equals(role, ReconstructionFileRoles.Thumbnail, StringComparison.Ordinal);
+
         private static string? ReadString(JsonObject obj, string name)
             => obj.TryGetPropertyValue(name, out var node)
                 && node is JsonValue value
                 && value.TryGetValue<string>(out var text)
                     ? text
                     : null;
+
+        private sealed record ProviderFile(string Url, string? FileName, string? ContentType);
 
         private static string? ReadString(
             IReadOnlyDictionary<string, JsonNode?> values,

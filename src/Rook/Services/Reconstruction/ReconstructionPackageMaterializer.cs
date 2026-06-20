@@ -86,82 +86,95 @@ public sealed class ReconstructionPackageMaterializer
     private void AddProviderFiles(JsonNode providerResultJson, List<BlobInput> blobs)
     {
         var root = providerResultJson.AsObject();
-        AddUrl(
+        AddModelFile(
             blobs,
             ReconstructionFileRoles.ModelGlb,
-            ReadUrl(root["model_glb"]) ?? ReadUrl(Prop(root["model_urls"], "glb")));
-        AddUrl(
+            ReadFile(root["model_glb"]) ?? ReadFile(Prop(root["model_urls"], "glb")));
+        AddModelFile(
             blobs,
             ReconstructionFileRoles.ModelObj,
-            ReadUrl(root["model_obj"]) ?? ReadUrl(Prop(root["model_urls"], "obj")));
-        AddUrl(
+            ReadFile(root["model_obj"]) ?? ReadFile(Prop(root["model_urls"], "obj")));
+        AddModelFile(
             blobs,
             ReconstructionFileRoles.MaterialMtl,
-            ReadUrl(root["material_mtl"]) ?? ReadUrl(Prop(root["model_urls"], "mtl")));
-        AddUrl(
+            ReadFile(root["material_mtl"]) ?? ReadFile(Prop(root["model_urls"], "mtl")));
+        AddFile(
             blobs,
             ReconstructionFileRoles.Texture,
-            ReadUrl(root["texture"]) ?? ReadUrl(Prop(root["texture_urls"], "texture")));
-        AddUrl(blobs, ReconstructionFileRoles.Thumbnail, ReadUrl(root["thumbnail"]));
+            ReadFile(root["texture"]) ?? ReadFile(Prop(root["texture_urls"], "texture")));
+        AddFile(blobs, ReconstructionFileRoles.Thumbnail, ReadFile(root["thumbnail"]));
 
-        AddModelUrlFallbacks(root["model_urls"], blobs);
-        AddTextureUrlFallbacks(root["texture_urls"], blobs);
+        AddModelFileFallbacks(root["model_urls"], blobs);
+        AddTextureFileFallbacks(root["texture_urls"], blobs);
     }
 
-    private void AddModelUrlFallbacks(JsonNode? node, List<BlobInput> blobs)
+    private void AddModelFileFallbacks(JsonNode? node, List<BlobInput> blobs)
     {
-        foreach (var url in EnumerateUrls(node))
+        foreach (var file in EnumerateFiles(node))
         {
-            var role = RoleForModelUrl(url);
+            var role = RoleForModelFile(file);
             if (role is not null)
-                AddUrl(blobs, role, url);
+                AddFile(blobs, role, file);
         }
     }
 
-    private void AddTextureUrlFallbacks(JsonNode? node, List<BlobInput> blobs)
+    private void AddModelFile(List<BlobInput> blobs, string fallbackRole, ProviderFile? file)
     {
-        foreach (var url in EnumerateUrls(node))
+        if (file is null || string.IsNullOrWhiteSpace(file.Url)) return;
+        AddFile(blobs, RoleForModelFile(file) ?? fallbackRole, file);
+    }
+
+    private void AddTextureFileFallbacks(JsonNode? node, List<BlobInput> blobs)
+    {
+        foreach (var file in EnumerateFiles(node))
         {
-            var role = RoleForTextureUrl(url);
+            var role = RoleForTextureFile(file);
             if (role is not null)
-                AddUrl(blobs, role, url);
+                AddFile(blobs, role, file);
         }
     }
 
-    private void AddUrl(List<BlobInput> blobs, string role, string? url)
+    private void AddFile(List<BlobInput> blobs, string role, ProviderFile? file)
     {
-        if (string.IsNullOrWhiteSpace(url)) return;
+        if (file is null || string.IsNullOrWhiteSpace(file.Url)) return;
         if (blobs.Any(b => string.Equals(b.Role, role, StringComparison.Ordinal))) return;
 
-        var uri = new Uri(url, UriKind.Absolute);
-        blobs.Add(new BlobInput(role, _downloader.Download(uri), ExtensionFor(uri, role)));
+        var uri = new Uri(file.Url, UriKind.Absolute);
+        blobs.Add(new BlobInput(role, _downloader.Download(uri), ExtensionFor(file, role)));
     }
 
-    private static string? ReadUrl(JsonNode? node)
+    private static ProviderFile? ReadFile(JsonNode? node)
     {
         if (node is JsonValue value && value.TryGetValue<string>(out var text))
-            return text;
-        if (Prop(node, "url") is JsonValue url && url.TryGetValue<string>(out var nested))
-            return nested;
+            return new ProviderFile(text, null, null);
+        if (node is JsonObject obj
+            && Prop(obj, "url") is JsonValue url
+            && url.TryGetValue<string>(out var nested))
+        {
+            return new ProviderFile(
+                nested,
+                ReadString(obj, "file_name"),
+                ReadString(obj, "content_type"));
+        }
         return null;
     }
 
-    private static IEnumerable<string> EnumerateUrls(JsonNode? node)
+    private static IEnumerable<ProviderFile> EnumerateFiles(JsonNode? node)
     {
         if (node is JsonObject obj)
         {
             foreach (var kvp in obj)
             {
-                var url = ReadUrl(kvp.Value);
-                if (!string.IsNullOrWhiteSpace(url)) yield return url!;
+                var file = ReadFile(kvp.Value);
+                if (file is not null && !string.IsNullOrWhiteSpace(file.Url)) yield return file;
             }
         }
         else if (node is JsonArray arr)
         {
             foreach (var item in arr)
             {
-                var url = ReadUrl(item);
-                if (!string.IsNullOrWhiteSpace(url)) yield return url!;
+                var file = ReadFile(item);
+                if (file is not null && !string.IsNullOrWhiteSpace(file.Url)) yield return file;
             }
         }
     }
@@ -171,10 +184,23 @@ public sealed class ReconstructionPackageMaterializer
             ? value
             : null;
 
-    private static string? RoleForModelUrl(string url)
+    private static string? ReadString(JsonNode? node, string name)
     {
-        var ext = System.IO.Path.GetExtension(new Uri(url).AbsolutePath).ToLowerInvariant();
-        return ext switch
+        if (Prop(node, name) is JsonValue value && value.TryGetValue<string>(out var text))
+            return text;
+        return null;
+    }
+
+    private static string? RoleForModelFile(ProviderFile file)
+    {
+        return RoleForModelExtension(System.IO.Path.GetExtension(file.FileName ?? string.Empty))
+            ?? RoleForModelContentType(file.ContentType)
+            ?? RoleForModelExtension(System.IO.Path.GetExtension(new Uri(file.Url).AbsolutePath));
+    }
+
+    private static string? RoleForModelExtension(string? extension)
+    {
+        return extension?.ToLowerInvariant() switch
         {
             ".glb" => ReconstructionFileRoles.ModelGlb,
             ".obj" => ReconstructionFileRoles.ModelObj,
@@ -186,9 +212,21 @@ public sealed class ReconstructionPackageMaterializer
         };
     }
 
-    private static string? RoleForTextureUrl(string url)
+    private static string? RoleForModelContentType(string? contentType)
     {
-        var lower = new Uri(url).AbsolutePath.ToLowerInvariant();
+        return contentType?.ToLowerInvariant() switch
+        {
+            "model/gltf-binary" => ReconstructionFileRoles.ModelGlb,
+            "model/obj" => ReconstructionFileRoles.ModelObj,
+            "application/wavefront-obj" => ReconstructionFileRoles.ModelObj,
+            "model/vnd.usdz+zip" => "model_usdz",
+            _ => null,
+        };
+    }
+
+    private static string? RoleForTextureFile(ProviderFile file)
+    {
+        var lower = ((file.FileName ?? string.Empty) + " " + new Uri(file.Url).AbsolutePath).ToLowerInvariant();
         if (lower.Contains("normal")) return "texture_normal";
         if (lower.Contains("roughness")) return "texture_roughness";
         if (lower.Contains("metallic")) return "texture_metallic";
@@ -197,12 +235,21 @@ public sealed class ReconstructionPackageMaterializer
         return ReconstructionFileRoles.Texture;
     }
 
-    private static string ExtensionFor(Uri uri, string role)
+    private static string ExtensionFor(ProviderFile file, string role)
     {
-        var ext = System.IO.Path.GetExtension(uri.AbsolutePath)
+        var ext = System.IO.Path.GetExtension(file.FileName ?? string.Empty)
             .TrimStart('.')
             .ToLowerInvariant();
         if (!string.IsNullOrWhiteSpace(ext)) return ext;
+
+        ext = System.IO.Path.GetExtension(new Uri(file.Url).AbsolutePath)
+            .TrimStart('.')
+            .ToLowerInvariant();
+        if (!string.IsNullOrWhiteSpace(ext)) return ext;
+        if (string.Equals(file.ContentType, "model/obj", StringComparison.OrdinalIgnoreCase)) return "obj";
+        if (string.Equals(file.ContentType, "model/gltf-binary", StringComparison.OrdinalIgnoreCase)) return "glb";
+        if (string.Equals(file.ContentType, "image/jpeg", StringComparison.OrdinalIgnoreCase)) return "jpg";
+        if (string.Equals(file.ContentType, "image/png", StringComparison.OrdinalIgnoreCase)) return "png";
         if (role == ReconstructionFileRoles.MaterialMtl) return "mtl";
         if (role == ReconstructionFileRoles.ModelGlb) return "glb";
         if (role == ReconstructionFileRoles.ModelObj) return "obj";
@@ -211,6 +258,8 @@ public sealed class ReconstructionPackageMaterializer
             return "png";
         return "bin";
     }
+
+    private sealed record ProviderFile(string Url, string? FileName, string? ContentType);
 
     private static JsonObject BuildInitialImportManifest()
         => new()

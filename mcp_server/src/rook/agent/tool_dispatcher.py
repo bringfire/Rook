@@ -1078,7 +1078,9 @@ def _reconstruction_jobs(params: dict) -> Tuple[str, str, Optional[dict]]:
 
     if "limit" in params:
         raw = params["limit"]
-        limit_str = "" if raw is None else str(raw)
+        if raw is None:
+            return "/reconstruction/2d-to-3d/jobs", "GET", None
+        limit_str = str(raw)
         return (
             f"/reconstruction/2d-to-3d/jobs?limit={_quote(limit_str, safe='')}",
             "GET",

@@ -66,6 +66,70 @@ public sealed class ReconstructionPackageMaterializerTests : IDisposable
     }
 
     [Fact]
+    public void Materialize_HunyuanRootModelGlbObj_NormalizesToObjRole()
+    {
+        var store = new ArtifactStore(NewTempRoot());
+        var materializer = new ReconstructionPackageMaterializer(
+            store,
+            new FakeFileDownloader(new Dictionary<string, byte[]>
+            {
+                ["https://example.test/hunyuan.obj"] = new byte[] { 11 },
+                ["https://example.test/hunyuan.mtl"] = new byte[] { 12 },
+                ["https://example.test/texture.png"] = new byte[] { 13 },
+            }));
+
+        var artifact = materializer.Materialize(
+            jobId: Guid.NewGuid(),
+            sourceArtifactIds: Array.Empty<Guid>(),
+            provider: "fal",
+            modelId: "fal-ai/hunyuan-3d/v3.1/rapid/image-to-3d",
+            providerResultJson: JsonNode.Parse("""
+            {
+              "model_glb": {"url": "https://example.test/hunyuan.obj"},
+              "model_urls": {
+                "mtl": {"url": "https://example.test/hunyuan.mtl"}
+              },
+              "texture": {"url": "https://example.test/texture.png"}
+            }
+            """)!);
+
+        Assert.DoesNotContain(artifact.Files, f => f.Role == "model_glb");
+        Assert.Contains(artifact.Files, f => f.Role == "model_obj" && f.Path.EndsWith(".obj", StringComparison.Ordinal));
+        Assert.Contains(artifact.Files, f => f.Role == "material_mtl");
+        Assert.Contains(artifact.Files, f => f.Role == "texture");
+    }
+
+    [Fact]
+    public void Materialize_HunyuanRootModelGlbObj_UsesProviderFileNameAndContentType()
+    {
+        var store = new ArtifactStore(NewTempRoot());
+        var materializer = new ReconstructionPackageMaterializer(
+            store,
+            new FakeFileDownloader(new Dictionary<string, byte[]>
+            {
+                ["https://cdn.example.test/download?id=asset"] = new byte[] { 11 },
+            }));
+
+        var artifact = materializer.Materialize(
+            jobId: Guid.NewGuid(),
+            sourceArtifactIds: Array.Empty<Guid>(),
+            provider: "fal",
+            modelId: "fal-ai/hunyuan-3d/v3.1/rapid/image-to-3d",
+            providerResultJson: JsonNode.Parse("""
+            {
+              "model_glb": {
+                "url": "https://cdn.example.test/download?id=asset",
+                "file_name": "hunyuan-output.obj",
+                "content_type": "model/obj"
+              }
+            }
+            """)!);
+
+        Assert.DoesNotContain(artifact.Files, f => f.Role == "model_glb");
+        Assert.Contains(artifact.Files, f => f.Role == "model_obj" && f.Path.EndsWith(".obj", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Materialize_MeshyPayload_PreservesTextureMapRoles()
     {
         var store = new ArtifactStore(NewTempRoot());

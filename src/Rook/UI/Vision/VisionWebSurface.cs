@@ -517,10 +517,10 @@ p { margin: 8px 0; line-height: 1.4; }
             {
                 response = op switch
                 {
-                    "submit_job" or "cancel_job" =>
+                    "submit_job" or "job_status" or "cancel_job" =>
                         await RookSubsystemRoot.Instance.Reconstruction.DispatchAsync(
                             body, CancellationToken.None).ConfigureAwait(false),
-                    "models" or "list_jobs" or "job_status" or "job_result" =>
+                    "models" or "list_jobs" or "job_result" =>
                         await Task.Run(
                             () => RookSubsystemRoot.Instance.Reconstruction.DispatchOffUi(body))
                             .ConfigureAwait(false),

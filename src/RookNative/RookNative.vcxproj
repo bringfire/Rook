@@ -76,7 +76,11 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <!-- ws2_32.lib: Winsock2, required by cpp-httplib HTTP server (Phase 1) -->
       <!-- comctl32.lib: SetWindowSubclass, required for modal-loop dispatch (Phase 5) -->
-      <AdditionalDependencies>ws2_32.lib;comctl32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <!-- OCCT modeling kernel via $(OcctRoot). NO DataExchange/STEP libs
+           because no C++ TU reads STEP anymore (Task 8/9).
+           Dropped: TKDESTEP/TKXSBase/TKDE/TKDECascade/TKCAF/TKLCAF/TKXCAF/TKCDF/TKExpress. -->
+      <AdditionalLibraryDirectories>$(OcctRoot)\win64\vc14\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>ws2_32.lib;comctl32.lib;TKernel.lib;TKMath.lib;TKG2d.lib;TKG3d.lib;TKGeomBase.lib;TKGeomAlgo.lib;TKBRep.lib;TKTopAlgo.lib;TKPrim.lib;TKBO.lib;TKBool.lib;TKShHealing.lib;TKMesh.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
 
@@ -99,11 +103,6 @@
     <Link>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
-      <!-- OCCT modeling kernel via $(OcctRoot). NO DataExchange/STEP libs
-           because no C++ TU reads STEP anymore (Task 8/9).
-           Dropped: TKDESTEP/TKXSBase/TKDE/TKDECascade/TKCAF/TKLCAF/TKXCAF/TKCDF/TKExpress. -->
-      <AdditionalLibraryDirectories>$(OcctRoot)\win64\vc14\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>TKernel.lib;TKMath.lib;TKG2d.lib;TKG3d.lib;TKGeomBase.lib;TKGeomAlgo.lib;TKBRep.lib;TKTopAlgo.lib;TKPrim.lib;TKBO.lib;TKBool.lib;TKShHealing.lib;TKMesh.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
 
