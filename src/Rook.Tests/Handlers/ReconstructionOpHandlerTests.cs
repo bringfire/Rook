@@ -22,6 +22,28 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
     private readonly List<string> _roots = new();
     private readonly List<ReconstructionJobManager> _managers = new();
 
+    public static IEnumerable<object[]> StatusForMappings() => new[]
+    {
+        // typed failures map to specific non-500 statuses
+        new object[] { ReconstructionErrorMapping.MissingCredentialFailure(), 400 },
+        new object[] { MappedFailure(GenerationErrorCode.QuotaExceeded), 429 },
+        new object[] { MappedFailure(GenerationErrorCode.DependencyUnavailable), 503 },
+        new object[] { MappedFailure(GenerationErrorCode.ContentPolicy), 422 },
+        // guards: an existing 400 arm stays 400; the default arm stays 500
+        new object[] { MappedFailure(GenerationErrorCode.InvalidRequest), 400 },
+        new object[] { MappedFailure(GenerationErrorCode.ExecutionFailed), 500 }, // -> provider_failed
+    };
+
+    private static ReconstructionFailure MappedFailure(GenerationErrorCode code)
+        => ReconstructionErrorMapping.ToFailure(new GenerationError(code, "x", Retryable: false));
+
+    [Theory]
+    [MemberData(nameof(StatusForMappings))]
+    public void StatusFor_MapsTypedFailureToHttpStatus(ReconstructionFailure failure, int expected)
+    {
+        Assert.Equal(expected, ReconstructionOpHandler.StatusFor(failure));
+    }
+
     public void Dispose()
     {
         // Drain background loops BEFORE deleting the temp dirs they write into.
