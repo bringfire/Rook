@@ -2847,6 +2847,49 @@ async def test_gh_update_script_check_errors_false_receipt_is_not_requested(
 
 
 @pytest.mark.asyncio
+async def test_gh_update_script_malformed_errors_response_receipt_is_unavailable(
+    monkeypatch, patched_server
+):
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        if route == "/gh/script" and "script" not in (payload or {}):
+            return {"success": True, "data": {"Type": "CSharpScriptComponent"}}
+        if route == "/gh/script":
+            return {"success": True, "data": {"guid": "cs-guid"}}
+        if route == "/gh/component":
+            return {
+                "success": True,
+                "data": {"Params": {"Inputs": [], "Outputs": [{"Name": "A"}]}},
+            }
+        if route == "/gh/errors":
+            return {"success": True, "data": {"errors": []}}
+        if route == "/gh/document":
+            return {"success": True, "data": {"name": "contract.gh", "path": ""}}
+        raise AssertionError(f"Unexpected route: {route}")
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    payload = _decode_response(await server.call_tool(
+        "gh_update_script",
+        {"guid": "cs-guid", "code": "A = 1;", "mode": "body"},
+    ))
+
+    assert payload["success"] is True
+    data = payload["data"]
+    assert data["component_errors"] == []
+    assert data["error_check_failed"] == "Malformed /gh/errors response"
+    receipt = data["script_receipt"]
+    assert receipt["verification"]["status"] == "unavailable"
+    assert receipt["verification"]["method"] == "gh_errors"
+    assert receipt["verification"]["target_error_count"] is None
+    assert receipt["verification"]["target_warning_count"] is None
+    assert receipt["verification"]["unrelated_error_count"] is None
+    assert receipt["verification"]["unrelated_warning_count"] is None
+    assert receipt["artifact_status"] == "unknown"
+    assert receipt["repair_anchor"]["target_errors"] is None
+    assert receipt["repair_anchor"]["target_warnings"] is None
+
+
+@pytest.mark.asyncio
 async def test_gh_update_script_error_check_failed_receipt_is_unavailable(
     monkeypatch, patched_server
 ):

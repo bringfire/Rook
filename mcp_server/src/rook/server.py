@@ -1801,7 +1801,16 @@ def _summarize_gh_update_script_errors(errors_response: Any, guid: str) -> dict[
         if wrapped_data is not None:
             data = wrapped_data
     if not isinstance(data, dict):
-        data = {}
+        summary = _empty_gh_update_script_error_summary()
+        summary["error_check_failed"] = "Invalid /gh/errors response"
+        return summary
+
+    errors = _dict_get_ci(data, "errors")
+    warnings = _dict_get_ci(data, "warnings")
+    if not isinstance(errors, list) or not isinstance(warnings, list):
+        summary = _empty_gh_update_script_error_summary()
+        summary["error_check_failed"] = "Malformed /gh/errors response"
+        return summary
 
     guid_lower = str(guid).lower()
     component_errors: list[Any] = []
@@ -1853,9 +1862,7 @@ def _summarize_gh_update_script_errors(errors_response: Any, guid: str) -> dict[
         return entry_guid, error_messages, warning_messages
 
     for primary_kind in ("errors", "warnings"):
-        entries = _dict_get_ci(data, primary_kind, [])
-        if not isinstance(entries, list):
-            entries = []
+        entries = errors if primary_kind == "errors" else warnings
         for entry in entries:
             entry_guid, error_messages, warning_messages = _entry_messages(entry, primary_kind)
             is_target_entry = isinstance(entry_guid, str) and entry_guid.lower() == guid_lower
