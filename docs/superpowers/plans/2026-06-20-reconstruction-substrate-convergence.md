@@ -6,18 +6,20 @@
 
 **Architecture:** `FalReconstructionProvider` consumes the shared `FalApiClient` + `FalLifecycleMapper` + `FalErrorMapper` and returns the shared `Provider*Outcome` / `ProviderResultEnvelope` types (keeping a reconstruction-specific `IReconstructionProvider` interface, not the generic). `ReconstructionJobManager` adopts the Vision background-execution lifecycle (per-job `Task.Run`, shutdown CTS, single-flight, startup reconcile). `ReconstructionPackageMaterializer` consumes the shared envelope, downloads via a new disciplined `ReconstructionRemoteAssetDownloader`, and enforces a "≥1 model asset" package invariant. `ReconstructionFailure` stays the public HTTP DTO; `GenerationError` is mapped into it at the boundary.
 
+**Green-slice ordering (revised per review):** the provider result type, the materializer input, and the manager's complete-path are one mutually-dependent refactor — splitting them mid-way commits a red slice (existing completion tests exercise the full path). So the spec's `W1+W7 → W2 → W3+W4+W5` is operationalized as: **W0 → W4 (downloader, standalone) → W2 (source, standalone) → CORE = W1+W3+W5+W7-provider (one atomic green slice) → W6 background+single-flight+dispose → W6 reconcile+wiring → W7 boundary test.** Every task ends green.
+
 **Tech Stack:** C# (.NET, RhinoCommon companion plugin `src/Rook/`), xUnit (`src/Rook.Tests/`), `System.Text.Json.Nodes`. fal.ai queue API via shared `FalApiClient`.
 
 **Source spec:** [`docs/superpowers/specs/2026-06-20-reconstruction-substrate-convergence-design.md`](../specs/2026-06-20-reconstruction-substrate-convergence-design.md)
 
 ## Global Constraints
 
-- Work ENTIRELY in the worktree `C:/Users/aryan/source/repos/Rook/.worktrees/reconstruction-2d-to-3d` on branch `codex/reconstruction-2d-to-3d`. Never edit the main checkout.
+- Work ENTIRELY in the worktree `C:/Users/aryan/source/repos/Rook/.worktrees/reconstruction-2d-to-3d` on branch `codex/reconstruction-2d-to-3d`. Never edit the main checkout. Commands are repo-relative (CWD = the worktree root).
 - Do NOT modify any RookVision file under `src/Rook/Services/Vision/` (Fal, Generation, Image, Video). They are the shared substrate; consume them, do not change them.
 - Do NOT modify native (`src/RookNative/`), MCP (`mcp_server/`), the import route, the `reconstruction_package`/`import_manifest` schema, or the ledger state/stage enum vocabulary.
 - No fal/HTTP boundary may throw a bare `InvalidOperationException`. Every fal failure becomes a typed `GenerationError`; every download failure a typed materialization failure.
 - Keep `ReconstructionFailure` as the public HTTP response DTO. Map `GenerationError → ReconstructionFailure` only at the handler/manager boundary.
-- No sync-over-async (`.GetAwaiter().GetResult()`) on any new code path.
+- No sync-over-async (`.GetAwaiter().GetResult()`, `.Result`, `ContinueWith`-as-await) on any new code path. Use `async`/`await`.
 - TDD: write the failing test first, watch it fail, implement minimally, watch it pass, commit. Frequent commits.
 - Test run note: building `src/Rook.Tests` deploys `Rook.rhp` into `%AppData%` (it touches the local Rhino install). This is expected; do not be alarmed by the deploy step.
 - Test command shape: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "FullyQualifiedName~<Name>" --no-restore`
@@ -30,15 +32,15 @@
 ## File Structure
 
 **Modified (reconstruction-owned):**
-- `src/Rook/Services/Reconstruction/Fal/FalReconstructionProvider.cs` — provider rewritten onto shared mappers/outcomes; the throwing `FalReconstructionQueueClient` and the duplicate `ReconstructionProviderSubmitResult`/`StatusResult`/`LifecycleState` types removed; source publisher takes bytes+mime.
+- `src/Rook/Services/Reconstruction/Fal/FalReconstructionProvider.cs` — provider rewritten onto shared mappers/outcomes; throwing `FalReconstructionQueueClient` and duplicate `ReconstructionProviderSubmitResult`/`StatusResult`/`LifecycleState` types removed; source publisher takes bytes+mime.
 - `src/Rook/Services/Reconstruction/ReconstructionJobManager.cs` — consumes shared outcomes; gains background execution, single-flight, dispose, reconcile.
 - `src/Rook/Services/Reconstruction/ReconstructionPackageMaterializer.cs` — consumes `ProviderResultEnvelope`; uses the new downloader; enforces the model-asset invariant.
-- `src/Rook/Handlers/ReconstructionOpHandler.cs` — `GenerationError → ReconstructionFailure` mapping at the boundary.
-- `src/Rook/RookSubsystemRoot.cs` — wiring: new downloader, dispose, reconcile-on-start.
+- `src/Rook/Handlers/ReconstructionOpHandler.cs` — `GenerationError → ReconstructionFailure` mapping at the boundary (only if `StatusFor` needs a new code).
+- `src/Rook/RookSubsystemRoot.cs` — wiring: new downloader, transport, dispose, reconcile-on-start.
 
 **Created (reconstruction-owned):**
 - `src/Rook/Services/Reconstruction/ReconstructionRemoteAssetDownloader.cs` — disciplined async downloader (W4).
-- `src/Rook/Services/Reconstruction/ReconstructionErrorMapping.cs` — `GenerationError → ReconstructionFailure` helper (W7 boundary).
+- `src/Rook/Services/Reconstruction/ReconstructionErrorMapping.cs` — `GenerationError → ReconstructionFailure` helper.
 
 **Tests (modified/created under `src/Rook.Tests/Services/Reconstruction/`):**
 - `Fal/FalReconstructionProviderTests.cs`, `ReconstructionJobManagerTests.cs`, `ReconstructionPackageMaterializerTests.cs` (modify), and new `ReconstructionRemoteAssetDownloaderTests.cs`.
@@ -84,7 +86,7 @@ public sealed class ProviderJobHandle {
   public ProviderJobHandle(string providerJobId, Uri? statusUrl=null, Uri? responseUrl=null, Uri? cancelUrl=null, string? cancelHttpMethod=null, string? providerResultToken=null, IReadOnlyDictionary<string,JsonNode>? providerMetadata=null);
   public string ProviderJobId {get;} public Uri? StatusUrl {get;} public Uri? ResponseUrl {get;} public Uri? CancelUrl {get;} public string? CancelHttpMethod {get;}
 }
-public sealed class ProviderResultEnvelope { public ProviderResultEnvelope(IReadOnlyList<ResultArtifact> Artifacts, IReadOnlyDictionary<string,JsonNode> EnvelopeMetadata); public IReadOnlyList<ResultArtifact> Artifacts {get;} }
+public sealed class ProviderResultEnvelope { public ProviderResultEnvelope(IReadOnlyList<ResultArtifact> Artifacts, IReadOnlyDictionary<string,JsonNode> EnvelopeMetadata); public IReadOnlyList<ResultArtifact> Artifacts {get;} public IReadOnlyDictionary<string,JsonNode> EnvelopeMetadata {get;} }
 public sealed class ResultArtifact { public ResultArtifact(string Role, ArtifactBody Body, string? DeclaredMimeType, IReadOnlyDictionary<string,JsonNode> ProviderMetadata); public string Role {get;} public ArtifactBody Body {get;} public string? DeclaredMimeType {get;} }
 public abstract class ArtifactBody {}
 public sealed class RemoteArtifactBody : ArtifactBody { public RemoteArtifactBody(Uri Url, TimeSpan? SignedUrlTtl=null); public Uri Url {get;} }
@@ -102,16 +104,11 @@ public static class GenerationSecretKeys { public const string FalApiKey = "fal.
 - Inspect: `src/Rook/Artifacts/ArtifactStore.cs`, `src/Rook/Artifacts/Artifact.cs` (worktree)
 - Test: `src/Rook.Tests/Artifacts/ArtifactStoreTests.cs` (worktree)
 
-**Context / decision:** The worktree (committed) and main (uncommitted) `ReplaceJsonBlob` implementations have diverged. Worktree defines `ReplaceJsonBlobResultCode`/`ReplaceJsonBlobResult` in `Artifact.cs` beside `AppendBlobResult` (this already satisfies the reviewer's P4 tidy). Main defines them inline in `ArtifactStore.cs` and adds a test seam `ReplaceJsonBlobFileReplaceOverrideForTests`. Neither is a strict superset.
-
-**Decision for this pass:** The worktree's committed version is canonical for branch `codex/reconstruction-2d-to-3d` (it is what the rest of the reconstruction stack imports, and its type placement matches P4). Reconciling main's divergent copy is the user's separate, explicit action — **do not revert or edit main**, and do not port main's test seam unless a test in this task actually needs it.
+**Context / decision:** The worktree (committed) and main (uncommitted) `ReplaceJsonBlob` implementations have diverged. Worktree defines `ReplaceJsonBlobResultCode`/`ReplaceJsonBlobResult` in `Artifact.cs` beside `AppendBlobResult` (this already satisfies the reviewer's P4 tidy). Main defines them inline in `ArtifactStore.cs` and adds a test seam `ReplaceJsonBlobFileReplaceOverrideForTests`. Neither is a strict superset. **Canonical for this branch = the worktree's committed version.** Reconciling main's divergent copy is the user's separate, explicit action — do not revert or edit main, and do not port main's test seam unless a test in this task needs it.
 
 - [ ] **Step 1: Verify the worktree version is self-consistent and the P4 tidy is already done**
 
-Run:
-```bash
-grep -n "ReplaceJsonBlobResultCode\|ReplaceJsonBlobResult" .worktrees/reconstruction-2d-to-3d/src/Rook/Artifacts/Artifact.cs
-```
+Run: `rg -n "ReplaceJsonBlobResultCode|ReplaceJsonBlobResult" src/Rook/Artifacts/Artifact.cs`
 Expected: both types are declared in `Artifact.cs` (around lines 115/127), beside `AppendBlobResult`. No action needed for P4.
 
 - [ ] **Step 2: Confirm the existing ReplaceJsonBlob tests pass (baseline lock)**
@@ -119,336 +116,20 @@ Expected: both types are declared in `Artifact.cs` (around lines 115/127), besid
 Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "FullyQualifiedName~ArtifactStoreTests.ReplaceJsonBlob" --no-restore`
 Expected: PASS (5 tests).
 
-- [ ] **Step 3: Record the reconciliation note for the user (no code change)**
+- [ ] **Step 3: No commit unless Step 1 shows the tidy is missing**
 
-Add a single line to the spec's W0 section is unnecessary; instead leave the decision in this plan. The user reconciles main's uncommitted copy separately. No commit needed for this task unless Step 1 reveals the tidy is missing — in which case move the two result types into `Artifact.cs` beside `AppendBlobResult` and commit:
-
+If Step 1 shows the result types are NOT in `Artifact.cs`, move them there beside `AppendBlobResult` and commit:
 ```bash
 git add src/Rook/Artifacts/Artifact.cs src/Rook/Artifacts/ArtifactStore.cs
 git commit -m "refactor(artifacts): keep ReplaceJsonBlob result types beside AppendBlobResult
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ```
+Otherwise, no change. (Main's uncommitted copy is reconciled separately by the user — not here.)
 
 ---
 
-## Task 2: W1+W7 — Provider submit/status/cancel on shared mappers & outcomes
-
-**Files:**
-- Modify: `src/Rook/Services/Reconstruction/Fal/FalReconstructionProvider.cs`
-- Modify: `src/Rook/Services/Reconstruction/ReconstructionJobManager.cs` (poll glue only; keep lazy model for now)
-- Modify: `src/Rook/RookSubsystemRoot.cs` (provider construction)
-- Test: `src/Rook.Tests/Services/Reconstruction/Fal/FalReconstructionProviderTests.cs`
-
-**Interfaces:**
-- Produces — the new provider contract (later tasks consume these exact types):
-```csharp
-namespace Rook.Services.Reconstruction.Fal;
-
-public sealed record ReconstructionProviderSubmitRequest(string ModelId, Uri InputImageUrl, JsonObject Options);
-
-public interface IReconstructionProvider
-{
-    Task<ProviderSubmitOutcome> SubmitAsync(ReconstructionProviderSubmitRequest request, CancellationToken ct);
-    Task<ProviderStatusOutcome> GetStatusAsync(ProviderJobHandle handle, CancellationToken ct);
-    Task<ProviderResultOutcome> FetchResultAsync(ProviderJobHandle handle, CancellationToken ct); // body added in Task 5; stub-throws NotImplemented here
-    Task<ProviderCancelOutcome> CancelAsync(ProviderJobHandle handle, CancellationToken ct);
-}
-```
-- Consumes — shared `FalApiClient`, `FalLifecycleMapper`, `FalErrorMapper`, `ProviderJobHandle`, the outcome unions (see File Structure).
-- Removes — `IFalReconstructionQueueClient`, `FalReconstructionQueueClient`, `ReconstructionProviderSubmitResult`, `ReconstructionProviderStatusResult`, `ReconstructionProviderLifecycleState`.
-
-- [ ] **Step 1: Write failing tests for submit-handle parse + status mapping + error mapping**
-
-Add to `FalReconstructionProviderTests.cs`. A fake `FalApiClient` is not available, so test against a seam: construct `FalReconstructionProvider` with a fake `IFalTransport` (a tiny new internal interface the provider depends on, implemented in prod by a thin adapter over `FalApiClient`). Define the seam in the same file as the provider:
-
-```csharp
-// In FalReconstructionProvider.cs (production)
-public interface IFalTransport
-{
-    Task<FalHttpResponse> PostJsonAsync(Uri url, string bodyJson, CancellationToken ct);
-    Task<FalHttpResponse> GetAsync(Uri url, CancellationToken ct);
-    Task<FalHttpResponse> SendAsync(HttpMethod method, Uri url, string? bodyJson, CancellationToken ct);
-}
-```
-
-Test code:
-```csharp
-private static FalHttpResponse Resp(int status, string body) =>
-    new(status, body, new Dictionary<string, IReadOnlyList<string>>());
-
-private sealed class FakeTransport : IFalTransport
-{
-    public Queue<FalHttpResponse> Posts = new();
-    public Queue<FalHttpResponse> Gets = new();
-    public Queue<FalHttpResponse> Sends = new();
-    public Task<FalHttpResponse> PostJsonAsync(Uri u, string b, CancellationToken ct) => Task.FromResult(Posts.Dequeue());
-    public Task<FalHttpResponse> GetAsync(Uri u, CancellationToken ct) => Task.FromResult(Gets.Dequeue());
-    public Task<FalHttpResponse> SendAsync(HttpMethod m, Uri u, string? b, CancellationToken ct) => Task.FromResult(Sends.Dequeue());
-}
-
-[Fact]
-public async Task Submit_Queued_ReturnsHandleWithRequestId()
-{
-    var t = new FakeTransport();
-    t.Posts.Enqueue(Resp(200, @"{""request_id"":""req-1"",""status_url"":""https://queue.fal.run/s"",""response_url"":""https://queue.fal.run/r"",""cancel_url"":""https://queue.fal.run/c""}"));
-    var p = new FalReconstructionProvider(t);
-    var outcome = await p.SubmitAsync(new ReconstructionProviderSubmitRequest("fal-ai/hunyuan-3d/v3.1/rapid/image-to-3d", new Uri("https://cdn.fal.run/img.png"), new JsonObject()), CancellationToken.None);
-    var queued = Assert.IsType<QueuedSubmitOutcome>(outcome);
-    Assert.Equal("req-1", queued.Handle.ProviderJobId);
-}
-
-[Fact]
-public async Task Submit_401_ReturnsFailedSubmitWithTypedError()
-{
-    var t = new FakeTransport();
-    t.Posts.Enqueue(Resp(401, @"{""detail"":""bad key""}"));
-    var p = new FalReconstructionProvider(t);
-    var outcome = await p.SubmitAsync(new ReconstructionProviderSubmitRequest("m", new Uri("https://cdn.fal.run/i.png"), new JsonObject()), CancellationToken.None);
-    var failed = Assert.IsType<FailedSubmitOutcome>(outcome);
-    Assert.Equal(GenerationErrorCode.DependencyUnavailable, failed.Error.Code);
-}
-
-[Fact]
-public async Task Status_InProgress_MapsToInFlight()
-{
-    var t = new FakeTransport();
-    t.Gets.Enqueue(Resp(200, @"{""status"":""IN_PROGRESS""}"));
-    var p = new FalReconstructionProvider(t);
-    var handle = new ProviderJobHandle("req-1", statusUrl: new Uri("https://queue.fal.run/s"));
-    var outcome = await p.GetStatusAsync(handle, CancellationToken.None);
-    Assert.IsType<InFlightStatusOutcome>(outcome);
-}
-
-[Fact]
-public async Task Status_429_ReturnsFailedStatusRetryable()
-{
-    var t = new FakeTransport();
-    t.Gets.Enqueue(new FalHttpResponse(429, "{}", new Dictionary<string, IReadOnlyList<string>> { ["x-fal-needs-retry"] = new[] { "true" } }));
-    var p = new FalReconstructionProvider(t);
-    var outcome = await p.GetStatusAsync(new ProviderJobHandle("req-1", statusUrl: new Uri("https://queue.fal.run/s")), CancellationToken.None);
-    var failed = Assert.IsType<FailedStatusOutcome>(outcome);
-    Assert.Equal(GenerationErrorCode.QuotaExceeded, failed.Error.Code);
-    Assert.True(failed.Error.Retryable);
-}
-```
-
-- [ ] **Step 2: Run tests, verify they fail**
-
-Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "FullyQualifiedName~FalReconstructionProviderTests" --no-restore`
-Expected: FAIL to compile / type mismatch (provider still returns old `Reconstruction*Result` types).
-
-- [ ] **Step 3: Rewrite the provider onto the shared mappers/outcomes**
-
-Replace the provider body. Submit:
-```csharp
-public async Task<ProviderSubmitOutcome> SubmitAsync(ReconstructionProviderSubmitRequest request, CancellationToken ct)
-{
-    var payload = BuildSubmitPayload(request); // existing payload builder, kept
-    var url = QueueSubmitUri(request.ModelId);
-    var resp = await _transport.PostJsonAsync(url, payload.ToJsonString(), ct).ConfigureAwait(false);
-    if (!resp.IsSuccessStatusCode)
-        return new FailedSubmitOutcome(FalErrorMapper.MapHttpFailure(resp));
-    var body = JsonNode.Parse(resp.Body) ?? new JsonObject();
-    var handle = FalLifecycleMapper.ParseSubmitHandle(body, cancelHttpMethod: "PUT");
-    return new QueuedSubmitOutcome(handle);
-}
-```
-Status:
-```csharp
-public async Task<ProviderStatusOutcome> GetStatusAsync(ProviderJobHandle handle, CancellationToken ct)
-{
-    if (handle.StatusUrl is null)
-        return new FailedStatusOutcome(new GenerationError(GenerationErrorCode.ExecutionFailed, "Reconstruction job has no status URL.", Retryable: false));
-    var resp = await _transport.GetAsync(handle.StatusUrl, ct).ConfigureAwait(false);
-    if (!resp.IsSuccessStatusCode)
-        return new FailedStatusOutcome(FalErrorMapper.MapHttpFailure(resp));
-    var body = JsonNode.Parse(resp.Body) ?? new JsonObject();
-    return FalLifecycleMapper.MapStatus(handle, body);
-}
-```
-Cancel (reuse the existing CDN/cancel-url logic, but map failures):
-```csharp
-public async Task<ProviderCancelOutcome> CancelAsync(ProviderJobHandle handle, CancellationToken ct)
-{
-    if (handle.CancelUrl is null) return new AlreadyTerminalOutcome(GenerationLifecycleState.Completed);
-    var method = new HttpMethod(handle.CancelHttpMethod ?? "PUT");
-    var resp = await _transport.SendAsync(method, handle.CancelUrl, null, ct).ConfigureAwait(false);
-    if (resp.IsSuccessStatusCode) return new CanceledOutcome();
-    if (resp.StatusCode == 400) return new AlreadyTerminalOutcome(GenerationLifecycleState.Completed);
-    return new FailedCancelOutcome(FalErrorMapper.MapHttpFailure(resp));
-}
-```
-`FetchResultAsync` body comes in Task 5 — for now: `=> throw new NotImplementedException();` (no test exercises it until Task 5).
-
-Delete `IFalReconstructionQueueClient`, `FalReconstructionQueueClient`, `ReconstructionProviderSubmitResult`, `ReconstructionProviderStatusResult`, `ReconstructionProviderLifecycleState`. Add the prod `FalApiTransport : IFalTransport` adapter:
-```csharp
-public sealed class FalApiTransport : IFalTransport
-{
-    private readonly FalApiClient _client;
-    private readonly Func<string?> _apiKey;
-    public FalApiTransport(FalApiClient client, Func<string?> apiKey) { _client = client; _apiKey = apiKey; }
-    private string Key() => _apiKey() ?? throw new GenerationSecretMissingException(); // see note
-    public Task<FalHttpResponse> PostJsonAsync(Uri url, string body, CancellationToken ct) => _client.PostJsonAsync(Key(), url, body, ct);
-    public Task<FalHttpResponse> GetAsync(Uri url, CancellationToken ct) => _client.GetAsync(Key(), url, ct);
-    public Task<FalHttpResponse> SendAsync(HttpMethod m, Uri url, string? body, CancellationToken ct) => _client.SendAsync(Key(), m, url, body, ct);
-}
-```
-Missing-key handling: rather than a new exception type, have the manager check `secrets.HasSecret(GenerationSecretKeys.FalApiKey)` before submit and fail with `ReconstructionFailure(code:"missing_credential", retryable:false)` (the manager already owns submit validation). Drop the `GenerationSecretMissingException` idea; `FalApiTransport.Key()` returns `_apiKey()!` and the manager guarantees presence.
-
-- [ ] **Step 4: Update the manager poll glue to consume the new outcomes (keep lazy model)**
-
-In `ReconstructionJobManager.PollActiveJobAsync`, build a `ProviderJobHandle` from the ledger record and switch on `ProviderStatusOutcome`:
-```csharp
-var handle = new ProviderJobHandle(
-    providerJobId: job.ProviderJobId!,
-    statusUrl: OptionalUri(job.ProviderStatusUrl),
-    responseUrl: OptionalUri(job.ProviderResponseUrl),
-    cancelUrl: OptionalUri(job.ProviderCancelUrl),
-    cancelHttpMethod: job.ProviderCancelHttpMethod);
-
-var status = await _provider.GetStatusAsync(handle, ct).ConfigureAwait(false);
-switch (status)
-{
-    case InFlightStatusOutcome:
-        _ledger.Append(job with { Stage = ReconstructionJobStage.Polling, UpdatedAt = Now() });
-        return;
-    case FailedStatusOutcome f:
-        _ledger.Append(job with { State = ReconstructionJobState.Error, Stage = ReconstructionJobStage.Error, Error = ReconstructionErrorMapping.ToFailure(f.Error), UpdatedAt = Now() });
-        return;
-    case ProviderCompleteStatusOutcome complete:
-        // FetchResult + materialize wired in Task 5/6; for now leave a TODO-free guard:
-        // Until Task 5, treat complete by fetching via FetchResultAsync (NotImplemented) — so DO NOT
-        // ship Task 2 to "complete" path in isolation; Task 5/6 land in the same slice branch before merge.
-        break;
-}
-```
-Note: `ReconstructionErrorMapping.ToFailure` is created in Task 9 but is a pure function with no dependencies; create the file early here (it is needed to compile). Its body:
-```csharp
-// src/Rook/Services/Reconstruction/ReconstructionErrorMapping.cs
-public static class ReconstructionErrorMapping
-{
-    public static ReconstructionFailure ToFailure(GenerationError e) => new(
-        Code: MapCode(e.Code),
-        Message: e.Message,
-        Retryable: e.Retryable,
-        Field: e.Field,
-        Details: new Dictionary<string, object?> { ["provider_error_code"] = e.ProviderErrorCode });
-
-    private static string MapCode(GenerationErrorCode c) => c switch
-    {
-        GenerationErrorCode.InvalidRequest => "invalid_request",
-        GenerationErrorCode.UnsupportedMedia => "invalid_source_file",
-        GenerationErrorCode.DependencyUnavailable => "provider_unavailable",
-        GenerationErrorCode.QuotaExceeded => "quota_exceeded",
-        GenerationErrorCode.Cancelled => "cancelled",
-        GenerationErrorCode.Interrupted => "interrupted",
-        GenerationErrorCode.ContentPolicy => "content_policy",
-        _ => "provider_failed",
-    };
-}
-```
-Update `RookSubsystemRoot.CreateReconstruction` to build `new FalReconstructionProvider(new FalApiTransport(falClient, () => SharedGenerationSecretStore.GetSecret(GenerationSecretKeys.FalApiKey)))`.
-
-- [ ] **Step 5: Run tests, verify pass + suite green**
-
-Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "FullyQualifiedName~Reconstruction" --no-restore`
-Expected: PASS (the four new provider tests + existing reconstruction tests adjusted to the new types).
-
-- [ ] **Step 6: Commit**
-```bash
-git add src/Rook/Services/Reconstruction/Fal/FalReconstructionProvider.cs src/Rook/Services/Reconstruction/ReconstructionJobManager.cs src/Rook/Services/Reconstruction/ReconstructionErrorMapping.cs src/Rook/RookSubsystemRoot.cs src/Rook.Tests/Services/Reconstruction/Fal/FalReconstructionProviderTests.cs
-git commit -m "refactor(reconstruction): route fal submit/status/cancel through shared mappers and outcomes
-
-Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
-```
-
----
-
-## Task 3: W2 — Resolve source bytes/MIME before upload; publisher stops reading files
-
-**Files:**
-- Modify: `src/Rook/Services/Reconstruction/Fal/FalReconstructionProvider.cs` (`FalReconstructionSourceImagePublisher`)
-- Modify: `src/Rook/Services/Reconstruction/ReconstructionJobManager.cs` (resolve bytes/mime, call publisher)
-- Test: `src/Rook.Tests/Services/Reconstruction/Fal/FalReconstructionProviderTests.cs`
-
-**Interfaces:**
-- Produces:
-```csharp
-public interface IReconstructionSourceImagePublisher
-{
-    Task<Uri> PublishAsync(byte[] bytes, string mimeType, string fileName, CancellationToken ct);
-}
-```
-- Consumes: `FalApiClient.UploadFileToCdnAsync`, `FalUploadPlatformHeaders.ForSourceUpload`, `ArtifactStore` blob read (manager side).
-
-- [ ] **Step 1: Write the failing test — publisher never touches the filesystem**
-
-```csharp
-private sealed class CapturingPublisher : IReconstructionSourceImagePublisher
-{
-    public byte[]? Bytes; public string? Mime; public string? FileName;
-    public Task<Uri> PublishAsync(byte[] bytes, string mime, string fileName, CancellationToken ct)
-    { Bytes = bytes; Mime = mime; FileName = fileName; return Task.FromResult(new Uri("https://cdn.fal.run/u.png")); }
-}
-
-[Fact]
-public async Task Publisher_ReceivesResolvedBytesAndMime_NotAPath()
-{
-    // Arrange a manager with a real ArtifactStore holding one generated_image artifact,
-    // a CapturingPublisher, and a stub provider. (Reuse the existing manager test harness builder.)
-    var bundle = ReconstructionTestBundle.WithSourceImage(out var sourceId);
-    var pub = new CapturingPublisher();
-    var manager = bundle.BuildManager(publisher: pub, provider: bundle.QueuedThenInflightProvider());
-    await manager.SubmitAsync(bundle.SubmitRequest(sourceId), CancellationToken.None);
-    Assert.NotNull(pub.Bytes);
-    Assert.False(string.IsNullOrEmpty(pub.Mime));
-}
-```
-(`ReconstructionTestBundle` is the existing manager test helper; extend it with `WithSourceImage`/`BuildManager(publisher:, provider:)` if not present.)
-
-- [ ] **Step 2: Run, verify fail**
-
-Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "FullyQualifiedName~Publisher_ReceivesResolvedBytesAndMime" --no-restore`
-Expected: FAIL (publisher still has the `(Artifact, role, absolutePath)` signature).
-
-- [ ] **Step 3: Change the publisher to byte-based; resolve bytes in the manager**
-
-Publisher:
-```csharp
-public sealed class FalReconstructionSourceImagePublisher : IReconstructionSourceImagePublisher
-{
-    public const int SourceImageExpirationSeconds = 3600;
-    private readonly FalApiClient _client;
-    private readonly Func<string?> _apiKey;
-    public FalReconstructionSourceImagePublisher(FalApiClient client, Func<string?> apiKey) { _client = client; _apiKey = apiKey; }
-    public Task<Uri> PublishAsync(byte[] bytes, string mimeType, string fileName, CancellationToken ct) =>
-        _client.UploadFileToCdnAsync(_apiKey()!, fileName, bytes, mimeType, FalUploadPlatformHeaders.ForSourceUpload(SourceImageExpirationSeconds), ct)
-            .ContinueWith(t => new Uri(t.Result), ct, TaskContinuationOptions.OnlyOnRanToCompletion, TaskScheduler.Default);
-}
-```
-Manager submit path: after source validation yields the artifact + role, read bytes + mime from the store and pass them to the publisher (no path to the publisher):
-```csharp
-var (bytes, mime, fileName) = ReadSourceBlob(_store, artifact, validation.Role); // store.OpenBlob → bytes; mime from blob metadata/extension map
-var inputUrl = await _sourcePublisher.PublishAsync(bytes, mime, fileName, ct).ConfigureAwait(false);
-```
-Delete the `File.ReadAllBytes(absolutePath)` path entirely. `ReadSourceBlob` lives in the manager (it owns the store), keeping the provider/publisher storage-agnostic.
-
-- [ ] **Step 4: Run, verify pass + suite green**
-
-Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "FullyQualifiedName~Reconstruction" --no-restore`
-Expected: PASS.
-
-- [ ] **Step 5: Commit**
-```bash
-git add -A && git commit -m "refactor(reconstruction): resolve source bytes/mime in manager; publisher is storage-agnostic
-
-Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
-```
-
----
-
-## Task 4: W4 — `ReconstructionRemoteAssetDownloader` (disciplined async download)
+## Task 2: W4 — `ReconstructionRemoteAssetDownloader` (disciplined async download)
 
 **Files:**
 - Create: `src/Rook/Services/Reconstruction/ReconstructionRemoteAssetDownloader.cs`
@@ -458,15 +139,14 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 - Produces:
 ```csharp
 public sealed record ReconstructionDownloadResult(bool Success, byte[]? Bytes, string? MimeType, GenerationError? Error);
-
 public interface IReconstructionRemoteAssetDownloader
 {
     Task<ReconstructionDownloadResult> DownloadAsync(Uri url, string role, CancellationToken ct);
 }
 ```
-- Consumes: nothing from prior tasks (standalone). Injected `HttpMessageHandler` for tests.
+- Consumes: nothing from prior tasks (standalone). Injected `HttpMessageHandler`/`HttpClient` for tests.
 
-**Behavior:** absolute-https only; `HttpCompletionOption.ResponseHeadersRead`; role-aware byte cap (models larger than thumbnails/textures); enforce cap from `Content-Length` header AND while streaming; retry transient only (5xx, 408, 429, `HttpRequestException`/`TaskCanceledException`-without-user-cancel) up to 3 attempts; never retry validation (404) or user cancellation; typed `GenerationError` on failure.
+**Behavior:** absolute-https only; `HttpCompletionOption.ResponseHeadersRead`; role-aware byte cap (models larger than thumbnails/textures); enforce cap from `Content-Length` header AND while streaming; **retry transient transport only** (`HttpRequestException`, HTTP-timeout `TaskCanceledException`) AND transient status (5xx/408/429) up to 3 attempts; **user cancellation rethrows and never retries; programmer/validation errors propagate or fail without retry**; typed `GenerationError` on failure.
 
 - [ ] **Step 1: Write failing tests (7 cases) with a stub handler**
 
@@ -494,7 +174,7 @@ private static IReconstructionRemoteAssetDownloader Make(StubHandler h) =>
     Assert.False(r.Success); Assert.Equal(GenerationErrorCode.UnsupportedMedia, r.Error!.Code); }
 
 [Fact] public async Task Download_StreamCapExceeded_Fails() {
-    var big = new byte[26_000_000]; var h = new StubHandler(); h.Responses.Enqueue(() => Ok(big)); // role texture → 25MB cap
+    var big = new byte[26_000_000]; var h = new StubHandler(); h.Responses.Enqueue(() => Ok(big)); // texture role → 25MB cap
     var r = await Make(h).DownloadAsync(new Uri("https://cdn.fal.run/t.png"), "texture", CancellationToken.None);
     Assert.False(r.Success); }
 
@@ -524,7 +204,7 @@ private static IReconstructionRemoteAssetDownloader Make(StubHandler h) =>
 Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "FullyQualifiedName~ReconstructionRemoteAssetDownloaderTests" --no-restore`
 Expected: FAIL (compile).
 
-- [ ] **Step 3: Implement the downloader**
+- [ ] **Step 3: Implement the downloader (transient-only retry)**
 
 ```csharp
 public sealed class ReconstructionRemoteAssetDownloader : IReconstructionRemoteAssetDownloader
@@ -549,7 +229,7 @@ public sealed class ReconstructionRemoteAssetDownloader : IReconstructionRemoteA
                 using var resp = await _http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
                 if (!resp.IsSuccessStatusCode)
                 {
-                    if (IsTransient((int)resp.StatusCode) && attempt < MaxAttempts) continue;
+                    if (IsTransientStatus((int)resp.StatusCode) && attempt < MaxAttempts) continue;
                     return Fail(GenerationErrorCode.DependencyUnavailable, $"Asset download failed: HTTP {(int)resp.StatusCode}.");
                 }
                 if (resp.Content.Headers.ContentLength is { } len && len > cap)
@@ -561,11 +241,26 @@ public sealed class ReconstructionRemoteAssetDownloader : IReconstructionRemoteA
                 if (bytes.Length == 0) return Fail(GenerationErrorCode.ExecutionFailed, "Asset body was empty.");
                 return new ReconstructionDownloadResult(true, bytes, mime, null);
             }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
-            catch (Exception) when (attempt < MaxAttempts) { /* transient transport/timeout: retry */ }
-            catch (Exception ex) { return Fail(GenerationErrorCode.DependencyUnavailable, $"Asset download error: {ex.Message}"); }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw; // user cancellation: never retry, never swallow
+            }
+            catch (Exception ex) when (IsTransientTransport(ex) && attempt < MaxAttempts)
+            {
+                // transient transport error or HTTP client timeout: retry
+            }
+            catch (Exception ex) when (IsTransientTransport(ex))
+            {
+                return Fail(GenerationErrorCode.DependencyUnavailable, $"Asset download error: {ex.Message}");
+            }
+            // Any other exception type (programmer/validation error) is intentionally NOT caught here → propagates.
         }
     }
+
+    // TaskCanceledException here is the HttpClient timeout case (user cancellation is handled by the filtered
+    // OperationCanceledException catch above, which rethrows before reaching this).
+    private static bool IsTransientTransport(Exception ex) => ex is HttpRequestException || ex is TaskCanceledException;
+    private static bool IsTransientStatus(int s) => s >= 500 || s == 408 || s == 429;
 
     private static async Task<byte[]?> ReadCappedAsync(Stream s, long cap, CancellationToken ct)
     {
@@ -576,8 +271,8 @@ public sealed class ReconstructionRemoteAssetDownloader : IReconstructionRemoteA
         return ms.ToArray();
     }
 
-    private static bool IsTransient(int s) => s >= 500 || s == 408 || s == 429;
-    private static ReconstructionDownloadResult Fail(GenerationErrorCode c, string m) => new(false, null, null, new GenerationError(c, m, Retryable: c is GenerationErrorCode.DependencyUnavailable));
+    private static ReconstructionDownloadResult Fail(GenerationErrorCode c, string m) =>
+        new(false, null, null, new GenerationError(c, m, Retryable: c is GenerationErrorCode.DependencyUnavailable));
 }
 ```
 
@@ -589,75 +284,248 @@ Expected: PASS (7).
 - [ ] **Step 5: Commit**
 ```bash
 git add src/Rook/Services/Reconstruction/ReconstructionRemoteAssetDownloader.cs src/Rook.Tests/Services/Reconstruction/ReconstructionRemoteAssetDownloaderTests.cs
-git commit -m "feat(reconstruction): add disciplined async remote asset downloader (cap/retry/streaming)
+git commit -m "feat(reconstruction): add disciplined async remote asset downloader (cap/transient-retry/streaming)
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ```
 
 ---
 
-## Task 5: W3 — `FetchResultAsync` parses fal JSON into a shared `ProviderResultEnvelope`
+## Task 3: W2 — Resolve source bytes/MIME before upload; publisher stops reading files
 
 **Files:**
-- Modify: `src/Rook/Services/Reconstruction/Fal/FalReconstructionProvider.cs` (`FetchResultAsync` body + fal-shape parsing)
-- Test: `src/Rook.Tests/Services/Reconstruction/Fal/FalReconstructionProviderTests.cs`
+- Modify: `src/Rook/Services/Reconstruction/Fal/FalReconstructionProvider.cs` (`FalReconstructionSourceImagePublisher`)
+- Modify: `src/Rook/Services/Reconstruction/ReconstructionJobManager.cs` (resolve bytes/mime, call publisher)
+- Modify: `src/Rook/RookSubsystemRoot.cs` (publisher construction)
+- Test: `src/Rook.Tests/Services/Reconstruction/ReconstructionJobManagerTests.cs`
 
 **Interfaces:**
-- Consumes: `ProviderResultEnvelope`, `ResultArtifact`, `RemoteArtifactBody`, `FalErrorMapper`.
-- Produces: `FetchResultAsync(ProviderJobHandle) → ProviderResultOutcome`. Role strings use `ReconstructionFileRoles` constants.
+- Produces:
+```csharp
+public interface IReconstructionSourceImagePublisher
+{
+    Task<Uri> PublishAsync(byte[] bytes, string mimeType, string fileName, CancellationToken ct);
+}
+```
+- Consumes: `FalApiClient.UploadFileToCdnAsync`, `FalUploadPlatformHeaders.ForSourceUpload`, `ArtifactStore` blob read (manager side).
 
-**Fal-shape knowledge lives HERE only.** The materializer (Task 6) must not see `model_urls`/`texture_urls`/`model_glb`.
+This task only touches the submit/source path; the complete/materialize path is unchanged, so the existing completion tests stay green.
 
-- [ ] **Step 1: Write failing tests — Hunyuan & Meshy payloads → role'd artifacts; 422 → failure**
+- [ ] **Step 1: Write the failing test — publisher receives resolved bytes/mime, never a path**
 
 ```csharp
-[Fact]
-public async Task Fetch_HunyuanShape_MapsModelAndThumbnailRoles()
+private sealed class CapturingPublisher : IReconstructionSourceImagePublisher
 {
-    var t = new FakeTransport();
-    t.Gets.Enqueue(Resp(200, @"{""model_glb"":{""url"":""https://cdn.fal.run/m.glb""},""thumbnail"":{""url"":""https://cdn.fal.run/t.png""}}"));
-    var p = new FalReconstructionProvider(t);
-    var outcome = await p.FetchResultAsync(new ProviderJobHandle("req-1", responseUrl: new Uri("https://queue.fal.run/r")), CancellationToken.None);
-    var ok = Assert.IsType<SuccessResultOutcome>(outcome);
-    Assert.Contains(ok.Envelope.Artifacts, a => a.Role == ReconstructionFileRoles.ModelGlb);
-    Assert.Contains(ok.Envelope.Artifacts, a => a.Role == ReconstructionFileRoles.Thumbnail);
+    public byte[]? Bytes; public string? Mime; public string? FileName;
+    public Task<Uri> PublishAsync(byte[] bytes, string mime, string fileName, CancellationToken ct)
+    { Bytes = bytes; Mime = mime; FileName = fileName; return Task.FromResult(new Uri("https://cdn.fal.run/u.png")); }
 }
 
 [Fact]
-public async Task Fetch_MeshyShape_MapsModelUrlsBucket()
+public async Task Publisher_ReceivesResolvedBytesAndMime_NotAPath()
 {
-    var t = new FakeTransport();
-    t.Gets.Enqueue(Resp(200, @"{""model_urls"":{""glb"":""https://cdn.fal.run/m.glb"",""obj"":""https://cdn.fal.run/m.obj""}}"));
-    var p = new FalReconstructionProvider(t);
-    var ok = Assert.IsType<SuccessResultOutcome>(await p.FetchResultAsync(new ProviderJobHandle("r", responseUrl: new Uri("https://queue.fal.run/r")), CancellationToken.None));
-    Assert.Contains(ok.Envelope.Artifacts, a => a.Role == ReconstructionFileRoles.ModelGlb);
-    Assert.Contains(ok.Envelope.Artifacts, a => a.Role == ReconstructionFileRoles.ModelObj);
+    var bundle = ReconstructionTestBundle.WithSourceImage(out var sourceId);
+    var pub = new CapturingPublisher();
+    using var manager = bundle.BuildManager(publisher: pub, provider: bundle.QueuedThenInflightProvider());
+    await manager.SubmitAsync(bundle.SubmitRequest(sourceId), CancellationToken.None);
+    Assert.NotNull(pub.Bytes);
+    Assert.False(string.IsNullOrEmpty(pub.Mime));
+}
+```
+(Extend the existing `ReconstructionTestBundle` helper with `WithSourceImage`/`BuildManager(publisher:, provider:)`/`QueuedThenInflightProvider` if not already present.)
+
+- [ ] **Step 2: Run, verify fail**
+
+Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "FullyQualifiedName~Publisher_ReceivesResolvedBytesAndMime" --no-restore`
+Expected: FAIL (publisher still has the `(Artifact, role, absolutePath)` signature).
+
+- [ ] **Step 3: Change the publisher to byte-based (async/await); resolve bytes in the manager**
+
+Publisher — plain `async`/`await`, no `ContinueWith`:
+```csharp
+public sealed class FalReconstructionSourceImagePublisher : IReconstructionSourceImagePublisher
+{
+    public const int SourceImageExpirationSeconds = 3600;
+    private readonly FalApiClient _client;
+    private readonly Func<string?> _apiKey;
+    public FalReconstructionSourceImagePublisher(FalApiClient client, Func<string?> apiKey) { _client = client; _apiKey = apiKey; }
+
+    public async Task<Uri> PublishAsync(byte[] bytes, string mimeType, string fileName, CancellationToken ct)
+    {
+        var url = await _client.UploadFileToCdnAsync(
+            _apiKey()!, fileName, bytes, mimeType,
+            FalUploadPlatformHeaders.ForSourceUpload(SourceImageExpirationSeconds), ct).ConfigureAwait(false);
+        return new Uri(url);
+    }
+}
+```
+Manager submit path: after source validation yields the artifact + role, read bytes + mime from the store and pass them to the publisher (no path reaches the publisher):
+```csharp
+var (bytes, mime, fileName) = ReadSourceBlob(_store, artifact, validation.Role); // store.OpenBlob → bytes; mime from blob metadata/extension map
+var inputUrl = await _sourcePublisher.PublishAsync(bytes, mime, fileName, ct).ConfigureAwait(false);
+```
+Delete the `File.ReadAllBytes(absolutePath)` path entirely. `ReadSourceBlob` lives in the manager (it owns the store), keeping the provider/publisher storage-agnostic. `RookSubsystemRoot.CreateReconstruction` keeps constructing `new FalReconstructionSourceImagePublisher(falClient, () => SharedGenerationSecretStore.GetSecret(GenerationSecretKeys.FalApiKey))`.
+
+- [ ] **Step 4: Run, verify pass + suite green**
+
+Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "FullyQualifiedName~Reconstruction" --no-restore`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+```bash
+git add -A && git commit -m "refactor(reconstruction): resolve source bytes/mime in manager; publisher is storage-agnostic
+
+Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
+```
+
+---
+
+## Task 4: CORE (W1+W3+W5+W7-provider) — provider onto shared mappers/outcomes + envelope materializer + manager glue, in one atomic green slice
+
+This is the mutually-dependent core: the provider's result type, the materializer's input, and the manager's complete-path must change together or a slice commits red (existing completion tests at `ReconstructionJobManagerTests.cs:92`, `:130`, `:199` exercise the full submit→complete→materialize path). Do it as one task; commit once at the end with everything green.
+
+**Files:**
+- Modify: `src/Rook/Services/Reconstruction/Fal/FalReconstructionProvider.cs`
+- Modify: `src/Rook/Services/Reconstruction/ReconstructionPackageMaterializer.cs`
+- Modify: `src/Rook/Services/Reconstruction/ReconstructionJobManager.cs` (poll/complete glue; lazy model retained — background is Task 5)
+- Create: `src/Rook/Services/Reconstruction/ReconstructionErrorMapping.cs`
+- Modify: `src/Rook/RookSubsystemRoot.cs` (transport + downloader wiring)
+- Test: `src/Rook.Tests/Services/Reconstruction/Fal/FalReconstructionProviderTests.cs`, `ReconstructionPackageMaterializerTests.cs`, `ReconstructionJobManagerTests.cs`
+
+**Interfaces:**
+- Produces — the new provider contract + materializer signature (consumed by Tasks 5–7):
+```csharp
+namespace Rook.Services.Reconstruction.Fal;
+public sealed record ReconstructionProviderSubmitRequest(string ModelId, Uri InputImageUrl, JsonObject Options);
+public interface IFalTransport
+{
+    Task<FalHttpResponse> PostJsonAsync(Uri url, string bodyJson, CancellationToken ct);
+    Task<FalHttpResponse> GetAsync(Uri url, CancellationToken ct);
+    Task<FalHttpResponse> SendAsync(HttpMethod method, Uri url, string? bodyJson, CancellationToken ct);
+}
+public interface IReconstructionProvider
+{
+    Task<ProviderSubmitOutcome> SubmitAsync(ReconstructionProviderSubmitRequest request, CancellationToken ct);
+    Task<ProviderStatusOutcome> GetStatusAsync(ProviderJobHandle handle, CancellationToken ct);
+    Task<ProviderResultOutcome> FetchResultAsync(ProviderJobHandle handle, CancellationToken ct);
+    Task<ProviderCancelOutcome> CancelAsync(ProviderJobHandle handle, CancellationToken ct);
+}
+```
+```csharp
+namespace Rook.Services.Reconstruction;
+public sealed record ReconstructionMaterializeResult(bool Success, Artifact? Package, GenerationError? Error);
+// ReconstructionPackageMaterializer:
+public async Task<ReconstructionMaterializeResult> MaterializeAsync(
+    Guid jobId, IReadOnlyList<Guid> sourceArtifactIds, string provider, string modelId,
+    ProviderResultEnvelope envelope, CancellationToken ct);
+public static class ReconstructionErrorMapping { public static ReconstructionFailure ToFailure(GenerationError e); }
+```
+- Consumes — shared mappers/outcomes/envelope (File Structure), `IReconstructionRemoteAssetDownloader` (Task 2).
+- Removes — `IFalReconstructionQueueClient`, `FalReconstructionQueueClient`, `ReconstructionProviderSubmitResult`, `ReconstructionProviderStatusResult`, `ReconstructionProviderLifecycleState`, `IReconstructionFileDownloader`, `HttpReconstructionFileDownloader`, the old `Materialize(... JsonNode ...)`.
+
+- [ ] **Step 1: Write failing provider tests (submit/status/error + fetch→envelope)**
+
+```csharp
+private static FalHttpResponse Resp(int s, string b) => new(s, b, new Dictionary<string, IReadOnlyList<string>>());
+private sealed class FakeTransport : IFalTransport
+{
+    public Queue<FalHttpResponse> Posts = new(); public Queue<FalHttpResponse> Gets = new(); public Queue<FalHttpResponse> Sends = new();
+    public Task<FalHttpResponse> PostJsonAsync(Uri u, string b, CancellationToken ct) => Task.FromResult(Posts.Dequeue());
+    public Task<FalHttpResponse> GetAsync(Uri u, CancellationToken ct) => Task.FromResult(Gets.Dequeue());
+    public Task<FalHttpResponse> SendAsync(HttpMethod m, Uri u, string? b, CancellationToken ct) => Task.FromResult(Sends.Dequeue());
 }
 
-[Fact]
-public async Task Fetch_422_ReturnsFailedResult()
-{
+[Fact] public async Task Submit_Queued_ReturnsHandleWithRequestId() {
+    var t = new FakeTransport(); t.Posts.Enqueue(Resp(200, @"{""request_id"":""req-1"",""status_url"":""https://queue.fal.run/s"",""response_url"":""https://queue.fal.run/r"",""cancel_url"":""https://queue.fal.run/c""}"));
+    var outcome = await new FalReconstructionProvider(t).SubmitAsync(new("m", new Uri("https://cdn.fal.run/i.png"), new JsonObject()), CancellationToken.None);
+    Assert.Equal("req-1", Assert.IsType<QueuedSubmitOutcome>(outcome).Handle.ProviderJobId); }
+
+[Fact] public async Task Submit_401_ReturnsFailedSubmitTyped() {
+    var t = new FakeTransport(); t.Posts.Enqueue(Resp(401, @"{""detail"":""bad key""}"));
+    var outcome = await new FalReconstructionProvider(t).SubmitAsync(new("m", new Uri("https://cdn.fal.run/i.png"), new JsonObject()), CancellationToken.None);
+    Assert.Equal(GenerationErrorCode.DependencyUnavailable, Assert.IsType<FailedSubmitOutcome>(outcome).Error.Code); }
+
+[Fact] public async Task Status_InProgress_MapsToInFlight() {
+    var t = new FakeTransport(); t.Gets.Enqueue(Resp(200, @"{""status"":""IN_PROGRESS""}"));
+    Assert.IsType<InFlightStatusOutcome>(await new FalReconstructionProvider(t).GetStatusAsync(new ProviderJobHandle("req-1", statusUrl: new Uri("https://queue.fal.run/s")), CancellationToken.None)); }
+
+[Fact] public async Task Status_429_ReturnsFailedRetryable() {
+    var t = new FakeTransport(); t.Gets.Enqueue(new FalHttpResponse(429, "{}", new Dictionary<string, IReadOnlyList<string>> { ["x-fal-needs-retry"] = new[] { "true" } }));
+    var f = Assert.IsType<FailedStatusOutcome>(await new FalReconstructionProvider(t).GetStatusAsync(new ProviderJobHandle("r", statusUrl: new Uri("https://queue.fal.run/s")), CancellationToken.None));
+    Assert.Equal(GenerationErrorCode.QuotaExceeded, f.Error.Code); Assert.True(f.Error.Retryable); }
+
+[Fact] public async Task Fetch_HunyuanShape_MapsModelAndThumbnail() {
+    var t = new FakeTransport(); t.Gets.Enqueue(Resp(200, @"{""model_glb"":{""url"":""https://cdn.fal.run/m.glb""},""thumbnail"":{""url"":""https://cdn.fal.run/t.png""}}"));
+    var ok = Assert.IsType<SuccessResultOutcome>(await new FalReconstructionProvider(t).FetchResultAsync(new ProviderJobHandle("r", responseUrl: new Uri("https://queue.fal.run/r")), CancellationToken.None));
+    Assert.Contains(ok.Envelope.Artifacts, a => a.Role == ReconstructionFileRoles.ModelGlb);
+    Assert.Contains(ok.Envelope.Artifacts, a => a.Role == ReconstructionFileRoles.Thumbnail); }
+
+[Fact] public async Task Fetch_MeshyShape_MapsModelUrlsBucket() {
+    var t = new FakeTransport(); t.Gets.Enqueue(Resp(200, @"{""model_urls"":{""glb"":""https://cdn.fal.run/m.glb"",""obj"":""https://cdn.fal.run/m.obj""}}"));
+    var ok = Assert.IsType<SuccessResultOutcome>(await new FalReconstructionProvider(t).FetchResultAsync(new ProviderJobHandle("r", responseUrl: new Uri("https://queue.fal.run/r")), CancellationToken.None));
+    Assert.Contains(ok.Envelope.Artifacts, a => a.Role == ReconstructionFileRoles.ModelGlb);
+    Assert.Contains(ok.Envelope.Artifacts, a => a.Role == ReconstructionFileRoles.ModelObj); }
+
+[Fact] public async Task Fetch_422_ReturnsFailedResult() {
     var t = new FakeTransport(); t.Gets.Enqueue(Resp(422, @"{""detail"":""bad""}"));
-    var p = new FalReconstructionProvider(t);
-    Assert.IsType<FailedResultOutcome>(await p.FetchResultAsync(new ProviderJobHandle("r", responseUrl: new Uri("https://queue.fal.run/r")), CancellationToken.None));
-}
+    Assert.IsType<FailedResultOutcome>(await new FalReconstructionProvider(t).FetchResultAsync(new ProviderJobHandle("r", responseUrl: new Uri("https://queue.fal.run/r")), CancellationToken.None)); }
 ```
 
 - [ ] **Step 2: Run, verify fail**
 
-Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "FullyQualifiedName~FalReconstructionProviderTests.Fetch" --no-restore`
-Expected: FAIL (NotImplementedException / no mapping).
+Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "FullyQualifiedName~FalReconstructionProviderTests" --no-restore`
+Expected: FAIL (compile — provider still returns old types).
 
-- [ ] **Step 3: Implement `FetchResultAsync` + the fal→envelope mapper**
+- [ ] **Step 3: Rewrite the provider fully (submit/status/cancel/fetch→envelope)**
 
+Create `ReconstructionErrorMapping.cs`:
+```csharp
+public static class ReconstructionErrorMapping
+{
+    public static ReconstructionFailure ToFailure(GenerationError e) => new(
+        Code: MapCode(e.Code), Message: e.Message, Retryable: e.Retryable, Field: e.Field,
+        Details: new Dictionary<string, object?> { ["provider_error_code"] = e.ProviderErrorCode });
+    private static string MapCode(GenerationErrorCode c) => c switch
+    {
+        GenerationErrorCode.InvalidRequest => "invalid_request",
+        GenerationErrorCode.UnsupportedMedia => "invalid_source_file",
+        GenerationErrorCode.DependencyUnavailable => "provider_unavailable",
+        GenerationErrorCode.QuotaExceeded => "quota_exceeded",
+        GenerationErrorCode.Cancelled => "cancelled",
+        GenerationErrorCode.Interrupted => "interrupted",
+        GenerationErrorCode.ContentPolicy => "content_policy",
+        _ => "provider_failed",
+    };
+}
+```
+Provider (`_transport` is `IFalTransport`). Submit:
+```csharp
+public async Task<ProviderSubmitOutcome> SubmitAsync(ReconstructionProviderSubmitRequest request, CancellationToken ct)
+{
+    var payload = BuildSubmitPayload(request);                 // existing payload builder, kept
+    var resp = await _transport.PostJsonAsync(QueueSubmitUri(request.ModelId), payload.ToJsonString(), ct).ConfigureAwait(false);
+    if (!resp.IsSuccessStatusCode) return new FailedSubmitOutcome(FalErrorMapper.MapHttpFailure(resp));
+    var body = JsonNode.Parse(resp.Body) ?? new JsonObject();
+    return new QueuedSubmitOutcome(FalLifecycleMapper.ParseSubmitHandle(body, cancelHttpMethod: "PUT"));
+}
+```
+Status:
+```csharp
+public async Task<ProviderStatusOutcome> GetStatusAsync(ProviderJobHandle handle, CancellationToken ct)
+{
+    if (handle.StatusUrl is null) return new FailedStatusOutcome(new GenerationError(GenerationErrorCode.ExecutionFailed, "Reconstruction job has no status URL.", false));
+    var resp = await _transport.GetAsync(handle.StatusUrl, ct).ConfigureAwait(false);
+    if (!resp.IsSuccessStatusCode) return new FailedStatusOutcome(FalErrorMapper.MapHttpFailure(resp));
+    return FalLifecycleMapper.MapStatus(handle, JsonNode.Parse(resp.Body) ?? new JsonObject());
+}
+```
+FetchResult → envelope (fal-shape knowledge lives ONLY here):
 ```csharp
 public async Task<ProviderResultOutcome> FetchResultAsync(ProviderJobHandle handle, CancellationToken ct)
 {
-    if (handle.ResponseUrl is null)
-        return new FailedResultOutcome(new GenerationError(GenerationErrorCode.ExecutionFailed, "Reconstruction job has no response URL.", false));
+    if (handle.ResponseUrl is null) return new FailedResultOutcome(new GenerationError(GenerationErrorCode.ExecutionFailed, "Reconstruction job has no response URL.", false));
     var resp = await _transport.GetAsync(handle.ResponseUrl, ct).ConfigureAwait(false);
-    if (!resp.IsSuccessStatusCode)
-        return new FailedResultOutcome(FalErrorMapper.MapHttpFailure(resp));
+    if (!resp.IsSuccessStatusCode) return new FailedResultOutcome(FalErrorMapper.MapHttpFailure(resp));
     var root = (JsonNode.Parse(resp.Body) ?? new JsonObject()).AsObject();
     var artifacts = new List<ResultArtifact>();
     AddRemote(artifacts, ReconstructionFileRoles.ModelGlb, Url(root["model_glb"]) ?? Url(root["model_urls"]?["glb"]));
@@ -665,163 +533,153 @@ public async Task<ProviderResultOutcome> FetchResultAsync(ProviderJobHandle hand
     AddRemote(artifacts, ReconstructionFileRoles.MaterialMtl, Url(root["material_mtl"]) ?? Url(root["model_urls"]?["mtl"]));
     AddRemote(artifacts, ReconstructionFileRoles.Texture, Url(root["texture"]) ?? Url(root["texture_urls"]?["texture"]));
     AddRemote(artifacts, ReconstructionFileRoles.Thumbnail, Url(root["thumbnail"]));
-    if (artifacts.Count == 0)
-        return new FailedResultOutcome(new GenerationError(GenerationErrorCode.ExecutionFailed, "fal result contained no recognizable asset URLs.", false));
+    if (artifacts.Count == 0) return new FailedResultOutcome(new GenerationError(GenerationErrorCode.ExecutionFailed, "fal result contained no recognizable asset URLs.", false));
     var meta = new Dictionary<string, JsonNode> { ["provider_result_json"] = root.DeepClone() };
     return new SuccessResultOutcome(new ProviderResultEnvelope(artifacts, meta));
 
     static void AddRemote(List<ResultArtifact> list, string role, Uri? url)
     { if (url is not null) list.Add(new ResultArtifact(role, new RemoteArtifactBody(url), null, new Dictionary<string, JsonNode>())); }
 }
-private static Uri? Url(JsonNode? n) // accepts {"url":"..."} or a bare string
+private static Uri? Url(JsonNode? n)
 { var s = n is JsonObject o ? o["url"]?.GetValue<string>() : n?.GetValue<string>(); return Uri.TryCreate(s, UriKind.Absolute, out var u) ? u : null; }
 ```
-The sanitized raw JSON is carried in `EnvelopeMetadata["provider_result_json"]` so the materializer can write the diagnostic sidecar without re-parsing fal field names.
-
-- [ ] **Step 4: Run, verify pass + suite green**
-
-Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "FullyQualifiedName~Reconstruction" --no-restore`
-Expected: PASS.
-
-- [ ] **Step 5: Commit**
-```bash
-git add -A && git commit -m "feat(reconstruction): parse fal result into shared ProviderResultEnvelope (multi-asset roles)
-
-Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
-```
-
----
-
-## Task 6: W5 — Materializer consumes the envelope, downloads, enforces model-asset invariant
-
-**Files:**
-- Modify: `src/Rook/Services/Reconstruction/ReconstructionPackageMaterializer.cs`
-- Modify: `src/Rook/Services/Reconstruction/ReconstructionJobManager.cs` (call `FetchResultAsync` → `MaterializeAsync`; no-model → job Error)
-- Modify: `src/Rook/RookSubsystemRoot.cs` (inject the new downloader)
-- Test: `src/Rook.Tests/Services/Reconstruction/ReconstructionPackageMaterializerTests.cs`
-
-**Interfaces:**
-- Produces:
+Cancel:
 ```csharp
-public sealed record ReconstructionMaterializeResult(bool Success, Artifact? Package, GenerationError? Error);
-
-public async Task<ReconstructionMaterializeResult> MaterializeAsync(
-    Guid jobId, IReadOnlyList<Guid> sourceArtifactIds, string provider, string modelId,
-    ProviderResultEnvelope envelope, CancellationToken ct);
-```
-- Consumes: `IReconstructionRemoteAssetDownloader` (Task 4), `ProviderResultEnvelope` (Task 5), `ArtifactStore.Create`, `ReconstructionFileRoles`, the existing `BuildInitialImportManifest`.
-- Removes: `IReconstructionFileDownloader`, `HttpReconstructionFileDownloader`, the old synchronous `Materialize(... JsonNode ...)`.
-
-- [ ] **Step 1: Write failing tests — no-model envelope fails; multi-asset writes blobs**
-
-```csharp
-private static ResultArtifact Remote(string role, string url) =>
-    new(role, new RemoteArtifactBody(new Uri(url)), null, new Dictionary<string, JsonNode>());
-
-[Fact]
-public async Task Materialize_NoModelAsset_FailsAndDoesNotCreatePackage()
+public async Task<ProviderCancelOutcome> CancelAsync(ProviderJobHandle handle, CancellationToken ct)
 {
-    var store = TestArtifactStore.Empty(out _);
-    var dl = new FakeDownloader(); // returns bytes for any url
-    var m = new ReconstructionPackageMaterializer(store, dl);
-    var env = new ProviderResultEnvelope(new[] { Remote(ReconstructionFileRoles.Thumbnail, "https://cdn.fal.run/t.png") }, new Dictionary<string, JsonNode> { ["provider_result_json"] = new JsonObject() });
-    var r = await m.MaterializeAsync(Guid.NewGuid(), Array.Empty<Guid>(), "fal", "model", env, CancellationToken.None);
-    Assert.False(r.Success);
-    Assert.Equal(GenerationErrorCode.ExecutionFailed, r.Error!.Code);
+    if (handle.CancelUrl is null) return new AlreadyTerminalOutcome(GenerationLifecycleState.Completed);
+    var resp = await _transport.SendAsync(new HttpMethod(handle.CancelHttpMethod ?? "PUT"), handle.CancelUrl, null, ct).ConfigureAwait(false);
+    if (resp.IsSuccessStatusCode) return new CanceledOutcome();
+    if (resp.StatusCode == 400) return new AlreadyTerminalOutcome(GenerationLifecycleState.Completed);
+    return new FailedCancelOutcome(FalErrorMapper.MapHttpFailure(resp));
 }
-
-[Fact]
-public async Task Materialize_MultiAsset_WritesRoleBlobsAndSidecar()
+```
+Delete `IFalReconstructionQueueClient`, `FalReconstructionQueueClient`, and the three duplicate `Reconstruction*Result`/`*LifecycleState` types. Add the prod adapter:
+```csharp
+public sealed class FalApiTransport : IFalTransport
 {
+    private readonly FalApiClient _client; private readonly Func<string?> _apiKey;
+    public FalApiTransport(FalApiClient client, Func<string?> apiKey) { _client = client; _apiKey = apiKey; }
+    private string Key() => _apiKey()!; // manager guarantees presence before submit (see Step 5)
+    public Task<FalHttpResponse> PostJsonAsync(Uri url, string body, CancellationToken ct) => _client.PostJsonAsync(Key(), url, body, ct);
+    public Task<FalHttpResponse> GetAsync(Uri url, CancellationToken ct) => _client.GetAsync(Key(), url, ct);
+    public Task<FalHttpResponse> SendAsync(HttpMethod m, Uri url, string? body, CancellationToken ct) => _client.SendAsync(Key(), m, url, body, ct);
+}
+```
+
+- [ ] **Step 4: Write failing materializer tests (no-model + multi-asset)**
+
+```csharp
+private sealed class FakeDownloader : IReconstructionRemoteAssetDownloader
+{ public Task<ReconstructionDownloadResult> DownloadAsync(Uri u, string role, CancellationToken ct) => Task.FromResult(new ReconstructionDownloadResult(true, new byte[]{1}, "application/octet-stream", null)); }
+private static ResultArtifact Remote(string role, string url) => new(role, new RemoteArtifactBody(new Uri(url)), null, new Dictionary<string, JsonNode>());
+
+[Fact] public async Task Materialize_NoModelAsset_FailsAndCreatesNoPackage() {
     var store = TestArtifactStore.Empty(out _);
-    var dl = new FakeDownloader();
-    var m = new ReconstructionPackageMaterializer(store, dl);
-    var env = new ProviderResultEnvelope(new[] {
-        Remote(ReconstructionFileRoles.ModelGlb, "https://cdn.fal.run/m.glb"),
-        Remote(ReconstructionFileRoles.Thumbnail, "https://cdn.fal.run/t.png"),
-    }, new Dictionary<string, JsonNode> { ["provider_result_json"] = new JsonObject() });
-    var r = await m.MaterializeAsync(Guid.NewGuid(), Array.Empty<Guid>(), "fal", "model", env, CancellationToken.None);
+    var env = new ProviderResultEnvelope(new[] { Remote(ReconstructionFileRoles.Thumbnail, "https://cdn.fal.run/t.png") }, new Dictionary<string, JsonNode> { ["provider_result_json"] = new JsonObject() });
+    var r = await new ReconstructionPackageMaterializer(store, new FakeDownloader()).MaterializeAsync(Guid.NewGuid(), Array.Empty<Guid>(), "fal", "m", env, CancellationToken.None);
+    Assert.False(r.Success); Assert.Equal(GenerationErrorCode.ExecutionFailed, r.Error!.Code); }
+
+[Fact] public async Task Materialize_MultiAsset_WritesRoleBlobsAndSidecar() {
+    var store = TestArtifactStore.Empty(out _);
+    var env = new ProviderResultEnvelope(new[] { Remote(ReconstructionFileRoles.ModelGlb, "https://cdn.fal.run/m.glb"), Remote(ReconstructionFileRoles.Thumbnail, "https://cdn.fal.run/t.png") }, new Dictionary<string, JsonNode> { ["provider_result_json"] = new JsonObject() });
+    var r = await new ReconstructionPackageMaterializer(store, new FakeDownloader()).MaterializeAsync(Guid.NewGuid(), Array.Empty<Guid>(), "fal", "m", env, CancellationToken.None);
     Assert.True(r.Success);
-    var roles = r.Package!.Blobs.Select(b => b.Role).ToList();
+    var roles = r.Package!.Blobs.Select(b => b.Role).ToList();   // confirm the real Artifact blob API (Blobs/Role) when implementing
     Assert.Contains(ReconstructionFileRoles.ModelGlb, roles);
     Assert.Contains(ReconstructionFileRoles.ProviderResultJson, roles);
-    Assert.Contains(ReconstructionFileRoles.ImportManifest, roles);
-}
+    Assert.Contains(ReconstructionFileRoles.ImportManifest, roles); }
 ```
-(`FakeDownloader` implements `IReconstructionRemoteAssetDownloader` returning `new ReconstructionDownloadResult(true, new byte[]{1}, "application/octet-stream", null)`.)
 
-- [ ] **Step 2: Run, verify fail**
+- [ ] **Step 5: Rewrite the materializer + manager glue; wire subsystem**
 
-Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "FullyQualifiedName~ReconstructionPackageMaterializerTests" --no-restore`
-Expected: FAIL (compile / signature change).
-
-- [ ] **Step 3: Implement envelope-consuming materializer + invariant**
-
+Materializer:
 ```csharp
-public async Task<ReconstructionMaterializeResult> MaterializeAsync(
-    Guid jobId, IReadOnlyList<Guid> sourceArtifactIds, string provider, string modelId,
-    ProviderResultEnvelope envelope, CancellationToken ct)
+public sealed class ReconstructionPackageMaterializer
 {
-    var hasModel = envelope.Artifacts.Any(a => a.Role == ReconstructionFileRoles.ModelGlb || a.Role == ReconstructionFileRoles.ModelObj);
-    if (!hasModel)
-        return new(false, null, new GenerationError(GenerationErrorCode.ExecutionFailed, "Reconstruction package has no model asset (model_glb/model_obj).", Retryable: false));
+    private readonly ArtifactStore _store; private readonly IReconstructionRemoteAssetDownloader _downloader;
+    public ReconstructionPackageMaterializer(ArtifactStore store, IReconstructionRemoteAssetDownloader downloader)
+    { _store = store; _downloader = downloader; }
 
-    var blobs = new List<BlobInput>();
-    foreach (var art in envelope.Artifacts)
+    public async Task<ReconstructionMaterializeResult> MaterializeAsync(Guid jobId, IReadOnlyList<Guid> sourceArtifactIds, string provider, string modelId, ProviderResultEnvelope envelope, CancellationToken ct)
     {
-        if (art.Body is not RemoteArtifactBody remote) continue;
-        var dl = await _downloader.DownloadAsync(remote.Url, art.Role, ct).ConfigureAwait(false);
-        if (!dl.Success) return new(false, null, dl.Error);
-        blobs.Add(new BlobInput(art.Role, dl.Bytes!, ExtensionFor(art.Role, dl.MimeType)));
+        var hasModel = envelope.Artifacts.Any(a => a.Role == ReconstructionFileRoles.ModelGlb || a.Role == ReconstructionFileRoles.ModelObj);
+        if (!hasModel) return new(false, null, new GenerationError(GenerationErrorCode.ExecutionFailed, "Reconstruction package has no model asset (model_glb/model_obj).", Retryable: false));
+        var blobs = new List<BlobInput>();
+        foreach (var art in envelope.Artifacts)
+        {
+            if (art.Body is not RemoteArtifactBody remote) continue;
+            var dl = await _downloader.DownloadAsync(remote.Url, art.Role, ct).ConfigureAwait(false);
+            if (!dl.Success) return new(false, null, dl.Error);
+            blobs.Add(new BlobInput(art.Role, dl.Bytes!, ExtensionFor(art.Role, dl.MimeType)));
+        }
+        var providerJson = envelope.EnvelopeMetadata.TryGetValue("provider_result_json", out var pj) ? pj : new JsonObject();
+        blobs.Add(new BlobInput(ReconstructionFileRoles.ProviderResultJson, Encoding.UTF8.GetBytes(providerJson.ToJsonString()), "json"));
+        blobs.Add(new BlobInput(ReconstructionFileRoles.ImportManifest, Encoding.UTF8.GetBytes(BuildInitialImportManifest().ToJsonString()), "json"));
+        var metadata = new Dictionary<string, JsonNode?> { ["provider"] = JsonValue.Create(provider), ["model_id"] = JsonValue.Create(modelId), ["job_id"] = JsonValue.Create(jobId.ToString("D")), ["asset_roles"] = ToJsonArray(blobs.Select(b => b.Role)) };
+        return new(true, _store.Create(ReconstructionArtifactKinds.Package, blobs, parentIds: sourceArtifactIds, metadata: metadata), null);
     }
-    var providerJson = envelope.EnvelopeMetadata.TryGetValue("provider_result_json", out var pj) ? pj : new JsonObject();
-    blobs.Add(new BlobInput(ReconstructionFileRoles.ProviderResultJson, Encoding.UTF8.GetBytes(providerJson.ToJsonString()), "json"));
-    blobs.Add(new BlobInput(ReconstructionFileRoles.ImportManifest, Encoding.UTF8.GetBytes(BuildInitialImportManifest().ToJsonString()), "json"));
-    var metadata = new Dictionary<string, JsonNode?> { ["provider"] = JsonValue.Create(provider), ["model_id"] = JsonValue.Create(modelId), ["job_id"] = JsonValue.Create(jobId.ToString("D")), ["asset_roles"] = ToJsonArray(blobs.Select(b => b.Role)) };
-    var artifact = _store.Create(ReconstructionArtifactKinds.Package, blobs, parentIds: sourceArtifactIds, metadata: metadata);
-    return new(true, artifact, null);
+    // keep existing BuildInitialImportManifest / ToJsonArray; add ExtensionFor(role, mime) (model_glb→glb, model_obj→obj, material_mtl→mtl, thumbnail→png, texture→png/derived-from-mime)
 }
 ```
-Constructor now takes `IReconstructionRemoteAssetDownloader`. Delete `IReconstructionFileDownloader`/`HttpReconstructionFileDownloader`. Manager poll/run glue, on `ProviderCompleteStatusOutcome`:
+Delete `IReconstructionFileDownloader` + `HttpReconstructionFileDownloader`. Manager glue — replace lazy `PollActiveJobAsync`'s body to consume shared outcomes (still lazy/on-demand; background is Task 5):
 ```csharp
-var fetch = await _provider.FetchResultAsync(complete.UpdatedHandle, ct).ConfigureAwait(false);
-if (fetch is FailedResultOutcome fr) { AppendError(job, fr.Error); return; }
-var success = (SuccessResultOutcome)fetch;
-var mat = await _materializer.MaterializeAsync(job.JobId, new[] { job.SourceArtifactId }, job.Provider, job.ModelId, success.Envelope, ct).ConfigureAwait(false);
-if (!mat.Success) { AppendError(job, mat.Error!); return; }
-_ledger.Append(ReconstructionJobLedgerRecord.Complete(job.JobId, mat.Package!.Id));
+var handle = new ProviderJobHandle(job.ProviderJobId!, OptionalUri(job.ProviderStatusUrl), OptionalUri(job.ProviderResponseUrl), OptionalUri(job.ProviderCancelUrl), job.ProviderCancelHttpMethod);
+switch (await _provider.GetStatusAsync(handle, ct).ConfigureAwait(false))
+{
+    case InFlightStatusOutcome:
+        _ledger.Append(job with { Stage = ReconstructionJobStage.Polling, UpdatedAt = Now() }); return;
+    case FailedStatusOutcome f:
+        AppendError(job, f.Error); return;
+    case ProviderCompleteStatusOutcome complete:
+        var fetch = await _provider.FetchResultAsync(complete.UpdatedHandle, ct).ConfigureAwait(false);
+        if (fetch is FailedResultOutcome fr) { AppendError(job, fr.Error); return; }
+        var mat = await _materializer.MaterializeAsync(job.JobId, new[] { job.SourceArtifactId }, job.Provider, job.ModelId, ((SuccessResultOutcome)fetch).Envelope, ct).ConfigureAwait(false);
+        if (!mat.Success) { AppendError(job, mat.Error!); return; }
+        _ledger.Append(ReconstructionJobLedgerRecord.Complete(job.JobId, mat.Package!.Id));
+        return;
+}
+// helper:
+void AppendError(ReconstructionJobLedgerRecord j, GenerationError e) =>
+    _ledger.Append(j with { State = ReconstructionJobState.Error, Stage = ReconstructionJobStage.Error, Error = ReconstructionErrorMapping.ToFailure(e), UpdatedAt = Now() });
 ```
-`AppendError` appends `State=Error, Stage=Error, Error=ReconstructionErrorMapping.ToFailure(err)`.
+Manager submit guards the key before kicking the provider: if `!_secrets.HasSecret(GenerationSecretKeys.FalApiKey)` return `ReconstructionFailure("missing_credential", "fal.ai API key is not configured.", Retryable:false, Field:null, Details:new Dictionary<string,object?>())`. (Inject `IGenerationSecretStore _secrets` into the manager if not already present.) Update existing completion tests at `ReconstructionJobManagerTests.cs:92/130/199` to drive the new provider/materializer shapes (scripted provider returns `QueuedSubmitOutcome`→`ProviderCompleteStatusOutcome`→`SuccessResultOutcome(glb envelope)`; fake downloader returns bytes) so they stay green.
 
-`RookSubsystemRoot.CreateReconstruction`: `new ReconstructionPackageMaterializer(SharedArtifactStore, new ReconstructionRemoteAssetDownloader(new HttpClient(), role => role.StartsWith("model_") ? 100_000_000L : 25_000_000L))`.
+`RookSubsystemRoot.CreateReconstruction`:
+```csharp
+var falClient = new FalApiClient();
+Func<string?> falKey = () => SharedGenerationSecretStore.GetSecret(GenerationSecretKeys.FalApiKey);
+var provider = new FalReconstructionProvider(new FalApiTransport(falClient, falKey));
+var materializer = new ReconstructionPackageMaterializer(SharedArtifactStore, new ReconstructionRemoteAssetDownloader(new HttpClient(), role => role.StartsWith("model_") ? 100_000_000L : 25_000_000L));
+var manager = new ReconstructionJobManager(SharedArtifactStore, catalog, new JsonlReconstructionJobLedger(JsonlReconstructionJobLedger.DefaultPath()), provider, materializer, new FalReconstructionSourceImagePublisher(falClient, falKey), SharedGenerationSecretStore);
+```
 
-- [ ] **Step 4: Run, verify pass + suite green**
+- [ ] **Step 6: Run the FULL reconstruction suite green**
 
 Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "FullyQualifiedName~Reconstruction" --no-restore`
-Expected: PASS.
+Expected: PASS (new provider + materializer tests, plus the updated completion tests).
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 7: Commit (one atomic slice)**
 ```bash
-git add -A && git commit -m "feat(reconstruction): materializer consumes envelope, downloads disciplined, enforces model-asset invariant
+git add -A && git commit -m "refactor(reconstruction): converge provider+materializer+manager onto shared fal mappers, outcomes, and result envelope
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ```
 
 ---
 
-## Task 7: W6 — Background execution, single-flight, dispose
+## Task 5: W6 — Background execution, single-flight, no-orphan shutdown
 
 **Files:**
 - Modify: `src/Rook/Services/Reconstruction/ReconstructionJobManager.cs`
 - Test: `src/Rook.Tests/Services/Reconstruction/ReconstructionJobManagerTests.cs`
 
 **Interfaces:**
-- Produces: `ReconstructionJobManager : IDisposable`; per-job background run; preserves the existing public method signatures (`SubmitAsync`, `Status`, `StatusAsync`, `CancelAsync`, `Result`, `List`).
-- Consumes: the shared outcomes + materializer from Tasks 2/5/6. Mirrors `VideoJobManager` (lines 39–112, 754–996, 780–785, 1409–1421).
+- Produces: `ReconstructionJobManager : IDisposable`; per-job background run; preserves the existing public method signatures. Mirrors `VideoJobManager` (lines 39–112, 789–996, 754–785, 1409–1421).
+- Single-flight invariant: exactly one terminal transition and one materialization per job, regardless of racing pollers.
+- Shutdown invariant: disposal cancels, then bounded-waits/observes running tasks before disposing shared primitives — no orphaned background work.
 
-**Single-flight invariant:** exactly one terminal transition and one materialization per job, regardless of racing pollers.
-
-- [ ] **Step 1: Write failing tests — background drive, single-flight, dispose**
+- [ ] **Step 1: Write failing tests — background drive, single-flight, no-orphan dispose**
 
 ```csharp
 [Fact]
@@ -831,7 +689,7 @@ public async Task Submit_BackgroundLoop_DrivesJobToComplete()
     var provider = bundle.ScriptedProvider(queued: true, statuses: new[] { "IN_PROGRESS", "COMPLETED" }, resultEnvelope: bundle.GlbEnvelope());
     using var manager = bundle.BuildManager(provider: provider, pollInterval: TimeSpan.FromMilliseconds(5));
     var submit = await manager.SubmitAsync(bundle.SubmitRequest(sourceId), CancellationToken.None);
-    await bundle.WaitUntil(() => manager.Status(submit.Job!.JobId).Job!.State == ReconstructionJobState.Complete, timeoutMs: 2000);
+    await bundle.WaitUntil(() => manager.Status(submit.Job!.JobId).Job!.State == ReconstructionJobState.Complete, 2000);
     Assert.Equal(ReconstructionJobState.Complete, manager.Status(submit.Job!.JobId).Job!.State);
 }
 
@@ -839,26 +697,26 @@ public async Task Submit_BackgroundLoop_DrivesJobToComplete()
 public async Task ConcurrentStatusAndBackgroundPoll_ProduceExactlyOneMaterialization()
 {
     var bundle = ReconstructionTestBundle.WithSourceImage(out var sourceId);
-    var counting = bundle.CountingMaterializer(); // increments on each MaterializeAsync
+    var counting = bundle.CountingMaterializer();
     var provider = bundle.ScriptedProvider(queued: true, statuses: new[] { "COMPLETED" }, resultEnvelope: bundle.GlbEnvelope());
     using var manager = bundle.BuildManager(provider: provider, materializer: counting, pollInterval: TimeSpan.FromMilliseconds(1));
-    var submit = await manager.SubmitAsync(bundle.SubmitRequest(sourceId), CancellationToken.None);
-    var jobId = submit.Job!.JobId;
+    var jobId = (await manager.SubmitAsync(bundle.SubmitRequest(sourceId), CancellationToken.None)).Job!.JobId;
     await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => manager.StatusAsync(jobId, CancellationToken.None)));
     await bundle.WaitUntil(() => manager.Status(jobId).Job!.State == ReconstructionJobState.Complete, 2000);
     Assert.Equal(1, counting.Count);
 }
 
 [Fact]
-public async Task Dispose_MidPoll_CancelsLoopAndStopsTransitions()
+public async Task Dispose_DrainsRunningLoop_NoCompletionAfterShutdown()
 {
     var bundle = ReconstructionTestBundle.WithSourceImage(out var sourceId);
-    var provider = bundle.ScriptedProvider(queued: true, statuses: new[] { "IN_PROGRESS", "IN_PROGRESS", "IN_PROGRESS" }, resultEnvelope: bundle.GlbEnvelope());
-    var manager = bundle.BuildManager(provider: provider, pollInterval: TimeSpan.FromMilliseconds(20));
-    var submit = await manager.SubmitAsync(bundle.SubmitRequest(sourceId), CancellationToken.None);
-    manager.Dispose();
-    var stateAfter = manager.Status(submit.Job!.JobId).Job!.State;
-    Assert.NotEqual(ReconstructionJobState.Complete, stateAfter); // no completion after shutdown
+    var gate = new SemaphoreSlim(0);                                      // provider blocks inside status until released
+    var provider = bundle.BlockingStatusProvider(gate, statuses: new[] { "IN_PROGRESS" });
+    var manager = bundle.BuildManager(provider: provider, pollInterval: TimeSpan.FromMilliseconds(5));
+    var jobId = (await manager.SubmitAsync(bundle.SubmitRequest(sourceId), CancellationToken.None)).Job!.JobId;
+    manager.Dispose();                                                   // must cancel + drain, not throw, not hang
+    gate.Release(10);
+    Assert.NotEqual(ReconstructionJobState.Complete, manager.Status(jobId).Job!.State);
 }
 ```
 
@@ -867,40 +725,65 @@ public async Task Dispose_MidPoll_CancelsLoopAndStopsTransitions()
 Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "FullyQualifiedName~ReconstructionJobManagerTests" --no-restore`
 Expected: FAIL (no background loop; not IDisposable).
 
-- [ ] **Step 3: Add background lifecycle (mirror VideoJobManager)**
+- [ ] **Step 3: Add background lifecycle with deterministic shutdown (mirror VideoJobManager)**
 
-Add fields + ctor params (default poll interval 10s, max concurrency 2):
 ```csharp
 public static readonly TimeSpan DefaultPollInterval = TimeSpan.FromSeconds(10);
 public const int DefaultMaxConcurrentJobs = 2;
 private readonly CancellationTokenSource _shutdownCts = new();
 private readonly ConcurrentDictionary<Guid, RunningJob> _runningJobs = new();
-private readonly SemaphoreSlim _concurrency;
-private readonly TimeSpan _pollInterval;
+private readonly SemaphoreSlim _concurrency = new(DefaultMaxConcurrentJobs, DefaultMaxConcurrentJobs);
+private readonly TimeSpan _pollInterval; // ctor param, default DefaultPollInterval
 
 private sealed class RunningJob
 {
     public ReconstructionJobLedgerRecord Latest;
     public readonly CancellationTokenSource Cts;
+    public Task Loop = Task.CompletedTask;          // tracked for drain
     public RunningJob(ReconstructionJobLedgerRecord initial, CancellationTokenSource cts) { Latest = initial; Cts = cts; }
 }
 ```
-On submit (after queued record persisted + handle stored), kick the loop:
+On submit (after the queued record is persisted with the handle), kick the loop and TRACK the task:
 ```csharp
 var linked = CancellationTokenSource.CreateLinkedTokenSource(_shutdownCts.Token);
 var running = new RunningJob(record, linked);
 _runningJobs[record.JobId] = running;
-_ = Task.Run(() => RunJobAsync(running), CancellationToken.None);
+running.Loop = Task.Run(() => RunJobAsync(record.JobId, running), CancellationToken.None);
 ```
-`RunJobAsync` mirrors `VideoJobManager.RunJobAsync` (lines 789–996): `await _concurrency.WaitAsync(ct)`, poll loop with `await Task.Delay(_pollInterval, ct)`, switch on `ProviderStatusOutcome`, on complete → `FetchResultAsync` → `MaterializeAsync` → append `Complete`; `catch (OperationCanceledException) when (ct.IsCancellationRequested)` leaves the job non-terminal; `finally { _runningJobs.TryRemove(jobId, out _); running.Cts.Dispose(); _concurrency.Release(); }`.
+`RunJobAsync` mirrors `VideoJobManager.RunJobAsync`: guard the semaphore acquire with an `acquired` flag so a shutdown-before-acquire never releases a slot it didn't take:
+```csharp
+private async Task RunJobAsync(Guid jobId, RunningJob running)
+{
+    var ct = running.Cts.Token;
+    var acquired = false;
+    try
+    {
+        await _concurrency.WaitAsync(ct).ConfigureAwait(false);
+        acquired = true;
+        // poll loop: while (true) { ct.ThrowIfCancellationRequested(); status = GetStatusAsync(handle); 
+        //   InFlight → await Task.Delay(_pollInterval, ct); continue;
+        //   Failed → AppendErrorLocked; return;
+        //   Complete → FetchResultAsync → MaterializeAsync → AppendCompleteLocked; return; }
+    }
+    catch (OperationCanceledException) when (ct.IsCancellationRequested) { /* leave non-terminal; reconcile handles it */ }
+    catch (Exception ex) { AppendErrorLocked(running, new GenerationError(GenerationErrorCode.ExecutionFailed, ex.Message, false)); }
+    finally
+    {
+        _runningJobs.TryRemove(jobId, out _);
+        if (acquired) _concurrency.Release();
+        running.Cts.Dispose();
+    }
+}
+```
+**Single-flight:** the terminal transition + materialization inside `RunJobAsync`, AND the on-demand `StatusAsync`/`PollActiveJobAsync` path, both acquire the existing per-job `_pollLocks[jobId]` semaphore and **re-read the freshest ledger record after acquiring**; if it is already terminal, return without fetch/materialize. (`AppendCompleteLocked`/`AppendErrorLocked` take that lock + re-read.)
 
-**Single-flight:** keep `StatusAsync`/`PollActiveJobAsync` but make them acquire the existing per-job `_pollLocks[jobId]` semaphore AND re-read the ledger after acquiring; if the freshest record is already terminal, return without fetch/materialize. The background `RunJobAsync` terminal transition + materialization must also take that same per-job lock and re-read before appending `Complete`/`Error`, so a racing `StatusAsync` cannot double-materialize.
-
-Implement `IDisposable`:
+`IDisposable` with deterministic drain:
 ```csharp
 public void Dispose()
 {
     try { _shutdownCts.Cancel(); } catch { }
+    Task[] loops; loops = _runningJobs.Values.Select(r => r.Loop).ToArray();
+    try { Task.WaitAll(loops, TimeSpan.FromSeconds(5)); } catch { /* faulted/cancelled loops are fine */ }
     _shutdownCts.Dispose();
     _concurrency.Dispose();
 }
@@ -913,14 +796,14 @@ Expected: PASS.
 
 - [ ] **Step 5: Commit**
 ```bash
-git add -A && git commit -m "feat(reconstruction): background job execution with single-flight and shutdown disposal
+git add -A && git commit -m "feat(reconstruction): background job execution with single-flight and deterministic no-orphan shutdown
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ```
 
 ---
 
-## Task 8: W6 — Startup reconcile + subsystem wiring
+## Task 6: W6 — Startup reconcile + subsystem wiring
 
 **Files:**
 - Modify: `src/Rook/Services/Reconstruction/ReconstructionJobManager.cs` (`ReconcileInterruptedJobs`)
@@ -957,8 +840,7 @@ Expected: FAIL (method missing).
 ```csharp
 public void ReconcileInterruptedJobs()
 {
-    var list = _ledger.List(int.MaxValue);
-    foreach (var record in list.Jobs)
+    foreach (var record in _ledger.List(int.MaxValue).Jobs)
     {
         if (IsTerminal(record.State)) continue;
         _ledger.Append(record with
@@ -973,9 +855,7 @@ public void ReconcileInterruptedJobs()
 private static bool IsTerminal(ReconstructionJobState s) =>
     s is ReconstructionJobState.Complete or ReconstructionJobState.Error or ReconstructionJobState.Cancelled or ReconstructionJobState.Interrupted;
 ```
-Provider job id/URLs are preserved automatically because `record with { ... }` copies the unchanged fields.
-
-In `RookSubsystemRoot`: after building the manager in `CreateReconstruction`, call `manager.ReconcileInterruptedJobs();` before returning the handler. Ensure the manager is disposed in the subsystem's existing dispose path (where `_disposed` is set) — add `(_reconstruction.IsValueCreated ? _reconstruction.Value : null)?.ManagerForDispose?.Dispose();` or expose the manager via the handler for disposal. (Follow the existing video-subsystem dispose pattern in this file.)
+Provider job id/URLs survive automatically because `record with { ... }` copies the unchanged fields. In `RookSubsystemRoot`: after building the manager in `CreateReconstruction`, call `manager.ReconcileInterruptedJobs();` before returning the handler; and dispose the manager in the subsystem's existing dispose path (where `_disposed` is set) following the existing video-subsystem dispose wiring in this file — expose the manager from `ReconstructionOpHandler` (e.g. an internal `Manager` property) so the root can dispose it.
 
 - [ ] **Step 4: Run, verify pass + suite green**
 
@@ -991,27 +871,25 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 ---
 
-## Task 9: W7 boundary — `GenerationError → ReconstructionFailure` mapping verified end-to-end
+## Task 7: W7 boundary — `GenerationError → ReconstructionFailure` verified end-to-end
 
 **Files:**
-- Verify/extend: `src/Rook/Services/Reconstruction/ReconstructionErrorMapping.cs` (created in Task 2)
-- Test: `src/Rook.Tests/Services/Reconstruction/ReconstructionJobManagerTests.cs` (+ handler test if a handler path surfaces it)
+- Verify: `src/Rook/Services/Reconstruction/ReconstructionErrorMapping.cs` (from Task 4)
+- Modify (only if needed): `src/Rook/Handlers/ReconstructionOpHandler.cs` (`StatusFor` allow-list)
+- Test: `src/Rook.Tests/Services/Reconstruction/ReconstructionJobManagerTests.cs`
 
-**Interfaces:**
-- Consumes: `ReconstructionErrorMapping.ToFailure` (Task 2), `ReconstructionFailure` (public DTO, unchanged).
-
-- [ ] **Step 1: Write failing test — a fal failure surfaces as a typed `ReconstructionFailure`, not opaque**
+- [ ] **Step 1: Write failing test — a fal quota failure surfaces a typed, retryable `ReconstructionFailure`**
 
 ```csharp
 [Fact]
 public async Task ProviderQuotaFailure_SurfacesRetryableReconstructionFailure()
 {
     var bundle = ReconstructionTestBundle.WithSourceImage(out var sourceId);
-    var provider = bundle.ScriptedProvider(queued: true, statuses: new[] { "FAILED_429" }, resultEnvelope: null); // 429 status
+    var provider = bundle.ScriptedProvider(queued: true, statuses: new[] { "STATUS_429" }, resultEnvelope: null); // status poll → HTTP 429
     using var manager = bundle.BuildManager(provider: provider, pollInterval: TimeSpan.FromMilliseconds(2));
-    var submit = await manager.SubmitAsync(bundle.SubmitRequest(sourceId), CancellationToken.None);
-    await bundle.WaitUntil(() => manager.Status(submit.Job!.JobId).Job!.State == ReconstructionJobState.Error, 2000);
-    var rec = manager.Status(submit.Job!.JobId).Job!;
+    var jobId = (await manager.SubmitAsync(bundle.SubmitRequest(sourceId), CancellationToken.None)).Job!.JobId;
+    await bundle.WaitUntil(() => manager.Status(jobId).Job!.State == ReconstructionJobState.Error, 2000);
+    var rec = manager.Status(jobId).Job!;
     Assert.Equal("quota_exceeded", rec.Error!.Code);
     Assert.True(rec.Error!.Retryable);
 }
@@ -1020,13 +898,13 @@ public async Task ProviderQuotaFailure_SurfacesRetryableReconstructionFailure()
 - [ ] **Step 2: Run, verify fail**
 
 Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "FullyQualifiedName~ProviderQuotaFailure" --no-restore`
-Expected: FAIL (mapping/scripted provider not producing typed code) — implement the scripted provider's 429 path + confirm `AppendError` uses `ReconstructionErrorMapping.ToFailure`.
+Expected: FAIL (implement the scripted provider's 429 status path).
 
-- [ ] **Step 3: Confirm the mapping is applied everywhere the manager records an error**
+- [ ] **Step 3: Confirm the mapping is applied at every error append**
 
-Audit `ReconstructionJobManager` for every `State = ReconstructionJobState.Error` append: each must set `Error = ReconstructionErrorMapping.ToFailure(generationError)` (never a hand-built opaque `poll_failed`). Confirm `ReconstructionErrorMapping.MapCode` covers all `GenerationErrorCode` members (it does — see Task 2). No change to `ReconstructionOpHandler.StatusFor` is required because the mapped codes (`quota_exceeded`, `provider_unavailable`, `invalid_request`, …) already route through its default/400/404 logic; if a new code needs a non-500 status, extend `StatusFor`'s allow-list.
+Audit `ReconstructionJobManager`: every `State = ReconstructionJobState.Error` append must set `Error = ReconstructionErrorMapping.ToFailure(generationError)` (never a hand-built opaque `poll_failed`). `MapCode` already covers all `GenerationErrorCode` members. `ReconstructionOpHandler.StatusFor` needs no change unless a mapped code (`quota_exceeded`, `provider_unavailable`, `missing_credential`) should be non-500; if so, add it to the existing 400/404 allow-list.
 
-- [ ] **Step 4: Run, verify pass + FULL reconstruction + MCP suite green**
+- [ ] **Step 4: Run, verify pass + FULL reconstruction + MCP suites green**
 
 Run:
 ```bash
@@ -1048,10 +926,10 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 - [ ] Full reconstruction suite + MCP parity green:
   `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "FullyQualifiedName~Reconstruction" --no-restore` and `pytest mcp_server/tests/test_reconstruction_mcp_tools.py -q`
-- [ ] `grep -rn "InvalidOperationException" src/Rook/Services/Reconstruction/` returns no fal/HTTP-boundary throws.
-- [ ] `grep -rn "GetAwaiter().GetResult()\|File.ReadAllBytes" src/Rook/Services/Reconstruction/` returns nothing.
-- [ ] `grep -rn "FalErrorMapper\|FalLifecycleMapper" src/Rook/Services/Reconstruction/` shows the mappers are now used.
-- [ ] No file under `src/Rook/Services/Vision/` was modified (`git diff --name-only origin/main... -- src/Rook/Services/Vision/` empty for this branch's new commits).
+- [ ] `rg -n "InvalidOperationException" src/Rook/Services/Reconstruction/` returns no fal/HTTP-boundary throws.
+- [ ] `rg -n "GetAwaiter\(\)\.GetResult\(\)|\.Result\b|ContinueWith|File\.ReadAllBytes" src/Rook/Services/Reconstruction/` returns nothing.
+- [ ] `rg -n "FalErrorMapper|FalLifecycleMapper" src/Rook/Services/Reconstruction/` shows the mappers are now used.
+- [ ] No file under `src/Rook/Services/Vision/` was modified by this branch's new commits.
 - [ ] Native build verified separately (out of unit scope).
 
 ## Notes / known follow-ups (out of scope here)
