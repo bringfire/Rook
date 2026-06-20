@@ -40,15 +40,29 @@ public sealed record ReconstructionJobResultEnvelope(
     IReadOnlyList<ReconstructionWarning> Warnings,
     ReconstructionFailure? Failure);
 
-public sealed class ReconstructionJobManager
+public sealed class ReconstructionJobManager : IDisposable
 {
+    public static readonly TimeSpan DefaultPollInterval = TimeSpan.FromSeconds(10);
+    public const int DefaultMaxConcurrentJobs = 2;
+
     private readonly ArtifactStore _store;
     private readonly ReconstructionModelCatalog _catalog;
     private readonly JsonlReconstructionJobLedger _ledger;
     private readonly IReconstructionProvider _provider;
     private readonly ReconstructionPackageMaterializer _materializer;
     private readonly IReconstructionSourceImagePublisher _sourcePublisher;
+
+    // Per-job single-flight gate, shared by the background loop and on-demand StatusAsync/poll
+    // callers: every poller acquires it, re-reads the freshest ledger record, and returns early if
+    // the job is already terminal — so exactly one terminal transition + materialization occurs.
     private readonly ConcurrentDictionary<Guid, SemaphoreSlim> _pollLocks = new();
+
+    // Background execution lifecycle (W6). No startup reconcile here (that is a separate task).
+    private readonly TimeSpan _pollInterval;
+    private readonly CancellationTokenSource _shutdownCts = new();
+    private readonly ConcurrentDictionary<Guid, RunningJob> _runningJobs = new();
+    private readonly SemaphoreSlim _concurrency = new(DefaultMaxConcurrentJobs, DefaultMaxConcurrentJobs);
+    private bool _disposed;
 
     public ReconstructionJobManager(
         ArtifactStore store,
@@ -56,7 +70,8 @@ public sealed class ReconstructionJobManager
         JsonlReconstructionJobLedger ledger,
         IReconstructionProvider provider,
         ReconstructionPackageMaterializer materializer,
-        IReconstructionSourceImagePublisher sourcePublisher)
+        IReconstructionSourceImagePublisher sourcePublisher,
+        TimeSpan? pollInterval = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
@@ -64,6 +79,20 @@ public sealed class ReconstructionJobManager
         _provider = provider ?? throw new ArgumentNullException(nameof(provider));
         _materializer = materializer ?? throw new ArgumentNullException(nameof(materializer));
         _sourcePublisher = sourcePublisher ?? throw new ArgumentNullException(nameof(sourcePublisher));
+        _pollInterval = pollInterval ?? DefaultPollInterval;
+    }
+
+    private sealed class RunningJob
+    {
+        public RunningJob(ReconstructionJobLedgerRecord initial, CancellationTokenSource cts)
+        {
+            Latest = initial;
+            Cts = cts;
+        }
+
+        public ReconstructionJobLedgerRecord Latest { get; }
+        public CancellationTokenSource Cts { get; }
+        public Task Loop { get; set; } = Task.CompletedTask;
     }
 
     public async Task<ReconstructionSubmitResult> SubmitAsync(
@@ -154,7 +183,7 @@ public sealed class ReconstructionJobManager
         {
             case QueuedSubmitOutcome queuedOutcome:
                 var handle = queuedOutcome.Handle;
-                _ledger.Append(submitting with
+                var polling = submitting with
                 {
                     Stage = ReconstructionJobStage.Polling,
                     ProviderJobId = handle.ProviderJobId,
@@ -163,7 +192,9 @@ public sealed class ReconstructionJobManager
                     ProviderCancelUrl = handle.CancelUrl?.ToString(),
                     ProviderCancelHttpMethod = handle.CancelHttpMethod,
                     UpdatedAt = DateTimeOffset.UtcNow,
-                });
+                };
+                _ledger.Append(polling);
+                StartBackgroundLoop(polling);
                 return new ReconstructionSubmitResult(true, queued, null);
 
             case FailedSubmitOutcome failedOutcome:
@@ -255,21 +286,34 @@ public sealed class ReconstructionJobManager
 
     public async Task<ReconstructionCancelResult> CancelAsync(Guid jobId, CancellationToken ct)
     {
-        var job = FindJob(jobId);
-        if (job is null)
-            return new ReconstructionCancelResult(
-                ReconstructionJobState.Error,
-                Failure("not_found", "Reconstruction job was not found.", "job_id"));
-
-        if (IsTerminal(job.State))
-            return new ReconstructionCancelResult(job.State, null);
-
-        var cancelled = job with
+        // Acquire the per-job gate so the CancellationRequested append is serialized with any
+        // in-flight background/on-demand poll — otherwise a racing poll could clobber it with Running.
+        // The remote cancel call is made OUTSIDE the gate (don't hold it across a network round-trip).
+        var gate = _pollLocks.GetOrAdd(jobId, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(ct).ConfigureAwait(false);
+        ReconstructionJobLedgerRecord job;
+        try
         {
-            State = ReconstructionJobState.CancellationRequested,
-            UpdatedAt = DateTimeOffset.UtcNow,
-        };
-        _ledger.Append(cancelled);
+            var current = FindJob(jobId);
+            if (current is null)
+                return new ReconstructionCancelResult(
+                    ReconstructionJobState.Error,
+                    Failure("not_found", "Reconstruction job was not found.", "job_id"));
+
+            if (IsTerminal(current.State))
+                return new ReconstructionCancelResult(current.State, null);
+
+            job = current;
+            _ledger.Append(current with
+            {
+                State = ReconstructionJobState.CancellationRequested,
+                UpdatedAt = DateTimeOffset.UtcNow,
+            });
+        }
+        finally
+        {
+            gate.Release();
+        }
 
         if (!string.IsNullOrWhiteSpace(job.ProviderJobId))
             await _provider.CancelAsync(HandleFor(job), ct).ConfigureAwait(false);
@@ -501,5 +545,92 @@ public sealed class ReconstructionJobManager
             Error = ReconstructionErrorMapping.ToFailure(error),
             UpdatedAt = DateTimeOffset.UtcNow,
         });
+    }
+
+    // Kicks a per-job background poll loop, linked to the shutdown token and tracked for drain on
+    // Dispose. The loop reuses PollActiveJobAsync, so it shares the per-job single-flight gate with
+    // any on-demand StatusAsync caller — exactly one terminal transition + materialization per job.
+    private void StartBackgroundLoop(ReconstructionJobLedgerRecord record)
+    {
+        if (_disposed || _shutdownCts.IsCancellationRequested)
+            return;
+
+        var linked = CancellationTokenSource.CreateLinkedTokenSource(_shutdownCts.Token);
+        var running = new RunningJob(record, linked);
+        _runningJobs[record.JobId] = running;
+        running.Loop = Task.Run(() => RunJobAsync(record.JobId, running), CancellationToken.None);
+    }
+
+    private async Task RunJobAsync(Guid jobId, RunningJob running)
+    {
+        var ct = running.Cts.Token;
+        var acquired = false;
+        try
+        {
+            await _concurrency.WaitAsync(ct).ConfigureAwait(false);
+            acquired = true;
+
+            while (true)
+            {
+                ct.ThrowIfCancellationRequested();
+                await PollActiveJobAsync(jobId, ct).ConfigureAwait(false);
+
+                var job = FindJob(jobId);
+                if (job is null || IsTerminal(job.State))
+                    return;
+
+                await Task.Delay(_pollInterval, ct).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Shutdown or job cancellation: leave the ledger record non-terminal. Startup reconcile
+            // (a separate task) flips lingering non-terminal jobs to Interrupted on next load.
+        }
+        catch (Exception ex)
+        {
+            var latest = FindJob(jobId);
+            if (latest is not null && !IsTerminal(latest.State))
+                AppendError(latest, new GenerationError(
+                    GenerationErrorCode.ExecutionFailed, ex.Message, Retryable: false));
+        }
+        finally
+        {
+            _runningJobs.TryRemove(jobId, out _);
+            if (acquired) _concurrency.Release();
+            running.Cts.Dispose();
+        }
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+
+        try { _shutdownCts.Cancel(); }
+        catch (ObjectDisposedException) { }
+
+        var loops = _runningJobs.Values.Select(r => r.Loop).ToArray();
+        bool drained;
+        try
+        {
+            // Task.WaitAll returns false on timeout. Faulted/cancelled loops surface as an
+            // AggregateException — they ARE observed-complete, so treat that as drained.
+            drained = loops.Length == 0 || Task.WaitAll(loops, TimeSpan.FromSeconds(5));
+        }
+        catch (AggregateException)
+        {
+            drained = true;
+        }
+
+        if (drained)
+        {
+            _shutdownCts.Dispose();
+            _concurrency.Dispose();
+        }
+        // else: a loop did not observe cancellation within the drain budget. Intentionally leave
+        // _shutdownCts and _concurrency undisposed — a straggler may still read the token or call
+        // _concurrency.Release(), and disposing here would turn it into an ObjectDisposedException
+        // fault. Correctness (never dispose an object another thread may touch) outranks reclaiming.
     }
 }

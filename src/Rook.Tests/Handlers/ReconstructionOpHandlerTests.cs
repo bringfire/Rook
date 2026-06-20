@@ -20,9 +20,17 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
     private const string HunyuanModelId = "fal-ai/hunyuan-3d/v3.1/rapid/image-to-3d";
 
     private readonly List<string> _roots = new();
+    private readonly List<ReconstructionJobManager> _managers = new();
 
     public void Dispose()
     {
+        // Drain background loops BEFORE deleting the temp dirs they write into.
+        foreach (var manager in _managers)
+        {
+            try { manager.Dispose(); }
+            catch { /* idempotent best-effort teardown */ }
+        }
+
         foreach (var root in _roots)
         {
             if (Directory.Exists(root))
@@ -487,6 +495,7 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
             provider,
             materializer,
             publisher);
+        _managers.Add(manager);
         return new Fixture(
             store,
             ledger,
