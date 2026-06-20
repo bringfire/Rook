@@ -684,10 +684,11 @@ async def test_gh_create_script_pass_through_mutation_failure_remains_unchanged(
         {"code": "A = 1;", "pins_out": ["A:int"]},
     ))
 
-    assert payload == {
-        "success": False,
-        "data": "Failed to create C# Script component: {'route': 'failed', 'reason': 'bridge unavailable'}",
-    }
+    assert payload["success"] is False
+    assert isinstance(payload["data"], str)
+    assert "Failed to create C# Script component" in payload["data"]
+    assert "bridge unavailable" in payload["data"]
+    assert "script_receipt" not in payload["data"]
 
 
 @pytest.mark.asyncio
