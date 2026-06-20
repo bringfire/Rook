@@ -40,7 +40,7 @@ public sealed class ReconstructionJobManagerTests : IDisposable
 
         Assert.True(result.Success);
         Assert.Equal(ReconstructionJobState.Queued, result.Job!.State);
-        Assert.Single(fixture.Publisher.PublishedPaths);
+        Assert.Single(fixture.Publisher.Published);
         Assert.Single(fixture.Provider.SubmitRequests);
 
         var status = fixture.Manager.Status(result.Job.JobId);
@@ -52,6 +52,22 @@ public sealed class ReconstructionJobManagerTests : IDisposable
         Assert.Equal("https://queue.fal.run/cancel/req-123", status.Job.ProviderCancelUrl);
         Assert.Equal("PUT", status.Job.ProviderCancelHttpMethod);
         Assert.False(status.ResultAvailable);
+    }
+
+    [Fact]
+    public async Task Submit_Publisher_ReceivesResolvedBytesAndMime_NotAPath()
+    {
+        var fixture = CreateFixture();
+        var source = fixture.Store.Create(
+            "generated_image",
+            new[] { new BlobInput("image", new byte[] { 1, 2, 3 }, "png") });
+
+        await fixture.Manager.SubmitAsync(Request(source.Id), CancellationToken.None);
+
+        var published = Assert.Single(fixture.Publisher.Published);
+        Assert.Equal(new byte[] { 1, 2, 3 }, published.Bytes); // resolved blob bytes, not a path
+        Assert.Equal("image/png", published.Mime);             // derived from the validated .png extension
+        Assert.EndsWith(".png", published.FileName);
     }
 
     [Fact]
@@ -426,19 +442,19 @@ public sealed class ReconstructionJobManagerTests : IDisposable
 
     private sealed class FakeSourceImagePublisher : IReconstructionSourceImagePublisher
     {
-        public List<string> PublishedPaths { get; } = new();
+        public List<(byte[] Bytes, string Mime, string FileName)> Published { get; } = new();
         public bool ThrowOnPublish { get; set; }
 
         public Task<Uri> PublishAsync(
-            Artifact artifact,
-            string role,
-            string absolutePath,
+            byte[] bytes,
+            string mimeType,
+            string fileName,
             CancellationToken ct)
         {
             if (ThrowOnPublish)
                 throw new InvalidOperationException("publisher failed");
 
-            PublishedPaths.Add(absolutePath);
+            Published.Add((bytes, mimeType, fileName));
             return Task.FromResult(new Uri("https://rook.local/source.png"));
         }
     }

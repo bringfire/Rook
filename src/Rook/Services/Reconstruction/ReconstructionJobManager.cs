@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading;
@@ -13,7 +14,7 @@ namespace Rook.Services.Reconstruction;
 
 public interface IReconstructionSourceImagePublisher
 {
-    Task<Uri> PublishAsync(Artifact artifact, string role, string absolutePath, CancellationToken ct);
+    Task<Uri> PublishAsync(byte[] bytes, string mimeType, string fileName, CancellationToken ct);
 }
 
 public sealed record ReconstructionSubmitResult(
@@ -106,10 +107,17 @@ public sealed class ReconstructionJobManager
         ReconstructionProviderSubmitResult providerSubmit;
         try
         {
+            // The validator already resolved + length-cap-validated AbsolutePath (it is the resolver).
+            // Read bytes here (manager owns the store) and pass only bytes/mime/fileName onward, so the
+            // provider/publisher stay storage-agnostic.
+            var sourcePath = sourceValidation.AbsolutePath!;
+            var sourceBytes = await ReadFileBytesAsync(sourcePath, ct).ConfigureAwait(false);
+            var sourceMime = MimeForExtension(sourcePath);
+            var sourceFileName = $"rook-reconstruction-{source.Id:D}-{request.SourceRole}{Path.GetExtension(sourcePath)}";
             var sourceUrl = await _sourcePublisher.PublishAsync(
-                source,
-                request.SourceRole,
-                sourceValidation.AbsolutePath!,
+                sourceBytes,
+                sourceMime,
+                sourceFileName,
                 ct).ConfigureAwait(false);
             providerSubmit = await _provider.SubmitAsync(
                 new ReconstructionProviderSubmitRequest(request.ModelId, sourceUrl, request.Options),
@@ -153,6 +161,23 @@ public sealed class ReconstructionJobManager
 
         return new ReconstructionSubmitResult(true, queued, null);
     }
+
+    // net48-safe async file read (File.ReadAllBytesAsync does not exist on net48).
+    private static async Task<byte[]> ReadFileBytesAsync(string path, CancellationToken ct)
+    {
+        using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 81920, useAsync: true);
+        using var ms = new MemoryStream();
+        await fs.CopyToAsync(ms, 81920, ct).ConfigureAwait(false);
+        return ms.ToArray();
+    }
+
+    // Source extension is already validated to {.png,.jpg,.jpeg,.webp} by ReconstructionSourceValidator.
+    private static string MimeForExtension(string path) => Path.GetExtension(path).ToLowerInvariant() switch
+    {
+        ".jpg" or ".jpeg" => "image/jpeg",
+        ".webp" => "image/webp",
+        _ => "image/png",
+    };
 
     public ReconstructionJobListResult List(int limit)
         => _ledger.List(limit);

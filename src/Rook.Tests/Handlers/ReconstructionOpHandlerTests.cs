@@ -624,9 +624,9 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
     private sealed class FakeSourceImagePublisher : IReconstructionSourceImagePublisher
     {
         public Task<Uri> PublishAsync(
-            Artifact artifact,
-            string role,
-            string absolutePath,
+            byte[] bytes,
+            string mimeType,
+            string fileName,
             CancellationToken ct)
             => Task.FromResult(new Uri("https://rook.local/source.png"));
     }

@@ -92,38 +92,28 @@ public sealed class FalReconstructionSourceImagePublisher : IReconstructionSourc
     }
 
     public async Task<Uri> PublishAsync(
-        Artifact artifact,
-        string role,
-        string absolutePath,
+        byte[] bytes,
+        string mimeType,
+        string fileName,
         CancellationToken ct)
     {
-        if (artifact is null) throw new ArgumentNullException(nameof(artifact));
-        if (string.IsNullOrWhiteSpace(absolutePath))
-            throw new ArgumentException("Source image path is required.", nameof(absolutePath));
+        if (bytes is null || bytes.Length == 0)
+            throw new ArgumentException("Source image bytes are required.", nameof(bytes));
+        if (string.IsNullOrWhiteSpace(fileName))
+            throw new ArgumentException("Source image file name is required.", nameof(fileName));
 
         var apiKey = _secrets.GetSecret(GenerationSecretKeys.FalApiKey);
         if (string.IsNullOrWhiteSpace(apiKey))
             throw new InvalidOperationException("fal API key is required for reconstruction.");
 
-        var fileName = $"rook-reconstruction-{artifact.Id:D}-{role}{Path.GetExtension(absolutePath)}";
         var fileUrl = await _client.UploadFileToCdnAsync(
             apiKey!,
             fileName,
-            File.ReadAllBytes(absolutePath),
-            ContentTypeFor(absolutePath),
+            bytes,
+            mimeType,
             FalUploadPlatformHeaders.ForSourceUpload(SourceImageExpirationSeconds),
             ct).ConfigureAwait(false);
         return new Uri(fileUrl, UriKind.Absolute);
-    }
-
-    private static string ContentTypeFor(string path)
-    {
-        return Path.GetExtension(path).ToLowerInvariant() switch
-        {
-            ".jpg" or ".jpeg" => "image/jpeg",
-            ".webp" => "image/webp",
-            _ => "image/png",
-        };
     }
 }
 
