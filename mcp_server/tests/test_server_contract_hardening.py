@@ -642,6 +642,78 @@ async def test_gh_create_csharp_script_compile_error_adds_script_receipt(
 
 
 @pytest.mark.asyncio
+async def test_gh_create_script_early_string_failure_remains_receipt_free(
+    monkeypatch, patched_server
+):
+    routes_called: list[str] = []
+
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        routes_called.append(route)
+        if route == "/gh/document":
+            return {"success": True, "data": {"name": "contract.gh", "path": ""}}
+        raise AssertionError(f"Unexpected route: {route}")
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    payload = _decode_response(await server.call_tool(
+        "gh_create_script",
+        {"code": "A = 1", "pins_out": ["A:int"]},
+    ))
+
+    assert payload["success"] is False
+    assert isinstance(payload["data"], str)
+    assert "script_receipt" not in payload["data"]
+    assert "/gh/create-component" not in routes_called
+
+
+@pytest.mark.asyncio
+async def test_gh_create_script_pass_through_mutation_failure_remains_unchanged(
+    monkeypatch, patched_server
+):
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        if route == "/gh/create-component":
+            return {"success": False, "data": {"route": "failed", "reason": "bridge unavailable"}}
+        if route == "/gh/document":
+            return {"success": True, "data": {"name": "contract.gh", "path": ""}}
+        raise AssertionError(f"Unexpected route: {route}")
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    payload = _decode_response(await server.call_tool(
+        "gh_create_csharp_script",
+        {"code": "A = 1;", "pins_out": ["A:int"]},
+    ))
+
+    assert payload == {
+        "success": False,
+        "data": "Failed to create C# Script component: {'route': 'failed', 'reason': 'bridge unavailable'}",
+    }
+
+
+@pytest.mark.asyncio
+async def test_gh_set_script_raw_escape_hatch_remains_without_receipt(
+    monkeypatch, patched_server
+):
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        if route == "/gh/script":
+            return {"success": True, "data": {"guid": "raw-guid", "script": "A = 1;"}}
+        if route == "/gh/document":
+            return {"success": True, "data": {"name": "contract.gh", "path": ""}}
+        raise AssertionError(f"Unexpected route: {route}")
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    payload = _decode_response(await server.call_tool(
+        "gh_set_script",
+        {"guid": "raw-guid", "script": "A = 1;"},
+    ))
+
+    assert payload["success"] is True
+    assert payload["data"] == {"guid": "raw-guid", "script": "A = 1;"}
+    assert "script_receipt" not in payload["data"]
+
+
+@pytest.mark.asyncio
 async def test_gh_create_script_verification_unavailable_keeps_success_and_adds_unknown_receipt(
     monkeypatch, patched_server
 ):

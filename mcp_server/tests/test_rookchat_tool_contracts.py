@@ -500,6 +500,58 @@ def test_normalize_tool_result_top_level_truth_precedence():
     assert top_ok.status == "success"
 
 
+def test_normalize_tool_result_ignores_script_receipt_for_top_level_truth():
+    from rook.agent.chat.tool_contracts import normalize_tool_result
+
+    view = normalize_tool_result({
+        "success": False,
+        "message": "Component was created, but the target script component has compile errors.",
+        "data": {
+            "component_guid": "created-guid",
+            "script_receipt": {
+                "version": 1,
+                "operation": "create",
+                "language": "csharp",
+                "mutation": {
+                    "status": "created",
+                    "method": "gh_create_component_then_script",
+                    "component_guid": "created-guid",
+                    "note": None,
+                },
+                "verification": {
+                    "status": "failed",
+                    "method": "gh_errors",
+                    "target_error_count": 1,
+                    "target_warning_count": 0,
+                    "unrelated_error_count": 0,
+                    "unrelated_warning_count": 0,
+                    "note": None,
+                },
+                "artifact_status": "created_with_errors",
+                "repair_anchor": {
+                    "component_guid": "created-guid",
+                    "language": "csharp",
+                    "mode_used": "body",
+                    "wrapped": True,
+                    "pins_in": [],
+                    "pins_out": [{"name": "B", "type": "Brep"}],
+                    "source_shape": {
+                        "input_code_length": 14,
+                        "prepared_source_length": 900,
+                        "full_source_detected": False,
+                    },
+                    "target_errors": ["Cannot convert Box to Brep"],
+                    "target_warnings": [],
+                    "recovery_hint": None,
+                },
+            },
+        },
+    })
+
+    assert view.status == "failed"
+    assert view.message == "Component was created, but the target script component has compile errors."
+
+
 def test_tool_result_view_marks_csharp_preflight_failure_failed():
     from rook.agent.chat.tool_contracts import normalize_tool_result
 
