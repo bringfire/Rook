@@ -127,26 +127,29 @@ def runnable_nodes(graph: PlanGraph) -> list[PlanGraphNode]:
 
 
 def graph_status(graph: PlanGraph) -> GraphStatus:
-    if any(node.status == "needs_escalation" for node in graph.nodes.values()):
+    nodes = list(graph.nodes.values())
+    if any(node.status == "needs_escalation" for node in nodes):
         return "needs_escalation"
-    if runnable_nodes(graph) or any(node.status == "running" for node in graph.nodes.values()):
-        return "running"
-    terminal_nodes = [node for node in graph.nodes.values() if node.is_terminal]
+    terminal_nodes = [node for node in nodes if node.is_terminal]
     if terminal_nodes and all(
         node.status in ("succeeded", "skipped") for node in terminal_nodes
     ):
         return "complete"
+    if runnable_nodes(graph) or any(node.status == "running" for node in nodes):
+        return "running"
     has_activity = any(
         node.retry.attempts > 0 or node.evidence is not None
-        for node in graph.nodes.values()
+        for node in nodes
     )
     has_roots = bool(_root_ids(graph))
     if not has_activity and has_roots and any(
-        node.status in ("pending", "ready") for node in graph.nodes.values()
+        node.status in ("pending", "ready") for node in nodes
     ):
         return "pending"
-    if any(node.status == "failed" for node in graph.nodes.values()):
+    if any(node.status == "failed" for node in nodes):
         return "failed"
+    if any(node.status in ("blocked", "pending", "needs_repair") for node in nodes):
+        return "blocked"
     return "blocked"
 
 

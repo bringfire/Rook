@@ -10,6 +10,7 @@ from rook.learning.plan_graph import (
     PlanGraph,
     PlanGraphEdge,
     PlanGraphNode,
+    RetryState,
     apply_outcome,
     graph_status,
     initialize_graph,
@@ -298,3 +299,164 @@ def test_unlock_does_not_change_non_pending_target():
     updated = apply_outcome(graph, "source", NodeOutcome(status="succeeded"))
 
     assert updated.nodes["target"].status == "blocked"
+
+
+def test_retry_exhaustion_does_not_auto_escalate():
+    graph = initialize_graph(
+        PlanGraph(
+            nodes={
+                "node": PlanGraphNode(
+                    id="node",
+                    intent="Try once",
+                    retry=RetryState(max_attempts=1),
+                ),
+            },
+        )
+    )
+
+    updated = apply_outcome(
+        graph,
+        "node",
+        NodeOutcome(status="failed", error="bad input"),
+    )
+
+    assert updated.nodes["node"].retry.attempts == 1
+    assert updated.nodes["node"].retry.retry_exhausted is True
+    assert updated.nodes["node"].retry.last_error == "bad input"
+    assert updated.nodes["node"].status == "failed"
+    assert graph_status(updated) == "failed"
+
+
+def test_retry_last_error_falls_back_to_evidence_error():
+    graph = initialize_graph(
+        PlanGraph(
+            nodes={"node": PlanGraphNode(id="node", intent="Node")},
+        )
+    )
+
+    updated = apply_outcome(
+        graph,
+        "node",
+        NodeOutcome(status="failed", evidence=NodeEvidence(error="evidence error")),
+    )
+
+    assert updated.nodes["node"].retry.last_error == "evidence error"
+
+
+def test_graph_memory_last_writer_wins_for_facts_and_summary():
+    graph = initialize_graph(
+        PlanGraph(
+            nodes={"node": PlanGraphNode(id="node", intent="Node")},
+        )
+    )
+    first = apply_outcome(
+        graph,
+        "node",
+        NodeOutcome(
+            status="failed",
+            memory_updates={
+                "facts": {"component_guid": "first"},
+                "node_summary": "first summary",
+            },
+        ),
+    )
+    second = apply_outcome(
+        first,
+        "node",
+        NodeOutcome(
+            status="needs_repair",
+            memory_updates={
+                "facts": {"component_guid": "second"},
+                "node_summary": "second summary",
+            },
+        ),
+    )
+
+    assert second.memory.facts["component_guid"] == "second"
+    assert second.memory.node_summaries["node"] == "second summary"
+
+
+def test_graph_status_pending_running_complete_failed_blocked_and_escalation():
+    pending_graph = PlanGraph(nodes={"root": PlanGraphNode(id="root", intent="Root")})
+    assert graph_status(pending_graph) == "pending"
+    assert graph_status(initialize_graph(pending_graph)) == "running"
+
+    complete_graph = PlanGraph(
+        nodes={
+            "done": PlanGraphNode(
+                id="done",
+                intent="Done",
+                status="succeeded",
+                is_terminal=True,
+            ),
+        },
+    )
+    assert graph_status(complete_graph) == "complete"
+
+    skipped_terminal = PlanGraph(
+        nodes={
+            "done": PlanGraphNode(
+                id="done",
+                intent="Done",
+                status="skipped",
+                is_terminal=True,
+            ),
+        },
+    )
+    assert graph_status(skipped_terminal) == "complete"
+
+    failed_graph = PlanGraph(
+        nodes={"node": PlanGraphNode(id="node", intent="Node", status="failed")},
+    )
+    assert graph_status(failed_graph) == "failed"
+
+    blocked_graph = PlanGraph(
+        nodes={"node": PlanGraphNode(id="node", intent="Node", status="blocked")},
+    )
+    assert graph_status(blocked_graph) == "blocked"
+
+    escalation_graph = PlanGraph(
+        nodes={
+            "node": PlanGraphNode(
+                id="node",
+                intent="Node",
+                status="needs_escalation",
+            )
+        },
+    )
+    assert graph_status(escalation_graph) == "needs_escalation"
+
+
+def test_graph_status_complete_takes_precedence_over_runnable_nodes():
+    graph = PlanGraph(
+        nodes={
+            "done": PlanGraphNode(
+                id="done",
+                intent="Done",
+                status="succeeded",
+                is_terminal=True,
+            ),
+            "cleanup": PlanGraphNode(
+                id="cleanup",
+                intent="Optional cleanup",
+                status="ready",
+            ),
+        },
+    )
+
+    assert graph_status(graph) == "complete"
+
+
+def test_needs_repair_without_unlocked_repair_edge_is_not_running():
+    graph = PlanGraph(
+        nodes={"node": PlanGraphNode(id="node", intent="Node", status="needs_repair")},
+    )
+
+    assert runnable_nodes(graph) == []
+    assert graph_status(graph) == "blocked"
+
+
+@pytest.mark.parametrize("bad_status", ["pending", "ready", "running"])
+def test_node_outcome_rejects_administrative_statuses(bad_status):
+    with pytest.raises(ValueError, match="not an outcome state"):
+        NodeOutcome(status=bad_status)
