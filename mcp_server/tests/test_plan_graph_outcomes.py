@@ -301,6 +301,10 @@ def test_importing_plan_graph_outcomes_does_not_load_tool_dispatcher():
         "import rook.learning.plan_graph_outcomes\n"
         "if 'rook.agent.tool_dispatcher' in sys.modules:\n"
         "    raise SystemExit('rook.agent.tool_dispatcher loaded')\n"
+        "if 'dspy' in sys.modules:\n"
+        "    raise SystemExit('dspy loaded')\n"
+        "if 'litellm' in sys.modules:\n"
+        "    raise SystemExit('litellm loaded')\n"
     )
 
     subprocess.run(

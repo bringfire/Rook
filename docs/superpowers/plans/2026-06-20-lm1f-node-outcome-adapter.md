@@ -55,6 +55,10 @@ If implementation pressure points toward any of those, stop and ask for review.
   - Re-export `ToolResultView` and `normalize_tool_result(...)` from
     `.tool_result_view` for existing ChatRunner/tests.
 
+- Update `mcp_server/src/rook/learning/__init__.py`
+  - Use lazy public exports so importing `rook.learning.plan_graph_outcomes`
+    does not eagerly load DSPy, LiteLLM, or the heavier learning stack.
+
 - Create `mcp_server/tests/test_plan_graph_outcomes.py`
   - Pure, non-live tests using canned result dictionaries.
   - Verifies mapping, evidence, memory updates, copy behavior, and import
@@ -375,6 +379,10 @@ def test_importing_plan_graph_outcomes_does_not_load_tool_dispatcher():
         "import rook.learning.plan_graph_outcomes\n"
         "if 'rook.agent.tool_dispatcher' in sys.modules:\n"
         "    raise SystemExit('rook.agent.tool_dispatcher loaded')\n"
+        "if 'dspy' in sys.modules:\n"
+        "    raise SystemExit('dspy loaded')\n"
+        "if 'litellm' in sys.modules:\n"
+        "    raise SystemExit('litellm loaded')\n"
     )
 
     subprocess.run([sys.executable, "-c", probe], check=True, env=env)

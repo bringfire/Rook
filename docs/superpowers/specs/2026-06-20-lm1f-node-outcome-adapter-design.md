@@ -120,6 +120,10 @@ plan_graph -> tool_contracts
 focused on model-visible tool contracts; the shared result-view normalizer lives
 in `tool_result_view.py`.
 
+`rook.learning.__init__` must use lazy public exports so importing
+`rook.learning.plan_graph_outcomes` does not load DSPy, LiteLLM, or the heavier
+learning stack before the pure adapter module runs.
+
 ## Public API
 
 Use exactly:
@@ -450,7 +454,7 @@ Boundary tests:
 - AST direct-import checks prove `plan_graph_outcomes.py` imports
   `tool_result_view.py`, not `tool_contracts.py`.
 - A lightweight import probe proves importing `rook.learning.plan_graph_outcomes`
-  does not load `rook.agent.tool_dispatcher`.
+  does not load `rook.agent.tool_dispatcher`, `dspy`, or `litellm`.
 
 Suggested verification:
 
