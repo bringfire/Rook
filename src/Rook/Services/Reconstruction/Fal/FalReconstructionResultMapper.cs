@@ -72,10 +72,7 @@ public static class FalReconstructionResultMapper
         }
 
         foreach (var file in EnumerateFiles(root["texture_urls"]))
-        {
-            var role = RoleForTextureFile(file);
-            if (role is not null) Add(byRole, order, role, file);
-        }
+            Add(byRole, order, RoleForTextureFile(file), file);
 
         return order.Select(role => byRole[role]).ToList();
     }
@@ -199,9 +196,19 @@ public static class FalReconstructionResultMapper
         };
     }
 
-    private static string? RoleForTextureFile(ProviderFile file)
+    private static string RoleForTextureFile(ProviderFile file)
+        => ClassifyTextureRole(file.FileName, file.Url);
+
+    /// <summary>
+    /// Classify a fal texture map to a detailed reconstruction role (texture_base_color,
+    /// texture_normal, texture_roughness, texture_metallic) from its provider filename + URL path,
+    /// falling back to the generic <see cref="ReconstructionFileRoles.Texture"/>. Shared with the import
+    /// handler's provider-filename resolution so a detailed texture blob and its provider filename are
+    /// keyed under the same role.
+    /// </summary>
+    public static string ClassifyTextureRole(string? fileName, string? url)
     {
-        var lower = ((file.FileName ?? string.Empty) + " " + UrlPath(file.Url)).ToLowerInvariant();
+        var lower = ((fileName ?? string.Empty) + " " + UrlPath(url ?? string.Empty)).ToLowerInvariant();
         if (lower.Contains("normal")) return "texture_normal";
         if (lower.Contains("roughness")) return "texture_roughness";
         if (lower.Contains("metallic")) return "texture_metallic";

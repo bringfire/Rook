@@ -196,6 +196,47 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
     }
 
     [Fact]
+    public async Task DispatchOffUi_PrepareImport_PreservesDetailedTextureProviderFilename()
+    {
+        // The .mtl references the provider's texture filename (e.g. albedo.png). The staged companion
+        // for a detailed texture role must carry that provider filename, not the blob role name
+        // (texture_base_color.png), or the OBJ imports with the image present but unresolved.
+        var fixture = CreateFixture();
+        fixture.Downloader.Files["https://example.test/model.obj"] = new byte[] { 1, 2, 3 };
+        fixture.Downloader.Files["https://example.test/material.mtl"] = new byte[] { 4, 5, 6 };
+        fixture.Downloader.Files["https://cdn.example.test/download?id=base"] = new byte[] { 7, 8, 9 };
+        var package = await BuildPackageAsync(fixture, JsonNode.Parse("""
+        {
+          "model_urls": {
+            "obj": {"url": "https://example.test/model.obj"},
+            "mtl": {"url": "https://example.test/material.mtl"}
+          },
+          "texture_urls": {
+            "base_color": {"url": "https://cdn.example.test/download?id=base", "file_name": "albedo.png"}
+          }
+        }
+        """)!);
+
+        var response = fixture.Handler.DispatchOffUi(
+            "{" +
+            "\"op\":\"prepare_import\"," +
+            $"\"package_id\":\"{package.Id}\"," +
+            "\"import_id\":\"ffffffff-ffff-ffff-ffff-ffffffffffff\"" +
+            "}");
+
+        Assert.True(response.Success, JsonSerializer.Serialize(response.Data));
+        var data = Assert.IsType<Dictionary<string, object?>>(response.Data);
+        var companions = Assert.IsAssignableFrom<object[]>(data["companion_files"])
+            .Select(item => Assert.IsType<Dictionary<string, object?>>(item))
+            .ToList();
+        var baseColor = Assert.Single(companions, c => c["role"]?.Equals("texture_base_color") == true);
+        Assert.Equal("albedo.png", baseColor["file_name"]);   // provider filename, not the blob role name
+
+        var importPath = Assert.IsType<string>(data["path"]);
+        Assert.True(File.Exists(Path.Combine(Path.GetDirectoryName(importPath)!, "albedo.png")));
+    }
+
+    [Fact]
     public async Task DispatchOffUi_PrepareImport_RootModelGlbObjDoesNotMasqueradeAsGlb()
     {
         var fixture = CreateFixture();

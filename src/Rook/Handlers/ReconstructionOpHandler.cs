@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using Rhino;
 using Rook.Artifacts;
 using Rook.Services.Reconstruction;
+using Rook.Services.Reconstruction.Fal;
 
 namespace Rook.Handlers
 {
@@ -673,7 +674,17 @@ namespace Rook.Handlers
                 if (providerJson["texture_urls"] is JsonObject textureUrls)
                 {
                     foreach (var kvp in textureUrls)
-                        AddProviderFileName(names, package, ReconstructionFileRoles.Texture, kvp.Value, normalizeModelRole: false);
+                    {
+                        // Detailed texture maps are stored by the result mapper under detailed roles via
+                        // FalReconstructionResultMapper.ClassifyTextureRole. Key the provider filename under
+                        // that SAME role so FileNameForRole resolves the real .mtl-referenced name (e.g.
+                        // albedo.png) instead of falling back to the blob role name (texture_base_color.png).
+                        var textureFile = ReadProviderFile(kvp.Value);
+                        if (textureFile is null) continue;
+                        var textureRole = FalReconstructionResultMapper.ClassifyTextureRole(
+                            textureFile.FileName, textureFile.Url);
+                        AddProviderFileName(names, package, textureRole, kvp.Value, normalizeModelRole: false);
+                    }
                 }
             }
             catch (Exception ex) when (ex is IOException or JsonException or InvalidOperationException)
