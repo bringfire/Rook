@@ -38,6 +38,9 @@ into graph transitions. The graph reducer remains unintelligent.
 
 - Add a pure, non-live outcome adapter module:
   `mcp_server/src/rook/learning/plan_graph_outcomes.py`.
+- Keep tool-result normalization in the import-light
+  `mcp_server/src/rook/agent/chat/tool_result_view.py` module so the adapter
+  does not import ChatRunner, ToolDispatcher, registry, or knowledge machinery.
 - Expose exactly one public V0 helper:
 
 ```python
@@ -84,22 +87,24 @@ Allowed imports in `plan_graph_outcomes.py`:
 
 - `typing.Any`
 - `copy.deepcopy`
-- `rook.agent.chat.tool_contracts.ToolResultView`
-- `rook.agent.chat.tool_contracts.normalize_tool_result`
+- `rook.agent.chat.tool_result_view.ToolResultView`
+- `rook.agent.chat.tool_result_view.normalize_tool_result`
 - `rook.learning.plan_graph.NodeOutcome`
 - `rook.learning.plan_graph.NodeEvidence`
 
-The adapter module may import both `tool_contracts` and `plan_graph` because it
-is the bridge between them. The data flow is:
+`tool_contracts.py` may re-export `ToolResultView` and
+`normalize_tool_result(...)` for ChatRunner compatibility, but the adapter must
+import them from `tool_result_view.py`. The data flow is:
 
 ```text
-tool_contracts -> plan_graph_outcomes -> plan_graph
+tool_result_view -> plan_graph_outcomes -> plan_graph
 ```
 
 The import direction is:
 
 ```text
-plan_graph_outcomes imports tool_contracts and plan_graph
+plan_graph_outcomes imports tool_result_view and plan_graph
+tool_contracts imports tool_result_view only for compatibility re-export
 tool_contracts imports neither plan_graph nor plan_graph_outcomes
 plan_graph imports neither tool_contracts nor plan_graph_outcomes
 ```
@@ -112,7 +117,8 @@ plan_graph -> tool_contracts
 ```
 
 `plan_graph.py` remains pure and import-light. `tool_contracts.py` remains
-focused on model-visible tool contracts and result interpretation.
+focused on model-visible tool contracts; the shared result-view normalizer lives
+in `tool_result_view.py`.
 
 ## Public API
 
@@ -441,15 +447,17 @@ Boundary tests:
 
 - `plan_graph.py` does not import `tool_contracts` or `plan_graph_outcomes`.
 - `tool_contracts.py` does not import `plan_graph` or `plan_graph_outcomes`.
-- `plan_graph_outcomes.py` does not import ChatRunner, ToolDispatcher, server,
-  Rhino/GH modules, or capability registry modules.
+- AST direct-import checks prove `plan_graph_outcomes.py` imports
+  `tool_result_view.py`, not `tool_contracts.py`.
+- A lightweight import probe proves importing `rook.learning.plan_graph_outcomes`
+  does not load `rook.agent.tool_dispatcher`.
 
 Suggested verification:
 
 ```powershell
 mcp_server\.venv\Scripts\python.exe -m pytest -p no:cacheprovider mcp_server/tests/test_plan_graph_outcomes.py mcp_server/tests/test_plan_graph.py mcp_server/tests/test_rookchat_tool_contracts.py -q
-mcp_server\.venv\Scripts\python.exe -m py_compile mcp_server/src/rook/learning/plan_graph_outcomes.py
-rg -n "chat_runner|tool_dispatcher|server|call_rhino|ExecutionPlan|capability|registry|knowledge" mcp_server/src/rook/learning/plan_graph_outcomes.py
+mcp_server\.venv\Scripts\python.exe -m py_compile mcp_server/src/rook/agent/chat/tool_result_view.py mcp_server/src/rook/agent/chat/tool_contracts.py mcp_server/src/rook/learning/plan_graph_outcomes.py
+rg -n "tool_contracts" mcp_server/src/rook/learning/plan_graph_outcomes.py
 rg -n "plan_graph" mcp_server/src/rook/agent/chat/tool_contracts.py
 rg -n "tool_contracts|plan_graph_outcomes" mcp_server/src/rook/learning/plan_graph.py
 git diff --check

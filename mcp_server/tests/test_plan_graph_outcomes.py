@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import ast
+import os
 from pathlib import Path
+import subprocess
+import sys
 
 import pytest
 
@@ -220,6 +224,18 @@ def test_adapter_deep_copies_receipt_repair_anchor_and_memory_facts():
     assert outcome.evidence.repair_anchor["pins_out"][0]["name"] == "B"
     assert outcome.memory_updates["facts"]["repair_anchor"]["pins_out"][0]["name"] == "B"
 
+    outcome.evidence.receipt["repair_anchor"]["pins_out"][0]["name"] = "ReceiptOnly"
+    assert outcome.evidence.repair_anchor["pins_out"][0]["name"] == "B"
+    assert outcome.memory_updates["facts"]["repair_anchor"]["pins_out"][0]["name"] == "B"
+
+    outcome.evidence.repair_anchor["pins_out"][0]["name"] = "EvidenceOnly"
+    assert outcome.evidence.receipt["repair_anchor"]["pins_out"][0]["name"] == "ReceiptOnly"
+    assert outcome.memory_updates["facts"]["repair_anchor"]["pins_out"][0]["name"] == "B"
+
+    outcome.memory_updates["facts"]["repair_anchor"]["pins_out"][0]["name"] = "MemoryOnly"
+    assert outcome.evidence.receipt["repair_anchor"]["pins_out"][0]["name"] == "ReceiptOnly"
+    assert outcome.evidence.repair_anchor["pins_out"][0]["name"] == "EvidenceOnly"
+
 
 def test_receipt_extraction_only_uses_internal_data_script_receipt_location():
     result = {
@@ -240,33 +256,67 @@ def test_receipt_extraction_only_uses_internal_data_script_receipt_location():
     }
 
 
-def test_plan_graph_outcomes_import_boundary():
-    source = Path("mcp_server/src/rook/learning/plan_graph_outcomes.py").read_text(
-        encoding="utf-8"
+def _direct_import_modules(path: str) -> set[str]:
+    tree = ast.parse(Path(path).read_text(encoding="utf-8"))
+    modules: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            modules.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            prefix = "." * node.level
+            modules.add(f"{prefix}{node.module or ''}")
+    return modules
+
+
+def test_plan_graph_outcomes_uses_pure_tool_result_view_boundary():
+    imports = _direct_import_modules(
+        "mcp_server/src/rook/learning/plan_graph_outcomes.py"
     )
 
-    forbidden = [
-        "chat_runner",
-        "tool_dispatcher",
-        "server",
-        "call_rhino",
-        "ExecutionPlan",
-        "capability",
-        "registry",
-        "knowledge",
-    ]
-    for term in forbidden:
-        assert term not in source
+    assert "rook.agent.chat.tool_result_view" in imports
+    assert "rook.agent.chat.tool_contracts" not in imports
+    assert "rook.agent.tool_dispatcher" not in imports
+    assert "rook.agent.chat.chat_runner" not in imports
+    assert "rook.server" not in imports
+    assert "rook.learning.plan_graph" in imports
+
+
+def test_tool_result_view_stays_pure():
+    imports = _direct_import_modules("mcp_server/src/rook/agent/chat/tool_result_view.py")
+
+    assert imports <= {"dataclasses", "typing"}
+
+
+def test_importing_plan_graph_outcomes_does_not_load_tool_dispatcher():
+    env = os.environ.copy()
+    src_path = str(Path("mcp_server/src").resolve())
+    env["PYTHONPATH"] = (
+        src_path
+        if not env.get("PYTHONPATH")
+        else f"{src_path}{os.pathsep}{env['PYTHONPATH']}"
+    )
+
+    probe = (
+        "import sys\n"
+        "import rook.learning.plan_graph_outcomes\n"
+        "if 'rook.agent.tool_dispatcher' in sys.modules:\n"
+        "    raise SystemExit('rook.agent.tool_dispatcher loaded')\n"
+    )
+
+    subprocess.run(
+        [sys.executable, "-c", probe],
+        check=True,
+        env=env,
+    )
 
 
 def test_core_modules_do_not_import_adapter_or_each_other():
-    tool_contracts = Path("mcp_server/src/rook/agent/chat/tool_contracts.py").read_text(
-        encoding="utf-8"
+    tool_contracts_imports = _direct_import_modules(
+        "mcp_server/src/rook/agent/chat/tool_contracts.py"
     )
-    plan_graph = Path("mcp_server/src/rook/learning/plan_graph.py").read_text(
-        encoding="utf-8"
-    )
+    plan_graph_imports = _direct_import_modules("mcp_server/src/rook/learning/plan_graph.py")
 
-    assert "plan_graph" not in tool_contracts
-    assert "tool_contracts" not in plan_graph
-    assert "plan_graph_outcomes" not in plan_graph
+    assert "rook.learning.plan_graph" not in tool_contracts_imports
+    assert "rook.learning.plan_graph_outcomes" not in tool_contracts_imports
+    assert "rook.agent.chat.tool_contracts" not in plan_graph_imports
+    assert "rook.learning.plan_graph_outcomes" not in plan_graph_imports

@@ -1,7 +1,7 @@
 from copy import deepcopy
 from typing import Any
 
-from rook.agent.chat.tool_contracts import ToolResultView, normalize_tool_result
+from rook.agent.chat.tool_result_view import ToolResultView, normalize_tool_result
 from rook.learning.plan_graph import NodeEvidence, NodeOutcome
 
 
