@@ -153,10 +153,27 @@ public sealed class FalReconstructionProvider : IReconstructionProvider
         if (request is null) throw new ArgumentNullException(nameof(request));
 
         var payload = BuildSubmitPayload(request);
-        var response = await _transport.PostJsonAsync(
-            QueueSubmitUri(request.ModelId),
-            payload.ToJsonString(),
-            cancellationToken).ConfigureAwait(false);
+        FalHttpResponse response;
+        try
+        {
+            response = await _transport.PostJsonAsync(
+                QueueSubmitUri(request.ModelId),
+                payload.ToJsonString(),
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (TaskCanceledException)
+        {
+            return new FailedSubmitOutcome(TransportTimeout("submit"));
+        }
+        catch (HttpRequestException)
+        {
+            return new FailedSubmitOutcome(TransportError("submit"));
+        }
+
         if (!response.IsSuccessStatusCode)
             return new FailedSubmitOutcome(FalErrorMapper.MapHttpFailure(response));
 
@@ -188,7 +205,24 @@ public sealed class FalReconstructionProvider : IReconstructionProvider
                 "Reconstruction job has no status URL.",
                 Retryable: false));
 
-        var response = await _transport.GetAsync(handle.StatusUrl, cancellationToken).ConfigureAwait(false);
+        FalHttpResponse response;
+        try
+        {
+            response = await _transport.GetAsync(handle.StatusUrl, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (TaskCanceledException)
+        {
+            return new FailedStatusOutcome(TransportTimeout("status"));
+        }
+        catch (HttpRequestException)
+        {
+            return new FailedStatusOutcome(TransportError("status"));
+        }
+
         if (!response.IsSuccessStatusCode)
             return new FailedStatusOutcome(FalErrorMapper.MapHttpFailure(response));
 
@@ -209,7 +243,24 @@ public sealed class FalReconstructionProvider : IReconstructionProvider
                 "Reconstruction job has no response URL.",
                 Retryable: false));
 
-        var response = await _transport.GetAsync(handle.ResponseUrl, cancellationToken).ConfigureAwait(false);
+        FalHttpResponse response;
+        try
+        {
+            response = await _transport.GetAsync(handle.ResponseUrl, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (TaskCanceledException)
+        {
+            return new FailedResultOutcome(TransportTimeout("result fetch"));
+        }
+        catch (HttpRequestException)
+        {
+            return new FailedResultOutcome(TransportError("result fetch"));
+        }
+
         if (!response.IsSuccessStatusCode)
             return new FailedResultOutcome(FalErrorMapper.MapHttpFailure(response));
 
@@ -241,11 +292,27 @@ public sealed class FalReconstructionProvider : IReconstructionProvider
         var method = new HttpMethod(string.IsNullOrWhiteSpace(handle.CancelHttpMethod)
             ? CancelHttpMethod
             : handle.CancelHttpMethod!);
-        var response = await _transport.SendAsync(
-            method,
-            handle.CancelUrl,
-            bodyJson: null,
-            cancellationToken).ConfigureAwait(false);
+        FalHttpResponse response;
+        try
+        {
+            response = await _transport.SendAsync(
+                method,
+                handle.CancelUrl,
+                bodyJson: null,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (TaskCanceledException)
+        {
+            return new FailedCancelOutcome(TransportTimeout("cancel"));
+        }
+        catch (HttpRequestException)
+        {
+            return new FailedCancelOutcome(TransportError("cancel"));
+        }
 
         if (response.IsSuccessStatusCode)
             return new CanceledOutcome();
@@ -281,6 +348,21 @@ public sealed class FalReconstructionProvider : IReconstructionProvider
 
     private static GenerationError JsonError(string message)
         => new(GenerationErrorCode.ExecutionFailed, message, Retryable: false);
+
+    // Raw transport faults from the HttpClient (FalApiClient does not wrap the JSON path) become typed,
+    // retryable DependencyUnavailable failures here — parity with the RookVision fal providers — so they
+    // never escape to the manager as an opaque submit_failed/poll_failed.
+    private static GenerationError TransportTimeout(string phase)
+        => new(
+            GenerationErrorCode.DependencyUnavailable,
+            $"fal reconstruction {phase} timed out.",
+            Retryable: true);
+
+    private static GenerationError TransportError(string phase)
+        => new(
+            GenerationErrorCode.DependencyUnavailable,
+            $"fal reconstruction {phase} failed due to a transport error.",
+            Retryable: true);
 
     private static Uri QueueSubmitUri(string modelId)
         => new($"https://queue.fal.run/{modelId}");

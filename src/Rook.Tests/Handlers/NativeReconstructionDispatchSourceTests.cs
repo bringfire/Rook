@@ -52,6 +52,38 @@ public sealed class NativeReconstructionDispatchSourceTests
     }
 
     [Fact]
+    public void NativeBridge_RoutesCleanupPreparedImportThroughOffUiDispatch()
+    {
+        // The native import handler emits a cleanup_prepared_import op on post-prepare failure. The
+        // managed bridge must accept it as an off-UI op; otherwise it is rejected 400 and prepared OBJ
+        // bundles leak. Assert the case is grouped with the other off-UI dispatch ops.
+        var managed = File.ReadAllText(Path.Combine(
+            RepoRoot,
+            "src",
+            "Rook",
+            "InternalBridge",
+            "NativeGhBridgeRegistrar.cs"));
+
+        var recordCase = managed.IndexOf(
+            "case ReconstructionOpHandler.OpRecordImport:",
+            System.StringComparison.Ordinal);
+        Assert.True(recordCase >= 0, "Reconstruction off-UI dispatch group not found.");
+
+        var cleanupCase = managed.IndexOf(
+            "case ReconstructionOpHandler.OpCleanupPreparedImport:",
+            System.StringComparison.Ordinal);
+        // The off-UI callback that follows the reconstruction case labels (ExecuteOffUiApiResponseCallback
+        // also appears in earlier dispatch switches, so search from the record case forward).
+        var offUiCall = managed.IndexOf(
+            "return ExecuteOffUiApiResponseCallback",
+            recordCase,
+            System.StringComparison.Ordinal);
+
+        Assert.True(offUiCall > recordCase, "Off-UI callback should follow the off-UI case labels.");
+        Assert.InRange(cleanupCase, recordCase, offUiCall);
+    }
+
+    [Fact]
     public void NativeImportRoute_IsHybridAndStampsReconstructionMetadata()
     {
         var text = File.ReadAllText(Path.Combine(

@@ -75,6 +75,92 @@ public sealed class FalReconstructionProviderTests
     }
 
     [Fact]
+    public async Task Submit_TransportThrowsHttpRequestException_ReturnsFailedDependencyUnavailableRetryable()
+    {
+        var transport = new FakeTransport { PostException = new HttpRequestException("connection reset") };
+
+        var outcome = await new FalReconstructionProvider(transport).SubmitAsync(
+            new ReconstructionProviderSubmitRequest(HunyuanModelId, new Uri("https://rook.local/s.png"), new JsonObject()),
+            CancellationToken.None);
+
+        var failed = Assert.IsType<FailedSubmitOutcome>(outcome);
+        Assert.Equal(GenerationErrorCode.DependencyUnavailable, failed.Error.Code);
+        Assert.True(failed.Error.Retryable);
+    }
+
+    [Fact]
+    public async Task Submit_TransportTimesOut_ReturnsFailedDependencyUnavailableRetryable()
+    {
+        // A TaskCanceledException with no cancellation requested is an HttpClient timeout, not a caller
+        // cancel — it must map to a typed retryable failure rather than escaping to the manager.
+        var transport = new FakeTransport { PostException = new TaskCanceledException("timed out") };
+
+        var outcome = await new FalReconstructionProvider(transport).SubmitAsync(
+            new ReconstructionProviderSubmitRequest(HunyuanModelId, new Uri("https://rook.local/s.png"), new JsonObject()),
+            CancellationToken.None);
+
+        var failed = Assert.IsType<FailedSubmitOutcome>(outcome);
+        Assert.Equal(GenerationErrorCode.DependencyUnavailable, failed.Error.Code);
+        Assert.True(failed.Error.Retryable);
+    }
+
+    [Fact]
+    public async Task Submit_CallerCancels_PropagatesOperationCanceled()
+    {
+        // When the caller's token IS cancelled, cancellation must propagate (cooperative shutdown), not
+        // be swallowed into a retryable provider failure.
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        var transport = new FakeTransport { PostException = new OperationCanceledException(cts.Token) };
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            new FalReconstructionProvider(transport).SubmitAsync(
+                new ReconstructionProviderSubmitRequest(HunyuanModelId, new Uri("https://rook.local/s.png"), new JsonObject()),
+                cts.Token));
+    }
+
+    [Fact]
+    public async Task Status_TransportThrows_ReturnsFailedDependencyUnavailableRetryable()
+    {
+        var transport = new FakeTransport { GetException = new HttpRequestException("connection reset") };
+
+        var outcome = await new FalReconstructionProvider(transport).GetStatusAsync(
+            new ProviderJobHandle("req-123", statusUrl: new Uri("https://queue.fal.run/status/req-123")),
+            CancellationToken.None);
+
+        var failed = Assert.IsType<FailedStatusOutcome>(outcome);
+        Assert.Equal(GenerationErrorCode.DependencyUnavailable, failed.Error.Code);
+        Assert.True(failed.Error.Retryable);
+    }
+
+    [Fact]
+    public async Task Fetch_TransportThrows_ReturnsFailedDependencyUnavailableRetryable()
+    {
+        var transport = new FakeTransport { GetException = new TaskCanceledException("timed out") };
+
+        var outcome = await new FalReconstructionProvider(transport).FetchResultAsync(
+            new ProviderJobHandle("req-123", responseUrl: new Uri("https://queue.fal.run/response/req-123")),
+            CancellationToken.None);
+
+        var failed = Assert.IsType<FailedResultOutcome>(outcome);
+        Assert.Equal(GenerationErrorCode.DependencyUnavailable, failed.Error.Code);
+        Assert.True(failed.Error.Retryable);
+    }
+
+    [Fact]
+    public async Task Cancel_TransportThrows_ReturnsFailedCancelDependencyUnavailable()
+    {
+        var transport = new FakeTransport { SendException = new HttpRequestException("connection reset") };
+
+        var outcome = await new FalReconstructionProvider(transport).CancelAsync(
+            new ProviderJobHandle("req-123", cancelUrl: new Uri("https://queue.fal.run/cancel/req-123"), cancelHttpMethod: "PUT"),
+            CancellationToken.None);
+
+        var failed = Assert.IsType<FailedCancelOutcome>(outcome);
+        Assert.Equal(GenerationErrorCode.DependencyUnavailable, failed.Error.Code);
+    }
+
+    [Fact]
     public async Task Status_InProgress_MapsToInFlight()
     {
         var transport = new FakeTransport();
@@ -273,19 +359,30 @@ public sealed class FalReconstructionProviderTests
         public string? LastPostBody { get; private set; }
         public Uri? LastGetUrl { get; private set; }
 
+        // When set, the corresponding transport call throws instead of dequeuing a response — models a
+        // socket/timeout fault from the underlying HttpClient (FalApiClient does not wrap the JSON path).
+        public Exception? PostException { get; set; }
+        public Exception? GetException { get; set; }
+        public Exception? SendException { get; set; }
+
         public Task<FalHttpResponse> PostJsonAsync(Uri url, string bodyJson, CancellationToken ct)
         {
             LastPostBody = bodyJson;
+            if (PostException is not null) throw PostException;
             return Task.FromResult(Posts.Dequeue());
         }
 
         public Task<FalHttpResponse> GetAsync(Uri url, CancellationToken ct)
         {
             LastGetUrl = url;
+            if (GetException is not null) throw GetException;
             return Task.FromResult(Gets.Dequeue());
         }
 
         public Task<FalHttpResponse> SendAsync(HttpMethod method, Uri url, string? bodyJson, CancellationToken ct)
-            => Task.FromResult(Sends.Dequeue());
+        {
+            if (SendException is not null) throw SendException;
+            return Task.FromResult(Sends.Dequeue());
+        }
     }
 }

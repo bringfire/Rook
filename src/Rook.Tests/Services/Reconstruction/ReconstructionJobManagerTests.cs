@@ -397,6 +397,96 @@ public sealed class ReconstructionJobManagerTests : IDisposable
     }
 
     [Fact]
+    public async Task ProviderTransportFailure_DuringSubmit_SurfacesProviderUnavailable_NotSubmitFailed()
+    {
+        // Real provider over a transport whose submit POST throws a raw HttpRequestException (the fault
+        // FalApiClient's JSON path does not wrap). The convergence goal is that this is a typed
+        // provider_unavailable, never the opaque submit_failed catch-all.
+        var root = NewTempRoot();
+        var store = new ArtifactStore(Path.Combine(root, "artifacts"));
+        var ledger = new JsonlReconstructionJobLedger(Path.Combine(root, "ledger.jsonl"));
+        var transport = new FakeFalTransport { PostException = new HttpRequestException("connection reset") };
+        var manager = new ReconstructionJobManager(
+            store,
+            ReconstructionModelCatalog.FromJson(CatalogJson),
+            ledger,
+            new FalReconstructionProvider(transport),
+            new ReconstructionPackageMaterializer(store, new FakeDownloader()),
+            new FakeSourceImagePublisher(),
+            TimeSpan.FromMilliseconds(2));
+        _managers.Add(manager);
+        var source = store.Create(
+            "generated_image",
+            new[] { new BlobInput("image", new byte[] { 1, 2, 3 }, "png") });
+
+        var submit = await manager.SubmitAsync(Request(source.Id), CancellationToken.None);
+
+        Assert.False(submit.Success);
+        Assert.Equal("provider_unavailable", submit.Failure!.Code);
+        Assert.True(submit.Failure.Retryable);
+        var terminal = manager.List(10).Jobs.Single();
+        Assert.Equal(ReconstructionJobState.Error, terminal.State);
+        Assert.Equal("provider_unavailable", terminal.Error!.Code);
+    }
+
+    [Fact]
+    public async Task ProviderTransportFailure_DuringStatusPoll_SurfacesProviderUnavailable_NotPollFailed()
+    {
+        // Submit succeeds (200), but the status GET throws a raw transport fault during polling. Before
+        // the convergence this fell through to the manager's opaque poll_failed; it must now be typed.
+        var root = NewTempRoot();
+        var store = new ArtifactStore(Path.Combine(root, "artifacts"));
+        var ledger = new JsonlReconstructionJobLedger(Path.Combine(root, "ledger.jsonl"));
+        var transport = new FakeFalTransport { GetException = new HttpRequestException("connection reset") };
+        transport.Posts.Enqueue(new FalHttpResponse(
+            200,
+            @"{""request_id"":""req-1"",""status_url"":""https://queue.fal.run/status/req-1"",""response_url"":""https://queue.fal.run/response/req-1"",""cancel_url"":""https://queue.fal.run/cancel/req-1""}",
+            EmptyHeaders()));
+        var manager = new ReconstructionJobManager(
+            store,
+            ReconstructionModelCatalog.FromJson(CatalogJson),
+            ledger,
+            new FalReconstructionProvider(transport),
+            new ReconstructionPackageMaterializer(store, new FakeDownloader()),
+            new FakeSourceImagePublisher(),
+            TimeSpan.FromMilliseconds(2));
+        _managers.Add(manager);
+        var source = store.Create(
+            "generated_image",
+            new[] { new BlobInput("image", new byte[] { 1, 2, 3 }, "png") });
+
+        var submit = await manager.SubmitAsync(Request(source.Id), CancellationToken.None);
+        await WaitUntil(
+            () => manager.Status(submit.Job!.JobId).Job!.State == ReconstructionJobState.Error,
+            2000);
+
+        var rec = manager.Status(submit.Job!.JobId).Job!;
+        Assert.Equal("provider_unavailable", rec.Error!.Code);   // typed, not opaque "poll_failed"
+        Assert.True(rec.Error.Retryable);
+    }
+
+    [Fact]
+    public async Task Submit_FalUploadFailure_RecordsProviderUnavailable_NotSubmitFailed()
+    {
+        // The source-image CDN upload failing (FalApiException) is a provider dependency failure, not a
+        // local source-read/IO fault — it must be distinguished from the generic submit_failed path.
+        var fixture = CreateFixture();
+        fixture.Publisher.ThrowFalApiException = true;
+        var source = fixture.Store.Create(
+            "generated_image",
+            new[] { new BlobInput("image", new byte[] { 1, 2, 3 }, "png") });
+
+        var result = await fixture.Manager.SubmitAsync(Request(source.Id), CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Equal("provider_unavailable", result.Failure!.Code);
+        Assert.True(result.Failure.Retryable);
+        var status = fixture.Manager.List(10).Jobs.Single();
+        Assert.Equal(ReconstructionJobState.Error, status.State);
+        Assert.Equal("provider_unavailable", status.Error!.Code);
+    }
+
+    [Fact]
     public void ReconcileInterruptedJobs_NonTerminalBecomeInterrupted_PreserveProviderFields_TerminalUntouched()
     {
         var fixture = CreateFixture();
@@ -616,21 +706,29 @@ public sealed class ReconstructionJobManagerTests : IDisposable
         public Queue<FalHttpResponse> Posts { get; } = new();
         public Queue<FalHttpResponse> Gets { get; } = new();
         public Queue<FalHttpResponse> Sends { get; } = new();
+        // When set, the call throws a raw transport fault (socket/timeout) — the kind FalApiClient's
+        // JSON path does not wrap, exercising the provider's typed-failure conversion end-to-end.
+        public Exception? PostException { get; set; }
+        public Exception? GetException { get; set; }
+        public Exception? SendException { get; set; }
 
         public Task<FalHttpResponse> PostJsonAsync(Uri url, string bodyJson, CancellationToken ct)
-            => Task.FromResult(Posts.Dequeue());
+            => PostException is not null ? throw PostException : Task.FromResult(Posts.Dequeue());
 
         public Task<FalHttpResponse> GetAsync(Uri url, CancellationToken ct)
-            => Task.FromResult(Gets.Dequeue());
+            => GetException is not null ? throw GetException : Task.FromResult(Gets.Dequeue());
 
         public Task<FalHttpResponse> SendAsync(HttpMethod method, Uri url, string? bodyJson, CancellationToken ct)
-            => Task.FromResult(Sends.Dequeue());
+            => SendException is not null ? throw SendException : Task.FromResult(Sends.Dequeue());
     }
 
     private sealed class FakeSourceImagePublisher : IReconstructionSourceImagePublisher
     {
         public List<(byte[] Bytes, string Mime, string FileName)> Published { get; } = new();
         public bool ThrowOnPublish { get; set; }
+        // Models a fal CDN upload fault (transport/non-2xx), which FalApiClient surfaces as
+        // FalApiException — distinct from a local source-read/IO fault.
+        public bool ThrowFalApiException { get; set; }
 
         public Task<Uri> PublishAsync(
             byte[] bytes,
@@ -638,6 +736,8 @@ public sealed class ReconstructionJobManagerTests : IDisposable
             string fileName,
             CancellationToken ct)
         {
+            if (ThrowFalApiException)
+                throw new FalApiException("fal CDN upload failed");
             if (ThrowOnPublish)
                 throw new InvalidOperationException("publisher failed");
 

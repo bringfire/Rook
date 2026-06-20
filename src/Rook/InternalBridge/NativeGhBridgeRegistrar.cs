@@ -1854,6 +1854,7 @@ namespace Rook.InternalBridge
                 case ReconstructionOpHandler.OpResult:
                 case ReconstructionOpHandler.OpPrepareImport:
                 case ReconstructionOpHandler.OpRecordImport:
+                case ReconstructionOpHandler.OpCleanupPreparedImport:
                     return ExecuteOffUiApiResponseCallback(
                         responseJsonUtf8,
                         responseJsonCapacity,

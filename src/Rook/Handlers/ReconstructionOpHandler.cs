@@ -500,26 +500,48 @@ namespace Rook.Handlers
             string assetRole,
             IReadOnlyDictionary<string, string> providerFileNames)
         {
-            var companions = manifest["asset_bindings"]?[assetRole]?["companion_roles"] as JsonArray;
-            if (companions is null) yield break;
+            var emitted = new HashSet<string>(StringComparer.Ordinal);
 
-            foreach (var roleNode in companions)
+            if (manifest["asset_bindings"]?[assetRole]?["companion_roles"] is JsonArray companions)
             {
-                if (roleNode is not JsonValue value ||
-                    !value.TryGetValue<string>(out var role) ||
-                    !HasRole(package, role))
+                foreach (var roleNode in companions)
                 {
-                    continue;
+                    if (roleNode is JsonValue value &&
+                        value.TryGetValue<string>(out var role) &&
+                        HasRole(package, role) &&
+                        emitted.Add(role))
+                    {
+                        yield return CompanionEntry(package, role, providerFileNames);
+                    }
                 }
-
-                var path = _store.GetBlobAbsolutePath(package.Id, role);
-                yield return new Dictionary<string, object?>
-                {
-                    ["role"] = role,
-                    ["path"] = path,
-                    ["file_name"] = FileNameForRole(providerFileNames, role, path),
-                };
             }
+
+            // The static manifest binds only the generic `texture` companion, but PBR packages carry
+            // detailed texture roles (texture_base_color, texture_normal, …) the result mapper emits per
+            // map. Stage every texture* role present in the package so an OBJ/MTL bundle imports with all
+            // of its images even when no generic `texture` blob exists.
+            if (string.Equals(assetRole, ReconstructionFileRoles.ModelObj, StringComparison.Ordinal))
+            {
+                foreach (var file in package.Files)
+                {
+                    if (file.Role.StartsWith("texture", StringComparison.Ordinal) && emitted.Add(file.Role))
+                        yield return CompanionEntry(package, file.Role, providerFileNames);
+                }
+            }
+        }
+
+        private Dictionary<string, object?> CompanionEntry(
+            Artifact package,
+            string role,
+            IReadOnlyDictionary<string, string> providerFileNames)
+        {
+            var path = _store.GetBlobAbsolutePath(package.Id, role);
+            return new Dictionary<string, object?>
+            {
+                ["role"] = role,
+                ["path"] = path,
+                ["file_name"] = FileNameForRole(providerFileNames, role, path),
+            };
         }
 
         private string? StageObjImportBundle(

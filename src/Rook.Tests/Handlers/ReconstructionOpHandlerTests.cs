@@ -148,6 +148,54 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
     }
 
     [Fact]
+    public async Task DispatchOffUi_PrepareImport_StagesDetailedTextureRolesForObj()
+    {
+        // PBR packages carry detailed texture roles (texture_base_color, texture_normal, …) but no
+        // generic `texture` blob. The OBJ companion set must still include those images, or the model
+        // imports without its maps.
+        var fixture = CreateFixture();
+        fixture.Downloader.Files["https://example.test/model.obj"] = new byte[] { 1, 2, 3 };
+        fixture.Downloader.Files["https://example.test/material.mtl"] = new byte[] { 4, 5, 6 };
+        fixture.Downloader.Files["https://example.test/base_color.png"] = new byte[] { 7, 8, 9 };
+        fixture.Downloader.Files["https://example.test/normal.png"] = new byte[] { 10, 11, 12 };
+        var package = await BuildPackageAsync(fixture, JsonNode.Parse("""
+        {
+          "model_urls": {
+            "obj": {"url": "https://example.test/model.obj"},
+            "mtl": {"url": "https://example.test/material.mtl"}
+          },
+          "texture_urls": {
+            "base_color": {"url": "https://example.test/base_color.png"},
+            "normal": {"url": "https://example.test/normal.png"}
+          }
+        }
+        """)!);
+
+        var response = fixture.Handler.DispatchOffUi(
+            "{" +
+            "\"op\":\"prepare_import\"," +
+            $"\"package_id\":\"{package.Id}\"," +
+            "\"import_id\":\"ffffffff-ffff-ffff-ffff-ffffffffffff\"" +
+            "}");
+
+        Assert.True(response.Success, JsonSerializer.Serialize(response.Data));
+        var data = Assert.IsType<Dictionary<string, object?>>(response.Data);
+        Assert.Equal("model_obj", data["asset_role"]);
+        var companions = Assert.IsAssignableFrom<object[]>(data["companion_files"])
+            .Select(item => Assert.IsType<Dictionary<string, object?>>(item))
+            .ToList();
+        Assert.Contains(companions, c => c["role"]?.Equals("material_mtl") == true);
+        Assert.Contains(companions, c => c["role"]?.Equals("texture_base_color") == true);
+        Assert.Contains(companions, c => c["role"]?.Equals("texture_normal") == true);
+
+        // every companion is physically staged next to the OBJ under its returned file name
+        var importPath = Assert.IsType<string>(data["path"]);
+        var bundleDir = Path.GetDirectoryName(importPath)!;
+        foreach (var companion in companions)
+            Assert.True(File.Exists(Path.Combine(bundleDir, Assert.IsType<string>(companion["file_name"]))));
+    }
+
+    [Fact]
     public async Task DispatchOffUi_PrepareImport_RootModelGlbObjDoesNotMasqueradeAsGlb()
     {
         var fixture = CreateFixture();

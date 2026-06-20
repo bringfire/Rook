@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Rook.Artifacts;
 using Rook.Services.Reconstruction.Fal;
+using Rook.Services.Vision.Fal;
 using Rook.Services.Vision.Generation;
 
 namespace Rook.Services.Reconstruction;
@@ -156,11 +157,28 @@ public sealed class ReconstructionJobManager : IDisposable
         {
             throw;
         }
+        catch (FalApiException ex)
+        {
+            // The fal CDN source-image upload failed (transport fault or non-2xx). That is a provider
+            // dependency failure, not a local source-read/IO fault — surface it with the same
+            // provider_unavailable semantics the provider uses for its own transport failures, rather
+            // than collapsing it into the generic submit_failed below.
+            return RecordSubmitFailure(submitting, Failure(
+                "provider_unavailable",
+                "Reconstruction source image upload to the provider failed.",
+                null,
+                retryable: true,
+                new Dictionary<string, object?>
+                {
+                    ["exception_type"] = ex.GetType().Name,
+                }));
+        }
         catch (Exception ex)
         {
-            // Reserved for source-read/publish/IO faults: the provider itself returns typed Failed*
-            // outcomes for HTTP/parse failures (handled below) rather than throwing.
-            var failure = Failure(
+            // Reserved for local source-read/IO faults: the provider itself returns typed Failed*
+            // outcomes for HTTP/parse failures (handled below) rather than throwing, and fal upload
+            // faults are handled by the FalApiException catch above.
+            return RecordSubmitFailure(submitting, Failure(
                 "submit_failed",
                 "Reconstruction submit failed.",
                 null,
@@ -168,15 +186,7 @@ public sealed class ReconstructionJobManager : IDisposable
                 new Dictionary<string, object?>
                 {
                     ["exception_type"] = ex.GetType().Name,
-                });
-            _ledger.Append(submitting with
-            {
-                State = ReconstructionJobState.Error,
-                Stage = ReconstructionJobStage.Error,
-                Error = failure,
-                UpdatedAt = DateTimeOffset.UtcNow,
-            });
-            return new ReconstructionSubmitResult(false, null, failure);
+                }));
         }
 
         switch (submitOutcome)
@@ -223,6 +233,21 @@ public sealed class ReconstructionJobManager : IDisposable
                 });
                 return new ReconstructionSubmitResult(false, null, unexpected);
         }
+    }
+
+    // Records a terminal submit-phase error on the ledger and returns the failed submit result.
+    private ReconstructionSubmitResult RecordSubmitFailure(
+        ReconstructionJobLedgerRecord submitting,
+        ReconstructionFailure failure)
+    {
+        _ledger.Append(submitting with
+        {
+            State = ReconstructionJobState.Error,
+            Stage = ReconstructionJobStage.Error,
+            Error = failure,
+            UpdatedAt = DateTimeOffset.UtcNow,
+        });
+        return new ReconstructionSubmitResult(false, null, failure);
     }
 
     // net48-safe async file read (File.ReadAllBytesAsync does not exist on net48).
