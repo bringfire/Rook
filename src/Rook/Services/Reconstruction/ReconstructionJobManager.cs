@@ -402,6 +402,16 @@ public sealed class ReconstructionJobManager : IDisposable
                     ["result_artifact_id"] = job.ResultArtifactId.Value.ToString("D"),
                 }));
         }
+        else if (available)
+        {
+            var roles = _store.Get(job.ResultArtifactId!.Value)!.Files
+                .Select(f => f.Role)
+                .ToArray();
+            warnings.AddRange(BuildTextureWarnings(
+                job.TextureExpected,
+                _catalog.Find(job.ModelId),
+                roles));
+        }
 
         return new ReconstructionJobResultEnvelope(
             true,
@@ -595,6 +605,54 @@ public sealed class ReconstructionJobManager : IDisposable
         if (pbr == true) return true;                                          // rule 2
         if (pbr == false) return false;                                        // rule 3
         return model.DefaultTextureExpected;                                   // rule 4
+    }
+
+    // Pure: classifies a delivered reconstruction result against the request's texture expectation and
+    // the model's catalog capability. No store/state access — callers pass the delivered role names.
+    // At most one warning; output_roles is deliberately NOT consulted (advertised vocabulary, not a
+    // guarantee). material_mtl alone counts as not-degraded.
+    internal static IReadOnlyList<ReconstructionWarning> BuildTextureWarnings(
+        bool textureExpected,
+        ReconstructionModelEntry? model,
+        IReadOnlyCollection<string> deliveredRoles)
+    {
+        if (!textureExpected || model is null)
+            return Array.Empty<ReconstructionWarning>();
+
+        if (!model.SupportsPbr)
+        {
+            return new[]
+            {
+                new ReconstructionWarning(
+                    "pbr_unsupported_by_model",
+                    $"Texture output was expected for this request, but model '{model.ModelId}' is not "
+                    + "catalogued as supporting textured/PBR output. The result may lack materials or textures.",
+                    new Dictionary<string, object?>
+                    {
+                        ["model_id"] = model.ModelId,
+                        ["supports_pbr"] = false,
+                    }),
+            };
+        }
+
+        var hasMaterial = deliveredRoles.Any(r =>
+            string.Equals(r, ReconstructionFileRoles.MaterialMtl, StringComparison.Ordinal));
+        var hasTexture = deliveredRoles.Any(r => r.StartsWith("texture", StringComparison.Ordinal));
+        if (hasMaterial || hasTexture)
+            return Array.Empty<ReconstructionWarning>();
+
+        return new[]
+        {
+            new ReconstructionWarning(
+                "result_missing_texture",
+                "Texture output was expected and this model supports it, but the delivered package "
+                + "contains no material or texture assets.",
+                new Dictionary<string, object?>
+                {
+                    ["model_id"] = model.ModelId,
+                    ["delivered_roles"] = deliveredRoles.ToArray(),
+                }),
+        };
     }
 
     private static bool IsJsonTrue(JsonObject options, string key)
