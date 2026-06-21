@@ -108,32 +108,19 @@ namespace Rook.Services.Vision.Video
 
                     using var stream = await response.Content.ReadAsStreamAsync()
                         .ConfigureAwait(false);
-                    using var buffer = new MemoryStream();
-                    var readBuffer = new byte[81920];
 
-                    while (true)
-                    {
-                        var read = await stream.ReadAsync(
-                                readBuffer,
-                                0,
-                                readBuffer.Length,
-                                cancellationToken)
-                            .ConfigureAwait(false);
-                        if (read == 0)
-                            break;
+                    var bytes = await CappedStreamReader.ReadCappedAsync(
+                            stream, _maxGeneratedVideoBytes, cancellationToken)
+                        .ConfigureAwait(false);
+                    if (bytes is null)
+                        return VideoArtifactMaterializationResult.Fail(ExecutionFailed(
+                            "Remote video artifact exceeded the maximum allowed size."));
 
-                        if (buffer.Length + read > _maxGeneratedVideoBytes)
-                            return VideoArtifactMaterializationResult.Fail(ExecutionFailed(
-                                "Remote video artifact exceeded the maximum allowed size."));
-
-                        buffer.Write(readBuffer, 0, read);
-                    }
-
-                    if (buffer.Length == 0)
+                    if (bytes.Length == 0)
                         return VideoArtifactMaterializationResult.Fail(ExecutionFailed(
                             "Remote video artifact response was empty."));
 
-                    return VideoArtifactMaterializationResult.Ok(buffer.ToArray(), mimeType);
+                    return VideoArtifactMaterializationResult.Ok(bytes, mimeType);
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
