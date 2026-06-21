@@ -245,3 +245,23 @@ def test_collect_live_sources_reads_constants_only(monkeypatch):
     assert sources.intercepted_names == INTERCEPTED_META_TOOLS
     assert sources.local_tool_names == frozenset()
     assert "gh_snapshot" in sources.bridge_names or "gh_snapshot" in sources.agent_tier0
+
+
+def test_reconcile_flags_active_member_not_in_intended_membership():
+    # ToolRegistry builds groups from the live TOOL_GROUPS table, but `intended`
+    # uses the injected sources.groups. A real gh_canvas member present in the
+    # canned catalog but omitted from sources.groups activates yet is not
+    # intended -> active_not_intended.
+    sources = SurfaceSources(
+        agent_tier0=frozenset({"request_tools", "search_tools"}),
+        groups={"gh_canvas": ("gh_edit",)},  # intentionally omits gh_status
+        bridge_names=frozenset({"gh_edit", "gh_status"}),
+        intercepted_names=INTERCEPTED_META_TOOLS,
+    )
+    catalog = {name: _schema(name) for name in ("gh_edit", "gh_status")}
+
+    findings = reconcile_active_schemas(sources, catalog, group="gh_canvas")
+    keys = {(f.code, f.tool, f.severity) for f in findings}
+
+    assert ("active_not_intended", "gh_status", "warning") in keys
+    assert not any(f.code == "intended_not_active" for f in findings)
