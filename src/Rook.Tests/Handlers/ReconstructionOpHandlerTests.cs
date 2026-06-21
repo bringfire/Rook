@@ -498,6 +498,49 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
     }
 
     [Fact]
+    public async Task DispatchOffUi_Result_TextureExpectedBarePackage_SerializesMissingTextureWarning()
+    {
+        // Pins the UI-facing contract: the result op must serialize the degraded-texture warning so the
+        // UI reads result.warnings[] rather than inferring degradation from raw asset_roles.
+        var fixture = CreateFixture();
+        fixture.Downloader.Files["https://example.test/model.glb"] = new byte[] { 1, 2, 3 };
+        var jobId = Guid.NewGuid();
+        var package = await BuildPackageAsync(fixture, JsonNode.Parse("""
+        {
+          "model_urls": {
+            "glb": {"url": "https://example.test/model.glb"}
+          }
+        }
+        """)!, jobId);   // bare package: model_glb only, no texture/material
+        // Complete() blanks model_id (which would null the catalog lookup and suppress the warning), so
+        // build the terminal record from Queued with a real model id and TextureExpected = true.
+        fixture.Ledger.Append(
+            ReconstructionJobLedgerRecord.Queued(jobId, HunyuanModelId, Guid.NewGuid(), "image", textureExpected: true)
+                with
+                {
+                    State = ReconstructionJobState.Complete,
+                    Stage = ReconstructionJobStage.Complete,
+                    ResultArtifactId = package.Id,
+                    ResultAvailable = true,
+                });
+
+        var response = fixture.Handler.DispatchOffUi(
+            "{" +
+            "\"op\":\"job_result\"," +
+            $"\"job_id\":\"{jobId}\"" +
+            "}");
+
+        Assert.True(response.Success, JsonSerializer.Serialize(response.Data));
+        var data = Assert.IsType<Dictionary<string, object?>>(response.Data);
+        var warnings = Assert.IsAssignableFrom<object[]>(data["warnings"]);
+        var warning = Assert.IsType<Dictionary<string, object?>>(Assert.Single(warnings));
+        Assert.Equal("result_missing_texture", warning["code"]);
+        var details = Assert.IsType<Dictionary<string, object?>>(warning["details"]);
+        Assert.Equal(HunyuanModelId, details["model_id"]);
+        Assert.Contains("model_glb", Assert.IsAssignableFrom<object[]>(details["delivered_roles"]));
+    }
+
+    [Fact]
     public async Task DispatchOffUi_RecordImport_AppendsImportManifestHistory()
     {
         var fixture = CreateFixture();
