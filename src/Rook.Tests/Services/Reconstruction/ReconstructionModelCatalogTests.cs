@@ -33,6 +33,51 @@ public sealed class ReconstructionModelCatalogTests
         Assert.DoesNotContain("dev/hidden", ids);
     }
 
+    [Fact]
+    public void DefaultTextureExpected_ParsesTrue_WhenPresent()
+    {
+        const string json = """
+        {
+          "schema_version": 1,
+          "models": [{
+            "model_id": "fal-ai/hunyuan-3d/v3.1/rapid/image-to-3d",
+            "provider": "fal", "task": "single_image_to_3d", "status": "stable", "enabled": true,
+            "pipeline_roles": ["single_image_to_3d"], "input_types": ["image_url"],
+            "output_roles": ["model_glb"], "preferred_asset_role": "model_glb",
+            "fallback_order": ["model_glb"], "supports_pbr": true,
+            "default_texture_expected": true,
+            "preprocessing": {"recommended": false, "required": false},
+            "docs_url": "https://fal.ai/x"
+          }]
+        }
+        """;
+        var entry = ReconstructionModelCatalog.FromJson(json).Find("fal-ai/hunyuan-3d/v3.1/rapid/image-to-3d");
+        Assert.NotNull(entry);
+        Assert.True(entry!.DefaultTextureExpected);
+    }
+
+    [Fact]
+    public void DefaultTextureExpected_DefaultsFalse_WhenAbsent()
+    {
+        const string json = """
+        {
+          "schema_version": 1,
+          "models": [{
+            "model_id": "fal-ai/minimal", "provider": "fal", "task": "single_image_to_3d",
+            "status": "stable", "enabled": true,
+            "pipeline_roles": ["single_image_to_3d"], "input_types": ["image_url"],
+            "output_roles": ["model_glb"], "preferred_asset_role": "model_glb",
+            "fallback_order": ["model_glb"], "supports_pbr": false,
+            "preprocessing": {"recommended": false, "required": false},
+            "docs_url": "https://fal.ai/x"
+          }]
+        }
+        """;
+        var entry = ReconstructionModelCatalog.FromJson(json).Find("fal-ai/minimal");
+        Assert.NotNull(entry);
+        Assert.False(entry!.DefaultTextureExpected);   // absent → false, no accidental default-true
+    }
+
     private const string TestCatalogJson = """
     {
       "schema_version": 1,
