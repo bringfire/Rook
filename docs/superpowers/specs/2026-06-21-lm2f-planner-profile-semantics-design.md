@@ -21,9 +21,32 @@ MCP-wire visibility model, not a tier+groups subset). `rookchat_cloud` is
 deferred until it has a runtime constant. `PLANNER_LOCAL_CATALOG` is out of scope
 for LM2F (tier + allowed-groups evidence is sufficient).
 
+**LM2F also centralizes tier-name knowledge** (`TIER_FIELDS`), because adding the
+first new tier since LM2A revealed that the tier-name set is duplicated across
+five sites (`_tiers_for`, `_universe`, `reconcile_active_schemas`'s `initial`
+Literal, `ProfileDefinition.initial_tier` Literal, `profile_reconciliation._TIER_FIELDS`)
+plus the `SurfaceSources` fields. A planning-time sweep found `_universe` would
+have been **missed**, which would make a `planner_tier0`-only tool invisible to
+the record universe (masked today only because `PLANNER_TIER_0 == READONLY_TIER_0`).
+Centralizing removes the drift structurally for the runtime paths and adds drift
+tests for the static `Literal` annotations.
+
 Read-only / diagnostic only — no runtime, visibility, or policy change.
 
 ## Design
+
+### Unit 0 — Tier-name centralization (`capability_record.py`)
+
+Add a single source of truth for the tier field/name set, next to `SurfaceSources`
+(stdlib-only; the tier field name *is* the tier name emitted by `_tiers_for`):
+
+```python
+TIER_FIELDS: tuple[str, ...] = ("tier0", "agent_tier0", "readonly_tier0", "planner_tier0")
+```
+
+The runtime tier allowlists derive from it (Unit 2 + the resolver gate); the two
+static `Literal[...]` annotations cannot be generated from a runtime tuple, so
+they stay manual but are pinned by drift tests.
 
 ### Unit 1 — Evidence carrier (`capability_record.py`)
 
@@ -50,13 +73,23 @@ planner_tier0=frozenset(_planner.PLANNER_TIER_0),
 planner_allowed_groups=frozenset(_planner.PLANNER_ALLOWED_GROUPS),
 ```
 
-`_tiers_for(name, sources)` gains a `planner_tier0` branch so inventory records'
-`.tiers` include `"planner_tier0"` for planner-tier tools (kept sorted, as today):
+`_tiers_for(name, sources)` and `_universe(sources, catalog)` are refactored to
+**derive from `TIER_FIELDS`** (importing it from `capability_record`) instead of
+naming each field — so a new tier can never be silently missed again:
 
 ```python
-if name in sources.planner_tier0:
-    out.append("planner_tier0")
+def _tiers_for(name, sources):
+    return tuple(sorted(tf for tf in TIER_FIELDS if name in getattr(sources, tf)))
+
+# in _universe, replacing the explicit `tier0 | agent_tier0 | readonly_tier0` union:
+for tf in TIER_FIELDS:
+    names |= set(getattr(sources, tf))
 ```
+
+`reconcile_active_schemas`'s `initial` `Literal[...]` parameter is broadened to
+include `"planner_tier0"` (static annotation; the body already uses
+`getattr(sources, initial)`, which now resolves the planner field). This widens a
+read-only diagnostic helper — consistent with making planner first-class.
 
 **Import-boundary guard:** a subprocess probe test asserts that calling
 `collect_live_sources()` does not load `dspy`, `litellm`, or
@@ -101,9 +134,21 @@ Imports only `rook.agent.capability_record` (unchanged boundary).
   `"planner" not in by_name`; that assertion is updated — it is the LM2F
   deliverable.)
 
-`resolve_profile` / `reconcile_profile` need no changes: `_tiers_for` feeding
-`planner_tier0` into records is all the resolver requires (it already builds
-`known_tiers` from records' `.tiers` and expands `initial_tier` against them).
+`resolve_profile` needs no change (it derives `known_tiers` from records' `.tiers`,
+which now include `planner_tier0`). **`reconcile_profile` DOES need a change** (the
+spec's earlier "no changes" claim was wrong): its disposable-registry tier seeding
+is gated by `profile_reconciliation._TIER_FIELDS`. That constant is changed to
+**derive from the central tuple**:
+
+```python
+# profile_reconciliation.py
+from rook.agent.capability_record import TIER_FIELDS
+_TIER_FIELDS = frozenset(TIER_FIELDS)
+```
+
+so `planner_tier0` is recognized and the planner tier is actually activated.
+Without this, `reconcile_profile` would treat `initial_tier="planner_tier0"` as the
+malformed/empty case.
 
 ## Evidence facts (pinned by tests)
 
@@ -133,6 +178,18 @@ From the live constants (`rook.agent.planner`, `tool_groups`):
 - No runtime/policy change.
 
 ## Testing
+
+**Drift tests (tier-name boundary — "prove every boundary agrees"):**
+- `TIER_FIELDS` membership: every name in `TIER_FIELDS` is a real
+  `SurfaceSources` dataclass field (`dataclasses.fields`).
+- `profile_reconciliation._TIER_FIELDS == frozenset(TIER_FIELDS)`.
+- `reconcile_active_schemas`'s `initial` `Literal` args ==
+  `set(TIER_FIELDS)` (via `typing.get_type_hints` to resolve the
+  `from __future__ import annotations` string form).
+- `ProfileDefinition.initial_tier` Literal args == `set(TIER_FIELDS)`
+  (resolve the `Optional[Literal[...]]`, find the `Literal`, compare its args).
+
+These fail loudly if any tier-name site drifts from the central tuple.
 
 **`test_capability_record.py`:** `SurfaceSources()` has `planner_tier0 == frozenset()`
 and `planner_allowed_groups == frozenset()` (defaults; back-compat).
@@ -170,6 +227,12 @@ and `planner_allowed_groups == frozenset()` (defaults; back-compat).
 
 ## Invariants
 
+- `TIER_FIELDS` is the single source of truth for tier field/names; `_tiers_for`,
+  `_universe`, and `profile_reconciliation._TIER_FIELDS` derive from it; the two
+  static `Literal`s are pinned to it by drift tests. No tier-name set is hardcoded
+  in more than one place except the (drift-tested) `Literal`s.
+- `_tiers_for`/`_universe` refactor is behavior-preserving for the existing three
+  tiers (the `TIER_FIELDS` iteration yields the same membership + sort).
 - `SurfaceSources` gains two defaulted fields; `collect_live_sources` populates
   them; importing it stays light (probe-guarded).
 - `execution_profile.py` import allow-list unchanged (`planner_profile_from_sources`
@@ -182,11 +245,16 @@ and `planner_allowed_groups == frozenset()` (defaults; back-compat).
 
 ## File Touch List
 
-- Modify: `mcp_server/src/rook/agent/capability_record.py` — 2 fields.
-- Modify: `mcp_server/src/rook/agent/capability_inventory.py` —
-  `collect_live_sources` population + `_tiers_for` branch.
-- Modify: `mcp_server/src/rook/agent/execution_profile.py` — Literal,
-  `planner_profile_from_sources`, `planner_excluded_mcp_only_groups`,
-  `default_profile_definitions` planner seed.
+- Modify: `mcp_server/src/rook/agent/capability_record.py` — `TIER_FIELDS`
+  constant + 2 `SurfaceSources` fields.
+- Modify: `mcp_server/src/rook/agent/capability_inventory.py` — `_tiers_for` and
+  `_universe` derive from `TIER_FIELDS`; `reconcile_active_schemas` `initial`
+  Literal += `planner_tier0`; `collect_live_sources` planner population.
+- Modify: `mcp_server/src/rook/agent/profile_reconciliation.py` —
+  `_TIER_FIELDS = frozenset(TIER_FIELDS)`.
+- Modify: `mcp_server/src/rook/agent/execution_profile.py` — `initial_tier`
+  Literal += `planner_tier0`, `planner_profile_from_sources`,
+  `planner_excluded_mcp_only_groups`, `default_profile_definitions` planner seed.
 - Modify tests: `test_capability_record.py`, `test_capability_inventory.py`,
-  `test_execution_profile.py`, `test_profile_reconciliation.py`.
+  `test_execution_profile.py`, `test_profile_reconciliation.py` (incl. the 4 drift
+  tests).
