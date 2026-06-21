@@ -713,14 +713,23 @@ function Test-EffectiveRuntime {
         }
         $env:PYTHONPATH = (@($Contract.PythonPathEntries) -join [IO.Path]::PathSeparator)
 
-        $expectedRookPrefix = Join-Path $Contract.WorkingDirectory 'src\rook'
+        if ($Contract.IsDev) {
+            $expectedRookPrefix = Join-Path $Contract.WorkingDirectory 'src\rook'
+        } else {
+            # Release venv site-packages: <PythonPath>\..\..\Lib\site-packages\rook
+            $venvRoot = Split-Path -Parent (Split-Path -Parent $Contract.PythonPath)
+            $expectedRookPrefix = Join-Path $venvRoot 'Lib\site-packages\rook'
+        }
+        $requireTools = if ($Contract.IsDev) { 'False' } else { 'True' }
         $check = @"
 import json
 from rook.runtime_paths import resolve_runtime_paths
 import rook
+import rook.server
 paths = resolve_runtime_paths()
 payload = {
     "rook_file": rook.__file__,
+    "rook_server_file": rook.server.__file__,
     "mode": paths.mode,
     "install_root": str(paths.install_root),
     "data_root": str(paths.data_root),
@@ -735,8 +744,25 @@ if str(paths.data_root).replace("\\", "/").lower() != r"$($Contract.DataRoot.Rep
     raise SystemExit("ROOK_DATA_DIR mismatch")
 expected_rook_prefix = r"$($expectedRookPrefix.Replace('\','/').ToLowerInvariant())"
 actual_rook_file = str(rook.__file__).replace("\\", "/").lower()
+actual_server_file = str(rook.server.__file__).replace("\\", "/").lower()
 if not actual_rook_file.startswith(expected_rook_prefix):
     raise SystemExit(f"rook imported from stale location: {rook.__file__}")
+if not actual_server_file.startswith(expected_rook_prefix):
+    raise SystemExit(f"rook.server imported from stale location: {rook.server.__file__}")
+if $($requireTools):
+    import asyncio
+    from rook.server import list_tools
+    names = {t.name for t in asyncio.run(list_tools())}
+    required = {
+        "rhino_2d_to_3d_models",
+        "rhino_2d_to_3d_submit",
+        "rhino_2d_to_3d_status",
+        "rhino_2d_to_3d_result",
+        "rhino_2d_to_3d_import",
+    }
+    missing = sorted(required - names)
+    if missing:
+        raise SystemExit(f"release MCP missing reconstruction tools: {missing}")
 "@
 
         $checkPath = Join-Path $env:TEMP 'rook_deploy_local_testing_check.py'
