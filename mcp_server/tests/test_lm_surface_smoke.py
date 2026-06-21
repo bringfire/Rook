@@ -81,3 +81,28 @@ def test_format_surface_evidence_is_deterministic():
         finding_histogram={"group_activation_failed": 1, "active_not_intended": 3},
         profile_findings_count=76,
     )
+
+
+def test_build_parser_accepts_two_subcommands():
+    parser = SMOKE.build_parser()
+    assert parser.parse_args(["coherence"]).command == "coherence"
+    assert parser.parse_args(["surface"]).command == "surface"
+
+
+def test_build_parser_rejects_unknown_subcommand():
+    import pytest
+
+    parser = SMOKE.build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["nonsense"])
+
+
+def test_main_fails_fast_on_nonempty_pythonpath(monkeypatch, capsys):
+    # The PYTHONPATH gate runs in main() BEFORE any rook import, so this test
+    # needs no deployed runtime: a dirty PYTHONPATH must return 1 immediately.
+    monkeypatch.setenv("PYTHONPATH", "C:/repo/src")
+    rc = SMOKE.main(["coherence"])
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert "PYTHONPATH" in out
+    assert "FAIL" in out
