@@ -178,6 +178,7 @@ def test_reconcile_tier_fields_match_central_constant():
 
     assert _TIER_FIELDS == frozenset(TIER_FIELDS)
 
+
 def test_initial_tier_none_uses_empty_tier_zero():
     sources = SurfaceSources(bridge_names=frozenset({"gh_edit", "gh_move"}))
     definition = ProfileDefinition(name="p", initial_tier=None, groups=("gh_canvas",))
