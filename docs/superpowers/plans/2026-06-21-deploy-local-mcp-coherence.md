@@ -4,7 +4,7 @@
 
 **Goal:** Make `deploy-local-testing.ps1` release-mode produce and verify the runtime it actually ships — `rook` current in the release venv's site-packages, empty `PYTHONPATH`, `rhino_2d_to_3d_*` tools present — and stop bootstrapping `post_install.py` with the venv it recreates.
 
-**Architecture:** Four edits, all in `scripts/deploy-local-testing.ps1`, release-mode only: (1) exclude the release venv from the post_install bootstrap interpreter, (2) reinstall the synced source into the release venv after the wheelhouse step, (3) drop the release source-PYTHONPATH shadow, (4) verify the real (site-packages, empty-PYTHONPATH) import path including the reconstruction tools. Dev modes and the shared installer are untouched.
+**Architecture:** Edits all in `scripts/deploy-local-testing.ps1`, release-mode only: (1) exclude the release venv from the post_install bootstrap interpreter, (2) mirror the synced `rook` package into the release venv site-packages after the wheelhouse step, (3) drop the release source-PYTHONPATH shadow, (4) verify the real (site-packages, empty-PYTHONPATH) import path including all seven `rhino_2d_to_3d_*` tools, plus mode-branch the chat-manifest validation. Dev modes and the shared installer are untouched.
 
 **Tech Stack:** Windows PowerShell 5/7 script; Python 3.11 release venv; pip offline install; the rook MCP server (`rook.server.list_tools`).
 
@@ -12,9 +12,8 @@
 
 - Edit **only** `scripts/deploy-local-testing.ps1`. Do NOT touch `installer/python_runtime_install.py`, `post_install.py`, the wheelhouse/lock validation, release installer packaging, or dev runtime modes (`-UseRepoVenv` / `-DevPythonRuntime` / the dev RuntimeContract).
 - All behavior changes are **release-mode only** (`$RuntimeContract.IsDev -eq $false`). Dev keeps source-`PYTHONPATH` import.
-- Reinstall step (#2) runs **after** `Sync-AppPayload` (source present in `…\app\mcp_server`) and **after** `Invoke-PostInstallConfig` (release venv exists). Ordering is load-bearing.
-- Reinstall is `pip install --force-reinstall --no-deps --no-build-isolation --no-index "<InstallRoot>\mcp_server"`. **No fallback.** On failure throw verbatim:
-  `Failed to install current mcp_server source into release venv. Local deploy must not fall back to PYTHONPATH=mcp_server\src; rebuild/fix the local Python packaging inputs.`
+- Mirror step (#2) runs **after** `Sync-AppPayload` (source present in `…\app\mcp_server`) and **after** `Invoke-PostInstallConfig` (release venv exists). Ordering is load-bearing.
+- The coherence step **mirrors the `rook` package directory** (`<InstallRoot>\mcp_server\src\rook` → `<venvRoot>\Lib\site-packages\rook`) via the existing `Sync-Directory` (`robocopy /MIR`). NOT `pip install` — `mcp_server` uses the hatchling backend, absent from the release venv, so an offline `pip install` would fail. Offline + deterministic; purges stale dest modules; leaves `rook-*.dist-info` intact. **No internet fallback.**
 - Bootstrap exclusion compares **normalized, resolved, case-insensitive** paths (not naive string compare).
 - Verification asserts **`rook.server.__file__`** under `…\venv\Lib\site-packages\rook` (the decisive proof) in addition to `rook.__file__`, plus `rhino_2d_to_3d_models` in `list_tools()`.
 - No new dependencies. No C#/native/MCP-tool code.
@@ -398,7 +397,9 @@ if $($requireTools):
     required = {
         "rhino_2d_to_3d_models",
         "rhino_2d_to_3d_submit",
+        "rhino_2d_to_3d_jobs",
         "rhino_2d_to_3d_status",
+        "rhino_2d_to_3d_cancel",
         "rhino_2d_to_3d_result",
         "rhino_2d_to_3d_import",
     }
@@ -435,6 +436,86 @@ git commit -m "fix(deploy): verify release runtime from site-packages with empty
 
 ---
 
+### Task 4b: Mode-branch the chat-manifest validation (release allows empty PythonPathEntries)
+
+**Files:**
+- Modify: `scripts/deploy-local-testing.ps1` — `Test-ChatServiceManifestAtPath`
+
+**Why:** `Test-ChatServiceManifestAtPath` asserted `pythonPathEntries[0]` exists and `entries.Count -lt 1` throws. With release `PythonPathEntries = @()` (Task 3) and the release manifest emitting empty `pythonPathEntries` + `PYTHONPATH: ''`, the full deploy would throw here. Branch by mode.
+
+- [ ] **Step 1: Remove the top `$expectedSourcePath` line** (it dereferences an empty list in release):
+
+Find:
+```powershell
+    $expectedWorkingDirectory = Normalize-PathForCompare $Contract.WorkingDirectory
+    $expectedSourcePath = Normalize-PathForCompare ([string]@($Contract.PythonPathEntries)[0])
+```
+Replace with:
+```powershell
+    $expectedWorkingDirectory = Normalize-PathForCompare $Contract.WorkingDirectory
+```
+
+- [ ] **Step 2: Branch the entries check by mode**
+
+Find:
+```powershell
+    $entries = @($manifest.pythonPathEntries)
+    if ($entries.Count -lt 1 -or (Normalize-PathForCompare ([string]$entries[0])) -ne $expectedSourcePath) {
+        throw "Chat service pythonPathEntries mismatch in $ManifestPath`: $($entries -join ', ')"
+    }
+```
+Replace with:
+```powershell
+    $entries = @($manifest.pythonPathEntries)
+    if ($Contract.IsDev) {
+        $expectedSourcePath = Normalize-PathForCompare ([string]@($Contract.PythonPathEntries)[0])
+        if ($entries.Count -lt 1 -or (Normalize-PathForCompare ([string]$entries[0])) -ne $expectedSourcePath) {
+            throw "Chat service pythonPathEntries mismatch in $ManifestPath`: $($entries -join ', ')"
+        }
+    } else {
+        # Release imports rook from site-packages, so pythonPathEntries must be
+        # empty/absent (matching the empty-PYTHONPATH MCP config).
+        $nonEmptyEntries = @($entries | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+        if ($nonEmptyEntries.Count -gt 0) {
+            throw "Chat service pythonPathEntries must be empty in release in $ManifestPath`: $($entries -join ', ')"
+        }
+    }
+```
+
+- [ ] **Step 3: Assert empty release `PYTHONPATH`** — add a release branch to the existing dev `ROOK_PROJECT_ROOT` check:
+
+Find:
+```powershell
+    if ($Contract.IsDev) {
+        if ((Normalize-PathForCompare ([string]$envBlock.ROOK_PROJECT_ROOT)) -ne (Normalize-PathForCompare $Contract.ProjectRoot)) {
+            throw "Chat service ROOK_PROJECT_ROOT mismatch in $ManifestPath`: $($envBlock.ROOK_PROJECT_ROOT)"
+        }
+    }
+}
+```
+Replace with:
+```powershell
+    if ($Contract.IsDev) {
+        if ((Normalize-PathForCompare ([string]$envBlock.ROOK_PROJECT_ROOT)) -ne (Normalize-PathForCompare $Contract.ProjectRoot)) {
+            throw "Chat service ROOK_PROJECT_ROOT mismatch in $ManifestPath`: $($envBlock.ROOK_PROJECT_ROOT)"
+        }
+    } else {
+        if (-not [string]::IsNullOrEmpty([string]$envBlock.PYTHONPATH)) {
+            throw "Chat service PYTHONPATH must be empty in release in $ManifestPath`: $($envBlock.PYTHONPATH)"
+        }
+    }
+}
+```
+
+- [ ] **Step 4: Parser check + commit**
+
+```bash
+git add scripts/deploy-local-testing.ps1
+git commit -m "fix(deploy): mode-branch chat-manifest validation for empty release PythonPathEntries"
+```
+
+---
+
 ### Task 5: End-to-end local release deploy validation
 
 **Files:** none — validation only.
@@ -453,7 +534,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy-local-testing
 
 Expected, in order:
 1. The post_install bootstrap interpreter is **not** `…\Rook\venv\Scripts\python.exe` (Task 1) — post_install completes (no silent exit 1).
-2. `Reinstall current source into release venv` step runs and the pip install succeeds (Task 2).
+2. `Mirror current source into release venv site-packages` step runs and the robocopy mirror succeeds (Task 2).
 3. `Verify effective runtime` passes with the release check — no "stale location" / "missing reconstruction tools" SystemExit (Tasks 3+4).
 4. No `post_install.py config refresh failed` and no unhandled exit 1.
 

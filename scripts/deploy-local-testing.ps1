@@ -762,7 +762,9 @@ if $($requireTools):
     required = {
         "rhino_2d_to_3d_models",
         "rhino_2d_to_3d_submit",
+        "rhino_2d_to_3d_jobs",
         "rhino_2d_to_3d_status",
+        "rhino_2d_to_3d_cancel",
         "rhino_2d_to_3d_result",
         "rhino_2d_to_3d_import",
     }
@@ -984,7 +986,6 @@ function Test-ChatServiceManifestAtPath {
     $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
     $expectedPython = Normalize-PathForCompare $Contract.PythonPath
     $expectedWorkingDirectory = Normalize-PathForCompare $Contract.WorkingDirectory
-    $expectedSourcePath = Normalize-PathForCompare ([string]@($Contract.PythonPathEntries)[0])
 
     if ((Normalize-PathForCompare ([string]$manifest.pythonPath)) -ne $expectedPython) {
         throw "Chat service pythonPath mismatch in $ManifestPath`: $($manifest.pythonPath)"
@@ -997,8 +998,18 @@ function Test-ChatServiceManifestAtPath {
     }
 
     $entries = @($manifest.pythonPathEntries)
-    if ($entries.Count -lt 1 -or (Normalize-PathForCompare ([string]$entries[0])) -ne $expectedSourcePath) {
-        throw "Chat service pythonPathEntries mismatch in $ManifestPath`: $($entries -join ', ')"
+    if ($Contract.IsDev) {
+        $expectedSourcePath = Normalize-PathForCompare ([string]@($Contract.PythonPathEntries)[0])
+        if ($entries.Count -lt 1 -or (Normalize-PathForCompare ([string]$entries[0])) -ne $expectedSourcePath) {
+            throw "Chat service pythonPathEntries mismatch in $ManifestPath`: $($entries -join ', ')"
+        }
+    } else {
+        # Release imports rook from site-packages, so pythonPathEntries must be
+        # empty/absent (matching the empty-PYTHONPATH MCP config).
+        $nonEmptyEntries = @($entries | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+        if ($nonEmptyEntries.Count -gt 0) {
+            throw "Chat service pythonPathEntries must be empty in release in $ManifestPath`: $($entries -join ', ')"
+        }
     }
 
     $envBlock = $manifest.environment
@@ -1017,6 +1028,10 @@ function Test-ChatServiceManifestAtPath {
     if ($Contract.IsDev) {
         if ((Normalize-PathForCompare ([string]$envBlock.ROOK_PROJECT_ROOT)) -ne (Normalize-PathForCompare $Contract.ProjectRoot)) {
             throw "Chat service ROOK_PROJECT_ROOT mismatch in $ManifestPath`: $($envBlock.ROOK_PROJECT_ROOT)"
+        }
+    } else {
+        if (-not [string]::IsNullOrEmpty([string]$envBlock.PYTHONPATH)) {
+            throw "Chat service PYTHONPATH must be empty in release in $ManifestPath`: $($envBlock.PYTHONPATH)"
         }
     }
 }

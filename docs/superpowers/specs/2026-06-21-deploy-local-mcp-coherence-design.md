@@ -92,12 +92,19 @@ ships: `rook` current in site-packages, empty `PYTHONPATH`, tools present.
    asserts:
    - `rook.__file__` resolves **under** `<RuntimeRoot>\venv\Lib\site-packages\rook`
      (not `…\mcp_server\src\rook`), and
-   - `rhino_2d_to_3d_models` (and the `rhino_2d_to_3d_*` family) appears in the
-     rook MCP server's advertised tool list (enumerate the registered tool names
-     and assert membership).
+   - all **seven** `rhino_2d_to_3d_*` tools (`models, submit, jobs, status,
+     cancel, result, import`) appear in the rook MCP server's advertised tool
+     list (enumerate the registered tool names and assert membership) — matching
+     the actual reconstruction preflight surface, not a subset.
    In **dev** mode it keeps the existing behavior (PYTHONPATH=src, assert import
    from `WorkingDirectory\src\rook`). The release branch is the guard that fails
    loudly if drift ever recurs.
+
+5b. **Mode-branch the chat-manifest validation.** `Test-ChatServiceManifestAtPath`
+   assumed `PythonPathEntries[0]` exists; with release now `@()` it would throw.
+   Branch by mode: **dev** still requires `pythonPathEntries[0] == src`; **release**
+   requires `pythonPathEntries` empty/absent **and** the manifest `environment.PYTHONPATH`
+   empty/absent (matching the empty-PYTHONPATH MCP config).
 
 6. **Dev runtime modes keep their source `PYTHONPATH`.** `-UseRepoVenv` /
    `-DevPythonRuntime` and the dev RuntimeContract are unchanged; dev is
@@ -134,7 +141,7 @@ in-script assertions, exercised by actually running a local release deploy:
    string-compare `$candidate -ne $VenvPython`. Resolve both paths when they
    exist and compare case-insensitively with normalized separators (Windows
    casing/slashes can otherwise let the same venv sneak back in).
-2. **Reinstall ordering is load-bearing:** the source reinstall (#3) runs
+2. **Mirror ordering is load-bearing:** the source mirror (#3) runs
    **after** the AppData payload sync (`Sync-AppPayload`, so the current source
    is present in `…\app\mcp_server`) **and after** `Invoke-PostInstallConfig`
    (so the release venv exists). Both preconditions must hold.
