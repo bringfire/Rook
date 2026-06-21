@@ -163,3 +163,14 @@ def test_malformed_initial_tier_yields_empty_tier_zero_no_crash():
     rec = reconcile_profile(resolution, SurfaceSources(), {})
     assert rec.active_names == ()
     assert isinstance(rec, ProfileReconciliation)
+
+
+def test_malformed_initial_tier_matching_real_field_yields_empty_tier_zero():
+    # "groups" is a real SurfaceSources field (a Mapping); a malformed initial_tier
+    # equal to it must NOT pull its keys in as tier-0 members.
+    sources = SurfaceSources(groups={"gh_canvas": ("gh_edit",)})
+    definition = ProfileDefinition(name="p", initial_tier="groups", groups=())  # type: ignore[arg-type]
+    resolution = _resolution(definition, tool_names=())
+    rec = reconcile_profile(resolution, sources, {"gh_edit": _schema("gh_edit")})
+    assert rec.active_names == ()
+    assert "gh_canvas" not in rec.active_names

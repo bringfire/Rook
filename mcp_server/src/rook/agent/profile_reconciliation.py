@@ -24,6 +24,8 @@ from rook.agent.chat.tool_contracts import audit_visible_tool_dispatchability
 from rook.agent.execution_profile import ProfileFinding, ProfileResolution
 from rook.agent.tool_registry import ToolRegistry
 
+_TIER_FIELDS = frozenset({"tier0", "agent_tier0", "readonly_tier0"})
+
 
 @dataclass(frozen=True)
 class ProfileReconciliation:
@@ -51,9 +53,9 @@ def reconcile_profile(
     definition = resolution.profile
     initial = definition.initial_tier
     tier_members = (
-        frozenset()
-        if initial is None
-        else frozenset(getattr(sources, initial, frozenset()))
+        frozenset(getattr(sources, initial))
+        if initial in _TIER_FIELDS
+        else frozenset()
     )
     registry = ToolRegistry(catalog=dict(catalog), tier0=set(tier_members))
 
