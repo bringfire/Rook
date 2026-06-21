@@ -192,3 +192,55 @@ def test_canned_create_repair_loop_reaches_complete_through_bridge():
     assert repair_evidence is not None
     assert repair_evidence.receipt["artifact_status"] == "usable"
     assert graph_status(graph) == "complete"
+
+
+def _direct_import_modules(path: str) -> set[str]:
+    tree = ast.parse(Path(path).read_text(encoding="utf-8"))
+    modules: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            modules.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            prefix = "." * node.level
+            modules.add(f"{prefix}{node.module or ''}")
+    return modules
+
+
+def test_plan_graph_bridge_imports_only_pure_graph_modules():
+    imports = _direct_import_modules(
+        "mcp_server/src/rook/learning/plan_graph_bridge.py"
+    )
+
+    assert "rook.learning.plan_graph" in imports
+    assert "rook.learning.plan_graph_outcomes" in imports
+    assert "rook.agent.chat.tool_contracts" not in imports
+    assert "rook.agent.tool_dispatcher" not in imports
+    assert "rook.agent.chat.chat_runner" not in imports
+    assert "rook.server" not in imports
+
+
+def test_importing_plan_graph_bridge_does_not_load_heavy_modules():
+    env = os.environ.copy()
+    src_path = str(Path("mcp_server/src").resolve())
+    env["PYTHONPATH"] = (
+        src_path
+        if not env.get("PYTHONPATH")
+        else f"{src_path}{os.pathsep}{env['PYTHONPATH']}"
+    )
+
+    probe = (
+        "import sys\n"
+        "import rook.learning.plan_graph_bridge\n"
+        "if 'rook.agent.tool_dispatcher' in sys.modules:\n"
+        "    raise SystemExit('rook.agent.tool_dispatcher loaded')\n"
+        "if 'dspy' in sys.modules:\n"
+        "    raise SystemExit('dspy loaded')\n"
+        "if 'litellm' in sys.modules:\n"
+        "    raise SystemExit('litellm loaded')\n"
+    )
+
+    subprocess.run(
+        [sys.executable, "-c", probe],
+        check=True,
+        env=env,
+    )
