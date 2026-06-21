@@ -266,7 +266,9 @@ function New-DeployRuntimeEnvironment {
         [Parameter(Mandatory = $true)][string]$Mode,
         [Parameter(Mandatory = $true)][string]$InstallRoot,
         [Parameter(Mandatory = $true)][string]$DataRoot,
-        [Parameter(Mandatory = $true)][string[]]$PythonPathEntries,
+        # AllowEmptyCollection: release passes @() (empty PYTHONPATH); a mandatory
+        # [string[]] otherwise rejects an empty array at binding time.
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][string[]]$PythonPathEntries,
         [string]$ProjectRoot = ''
     )
 
