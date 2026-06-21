@@ -304,7 +304,11 @@ function Resolve-DeployRuntimeContract {
     }
 
     $releaseWorkingDirectory = Join-Path $InstallRoot 'mcp_server'
-    $releasePythonPathEntries = @((Join-Path $InstallRoot 'mcp_server\src'))
+    # Release imports rook from site-packages (Install-ReleaseSourceIntoVenv keeps
+    # it current). Empty PYTHONPATH matches the written MCP config
+    # (build_release_mcp_env sets PYTHONPATH="") and removes the source-tree
+    # shadow that previously masked stale-wheel drift during verification.
+    $releasePythonPathEntries = @()
 
     return [pscustomobject]@{
         Mode = 'release'
