@@ -269,7 +269,16 @@ Replace with:
 
 Run the parser check. Expected: `PARSE OK`.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 3: Static anti-regression guard (no release `mcp_server\src` shadow)**
+
+The important future failure is someone reintroducing the source shadow in release mode. Assert it's gone:
+```
+rg -n "releasePythonPathEntries\s*=" scripts/deploy-local-testing.ps1
+rg -n "mcp_server.src" scripts/deploy-local-testing.ps1
+```
+Expected: the only `$releasePythonPathEntries =` assignment is `= @()`; and `mcp_server\src` / `mcp_server/src` appears **only** on the dev path (`$devSrcDir` / `$devPythonPathEntries`), never associated with `release`/`$releasePythonPathEntries`. If `mcp_server\src` ever appears in the release block again, this guard fails.
+
+- [ ] **Step 4: Commit**
 
 ```bash
 git add scripts/deploy-local-testing.ps1
