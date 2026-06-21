@@ -127,7 +127,7 @@ Run:
 ```
 rg -n "default Hunyuan|when omitted" mcp_server/src/rook/server.py mcp_server/tests/test_reconstruction_mcp_tools.py
 ```
-Expected: **no output** (the only prior occurrences were the model_id line; both phrases are now gone, and the test rejects them by absence-assertion, not by quoting them as a substring to match).
+Expected: the **production schema (`server.py`) is clean** — no `server.py` hits (the only prior occurrence was the `model_id` line, now changed). The **test file legitimately contains** `default Hunyuan` / `when omitted` as the assertion *literals* that reject them (`assert "default Hunyuan" not in model_id_desc`, etc.) — those hits are the guard itself, not drift. So scope the "no output" expectation to `server.py`; for the test file, the literals are expected and correct.
 
 Run:
 ```
