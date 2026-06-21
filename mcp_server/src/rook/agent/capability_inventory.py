@@ -55,7 +55,7 @@ def _tiers_for(name: str, sources: SurfaceSources) -> tuple[str, ...]:
         out.append("agent_tier0")
     if name in sources.readonly_tier0:
         out.append("readonly_tier0")
-    return tuple(out)
+    return tuple(sorted(out))
 
 
 def _groups_for(name: str, sources: SurfaceSources) -> tuple[str, ...]:
@@ -72,7 +72,7 @@ def _risk_for(name: str, sources: SurfaceSources) -> tuple[str, ...]:
         out.append("modal_risk")
     if name in sources.needs_verification:
         out.append("needs_verification")
-    return tuple(out)
+    return tuple(sorted(out))
 
 
 def _visibility(
