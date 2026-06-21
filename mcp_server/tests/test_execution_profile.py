@@ -6,6 +6,8 @@ from pathlib import Path
 from rook.agent.capability_record import CapabilityInventory, CapabilityRecord
 from rook.agent.execution_profile import (
     ProfileDefinition,
+    default_profile_definitions,
+    format_profile_report,
     resolve_profile,
     resolve_profiles,
 )
@@ -191,3 +193,36 @@ def test_execution_profile_is_import_light():
         "typing",
         "rook.agent.capability_record",
     }
+
+
+def test_default_profile_definitions_are_tier_only_seeds():
+    by_name = {d.name: d for d in default_profile_definitions()}
+    assert set(by_name) == {"rookchat_local", "readonly"}
+    assert by_name["rookchat_local"].initial_tier == "agent_tier0"
+    assert by_name["rookchat_local"].groups == ()
+    assert by_name["readonly"].initial_tier == "readonly_tier0"
+    assert by_name["readonly"].groups == ()
+    assert "planner" not in by_name
+    assert "external_mcp" not in by_name
+
+
+def test_default_profile_definitions_is_constant():
+    assert default_profile_definitions() == default_profile_definitions()
+
+
+def test_injected_planner_definition_resolves():
+    res = resolve_profile(
+        ProfileDefinition(name="planner", initial_tier="readonly_tier0"),
+        _inventory(),
+    )
+    assert res.profile.name == "planner"
+    assert [r.name for r in res.tools] == ["readonly_tool"]
+
+
+def test_format_profile_report_is_pure_and_stable():
+    results = resolve_profiles(default_profile_definitions(), _inventory())
+    first = format_profile_report(results)
+    second = format_profile_report(results)
+    assert first == second
+    assert "Profile rookchat_local:" in first
+    assert "Profile readonly:" in first

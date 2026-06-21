@@ -184,3 +184,50 @@ def resolve_profiles(
     definitions: Iterable[ProfileDefinition], inventory: CapabilityInventory
 ) -> tuple[ProfileResolution, ...]:
     return tuple(resolve_profile(d, inventory) for d in definitions)
+
+
+def default_profile_definitions() -> tuple[ProfileDefinition, ...]:
+    """Non-authoritative diagnostic seed profiles.
+
+    Both seeds are tier-only (groups=()): a name-suffix heuristic is not a
+    faithful proxy for the repo's READONLY_ALLOWED_GROUPS policy, so readonly
+    group membership is deferred until the source snapshot carries explicit
+    evidence. No planner / external_mcp seed.
+    """
+    return (
+        ProfileDefinition(
+            name="rookchat_local",
+            initial_tier="agent_tier0",
+            groups=(),
+            description="Local in-file execution worker (diagnostic seed).",
+        ),
+        ProfileDefinition(
+            name="readonly",
+            initial_tier="readonly_tier0",
+            groups=(),
+            description="Observation-only worker (diagnostic seed).",
+        ),
+    )
+
+
+def format_profile_report(
+    resolutions: Iterable[ProfileResolution],
+) -> str:
+    lines: list[str] = []
+    for resolution in resolutions:
+        counts = {"error": 0, "warning": 0, "info": 0}
+        for finding in resolution.findings:
+            counts[finding.severity] += 1
+        lines.append(
+            f"Profile {resolution.profile.name}: "
+            f"{len(resolution.tools)} tools, "
+            f"{len(resolution.findings)} findings "
+            f"(errors={counts['error']} warnings={counts['warning']} "
+            f"info={counts['info']})"
+        )
+        for finding in resolution.findings:
+            lines.append(
+                f"  [{finding.severity}] {finding.code} {finding.subject}: "
+                f"{finding.message}"
+            )
+    return "\n".join(lines)
