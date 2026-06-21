@@ -3,11 +3,18 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from rook.agent.capability_record import CapabilityInventory, CapabilityRecord
+from rook.agent.capability_record import (
+    CapabilityInventory,
+    CapabilityRecord,
+    SurfaceSources,
+)
+from rook.agent.capability_inventory import build_inventory
 from rook.agent.execution_profile import (
     ProfileDefinition,
     default_profile_definitions,
     format_profile_report,
+    readonly_excluded_mcp_only_groups,
+    readonly_profile_from_sources,
     resolve_profile,
     resolve_profiles,
 )
@@ -226,3 +233,89 @@ def test_format_profile_report_is_pure_and_stable():
     assert first == second
     assert "Profile rookchat_local:" in first
     assert "Profile readonly:" in first
+
+
+def test_readonly_profile_excludes_mcp_only_and_undefined_groups():
+    sources = SurfaceSources(
+        groups={"a": ("ta",), "b": ("tb",), "gh_knowledge": ("tk",)},
+        mcp_only_groups=frozenset({"gh_knowledge"}),
+        readonly_allowed_groups=frozenset({"a", "b", "gh_knowledge", "ghost_group"}),
+    )
+    profile = readonly_profile_from_sources(sources)
+    assert profile.name == "readonly"
+    assert profile.initial_tier == "readonly_tier0"
+    # gh_knowledge dropped (MCP-only); ghost_group dropped (no definition).
+    assert profile.groups == ("a", "b")
+
+
+def test_readonly_profile_groups_are_sorted():
+    sources = SurfaceSources(
+        groups={"z": ("tz",), "a": ("ta",), "m": ("tm",)},
+        readonly_allowed_groups=frozenset({"z", "a", "m"}),
+    )
+    assert readonly_profile_from_sources(sources).groups == ("a", "m", "z")
+
+
+def test_readonly_profile_empty_evidence_degrades_to_tier_only():
+    profile = readonly_profile_from_sources(SurfaceSources())
+    assert profile.groups == ()
+    assert profile.initial_tier == "readonly_tier0"
+
+
+def test_readonly_excluded_mcp_only_groups_synthetic():
+    sources = SurfaceSources(
+        groups={"a": ("ta",), "gh_knowledge": ("tk",)},
+        mcp_only_groups=frozenset({"gh_knowledge"}),
+        readonly_allowed_groups=frozenset({"a", "gh_knowledge"}),
+    )
+    assert readonly_excluded_mcp_only_groups(sources) == ("gh_knowledge",)
+
+
+def test_readonly_excluded_mcp_only_groups_real_constants_pin():
+    from rook.agent.tool_groups import MCP_ONLY_GROUPS, READONLY_ALLOWED_GROUPS
+
+    sources = SurfaceSources(
+        mcp_only_groups=frozenset(MCP_ONLY_GROUPS),
+        readonly_allowed_groups=frozenset(READONLY_ALLOWED_GROUPS),
+    )
+    assert readonly_excluded_mcp_only_groups(sources) == (
+        "gh_exploration",
+        "gh_knowledge",
+        "gh_validation",
+    )
+
+
+def test_readonly_seed_resolves_locally_executable_no_mcp_only_findings():
+    # One readonly-allowed non-MCP group with a local-visible, dispatchable,
+    # schema-backed tool; one readonly-allowed MCP-only group. Small deterministic
+    # fixture -- no live catalog.
+    sources = SurfaceSources(
+        readonly_tier0=frozenset({"ro_tool_local"}),
+        groups={"ro_local": ("ro_tool_local",), "ro_mcp": ("ro_tool_mcp",)},
+        mcp_only_groups=frozenset({"ro_mcp"}),
+        readonly_allowed_groups=frozenset({"ro_local", "ro_mcp"}),
+        bridge_names=frozenset({"ro_tool_local"}),
+    )
+    catalog = {
+        "ro_tool_local": {
+            "type": "function",
+            "function": {
+                "name": "ro_tool_local",
+                "description": "ro_tool_local",
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": False,
+                },
+            },
+        }
+    }
+
+    profile = readonly_profile_from_sources(sources)
+    assert profile.groups == ("ro_local",)  # ro_mcp excluded
+
+    inventory = build_inventory(sources, catalog)
+    res = resolve_profile(profile, inventory)
+
+    assert "ro_tool_mcp" not in res.tool_names
+    assert not any(f.code == "mcp_only_tool" for f in res.findings)
