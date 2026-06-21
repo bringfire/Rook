@@ -171,3 +171,55 @@ def extract_wire_dispatch_evidence_from_source(source: str) -> WireDispatchEvide
         names=tuple(sorted(names)),
         findings=_sorted_findings(findings),
     )
+
+
+def collect_wire_dispatch_evidence(
+    module_name: str = "rook.server",
+) -> WireDispatchEvidence:
+    """Resolve a module's source via find_spec(...).origin and extract evidence.
+
+    Reads the source FILE; never imports/executes the module. Provenance is
+    caller-context-dependent: with the worktree importable, find_spec resolves
+    the worktree source; under the deployed smoke (empty PYTHONPATH) it resolves
+    deployed site-packages.
+
+    A missing spec, a None/missing origin, or a non-file origin yields a
+    structured wire_source_unresolved error -- never a raw traceback.
+    """
+    spec = None
+    try:
+        spec = importlib.util.find_spec(module_name)
+    except (ImportError, AttributeError, ValueError):
+        spec = None
+
+    origin = getattr(spec, "origin", None) if spec is not None else None
+    if not origin or not os.path.isfile(origin):
+        return WireDispatchEvidence(
+            names=(),
+            findings=(
+                _finding(
+                    "wire_source_unresolved",
+                    module_name,
+                    f"Could not resolve a readable source file for module "
+                    f"'{module_name}' (origin={origin!r}).",
+                ),
+            ),
+        )
+
+    try:
+        with open(origin, encoding="utf-8") as handle:
+            source = handle.read()
+    except OSError as exc:
+        return WireDispatchEvidence(
+            names=(),
+            findings=(
+                _finding(
+                    "wire_source_unresolved",
+                    module_name,
+                    f"Could not read source for module '{module_name}' at "
+                    f"{origin!r}: {exc!r}.",
+                ),
+            ),
+        )
+
+    return extract_wire_dispatch_evidence_from_source(source)
