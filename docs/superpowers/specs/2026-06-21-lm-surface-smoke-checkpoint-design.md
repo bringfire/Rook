@@ -69,14 +69,20 @@ checks prove nothing. This is the split-brain the merged
 
 Every script run uses the deployed venv, empty `PYTHONPATH`, from any cwd whose
 `sys.path[0]` is not the repo `mcp_server/src` (so `import rook` resolves to
-deployed site-packages):
+deployed site-packages). The runbook commands **explicitly clear `PYTHONPATH`**
+(PowerShell):
 
 ```
-C:/Users/bring/AppData/Local/Rook/venv/Scripts/python.exe \
-    C:/UDEV/Rook/scripts/lm_surface_smoke.py coherence
-C:/Users/bring/AppData/Local/Rook/venv/Scripts/python.exe \
-    C:/UDEV/Rook/scripts/lm_surface_smoke.py surface
+$env:PYTHONPATH=""; & "C:/Users/bring/AppData/Local/Rook/venv/Scripts/python.exe" "C:/UDEV/Rook/scripts/lm_surface_smoke.py" coherence
+$env:PYTHONPATH=""; & "C:/Users/bring/AppData/Local/Rook/venv/Scripts/python.exe" "C:/UDEV/Rook/scripts/lm_surface_smoke.py" surface
 ```
+
+**`PYTHONPATH` enforcement (both, belt-and-suspenders).** The command clears it,
+**and** the script enforces it: at startup (both subcommands, before any `rook`
+import) the script reads `os.environ.get("PYTHONPATH", "")`, prints it, and exits
+**FAIL** if it is non-empty. A non-empty `PYTHONPATH` can shadow deployed
+site-packages with repo source, defeating the whole point of the smoke; the
+script refuses to run rather than emit comforting lies.
 
 The script never adds repo `src` to `sys.path`. It prints the resolved import
 origins so an accidental repo-source import is visible, not silent.
@@ -91,7 +97,9 @@ not perform or trigger this step.
 
 ## 1 — Coherence smoke (`lm_surface_smoke.py coherence`)
 
-Under the deployed venv. Imports and resolves the origins of:
+Under the deployed venv. **Startup gate first:** print `PYTHONPATH` and exit
+**FAIL** if non-empty (via `pythonpath_clean`), before importing `rook`. Then
+imports and resolves the origins of:
 `rook`, `rook.server`, and the four LM2 modules
 (`rook.agent.capability_record`, `rook.agent.capability_inventory`,
 `rook.agent.execution_profile`, `rook.agent.profile_reconciliation`).
@@ -110,11 +118,12 @@ the known stale-`RookChatService.json` canary.
 
 ## 2 — Surface-evidence smoke (`lm_surface_smoke.py surface`)
 
-**Import-origin guard first.** `surface` runs the same module-origin checks as
-`coherence` before any surface work and prints `rook.__file__` /
-`rook.server.__file__`. If the origin guard fails (any LM2 module absent or
+**Startup + import-origin guard first.** `surface` runs the `PYTHONPATH` startup
+gate and then the same module-origin checks as `coherence` before any surface
+work, printing `PYTHONPATH`, `rook.__file__`, and `rook.server.__file__`. If
+`PYTHONPATH` is non-empty, or the origin guard fails (any LM2 module absent or
 imported from repo source), `surface` exits **FAIL** immediately — it never
-produces "comforting lies" against repo imports.
+produces "comforting lies" against repo or shadowed imports.
 
 **Catalog build (deployed runtime, in-process).** The authoritative catalog is
 the deployed server's own advertised tools:
@@ -165,8 +174,10 @@ Print: catalog tool count; profile name; `len(intended_names)`; `len(active_name
 - **absent** → `DEGRADED:` info line only (never FAIL);
 - **present and identical** → `PASS:` cache-current line;
 - **present and drifts** → `WARNING:` by default, listing the delta; escalates to
-  `FAIL:` only if the drift touches the **required set**:
-  - any of the four LM2 modules (importable/current — already gated by coherence),
+  `FAIL:` only if the drift touches the **required set** (tool names only — cache
+  comparison compares catalog keys, not Python modules; LM2 module currency is
+  already covered by the coherence/import-origin gate and cannot appear in
+  `agent_tool_catalog.json`):
   - `request_tools`, `search_tools`,
   - `gh_snapshot`, `gh_create_csharp_script`, `gh_update_script`, `gh_errors`,
   - any tool that appears in the resolved local readonly profile
@@ -198,6 +209,8 @@ GH C# path. This complements — does not replace — the manual RookChat run.
 
 Factor the script's judgment into pure functions, unit-tested without importing
 the deployed runtime:
+- `pythonpath_clean(env_value) -> bool` — True iff the `PYTHONPATH` value is
+  empty/whitespace-only (the startup gate operates on this).
 - `module_origin_ok(path, site_packages_root) -> bool` — case-insensitive,
   normalized-separator "under site-packages" check.
 - `classify_cache(cache, built, required_names) -> Literal["absent","current","warning","fail"]`
@@ -213,7 +226,8 @@ the deployed runtime:
 `mcp_server/tests/test_lm_surface_smoke.py`:
 - Import the script via `importlib.util.spec_from_file_location` (scripts/ is not
   a package).
-- Test the pure helpers above with plain fixtures: `module_origin_ok` (under vs.
+- Test the pure helpers above with plain fixtures: `pythonpath_clean` (""→True,
+  "  "→True, "C:/x"→False); `module_origin_ok` (under vs.
   repo-src vs. case/sep variants); `classify_cache` (absent→absent,
   identical→current, benign drift→warning, required-set drift→fail);
   `degenerate_activation_failures` (catalog-present group failing → flagged;
