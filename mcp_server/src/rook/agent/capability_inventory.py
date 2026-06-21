@@ -8,6 +8,7 @@ canned-catalog ToolRegistry (reconciliation layer). Changes no runtime behavior.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import Literal
 
 from rook.agent.capability_record import (
     CapabilityFinding,
@@ -18,8 +19,10 @@ from rook.agent.capability_record import (
 )
 from rook.agent.chat.tool_contracts import (
     DispatchContext,
+    audit_visible_tool_dispatchability,
     classify_visible_tool,
 )
+from rook.agent.tool_registry import ToolRegistry
 
 INTERCEPTED_META_TOOLS: frozenset[str] = frozenset(
     {"request_tools", "search_tools", "ui_block", "list_chat_models", "set_chat_model"}
@@ -196,3 +199,101 @@ def format_report(inventory: CapabilityInventory) -> str:
             f"{finding.message}"
         )
     return "\n".join(lines)
+
+
+_DISPATCHABILITY_SEVERITY = {
+    "not_dispatchable": "error",
+    "missing_function_name": "error",
+    "strict_no_arg_schema_drift": "error",
+    "duplicate_visible_name": "warning",
+}
+
+
+def _active_tool_names(registry: ToolRegistry) -> frozenset[str]:
+    names: set[str] = set()
+    for schema in registry.get_active_schemas():
+        function = schema.get("function") if isinstance(schema, dict) else None
+        if isinstance(function, dict) and isinstance(function.get("name"), str):
+            names.add(function["name"])
+    return frozenset(names)
+
+
+def reconcile_active_schemas(
+    sources: SurfaceSources,
+    catalog: Mapping[str, dict],
+    *,
+    group: str | None = None,
+    initial: Literal["tier0", "agent_tier0", "readonly_tier0"] = "agent_tier0",
+) -> tuple[CapabilityFinding, ...]:
+    selected_tier = frozenset(getattr(sources, initial))
+    registry = ToolRegistry(catalog=dict(catalog), tier0=set(selected_tier))
+    if group is not None:
+        registry.request_group(group)
+
+    active_schemas = registry.get_active_schemas()
+    active_names = _active_tool_names(registry)
+    ctx = _dispatch_context_from_sources(sources)
+
+    findings: list[CapabilityFinding] = []
+    for audit_finding in audit_visible_tool_dispatchability(active_schemas, ctx):
+        findings.append(
+            CapabilityFinding(
+                code=audit_finding.code,
+                tool=audit_finding.tool,
+                severity=_DISPATCHABILITY_SEVERITY.get(audit_finding.code, "warning"),
+                message=audit_finding.message,
+            )
+        )
+
+    if group is None:
+        intended = selected_tier
+    else:
+        intended = selected_tier | frozenset(sources.groups.get(group, ()))
+
+    for name in sorted(intended - active_names):
+        findings.append(
+            CapabilityFinding(
+                code="intended_not_active",
+                tool=name,
+                severity="warning",
+                message=f"Intended tool '{name}' is not in the active schema set.",
+            )
+        )
+    for name in sorted(active_names - intended):
+        findings.append(
+            CapabilityFinding(
+                code="active_not_intended",
+                tool=name,
+                severity="warning",
+                message=f"Active tool '{name}' is not in the intended set.",
+            )
+        )
+
+    return tuple(_sorted_findings(findings))
+
+
+def collect_live_sources() -> SurfaceSources:
+    """Read module constants only. No catalog cache, no MCP, no live ToolRegistry,
+    no ToolDispatcher instantiation. local_tool_names is left empty."""
+    from rook.agent import tool_groups as tg
+    from rook.agent import tool_dispatcher as td
+    from rook.agent.chat import execution_policy as ep
+    from rook.agent.chat.tool_contracts import ZERO_ARGUMENT_TOOLS
+
+    return SurfaceSources(
+        tier0=frozenset(tg.TIER_0),
+        agent_tier0=frozenset(tg.AGENT_TIER_0),
+        readonly_tier0=frozenset(tg.READONLY_TIER_0),
+        groups={g: tuple(tools) for g, tools in tg.TOOL_GROUPS.items()},
+        mcp_only_groups=frozenset(tg.MCP_ONLY_GROUPS),
+        bridge_names=frozenset(td.BRIDGE_ROUTES.keys()),
+        transform_names=frozenset(td.TRANSFORM_FUNCTIONS.keys()),
+        intercepted_names=INTERCEPTED_META_TOOLS,
+        excluded_names=frozenset(tg.LOCAL_TIER_0_DISPATCH_EXCLUSIONS),
+        local_tool_names=frozenset(),
+        zero_argument_names=frozenset(ZERO_ARGUMENT_TOOLS),
+        strict_no_argument_names=frozenset(td.STRICT_NO_ARGUMENT_BRIDGE_TOOLS),
+        creation_tools=frozenset(ep.CREATION_TOOLS),
+        modal_risk_tools=frozenset(ep.MODAL_RISK_TOOLS),
+        needs_verification=frozenset(ep.NEEDS_VERIFICATION),
+    )

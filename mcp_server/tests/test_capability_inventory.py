@@ -159,3 +159,95 @@ def test_build_inventory_does_not_read_live_catalog_cache(monkeypatch):
 
     inv = build_inventory(_static_sources(), _static_catalog())
     assert inv.records  # built purely from injected args, no cache access
+
+
+import rook.agent.tool_registry as tool_registry_module
+from rook.agent.capability_inventory import (
+    collect_live_sources,
+    reconcile_active_schemas,
+)
+
+
+def _reconcile_sources(gh_canvas_members: tuple[str, ...]) -> SurfaceSources:
+    return SurfaceSources(
+        agent_tier0=frozenset({"request_tools", "search_tools", "gh_snapshot"}),
+        groups={"gh_canvas": gh_canvas_members},
+        mcp_only_groups=frozenset(),
+        bridge_names=frozenset({"gh_snapshot", "gh_edit", "gh_move"}),
+        intercepted_names=INTERCEPTED_META_TOOLS,
+    )
+
+
+def _reconcile_catalog(extra: dict | None = None) -> dict:
+    catalog = {name: _schema(name) for name in ("gh_snapshot", "gh_edit", "gh_move")}
+    if extra:
+        catalog.update(extra)
+    return catalog
+
+
+def test_reconcile_initial_surface_is_clean():
+    findings = reconcile_active_schemas(
+        _reconcile_sources(("gh_edit", "gh_move")), _reconcile_catalog(), group=None
+    )
+    assert findings == ()
+
+
+def test_reconcile_group_activates_real_members_cleanly():
+    findings = reconcile_active_schemas(
+        _reconcile_sources(("gh_edit", "gh_move")),
+        _reconcile_catalog(),
+        group="gh_canvas",
+    )
+    assert findings == ()
+
+
+def test_reconcile_flags_intended_member_absent_from_catalog():
+    # gh_status is a real gh_canvas member but absent from the canned catalog,
+    # so request_group cannot activate it -> intended_not_active.
+    findings = reconcile_active_schemas(
+        _reconcile_sources(("gh_edit", "gh_move", "gh_status")),
+        _reconcile_catalog(),
+        group="gh_canvas",
+    )
+    keys = {(f.code, f.tool, f.severity) for f in findings}
+    assert ("intended_not_active", "gh_status", "warning") in keys
+
+
+def test_reconcile_audit_runs_over_active_schemas_only():
+    # mystery_tool is tier-active but has no dispatch path -> not_dispatchable.
+    # ghost_tool is catalog-only and never active -> produces no finding.
+    sources = SurfaceSources(
+        agent_tier0=frozenset({"mystery_tool"}),
+        intercepted_names=INTERCEPTED_META_TOOLS,
+    )
+    catalog = {"mystery_tool": _schema("mystery_tool"), "ghost_tool": _schema("ghost_tool")}
+    findings = reconcile_active_schemas(sources, catalog, group=None)
+    keys = {(f.code, f.tool, f.severity) for f in findings}
+    assert ("not_dispatchable", "mystery_tool", "error") in keys
+    assert not any(f.tool == "ghost_tool" for f in findings)
+
+
+def test_reconcile_does_not_read_live_catalog_cache(monkeypatch):
+    def _boom(*args, **kwargs):
+        raise AssertionError("reconcile must not read the live catalog cache")
+
+    monkeypatch.setattr(tool_registry_module, "load_catalog_from_cache", _boom)
+    monkeypatch.setattr(tool_registry_module, "get_catalog_cache_path", _boom)
+    findings = reconcile_active_schemas(
+        _reconcile_sources(("gh_edit", "gh_move")), _reconcile_catalog(), group=None
+    )
+    assert findings == ()
+
+
+def test_collect_live_sources_reads_constants_only(monkeypatch):
+    def _boom(*args, **kwargs):
+        raise AssertionError("collect_live_sources must not load the catalog cache")
+
+    monkeypatch.setattr(tool_registry_module, "load_catalog_from_cache", _boom)
+    monkeypatch.setattr(tool_registry_module, "get_catalog_cache_path", _boom)
+
+    sources = collect_live_sources()
+    assert isinstance(sources, SurfaceSources)
+    assert sources.intercepted_names == INTERCEPTED_META_TOOLS
+    assert sources.local_tool_names == frozenset()
+    assert "gh_snapshot" in sources.bridge_names or "gh_snapshot" in sources.agent_tier0
