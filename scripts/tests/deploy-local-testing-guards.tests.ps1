@@ -491,6 +491,47 @@ function Test-AgentSetupDocumentsDevDeployConvention {
     Assert-Contains -Text $content -Expected 'python -m rook' -Message 'AGENT_SETUP must tell developers to close stale rook MCP processes before deploy.'
 }
 
+function Test-DeployScriptReleaseSitePackagesCoherence {
+    $content = Get-Content -Path $DeployScript -Raw
+
+    # Bootstrap must offer the bundled Rook runtime Python (portable to a machine
+    # without a system Python) and must NOT seed the release venv it recreates.
+    Assert-Contains -Text $content -Expected "Join-Path `$RuntimeRoot 'python'" -Message 'Bootstrap must consider the bundled Rook runtime Python directory.'
+    Assert-Contains -Text $content -Expected "-Filter 'cpython-*'" -Message 'Bootstrap must glob bundled cpython runtimes (version-resilient).'
+    Assert-Contains -Text $content -Expected 'never bootstrap with the venv post_install recreates' -Message 'Bootstrap must skip the release venv that post_install recreates.'
+    Assert-NotContains -Text $content -Unexpected '$candidates += $VenvPython' -Message 'Bootstrap must not seed the release venv as a candidate.'
+
+    # New-DeployRuntimeEnvironment must accept the empty release PythonPathEntries.
+    Assert-Contains -Text $content -Expected '[AllowEmptyCollection()][string[]]$PythonPathEntries' -Message 'Runtime environment must allow empty PythonPathEntries (release uses @()).'
+    Assert-Contains -Text $content -Expected '$releasePythonPathEntries = @()' -Message 'Release must use an empty PythonPathEntries (empty PYTHONPATH).'
+
+    # Release source coherence: mirror rook into the release venv site-packages.
+    Assert-Contains -Text $content -Expected 'function Install-ReleaseSourceIntoVenv' -Message 'Local deploy must mirror current source into the release venv.'
+    Assert-Contains -Text $content -Expected 'Sync-Directory $sourceRook $destRook' -Message 'Release source mirror must use the robocopy /MIR directory sync.'
+    Assert-Contains -Text $content -Expected 'Lib\site-packages\rook' -Message 'Release source mirror/verify must target the release venv site-packages rook package.'
+    Assert-Contains -Text $content -Expected 'Mirror current source into release venv site-packages' -Message 'Main flow must run the release source mirror step.'
+
+    # Verification must prove the release runtime imports rook.server from
+    # site-packages and advertises all seven reconstruction tools.
+    Assert-Contains -Text $content -Expected 'rook.server.__file__' -Message 'Verification must assert rook.server import origin (the decisive stale-wheel proof).'
+    Assert-Contains -Text $content -Expected 'rook.server imported from stale location' -Message 'Verification must reject a stale rook.server import.'
+    foreach ($tool in @(
+        'rhino_2d_to_3d_models',
+        'rhino_2d_to_3d_submit',
+        'rhino_2d_to_3d_jobs',
+        'rhino_2d_to_3d_status',
+        'rhino_2d_to_3d_cancel',
+        'rhino_2d_to_3d_result',
+        'rhino_2d_to_3d_import'
+    )) {
+        Assert-Contains -Text $content -Expected "`"$tool`"" -Message "Release verification must assert the $tool reconstruction tool."
+    }
+
+    # Chat-manifest validation must branch by mode for the empty release PYTHONPATH.
+    Assert-Contains -Text $content -Expected 'Chat service pythonPathEntries must be empty in release' -Message 'Chat manifest verify must require empty release pythonPathEntries.'
+    Assert-Contains -Text $content -Expected 'Chat service PYTHONPATH must be empty in release' -Message 'Chat manifest verify must require empty release PYTHONPATH.'
+}
+
 Test-DevDoctorScriptContract
 Test-RookMcpProcessHelperContract
 Test-DeployScriptSelectsExplicitMsvcToolset
@@ -516,5 +557,6 @@ Test-RegisterCompanionAcceptsNet8Runtime
 Test-DeployScriptNativeOnlySkipBuildFastPath
 Test-DeploySkillPointsToAuthoritativeScriptAndChirpChecks
 Test-AgentSetupDocumentsDevDeployConvention
+Test-DeployScriptReleaseSitePackagesCoherence
 
 Write-Host 'Local testing deploy guard tests passed.'
