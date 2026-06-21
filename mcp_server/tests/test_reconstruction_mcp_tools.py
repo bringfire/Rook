@@ -46,15 +46,25 @@ async def test_all_reconstruction_tools_registered():
 
 
 @pytest.mark.asyncio
-async def test_reconstruction_submit_requires_source_artifact_id_only_for_identity():
+async def test_reconstruction_submit_requires_source_artifact_id_and_model_id():
     tools = await server.list_tools()
     submit = {t.name: t for t in tools}["rhino_2d_to_3d_submit"]
 
-    assert set(submit.inputSchema.get("required", [])) == {"source_artifact_id"}
+    assert set(submit.inputSchema.get("required", [])) == {"source_artifact_id", "model_id"}
     assert "source_artifact_id" in submit.inputSchema["properties"]
     assert "path" not in submit.inputSchema["properties"]
     assert "image_path" not in submit.inputSchema["properties"]
     assert "local_path" not in submit.inputSchema["properties"]
+
+    # model_id must advertise the enforced contract (required; no default promise).
+    # Reject the stale "default Hunyuan ... when omitted" wording. The explicit
+    # phrase "no implicit default" is allowed even though it contains "default",
+    # so do NOT assert a bare absence of the word "default".
+    model_id_desc = submit.inputSchema["properties"]["model_id"]["description"]
+    assert "default Hunyuan" not in model_id_desc
+    assert "when omitted" not in model_id_desc
+    assert "no implicit default" in model_id_desc
+    assert "rhino_2d_to_3d_models" in model_id_desc
 
 
 @pytest.mark.asyncio

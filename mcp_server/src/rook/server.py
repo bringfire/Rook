@@ -12682,7 +12682,7 @@ Returns the full profile JSON including features, surfaces, and elements.""",
                 "properties": {
                     "source_artifact_id": {"type": "string", "description": "Source image artifact id."},
                     "source_role": {"type": "string", "description": "Source artifact file role (default image)."},
-                    "model_id": {"type": "string", "description": "Full fal model id; default Hunyuan rapid when omitted by managed contract."},
+                    "model_id": {"type": "string", "description": "Full fal model id returned by rhino_2d_to_3d_models. Required; no implicit default."},
                     "preprocessing_chain": {
                         "type": "array",
                         "items": {"type": "object"},
@@ -12692,7 +12692,7 @@ Returns the full profile JSON including features, surfaces, and elements.""",
                     "estimate_requested": {"type": "boolean", "description": "Request advisory pricing metadata when available."},
                     "port": {"type": "integer", "description": "Specific Rhino port to target."},
                 },
-                "required": ["source_artifact_id"],
+                "required": ["source_artifact_id", "model_id"],
             },
         ),
         Tool(
