@@ -3,9 +3,10 @@ from __future__ import annotations
 import rook.agent.tool_registry as tool_registry_module
 from rook.agent.capability_inventory import (
     INTERCEPTED_META_TOOLS,
-    _dispatch_context_from_sources,
     build_inventory,
+    capability_findings_from_audit,
     collect_live_sources,
+    dispatch_context_from_sources,
     format_report,
     reconcile_active_schemas,
 )
@@ -134,7 +135,7 @@ def test_dispatch_context_maps_all_six_fields():
         excluded_names=frozenset({"e"}),
         strict_no_argument_names=frozenset({"f"}),
     )
-    ctx = _dispatch_context_from_sources(sources)
+    ctx = dispatch_context_from_sources(sources)
     assert ctx.intercepted_names == frozenset({"a"})
     assert ctx.local_tool_names == frozenset({"b"})
     assert ctx.transform_names == frozenset({"c"})
@@ -278,3 +279,33 @@ def test_reconcile_flags_active_member_not_in_intended_membership():
 
     assert ("active_not_intended", "gh_status", "warning") in keys
     assert not any(f.code == "intended_not_active" for f in findings)
+
+
+def test_capability_findings_from_audit_maps_codes_and_severities():
+    from rook.agent.chat.tool_contracts import DispatchabilityFinding
+
+    audit = [
+        DispatchabilityFinding(
+            code="not_dispatchable", tool="a", classification="failure", message="m1"
+        ),
+        DispatchabilityFinding(
+            code="missing_function_name", tool="", classification="schema", message="m2"
+        ),
+        DispatchabilityFinding(
+            code="strict_no_arg_schema_drift",
+            tool="c",
+            classification="bridge_route",
+            message="m3",
+        ),
+        DispatchabilityFinding(
+            code="duplicate_visible_name", tool="d", classification="schema", message="m4"
+        ),
+    ]
+    out = capability_findings_from_audit(audit)
+    assert {(f.code, f.tool, f.severity) for f in out} == {
+        ("not_dispatchable", "a", "error"),
+        ("missing_function_name", "", "error"),
+        ("strict_no_arg_schema_drift", "c", "error"),
+        ("duplicate_visible_name", "d", "warning"),
+    }
+    assert [f.message for f in out] == ["m1", "m2", "m3", "m4"]
