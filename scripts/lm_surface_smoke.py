@@ -169,6 +169,27 @@ _REQUIRED_BASE = frozenset(
 )
 _EXPECTED_EXCLUDED = ("gh_exploration", "gh_knowledge", "gh_validation")
 
+_EXTERNAL_FAIL_CODES = frozenset(
+    {
+        "advertised_not_dispatchable",
+        "empty_catalog",
+        "dispatch_function_missing",
+        "wire_source_unresolved",
+    }
+)
+_EXTERNAL_WARN_CODES = frozenset({"multiple_dispatch_matches", "unextractable_case"})
+
+
+def external_exit_decision(findings) -> tuple[int, tuple[str, ...], tuple[str, ...]]:
+    """Pure gate: derive (exit_code, warn_codes, fail_codes) from finding codes.
+
+    Failure is decided ONLY by structured codes -- never by report text.
+    """
+    codes = {f.code for f in findings}
+    fail = tuple(sorted(codes & _EXTERNAL_FAIL_CODES))
+    warn = tuple(sorted(codes & _EXTERNAL_WARN_CODES))
+    return (1 if fail else 0), warn, fail
+
 
 def run_surface() -> int:
     print("== surface ==")
@@ -277,6 +298,59 @@ def run_surface() -> int:
     return 0
 
 
+def run_external() -> int:
+    print("== external ==")
+    rc = _check_origins()
+    if rc != 0:
+        _p("FAIL", "origin guard failed; refusing external (wire-dispatch) audit")
+        return rc
+
+    import asyncio
+
+    import rook.server
+    from rook.server import list_tools
+    from rook.agent.tool_registry import build_catalog_from_mcp_tools
+    from rook.agent.external_mcp import (
+        collect_wire_dispatch_evidence,
+        reconcile_external_mcp,
+    )
+
+    try:
+        tools = asyncio.run(list_tools())
+        catalog = build_catalog_from_mcp_tools(tools)
+    except Exception as exc:
+        _p("FAIL", f"catalog build from deployed list_tools() failed: {exc!r}")
+        return 1
+    if not catalog:
+        _p("FAIL", "deployed list_tools() produced an empty catalog")
+        return 1
+
+    evidence = collect_wire_dispatch_evidence("rook.server")
+    resolution = reconcile_external_mcp(tuple(catalog.keys()), evidence)
+
+    print(f"  wire-dispatch source: {rook.server.__file__}")
+    print(f"  advertised tools: {len(resolution.advertised_names)}")
+    print(f"  wire handlers: {len(resolution.wire_dispatch_names)}")
+    histogram: dict = {}
+    for finding in resolution.findings:
+        histogram[finding.code] = histogram.get(finding.code, 0) + 1
+    print("  findings by code:")
+    for code in sorted(histogram):
+        print(f"    {code}: {histogram[code]}")
+    for finding in resolution.findings:
+        if finding.code == "handler_not_advertised":
+            print(f"  INFO: {finding.tool} (wire handler not advertised)")
+
+    exit_code, warn_codes, fail_codes = external_exit_decision(resolution.findings)
+    if warn_codes:
+        _p("WARNING", f"extraction anomalies: {list(warn_codes)}")
+    if fail_codes:
+        _p("FAIL", f"external audit failed on: {list(fail_codes)}")
+        return 1
+    _p("PASS", "external (wire-dispatch) audit passed")
+    return exit_code
+
+
 # --- CLI ---
 
 
@@ -285,7 +359,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="lm_surface_smoke",
         description="LM live-smoke diagnostic (deployed-runtime coherence + surface evidence).",
     )
-    parser.add_argument("command", choices=("coherence", "surface"))
+    parser.add_argument("command", choices=("coherence", "surface", "external"))
     return parser
 
 
@@ -302,7 +376,9 @@ def main(argv) -> int:
         return 1
     if args.command == "coherence":
         return run_coherence()
-    return run_surface()
+    if args.command == "surface":
+        return run_surface()
+    return run_external()
 
 
 if __name__ == "__main__":
