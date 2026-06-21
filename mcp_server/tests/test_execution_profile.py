@@ -13,6 +13,8 @@ from rook.agent.execution_profile import (
     ProfileDefinition,
     default_profile_definitions,
     format_profile_report,
+    planner_excluded_mcp_only_groups,
+    planner_profile_from_sources,
     readonly_excluded_mcp_only_groups,
     readonly_profile_from_sources,
     resolve_profile,
@@ -204,12 +206,13 @@ def test_execution_profile_is_import_light():
 
 def test_default_profile_definitions_are_tier_only_seeds():
     by_name = {d.name: d for d in default_profile_definitions()}
-    assert set(by_name) == {"rookchat_local", "readonly"}
+    assert set(by_name) == {"rookchat_local", "readonly", "planner"}
     assert by_name["rookchat_local"].initial_tier == "agent_tier0"
     assert by_name["rookchat_local"].groups == ()
     assert by_name["readonly"].initial_tier == "readonly_tier0"
     assert by_name["readonly"].groups == ()
-    assert "planner" not in by_name
+    assert by_name["planner"].initial_tier == "planner_tier0"
+    assert by_name["planner"].groups == ()
     assert "external_mcp" not in by_name
 
 
@@ -319,3 +322,45 @@ def test_readonly_seed_resolves_locally_executable_no_mcp_only_findings():
 
     assert "ro_tool_mcp" not in res.tool_names
     assert not any(f.code == "mcp_only_tool" for f in res.findings)
+
+
+def test_planner_profile_from_sources_filters_groups():
+    sources = SurfaceSources(
+        groups={"a": ("ta",), "b": ("tb",), "gh_knowledge": ("tk",)},
+        mcp_only_groups=frozenset({"gh_knowledge"}),
+        planner_allowed_groups=frozenset({"a", "b", "gh_knowledge", "ghost"}),
+    )
+    p = planner_profile_from_sources(sources)
+    assert p.name == "planner"
+    assert p.initial_tier == "planner_tier0"
+    assert p.groups == ("a", "b")
+
+
+def test_planner_excluded_mcp_only_groups_real_constants_pin():
+    from rook.agent.planner import PLANNER_ALLOWED_GROUPS
+    from rook.agent.tool_groups import MCP_ONLY_GROUPS
+
+    sources = SurfaceSources(
+        planner_allowed_groups=frozenset(PLANNER_ALLOWED_GROUPS),
+        mcp_only_groups=frozenset(MCP_ONLY_GROUPS),
+    )
+    assert planner_excluded_mcp_only_groups(sources) == ("gh_exploration", "gh_knowledge")
+
+
+def test_default_profile_definitions_includes_planner_tier_only():
+    by_name = {d.name: d for d in default_profile_definitions()}
+    assert set(by_name) == {"rookchat_local", "readonly", "planner"}
+    assert by_name["planner"].initial_tier == "planner_tier0"
+    assert by_name["planner"].groups == ()
+    assert "external_mcp" not in by_name
+
+
+def test_profile_definition_initial_tier_literal_matches_tier_fields():
+    import typing
+
+    from rook.agent.capability_record import TIER_FIELDS
+
+    hints = typing.get_type_hints(ProfileDefinition)
+    union_args = typing.get_args(hints["initial_tier"])  # (Literal[...], NoneType)
+    literal = next(a for a in union_args if typing.get_origin(a) is typing.Literal)
+    assert set(typing.get_args(literal)) == set(TIER_FIELDS)
