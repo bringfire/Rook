@@ -124,34 +124,19 @@ namespace Rook.Services.Vision.Image
 
                 using var stream = await response.Content.ReadAsStreamAsync()
                     .ConfigureAwait(false);
-                using var buffer = new MemoryStream();
-                var readBuffer = new byte[81920];
 
-                while (true)
-                {
-                    var read = await stream.ReadAsync(
-                            readBuffer,
-                            0,
-                            readBuffer.Length,
-                            cancellationToken)
-                        .ConfigureAwait(false);
-                    if (read == 0)
-                        break;
+                var bytes = await CappedStreamReader.ReadCappedAsync(
+                        stream, MaxGeneratedImageBytes, cancellationToken)
+                    .ConfigureAwait(false);
+                if (bytes is null)
+                    return ImageArtifactMaterializationResult.Fail(ExecutionFailed(
+                        "Remote image artifact exceeded the maximum allowed size."));
 
-                    if (buffer.Length + read > MaxGeneratedImageBytes)
-                    {
-                        return ImageArtifactMaterializationResult.Fail(ExecutionFailed(
-                            "Remote image artifact exceeded the maximum allowed size."));
-                    }
-
-                    buffer.Write(readBuffer, 0, read);
-                }
-
-                if (buffer.Length == 0)
+                if (bytes.Length == 0)
                     return ImageArtifactMaterializationResult.Fail(ExecutionFailed(
                         "Remote image artifact response was empty."));
 
-                return ImageArtifactMaterializationResult.Ok(buffer.ToArray(), mimeType);
+                return ImageArtifactMaterializationResult.Ok(bytes, mimeType);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
