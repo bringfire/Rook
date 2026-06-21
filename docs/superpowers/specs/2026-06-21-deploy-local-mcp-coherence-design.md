@@ -128,6 +128,21 @@ in-script assertions, exercised by actually running a local release deploy:
   `rhino_2d_to_3d_*` tools. Prerequisite reminder: VS Installer dir on PATH for
   the native build batch's bare `vswhere.exe`.
 
+## Review notes (folded into the plan)
+
+1. **Bootstrap exclusion compares normalized resolved paths.** Don't naive
+   string-compare `$candidate -ne $VenvPython`. Resolve both paths when they
+   exist and compare case-insensitively with normalized separators (Windows
+   casing/slashes can otherwise let the same venv sneak back in).
+2. **Reinstall ordering is load-bearing:** the source reinstall (#3) runs
+   **after** the AppData payload sync (`Sync-AppPayload`, so the current source
+   is present in `…\app\mcp_server`) **and after** `Invoke-PostInstallConfig`
+   (so the release venv exists). Both preconditions must hold.
+3. **Verification asserts `rook.server.__file__`**, not only `rook.__file__`.
+   The failure was specifically a stale `rook\server.py`; the package root is a
+   useful check, but `rook.server.__file__` under `…\venv\Lib\site-packages\rook`
+   is the decisive proof. Assert both, but `rook.server` is the load-bearing one.
+
 ## Risks
 
 - **Build backend on a clean machine (#3).** `--no-build-isolation --no-index`
