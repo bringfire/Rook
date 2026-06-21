@@ -110,6 +110,16 @@ buffer-size parameter — no current caller needs one.
 - MediaImport importers (`ImageMediaImporter`, `VideoMediaImporter`) are
   untouched — they validate *local file* size, not remote streaming, so they
   are not part of this rule-of-three.
+- **`VeoClient` is explicitly out of scope.** It also streams remote bytes into
+  memory (`VeoClient.cs` ~197–206: `ResponseHeadersRead` → `ReadAsStreamAsync`
+  → `CopyToAsync(ms, 81920, ct)`), but it is **not** the same kernel: there is
+  **no cap and no cap-exceeded mapping** — the 81920 there is only the
+  `CopyToAsync` buffer size. Capping it would be a behavior/security-policy
+  decision, not a mechanical rule-of-three extraction. It may deserve a future
+  audit; not this slice. Do not route it through `CappedStreamReader`.
+- `ReconstructionJobManager`'s stream-to-memory site (`~260–265`) is a net48-safe
+  **local file** read (`FileStream` + `CopyToAsync`), not a capped remote
+  download — also untouched.
 - No fal/provider semantic changes. No reconstruction package behavior changes.
   No image/video result-contract changes. No new dependencies.
 
@@ -150,6 +160,17 @@ already contain such fakes to mirror).
 
 ## Verification
 
+- **Dead-wood greps** (the duplicated kernel is gone, and the remaining
+  stream-to-memory sites are the intentionally-different ones):
+  - `rg "ReadCappedAsync" src/Rook/Services/Reconstruction/ReconstructionRemoteAssetDownloader.cs`
+    → only the *call* to the shared helper; **no private `ReadCappedAsync`
+    definition** remains.
+  - `rg "81920" src/Rook/Services/Vision/Image/ImageArtifactMaterializer.cs src/Rook/Services/Vision/Video/VideoArtifactMaterializer.cs`
+    → **no inline capped `ReadAsync` loop** remains in either materializer.
+  - `rg -n "CopyToAsync|81920" src/Rook/Services/Vision/Video/VeoClient.cs src/Rook/Services/Reconstruction/ReconstructionJobManager.cs`
+    → the only remaining 81920/`CopyToAsync` sites are the intentionally
+    different ones: the uncapped Veo client download and the local-file read in
+    `ReconstructionJobManager` (both unchanged).
 - Focused: `CappedStreamReaderTests` + the three materializer/downloader test
   classes.
 - Full Debug C# suite: `dotnet test src\Rook.Tests\Rook.Tests.csproj -c Debug`
