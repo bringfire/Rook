@@ -155,8 +155,6 @@ def test_collect_reads_real_rook_server_via_find_spec():
 
 
 def test_collect_sources_via_find_spec_origin(tmp_path, monkeypatch):
-    import importlib.util as iu
-
     fake = tmp_path / "fake_server.py"
     fake.write_text(
         "async def _call_tool_dispatch(name, arguments):\n"
