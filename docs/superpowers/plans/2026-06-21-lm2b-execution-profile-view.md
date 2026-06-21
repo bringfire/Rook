@@ -230,6 +230,12 @@ def test_execution_profile_is_import_light():
     assert "rook.agent.tool_registry" not in imports
     assert "rook.agent.chat.tool_contracts" not in imports
     assert "rook.agent.capability_inventory" not in imports
+    assert imports <= {
+        "__future__",
+        "dataclasses",
+        "typing",
+        "rook.agent.capability_record",
+    }
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
