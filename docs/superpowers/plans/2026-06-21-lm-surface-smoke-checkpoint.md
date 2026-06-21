@@ -79,6 +79,14 @@ def test_module_origin_ok_under_site_packages():
     assert SMOKE.module_origin_ok(repo, root) is False
 
 
+def test_module_origin_ok_rejects_sibling_path():
+    # Real containment, not string startswith: a sibling whose name shares the
+    # root as a prefix must NOT pass.
+    root = r"C:\Users\bring\AppData\Local\Rook\venv\Lib\site-packages"
+    sibling = r"C:\Users\bring\AppData\Local\Rook\venv\Lib\site-packages2\rook\__init__.py"
+    assert SMOKE.module_origin_ok(sibling, root) is False
+
+
 def test_classify_cache():
     required = {"gh_snapshot", "gh_errors"}
     assert SMOKE.classify_cache(None, {"a"}, required) == "absent"
@@ -157,14 +165,18 @@ def pythonpath_clean(env_value: str) -> bool:
 
 
 def module_origin_ok(module_file: str, site_packages_root: str) -> bool:
-    """True iff module_file resolves under site_packages_root.
+    """True iff module_file is contained under site_packages_root.
 
-    Case-insensitive with normalized separators (Windows casing/slashes).
+    Real path containment via os.path.commonpath (not string startswith, which
+    would false-pass a sibling like '.../site-packages2/rook'). Case-insensitive
+    for Windows via normcase.
     """
-    def _norm(p: str) -> str:
-        return os.path.normpath(p).replace("\\", "/").lower()
-
-    return _norm(module_file).startswith(_norm(site_packages_root))
+    module_path = os.path.normcase(os.path.abspath(module_file))
+    root_path = os.path.normcase(os.path.abspath(site_packages_root))
+    try:
+        return os.path.commonpath([module_path, root_path]) == root_path
+    except ValueError:
+        return False
 
 
 def classify_cache(cache_keys, built_keys, required) -> str:
@@ -220,7 +232,7 @@ def format_surface_evidence(
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `mcp_server/.venv/Scripts/python.exe -m pytest -p no:cacheprovider mcp_server/tests/test_lm_surface_smoke.py -q`
-Expected: PASS (5 tests).
+Expected: PASS (6 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -499,7 +511,7 @@ if __name__ == "__main__":
 - [ ] **Step 4: Run the gate + parser tests to verify they pass**
 
 Run: `mcp_server/.venv/Scripts/python.exe -m pytest -p no:cacheprovider mcp_server/tests/test_lm_surface_smoke.py -q`
-Expected: PASS (8 tests — the 5 helper tests + 3 new). The `test_main_fails_fast_on_nonempty_pythonpath` test confirms the gate returns 1 without importing `rook`.
+Expected: PASS (9 tests — the 6 helper tests + 3 new). The `test_main_fails_fast_on_nonempty_pythonpath` test confirms the gate returns 1 without importing `rook`.
 
 - [ ] **Step 5: Verify the script compiles and the parser help works**
 
