@@ -607,6 +607,31 @@ function Invoke-PostInstallConfig {
     }
 }
 
+function Install-ReleaseSourceIntoVenv {
+    # Make the release venv's site-packages match the just-synced source.
+    # Invoke-PostInstallConfig populates rook into the venv from the bundled
+    # wheelhouse wheel, which the local deploy never rebuilds -> site-packages
+    # can lag the synced source (e.g. miss the rhino_2d_to_3d_* tools). The real
+    # release MCP config runs with empty PYTHONPATH and imports from
+    # site-packages, so site-packages must be the current source. Offline, no
+    # deps (already installed from the wheelhouse), no build isolation (build
+    # with the venv's bootstrapped backend), no index (must not silently succeed
+    # via the internet/cache). Non-editable so rook lands IN site-packages.
+    $sourceDir = Join-Path $InstallRoot 'mcp_server'
+    if (-not (Test-Path (Join-Path $sourceDir 'pyproject.toml'))) {
+        throw "Release source reinstall: mcp_server source not found at $sourceDir (Sync-AppPayload must run first)."
+    }
+    if (-not (Test-Path $VenvPython)) {
+        throw "Release source reinstall: release venv python not found at $VenvPython (Invoke-PostInstallConfig must run first)."
+    }
+
+    Write-Host "Reinstalling current mcp_server source into the release venv (offline; no deps, no build isolation, no index)..."
+    & $VenvPython -m pip install --force-reinstall --no-deps --no-build-isolation --no-index $sourceDir
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to install current mcp_server source into release venv. Local deploy must not fall back to PYTHONPATH=mcp_server\src; rebuild/fix the local Python packaging inputs."
+    }
+}
+
 function Register-Plugins {
     $register = Join-Path $RepoRoot 'scripts\register-rooknative-suite.ps1'
     & $register -NativeRhpPath (Join-Path $PluginDir 'RookNative.rhp') -CompanionRhpPath (Join-Path $PluginDir 'net8.0\Rook.rhp')
@@ -1192,6 +1217,8 @@ if ($RuntimeContract.IsDev) {
 } else {
     Write-Step "Refresh MCP, Chirp, and config installs"
     Invoke-PostInstallConfig
+    Write-Step "Reinstall current source into release venv"
+    Install-ReleaseSourceIntoVenv
     Write-ChatServiceManifests -Contract $RuntimeContract
 }
 
