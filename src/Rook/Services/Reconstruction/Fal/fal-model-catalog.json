@@ -13,6 +13,7 @@
       "preferred_asset_role": "model_glb",
       "fallback_order": ["model_glb", "model_obj"],
       "supports_pbr": true,
+      "default_texture_expected": true,
       "preprocessing": {
         "recommended": false,
         "required": false

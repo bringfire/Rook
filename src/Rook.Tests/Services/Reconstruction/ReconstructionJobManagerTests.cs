@@ -761,6 +761,131 @@ public sealed class ReconstructionJobManagerTests : IDisposable
         Assert.Single(fixture.Provider.SubmitRequests);
     }
 
+    private static ReconstructionModelEntry ModelEntry(bool defaultTextureExpected, bool supportsPbr = true)
+    {
+        var json = $$"""
+        {"schema_version":1,"models":[{
+          "model_id":"fal-ai/test","provider":"fal","task":"single_image_to_3d","status":"stable","enabled":true,
+          "pipeline_roles":["single_image_to_3d"],"input_types":["image_url"],"output_roles":["model_glb"],
+          "preferred_asset_role":"model_glb","fallback_order":["model_glb"],"supports_pbr":{{(supportsPbr ? "true" : "false")}},
+          "default_texture_expected":{{(defaultTextureExpected ? "true" : "false")}},
+          "preprocessing":{"recommended":false,"required":false},"docs_url":"x"}]}
+        """;
+        return ReconstructionModelCatalog.FromJson(json).Find("fal-ai/test")!;
+    }
+
+    private static JsonObject Opts(string json) => JsonNode.Parse(json)!.AsObject();
+
+    [Fact]
+    public void DeriveTextureExpected_GeometryTrue_IsFalse()
+        => Assert.False(ReconstructionJobManager.DeriveTextureExpected(Opts(@"{""enable_geometry"":true}"), ModelEntry(true)));
+
+    [Fact]
+    public void DeriveTextureExpected_PbrTrue_IsTrue()
+        => Assert.True(ReconstructionJobManager.DeriveTextureExpected(Opts(@"{""enable_pbr"":true}"), ModelEntry(false)));
+
+    [Fact]
+    public void DeriveTextureExpected_PbrFalse_IsFalse()
+        => Assert.False(ReconstructionJobManager.DeriveTextureExpected(Opts(@"{""enable_pbr"":false}"), ModelEntry(true)));
+
+    [Fact]
+    public void DeriveTextureExpected_Omitted_UsesCatalogDefaultTrue()
+        => Assert.True(ReconstructionJobManager.DeriveTextureExpected(Opts("{}"), ModelEntry(true)));
+
+    [Fact]
+    public void DeriveTextureExpected_Omitted_UsesCatalogDefaultFalse()
+        => Assert.False(ReconstructionJobManager.DeriveTextureExpected(Opts("{}"), ModelEntry(false)));
+
+    [Fact]
+    public void DeriveTextureExpected_NonBool_TreatedAsOmitted_UsesCatalogDefault()
+        => Assert.True(ReconstructionJobManager.DeriveTextureExpected(Opts(@"{""enable_pbr"":""true""}"), ModelEntry(true)));
+
+    [Fact]
+    public async Task Submit_OmittedOptions_PersistsTextureExpectedFromCatalogDefault()
+    {
+        var fixture = CreateFixture();
+        var source = fixture.Store.Create(
+            "generated_image",
+            new[] { new BlobInput("image", new byte[] { 1, 2, 3 }, "png") });
+        var request = Request(source.Id) with { Options = new JsonObject() };   // omitted → Hunyuan default true
+
+        var submit = await fixture.Manager.SubmitAsync(request, CancellationToken.None);
+
+        Assert.True(submit.Success);
+        Assert.True(fixture.Manager.Status(submit.Job!.JobId).Job!.TextureExpected);
+    }
+
+    private static string[] WarningCodes(IReadOnlyList<ReconstructionWarning> ws)
+    {
+        var codes = new List<string>();
+        foreach (var w in ws) codes.Add(w.Code);
+        return codes.ToArray();
+    }
+
+    [Fact]
+    public void BuildTextureWarnings_NotExpected_NoWarning()
+        => Assert.Empty(ReconstructionJobManager.BuildTextureWarnings(false, ModelEntry(true, supportsPbr: true), new[] { "model_glb" }));
+
+    [Fact]
+    public void BuildTextureWarnings_NullModel_NoWarning()
+        => Assert.Empty(ReconstructionJobManager.BuildTextureWarnings(true, null, new[] { "model_glb" }));
+
+    [Fact]
+    public void BuildTextureWarnings_Expected_NoPbrSupport_EmitsPbrUnsupported()
+    {
+        var ws = ReconstructionJobManager.BuildTextureWarnings(true, ModelEntry(true, supportsPbr: false), new[] { "model_glb" });
+        Assert.Equal(new[] { "pbr_unsupported_by_model" }, WarningCodes(ws));
+    }
+
+    [Fact]
+    public void BuildTextureWarnings_Expected_PbrSupported_BareRoles_EmitsMissingTexture()
+    {
+        var ws = ReconstructionJobManager.BuildTextureWarnings(true, ModelEntry(true, supportsPbr: true), new[] { "model_glb", "model_obj" });
+        Assert.Equal(new[] { "result_missing_texture" }, WarningCodes(ws));
+    }
+
+    [Fact]
+    public void BuildTextureWarnings_Expected_PbrSupported_TexturePresent_NoWarning()
+        => Assert.Empty(ReconstructionJobManager.BuildTextureWarnings(true, ModelEntry(true, supportsPbr: true), new[] { "model_glb", "texture_base_color" }));
+
+    [Fact]
+    public void BuildTextureWarnings_Expected_PbrSupported_MaterialOnly_NoWarning()
+        => Assert.Empty(ReconstructionJobManager.BuildTextureWarnings(true, ModelEntry(true, supportsPbr: true), new[] { "model_obj", "material_mtl" }));
+
+    [Fact]
+    public async Task Result_TextureExpected_BarePackage_EmitsMissingTexture()
+    {
+        var fixture = CreateFixture();
+        fixture.Provider.StatusComplete.Enqueue(true);
+        fixture.Provider.ResultJson = GlbResultJson;                 // model_glb only → no texture/material
+        fixture.Downloader.Files["https://example.test/model.glb"] = new byte[] { 9, 8, 7 };
+        var source = fixture.Store.Create(
+            "generated_image",
+            new[] { new BlobInput("image", new byte[] { 1, 2, 3 }, "png") });
+        var submit = await fixture.Manager.SubmitAsync(Request(source.Id), CancellationToken.None);   // enable_pbr:true → expected
+        await fixture.Manager.PollActiveJobAsync(submit.Job!.JobId, CancellationToken.None);
+
+        var result = fixture.Manager.Result(submit.Job.JobId);
+
+        Assert.True(result.Success);
+        Assert.Contains(result.Warnings, w => w.Code == "result_missing_texture");
+    }
+
+    [Fact]
+    public void Result_MissingPackage_EmitsArtifactMissingOnly_NoTextureWarning()
+    {
+        var fixture = CreateFixture();
+        var jobId = Guid.NewGuid();
+        // Complete job pointing at a non-existent package, with TextureExpected true.
+        fixture.Ledger.Append(ReconstructionJobLedgerRecord.Complete(jobId, Guid.NewGuid()) with { TextureExpected = true });
+
+        var result = fixture.Manager.Result(jobId);
+
+        Assert.Contains(result.Warnings, w => w.Code == "result_artifact_missing");
+        Assert.DoesNotContain(result.Warnings, w => w.Code == "result_missing_texture");
+        Assert.DoesNotContain(result.Warnings, w => w.Code == "pbr_unsupported_by_model");
+    }
+
     private static readonly JsonNode GlbResultJson = JsonNode.Parse("""
     {
       "model_urls": {
@@ -1025,6 +1150,7 @@ public sealed class ReconstructionJobManagerTests : IDisposable
           "preferred_asset_role": "model_glb",
           "fallback_order": ["model_glb", "model_obj"],
           "supports_pbr": true,
+          "default_texture_expected": true,
           "preprocessing": {"recommended": false, "required": false},
           "docs_url": "https://fal.ai/models/fal-ai/hunyuan-3d/v3.1/rapid/image-to-3d/api"
         }

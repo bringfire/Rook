@@ -19,7 +19,8 @@ public sealed record ReconstructionModelEntry(
     [property: JsonPropertyName("fallback_order")] string[] FallbackOrder,
     [property: JsonPropertyName("supports_pbr")] bool SupportsPbr,
     [property: JsonPropertyName("preprocessing")] ReconstructionPreprocessingMetadata Preprocessing,
-    [property: JsonPropertyName("docs_url")] string DocsUrl);
+    [property: JsonPropertyName("docs_url")] string DocsUrl,
+    [property: JsonPropertyName("default_texture_expected")] bool DefaultTextureExpected);
 
 public sealed record ReconstructionPreprocessingMetadata(
     [property: JsonPropertyName("recommended")] bool Recommended,

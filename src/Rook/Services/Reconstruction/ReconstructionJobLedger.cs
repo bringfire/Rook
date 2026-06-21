@@ -39,15 +39,17 @@ public sealed record ReconstructionJobLedgerRecord(
     DateTimeOffset UpdatedAt,
     Guid? ResultArtifactId,
     bool ResultAvailable,
-    ReconstructionFailure? Error)
+    ReconstructionFailure? Error,
+    bool TextureExpected)
 {
-    public const int CurrentSchemaVersion = 1;
+    public const int CurrentSchemaVersion = 2;
 
     public static ReconstructionJobLedgerRecord Queued(
         Guid jobId,
         string modelId,
         Guid sourceArtifactId,
-        string sourceRole)
+        string sourceRole,
+        bool textureExpected = false)
     {
         var now = DateTimeOffset.UtcNow;
         return new ReconstructionJobLedgerRecord(
@@ -69,7 +71,8 @@ public sealed record ReconstructionJobLedgerRecord(
             now,
             null,
             false,
-            null);
+            null,
+            textureExpected);
     }
 
     public static ReconstructionJobLedgerRecord Complete(Guid jobId, Guid resultArtifactId)
@@ -94,7 +97,8 @@ public sealed record ReconstructionJobLedgerRecord(
             now,
             resultArtifactId,
             true,
-            null);
+            null,
+            false);
     }
 }
 
@@ -241,6 +245,7 @@ public sealed class JsonlReconstructionJobLedger
             ["updated_at"] = record.UpdatedAt.ToString("O", CultureInfo.InvariantCulture),
             ["result_artifact_id"] = record.ResultArtifactId?.ToString("D"),
             ["result_available"] = record.ResultAvailable,
+            ["texture_expected"] = record.TextureExpected,
             ["preprocessing_chain"] = new JsonArray(record.PreprocessingChain
                 .Select(SerializeStage)
                 .ToArray<JsonNode?>()),
@@ -302,7 +307,8 @@ public sealed class JsonlReconstructionJobLedger
             return null;
         }
 
-        if (ReadInt(obj, "schema_version") != ReconstructionJobLedgerRecord.CurrentSchemaVersion)
+        var schemaVersion = ReadInt(obj, "schema_version");
+        if (schemaVersion < 1 || schemaVersion > ReconstructionJobLedgerRecord.CurrentSchemaVersion)
         {
             warning = Warning(lineNumber, "unsupported_schema_version", "Unsupported ledger schema version.");
             return null;
@@ -348,7 +354,8 @@ public sealed class JsonlReconstructionJobLedger
             ReadTimestamp(obj, "updated_at") ?? DateTimeOffset.UtcNow,
             resultArtifactId == Guid.Empty ? null : resultArtifactId,
             ReadBool(obj, "result_available") ?? false,
-            DeserializeFailure(obj["error"]));
+            DeserializeFailure(obj["error"]),
+            ReadBool(obj, "texture_expected") ?? false);
     }
 
     private static IReadOnlyList<ReconstructionPreprocessingStageRecord> DeserializeStages(JsonNode? node)
