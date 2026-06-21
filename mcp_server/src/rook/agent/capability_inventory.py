@@ -16,6 +16,7 @@ from rook.agent.capability_record import (
     CapabilityInventory,
     CapabilityRecord,
     SurfaceSources,
+    TIER_FIELDS,
     Visibility,
 )
 from rook.agent.chat.tool_contracts import (
@@ -53,14 +54,7 @@ def _sorted_findings(findings: list[CapabilityFinding]) -> list[CapabilityFindin
 
 
 def _tiers_for(name: str, sources: SurfaceSources) -> tuple[str, ...]:
-    out: list[str] = []
-    if name in sources.tier0:
-        out.append("tier0")
-    if name in sources.agent_tier0:
-        out.append("agent_tier0")
-    if name in sources.readonly_tier0:
-        out.append("readonly_tier0")
-    return tuple(sorted(out))
+    return tuple(sorted(tf for tf in TIER_FIELDS if name in getattr(sources, tf)))
 
 
 def _groups_for(name: str, sources: SurfaceSources) -> tuple[str, ...]:
@@ -99,7 +93,8 @@ def _visibility(
 
 def _universe(sources: SurfaceSources, catalog: Mapping[str, dict]) -> list[str]:
     names: set[str] = set()
-    names |= set(sources.tier0) | set(sources.agent_tier0) | set(sources.readonly_tier0)
+    for tier_field in TIER_FIELDS:
+        names |= set(getattr(sources, tier_field))
     for tools in sources.groups.values():
         names |= set(tools)
     names |= set(sources.bridge_names) | set(sources.transform_names)
@@ -245,7 +240,7 @@ def reconcile_active_schemas(
     catalog: Mapping[str, dict],
     *,
     group: str | None = None,
-    initial: Literal["tier0", "agent_tier0", "readonly_tier0"] = "agent_tier0",
+    initial: Literal["tier0", "agent_tier0", "readonly_tier0", "planner_tier0"] = "agent_tier0",
 ) -> tuple[CapabilityFinding, ...]:
     selected_tier = frozenset(getattr(sources, initial))
     registry = ToolRegistry(catalog=dict(catalog), tier0=set(selected_tier))
@@ -290,6 +285,7 @@ def reconcile_active_schemas(
 def collect_live_sources() -> SurfaceSources:
     """Read module constants only. No catalog cache, no MCP, no live ToolRegistry,
     no ToolDispatcher instantiation. local_tool_names is left empty."""
+    from rook.agent import planner as _planner
     from rook.agent import tool_groups as tg
     from rook.agent import tool_dispatcher as td
     from rook.agent.chat import execution_policy as ep
@@ -299,9 +295,11 @@ def collect_live_sources() -> SurfaceSources:
         tier0=frozenset(tg.TIER_0),
         agent_tier0=frozenset(tg.AGENT_TIER_0),
         readonly_tier0=frozenset(tg.READONLY_TIER_0),
+        planner_tier0=frozenset(_planner.PLANNER_TIER_0),
         groups={g: tuple(tools) for g, tools in tg.TOOL_GROUPS.items()},
         mcp_only_groups=frozenset(tg.MCP_ONLY_GROUPS),
         readonly_allowed_groups=frozenset(tg.READONLY_ALLOWED_GROUPS),
+        planner_allowed_groups=frozenset(_planner.PLANNER_ALLOWED_GROUPS),
         bridge_names=frozenset(td.BRIDGE_ROUTES.keys()),
         transform_names=frozenset(td.TRANSFORM_FUNCTIONS.keys()),
         intercepted_names=INTERCEPTED_META_TOOLS,

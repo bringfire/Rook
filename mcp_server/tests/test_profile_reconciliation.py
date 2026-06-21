@@ -148,6 +148,12 @@ def test_registry_findings_sorted_and_names_sorted():
     assert rec.intended_names == ("z_tool", "m_tool")  # carried from resolution verbatim
 
 
+def test_reconcile_tier_fields_match_central_constant():
+    from rook.agent.capability_record import TIER_FIELDS
+    from rook.agent.profile_reconciliation import _TIER_FIELDS
+
+    assert _TIER_FIELDS == frozenset(TIER_FIELDS)
+
 def test_initial_tier_none_uses_empty_tier_zero():
     sources = SurfaceSources(bridge_names=frozenset({"gh_edit", "gh_move"}))
     definition = ProfileDefinition(name="p", initial_tier=None, groups=("gh_canvas",))

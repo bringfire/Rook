@@ -19,12 +19,12 @@ from rook.agent.capability_inventory import (
     capability_findings_from_audit,
     dispatch_context_from_sources,
 )
-from rook.agent.capability_record import CapabilityFinding, SurfaceSources
+from rook.agent.capability_record import CapabilityFinding, SurfaceSources, TIER_FIELDS
 from rook.agent.chat.tool_contracts import audit_visible_tool_dispatchability
 from rook.agent.execution_profile import ProfileFinding, ProfileResolution
 from rook.agent.tool_registry import ToolRegistry
 
-_TIER_FIELDS = frozenset({"tier0", "agent_tier0", "readonly_tier0"})
+_TIER_FIELDS = frozenset(TIER_FIELDS)
 
 
 @dataclass(frozen=True)
