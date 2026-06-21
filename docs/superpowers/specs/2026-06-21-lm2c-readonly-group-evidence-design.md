@@ -75,8 +75,11 @@ readonly_allowed_groups=frozenset(tg.READONLY_ALLOWED_GROUPS),
 ```
 
 **Invariant:** nothing in `build_inventory` reads `readonly_allowed_groups`.
-`CapabilityRecord` and `CapabilityInventory` output is byte-for-byte unchanged by
-LM2C. The new field is consumed only by the Unit 3 helpers.
+`build_inventory(...)`, `CapabilityRecord`, and `CapabilityInventory`
+behavior/output are unchanged; the new `SurfaceSources` evidence field is ignored
+by inventory construction. (Adding a defaulted field does change the
+`SurfaceSources` dataclass repr/equality — that is expected.) The new field is
+consumed only by the Unit 3 helpers.
 
 ### Unit 3 — Two pure functions (`execution_profile.py`)
 

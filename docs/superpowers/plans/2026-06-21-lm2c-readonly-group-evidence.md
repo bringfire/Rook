@@ -20,7 +20,7 @@
 - All tuple outputs sorted; all new functions pure and deterministic; evidence-driven (no tool names, no name suffixes).
 - Builder formula: `local_groups = (readonly_allowed_groups & groups.keys()) - mcp_only_groups`.
 - Excluded formula: `excluded_mcp = readonly_allowed_groups & mcp_only_groups` (full intersection, **not** filtered by `groups.keys()`).
-- Run tests from the `mcp_server/` directory so `pytest` resolves `rook.*` and the boundary tests' relative paths (`mcp_server/src/...`) resolve from repo root as the existing suite expects. Commands below use the repo root with explicit paths, matching the merged LM2A/LM2B test invocations.
+- Run all commands from the repo root (`C:/UDEV/Rook`). The boundary tests read repo-root-relative paths (`Path("mcp_server/src/rook/agent/...")`); running from inside `mcp_server/` would double the prefix to `mcp_server/mcp_server/src/...` and fail. Every command below invokes the venv interpreter by path (`mcp_server/.venv/Scripts/python.exe`) from repo root, matching the merged LM2A/LM2B invocations.
 
 ---
 
@@ -47,7 +47,7 @@ def test_surface_sources_readonly_allowed_groups_defaults_empty():
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Run: `cd mcp_server && python -m pytest tests/test_capability_record.py::test_surface_sources_readonly_allowed_groups_defaults_empty -v`
+Run: `mcp_server/.venv/Scripts/python.exe -m pytest -p no:cacheprovider mcp_server/tests/test_capability_record.py::test_surface_sources_readonly_allowed_groups_defaults_empty -v`
 Expected: FAIL with `AttributeError: 'SurfaceSources' object has no attribute 'readonly_allowed_groups'`
 
 - [ ] **Step 3: Add the field**
@@ -64,7 +64,7 @@ In `mcp_server/src/rook/agent/capability_record.py`, inside the `SurfaceSources`
 
 - [ ] **Step 4: Run the record-field test to verify it passes**
 
-Run: `cd mcp_server && python -m pytest tests/test_capability_record.py::test_surface_sources_readonly_allowed_groups_defaults_empty -v`
+Run: `mcp_server/.venv/Scripts/python.exe -m pytest -p no:cacheprovider mcp_server/tests/test_capability_record.py::test_surface_sources_readonly_allowed_groups_defaults_empty -v`
 Expected: PASS
 
 - [ ] **Step 5: Write the failing collector test**
@@ -89,7 +89,7 @@ def test_collect_live_sources_carries_readonly_allowed_groups(monkeypatch):
 
 - [ ] **Step 6: Run it to verify it fails**
 
-Run: `cd mcp_server && python -m pytest tests/test_capability_inventory.py::test_collect_live_sources_carries_readonly_allowed_groups -v`
+Run: `mcp_server/.venv/Scripts/python.exe -m pytest -p no:cacheprovider mcp_server/tests/test_capability_inventory.py::test_collect_live_sources_carries_readonly_allowed_groups -v`
 Expected: FAIL — `readonly_allowed_groups` is empty (`frozenset()`) because `collect_live_sources()` does not yet populate it, so it will not equal the non-empty `READONLY_ALLOWED_GROUPS`.
 
 - [ ] **Step 7: Populate the field in the collector**
@@ -106,12 +106,12 @@ In `mcp_server/src/rook/agent/capability_inventory.py`, inside `collect_live_sou
 
 - [ ] **Step 8: Run the collector test to verify it passes**
 
-Run: `cd mcp_server && python -m pytest tests/test_capability_inventory.py::test_collect_live_sources_carries_readonly_allowed_groups -v`
+Run: `mcp_server/.venv/Scripts/python.exe -m pytest -p no:cacheprovider mcp_server/tests/test_capability_inventory.py::test_collect_live_sources_carries_readonly_allowed_groups -v`
 Expected: PASS
 
 - [ ] **Step 9: Run both touched test modules to confirm no regression**
 
-Run: `cd mcp_server && python -m pytest tests/test_capability_record.py tests/test_capability_inventory.py -q`
+Run: `mcp_server/.venv/Scripts/python.exe -m pytest -p no:cacheprovider mcp_server/tests/test_capability_record.py mcp_server/tests/test_capability_inventory.py -q`
 Expected: PASS (all existing LM2A tests plus the two new ones). The unchanged `test_build_inventory_*` assertions confirm inventory output is unaffected by the new field.
 
 - [ ] **Step 10: Commit**
@@ -204,7 +204,7 @@ def test_readonly_excluded_mcp_only_groups_real_constants_pin():
 
 - [ ] **Step 2: Run them to verify they fail**
 
-Run: `cd mcp_server && python -m pytest tests/test_execution_profile.py -k "readonly_profile or readonly_excluded" -v`
+Run: `mcp_server/.venv/Scripts/python.exe -m pytest -p no:cacheprovider mcp_server/tests/test_execution_profile.py -k "readonly_profile or readonly_excluded" -v`
 Expected: FAIL at import (`ImportError: cannot import name 'readonly_profile_from_sources'`).
 
 - [ ] **Step 3: Add `SurfaceSources` to the module import**
@@ -258,7 +258,7 @@ def readonly_excluded_mcp_only_groups(sources: SurfaceSources) -> tuple[str, ...
 
 - [ ] **Step 5: Run the unit tests to verify they pass**
 
-Run: `cd mcp_server && python -m pytest tests/test_execution_profile.py -k "readonly_profile or readonly_excluded" -v`
+Run: `mcp_server/.venv/Scripts/python.exe -m pytest -p no:cacheprovider mcp_server/tests/test_execution_profile.py -k "readonly_profile or readonly_excluded" -v`
 Expected: PASS (all five tests).
 
 - [ ] **Step 6: Write the failing integration test**
@@ -304,17 +304,17 @@ def test_readonly_seed_resolves_locally_executable_no_mcp_only_findings():
 
 - [ ] **Step 7: Run the integration test to verify it passes**
 
-Run: `cd mcp_server && python -m pytest tests/test_execution_profile.py::test_readonly_seed_resolves_locally_executable_no_mcp_only_findings -v`
+Run: `mcp_server/.venv/Scripts/python.exe -m pytest -p no:cacheprovider mcp_server/tests/test_execution_profile.py::test_readonly_seed_resolves_locally_executable_no_mcp_only_findings -v`
 Expected: PASS. (`ro_tool_local` is local-visible via the non-MCP `ro_local` group, dispatchable via `bridge_names` → `dispatch_path="bridge_route"`, schema-backed via `catalog`; the profile carries only `ro_local`, so no MCP-only tool reaches resolution.)
 
 - [ ] **Step 8: Run the full execution-profile module, including the import-boundary guard**
 
-Run: `cd mcp_server && python -m pytest tests/test_execution_profile.py -q`
+Run: `mcp_server/.venv/Scripts/python.exe -m pytest -p no:cacheprovider mcp_server/tests/test_execution_profile.py -q`
 Expected: PASS. In particular `test_execution_profile_is_import_light` still passes: the only new import is `SurfaceSources` from `rook.agent.capability_record`, which is already on the allow-list, so `imports <= {"__future__", "dataclasses", "typing", "rook.agent.capability_record"}` holds. `test_default_profile_definitions_are_tier_only_seeds` and `test_default_profile_definitions_is_constant` confirm the constant seed is untouched.
 
 - [ ] **Step 9: Run the full LM2 test trio + py_compile**
 
-Run: `cd mcp_server && python -m pytest tests/test_capability_record.py tests/test_capability_inventory.py tests/test_execution_profile.py -q && python -m py_compile src/rook/agent/capability_record.py src/rook/agent/capability_inventory.py src/rook/agent/execution_profile.py`
+Run: `mcp_server/.venv/Scripts/python.exe -m pytest -p no:cacheprovider mcp_server/tests/test_capability_record.py mcp_server/tests/test_capability_inventory.py mcp_server/tests/test_execution_profile.py -q && mcp_server/.venv/Scripts/python.exe -m py_compile mcp_server/src/rook/agent/capability_record.py mcp_server/src/rook/agent/capability_inventory.py mcp_server/src/rook/agent/execution_profile.py`
 Expected: PASS, and `py_compile` prints nothing (success).
 
 - [ ] **Step 10: Commit**
