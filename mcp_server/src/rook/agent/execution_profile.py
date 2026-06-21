@@ -15,6 +15,7 @@ from rook.agent.capability_record import (
     CapabilityInventory,
     CapabilityRecord,
     Severity,
+    SurfaceSources,
 )
 
 
@@ -208,6 +209,37 @@ def default_profile_definitions() -> tuple[ProfileDefinition, ...]:
             description="Observation-only worker (diagnostic seed).",
         ),
     )
+
+
+def readonly_profile_from_sources(sources: SurfaceSources) -> ProfileDefinition:
+    """Evidence-backed, locally-executable readonly seed.
+
+    Groups = readonly-allowed groups that (a) have a definition in this same
+    snapshot and (b) are not MCP-only. The result is resolvable against the
+    inventory built from the same SurfaceSources and never knowingly emits an
+    unknown_group finding from the default seed. Emits no findings itself.
+
+    `(A & B) - C` is set-identical to Python's precedence-driven `A & (B - C)`;
+    explicit parentheses are used for the reader.
+    """
+    local_groups = (
+        sources.readonly_allowed_groups & frozenset(sources.groups.keys())
+    ) - sources.mcp_only_groups
+    return ProfileDefinition(
+        name="readonly",
+        initial_tier="readonly_tier0",
+        groups=tuple(sorted(local_groups)),
+        description="Locally-executable observation-only worker (evidence-backed seed).",
+    )
+
+
+def readonly_excluded_mcp_only_groups(sources: SurfaceSources) -> tuple[str, ...]:
+    """Readonly-allowed groups deliberately excluded because they are MCP-only.
+
+    Full policy intersection -- NOT filtered by groups.keys() -- so the excluded
+    pin reflects policy regardless of whether a group definition exists.
+    """
+    return tuple(sorted(sources.readonly_allowed_groups & sources.mcp_only_groups))
 
 
 def format_profile_report(
