@@ -193,6 +193,23 @@ function Resolve-BootstrapPython {
 
     $candidates = @()
 
+    # Bundled Rook runtime Python: the base interpreter that created the release
+    # venv. It is always present after install, version-matched, and is NOT the
+    # venv that post_install recreates, so it is the most portable bootstrap on a
+    # machine that lacks a system Python (the other dev box). Discover by glob so
+    # a runtime version bump (cpython-3.11.x -> ...) does not break this.
+    $bundledPythonRoot = Join-Path $RuntimeRoot 'python'
+    if (Test-Path $bundledPythonRoot) {
+        Get-ChildItem -Path $bundledPythonRoot -Directory -Filter 'cpython-*' -ErrorAction SilentlyContinue |
+            Sort-Object Name -Descending |
+            ForEach-Object {
+                $bundledPython = Join-Path $_.FullName 'python.exe'
+                if (Test-Path $bundledPython) {
+                    $candidates += $bundledPython
+                }
+            }
+    }
+
     $pythonCommand = Get-Command python -ErrorAction SilentlyContinue
     if ($pythonCommand -and $pythonCommand.Source -notlike '*WindowsApps*') {
         $candidates += $pythonCommand.Source

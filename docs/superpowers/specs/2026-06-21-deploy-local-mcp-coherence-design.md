@@ -51,10 +51,14 @@ ships: `rook` current in site-packages, empty `PYTHONPATH`, tools present.
 
 1. **`Resolve-BootstrapPython` excludes the venv it may recreate.** Do not offer
    `$VenvPython` as a bootstrap candidate (post_install rmtree-recreates that
-   venv). Keep the remaining candidates in order — system `python`
-   (non-WindowsApps), `py -3`, then `%LOCALAPPDATA%\Programs\Python\Python3{14..10}`.
-   If none resolve, keep the existing `throw "Python 3.10+ was not found."`.
-   `-UseRepoVenv` / `-DevPythonRuntime` (`Resolve-DevPythonRuntime`) are a
+   venv). Candidate order: the **bundled Rook runtime Python**
+   (`$RuntimeRoot\python\cpython-*\python.exe`, glob-discovered, newest first —
+   the base interpreter that created the venv; always present after install and
+   the only Python guaranteed on a machine without a system install), then system
+   `python` (non-WindowsApps), `py -3`, then
+   `%LOCALAPPDATA%\Programs\Python\Python3{14..10}`. The bundled Python is a
+   candidate; only `$VenvPython` is excluded. If none resolve, throw a clear
+   error. `-UseRepoVenv` / `-DevPythonRuntime` (`Resolve-DevPythonRuntime`) are a
    separate path and stay untouched.
 
 2. **`Invoke-PostInstallConfig` still builds the release venv from the

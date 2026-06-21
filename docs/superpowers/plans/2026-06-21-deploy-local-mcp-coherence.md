@@ -114,6 +114,23 @@ function Resolve-BootstrapPython {
 
     $candidates = @()
 
+    # Bundled Rook runtime Python: the base interpreter that created the release
+    # venv. It is always present after install, version-matched, and is NOT the
+    # venv that post_install recreates, so it is the most portable bootstrap on a
+    # machine that lacks a system Python (the other dev box). Discover by glob so
+    # a runtime version bump (cpython-3.11.x -> ...) does not break this.
+    $bundledPythonRoot = Join-Path $RuntimeRoot 'python'
+    if (Test-Path $bundledPythonRoot) {
+        Get-ChildItem -Path $bundledPythonRoot -Directory -Filter 'cpython-*' -ErrorAction SilentlyContinue |
+            Sort-Object Name -Descending |
+            ForEach-Object {
+                $bundledPython = Join-Path $_.FullName 'python.exe'
+                if (Test-Path $bundledPython) {
+                    $candidates += $bundledPython
+                }
+            }
+    }
+
     $pythonCommand = Get-Command python -ErrorAction SilentlyContinue
     if ($pythonCommand -and $pythonCommand.Source -notlike '*WindowsApps*') {
         $candidates += $pythonCommand.Source
@@ -422,7 +439,7 @@ Run the parser check. Expected: `PARSE OK`.
 
 The installed release venv was already corrected to current source, so the exact embedded Python check must pass with empty `PYTHONPATH`. Run:
 ```
-$env:PYTHONPATH=""; & "C:\Users\aryan\AppData\Local\Rook\venv\Scripts\python.exe" -c "import asyncio, rook, rook.server; from rook.server import list_tools; names={t.name for t in asyncio.run(list_tools())}; req={'rhino_2d_to_3d_models','rhino_2d_to_3d_submit','rhino_2d_to_3d_status','rhino_2d_to_3d_result','rhino_2d_to_3d_import'}; miss=sorted(req-names); print('rook.server:', rook.server.__file__); print('missing:', miss); raise SystemExit(1 if (miss or 'site-packages' not in rook.server.__file__.replace(chr(92),'/').lower()) else 0)"
+$env:PYTHONPATH=""; & "C:\Users\aryan\AppData\Local\Rook\venv\Scripts\python.exe" -c "import asyncio, rook, rook.server; from rook.server import list_tools; names={t.name for t in asyncio.run(list_tools())}; req={'rhino_2d_to_3d_models','rhino_2d_to_3d_submit','rhino_2d_to_3d_jobs','rhino_2d_to_3d_status','rhino_2d_to_3d_cancel','rhino_2d_to_3d_result','rhino_2d_to_3d_import'}; miss=sorted(req-names); print('rook.server:', rook.server.__file__); print('missing:', miss); raise SystemExit(1 if (miss or 'site-packages' not in rook.server.__file__.replace(chr(92),'/').lower()) else 0)"
 ```
 Expected: prints `rook.server: …\site-packages\rook\server.py`, `missing: []`, exit 0.
 (If exit 1, the installed venv is stale or the tools aren't advertised — that is exactly the failure this guard is meant to catch; do not weaken the assertion.)
