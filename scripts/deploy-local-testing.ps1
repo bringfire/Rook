@@ -181,10 +181,17 @@ function Assert-RookBimBuildPrerequisites {
 }
 
 function Resolve-BootstrapPython {
-    $candidates = @()
+    # post_install.py recreates the rook release venv (shutil.rmtree in
+    # _create_venv) whenever the runtime payload/lock changes. It must NOT be
+    # bootstrapped with that same venv's interpreter, or it deletes the running
+    # process mid-run -> silent exit 1, no traceback. Exclude $VenvPython by
+    # normalized, resolved, case-insensitive path. Prefer system/bundled Python.
+    $venvNormalized = $null
     if (Test-Path $VenvPython) {
-        $candidates += $VenvPython
+        $venvNormalized = (Resolve-Path $VenvPython).Path.Replace('\', '/').ToLowerInvariant()
     }
+
+    $candidates = @()
 
     $pythonCommand = Get-Command python -ErrorAction SilentlyContinue
     if ($pythonCommand -and $pythonCommand.Source -notlike '*WindowsApps*') {
@@ -208,11 +215,15 @@ function Resolve-BootstrapPython {
 
     foreach ($candidate in $candidates) {
         if (Test-Path $candidate) {
-            return (Resolve-Path $candidate).Path
+            $resolved = (Resolve-Path $candidate).Path
+            if ($venvNormalized -and ($resolved.Replace('\', '/').ToLowerInvariant() -eq $venvNormalized)) {
+                continue  # never bootstrap with the venv post_install recreates
+            }
+            return $resolved
         }
     }
 
-    throw "Python 3.10+ was not found."
+    throw "Python 3.10+ was not found for the post_install bootstrap (the release venv at $VenvPython is intentionally excluded because post_install recreates it; install a system Python 3.10+ or ensure 'py -3' resolves)."
 }
 
 function Resolve-DevPythonRuntime {
