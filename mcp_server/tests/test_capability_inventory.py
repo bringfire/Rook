@@ -1,12 +1,15 @@
 from __future__ import annotations
 
-from rook.agent.capability_record import CapabilityInventory, SurfaceSources
+import rook.agent.tool_registry as tool_registry_module
 from rook.agent.capability_inventory import (
     INTERCEPTED_META_TOOLS,
     _dispatch_context_from_sources,
     build_inventory,
+    collect_live_sources,
     format_report,
+    reconcile_active_schemas,
 )
+from rook.agent.capability_record import CapabilityInventory, SurfaceSources
 
 
 def _schema(name: str) -> dict:
@@ -149,8 +152,6 @@ def test_format_report_is_pure_and_stable():
 
 
 def test_build_inventory_does_not_read_live_catalog_cache(monkeypatch):
-    import rook.agent.tool_registry as tool_registry_module
-
     def _boom(*args, **kwargs):
         raise AssertionError("build_inventory must not read the live catalog cache")
 
@@ -159,13 +160,6 @@ def test_build_inventory_does_not_read_live_catalog_cache(monkeypatch):
 
     inv = build_inventory(_static_sources(), _static_catalog())
     assert inv.records  # built purely from injected args, no cache access
-
-
-import rook.agent.tool_registry as tool_registry_module
-from rook.agent.capability_inventory import (
-    collect_live_sources,
-    reconcile_active_schemas,
-)
 
 
 def _reconcile_sources(gh_canvas_members: tuple[str, ...]) -> SurfaceSources:
