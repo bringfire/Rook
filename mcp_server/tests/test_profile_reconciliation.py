@@ -174,3 +174,28 @@ def test_malformed_initial_tier_matching_real_field_yields_empty_tier_zero():
     rec = reconcile_profile(resolution, sources, {"gh_edit": _schema("gh_edit")})
     assert rec.active_names == ()
     assert "gh_canvas" not in rec.active_names
+
+
+def test_local_tool_names_clears_not_dispatchable_on_audit_path():
+    # x is tier-active and in the catalog; its ONLY dispatch route is the local
+    # handler. With x in local_tool_names the LM2D audit must NOT flag
+    # not_dispatchable; without it the false positive returns -> proves the
+    # enrichment is load-bearing on reconcile_profile's audit path.
+    definition = ProfileDefinition(name="p", initial_tier="agent_tier0")
+    resolution = _resolution(definition, tool_names=("x",))
+    catalog = {"x": _schema("x")}
+
+    enriched = SurfaceSources(
+        agent_tier0=frozenset({"x"}),
+        local_tool_names=frozenset({"x"}),
+    )
+    rec = reconcile_profile(resolution, enriched, catalog)
+    assert not any(
+        f.code == "not_dispatchable" and f.tool == "x" for f in rec.registry_findings
+    )
+
+    bare = SurfaceSources(agent_tier0=frozenset({"x"}))
+    rec_bare = reconcile_profile(resolution, bare, catalog)
+    assert any(
+        f.code == "not_dispatchable" and f.tool == "x" for f in rec_bare.registry_findings
+    )

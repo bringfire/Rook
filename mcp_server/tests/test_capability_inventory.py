@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import dataclasses
+import pytest
+
 import rook.agent.tool_registry as tool_registry_module
 from rook.agent.capability_inventory import (
     INTERCEPTED_META_TOOLS,
@@ -309,3 +312,36 @@ def test_capability_findings_from_audit_maps_codes_and_severities():
         ("duplicate_visible_name", "d", "warning"),
     }
     assert [f.message for f in out] == ["m1", "m2", "m3", "m4"]
+
+
+def test_collect_runtime_sources_enriches_local_tool_names(monkeypatch):
+    import rook.agent.capability_inventory as ci
+    import rook.agent.tool_dispatcher as td
+
+    base = SurfaceSources(
+        agent_tier0=frozenset({"a"}),
+        bridge_names=frozenset({"a"}),
+    )
+    # Patch the module global the function calls, and the lazy-import target
+    # (td.build_local_tools is resolved as an attribute at call time).
+    monkeypatch.setattr(ci, "collect_live_sources", lambda: base)
+    monkeypatch.setattr(td, "build_local_tools", lambda: {"loc1": object(), "loc2": object()})
+
+    out = ci.collect_runtime_sources()
+    assert out.local_tool_names == frozenset({"loc1", "loc2"})
+    # enriched, not rebuilt: every other field identical to base
+    assert dataclasses.replace(out, local_tool_names=frozenset()) == base
+
+
+def test_collect_runtime_sources_propagates_builder_failure(monkeypatch):
+    import rook.agent.capability_inventory as ci
+    import rook.agent.tool_dispatcher as td
+
+    monkeypatch.setattr(ci, "collect_live_sources", lambda: SurfaceSources())
+
+    def _boom():
+        raise RuntimeError("builder exploded")
+
+    monkeypatch.setattr(td, "build_local_tools", _boom)
+    with pytest.raises(RuntimeError):
+        ci.collect_runtime_sources()

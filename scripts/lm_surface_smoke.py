@@ -186,7 +186,7 @@ def run_surface() -> int:
         load_catalog_from_cache,
     )
     from rook.agent.tool_groups import TOOL_GROUPS
-    from rook.agent.capability_inventory import build_inventory, collect_live_sources
+    from rook.agent.capability_inventory import build_inventory, collect_runtime_sources
     from rook.agent.execution_profile import (
         readonly_excluded_mcp_only_groups,
         readonly_profile_from_sources,
@@ -204,7 +204,12 @@ def run_surface() -> int:
         _p("FAIL", "deployed list_tools() produced an empty catalog")
         return 1
 
-    sources = collect_live_sources()
+    try:
+        sources = collect_runtime_sources()
+    except Exception as exc:
+        _p("FAIL", f"collect_runtime_sources() failed: {exc!r}")
+        return 1
+    print(f"  local tools (runtime-enriched): {len(sources.local_tool_names)}")
     inventory = build_inventory(sources, catalog)
     profile = readonly_profile_from_sources(sources)
     resolution = resolve_profile(profile, inventory)
