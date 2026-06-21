@@ -112,6 +112,16 @@ public sealed class ReconstructionJobManager : IDisposable
                 "preprocessing_chain");
         }
 
+        if (IsJsonTrue(request.Options, "enable_pbr") && IsJsonTrue(request.Options, "enable_geometry"))
+        {
+            return SubmitFail(
+                "invalid_request",
+                "enable_geometry=true requests geometry-only output and cannot be combined with "
+                + "enable_pbr=true. Remove enable_geometry to request textured output, or remove "
+                + "enable_pbr to request geometry-only output.",
+                "options");
+        }
+
         var source = _store.Get(request.SourceArtifactId);
         if (source is null)
             return SubmitFail("invalid_request", "source_artifact_id was not found.", "source_artifact_id");
@@ -568,6 +578,14 @@ public sealed class ReconstructionJobManager : IDisposable
             && string.Equals(model.Status, "stable", StringComparison.OrdinalIgnoreCase)
             && string.Equals(model.Task, "single_image_to_3d", StringComparison.Ordinal)
             && model.PipelineRoles.Contains("single_image_to_3d", StringComparer.Ordinal);
+
+    private static bool IsJsonTrue(JsonObject options, string key)
+    {
+        if (options is null) return false;
+        if (!options.TryGetPropertyValue(key, out var node)) return false;
+        if (node is not JsonValue value) return false;
+        return value.TryGetValue<bool>(out var parsed) && parsed;
+    }
 
     private static ReconstructionSubmitResult SubmitFail(
         string code,
