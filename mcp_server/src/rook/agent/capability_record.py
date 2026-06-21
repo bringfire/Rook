@@ -15,15 +15,19 @@ from typing import Literal
 Visibility = Literal["local_visible", "mcp_only_visible", "support_only"]
 Severity = Literal["info", "warning", "error"]
 
+TIER_FIELDS: tuple[str, ...] = ("tier0", "agent_tier0", "readonly_tier0", "planner_tier0")
+
 
 @dataclass(frozen=True)
 class SurfaceSources:
     tier0: frozenset[str] = frozenset()
     agent_tier0: frozenset[str] = frozenset()
     readonly_tier0: frozenset[str] = frozenset()
+    planner_tier0: frozenset[str] = frozenset()
     groups: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
     mcp_only_groups: frozenset[str] = frozenset()
     readonly_allowed_groups: frozenset[str] = frozenset()
+    planner_allowed_groups: frozenset[str] = frozenset()
     bridge_names: frozenset[str] = frozenset()
     transform_names: frozenset[str] = frozenset()
     intercepted_names: frozenset[str] = frozenset()

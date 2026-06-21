@@ -345,3 +345,69 @@ def test_collect_runtime_sources_propagates_builder_failure(monkeypatch):
     monkeypatch.setattr(td, "build_local_tools", _boom)
     with pytest.raises(RuntimeError):
         ci.collect_runtime_sources()
+
+
+def test_collect_live_sources_carries_planner_evidence(monkeypatch):
+    from rook.agent.planner import PLANNER_ALLOWED_GROUPS, PLANNER_TIER_0
+
+    def _boom(*args, **kwargs):
+        raise AssertionError("collect_live_sources must not load the catalog cache")
+
+    monkeypatch.setattr(tool_registry_module, "load_catalog_from_cache", _boom)
+    monkeypatch.setattr(tool_registry_module, "get_catalog_cache_path", _boom)
+
+    sources = collect_live_sources()
+    assert sources.planner_tier0 == frozenset(PLANNER_TIER_0)
+    assert sources.planner_allowed_groups == frozenset(PLANNER_ALLOWED_GROUPS)
+
+
+def test_tiers_for_planner_and_readonly_is_sorted():
+    sources = SurfaceSources(
+        readonly_tier0=frozenset({"dual"}),
+        planner_tier0=frozenset({"dual"}),
+    )
+    inv = build_inventory(sources, {"dual": _schema("dual")})
+    record = {r.name: r for r in inv.records}["dual"]
+    assert record.tiers == ("planner_tier0", "readonly_tier0")
+
+
+def test_planner_only_tool_is_in_inventory_universe():
+    # Guards the _universe drift: a tool present ONLY in planner_tier0 must get a
+    # record (it would be missing if _universe didn't include planner_tier0).
+    sources = SurfaceSources(planner_tier0=frozenset({"planner_only"}))
+    inv = build_inventory(sources, {})
+    assert "planner_only" in {r.name for r in inv.records}
+
+
+def test_reconcile_active_schemas_initial_literal_matches_tier_fields():
+    import typing
+
+    from rook.agent.capability_record import TIER_FIELDS
+
+    hints = typing.get_type_hints(reconcile_active_schemas)
+    assert set(typing.get_args(hints["initial"])) == set(TIER_FIELDS)
+
+
+def test_collect_live_sources_stays_light_no_planner_machinery():
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    env = os.environ.copy()
+    src_path = str(Path("mcp_server/src").resolve())
+    env["PYTHONPATH"] = (
+        src_path
+        if not env.get("PYTHONPATH")
+        else f"{src_path}{os.pathsep}{env['PYTHONPATH']}"
+    )
+    probe = (
+        "import sys\n"
+        "from rook.agent.capability_inventory import collect_live_sources\n"
+        "collect_live_sources()\n"
+        "heavy = [m for m in ('dspy', 'litellm', 'rook.agent.base_agent') "
+        "if m in sys.modules]\n"
+        "if heavy:\n"
+        "    raise SystemExit('heavy modules loaded by collect_live_sources: ' + repr(heavy))\n"
+    )
+    subprocess.run([sys.executable, "-c", probe], check=True, env=env)

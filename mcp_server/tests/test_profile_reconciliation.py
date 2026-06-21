@@ -148,6 +148,37 @@ def test_registry_findings_sorted_and_names_sorted():
     assert rec.intended_names == ("z_tool", "m_tool")  # carried from resolution verbatim
 
 
+def test_planner_tier_local_tool_not_falsely_not_dispatchable():
+    # knowledge_query is a planner_tier0 tool that is local-handler-backed.
+    definition = ProfileDefinition(name="planner", initial_tier="planner_tier0")
+    resolution = _resolution(definition, tool_names=("knowledge_query",))
+    catalog = {"knowledge_query": _schema("knowledge_query")}
+
+    enriched = SurfaceSources(
+        planner_tier0=frozenset({"knowledge_query"}),
+        local_tool_names=frozenset({"knowledge_query"}),
+    )
+    rec = reconcile_profile(resolution, enriched, catalog)
+    assert not any(
+        f.code == "not_dispatchable" and f.tool == "knowledge_query"
+        for f in rec.registry_findings
+    )
+
+    bare = SurfaceSources(planner_tier0=frozenset({"knowledge_query"}))
+    rec_bare = reconcile_profile(resolution, bare, catalog)
+    assert any(
+        f.code == "not_dispatchable" and f.tool == "knowledge_query"
+        for f in rec_bare.registry_findings
+    )
+
+
+def test_reconcile_tier_fields_match_central_constant():
+    from rook.agent.capability_record import TIER_FIELDS
+    from rook.agent.profile_reconciliation import _TIER_FIELDS
+
+    assert _TIER_FIELDS == frozenset(TIER_FIELDS)
+
+
 def test_initial_tier_none_uses_empty_tier_zero():
     sources = SurfaceSources(bridge_names=frozenset({"gh_edit", "gh_move"}))
     definition = ProfileDefinition(name="p", initial_tier=None, groups=("gh_canvas",))

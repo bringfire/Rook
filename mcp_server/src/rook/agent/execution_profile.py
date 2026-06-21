@@ -22,7 +22,7 @@ from rook.agent.capability_record import (
 @dataclass(frozen=True)
 class ProfileDefinition:
     name: str
-    initial_tier: Literal["tier0", "agent_tier0", "readonly_tier0"] | None = None
+    initial_tier: Literal["tier0", "agent_tier0", "readonly_tier0", "planner_tier0"] | None = None
     groups: tuple[str, ...] = ()
     tools: tuple[str, ...] = ()
     description: str | None = None
@@ -190,10 +190,9 @@ def resolve_profiles(
 def default_profile_definitions() -> tuple[ProfileDefinition, ...]:
     """Non-authoritative diagnostic seed profiles.
 
-    Both seeds are tier-only (groups=()): a name-suffix heuristic is not a
-    faithful proxy for the repo's READONLY_ALLOWED_GROUPS policy, so readonly
-    group membership is deferred until the source snapshot carries explicit
-    evidence. No planner / external_mcp seed.
+    All seeds are tier-only (groups=()): name-suffix heuristics are not
+    faithful proxies for policy, so group membership is deferred until the
+    source snapshot carries explicit evidence. No external_mcp seed.
     """
     return (
         ProfileDefinition(
@@ -207,6 +206,13 @@ def default_profile_definitions() -> tuple[ProfileDefinition, ...]:
             initial_tier="readonly_tier0",
             groups=(),
             description="Observation-only worker (diagnostic seed).",
+        ),
+        ProfileDefinition(
+            name="planner",
+            initial_tier="planner_tier0",
+            groups=(),
+            description="Read-only planning/query worker (diagnostic tier-only seed; "
+            "evidence-backed groups via planner_profile_from_sources).",
         ),
     )
 
@@ -240,6 +246,31 @@ def readonly_excluded_mcp_only_groups(sources: SurfaceSources) -> tuple[str, ...
     pin reflects policy regardless of whether a group definition exists.
     """
     return tuple(sorted(sources.readonly_allowed_groups & sources.mcp_only_groups))
+
+
+def planner_profile_from_sources(sources: SurfaceSources) -> ProfileDefinition:
+    """Evidence-backed, locally-executable planner seed (read-only plan/query).
+
+    Groups = planner-allowed groups that have a definition in this snapshot and
+    are not MCP-only. Mirrors readonly_profile_from_sources.
+    """
+    local_groups = (
+        sources.planner_allowed_groups & frozenset(sources.groups.keys())
+    ) - sources.mcp_only_groups
+    return ProfileDefinition(
+        name="planner",
+        initial_tier="planner_tier0",
+        groups=tuple(sorted(local_groups)),
+        description="Read-only planning/query worker (evidence-backed seed).",
+    )
+
+
+def planner_excluded_mcp_only_groups(sources: SurfaceSources) -> tuple[str, ...]:
+    """Planner-allowed groups excluded because they are MCP-only.
+
+    Full policy intersection -- NOT filtered by groups.keys().
+    """
+    return tuple(sorted(sources.planner_allowed_groups & sources.mcp_only_groups))
 
 
 def format_profile_report(

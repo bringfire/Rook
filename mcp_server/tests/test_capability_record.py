@@ -13,6 +13,7 @@ from rook.agent.capability_record import (
     CapabilityInventory,
     CapabilityRecord,
     SurfaceSources,
+    TIER_FIELDS,
 )
 
 
@@ -88,3 +89,17 @@ def test_importing_capability_record_does_not_load_tool_dispatcher():
         "    raise SystemExit('rook.agent.tool_dispatcher loaded')\n"
     )
     subprocess.run([sys.executable, "-c", probe], check=True, env=env)
+
+
+def test_surface_sources_planner_fields_default_empty():
+    s = SurfaceSources()
+    assert s.planner_tier0 == frozenset()
+    assert s.planner_allowed_groups == frozenset()
+
+
+def test_tier_fields_are_all_surface_sources_fields():
+    import dataclasses
+
+    names = {f.name for f in dataclasses.fields(SurfaceSources)}
+    assert set(TIER_FIELDS) <= names
+    assert TIER_FIELDS == ("tier0", "agent_tier0", "readonly_tier0", "planner_tier0")
