@@ -135,7 +135,8 @@ public sealed class ReconstructionJobManager : IDisposable
             jobId,
             request.ModelId,
             request.SourceArtifactId,
-            request.SourceRole);
+            request.SourceRole,
+            DeriveTextureExpected(request.Options, model!));
         _ledger.Append(queued);
 
         var submitting = WithState(
@@ -578,6 +579,23 @@ public sealed class ReconstructionJobManager : IDisposable
             && string.Equals(model.Status, "stable", StringComparison.OrdinalIgnoreCase)
             && string.Equals(model.Task, "single_image_to_3d", StringComparison.Ordinal)
             && model.PipelineRoles.Contains("single_image_to_3d", StringComparer.Ordinal);
+
+    private static bool? ReadStrictBool(JsonObject options, string key)
+    {
+        if (options is null) return null;
+        if (!options.TryGetPropertyValue(key, out var node)) return null;
+        if (node is not JsonValue value) return null;
+        return value.TryGetValue<bool>(out var parsed) ? parsed : (bool?)null;
+    }
+
+    internal static bool DeriveTextureExpected(JsonObject options, ReconstructionModelEntry model)
+    {
+        if (ReadStrictBool(options, "enable_geometry") == true) return false;   // rule 1
+        var pbr = ReadStrictBool(options, "enable_pbr");
+        if (pbr == true) return true;                                          // rule 2
+        if (pbr == false) return false;                                        // rule 3
+        return model.DefaultTextureExpected;                                   // rule 4
+    }
 
     private static bool IsJsonTrue(JsonObject options, string key)
     {
