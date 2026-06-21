@@ -38,9 +38,10 @@ that fails today starts succeeding.
    (currently `test_reconstruction_submit_requires_source_artifact_id_only_for_identity`,
    asserting `required == {"source_artifact_id"}`):
    - Update the required-set assertion to `{"source_artifact_id", "model_id"}`.
-   - Add an assertion that the `model_id` description no longer contains
-     `"default"` (case-insensitive) — guards against the default promise drifting
-     back in.
+   - Add assertions that the `model_id` description no longer contains the stale
+     promise — reject `"default Hunyuan"` and `"when omitted"` (NOT a bare
+     `"default"` check: the new wording *"no implicit default"* legitimately
+     contains "default"). Guards against the default promise drifting back in.
    - Rename the test to reflect the contract (e.g.
      `test_reconstruction_submit_requires_source_artifact_id_and_model_id`); keep
      its existing path-rejection assertions (still valid — artifact-only contract).
