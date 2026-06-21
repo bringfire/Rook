@@ -181,9 +181,33 @@ function Assert-RookBimBuildPrerequisites {
 }
 
 function Resolve-BootstrapPython {
-    $candidates = @()
+    # post_install.py recreates the rook release venv (shutil.rmtree in
+    # _create_venv) whenever the runtime payload/lock changes. It must NOT be
+    # bootstrapped with that same venv's interpreter, or it deletes the running
+    # process mid-run -> silent exit 1, no traceback. Exclude $VenvPython by
+    # normalized, resolved, case-insensitive path. Prefer system/bundled Python.
+    $venvNormalized = $null
     if (Test-Path $VenvPython) {
-        $candidates += $VenvPython
+        $venvNormalized = (Resolve-Path $VenvPython).Path.Replace('\', '/').ToLowerInvariant()
+    }
+
+    $candidates = @()
+
+    # Bundled Rook runtime Python: the base interpreter that created the release
+    # venv. It is always present after install, version-matched, and is NOT the
+    # venv that post_install recreates, so it is the most portable bootstrap on a
+    # machine that lacks a system Python (the other dev box). Discover by glob so
+    # a runtime version bump (cpython-3.11.x -> ...) does not break this.
+    $bundledPythonRoot = Join-Path $RuntimeRoot 'python'
+    if (Test-Path $bundledPythonRoot) {
+        Get-ChildItem -Path $bundledPythonRoot -Directory -Filter 'cpython-*' -ErrorAction SilentlyContinue |
+            Sort-Object Name -Descending |
+            ForEach-Object {
+                $bundledPython = Join-Path $_.FullName 'python.exe'
+                if (Test-Path $bundledPython) {
+                    $candidates += $bundledPython
+                }
+            }
     }
 
     $pythonCommand = Get-Command python -ErrorAction SilentlyContinue
@@ -208,11 +232,15 @@ function Resolve-BootstrapPython {
 
     foreach ($candidate in $candidates) {
         if (Test-Path $candidate) {
-            return (Resolve-Path $candidate).Path
+            $resolved = (Resolve-Path $candidate).Path
+            if ($venvNormalized -and ($resolved.Replace('\', '/').ToLowerInvariant() -eq $venvNormalized)) {
+                continue  # never bootstrap with the venv post_install recreates
+            }
+            return $resolved
         }
     }
 
-    throw "Python 3.10+ was not found."
+    throw "Python 3.10+ was not found for the post_install bootstrap (the release venv at $VenvPython is intentionally excluded because post_install recreates it; install a system Python 3.10+ or ensure 'py -3' resolves)."
 }
 
 function Resolve-DevPythonRuntime {
@@ -238,7 +266,9 @@ function New-DeployRuntimeEnvironment {
         [Parameter(Mandatory = $true)][string]$Mode,
         [Parameter(Mandatory = $true)][string]$InstallRoot,
         [Parameter(Mandatory = $true)][string]$DataRoot,
-        [Parameter(Mandatory = $true)][string[]]$PythonPathEntries,
+        # AllowEmptyCollection: release passes @() (empty PYTHONPATH); a mandatory
+        # [string[]] otherwise rejects an empty array at binding time.
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][string[]]$PythonPathEntries,
         [string]$ProjectRoot = ''
     )
 
@@ -293,7 +323,11 @@ function Resolve-DeployRuntimeContract {
     }
 
     $releaseWorkingDirectory = Join-Path $InstallRoot 'mcp_server'
-    $releasePythonPathEntries = @((Join-Path $InstallRoot 'mcp_server\src'))
+    # Release imports rook from site-packages (Install-ReleaseSourceIntoVenv keeps
+    # it current). Empty PYTHONPATH matches the written MCP config
+    # (build_release_mcp_env sets PYTHONPATH="") and removes the source-tree
+    # shadow that previously masked stale-wheel drift during verification.
+    $releasePythonPathEntries = @()
 
     return [pscustomobject]@{
         Mode = 'release'
@@ -596,6 +630,37 @@ function Invoke-PostInstallConfig {
     }
 }
 
+function Install-ReleaseSourceIntoVenv {
+    # Local-deploy coherence: make the release venv's importable `rook` match the
+    # just-synced source. Invoke-PostInstallConfig installs an older rook wheel
+    # from the bundled wheelhouse, and the local deploy never rebuilds it, so
+    # site-packages can lag the synced source (e.g. miss the rhino_2d_to_3d_*
+    # tools). The real release MCP config runs with empty PYTHONPATH and imports
+    # from site-packages, so site-packages must hold the current source.
+    #
+    # We MIRROR the package directory rather than pip-building from source:
+    # mcp_server declares the hatchling build backend, which the release venv
+    # does not carry, so `pip install --no-build-isolation --no-index` from
+    # source would fail. A directory mirror is deterministic and fully offline.
+    # Only the `rook` package dir is mirrored; the wheelhouse `rook-*.dist-info`
+    # sibling is left intact for metadata. /MIR removes stale modules in the dest.
+    $sourceRook = Join-Path $InstallRoot 'mcp_server\src\rook'
+    $venvRoot = Split-Path -Parent (Split-Path -Parent $VenvPython)
+    $destRook = Join-Path $venvRoot 'Lib\site-packages\rook'
+
+    if (-not (Test-Path (Join-Path $sourceRook 'server.py'))) {
+        throw "Release source mirror: rook package not found at $sourceRook (Sync-AppPayload must run first)."
+    }
+    if (-not (Test-Path $VenvPython)) {
+        throw "Release source mirror: release venv python not found at $VenvPython (Invoke-PostInstallConfig must run first)."
+    }
+
+    Write-Host "Mirroring current rook source into the release venv site-packages (offline; robocopy /MIR)..."
+    Write-Host "  source: $sourceRook"
+    Write-Host "  dest:   $destRook"
+    Sync-Directory $sourceRook $destRook
+}
+
 function Register-Plugins {
     $register = Join-Path $RepoRoot 'scripts\register-rooknative-suite.ps1'
     & $register -NativeRhpPath (Join-Path $PluginDir 'RookNative.rhp') -CompanionRhpPath (Join-Path $PluginDir 'net8.0\Rook.rhp')
@@ -673,14 +738,23 @@ function Test-EffectiveRuntime {
         }
         $env:PYTHONPATH = (@($Contract.PythonPathEntries) -join [IO.Path]::PathSeparator)
 
-        $expectedRookPrefix = Join-Path $Contract.WorkingDirectory 'src\rook'
+        if ($Contract.IsDev) {
+            $expectedRookPrefix = Join-Path $Contract.WorkingDirectory 'src\rook'
+        } else {
+            # Release venv site-packages: <PythonPath>\..\..\Lib\site-packages\rook
+            $venvRoot = Split-Path -Parent (Split-Path -Parent $Contract.PythonPath)
+            $expectedRookPrefix = Join-Path $venvRoot 'Lib\site-packages\rook'
+        }
+        $requireTools = if ($Contract.IsDev) { 'False' } else { 'True' }
         $check = @"
 import json
 from rook.runtime_paths import resolve_runtime_paths
 import rook
+import rook.server
 paths = resolve_runtime_paths()
 payload = {
     "rook_file": rook.__file__,
+    "rook_server_file": rook.server.__file__,
     "mode": paths.mode,
     "install_root": str(paths.install_root),
     "data_root": str(paths.data_root),
@@ -695,8 +769,27 @@ if str(paths.data_root).replace("\\", "/").lower() != r"$($Contract.DataRoot.Rep
     raise SystemExit("ROOK_DATA_DIR mismatch")
 expected_rook_prefix = r"$($expectedRookPrefix.Replace('\','/').ToLowerInvariant())"
 actual_rook_file = str(rook.__file__).replace("\\", "/").lower()
+actual_server_file = str(rook.server.__file__).replace("\\", "/").lower()
 if not actual_rook_file.startswith(expected_rook_prefix):
     raise SystemExit(f"rook imported from stale location: {rook.__file__}")
+if not actual_server_file.startswith(expected_rook_prefix):
+    raise SystemExit(f"rook.server imported from stale location: {rook.server.__file__}")
+if $($requireTools):
+    import asyncio
+    from rook.server import list_tools
+    names = {t.name for t in asyncio.run(list_tools())}
+    required = {
+        "rhino_2d_to_3d_models",
+        "rhino_2d_to_3d_submit",
+        "rhino_2d_to_3d_jobs",
+        "rhino_2d_to_3d_status",
+        "rhino_2d_to_3d_cancel",
+        "rhino_2d_to_3d_result",
+        "rhino_2d_to_3d_import",
+    }
+    missing = sorted(required - names)
+    if missing:
+        raise SystemExit(f"release MCP missing reconstruction tools: {missing}")
 "@
 
         $checkPath = Join-Path $env:TEMP 'rook_deploy_local_testing_check.py'
@@ -912,7 +1005,6 @@ function Test-ChatServiceManifestAtPath {
     $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
     $expectedPython = Normalize-PathForCompare $Contract.PythonPath
     $expectedWorkingDirectory = Normalize-PathForCompare $Contract.WorkingDirectory
-    $expectedSourcePath = Normalize-PathForCompare ([string]@($Contract.PythonPathEntries)[0])
 
     if ((Normalize-PathForCompare ([string]$manifest.pythonPath)) -ne $expectedPython) {
         throw "Chat service pythonPath mismatch in $ManifestPath`: $($manifest.pythonPath)"
@@ -925,8 +1017,18 @@ function Test-ChatServiceManifestAtPath {
     }
 
     $entries = @($manifest.pythonPathEntries)
-    if ($entries.Count -lt 1 -or (Normalize-PathForCompare ([string]$entries[0])) -ne $expectedSourcePath) {
-        throw "Chat service pythonPathEntries mismatch in $ManifestPath`: $($entries -join ', ')"
+    if ($Contract.IsDev) {
+        $expectedSourcePath = Normalize-PathForCompare ([string]@($Contract.PythonPathEntries)[0])
+        if ($entries.Count -lt 1 -or (Normalize-PathForCompare ([string]$entries[0])) -ne $expectedSourcePath) {
+            throw "Chat service pythonPathEntries mismatch in $ManifestPath`: $($entries -join ', ')"
+        }
+    } else {
+        # Release imports rook from site-packages, so pythonPathEntries must be
+        # empty/absent (matching the empty-PYTHONPATH MCP config).
+        $nonEmptyEntries = @($entries | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+        if ($nonEmptyEntries.Count -gt 0) {
+            throw "Chat service pythonPathEntries must be empty in release in $ManifestPath`: $($entries -join ', ')"
+        }
     }
 
     $envBlock = $manifest.environment
@@ -945,6 +1047,10 @@ function Test-ChatServiceManifestAtPath {
     if ($Contract.IsDev) {
         if ((Normalize-PathForCompare ([string]$envBlock.ROOK_PROJECT_ROOT)) -ne (Normalize-PathForCompare $Contract.ProjectRoot)) {
             throw "Chat service ROOK_PROJECT_ROOT mismatch in $ManifestPath`: $($envBlock.ROOK_PROJECT_ROOT)"
+        }
+    } else {
+        if (-not [string]::IsNullOrEmpty([string]$envBlock.PYTHONPATH)) {
+            throw "Chat service PYTHONPATH must be empty in release in $ManifestPath`: $($envBlock.PYTHONPATH)"
         }
     }
 }
@@ -1181,6 +1287,8 @@ if ($RuntimeContract.IsDev) {
 } else {
     Write-Step "Refresh MCP, Chirp, and config installs"
     Invoke-PostInstallConfig
+    Write-Step "Mirror current source into release venv site-packages"
+    Install-ReleaseSourceIntoVenv
     Write-ChatServiceManifests -Contract $RuntimeContract
 }
 
