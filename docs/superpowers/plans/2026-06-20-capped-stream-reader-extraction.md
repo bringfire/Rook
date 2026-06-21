@@ -121,8 +121,10 @@ namespace Rook.Tests.Services.Vision.Generation
         }
 
         [Fact]
-        public async Task Cancellation_mid_read_throws_operation_cancelled()
+        public async Task Cancellation_throws_operation_cancelled()
         {
+            // Cancels before the first read; proves the token propagates through
+            // ReadAsync (the helper does not catch OperationCanceledException).
             using var stream = new ScriptedStream(total: 100, chunk: 4);
             using var cts = new CancellationTokenSource();
             cts.Cancel();
@@ -526,9 +528,9 @@ Expected: the uncapped `VeoClient` download (`CopyToAsync(ms, 81920, ct)`) and t
 
 Run:
 ```bash
-rg -n "CappedStreamReader" src/Rook
+rg -n "CappedStreamReader\.ReadCappedAsync" src/Rook
 ```
-Expected: exactly four hits — the helper definition plus three call sites (reconstruction, image, video).
+Expected: exactly **three** production call sites — reconstruction, image, video. (Grep the qualified call rather than the bare type name so XML-doc references to `CappedStreamReader` or any line-wrapping in the helper do not inflate the count. The helper *definition* lives in `CappedStreamReader.cs`; the three hits here are the callers.)
 
 - [ ] **Step 3: Run the full Debug C# suite**
 
