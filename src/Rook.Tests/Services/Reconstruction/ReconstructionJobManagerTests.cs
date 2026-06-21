@@ -641,6 +641,126 @@ public sealed class ReconstructionJobManagerTests : IDisposable
         Assert.Contains(result.Warnings, w => w.Code == "result_artifact_missing");
     }
 
+    [Fact]
+    public async Task Submit_PbrAndGeometryBothTrue_RejectedBeforeSourceLookup_ProviderAndPublisherNotInvoked()
+    {
+        var fixture = CreateFixture();
+        // Deliberately do NOT create the source artifact. The guard runs before source lookup, so a
+        // contradictory request must fail with field "options" (not "source_artifact_id"). That field
+        // value is the proof the guard precedes the source check.
+        var request = Request(Guid.NewGuid()) with
+        {
+            Options = JsonNode.Parse(@"{""enable_pbr"":true,""enable_geometry"":true}")!.AsObject(),
+        };
+
+        var result = await fixture.Manager.SubmitAsync(request, CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Equal("invalid_request", result.Failure!.Code);
+        Assert.Equal("options", result.Failure.Field);
+        Assert.False(result.Failure.Retryable);
+        Assert.Equal(
+            "enable_geometry=true requests geometry-only output and cannot be combined with "
+            + "enable_pbr=true. Remove enable_geometry to request textured output, or remove "
+            + "enable_pbr to request geometry-only output.",
+            result.Failure.Message);
+        Assert.Empty(fixture.Provider.SubmitRequests);   // no fal job spent
+        Assert.Empty(fixture.Publisher.Published);         // no source-image upload
+        Assert.Empty(fixture.Manager.List(10).Jobs);       // no ledger record for an invalid request
+    }
+
+    [Fact]
+    public async Task Submit_EnablePbrTrueOnly_PassesGuard_ReachesProvider()
+    {
+        var fixture = CreateFixture();
+        var source = fixture.Store.Create(
+            "generated_image",
+            new[] { new BlobInput("image", new byte[] { 1, 2, 3 }, "png") });
+        var request = Request(source.Id) with
+        {
+            Options = JsonNode.Parse(@"{""enable_pbr"":true}")!.AsObject(),
+        };
+
+        var result = await fixture.Manager.SubmitAsync(request, CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Single(fixture.Provider.SubmitRequests);    // next fake boundary reached
+    }
+
+    [Fact]
+    public async Task Submit_EnableGeometryTrueOnly_PassesGuard_ReachesProvider()
+    {
+        var fixture = CreateFixture();
+        var source = fixture.Store.Create(
+            "generated_image",
+            new[] { new BlobInput("image", new byte[] { 1, 2, 3 }, "png") });
+        var request = Request(source.Id) with
+        {
+            Options = JsonNode.Parse(@"{""enable_pbr"":false,""enable_geometry"":true}")!.AsObject(),
+        };
+
+        var result = await fixture.Manager.SubmitAsync(request, CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Single(fixture.Provider.SubmitRequests);
+    }
+
+    [Fact]
+    public async Task Submit_StringTrueOptions_DoNotTriggerGuard_ReachesProvider()
+    {
+        var fixture = CreateFixture();
+        var source = fixture.Store.Create(
+            "generated_image",
+            new[] { new BlobInput("image", new byte[] { 1, 2, 3 }, "png") });
+        // Strings, not JSON booleans — must NOT be coerced into the guard.
+        var request = Request(source.Id) with
+        {
+            Options = JsonNode.Parse(@"{""enable_pbr"":""true"",""enable_geometry"":""true""}")!.AsObject(),
+        };
+
+        var result = await fixture.Manager.SubmitAsync(request, CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Single(fixture.Provider.SubmitRequests);
+    }
+
+    [Fact]
+    public async Task Submit_NumericOneOptions_DoNotTriggerGuard_ReachesProvider()
+    {
+        var fixture = CreateFixture();
+        var source = fixture.Store.Create(
+            "generated_image",
+            new[] { new BlobInput("image", new byte[] { 1, 2, 3 }, "png") });
+        // Numbers, not JSON booleans — must NOT be coerced into the guard.
+        var request = Request(source.Id) with
+        {
+            Options = JsonNode.Parse(@"{""enable_pbr"":1,""enable_geometry"":1}")!.AsObject(),
+        };
+
+        var result = await fixture.Manager.SubmitAsync(request, CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Single(fixture.Provider.SubmitRequests);
+    }
+
+    [Fact]
+    public async Task Submit_EmptyOptions_DoNotTriggerGuard_ReachesProvider()
+    {
+        var fixture = CreateFixture();
+        var source = fixture.Store.Create(
+            "generated_image",
+            new[] { new BlobInput("image", new byte[] { 1, 2, 3 }, "png") });
+        var request = Request(source.Id) with
+        {
+            Options = new JsonObject(),
+        };
+
+        var result = await fixture.Manager.SubmitAsync(request, CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Single(fixture.Provider.SubmitRequests);
+    }
+
     private static readonly JsonNode GlbResultJson = JsonNode.Parse("""
     {
       "model_urls": {
