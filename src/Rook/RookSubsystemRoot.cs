@@ -99,7 +99,7 @@ namespace Rook
         /// <summary>
         /// Resolves the lazy video subsystem. Throws
         /// <see cref="ObjectDisposedException"/> after
-        /// <see cref="DisposeVideoSubsystemIfCreated"/> has been called —
+        /// <see cref="DisposeCreatedSubsystems"/> has been called —
         /// shutdown closes the root, and a late caller building a fresh
         /// manager AFTER the only dispose pass would leave it
         /// undisposed and the JSONL ledger un-flushed (Codex review of
@@ -388,9 +388,11 @@ namespace Rook
         }
 
         /// <summary>
-        /// Dispose the video subsystem if it was ever built. No-op when
-        /// <see cref="Lazy{T}.IsValueCreated"/> is false — sessions that
-        /// never touched video do not pay a build cost just to dispose.
+        /// Atomically marks the root disposed and disposes any lazy
+        /// subsystem bundles that were created. Per bundle this is a
+        /// no-op when <see cref="Lazy{T}.IsValueCreated"/> is false — a
+        /// session that never touched a subsystem does not pay a build
+        /// cost just to dispose it.
         /// Idempotent via the same <see cref="Interlocked.CompareExchange"/>
         /// pattern as reconcile so a double-shutdown chain (Plugin
         /// OnShutdown + AppDomain unload) does not re-enter
@@ -408,7 +410,7 @@ namespace Rook
         /// tests in the same process that read <see cref="Video"/>. Use
         /// the internal test ctor instead.
         /// </summary>
-        public void DisposeVideoSubsystemIfCreated()
+        public void DisposeCreatedSubsystems()
         {
             if (Interlocked.CompareExchange(ref _disposed, 1, 0) != 0)
                 return;

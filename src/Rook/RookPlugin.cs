@@ -582,12 +582,13 @@ namespace Rook
         ///         the C++→C# vision_dispatch callback so no new video
         ///         (or image) ops can be routed.</item>
         ///   <item>ChatServiceManager.Shutdown — independent subsystem.</item>
-        ///   <item>RookSubsystemRoot.DisposeVideoSubsystemIfCreated —
-        ///         disposes the VideoJobManager (cancels in-flight
-        ///         jobs via shutdown CTS, releases resources). After
-        ///         this returns, the root rejects further Video access
-        ///         per its post-dispose contract. No-op when video was
-        ///         never built (image-only sessions).</item>
+        ///   <item>RookSubsystemRoot.DisposeCreatedSubsystems —
+        ///         disposes any lazy subsystem bundles that were built
+        ///         (e.g. the VideoJobManager cancels in-flight jobs via
+        ///         shutdown CTS and releases resources). After this
+        ///         returns, the root rejects further subsystem access
+        ///         per its post-dispose contract. No-op for bundles
+        ///         never built (e.g. image-only sessions).</item>
         /// </list>
         /// All teardown steps that touch external state are wrapped in
         /// try/catch — a single failure must not abort the others.
@@ -626,7 +627,7 @@ namespace Rook
             // (e.g., AppDomain unload race) is safe.
             try
             {
-                RookSubsystemRoot.Instance.DisposeVideoSubsystemIfCreated();
+                RookSubsystemRoot.Instance.DisposeCreatedSubsystems();
             }
             catch (Exception ex)
             {

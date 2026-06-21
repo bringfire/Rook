@@ -293,7 +293,7 @@ namespace Rook.Tests.Services.Vision.Video
                 Assert.NotNull(bundle.Registry);
                 Assert.NotNull(bundle.Estimator);
             }
-            finally { root.DisposeVideoSubsystemIfCreated(); }
+            finally { root.DisposeCreatedSubsystems(); }
         }
 
         [Fact]
@@ -313,7 +313,7 @@ namespace Rook.Tests.Services.Vision.Video
                 Assert.Same(first, second);
                 Assert.Same(first.Manager, second.Manager);
             }
-            finally { root.DisposeVideoSubsystemIfCreated(); }
+            finally { root.DisposeCreatedSubsystems(); }
         }
 
         [Fact]
@@ -329,7 +329,7 @@ namespace Rook.Tests.Services.Vision.Video
                 Assert.Same(first.Manager, second.Manager);
                 Assert.Same(first.Registry, second.Registry);
             }
-            finally { root.DisposeVideoSubsystemIfCreated(); }
+            finally { root.DisposeCreatedSubsystems(); }
         }
 
         [Fact]
@@ -340,7 +340,7 @@ namespace Rook.Tests.Services.Vision.Video
             // otherwise lazy-build a manager that escapes the only
             // disposal pass.
             var root = FreshRoot();
-            root.DisposeVideoSubsystemIfCreated();
+            root.DisposeCreatedSubsystems();
 
             var ex = Assert.Throws<ObjectDisposedException>(() => _ = root.Video);
             Assert.Contains(nameof(RookSubsystemRoot), ex.Message);
@@ -350,7 +350,7 @@ namespace Rook.Tests.Services.Vision.Video
         public void ImageJobs_AfterDispose_ThrowsObjectDisposed()
         {
             var root = FreshRoot();
-            root.DisposeVideoSubsystemIfCreated();
+            root.DisposeCreatedSubsystems();
 
             Assert.Throws<ObjectDisposedException>(() => _ = root.ImageJobs);
         }
@@ -363,13 +363,13 @@ namespace Rook.Tests.Services.Vision.Video
             // rather than returning a torn-down bundle).
             var root = FreshRoot();
             _ = root.Video;
-            root.DisposeVideoSubsystemIfCreated();
+            root.DisposeCreatedSubsystems();
 
             Assert.Throws<ObjectDisposedException>(() => _ = root.Video);
         }
 
         [Fact]
-        public void DisposeVideoSubsystemIfCreated_BeforeBuild_DoesNotForceBuild()
+        public void DisposeCreatedSubsystems_BeforeBuild_DoesNotForceBuild()
         {
             // No-op path: if Video was never accessed, dispose must not
             // build it just to dispose. Verified by checking that the
@@ -380,14 +380,14 @@ namespace Rook.Tests.Services.Vision.Video
             var fakeLedger = new FakeVideoJobLedger();
             var root = FreshRoot(fakeLedger);
 
-            root.DisposeVideoSubsystemIfCreated();
+            root.DisposeCreatedSubsystems();
 
             Assert.Throws<ObjectDisposedException>(() => _ = root.Video);
             Assert.Empty(fakeLedger.AllRecords);
         }
 
         [Fact]
-        public void DisposeVideoSubsystemIfCreated_RepeatedCalls_AreIdempotent()
+        public void DisposeCreatedSubsystems_RepeatedCalls_AreIdempotent()
         {
             // Codex review: VideoJobManager.Dispose is NOT idempotent —
             // a second call disposes _shutdownCts twice and throws
@@ -396,9 +396,9 @@ namespace Rook.Tests.Services.Vision.Video
             var root = FreshRoot();
             _ = root.Video;
 
-            root.DisposeVideoSubsystemIfCreated();
-            root.DisposeVideoSubsystemIfCreated();
-            root.DisposeVideoSubsystemIfCreated();
+            root.DisposeCreatedSubsystems();
+            root.DisposeCreatedSubsystems();
+            root.DisposeCreatedSubsystems();
         }
 
         [Fact]
@@ -425,7 +425,7 @@ namespace Rook.Tests.Services.Vision.Video
                                 && r.JobId == pollingRecord.JobId);
                 Assert.Equal(1, interruptedCount);
             }
-            finally { root.DisposeVideoSubsystemIfCreated(); }
+            finally { root.DisposeCreatedSubsystems(); }
         }
 
         [Fact]
@@ -443,7 +443,7 @@ namespace Rook.Tests.Services.Vision.Video
 
                 Assert.Equal(2, throwingLedger.ReadAttempts);
             }
-            finally { root.DisposeVideoSubsystemIfCreated(); }
+            finally { root.DisposeCreatedSubsystems(); }
         }
 
         [Fact]
@@ -453,7 +453,7 @@ namespace Rook.Tests.Services.Vision.Video
             // ObjectDisposedException post-dispose, surfacing the
             // same shutdown signal.
             var root = FreshRoot();
-            root.DisposeVideoSubsystemIfCreated();
+            root.DisposeCreatedSubsystems();
 
             Assert.Throws<ObjectDisposedException>(
                 () => root.ReconcileVideoJobsOnce());
@@ -483,14 +483,14 @@ namespace Rook.Tests.Services.Vision.Video
                                 && r.JobId == jobId);
                 Assert.Equal(1, interruptedCount);
             }
-            finally { root.DisposeVideoSubsystemIfCreated(); }
+            finally { root.DisposeCreatedSubsystems(); }
         }
 
         [Fact]
         public void ReconcileImageJobsOnce_AfterDispose_ThrowsObjectDisposed()
         {
             var root = FreshRoot();
-            root.DisposeVideoSubsystemIfCreated();
+            root.DisposeCreatedSubsystems();
 
             Assert.Throws<ObjectDisposedException>(
                 () => root.ReconcileImageJobsOnce());
@@ -510,7 +510,7 @@ namespace Rook.Tests.Services.Vision.Video
 
                 Assert.Single(scheduler.WorkItems);
             }
-            finally { root.DisposeVideoSubsystemIfCreated(); }
+            finally { root.DisposeCreatedSubsystems(); }
         }
 
         [Fact]
@@ -524,7 +524,7 @@ namespace Rook.Tests.Services.Vision.Video
 
             Assert.Empty(scheduler.WorkItems);
             Assert.Equal(0, fakeBackfill.Calls);
-            root.DisposeVideoSubsystemIfCreated();
+            root.DisposeCreatedSubsystems();
         }
 
         [Fact]
@@ -551,7 +551,7 @@ namespace Rook.Tests.Services.Vision.Video
                 Assert.Single(scheduler.WorkItems);
                 Assert.Single(failures);
             }
-            finally { root.DisposeVideoSubsystemIfCreated(); }
+            finally { root.DisposeCreatedSubsystems(); }
         }
 
         [Fact]
@@ -572,7 +572,7 @@ namespace Rook.Tests.Services.Vision.Video
 
                 Assert.Single(scheduler.WorkItems);
             }
-            finally { root.DisposeVideoSubsystemIfCreated(); }
+            finally { root.DisposeCreatedSubsystems(); }
         }
 
         private static VideoJobRecord MakePollingRecord()

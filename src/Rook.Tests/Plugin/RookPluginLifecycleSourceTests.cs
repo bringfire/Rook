@@ -161,7 +161,7 @@ namespace Rook.Tests.Plugin
                     "ChatServiceManager.Instance.Shutdown();",
                     "Chat service shutdown failed"),
                 new TeardownStep(
-                    "RookSubsystemRoot.Instance.DisposeVideoSubsystemIfCreated();",
+                    "RookSubsystemRoot.Instance.DisposeCreatedSubsystems();",
                     "Video subsystem dispose failed"),
             };
 
@@ -400,7 +400,7 @@ namespace Rook.Tests.Plugin
                 "base.OnShutdown() must remain after chat service shutdown.");
             Assert.True(
                 baseCallIndex > onShutdown.IndexOf(
-                    "RookSubsystemRoot.Instance.DisposeVideoSubsystemIfCreated();",
+                    "RookSubsystemRoot.Instance.DisposeCreatedSubsystems();",
                     StringComparison.Ordinal),
                 "base.OnShutdown() must remain after video subsystem disposal.");
 
