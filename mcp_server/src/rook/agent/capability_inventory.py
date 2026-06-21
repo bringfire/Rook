@@ -7,6 +7,7 @@ canned-catalog ToolRegistry (reconciliation layer). Changes no runtime behavior.
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Mapping
 from typing import Iterable, Literal
 
@@ -312,3 +313,23 @@ def collect_live_sources() -> SurfaceSources:
         modal_risk_tools=frozenset(ep.MODAL_RISK_TOOLS),
         needs_verification=frozenset(ep.NEEDS_VERIFICATION),
     )
+
+
+def collect_runtime_sources() -> SurfaceSources:
+    """Runtime-enriched surface snapshot.
+
+    collect_live_sources() plus the ACTUAL local tools dispatchable in THIS
+    runtime (build_local_tools().keys()). Diagnostic runtime evidence -- NOT a
+    static registry or policy source, and intentionally environment-dependent
+    (a local tool whose optional import fails is faithfully absent, so it is
+    genuinely not dispatchable here).
+
+    An unexpected build_local_tools() failure propagates; this never silently
+    returns empty local_tool_names. Per-tool optional-import failures are
+    handled inside build_local_tools() itself.
+    """
+    from rook.agent import tool_dispatcher as td  # lazy, like collect_live_sources
+
+    base = collect_live_sources()
+    local_names = frozenset(td.build_local_tools().keys())
+    return dataclasses.replace(base, local_tool_names=local_names)
