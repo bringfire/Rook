@@ -23,6 +23,7 @@ class SurfaceSources:
     readonly_tier0: frozenset[str] = frozenset()
     groups: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
     mcp_only_groups: frozenset[str] = frozenset()
+    readonly_allowed_groups: frozenset[str] = frozenset()
     bridge_names: frozenset[str] = frozenset()
     transform_names: frozenset[str] = frozenset()
     intercepted_names: frozenset[str] = frozenset()

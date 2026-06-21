@@ -247,6 +247,19 @@ def test_collect_live_sources_reads_constants_only(monkeypatch):
     assert "gh_snapshot" in sources.bridge_names or "gh_snapshot" in sources.agent_tier0
 
 
+def test_collect_live_sources_carries_readonly_allowed_groups(monkeypatch):
+    from rook.agent.tool_groups import READONLY_ALLOWED_GROUPS
+
+    def _boom(*args, **kwargs):
+        raise AssertionError("collect_live_sources must not load the catalog cache")
+
+    monkeypatch.setattr(tool_registry_module, "load_catalog_from_cache", _boom)
+    monkeypatch.setattr(tool_registry_module, "get_catalog_cache_path", _boom)
+
+    sources = collect_live_sources()
+    assert sources.readonly_allowed_groups == frozenset(READONLY_ALLOWED_GROUPS)
+
+
 def test_reconcile_flags_active_member_not_in_intended_membership():
     # ToolRegistry builds groups from the live TOOL_GROUPS table, but `intended`
     # uses the injected sources.groups. A real gh_canvas member present in the

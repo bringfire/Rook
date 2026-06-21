@@ -23,6 +23,10 @@ def test_surface_sources_defaults_are_empty():
     assert sources.local_tool_names == frozenset()
 
 
+def test_surface_sources_readonly_allowed_groups_defaults_empty():
+    assert SurfaceSources().readonly_allowed_groups == frozenset()
+
+
 def test_capability_record_is_frozen():
     record = CapabilityRecord(
         name="t",

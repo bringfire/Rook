@@ -286,6 +286,7 @@ def collect_live_sources() -> SurfaceSources:
         readonly_tier0=frozenset(tg.READONLY_TIER_0),
         groups={g: tuple(tools) for g, tools in tg.TOOL_GROUPS.items()},
         mcp_only_groups=frozenset(tg.MCP_ONLY_GROUPS),
+        readonly_allowed_groups=frozenset(tg.READONLY_ALLOWED_GROUPS),
         bridge_names=frozenset(td.BRIDGE_ROUTES.keys()),
         transform_names=frozenset(td.TRANSFORM_FUNCTIONS.keys()),
         intercepted_names=INTERCEPTED_META_TOOLS,
