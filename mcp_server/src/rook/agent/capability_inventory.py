@@ -8,7 +8,7 @@ canned-catalog ToolRegistry (reconciliation layer). Changes no runtime behavior.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Literal
+from typing import Iterable, Literal
 
 from rook.agent.capability_record import (
     CapabilityFinding,
@@ -19,6 +19,7 @@ from rook.agent.capability_record import (
 )
 from rook.agent.chat.tool_contracts import (
     DispatchContext,
+    DispatchabilityFinding,
     audit_visible_tool_dispatchability,
     classify_visible_tool,
 )
@@ -35,7 +36,7 @@ _DISPATCH_UNKNOWN_SEVERITY = {
 }
 
 
-def _dispatch_context_from_sources(sources: SurfaceSources) -> DispatchContext:
+def dispatch_context_from_sources(sources: SurfaceSources) -> DispatchContext:
     return DispatchContext(
         intercepted_names=frozenset(sources.intercepted_names),
         local_tool_names=frozenset(sources.local_tool_names),
@@ -112,7 +113,7 @@ def _universe(sources: SurfaceSources, catalog: Mapping[str, dict]) -> list[str]
 def build_inventory(
     sources: SurfaceSources, catalog: Mapping[str, dict]
 ) -> CapabilityInventory:
-    ctx = _dispatch_context_from_sources(sources)
+    ctx = dispatch_context_from_sources(sources)
     records: list[CapabilityRecord] = []
     findings: list[CapabilityFinding] = []
 
@@ -209,6 +210,26 @@ _DISPATCHABILITY_SEVERITY = {
 }
 
 
+def capability_findings_from_audit(
+    audit_findings: Iterable[DispatchabilityFinding],
+) -> list[CapabilityFinding]:
+    """Map LM1A dispatchability findings onto CapabilityFindings with severity.
+
+    Shared by reconcile_active_schemas and profile_reconciliation so the severity
+    table has a single home. Returns a list; callers combine/sort with their own
+    findings.
+    """
+    return [
+        CapabilityFinding(
+            code=finding.code,
+            tool=finding.tool,
+            severity=_DISPATCHABILITY_SEVERITY.get(finding.code, "warning"),
+            message=finding.message,
+        )
+        for finding in audit_findings
+    ]
+
+
 def _active_tool_names(registry: ToolRegistry) -> frozenset[str]:
     names: set[str] = set()
     for schema in registry.get_active_schemas():
@@ -232,18 +253,11 @@ def reconcile_active_schemas(
 
     active_schemas = registry.get_active_schemas()
     active_names = _active_tool_names(registry)
-    ctx = _dispatch_context_from_sources(sources)
+    ctx = dispatch_context_from_sources(sources)
 
-    findings: list[CapabilityFinding] = []
-    for audit_finding in audit_visible_tool_dispatchability(active_schemas, ctx):
-        findings.append(
-            CapabilityFinding(
-                code=audit_finding.code,
-                tool=audit_finding.tool,
-                severity=_DISPATCHABILITY_SEVERITY.get(audit_finding.code, "warning"),
-                message=audit_finding.message,
-            )
-        )
+    findings: list[CapabilityFinding] = capability_findings_from_audit(
+        audit_visible_tool_dispatchability(active_schemas, ctx)
+    )
 
     if group is None:
         intended = selected_tier
