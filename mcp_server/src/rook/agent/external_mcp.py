@@ -223,3 +223,72 @@ def collect_wire_dispatch_evidence(
         )
 
     return extract_wire_dispatch_evidence_from_source(source)
+
+
+def reconcile_external_mcp(
+    advertised_names: Iterable[str],
+    wire_evidence: WireDispatchEvidence,
+) -> ExternalMcpResolution:
+    """Pure two-set reconcile of advertised catalog vs. wire-dispatch handlers.
+
+    advertised - wire  -> advertised_not_dispatchable (error; the public gate)
+    wire - advertised  -> handler_not_advertised (info; NOT a defect)
+    empty advertised   -> empty_catalog (error)
+    wire_evidence.findings are folded through verbatim.
+    """
+    advertised = frozenset(advertised_names)
+    wire = frozenset(wire_evidence.names)
+    findings: list[ExternalMcpFinding] = list(wire_evidence.findings)
+
+    if not advertised:
+        findings.append(
+            _finding(
+                "empty_catalog",
+                "",
+                "Advertised catalog is empty; the advertised evidence source "
+                "is broken.",
+            )
+        )
+
+    for name in sorted(advertised - wire):
+        findings.append(
+            _finding(
+                "advertised_not_dispatchable",
+                name,
+                f"Advertised MCP tool '{name}' has no wire-dispatch handler.",
+            )
+        )
+    for name in sorted(wire - advertised):
+        findings.append(
+            _finding(
+                "handler_not_advertised",
+                name,
+                f"Wire handler '{name}' exists outside the public advertised "
+                f"MCP surface (may be intentional).",
+            )
+        )
+
+    return ExternalMcpResolution(
+        advertised_names=tuple(sorted(advertised)),
+        wire_dispatch_names=tuple(sorted(wire)),
+        findings=_sorted_findings(findings),
+    )
+
+
+def format_external_mcp_report(resolution: ExternalMcpResolution) -> str:
+    counts = {"error": 0, "warning": 0, "info": 0}
+    for finding in resolution.findings:
+        counts[finding.severity] += 1
+    lines = [
+        f"External MCP audit: {len(resolution.advertised_names)} advertised, "
+        f"{len(resolution.wire_dispatch_names)} wire handlers, "
+        f"{len(resolution.findings)} findings "
+        f"(errors={counts['error']} warnings={counts['warning']} "
+        f"info={counts['info']})",
+    ]
+    for finding in resolution.findings:
+        lines.append(
+            f"  [{finding.severity}] {finding.code} {finding.tool}: "
+            f"{finding.message}"
+        )
+    return "\n".join(lines)

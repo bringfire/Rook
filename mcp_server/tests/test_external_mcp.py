@@ -2,9 +2,13 @@ from __future__ import annotations
 
 from rook.agent.external_mcp import (
     ExternalMcpFinding,
+    ExternalMcpResolution,
+    _SEVERITY_BY_CODE,
     WireDispatchEvidence,
     collect_wire_dispatch_evidence,
     extract_wire_dispatch_evidence_from_source,
+    format_external_mcp_report,
+    reconcile_external_mcp,
 )
 
 _PREAMBLE = "async def _call_tool_dispatch(name, arguments):\n"
@@ -205,3 +209,80 @@ def test_collect_nonfile_origin_is_structured_error(monkeypatch, tmp_path):
     ev = collect_wire_dispatch_evidence("pkg_dir_origin")
     assert ev.names == ()
     assert [f.code for f in ev.findings] == ["wire_source_unresolved"]
+
+
+def _ev(names=(), findings=()):
+    return WireDispatchEvidence(names=tuple(names), findings=tuple(findings))
+
+
+def _by_code(res: ExternalMcpResolution):
+    out = {}
+    for f in res.findings:
+        out.setdefault(f.code, []).append(f.tool)
+    return out
+
+
+def test_advertised_without_handler_is_error():
+    res = reconcile_external_mcp(("a", "b"), _ev(names=("a",)))
+    by = _by_code(res)
+    assert by.get("advertised_not_dispatchable") == ["b"]
+    assert "advertised_not_dispatchable" not in {
+        f.code for f in res.findings if f.tool == "a"
+    }
+    err = next(f for f in res.findings if f.code == "advertised_not_dispatchable")
+    assert err.severity == "error"
+
+
+def test_handler_without_advertisement_is_info():
+    res = reconcile_external_mcp(("a",), _ev(names=("a", "z")))
+    by = _by_code(res)
+    assert by.get("handler_not_advertised") == ["z"]
+    assert "advertised_not_dispatchable" not in by
+    info = next(f for f in res.findings if f.code == "handler_not_advertised")
+    assert info.severity == "info"
+
+
+def test_empty_catalog_is_error():
+    res = reconcile_external_mcp((), _ev(names=("a",)))
+    by = _by_code(res)
+    assert "empty_catalog" in by
+    err = next(f for f in res.findings if f.code == "empty_catalog")
+    assert err.severity == "error"
+
+
+def test_clean_overlap_has_no_error_or_info():
+    res = reconcile_external_mcp(("a", "b"), _ev(names=("a", "b")))
+    assert res.findings == ()
+    assert res.advertised_names == ("a", "b")
+    assert res.wire_dispatch_names == ("a", "b")
+
+
+def test_evidence_findings_folded_through():
+    carried = ExternalMcpFinding(
+        code="unextractable_case",
+        tool="line 7",
+        severity="warning",
+        message="skipped",
+    )
+    res = reconcile_external_mcp(("a",), _ev(names=("a",), findings=(carried,)))
+    assert carried in res.findings
+
+
+def test_severity_table_pins_all_seven_codes():
+    assert _SEVERITY_BY_CODE == {
+        "advertised_not_dispatchable": "error",
+        "handler_not_advertised": "info",
+        "empty_catalog": "error",
+        "dispatch_function_missing": "error",
+        "wire_source_unresolved": "error",
+        "multiple_dispatch_matches": "warning",
+        "unextractable_case": "warning",
+    }
+
+
+def test_format_report_is_deterministic_string():
+    res = reconcile_external_mcp(("a", "b"), _ev(names=("a",)))
+    report = format_external_mcp_report(res)
+    assert "1 advertised" not in report  # sanity: count is 2 advertised
+    assert "2 advertised" in report
+    assert "advertised_not_dispatchable b" in report
