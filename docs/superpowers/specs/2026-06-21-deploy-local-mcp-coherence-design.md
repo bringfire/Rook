@@ -61,25 +61,25 @@ ships: `rook` current in site-packages, empty `PYTHONPATH`, tools present.
    wheelhouse** — unchanged. (post_install.py and the wheelhouse/lock contract
    are out of scope.)
 
-3. **New release-only step: reinstall the synced source into the release venv.**
-   After `Invoke-PostInstallConfig` succeeds, for release mode only:
-   ```
-   & <releaseVenvPython> -m pip install --force-reinstall --no-deps `
-       --no-build-isolation --no-index "<InstallRoot>\mcp_server"
-   ```
-   - `--no-deps`: dependencies are already installed from the wheelhouse.
-   - `--no-build-isolation`: build with the venv's already-bootstrapped backend
-     (setuptools/wheel from the wheelhouse bootstrap) — no isolated build env.
-   - `--no-index`: offline; pip must not silently succeed via the internet or a
-     download cache.
-   - Result: `site-packages/rook` is a real (non-editable) install of the
-     current source — `rook.__file__` lives under site-packages, not a `.pth` to
-     source.
-   - **Hard failure, no fallback.** If this fails (e.g. the venv lacks the
-     required build backend on a clean machine), the script must throw a clear
-     message and stop:
-     > `Failed to install current mcp_server source into release venv. Local deploy must not fall back to PYTHONPATH=mcp_server\src; rebuild/fix the local Python packaging inputs.`
-     Do **not** restore a `PYTHONPATH=src` shadow to paper over it.
+3. **New release-only step: mirror the synced source into the release venv
+   site-packages.** After `Invoke-PostInstallConfig` succeeds, for release mode
+   only, mirror the `rook` package directory:
+   - source: `<InstallRoot>\mcp_server\src\rook`
+   - dest: `<venvRoot>\Lib\site-packages\rook`
+
+   **Why a mirror, not `pip install`:** `mcp_server/pyproject.toml` declares the
+   **hatchling** build backend, which the release venv does not carry. A
+   `pip install --no-build-isolation --no-index <source>` would fail (no backend,
+   offline can't fetch one — verified). A directory mirror is deterministic,
+   fully offline, and avoids build-backend/wheelhouse churn. Reuse the existing
+   `Sync-Directory` (`robocopy /MIR`), which excludes `__pycache__`/`*.pyc` and
+   **purges stale dest files** so old modules can't linger. Only the `rook`
+   package dir is mirrored; the wheelhouse `rook-*.dist-info` sibling is left
+   intact for metadata. Result: the importable `rook` (incl. `rook.server`) under
+   `…\venv\Lib\site-packages\rook` is the current source.
+   - **No internet fallback.** The mirror is offline by construction. If source
+     or venv preconditions are missing, throw and stop — do not restore a
+     `PYTHONPATH=src` shadow to paper over it.
 
 4. **Release `PythonPathEntries = @()`.** Set the release RuntimeContract's
    `$releasePythonPathEntries = @()` so its `PYTHONPATH` is empty — matching the
@@ -145,10 +145,13 @@ in-script assertions, exercised by actually running a local release deploy:
 
 ## Risks
 
-- **Build backend on a clean machine (#3).** `--no-build-isolation --no-index`
-  requires the release venv to already carry a usable build backend. If a clean
-  machine's wheelhouse bootstrap doesn't include it, the reinstall throws — by
-  design we stop and report (no PYTHONPATH fallback). Surfacing this is the point.
+- **Mirror timestamp semantics (#3).** `robocopy /MIR` makes dest match source
+  (copies changed files, purges extras). In the real drift case the synced source
+  is newer than the stale wheel, so it is copied. `dist-info` is a sibling dir and
+  is untouched. Stale `__pycache__` is excluded from the mirror but harmless —
+  Python recompiles when the mirrored source's mtime differs. The release
+  verification (`rook.server.__file__` under site-packages + tools present) is the
+  backstop if anything is off.
 - **No system/bundled python (#1).** If `$VenvPython` was the only interpreter,
   excluding it makes `Resolve-BootstrapPython` throw. Acceptable: a local deploy
   already requires a bootstrap python, and the existing candidates cover it.

@@ -612,28 +612,34 @@ function Invoke-PostInstallConfig {
 }
 
 function Install-ReleaseSourceIntoVenv {
-    # Make the release venv's site-packages match the just-synced source.
-    # Invoke-PostInstallConfig populates rook into the venv from the bundled
-    # wheelhouse wheel, which the local deploy never rebuilds -> site-packages
-    # can lag the synced source (e.g. miss the rhino_2d_to_3d_* tools). The real
-    # release MCP config runs with empty PYTHONPATH and imports from
-    # site-packages, so site-packages must be the current source. Offline, no
-    # deps (already installed from the wheelhouse), no build isolation (build
-    # with the venv's bootstrapped backend), no index (must not silently succeed
-    # via the internet/cache). Non-editable so rook lands IN site-packages.
-    $sourceDir = Join-Path $InstallRoot 'mcp_server'
-    if (-not (Test-Path (Join-Path $sourceDir 'pyproject.toml'))) {
-        throw "Release source reinstall: mcp_server source not found at $sourceDir (Sync-AppPayload must run first)."
+    # Local-deploy coherence: make the release venv's importable `rook` match the
+    # just-synced source. Invoke-PostInstallConfig installs an older rook wheel
+    # from the bundled wheelhouse, and the local deploy never rebuilds it, so
+    # site-packages can lag the synced source (e.g. miss the rhino_2d_to_3d_*
+    # tools). The real release MCP config runs with empty PYTHONPATH and imports
+    # from site-packages, so site-packages must hold the current source.
+    #
+    # We MIRROR the package directory rather than pip-building from source:
+    # mcp_server declares the hatchling build backend, which the release venv
+    # does not carry, so `pip install --no-build-isolation --no-index` from
+    # source would fail. A directory mirror is deterministic and fully offline.
+    # Only the `rook` package dir is mirrored; the wheelhouse `rook-*.dist-info`
+    # sibling is left intact for metadata. /MIR removes stale modules in the dest.
+    $sourceRook = Join-Path $InstallRoot 'mcp_server\src\rook'
+    $venvRoot = Split-Path -Parent (Split-Path -Parent $VenvPython)
+    $destRook = Join-Path $venvRoot 'Lib\site-packages\rook'
+
+    if (-not (Test-Path (Join-Path $sourceRook 'server.py'))) {
+        throw "Release source mirror: rook package not found at $sourceRook (Sync-AppPayload must run first)."
     }
     if (-not (Test-Path $VenvPython)) {
-        throw "Release source reinstall: release venv python not found at $VenvPython (Invoke-PostInstallConfig must run first)."
+        throw "Release source mirror: release venv python not found at $VenvPython (Invoke-PostInstallConfig must run first)."
     }
 
-    Write-Host "Reinstalling current mcp_server source into the release venv (offline; no deps, no build isolation, no index)..."
-    & $VenvPython -m pip install --force-reinstall --no-deps --no-build-isolation --no-index $sourceDir
-    if ($LASTEXITCODE -ne 0) {
-        throw "Failed to install current mcp_server source into release venv. Local deploy must not fall back to PYTHONPATH=mcp_server\src; rebuild/fix the local Python packaging inputs."
-    }
+    Write-Host "Mirroring current rook source into the release venv site-packages (offline; robocopy /MIR)..."
+    Write-Host "  source: $sourceRook"
+    Write-Host "  dest:   $destRook"
+    Sync-Directory $sourceRook $destRook
 }
 
 function Register-Plugins {
@@ -1247,7 +1253,7 @@ if ($RuntimeContract.IsDev) {
 } else {
     Write-Step "Refresh MCP, Chirp, and config installs"
     Invoke-PostInstallConfig
-    Write-Step "Reinstall current source into release venv"
+    Write-Step "Mirror current source into release venv site-packages"
     Install-ReleaseSourceIntoVenv
     Write-ChatServiceManifests -Contract $RuntimeContract
 }
