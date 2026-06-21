@@ -59,7 +59,7 @@ public sealed class ReconstructionRemoteAssetDownloader : IReconstructionRemoteA
                 var mime = resp.Content.Headers.ContentType?.MediaType;
                 // net48: HttpContent.ReadAsStreamAsync has no CancellationToken overload.
                 using var stream = await resp.Content.ReadAsStreamAsync().ConfigureAwait(false);
-                var bytes = await ReadCappedAsync(stream, cap, ct).ConfigureAwait(false);
+                var bytes = await CappedStreamReader.ReadCappedAsync(stream, cap, ct).ConfigureAwait(false);
                 if (bytes is null) return Fail(GenerationErrorCode.UnsupportedMedia, $"Asset exceeds {cap} bytes while streaming.");
                 if (bytes.Length == 0) return Fail(GenerationErrorCode.ExecutionFailed, "Asset body was empty.");
                 return new ReconstructionDownloadResult(true, bytes, mime, null);
@@ -84,22 +84,6 @@ public sealed class ReconstructionRemoteAssetDownloader : IReconstructionRemoteA
     // filtered OperationCanceledException catch above, which rethrows before reaching this.
     private static bool IsTransientTransport(Exception ex) => ex is HttpRequestException || ex is TaskCanceledException;
     private static bool IsTransientStatus(int s) => s >= 500 || s == 408 || s == 429;
-
-    private static async Task<byte[]?> ReadCappedAsync(Stream s, long cap, CancellationToken ct)
-    {
-        using var ms = new MemoryStream();
-        var buf = new byte[81920];
-        int n;
-        long total = 0;
-        // net48: use the array-based ReadAsync overload (no Memory<byte> overload).
-        while ((n = await s.ReadAsync(buf, 0, buf.Length, ct).ConfigureAwait(false)) > 0)
-        {
-            total += n;
-            if (total > cap) return null;
-            ms.Write(buf, 0, n);
-        }
-        return ms.ToArray();
-    }
 
     private static ReconstructionDownloadResult Fail(GenerationErrorCode c, string m) =>
         new(false, null, null, new GenerationError(c, m, Retryable: c == GenerationErrorCode.DependencyUnavailable));
