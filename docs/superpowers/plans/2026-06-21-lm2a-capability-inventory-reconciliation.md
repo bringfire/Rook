@@ -395,6 +395,19 @@ def test_format_report_is_pure_and_stable():
     second = format_report(inv)
     assert first == second
     assert first.startswith("Capability inventory: 12 records, 4 findings")
+
+
+def test_build_inventory_does_not_read_live_catalog_cache(monkeypatch):
+    import rook.agent.tool_registry as tool_registry_module
+
+    def _boom(*args, **kwargs):
+        raise AssertionError("build_inventory must not read the live catalog cache")
+
+    monkeypatch.setattr(tool_registry_module, "load_catalog_from_cache", _boom)
+    monkeypatch.setattr(tool_registry_module, "get_catalog_cache_path", _boom)
+
+    inv = build_inventory(_static_sources(), _static_catalog())
+    assert inv.records  # built purely from injected args, no cache access
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
@@ -610,7 +623,7 @@ def format_report(inventory: CapabilityInventory) -> str:
 - [ ] **Step 4: Run the static-layer tests to verify they pass**
 
 Run: `mcp_server/.venv/Scripts/python.exe -m pytest -p no:cacheprovider mcp_server/tests/test_capability_inventory.py -q`
-Expected: PASS (6 tests passed).
+Expected: PASS (7 tests passed).
 
 - [ ] **Step 5: Compile-check the new module**
 
@@ -829,6 +842,7 @@ def collect_live_sources() -> SurfaceSources:
     from rook.agent import tool_groups as tg
     from rook.agent import tool_dispatcher as td
     from rook.agent.chat import execution_policy as ep
+    from rook.agent.chat.tool_contracts import ZERO_ARGUMENT_TOOLS
 
     return SurfaceSources(
         tier0=frozenset(tg.TIER_0),
@@ -841,7 +855,7 @@ def collect_live_sources() -> SurfaceSources:
         intercepted_names=INTERCEPTED_META_TOOLS,
         excluded_names=frozenset(tg.LOCAL_TIER_0_DISPATCH_EXCLUSIONS),
         local_tool_names=frozenset(),
-        zero_argument_names=frozenset(td.STRICT_NO_ARGUMENT_BRIDGE_TOOLS),
+        zero_argument_names=frozenset(ZERO_ARGUMENT_TOOLS),
         strict_no_argument_names=frozenset(td.STRICT_NO_ARGUMENT_BRIDGE_TOOLS),
         creation_tools=frozenset(ep.CREATION_TOOLS),
         modal_risk_tools=frozenset(ep.MODAL_RISK_TOOLS),
@@ -852,12 +866,12 @@ def collect_live_sources() -> SurfaceSources:
 - [ ] **Step 4: Run the full inventory test file to verify everything passes**
 
 Run: `mcp_server/.venv/Scripts/python.exe -m pytest -p no:cacheprovider mcp_server/tests/test_capability_inventory.py -q`
-Expected: PASS (12 tests passed).
+Expected: PASS (13 tests passed).
 
 - [ ] **Step 5: Run the whole LM2A suite + py_compile**
 
 Run: `mcp_server/.venv/Scripts/python.exe -m pytest -p no:cacheprovider mcp_server/tests/test_capability_record.py mcp_server/tests/test_capability_inventory.py -q`
-Expected: PASS (17 tests passed).
+Expected: PASS (18 tests passed).
 
 Run: `mcp_server/.venv/Scripts/python.exe -m py_compile mcp_server/src/rook/agent/capability_record.py mcp_server/src/rook/agent/capability_inventory.py`
 Expected: no output, exit 0.
@@ -893,7 +907,12 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 - LM1A `DispatchabilityFinding` severity mapping → `_DISPATCHABILITY_SEVERITY`.
 - ToolRegistry group caveat (canned catalog uses real `gh_canvas` members) → `_reconcile_catalog`/`_reconcile_sources` use real members (`gh_edit`, `gh_move`, `gh_status`).
 - `collect_live_sources` reads constants only, leaves `local_tool_names` empty, no cache/MCP/registry/dispatcher → Task 3 Step 3; `test_collect_live_sources_reads_constants_only`.
-- `reconcile` does not read live cache → `test_reconcile_does_not_read_live_catalog_cache`.
+- `build_inventory` and `reconcile` do not read live cache →
+  `test_build_inventory_does_not_read_live_catalog_cache`,
+  `test_reconcile_does_not_read_live_catalog_cache`.
+- `collect_live_sources` sources `zero_argument_names` from
+  `tool_contracts.ZERO_ARGUMENT_TOOLS` and `strict_no_argument_names` from
+  `tool_dispatcher.STRICT_NO_ARGUMENT_BRIDGE_TOOLS` (distinct scattered sources).
 - `format_report` pure/secondary → Task 2 + `test_format_report_is_pure_and_stable`.
 - Deterministic ordering (sorted records, findings by `(tool, code, severity)`) → `_sorted_findings`, `_universe` sorted; `test_build_inventory_records_cover_full_universe_sorted`.
 
