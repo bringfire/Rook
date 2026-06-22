@@ -3337,15 +3337,96 @@ const Reconstruct = (() => {
         re.sourceLabel = $("reconstruct-source-label");
         re.chooseSourceBtn = $("reconstruct-choose-source");
         re.modelSelect = $("reconstruct-model-select");
+        re.modeTextured = $("reconstruct-mode-textured");
+        re.modeGeometry = $("reconstruct-mode-geometry");
+        re.submitBtn = $("reconstruct-submit-btn");
+        re.statusMessage = $("reconstruct-status-message");
     }
 
     function wireEvents() {
         re.chooseSourceBtn.addEventListener("click", chooseSource);
+        re.modeTextured.addEventListener("click", () => setOutputMode("textured"));
+        re.modeGeometry.addEventListener("click", () => setOutputMode("geometry"));
+        re.submitBtn.addEventListener("click", submit);
     }
 
     async function onEnter() {
         await loadModels();
         renderSource();
+    }
+
+    function showReconstructStatus(message, type) {
+        re.statusMessage.textContent = message;
+        re.statusMessage.className = `status-message ${type || "info"}`;
+        re.statusMessage.classList.remove("hidden");
+    }
+
+    function setOutputMode(mode) {
+        outputMode = mode === "geometry" ? "geometry" : "textured";
+        re.modeTextured.classList.toggle("active", outputMode === "textured");
+        re.modeGeometry.classList.toggle("active", outputMode === "geometry");
+    }
+
+    function optionsForMode() {
+        // Mutually exclusive — never emit both (backend D1 guard rejects it).
+        return outputMode === "geometry"
+            ? { enable_geometry: true }
+            : { enable_pbr: true };
+    }
+
+    async function submit() {
+        if (!source || !source.artifact_id) {
+            showReconstructStatus("Choose a source image first.", "error");
+            return;
+        }
+        const modelId = selectedModelId();
+        if (!modelId) {
+            showReconstructStatus("Select a model first.", "error");
+            return;
+        }
+        try {
+            re.submitBtn.disabled = true;
+            showReconstructStatus("Submitting reconstruction…", "info");
+            const job = await reconstructionBridgeCall("submit_job", {
+                source_artifact_id: source.artifact_id,
+                source_role: source.role || "image",
+                model_id: modelId,
+                preprocessing_chain: [],
+                options: optionsForMode(),
+                estimate_requested: false,
+            });
+            if (!job || !job.job_id) {
+                throw new Error("Reconstruction submit did not return a job id.");
+            }
+            await poll(job.job_id);
+        } catch (e) {
+            showReconstructStatus(errorToText(e), "error");
+        } finally {
+            re.submitBtn.disabled = false;
+        }
+    }
+
+    async function poll(jobId) {
+        for (let attempt = 0; attempt < POLL_MAX_ATTEMPTS; attempt++) {
+            const status = await reconstructionBridgeCall("job_status", { job_id: jobId });
+            const job = status.job || status;
+            showReconstructStatus(`3D ${job.stage || job.state || "working"} · ${jobId}`, "info");
+            if (job.state === "complete") {
+                const result = await reconstructionBridgeCall("job_result", { job_id: jobId });
+                // renderResult lands in Task 5, loadJobs in Task 6 — typeof-guarded
+                // so each commit stays runnable until they exist.
+                if (typeof renderResult === "function") renderResult(result);
+                showReconstructStatus("Reconstruction complete.", "success");
+                if (typeof loadJobs === "function") loadJobs();
+                return;
+            }
+            if (TERMINAL_FAIL.has(job.state)) {
+                showReconstructStatus(`Reconstruction ${job.state}.`, "error");
+                return;
+            }
+            await delay(POLL_INTERVAL_MS);
+        }
+        showReconstructStatus("Reconstruction polling timed out.", "error");
     }
 
     function selectedModelId() {

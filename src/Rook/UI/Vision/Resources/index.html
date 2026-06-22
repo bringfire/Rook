@@ -675,6 +675,17 @@
                             <label class="reconstruct-label" for="reconstruct-model-select">Model</label>
                             <select id="reconstruct-model-select" class="select"></select>
                         </div>
+                        <div class="reconstruct-field">
+                            <label class="reconstruct-label">Output</label>
+                            <div class="reconstruct-segmented" role="radiogroup" aria-label="Output type">
+                                <button type="button" id="reconstruct-mode-textured" class="seg-btn active" data-mode="textured">Textured</button>
+                                <button type="button" id="reconstruct-mode-geometry" class="seg-btn" data-mode="geometry">Geometry only</button>
+                            </div>
+                        </div>
+                        <div class="reconstruct-actions">
+                            <button id="reconstruct-submit-btn" class="btn btn-primary">Reconstruct</button>
+                        </div>
+                        <div id="reconstruct-status-message" class="status-message hidden"></div>
                     </div>
                 </div>
             </section>
