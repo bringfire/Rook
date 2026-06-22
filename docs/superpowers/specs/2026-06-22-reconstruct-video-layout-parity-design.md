@@ -89,10 +89,20 @@ Counts are computed from the full job list each render. The filter summary echoe
 
 Rows render `state · short-id (job_id.slice(0,8)) · model · stage`; a failed row also renders `error.message`.
 
-- **Cancel** (`.reconstruct-queue-cancel`): rendered/enabled only when `state ∈ {queued, running}`. On click: disable the button, call `cancel_job {job_id}`, then re-`loadJobs`. **No optimistic removal.** When `state === "cancellation_requested"`, render a disabled `Canceling…` indicator instead of a Cancel button.
+**Model label source (pin):** the row's model label is derived from **`j.model_id`** — `list_jobs` returns `model_id`; there is **no** `model` field on reconstruction jobs. A small `shortModelLabel(model_id)` helper produces a readable label (e.g. strip the `fal-ai/` provider prefix and show the model tail), but the pinned data source is `j.model_id`.
+
+- **Cancel** (`.reconstruct-queue-cancel`): rendered/enabled only when `state ∈ {queued, running}`. On click: **confirm first** with `window.confirm("Cancel this job?")` (matches the Video tab), then disable the button, call `cancel_job {job_id}`, then re-`loadJobs`. **No optimistic removal** — the authoritative state surfaces on the next refresh/poll. When `state === "cancellation_requested"`, render a disabled `Canceling…` indicator instead of a Cancel button.
 - **Open/Load** (`.reconstruct-queue-open`): rendered when `state === "complete"` and `result_artifact_id` present. On click: existing `openJobResult(job_id)` → `job_result` → `renderResult` into the main-column result panel.
 
 `cancel_job` is an existing async reconstruction op (already exposed via `rhino_2d_to_3d_cancel`). Exposing it in the rail is a UI affordance over existing backend behavior — no new backend.
+
+### Cancellation status copy must not read as failure (pin)
+
+Today the poll loop sets `TERMINAL_FAIL = {error, cancelled, interrupted}` and renders `Reconstruction <state>.` with status type **`"error"`** (red) — so a `cancelled` job currently reads as a failure. Because `cancelled` is terminal-but-not-failed (All-only), the poll loop must **branch `cancelled` out of the failure set**:
+- `cancelled` → `showReconstructStatus("Reconstruction cancelled.", "info")` (neutral, not error styling).
+- `{error, interrupted}` → the existing failure copy `Reconstruction <state>.` with type `"error"`.
+
+This is the user-visible consequence of exposing Cancel: a successful cancellation should read as a calm terminal state, not a failure. (`TERMINAL_FAIL` narrows to `{error, interrupted}`; a separate check handles `cancelled`.)
 
 ## Filter state across refresh / submission
 
