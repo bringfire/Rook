@@ -3341,6 +3341,11 @@ const Reconstruct = (() => {
         re.modeGeometry = $("reconstruct-mode-geometry");
         re.submitBtn = $("reconstruct-submit-btn");
         re.statusMessage = $("reconstruct-status-message");
+        re.resultPanel = $("reconstruct-result-panel");
+        re.resultThumb = $("reconstruct-result-thumb");
+        re.resultMeta = $("reconstruct-result-meta");
+        re.resultWarnings = $("reconstruct-result-warnings");
+        re.resultHandoff = $("reconstruct-result-handoff");
     }
 
     function wireEvents() {
@@ -3469,6 +3474,77 @@ const Reconstruct = (() => {
         // and navigates back here. No duplicate picker.
         switchView("gallery");
         showStatus("Pick an image in the Gallery, then use “Send to 3D”.", "info");
+    }
+
+    // Friendly headline per known warning code. Unknown codes fall back to
+    // the backend message verbatim (forward-compatible). Read by CODE, never
+    // inferred from asset_roles.
+    const WARNING_COPY = {
+        result_artifact_missing: {
+            severity: "error",
+            text: "The reconstruction completed but its package could not be found. The result may be unavailable; try re-running.",
+        },
+        pbr_unsupported_by_model: {
+            severity: "warning",
+            text: "Textured output was requested, but this model isn't catalogued as supporting textured/PBR output. The result may have no materials.",
+        },
+        result_missing_texture: {
+            severity: "warning",
+            text: "Textured output was expected and this model supports it, but the delivered package contains no material or texture assets.",
+        },
+    };
+
+    function renderWarnings(warnings) {
+        const list = Array.isArray(warnings) ? warnings : [];
+        if (list.length === 0) {
+            re.resultWarnings.innerHTML = "";
+            re.resultWarnings.classList.add("hidden");
+            return;
+        }
+        re.resultWarnings.innerHTML = list.map(w => {
+            const known = WARNING_COPY[w.code];
+            const severity = known ? known.severity : "warning";
+            const headline = known ? known.text : (w.message || w.code || "Unknown warning.");
+            const detail = known && w.message
+                ? `<span class="reconstruct-warning-detail">${escapeHtml(w.message)}</span>`
+                : "";
+            return `<li class="reconstruct-warning ${severity}"><span class="reconstruct-warning-code">${escapeHtml(w.code || "warning")}</span>${escapeHtml(headline)}${detail}</li>`;
+        }).join("");
+        re.resultWarnings.classList.remove("hidden");
+    }
+
+    function renderResult(result) {
+        const pkg = result.package || {};
+        const packageId = result.result_artifact_id || "";
+        const roles = Array.isArray(pkg.asset_roles) ? pkg.asset_roles : [];
+        const preferred = pkg.preferred_asset_role || "";
+
+        if (packageId && result.result_available) {
+            re.resultThumb.src = `/blob/${encodeURIComponent(packageId)}/thumbnail?ts=${Date.now()}`;
+            re.resultThumb.classList.remove("hidden");
+        } else {
+            re.resultThumb.removeAttribute("src");
+            re.resultThumb.classList.add("hidden");
+        }
+        re.resultThumb.onerror = () => re.resultThumb.classList.add("hidden");
+
+        re.resultMeta.innerHTML = [
+            `<div class="reconstruct-result-id">Package ${escapeHtml(packageId || "—")}</div>`,
+            roles.length
+                ? `<div class="reconstruct-result-roles">Assets: ${escapeHtml(roles.join(", "))}</div>`
+                : "",
+            preferred
+                ? `<div class="reconstruct-result-preferred">Preferred: ${escapeHtml(preferred)}</div>`
+                : "",
+        ].join("");
+
+        renderWarnings(result.warnings);
+
+        re.resultHandoff.innerHTML = packageId
+            ? `Import this package into Rhino with the agent tool <code>rhino_2d_to_3d_import</code> (package id above).`
+            : "";
+
+        re.resultPanel.classList.remove("hidden");
     }
 
     // Source handoff from the Gallery "Send to 3D" shortcut: preselect the
