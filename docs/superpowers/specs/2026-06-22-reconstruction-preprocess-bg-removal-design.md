@@ -14,11 +14,12 @@ Reuse the existing reconstruction **job pipeline internals** (submit → poll �
 
 ## In scope
 
-1. Capability-metadata schema (`input` + `prompt` descriptors) on catalog entries; populated for the three existing models. Control descriptors (topology/texture) **deferred**.
-2. Persist the catalog **`task`** on the ledger record at submit (schema v2→v3).
-3. Task-branched materialization: `single_image_to_3d` → current 3D package; `remove_background` → derived `preprocessed_image` artifact linked to source.
-4. A dedicated explicit op **`remove_background`** that creates a ledger-backed job through the same manager/provider/poll/cancel machinery.
-5. Typed result contract: bg-removal `job_result` returns `result_kind:"preprocessed_image"` + `result_artifact_id` + image-role metadata, with `package:null`. 3D results unchanged.
+1. Capability-metadata schema (`input` — incl. single-image `source_field` — + `prompt` descriptors) on catalog entries; populated for the three existing models. Control descriptors (topology/texture) **deferred**.
+2. Provider reads `source_field` at submit (replaces the hardcoded `input_image_url`; default preserves the Hunyuan path).
+3. Persist the catalog **`task`** on the ledger record at submit (schema v2→v3).
+4. Task-branched materialization: `single_image_to_3d` → current 3D package; `remove_background` → derived `preprocessed_image` artifact linked to source.
+5. A dedicated explicit op **`remove_background`** spanning the full request path — **MCP tool → narrow native route → async bridge → handler → manager** — reusing the existing poll/cancel/ledger/materialize machinery (no duplication).
+6. Typed result contract owned by the **manager result envelope** (`ResultKind`/`AssetRoles`), serialized by the handler: bg-removal → `result_kind:"preprocessed_image"` + `result_artifact_id` + image roles, `package:null`. 3D results gain an explicit `result_kind:"reconstruction_package"` but are otherwise unchanged.
 
 ## Out of scope (hard boundaries)
 
@@ -41,6 +42,7 @@ Extend `ReconstructionModelEntry` with two optional descriptor blocks (additive;
 "task": "single_image_to_3d",          // existing — the discriminator
 "input": {
   "mode": "single_image",              // single_image | multi_view_labeled | multi_view_array | text
+  "source_field": "input_image_url",   // present for single_image: the provider's source-image param name
   "view_slots": [                      // present iff mode == multi_view_labeled
     { "role": "front", "field": "front_image_url", "required": true }
   ],
@@ -49,12 +51,16 @@ Extend `ReconstructionModelEntry` with two optional descriptor blocks (additive;
 "prompt": { "supported": false, "required": false, "kind": null }  // kind: geometry | texture | segmentation | null
 ```
 
-Populated for current entries:
-- `fal-ai/hunyuan-3d/v3.1/rapid/image-to-3d` → `input.mode:"single_image"`, `prompt.supported:false`.
-- `fal-ai/meshy/v6/image-to-3d` → `input.mode:"single_image"`, `prompt:{supported:true, required:false, kind:"texture"}`.
-- `fal-ai/birefnet` → `task:"remove_background"` (already), `input.mode:"single_image"`, `prompt.supported:false`.
+**Single-image source field (load-bearing).** The fal provider currently hardcodes `["input_image_url"]` in `BuildSubmitPayload`, but **BiRefNet's API uses `image_url`** (and other models differ). So `input.source_field` carries the provider's source-image param name for `single_image` entries, parallel to the `field` that `view_slots` already carry. The provider reads it at submit instead of hardcoding. This makes single-image consistent with multi-view's per-field mapping and is what lets the bg-removal flow actually submit.
 
-Schema rules (validated by unit fixtures): `view_slots` present **iff** `mode == multi_view_labeled`; `array` present **iff** `mode == multi_view_array`; `prompt.required ⇒ prompt.supported`. The descriptors are **data, not behavior** in slice 1 — nothing reads `view_slots` yet; they exist so the future input-mapping layer and UI render from one source of truth. C# records gain nullable `Input`/`Prompt` properties so older catalog JSON (without the blocks) still deserializes.
+Populated for current entries:
+- `fal-ai/hunyuan-3d/v3.1/rapid/image-to-3d` → `input.mode:"single_image"`, `source_field:"input_image_url"` (unchanged behavior), `prompt.supported:false`.
+- `fal-ai/meshy/v6/image-to-3d` → `input.mode:"single_image"`, `source_field:"input_image_url"` (keep current behavior; verify Meshy's true field in the plan and correct only if confirmed — do **not** regress the working path on an unverified change), `prompt:{supported:true, required:false, kind:"texture"}`.
+- `fal-ai/birefnet` → `task:"remove_background"` (already), `input.mode:"single_image"`, **`source_field:"image_url"`**, `prompt.supported:false`.
+
+Provider behavior: `BuildSubmitPayload` writes `[sourceField] = url` where `sourceField` flows from the catalog entry's `input.source_field`. **Default = `"input_image_url"`** when a 3D entry omits it, so the proven Hunyuan path is byte-for-byte unchanged; BiRefNet overrides to `image_url`. `ReconstructionProviderSubmitRequest` carries the resolved `SourceField` (set by the manager from the model's catalog entry).
+
+Schema rules (validated by unit fixtures): `view_slots` present **iff** `mode == multi_view_labeled`; `array` present **iff** `mode == multi_view_array`; `source_field` present for `single_image`; `prompt.required ⇒ prompt.supported`. The view/array descriptors are **data, not behavior** in slice 1 — nothing reads `view_slots` yet; they exist so the future input-mapping layer and UI render from one source of truth. `source_field` is the one input descriptor that **is** read in slice 1 (by the provider). C# records gain nullable `Input`/`Prompt` properties so older catalog JSON (without the blocks) still deserializes.
 
 `ModelToObj` (the `models` op projection) emits `input` and `prompt` so a future UI can read them — but see §6: the `models` op is filtered to 3D-producing tasks, so bg-removal models still don't surface in the reconstruct picker.
 
@@ -86,38 +92,65 @@ A task-specific result-mapping path (`FalReconstructionResultMapper` sibling, or
 
 ## 5. Result contract (typed; no masquerade)
 
-`manager.Result(jobId)` and the handler's `Result` op branch on the job's `task`:
-- 3D tasks → unchanged: `result_artifact_id`, `result_available`, `package` = `PackageSummary(...)`, `warnings`.
-- `remove_background` → `result_artifact_id`, `result_available`, **`result_kind: "preprocessed_image"`**, image-role metadata (`asset_roles` of the derived artifact, e.g. `["image","mask"]`), and **`package: null`**. `PackageSummary` stays strictly 3D and is never built for non-3D jobs.
+**Ownership (pinned):** the typed result metadata is owned by the **manager result envelope**, and `ReconstructionOpHandler` only *serializes* it — the handler does **not** re-infer the result kind from the artifact's roles or the catalog. `manager.Result(jobId)` (its `ReconstructionJobResult`/status-result type) gains:
+- `ResultKind` — derived from the job's persisted `task` (`"reconstruction_package"` for 3D tasks, `"preprocessed_image"` for `remove_background`),
+- `AssetRoles` — the derived artifact's roles (for non-3D results, e.g. `["image","mask"]`),
+- and the existing `ResultArtifactId` / `ResultAvailable`.
 
-(3D results may also carry `result_kind: "reconstruction_package"` for symmetry, but `package` remains the load-bearing 3D field; adding `result_kind` to 3D results is optional and behavior-neutral.)
+The handler's `Result` op serializes by `ResultKind`:
+- `reconstruction_package` → unchanged: `result_artifact_id`, `result_available`, `result_kind`, `package` = `PackageSummary(...)`, `warnings`. (`PackageSummary` is built here only because the envelope says it's a 3D package — not by guessing.)
+- `preprocessed_image` → `result_artifact_id`, `result_available`, **`result_kind:"preprocessed_image"`**, `asset_roles` from the envelope, and **`package: null`**. `PackageSummary` is never built for non-3D jobs.
 
-## 6. Op surface + dropdown isolation
+So `package` stays the load-bearing 3D field; `result_kind` is now an explicit, manager-owned discriminator present on every result (3D included), and the handler is a pure serializer over it.
 
-- New op **`remove_background`** in `ReconstructionOpHandler` (async family, like `submit_job`): args `{ source_artifact_id, source_role?, model_id? }`; calls `manager.SubmitRemoveBackgroundAsync`; returns the job envelope (`job_id`, state). Status/result reuse the existing `job_status` / `job_result` ops (which now branch on task per §5). Cancel reuses `cancel_job`.
-- Wire it through the same async dispatch surfaces as the other async ops (native bridge + VisionWebSurface async set, if/when exposed) — but in slice 1 it only needs the **MCP tool path** for the smoke. Expose a thin MCP tool (e.g. `rhino_2d_to_3d_remove_background` / `rhino_remove_background`) so the operation is callable for the smoke and by agents; no Reconstruct-tab button.
-- **`models` op filtered to 3D-producing tasks.** The reconstruct model picker must never list bg-removal/preprocess models. The `models` op returns only entries whose `task` is a 3D-producing task (`single_image_to_3d`, future `multi_image_to_3d`/`text_to_3d`); `remove_background` entries are excluded from that list. The `remove_background` op resolves its model internally, so bg-removal models need not be discoverable through the reconstruct picker.
+## 6. Op surface — full request path (managed + native + MCP)
+
+The smoke is MCP-driven, so the op must be reachable end to end: MCP tool → native HTTP route → `DispatchReconstructionOp` → companion bridge (async) → handler. The existing `POST /reconstruction/2d-to-3d/jobs` route **hard-dispatches `submit_job`** (`DispatchReconstructionOp(req, res, "submit_job")`), so it cannot serve a new op. This slice therefore spans **C# + native (`src/RookNative/`) + Python MCP**.
+
+**Handler op.** New op constant `OpRemoveBackground = "remove_background"` in `ReconstructionOpHandler` (async family): args `{ source_artifact_id, source_role?, model_id? }`; calls `manager.SubmitRemoveBackgroundAsync`; returns the job envelope (`job_id`, state). Status/result reuse `job_status` / `job_result` (which branch on the manager's `ResultKind` per §5); cancel reuses `cancel_job`.
+
+**Async-routing invariant (pinned, mirrors the import slice).** `remove_background` is an **async** reconstruction op:
+- In `NativeGhBridgeRegistrar.HandleReconstructionDispatch`, add `case ReconstructionOpHandler.OpRemoveBackground:` to the **async branch** (`ExecuteAsyncApiResponseCallback`), exactly alongside `OpSubmit`.
+- In the handler, `OpRemoveBackground` is in the async set and is **rejected by `DispatchOffUi`** (a structured `invalid_request`), so it can never run on a synchronous/off-UI path. A source-assertion test pins it in the async branch (as for `import_package`).
+
+**Narrow native route.** Add `POST /reconstruction/2d-to-3d/background-removals` → a new `HandleReconstructionRemoveBackground` that calls `DispatchReconstructionOp(req, res, "remove_background")` (in `RookServer.cpp` route table + `GrasshopperProxyHandler.cpp` handler, + the route-listing/help block). A narrow, op-specific route — **not** a generic reconstruction-dispatch route.
+
+**MCP tool.** New tool **`rhino_2d_to_3d_remove_background`** in `mcp_server/src/rook/server.py` (tool definition + routing case) → `POST /reconstruction/2d-to-3d/background-removals` with `{source_artifact_id, source_role?, model_id?}`. No Reconstruct-tab button (no UI surfacing this slice).
+
+**`models` op filtered to 3D-producing tasks.** The reconstruct model picker must never list bg-removal/preprocess models. The `models` op returns only entries whose `task` is a 3D-producing task (today: `single_image_to_3d`; future `multi_image_to_3d`/`text_to_3d`); `remove_background` entries are excluded. The `remove_background` op resolves its model internally (optional `model_id` must have `task == "remove_background"`, else default to the first enabled `remove_background` entry), so bg-removal models need not be discoverable through the picker.
 
 ## Test strategy
 
 **C# unit (xUnit, `dotnet test -c Debug`):**
-- Catalog: `input`/`prompt` descriptors deserialize; schema-shape fixtures (labeled view_slots, array, text, prompt kinds) round-trip; absent blocks default to null without throwing.
+- Catalog: `input`/`prompt` descriptors deserialize; schema-shape fixtures (labeled view_slots, array, text, prompt kinds, single-image `source_field`) round-trip; absent blocks default to null without throwing.
+- Provider source field: `BuildSubmitPayload` writes the source URL under the request's `SourceField` (BiRefNet → `image_url`); a request with no source field defaults to `input_image_url` (Hunyuan path unchanged).
 - Ledger: `Task` round-trips at v3; a v2 record (no task) deserializes with `Task == "single_image_to_3d"`.
 - Submit gate: `submit_job` / `SubmitAsync` still rejects a `remove_background` model (public surface stays 3D-only); `SubmitRemoveBackgroundAsync` rejects a `single_image_to_3d` model and accepts a `remove_background` model; both persist the correct `task`.
 - Materialization: a `remove_background` job materializes a `preprocessed_image` artifact with `parent_ids=[source]` and roles `image`(+`mask`), and the source artifact is unchanged; a `single_image_to_3d` job still materializes a package.
-- Result contract: bg-removal `job_result` → `result_kind:"preprocessed_image"`, `package` null, image roles; 3D `job_result` → `package` summary present, unchanged.
+- Result envelope: the manager result carries `ResultKind`/`AssetRoles`; the handler serializes bg-removal → `result_kind:"preprocessed_image"`, `package` null, image roles; 3D → `result_kind:"reconstruction_package"`, `package` summary present, unchanged.
 - `models` op excludes `remove_background` entries.
-- MCP: the new tool registers (tool-count test).
+- Async routing: `OpRemoveBackground` is rejected by `DispatchOffUi` (structured `invalid_request`); a source-assertion test pins `OpRemoveBackground` in the async branch of `HandleReconstructionDispatch`.
+- MCP: the new `rhino_2d_to_3d_remove_background` tool registers (tool-count test).
 
-**Live smoke (merge gate):** managed Release build/deploy; with Rhino open, call the bg-removal op on the falling-cat source (`866573ea…`). Verify: a new `preprocessed_image` artifact is created with `parent_ids` linking the source; the **original source artifact is untouched**; `job_result` returns `result_kind:"preprocessed_image"` with `package:null`; the Reconstruct dropdown still lists only 3D models. (The bg-removed image is inspectable via the artifact store / `rhino_vision_artifacts`.)
+**Live smoke (merge gate) — full local deploy.** Because this crosses **C# companion + native route (`src/RookNative/`) + Python MCP tool**, the smoke must use the **full local deploy** (`scripts/deploy-local-testing.ps1`), not the lighter managed-only Release build — the native route and MCP tool won't be present otherwise (and recall the earlier MCP-front-door/`.mcp.json` shadowing pain). After deploy, with Rhino open, call `rhino_2d_to_3d_remove_background` on the falling-cat source (`866573ea…`). Verify: a new `preprocessed_image` artifact is created with `parent_ids` linking the source; the **original source artifact is untouched**; `rhino_2d_to_3d_result` returns `result_kind:"preprocessed_image"` with `package:null`; the Reconstruct dropdown (`models`) still lists only 3D models. (The bg-removed image is inspectable via `rhino_vision_artifacts`.)
 
 ## Files touched (anticipated)
 
-- `Fal/fal-model-catalog.json` — add `input`/`prompt` blocks to the 3 entries.
+**C#:**
+- `Fal/fal-model-catalog.json` — `input` (incl. `source_field`) + `prompt` blocks on the 3 entries.
 - `ReconstructionModelCatalog.cs` — `Input`/`Prompt` record types + properties; `ModelToObj` projection; 3D-task filter helper.
+- `Fal/FalReconstructionProvider.cs` — `ReconstructionProviderSubmitRequest.SourceField`; `BuildSubmitPayload` uses it (default `input_image_url`).
 - `ReconstructionJobLedger.cs` — `Task` field, v3, legacy default, serialize/merge/deserialize.
-- `ReconstructionJobManager.cs` — `SubmitCoreAsync`, `SubmitRemoveBackgroundAsync`, persist task, materialization branch, result branch.
-- `ReconstructionPreprocessMaterializer.cs` (new) + bg-removal result mapping.
-- `Handlers/ReconstructionOpHandler.cs` — `remove_background` op; `job_result` result-kind branch; `models` 3D-task filter.
-- `mcp_server/...` — new MCP tool for the bg-removal op.
-- Tests across the above.
+- `ReconstructionJobManager.cs` — `SubmitCoreAsync`, `SubmitRemoveBackgroundAsync`, persist task + source field, materialization branch, result envelope (`ResultKind`/`AssetRoles`).
+- `ReconstructionPreprocessMaterializer.cs` (new) + bg-removal result mapping (BiRefNet image/mask).
+- `Handlers/ReconstructionOpHandler.cs` — `OpRemoveBackground` op; `job_result` serializes by manager `ResultKind`; `models` 3D-task filter.
+- `InternalBridge/NativeGhBridgeRegistrar.cs` — `OpRemoveBackground` in the async branch of `HandleReconstructionDispatch`.
+
+**Native (`src/RookNative/`):**
+- `RookServer.cpp` — `POST /reconstruction/2d-to-3d/background-removals` route + help/listing block.
+- `Handlers/GrasshopperProxyHandler.cpp` — `HandleReconstructionRemoveBackground` → `DispatchReconstructionOp(req, res, "remove_background")`.
+
+**Python MCP:**
+- `mcp_server/src/rook/server.py` — `rhino_2d_to_3d_remove_background` tool definition + routing case.
+
+**Tests** across the above (C# unit + native source-assertion + MCP tool-count).
