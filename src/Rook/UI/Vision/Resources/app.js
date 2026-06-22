@@ -3345,6 +3345,7 @@ const Reconstruct = (() => {
         re.sourceLabel = $("reconstruct-source-label");
         re.chooseSourceBtn = $("reconstruct-choose-source");
         re.modelSelect = $("reconstruct-model-select");
+        re.modelHint = $("reconstruct-model-hint");
         re.modeTextured = $("reconstruct-mode-textured");
         re.modeGeometry = $("reconstruct-mode-geometry");
         re.submitBtn = $("reconstruct-submit-btn");
@@ -3366,6 +3367,7 @@ const Reconstruct = (() => {
         re.modeTextured.addEventListener("click", () => setOutputMode("textured"));
         re.modeGeometry.addEventListener("click", () => setOutputMode("geometry"));
         re.submitBtn.addEventListener("click", submit);
+        re.modelSelect.addEventListener("change", updateModelHint);
         re.importBtn.addEventListener("click", importPackage);
         re.refreshJobsBtn.addEventListener("click", loadJobs);
         re.jobsList.addEventListener("click", (e) => {
@@ -3486,7 +3488,16 @@ const Reconstruct = (() => {
 
     function buildModelOption(model) {
         const pbr = model.supports_pbr ? "" : " · no PBR";
-        return `<option value="${escapeAttr(model.model_id)}">${escapeHtml(model.model_id)}${escapeHtml(pbr)}</option>`;
+        return `<option value="${escapeAttr(model.model_id)}">${escapeHtml(shortModelLabel(model.model_id))}${escapeHtml(pbr)}</option>`;
+    }
+
+    function updateModelHint() {
+        if (!re.modelHint) return;
+        const id = selectedModelId();
+        const m = models.find(x => x.model_id === id) || null;
+        re.modelHint.textContent = m
+            ? `${m.provider} · ${String(m.task || "").replace(/_/g, " ")}${m.supports_pbr ? " · PBR" : ""}`
+            : "";
     }
 
     async function loadModels() {
@@ -3497,9 +3508,14 @@ const Reconstruct = (() => {
         } catch (e) {
             models = [];
         }
-        // Leading placeholder forces an explicit pick (model_id is required).
-        const placeholder = `<option value="" disabled selected>Select a model…</option>`;
-        re.modelSelect.innerHTML = placeholder + models.map(buildModelOption).join("");
+        if (models.length === 0) {
+            re.modelSelect.innerHTML = `<option value="" disabled selected>No models available</option>`;
+        } else {
+            // Default to the first model (like the Video tab); model_id stays explicit + required.
+            re.modelSelect.innerHTML = models.map(buildModelOption).join("");
+            re.modelSelect.value = models[0].model_id;
+        }
+        updateModelHint();
         modelsLoaded = true;
     }
 

@@ -679,7 +679,13 @@
                                 </div>
                                 <div class="reconstruct-field">
                                     <label class="reconstruct-label" for="reconstruct-model-select">Model</label>
-                                    <select id="reconstruct-model-select" class="select"></select>
+                                    <div class="select-wrapper">
+                                        <select id="reconstruct-model-select"></select>
+                                        <svg class="select-arrow" viewBox="0 0 24 24" fill="none">
+                                            <path d="M6 9L12 15L18 9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                        </svg>
+                                    </div>
+                                    <span id="reconstruct-model-hint" class="option-hint"></span>
                                 </div>
                                 <div class="reconstruct-field">
                                     <label class="reconstruct-label">Output</label>
