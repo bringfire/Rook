@@ -714,6 +714,51 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
     }
 
     [Fact]
+    public async Task ResolvedImportRole_MatchesPrepareImportAssetRole_ForSamePackage()
+    {
+        // The load-bearing promise: the panel's "Import will use" role equals the role the import plan
+        // will use. Same package, no requested assetRole — preferred (model_glb) missing, fallback
+        // (model_obj) present, i.e. the live textured-Hunyuan shape.
+        var fixture = CreateFixture();
+        fixture.Downloader.Files["https://example.test/model.obj"] = new byte[] { 1, 2, 3 };
+        fixture.Downloader.Files["https://example.test/material.mtl"] = new byte[] { 4, 5, 6 };
+        fixture.Downloader.Files["https://example.test/texture.png"] = new byte[] { 7, 8, 9 };
+        var jobId = Guid.NewGuid();
+        var package = await BuildPackageAsync(fixture, JsonNode.Parse("""
+        {
+          "model_urls": {
+            "obj": {"url": "https://example.test/model.obj"},
+            "mtl": {"url": "https://example.test/material.mtl"}
+          },
+          "texture": {"url": "https://example.test/texture.png"}
+        }
+        """)!, jobId);
+        fixture.Ledger.Append(ReconstructionJobLedgerRecord.Complete(jobId, package.Id));
+
+        // Panel-side prediction (job_result → package summary).
+        var resultResponse = fixture.Handler.DispatchOffUi(
+            $"{{\"op\":\"job_result\",\"job_id\":\"{jobId}\"}}");
+        Assert.True(resultResponse.Success, JsonSerializer.Serialize(resultResponse.Data));
+        var resultData = Assert.IsType<Dictionary<string, object?>>(resultResponse.Data);
+        var summary = Assert.IsType<Dictionary<string, object?>>(resultData["package"]);
+        var predicted = Assert.IsType<string>(summary["resolved_import_role"]);
+        Assert.Equal("model_obj", predicted);
+
+        // Import-plan role for the SAME package, no assetRole override.
+        var prepareResponse = fixture.Handler.DispatchOffUi(
+            "{" +
+            "\"op\":\"prepare_import\"," +
+            $"\"package_id\":\"{package.Id}\"," +
+            "\"import_id\":\"cafe1234-cafe-cafe-cafe-cafecafecafe\"" +
+            "}");
+        Assert.True(prepareResponse.Success, JsonSerializer.Serialize(prepareResponse.Data));
+        var prepareData = Assert.IsType<Dictionary<string, object?>>(prepareResponse.Data);
+
+        // The promise: prediction == plan role.
+        Assert.Equal(predicted, prepareData["asset_role"]);
+    }
+
+    [Fact]
     public async Task ImportPackage_Async_RoutesToClient_AndReturnsData()
     {
         var fixture = CreateFixture();
