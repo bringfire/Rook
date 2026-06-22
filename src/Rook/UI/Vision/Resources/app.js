@@ -101,7 +101,6 @@ let galleryItems = [];                // cached list for modal lookup
 let mediaImportJobs = new Map();      // job_id -> latest media import job snapshot
 let mediaImportPollers = new Map();   // job_id -> timeout id
 let isStartingMediaImport = false;
-let reconstructionJobs = new Map();    // job_id -> latest reconstruction job snapshot
 let modalArtifact = null;             // currently-open gallery item
 let modalDisplayRole = null;          // blob role currently rendered in the modal image
 let modelCatalog = [];                 // [{ short_name, supported_resolutions, ... }]
@@ -1553,7 +1552,6 @@ async function openArtifactModal(id) {
     const canReconstruct = canReconstructArtifact(modalArtifact);
     el.modalReconstructBtn?.classList.toggle("hidden", !canReconstruct);
     if (el.modalReconstructBtn) el.modalReconstructBtn.disabled = false;
-    clearReconstructionStatus();
     el.modal.classList.remove("hidden");
 }
 
@@ -1568,7 +1566,6 @@ function closeModal() {
     }
     modalArtifact = null;
     modalDisplayRole = null;
-    clearReconstructionStatus();
 }
 
 async function approveCurrentArtifact(id) {
@@ -1601,74 +1598,6 @@ function canReconstructArtifact(artifact) {
             || artifact.kind === "captured_viewport")
         && Array.isArray(artifact.files)
         && artifact.files.some(f => f.role === "image");
-}
-
-async function reconstructCurrentArtifact() {
-    if (!modalArtifact || !canReconstructArtifact(modalArtifact)) return;
-    const artifactId = modalArtifact.artifact_id;
-    try {
-        if (el.modalReconstructBtn) el.modalReconstructBtn.disabled = true;
-        setReconstructionStatus("Submitting reconstruction...", "info");
-        const job = await reconstructionBridgeCall("submit_job", {
-            source_artifact_id: artifactId,
-            source_role: "image",
-            model_id: "fal-ai/hunyuan-3d/v3.1/rapid/image-to-3d",
-            preprocessing_chain: [],
-            options: { enable_pbr: true, enable_geometry: false },
-            estimate_requested: false,
-        });
-        if (!job || !job.job_id) {
-            throw new Error("Reconstruction submit did not return a job id.");
-        }
-        reconstructionJobs.set(job.job_id, job);
-        await pollReconstructionJob(job.job_id);
-    } catch (e) {
-        setReconstructionStatus(errorToText(e), "error");
-    } finally {
-        if (el.modalReconstructBtn) el.modalReconstructBtn.disabled = false;
-    }
-}
-
-async function pollReconstructionJob(jobId) {
-    if (!jobId) {
-        setReconstructionStatus("Reconstruction did not return a job id.", "error");
-        return;
-    }
-    for (let attempt = 0; attempt < 180; attempt++) {
-        const status = await reconstructionBridgeCall("job_status", { job_id: jobId });
-        const job = status.job || status;
-        if (job && job.job_id) reconstructionJobs.set(job.job_id, job);
-        setReconstructionStatus(`3D ${job.stage || job.state || "working"} · ${jobId}`, "info");
-        if (job.state === "complete") {
-            const result = await reconstructionBridgeCall("job_result", { job_id: jobId });
-            const packageId = result.result_artifact_id || result.package_id || "";
-            const label = packageId ? `Package ${packageId}` : "Reconstruction package ready.";
-            setReconstructionStatus(label, "success", result);
-            return;
-        }
-        if (["error", "cancelled", "interrupted"].includes(job.state)) {
-            setReconstructionStatus(`Reconstruction ${job.state}.`, "error");
-            return;
-        }
-        await delay(1500);
-    }
-    setReconstructionStatus("Reconstruction polling timed out.", "error");
-}
-
-function setReconstructionStatus(message, type, result) {
-    if (!el.modalReconstructionStatus) return;
-    const importHint = result && result.result_available
-        ? `<span class="reconstruction-import-hint">Import via /reconstruction/2d-to-3d/import</span>`
-        : "";
-    el.modalReconstructionStatus.className = `reconstruction-status ${type || ""}`;
-    el.modalReconstructionStatus.innerHTML = `${escapeHtml(message)} ${importHint}`;
-    el.modalReconstructionStatus.classList.remove("hidden");
-}
-
-function clearReconstructionStatus() {
-    if (!el.modalReconstructionStatus) return;
-    el.modalReconstructionStatus.textContent = "";
-    el.modalReconstructionStatus.className = "reconstruction-status hidden";
 }
 
 async function deleteCurrentArtifact(id) {
@@ -2159,7 +2088,6 @@ function init() {
     el.modalMeta = $("modal-meta");
     el.modalApproveBtn = $("modal-approve-btn");
     el.modalReconstructBtn = $("modal-reconstruct-btn");
-    el.modalReconstructionStatus = $("modal-reconstruction-status");
     el.modalRevealBtn = $("modal-reveal-btn");
     el.modalDeleteBtn = $("modal-delete-btn");
     // PR-V3: scope by the modal container — three modals now have a
@@ -2280,7 +2208,13 @@ function init() {
     el.modalApproveBtn.addEventListener("click", () => {
         if (modalArtifact) approveCurrentArtifact(modalArtifact.artifact_id);
     });
-    el.modalReconstructBtn?.addEventListener("click", () => reconstructCurrentArtifact());
+    el.modalReconstructBtn?.addEventListener("click", () => {
+        if (modalArtifact && canReconstructArtifact(modalArtifact)) {
+            const artifact = modalArtifact;
+            closeModal();
+            Reconstruct.presetSource(artifact);
+        }
+    });
     el.modalRevealBtn.addEventListener("click", revealCurrentArtifact);
     el.modalDeleteBtn.addEventListener("click", () => {
         if (modalArtifact) deleteCurrentArtifact(modalArtifact.artifact_id);
@@ -3456,8 +3390,19 @@ const Reconstruct = (() => {
         showStatus("Pick an image in the Gallery, then use “Send to 3D”.", "info");
     }
 
-    // presetSource is fully implemented in Task 7 (Send-to-3D shortcut).
-    function presetSource(_artifact) { /* Task 7 */ }
+    // Source handoff from the Gallery "Send to 3D" shortcut: preselect the
+    // chosen image artifact and navigate to this view. Single source path.
+    function presetSource(artifact) {
+        if (!artifact) return;
+        source = {
+            artifact_id: artifact.artifact_id,
+            role: "image",
+            previewSrc: `/blob/${artifact.artifact_id}/image`,
+            label: (artifact.metadata && artifact.metadata.prompt) || artifact.kind || artifact.artifact_id,
+        };
+        switchView("reconstruct");
+        renderSource();
+    }
 
     return { cacheEls, wireEvents, onEnter, presetSource };
 })();
