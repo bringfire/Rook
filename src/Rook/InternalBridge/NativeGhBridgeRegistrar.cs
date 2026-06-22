@@ -1840,6 +1840,7 @@ namespace Rook.InternalBridge
                 case ReconstructionOpHandler.OpSubmit:
                 case ReconstructionOpHandler.OpStatus:
                 case ReconstructionOpHandler.OpCancel:
+                case ReconstructionOpHandler.OpImportPackage:
                     return ExecuteAsyncApiResponseCallback(
                         responseJsonUtf8,
                         responseJsonCapacity,

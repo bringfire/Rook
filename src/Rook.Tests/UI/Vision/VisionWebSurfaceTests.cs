@@ -1574,10 +1574,12 @@ namespace Rook.Tests.UI.Vision
             => Path.GetFullPath(Path.Combine(System.AppContext.BaseDirectory, "..", "..", "..", "..", ".."));
 
         [Fact]
-        public void ReconstructionAsyncOps_AreExactlySubmitStatusCancel()
+        public void ReconstructionAsyncOps_AreExactly_Submit_Status_Cancel_Import()
         {
+            // import_package loops back to the native importer; it MUST be async/off-UI
+            // (the deadlock invariant) on this surface.
             Assert.Equal(
-                new[] { "cancel_job", "job_status", "submit_job" },
+                new[] { "cancel_job", "import_package", "job_status", "submit_job" },
                 VisionWebSurface.ReconstructionAsyncOps.OrderBy(o => o, StringComparer.Ordinal).ToArray());
         }
 

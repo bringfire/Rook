@@ -259,7 +259,7 @@ namespace Rook
             // non-terminal ledger records become Interrupted (provider ids preserved; no auto-resume).
             manager.ReconcileInterruptedJobs();
 
-            return new ReconstructionOpHandler(catalog, manager, SharedArtifactStore);
+            return new ReconstructionOpHandler(catalog, manager, SharedArtifactStore, new NativeReconstructionImportClient());
         }
 
         private static ReconstructionModelCatalog LoadReconstructionCatalog()

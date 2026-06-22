@@ -632,6 +632,35 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
         return result.Package!;
     }
 
+    [Fact]
+    public async Task ImportPackage_Async_RoutesToClient_AndReturnsData()
+    {
+        var fixture = CreateFixture();
+        var pkg = Guid.NewGuid();
+        var body = $"{{\"op\":\"import_package\",\"package_id\":\"{pkg:D}\"}}";
+
+        var resp = await fixture.Handler.DispatchAsync(body);
+
+        Assert.True(resp.Success);
+        Assert.Equal(pkg, fixture.ImportClient.LastPackageId);
+    }
+
+    [Fact]
+    public void ImportPackage_OffUi_IsRejected_WithoutInvokingClient()
+    {
+        var fixture = CreateFixture();
+        var body = $"{{\"op\":\"import_package\",\"package_id\":\"{Guid.NewGuid():D}\"}}";
+
+        var resp = fixture.Handler.DispatchOffUi(body);
+
+        Assert.False(resp.Success);
+        Assert.Equal(400, resp.HttpStatus);
+        // Structured invalid-op failure (must route through async dispatcher) — NOT an accidental client run.
+        var data = Assert.IsType<Dictionary<string, object?>>(resp.Data);
+        Assert.Equal("invalid_request", data["code"]);
+        Assert.Null(fixture.ImportClient.LastPackageId);   // client must NOT be invoked off-UI
+    }
+
     private Fixture CreateFixture()
     {
         var root = NewTempRoot();
@@ -650,13 +679,15 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
             materializer,
             publisher);
         _managers.Add(manager);
+        var importClient = new FakeImportClient();
         return new Fixture(
             store,
             ledger,
             provider,
             downloader,
             materializer,
-            new ReconstructionOpHandler(catalog, manager, store));
+            new ReconstructionOpHandler(catalog, manager, store, importClient),
+            importClient);
     }
 
     private string NewTempRoot()
@@ -672,7 +703,24 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
         FakeReconstructionProvider Provider,
         FakeDownloader Downloader,
         ReconstructionPackageMaterializer Materializer,
-        ReconstructionOpHandler Handler);
+        ReconstructionOpHandler Handler,
+        FakeImportClient ImportClient);
+
+    private sealed class FakeImportClient : IReconstructionImportClient
+    {
+        public Guid? LastPackageId;
+        public NativeImportOutcome Outcome = NativeImportOutcome.Ok(new JsonObject
+        {
+            ["asset_role"] = "model_obj",
+            ["imported_ids"] = new JsonArray { "id-1" },
+        });
+
+        public Task<NativeImportOutcome> ImportAsync(Guid packageId, CancellationToken ct)
+        {
+            LastPackageId = packageId;
+            return Task.FromResult(Outcome);
+        }
+    }
 
     private sealed class FakeReconstructionProvider : IReconstructionProvider
     {
