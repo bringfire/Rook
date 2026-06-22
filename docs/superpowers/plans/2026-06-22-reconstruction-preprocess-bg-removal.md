@@ -258,7 +258,9 @@ Green; commit: `feat(reconstruction): manager-owned result_kind/asset_roles; han
 
 ### Task 4: Capability descriptors (`input` mode/slots + `prompt`) + `models` 3D-filter
 
-(The load-bearing `source_field` + minimal `Input` record + `birefnet/v2` already landed in Task 2. This task adds the remaining **descriptive** metadata the future multi-view/prompt UI will read, and isolates the reconstruct picker.)
+(The load-bearing `source_field` + minimal `Input` record + `birefnet/v2` already landed in Task 2. This task adds the remaining **descriptive** metadata the future multi-view/prompt UI will read, isolates the reconstruct picker, and **fixes the BiRefNet output-role metadata** to match the shipped contract.)
+
+**Carry-forward fix (BiRefNet output roles).** The BiRefNet catalog entry still advertises `output_roles: ["preprocessed_image", "mask"]`, conflating the artifact *kind* (`preprocessed_image`) with the file *roles* (now `image`/`mask` per the Task 2 patch). Align the entry to the shipped contract: `output_roles: ["image", "mask"]`, `preferred_asset_role: "image"`, `fallback_order: ["image"]`. Pin it with a catalog test asserting those exact values for `fal-ai/birefnet/v2`.
 
 **Files:**
 - Modify: `src/Rook/Services/Reconstruction/Fal/fal-model-catalog.json` (`input.mode` + `prompt` blocks)
