@@ -22,6 +22,19 @@ from rook.agent.plan_graph_live import (
     _check_admissibility,
 )
 
+import rook.agent.plan_graph_live as _live_mod
+from rook.learning import plan_graph as _pg_mod
+
+_ADAPTER_PATH = Path(_live_mod.__file__)
+_LEARNING_DIR = Path(_pg_mod.__file__).parent
+
+_ALLOWED_ROOK_IMPORTS = {
+    "rook.learning.plan_graph",
+    "rook.learning.plan_graph_projection",
+    "rook.learning.plan_graph_runner",
+}
+_FORBIDDEN_SUBSTRINGS = ("tool_dispatcher", "rook.server", "chat", "ChatRunner")
+
 
 COMPONENT_GUID = "fbfd3ba5-5951-4064-8478-ee1d173150a9"
 _ABSENT = object()
@@ -334,3 +347,63 @@ def test_admissibility_precedes_resolution():
 
     assert result.reason == "node_not_runnable"   # admissibility wins
     assert spy.calls == []
+
+
+# ===== Task 4 tests: bidirectional import-boundary guard =====
+
+
+def test_adapter_imports_only_public_pure_symbols():
+    tree = ast.parse(_ADAPTER_PATH.read_text(encoding="utf-8"))
+    imported_modules: list[str] = []
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            imported_modules.append(module)
+            for alias in node.names:
+                assert alias.name != "*", "no star imports in the live adapter"
+                assert not alias.name.startswith("_producer"), (
+                    f"adapter must not import private runner helper {alias.name!r}"
+                )
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                imported_modules.append(alias.name)
+        # Catch private-helper access via attribute or bare name, e.g.
+        # `runner._producer_runnable_check(...)` or a re-bound `_producer_*`,
+        # which a from-import scan alone would miss.
+        elif isinstance(node, ast.Attribute):
+            assert not node.attr.startswith("_producer"), (
+                f"adapter must not reach a private runner helper: .{node.attr}"
+            )
+        elif isinstance(node, ast.Name):
+            assert not node.id.startswith("_producer"), (
+                f"adapter must not reference a private runner helper: {node.id}"
+            )
+
+    joined = " ".join(imported_modules)
+    for forbidden in _FORBIDDEN_SUBSTRINGS:
+        assert forbidden not in joined, f"adapter must not import {forbidden!r}"
+
+    for module in imported_modules:
+        if module.startswith("rook."):
+            assert module in _ALLOWED_ROOK_IMPORTS, (
+                f"unexpected rook import in live adapter: {module!r}"
+            )
+
+
+def test_pure_modules_do_not_import_live_adapter():
+    pure_files = sorted(_LEARNING_DIR.glob("plan_graph*.py"))
+    assert pure_files, "expected to find learning/plan_graph*.py modules"
+
+    for pyfile in pure_files:
+        tree = ast.parse(pyfile.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                assert "plan_graph_live" not in (node.module or ""), (
+                    f"{pyfile.name} must not import the live adapter"
+                )
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    assert "plan_graph_live" not in alias.name, (
+                        f"{pyfile.name} must not import the live adapter"
+                    )
