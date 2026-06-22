@@ -39,7 +39,12 @@ public sealed record ReconstructionJobResultEnvelope(
     Guid? ResultArtifactId,
     bool ResultAvailable,
     IReadOnlyList<ReconstructionWarning> Warnings,
-    ReconstructionFailure? Failure);
+    ReconstructionFailure? Failure,
+    // Typed result discriminator owned by the manager (derived from the job's persisted task), so the
+    // handler is a pure serializer and never re-infers the kind from the artifact/catalog. For a
+    // non-3D result, AssetRoles carries the derived artifact's file roles (e.g. image, mask).
+    string ResultKind = "",
+    IReadOnlyList<string>? AssetRoles = null);
 
 public sealed class ReconstructionJobManager : IDisposable
 {
@@ -432,6 +437,7 @@ public sealed class ReconstructionJobManager : IDisposable
 
         var warnings = new List<ReconstructionWarning>();
         var available = ResultAvailable(job);
+        var assetRoles = Array.Empty<string>();
         if (job.ResultArtifactId.HasValue && !available)
         {
             warnings.Add(new ReconstructionWarning(
@@ -444,13 +450,17 @@ public sealed class ReconstructionJobManager : IDisposable
         }
         else if (available)
         {
-            var roles = _store.Get(job.ResultArtifactId!.Value)!.Files
+            assetRoles = _store.Get(job.ResultArtifactId!.Value)!.Files
                 .Select(f => f.Role)
                 .ToArray();
-            warnings.AddRange(BuildTextureWarnings(
-                job.TextureExpected,
-                _catalog.Find(job.ModelId),
-                roles));
+            // Texture-degradation warnings are a 3D-package concern; skip them for non-3D results.
+            if (string.Equals(job.Task, "remove_background", StringComparison.Ordinal) == false)
+            {
+                warnings.AddRange(BuildTextureWarnings(
+                    job.TextureExpected,
+                    _catalog.Find(job.ModelId),
+                    assetRoles));
+            }
         }
 
         return new ReconstructionJobResultEnvelope(
@@ -459,8 +469,17 @@ public sealed class ReconstructionJobManager : IDisposable
             job.ResultArtifactId,
             available,
             warnings,
-            null);
+            null,
+            ResultKindForTask(job.Task),
+            assetRoles);
     }
+
+    // The manager owns the result-kind discriminator: it maps the job's persisted task to the typed
+    // result kind (which equals the produced artifact's kind). The handler serializes this verbatim.
+    private static string ResultKindForTask(string task)
+        => string.Equals(task, "remove_background", StringComparison.Ordinal)
+            ? ReconstructionArtifactKinds.PreprocessedImage
+            : ReconstructionArtifactKinds.Package;
 
     public async Task PollActiveJobAsync(Guid jobId, CancellationToken ct)
     {

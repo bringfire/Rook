@@ -277,16 +277,29 @@ namespace Rook.Handlers
             if (!result.Success)
                 return Fail(result.Failure!, StatusFor(result.Failure!));
 
-            return Ok(new Dictionary<string, object?>
+            // Pure serializer over the manager-owned result kind — never re-infer from artifacts.
+            var data = new Dictionary<string, object?>
             {
                 ["job_id"] = result.JobId.ToString("D"),
                 ["result_artifact_id"] = result.ResultArtifactId?.ToString("D"),
                 ["result_available"] = result.ResultAvailable,
-                ["package"] = result.ResultArtifactId.HasValue && result.ResultAvailable
-                    ? PackageSummary(result.ResultArtifactId.Value)
-                    : null,
+                ["result_kind"] = result.ResultKind,
                 ["warnings"] = result.Warnings.Select(WarningToObj).ToArray(),
-            });
+            };
+            if (string.Equals(result.ResultKind, ReconstructionArtifactKinds.PreprocessedImage, StringComparison.Ordinal))
+            {
+                // Non-3D result: image-role metadata, never a 3D package summary.
+                data["asset_roles"] = (result.AssetRoles ?? Array.Empty<string>()).ToArray();
+                data["package"] = null;
+            }
+            else
+            {
+                // 3D package: PackageSummary is built ONLY here (the envelope says it's a package).
+                data["package"] = result.ResultArtifactId.HasValue && result.ResultAvailable
+                    ? PackageSummary(result.ResultArtifactId.Value)
+                    : null;
+            }
+            return Ok(data);
         }
 
         private ApiResponse PrepareImport(Dictionary<string, JsonElement> args)

@@ -491,11 +491,41 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
         Assert.True(response.Success, JsonSerializer.Serialize(response.Data));
         var data = Assert.IsType<Dictionary<string, object?>>(response.Data);
         Assert.True(Assert.IsType<bool>(data["result_available"]));
+        Assert.Equal("reconstruction_package", data["result_kind"]);   // 3D job: typed kind present, package unchanged
         var summary = Assert.IsType<Dictionary<string, object?>>(data["package"]);
         Assert.Equal(package.Id.ToString("D"), summary["artifact_id"]);
         Assert.Contains("model_glb", Assert.IsAssignableFrom<object[]>(summary["asset_roles"]));
         Assert.Equal("model_glb", summary["preferred_asset_role"]);
         Assert.Equal("model_glb", summary["resolved_import_role"]);
+    }
+
+    [Fact]
+    public void Result_RemoveBackgroundJob_ResultKindPreprocessedImage_PackageNull()
+    {
+        // bg-removal result must NOT masquerade as a 3D package: result_kind=preprocessed_image,
+        // image-role metadata present, package null.
+        var fixture = CreateFixture();
+        var preprocessed = fixture.Store.Create(
+            ReconstructionArtifactKinds.PreprocessedImage,
+            new[]
+            {
+                new BlobInput("image", new byte[] { 1, 2, 3 }, "png"),
+                new BlobInput("mask", new byte[] { 4, 5, 6 }, "png"),
+            });
+        var jobId = Guid.NewGuid();
+        fixture.Ledger.Append(
+            ReconstructionJobLedgerRecord.Complete(jobId, preprocessed.Id, "remove_background"));
+
+        var response = fixture.Handler.DispatchOffUi(
+            $"{{\"op\":\"job_result\",\"job_id\":\"{jobId}\"}}");
+
+        Assert.True(response.Success, JsonSerializer.Serialize(response.Data));
+        var data = Assert.IsType<Dictionary<string, object?>>(response.Data);
+        Assert.Equal("preprocessed_image", data["result_kind"]);
+        Assert.Null(data["package"]);
+        var roles = Assert.IsAssignableFrom<object[]>(data["asset_roles"]);
+        Assert.Contains("image", roles);
+        Assert.Contains("mask", roles);
     }
 
     [Fact]
