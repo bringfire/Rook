@@ -27,7 +27,7 @@ explanatory error -- never an exception. An invalid ROLE, however, raises
 import copy
 from typing import Literal
 
-from rook.learning.plan_graph import NodeEvidence, NodeOutcome
+from rook.learning.plan_graph import NodeEvidence, NodeOutcome, PlanGraphNode
 from rook.learning.plan_graph_outcomes import ARTIFACT_STATUS_TO_OUTCOME
 
 
@@ -41,6 +41,19 @@ _ROLE_PREFIX = {
     "artifact_verifier": "verifier",
 }
 _MUTATION_DONE = frozenset(("created", "written", "updated"))
+
+OUTCOME_PROJECTION_ROLE_KEY = "outcome_projection_role"
+
+
+def projection_role_for_node(node: PlanGraphNode) -> OutcomeProjectionRole | None:
+    """Return the node's declared projection role if present AND valid, else None.
+
+    Reads ``node.metadata[OUTCOME_PROJECTION_ROLE_KEY]`` and validates it against
+    the LM3F role set. Never raises -- node metadata is graph data, not API misuse
+    (the raise stays in ``project_receipt_outcome`` for direct misuse).
+    """
+    value = node.metadata.get(OUTCOME_PROJECTION_ROLE_KEY)
+    return value if value in _VALID_ROLES else None
 
 
 def _component_guid(receipt: dict, repair_anchor: dict | None) -> str | None:

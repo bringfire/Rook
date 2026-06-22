@@ -245,3 +245,41 @@ def test_projection_loads_no_live_deps():
     )
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
+
+
+# --- Role accessor (LM3G: projection_role_for_node) -------------------------
+
+from rook.learning.plan_graph import PlanGraphNode
+from rook.learning.plan_graph_projection import (
+    OUTCOME_PROJECTION_ROLE_KEY,
+    projection_role_for_node,
+)
+
+
+_ABSENT = object()
+
+
+def _node_with_role(role_value):
+    metadata = {} if role_value is _ABSENT else {OUTCOME_PROJECTION_ROLE_KEY: role_value}
+    return PlanGraphNode(id="n", intent="x", metadata=metadata)
+
+
+def test_role_helper_absent_returns_none():
+    assert projection_role_for_node(PlanGraphNode(id="n", intent="x")) is None
+
+
+@pytest.mark.parametrize("role", ["direct_task", "artifact_producer", "artifact_verifier"])
+def test_role_helper_valid_returns_role(role):
+    assert projection_role_for_node(_node_with_role(role)) == role
+
+
+def test_role_helper_invalid_returns_none():
+    assert projection_role_for_node(_node_with_role("banana")) is None
+
+
+def test_role_helper_non_string_value_returns_none_no_raise():
+    assert projection_role_for_node(_node_with_role(123)) is None
+
+
+def test_role_key_constant_value():
+    assert OUTCOME_PROJECTION_ROLE_KEY == "outcome_projection_role"
