@@ -12716,6 +12716,46 @@ Returns the full profile JSON including features, surfaces, and elements.""",
             },
         ),
         Tool(
+            name="rhino_2d_to_3d_assemble_view_set",
+            description=(
+                "Assemble a reconstruction_view_set artifact from existing image "
+                "artifacts (captured viewports, imported/generated images, or "
+                "background-removed images). Synchronous artifact transform: no "
+                "provider job, no polling. Copies each view into a view_<slot> file "
+                "role, links parent_ids to the sources (never modified), and records "
+                "slots_expected/slots_present/complete. Slots: front, left, right, "
+                "back, top, three_quarter."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "views": {
+                        "type": "array",
+                        "description": "Slot bindings. Each: {slot, artifact_id, role?, provenance?}.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "slot": {"type": "string", "description": "One of front,left,right,back,top,three_quarter."},
+                                "artifact_id": {"type": "string", "description": "Source image artifact id."},
+                                "role": {"type": "string", "description": "Source file role (default image)."},
+                                "provenance": {"type": "object", "description": "Optional free-form provenance object stored verbatim."},
+                            },
+                            "required": ["slot", "artifact_id"],
+                        },
+                    },
+                    "slots_expected": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional expected slots for completeness. Omitted defaults to front,left,right,back. Must not be empty.",
+                    },
+                    "method": {"type": "string", "description": "Optional assembly method label (default manual_assembly)."},
+                    "note": {"type": "string", "description": "Optional free-form note."},
+                    "port": {"type": "integer", "description": "Specific Rhino port to target."},
+                },
+                "required": ["views"],
+            },
+        ),
+        Tool(
             name="rhino_2d_to_3d_jobs",
             description="List durable Rook Reconstruction 2D-to-3D jobs. Default limit is managed server-defined.",
             inputSchema={
@@ -20218,6 +20258,11 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
         case "rhino_2d_to_3d_remove_background":
             result = await call_rhino(
                 "/reconstruction/2d-to-3d/background-removals", "POST", arguments, port=port
+            )
+
+        case "rhino_2d_to_3d_assemble_view_set":
+            result = await call_rhino(
+                "/reconstruction/2d-to-3d/view-sets", "POST", arguments, port=port
             )
 
         case "rhino_2d_to_3d_jobs":

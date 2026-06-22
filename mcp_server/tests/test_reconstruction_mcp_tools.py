@@ -16,6 +16,7 @@ RECONSTRUCTION_TOOL_NAMES = [
     "rhino_2d_to_3d_models",
     "rhino_2d_to_3d_submit",
     "rhino_2d_to_3d_remove_background",
+    "rhino_2d_to_3d_assemble_view_set",
     "rhino_2d_to_3d_jobs",
     "rhino_2d_to_3d_status",
     "rhino_2d_to_3d_cancel",
@@ -246,3 +247,31 @@ def test_reconstruction_tool_groups():
     assert "reconstruction_readonly" in tool_groups.READONLY_ALLOWED_GROUPS
     assert "reconstruction" not in tool_groups.MCP_ONLY_GROUPS
     assert "reconstruction_readonly" not in tool_groups.MCP_ONLY_GROUPS
+
+
+@pytest.mark.asyncio
+async def test_reconstruction_assemble_view_set_registered_and_requires_views():
+    by_name = {t.name: t for t in await server.list_tools()}
+    assert "rhino_2d_to_3d_assemble_view_set" in by_name
+    tool = by_name["rhino_2d_to_3d_assemble_view_set"]
+    assert "views" in tool.inputSchema["required"]
+
+
+@pytest.mark.asyncio
+async def test_reconstruction_assemble_view_set_dispatches_owned_route():
+    args_in = {"views": [{"slot": "front", "artifact_id": "x"}]}
+    with patch.object(server, "call_rhino", new_callable=AsyncMock) as mock:
+        mock.return_value = {"success": True, "data": {"view_set_artifact_id": None, "views": []}}
+        await server.call_tool("rhino_2d_to_3d_assemble_view_set", args_in)
+    args, _ = mock.call_args
+    assert args == ("/reconstruction/2d-to-3d/view-sets", "POST", args_in)
+
+
+def test_reconstruction_assemble_view_set_bridge_route():
+    assert tool_dispatcher.BRIDGE_ROUTES["rhino_2d_to_3d_assemble_view_set"] == (
+        "/reconstruction/2d-to-3d/view-sets", "POST")
+
+
+def test_reconstruction_assemble_view_set_is_mutating_group_only():
+    assert "rhino_2d_to_3d_assemble_view_set" in tool_groups.TOOL_GROUPS["reconstruction"]
+    assert "rhino_2d_to_3d_assemble_view_set" not in tool_groups.TOOL_GROUPS["reconstruction_readonly"]

@@ -27,23 +27,27 @@ namespace Rook.Handlers
         public const string OpCleanupPreparedImport = "cleanup_prepared_import";
         public const string OpImportPackage = "import_package";
         public const string OpRemoveBackground = "remove_background";
+        public const string OpAssembleViewSet = "assemble_view_set";
 
         public const int DefaultListJobsLimit = 50;
 
         private readonly ReconstructionModelCatalog _catalog;
         private readonly ReconstructionJobManager _manager;
         private readonly ArtifactStore _store;
+        private readonly IReconstructionViewSetAssembler _viewSetAssembler;
         private readonly IReconstructionImportClient? _importClient;
 
         public ReconstructionOpHandler(
             ReconstructionModelCatalog catalog,
             ReconstructionJobManager manager,
             ArtifactStore store,
+            IReconstructionViewSetAssembler viewSetAssembler,
             IReconstructionImportClient? importClient = null)
         {
             _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
             _manager = manager ?? throw new ArgumentNullException(nameof(manager));
             _store = store ?? throw new ArgumentNullException(nameof(store));
+            _viewSetAssembler = viewSetAssembler ?? throw new ArgumentNullException(nameof(viewSetAssembler));
             _importClient = importClient;
         }
 
@@ -117,6 +121,7 @@ namespace Rook.Handlers
                     OpPrepareImport => PrepareImport(args),
                     OpRecordImport => RecordImport(args),
                     OpCleanupPreparedImport => CleanupPreparedImport(args),
+                    OpAssembleViewSet => AssembleViewSet(args, body),
                     OpSubmit or OpStatus or OpCancel or OpImportPackage or OpRemoveBackground => Fail(
                         Failure("invalid_request", $"op '{op}' must be routed through the async dispatcher, not the off-UI dispatcher.", "op"),
                         400),
@@ -512,6 +517,15 @@ namespace Rook.Handlers
                 ["bundle_path"] = expectedBundleDir,
                 ["removed"] = true,
             });
+        }
+
+        private ApiResponse AssembleViewSet(Dictionary<string, JsonElement> args, string? body)
+        {
+            // Task 1: prove the seam. Real parse + full envelope land in Tasks 2/3.
+            var outcome = _viewSetAssembler.Assemble(ReconstructionViewSetRequest.Empty);
+            return outcome.Success
+                ? Ok(new Dictionary<string, object?> { ["view_set_artifact_id"] = outcome.Artifact?.Id.ToString("D"), ["views"] = outcome.Views })
+                : Fail(outcome.Failure!, StatusFor(outcome.Failure!));
         }
 
         private JsonObject? ReadImportManifest(

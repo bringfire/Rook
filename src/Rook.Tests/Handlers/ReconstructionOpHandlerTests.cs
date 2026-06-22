@@ -868,6 +868,57 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
         Assert.True(hunyuan.ContainsKey("prompt"));
     }
 
+    [Fact]
+    public void DispatchOffUi_AssembleViewSet_ReachesAssembler()
+    {
+        var spy = new RecordingViewSetAssembler();
+        var handler = BuildHandler(assembler: spy);
+        var body = """{"op":"assemble_view_set","views":[{"slot":"front","artifact_id":"00000000-0000-0000-0000-000000000001"}]}""";
+
+        var resp = handler.DispatchOffUi(body);
+
+        Assert.True(spy.Called);
+        Assert.Equal(200, resp.HttpStatus);   // spy returns success
+    }
+
+    [Fact]
+    public async Task DispatchAsync_AssembleViewSet_IsRejectedAsUnknown_NotAsync()
+    {
+        var spy = new RecordingViewSetAssembler();
+        var handler = BuildHandler(assembler: spy);
+        var body = """{"op":"assemble_view_set","views":[]}""";
+
+        var resp = await handler.DispatchAsync(body);
+
+        // assemble_view_set is off-UI only; it must NOT be handled by the async dispatcher.
+        Assert.False(spy.Called);
+        Assert.Equal(400, resp.HttpStatus);
+    }
+
+    private ReconstructionOpHandler BuildHandler(IReconstructionViewSetAssembler? assembler = null)
+    {
+        var root = NewTempRoot();
+        var store = new ArtifactStore(Path.Combine(root, "artifacts"));
+        var ledger = new JsonlReconstructionJobLedger(Path.Combine(root, "ledger.jsonl"));
+        var catalog = ReconstructionModelCatalog.FromJson(CatalogJson);
+        var provider = new FakeReconstructionProvider();
+        var downloader = new FakeDownloader();
+        var publisher = new FakeSourceImagePublisher();
+        var materializer = new ReconstructionPackageMaterializer(store, downloader);
+        var preprocessMaterializer = new ReconstructionPreprocessMaterializer(store, downloader);
+        var manager = new ReconstructionJobManager(
+            store,
+            catalog,
+            ledger,
+            provider,
+            materializer,
+            preprocessMaterializer,
+            publisher);
+        _managers.Add(manager);
+        assembler ??= new DefaultReconstructionViewSetAssembler();
+        return new ReconstructionOpHandler(catalog, manager, store, assembler);
+    }
+
     private Fixture CreateFixture()
     {
         var root = NewTempRoot();
@@ -895,7 +946,7 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
             provider,
             downloader,
             materializer,
-            new ReconstructionOpHandler(catalog, manager, store, importClient),
+            new ReconstructionOpHandler(catalog, manager, store, new DefaultReconstructionViewSetAssembler(), importClient),
             importClient);
     }
 
@@ -997,6 +1048,21 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
             string fileName,
             CancellationToken ct)
             => Task.FromResult(new Uri("https://rook.local/source.png"));
+    }
+
+    internal sealed class RecordingViewSetAssembler : IReconstructionViewSetAssembler
+    {
+        public bool Called { get; private set; }
+        public ReconstructionViewSetOutcome Assemble(ReconstructionViewSetRequest request)
+        {
+            Called = true;
+            return new ReconstructionViewSetOutcome(
+                true, null,
+                new[] { "front", "left", "right", "back" },
+                new[] { "front" }, false,
+                System.Array.Empty<System.Collections.Generic.IReadOnlyDictionary<string, object?>>(),
+                null);
+        }
     }
 
     private const string CatalogJson = """

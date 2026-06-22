@@ -278,6 +278,45 @@ public sealed class NativeReconstructionDispatchSourceTests
         Assert.Contains("/reconstruction/2d-to-3d/background-removals", server);
     }
 
+    [Fact]
+    public void NativeRoute_ViewSets_DispatchesAssembleViewSet()
+    {
+        var cpp = File.ReadAllText(Path.Combine(
+            RepoRoot, "src", "RookNative", "Handlers", "GrasshopperProxyHandler.cpp"));
+        Assert.Contains("DispatchReconstructionOp(req, res, \"assemble_view_set\")", cpp);
+
+        var server = File.ReadAllText(Path.Combine(RepoRoot, "src", "RookNative", "RookServer.cpp"));
+        Assert.Contains("/reconstruction/2d-to-3d/view-sets", server);
+    }
+
+    [Fact]
+    public void NativeBridge_RoutesAssembleViewSetThroughOffUiDispatch_NotAsync()
+    {
+        // Verify that OpAssembleViewSet sits in the off-UI case group (grouped with
+        // OpModels/OpListJobs/OpResult, before ExecuteOffUiApiResponseCallback) and is
+        // absent from the async case group (before ExecuteAsyncApiResponseCallback).
+        var managed = File.ReadAllText(Path.Combine(
+            RepoRoot, "src", "Rook", "InternalBridge", "NativeGhBridgeRegistrar.cs"));
+        var fn = ExtractFunction(managed, "int HandleReconstructionDispatch(");
+
+        // The async boundary: async case labels sit before this call.
+        var asyncCallIdx = fn.IndexOf("ExecuteAsyncApiResponseCallback", System.StringComparison.Ordinal);
+        Assert.True(asyncCallIdx >= 0, "Async callback not found in HandleReconstructionDispatch.");
+
+        // The off-UI boundary: off-UI case labels sit before this call.
+        var offUiCallIdx = fn.IndexOf("ExecuteOffUiApiResponseCallback", System.StringComparison.Ordinal);
+        Assert.True(offUiCallIdx >= 0, "Off-UI callback boundary not found.");
+
+        // Async arm = text between start and the async callback (inclusive of case labels before it).
+        var asyncArm = fn.Substring(0, asyncCallIdx);
+        // Off-UI arm = text between async call and off-UI callback (the off-UI case labels live here).
+        var offUiArm = fn.Substring(asyncCallIdx, offUiCallIdx - asyncCallIdx);
+
+        // Off-UI only: must NOT appear in the async case labels, MUST appear in the off-UI case labels.
+        Assert.DoesNotContain("OpAssembleViewSet", asyncArm);
+        Assert.Contains("OpAssembleViewSet", offUiArm);
+    }
+
     private static string ExtractFunction(string source, string signature)
     {
         var start = source.IndexOf(signature, System.StringComparison.Ordinal);
