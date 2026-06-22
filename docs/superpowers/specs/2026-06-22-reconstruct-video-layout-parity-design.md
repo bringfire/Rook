@@ -62,7 +62,7 @@ The view-header (`Reconstruct` title/subtitle) is unchanged. The form controls a
 The dark-panel failure mode is an init-time JS exception from a cached `$("id")` whose element is missing. To minimize that surface:
 
 - **Reuse** all existing cached IDs: `reconstruct-source-thumb`, `reconstruct-source-label`, `reconstruct-choose-source`, `reconstruct-model-select`, `reconstruct-mode-textured`, `reconstruct-mode-geometry`, `reconstruct-submit-btn`, `reconstruct-status-message`, `reconstruct-result-panel`, `reconstruct-result-thumb`, `reconstruct-result-meta`, `reconstruct-result-warnings`, `reconstruct-import-btn`, `reconstruct-import-status`, `reconstruct-jobs-list`, `reconstruct-refresh-jobs`.
-- **New cached IDs: exactly two** — `reconstruct-queue-filters` (chip group) and `reconstruct-queue-filter-summary`.
+- **New cached IDs: three.** The two queue IDs `reconstruct-queue-filters` (chip group) and `reconstruct-queue-filter-summary`, plus `reconstruct-model-hint` added by the approved form-polish follow-up (default-selected model + Video-style dropdown hint). The queue work itself adds only the two queue IDs; the model-hint is a separate, deliberate form-parity addition.
 - Everything else uses **event delegation + data-attributes + scoped `querySelector`**:
   - Filter chips: `button.reconstruct-queue-filter[data-queue-filter="active|complete|failed|all"]`; one delegated click listener on `#reconstruct-queue-filters`.
   - Counts: `.reconstruct-queue-filter-count` spans, updated by scoped `querySelector` within each chip.

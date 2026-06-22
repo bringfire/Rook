@@ -17,7 +17,7 @@
 - Queue-row model label derives from **`j.model_id`** (no `model` field exists).
 - Poll: `cancelled` → `showReconstructStatus("Reconstruction cancelled.", "info")` (neutral); `{error, interrupted}` → error copy.
 - Filter state persists across refresh/poll; **submit switches filter to Active**; view-enter defaults to Active.
-- Exactly **2 new cached IDs**: `reconstruct-queue-filters`, `reconstruct-queue-filter-summary`. Everything else via data-attributes + event delegation + scoped `querySelector`.
+- **3 new cached IDs**: `reconstruct-queue-filters`, `reconstruct-queue-filter-summary` (queue work), plus `reconstruct-model-hint` from the approved form-polish follow-up (default model + Video-style dropdown hint). Everything else via data-attributes + event delegation + scoped `querySelector`. (The queue tasks below add only the two queue IDs; the model-hint lands in the form-polish step.)
 - **No** prompt scaffold, provider/text-to-3D/multi-view wiring, backend/native/host-lifecycle changes, second importer, or WebView HTTP.
 - **Panel-dark gate is mandatory and BLOCKING after every JS checkpoint.** A failed gate stops the task.
 - **Gate shell:** gate commands below are written in **PowerShell** (the repo's primary shell). `node --check` is shell-agnostic. (Git Bash equivalents are fine too, but avoid Bash-only `comm <(...)` process substitution in PowerShell.)
