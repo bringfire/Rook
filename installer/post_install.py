@@ -399,6 +399,29 @@ def _install_from_wheelhouse_once(
     return venv_python, None
 
 
+def _venv_python_is_usable(venv_python: Path) -> bool:
+    """Minimal liveness probe for degraded reuse (#300).
+
+    An existing venv interpreter is only reusable if it actually runs. This
+    guards against reusing a corrupt/half-deleted venv, which would otherwise
+    let post_install continue and fail later with a confusing error.
+    """
+    if not venv_python.exists():
+        return False
+    try:
+        result = _run_install_command(
+            [str(venv_python), "-c", "import sys; sys.exit(0)"],
+            env=python_runtime_install.build_sanitized_python_env(
+                require_virtualenv=False
+            ),
+            timeout=60,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        _INSTALL_LOGGER.warning("venv liveness probe could not run %s: %r", venv_python, exc)
+        return False
+    return result.returncode == 0
+
+
 def _install_from_wheelhouse(
     label: str,
     layout: python_runtime_install.RuntimeLayout,
@@ -407,6 +430,28 @@ def _install_from_wheelhouse(
     runtime_name: str,
 ) -> Path | None:
     if not _ensure_private_runtime_inputs(layout, lock):
+        existing_python = get_venv_python(venv_dir)
+        if _venv_python_is_usable(existing_python):
+            _INSTALL_LOGGER.warning(
+                "%s: DEGRADED local-deploy reuse -- bundled private runtime/"
+                "wheelhouse inputs are missing; reusing the existing venv at %s "
+                "WITHOUT rebuild or wheelhouse install. This is NOT a clean "
+                "install. The downstream source mirror and runtime verification "
+                "(Test-EffectiveRuntime) must still prove the deployed "
+                "site-packages imports the current rook.server. See #300.",
+                label,
+                existing_python,
+            )
+            print(
+                f"{label}: DEGRADED reuse of existing venv at {existing_python} "
+                f"(bundled private runtime inputs incomplete; no rebuild, no "
+                f"wheelhouse install). Source mirror + runtime verification still "
+                f"required downstream. See #300."
+            )
+            _record_venv_rebuild_summary(
+                layout.rook_root, runtime_name, label, 0, "reused_existing", "inputs"
+            )
+            return existing_python
         _record_venv_rebuild_summary(
             layout.rook_root, runtime_name, label, 0, "failed", "inputs"
         )
