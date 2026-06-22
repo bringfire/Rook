@@ -390,6 +390,36 @@ def test_adapter_imports_only_public_pure_symbols():
             )
 
 
+def test_adapter_does_not_use_runnable_nodes():
+    """LM4A-FU1 regression guard: the live adapter must never reach for
+    ``runnable_nodes``.
+
+    ``runnable_nodes`` is a SNAPSHOT api -- it deep-copies every ready node. In a
+    live side-effect preflight that can raise on a transient non-deepcopyable
+    ``execution_params`` value BEFORE ``_resolve_params`` can return the graceful
+    ``params_copy_failed`` (the original LM4A bug). Readiness in the live adapter
+    is a direct ``node.status == "ready"`` read. ``runnable_nodes`` stays valid for
+    PURE scheduling/replay consumers; it is simply wrong here. See
+    docs/superpowers/findings/2026-06-22-lm4a-runnable-nodes-boundary-audit.md.
+    """
+    tree = ast.parse(_ADAPTER_PATH.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                assert alias.name != "runnable_nodes", (
+                    "live adapter must not import runnable_nodes (snapshot/deepcopy "
+                    "api -- use node.status directly in a side-effect preflight)"
+                )
+        elif isinstance(node, ast.Attribute):
+            assert node.attr != "runnable_nodes", (
+                "live adapter must not call .runnable_nodes (snapshot/deepcopy api)"
+            )
+        elif isinstance(node, ast.Name):
+            assert node.id != "runnable_nodes", (
+                "live adapter must not reference runnable_nodes (snapshot/deepcopy api)"
+            )
+
+
 def test_pure_modules_do_not_import_live_adapter():
     pure_files = sorted(_LEARNING_DIR.glob("plan_graph*.py"))
     assert pure_files, "expected to find learning/plan_graph*.py modules"
