@@ -508,3 +508,54 @@ def test_producer_result_role_not_producer_no_capture():
     g = _producer_verifier_graph(role="artifact_verifier", evidence=None)
     r = apply_producer_result(g, "create", _ExplodingRaw())
     assert not r.applied and r.reason == "role_not_producer" and r.graph is g
+
+
+def test_create_verify_repair_verify_chain_live_from_raw_payloads():
+    descriptor = {
+        "domain": "grasshopper",
+        "operation": "create_verify_repair_verify",
+        "language": "csharp",
+    }
+    bound = select_and_bind(descriptor)
+    graph = bound.binding.graph
+    assert graph is not None
+
+    graph = initialize_graph(graph)  # ONCE, before any step
+    assert graph.nodes["create_script"].status == "ready"
+
+    # 1. producer from a REAL-contract error payload (success: False)
+    pr = apply_producer_result(graph, "create_script", _error_script_result())
+    assert pr.applied and pr.outcome_status == "succeeded"
+    graph = pr.graph
+    # the seam: raw tool said failed; producer graph role says succeed
+    assert graph.nodes["create_script"].evidence.tool_status == "failed"
+    assert graph.nodes["create_script"].evidence.verified is False
+    assert graph.nodes["verify_create"].status == "ready"
+
+    # 2. verifier re-judges the captured receipt -> needs_repair
+    vr = apply_verifier_step(graph, "verify_create", "create_script")
+    assert vr.applied and vr.outcome_status == "needs_repair"
+    graph = vr.graph
+    assert graph.nodes["repair_same_component"].status == "ready"
+
+    # 3. repair-as-producer from a usable raw payload
+    rp = apply_producer_result(graph, "repair_same_component", _usable_raw_result())
+    assert rp.applied and rp.outcome_status == "succeeded"
+    graph = rp.graph
+    assert graph.nodes["repair_same_component"].evidence.tool_status == "success"
+    assert graph.nodes["repair_same_component"].evidence.verified is True
+    assert graph.nodes["verify_repair"].status == "ready"
+
+    # 4. second verifier -> succeeded
+    vr2 = apply_verifier_step(graph, "verify_repair", "repair_same_component")
+    assert vr2.applied and vr2.outcome_status == "succeeded"
+    graph = vr2.graph
+    assert graph.nodes["done"].status == "ready"
+
+    # 5. finalize done explicitly
+    assert graph.nodes["done"].status == "ready"
+    graph = apply_outcome(
+        graph, "done", NodeOutcome(status="succeeded", message="done: reverified clean")
+    )
+    assert graph.nodes["done"].status == "succeeded"
+    assert graph_status(graph) == "complete"
