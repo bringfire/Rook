@@ -3346,6 +3346,8 @@ const Reconstruct = (() => {
         re.resultMeta = $("reconstruct-result-meta");
         re.resultWarnings = $("reconstruct-result-warnings");
         re.resultHandoff = $("reconstruct-result-handoff");
+        re.jobsList = $("reconstruct-jobs-list");
+        re.refreshJobsBtn = $("reconstruct-refresh-jobs");
     }
 
     function wireEvents() {
@@ -3353,11 +3355,17 @@ const Reconstruct = (() => {
         re.modeTextured.addEventListener("click", () => setOutputMode("textured"));
         re.modeGeometry.addEventListener("click", () => setOutputMode("geometry"));
         re.submitBtn.addEventListener("click", submit);
+        re.refreshJobsBtn.addEventListener("click", loadJobs);
+        re.jobsList.addEventListener("click", (e) => {
+            const li = e.target.closest("li.reconstruct-job");
+            if (li && li.dataset.openable === "1") openJobResult(li.dataset.jobId);
+        });
     }
 
     async function onEnter() {
         await loadModels();
         renderSource();
+        await loadJobs();
     }
 
     function showReconstructStatus(message, type) {
@@ -3545,6 +3553,43 @@ const Reconstruct = (() => {
             : "";
 
         re.resultPanel.classList.remove("hidden");
+    }
+
+    async function loadJobs() {
+        try {
+            const data = await reconstructionBridgeCall("list_jobs", {});
+            renderJobs(Array.isArray(data.jobs) ? data.jobs : []);
+        } catch (e) {
+            re.jobsList.innerHTML = `<li class="reconstruct-job empty">${escapeHtml(errorToText(e))}</li>`;
+        }
+    }
+
+    function renderJobs(jobs) {
+        if (jobs.length === 0) {
+            re.jobsList.innerHTML = `<li class="reconstruct-job empty">No reconstruction jobs yet.</li>`;
+            return;
+        }
+        re.jobsList.innerHTML = jobs.map(j => {
+            const ts = j.updated_at ? formatTimestamp(j.updated_at) : "";
+            const openable = j.state === "complete" && j.result_available;
+            const cls = openable ? "reconstruct-job openable" : "reconstruct-job";
+            return `<li class="${cls}" data-job-id="${escapeAttr(j.job_id)}" data-openable="${openable ? "1" : "0"}">
+                <span class="reconstruct-job-state">${escapeHtml(j.state || "")}${j.stage ? " · " + escapeHtml(j.stage) : ""}</span>
+                <span class="reconstruct-job-id">${escapeHtml(j.job_id)}</span>
+                <span class="reconstruct-job-ts">${escapeHtml(ts)}</span>
+            </li>`;
+        }).join("");
+    }
+
+    async function openJobResult(jobId) {
+        try {
+            showReconstructStatus(`Loading package for ${jobId}…`, "info");
+            const result = await reconstructionBridgeCall("job_result", { job_id: jobId });
+            renderResult(result);
+            showReconstructStatus("Package loaded.", "success");
+        } catch (e) {
+            showReconstructStatus(errorToText(e), "error");
+        }
     }
 
     // Source handoff from the Gallery "Send to 3D" shortcut: preselect the
