@@ -5,7 +5,10 @@ import ast
 from pathlib import Path
 
 from rook.agent.plan_graph_live import EXECUTION_PARAMS_KEY
-from rook.agent.plan_graph_live_dispatch import run_live_producer_node
+from rook.agent.plan_graph_live_dispatch import (
+    run_live_producer_node,
+    run_live_producer_node_with_executor,
+)
 import rook.agent.plan_graph_live_dispatch as _dispatch_mod
 from rook.agent.tool_dispatcher import ToolDispatcher
 from rook.learning.plan_graph import PlanGraph, PlanGraphNode
@@ -204,9 +207,6 @@ def test_live_dispatch_module_import_boundary():
 
 
 # ===== LM4C: ToolExecutor contract bridge =====
-
-from rook.agent.plan_graph_live_dispatch import run_live_producer_node_with_executor
-
 
 _DECLARED_PARAMS = {"language": "csharp", "code": "// noop", "component_name": "C"}
 
