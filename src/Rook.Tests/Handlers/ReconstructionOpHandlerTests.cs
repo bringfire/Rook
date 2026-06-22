@@ -643,6 +643,11 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
 
         Assert.True(resp.Success);
         Assert.Equal(pkg, fixture.ImportClient.LastPackageId);
+        // Adapter must relay the client's data shape unchanged — no double-wrap, no dropped fields.
+        var data = Assert.IsType<JsonObject>(resp.Data);
+        Assert.Equal("model_obj", (string?)data["asset_role"]);
+        Assert.NotNull(data["imported_ids"]);
+        Assert.Equal(1, data["imported_ids"]!.AsArray().Count);
     }
 
     [Fact]
