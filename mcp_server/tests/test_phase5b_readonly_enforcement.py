@@ -236,8 +236,11 @@ class TestGhCanvasReadonlyGroup(unittest.TestCase):
 
     def test_has_inspection_tools(self):
         readonly_tools = set(TOOL_GROUPS["gh_canvas_readonly"])
-        for tool in ("gh_snapshot", "gh_inspect_output", "gh_canvas_image"):
+        for tool in ("gh_snapshot", "gh_inspect_output"):
             self.assertIn(tool, readonly_tools, f"Missing: {tool}")
+        # gh_canvas_image intentionally excluded: MCP/server-side only (returns a
+        # PNG, no agent dispatch path). See #303.
+        self.assertNotIn("gh_canvas_image", readonly_tools)
 
 
 class TestLayersReadonlyGroup(unittest.TestCase):

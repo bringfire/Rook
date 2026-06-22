@@ -417,7 +417,9 @@ TOOL_GROUPS: Dict[str, List[str]] = {
         "gh_errors", "gh_selection",
         "gh_inspect_output", "gh_constraints",
         "gh_snapshot",
-        "gh_canvas_image",
+        # gh_canvas_image intentionally NOT exposed here: MCP/server-side only
+        # (returns a canvas PNG, no agent ToolDispatcher path), consistent with
+        # the read-write gh_canvas group's deliberate omission. See #303.
     ],
 
     # --- GH Exploration ---
