@@ -92,15 +92,41 @@ namespace Rook.Services.Reconstruction
             if (success && data is not null)
                 return NativeImportOutcome.Ok((JsonObject)data.DeepClone());
 
+            // Native failure envelope carries the full structured shape
+            // ({code,message,retryable,field,details}). Preserve all of it — for
+            // association_failed the details hold imported_ids/asset_role/association_error.
+            return NativeImportOutcome.Fail(FailureFromNativeData(data));
+        }
+
+        private static ReconstructionFailure FailureFromNativeData(JsonObject? data)
+        {
             var code = ReadString(data, "code") ?? "import_failed";
             var message = ReadString(data, "message") ?? "Native reconstruction import failed.";
-            return NativeImportOutcome.Fail(Failure(code, message));
+            var retryable = ReadBool(data, "retryable") ?? (code == "native_unavailable");
+            var field = ReadString(data, "field");
+            var details = ToDetails(
+                data is not null && data.TryGetPropertyValue("details", out var dn) ? dn as JsonObject : null);
+            return new ReconstructionFailure(code, message, retryable, field, details);
+        }
+
+        private static IReadOnlyDictionary<string, object?> ToDetails(JsonObject? details)
+        {
+            var dict = new Dictionary<string, object?>();
+            if (details is null) return dict;
+            foreach (var kvp in details)
+                dict[kvp.Key] = kvp.Value?.DeepClone();
+            return dict;
         }
 
         private static string? ReadString(JsonObject? obj, string key)
             => obj is not null && obj.TryGetPropertyValue(key, out var n) && n is JsonValue v && v.TryGetValue<string>(out var str)
                 ? str
                 : null;
+
+        private static bool? ReadBool(JsonObject? obj, string key)
+            => obj is not null && obj.TryGetPropertyValue(key, out var n) && n is JsonValue v && v.TryGetValue<bool>(out var b)
+                ? b
+                : (bool?)null;
 
         private static ReconstructionFailure Failure(string code, string message)
             => new(code, message, Retryable: code == "native_unavailable", Field: null,
