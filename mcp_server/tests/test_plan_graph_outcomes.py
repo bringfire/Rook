@@ -8,7 +8,8 @@ import sys
 
 import pytest
 
-from rook.learning.plan_graph_outcomes import node_outcome_from_tool_result
+from rook.learning.plan_graph import NodeEvidence, NodeOutcome
+from rook.learning.plan_graph_outcomes import node_evidence_from_tool_result, node_outcome_from_tool_result
 
 
 def _receipt_result(
@@ -324,3 +325,99 @@ def test_core_modules_do_not_import_adapter_or_each_other():
     assert "rook.learning.plan_graph_outcomes" not in tool_contracts_imports
     assert "rook.agent.chat.tool_contracts" not in plan_graph_imports
     assert "rook.learning.plan_graph_outcomes" not in plan_graph_imports
+
+
+def test_capture_evidence_from_realistic_raw():
+    raw = {
+        "success": False,  # real-contract: errored script result is success: False
+        "data": {
+            "script_receipt": {
+                "artifact_status": "created_with_errors",
+                "mutation": {"status": "created", "component_guid": "g1"},
+                "repair_anchor": {"component_guid": "g1", "target_errors": ["e1"]},
+            }
+        },
+    }
+    ev = node_evidence_from_tool_result(raw)
+    assert ev.tool_status == "failed"
+    assert ev.receipt["artifact_status"] == "created_with_errors"
+    assert ev.repair_anchor == {"component_guid": "g1", "target_errors": ["e1"]}
+
+
+def test_capture_evidence_malformed_raw_no_receipt():
+    assert node_evidence_from_tool_result("not a dict").receipt is None
+    assert node_evidence_from_tool_result({"success": True}).receipt is None
+    ev = node_evidence_from_tool_result({"success": False, "error": "boom"})
+    assert ev.receipt is None
+    assert ev.tool_status == "failed"
+    assert ev.error == "boom"
+
+
+def test_outcome_evidence_is_capture_helper_output():
+    raw = {"success": True, "data": {"script_receipt": {
+        "artifact_status": "usable",
+        "mutation": {"status": "created", "component_guid": "g1"},
+    }}}
+    assert node_outcome_from_tool_result(raw).evidence == node_evidence_from_tool_result(raw)
+
+
+def test_node_outcome_full_shape_parity():
+    # Case A: usable / success:True
+    raw_a = {"success": True, "data": {"script_receipt": {
+        "artifact_status": "usable",
+        "mutation": {"status": "created", "component_guid": "g1"},
+    }}}
+    expected_a = NodeOutcome(
+        status="succeeded",
+        evidence=NodeEvidence(
+            tool_status="success",
+            verified=None,
+            receipt={"artifact_status": "usable", "mutation": {"status": "created", "component_guid": "g1"}},
+            repair_anchor=None,
+            message=None,
+            error=None,
+        ),
+        memory_updates={"facts": {"component_guid": "g1"}, "node_summary": "artifact usable"},
+        message=None,
+        error=None,
+    )
+    assert node_outcome_from_tool_result(raw_a) == expected_a
+
+    # Case B: created_with_errors / success:False (real contract)
+    raw_b = {"success": False, "data": {"script_receipt": {
+        "artifact_status": "created_with_errors",
+        "mutation": {"status": "created", "component_guid": "g2"},
+    }}}
+    expected_b = NodeOutcome(
+        status="needs_repair",
+        evidence=NodeEvidence(
+            tool_status="failed",
+            verified=None,
+            receipt={"artifact_status": "created_with_errors", "mutation": {"status": "created", "component_guid": "g2"}},
+            repair_anchor=None,
+            message=None,
+            error=None,
+        ),
+        memory_updates={"facts": {"component_guid": "g2"}, "node_summary": "artifact needs repair"},
+        message=None,
+        error=None,
+    )
+    assert node_outcome_from_tool_result(raw_b) == expected_b
+
+    # Case C: malformed / no script_receipt
+    raw_c = {"success": False, "error": "boom"}
+    expected_c = NodeOutcome(
+        status="failed",
+        evidence=NodeEvidence(
+            tool_status="failed",
+            verified=None,
+            receipt=None,
+            repair_anchor=None,
+            message=None,
+            error="boom",
+        ),
+        memory_updates={"facts": {}, "node_summary": "tool failed"},
+        message=None,
+        error="boom",
+    )
+    assert node_outcome_from_tool_result(raw_c) == expected_c
