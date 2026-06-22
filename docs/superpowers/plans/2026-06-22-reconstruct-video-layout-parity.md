@@ -20,6 +20,7 @@
 - Exactly **2 new cached IDs**: `reconstruct-queue-filters`, `reconstruct-queue-filter-summary`. Everything else via data-attributes + event delegation + scoped `querySelector`.
 - **No** prompt scaffold, provider/text-to-3D/multi-view wiring, backend/native/host-lifecycle changes, second importer, or WebView HTTP.
 - **Panel-dark gate is mandatory and BLOCKING after every JS checkpoint.** A failed gate stops the task.
+- **Gate shell:** gate commands below are written in **PowerShell** (the repo's primary shell). `node --check` is shell-agnostic. (Git Bash equivalents are fine too, but avoid Bash-only `comm <(...)` process substitution in PowerShell.)
 
 ---
 
@@ -111,20 +112,22 @@ Replace lines 664–708 (`<div class="reconstruct-body"> … </div>`) with:
 
 - [ ] **Step 2: Verify HTML integrity (panel-dark gate — structural portion)**
 
-Run (each expected to print nothing / the noted result):
-```bash
-cd .worktrees/reconstruct-layout-parity
-# Duplicate-id scan across whole file — expect EMPTY
-grep -oE 'id="[^"]+"' src/Rook/UI/Vision/Resources/index.html | sort | uniq -d
-# The two NEW ids exist exactly once each
-grep -c 'id="reconstruct-queue-filters"' src/Rook/UI/Vision/Resources/index.html
-grep -c 'id="reconstruct-queue-filter-summary"' src/Rook/UI/Vision/Resources/index.html
-# Every existing reconstruct id is still present (expect 16 lines)
-grep -oE 'id="reconstruct-[^"]+"' src/Rook/UI/Vision/Resources/index.html | sort -u
-# Obsolete containers gone — expect EMPTY
-grep -nE 'reconstruct-body|reconstruct-history|class="reconstruct-jobs"' src/Rook/UI/Vision/Resources/index.html
+Run (PowerShell):
+```powershell
+$idx = "src/Rook/UI/Vision/Resources/index.html"
+# Duplicate-id scan across whole file — expect NO output
+(Select-String -Path $idx -Pattern 'id="([^"]+)"' -AllMatches).Matches |
+  ForEach-Object { $_.Groups[1].Value } | Group-Object | Where-Object Count -gt 1 | Select-Object Name,Count
+# The two NEW ids exist exactly once each — expect 1 and 1
+(Select-String -Path $idx -Pattern 'id="reconstruct-queue-filters"').Count
+(Select-String -Path $idx -Pattern 'id="reconstruct-queue-filter-summary"').Count
+# Unique reconstruct id count (this match INCLUDES the section id reconstruct-view) — expect 19
+((Select-String -Path $idx -Pattern 'id="(reconstruct-[^"]+)"' -AllMatches).Matches |
+  ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique).Count
+# Obsolete containers gone — expect NO output
+Select-String -Path $idx -Pattern 'reconstruct-body|reconstruct-history|class="reconstruct-jobs"'
 ```
-Expected: duplicate scan empty; both new-id counts `1`; the reconstruct id set lists all 18 ids (16 existing + 2 new); obsolete-container grep empty.
+Expected: duplicate scan empty; both new-id counts `1`; unique reconstruct-id count **19** (17 existing — including `reconstruct-view` — plus the 2 new queue ids); obsolete-container scan empty.
 
 - [ ] **Step 3: Commit**
 
@@ -284,13 +287,13 @@ Expected: `4`.
 
 - [ ] **Step 3: Verify no undefined CSS tokens + obsolete rules gone (gate — CSS portion)**
 
-```bash
-# Every var(--token) used in the new reconstruct rules must be defined in :root.
-# List tokens referenced in styles and confirm each is defined (manual scan of the diff):
-git diff --unified=0 src/Rook/UI/Vision/Resources/styles.css | grep -oE 'var\(--[a-z0-9-]+\)' | sort -u
-# Confirm each appears as a definition (e.g. grep '--paper-card:' styles.css) — all already used by .video-* rules.
-# Obsolete rules removed — expect EMPTY:
-grep -nE '\.reconstruct-body|\.reconstruct-history|\.reconstruct-jobs|\.reconstruct-job[ .{]' src/Rook/UI/Vision/Resources/styles.css
+```powershell
+$css = "src/Rook/UI/Vision/Resources/styles.css"
+# Tokens referenced in the styles diff — confirm each is defined in :root (all are tokens .video-* already use)
+git diff --unified=0 $css | Select-String -Pattern 'var\((--[a-z0-9-]+)\)' -AllMatches |
+  ForEach-Object { $_.Matches } | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
+# Obsolete rules removed — expect NO output
+Select-String -Path $css -Pattern '\.reconstruct-body|\.reconstruct-history|\.reconstruct-jobs|\.reconstruct-job[ .{]'
 ```
 Expected: every token in the diff is already defined in `:root` (all are tokens the `.video-*` rules already use — `--paper-card`, `--rule`, `--paper-tone`, `--ink`, `--ink-soft`, `--paper`, `--paper-bright`, `--accent-brass`, `--accent-green`, `--accent-red`, `--accent-amber`, `--space-*`, `--type-mono`, `--tabular`); obsolete-rule grep empty.
 
@@ -348,7 +351,13 @@ Replace the `wireEvents()` body's job-list listener (lines 3363–3367) with del
         re.jobsList.addEventListener("click", (e) => {
             if (!(e.target instanceof Element)) return;
             const cancelBtn = e.target.closest(".reconstruct-queue-cancel");
-            if (cancelBtn) { cancelQueueJob(cancelBtn.dataset.id); return; }
+            if (cancelBtn) {
+                // Disable immediately so the in-flight button cannot be double-clicked.
+                cancelBtn.disabled = true;
+                cancelBtn.textContent = "Canceling…";
+                cancelQueueJob(cancelBtn.dataset.id, cancelBtn);
+                return;
+            }
             const openBtn = e.target.closest(".reconstruct-queue-open");
             if (openBtn) { openJobResult(openBtn.dataset.id); return; }
         });
@@ -427,6 +436,11 @@ Replace `loadJobs()` + `renderJobs()` (lines 3615–3639) with:
             re.jobsList.innerHTML =
                 `<div class="reconstruct-queue-empty"><p>${escapeHtml(errorToText(e))}</p></div>`;
             updateFilterCounts([]);
+            // Don't leave a stale "Showing N …" line above an error list.
+            if (re.queueFilterSummary) {
+                re.queueFilterSummary.textContent = "";
+                re.queueFilterSummary.classList.add("hidden");
+            }
             return;
         }
         renderQueue();
@@ -515,14 +529,25 @@ Replace `loadJobs()` + `renderJobs()` (lines 3615–3639) with:
         }).join("");
     }
 
-    async function cancelQueueJob(jobId) {
-        if (!jobId) return;
-        if (!window.confirm("Cancel this job?")) return;   // parity with Video tab
+    function restoreCancelButton(button) {
+        if (!button) return;
+        button.disabled = false;
+        button.textContent = "Cancel";
+    }
+
+    async function cancelQueueJob(jobId, button) {
+        if (!jobId) { restoreCancelButton(button); return; }
+        if (!window.confirm("Cancel this job?")) {   // parity with Video tab
+            restoreCancelButton(button);             // declined — re-enable the button
+            return;
+        }
         try {
             await reconstructionBridgeCall("cancel_job", { job_id: jobId });
-            // No optimistic removal — the authoritative state surfaces on refresh.
+            // No optimistic removal — the authoritative state surfaces on refresh,
+            // which re-renders the row set (replacing this button).
             await loadJobs();
         } catch (e) {
+            restoreCancelButton(button);             // failed — re-enable so the user can retry
             showReconstructStatus(`Cancel failed: ${errorToText(e)}`, "error");
         }
     }
@@ -530,23 +555,28 @@ Replace `loadJobs()` + `renderJobs()` (lines 3615–3639) with:
 
 - [ ] **Step 8: Run the panel-dark gate (FULL — blocking)**
 
-```bash
-cd .worktrees/reconstruct-layout-parity
+```powershell
+$app = "src/Rook/UI/Vision/Resources/app.js"
+$idx = "src/Rook/UI/Vision/Resources/index.html"
 # 1. Syntax
-node --check src/Rook/UI/Vision/Resources/app.js && echo "OK: app.js valid"
-# 2. Duplicate-id scan in index.html — expect EMPTY
-grep -oE 'id="[^"]+"' src/Rook/UI/Vision/Resources/index.html | sort | uniq -d
-# 3. Every $("…") id cached by the Reconstruct module exists in index.html — expect EMPTY (no missing)
-comm -23 \
-  <(awk '/Reconstruct module \(image/{f=1} f' src/Rook/UI/Vision/Resources/app.js | grep -oE '\$\("(reconstruct-[^"]+)"\)' | sed -E 's/.*\("(.*)"\)/\1/' | sort -u) \
-  <(grep -oE 'id="(reconstruct-[^"]+)"' src/Rook/UI/Vision/Resources/index.html | sed -E 's/id="(.*)"/\1/' | sort -u)
-# 4. Dangling references to removed symbols — expect EMPTY
-grep -nE 'renderJobs|reconstruct-job\b|reconstruct-jobs"|reconstruct-history|reconstruct-body' src/Rook/UI/Vision/Resources/app.js
-# 5. The exactly-two new cached ids are referenced
-grep -c 'reconstruct-queue-filters"' src/Rook/UI/Vision/Resources/app.js
-grep -c 'reconstruct-queue-filter-summary"' src/Rook/UI/Vision/Resources/app.js
+node --check $app; if ($LASTEXITCODE -eq 0) { "OK: app.js valid" }
+# 2. Duplicate-id scan in index.html — expect NO output
+(Select-String -Path $idx -Pattern 'id="([^"]+)"' -AllMatches).Matches |
+  ForEach-Object { $_.Groups[1].Value } | Group-Object | Where-Object Count -gt 1 | Select-Object Name,Count
+# 3. Every reconstruct $("id") cached in the module exists in index.html — expect NO output
+$src = Get-Content -Raw $app
+$mod = $src.Substring($src.IndexOf('Reconstruct module (image'))
+$js = [regex]::Matches($mod, '\$\("(reconstruct-[^"]+)"\)') | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
+$html = (Select-String -Path $idx -Pattern 'id="(reconstruct-[^"]+)"' -AllMatches).Matches |
+  ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
+$js | Where-Object { $_ -notin $html }
+# 4. Dangling references to removed symbols — expect NO output
+Select-String -Path $app -Pattern 'renderJobs|reconstruct-job\b|reconstruct-jobs"|reconstruct-history|reconstruct-body'
+# 5. The exactly-two new cached ids are referenced — expect >= 1 each
+(Select-String -Path $app -Pattern 'reconstruct-queue-filters"').Count
+(Select-String -Path $app -Pattern 'reconstruct-queue-filter-summary"').Count
 ```
-Expected: `OK: app.js valid`; duplicate scan empty; missing-id `comm` empty; dangling-ref grep empty; both new-id counts ≥ `1`. **Any non-empty result on checks 2/3/4 is a blocker — fix before commit.**
+Expected: `OK: app.js valid`; duplicate scan empty; missing-id check (3) empty; dangling-ref scan (4) empty; both new-id counts ≥ `1`. **Any non-empty result on checks 2/3/4 is a blocker — fix before commit.**
 
 - [ ] **Step 9: Commit**
 
