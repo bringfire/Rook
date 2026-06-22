@@ -16,7 +16,8 @@
 - Typed result metadata (`ResultKind`/`AssetRoles`) is **owned by the manager result envelope**; the handler only serializes it (never re-infers from artifacts). `PackageSummary` stays strictly 3D.
 - `remove_background` is an **async** reconstruction op: in the async branch on both dispatch surfaces, **rejected by `DispatchOffUi`** (mirrors `import_package`).
 - Persist the real catalog `task` string (`single_image_to_3d`, `remove_background`). Legacy v2 ledger records default to `single_image_to_3d`.
-- Verified facts (do not re-guess): BiRefNet (`fal-ai/birefnet`) input field = **`image_url`**; output = **`image` (object, `.url`)** + optional **`mask_image` (object, `.url`)**.
+- Verified facts (do not re-guess): the verified BiRefNet endpoint is **`fal-ai/birefnet/v2`** (Task 2 switches the catalog id from `fal-ai/birefnet`): input field = **`image_url`**; output = **`image` (object, `.url`)** + optional **`mask_image` (object, `.url`)**.
+- The new MCP tool must work through **both** the direct front door (`server.py`) **and** the agent path (`tool_groups.py` / `tool_dispatcher.py`); Python MCP tests (`pytest mcp_server/tests/...`) are run explicitly — `dotnet test` does not cover them.
 - Out of scope: Replicate, multi-view input-mapping/UI, real multi-view catalog entries, novel-view, topology/texture control metadata, any Reconstruct-tab UI for bg-removal.
 - C# tests: `dotnet test src/Rook.Tests/Rook.Tests.csproj -c Debug`. Native source-assertion tests follow the repo's `RepoRoot`/`ExtractFunction` convention.
 
@@ -32,8 +33,9 @@ Pins the right front door + no-deadlock invariant **before** any provider/materi
 - Modify: `src/Rook/Handlers/ReconstructionOpHandler.cs` (`OpRemoveBackground` + dispatch)
 - Modify: `src/Rook/InternalBridge/NativeGhBridgeRegistrar.cs` (async branch)
 - Modify: `src/RookNative/RookServer.cpp`, `src/RookNative/Handlers/GrasshopperProxyHandler.{h,cpp}` (native route)
-- Modify: `mcp_server/src/rook/server.py` (MCP tool)
-- Test: `src/Rook.Tests/Handlers/ReconstructionOpHandlerTests.cs`, `src/Rook.Tests/Handlers/NativeReconstructionDispatchSourceTests.cs`, `src/Rook.Tests/Services/Reconstruction/ReconstructionJobManagerTests.cs` (or nearest existing), MCP tool-count test.
+- Modify: `mcp_server/src/rook/server.py` (MCP tool def + routing case)
+- Modify: `mcp_server/src/rook/agent/tool_groups.py` + `mcp_server/src/rook/agent/tool_dispatcher.py` — **check/update** the `rhino_2d_to_3d_*` mappings so the new tool also works through the agent/tool-group path, not only direct MCP. (Grep these for `rhino_2d_to_3d_submit` and add `rhino_2d_to_3d_remove_background` to the same group/dispatch wherever the family is listed.)
+- Test: `src/Rook.Tests/Handlers/ReconstructionOpHandlerTests.cs`, `src/Rook.Tests/Handlers/NativeReconstructionDispatchSourceTests.cs`, `src/Rook.Tests/Services/Reconstruction/ReconstructionJobManagerTests.cs` (or nearest existing), MCP tool tests in `mcp_server/tests/test_reconstruction_mcp_tools.py`.
 
 **Interfaces:**
 - Produces: `ReconstructionOpHandler.OpRemoveBackground = "remove_background"`; `manager.SubmitRemoveBackgroundAsync(ReconstructionSubmitRequest, ct) → ReconstructionSubmitResult`; native route `POST /reconstruction/2d-to-3d/background-removals`; MCP tool `rhino_2d_to_3d_remove_background`.
@@ -108,7 +110,7 @@ Expected: FAIL (symbols/route/tool absent).
 
 - [ ] **Step 3: Ledger `task` field (v2 → v3, legacy default)**
 
-In `ReconstructionJobLedger.cs`: add `string Task` to the `ReconstructionJobLedgerRecord` record (place after `ModelId`). Bump `CurrentSchemaVersion` 2 → 3. Update the `Queued` factory to take `task` and set it; `Complete` factory sets `Task = string.Empty` (or carries the job's task if available — empty is fine, result-time reads the live record). In `Serialize`, write `"task"`. In `TryDeserialize`/`Merge`, read `"task"`; **when absent, default to `"single_image_to_3d"`** (legacy v2 back-compat). Update all in-repo constructions of the record (compiler will list them) to pass `task`.
+In `ReconstructionJobLedger.cs`: add `string Task` to the `ReconstructionJobLedgerRecord` record (place after `ModelId`). Bump `CurrentSchemaVersion` 2 → 3. Update the `Queued` factory to take `task` and set it. The **`Complete` factory must NOT set an empty task** — give it an optional parameter `string task = "single_image_to_3d"` and set `Task = task` (result-kind branches on task, and test-created completed records must carry a real task; never `""`). In `Serialize`, write `"task"`. In `TryDeserialize`/`Merge`, read `"task"`; **when absent, default to `"single_image_to_3d"`** (legacy v2 back-compat). Update all in-repo constructions of the record (compiler will list them) to pass `task`; the manager's completion path uses `materializing with { State = Complete, ... }` which already preserves the queued `Task`.
 
 - [ ] **Step 4: Manager — `SubmitCoreAsync` + two task-gated entries**
 
@@ -138,14 +140,17 @@ In `src/RookNative/Handlers/GrasshopperProxyHandler.h`: declare `void HandleReco
 In `GrasshopperProxyHandler.cpp`: implement `void HandleReconstructionRemoveBackground(const httplib::Request& req, httplib::Response& res) { DispatchReconstructionOp(req, res, "remove_background"); }`.
 In `RookServer.cpp`: register `m_server->Post("/reconstruction/2d-to-3d/background-removals", Rook::Handlers::HandleReconstructionRemoveBackground);` (next to the other reconstruction routes) and add `"POST /reconstruction/2d-to-3d/background-removals"` to the route-listing/help block.
 
-- [ ] **Step 7: MCP tool**
+- [ ] **Step 7: MCP tool (server.py + agent tool-group path)**
 
 In `mcp_server/src/rook/server.py`: add a `Tool(name="rhino_2d_to_3d_remove_background", description=..., inputSchema={source_artifact_id (required), source_role?, model_id?, port?})` near `rhino_2d_to_3d_submit`, and a routing case mapping it to `("/reconstruction/2d-to-3d/background-removals", "POST", arguments, port=port)`.
+Then grep `mcp_server/src/rook/agent/tool_groups.py` and `mcp_server/src/rook/agent/tool_dispatcher.py` for `rhino_2d_to_3d_submit` and add `rhino_2d_to_3d_remove_background` to the **same group/dispatch mapping** wherever the `rhino_2d_to_3d_*` family is listed, so the tool also works through the agent/tool-group path (not only the direct MCP front door). If the family is referenced by prefix/pattern, confirm the new tool is matched and no allow-list addition is needed.
 
-- [ ] **Step 8: Run tests — verify they pass**
+- [ ] **Step 8: Run tests — verify they pass (C# + Python MCP)**
 
-Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj -c Debug`
-Expected: PASS (routing/contract/gate/ledger/MCP tests green; full suite stays green).
+Run C#: `dotnet test src/Rook.Tests/Rook.Tests.csproj -c Debug` → PASS (routing/contract/gate/ledger tests green; full suite stays green).
+Run Python MCP reconstruction tests explicitly (`dotnet test` does NOT cover these):
+`python -m pytest mcp_server/tests/test_reconstruction_mcp_tools.py -q`
+Expected: PASS, including the new `rhino_2d_to_3d_remove_background` registration/mapping. (Extend that test file to assert the new tool is registered and maps to `/reconstruction/2d-to-3d/background-removals`.)
 
 - [ ] **Step 9: Commit**
 
@@ -155,23 +160,40 @@ git add -A && git commit -m "feat(reconstruction): remove_background op front do
 
 ---
 
-### Task 2: Materialization branch — derived `preprocessed_image` (verify BiRefNet schema first)
+### Task 2: Make bg-removal real & correct — schema verify, model id, source field, materializer
+
+This task makes a `remove_background` job submit the **correct** payload and materialize a **linked derived image** — i.e. everything needed for a correct real submit, before the live smoke. It folds in the load-bearing `source_field` plumbing (Task 1 left the public submit path untouched and used a fake provider).
 
 **Files:**
-- Create: `src/Rook/Services/Reconstruction/ReconstructionPreprocessMaterializer.cs`
-- Modify: `src/Rook/Services/Reconstruction/ReconstructionJobManager.cs` (materialize branch on task)
-- Modify: `src/Rook/Services/Reconstruction/Fal/FalReconstructionResultMapper.cs` (or a sibling bg-removal mapper)
-- Test: `src/Rook.Tests/Services/Reconstruction/ReconstructionPreprocessMaterializerTests.cs`
+- Modify: `src/Rook/Services/Reconstruction/Fal/fal-model-catalog.json` (birefnet entry: model id + `source_field`)
+- Modify: `src/Rook/Services/Reconstruction/ReconstructionModelCatalog.cs` (minimal `Input` record with `Mode`/`SourceField`; extended in Task 4)
+- Modify: `src/Rook/Services/Reconstruction/Fal/FalReconstructionProvider.cs` (`SourceField` on request; `BuildSubmitPayload`)
+- Modify: `src/Rook/Services/Reconstruction/ReconstructionJobManager.cs` (pass `model.Input?.SourceField` into the provider request; materialize branch on task)
+- Create: `src/Rook/Services/Reconstruction/ReconstructionPreprocessMaterializer.cs` (+ bg-removal result mapping)
+- Test: `src/Rook.Tests/Services/Reconstruction/ReconstructionPreprocessMaterializerTests.cs`; provider source-field tests (nearest fal provider test file).
 
 **Interfaces:**
-- Consumes: the provider result envelope; `ArtifactStore`; `IReconstructionRemoteAssetDownloader`. Job's persisted `Task` (Task 1).
-- Produces: a derived artifact `kind="preprocessed_image"`, `parent_ids=[source]`, roles `image`(+`mask`).
+- Consumes: the provider result envelope; `ArtifactStore`; `IReconstructionRemoteAssetDownloader`; job's persisted `Task` (Task 1).
+- Produces: `ReconstructionProviderSubmitRequest.SourceField`; minimal `ReconstructionModelEntry.Input` (`Mode`, `SourceField`); a derived artifact `kind="preprocessed_image"`, `parent_ids=[source]`, roles `image`(+`mask`).
 
-- [ ] **Step 1: Verify BiRefNet response schema (do not guess)**
+- [ ] **Step 1: Verify BiRefNet schema + pin the model id (do not guess)**
 
-Confirm against live fal docs (already verified 2026-06-22): `fal-ai/birefnet` returns `image` (object with `.url`) and optional `mask_image` (object with `.url`); input field `image_url`. Record these exact names; the mapper + tests key off them. If a re-check disagrees, update the field names here before coding.
+Verified against live fal docs (2026-06-22): the BiRefNet **v2** API page (`fal-ai/birefnet/v2`) documents input field `image_url` and output `image` (object, `.url`) + optional `mask_image` (object, `.url`, present when `output_mask`/`mask_only` requested). **Decision: switch the catalog model id `fal-ai/birefnet` → `fal-ai/birefnet/v2`** — it is the endpoint whose schema we verified (the bare `/birefnet` page did not expose a confirmed schema). Update the birefnet catalog entry's `model_id` accordingly and set `input.source_field: "image_url"`. If a re-check of the live page disagrees on field names, fix them here before coding the mapper.
 
-- [ ] **Step 2: Write the failing materializer test**
+- [ ] **Step 2: Source-field plumbing (provider keys on the resolved field)**
+
+Tests first (nearest fal provider test file):
+```csharp
+[Fact] public void BuildSubmitPayload_UsesSourceField_WhenProvided() {
+    // request.SourceField = "image_url" -> payload contains "image_url", not "input_image_url"
+}
+[Fact] public void BuildSubmitPayload_DefaultsToInputImageUrl_WhenNull() {
+    // request.SourceField = null -> payload contains "input_image_url" (Hunyuan path unchanged)
+}
+```
+Implement: add `string? SourceField` to `ReconstructionProviderSubmitRequest`; `BuildSubmitPayload` writes `payload[request.SourceField ?? "input_image_url"] = request.InputImageUrl.ToString();`. Add a minimal nullable `Input` record (`Mode`, `SourceField`) to `ReconstructionModelEntry` (Task 4 extends it with view_slots/array/prompt). In the catalog, set the birefnet entry `model_id: "fal-ai/birefnet/v2"`, `input: { "mode":"single_image", "source_field":"image_url" }`; give the two 3D entries `input.source_field: "input_image_url"` (behavior-preserving). In `SubmitCoreAsync`, construct the provider request with `SourceField = model.Input?.SourceField`. Run the provider tests → green.
+
+- [ ] **Step 4: Write the failing materializer test**
 
 ```csharp
 [Fact]
@@ -184,17 +206,17 @@ public async Task RemoveBackground_Materializes_LinkedPreprocessedImage_SourceUn
 }
 ```
 
-- [ ] **Step 3: Implement the bg-removal result mapping + `ReconstructionPreprocessMaterializer`**
+- [ ] **Step 5: Implement the bg-removal result mapping + `ReconstructionPreprocessMaterializer`**
 
 Map the BiRefNet envelope: `image.url` → role `image`; `mask_image.url` → role `mask` (when present). `ReconstructionPreprocessMaterializer.MaterializeAsync(jobId, sourceArtifactIds, provider, modelId, envelope, ct)` downloads those URLs and `_store.Create(kind: "preprocessed_image", blobs: [image(+mask)], parentIds: sourceArtifactIds, metadata: {provider, model_id, job_id})`. Return a result carrying the new artifact (mirror `ReconstructionMaterializeResult`, generalized to an artifact, not specifically a "package").
 
-- [ ] **Step 4: Branch the manager poll-loop materialize on task**
+- [ ] **Step 6: Branch the manager poll-loop materialize on task**
 
 At the `_materializer.MaterializeAsync` call site (`ReconstructionJobManager.PollActiveJobAsync`), branch on the job's `Task`: `remove_background` → `_preprocessMaterializer.MaterializeAsync(...)`; else → `_materializer.MaterializeAsync(...)` (3D package, unchanged). Set the completed record's `ResultArtifactId` from whichever artifact was produced. Inject the new materializer via the manager ctor + `RookSubsystemRoot.CreateReconstruction`.
 
-- [ ] **Step 5: Run tests + commit**
+- [ ] **Step 7: Run tests + commit**
 
-Run the materializer tests + full suite (green). Commit: `feat(reconstruction): task-branched materialization — bg-removal -> linked preprocessed_image`.
+Run the provider source-field tests + materializer tests + full suite (green). Commit: `feat(reconstruction): bg-removal source_field (birefnet/v2) + task-branched materialization -> linked preprocessed_image`.
 
 ---
 
@@ -234,44 +256,40 @@ Green; commit: `feat(reconstruction): manager-owned result_kind/asset_roles; han
 
 ---
 
-### Task 4: Capability metadata (`input`/`prompt` + `source_field`) + provider field + `models` 3D-filter
+### Task 4: Capability descriptors (`input` mode/slots + `prompt`) + `models` 3D-filter
+
+(The load-bearing `source_field` + minimal `Input` record + `birefnet/v2` already landed in Task 2. This task adds the remaining **descriptive** metadata the future multi-view/prompt UI will read, and isolates the reconstruct picker.)
 
 **Files:**
-- Modify: `src/Rook/Services/Reconstruction/Fal/fal-model-catalog.json`
-- Modify: `src/Rook/Services/Reconstruction/ReconstructionModelCatalog.cs` (`Input`/`Prompt` types, `ModelToObj`, 3D-task filter)
-- Modify: `src/Rook/Services/Reconstruction/Fal/FalReconstructionProvider.cs` (`SourceField` on request; `BuildSubmitPayload`)
-- Modify: `src/Rook/Services/Reconstruction/ReconstructionJobManager.cs` (pass `model.Input?.SourceField` into the provider request)
+- Modify: `src/Rook/Services/Reconstruction/Fal/fal-model-catalog.json` (`input.mode` + `prompt` blocks)
+- Modify: `src/Rook/Services/Reconstruction/ReconstructionModelCatalog.cs` (extend `Input` with `ViewSlots`/`Array`; add `Prompt` type; `ModelToObj`; 3D-task filter helper)
 - Modify: `src/Rook/Handlers/ReconstructionOpHandler.cs` (`models` op excludes non-3D tasks)
-- Test: catalog + provider + models tests.
+- Test: catalog + models tests.
 
 **Interfaces:**
-- Produces: nullable `ReconstructionModelEntry.Input` (`Mode`, `SourceField`, `ViewSlots`, `Array`) + `.Prompt` (`Supported`, `Required`, `Kind`); `BuildSubmitPayload` keys the source URL on the resolved field; `models` op returns 3D-producing tasks only.
+- Produces: `ReconstructionModelEntry.Input` extended (`ViewSlots`, `Array`) + `.Prompt` (`Supported`, `Required`, `Kind`); `ModelToObj` emits `input`/`prompt`; `models` op returns 3D-producing tasks only.
 
 - [ ] **Step 1: Failing tests**
 
 ```csharp
-[Fact] public void Catalog_InputPromptDescriptors_Deserialize() { /* birefnet source_field=="image_url"; meshy prompt.kind=="texture" */ }
-[Fact] public void Catalog_AbsentBlocks_DefaultNull_NoThrow() { /* an entry w/o input/prompt deserializes */ }
-[Fact] public void BuildSubmitPayload_UsesSourceField_Birefnet_ImageUrl() { /* SourceField="image_url" -> payload has image_url, not input_image_url */ }
-[Fact] public void BuildSubmitPayload_DefaultsToInputImageUrl_WhenAbsent() { /* preserves Hunyuan path */ }
-[Fact] public void ModelsOp_Excludes_RemoveBackgroundTasks() { /* models list has no birefnet */ }
+[Fact] public void Catalog_PromptDescriptor_Deserializes() { /* meshy prompt.kind=="texture"; hunyuan prompt.supported==false */ }
+[Fact] public void Catalog_InputMode_Deserializes() { /* all 3 entries input.mode=="single_image" */ }
+[Fact] public void Catalog_AbsentBlocks_DefaultNull_NoThrow() { /* a fixture entry w/o input/prompt deserializes */ }
+[Fact] public void Catalog_SchemaShape_Fixtures_RoundTrip() { /* synthetic multi_view_labeled (view_slots), multi_view_array (array), text fixtures round-trip; rules: view_slots iff labeled, array iff array */ }
+[Fact] public void ModelsOp_Excludes_RemoveBackgroundTasks() { /* models list has no birefnet/v2 */ }
 ```
 
 - [ ] **Step 2: Catalog JSON + record types**
 
-Add `input`/`prompt` blocks per the spec (Hunyuan: `input_image_url`, no prompt; Meshy: `input_image_url`, `prompt.kind:"texture"`; BiRefNet: `image_url`, no prompt). Add nullable `Input`/`Prompt` records (+ `ViewSlot`, `ArraySpec`) to `ReconstructionModelEntry`; emit them in `ModelToObj`.
+Add `input.mode` to all 3 entries (`single_image`) and `prompt` blocks (Hunyuan: no prompt; Meshy: `{supported:true, required:false, kind:"texture"}`; BiRefNet: no prompt). Extend the `Input` record (from Task 2) with nullable `ViewSlots` (`[{role, field, required}]`) + `Array` (`{field, min, max}`); add the nullable `Prompt` record (`Supported`, `Required`, `Kind`). Emit `input`/`prompt` in `ModelToObj`. Multi-view/text shapes are exercised only by **synthetic test fixtures** — no multi-view entries are added to the production catalog.
 
-- [ ] **Step 3: Provider source field**
-
-Add `string? SourceField` to `ReconstructionProviderSubmitRequest`. `BuildSubmitPayload`: `payload[request.SourceField ?? "input_image_url"] = request.InputImageUrl.ToString();`. In `SubmitCoreAsync`, construct the request with `SourceField = model.Input?.SourceField`.
-
-- [ ] **Step 4: `models` op 3D-task filter**
+- [ ] **Step 3: `models` op 3D-task filter**
 
 Filter the `models` projection to entries whose `Task` is a 3D-producing task (today `single_image_to_3d`; via a `static readonly HashSet<string> ThreeDTasks`). `remove_background` excluded.
 
-- [ ] **Step 5: Run tests + commit**
+- [ ] **Step 4: Run tests + commit**
 
-Green; commit: `feat(reconstruction): capability metadata + source_field provider mapping; models 3D-only`.
+Green; commit: `feat(reconstruction): capability descriptors (input mode/slots + prompt); models 3D-only`.
 
 ---
 
@@ -279,9 +297,10 @@ Green; commit: `feat(reconstruction): capability metadata + source_field provide
 
 **Files:** none (verification only).
 
-- [ ] **Step 1: Full suite**
+- [ ] **Step 1: Full suite (C# + Python MCP)**
 
-Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj -c Debug` — all green. Also run the MCP test suite if present (`mcp_server` tests).
+Run C#: `dotnet test src/Rook.Tests/Rook.Tests.csproj -c Debug` — all green.
+Run Python MCP explicitly (`dotnet test` does NOT cover these): `python -m pytest mcp_server/tests/test_reconstruction_mcp_tools.py -q` — green, incl. the new `rhino_2d_to_3d_remove_background`. (If the agent tool-group path has its own test, run that too.)
 
 - [ ] **Step 2: Full local deploy (C# + native + MCP)**
 
@@ -303,7 +322,7 @@ Use superpowers:finishing-a-development-branch — verify tests, push + open PR 
 
 ## Self-Review
 
-**Spec coverage:** routing/contract + async invariant + native route + MCP (Task 1); ledger `task` + legacy default + gated submit (Task 1); task-branched materialization → linked `preprocessed_image`, source untouched (Task 2); manager-owned typed result envelope, `package` 3D-only (Task 3); capability metadata + `source_field` provider mapping + `models` 3D-only (Task 4); full-local-deploy live smoke (Task 5). All spec sections covered.
+**Spec coverage:** routing/contract + async invariant + native route + MCP (incl. agent tool-group path) + Python MCP tests (Task 1); ledger `task` + legacy default + non-empty `Complete` task + gated submit (Task 1); `source_field` provider mapping + `birefnet/v2` + task-branched materialization → linked `preprocessed_image`, source untouched (Task 2); manager-owned typed result envelope, `package` 3D-only (Task 3); remaining capability descriptors + `models` 3D-only (Task 4); full-local-deploy live smoke + explicit pytest (Task 5). All spec sections covered.
 
 **Pin coverage:** Task 1 IS the routing/contract task, before materializer (Task 2). Task 2 Step 1 verifies BiRefNet schema before coding the mapper, with tests keyed to the verified `image`/`mask_image` fields.
 
