@@ -246,12 +246,29 @@ async def run_live_producer_node_with_executor(
 Run (from `mcp_server/`): `.venv/Scripts/python.exe -m pytest -p no:cacheprovider tests/test_plan_graph_live_dispatch.py -v`
 Expected: PASS — all 8 tests (3 existing LM4B + 5 new LM4C). Confirm `test_live_dispatch_module_import_boundary` still passes unchanged (it governs the whole module source; `inspect` is stdlib, not rook-scoped, so the allowlist is untouched).
 
-- [ ] **Step 5: Run the focused regression suite**
+- [ ] **Step 5: Run the focused dispatch + adapter suite**
 
 Run (from `mcp_server/`): `.venv/Scripts/python.exe -m pytest -p no:cacheprovider tests/test_plan_graph_live.py tests/test_plan_graph_live_dispatch.py -q`
-Expected: PASS — LM4A (37) + LM4B/LM4C dispatch-seam (8) all green. (No `learning/` or pure-layer files were touched, so the broad purity-probe suite — which must run from the repo root — is unaffected by this slice.)
+Expected: PASS — LM4A (37) + LM4B/LM4C dispatch-seam (8) all green.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Run the full focused PlanGraph gate (from repo root)**
+
+The campaign gate is the full focused PlanGraph suite, and its purity probes use repo-root-relative paths — so it MUST run from `C:\UDEV\Rook`, not from `mcp_server/`.
+
+Run (from `C:\UDEV\Rook`): `mcp_server/.venv/Scripts/python.exe -m pytest -p no:cacheprovider mcp_server/tests/test_plan_graph*.py -q`
+Expected: **236 passed** (prior 231 + 5 LM4C tests).
+
+- [ ] **Step 7: py_compile the touched files**
+
+Run (from `C:\UDEV\Rook`):
+```
+mcp_server/.venv/Scripts/python.exe -m py_compile \
+  mcp_server/src/rook/agent/plan_graph_live_dispatch.py \
+  mcp_server/tests/test_plan_graph_live_dispatch.py
+```
+Expected: no output, exit 0 (clean compile).
+
+- [ ] **Step 8: Commit**
 
 ```bash
 git add mcp_server/src/rook/agent/plan_graph_live_dispatch.py mcp_server/tests/test_plan_graph_live_dispatch.py
