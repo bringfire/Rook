@@ -1083,6 +1083,7 @@ void CRookServer::RegisterRoutes()
     m_server->Get("/reconstruction/2d-to-3d/models", Rook::Handlers::HandleReconstructionModels);
     m_server->Post("/reconstruction/2d-to-3d/jobs", Rook::Handlers::HandleReconstructionSubmit);
     m_server->Post("/reconstruction/2d-to-3d/background-removals", Rook::Handlers::HandleReconstructionRemoveBackground);
+    m_server->Post("/reconstruction/2d-to-3d/view-sets", Rook::Handlers::HandleReconstructionAssembleViewSet);
     m_server->Get("/reconstruction/2d-to-3d/jobs", Rook::Handlers::HandleReconstructionJobsList);
     m_server->Post("/reconstruction/2d-to-3d/import", Rook::Handlers::HandleReconstructionImport);
     m_server->Post(R"(/reconstruction/2d-to-3d/jobs/([^/]+)/cancel)", Rook::Handlers::HandleReconstructionCancel);
@@ -2138,6 +2139,7 @@ nlohmann::json BuildRookCapabilitiesDocument(
             "GET /reconstruction/2d-to-3d/models",
             "POST /reconstruction/2d-to-3d/jobs",
             "POST /reconstruction/2d-to-3d/background-removals",
+            "POST /reconstruction/2d-to-3d/view-sets",
             "GET /reconstruction/2d-to-3d/jobs",
             "GET /reconstruction/2d-to-3d/jobs/{job_id}",
             "POST /reconstruction/2d-to-3d/jobs/{job_id}/cancel",

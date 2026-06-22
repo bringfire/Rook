@@ -79,6 +79,7 @@ ManagedCreateInvokeResult InvokeReconstructionDispatchWithBody(
 void HandleReconstructionModels(const httplib::Request& req, httplib::Response& res);
 void HandleReconstructionSubmit(const httplib::Request& req, httplib::Response& res);
 void HandleReconstructionRemoveBackground(const httplib::Request& req, httplib::Response& res);
+void HandleReconstructionAssembleViewSet(const httplib::Request& req, httplib::Response& res);
 void HandleReconstructionJobsList(const httplib::Request& req, httplib::Response& res);
 void HandleReconstructionStatus(const httplib::Request& req, httplib::Response& res);
 void HandleReconstructionCancel(const httplib::Request& req, httplib::Response& res);

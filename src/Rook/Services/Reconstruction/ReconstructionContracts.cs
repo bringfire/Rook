@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace Rook.Services.Reconstruction;
@@ -6,6 +7,7 @@ public static class ReconstructionArtifactKinds
 {
     public const string Package = "reconstruction_package";
     public const string PreprocessedImage = "preprocessed_image";
+    public const string ViewSet = "reconstruction_view_set";
 
     public static readonly string[] DefaultSourceAllowlist =
     {
@@ -28,6 +30,38 @@ public static class ReconstructionFileRoles
     public const string PreprocessedImage = "preprocessed_image";
     public const string ProviderResultJson = "provider_result_json";
     public const string ImportManifest = "import_manifest";
+    public const string ViewFront = "view_front";
+    public const string ViewLeft = "view_left";
+    public const string ViewRight = "view_right";
+    public const string ViewBack = "view_back";
+    public const string ViewTop = "view_top";
+    public const string ViewThreeQuarter = "view_three_quarter";
+}
+
+public static class ReconstructionViewSlots
+{
+    public static readonly IReadOnlyList<string> Canonical = new[]
+    {
+        "front", "left", "right", "back",
+    };
+
+    // HashSet exposed directly for net48 compatibility (IReadOnlySet<T> is net5+).
+    public static readonly HashSet<string> Allowed = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "front", "left", "right", "back", "top", "three_quarter",
+    };
+
+    /// <summary>Maps a validated slot name to its blob role (e.g. "front" => "view_front").</summary>
+    public static string FileRole(string slot) => "view_" + slot;
+
+    // HashSet exposed directly for net48 compatibility (IReadOnlySet<T> is net5+).
+    public static readonly HashSet<string> AssemblySourceKinds = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "generated_image",
+        "imported_image",
+        "captured_viewport",
+        "preprocessed_image",
+    };
 }
 
 public static class ReconstructionUserTextKeys

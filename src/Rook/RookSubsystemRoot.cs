@@ -268,6 +268,7 @@ namespace Rook
                 catalog,
                 manager,
                 SharedArtifactStore,
+                new ReconstructionViewSetAssembler(SharedArtifactStore),
                 new NativeReconstructionImportClient(new HttpClient(), new DiscoveryFileNativeEndpointResolver()));
         }
 

@@ -868,6 +868,185 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
         Assert.True(hunyuan.ContainsKey("prompt"));
     }
 
+    [Fact]
+    public void DispatchOffUi_AssembleViewSet_ReachesAssembler()
+    {
+        var spy = new RecordingViewSetAssembler();
+        var handler = BuildHandler(assembler: spy);
+        var body = """{"op":"assemble_view_set","views":[{"slot":"front","artifact_id":"00000000-0000-0000-0000-000000000001"}]}""";
+
+        var resp = handler.DispatchOffUi(body);
+
+        Assert.True(spy.Called);
+        Assert.Equal(200, resp.HttpStatus);   // spy returns success
+    }
+
+    [Fact]
+    public async Task DispatchAsync_AssembleViewSet_IsRejectedAsUnknown_NotAsync()
+    {
+        var spy = new RecordingViewSetAssembler();
+        var handler = BuildHandler(assembler: spy);
+        var body = """{"op":"assemble_view_set","views":[]}""";
+
+        var resp = await handler.DispatchAsync(body);
+
+        // assemble_view_set is off-UI only; it must NOT be handled by the async dispatcher.
+        Assert.False(spy.Called);
+        Assert.Equal(400, resp.HttpStatus);
+    }
+
+    // ─── Task 3: handler envelope tests ──────────────────────────────────────
+
+    [Fact]
+    public void AssembleViewSet_Success_ReturnsSpecEnvelope()
+    {
+        var store = NewStore();
+        var a = SeedImageArtifact(store, "generated_image");
+        var handler = BuildHandler(store: store, assembler: new ReconstructionViewSetAssembler(store));
+        var body = $$"""{"op":"assemble_view_set","views":[{"slot":"front","artifact_id":"{{a.Id:D}}"}]}""";
+
+        var resp = handler.DispatchOffUi(body);
+
+        Assert.Equal(200, resp.HttpStatus);
+        var data = (IDictionary<string, object?>)resp.Data!;
+        Assert.NotNull(data["view_set_artifact_id"]);
+        Assert.Equal("reconstruction_view_set", data["kind"]);
+        Assert.Equal(new[] { "front", "left", "right", "back" }, ((IEnumerable<string>)data["slots_expected"]!).ToArray());
+        Assert.Equal(new[] { "front" }, ((IEnumerable<string>)data["slots_present"]!).ToArray());
+        Assert.Equal(false, data["complete"]);
+        Assert.NotNull(data["views"]);
+        Assert.Equal(new[] { a.Id.ToString("D") }, ((IEnumerable<string>)data["parent_ids"]!).ToArray());
+        Assert.Empty((IEnumerable<object?>)data["warnings"]!);
+    }
+
+    [Fact]
+    public void AssembleViewSet_UnknownSlot_Returns400WithReason()   // assembler-side reject
+    {
+        var store = NewStore();
+        var a = SeedImageArtifact(store, "generated_image");
+        var handler = BuildHandler(store: store, assembler: new ReconstructionViewSetAssembler(store));
+        var body = $$"""{"op":"assemble_view_set","views":[{"slot":"frnot","artifact_id":"{{a.Id:D}}"}]}""";
+
+        var resp = handler.DispatchOffUi(body);
+
+        Assert.Equal(400, resp.HttpStatus);
+        var data = (IDictionary<string, object?>)resp.Data!;
+        Assert.Equal("invalid_view_set", data["code"]);
+        var details = (IReadOnlyDictionary<string, object?>)data["details"]!;
+        Assert.Equal("unknown_slot", details["reason"]);
+    }
+
+    [Fact]
+    public void AssembleViewSet_ParseFailure_SerializesEnvelope()   // parser-side reject
+    {
+        var store = NewStore();
+        var a = SeedImageArtifact(store, "generated_image");
+        var handler = BuildHandler(store: store, assembler: new ReconstructionViewSetAssembler(store));
+        // provenance as an array is a parser-level structural reject.
+        var body = $$"""{"op":"assemble_view_set","views":[{"slot":"front","artifact_id":"{{a.Id:D}}","provenance":[]}]}""";
+
+        var resp = handler.DispatchOffUi(body);
+
+        Assert.Equal(400, resp.HttpStatus);
+        var data = (IDictionary<string, object?>)resp.Data!;
+        Assert.Equal("invalid_provenance", data["code"]);
+        var details = (IReadOnlyDictionary<string, object?>)data["details"]!;
+        Assert.Equal("provenance_not_object", details["reason"]);
+    }
+
+    [Fact]
+    public void AssembleViewSet_ViewsEchoProvenanceIntact()   // provenance round-trip / serialization hazard
+    {
+        var store = NewStore();
+        var a = SeedImageArtifact(store, "generated_image");
+        var handler = BuildHandler(store: store, assembler: new ReconstructionViewSetAssembler(store));
+        // provenance is a JSON object with a known key/value.
+        var body = "{\"op\":\"assemble_view_set\",\"views\":[{\"slot\":\"front\",\"artifact_id\":\"" + a.Id.ToString("D") + "\",\"provenance\":{\"camera\":\"orbit\",\"distance\":10}}]}";
+
+        var resp = handler.DispatchOffUi(body);
+
+        Assert.Equal(200, resp.HttpStatus);
+        var data = (IDictionary<string, object?>)resp.Data!;
+        var views = (IEnumerable<IReadOnlyDictionary<string, object?>>)data["views"]!;
+        var row = views.Single();
+        // provenance key must be present and be a JsonObject (not a type name, not null)
+        Assert.True(row.ContainsKey("provenance"), "views[0] must contain 'provenance' key");
+        var prov = Assert.IsType<JsonObject>(row["provenance"]);
+        // content survives the handler round-trip intact
+        Assert.Equal("orbit", prov["camera"]?.GetValue<string>());
+        Assert.Equal(10, prov["distance"]?.GetValue<int>());
+        // Verify it also round-trips through JsonSerializer (the HTTP boundary path)
+        var json = JsonSerializer.Serialize(new { data = resp.Data });
+        Assert.Contains("\"camera\"", json);
+        Assert.Contains("\"orbit\"", json);
+    }
+
+    [Fact]
+    public void AssembleViewSet_DoesNotWriteLedger()
+    {
+        var store = NewStore();
+        var a = SeedImageArtifact(store, "generated_image");
+        var root = NewTempRoot();
+        var ledger = new JsonlReconstructionJobLedger(Path.Combine(root, "ledger.jsonl"));
+        var handler = BuildHandler(store: store, assembler: new ReconstructionViewSetAssembler(store), ledger: ledger);
+
+        handler.DispatchOffUi($$"""{"op":"assemble_view_set","views":[{"slot":"front","artifact_id":"{{a.Id:D}}"}]}""");
+
+        // The assemble_view_set op writes a view_set artifact but must NOT write any
+        // job-ledger record (the reconstruction job ledger is a separate JSONL file).
+        Assert.Equal(0, ledger.List(10).Jobs.Count);
+        // Confirm exactly one new artifact (the view_set) was created as a sanity check.
+        Assert.Equal(2, store.List().Count);   // 1 seeded image + 1 view_set
+    }
+
+    [Theory]
+    [InlineData("invalid_view_set")]
+    [InlineData("invalid_provenance")]
+    public void StatusFor_NewViewSetCodes_Return400(string code)
+    {
+        var failure = new ReconstructionFailure(code, "test", false, null, new Dictionary<string, object?>());
+        Assert.Equal(400, ReconstructionOpHandler.StatusFor(failure));
+    }
+
+    // Seed helpers for view-set handler tests.
+    private ArtifactStore NewStore()
+    {
+        var root = NewTempRoot();
+        return new ArtifactStore(Path.Combine(root, "artifacts"));
+    }
+
+    private static Artifact SeedImageArtifact(ArtifactStore store, string kind, string role = "image")
+        => store.Create(
+            kind,
+            new[] { new BlobInput(role, new byte[] { 0xFF, 0xD8, 0xFF }, "png") });
+
+    private ReconstructionOpHandler BuildHandler(
+        IReconstructionViewSetAssembler? assembler = null,
+        ArtifactStore? store = null,
+        JsonlReconstructionJobLedger? ledger = null)
+    {
+        var root = NewTempRoot();
+        store ??= new ArtifactStore(Path.Combine(root, "artifacts"));
+        ledger ??= new JsonlReconstructionJobLedger(Path.Combine(root, "ledger.jsonl"));
+        var catalog = ReconstructionModelCatalog.FromJson(CatalogJson);
+        var provider = new FakeReconstructionProvider();
+        var downloader = new FakeDownloader();
+        var publisher = new FakeSourceImagePublisher();
+        var materializer = new ReconstructionPackageMaterializer(store, downloader);
+        var preprocessMaterializer = new ReconstructionPreprocessMaterializer(store, downloader);
+        var manager = new ReconstructionJobManager(
+            store,
+            catalog,
+            ledger,
+            provider,
+            materializer,
+            preprocessMaterializer,
+            publisher);
+        _managers.Add(manager);
+        assembler ??= new ReconstructionViewSetAssembler(store);
+        return new ReconstructionOpHandler(catalog, manager, store, assembler);
+    }
+
     private Fixture CreateFixture()
     {
         var root = NewTempRoot();
@@ -895,7 +1074,7 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
             provider,
             downloader,
             materializer,
-            new ReconstructionOpHandler(catalog, manager, store, importClient),
+            new ReconstructionOpHandler(catalog, manager, store, new ReconstructionViewSetAssembler(store), importClient),
             importClient);
     }
 
@@ -997,6 +1176,30 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
             string fileName,
             CancellationToken ct)
             => Task.FromResult(new Uri("https://rook.local/source.png"));
+    }
+
+    internal sealed class RecordingViewSetAssembler : IReconstructionViewSetAssembler
+    {
+        public bool Called { get; private set; }
+
+        public ReconstructionViewSetOutcome Assemble(ReconstructionViewSetRequest request)
+        {
+            Called = true;
+            // Create a real artifact so the handler's full envelope path succeeds.
+            var tmpRoot = Path.Combine(Path.GetTempPath(), $"rook-spy-{Guid.NewGuid():N}");
+            var store = new ArtifactStore(tmpRoot);
+            var artifact = store.Create(
+                ReconstructionArtifactKinds.ViewSet,
+                new[] { new BlobInput("front", new byte[] { 0xFF }, "png") });
+            return new ReconstructionViewSetOutcome(
+                true,
+                artifact,
+                new[] { "front", "left", "right", "back" },
+                new[] { "front" },
+                false,
+                System.Array.Empty<System.Collections.Generic.IReadOnlyDictionary<string, object?>>(),
+                null);
+        }
     }
 
     private const string CatalogJson = """
