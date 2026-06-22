@@ -331,6 +331,7 @@ public sealed class ReconstructionViewSetAssemblerTests : IDisposable
 
         Assert.False(outcome.Success);
         Assert.Equal("invalid_view_set", outcome.Failure!.Code);
+        Assert.Equal("unknown_slot", outcome.Failure.Details["reason"]);
         Assert.Equal(before, CountArtifacts(store));
     }
 
@@ -350,6 +351,8 @@ public sealed class ReconstructionViewSetAssemblerTests : IDisposable
 
         Assert.False(outcome.Success);
         Assert.Equal("invalid_view_set", outcome.Failure!.Code);
+        Assert.Equal("unknown_slot", outcome.Failure.Details["reason"]);
+        Assert.Equal("slots_expected", outcome.Failure.Field);
         Assert.Equal(before, CountArtifacts(store));
     }
 
@@ -369,6 +372,8 @@ public sealed class ReconstructionViewSetAssemblerTests : IDisposable
 
         Assert.False(outcome.Success);
         Assert.Equal("invalid_view_set", outcome.Failure!.Code);
+        Assert.Equal("duplicate_slot", outcome.Failure.Details["reason"]);
+        Assert.Equal("slots_expected", outcome.Failure.Field);
         Assert.Equal(before, CountArtifacts(store));
     }
 

@@ -147,14 +147,14 @@ public sealed record ReconstructionViewSetRequest(
             {
                 if (slotNode is null)
                 {
-                    failure = Fail("invalid_view_set", "'slots_expected' must be a string array.", "slots_expected", "null_slot_expected");
+                    failure = Fail("invalid_view_set", "'slots_expected' must be a string array.", "slots_expected", "null_slot");
                     return null;
                 }
                 string s;
                 try { s = slotNode.GetValue<string>(); }
                 catch
                 {
-                    failure = Fail("invalid_view_set", "'slots_expected' must be a string array.", "slots_expected", "non_string_slot_expected");
+                    failure = Fail("invalid_view_set", "'slots_expected' must be a string array.", "slots_expected", "non_string_slot");
                     return null;
                 }
                 slotsList.Add(s);

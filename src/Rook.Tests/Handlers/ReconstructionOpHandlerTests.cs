@@ -932,6 +932,8 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
         Assert.Equal(400, resp.HttpStatus);
         var data = (IDictionary<string, object?>)resp.Data!;
         Assert.Equal("invalid_view_set", data["code"]);
+        var details = (IReadOnlyDictionary<string, object?>)data["details"]!;
+        Assert.Equal("unknown_slot", details["reason"]);
     }
 
     [Fact]

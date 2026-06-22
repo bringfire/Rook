@@ -56,9 +56,9 @@ public sealed class ReconstructionViewSetAssembler : IReconstructionViewSetAssem
         foreach (var expectedSlot in slotsExpected)
         {
             if (!ReconstructionViewSlots.Allowed.Contains(expectedSlot))
-                return Fail("invalid_view_set", $"'slots_expected' contains unknown slot '{expectedSlot}'.", "slots_expected", "unknown_slot_expected");
+                return Fail("invalid_view_set", $"'slots_expected' contains unknown slot '{expectedSlot}'.", "slots_expected", "unknown_slot");
             if (!seenExpected.Add(expectedSlot))
-                return Fail("invalid_view_set", $"'slots_expected' contains duplicate slot '{expectedSlot}'.", "slots_expected", "duplicate_slot_expected");
+                return Fail("invalid_view_set", $"'slots_expected' contains duplicate slot '{expectedSlot}'.", "slots_expected", "duplicate_slot");
         }
 
         // ── 3. Validate views (guard: assembler defends against empty too) ──
