@@ -3397,7 +3397,7 @@ const Reconstruct = (() => {
         source = {
             artifact_id: artifact.artifact_id,
             role: "image",
-            previewSrc: `/blob/${artifact.artifact_id}/image`,
+            previewSrc: `/blob/${encodeURIComponent(artifact.artifact_id)}/image?ts=${Date.now()}`,
             label: (artifact.metadata && artifact.metadata.prompt) || artifact.kind || artifact.artifact_id,
         };
         switchView("reconstruct");
