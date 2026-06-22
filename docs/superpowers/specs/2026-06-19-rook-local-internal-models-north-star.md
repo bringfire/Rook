@@ -513,7 +513,8 @@ LM3A-H, before any live execution bridge was added. In the implemented campaign:
 - LM3A-H established template selection, binding, walking, verifier/projection
   primitives, role adoption, and the non-live
   `create -> verify -> repair -> reverify -> done` proof.
-- LM3I is now the next bridge slice: role-aware live evidence capture.
+- LM3I established the pure-dict live evidence bridge; the next work is live
+  dispatcher wiring and the runner/scheduler/eval harness.
 - What remains of "LM4" should be read as live PlanGraph execution: a production
   runner/evidence bridge/evaluation layer that consumes the proven graph
   semantics instead of inventing them.
@@ -802,7 +803,7 @@ work is live execution. Future work should not restart "LM4" by rebuilding the
 graph model. It should treat the existing PlanGraph semantics as the substrate
 and focus on the live boundary:
 
-- role-aware live evidence capture (LM3I);
+- role-aware live evidence capture (LM3I, landed at the pure-dict layer);
 - a production runner that executes ready nodes one at a time without asking the
   model to remember the workflow;
 - knowledge push / rolling-memory persistence at node boundaries;
