@@ -8,7 +8,10 @@ from pathlib import Path
 
 from rook.learning.plan_graph import PlanGraph, PlanGraphNode
 from rook.learning.plan_graph_templates import (
+    BindingSpec,
     TemplateEntry,
+    bind_parameters,
+    select_and_bind,
     select_template,
 )
 
@@ -234,3 +237,203 @@ def test_importing_templates_does_not_load_drive_or_heavy_modules():
         check=True,
         env=env,
     )
+
+
+def _bindable_graph() -> PlanGraph:
+    return PlanGraph(
+        nodes={"create_script": PlanGraphNode(id="create_script", intent="Create")}
+    )
+
+
+def test_bind_parameters_writes_memory_fact_and_node_metadata():
+    graph = _bindable_graph()
+    bindings = (
+        BindingSpec("goal", "memory_fact", "goal"),
+        BindingSpec(
+            "component_name", "node_metadata", "component_name", node_id="create_script"
+        ),
+    )
+
+    result = bind_parameters(
+        graph, bindings, {"goal": "make a box", "component_name": "BoxMaker"}
+    )
+
+    assert result.findings == ()
+    assert result.graph is not None
+    assert result.graph.memory.facts["goal"] == "make a box"
+    assert result.graph.nodes["create_script"].metadata["component_name"] == "BoxMaker"
+    # input graph unmutated
+    assert graph.memory.facts == {}
+    assert graph.nodes["create_script"].metadata == {}
+
+
+def test_bind_parameters_applies_all_bindings_in_order():
+    graph = _bindable_graph()
+    bindings = (
+        BindingSpec("a", "memory_fact", "a"),
+        BindingSpec("b", "memory_fact", "b"),
+    )
+
+    result = bind_parameters(graph, bindings, {"a": "1", "b": "2"})
+
+    assert result.findings == ()
+    assert result.graph.memory.facts == {"a": "1", "b": "2"}
+
+
+def test_bind_parameters_required_missing_returns_none_with_error():
+    graph = _bindable_graph()
+    bindings = (
+        BindingSpec(
+            "component_name",
+            "node_metadata",
+            "component_name",
+            node_id="create_script",
+            required=True,
+        ),
+    )
+
+    result = bind_parameters(graph, bindings, {})
+
+    assert result.graph is None
+    assert [f.code for f in result.findings] == ["missing_required_binding"]
+    assert result.findings[0].severity == "error"
+    assert result.findings[0].field == "component_name"
+
+
+def test_bind_parameters_optional_missing_skips_silently():
+    graph = _bindable_graph()
+    bindings = (BindingSpec("goal", "memory_fact", "goal"),)
+
+    result = bind_parameters(graph, bindings, {})
+
+    assert result.findings == ()
+    assert result.graph is not None
+    assert "goal" not in result.graph.memory.facts
+
+
+def test_bind_parameters_unknown_node_target_returns_none_with_error():
+    graph = _bindable_graph()
+    bindings = (BindingSpec("x", "node_metadata", "x", node_id="does_not_exist"),)
+
+    result = bind_parameters(graph, bindings, {"x": "v"})
+
+    assert result.graph is None
+    assert [f.code for f in result.findings] == ["unknown_binding_target"]
+
+
+def test_bind_parameters_node_metadata_without_node_id_returns_none_with_error():
+    graph = _bindable_graph()
+    bindings = (BindingSpec("x", "node_metadata", "x", node_id=None),)
+
+    result = bind_parameters(graph, bindings, {"x": "v"})
+
+    assert result.graph is None
+    assert [f.code for f in result.findings] == ["unknown_binding_target"]
+
+
+def test_bind_parameters_deepcopies_mutable_value():
+    graph = _bindable_graph()
+    payload = {"nested": ["a"]}
+    bindings = (BindingSpec("cfg", "memory_fact", "cfg"),)
+
+    result = bind_parameters(graph, bindings, {"cfg": payload})
+
+    # mutate the descriptor value AFTER binding
+    payload["nested"].append("b")
+    payload["added"] = True
+
+    assert result.graph.memory.facts["cfg"] == {"nested": ["a"]}
+
+
+def test_bind_parameters_copy_failure_returns_none_with_error():
+    class _Uncopyable:
+        def __deepcopy__(self, memo):
+            raise RuntimeError("nope")
+
+    graph = _bindable_graph()
+    bindings = (BindingSpec("cfg", "memory_fact", "cfg"),)
+
+    result = bind_parameters(graph, bindings, {"cfg": _Uncopyable()})
+
+    assert result.graph is None
+    assert [f.code for f in result.findings] == ["binding_value_copy_failed"]
+
+
+def test_bind_parameters_later_failure_discards_earlier_success():
+    # Watchpoint 1: a later failure must null the graph; no partial bind leaks.
+    graph = _bindable_graph()
+    bindings = (
+        BindingSpec("goal", "memory_fact", "goal"),  # would succeed
+        BindingSpec("missing", "memory_fact", "missing", required=True),  # fails
+    )
+
+    result = bind_parameters(graph, bindings, {"goal": "g"})
+
+    assert result.graph is None
+    assert [f.code for f in result.findings] == ["missing_required_binding"]
+
+
+def test_bind_parameters_reports_all_errors():
+    graph = _bindable_graph()
+    bindings = (
+        BindingSpec("a", "node_metadata", "a", node_id="nope"),  # unknown target
+        BindingSpec("b", "memory_fact", "b", required=True),  # required missing
+    )
+
+    result = bind_parameters(graph, bindings, {"a": "v"})
+
+    assert result.graph is None
+    assert sorted(f.code for f in result.findings) == [
+        "missing_required_binding",
+        "unknown_binding_target",
+    ]
+
+
+def test_select_and_bind_binds_only_binding_graph():
+    descriptor = {**_DESCRIPTOR, "component_name": "BoxMaker", "goal": "make a box"}
+
+    result = select_and_bind(descriptor)
+
+    assert result.binding is not None
+    assert result.binding.graph is not None
+    assert (
+        result.binding.graph.nodes["create_script"].metadata["component_name"]
+        == "BoxMaker"
+    )
+    assert result.binding.graph.memory.facts["goal"] == "make a box"
+    # Watchpoint 2: selection.graph stays UNBOUND
+    assert (
+        "component_name"
+        not in result.selection.graph.nodes["create_script"].metadata
+    )
+    assert "goal" not in result.selection.graph.memory.facts
+    # findings streams separate
+    assert [f.code for f in result.selection.findings] == ["template_selected"]
+    assert result.binding.findings == ()
+
+
+def test_select_and_bind_no_match_has_no_binding():
+    result = select_and_bind({**_DESCRIPTOR, "language": "python"})
+
+    assert result.binding is None
+    assert [f.code for f in result.selection.findings] == ["no_matching_template"]
+
+
+def test_bound_default_template_drives_to_complete_through_walker():
+    from rook.learning.plan_graph_walker import walk_plan_graph
+
+    descriptor = {**_DESCRIPTOR, "component_name": "BoxMaker"}
+    result = select_and_bind(descriptor)
+    graph = result.binding.graph
+    assert graph.nodes["create_script"].metadata["component_name"] == "BoxMaker"
+
+    report = walk_plan_graph(
+        graph,
+        [
+            ("create_script", _create_result()),
+            ("repair_same_component", _update_result()),
+        ],
+    )
+
+    assert report.final_graph_status == "complete"
+    assert report.halted is False
