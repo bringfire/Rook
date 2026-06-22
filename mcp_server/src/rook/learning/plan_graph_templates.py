@@ -254,6 +254,72 @@ def _build_gh_csharp_create_verify_repair() -> PlanGraph:
     )
 
 
+def _build_gh_csharp_create_verify_repair_verify() -> PlanGraph:
+    """Full linear RE-VERIFICATION CHAIN: create -> verify -> repair -> reverify -> done (LM3H).
+
+    NOT a retry loop -- the reducer unlocks only pending targets, so the chain runs
+    forward exactly once. create_script (artifact_producer) -> verify_create
+    (artifact_verifier) routes a created_with_errors receipt to repair via
+    on_repair; repair_same_component (artifact_producer, NOT terminal) produces a
+    usable artifact that verify_repair (artifact_verifier) confirms clean,
+    unlocking the terminal ``done`` marker. Terminal ``done`` means reverified clean.
+    """
+    return PlanGraph(
+        nodes={
+            "create_script": PlanGraphNode(
+                id="create_script",
+                intent="Create C# script component",
+                execution_ref="gh_create_csharp_script:v1",
+                verifier_ref="script_receipt_has_artifact_or_errors:v1",
+                repair_policy_ref="repair_same_component_once:v1",
+                metadata={"outcome_projection_role": "artifact_producer"},
+            ),
+            "verify_create": PlanGraphNode(
+                id="verify_create",
+                intent="Verify the created component's receipt",
+                verifier_ref="script_receipt_has_artifact_or_errors:v1",
+                metadata={"outcome_projection_role": "artifact_verifier"},
+            ),
+            "repair_same_component": PlanGraphNode(
+                id="repair_same_component",
+                intent="Repair the same component in place",
+                execution_ref="gh_update_script:v1",
+                repair_policy_ref="repair_same_component_once:v1",
+                metadata={"outcome_projection_role": "artifact_producer"},
+            ),
+            "verify_repair": PlanGraphNode(
+                id="verify_repair",
+                intent="Re-verify the repaired component's receipt",
+                verifier_ref="script_receipt_has_artifact_or_errors:v1",
+                metadata={"outcome_projection_role": "artifact_verifier"},
+            ),
+            "done": PlanGraphNode(
+                id="done",
+                intent="Finalize: artifact reverified clean",
+                is_terminal=True,
+            ),
+        },
+        edges=[
+            PlanGraphEdge(
+                source="create_script", target="verify_create", kind="requires"
+            ),
+            PlanGraphEdge(
+                source="verify_create",
+                target="repair_same_component",
+                kind="on_repair",
+            ),
+            PlanGraphEdge(
+                source="repair_same_component",
+                target="verify_repair",
+                kind="requires",
+            ),
+            PlanGraphEdge(
+                source="verify_repair", target="done", kind="requires"
+            ),
+        ],
+    )
+
+
 DEFAULT_REGISTRY: tuple[TemplateEntry, ...] = (
     _make_entry(
         "gh_csharp_create_repair",
@@ -281,6 +347,24 @@ DEFAULT_REGISTRY: tuple[TemplateEntry, ...] = (
             "language": "csharp",
         },
         _build_gh_csharp_create_verify_repair,
+        bindings=(
+            BindingSpec("goal", "memory_fact", "goal"),
+            BindingSpec(
+                "component_name",
+                "node_metadata",
+                "component_name",
+                node_id="create_script",
+            ),
+        ),
+    ),
+    _make_entry(
+        "gh_csharp_create_verify_repair_verify",
+        {
+            "domain": "grasshopper",
+            "operation": "create_verify_repair_verify",
+            "language": "csharp",
+        },
+        _build_gh_csharp_create_verify_repair_verify,
         bindings=(
             BindingSpec("goal", "memory_fact", "goal"),
             BindingSpec(

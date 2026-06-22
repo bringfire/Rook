@@ -9,9 +9,11 @@ from pathlib import Path
 
 from rook.learning.plan_graph import (
     NodeEvidence,
+    NodeOutcome,
     PlanGraph,
     PlanGraphEdge,
     PlanGraphNode,
+    apply_outcome,
     graph_status,
     initialize_graph,
 )
@@ -358,4 +360,67 @@ def test_create_verify_repair_end_to_end_non_live():
     assert graph.nodes["repair_same_component"].status == "succeeded"
 
     # 4. terminal repair succeeded -> graph complete
+    assert graph_status(graph) == "complete"
+
+
+def _usable_receipt(component_guid="g1"):
+    return {
+        "artifact_status": "usable",
+        "mutation": {"status": "updated", "component_guid": component_guid},
+    }
+
+
+def test_create_verify_repair_verify_chain_end_to_end_non_live():
+    descriptor = {
+        "domain": "grasshopper",
+        "operation": "create_verify_repair_verify",
+        "language": "csharp",
+    }
+    bound = select_and_bind(descriptor)
+    graph = bound.binding.graph
+    assert graph is not None
+
+    # initialize_graph EXACTLY ONCE, before any step, never after mutation
+    graph = initialize_graph(graph)
+    assert graph.nodes["create_script"].status == "ready"
+
+    # 1. producer step: create_script (created_with_errors -> succeeded)
+    graph.nodes["create_script"].evidence = _evidence(_created_with_errors_receipt())
+    pr = apply_producer_step(graph, "create_script")
+    assert pr.applied and pr.outcome_status == "succeeded"
+    graph = pr.graph
+    assert graph.nodes["create_script"].evidence.verified is False
+    assert graph.nodes["verify_create"].status == "ready"
+
+    # 2. verifier step: verify_create -> needs_repair, unlocks repair via on_repair
+    vr = apply_verifier_step(graph, "verify_create", "create_script")
+    assert vr.applied and vr.outcome_status == "needs_repair"
+    graph = vr.graph
+    assert graph.nodes["repair_same_component"].status == "ready"
+
+    # 3. REPAIR-AS-PRODUCER (apply_producer_step, NOT apply_tool_result):
+    #    inject usable evidence, drive via the producer primitive.
+    graph.nodes["repair_same_component"].evidence = _evidence(_usable_receipt())
+    rp = apply_producer_step(graph, "repair_same_component")
+    assert rp.applied and rp.outcome_status == "succeeded"
+    graph = rp.graph
+    assert graph.nodes["repair_same_component"].evidence.verified is True   # repair-as-producer
+    assert graph.nodes["verify_repair"].status == "ready"                   # requires unlock
+
+    # 4. second verifier step: verify_repair -> succeeded (usable), unlocks done
+    vr2 = apply_verifier_step(graph, "verify_repair", "repair_same_component")
+    assert vr2.applied and vr2.outcome_status == "succeeded"
+    graph = vr2.graph
+    assert graph.nodes["done"].status == "ready"
+
+    # 5. finalize done with an EXPLICIT test outcome (no receipt, no bridge)
+    assert graph.nodes["done"].status == "ready"   # watchpoint: ready BEFORE finalize
+    graph = apply_outcome(
+        graph,
+        "done",
+        NodeOutcome(status="succeeded", message="done: reverified clean"),
+    )
+    assert graph.nodes["done"].status == "succeeded"
+
+    # 6. terminal done succeeded -> graph complete
     assert graph_status(graph) == "complete"
