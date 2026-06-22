@@ -476,6 +476,14 @@ BRIDGE_ROUTES: Dict[str, Tuple[str, str]] = {
     # construction and parity with server.call_tool.
     "rhino_2d_to_3d_submit": ("/reconstruction/2d-to-3d/jobs", "POST"),
     "rhino_2d_to_3d_import": ("/reconstruction/2d-to-3d/import", "POST"),
+
+    # --- Scene Graph (agent bridge access; endpoints mirror the pure call_rhino
+    # handlers in server._call_tool_dispatch so the agent path and MCP path hit
+    # the identical Rhino route). See #303. scene_graph/context/stats stay parked
+    # in LOCAL_TIER_0_DISPATCH_EXCLUSIONS by separate decision.
+    "scene_query":    ("/scene/graph/query", "POST"),
+    "scene_classify": ("/scene/graph/classify", "POST"),
+    "scene_overlay":  ("/scene/graph/overlay", "POST"),
 }
 
 
