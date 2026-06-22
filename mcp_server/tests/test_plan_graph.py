@@ -638,6 +638,28 @@ def test_needs_repair_without_unlocked_repair_edge_is_not_running():
     assert graph_status(graph) == "blocked"
 
 
+def test_graph_status_empty_graph_falls_back_to_blocked():
+    # Residual state for the catch-all final return: no nodes at all. No earlier
+    # branch fires (nothing to escalate / terminate / run / fail / block), so the
+    # trailing fallback must return "blocked" -- not fall through to None.
+    assert graph_status(PlanGraph()) == "blocked"
+
+
+def test_graph_status_all_succeeded_no_terminal_falls_back_to_blocked():
+    # Residual state for the catch-all final return: every node is succeeded /
+    # skipped but none is declared terminal, so "complete" cannot fire and no node
+    # is blocked/pending/needs_repair. The trailing fallback returns "blocked".
+    graph = PlanGraph(
+        nodes={
+            "a": PlanGraphNode(id="a", intent="A", status="succeeded"),
+            "b": PlanGraphNode(id="b", intent="B", status="skipped"),
+        },
+    )
+
+    assert runnable_nodes(graph) == []
+    assert graph_status(graph) == "blocked"
+
+
 @pytest.mark.parametrize("bad_status", ["pending", "ready", "running"])
 def test_node_outcome_rejects_administrative_statuses(bad_status):
     with pytest.raises(ValueError, match="not an outcome state"):
