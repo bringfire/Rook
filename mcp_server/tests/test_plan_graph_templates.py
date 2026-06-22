@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from rook.learning.plan_graph import PlanGraph, PlanGraphNode
+from rook.learning.plan_graph_projection import OUTCOME_PROJECTION_ROLE_KEY
 from rook.learning.plan_graph_templates import (
     BindingSpec,
     TemplateEntry,
@@ -437,3 +438,58 @@ def test_bound_default_template_drives_to_complete_through_walker():
 
     assert report.final_graph_status == "complete"
     assert report.halted is False
+
+
+_CREATE_REPAIR = {"domain": "grasshopper", "operation": "create_repair", "language": "csharp"}
+_CREATE_VERIFY_REPAIR = {
+    "domain": "grasshopper",
+    "operation": "create_verify_repair",
+    "language": "csharp",
+}
+
+
+def test_select_create_verify_repair():
+    sel = select_template(_CREATE_VERIFY_REPAIR)
+    assert sel.selected_template_id == "gh_csharp_create_verify_repair"
+
+
+def test_select_create_repair_still_selects_two_node():
+    sel = select_template(_CREATE_REPAIR)
+    assert sel.selected_template_id == "gh_csharp_create_repair"
+
+
+def test_registry_disjoint_via_evaluation_trail():
+    # canonical create_repair -> verify template mismatches on `operation`
+    sel = select_template(_CREATE_REPAIR)
+    assert sel.selected_template_id == "gh_csharp_create_repair"
+    other = next(
+        e for e in sel.evaluations if e.template_id == "gh_csharp_create_verify_repair"
+    )
+    assert not other.matched
+    op = next(c for c in other.criteria if c.field == "operation")
+    assert op.outcome == "value_mismatch"
+
+    # canonical create_verify_repair -> 2-node template mismatches on `operation`
+    sel2 = select_template(_CREATE_VERIFY_REPAIR)
+    assert sel2.selected_template_id == "gh_csharp_create_verify_repair"
+    other2 = next(
+        e for e in sel2.evaluations if e.template_id == "gh_csharp_create_repair"
+    )
+    assert not other2.matched
+    op2 = next(c for c in other2.criteria if c.field == "operation")
+    assert op2.outcome == "value_mismatch"
+
+
+def test_template_role_metadata_pinned_to_projection_constant():
+    graph = select_template(_CREATE_VERIFY_REPAIR).graph
+    assert graph.nodes["create_script"].metadata[OUTCOME_PROJECTION_ROLE_KEY] == "artifact_producer"
+    assert graph.nodes["verify_create"].metadata[OUTCOME_PROJECTION_ROLE_KEY] == "artifact_verifier"
+
+
+def test_create_verify_repair_topology():
+    graph = select_template(_CREATE_VERIFY_REPAIR).graph
+    assert set(graph.nodes) == {"create_script", "verify_create", "repair_same_component"}
+    assert graph.nodes["repair_same_component"].is_terminal is True
+    kinds = {(e.source, e.target): e.kind for e in graph.edges}
+    assert kinds[("create_script", "verify_create")] == "requires"
+    assert kinds[("verify_create", "repair_same_component")] == "on_repair"
