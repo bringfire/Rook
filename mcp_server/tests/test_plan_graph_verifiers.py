@@ -202,7 +202,7 @@ def test_verifiers_module_imports_only_plan_graph_layer():
     }
     assert rook_or_relative == {
         "rook.learning.plan_graph",
-        "rook.learning.plan_graph_outcomes",
+        "rook.learning.plan_graph_projection",
     }
     assert "rook.agent.tool_dispatcher" not in imports
     assert "rook.learning.plan_graph_walker" not in imports
