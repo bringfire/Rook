@@ -29,7 +29,7 @@ VisionWebSurface.HandleReconstructionBridgeCallAsync   [import_package routed AS
 ReconstructionOpHandler.DispatchAsync   [new import_package case — keeps reconstruction-domain routing out of the web surface; thin adapter, NOT an importer]
         ▼
 NativeReconstructionImportClient  (injected; the ONLY component that does loopback)
-        │  1. discover active native endpoint (port) — pluginType "native" AND rhinoProcessId == current process
+        │  1. discover active native endpoint (port) — pluginType "native" AND processId == current process
         │  2. HTTP POST {package_id} to the FIXED route /reconstruction/2d-to-3d/import (no arbitrary URL)
         ▼
 Native importer (UNCHANGED)  —  RunScript _-Import + diff + layer + user-text + record + cleanup
@@ -76,7 +76,7 @@ response { package_id, asset_role (RESOLVED), path, imported_ids[], associated }
 - **Native route (unchanged):** `POST /reconstruction/2d-to-3d/import`, body `{ package_id, targetLayer?, assetRole? }`. This slice sends only `package_id`.
 
 ## 6. Error handling
-- **No matching native endpoint** (discovery empty/ambiguous, or no `rhinoProcessId` match) → `native_unavailable` structured failure; **no import attempted**; UI shows the message.
+- **No matching native endpoint** (discovery empty/ambiguous, or no `processId` match) → `native_unavailable` structured failure; **no import attempted**; UI shows the message.
 - **Loopback transport fault / native non-2xx** → propagate native `{code,message}` if present, else `import_failed`; UI status shows it.
 - **Association failure is NOT a success today.** Native sets `wr.success = associated`; when user-string association fails it records history and then returns a structured **`association_failed` failure** (HTTP 500, `success:false`) — *not* a 2xx success. The client maps it to a bridge failure and the UI shows the structured native message. `details` may carry the imported ids, but the UI must **not** present it as a clean import unless/until native changes that contract.
 - **Off-UI invariant** is a *correctness* guard, not a runtime check — enforced by the routing classification + its test.
