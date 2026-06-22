@@ -5,7 +5,7 @@ from rook.agent.chat.tool_result_view import ToolResultView, normalize_tool_resu
 from rook.learning.plan_graph import NodeEvidence, NodeOutcome
 
 
-_ARTIFACT_STATUS_TO_OUTCOME = {
+ARTIFACT_STATUS_TO_OUTCOME = {
     "usable": "succeeded",
     "created_with_errors": "needs_repair",
     "written_with_errors": "needs_repair",
@@ -58,7 +58,7 @@ def _repair_anchor(receipt: dict[str, Any] | None) -> dict[str, Any] | None:
 
 def _outcome_status(view: ToolResultView, receipt: dict[str, Any] | None) -> str:
     artifact_status = _artifact_status(receipt)
-    mapped = _ARTIFACT_STATUS_TO_OUTCOME.get(artifact_status)
+    mapped = ARTIFACT_STATUS_TO_OUTCOME.get(artifact_status)
     if mapped is not None:
         return mapped
     return _TOOL_STATUS_TO_OUTCOME.get(view.status, "blocked")
