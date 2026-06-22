@@ -23,10 +23,12 @@ Add a one-click **Import to Rhino** button to the Reconstruct view that imports 
 
 ```
 Reconstruct view  ──window.rookBridge.invoke("reconstruction",{op:"import_package",package_id})──▶
-VisionWebSurface.HandleReconstructionBridgeCallAsync   [import_package routed ASYNC, through DispatchWithTimeoutAsync, domainLabel "Reconstruction"]
+VisionWebSurface.HandleReconstructionBridgeCallAsync   [import_package routed ASYNC through DispatchWithTimeoutAsync, domainLabel "Reconstruction"]
         │  (runs OFF the UI thread — the deadlock invariant)
         ▼
-NativeReconstructionImportClient  (managed; the ONLY component that does loopback)
+ReconstructionOpHandler.DispatchAsync   [new import_package case — keeps reconstruction-domain routing out of the web surface; thin adapter, NOT an importer]
+        ▼
+NativeReconstructionImportClient  (injected; the ONLY component that does loopback)
         │  1. discover active native endpoint (port) — pluginType "native" AND rhinoProcessId == current process
         │  2. HTTP POST {package_id} to the FIXED route /reconstruction/2d-to-3d/import (no arbitrary URL)
         ▼
@@ -44,17 +46,17 @@ response { package_id, asset_role (RESOLVED), path, imported_ids[], associated }
 ## 4. Components
 
 ### 4.1 `NativeReconstructionImportClient` (new, managed) — the narrow adapter
-- **Endpoint discovery:** read native discovery file(s) from `RookPaths.SharedDiscoveryFolder` (fallback `DiscoveryFolder`); select the entry with `pluginType == "native"` **AND `rhinoProcessId == current Rhino process id`**. This filter is load-bearing: in a multi-Rhino setup it prevents looping back into a *different* instance's native server. If no matching entry → structured failure (`native_unavailable`), **no import attempted**.
+- **Endpoint discovery:** read native discovery file(s) from `RookPaths.SharedDiscoveryFolder` (fallback `DiscoveryFolder`); select the entry with `pluginType == "native"` **AND `processId == Process.GetCurrentProcess().Id`** (the native discovery file's field is **`processId`**, not `rhinoProcessId`; native and companion share the OS process, so the current process id matches). This filter is load-bearing: in a multi-Rhino setup it prevents looping back into a *different* instance's native server. If no matching entry → structured failure (`native_unavailable`), **no import attempted**.
 - **Request:** HTTP POST to the **fixed** path `/reconstruction/2d-to-3d/import` on the discovered `127.0.0.1:{port}` with body `{ "package_id": "<guid>" }` only. No arbitrary URL, no other routes.
-- **Response mapping:** on 2xx, return the native JSON (`package_id, job_id?, asset_role, path, imported_ids[], associated`). On non-2xx or transport fault, return a structured failure carrying the native `{code,message}` when present, else a generic `import_failed`/`native_unavailable`.
+- **Response mapping (the native route uses its own `{success,data}` envelope):** parse the native JSON; **require `success == true`** and return the inner **`data`** object (`package_id, job_id?, asset_role, path, imported_ids[], associated`) as the op payload — do **not** double-wrap the native envelope. If `success == false` (e.g. `association_failed`, see §6) or non-2xx, return a structured failure carrying the native `data.{code,message,details}` when present; on transport fault / no endpoint, `native_unavailable`.
 - **Auth isolation:** the no-auth reliance lives *only* here. (Today the native server enforces no bearer/token auth on `127.0.0.1` routes — verified on `ee74eca1`.)
 - Injected `HttpClient` for testability (fake transport in tests).
 
-### 4.2 Bridge op `import_package` (in `VisionWebSurface.HandleReconstructionBridgeCallAsync`)
-- New op `"import_package"`, classified **async/off-UI**, routed through `DispatchWithTimeoutAsync(op, AsyncOpTimeout, ct => importClient.ImportAsync(packageId, ct), domainLabel: "Reconstruction")`.
-- It does **not** go to `ReconstructionOpHandler.DispatchAsync` (that handler has no import op and must not gain one — import is native). It calls `NativeReconstructionImportClient` directly.
-- Parses `package_id` from the bridge args; missing/invalid → structured `invalid_request` failure (no loopback).
-- The client is reached via a shared singleton (e.g. `RookSubsystemRoot`), consistent with how the other reconstruction dependencies are wired.
+### 4.2 Bridge op `import_package` — routed through `ReconstructionOpHandler`
+- `VisionWebSurface.HandleReconstructionBridgeCallAsync` routes the new op `"import_package"` **async/off-UI** through `DispatchWithTimeoutAsync(op, AsyncOpTimeout, ct => RookSubsystemRoot.Instance.Reconstruction.DispatchAsync(body, ct), domainLabel: "Reconstruction")` — the **same async lane** the existing reconstruction async ops use. The web surface stays thin; reconstruction-domain routing lives in the handler.
+- `ReconstructionOpHandler.DispatchAsync` gains an `import_package` case that delegates to an **injected `NativeReconstructionImportClient`**. The handler *does* gain an `import_package` op, but **no importer** — it is a thin adapter to the native route; native remains authoritative.
+- `package_id` parsing: missing/invalid → structured `invalid_request` failure (no loopback). Reuse the handler's existing GUID/arg validation.
+- The client is injected into `ReconstructionOpHandler` via the shared `RookSubsystemRoot` wiring, consistent with the catalog/manager/store dependencies.
 
 ### 4.3 Reconstruct view UI (`app.js`, `index.html`, `styles.css`)
 - **Import button** in the result panel (`#reconstruct-result-panel`), shown when a completed package is loaded (fresh job completion *or* a job-history click that loaded `job_result`).
@@ -69,23 +71,23 @@ response { package_id, asset_role (RESOLVED), path, imported_ids[], associated }
 ## 5. Contracts
 
 - **Bridge request:** `{ op: "import_package", package_id: "<guid>" }`
-- **Bridge success:** native response object `{ package_id, job_id?, asset_role, path, imported_ids[], associated }` (passed through `{success:true, data:…}` by the bridge envelope).
+- **Bridge success:** the **unwrapped inner `data`** from the native envelope — `{ package_id, job_id?, asset_role, path, imported_ids[], associated }` — re-wrapped once by the bridge as `{success:true, data:…}`. The client strips the native `{success,data}` first, so the UI reads `asset_role`/`imported_ids` at the top level of the bridge `data`, not nested twice.
 - **Bridge failure:** `{success:false, data:{ code, message, ... }}` — unwrapped by the existing `reconstructionBridgeCall` into `errorToText`.
 - **Native route (unchanged):** `POST /reconstruction/2d-to-3d/import`, body `{ package_id, targetLayer?, assetRole? }`. This slice sends only `package_id`.
 
 ## 6. Error handling
 - **No matching native endpoint** (discovery empty/ambiguous, or no `rhinoProcessId` match) → `native_unavailable` structured failure; **no import attempted**; UI shows the message.
 - **Loopback transport fault / native non-2xx** → propagate native `{code,message}` if present, else `import_failed`; UI status shows it.
-- **`associated == false`** in a 2xx response (objects imported but user-string association failed) — treat as success for the count/role copy, but surface the native message if it carries `association_error`. (Native already decides success vs failure; the UI faithfully reflects the response.)
+- **Association failure is NOT a success today.** Native sets `wr.success = associated`; when user-string association fails it records history and then returns a structured **`association_failed` failure** (HTTP 500, `success:false`) — *not* a 2xx success. The client maps it to a bridge failure and the UI shows the structured native message. `details` may carry the imported ids, but the UI must **not** present it as a clean import unless/until native changes that contract.
 - **Off-UI invariant** is a *correctness* guard, not a runtime check — enforced by the routing classification + its test.
 
 ## 7. Testing strategy
-- **Routing invariant (C# source assertion, like slice-1 Task 1):** assert `import_package` is classified async/off-UI in `HandleReconstructionBridgeCallAsync` — i.e. it is routed through `DispatchWithTimeoutAsync` (and is **not** in any UI/off-UI-sync dispatch branch). A future edit that makes it UI-thread fails this test. This is the deadlock gate.
+- **Routing invariant (C# source assertion, like slice-1 Task 1):** assert `import_package` is async/off-UI — `HandleReconstructionBridgeCallAsync` routes it through `DispatchWithTimeoutAsync` into `Reconstruction.DispatchAsync` (the async lane), and it is **not** in any UI/off-UI-sync branch. A future edit that makes it UI-thread fails this test. This is the deadlock gate.
 - **Native-import client request/response mapping (C# unit, fake `HttpClient`/transport):**
   - POSTs only to the fixed `/reconstruction/2d-to-3d/import` path with body `{package_id}` (assert no other route, no arbitrary URL).
-  - 2xx → returns `asset_role`/`imported_ids` faithfully.
-  - non-2xx with native `{code,message}` → mapped structured failure; transport fault → `native_unavailable`/`import_failed`.
-- **Discovery selection (C# unit) — load-bearing:** given multiple native discovery entries, selects the one whose `rhinoProcessId == current process`; rejects entries for other PIDs; missing/ambiguous → `native_unavailable` (no endpoint returned). Multi-Rhino must never select the wrong server.
+  - native `{success:true, data:{asset_role, imported_ids,…}}` → **unwraps** and returns `data` (assert no double-wrap; `asset_role` at the top level of the result).
+  - native `{success:false, data:{code:"association_failed",…}}` or non-2xx → mapped structured failure; transport fault / no endpoint → `native_unavailable`.
+- **Discovery selection (C# unit) — load-bearing:** given multiple native discovery entries, selects the one whose **`processId == Process.GetCurrentProcess().Id`**; rejects entries for other PIDs; missing/ambiguous → `native_unavailable` (no endpoint returned). Multi-Rhino must never select the wrong server. (Field is `processId`, **not** `rhinoProcessId`.)
 - **JS panel-dark gate** (per slice-1 discipline): `node --check`, no duplicate IDs, every Reconstruct-module `$()` id exists in `index.html`, no stale symbols.
 - **Manual Rhino smoke (merge gate):** deploy the managed build (Release → DeployToRhino), open Reconstruct, load a completed package, click **Import to Rhino** → objects appear in the active doc, status reads "Imported N object(s) as model_obj", re-import duplicates. Failure path: stop the native server / force a bad package id → structured failure shown.
 - Full managed suite green (`dotnet test -c Debug`).
@@ -99,7 +101,7 @@ response { package_id, asset_role (RESOLVED), path, imported_ids[], associated }
 - **C2 in-process P/Invoke convergence** and the broader **Approach A managed-importer migration** — a separate "native import API convergence" slice if still wanted after this ships.
 
 ## 9. Verify-before-relying checklist (carried into the plan)
-1. Native discovery file **schema** — exact field names for `port`, `pluginType`, `rhinoProcessId` — confirm against the native discovery writer in `RookServer.cpp` before the client parses them.
-2. The native import **response** field names (`asset_role`, `imported_ids`, `associated`, `path`) — confirm against `ImportExportHandler.cpp` (verified on `ee74eca1`; re-confirm on the build base).
-3. How the bridge handler obtains the `NativeReconstructionImportClient` singleton (`RookSubsystemRoot` wiring), mirroring existing reconstruction dependency wiring.
+1. Native discovery file **schema CONFIRMED** (`RookServer.cpp:2238-2244`): `host`, `port`, `pluginType:"native"`, **`processId`** (= `GetCurrentProcessId()`), `startTime`, `pluginVersion`. Client matches `pluginType=="native"` AND `processId == Process.GetCurrentProcess().Id`. (`rhinoProcessId` is a *chat/MCP* discovery field — NOT in the native file.)
+2. Native import **envelope CONFIRMED** (`ImportExportHandler.cpp`): success = `{success:true, data:{package_id, asset_role, path, imported_ids[], associated}}` (HTTP 200, line ~614); association failure = structured `association_failed` (`success:false`, HTTP 500). Re-confirm on the build base.
+3. `NativeReconstructionImportClient` is injected into `ReconstructionOpHandler` via `RookSubsystemRoot`, mirroring the catalog/manager/store wiring; `VisionWebSurface` just routes `import_package` into the existing async lane.
 4. `DispatchWithTimeoutAsync` + `domainLabel` reuse (from slice 1) is intact on the base.
