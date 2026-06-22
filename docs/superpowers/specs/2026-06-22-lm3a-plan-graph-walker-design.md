@@ -147,10 +147,13 @@ in the report (goal 4).
       `graph_status_after`, deep-copied `memory_facts` snapshot, and
       `EvidenceSummary` built from the node's post-apply `evidence` (or `None` if
       the node has no evidence).
-   d. **Terminal stop** — if `graph_status_after not in {"pending", "running"}`
-      (i.e. `complete` / `failed` / `needs_escalation` / `blocked`): set
-      `halted=True`, `halt_reason="terminal_status"`, stash remaining steps,
-      **stop**.
+   d. **Terminal stop** — halt when `graph_status_after` is terminal, with one
+      exception for clean completion: `failed` / `blocked` / `needs_escalation`
+      **always** halt (`halt_reason="terminal_status"`); `complete` halts **only
+      if unprocessed steps remain** (an early stop that surfaces the leftover
+      tail). `complete` reached on the *last* step with no steps left is a
+      successful natural exit, **not** a halt (`halted=False`,
+      `halt_reason=None`). When halting, stash remaining steps, **stop**.
 3. Fill `final_*`, `nodes_needing_*`, and (if the loop ran to completion without
    halting) `halted=False`, `halt_reason=None`, `remaining_steps=()`.
 
@@ -159,10 +162,14 @@ in the report (goal 4).
 - **A — invalid step halts (does not skip).** An out-of-order step means the
   caller's script disagrees with reducer state; skipping would require scheduling
   judgment. Record it and stop.
-- **B — terminal set = everything except `{pending, running}`.** `blocked` halts
-  too: the walker has no policy for unblocking, and later steps could not be
-  runnable anyway. This yields a clean `halt_reason="terminal_status"` rather than
-  a misleading `invalid_step` on the next step.
+- **B — terminal status halts, except clean completion on the last step.**
+  `failed` / `blocked` / `needs_escalation` always halt: the walker has no policy
+  for unblocking, and later steps could not be runnable anyway, so this yields a
+  clean `halt_reason="terminal_status"` rather than a misleading `invalid_step` on
+  the next step. `complete` is the one terminal that represents success: reaching
+  it with no steps left is a natural exit (`halted=False`), while reaching it with
+  steps still queued is an early halt (`halt_reason="terminal_status"`) that
+  surfaces the unprocessed tail. (Implemented as the `_is_halt_status` helper.)
 - **C — report carries `final_graph`.** Keeps the walker composable (LM3B feeds a
   birth-seam graph in; a consumer reads the result out) while staying pure data.
 

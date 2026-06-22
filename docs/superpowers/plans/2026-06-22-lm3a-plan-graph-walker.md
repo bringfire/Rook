@@ -14,7 +14,7 @@
 - **State authority stays in LM1E.** Readiness computed ONLY via `runnable_nodes(graph)`; never re-derive readiness from edges. All transitions go ONLY through `apply_tool_result`.
 - **No receipt inspection.** `EvidenceSummary` reads only top-level `NodeEvidence` fields (`tool_status`, `verified`, `repair_anchor` presence, `message`, `error`) — never `evidence.receipt` internals.
 - **Decision A:** an invalid step (named node not currently runnable) HALTS, not skips.
-- **Decision B:** terminal = any `graph_status` not in `{"pending", "running"}` (so `complete`/`failed`/`needs_escalation`/`blocked` all halt).
+- **Decision B:** terminal status halts, with one exception for clean completion. `failed`/`blocked`/`needs_escalation` always halt; `complete` halts only if unprocessed steps remain (clean completion on the last step is a natural exit, `halted=False`). Implemented as the `_is_halt_status(gstatus, has_remaining_steps)` helper.
 - **Decision C:** the report carries `final_graph`.
 - **`reason`** distinguishes `"unknown_node"` (node absent from graph) vs `"node_not_runnable"` (present but not `ready`).
 - **`remaining_steps` watchpoint:** store the unprocessed tuple tail AS-IS (`tuple(steps[i+1:])`) — no deep-copy, no serialization (raw results are arbitrary `Any` and may be non-copyable). `memory_facts` snapshots, by contrast, ARE deep-copied.
