@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -59,9 +60,12 @@ namespace Rook.Services.Reconstruction
         /// <summary>
         /// Pure selection: the native (<c>pluginType=="native"</c>) discovery entry whose
         /// <c>processId</c> matches THIS OS process (native + companion share the process).
-        /// Load-bearing multi-Rhino safety gate. Exactly one native endpoint per process is
-        /// expected; 0 matches, or an ambiguous &gt;1 (stale/duplicate files for this PID),
-        /// fails closed (caller maps to <c>native_unavailable</c>) rather than guessing.
+        /// Load-bearing multi-Rhino safety gate. Only loopback hosts are accepted (the
+        /// "no arbitrary URL" invariant, pinned at discovery). Exactly one native endpoint
+        /// per process is expected; 0 matches, or an ambiguous &gt;1 DISTINCT endpoint for
+        /// this PID, fails closed (caller maps to <c>native_unavailable</c>) rather than
+        /// guessing. The same endpoint mirrored into shared + legacy folders is deduped
+        /// (it is not ambiguity).
         /// </summary>
         public static int? SelectNativePort(IEnumerable<JsonObject> docs, int currentProcessId)
         {
@@ -70,12 +74,20 @@ namespace Rook.Services.Reconstruction
             {
                 if (!string.Equals(ReadString(doc, "pluginType"), "native", StringComparison.Ordinal)) continue;
                 if (ReadInt(doc, "processId") != currentProcessId) continue;
+                if (!IsLoopbackHost(ReadString(doc, "host"))) continue;   // never loop back to a non-local host
                 var port = ReadInt(doc, "port");
                 if (port is > 0) ports.Add(port.Value);
             }
 
-            return ports.Count == 1 ? ports[0] : (int?)null;
+            // Dedupe identical endpoints (same record mirrored across shared + legacy folders).
+            // Ambiguity = two DIFFERENT ports for this PID → fail closed.
+            var distinct = ports.Distinct().ToList();
+            return distinct.Count == 1 ? distinct[0] : (int?)null;
         }
+
+        private static bool IsLoopbackHost(string? host)
+            => string.Equals(host, "127.0.0.1", StringComparison.Ordinal)
+               || string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase);
 
         private static string? ReadString(JsonObject obj, string key)
             => obj.TryGetPropertyValue(key, out var n) && n is JsonValue v && v.TryGetValue<string>(out var s) ? s : null;

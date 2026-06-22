@@ -6,12 +6,12 @@ namespace Rook.Tests.Services.Reconstruction
 {
     public class NativeEndpointSelectionTests
     {
-        private static JsonObject Doc(string pluginType, int processId, int port) => new()
+        private static JsonObject Doc(string pluginType, int processId, int port, string host = "127.0.0.1") => new()
         {
             ["pluginType"] = pluginType,
             ["processId"] = processId,
             ["port"] = port,
-            ["host"] = "127.0.0.1",
+            ["host"] = host,
         };
 
         [Fact]
@@ -37,9 +37,26 @@ namespace Rook.Tests.Services.Reconstruction
         [Fact]
         public void Ambiguous_Same_Process_Native_Entries_Return_Null()
         {
-            // Two native entries for THIS pid (stale/duplicate) — fail closed, don't guess.
+            // Two DIFFERENT native endpoints for THIS pid (stale/conflict) — fail closed, don't guess.
             var docs = new[] { Doc("native", 4242, 51000), Doc("native", 4242, 52000) };
             Assert.Null(NativeEndpointResolver.SelectNativePort(docs, currentProcessId: 4242));
+        }
+
+        [Fact]
+        public void Rejects_NonLoopback_Host()
+        {
+            // "no arbitrary URL" pinned at discovery: a native+current-pid record with a
+            // non-loopback host must NOT be selected.
+            var docs = new[] { Doc("native", 4242, 51000, host: "evil.example.com") };
+            Assert.Null(NativeEndpointResolver.SelectNativePort(docs, currentProcessId: 4242));
+        }
+
+        [Fact]
+        public void Duplicate_Identical_Entries_Resolve_Not_Ambiguous()
+        {
+            // Same endpoint mirrored into shared + legacy discovery folders — dedupe, resolve.
+            var docs = new[] { Doc("native", 4242, 51000), Doc("native", 4242, 51000) };
+            Assert.Equal(51000, NativeEndpointResolver.SelectNativePort(docs, currentProcessId: 4242));
         }
     }
 }
