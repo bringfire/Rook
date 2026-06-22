@@ -144,24 +144,39 @@ supply enough structure is diagnosable separately from supplying wrong values.
 
 ## First (only) registered template
 
-`gh_csharp_create_repair` — the canonical, already-proven GH C# create-repair
-loop (the exact node/edge shape used in `test_plan_graph.py::_gh_script_repair_fixture`
-and exercised end-to-end by LM3A/LM1G):
+`gh_csharp_create_repair` — the GH C# create-repair loop that LM3A proved
+**end-to-end through the LM1G bridge** (`test_plan_graph_bridge.py::
+test_canned_create_repair_loop_reaches_complete_through_bridge`).
 
-- Nodes: `create_script` (`execution_ref="gh_create_csharp_script:v1"`,
-  `verifier_ref="script_receipt_has_artifact_or_errors:v1"`,
-  `repair_policy_ref="repair_same_component_once:v1"`, `metadata` contract hints),
-  `verify_receipt` (verifier_ref), `repair_same_component`
-  (`execution_ref="gh_update_script:v1"`, repair_policy_ref), `verify_clean`
-  (verifier_ref), `done` (`is_terminal=True`).
-- Edges: `create_script → verify_receipt` (requires); `verify_receipt →
-  repair_same_component` (on_repair); `repair_same_component → verify_clean`
-  (requires); `verify_clean → done` (requires); `verify_receipt → done`
-  (on_success).
+**Why this 2-node `on_repair` shape, not a verifier-mediated 5-node shape:** the
+LM1G adapter maps a `created_with_errors` receipt directly to `needs_repair` at
+the *create* node. A richer `create → verify_receipt → repair → verify_clean →
+done` template uses `requires` edges that only unlock on `succeeded`, so when the
+walker drives it through the bridge the create node lands `needs_repair` and the
+`requires` edge to `verify_receipt` never unlocks — the walk stalls `blocked`,
+never `complete`. (That 5-node fixture is only drivable via `apply_outcome` with
+hand-chosen statuses, not the bridge.) The bridge-drivable create-repair loop is
+the 2-node `on_repair` shape; it is the one whose end-to-end path is already
+proven, so it is the honest first template. Verifier-mediated templates wait until
+a verifier adapter (not the raw bridge) drives verifier nodes — a later slice.
+
+- Nodes:
+  - `create_script` — `execution_ref="gh_create_csharp_script:v1"`,
+    `verifier_ref="script_receipt_has_artifact_or_errors:v1"`,
+    `repair_policy_ref="repair_same_component_once:v1"`.
+  - `repair_same_component` — `execution_ref="gh_update_script:v1"`,
+    `repair_policy_ref="repair_same_component_once:v1"`, `is_terminal=True`.
+  - (`verifier_ref`/`repair_policy_ref` are inert forward-looking refs the walker
+    only reflects; they are not consumed in LM3B.)
+- Edges: `create_script → repair_same_component` (`on_repair`).
 - Built by a module-private factory `_build_gh_csharp_create_repair() ->
   PlanGraph` (fresh graph each call).
 - Criteria: `{"domain": "grasshopper", "operation": "create_repair", "language":
   "csharp"}`.
+
+Drive path (test #6): `create_script` fed a `created_with_errors` result →
+`needs_repair` → `on_repair` unlocks `repair_same_component`; fed a `usable`
+result → `succeeded`; `repair_same_component` is terminal → graph `complete`.
 
 ## Testing (TDD)
 
