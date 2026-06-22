@@ -19,6 +19,7 @@ from rook.agent.plan_graph_live import (
     LiveProducerResult,
     apply_live_producer_node,
     _resolve_tool_name,
+    _check_admissibility,
 )
 
 
@@ -141,3 +142,21 @@ def test_live_producer_result_is_frozen():
     )
     with pytest.raises(Exception):
         result.applied = True  # frozen dataclass
+
+
+# ===== Task 2 tests: admissibility preflight =====
+
+
+@pytest.mark.parametrize(
+    "graph_factory, node_id, expected",
+    [
+        (lambda: _producer_graph(), "create_script", None),
+        (lambda: _producer_graph(), "missing", "unknown_node"),
+        (lambda: _producer_graph(ready=False), "create_script", "node_not_runnable"),
+        (lambda: _producer_graph(role=_ABSENT), "create_script", "role_missing"),
+        (lambda: _producer_graph(role="banana"), "create_script", "role_invalid"),
+        (lambda: _producer_graph(role="artifact_verifier"), "create_script", "role_not_producer"),
+    ],
+)
+def test_check_admissibility(graph_factory, node_id, expected):
+    assert _check_admissibility(graph_factory(), node_id) == expected

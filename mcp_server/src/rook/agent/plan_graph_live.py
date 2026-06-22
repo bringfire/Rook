@@ -101,6 +101,22 @@ def _resolve_tool_name(
     return match.group("name"), None
 
 
+def _check_admissibility(graph: PlanGraph, node_id: str) -> LiveProducerReason | None:
+    if node_id not in graph.nodes:
+        return "unknown_node"
+    if node_id not in {node.id for node in runnable_nodes(graph)}:
+        return "node_not_runnable"
+    node = graph.nodes[node_id]
+    if OUTCOME_PROJECTION_ROLE_KEY not in node.metadata:
+        return "role_missing"
+    role = projection_role_for_node(node)
+    if role is None:
+        return "role_invalid"
+    if role != "artifact_producer":
+        return "role_not_producer"
+    return None
+
+
 # Stub so the test module imports cleanly; fully implemented in Task 3.
 async def apply_live_producer_node(
     graph: PlanGraph,
