@@ -235,30 +235,28 @@ The focused PlanGraph gate proves no PlanGraph regression. LM4D's tests are in a
 Run (from `C:\UDEV\Rook`): `mcp_server/.venv/Scripts/python.exe -m pytest -p no:cacheprovider mcp_server/tests/test_plan_graph*.py -q`
 Expected: **236 passed**.
 
-Run (from `C:\UDEV\Rook`):
+Run (from `C:\UDEV\Rook`, single line — PowerShell-safe, no `\` continuations):
 ```
-mcp_server/.venv/Scripts/python.exe -m py_compile \
-  mcp_server/src/rook/agent/base_agent.py \
-  mcp_server/tests/test_base_agent_live_producer.py
+mcp_server/.venv/Scripts/python.exe -m py_compile mcp_server/src/rook/agent/base_agent.py mcp_server/tests/test_base_agent_live_producer.py
 ```
 Expected: no output, exit 0.
 
 - [ ] **Step 7: No-hot-path-diff review gate (specific)**
 
-Confirm the `base_agent.py` change is purely additive and does not touch the hot execution path. Run (from `C:\UDEV\Rook`):
+Confirm the `base_agent.py` change is purely additive and does not touch the hot execution path. Baseline is `origin/main` (run `git fetch origin` first if stale). Commands are PowerShell-native. Run (from `C:\UDEV\Rook`):
 
 ```
-git diff main -- mcp_server/src/rook/agent/base_agent.py | grep '^-' | grep -v '^---'
+git diff --numstat origin/main -- mcp_server/src/rook/agent/base_agent.py
 ```
-Expected: **empty output** — zero removed/modified lines (purely additive).
+Expected: one row; the **second column (deletions) is `0`** — purely additive (insertions only, zero deletions/modifications).
 
 ```
-git diff -U0 main -- mcp_server/src/rook/agent/base_agent.py | grep '^@@'
+git diff --unified=0 origin/main -- mcp_server/src/rook/agent/base_agent.py | Select-String -Pattern '^@@'
 ```
-Expected: every hunk header lands in the **import region (~lines 31-51)** or **after `test_connection` (~line 1187)**. **No hunk** falls within the loop/execute region — `_run_loop` (415), `_execute_tool` (904), or `_execute_local_tool` (1132). (Purely-additive alone is not enough: this confirms no lines were *inserted into* the hot methods either.)
+Expected: every hunk header lands in the **import / `TYPE_CHECKING` region (~lines 31-51)** or **near the new explicit utility method, after `test_connection` (~line 1187)**. **No hunk** falls within the loop/execute region — `_run_loop` (415), `_execute_tool` (904), or `_execute_local_tool` (1132). (Zero-deletions alone is not enough: this confirms no lines were *inserted into* the hot methods either.)
 
 ```
-git diff main -- mcp_server/src/rook/agent/spawn.py mcp_server/src/rook/agent/chat/chat_runner.py
+git diff --name-only origin/main -- mcp_server/src/rook/agent/spawn.py mcp_server/src/rook/agent/chat/chat_runner.py
 ```
 Expected: **empty** — both files unchanged.
 
