@@ -3426,11 +3426,9 @@ const Reconstruct = (() => {
             showReconstructStatus(`3D ${job.stage || job.state || "working"} · ${jobId}`, "info");
             if (job.state === "complete") {
                 const result = await reconstructionBridgeCall("job_result", { job_id: jobId });
-                // renderResult lands in Task 5, loadJobs in Task 6 — typeof-guarded
-                // so each commit stays runnable until they exist.
-                if (typeof renderResult === "function") renderResult(result);
+                renderResult(result);
                 showReconstructStatus("Reconstruction complete.", "success");
-                if (typeof loadJobs === "function") loadJobs();
+                loadJobs();   // refresh history
                 return;
             }
             if (TERMINAL_FAIL.has(job.state)) {
