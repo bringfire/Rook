@@ -128,14 +128,19 @@ returns `apply_outcome`'s fresh graph. `apply_producer_step`'s order
 Drive the registered `gh_csharp_create_verify_repair_verify` template from
 realistic raw dicts; `initialize_graph` once, before any step:
 
-1. `apply_producer_result(graph, "create_script", {"success": True, "data":
+1. `apply_producer_result(graph, "create_script", {"success": False, "data":
    {"script_receipt": {<created_with_errors + mutation evidence>}}})` →
-   `applied`, `outcome_status="succeeded"`, `create_script.evidence.verified is
-   False`; `verify_create` ready.
+   `applied`, `outcome_status="succeeded"`. **The real seam:** the graph node is
+   `succeeded` while its evidence still records `tool_status == "failed"`
+   (top-level `success: False`, the real server contract for an errored script
+   result) and `verified is False` — the raw tool says *failed*, the producer
+   graph role says *"artifact exists, continue to the verifier."* `verify_create`
+   ready.
 2. `apply_verifier_step(graph, "verify_create", "create_script")` → `needs_repair`;
    `repair_same_component` ready.
 3. `apply_producer_result(graph, "repair_same_component", {"success": True, "data":
    {"script_receipt": {<usable + mutation evidence>}}})` → `succeeded`,
+   `repair_same_component.evidence.tool_status == "success"`,
    `repair_same_component.evidence.verified is True`; `verify_repair` ready.
    **← live-shaped repair-as-producer from a raw payload.**
 4. `apply_verifier_step(graph, "verify_repair", "repair_same_component")` →
@@ -169,10 +174,13 @@ via `apply_verifier_step`; `done` is finalized by the explicit terminal outcome.
    (status, evidence — incl. receipt/repair_anchor/message/error —,
    memory_updates, message, error) via dataclass `==`. Existing LM1F tests also
    stay green, unmodified.
-3. **`apply_producer_result` happy:** `created_with_errors` + mutation evidence →
-   `applied`, `outcome_status="succeeded"`, `evidence.verified is False`,
-   downstream verifier flips `pending → ready`; `usable` + mutation → `succeeded`,
-   `verified is True`.
+3. **`apply_producer_result` happy + the seam:** a real-contract error payload
+   (`{"success": False, ...}`, `created_with_errors` + mutation evidence) →
+   `applied`, `outcome_status="succeeded"`, **and the node's evidence still records
+   `tool_status == "failed"` and `verified is False`** (raw says failed, producer
+   role says succeed); downstream verifier flips `pending → ready`. A `{"success":
+   True, ...}` `usable` + mutation payload → `succeeded`, `tool_status ==
+   "success"`, `verified is True`.
 4. **Malformed raw → applied blocked (tightening 3):** a raw with no
    `script_receipt` → `result.applied is True`, `result.reason is None`,
    `result.outcome_status == "blocked"`, `result.graph is not graph`, and
@@ -181,9 +189,16 @@ via `apply_verifier_step`; `done` is finalized by the explicit terminal outcome.
 5. **Not-applied admission reasons + no-capture (tightening 3 cont.):** each of
    `unknown_node` / `node_not_runnable` / `role_missing` / `role_invalid` /
    `role_not_producer` returns the **input graph object** (`result.graph is
-   graph`), `applied is False`. For these, pass a **raw object that raises if
-   interpreted** (e.g. an object whose `.get`/deepcopy explodes) and prove the
-   call still returns the admission reason — proving the raw was never captured.
+   graph`), `applied is False`. For these, pass an `ExplodingRaw` — **a `dict`
+   subclass whose `.get()` raises** (NOT a plain object: `normalize_tool_result`
+   ignores non-dicts, so a non-dict would not prove capture was skipped) — and
+   prove the call still returns the admission reason without raising, proving the
+   raw was never captured:
+   ```python
+   class ExplodingRaw(dict):
+       def get(self, *args, **kwargs):
+           raise AssertionError("raw result was interpreted")
+   ```
 6. **`apply_producer_step` regression:** its LM3G tests + the guard-precedence test
    (pending + invalid role → `node_not_runnable`) pass unchanged.
 7. **Live end-to-end:** the §"Live proof" sequence, asserting every transition
