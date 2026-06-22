@@ -915,8 +915,8 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
         Assert.Equal(new[] { "front" }, ((IEnumerable<string>)data["slots_present"]!).ToArray());
         Assert.Equal(false, data["complete"]);
         Assert.NotNull(data["views"]);
-        Assert.NotNull(data["parent_ids"]);
-        Assert.NotNull(data["warnings"]);
+        Assert.Equal(new[] { a.Id.ToString("D") }, ((IEnumerable<string>)data["parent_ids"]!).ToArray());
+        Assert.Empty((IEnumerable<object?>)data["warnings"]!);
     }
 
     [Fact]
@@ -984,13 +984,17 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
     {
         var store = NewStore();
         var a = SeedImageArtifact(store, "generated_image");
-        var handler = BuildHandler(store: store, assembler: new ReconstructionViewSetAssembler(store));
-        var beforeCount = store.List().Count;   // 1 (the seeded image)
+        var root = NewTempRoot();
+        var ledger = new JsonlReconstructionJobLedger(Path.Combine(root, "ledger.jsonl"));
+        var handler = BuildHandler(store: store, assembler: new ReconstructionViewSetAssembler(store), ledger: ledger);
 
         handler.DispatchOffUi($$"""{"op":"assemble_view_set","views":[{"slot":"front","artifact_id":"{{a.Id:D}}"}]}""");
 
-        var afterCount = store.List().Count;
-        Assert.Equal(beforeCount + 1, afterCount);   // exactly 1 new artifact (the view_set), no ledger writes
+        // The assemble_view_set op writes a view_set artifact but must NOT write any
+        // job-ledger record (the reconstruction job ledger is a separate JSONL file).
+        Assert.Equal(0, ledger.List(10).Jobs.Count);
+        // Confirm exactly one new artifact (the view_set) was created as a sanity check.
+        Assert.Equal(2, store.List().Count);   // 1 seeded image + 1 view_set
     }
 
     [Theory]
@@ -1016,11 +1020,12 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
 
     private ReconstructionOpHandler BuildHandler(
         IReconstructionViewSetAssembler? assembler = null,
-        ArtifactStore? store = null)
+        ArtifactStore? store = null,
+        JsonlReconstructionJobLedger? ledger = null)
     {
         var root = NewTempRoot();
         store ??= new ArtifactStore(Path.Combine(root, "artifacts"));
-        var ledger = new JsonlReconstructionJobLedger(Path.Combine(root, "ledger.jsonl"));
+        ledger ??= new JsonlReconstructionJobLedger(Path.Combine(root, "ledger.jsonl"));
         var catalog = ReconstructionModelCatalog.FromJson(CatalogJson);
         var provider = new FakeReconstructionProvider();
         var downloader = new FakeDownloader();
