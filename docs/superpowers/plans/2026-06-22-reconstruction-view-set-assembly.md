@@ -29,10 +29,10 @@
 
 **C# companion (`src/Rook/`):**
 - `Services/Reconstruction/ReconstructionContracts.cs` — add `ViewSet` kind, `view_*` roles, slot vocabulary + slot→role map + assembly allowed-source-kinds. *(Task 2)*
-- `Services/Reconstruction/ReconstructionViewSetRequest.cs` *(new)* — request DTO + parser. *(Task 2)*
-- `Services/Reconstruction/ReconstructionViewSetAssembler.cs` *(new)* — `IReconstructionViewSetAssembler` + impl: validation matrix, store-owned blob resolution, `ArtifactStore.Create`, result type. *(Task 1 introduces the interface + a pass-through default; Task 2 delivers the real impl.)*
-- `Handlers/ReconstructionOpHandler.cs` — `OpAssembleViewSet` const, `DispatchOffUi` route, `AssembleViewSet` method, `StatusFor` codes, success/error serialization. *(Task 1 wiring + spy; Task 3 real envelope.)*
-- `InternalBridge/NativeGhBridgeRegistrar.cs` — off-UI case for the op. *(Task 1)*
+- `Services/Reconstruction/ReconstructionViewSetRequest.cs` *(new)* — the **stable** request DTO (`ReconstructionViewSetRequest` + `ViewBinding` + `Empty`). *(Task 1 creates the record; Task 2 adds the `TryParse` parser body to the same file.)*
+- `Services/Reconstruction/ReconstructionViewSetAssembler.cs` *(new)* — `IReconstructionViewSetAssembler`, `ReconstructionViewSetOutcome`, and a temporary `DefaultReconstructionViewSetAssembler`. *(Task 1)* The real `ReconstructionViewSetAssembler` impl replaces the default. *(Task 2)*
+- `Handlers/ReconstructionOpHandler.cs` — `OpAssembleViewSet` const, **required** `IReconstructionViewSetAssembler` ctor param, `DispatchOffUi` route, `AssembleViewSet` method, `StatusFor` codes, success/error serialization. *(Task 1 wiring + spy; Task 3 real envelope.)*
+- `InternalBridge/NativeGhBridgeRegistrar.cs` — off-UI case for the op + the composition site that constructs the handler. *(Task 1 wires a temporary default; Task 3 swaps in the real assembler.)*
 
 **C++ native (`src/RookNative/`):**
 - `Handlers/GrasshopperProxyHandler.{h,cpp}` — `HandleReconstructionAssembleViewSet`. *(Task 1)*
@@ -56,13 +56,14 @@
 Wire the op end-to-end with a **spy/interface seam** so routing and the off-UI invariant are provable before any domain logic exists. The handler depends on an `IReconstructionViewSetAssembler`; Task 1 ships the interface + a trivial default; Task 2 ships the real impl; Task 3 ships the real envelope.
 
 **Files:**
-- Create: `src/Rook/Services/Reconstruction/ReconstructionViewSetAssembler.cs` (interface + minimal result type + a pass-through default impl)
+- Create: `src/Rook/Services/Reconstruction/ReconstructionViewSetRequest.cs` (stable `ReconstructionViewSetRequest` + `ViewBinding` + `Empty`; **no `TryParse` yet** — Task 2 adds it here)
+- Create: `src/Rook/Services/Reconstruction/ReconstructionViewSetAssembler.cs` (interface + `ReconstructionViewSetOutcome` + temporary `DefaultReconstructionViewSetAssembler`)
 - Modify: `src/Rook/Handlers/ReconstructionOpHandler.cs`
-- Modify: `src/Rook/InternalBridge/NativeGhBridgeRegistrar.cs`
+- Modify: `src/Rook/InternalBridge/NativeGhBridgeRegistrar.cs` (off-UI case + handler construction)
 - Modify: `src/RookNative/Handlers/GrasshopperProxyHandler.h`, `.../GrasshopperProxyHandler.cpp`
 - Modify: `src/RookNative/RookServer.cpp`
 - Modify: `mcp_server/src/rook/server.py`, `.../agent/tool_dispatcher.py`, `.../agent/tool_groups.py`
-- Test: `src/Rook.Tests/Services/Reconstruction/ReconstructionOpHandlerTests.cs` (locate the actual path during execution; mirror existing reconstruction handler tests), `mcp_server/tests/test_reconstruction_mcp_tools.py`
+- Test: `src/Rook.Tests/.../ReconstructionOpHandlerTests.cs` (locate the actual path; mirror existing reconstruction handler tests), `src/Rook.Tests/Handlers/NativeReconstructionDispatchSourceTests.cs`, `mcp_server/tests/test_reconstruction_mcp_tools.py`
 
 **Interfaces:**
 - Produces (consumed by Tasks 2 & 3):
@@ -87,7 +88,7 @@ Wire the op end-to-end with a **spy/interface seam** so routing and the off-UI i
           System.Collections.Generic.IReadOnlyDictionary<string, object?>> Views,
       ReconstructionFailure? Failure);
   ```
-- `ReconstructionViewSetRequest` is defined in Task 2; for Task 1 declare it as a minimal placeholder record in the same new file and expand in Task 2. To avoid a forward dependency, Task 1 defines the **full** request record (Task 2 only adds the *parser*). See the record in Task 2's Interfaces; copy it verbatim into Task 1's new file.
+- `ReconstructionViewSetRequest` + `ViewBinding` + `Empty` are created **in this task** in their own file `ReconstructionViewSetRequest.cs` (the full, stable record — see Task 2's Interfaces for the exact shape; copy it verbatim, but **omit** the `TryParse` member, which Task 2 adds to the same file). This keeps the type defined once, in one file, with no mid-plan move.
 
 - [ ] **Step 1: Write the failing handler invariant tests**
 
@@ -145,39 +146,43 @@ internal sealed class RecordingViewSetAssembler : IReconstructionViewSetAssemble
 Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj -c Debug --filter "FullyQualifiedName~ReconstructionOpHandlerTests"`
 Expected: FAIL — `IReconstructionViewSetAssembler`/`OpAssembleViewSet`/ctor param do not exist (compile error).
 
-- [ ] **Step 3: Add the interface + outcome record + handler wiring**
+- [ ] **Step 3: Add the request record, interface, outcome, default, and handler wiring**
 
-Create `src/Rook/Services/Reconstruction/ReconstructionViewSetAssembler.cs` with: the `IReconstructionViewSetAssembler` interface, the `ReconstructionViewSetOutcome` record (from Interfaces above), the full `ReconstructionViewSetRequest` record + `ViewBinding` (copy from Task 2 Interfaces), and a `DefaultReconstructionViewSetAssembler` whose `Assemble` returns `new ReconstructionViewSetOutcome(false, null, Array.Empty<string>(), Array.Empty<string>(), false, new ReconstructionFailure("execution_failed","View-set assembler not yet implemented.",false,null,new Dictionary<string,object?>()))`. (Task 2 replaces this body with the real implementation; Task 1 only needs the type to exist and the seam to be wired.)
+Create `ReconstructionViewSetRequest.cs` with the stable record + `ViewBinding` + `public static readonly ReconstructionViewSetRequest Empty = new(null, Array.Empty<ViewBinding>(), null, null);` (no `TryParse` yet).
+
+Create `ReconstructionViewSetAssembler.cs` with: `IReconstructionViewSetAssembler`, `ReconstructionViewSetOutcome` (from Interfaces above), and a temporary `DefaultReconstructionViewSetAssembler` whose `Assemble` returns `new ReconstructionViewSetOutcome(false, null, Array.Empty<string>(), Array.Empty<string>(), false, Array.Empty<IReadOnlyDictionary<string,object?>>(), new ReconstructionFailure("execution_failed","View-set assembler not yet implemented.",false,null,new Dictionary<string,object?>()))`. Task 2 replaces this whole class with the real impl; Task 4 greps to confirm it's gone.
 
 In `ReconstructionOpHandler.cs`:
 1. Add constant after line 29: `public const string OpAssembleViewSet = "assemble_view_set";`
-2. Add a ctor param `IReconstructionViewSetAssembler? viewSetAssembler = null` and field `_viewSetAssembler = viewSetAssembler ?? new DefaultReconstructionViewSetAssembler();` (keeps existing callers compiling).
-3. In the `DispatchOffUi` switch (line 112-124), add: `OpAssembleViewSet => AssembleViewSet(args, body),`
-4. Add a placeholder `AssembleViewSet` method (Task 3 fills serialization):
+2. Add a **required** ctor param `IReconstructionViewSetAssembler viewSetAssembler` (place it before the optional `importClient` param) and field `_viewSetAssembler = viewSetAssembler ?? throw new ArgumentNullException(nameof(viewSetAssembler));`. **No `?? new Default…` fallback** — the dependency is explicit so the final branch cannot silently ship the stub.
+3. Update **every** construction site: the composition root in `NativeGhBridgeRegistrar.cs` (Step 5a) and the test builder(s). In Task 1, the composition root passes `new DefaultReconstructionViewSetAssembler()`; Task 3 changes it to `new ReconstructionViewSetAssembler(store)`.
+4. In the `DispatchOffUi` switch (line 112-124), add: `OpAssembleViewSet => AssembleViewSet(args, body),`
+5. Add a placeholder `AssembleViewSet` method (Task 3 fills real parse + serialization):
 ```csharp
 private ApiResponse AssembleViewSet(Dictionary<string, JsonElement> args, string? body)
 {
-    // Task 1: prove the seam. Parsing + full envelope land in Tasks 2/3.
+    // Task 1: prove the seam. Real parse + full envelope land in Tasks 2/3.
     var outcome = _viewSetAssembler.Assemble(ReconstructionViewSetRequest.Empty);
     return outcome.Success
         ? Ok(new Dictionary<string, object?> { ["view_set_artifact_id"] = outcome.Artifact?.Id.ToString("D"), ["views"] = outcome.Views })
         : Fail(outcome.Failure!, StatusFor(outcome.Failure!));
 }
 ```
-   Add `public static readonly ReconstructionViewSetRequest Empty = new(null, Array.Empty<ViewBinding>(), null, null);` to the request record so Task 1 compiles. Task 2/3 replace this call with a real parse of `body`.
 
 - [ ] **Step 4: Run handler tests to verify they pass**
 
 Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj -c Debug --filter "FullyQualifiedName~ReconstructionOpHandlerTests"`
 Expected: PASS (spy reached via off-UI; async rejects).
 
-- [ ] **Step 5: Wire the bridge off-UI arm**
+- [ ] **Step 5: Wire the bridge off-UI arm + the composition site**
 
-In `src/Rook/InternalBridge/NativeGhBridgeRegistrar.cs`, add to the **off-UI** case group (the block at line 1854-1867, alongside `OpModels`/`OpListJobs`/`OpResult`/…):
+In `src/Rook/InternalBridge/NativeGhBridgeRegistrar.cs`:
+- **5a.** At the site where the Reconstruction `ReconstructionOpHandler` is constructed (the composition root — locate via `new ReconstructionOpHandler(` or the `RookSubsystemRoot.Instance.Reconstruction` factory), pass the new **required** assembler arg. In Task 1, pass `new DefaultReconstructionViewSetAssembler()`. (Task 3 changes this single line to `new ReconstructionViewSetAssembler(store)` using the same `ArtifactStore` the handler already receives.)
+- **5b.** Add to the **off-UI** case group (the block at line 1854-1867, alongside `OpModels`/`OpListJobs`/`OpResult`/…):
 ```csharp
 case ReconstructionOpHandler.OpAssembleViewSet:
 ```
-(Do **not** add it to the async case group at 1840-1844 — that absence is the invariant.)
+(Do **not** add it to the async case group at 1840-1844 — that absence is the invariant, pinned by the source test in Step 8.)
 
 - [ ] **Step 6: Add the native route + handler**
 
@@ -198,12 +203,48 @@ In `src/RookNative/RookServer.cpp`, after line 1085 add:
 ```
 And add `"POST /reconstruction/2d-to-3d/view-sets",` to the route-list array near line 2140.
 
-- [ ] **Step 7: Verify native compiles**
+**No ABI bump.** The new op routes through the *existing* `ReconstructionDispatch` P/Invoke callback (`DispatchReconstructionOp` → `ForwardReconstructionDispatch` → the existing `InvokeReconstructionDispatchWithBody`). Do **not** change `BridgeAbiVersion`/`kGhBridgeAbiVersion` — they stay `16`, and `NativeReconstructionDispatchSourceTests.BridgeAbiVersion_IsBumpedOnBothSides` must keep passing unchanged.
 
-Run: `cmd /c scripts\build-native.bat Release 14.44.35207`
-Expected: build succeeds (route + handler compile).
+- [ ] **Step 7: Add native route + off-UI invariant source-pin tests**
 
-- [ ] **Step 8: Write the failing Python MCP tests**
+In `src/Rook.Tests/Handlers/NativeReconstructionDispatchSourceTests.cs`, add (mirroring `NativeRoute_BackgroundRemovals_DispatchesRemoveBackground` and the off-UI/async grouping tests already in this file):
+```csharp
+[Fact]
+public void NativeRoute_ViewSets_DispatchesAssembleViewSet()
+{
+    var cpp = File.ReadAllText(Path.Combine(
+        RepoRoot, "src", "RookNative", "Handlers", "GrasshopperProxyHandler.cpp"));
+    Assert.Contains("DispatchReconstructionOp(req, res, \"assemble_view_set\")", cpp);
+
+    var server = File.ReadAllText(Path.Combine(RepoRoot, "src", "RookNative", "RookServer.cpp"));
+    Assert.Contains("/reconstruction/2d-to-3d/view-sets", server);
+}
+
+[Fact]
+public void NativeBridge_RoutesAssembleViewSetThroughOffUiDispatch_NotAsync()
+{
+    var managed = File.ReadAllText(Path.Combine(
+        RepoRoot, "src", "Rook", "InternalBridge", "NativeGhBridgeRegistrar.cs"));
+    var fn = ExtractFunction(managed, "int HandleReconstructionDispatch(");
+
+    var offUiBoundary = fn.IndexOf("ExecuteOffUiApiResponseCallback", System.StringComparison.Ordinal);
+    Assert.True(offUiBoundary >= 0, "Off-UI callback boundary not found.");
+
+    var asyncBranch = fn.Substring(0, offUiBoundary);
+    var offUiBranch = fn.Substring(offUiBoundary);
+
+    // Off-UI only: present after the boundary, absent before it (the async branch).
+    Assert.DoesNotContain("OpAssembleViewSet", asyncBranch);
+    Assert.Contains("OpAssembleViewSet", offUiBranch);
+}
+```
+
+- [ ] **Step 8: Run the native source-pin tests; verify native compiles**
+
+Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj -c Debug --filter "FullyQualifiedName~NativeReconstructionDispatchSourceTests"` (proves route→op + off-UI-not-async from source). Then `cmd /c scripts\build-native.bat Release 14.44.35207` (route + handler compile).
+Expected: source tests PASS; native build succeeds.
+
+- [ ] **Step 9: Write the failing Python MCP tests**
 
 In `mcp_server/tests/test_reconstruction_mcp_tools.py`, mirror the `remove_background` tests:
 ```python
@@ -232,12 +273,12 @@ def test_reconstruction_assemble_view_set_is_mutating_group_only():
 ```
 (Match the exact helper/import names already used in this test file — adapt `capture_call_rhino`/`tool_groups` references to the file's conventions.)
 
-- [ ] **Step 9: Run Python tests to verify they fail**
+- [ ] **Step 10: Run Python tests to verify they fail**
 
 Run: `python -m pytest mcp_server/tests/test_reconstruction_mcp_tools.py -q`
 Expected: FAIL (tool/route/group absent).
 
-- [ ] **Step 10: Add the Python tool, dispatch, route, and group**
+- [ ] **Step 11: Add the Python tool, dispatch, route, and group**
 
 In `mcp_server/src/rook/server.py`, add a `Tool(...)` after the `rhino_2d_to_3d_remove_background` def (line 12717):
 ```python
@@ -295,12 +336,12 @@ In `mcp_server/src/rook/agent/tool_dispatcher.py`, add after line 478:
 ```
 In `mcp_server/src/rook/agent/tool_groups.py`, add `"rhino_2d_to_3d_assemble_view_set",` to the `reconstruction` list (after line 273) — **not** `reconstruction_readonly`.
 
-- [ ] **Step 11: Run Python tests to verify they pass**
+- [ ] **Step 12: Run Python tests to verify they pass**
 
 Run: `python -m pytest mcp_server/tests/test_reconstruction_mcp_tools.py -q`
 Expected: PASS.
 
-- [ ] **Step 12: Commit**
+- [ ] **Step 13: Commit**
 
 ```bash
 git add -A
@@ -311,13 +352,15 @@ git commit -m "feat(reconstruction): wire assemble_view_set off-UI op (routing +
 
 ## Task 2: View-set assembler — contracts, request parser, validation matrix
 
-Deliver the real domain logic: contract constants, the request DTO + parser, and `ReconstructionViewSetAssembler` with the full validation matrix, store-owned blob resolution, artifact creation, and metadata. Replace `DefaultReconstructionViewSetAssembler`'s body with the real implementation (rename the class to `ReconstructionViewSetAssembler` implementing the interface).
+Deliver the real domain logic: contract constants, the request parser, and `ReconstructionViewSetAssembler` with the full validation matrix, store-owned blob resolution, artifact creation, and metadata. **Delete** the temporary `DefaultReconstructionViewSetAssembler` and add `public sealed class ReconstructionViewSetAssembler : IReconstructionViewSetAssembler` in the same file.
 
 **Files:**
 - Modify: `src/Rook/Services/Reconstruction/ReconstructionContracts.cs`
-- Create: `src/Rook/Services/Reconstruction/ReconstructionViewSetRequest.cs`
-- Modify: `src/Rook/Services/Reconstruction/ReconstructionViewSetAssembler.cs` (real impl)
+- Modify: `src/Rook/Services/Reconstruction/ReconstructionViewSetRequest.cs` (add `TryParse` to the record created in Task 1 — do **not** re-declare the record)
+- Modify: `src/Rook/Services/Reconstruction/ReconstructionViewSetAssembler.cs` (delete the default; add the real impl)
 - Test: `src/Rook.Tests/Services/Reconstruction/ReconstructionViewSetAssemblerTests.cs` *(new)*, `.../ReconstructionViewSetRequestTests.cs` *(new)*
+
+**Validation ownership (parser vs assembler):** the **parser** owns structural/shape rejects that cannot exist on a typed DTO — empty `views`, explicit empty `slots_expected`, non-string `method`/`note`, non-object `provenance`, malformed `artifact_id`, missing `slot`. The **assembler** owns semantic/store rejects that *can* exist on a structurally-valid DTO — unknown slot, duplicate slot, unknown/duplicate slot in `slots_expected`, malformed role string, source kind not image-capable, role absent, blob unreadable — plus lineage/metadata/copied-bytes. (The assembler keeps a cheap defensive guard for empty `views`, but the *test* for it lives with the parser.)
 
 **Interfaces:**
 - Consumes: `IReconstructionViewSetAssembler`, `ReconstructionViewSetOutcome` (Task 1); `ArtifactStore.Create(string kind, IReadOnlyList<BlobInput> blobs, IReadOnlyList<Guid>? parentIds, IReadOnlyDictionary<string,JsonNode?>? metadata)`, `ArtifactStore.Get(Guid)`, `ArtifactStore.GetBlobAbsolutePath(Guid, string)`; `BlobInput(string Role, byte[] Content, string FileExtension)`.
@@ -391,11 +434,13 @@ Expected: PASS.
 - Happy path (four valid views, no `slots_expected`) ⇒ `Success`, artifact kind `reconstruction_view_set`, four `view_<slot>` files with bytes copied, `parent_ids` = distinct sources, `SlotsExpected` = canonical four, `Complete == true`.
 - Partial (front+left only) ⇒ `Complete == false`, `SlotsPresent == [front,left]`.
 - `complete` formula with explicit `slots_expected` superset/subset.
-- Provenance object ⇒ round-trips verbatim into metadata `views[]`; omitted ⇒ key absent (not null).
+- Provenance object (valid DTO `JsonObject`) ⇒ round-trips verbatim into metadata `views[]` **and** into `outcome.Views`; omitted ⇒ key absent (not null).
 - `method` default `manual_assembly`; `note` omitted ⇒ absent.
-- Hard rejects, each asserting **no artifact written** (store artifact count unchanged): empty views; duplicate slot; unknown slot; explicit empty `slots_expected`; unknown/dup in `slots_expected`; malformed role string (`"BAD ROLE"`); source not found; source kind not image-capable (seed a `reconstruction_package` or other kind); role absent on artifact; source blob missing/unreadable (seed artifact then delete the blob file on disk, or stub a store that throws); non-string method/note (via parser, but also assert assembler surfaces them); provenance scalar/array.
+- **Semantic/store hard rejects** (all from structurally-valid DTOs), each asserting **no artifact written** (store artifact count unchanged): duplicate slot; unknown slot; unknown/dup in `slots_expected`; malformed role string (`"BAD ROLE"`); source not found; source kind not image-capable (seed a `reconstruction_package` or other kind); role absent on artifact; source blob missing/unreadable (seed artifact then delete the blob file on disk so `GetBlobAbsolutePath`/`ReadAllBytes` throws).
 - Six-slot set ⇒ six `view_<slot>` roles incl. `view_three_quarter`.
 - Lineage: after assembly, each source artifact is **unchanged** (same kind/roles/files).
+
+> **Not assembler tests** (the DTO types make them impossible — `method`/`note` are `string?`, `provenance` is `JsonObject?`, `slots_expected` empty/`views` empty are shape-level): non-string `method`/`note`, provenance scalar/array, explicit empty `slots_expected`, empty `views`. Those are **parser tests** (Step 1) and are additionally proven to serialize correctly at the handler in Task 3.
 
 Example reject:
 ```csharp
@@ -494,7 +539,7 @@ public void AssembleViewSet_Success_ReturnsSpecEnvelope()
 }
 
 [Fact]
-public void AssembleViewSet_UnknownSlot_Returns400WithReason()
+public void AssembleViewSet_UnknownSlot_Returns400WithReason()   // assembler-side reject
 {
     var store = NewStore(); var a = SeedImageArtifact(store, "generated_image");
     var handler = BuildHandler(store: store, assembler: new ReconstructionViewSetAssembler(store));
@@ -505,6 +550,23 @@ public void AssembleViewSet_UnknownSlot_Returns400WithReason()
     Assert.Equal(400, resp.HttpStatus);
     var data = (IDictionary<string, object?>)resp.Data!;
     Assert.Equal("invalid_view_set", data["code"]);
+}
+
+[Fact]
+public void AssembleViewSet_ParseFailure_SerializesEnvelope()   // parser-side reject must serialize correctly
+{
+    var store = NewStore(); var a = SeedImageArtifact(store, "generated_image");
+    var handler = BuildHandler(store: store, assembler: new ReconstructionViewSetAssembler(store));
+    // provenance as an array is a parser-level structural reject (cannot exist on the typed DTO).
+    var body = $$"""{"op":"assemble_view_set","views":[{"slot":"front","artifact_id":"{{a.Id:D}}","provenance":[]}]}""";
+
+    var resp = handler.DispatchOffUi(body);
+
+    Assert.Equal(400, resp.HttpStatus);
+    var data = (IDictionary<string, object?>)resp.Data!;
+    Assert.Equal("invalid_provenance", data["code"]);
+    var details = (IReadOnlyDictionary<string, object?>)data["details"]!;
+    Assert.Equal("provenance_not_object", details["reason"]);
 }
 
 [Fact]
@@ -581,9 +643,11 @@ Named verification gate. **Avoid the #327 native-staleness trap.**
 
 **Files:** none (build/deploy/smoke only).
 
-- [ ] **Step 1: Full green build of all suites**
+- [ ] **Step 1: Full green build of all suites + stub-escape gate**
 
 Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj -c Debug` and `python -m pytest mcp_server/tests/test_reconstruction_mcp_tools.py -q`. Both green.
+**Stub-escape gate (P2):** confirm the temporary default assembler is gone and not wired anywhere:
+`git grep -n "DefaultReconstructionViewSetAssembler"` → **must return nothing**. (The composition root must construct `new ReconstructionViewSetAssembler(store)`; the required ctor param guarantees a missed swap is a compile error, and this grep guarantees the stub class itself is deleted.)
 
 - [ ] **Step 2: Build native + managed (Rhino closed)**
 
@@ -616,5 +680,7 @@ Obtain/seed ≥2 image artifacts (e.g. a `captured_viewport` and a bg-removed `p
 ## Self-Review Notes
 
 - **Spec coverage:** §2 dispatch invariants → Task 1 (off-UI reach, async-absence, native route, group pin) + Task 2/3 (no-ledger). §3 request → Task 2 parser. §4 validation → Task 2 assembler matrix. §5 output + safe blob resolution → Task 2 (GetBlobAbsolutePath, copied `view_<slot>`, distinct parents, metadata). §6 response/error → Task 3 envelope + StatusFor. §8 tests → Tasks 1-3. §9 verification → Task 4 (fresh-native gate).
-- **Type consistency:** `IReconstructionViewSetAssembler.Assemble(ReconstructionViewSetRequest) → ReconstructionViewSetOutcome` is stable across Tasks 1-3. If Task 3 adds `Views` to the outcome record, update the record definition and the Task-1 spy in the same step.
-- **No placeholders:** the Task-1 `Default...` assembler is an intentional, named, throwaway seam replaced wholesale in Task 2 — not a TODO.
+- **Type consistency:** `ReconstructionViewSetRequest` (+`ViewBinding`+`Empty`) lives in one file, created in Task 1; Task 2 only adds `TryParse` to it (no re-declaration). `ReconstructionViewSetOutcome` is defined in full in Task 1 (incl. `Views`), so no record changes mid-plan. `IReconstructionViewSetAssembler.Assemble(ReconstructionViewSetRequest) → ReconstructionViewSetOutcome` is stable across Tasks 1-3.
+- **No hidden stub:** the handler ctor **requires** `IReconstructionViewSetAssembler` (no `??` fallback); the Task-1 `DefaultReconstructionViewSetAssembler` is an explicit, named, throwaway seam deleted in Task 2 and gated by `git grep` in Task 4 — it cannot silently ship.
+- **Validation split:** parser owns shape-impossible-on-DTO rejects (empty views/slots_expected, non-string method/note, non-object provenance, malformed id); assembler owns semantic/store rejects; Task 3 proves a parser reject serializes at the handler.
+- **Native pins are source assertions** (P4), not just compile: route→op and off-UI-not-async are checked in `NativeReconstructionDispatchSourceTests`. No ABI bump (existing dispatch callback).
