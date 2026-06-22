@@ -101,7 +101,6 @@ let galleryItems = [];                // cached list for modal lookup
 let mediaImportJobs = new Map();      // job_id -> latest media import job snapshot
 let mediaImportPollers = new Map();   // job_id -> timeout id
 let isStartingMediaImport = false;
-let reconstructionJobs = new Map();    // job_id -> latest reconstruction job snapshot
 let modalArtifact = null;             // currently-open gallery item
 let modalDisplayRole = null;          // blob role currently rendered in the modal image
 let modelCatalog = [];                 // [{ short_name, supported_resolutions, ... }]
@@ -139,6 +138,7 @@ function switchView(view) {
     }
     if (view === "settings") loadSettingsOverview();
     if (view === "video") loadVideoView();
+    if (view === "reconstruct") loadReconstructView();
 }
 
 // ─── Generate View ────────────────────────────────────────────────
@@ -1552,7 +1552,6 @@ async function openArtifactModal(id) {
     const canReconstruct = canReconstructArtifact(modalArtifact);
     el.modalReconstructBtn?.classList.toggle("hidden", !canReconstruct);
     if (el.modalReconstructBtn) el.modalReconstructBtn.disabled = false;
-    clearReconstructionStatus();
     el.modal.classList.remove("hidden");
 }
 
@@ -1567,7 +1566,6 @@ function closeModal() {
     }
     modalArtifact = null;
     modalDisplayRole = null;
-    clearReconstructionStatus();
 }
 
 async function approveCurrentArtifact(id) {
@@ -1600,74 +1598,6 @@ function canReconstructArtifact(artifact) {
             || artifact.kind === "captured_viewport")
         && Array.isArray(artifact.files)
         && artifact.files.some(f => f.role === "image");
-}
-
-async function reconstructCurrentArtifact() {
-    if (!modalArtifact || !canReconstructArtifact(modalArtifact)) return;
-    const artifactId = modalArtifact.artifact_id;
-    try {
-        if (el.modalReconstructBtn) el.modalReconstructBtn.disabled = true;
-        setReconstructionStatus("Submitting reconstruction...", "info");
-        const job = await reconstructionBridgeCall("submit_job", {
-            source_artifact_id: artifactId,
-            source_role: "image",
-            model_id: "fal-ai/hunyuan-3d/v3.1/rapid/image-to-3d",
-            preprocessing_chain: [],
-            options: { enable_pbr: true, enable_geometry: false },
-            estimate_requested: false,
-        });
-        if (!job || !job.job_id) {
-            throw new Error("Reconstruction submit did not return a job id.");
-        }
-        reconstructionJobs.set(job.job_id, job);
-        await pollReconstructionJob(job.job_id);
-    } catch (e) {
-        setReconstructionStatus(errorToText(e), "error");
-    } finally {
-        if (el.modalReconstructBtn) el.modalReconstructBtn.disabled = false;
-    }
-}
-
-async function pollReconstructionJob(jobId) {
-    if (!jobId) {
-        setReconstructionStatus("Reconstruction did not return a job id.", "error");
-        return;
-    }
-    for (let attempt = 0; attempt < 180; attempt++) {
-        const status = await reconstructionBridgeCall("job_status", { job_id: jobId });
-        const job = status.job || status;
-        if (job && job.job_id) reconstructionJobs.set(job.job_id, job);
-        setReconstructionStatus(`3D ${job.stage || job.state || "working"} · ${jobId}`, "info");
-        if (job.state === "complete") {
-            const result = await reconstructionBridgeCall("job_result", { job_id: jobId });
-            const packageId = result.result_artifact_id || result.package_id || "";
-            const label = packageId ? `Package ${packageId}` : "Reconstruction package ready.";
-            setReconstructionStatus(label, "success", result);
-            return;
-        }
-        if (["error", "cancelled", "interrupted"].includes(job.state)) {
-            setReconstructionStatus(`Reconstruction ${job.state}.`, "error");
-            return;
-        }
-        await delay(1500);
-    }
-    setReconstructionStatus("Reconstruction polling timed out.", "error");
-}
-
-function setReconstructionStatus(message, type, result) {
-    if (!el.modalReconstructionStatus) return;
-    const importHint = result && result.result_available
-        ? `<span class="reconstruction-import-hint">Import via /reconstruction/2d-to-3d/import</span>`
-        : "";
-    el.modalReconstructionStatus.className = `reconstruction-status ${type || ""}`;
-    el.modalReconstructionStatus.innerHTML = `${escapeHtml(message)} ${importHint}`;
-    el.modalReconstructionStatus.classList.remove("hidden");
-}
-
-function clearReconstructionStatus() {
-    if (!el.modalReconstructionStatus) return;
-    el.modalReconstructionStatus.textContent = "";
-    el.modalReconstructionStatus.className = "reconstruction-status hidden";
 }
 
 async function deleteCurrentArtifact(id) {
@@ -2158,7 +2088,6 @@ function init() {
     el.modalMeta = $("modal-meta");
     el.modalApproveBtn = $("modal-approve-btn");
     el.modalReconstructBtn = $("modal-reconstruct-btn");
-    el.modalReconstructionStatus = $("modal-reconstruction-status");
     el.modalRevealBtn = $("modal-reveal-btn");
     el.modalDeleteBtn = $("modal-delete-btn");
     // PR-V3: scope by the modal container — three modals now have a
@@ -2169,6 +2098,7 @@ function init() {
 
     // Video view (PR-V3)
     Video.cacheEls();
+    Reconstruct.cacheEls();
 
     // ── Wire events ────────────────────────────────────────────
 
@@ -2278,7 +2208,13 @@ function init() {
     el.modalApproveBtn.addEventListener("click", () => {
         if (modalArtifact) approveCurrentArtifact(modalArtifact.artifact_id);
     });
-    el.modalReconstructBtn?.addEventListener("click", () => reconstructCurrentArtifact());
+    el.modalReconstructBtn?.addEventListener("click", () => {
+        if (modalArtifact && canReconstructArtifact(modalArtifact)) {
+            const artifact = modalArtifact;
+            closeModal();
+            Reconstruct.presetSource(artifact);
+        }
+    });
     el.modalRevealBtn.addEventListener("click", revealCurrentArtifact);
     el.modalDeleteBtn.addEventListener("click", () => {
         if (modalArtifact) deleteCurrentArtifact(modalArtifact.artifact_id);
@@ -2292,6 +2228,7 @@ function init() {
 
     // Video view event wiring (PR-V3).
     Video.wireEvents();
+    Reconstruct.wireEvents();
 
     // Initial loads.
     loadViewports().then(captureViewport).catch(() => {});
@@ -3372,5 +3309,305 @@ const Video = (() => {
         wireEvents,
         onEnter,
     };
+})();
+
+// ─── Reconstruct module (image → 3D package) ────────────────────────
+//
+// Self-contained like `Video`: own state namespace, own DOM cache,
+// driven on view-enter. All bridge calls go through
+// `reconstructionBridgeCall(op, args)` on the dedicated "reconstruction"
+// channel; op names match ReconstructionOpHandler constants.
+
+function loadReconstructView() { Reconstruct.onEnter(); }
+
+const Reconstruct = (() => {
+    const POLL_INTERVAL_MS = 1500;
+    const POLL_MAX_ATTEMPTS = 180;
+    const TERMINAL_FAIL = new Set(["error", "cancelled", "interrupted"]);
+
+    let models = [];
+    let modelsLoaded = false;
+    let source = null;            // { artifact_id, role, previewSrc, label }
+    let outputMode = "textured";  // "textured" | "geometry"
+
+    const re = {};                // DOM cache
+
+    function cacheEls() {
+        re.sourceThumb = $("reconstruct-source-thumb");
+        re.sourceLabel = $("reconstruct-source-label");
+        re.chooseSourceBtn = $("reconstruct-choose-source");
+        re.modelSelect = $("reconstruct-model-select");
+        re.modeTextured = $("reconstruct-mode-textured");
+        re.modeGeometry = $("reconstruct-mode-geometry");
+        re.submitBtn = $("reconstruct-submit-btn");
+        re.statusMessage = $("reconstruct-status-message");
+        re.resultPanel = $("reconstruct-result-panel");
+        re.resultThumb = $("reconstruct-result-thumb");
+        re.resultMeta = $("reconstruct-result-meta");
+        re.resultWarnings = $("reconstruct-result-warnings");
+        re.resultHandoff = $("reconstruct-result-handoff");
+        re.jobsList = $("reconstruct-jobs-list");
+        re.refreshJobsBtn = $("reconstruct-refresh-jobs");
+    }
+
+    function wireEvents() {
+        re.chooseSourceBtn.addEventListener("click", chooseSource);
+        re.modeTextured.addEventListener("click", () => setOutputMode("textured"));
+        re.modeGeometry.addEventListener("click", () => setOutputMode("geometry"));
+        re.submitBtn.addEventListener("click", submit);
+        re.refreshJobsBtn.addEventListener("click", loadJobs);
+        re.jobsList.addEventListener("click", (e) => {
+            if (!(e.target instanceof Element)) return;
+            const li = e.target.closest("li.reconstruct-job");
+            if (li && li.dataset.openable === "1") openJobResult(li.dataset.jobId);
+        });
+    }
+
+    async function onEnter() {
+        await loadModels();
+        renderSource();
+        await loadJobs();
+    }
+
+    function showReconstructStatus(message, type) {
+        re.statusMessage.textContent = message;
+        re.statusMessage.className = `status-message ${type || "info"}`;
+        re.statusMessage.classList.remove("hidden");
+    }
+
+    function setOutputMode(mode) {
+        outputMode = mode === "geometry" ? "geometry" : "textured";
+        const textured = outputMode === "textured";
+        re.modeTextured.classList.toggle("active", textured);
+        re.modeGeometry.classList.toggle("active", !textured);
+        re.modeTextured.setAttribute("aria-checked", String(textured));
+        re.modeGeometry.setAttribute("aria-checked", String(!textured));
+    }
+
+    function optionsForMode() {
+        // Mutually exclusive — never emit both (backend D1 guard rejects it).
+        return outputMode === "geometry"
+            ? { enable_geometry: true }
+            : { enable_pbr: true };
+    }
+
+    async function submit() {
+        if (!source || !source.artifact_id) {
+            showReconstructStatus("Choose a source image first.", "error");
+            return;
+        }
+        const modelId = selectedModelId();
+        if (!modelId) {
+            showReconstructStatus("Select a model first.", "error");
+            return;
+        }
+        try {
+            re.submitBtn.disabled = true;
+            showReconstructStatus("Submitting reconstruction…", "info");
+            const job = await reconstructionBridgeCall("submit_job", {
+                source_artifact_id: source.artifact_id,
+                source_role: source.role || "image",
+                model_id: modelId,
+                preprocessing_chain: [],
+                options: optionsForMode(),
+                estimate_requested: false,
+            });
+            if (!job || !job.job_id) {
+                throw new Error("Reconstruction submit did not return a job id.");
+            }
+            await poll(job.job_id);
+        } catch (e) {
+            showReconstructStatus(errorToText(e), "error");
+        } finally {
+            re.submitBtn.disabled = false;
+        }
+    }
+
+    async function poll(jobId) {
+        for (let attempt = 0; attempt < POLL_MAX_ATTEMPTS; attempt++) {
+            const status = await reconstructionBridgeCall("job_status", { job_id: jobId });
+            const job = status.job || status;
+            showReconstructStatus(`3D ${job.stage || job.state || "working"} · ${jobId}`, "info");
+            if (job.state === "complete") {
+                const result = await reconstructionBridgeCall("job_result", { job_id: jobId });
+                renderResult(result);
+                showReconstructStatus("Reconstruction complete.", "success");
+                loadJobs();   // refresh history
+                return;
+            }
+            if (TERMINAL_FAIL.has(job.state)) {
+                showReconstructStatus(`Reconstruction ${job.state}.`, "error");
+                return;
+            }
+            await delay(POLL_INTERVAL_MS);
+        }
+        showReconstructStatus("Reconstruction polling timed out.", "error");
+    }
+
+    function selectedModelId() {
+        return re.modelSelect && re.modelSelect.value ? re.modelSelect.value : null;
+    }
+
+    function buildModelOption(model) {
+        const pbr = model.supports_pbr ? "" : " · no PBR";
+        return `<option value="${escapeAttr(model.model_id)}">${escapeHtml(model.model_id)}${escapeHtml(pbr)}</option>`;
+    }
+
+    async function loadModels() {
+        if (modelsLoaded) return;
+        try {
+            const data = await reconstructionBridgeCall("models", {});
+            models = Array.isArray(data.models) ? data.models : [];
+        } catch (e) {
+            models = [];
+        }
+        // Leading placeholder forces an explicit pick (model_id is required).
+        const placeholder = `<option value="" disabled selected>Select a model…</option>`;
+        re.modelSelect.innerHTML = placeholder + models.map(buildModelOption).join("");
+        modelsLoaded = true;
+    }
+
+    function renderSource() {
+        if (source && source.previewSrc) {
+            re.sourceThumb.src = source.previewSrc;
+            re.sourceThumb.classList.remove("hidden");
+        } else {
+            re.sourceThumb.removeAttribute("src");
+            re.sourceThumb.classList.add("hidden");
+        }
+        re.sourceLabel.textContent = source ? (source.label || source.artifact_id) : "No image selected";
+    }
+
+    async function chooseSource() {
+        // Single source-selection path: open the Gallery and let the user
+        // pick via the modal "Send to 3D" shortcut, which calls presetSource
+        // and navigates back here. No duplicate picker.
+        switchView("gallery");
+        showStatus("Pick an image in the Gallery, then use “Send to 3D”.", "info");
+    }
+
+    // Friendly headline per known warning code. Unknown codes fall back to
+    // the backend message verbatim (forward-compatible). Read by CODE, never
+    // inferred from asset_roles.
+    const WARNING_COPY = {
+        result_artifact_missing: {
+            severity: "error",
+            text: "The reconstruction completed but its package could not be found. The result may be unavailable; try re-running.",
+        },
+        pbr_unsupported_by_model: {
+            severity: "warning",
+            text: "Textured output was requested, but this model isn't catalogued as supporting textured/PBR output. The result may have no materials.",
+        },
+        result_missing_texture: {
+            severity: "warning",
+            text: "Textured output was expected and this model supports it, but the delivered package contains no material or texture assets.",
+        },
+    };
+
+    function renderWarnings(warnings) {
+        const list = Array.isArray(warnings) ? warnings : [];
+        if (list.length === 0) {
+            re.resultWarnings.innerHTML = "";
+            re.resultWarnings.classList.add("hidden");
+            return;
+        }
+        re.resultWarnings.innerHTML = list.map(w => {
+            const known = WARNING_COPY[w.code];
+            const severity = known ? known.severity : "warning";
+            const headline = known ? known.text : (w.message || w.code || "Unknown warning.");
+            const detail = known && w.message
+                ? `<span class="reconstruct-warning-detail">${escapeHtml(w.message)}</span>`
+                : "";
+            return `<li class="reconstruct-warning ${severity}"><span class="reconstruct-warning-code">${escapeHtml(w.code || "warning")}</span>${escapeHtml(headline)}${detail}</li>`;
+        }).join("");
+        re.resultWarnings.classList.remove("hidden");
+    }
+
+    function renderResult(result) {
+        const pkg = result.package || {};
+        const packageId = result.result_artifact_id || "";
+        const roles = Array.isArray(pkg.asset_roles) ? pkg.asset_roles : [];
+        const preferred = pkg.preferred_asset_role || "";
+
+        if (packageId && result.result_available) {
+            re.resultThumb.src = `/blob/${encodeURIComponent(packageId)}/thumbnail?ts=${Date.now()}`;
+            re.resultThumb.classList.remove("hidden");
+        } else {
+            re.resultThumb.removeAttribute("src");
+            re.resultThumb.classList.add("hidden");
+        }
+        re.resultThumb.onerror = () => re.resultThumb.classList.add("hidden");
+
+        re.resultMeta.innerHTML = [
+            `<div class="reconstruct-result-id">Package ${escapeHtml(packageId || "—")}</div>`,
+            roles.length
+                ? `<div class="reconstruct-result-roles">Assets: ${escapeHtml(roles.join(", "))}</div>`
+                : "",
+            preferred
+                ? `<div class="reconstruct-result-preferred">Preferred: ${escapeHtml(preferred)}</div>`
+                : "",
+        ].join("");
+
+        renderWarnings(result.warnings);
+
+        re.resultHandoff.innerHTML = packageId
+            ? `Import this package into Rhino with the agent tool <code>rhino_2d_to_3d_import</code> (package id above).`
+            : "";
+
+        re.resultPanel.classList.remove("hidden");
+    }
+
+    async function loadJobs() {
+        try {
+            const data = await reconstructionBridgeCall("list_jobs", {});
+            renderJobs(Array.isArray(data.jobs) ? data.jobs : []);
+        } catch (e) {
+            re.jobsList.innerHTML = `<li class="reconstruct-job empty">${escapeHtml(errorToText(e))}</li>`;
+        }
+    }
+
+    function renderJobs(jobs) {
+        if (jobs.length === 0) {
+            re.jobsList.innerHTML = `<li class="reconstruct-job empty">No reconstruction jobs yet.</li>`;
+            return;
+        }
+        re.jobsList.innerHTML = jobs.map(j => {
+            const ts = j.updated_at ? formatTimestamp(j.updated_at) : "";
+            const openable = j.state === "complete" && j.result_available;
+            const cls = openable ? "reconstruct-job openable" : "reconstruct-job";
+            return `<li class="${cls}" data-job-id="${escapeAttr(j.job_id)}" data-openable="${openable ? "1" : "0"}">
+                <span class="reconstruct-job-state">${escapeHtml(j.state || "")}${j.stage ? " · " + escapeHtml(j.stage) : ""}</span>
+                <span class="reconstruct-job-id">${escapeHtml(j.job_id)}</span>
+                <span class="reconstruct-job-ts">${escapeHtml(ts)}</span>
+            </li>`;
+        }).join("");
+    }
+
+    async function openJobResult(jobId) {
+        try {
+            showReconstructStatus(`Loading package for ${jobId}…`, "info");
+            const result = await reconstructionBridgeCall("job_result", { job_id: jobId });
+            renderResult(result);
+            showReconstructStatus("Package loaded.", "success");
+        } catch (e) {
+            showReconstructStatus(errorToText(e), "error");
+        }
+    }
+
+    // Source handoff from the Gallery "Send to 3D" shortcut: preselect the
+    // chosen image artifact and navigate to this view. Single source path.
+    function presetSource(artifact) {
+        if (!artifact) return;
+        source = {
+            artifact_id: artifact.artifact_id,
+            role: "image",
+            previewSrc: `/blob/${encodeURIComponent(artifact.artifact_id)}/image?ts=${Date.now()}`,
+            label: (artifact.metadata && artifact.metadata.prompt) || artifact.kind || artifact.artifact_id,
+        };
+        switchView("reconstruct");
+        renderSource();
+    }
+
+    return { cacheEls, wireEvents, onEnter, presetSource };
 })();
 

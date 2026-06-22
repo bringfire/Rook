@@ -253,6 +253,21 @@ p { margin: 8px 0; line-height: 1.4; }
                 MediaImportOpHandler.OpList,
             };
 
+        /// <summary>
+        /// Reconstruction bridge ops that are network-bound and must run
+        /// under <see cref="AsyncOpTimeout"/> via
+        /// <see cref="DispatchWithTimeoutAsync"/> — parity with the Vision
+        /// and Video async paths. Off-UI ops (models / list_jobs /
+        /// job_result) are disk/catalog reads and are dispatched directly.
+        /// </summary>
+        internal static readonly HashSet<string> ReconstructionAsyncOps =
+            new(StringComparer.Ordinal)
+            {
+                "submit_job",
+                "job_status",
+                "cancel_job",
+            };
+
         // ─── Timeouts ─────────────────────────────────────────────────
 
         /// <summary>
@@ -515,22 +530,30 @@ p { margin: 8px 0; line-height: 1.4; }
             ApiResponse response;
             try
             {
-                response = op switch
+                if (ReconstructionAsyncOps.Contains(op))
                 {
-                    "submit_job" or "job_status" or "cancel_job" =>
-                        await RookSubsystemRoot.Instance.Reconstruction.DispatchAsync(
-                            body, CancellationToken.None).ConfigureAwait(false),
-                    "models" or "list_jobs" or "job_result" =>
-                        await Task.Run(
-                            () => RookSubsystemRoot.Instance.Reconstruction.DispatchOffUi(body))
-                            .ConfigureAwait(false),
-                    _ => new ApiResponse
+                    response = await DispatchWithTimeoutAsync(
+                        op,
+                        AsyncOpTimeout,
+                        token => RookSubsystemRoot.Instance.Reconstruction.DispatchAsync(body, token),
+                        domainLabel: "Reconstruction")
+                        .ConfigureAwait(false);
+                }
+                else if (op is "models" or "list_jobs" or "job_result")
+                {
+                    response = await Task.Run(
+                        () => RookSubsystemRoot.Instance.Reconstruction.DispatchOffUi(body))
+                        .ConfigureAwait(false);
+                }
+                else
+                {
+                    response = new ApiResponse
                     {
                         Success = false,
                         Data = $"Unknown reconstruction op '{op}'.",
                         HttpStatus = 400,
-                    },
-                };
+                    };
+                }
             }
             catch (Exception ex)
             {
@@ -600,7 +623,8 @@ p { margin: 8px 0; line-height: 1.4; }
         internal static async Task<ApiResponse> DispatchWithTimeoutAsync(
             string op,
             TimeSpan timeout,
-            Func<CancellationToken, Task<ApiResponse>> dispatch)
+            Func<CancellationToken, Task<ApiResponse>> dispatch,
+            string domainLabel = "Vision")
         {
             using var cts = new CancellationTokenSource(timeout);
             ApiResponse response;
@@ -613,13 +637,13 @@ p { margin: 8px 0; line-height: 1.4; }
                 return new ApiResponse
                 {
                     Success = false,
-                    Data = $"Vision op '{op}' timed out after {timeout.TotalSeconds:F0}s.",
+                    Data = $"{domainLabel} op '{op}' timed out after {timeout.TotalSeconds:F0}s.",
                 };
             }
 
             if (!response.Success && cts.IsCancellationRequested)
             {
-                response.Data = $"Vision op '{op}' timed out after {timeout.TotalSeconds:F0}s.";
+                response.Data = $"{domainLabel} op '{op}' timed out after {timeout.TotalSeconds:F0}s.";
             }
             return response;
         }

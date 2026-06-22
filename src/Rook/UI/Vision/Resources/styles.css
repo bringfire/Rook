@@ -1976,26 +1976,6 @@ body {
     flex-wrap: wrap;
 }
 
-.reconstruction-status {
-    margin-top: var(--space-3);
-    font-size: 13px;
-    color: var(--ink-soft);
-}
-
-.reconstruction-status.error {
-    color: var(--accent-red);
-}
-
-.reconstruction-status.success {
-    color: var(--accent-green);
-}
-
-.reconstruction-import-hint {
-    display: block;
-    margin-top: var(--space-2);
-    font-family: var(--type-mono);
-    font-size: 12px;
-}
 
 /* ═══════════════════════════════════════════════════════════════
    RESPONSIVE
@@ -2677,4 +2657,116 @@ body {
         linear-gradient(var(--bc), var(--bc)) bottom right / var(--bl) var(--bw) no-repeat,
         linear-gradient(var(--bc), var(--bc)) bottom right / var(--bw) var(--bl) no-repeat;
 }
+
+/* ── Reconstruct view ─────────────────────────────────────────── */
+.reconstruct-body { display: flex; flex-direction: column; gap: var(--space-4); }
+.reconstruct-form { display: flex; flex-direction: column; gap: var(--space-3); }
+.reconstruct-field { display: flex; flex-direction: column; gap: var(--space-2); }
+.reconstruct-label {
+    font-family: var(--type-mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+}
+.reconstruct-source { display: flex; align-items: center; gap: var(--space-3); }
+.reconstruct-source-thumb {
+    width: 64px;
+    height: 64px;
+    object-fit: cover;
+    border: 1px solid var(--rule);
+}
+.reconstruct-source-label { flex: 1; font-size: 14px; color: var(--ink-soft); }
+.reconstruct-segmented {
+    display: inline-flex;
+    border: 1px solid var(--rule);
+    width: max-content;
+}
+.seg-btn {
+    padding: var(--space-2) var(--space-4);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font-family: var(--type-mono);
+    font-size: 12px;
+    color: var(--ink);
+}
+.seg-btn + .seg-btn { border-left: 1px solid var(--rule); }
+.seg-btn.active { background: var(--ink); color: var(--paper); }
+.reconstruct-actions { display: flex; gap: var(--space-3); }
+.reconstruct-result {
+    border: 1px solid var(--rule);
+    padding: var(--space-4);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+.reconstruct-result-head { display: flex; gap: var(--space-4); align-items: flex-start; }
+.reconstruct-result-thumb {
+    width: 96px;
+    height: 96px;
+    object-fit: cover;
+    border: 1px solid var(--rule);
+}
+.reconstruct-result-meta {
+    font-size: 13px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+}
+.reconstruct-result-id { font-family: var(--type-mono); }
+.reconstruct-warnings {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+.reconstruct-warning {
+    padding: var(--space-2) var(--space-3);
+    border-left: 4px solid var(--accent-red);
+    font-size: 13px;
+}
+.reconstruct-warning.warning { border-left-color: var(--accent-amber); }
+.reconstruct-warning-code {
+    display: inline-block;
+    font-family: var(--type-mono);
+    font-size: 11px;
+    color: var(--ink-soft);
+    margin-right: var(--space-2);
+    text-transform: uppercase;
+}
+.reconstruct-warning-detail {
+    display: block;
+    color: var(--ink-soft);
+    font-size: 12px;
+    margin-top: var(--space-1);
+}
+.reconstruct-handoff { font-size: 13px; color: var(--ink-soft); }
+.reconstruct-handoff code { font-family: var(--type-mono); }
+.reconstruct-history { display: flex; flex-direction: column; gap: var(--space-2); }
+.reconstruct-history-head { display: flex; align-items: center; justify-content: space-between; }
+.reconstruct-history-title { font-size: 15px; margin: 0; }
+.reconstruct-jobs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.reconstruct-job {
+    display: grid;
+    grid-template-columns: 1fr 1.4fr auto;
+    gap: var(--space-3);
+    padding: var(--space-2);
+    border-bottom: 1px solid var(--rule);
+    font-size: 13px;
+    align-items: center;
+}
+.reconstruct-job.openable { cursor: pointer; }
+.reconstruct-job.openable:hover { background: var(--paper-tone); }
+.reconstruct-job-id {
+    font-family: var(--type-mono);
+    color: var(--ink-soft);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.reconstruct-job-ts { color: var(--ink-soft); }
+.reconstruct-job.empty { display: block; color: var(--ink-soft); }
 

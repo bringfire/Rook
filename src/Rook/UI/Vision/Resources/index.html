@@ -34,6 +34,10 @@
                     <span class="nav-label">Video</span>
                     <span class="nav-indicator"></span>
                 </button>
+                <button class="nav-btn" data-view="reconstruct">
+                    <span class="nav-label">Reconstruct</span>
+                    <span class="nav-indicator"></span>
+                </button>
                 <button class="nav-btn" data-view="gallery">
                     <span class="nav-label">Gallery</span>
                     <span class="nav-indicator"></span>
@@ -651,6 +655,56 @@
                 </div>
             </div>
 
+            <!-- Reconstruct View -->
+            <section id="reconstruct-view" class="view">
+                <div class="view-header">
+                    <h1 class="view-title">Reconstruct</h1>
+                    <p class="view-subtitle">Turn an image into a 3D package</p>
+                </div>
+                <div class="reconstruct-body">
+                    <div class="reconstruct-form">
+                        <div class="reconstruct-field">
+                            <label class="reconstruct-label">Source image</label>
+                            <div class="reconstruct-source">
+                                <img id="reconstruct-source-thumb" class="reconstruct-source-thumb hidden" alt="source" />
+                                <span id="reconstruct-source-label" class="reconstruct-source-label">No image selected</span>
+                                <button id="reconstruct-choose-source" class="btn btn-secondary">Choose in Gallery…</button>
+                            </div>
+                        </div>
+                        <div class="reconstruct-field">
+                            <label class="reconstruct-label" for="reconstruct-model-select">Model</label>
+                            <select id="reconstruct-model-select" class="select"></select>
+                        </div>
+                        <div class="reconstruct-field">
+                            <label class="reconstruct-label">Output</label>
+                            <div class="reconstruct-segmented" role="radiogroup" aria-label="Output type">
+                                <button type="button" id="reconstruct-mode-textured" class="seg-btn active" data-mode="textured" role="radio" aria-checked="true">Textured</button>
+                                <button type="button" id="reconstruct-mode-geometry" class="seg-btn" data-mode="geometry" role="radio" aria-checked="false">Geometry only</button>
+                            </div>
+                        </div>
+                        <div class="reconstruct-actions">
+                            <button id="reconstruct-submit-btn" class="btn btn-primary">Reconstruct</button>
+                        </div>
+                        <div id="reconstruct-status-message" class="status-message hidden"></div>
+                    </div>
+                    <div id="reconstruct-result-panel" class="reconstruct-result hidden">
+                        <div class="reconstruct-result-head">
+                            <img id="reconstruct-result-thumb" class="reconstruct-result-thumb hidden" alt="result" />
+                            <div id="reconstruct-result-meta" class="reconstruct-result-meta"></div>
+                        </div>
+                        <ul id="reconstruct-result-warnings" class="reconstruct-warnings hidden"></ul>
+                        <div id="reconstruct-result-handoff" class="reconstruct-handoff"></div>
+                    </div>
+                    <div class="reconstruct-history">
+                        <div class="reconstruct-history-head">
+                            <h2 class="reconstruct-history-title">Recent jobs</h2>
+                            <button id="reconstruct-refresh-jobs" class="btn btn-secondary">Refresh</button>
+                        </div>
+                        <ul id="reconstruct-jobs-list" class="reconstruct-jobs"></ul>
+                    </div>
+                </div>
+            </section>
+
             <!-- Gallery View -->
             <section id="gallery-view" class="view">
                 <div class="view-header">
@@ -781,7 +835,6 @@
                         <button id="modal-reveal-btn" class="btn btn-secondary" title="Show this image file in its artifact folder" aria-label="Show this image file in its artifact folder">Show in Folder</button>
                         <button id="modal-delete-btn" class="btn btn-secondary btn-danger">Delete</button>
                     </div>
-                    <div id="modal-reconstruction-status" class="reconstruction-status hidden"></div>
                 </div>
             </div>
         </div>
