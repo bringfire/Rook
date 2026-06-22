@@ -51,6 +51,7 @@ public sealed class ReconstructionJobManager : IDisposable
     private readonly JsonlReconstructionJobLedger _ledger;
     private readonly IReconstructionProvider _provider;
     private readonly ReconstructionPackageMaterializer _materializer;
+    private readonly ReconstructionPreprocessMaterializer _preprocessMaterializer;
     private readonly IReconstructionSourceImagePublisher _sourcePublisher;
 
     // Per-job single-flight gate, shared by the background loop and on-demand StatusAsync/poll
@@ -71,6 +72,7 @@ public sealed class ReconstructionJobManager : IDisposable
         JsonlReconstructionJobLedger ledger,
         IReconstructionProvider provider,
         ReconstructionPackageMaterializer materializer,
+        ReconstructionPreprocessMaterializer preprocessMaterializer,
         IReconstructionSourceImagePublisher sourcePublisher,
         TimeSpan? pollInterval = null)
     {
@@ -79,6 +81,7 @@ public sealed class ReconstructionJobManager : IDisposable
         _ledger = ledger ?? throw new ArgumentNullException(nameof(ledger));
         _provider = provider ?? throw new ArgumentNullException(nameof(provider));
         _materializer = materializer ?? throw new ArgumentNullException(nameof(materializer));
+        _preprocessMaterializer = preprocessMaterializer ?? throw new ArgumentNullException(nameof(preprocessMaterializer));
         _sourcePublisher = sourcePublisher ?? throw new ArgumentNullException(nameof(sourcePublisher));
         _pollInterval = pollInterval ?? DefaultPollInterval;
     }
@@ -127,9 +130,11 @@ public sealed class ReconstructionJobManager : IDisposable
 
     /// <summary>
     /// Dedicated entry for the explicit background-removal op. Resolves a remove_background catalog
-    /// model (request's model_id when it is a remove_background entry, otherwise the first enabled
-    /// remove_background entry), then drives the shared submit body with task=remove_background. No
-    /// pbr/geometry guard — those options are irrelevant to background removal.
+    /// model: when an explicit model_id is supplied it must itself be a remove_background entry —
+    /// an explicit non-remove_background model_id is REJECTED (null), never silently substituted; the
+    /// catalog default (first enabled remove_background entry) applies only when model_id is omitted.
+    /// Then drives the shared submit body with task=remove_background. No pbr/geometry guard — those
+    /// options are irrelevant to background removal.
     /// </summary>
     public async Task<ReconstructionSubmitResult> SubmitRemoveBackgroundAsync(
         ReconstructionSubmitRequest request,
@@ -193,7 +198,10 @@ public sealed class ReconstructionJobManager : IDisposable
                 sourceFileName,
                 ct).ConfigureAwait(false);
             submitOutcome = await _provider.SubmitAsync(
-                new ReconstructionProviderSubmitRequest(request.ModelId, sourceUrl, request.Options),
+                new ReconstructionProviderSubmitRequest(request.ModelId, sourceUrl, request.Options)
+                {
+                    SourceField = model.Input?.SourceField,
+                },
                 ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -512,13 +520,26 @@ public sealed class ReconstructionJobManager : IDisposable
                         return;
                     }
 
-                    var materialized = await _materializer.MaterializeAsync(
-                        materializing.JobId,
-                        new[] { materializing.SourceArtifactId },
-                        materializing.Provider,
-                        materializing.ModelId,
-                        success.Envelope,
-                        ct).ConfigureAwait(false);
+                    // Branch materialization on the persisted task: a remove_background job produces a
+                    // derived preprocessed_image linked to its source; everything else (3D) writes a
+                    // reconstruction_package. Both put their artifact in the result's Package field, so
+                    // the completed record's ResultArtifactId is set uniformly below.
+                    var materialized = string.Equals(
+                        materializing.Task, "remove_background", StringComparison.Ordinal)
+                        ? await _preprocessMaterializer.MaterializeAsync(
+                            materializing.JobId,
+                            new[] { materializing.SourceArtifactId },
+                            materializing.Provider,
+                            materializing.ModelId,
+                            success.Envelope,
+                            ct).ConfigureAwait(false)
+                        : await _materializer.MaterializeAsync(
+                            materializing.JobId,
+                            new[] { materializing.SourceArtifactId },
+                            materializing.Provider,
+                            materializing.ModelId,
+                            success.Envelope,
+                            ct).ConfigureAwait(false);
                     if (!materialized.Success)
                     {
                         AppendError(materializing, materialized.Error!);
@@ -631,9 +652,10 @@ public sealed class ReconstructionJobManager : IDisposable
             && string.Equals(model.Task, "remove_background", StringComparison.Ordinal);
 
     // Resolves the model that will service a background-removal submit. When an explicit model_id is
-    // supplied it must itself be a remove_background entry (we never silently substitute an explicitly
-    // requested model). When omitted, falls back to the first enabled remove_background entry in the
-    // catalog. Returns null when no usable background-removal model is available.
+    // supplied it must itself be a remove_background entry: a non-remove_background model_id is
+    // rejected (returns null) — we never silently substitute the bg-removal default for an explicitly
+    // requested model. The catalog default (first enabled remove_background entry) is used ONLY when
+    // model_id is omitted. Returns null when no usable background-removal model is available.
     private ReconstructionModelEntry? ResolveRemoveBackgroundModel(string? requestedModelId)
     {
         if (!string.IsNullOrWhiteSpace(requestedModelId))

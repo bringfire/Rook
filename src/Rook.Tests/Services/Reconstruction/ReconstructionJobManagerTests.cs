@@ -19,7 +19,7 @@ namespace Rook.Tests.Services.Reconstruction;
 public sealed class ReconstructionJobManagerTests : IDisposable
 {
     private const string HunyuanModelId = "fal-ai/hunyuan-3d/v3.1/rapid/image-to-3d";
-    private const string BirefnetModelId = "fal-ai/birefnet";
+    private const string BirefnetModelId = "fal-ai/birefnet/v2";
 
     private readonly List<string> _roots = new();
     private readonly List<ReconstructionJobManager> _managers = new();
@@ -345,7 +345,7 @@ public sealed class ReconstructionJobManagerTests : IDisposable
             Request(source.Id) with { ModelId = "fal-ai/meshy/v6/image-to-3d" },
             CancellationToken.None);
         var birefnet = await fixture.Manager.SubmitAsync(
-            Request(source.Id) with { ModelId = "fal-ai/birefnet" },
+            Request(source.Id) with { ModelId = "fal-ai/birefnet/v2" },
             CancellationToken.None);
 
         Assert.False(meshy.Success);
@@ -458,6 +458,7 @@ public sealed class ReconstructionJobManagerTests : IDisposable
             ledger,
             new FalReconstructionProvider(transport),
             new ReconstructionPackageMaterializer(store, downloader),
+            new ReconstructionPreprocessMaterializer(store, downloader),
             new FakeSourceImagePublisher(),
             TimeSpan.FromMilliseconds(2));
         _managers.Add(manager);
@@ -491,6 +492,7 @@ public sealed class ReconstructionJobManagerTests : IDisposable
             ledger,
             new FalReconstructionProvider(transport),
             new ReconstructionPackageMaterializer(store, new FakeDownloader()),
+            new ReconstructionPreprocessMaterializer(store, new FakeDownloader()),
             new FakeSourceImagePublisher(),
             TimeSpan.FromMilliseconds(2));
         _managers.Add(manager);
@@ -527,6 +529,7 @@ public sealed class ReconstructionJobManagerTests : IDisposable
             ledger,
             new FalReconstructionProvider(transport),
             new ReconstructionPackageMaterializer(store, new FakeDownloader()),
+            new ReconstructionPreprocessMaterializer(store, new FakeDownloader()),
             new FakeSourceImagePublisher(),
             TimeSpan.FromMilliseconds(2));
         _managers.Add(manager);
@@ -558,6 +561,7 @@ public sealed class ReconstructionJobManagerTests : IDisposable
             ledger,
             new FakeReconstructionProvider(),
             new ReconstructionPackageMaterializer(store, new FakeDownloader()),
+            new ReconstructionPreprocessMaterializer(store, new FakeDownloader()),
             new FalReconstructionSourceImagePublisher(new FalApiClient(), new NullSecretStore()));
         _managers.Add(manager);
         var source = store.Create(
@@ -610,6 +614,7 @@ public sealed class ReconstructionJobManagerTests : IDisposable
             ledger,
             new FalReconstructionProvider(new FalApiTransport(new FalApiClient(), () => null)),
             new ReconstructionPackageMaterializer(store, new FakeDownloader()),
+            new ReconstructionPreprocessMaterializer(store, new FakeDownloader()),
             new FakeSourceImagePublisher());
         _managers.Add(manager);
 
@@ -646,6 +651,7 @@ public sealed class ReconstructionJobManagerTests : IDisposable
             ledger,
             new FalReconstructionProvider(new FalApiTransport(new FalApiClient(), () => null)),
             new ReconstructionPackageMaterializer(store, new FakeDownloader()),
+            new ReconstructionPreprocessMaterializer(store, new FakeDownloader()),
             new FakeSourceImagePublisher());
         _managers.Add(manager);
 
@@ -982,12 +988,14 @@ public sealed class ReconstructionJobManagerTests : IDisposable
         var downloader = new FakeDownloader();
         var publisher = new FakeSourceImagePublisher();
         var materializer = new ReconstructionPackageMaterializer(store, downloader);
+        var preprocessMaterializer = new ReconstructionPreprocessMaterializer(store, downloader);
         var manager = new ReconstructionJobManager(
             store,
             ReconstructionModelCatalog.FromJson(CatalogJson),
             ledger,
             provider,
             materializer,
+            preprocessMaterializer,
             publisher,
             pollInterval);
         _managers.Add(manager);
@@ -1203,7 +1211,7 @@ public sealed class ReconstructionJobManagerTests : IDisposable
           "docs_url": "https://fal.ai/models/fal-ai/meshy/v6/image-to-3d/api"
         },
         {
-          "model_id": "fal-ai/birefnet",
+          "model_id": "fal-ai/birefnet/v2",
           "provider": "fal",
           "task": "remove_background",
           "status": "experimental",
@@ -1214,8 +1222,9 @@ public sealed class ReconstructionJobManagerTests : IDisposable
           "preferred_asset_role": "preprocessed_image",
           "fallback_order": ["preprocessed_image"],
           "supports_pbr": false,
+          "input": {"mode": "single_image", "source_field": "image_url"},
           "preprocessing": {"recommended": false, "required": false},
-          "docs_url": "https://fal.ai/models/fal-ai/birefnet/api"
+          "docs_url": "https://fal.ai/models/fal-ai/birefnet/v2/api"
         },
         {
           "model_id": "fal-ai/hunyuan-3d/v3.1/rapid/image-to-3d",

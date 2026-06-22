@@ -818,12 +818,14 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
         var downloader = new FakeDownloader();
         var publisher = new FakeSourceImagePublisher();
         var materializer = new ReconstructionPackageMaterializer(store, downloader);
+        var preprocessMaterializer = new ReconstructionPreprocessMaterializer(store, downloader);
         var manager = new ReconstructionJobManager(
             store,
             catalog,
             ledger,
             provider,
             materializer,
+            preprocessMaterializer,
             publisher);
         _managers.Add(manager);
         var importClient = new FakeImportClient();

@@ -20,11 +20,23 @@ public sealed record ReconstructionModelEntry(
     [property: JsonPropertyName("supports_pbr")] bool SupportsPbr,
     [property: JsonPropertyName("preprocessing")] ReconstructionPreprocessingMetadata Preprocessing,
     [property: JsonPropertyName("docs_url")] string DocsUrl,
-    [property: JsonPropertyName("default_texture_expected")] bool DefaultTextureExpected);
+    [property: JsonPropertyName("default_texture_expected")] bool DefaultTextureExpected,
+    [property: JsonPropertyName("input")] ReconstructionInputMetadata? Input = null);
 
 public sealed record ReconstructionPreprocessingMetadata(
     [property: JsonPropertyName("recommended")] bool Recommended,
     [property: JsonPropertyName("required")] bool Required);
+
+/// <summary>
+/// Minimal input descriptor: the provider input <see cref="Mode"/> (e.g. <c>single_image</c>) and the
+/// provider input field (<see cref="SourceField"/>, e.g. <c>image_url</c> for fal-ai/birefnet/v2, or
+/// <c>input_image_url</c> for the 3D models) the source image URL is keyed under. Nullable on the
+/// entry so catalog JSON lacking an <c>input</c> block still deserializes (Input == null). Task 4
+/// extends this with view_slots/array — do not add those here yet.
+/// </summary>
+public sealed record ReconstructionInputMetadata(
+    [property: JsonPropertyName("mode")] string? Mode,
+    [property: JsonPropertyName("source_field")] string? SourceField);
 
 public sealed class ReconstructionModelCatalog
 {
