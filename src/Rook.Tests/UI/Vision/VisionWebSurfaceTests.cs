@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Text;
 using System.Text.Json.Nodes;
@@ -1567,6 +1568,69 @@ namespace Rook.Tests.UI.Vision
                 index += needle.Length;
             }
             return count;
+        }
+
+        private static string RepoRoot
+            => Path.GetFullPath(Path.Combine(System.AppContext.BaseDirectory, "..", "..", "..", "..", ".."));
+
+        [Fact]
+        public void ReconstructionAsyncOps_AreExactlySubmitStatusCancel()
+        {
+            Assert.Equal(
+                new[] { "cancel_job", "job_status", "submit_job" },
+                VisionWebSurface.ReconstructionAsyncOps.OrderBy(o => o, StringComparer.Ordinal).ToArray());
+        }
+
+        [Fact]
+        public void ReconstructionAsyncOps_ExcludeOffUiOps()
+        {
+            Assert.DoesNotContain("models", VisionWebSurface.ReconstructionAsyncOps);
+            Assert.DoesNotContain("list_jobs", VisionWebSurface.ReconstructionAsyncOps);
+            Assert.DoesNotContain("job_result", VisionWebSurface.ReconstructionAsyncOps);
+        }
+
+        [Fact]
+        public void HandleReconstructionBridge_RoutesAsyncOpsThroughTimeoutWrapper()
+        {
+            // The set must actually drive the timeout wrapper — pin the wiring in
+            // source so a future edit that bypasses ReconstructionAsyncOps or
+            // DispatchWithTimeoutAsync fails here, not silently in production.
+            var source = File.ReadAllText(Path.Combine(
+                RepoRoot, "src", "Rook", "UI", "Vision", "VisionWebSurface.cs"));
+            // Anchor on the method DEFINITION, not the earlier
+            // RegisterBridgeHandler(...) reference to the same name.
+            var start = source.IndexOf(
+                "private async Task<JsonNode?> HandleReconstructionBridgeCallAsync",
+                StringComparison.Ordinal);
+            Assert.True(start >= 0, "HandleReconstructionBridgeCallAsync definition not found.");
+            var bodyStart = source.IndexOf('{', start);
+            var next = source.IndexOf("\n        private ", bodyStart, StringComparison.Ordinal);
+            var method = next > bodyStart
+                ? source.Substring(bodyStart, next - bodyStart)
+                : source.Substring(bodyStart);
+
+            Assert.Contains("ReconstructionAsyncOps.Contains(op)", method);
+            Assert.Contains("DispatchWithTimeoutAsync(", method);
+            Assert.Contains("domainLabel: \"Reconstruction\"", method);
+        }
+
+        [Fact]
+        public async Task DispatchWithTimeout_ReconstructionLabel_EmitsReconstructionTimeoutMessage()
+        {
+            var response = await VisionWebSurface.DispatchWithTimeoutAsync(
+                "submit_job",
+                TimeSpan.FromMilliseconds(30),
+                async token =>
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(2), token).ConfigureAwait(false);
+                    return new ApiResponse { Success = true };
+                },
+                domainLabel: "Reconstruction");
+
+            Assert.False(response.Success);
+            var message = Assert.IsType<string>(response.Data);
+            Assert.Contains("Reconstruction op 'submit_job' timed out", message, StringComparison.Ordinal);
+            Assert.DoesNotContain("Vision op", message);
         }
     }
 }
