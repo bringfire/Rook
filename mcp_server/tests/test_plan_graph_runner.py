@@ -124,6 +124,7 @@ def test_source_evidence_missing_not_applied():
 
     assert result.applied is False
     assert result.reason == "source_evidence_missing"
+    assert result.graph is graph
 
 
 def test_verifier_not_runnable_not_applied():
@@ -133,6 +134,7 @@ def test_verifier_not_runnable_not_applied():
 
     assert result.applied is False
     assert result.reason == "verifier_not_runnable"
+    assert result.graph is graph
 
 
 def test_input_graph_not_mutated_on_apply():
