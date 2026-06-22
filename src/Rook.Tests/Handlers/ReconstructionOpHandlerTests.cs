@@ -895,10 +895,131 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
         Assert.Equal(400, resp.HttpStatus);
     }
 
-    private ReconstructionOpHandler BuildHandler(IReconstructionViewSetAssembler? assembler = null)
+    // ─── Task 3: handler envelope tests ──────────────────────────────────────
+
+    [Fact]
+    public void AssembleViewSet_Success_ReturnsSpecEnvelope()
+    {
+        var store = NewStore();
+        var a = SeedImageArtifact(store, "generated_image");
+        var handler = BuildHandler(store: store, assembler: new ReconstructionViewSetAssembler(store));
+        var body = $$"""{"op":"assemble_view_set","views":[{"slot":"front","artifact_id":"{{a.Id:D}}"}]}""";
+
+        var resp = handler.DispatchOffUi(body);
+
+        Assert.Equal(200, resp.HttpStatus);
+        var data = (IDictionary<string, object?>)resp.Data!;
+        Assert.NotNull(data["view_set_artifact_id"]);
+        Assert.Equal("reconstruction_view_set", data["kind"]);
+        Assert.Equal(new[] { "front", "left", "right", "back" }, ((IEnumerable<string>)data["slots_expected"]!).ToArray());
+        Assert.Equal(new[] { "front" }, ((IEnumerable<string>)data["slots_present"]!).ToArray());
+        Assert.Equal(false, data["complete"]);
+        Assert.NotNull(data["views"]);
+        Assert.NotNull(data["parent_ids"]);
+        Assert.NotNull(data["warnings"]);
+    }
+
+    [Fact]
+    public void AssembleViewSet_UnknownSlot_Returns400WithReason()   // assembler-side reject
+    {
+        var store = NewStore();
+        var a = SeedImageArtifact(store, "generated_image");
+        var handler = BuildHandler(store: store, assembler: new ReconstructionViewSetAssembler(store));
+        var body = $$"""{"op":"assemble_view_set","views":[{"slot":"frnot","artifact_id":"{{a.Id:D}}"}]}""";
+
+        var resp = handler.DispatchOffUi(body);
+
+        Assert.Equal(400, resp.HttpStatus);
+        var data = (IDictionary<string, object?>)resp.Data!;
+        Assert.Equal("invalid_view_set", data["code"]);
+    }
+
+    [Fact]
+    public void AssembleViewSet_ParseFailure_SerializesEnvelope()   // parser-side reject
+    {
+        var store = NewStore();
+        var a = SeedImageArtifact(store, "generated_image");
+        var handler = BuildHandler(store: store, assembler: new ReconstructionViewSetAssembler(store));
+        // provenance as an array is a parser-level structural reject.
+        var body = $$"""{"op":"assemble_view_set","views":[{"slot":"front","artifact_id":"{{a.Id:D}}","provenance":[]}]}""";
+
+        var resp = handler.DispatchOffUi(body);
+
+        Assert.Equal(400, resp.HttpStatus);
+        var data = (IDictionary<string, object?>)resp.Data!;
+        Assert.Equal("invalid_provenance", data["code"]);
+        var details = (IReadOnlyDictionary<string, object?>)data["details"]!;
+        Assert.Equal("provenance_not_object", details["reason"]);
+    }
+
+    [Fact]
+    public void AssembleViewSet_ViewsEchoProvenanceIntact()   // provenance round-trip / serialization hazard
+    {
+        var store = NewStore();
+        var a = SeedImageArtifact(store, "generated_image");
+        var handler = BuildHandler(store: store, assembler: new ReconstructionViewSetAssembler(store));
+        // provenance is a JSON object with a known key/value.
+        var body = "{\"op\":\"assemble_view_set\",\"views\":[{\"slot\":\"front\",\"artifact_id\":\"" + a.Id.ToString("D") + "\",\"provenance\":{\"camera\":\"orbit\",\"distance\":10}}]}";
+
+        var resp = handler.DispatchOffUi(body);
+
+        Assert.Equal(200, resp.HttpStatus);
+        var data = (IDictionary<string, object?>)resp.Data!;
+        var views = (IEnumerable<IReadOnlyDictionary<string, object?>>)data["views"]!;
+        var row = views.Single();
+        // provenance key must be present and be a JsonObject (not a type name, not null)
+        Assert.True(row.ContainsKey("provenance"), "views[0] must contain 'provenance' key");
+        var prov = Assert.IsType<JsonObject>(row["provenance"]);
+        // content survives the handler round-trip intact
+        Assert.Equal("orbit", prov["camera"]?.GetValue<string>());
+        Assert.Equal(10, prov["distance"]?.GetValue<int>());
+        // Verify it also round-trips through JsonSerializer (the HTTP boundary path)
+        var json = JsonSerializer.Serialize(new { data = resp.Data });
+        Assert.Contains("\"camera\"", json);
+        Assert.Contains("\"orbit\"", json);
+    }
+
+    [Fact]
+    public void AssembleViewSet_DoesNotWriteLedger()
+    {
+        var store = NewStore();
+        var a = SeedImageArtifact(store, "generated_image");
+        var handler = BuildHandler(store: store, assembler: new ReconstructionViewSetAssembler(store));
+        var beforeCount = store.List().Count;   // 1 (the seeded image)
+
+        handler.DispatchOffUi($$"""{"op":"assemble_view_set","views":[{"slot":"front","artifact_id":"{{a.Id:D}}"}]}""");
+
+        var afterCount = store.List().Count;
+        Assert.Equal(beforeCount + 1, afterCount);   // exactly 1 new artifact (the view_set), no ledger writes
+    }
+
+    [Theory]
+    [InlineData("invalid_view_set")]
+    [InlineData("invalid_provenance")]
+    public void StatusFor_NewViewSetCodes_Return400(string code)
+    {
+        var failure = new ReconstructionFailure(code, "test", false, null, new Dictionary<string, object?>());
+        Assert.Equal(400, ReconstructionOpHandler.StatusFor(failure));
+    }
+
+    // Seed helpers for view-set handler tests.
+    private ArtifactStore NewStore()
     {
         var root = NewTempRoot();
-        var store = new ArtifactStore(Path.Combine(root, "artifacts"));
+        return new ArtifactStore(Path.Combine(root, "artifacts"));
+    }
+
+    private static Artifact SeedImageArtifact(ArtifactStore store, string kind, string role = "image")
+        => store.Create(
+            kind,
+            new[] { new BlobInput(role, new byte[] { 0xFF, 0xD8, 0xFF }, "png") });
+
+    private ReconstructionOpHandler BuildHandler(
+        IReconstructionViewSetAssembler? assembler = null,
+        ArtifactStore? store = null)
+    {
+        var root = NewTempRoot();
+        store ??= new ArtifactStore(Path.Combine(root, "artifacts"));
         var ledger = new JsonlReconstructionJobLedger(Path.Combine(root, "ledger.jsonl"));
         var catalog = ReconstructionModelCatalog.FromJson(CatalogJson);
         var provider = new FakeReconstructionProvider();
@@ -1053,13 +1174,22 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
     internal sealed class RecordingViewSetAssembler : IReconstructionViewSetAssembler
     {
         public bool Called { get; private set; }
+
         public ReconstructionViewSetOutcome Assemble(ReconstructionViewSetRequest request)
         {
             Called = true;
+            // Create a real artifact so the handler's full envelope path succeeds.
+            var tmpRoot = Path.Combine(Path.GetTempPath(), $"rook-spy-{Guid.NewGuid():N}");
+            var store = new ArtifactStore(tmpRoot);
+            var artifact = store.Create(
+                ReconstructionArtifactKinds.ViewSet,
+                new[] { new BlobInput("front", new byte[] { 0xFF }, "png") });
             return new ReconstructionViewSetOutcome(
-                true, null,
+                true,
+                artifact,
                 new[] { "front", "left", "right", "back" },
-                new[] { "front" }, false,
+                new[] { "front" },
+                false,
                 System.Array.Empty<System.Collections.Generic.IReadOnlyDictionary<string, object?>>(),
                 null);
         }

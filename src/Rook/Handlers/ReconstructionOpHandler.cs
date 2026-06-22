@@ -521,11 +521,26 @@ namespace Rook.Handlers
 
         private ApiResponse AssembleViewSet(Dictionary<string, JsonElement> args, string? body)
         {
-            // Task 1: prove the seam. Real parse + full envelope land in Tasks 2/3.
-            var outcome = _viewSetAssembler.Assemble(ReconstructionViewSetRequest.Empty);
-            return outcome.Success
-                ? Ok(new Dictionary<string, object?> { ["view_set_artifact_id"] = outcome.Artifact?.Id.ToString("D"), ["views"] = outcome.Views })
-                : Fail(outcome.Failure!, StatusFor(outcome.Failure!));
+            var request = ReconstructionViewSetRequest.TryParse(body, out var parseFailure);
+            if (request is null)
+                return Fail(parseFailure!, StatusFor(parseFailure!));
+
+            var outcome = _viewSetAssembler.Assemble(request);
+            if (!outcome.Success)
+                return Fail(outcome.Failure!, StatusFor(outcome.Failure!));
+
+            var artifact = outcome.Artifact!;
+            return Ok(new Dictionary<string, object?>
+            {
+                ["view_set_artifact_id"] = artifact.Id.ToString("D"),
+                ["kind"] = artifact.Kind,
+                ["slots_expected"] = outcome.SlotsExpected,
+                ["slots_present"] = outcome.SlotsPresent,
+                ["complete"] = outcome.Complete,
+                ["parent_ids"] = artifact.ParentIds.Select(p => p.ToString("D")).ToArray(),
+                ["views"] = outcome.Views,   // assembler-built rows; same source as artifact metadata (no drift)
+                ["warnings"] = Array.Empty<object>(),
+            });
         }
 
         private JsonObject? ReadImportManifest(
@@ -1044,7 +1059,8 @@ namespace Rook.Handlers
                 "invalid_json" or "invalid_request" or "filename_collision" or "invalid_package"
                     or "invalid_source_role"
                     or "invalid_source_artifact" or "invalid_source_file"
-                    or "invalid_source_dimensions" => 400,
+                    or "invalid_source_dimensions"
+                    or "invalid_view_set" or "invalid_provenance" => 400,
                 // Required configuration absent — the request cannot be fulfilled. Not retryable and
                 // not a provider outage (provider_unavailable -> 503 covers that); the body carries the
                 // remediation text.
