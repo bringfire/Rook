@@ -344,6 +344,25 @@ public sealed class FalReconstructionProviderTests
     }
 
     [Fact]
+    public async Task Fetch_BirefnetBody_ReturnsSuccessWithImageAndMaskArtifacts()
+    {
+        // A REAL remove_background result body must fetch as a SuccessResultOutcome (NOT the "no
+        // recognizable asset URLs" failure) now that the shared mapper recognizes image/mask_image.
+        var transport = new FakeTransport();
+        transport.Gets.Enqueue(Resp(200, @"{
+            ""image"":{""url"":""https://example.test/out.png""},
+            ""mask_image"":{""url"":""https://example.test/mask.png""}}"));
+
+        var outcome = await new FalReconstructionProvider(transport).FetchResultAsync(
+            new ProviderJobHandle("req-123", responseUrl: new Uri("https://queue.fal.run/response/req-123")),
+            CancellationToken.None);
+
+        var success = Assert.IsType<SuccessResultOutcome>(outcome);
+        Assert.Contains(success.Envelope.Artifacts, a => a.Role == ReconstructionFileRoles.Image);
+        Assert.Contains(success.Envelope.Artifacts, a => a.Role == ReconstructionFileRoles.Mask);
+    }
+
+    [Fact]
     public async Task Fetch_422_ReturnsFailedResult()
     {
         var transport = new FakeTransport();

@@ -5,6 +5,7 @@ namespace Rook.Services.Reconstruction;
 public static class ReconstructionArtifactKinds
 {
     public const string Package = "reconstruction_package";
+    public const string PreprocessedImage = "preprocessed_image";
 
     public static readonly string[] DefaultSourceAllowlist =
     {
@@ -22,6 +23,8 @@ public static class ReconstructionFileRoles
     public const string Texture = "texture";
     public const string Thumbnail = "thumbnail";
     public const string SourceImage = "source_image";
+    public const string Image = "image";
+    public const string Mask = "mask";
     public const string PreprocessedImage = "preprocessed_image";
     public const string ProviderResultJson = "provider_result_json";
     public const string ImportManifest = "import_manifest";

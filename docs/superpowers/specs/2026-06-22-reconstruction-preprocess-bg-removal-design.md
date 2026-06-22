@@ -56,7 +56,7 @@ Extend `ReconstructionModelEntry` with two optional descriptor blocks (additive;
 Populated for current entries:
 - `fal-ai/hunyuan-3d/v3.1/rapid/image-to-3d` → `input.mode:"single_image"`, `source_field:"input_image_url"` (unchanged behavior), `prompt.supported:false`.
 - `fal-ai/meshy/v6/image-to-3d` → `input.mode:"single_image"`, `source_field:"input_image_url"` (keep current behavior; verify Meshy's true field in the plan and correct only if confirmed — do **not** regress the working path on an unverified change), `prompt:{supported:true, required:false, kind:"texture"}`.
-- `fal-ai/birefnet` → `task:"remove_background"` (already), `input.mode:"single_image"`, **`source_field:"image_url"`**, `prompt.supported:false`.
+- `fal-ai/birefnet/v2` → `task:"remove_background"` (already), `input.mode:"single_image"`, **`source_field:"image_url"`**, `prompt.supported:false`.
 
 Provider behavior: `BuildSubmitPayload` writes `[sourceField] = url` where `sourceField` flows from the catalog entry's `input.source_field`. **Default = `"input_image_url"`** when a 3D entry omits it, so the proven Hunyuan path is byte-for-byte unchanged; BiRefNet overrides to `image_url`. `ReconstructionProviderSubmitRequest` carries the resolved `SourceField` (set by the manager from the model's catalog entry).
 

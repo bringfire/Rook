@@ -44,8 +44,9 @@ public static class FalReconstructionResultMapper
 
     /// <summary>
     /// Detect role'd remote artifacts from a fal result body. First-writer-wins per role, ordered
-    /// model_glb, model_obj, material_mtl, texture, thumbnail, then model_urls fallbacks, then
-    /// texture_urls fallbacks — matching the pre-convergence materializer exactly.
+    /// model_glb, model_obj, material_mtl, texture, thumbnail, then the BiRefNet image/mask, then
+    /// model_urls fallbacks, then texture_urls fallbacks — matching the pre-convergence materializer
+    /// exactly for 3D bodies (which carry no image/mask_image).
     /// </summary>
     public static IReadOnlyList<ResultArtifact> MapArtifacts(JsonNode resultJson)
     {
@@ -64,6 +65,13 @@ public static class FalReconstructionResultMapper
         Add(byRole, order, ReconstructionFileRoles.Texture,
             ReadFile(root["texture"]) ?? ReadFile(Prop(root["texture_urls"], "texture")));
         Add(byRole, order, ReconstructionFileRoles.Thumbnail, ReadFile(root["thumbnail"]));
+
+        // BiRefNet (background-removal) output. The verified fal-ai/birefnet/v2 shape is
+        // { "image": { "url": ... }, "mask_image": { "url": ... } }: image is the background-removed
+        // image and mask_image is the optional alpha mask. 3D bodies carry no top-level image/mask_image,
+        // so this is inert for them.
+        Add(byRole, order, ReconstructionFileRoles.Image, ReadFile(root["image"]));
+        Add(byRole, order, ReconstructionFileRoles.Mask, ReadFile(root["mask_image"]));
 
         foreach (var file in EnumerateFiles(root["model_urls"]))
         {

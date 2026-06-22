@@ -477,6 +477,66 @@ public sealed class ReconstructionJobManagerTests : IDisposable
     }
 
     [Fact]
+    public async Task RemoveBackground_RealProvider_DrivesPollToComplete_LinkedPreprocessedImage()
+    {
+        // End-to-end through the REAL FalReconstructionProvider over a fake transport: a remove_background
+        // job submits, polls to COMPLETED, fetches a BiRefNet result body, and materializes a derived
+        // preprocessed_image linked to the source. This is the path the reviewer flagged as broken:
+        // before the fix, FetchResultAsync failed with "no recognizable asset URLs" because the shared
+        // mapper did not recognize image/mask_image, so the materializer never ran.
+        var root = NewTempRoot();
+        var store = new ArtifactStore(Path.Combine(root, "artifacts"));
+        var ledger = new JsonlReconstructionJobLedger(Path.Combine(root, "ledger.jsonl"));
+        var transport = new FakeFalTransport();
+        transport.Posts.Enqueue(new FalHttpResponse(
+            200,
+            @"{""request_id"":""req-1"",""status_url"":""https://queue.fal.run/status/req-1"",""response_url"":""https://queue.fal.run/response/req-1"",""cancel_url"":""https://queue.fal.run/cancel/req-1""}",
+            EmptyHeaders()));
+        transport.Gets.Enqueue(new FalHttpResponse(
+            200, @"{""status"":""COMPLETED"",""request_id"":""req-1""}", EmptyHeaders()));   // status poll
+        transport.Gets.Enqueue(new FalHttpResponse(
+            200,
+            @"{""image"":{""url"":""https://example.test/out.png""},""mask_image"":{""url"":""https://example.test/mask.png""}}",
+            EmptyHeaders()));                                                                  // result fetch
+        var downloader = new FakeDownloader();
+        downloader.Files["https://example.test/out.png"] = new byte[] { 10, 11 };
+        downloader.Files["https://example.test/mask.png"] = new byte[] { 20, 21 };
+        var manager = new ReconstructionJobManager(
+            store,
+            ReconstructionModelCatalog.FromJson(CatalogJson),
+            ledger,
+            new FalReconstructionProvider(transport),
+            new ReconstructionPackageMaterializer(store, downloader),
+            new ReconstructionPreprocessMaterializer(store, downloader),
+            new FakeSourceImagePublisher(),
+            TimeSpan.FromMilliseconds(2));
+        _managers.Add(manager);
+        var source = store.Create(
+            "generated_image",
+            new[] { new BlobInput("image", new byte[] { 1, 2, 3 }, "png") });
+
+        var submit = await manager.SubmitRemoveBackgroundAsync(
+            Request(source.Id) with { ModelId = BirefnetModelId },
+            CancellationToken.None);
+        Assert.True(submit.Success);
+
+        await WaitUntil(
+            () => manager.Status(submit.Job!.JobId).Job!.State == ReconstructionJobState.Complete,
+            2000);
+
+        var status = manager.Status(submit.Job!.JobId);
+        Assert.Equal(ReconstructionJobState.Complete, status.Job!.State);
+        Assert.True(status.ResultAvailable);
+        Assert.NotNull(status.Job.ResultArtifactId);
+
+        var artifact = store.Get(status.Job.ResultArtifactId!.Value)!;
+        Assert.Equal(ReconstructionArtifactKinds.PreprocessedImage, artifact.Kind);
+        Assert.Contains(artifact.Files, f => f.Role == ReconstructionFileRoles.Image);
+        Assert.Contains(artifact.Files, f => f.Role == ReconstructionFileRoles.Mask);
+        Assert.Equal(new[] { source.Id }, artifact.ParentIds.ToArray());
+    }
+
+    [Fact]
     public async Task ProviderTransportFailure_DuringSubmit_SurfacesProviderUnavailable_NotSubmitFailed()
     {
         // Real provider over a transport whose submit POST throws a raw HttpRequestException (the fault

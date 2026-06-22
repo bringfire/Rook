@@ -43,18 +43,14 @@ public sealed class ReconstructionPreprocessMaterializerTests : IDisposable
             },
         };
 
-        // BiRefNet v2 result body: image (object, .url) + optional mask_image (object, .url).
-        var envelope = new ProviderResultEnvelope(
-            new[] { Remote("image", "https://example.test/out.png") },
-            new Dictionary<string, JsonNode>
-            {
-                ["provider_result_json"] = JsonNode.Parse("""
-                {
-                  "image": {"url": "https://example.test/out.png"},
-                  "mask_image": {"url": "https://example.test/mask.png"}
-                }
-                """)!,
-            });
+        // BiRefNet v2 result body: image (object, .url) + optional mask_image (object, .url). Build the
+        // envelope through the REAL shared mapper so the test exercises the real provider-boundary shape.
+        var envelope = FalReconstructionResultMapper.ToEnvelope(JsonNode.Parse("""
+        {
+          "image": {"url": "https://example.test/out.png"},
+          "mask_image": {"url": "https://example.test/mask.png"}
+        }
+        """)!);
 
         var result = await new ReconstructionPreprocessMaterializer(store, downloader)
             .MaterializeAsync(
@@ -91,13 +87,8 @@ public sealed class ReconstructionPreprocessMaterializerTests : IDisposable
             Files = { ["https://example.test/out.png"] = new byte[] { 10 } },
         };
 
-        var envelope = new ProviderResultEnvelope(
-            new[] { Remote("image", "https://example.test/out.png") },
-            new Dictionary<string, JsonNode>
-            {
-                ["provider_result_json"] = JsonNode.Parse(
-                    """{ "image": {"url": "https://example.test/out.png"} }""")!,
-            });
+        var envelope = FalReconstructionResultMapper.ToEnvelope(JsonNode.Parse(
+            """{ "image": {"url": "https://example.test/out.png"} }""")!);
 
         var result = await new ReconstructionPreprocessMaterializer(store, downloader)
             .MaterializeAsync(
@@ -112,12 +103,9 @@ public sealed class ReconstructionPreprocessMaterializerTests : IDisposable
     public async Task RemoveBackground_MissingImageUrl_FailsAndCreatesNoArtifact()
     {
         var store = new ArtifactStore(NewTempRoot());
-        var envelope = new ProviderResultEnvelope(
-            new[] { Remote("image", "https://example.test/out.png") },
-            new Dictionary<string, JsonNode>
-            {
-                ["provider_result_json"] = JsonNode.Parse("""{ "mask_image": {"url": "https://example.test/mask.png"} }""")!,
-            });
+        // Mask-only body: the mapper yields a mask artifact but no image role, so the materializer fails.
+        var envelope = FalReconstructionResultMapper.ToEnvelope(
+            JsonNode.Parse("""{ "mask_image": {"url": "https://example.test/mask.png"} }""")!);
 
         var result = await new ReconstructionPreprocessMaterializer(store, new FakeDownloader())
             .MaterializeAsync(
@@ -128,9 +116,6 @@ public sealed class ReconstructionPreprocessMaterializerTests : IDisposable
         Assert.Equal(GenerationErrorCode.ExecutionFailed, result.Error!.Code);
         Assert.Empty(store.List());
     }
-
-    private static ResultArtifact Remote(string role, string url)
-        => new(role, new RemoteArtifactBody(new Uri(url)), null, new Dictionary<string, JsonNode>());
 
     private string NewTempRoot()
     {

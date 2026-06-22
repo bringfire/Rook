@@ -13,16 +13,17 @@ namespace Rook.Services.Reconstruction;
 /// <summary>
 /// Materializes a background-removal (preprocess) job's result into a derived
 /// <c>preprocessed_image</c> artifact linked to its source (<c>parent_ids = [source]</c>) — never
-/// modifying the source. The 3D provider result envelope yields no model artifacts for a BiRefNet
-/// body, so this materializer reads the raw fal body preserved verbatim under the envelope's
-/// <c>provider_result_json</c> key, maps it via <see cref="FalBirefnetResultMapper"/>
-/// (<c>image</c> required, <c>mask</c> optional), downloads each asset through the disciplined
-/// <see cref="IReconstructionRemoteAssetDownloader"/>, and writes a single artifact carrying the
-/// <c>image</c> (and <c>mask</c>) role blobs.
+/// modifying the source. The shared <see cref="FalReconstructionResultMapper"/> now recognizes the
+/// BiRefNet body (<c>image</c> / <c>mask_image</c>), so the provider boundary already produced the
+/// <c>image</c> (required) and <c>mask</c> (optional) role'd artifacts in the envelope. This
+/// materializer consumes <c>envelope.Artifacts</c> directly (like
+/// <see cref="ReconstructionPackageMaterializer"/>), downloads each remote asset through the
+/// disciplined <see cref="IReconstructionRemoteAssetDownloader"/>, and writes a single
+/// <c>preprocessed_image</c> artifact carrying the <c>image</c> (and <c>mask</c>) role blobs.
 ///
 /// <para>Mirrors <see cref="ReconstructionMaterializeResult"/> (the artifact lands in the same
-/// <c>Package</c> field the manager reads <c>ResultArtifactId</c> from). A missing <c>image.url</c>
-/// is a typed <see cref="GenerationError"/> failure, not a hollow artifact.</para>
+/// <c>Package</c> field the manager reads <c>ResultArtifactId</c> from). A missing <c>image</c>
+/// artifact is a typed <see cref="GenerationError"/> failure, not a hollow artifact.</para>
 /// </summary>
 public sealed class ReconstructionPreprocessMaterializer
 {
@@ -47,23 +48,21 @@ public sealed class ReconstructionPreprocessMaterializer
     {
         if (envelope is null) throw new ArgumentNullException(nameof(envelope));
 
-        // The 3D MapArtifacts yields nothing for a BiRefNet body, so read the raw fal body the provider
-        // preserved verbatim and map it through the bg-removal mapper.
-        var rawBody = envelope.EnvelopeMetadata.TryGetValue("provider_result_json", out var pj)
-            ? pj
-            : new JsonObject();
-        var artifacts = FalBirefnetResultMapper.MapArtifacts(rawBody);
-
-        var hasImage = artifacts.Any(a => a.Role == "image");
+        // The shared mapper recognizes the BiRefNet body, so the provider boundary already produced the
+        // image (required) + mask (optional) role'd artifacts. Consume them from the envelope directly.
+        var hasImage = envelope.Artifacts.Any(a => a.Role == ReconstructionFileRoles.Image);
         if (!hasImage)
             return new ReconstructionMaterializeResult(false, null, new GenerationError(
                 GenerationErrorCode.ExecutionFailed,
-                "Background-removal result has no image asset (image.url).",
+                "Background-removal result contained no image asset.",
                 Retryable: false));
 
         var blobs = new List<BlobInput>();
-        foreach (var artifact in artifacts)
+        foreach (var artifact in envelope.Artifacts)
         {
+            if (artifact.Role != ReconstructionFileRoles.Image
+                && artifact.Role != ReconstructionFileRoles.Mask)
+                continue;
             if (blobs.Any(b => string.Equals(b.Role, artifact.Role, StringComparison.Ordinal)))
                 continue;
             if (artifact.Body is not RemoteArtifactBody remote)
@@ -90,7 +89,7 @@ public sealed class ReconstructionPreprocessMaterializer
         };
 
         var artifactRecord = _store.Create(
-            ReconstructionFileRoles.PreprocessedImage,
+            ReconstructionArtifactKinds.PreprocessedImage,
             blobs,
             parentIds: sourceArtifactIds,
             metadata: metadata);
