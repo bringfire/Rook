@@ -139,6 +139,7 @@ function switchView(view) {
     }
     if (view === "settings") loadSettingsOverview();
     if (view === "video") loadVideoView();
+    if (view === "reconstruct") loadReconstructView();
 }
 
 // ─── Generate View ────────────────────────────────────────────────
@@ -2169,6 +2170,7 @@ function init() {
 
     // Video view (PR-V3)
     Video.cacheEls();
+    Reconstruct.cacheEls();
 
     // ── Wire events ────────────────────────────────────────────
 
@@ -2292,6 +2294,7 @@ function init() {
 
     // Video view event wiring (PR-V3).
     Video.wireEvents();
+    Reconstruct.wireEvents();
 
     // Initial loads.
     loadViewports().then(captureViewport).catch(() => {});
@@ -3372,5 +3375,44 @@ const Video = (() => {
         wireEvents,
         onEnter,
     };
+})();
+
+// ─── Reconstruct module (image → 3D package) ────────────────────────
+//
+// Self-contained like `Video`: own state namespace, own DOM cache,
+// driven on view-enter. All bridge calls go through
+// `reconstructionBridgeCall(op, args)` on the dedicated "reconstruction"
+// channel; op names match ReconstructionOpHandler constants.
+
+function loadReconstructView() { Reconstruct.onEnter(); }
+
+const Reconstruct = (() => {
+    const POLL_INTERVAL_MS = 1500;
+    const POLL_MAX_ATTEMPTS = 180;
+    const TERMINAL_FAIL = new Set(["error", "cancelled", "interrupted"]);
+
+    let models = [];
+    let modelsLoaded = false;
+    let source = null;            // { artifact_id, role, previewSrc, label }
+    let outputMode = "textured";  // "textured" | "geometry"
+
+    const re = {};                // DOM cache
+
+    function cacheEls() {
+        // Filled in Tasks 3–6.
+    }
+
+    function wireEvents() {
+        // Filled in Tasks 3–6.
+    }
+
+    async function onEnter() {
+        // Filled in Tasks 3 & 6 (load models + job history).
+    }
+
+    // presetSource is fully implemented in Task 7 (Send-to-3D shortcut).
+    function presetSource(_artifact) { /* Task 7 */ }
+
+    return { cacheEls, wireEvents, onEnter, presetSource };
 })();
 
