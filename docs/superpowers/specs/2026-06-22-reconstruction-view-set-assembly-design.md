@@ -92,9 +92,14 @@ MCP tool: `rhino_2d_to_3d_assemble_view_set`. Native body / op args:
     { "slot": "left", "artifact_id": "<source artifact guid>" }
   ],
   "method": "manual_assembly",         // OPTIONAL string; default "manual_assembly"
-  "note": "optional free-form string"  // OPTIONAL
+  "note": "optional free-form string"  // OPTIONAL string
 }
 ```
+
+`method` and `note`, if present, **must be JSON strings**. A non-string `method` or
+`note` is a hard reject (`invalid_view_set`) — we do **not** silently coerce, which would
+make artifact metadata messy. Omitted `method` defaults to `"manual_assembly"`; omitted
+`note` is omitted from metadata (never serialized as `null`).
 
 ### Slot vocabulary (closed-but-extensible)
 Allowed slots this slice: `front`, `left`, `right`, `back`, `top`, `three_quarter`
@@ -136,7 +141,9 @@ on normal artifact storage limits.
 - Source `artifact_id` not found in the store.
 - Source artifact `kind` not in the allowed source-kind set.
 - The named `role` is **absent** on the resolved source artifact.
+- The resolved source blob is **missing / unreadable** at its store-owned path (see §5).
 - `provenance` present but not a JSON object.
+- `method` or `note` present but not a JSON string.
 
 ### Allowed — artifact still written, `complete: false`
 - A slot listed in `slots_expected` but absent from `views`. (This is the partial-set case;
@@ -181,6 +188,18 @@ on normal artifact storage limits.
   directly; lineage remains intact via `parent_ids`.
 - Source artifacts are **never mutated**. The only write is the new artifact.
 - `provenance` is omitted (never serialized as `null`) when not supplied.
+
+### Safe source-blob resolution (required)
+
+The assembler must **not** trust or string-concatenate `ArtifactFile.Path` to read source
+bytes. For each accepted view it resolves the blob through the **store-owned blob-path
+mechanism** (the same `ArtifactStore.GetBlobAbsolutePath(artifactId, role)` used by the
+source validator / package paths today), then copies bytes from that resolved path. If the
+store returns no path, or the resolved path is missing / unreadable, the op **fails before
+writing any artifact** (`invalid_source_artifact`, `details.reason:"source_blob_unreadable"`).
+This is what enforces the "unsafe/invalid file path" pin: paths are always store-resolved,
+never request- or manifest-derived, and an unreadable blob is a hard reject, not a partial
+write.
 
 ---
 
@@ -228,8 +247,10 @@ serialized as `{ code, message, retryable, field, details }`. The grouped-code a
 | unknown slot in `views` | `invalid_view_set` | `views` | `unknown_slot` |
 | `slots_expected` empty `[]` | `invalid_view_set` | `slots_expected` | `empty_slots_expected` |
 | unknown / duplicate slot in `slots_expected` | `invalid_view_set` | `slots_expected` | `unknown_slot` / `duplicate_slot` |
+| non-string `method` / `note` | `invalid_view_set` | `method` / `note` | `non_string_method` / `non_string_note` |
 | source artifact not found | `invalid_source_artifact` (existing) | the slot | `source_not_found` |
 | source kind not image-capable | `invalid_source_artifact` | the slot | `source_kind_not_image` |
+| source blob missing / unreadable | `invalid_source_artifact` | the slot | `source_blob_unreadable` |
 | role string malformed/unsafe | `invalid_source_role` (existing) | the slot | `invalid_role_format` |
 | role absent on artifact | `invalid_source_role` | the slot | `role_not_present` |
 | provenance not an object | `invalid_provenance` (new) | the slot | `provenance_not_object` |
@@ -282,7 +303,9 @@ the existing `invalid_source_artifact` / `invalid_source_role` → 400 entries).
   - happy path: full four-slot set → `complete:true`; partial set → `complete:false`.
   - hard rejects: empty views; duplicate slot; unknown slot (views + `slots_expected`);
     explicit empty `slots_expected`; malformed role string; source not found; source kind
-    not image-capable; role absent on artifact; provenance scalar; provenance array.
+    not image-capable; role absent on artifact; source blob missing/unreadable at the
+    store-resolved path; non-string `method`; non-string `note`; provenance scalar;
+    provenance array. Each asserts **no artifact is written** (store unchanged).
   - lineage: `parent_ids` = distinct sources; sources unmutated (kinds/roles intact after).
   - metadata: `slots_present` derived from accepted views; `complete` formula; `method`
     default `manual_assembly`; `note` omitted when absent.
@@ -306,12 +329,24 @@ the existing `invalid_source_artifact` / `invalid_source_role` → 400 entries).
 
 ## 9. Verification
 
-- **Full local deploy required** before smoke: this slice crosses Python MCP + native route
-  + managed bridge, even though there is no provider/job. Build native
-  (`build-native.bat Release 14.44.35207`) + managed (`dotnet build src/Rook/Rook.csproj
-  -c Release` → DeployToRhino) + `deploy-local-testing.ps1 -PayloadOnly -AllowRunning`
-  (mirror mcp_server src → release venv site-packages). The new MCP tool is only callable
-  after a fresh MCP connection (Claude Code restart).
+- **Full local deploy required** before smoke: this slice crosses Python MCP + **a new
+  native route** + managed bridge, even though there is no provider/job. **Close Rhino
+  first** (the native `.rhp` is locked while Rhino runs, and the new route only loads on a
+  fresh Rhino start).
+- **Native-staleness trap (from #327 — MUST avoid).** `deploy-local-testing.ps1
+  -PayloadOnly` deploys the **staged app-payload** `RookNative.rhp`, which can be **older
+  than your fresh repo build** — smoke would then test a build *without the new route* and
+  falsely pass/fail. Use **one** of these, never bare `-PayloadOnly` for the native bits:
+  1. **Preferred — full deploy:** run `deploy-local-testing.ps1` *without* `-PayloadOnly`
+     (Rhino closed, no `python -m rook` running) so native is rebuilt+staged+deployed
+     coherently; or
+  2. **Explicit native copy:** build native (`build-native.bat Release 14.44.35207`) +
+     managed (`dotnet build src/Rook/Rook.csproj -c Release` → DeployToRhino), run
+     `deploy-local-testing.ps1 -PayloadOnly -AllowRunning` for the MCP/managed sync, **then
+     manually copy** `src/RookNative/bin/Release/x64/RookNative.rhp` over the deployed
+     `%APPDATA%\…\RookNative\RookNative.rhp` (Rhino closed, no lock) before launching Rhino.
+  Either way, confirm the deployed `.rhp` is the fresh build (timestamp/size) before smoke.
+- The new MCP tool is only callable after a **fresh MCP connection (Claude Code restart)**.
 - **Live smoke (merge gate):** create/obtain ≥2 image artifacts (e.g. a captured viewport
   and a bg-removed `preprocessed_image`), call `rhino_2d_to_3d_assemble_view_set` with
   front+left, omitting `slots_expected`. Assert: a `reconstruction_view_set` artifact is
