@@ -915,7 +915,7 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
             preprocessMaterializer,
             publisher);
         _managers.Add(manager);
-        assembler ??= new DefaultReconstructionViewSetAssembler();
+        assembler ??= new ReconstructionViewSetAssembler(store);
         return new ReconstructionOpHandler(catalog, manager, store, assembler);
     }
 
@@ -946,7 +946,7 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
             provider,
             downloader,
             materializer,
-            new ReconstructionOpHandler(catalog, manager, store, new DefaultReconstructionViewSetAssembler(), importClient),
+            new ReconstructionOpHandler(catalog, manager, store, new ReconstructionViewSetAssembler(store), importClient),
             importClient);
     }
 
