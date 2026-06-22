@@ -3405,6 +3405,7 @@ const Reconstruct = (() => {
             showReconstructStatus("Select a model first.", "error");
             return;
         }
+        resetResultForNewRun();   // hide stale result/import state while the new job runs
         try {
             re.submitBtn.disabled = true;
             showReconstructStatus("Submitting reconstruction…", "info");
@@ -3567,6 +3568,18 @@ const Reconstruct = (() => {
         if (!re.importStatus) return;
         re.importStatus.textContent = message || "";
         re.importStatus.className = `reconstruct-import-status ${type || ""}`;
+    }
+
+    function resetResultForNewRun() {
+        // Hide stale package metadata + import state while a new job runs.
+        currentPackageId = null;
+        currentResultAvailable = false;
+        if (re.importBtn) {
+            re.importBtn.disabled = true;
+            re.importBtn.textContent = "Import to Rhino";
+        }
+        setImportStatus("", "");
+        if (re.resultPanel) re.resultPanel.classList.add("hidden");
     }
 
     async function importPackage() {
