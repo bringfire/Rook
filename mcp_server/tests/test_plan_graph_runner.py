@@ -12,9 +12,13 @@ from rook.learning.plan_graph import (
     PlanGraph,
     PlanGraphEdge,
     PlanGraphNode,
+    graph_status,
+    initialize_graph,
 )
+from rook.learning.plan_graph_bridge import apply_tool_result
 from rook.learning.plan_graph_projection import OUTCOME_PROJECTION_ROLE_KEY
 from rook.learning.plan_graph_runner import apply_producer_step, apply_verifier_step
+from rook.learning.plan_graph_templates import select_and_bind
 
 
 COMPONENT_GUID = "fbfd3ba5-5951-4064-8478-ee1d173150a9"
@@ -305,11 +309,6 @@ def test_producer_guard_precedence_runnable_before_role():
     )
     r = apply_producer_step(g, "create")
     assert r.reason == "node_not_runnable"
-
-
-from rook.learning.plan_graph import graph_status, initialize_graph
-from rook.learning.plan_graph_bridge import apply_tool_result
-from rook.learning.plan_graph_templates import select_and_bind
 
 
 def _usable_raw_result(component_guid="g1"):
