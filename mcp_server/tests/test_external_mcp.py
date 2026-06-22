@@ -150,8 +150,11 @@ def test_collect_reads_real_rook_server_via_find_spec():
     assert len(ev.names) > 300
     assert "rhino_ping" in ev.names
     assert "gh_edit" in ev.names
-    # the real router is clean today: no structural extraction findings
-    assert all(f.code == "unextractable_case" for f in ev.findings) or ev.findings == ()
+    # Pin today's clean AST shape: the real router is all string/OR cases + one
+    # bare wildcard, so the extractor surfaces NO structural findings. If future
+    # routing adds a guard/capture/non-constant case (or a second `match name`),
+    # this fails loudly instead of silently accepting the drift.
+    assert ev.findings == ()
 
 
 def test_collect_sources_via_find_spec_origin(tmp_path, monkeypatch):
