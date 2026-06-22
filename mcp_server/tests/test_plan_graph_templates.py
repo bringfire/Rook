@@ -446,6 +446,11 @@ _CREATE_VERIFY_REPAIR = {
     "operation": "create_verify_repair",
     "language": "csharp",
 }
+_CREATE_VERIFY_REPAIR_VERIFY = {
+    "domain": "grasshopper",
+    "operation": "create_verify_repair_verify",
+    "language": "csharp",
+}
 
 
 def test_select_create_verify_repair():
@@ -493,3 +498,59 @@ def test_create_verify_repair_topology():
     kinds = {(e.source, e.target): e.kind for e in graph.edges}
     assert kinds[("create_script", "verify_create")] == "requires"
     assert kinds[("verify_create", "repair_same_component")] == "on_repair"
+
+
+def test_select_create_verify_repair_verify():
+    sel = select_template(_CREATE_VERIFY_REPAIR_VERIFY)
+    assert sel.selected_template_id == "gh_csharp_create_verify_repair_verify"
+
+
+def test_registry_three_way_disjoint_via_evaluation_trail():
+    cases = [
+        (_CREATE_REPAIR, "gh_csharp_create_repair"),
+        (_CREATE_VERIFY_REPAIR, "gh_csharp_create_verify_repair"),
+        (_CREATE_VERIFY_REPAIR_VERIFY, "gh_csharp_create_verify_repair_verify"),
+    ]
+    all_ids = {tid for _, tid in cases}
+    for descriptor, selected in cases:
+        sel = select_template(descriptor)
+        assert sel.selected_template_id == selected
+        for other_id in all_ids - {selected}:
+            other = next(e for e in sel.evaluations if e.template_id == other_id)
+            assert not other.matched
+            op = next(c for c in other.criteria if c.field == "operation")
+            assert op.outcome == "value_mismatch"
+
+
+def test_create_verify_repair_verify_topology():
+    graph = select_template(_CREATE_VERIFY_REPAIR_VERIFY).graph
+    assert set(graph.nodes) == {
+        "create_script",
+        "verify_create",
+        "repair_same_component",
+        "verify_repair",
+        "done",
+    }
+    assert graph.nodes["done"].is_terminal is True
+    assert graph.nodes["repair_same_component"].is_terminal is False
+    kinds = {(e.source, e.target): e.kind for e in graph.edges}
+    assert kinds[("create_script", "verify_create")] == "requires"
+    assert kinds[("verify_create", "repair_same_component")] == "on_repair"
+    assert kinds[("repair_same_component", "verify_repair")] == "requires"
+    assert kinds[("verify_repair", "done")] == "requires"
+
+
+def test_create_verify_repair_verify_role_metadata_pinned():
+    graph = select_template(_CREATE_VERIFY_REPAIR_VERIFY).graph
+    assert graph.nodes["create_script"].metadata[OUTCOME_PROJECTION_ROLE_KEY] == "artifact_producer"
+    assert graph.nodes["repair_same_component"].metadata[OUTCOME_PROJECTION_ROLE_KEY] == "artifact_producer"
+    assert graph.nodes["verify_create"].metadata[OUTCOME_PROJECTION_ROLE_KEY] == "artifact_verifier"
+    assert graph.nodes["verify_repair"].metadata[OUTCOME_PROJECTION_ROLE_KEY] == "artifact_verifier"
+
+
+def test_done_is_terminal_marker_only():
+    done = select_template(_CREATE_VERIFY_REPAIR_VERIFY).graph.nodes["done"]
+    assert done.is_terminal is True
+    assert done.execution_ref is None
+    assert done.verifier_ref is None
+    assert OUTCOME_PROJECTION_ROLE_KEY not in done.metadata
