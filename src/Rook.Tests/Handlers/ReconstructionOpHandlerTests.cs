@@ -495,6 +495,87 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
         Assert.Equal(package.Id.ToString("D"), summary["artifact_id"]);
         Assert.Contains("model_glb", Assert.IsAssignableFrom<object[]>(summary["asset_roles"]));
         Assert.Equal("model_glb", summary["preferred_asset_role"]);
+        Assert.Equal("model_glb", summary["resolved_import_role"]);
+    }
+
+    [Fact]
+    public async Task Result_ResolvedImportRole_PreferredPresent_EqualsPreferred()
+    {
+        // glb delivered → manifest preferred_asset (model_glb) is present → resolver returns preferred.
+        var fixture = CreateFixture();
+        fixture.Downloader.Files["https://example.test/model.glb"] = new byte[] { 1, 2, 3 };
+        var jobId = Guid.NewGuid();
+        var package = await BuildPackageAsync(fixture, JsonNode.Parse("""
+        { "model_urls": { "glb": {"url": "https://example.test/model.glb"} } }
+        """)!, jobId);
+        fixture.Ledger.Append(ReconstructionJobLedgerRecord.Complete(jobId, package.Id));
+
+        var response = fixture.Handler.DispatchOffUi(
+            $"{{\"op\":\"job_result\",\"job_id\":\"{jobId}\"}}");
+
+        Assert.True(response.Success, JsonSerializer.Serialize(response.Data));
+        var data = Assert.IsType<Dictionary<string, object?>>(response.Data);
+        var summary = Assert.IsType<Dictionary<string, object?>>(data["package"]);
+        Assert.Equal("model_glb", summary["preferred_asset_role"]);
+        Assert.Equal("model_glb", summary["resolved_import_role"]);
+    }
+
+    [Fact]
+    public async Task Result_ResolvedImportRole_PreferredMissing_FallbackPresent_EqualsFallback()
+    {
+        // obj+mtl+texture delivered, NO glb → preferred (model_glb) absent → fallback resolves to model_obj.
+        var fixture = CreateFixture();
+        fixture.Downloader.Files["https://example.test/model.obj"] = new byte[] { 1, 2, 3 };
+        fixture.Downloader.Files["https://example.test/material.mtl"] = new byte[] { 4, 5, 6 };
+        fixture.Downloader.Files["https://example.test/texture.png"] = new byte[] { 7, 8, 9 };
+        var jobId = Guid.NewGuid();
+        var package = await BuildPackageAsync(fixture, JsonNode.Parse("""
+        {
+          "model_urls": {
+            "obj": {"url": "https://example.test/model.obj"},
+            "mtl": {"url": "https://example.test/material.mtl"}
+          },
+          "texture": {"url": "https://example.test/texture.png"}
+        }
+        """)!, jobId);
+        fixture.Ledger.Append(ReconstructionJobLedgerRecord.Complete(jobId, package.Id));
+
+        var response = fixture.Handler.DispatchOffUi(
+            $"{{\"op\":\"job_result\",\"job_id\":\"{jobId}\"}}");
+
+        Assert.True(response.Success, JsonSerializer.Serialize(response.Data));
+        var data = Assert.IsType<Dictionary<string, object?>>(response.Data);
+        var summary = Assert.IsType<Dictionary<string, object?>>(data["package"]);
+        Assert.Equal("model_glb", summary["preferred_asset_role"]);          // catalog preference, absent here
+        Assert.Equal("model_obj", summary["resolved_import_role"]);          // what import will actually use
+        Assert.NotEqual(summary["preferred_asset_role"], summary["resolved_import_role"]);
+    }
+
+    [Fact]
+    public async Task Result_ResolvedImportRole_DegenerateManifest_IsNull_AndDoesNotThrow()
+    {
+        // DEFENSIVE case — NOT a normal package. The materializer guarantees glb|obj, and the static
+        // manifest's fallback_order lists both, so a naturally materialized package can never resolve to
+        // null. We force a malformed/degenerate manifest (preferred names an absent role, fallback empty)
+        // to prove the resolver returns null without throwing and the op still succeeds.
+        var fixture = CreateFixture();
+        fixture.Downloader.Files["https://example.test/model.obj"] = new byte[] { 1, 2, 3 };
+        var jobId = Guid.NewGuid();
+        var package = await BuildPackageAsync(fixture, JsonNode.Parse("""
+        { "model_urls": { "obj": {"url": "https://example.test/model.obj"} } }
+        """)!, jobId);
+        fixture.Ledger.Append(ReconstructionJobLedgerRecord.Complete(jobId, package.Id));
+
+        var manifestPath = fixture.Store.GetBlobAbsolutePath(package.Id, ReconstructionFileRoles.ImportManifest);
+        File.WriteAllText(manifestPath, "{\"schema_version\":1,\"preferred_asset\":\"model_glb\",\"fallback_order\":[]}");
+
+        var response = fixture.Handler.DispatchOffUi(
+            $"{{\"op\":\"job_result\",\"job_id\":\"{jobId}\"}}");
+
+        Assert.True(response.Success, JsonSerializer.Serialize(response.Data));
+        var data = Assert.IsType<Dictionary<string, object?>>(response.Data);
+        var summary = Assert.IsType<Dictionary<string, object?>>(data["package"]);
+        Assert.Null(summary["resolved_import_role"]);
     }
 
     [Fact]
@@ -630,6 +711,51 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
             CancellationToken.None);
         Assert.True(result.Success, JsonSerializer.Serialize(result.Error));
         return result.Package!;
+    }
+
+    [Fact]
+    public async Task ResolvedImportRole_MatchesPrepareImportAssetRole_ForSamePackage()
+    {
+        // The load-bearing promise: the panel's "Import will use" role equals the role the import plan
+        // will use. Same package, no requested assetRole — preferred (model_glb) missing, fallback
+        // (model_obj) present, i.e. the live textured-Hunyuan shape.
+        var fixture = CreateFixture();
+        fixture.Downloader.Files["https://example.test/model.obj"] = new byte[] { 1, 2, 3 };
+        fixture.Downloader.Files["https://example.test/material.mtl"] = new byte[] { 4, 5, 6 };
+        fixture.Downloader.Files["https://example.test/texture.png"] = new byte[] { 7, 8, 9 };
+        var jobId = Guid.NewGuid();
+        var package = await BuildPackageAsync(fixture, JsonNode.Parse("""
+        {
+          "model_urls": {
+            "obj": {"url": "https://example.test/model.obj"},
+            "mtl": {"url": "https://example.test/material.mtl"}
+          },
+          "texture": {"url": "https://example.test/texture.png"}
+        }
+        """)!, jobId);
+        fixture.Ledger.Append(ReconstructionJobLedgerRecord.Complete(jobId, package.Id));
+
+        // Panel-side prediction (job_result → package summary).
+        var resultResponse = fixture.Handler.DispatchOffUi(
+            $"{{\"op\":\"job_result\",\"job_id\":\"{jobId}\"}}");
+        Assert.True(resultResponse.Success, JsonSerializer.Serialize(resultResponse.Data));
+        var resultData = Assert.IsType<Dictionary<string, object?>>(resultResponse.Data);
+        var summary = Assert.IsType<Dictionary<string, object?>>(resultData["package"]);
+        var predicted = Assert.IsType<string>(summary["resolved_import_role"]);
+        Assert.Equal("model_obj", predicted);
+
+        // Import-plan role for the SAME package, no assetRole override.
+        var prepareResponse = fixture.Handler.DispatchOffUi(
+            "{" +
+            "\"op\":\"prepare_import\"," +
+            $"\"package_id\":\"{package.Id}\"," +
+            "\"import_id\":\"cafe1234-cafe-cafe-cafe-cafecafecafe\"" +
+            "}");
+        Assert.True(prepareResponse.Success, JsonSerializer.Serialize(prepareResponse.Data));
+        var prepareData = Assert.IsType<Dictionary<string, object?>>(prepareResponse.Data);
+
+        // The promise: prediction == plan role.
+        Assert.Equal(predicted, prepareData["asset_role"]);
     }
 
     [Fact]

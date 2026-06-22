@@ -3543,21 +3543,29 @@ const Reconstruct = (() => {
         }
         re.resultThumb.onerror = () => re.resultThumb.classList.add("hidden");
 
+        const resolvedRole = pkg.resolved_import_role || "";
         re.resultMeta.innerHTML = [
             `<div class="reconstruct-result-id">Package ${escapeHtml(packageId || "—")}</div>`,
             roles.length
-                ? `<div class="reconstruct-result-roles">Assets: ${escapeHtml(roles.join(", "))}</div>`
+                ? `<div class="reconstruct-result-roles">Available assets: ${escapeHtml(roles.join(", "))}</div>`
                 : "",
             preferred
                 ? `<div class="reconstruct-result-preferred">Catalog preferred: ${escapeHtml(preferred)}</div>`
                 : "",
+            resolvedRole
+                ? `<div class="reconstruct-result-resolved">Import will use: ${escapeHtml(resolvedRole)}</div>`
+                : `<div class="reconstruct-result-resolved unavailable">Import unavailable: no importable model asset</div>`,
         ].join("");
 
         renderWarnings(result.warnings);
 
+        // Import is possible only when the package is available AND the resolver names a role.
+        // Recomputed every render, so a later valid result re-enables a button left disabled by a
+        // prior null result.
+        const importable = !!(packageId && result.result_available && resolvedRole);
         currentPackageId = packageId || null;
-        currentResultAvailable = !!(packageId && result.result_available);
-        re.importBtn.disabled = !currentResultAvailable;
+        currentResultAvailable = importable;
+        re.importBtn.disabled = !importable;
         re.importBtn.textContent = "Import to Rhino";
         setImportStatus("", "");
 
@@ -3583,7 +3591,9 @@ const Reconstruct = (() => {
     }
 
     async function importPackage() {
-        if (!currentPackageId) return;
+        // Match the UI state invariant: never import an unavailable/unimportable result, even if the
+        // call somehow fires while the button is disabled.
+        if (!currentPackageId || !currentResultAvailable) return;
         try {
             re.importBtn.disabled = true;
             re.importBtn.textContent = "Importing…";

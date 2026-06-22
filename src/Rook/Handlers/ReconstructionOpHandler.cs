@@ -832,9 +832,16 @@ namespace Rook.Handlers
                 return null;
 
             var preferred = (string?)null;
+            var resolvedImportRole = (string?)null;
             var manifest = ReadImportManifest(packageId, out _);
             if (manifest is not null)
+            {
                 preferred = ReadString(manifest, "preferred_asset");
+                // Same resolver the native import path uses (via prepare_import); passive — returns null on
+                // an unresolvable package and never throws. Its failure detail is intentionally discarded
+                // (out _): null is the whole signal the UI needs, and no failure leaks into job_result.
+                resolvedImportRole = ResolveAssetRole(package, manifest, requestedRole: null, out _);
+            }
 
             return new Dictionary<string, object?>
             {
@@ -845,6 +852,7 @@ namespace Rook.Handlers
                     .Where(IsAssetRole)
                     .ToArray(),
                 ["preferred_asset_role"] = preferred,
+                ["resolved_import_role"] = resolvedImportRole,
             };
         }
 
