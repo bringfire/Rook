@@ -18,6 +18,11 @@
         "mode": "single_image",
         "source_field": "input_image_url"
       },
+      "prompt": {
+        "supported": false,
+        "required": false,
+        "kind": null
+      },
       "preprocessing": {
         "recommended": false,
         "required": false
@@ -40,6 +45,11 @@
         "mode": "single_image",
         "source_field": "input_image_url"
       },
+      "prompt": {
+        "supported": true,
+        "required": false,
+        "kind": "texture"
+      },
       "preprocessing": {
         "recommended": false,
         "required": false
@@ -54,13 +64,18 @@
       "enabled": true,
       "pipeline_roles": ["preprocess_remove_background"],
       "input_types": ["image_url"],
-      "output_roles": ["preprocessed_image", "mask"],
-      "preferred_asset_role": "preprocessed_image",
-      "fallback_order": ["preprocessed_image"],
+      "output_roles": ["image", "mask"],
+      "preferred_asset_role": "image",
+      "fallback_order": ["image"],
       "supports_pbr": false,
       "input": {
         "mode": "single_image",
         "source_field": "image_url"
+      },
+      "prompt": {
+        "supported": false,
+        "required": false,
+        "kind": null
       },
       "preprocessing": {
         "recommended": false,

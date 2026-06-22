@@ -1,4 +1,7 @@
+using System;
+using System.IO;
 using System.Linq;
+using System.Reflection;
 using Rook.Services.Reconstruction;
 using Xunit;
 
@@ -6,6 +9,19 @@ namespace Rook.Tests.Services.Reconstruction;
 
 public sealed class ReconstructionModelCatalogTests
 {
+    // Loads the SHIPPED embedded production catalog (the same resource RookSubsystemRoot loads), so the
+    // production-entry assertions below pin the real fal-model-catalog.json, not a test fixture.
+    private static ReconstructionModelCatalog ProductionCatalog()
+    {
+        var assembly = typeof(ReconstructionModelEntry).Assembly;
+        const string resourceName = "Rook.Services.Reconstruction.Fal.fal-model-catalog.json";
+        using var stream = assembly.GetManifestResourceStream(resourceName)
+            ?? throw new InvalidOperationException(
+                $"Embedded reconstruction model catalog '{resourceName}' was not found.");
+        using var reader = new StreamReader(stream);
+        return ReconstructionModelCatalog.FromJson(reader.ReadToEnd());
+    }
+
     [Fact]
     public void List_Default_ReturnsOnlyEnabledStableModels()
     {
@@ -112,6 +128,164 @@ public sealed class ReconstructionModelCatalogTests
         var entry = ReconstructionModelCatalog.FromJson(json).Find("fal-ai/minimal");
         Assert.NotNull(entry);
         Assert.False(entry!.DefaultTextureExpected);   // absent → false, no accidental default-true
+    }
+
+    [Fact]
+    public void Catalog_PromptDescriptor_Deserializes()
+    {
+        // Prompt capability is descriptive metadata a future prompt UI reads. Meshy supports a texture
+        // prompt; Hunyuan does not.
+        var catalog = ProductionCatalog();
+
+        var meshy = catalog.Find("fal-ai/meshy/v6/image-to-3d");
+        Assert.NotNull(meshy);
+        Assert.NotNull(meshy!.Prompt);
+        Assert.True(meshy.Prompt!.Supported);
+        Assert.Equal("texture", meshy.Prompt.Kind);
+
+        var hunyuan = catalog.Find("fal-ai/hunyuan-3d/v3.1/rapid/image-to-3d");
+        Assert.NotNull(hunyuan);
+        Assert.NotNull(hunyuan!.Prompt);
+        Assert.False(hunyuan.Prompt!.Supported);
+    }
+
+    [Fact]
+    public void Catalog_InputMode_Deserializes()
+    {
+        // Every production entry is single-image input today.
+        var catalog = ProductionCatalog();
+
+        foreach (var id in new[]
+                 {
+                     "fal-ai/hunyuan-3d/v3.1/rapid/image-to-3d",
+                     "fal-ai/meshy/v6/image-to-3d",
+                     "fal-ai/birefnet/v2",
+                 })
+        {
+            var entry = catalog.Find(id);
+            Assert.NotNull(entry);
+            Assert.NotNull(entry!.Input);
+            Assert.Equal("single_image", entry.Input!.Mode);
+        }
+    }
+
+    [Fact]
+    public void Catalog_AbsentBlocks_DefaultNull_NoThrow()
+    {
+        // A synthetic entry without input/prompt blocks must still deserialize (both null), proving the
+        // new descriptors are additive and back-compatible.
+        const string json = """
+        {
+          "schema_version": 1,
+          "models": [{
+            "model_id": "fal-ai/no-descriptors", "provider": "fal", "task": "single_image_to_3d",
+            "status": "stable", "enabled": true,
+            "pipeline_roles": ["single_image_to_3d"], "input_types": ["image_url"],
+            "output_roles": ["model_glb"], "preferred_asset_role": "model_glb",
+            "fallback_order": ["model_glb"], "supports_pbr": false,
+            "preprocessing": {"recommended": false, "required": false},
+            "docs_url": "https://fal.ai/x"
+          }]
+        }
+        """;
+        var entry = ReconstructionModelCatalog.FromJson(json).Find("fal-ai/no-descriptors");
+        Assert.NotNull(entry);
+        Assert.Null(entry!.Input);
+        Assert.Null(entry.Prompt);
+    }
+
+    [Fact]
+    public void Catalog_SchemaShape_Fixtures_RoundTrip()
+    {
+        // Synthetic-only multi-view + text shapes (no production entry uses them). Pins that view_slots,
+        // array and a text mode deserialize and carry their fields.
+        const string json = """
+        {
+          "schema_version": 1,
+          "models": [
+            {
+              "model_id": "synthetic/multi-view-labeled", "provider": "fal", "task": "multi_image_to_3d",
+              "status": "experimental", "enabled": true,
+              "pipeline_roles": ["multi_image_to_3d"], "input_types": ["image_url"],
+              "output_roles": ["model_glb"], "preferred_asset_role": "model_glb",
+              "fallback_order": ["model_glb"], "supports_pbr": false,
+              "input": {
+                "mode": "multi_view_labeled",
+                "view_slots": [
+                  {"role": "front", "field": "front_image_url", "required": true},
+                  {"role": "back", "field": "back_image_url", "required": false}
+                ]
+              },
+              "preprocessing": {"recommended": false, "required": false},
+              "docs_url": "https://fal.ai/x"
+            },
+            {
+              "model_id": "synthetic/multi-view-array", "provider": "fal", "task": "multi_image_to_3d",
+              "status": "experimental", "enabled": true,
+              "pipeline_roles": ["multi_image_to_3d"], "input_types": ["image_url"],
+              "output_roles": ["model_glb"], "preferred_asset_role": "model_glb",
+              "fallback_order": ["model_glb"], "supports_pbr": false,
+              "input": {
+                "mode": "multi_view_array",
+                "array": {"field": "image_urls", "min": 2, "max": 8}
+              },
+              "preprocessing": {"recommended": false, "required": false},
+              "docs_url": "https://fal.ai/x"
+            },
+            {
+              "model_id": "synthetic/text", "provider": "fal", "task": "text_to_3d",
+              "status": "experimental", "enabled": true,
+              "pipeline_roles": ["text_to_3d"], "input_types": ["text"],
+              "output_roles": ["model_glb"], "preferred_asset_role": "model_glb",
+              "fallback_order": ["model_glb"], "supports_pbr": false,
+              "input": {"mode": "text"},
+              "prompt": {"supported": true, "required": true, "kind": "geometry"},
+              "preprocessing": {"recommended": false, "required": false},
+              "docs_url": "https://fal.ai/x"
+            }
+          ]
+        }
+        """;
+        var catalog = ReconstructionModelCatalog.FromJson(json);
+
+        var labeled = catalog.Find("synthetic/multi-view-labeled");
+        Assert.NotNull(labeled);
+        Assert.Equal("multi_view_labeled", labeled!.Input!.Mode);
+        Assert.NotNull(labeled.Input.ViewSlots);
+        Assert.Equal(2, labeled.Input.ViewSlots!.Length);
+        Assert.Equal("front", labeled.Input.ViewSlots[0].Role);
+        Assert.Equal("front_image_url", labeled.Input.ViewSlots[0].Field);
+        Assert.True(labeled.Input.ViewSlots[0].Required);
+        Assert.False(labeled.Input.ViewSlots[1].Required);
+        Assert.Null(labeled.Input.Array);
+
+        var array = catalog.Find("synthetic/multi-view-array");
+        Assert.NotNull(array);
+        Assert.Equal("multi_view_array", array!.Input!.Mode);
+        Assert.NotNull(array.Input.Array);
+        Assert.Equal("image_urls", array.Input.Array!.Field);
+        Assert.Equal(2, array.Input.Array.Min);
+        Assert.Equal(8, array.Input.Array.Max);
+        Assert.Null(array.Input.ViewSlots);
+
+        var text = catalog.Find("synthetic/text");
+        Assert.NotNull(text);
+        Assert.Equal("text", text!.Input!.Mode);
+        Assert.NotNull(text.Prompt);
+        Assert.True(text.Prompt!.Required);
+        Assert.Equal("geometry", text.Prompt.Kind);
+    }
+
+    [Fact]
+    public void Catalog_BirefnetV2_OutputRoles_AreImageAndMask()
+    {
+        // Carry-forward: the bg-removal entry advertises file roles image/mask (not the artifact kind).
+        var entry = ProductionCatalog().Find("fal-ai/birefnet/v2");
+
+        Assert.NotNull(entry);
+        Assert.Equal(new[] { "image", "mask" }, entry!.OutputRoles);
+        Assert.Equal("image", entry.PreferredAssetRole);
+        Assert.Equal(new[] { "image" }, entry.FallbackOrder);
     }
 
     private const string TestCatalogJson = """

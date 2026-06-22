@@ -133,6 +133,12 @@ namespace Rook.Handlers
             }
         }
 
+        // Tasks whose models actually produce 3D output and therefore belong in the reconstruct picker.
+        // remove_background (birefnet) is a preprocessing op, not a 3D producer, so it is excluded here.
+        // multi_image_to_3d / text_to_3d can be added when those land.
+        private static readonly HashSet<string> ThreeDProducingTasks =
+            new(StringComparer.Ordinal) { "single_image_to_3d" };
+
         private ApiResponse Models(Dictionary<string, JsonElement> args)
         {
             var includeExperimental = GetBoolArg(args, "include_experimental") ?? false;
@@ -141,6 +147,7 @@ namespace Rook.Handlers
             {
                 ["models"] = _catalog
                     .List(includeExperimental, includeHidden)
+                    .Where(m => ThreeDProducingTasks.Contains(m.Task))
                     .Select(ModelToObj)
                     .ToArray(),
                 ["include_experimental"] = includeExperimental,
@@ -925,8 +932,52 @@ namespace Rook.Handlers
                     ["recommended"] = model.Preprocessing.Recommended,
                     ["required"] = model.Preprocessing.Required,
                 },
+                ["input"] = InputToObj(model.Input),
+                ["prompt"] = PromptToObj(model.Prompt),
                 ["docs_url"] = model.DocsUrl,
             };
+
+        private static Dictionary<string, object?>? InputToObj(ReconstructionInputMetadata? input)
+        {
+            if (input is null)
+                return null;
+            var obj = new Dictionary<string, object?>
+            {
+                ["mode"] = input.Mode,
+                ["source_field"] = input.SourceField,
+            };
+            if (input.ViewSlots is not null)
+            {
+                obj["view_slots"] = input.ViewSlots
+                    .Select(slot => new Dictionary<string, object?>
+                    {
+                        ["role"] = slot.Role,
+                        ["field"] = slot.Field,
+                        ["required"] = slot.Required,
+                    })
+                    .ToArray();
+            }
+            if (input.Array is not null)
+            {
+                obj["array"] = new Dictionary<string, object?>
+                {
+                    ["field"] = input.Array.Field,
+                    ["min"] = input.Array.Min,
+                    ["max"] = input.Array.Max,
+                };
+            }
+            return obj;
+        }
+
+        private static Dictionary<string, object?>? PromptToObj(ReconstructionPromptMetadata? prompt)
+            => prompt is null
+                ? null
+                : new Dictionary<string, object?>
+                {
+                    ["supported"] = prompt.Supported,
+                    ["required"] = prompt.Required,
+                    ["kind"] = prompt.Kind,
+                };
 
         private static Dictionary<string, object?> JobToObj(ReconstructionJobLedgerRecord job)
             => new()

@@ -442,7 +442,7 @@ public sealed class ReconstructionJobManager : IDisposable
         {
             warnings.Add(new ReconstructionWarning(
                 "result_artifact_missing",
-                "The reconstruction package artifact referenced by the job ledger is missing.",
+                "The result artifact referenced by the job ledger is missing.",
                 new Dictionary<string, object?>
                 {
                     ["result_artifact_id"] = job.ResultArtifactId.Value.ToString("D"),

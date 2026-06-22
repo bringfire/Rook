@@ -262,6 +262,8 @@ Green; commit: `feat(reconstruction): manager-owned result_kind/asset_roles; han
 
 **Carry-forward fix (BiRefNet output roles).** The BiRefNet catalog entry still advertises `output_roles: ["preprocessed_image", "mask"]`, conflating the artifact *kind* (`preprocessed_image`) with the file *roles* (now `image`/`mask` per the Task 2 patch). Align the entry to the shipped contract: `output_roles: ["image", "mask"]`, `preferred_asset_role: "image"`, `fallback_order: ["image"]`. Pin it with a catalog test asserting those exact values for `fal-ai/birefnet/v2`.
 
+**Carry-forward fix (generic missing-artifact copy).** The `result_artifact_missing` warning in `ReconstructionJobManager.Result` reads "The reconstruction package artifact referenced by the job ledger is missing." — but for a bg-removal job the missing artifact is a `preprocessed_image`, not a package. Now that result kind is typed, generalize the copy to "The result artifact referenced by the job ledger is missing."
+
 **Files:**
 - Modify: `src/Rook/Services/Reconstruction/Fal/fal-model-catalog.json` (`input.mode` + `prompt` blocks)
 - Modify: `src/Rook/Services/Reconstruction/ReconstructionModelCatalog.cs` (extend `Input` with `ViewSlots`/`Array`; add `Prompt` type; `ModelToObj`; 3D-task filter helper)
