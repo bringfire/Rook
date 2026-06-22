@@ -27,7 +27,15 @@ internal sealed class ReconstructionCredentialMissingException : Exception
 public sealed record ReconstructionProviderSubmitRequest(
     string ModelId,
     Uri InputImageUrl,
-    JsonObject Options);
+    JsonObject Options)
+{
+    /// <summary>
+    /// The provider input field that carries the source image URL. Resolved from the model catalog's
+    /// <c>input.source_field</c> (e.g. <c>image_url</c> for fal-ai/birefnet/v2). When null,
+    /// <see cref="FalReconstructionProvider"/> defaults to <c>input_image_url</c> (the 3D path).
+    /// </summary>
+    public string? SourceField { get; init; }
+}
 
 /// <summary>
 /// Narrow transport seam over <see cref="FalApiClient"/> that binds the fal API key at the edge so
@@ -340,7 +348,7 @@ public sealed class FalReconstructionProvider : IReconstructionProvider
     {
         var payload = new JsonObject
         {
-            ["input_image_url"] = request.InputImageUrl.ToString(),
+            [request.SourceField ?? "input_image_url"] = request.InputImageUrl.ToString(),
         };
         foreach (var kvp in request.Options)
             payload[kvp.Key] = kvp.Value?.DeepClone();

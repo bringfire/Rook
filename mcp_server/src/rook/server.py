@@ -12696,6 +12696,26 @@ Returns the full profile JSON including features, surfaces, and elements.""",
             },
         ),
         Tool(
+            name="rhino_2d_to_3d_remove_background",
+            description=(
+                "Submit an explicit Rook Reconstruction background-removal job "
+                "from an existing image artifact. Produces a derived "
+                "preprocessed_image artifact linked to its source; the source is "
+                "never modified. The contract is artifact-only: provide "
+                "source_artifact_id, not a local path."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "source_artifact_id": {"type": "string", "description": "Source image artifact id."},
+                    "source_role": {"type": "string", "description": "Source artifact file role (default image)."},
+                    "model_id": {"type": "string", "description": "Optional background-removal model id; defaults to the first enabled remove_background model when omitted."},
+                    "port": {"type": "integer", "description": "Specific Rhino port to target."},
+                },
+                "required": ["source_artifact_id"],
+            },
+        ),
+        Tool(
             name="rhino_2d_to_3d_jobs",
             description="List durable Rook Reconstruction 2D-to-3D jobs. Default limit is managed server-defined.",
             inputSchema={
@@ -20193,6 +20213,11 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
         case "rhino_2d_to_3d_submit":
             result = await call_rhino(
                 "/reconstruction/2d-to-3d/jobs", "POST", arguments, port=port
+            )
+
+        case "rhino_2d_to_3d_remove_background":
+            result = await call_rhino(
+                "/reconstruction/2d-to-3d/background-removals", "POST", arguments, port=port
             )
 
         case "rhino_2d_to_3d_jobs":

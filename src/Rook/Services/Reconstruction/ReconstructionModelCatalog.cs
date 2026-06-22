@@ -20,11 +20,50 @@ public sealed record ReconstructionModelEntry(
     [property: JsonPropertyName("supports_pbr")] bool SupportsPbr,
     [property: JsonPropertyName("preprocessing")] ReconstructionPreprocessingMetadata Preprocessing,
     [property: JsonPropertyName("docs_url")] string DocsUrl,
-    [property: JsonPropertyName("default_texture_expected")] bool DefaultTextureExpected);
+    [property: JsonPropertyName("default_texture_expected")] bool DefaultTextureExpected,
+    [property: JsonPropertyName("input")] ReconstructionInputMetadata? Input = null,
+    [property: JsonPropertyName("prompt")] ReconstructionPromptMetadata? Prompt = null);
 
 public sealed record ReconstructionPreprocessingMetadata(
     [property: JsonPropertyName("recommended")] bool Recommended,
     [property: JsonPropertyName("required")] bool Required);
+
+/// <summary>
+/// Input descriptor: the provider input <see cref="Mode"/> (e.g. <c>single_image</c>) and the
+/// provider input field (<see cref="SourceField"/>, e.g. <c>image_url</c> for fal-ai/birefnet/v2, or
+/// <c>input_image_url</c> for the 3D models) the source image URL is keyed under. The descriptive
+/// <see cref="ViewSlots"/> (labeled multi-view) and <see cref="Array"/> (array multi-view) shapes are
+/// additive metadata for a future multi-view/prompt UI; no production catalog entry uses them today
+/// (exercised by synthetic fixtures only). Nullable on the entry so catalog JSON lacking an
+/// <c>input</c> block still deserializes (Input == null).
+/// </summary>
+public sealed record ReconstructionInputMetadata(
+    [property: JsonPropertyName("mode")] string? Mode,
+    [property: JsonPropertyName("source_field")] string? SourceField,
+    [property: JsonPropertyName("view_slots")] ReconstructionViewSlot[]? ViewSlots = null,
+    [property: JsonPropertyName("array")] ReconstructionArraySpec? Array = null);
+
+/// <summary>Labeled multi-view slot descriptor (e.g. {role:"front", field:"front_image_url", required:true}).</summary>
+public sealed record ReconstructionViewSlot(
+    [property: JsonPropertyName("role")] string Role,
+    [property: JsonPropertyName("field")] string Field,
+    [property: JsonPropertyName("required")] bool Required);
+
+/// <summary>Array multi-view descriptor (a single field taking min..max images).</summary>
+public sealed record ReconstructionArraySpec(
+    [property: JsonPropertyName("field")] string Field,
+    [property: JsonPropertyName("min")] int Min,
+    [property: JsonPropertyName("max")] int Max);
+
+/// <summary>
+/// Prompt-capability descriptor for a model: whether a text prompt is <see cref="Supported"/>,
+/// whether it is <see cref="Required"/>, and the prompt <see cref="Kind"/> (e.g. <c>texture</c>).
+/// Additive/nullable so older catalog JSON without a <c>prompt</c> block still deserializes.
+/// </summary>
+public sealed record ReconstructionPromptMetadata(
+    [property: JsonPropertyName("supported")] bool Supported,
+    [property: JsonPropertyName("required")] bool Required,
+    [property: JsonPropertyName("kind")] string? Kind);
 
 public sealed class ReconstructionModelCatalog
 {

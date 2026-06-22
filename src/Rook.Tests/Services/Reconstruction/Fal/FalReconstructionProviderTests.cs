@@ -48,6 +48,49 @@ public sealed class FalReconstructionProviderTests
     }
 
     [Fact]
+    public async Task BuildSubmitPayload_UsesSourceField_WhenProvided()
+    {
+        // BuildSubmitPayload is private; exercise it through the public submit path and capture the
+        // posted body. A resolved SourceField ("image_url", e.g. BiRefNet v2) must key the source url.
+        var transport = new FakeTransport();
+        transport.Posts.Enqueue(Resp(200, @"{
+            ""request_id"":""req-1"",
+            ""status_url"":""https://queue.fal.run/status/req-1""}"));
+
+        await new FalReconstructionProvider(transport).SubmitAsync(
+            new ReconstructionProviderSubmitRequest(
+                "fal-ai/birefnet/v2",
+                new Uri("https://rook.local/source.png"),
+                new JsonObject())
+            {
+                SourceField = "image_url",
+            },
+            CancellationToken.None);
+
+        Assert.Contains(@"""image_url"":""https://rook.local/source.png""", transport.LastPostBody);
+        Assert.DoesNotContain("input_image_url", transport.LastPostBody);
+    }
+
+    [Fact]
+    public async Task BuildSubmitPayload_DefaultsToInputImageUrl_WhenNull()
+    {
+        // A null SourceField preserves the Hunyuan/3D path: source url keyed as input_image_url.
+        var transport = new FakeTransport();
+        transport.Posts.Enqueue(Resp(200, @"{
+            ""request_id"":""req-1"",
+            ""status_url"":""https://queue.fal.run/status/req-1""}"));
+
+        await new FalReconstructionProvider(transport).SubmitAsync(
+            new ReconstructionProviderSubmitRequest(
+                HunyuanModelId,
+                new Uri("https://rook.local/source.png"),
+                new JsonObject()),
+            CancellationToken.None);
+
+        Assert.Contains(@"""input_image_url"":""https://rook.local/source.png""", transport.LastPostBody);
+    }
+
+    [Fact]
     public async Task Submit_401_ReturnsFailedSubmitTyped()
     {
         var transport = new FakeTransport();
@@ -298,6 +341,25 @@ public sealed class FalReconstructionProviderTests
         Assert.Contains(artifacts, a => a.Role == "texture_base_color");
         Assert.Contains(artifacts, a => a.Role == "texture_normal");
         Assert.Contains(artifacts, a => a.Role == "texture_roughness");
+    }
+
+    [Fact]
+    public async Task Fetch_BirefnetBody_ReturnsSuccessWithImageAndMaskArtifacts()
+    {
+        // A REAL remove_background result body must fetch as a SuccessResultOutcome (NOT the "no
+        // recognizable asset URLs" failure) now that the shared mapper recognizes image/mask_image.
+        var transport = new FakeTransport();
+        transport.Gets.Enqueue(Resp(200, @"{
+            ""image"":{""url"":""https://example.test/out.png""},
+            ""mask_image"":{""url"":""https://example.test/mask.png""}}"));
+
+        var outcome = await new FalReconstructionProvider(transport).FetchResultAsync(
+            new ProviderJobHandle("req-123", responseUrl: new Uri("https://queue.fal.run/response/req-123")),
+            CancellationToken.None);
+
+        var success = Assert.IsType<SuccessResultOutcome>(outcome);
+        Assert.Contains(success.Envelope.Artifacts, a => a.Role == ReconstructionFileRoles.Image);
+        Assert.Contains(success.Envelope.Artifacts, a => a.Role == ReconstructionFileRoles.Mask);
     }
 
     [Fact]

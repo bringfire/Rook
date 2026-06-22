@@ -14,6 +14,15 @@
       "fallback_order": ["model_glb", "model_obj"],
       "supports_pbr": true,
       "default_texture_expected": true,
+      "input": {
+        "mode": "single_image",
+        "source_field": "input_image_url"
+      },
+      "prompt": {
+        "supported": false,
+        "required": false,
+        "kind": null
+      },
       "preprocessing": {
         "recommended": false,
         "required": false
@@ -32,6 +41,15 @@
       "preferred_asset_role": "model_glb",
       "fallback_order": ["model_glb"],
       "supports_pbr": true,
+      "input": {
+        "mode": "single_image",
+        "source_field": "input_image_url"
+      },
+      "prompt": {
+        "supported": true,
+        "required": false,
+        "kind": "texture"
+      },
       "preprocessing": {
         "recommended": false,
         "required": false
@@ -39,22 +57,31 @@
       "docs_url": "https://fal.ai/models/fal-ai/meshy/v6/image-to-3d/api"
     },
     {
-      "model_id": "fal-ai/birefnet",
+      "model_id": "fal-ai/birefnet/v2",
       "provider": "fal",
       "task": "remove_background",
       "status": "experimental",
       "enabled": true,
       "pipeline_roles": ["preprocess_remove_background"],
       "input_types": ["image_url"],
-      "output_roles": ["preprocessed_image", "mask"],
-      "preferred_asset_role": "preprocessed_image",
-      "fallback_order": ["preprocessed_image"],
+      "output_roles": ["image", "mask"],
+      "preferred_asset_role": "image",
+      "fallback_order": ["image"],
       "supports_pbr": false,
+      "input": {
+        "mode": "single_image",
+        "source_field": "image_url"
+      },
+      "prompt": {
+        "supported": false,
+        "required": false,
+        "kind": null
+      },
       "preprocessing": {
         "recommended": false,
         "required": false
       },
-      "docs_url": "https://fal.ai/models/fal-ai/birefnet/api"
+      "docs_url": "https://fal.ai/models/fal-ai/birefnet/v2/api"
     }
   ]
 }

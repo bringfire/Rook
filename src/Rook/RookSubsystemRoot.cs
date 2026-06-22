@@ -237,13 +237,17 @@ namespace Rook
                 GenerationSecretKeys.FalApiKey);
             var provider = new FalReconstructionProvider(
                 new FalApiTransport(falClient, falApiKey));
+            var downloader = new ReconstructionRemoteAssetDownloader(
+                new HttpClient(),
+                role => role.StartsWith("model_", StringComparison.Ordinal)
+                    ? 100_000_000L
+                    : 25_000_000L);
             var materializer = new ReconstructionPackageMaterializer(
                 SharedArtifactStore,
-                new ReconstructionRemoteAssetDownloader(
-                    new HttpClient(),
-                    role => role.StartsWith("model_", StringComparison.Ordinal)
-                        ? 100_000_000L
-                        : 25_000_000L));
+                downloader);
+            var preprocessMaterializer = new ReconstructionPreprocessMaterializer(
+                SharedArtifactStore,
+                downloader);
             var manager = new ReconstructionJobManager(
                 SharedArtifactStore,
                 catalog,
@@ -251,6 +255,7 @@ namespace Rook
                     JsonlReconstructionJobLedger.DefaultPath()),
                 provider,
                 materializer,
+                preprocessMaterializer,
                 new FalReconstructionSourceImagePublisher(
                     falClient,
                     SharedGenerationSecretStore));

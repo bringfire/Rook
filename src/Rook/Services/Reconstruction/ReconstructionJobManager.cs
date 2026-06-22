@@ -39,7 +39,12 @@ public sealed record ReconstructionJobResultEnvelope(
     Guid? ResultArtifactId,
     bool ResultAvailable,
     IReadOnlyList<ReconstructionWarning> Warnings,
-    ReconstructionFailure? Failure);
+    ReconstructionFailure? Failure,
+    // Typed result discriminator owned by the manager (derived from the job's persisted task), so the
+    // handler is a pure serializer and never re-infers the kind from the artifact/catalog. For a
+    // non-3D result, AssetRoles carries the derived artifact's file roles (e.g. image, mask).
+    string ResultKind = "",
+    IReadOnlyList<string>? AssetRoles = null);
 
 public sealed class ReconstructionJobManager : IDisposable
 {
@@ -51,6 +56,7 @@ public sealed class ReconstructionJobManager : IDisposable
     private readonly JsonlReconstructionJobLedger _ledger;
     private readonly IReconstructionProvider _provider;
     private readonly ReconstructionPackageMaterializer _materializer;
+    private readonly ReconstructionPreprocessMaterializer _preprocessMaterializer;
     private readonly IReconstructionSourceImagePublisher _sourcePublisher;
 
     // Per-job single-flight gate, shared by the background loop and on-demand StatusAsync/poll
@@ -71,6 +77,7 @@ public sealed class ReconstructionJobManager : IDisposable
         JsonlReconstructionJobLedger ledger,
         IReconstructionProvider provider,
         ReconstructionPackageMaterializer materializer,
+        ReconstructionPreprocessMaterializer preprocessMaterializer,
         IReconstructionSourceImagePublisher sourcePublisher,
         TimeSpan? pollInterval = null)
     {
@@ -79,6 +86,7 @@ public sealed class ReconstructionJobManager : IDisposable
         _ledger = ledger ?? throw new ArgumentNullException(nameof(ledger));
         _provider = provider ?? throw new ArgumentNullException(nameof(provider));
         _materializer = materializer ?? throw new ArgumentNullException(nameof(materializer));
+        _preprocessMaterializer = preprocessMaterializer ?? throw new ArgumentNullException(nameof(preprocessMaterializer));
         _sourcePublisher = sourcePublisher ?? throw new ArgumentNullException(nameof(sourcePublisher));
         _pollInterval = pollInterval ?? DefaultPollInterval;
     }
@@ -122,6 +130,39 @@ public sealed class ReconstructionJobManager : IDisposable
                 "options");
         }
 
+        return await SubmitCoreAsync(request, model!, "single_image_to_3d", ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Dedicated entry for the explicit background-removal op. Resolves a remove_background catalog
+    /// model: when an explicit model_id is supplied it must itself be a remove_background entry —
+    /// an explicit non-remove_background model_id is REJECTED (null), never silently substituted; the
+    /// catalog default (first enabled remove_background entry) applies only when model_id is omitted.
+    /// Then drives the shared submit body with task=remove_background. No pbr/geometry guard — those
+    /// options are irrelevant to background removal.
+    /// </summary>
+    public async Task<ReconstructionSubmitResult> SubmitRemoveBackgroundAsync(
+        ReconstructionSubmitRequest request,
+        CancellationToken ct)
+    {
+        var model = ResolveRemoveBackgroundModel(request.ModelId);
+        if (model is null)
+            return SubmitFail("invalid_request", "No background-removal model is available.", "model_id");
+
+        return await SubmitCoreAsync(request with { ModelId = model.ModelId }, model, "remove_background", ct)
+            .ConfigureAwait(false);
+    }
+
+    // Shared submit body for every reconstruction task: source validate → read bytes → publish to fal
+    // CDN → provider submit → ledger append of the queued/submitting/polling records. The persisted
+    // task discriminates downstream behavior (materialization, result envelope) in later tasks. Caller
+    // is responsible for resolving + gating the model.
+    private async Task<ReconstructionSubmitResult> SubmitCoreAsync(
+        ReconstructionSubmitRequest request,
+        ReconstructionModelEntry model,
+        string task,
+        CancellationToken ct)
+    {
         var source = _store.Get(request.SourceArtifactId);
         if (source is null)
             return SubmitFail("invalid_request", "source_artifact_id was not found.", "source_artifact_id");
@@ -136,7 +177,8 @@ public sealed class ReconstructionJobManager : IDisposable
             request.ModelId,
             request.SourceArtifactId,
             request.SourceRole,
-            DeriveTextureExpected(request.Options, model!));
+            DeriveTextureExpected(request.Options, model),
+            task);
         _ledger.Append(queued);
 
         var submitting = WithState(
@@ -161,7 +203,10 @@ public sealed class ReconstructionJobManager : IDisposable
                 sourceFileName,
                 ct).ConfigureAwait(false);
             submitOutcome = await _provider.SubmitAsync(
-                new ReconstructionProviderSubmitRequest(request.ModelId, sourceUrl, request.Options),
+                new ReconstructionProviderSubmitRequest(request.ModelId, sourceUrl, request.Options)
+                {
+                    SourceField = model.Input?.SourceField,
+                },
                 ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -392,11 +437,12 @@ public sealed class ReconstructionJobManager : IDisposable
 
         var warnings = new List<ReconstructionWarning>();
         var available = ResultAvailable(job);
+        var assetRoles = Array.Empty<string>();
         if (job.ResultArtifactId.HasValue && !available)
         {
             warnings.Add(new ReconstructionWarning(
                 "result_artifact_missing",
-                "The reconstruction package artifact referenced by the job ledger is missing.",
+                "The result artifact referenced by the job ledger is missing.",
                 new Dictionary<string, object?>
                 {
                     ["result_artifact_id"] = job.ResultArtifactId.Value.ToString("D"),
@@ -404,13 +450,17 @@ public sealed class ReconstructionJobManager : IDisposable
         }
         else if (available)
         {
-            var roles = _store.Get(job.ResultArtifactId!.Value)!.Files
+            assetRoles = _store.Get(job.ResultArtifactId!.Value)!.Files
                 .Select(f => f.Role)
                 .ToArray();
-            warnings.AddRange(BuildTextureWarnings(
-                job.TextureExpected,
-                _catalog.Find(job.ModelId),
-                roles));
+            // Texture-degradation warnings are a 3D-package concern; skip them for non-3D results.
+            if (string.Equals(job.Task, "remove_background", StringComparison.Ordinal) == false)
+            {
+                warnings.AddRange(BuildTextureWarnings(
+                    job.TextureExpected,
+                    _catalog.Find(job.ModelId),
+                    assetRoles));
+            }
         }
 
         return new ReconstructionJobResultEnvelope(
@@ -419,8 +469,17 @@ public sealed class ReconstructionJobManager : IDisposable
             job.ResultArtifactId,
             available,
             warnings,
-            null);
+            null,
+            ResultKindForTask(job.Task),
+            assetRoles);
     }
+
+    // The manager owns the result-kind discriminator: it maps the job's persisted task to the typed
+    // result kind (which equals the produced artifact's kind). The handler serializes this verbatim.
+    private static string ResultKindForTask(string task)
+        => string.Equals(task, "remove_background", StringComparison.Ordinal)
+            ? ReconstructionArtifactKinds.PreprocessedImage
+            : ReconstructionArtifactKinds.Package;
 
     public async Task PollActiveJobAsync(Guid jobId, CancellationToken ct)
     {
@@ -480,13 +539,26 @@ public sealed class ReconstructionJobManager : IDisposable
                         return;
                     }
 
-                    var materialized = await _materializer.MaterializeAsync(
-                        materializing.JobId,
-                        new[] { materializing.SourceArtifactId },
-                        materializing.Provider,
-                        materializing.ModelId,
-                        success.Envelope,
-                        ct).ConfigureAwait(false);
+                    // Branch materialization on the persisted task: a remove_background job produces a
+                    // derived preprocessed_image linked to its source; everything else (3D) writes a
+                    // reconstruction_package. Both put their artifact in the result's Package field, so
+                    // the completed record's ResultArtifactId is set uniformly below.
+                    var materialized = string.Equals(
+                        materializing.Task, "remove_background", StringComparison.Ordinal)
+                        ? await _preprocessMaterializer.MaterializeAsync(
+                            materializing.JobId,
+                            new[] { materializing.SourceArtifactId },
+                            materializing.Provider,
+                            materializing.ModelId,
+                            success.Envelope,
+                            ct).ConfigureAwait(false)
+                        : await _materializer.MaterializeAsync(
+                            materializing.JobId,
+                            new[] { materializing.SourceArtifactId },
+                            materializing.Provider,
+                            materializing.ModelId,
+                            success.Envelope,
+                            ct).ConfigureAwait(false);
                     if (!materialized.Success)
                     {
                         AppendError(materializing, materialized.Error!);
@@ -589,6 +661,32 @@ public sealed class ReconstructionJobManager : IDisposable
             && string.Equals(model.Status, "stable", StringComparison.OrdinalIgnoreCase)
             && string.Equals(model.Task, "single_image_to_3d", StringComparison.Ordinal)
             && model.PipelineRoles.Contains("single_image_to_3d", StringComparer.Ordinal);
+
+    // A model is submittable for background removal when it is enabled and its catalog task is
+    // remove_background. Unlike the 3D gate this does NOT require status=="stable" — bg-removal models
+    // ship experimental in v1 (and bg-removal is never surfaced by the 3D-only `models` op anyway).
+    private static bool IsSubmittableRemoveBackgroundModel(ReconstructionModelEntry? model)
+        => model is not null
+            && model.Enabled
+            && string.Equals(model.Task, "remove_background", StringComparison.Ordinal);
+
+    // Resolves the model that will service a background-removal submit. When an explicit model_id is
+    // supplied it must itself be a remove_background entry: a non-remove_background model_id is
+    // rejected (returns null) — we never silently substitute the bg-removal default for an explicitly
+    // requested model. The catalog default (first enabled remove_background entry) is used ONLY when
+    // model_id is omitted. Returns null when no usable background-removal model is available.
+    private ReconstructionModelEntry? ResolveRemoveBackgroundModel(string? requestedModelId)
+    {
+        if (!string.IsNullOrWhiteSpace(requestedModelId))
+        {
+            var requested = _catalog.Find(requestedModelId!);
+            return IsSubmittableRemoveBackgroundModel(requested) ? requested : null;
+        }
+
+        return _catalog
+            .List(includeExperimental: true, includeHidden: true)
+            .FirstOrDefault(IsSubmittableRemoveBackgroundModel);
+    }
 
     private static bool? ReadStrictBool(JsonObject options, string key)
     {

@@ -491,11 +491,41 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
         Assert.True(response.Success, JsonSerializer.Serialize(response.Data));
         var data = Assert.IsType<Dictionary<string, object?>>(response.Data);
         Assert.True(Assert.IsType<bool>(data["result_available"]));
+        Assert.Equal("reconstruction_package", data["result_kind"]);   // 3D job: typed kind present, package unchanged
         var summary = Assert.IsType<Dictionary<string, object?>>(data["package"]);
         Assert.Equal(package.Id.ToString("D"), summary["artifact_id"]);
         Assert.Contains("model_glb", Assert.IsAssignableFrom<object[]>(summary["asset_roles"]));
         Assert.Equal("model_glb", summary["preferred_asset_role"]);
         Assert.Equal("model_glb", summary["resolved_import_role"]);
+    }
+
+    [Fact]
+    public void Result_RemoveBackgroundJob_ResultKindPreprocessedImage_PackageNull()
+    {
+        // bg-removal result must NOT masquerade as a 3D package: result_kind=preprocessed_image,
+        // image-role metadata present, package null.
+        var fixture = CreateFixture();
+        var preprocessed = fixture.Store.Create(
+            ReconstructionArtifactKinds.PreprocessedImage,
+            new[]
+            {
+                new BlobInput("image", new byte[] { 1, 2, 3 }, "png"),
+                new BlobInput("mask", new byte[] { 4, 5, 6 }, "png"),
+            });
+        var jobId = Guid.NewGuid();
+        fixture.Ledger.Append(
+            ReconstructionJobLedgerRecord.Complete(jobId, preprocessed.Id, "remove_background"));
+
+        var response = fixture.Handler.DispatchOffUi(
+            $"{{\"op\":\"job_result\",\"job_id\":\"{jobId}\"}}");
+
+        Assert.True(response.Success, JsonSerializer.Serialize(response.Data));
+        var data = Assert.IsType<Dictionary<string, object?>>(response.Data);
+        Assert.Equal("preprocessed_image", data["result_kind"]);
+        Assert.Null(data["package"]);
+        var roles = Assert.IsAssignableFrom<object[]>(data["asset_roles"]);
+        Assert.Contains("image", roles);
+        Assert.Contains("mask", roles);
     }
 
     [Fact]
@@ -792,6 +822,52 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
         Assert.Null(fixture.ImportClient.LastPackageId);   // client must NOT be invoked off-UI
     }
 
+    [Fact]
+    public void RemoveBackground_OffUi_IsRejected()
+    {
+        // remove_background is an async op; the off-UI dispatcher must reject it (400 invalid_request),
+        // mirroring import_package — it must never run off the UI dispatch path.
+        var fixture = CreateFixture();
+        var body = $"{{\"op\":\"remove_background\",\"source_artifact_id\":\"{Guid.NewGuid():D}\"}}";
+
+        var resp = fixture.Handler.DispatchOffUi(body);
+
+        Assert.False(resp.Success);
+        Assert.Equal(400, resp.HttpStatus);
+        var data = Assert.IsType<Dictionary<string, object?>>(resp.Data);
+        Assert.Equal("invalid_request", data["code"]);
+    }
+
+    [Fact]
+    public void ModelsOp_Excludes_RemoveBackgroundTasks()
+    {
+        // The reconstruct picker must list only 3D-producing models. With experimental+hidden included,
+        // the remove_background (birefnet) entry is present in the raw catalog but must be filtered out,
+        // while 3D models (hunyuan) remain and now carry the new input/prompt descriptors.
+        var fixture = CreateFixture();
+
+        var response = fixture.Handler.DispatchOffUi(
+            @"{""op"":""models"",""include_experimental"":true,""include_hidden"":true}");
+
+        Assert.True(response.Success, JsonSerializer.Serialize(response.Data));
+        var data = Assert.IsType<Dictionary<string, object?>>(response.Data);
+        var models = Assert.IsAssignableFrom<object[]>(data["models"])
+            .Select(m => Assert.IsType<Dictionary<string, object?>>(m))
+            .ToArray();
+
+        Assert.All(models, m =>
+        {
+            Assert.DoesNotContain("birefnet", Assert.IsType<string>(m["model_id"]));
+            Assert.NotEqual("remove_background", Assert.IsType<string>(m["task"]));
+        });
+
+        var hunyuan = Assert.Single(
+            models, m => Assert.IsType<string>(m["model_id"]) == HunyuanModelId);
+        // 3D entries now expose the descriptive capability metadata.
+        Assert.True(hunyuan.ContainsKey("input"));
+        Assert.True(hunyuan.ContainsKey("prompt"));
+    }
+
     private Fixture CreateFixture()
     {
         var root = NewTempRoot();
@@ -802,12 +878,14 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
         var downloader = new FakeDownloader();
         var publisher = new FakeSourceImagePublisher();
         var materializer = new ReconstructionPackageMaterializer(store, downloader);
+        var preprocessMaterializer = new ReconstructionPreprocessMaterializer(store, downloader);
         var manager = new ReconstructionJobManager(
             store,
             catalog,
             ledger,
             provider,
             materializer,
+            preprocessMaterializer,
             publisher);
         _managers.Add(manager);
         var importClient = new FakeImportClient();
@@ -952,8 +1030,26 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
           "preferred_asset_role": "model_glb",
           "fallback_order": ["model_glb"],
           "supports_pbr": true,
+          "input": {"mode": "single_image", "source_field": "input_image_url"},
+          "prompt": {"supported": true, "required": false, "kind": "texture"},
           "preprocessing": {"recommended": false, "required": false},
           "docs_url": "https://fal.ai/models/fal-ai/meshy/v6/image-to-3d/api"
+        },
+        {
+          "model_id": "fal-ai/birefnet/v2",
+          "provider": "fal",
+          "task": "remove_background",
+          "status": "experimental",
+          "enabled": true,
+          "pipeline_roles": ["preprocess_remove_background"],
+          "input_types": ["image_url"],
+          "output_roles": ["image", "mask"],
+          "preferred_asset_role": "image",
+          "fallback_order": ["image"],
+          "supports_pbr": false,
+          "input": {"mode": "single_image", "source_field": "image_url"},
+          "preprocessing": {"recommended": false, "required": false},
+          "docs_url": "https://fal.ai/models/fal-ai/birefnet/v2/api"
         }
       ]
     }

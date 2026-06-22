@@ -1367,6 +1367,11 @@ void HandleReconstructionSubmit(const httplib::Request& req, httplib::Response& 
     DispatchReconstructionOp(req, res, "submit_job");
 }
 
+void HandleReconstructionRemoveBackground(const httplib::Request& req, httplib::Response& res)
+{
+    DispatchReconstructionOp(req, res, "remove_background");
+}
+
 void HandleReconstructionJobsList(const httplib::Request& req, httplib::Response& res)
 {
     nlohmann::json body = nlohmann::json::object();

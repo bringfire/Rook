@@ -78,6 +78,48 @@ public sealed class ReconstructionJobLedgerTests
     }
 
     [Fact]
+    public void Task_RoundTripsAtV3()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"rook-ledger-{Guid.NewGuid():N}.jsonl");
+        try
+        {
+            var ledger = new JsonlReconstructionJobLedger(path);
+            var rec = ReconstructionJobLedgerRecord.Queued(
+                Guid.NewGuid(), "fal-ai/birefnet/v2", Guid.NewGuid(), "image",
+                task: "remove_background");
+            ledger.Append(rec);
+
+            var read = Assert.Single(ledger.List(10).Jobs);
+            Assert.Equal("remove_background", read.Task);
+        }
+        finally { if (File.Exists(path)) File.Delete(path); }
+    }
+
+    [Fact]
+    public void LegacyV2Record_DefaultsTaskToSingleImageTo3d()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"rook-ledger-{Guid.NewGuid():N}.jsonl");
+        try
+        {
+            // A hand-written v2 line: schema_version 2, texture_expected present, NO "task" key.
+            var jobId = Guid.NewGuid();
+            var v2 = $$"""
+            {"schema_version":2,"job_id":"{{jobId:D}}","state":"Complete","stage":"Complete","provider":"fal","model_id":"fal-ai/hunyuan-3d/v3.1/rapid/image-to-3d","source_artifact_id":"{{Guid.NewGuid():D}}","source_role":"image","created_at":"2026-06-20T00:00:00.0000000+00:00","updated_at":"2026-06-20T00:00:00.0000000+00:00","result_available":false,"texture_expected":false,"preprocessing_chain":[]}
+            """;
+            File.WriteAllText(path, v2 + "\n");
+
+            var ledger = new JsonlReconstructionJobLedger(path);
+            var result = ledger.List(10);
+
+            var job = Assert.Single(result.Jobs);                  // NOT dropped as unsupported
+            Assert.Equal(jobId, job.JobId);
+            Assert.Equal("single_image_to_3d", job.Task);          // absent task → legacy default
+            Assert.DoesNotContain(result.Warnings, w => w.Code == "unsupported_schema_version");
+        }
+        finally { if (File.Exists(path)) File.Delete(path); }
+    }
+
+    [Fact]
     public void List_RejectsFutureSchemaVersion_AsUnsupported()
     {
         var path = Path.Combine(Path.GetTempPath(), $"rook-ledger-{Guid.NewGuid():N}.jsonl");

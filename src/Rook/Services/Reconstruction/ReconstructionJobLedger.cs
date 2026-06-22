@@ -27,6 +27,7 @@ public sealed record ReconstructionJobLedgerRecord(
     ReconstructionJobStage Stage,
     string Provider,
     string ModelId,
+    string Task,
     string? ProviderJobId,
     string? ProviderStatusUrl,
     string? ProviderResponseUrl,
@@ -42,14 +43,17 @@ public sealed record ReconstructionJobLedgerRecord(
     ReconstructionFailure? Error,
     bool TextureExpected)
 {
-    public const int CurrentSchemaVersion = 2;
+    public const int CurrentSchemaVersion = 3;
+
+    public const string DefaultTask = "single_image_to_3d";
 
     public static ReconstructionJobLedgerRecord Queued(
         Guid jobId,
         string modelId,
         Guid sourceArtifactId,
         string sourceRole,
-        bool textureExpected = false)
+        bool textureExpected = false,
+        string task = DefaultTask)
     {
         var now = DateTimeOffset.UtcNow;
         return new ReconstructionJobLedgerRecord(
@@ -59,6 +63,7 @@ public sealed record ReconstructionJobLedgerRecord(
             ReconstructionJobStage.Queued,
             "fal",
             modelId,
+            task,
             null,
             null,
             null,
@@ -75,7 +80,10 @@ public sealed record ReconstructionJobLedgerRecord(
             textureExpected);
     }
 
-    public static ReconstructionJobLedgerRecord Complete(Guid jobId, Guid resultArtifactId)
+    public static ReconstructionJobLedgerRecord Complete(
+        Guid jobId,
+        Guid resultArtifactId,
+        string task = DefaultTask)
     {
         var now = DateTimeOffset.UtcNow;
         return new ReconstructionJobLedgerRecord(
@@ -85,6 +93,7 @@ public sealed record ReconstructionJobLedgerRecord(
             ReconstructionJobStage.Complete,
             "fal",
             string.Empty,
+            task,
             null,
             null,
             null,
@@ -204,6 +213,9 @@ public sealed class JsonlReconstructionJobLedger
             ModelId = string.IsNullOrWhiteSpace(current.ModelId)
                 ? previous.ModelId
                 : current.ModelId,
+            Task = string.IsNullOrWhiteSpace(current.Task)
+                ? previous.Task
+                : current.Task,
             ProviderJobId = current.ProviderJobId ?? previous.ProviderJobId,
             ProviderStatusUrl = current.ProviderStatusUrl ?? previous.ProviderStatusUrl,
             ProviderResponseUrl = current.ProviderResponseUrl ?? previous.ProviderResponseUrl,
@@ -232,6 +244,7 @@ public sealed class JsonlReconstructionJobLedger
             ["stage"] = record.Stage.ToString(),
             ["provider"] = record.Provider,
             ["model_id"] = record.ModelId,
+            ["task"] = record.Task,
             ["provider_job_id"] = record.ProviderJobId,
             ["provider_status_url"] = record.ProviderStatusUrl,
             ["provider_response_url"] = record.ProviderResponseUrl,
@@ -342,6 +355,8 @@ public sealed class JsonlReconstructionJobLedger
             stage,
             ReadString(obj, "provider") ?? string.Empty,
             ReadString(obj, "model_id") ?? string.Empty,
+            // Legacy v2 records have no "task"; default them to single_image_to_3d.
+            ReadString(obj, "task") ?? ReconstructionJobLedgerRecord.DefaultTask,
             ReadString(obj, "provider_job_id"),
             ReadString(obj, "provider_status_url"),
             ReadString(obj, "provider_response_url"),

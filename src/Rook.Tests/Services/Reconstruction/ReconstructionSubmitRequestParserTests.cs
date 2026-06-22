@@ -29,7 +29,7 @@ public sealed class ReconstructionSubmitRequestParserTests
             "\"model_id\":\"fal-ai/hunyuan-3d/v3.1/rapid/image-to-3d\"," +
             "\"preprocessing_chain\":[{" +
             "\"role\":\"remove_background\"," +
-            "\"model_id\":\"fal-ai/birefnet\"," +
+            "\"model_id\":\"fal-ai/birefnet/v2\"," +
             "\"input_role\":\"image\"," +
             "\"output_role\":\"preprocessed_image\"," +
             "\"options\":{}" +
@@ -51,8 +51,8 @@ public sealed class ReconstructionSubmitRequestParserTests
             $"\"source_artifact_id\":\"{sourceId}\"," +
             "\"model_id\":\"fal-ai/hunyuan-3d/v3.1/rapid/image-to-3d\"," +
             "\"preprocessing_chain\":[" +
-            "{\"role\":\"remove_background\",\"model_id\":\"fal-ai/birefnet\"}," +
-            "{\"role\":\"remove_background\",\"model_id\":\"fal-ai/birefnet\"}" +
+            "{\"role\":\"remove_background\",\"model_id\":\"fal-ai/birefnet/v2\"}," +
+            "{\"role\":\"remove_background\",\"model_id\":\"fal-ai/birefnet/v2\"}" +
             "]" +
             "}");
 

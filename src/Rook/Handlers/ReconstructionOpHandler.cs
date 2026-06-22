@@ -26,6 +26,7 @@ namespace Rook.Handlers
         public const string OpRecordImport = "record_import";
         public const string OpCleanupPreparedImport = "cleanup_prepared_import";
         public const string OpImportPackage = "import_package";
+        public const string OpRemoveBackground = "remove_background";
 
         public const int DefaultListJobsLimit = 50;
 
@@ -70,6 +71,7 @@ namespace Rook.Handlers
                 return op switch
                 {
                     OpSubmit => await SubmitAsync(body, cancellationToken).ConfigureAwait(false),
+                    OpRemoveBackground => await RemoveBackgroundAsync(body, cancellationToken).ConfigureAwait(false),
                     OpStatus => await StatusAsync(args, cancellationToken).ConfigureAwait(false),
                     OpCancel => await CancelAsync(args, cancellationToken).ConfigureAwait(false),
                     OpImportPackage => await ImportAsync(args, cancellationToken).ConfigureAwait(false),
@@ -115,7 +117,7 @@ namespace Rook.Handlers
                     OpPrepareImport => PrepareImport(args),
                     OpRecordImport => RecordImport(args),
                     OpCleanupPreparedImport => CleanupPreparedImport(args),
-                    OpSubmit or OpStatus or OpCancel or OpImportPackage => Fail(
+                    OpSubmit or OpStatus or OpCancel or OpImportPackage or OpRemoveBackground => Fail(
                         Failure("invalid_request", $"op '{op}' must be routed through the async dispatcher, not the off-UI dispatcher.", "op"),
                         400),
                     _ => Fail(Failure("invalid_request", $"Unknown reconstruction op '{op}'.", "op"), 400),
@@ -131,6 +133,12 @@ namespace Rook.Handlers
             }
         }
 
+        // Tasks whose models actually produce 3D output and therefore belong in the reconstruct picker.
+        // remove_background (birefnet) is a preprocessing op, not a 3D producer, so it is excluded here.
+        // multi_image_to_3d / text_to_3d can be added when those land.
+        private static readonly HashSet<string> ThreeDProducingTasks =
+            new(StringComparer.Ordinal) { "single_image_to_3d" };
+
         private ApiResponse Models(Dictionary<string, JsonElement> args)
         {
             var includeExperimental = GetBoolArg(args, "include_experimental") ?? false;
@@ -139,6 +147,7 @@ namespace Rook.Handlers
             {
                 ["models"] = _catalog
                     .List(includeExperimental, includeHidden)
+                    .Where(m => ThreeDProducingTasks.Contains(m.Task))
                     .Select(ModelToObj)
                     .ToArray(),
                 ["include_experimental"] = includeExperimental,
@@ -155,6 +164,41 @@ namespace Rook.Handlers
 
             var result = await _manager.SubmitAsync(parsed.Request!, ct)
                 .ConfigureAwait(false);
+            if (!result.Success)
+                return Fail(result.Failure!, StatusFor(result.Failure!));
+
+            return Ok(JobToObj(result.Job!));
+        }
+
+        // Explicit background-removal op. Parses the minimal bg-removal request
+        // ({source_artifact_id (required), source_role? (default "image"), model_id?}) into a submit
+        // request with empty options + empty preprocessing chain, then drives the manager's dedicated
+        // remove_background entry. Returns the same job envelope as SubmitAsync on success.
+        private async Task<ApiResponse> RemoveBackgroundAsync(string? body, CancellationToken ct)
+        {
+            Dictionary<string, JsonElement> args;
+            try { args = ParseObjectBody(body); }
+            catch (ArgumentException ex)
+            {
+                return Fail(Failure("invalid_request", ex.Message, "body"), 400);
+            }
+
+            if (!TryParseGuid(args, "source_artifact_id", out var sourceArtifactId, out var failure))
+                return Fail(failure!, 400);
+
+            var sourceRole = GetStringArg(args, "source_role");
+            sourceRole = string.IsNullOrWhiteSpace(sourceRole) ? "image" : sourceRole;
+            var modelId = GetStringArg(args, "model_id") ?? string.Empty;
+
+            var request = new ReconstructionSubmitRequest(
+                sourceArtifactId,
+                sourceRole!,
+                modelId,
+                Array.Empty<ReconstructionPreprocessingStageRequest>(),
+                new JsonObject(),
+                EstimateRequested: false);
+
+            var result = await _manager.SubmitRemoveBackgroundAsync(request, ct).ConfigureAwait(false);
             if (!result.Success)
                 return Fail(result.Failure!, StatusFor(result.Failure!));
 
@@ -240,16 +284,29 @@ namespace Rook.Handlers
             if (!result.Success)
                 return Fail(result.Failure!, StatusFor(result.Failure!));
 
-            return Ok(new Dictionary<string, object?>
+            // Pure serializer over the manager-owned result kind — never re-infer from artifacts.
+            var data = new Dictionary<string, object?>
             {
                 ["job_id"] = result.JobId.ToString("D"),
                 ["result_artifact_id"] = result.ResultArtifactId?.ToString("D"),
                 ["result_available"] = result.ResultAvailable,
-                ["package"] = result.ResultArtifactId.HasValue && result.ResultAvailable
-                    ? PackageSummary(result.ResultArtifactId.Value)
-                    : null,
+                ["result_kind"] = result.ResultKind,
                 ["warnings"] = result.Warnings.Select(WarningToObj).ToArray(),
-            });
+            };
+            if (string.Equals(result.ResultKind, ReconstructionArtifactKinds.PreprocessedImage, StringComparison.Ordinal))
+            {
+                // Non-3D result: image-role metadata, never a 3D package summary.
+                data["asset_roles"] = (result.AssetRoles ?? Array.Empty<string>()).ToArray();
+                data["package"] = null;
+            }
+            else
+            {
+                // 3D package: PackageSummary is built ONLY here (the envelope says it's a package).
+                data["package"] = result.ResultArtifactId.HasValue && result.ResultAvailable
+                    ? PackageSummary(result.ResultArtifactId.Value)
+                    : null;
+            }
+            return Ok(data);
         }
 
         private ApiResponse PrepareImport(Dictionary<string, JsonElement> args)
@@ -875,8 +932,52 @@ namespace Rook.Handlers
                     ["recommended"] = model.Preprocessing.Recommended,
                     ["required"] = model.Preprocessing.Required,
                 },
+                ["input"] = InputToObj(model.Input),
+                ["prompt"] = PromptToObj(model.Prompt),
                 ["docs_url"] = model.DocsUrl,
             };
+
+        private static Dictionary<string, object?>? InputToObj(ReconstructionInputMetadata? input)
+        {
+            if (input is null)
+                return null;
+            var obj = new Dictionary<string, object?>
+            {
+                ["mode"] = input.Mode,
+                ["source_field"] = input.SourceField,
+            };
+            if (input.ViewSlots is not null)
+            {
+                obj["view_slots"] = input.ViewSlots
+                    .Select(slot => new Dictionary<string, object?>
+                    {
+                        ["role"] = slot.Role,
+                        ["field"] = slot.Field,
+                        ["required"] = slot.Required,
+                    })
+                    .ToArray();
+            }
+            if (input.Array is not null)
+            {
+                obj["array"] = new Dictionary<string, object?>
+                {
+                    ["field"] = input.Array.Field,
+                    ["min"] = input.Array.Min,
+                    ["max"] = input.Array.Max,
+                };
+            }
+            return obj;
+        }
+
+        private static Dictionary<string, object?>? PromptToObj(ReconstructionPromptMetadata? prompt)
+            => prompt is null
+                ? null
+                : new Dictionary<string, object?>
+                {
+                    ["supported"] = prompt.Supported,
+                    ["required"] = prompt.Required,
+                    ["kind"] = prompt.Kind,
+                };
 
         private static Dictionary<string, object?> JobToObj(ReconstructionJobLedgerRecord job)
             => new()

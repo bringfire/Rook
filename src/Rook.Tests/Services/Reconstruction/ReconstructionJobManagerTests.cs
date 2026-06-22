@@ -19,6 +19,7 @@ namespace Rook.Tests.Services.Reconstruction;
 public sealed class ReconstructionJobManagerTests : IDisposable
 {
     private const string HunyuanModelId = "fal-ai/hunyuan-3d/v3.1/rapid/image-to-3d";
+    private const string BirefnetModelId = "fal-ai/birefnet/v2";
 
     private readonly List<string> _roots = new();
     private readonly List<ReconstructionJobManager> _managers = new();
@@ -344,7 +345,7 @@ public sealed class ReconstructionJobManagerTests : IDisposable
             Request(source.Id) with { ModelId = "fal-ai/meshy/v6/image-to-3d" },
             CancellationToken.None);
         var birefnet = await fixture.Manager.SubmitAsync(
-            Request(source.Id) with { ModelId = "fal-ai/birefnet" },
+            Request(source.Id) with { ModelId = "fal-ai/birefnet/v2" },
             CancellationToken.None);
 
         Assert.False(meshy.Success);
@@ -352,6 +353,84 @@ public sealed class ReconstructionJobManagerTests : IDisposable
         Assert.False(birefnet.Success);
         Assert.Equal("model_id", birefnet.Failure!.Field);
         Assert.Empty(fixture.Provider.SubmitRequests);
+    }
+
+    [Fact]
+    public async Task SubmitAsync_RejectsRemoveBackgroundModel()
+    {
+        // Public submit_job stays 3D-only: a remove_background model must be rejected, never spending a
+        // provider job, regardless of the dedicated bg-removal entry existing.
+        var fixture = CreateFixture();
+        var source = fixture.Store.Create(
+            "generated_image",
+            new[] { new BlobInput("image", new byte[] { 1, 2, 3 }, "png") });
+
+        var result = await fixture.Manager.SubmitAsync(
+            Request(source.Id) with { ModelId = BirefnetModelId },
+            CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Equal("invalid_request", result.Failure!.Code);
+        Assert.Equal("model_id", result.Failure.Field);
+        Assert.Empty(fixture.Provider.SubmitRequests);
+    }
+
+    [Fact]
+    public async Task SubmitRemoveBackgroundAsync_RejectsSingleImageModel()
+    {
+        // The dedicated entry is remove_background-only: asking it to run a 3D model_id resolves no
+        // remove_background model and fails, never spending a provider job.
+        var fixture = CreateFixture();
+        var source = fixture.Store.Create(
+            "generated_image",
+            new[] { new BlobInput("image", new byte[] { 1, 2, 3 }, "png") });
+
+        var result = await fixture.Manager.SubmitRemoveBackgroundAsync(
+            Request(source.Id) with { ModelId = HunyuanModelId },
+            CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Equal("invalid_request", result.Failure!.Code);
+        Assert.Equal("model_id", result.Failure.Field);
+        Assert.Empty(fixture.Provider.SubmitRequests);
+    }
+
+    [Fact]
+    public async Task SubmitRemoveBackgroundAsync_AcceptsBirefnet_PersistsTask()
+    {
+        var fixture = CreateFixture();
+        var source = fixture.Store.Create(
+            "generated_image",
+            new[] { new BlobInput("image", new byte[] { 1, 2, 3 }, "png") });
+
+        var result = await fixture.Manager.SubmitRemoveBackgroundAsync(
+            Request(source.Id) with { ModelId = BirefnetModelId },
+            CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Single(fixture.Provider.SubmitRequests);
+        var queued = fixture.Manager.Status(result.Job!.JobId).Job!;
+        Assert.Equal("remove_background", queued.Task);
+        Assert.Equal(BirefnetModelId, queued.ModelId);
+    }
+
+    [Fact]
+    public async Task SubmitRemoveBackgroundAsync_DefaultsToCatalogRemoveBackgroundModel_WhenModelIdOmitted()
+    {
+        // No model_id supplied → resolves the first enabled remove_background catalog entry.
+        var fixture = CreateFixture();
+        var source = fixture.Store.Create(
+            "generated_image",
+            new[] { new BlobInput("image", new byte[] { 1, 2, 3 }, "png") });
+
+        var result = await fixture.Manager.SubmitRemoveBackgroundAsync(
+            Request(source.Id) with { ModelId = string.Empty },
+            CancellationToken.None);
+
+        Assert.True(result.Success);
+        var queued = fixture.Manager.Status(result.Job!.JobId).Job!;
+        Assert.Equal("remove_background", queued.Task);
+        Assert.Equal(BirefnetModelId, queued.ModelId);
     }
 
     [Fact]
@@ -379,6 +458,7 @@ public sealed class ReconstructionJobManagerTests : IDisposable
             ledger,
             new FalReconstructionProvider(transport),
             new ReconstructionPackageMaterializer(store, downloader),
+            new ReconstructionPreprocessMaterializer(store, downloader),
             new FakeSourceImagePublisher(),
             TimeSpan.FromMilliseconds(2));
         _managers.Add(manager);
@@ -397,6 +477,66 @@ public sealed class ReconstructionJobManagerTests : IDisposable
     }
 
     [Fact]
+    public async Task RemoveBackground_RealProvider_DrivesPollToComplete_LinkedPreprocessedImage()
+    {
+        // End-to-end through the REAL FalReconstructionProvider over a fake transport: a remove_background
+        // job submits, polls to COMPLETED, fetches a BiRefNet result body, and materializes a derived
+        // preprocessed_image linked to the source. This is the path the reviewer flagged as broken:
+        // before the fix, FetchResultAsync failed with "no recognizable asset URLs" because the shared
+        // mapper did not recognize image/mask_image, so the materializer never ran.
+        var root = NewTempRoot();
+        var store = new ArtifactStore(Path.Combine(root, "artifacts"));
+        var ledger = new JsonlReconstructionJobLedger(Path.Combine(root, "ledger.jsonl"));
+        var transport = new FakeFalTransport();
+        transport.Posts.Enqueue(new FalHttpResponse(
+            200,
+            @"{""request_id"":""req-1"",""status_url"":""https://queue.fal.run/status/req-1"",""response_url"":""https://queue.fal.run/response/req-1"",""cancel_url"":""https://queue.fal.run/cancel/req-1""}",
+            EmptyHeaders()));
+        transport.Gets.Enqueue(new FalHttpResponse(
+            200, @"{""status"":""COMPLETED"",""request_id"":""req-1""}", EmptyHeaders()));   // status poll
+        transport.Gets.Enqueue(new FalHttpResponse(
+            200,
+            @"{""image"":{""url"":""https://example.test/out.png""},""mask_image"":{""url"":""https://example.test/mask.png""}}",
+            EmptyHeaders()));                                                                  // result fetch
+        var downloader = new FakeDownloader();
+        downloader.Files["https://example.test/out.png"] = new byte[] { 10, 11 };
+        downloader.Files["https://example.test/mask.png"] = new byte[] { 20, 21 };
+        var manager = new ReconstructionJobManager(
+            store,
+            ReconstructionModelCatalog.FromJson(CatalogJson),
+            ledger,
+            new FalReconstructionProvider(transport),
+            new ReconstructionPackageMaterializer(store, downloader),
+            new ReconstructionPreprocessMaterializer(store, downloader),
+            new FakeSourceImagePublisher(),
+            TimeSpan.FromMilliseconds(2));
+        _managers.Add(manager);
+        var source = store.Create(
+            "generated_image",
+            new[] { new BlobInput("image", new byte[] { 1, 2, 3 }, "png") });
+
+        var submit = await manager.SubmitRemoveBackgroundAsync(
+            Request(source.Id) with { ModelId = BirefnetModelId },
+            CancellationToken.None);
+        Assert.True(submit.Success);
+
+        await WaitUntil(
+            () => manager.Status(submit.Job!.JobId).Job!.State == ReconstructionJobState.Complete,
+            2000);
+
+        var status = manager.Status(submit.Job!.JobId);
+        Assert.Equal(ReconstructionJobState.Complete, status.Job!.State);
+        Assert.True(status.ResultAvailable);
+        Assert.NotNull(status.Job.ResultArtifactId);
+
+        var artifact = store.Get(status.Job.ResultArtifactId!.Value)!;
+        Assert.Equal(ReconstructionArtifactKinds.PreprocessedImage, artifact.Kind);
+        Assert.Contains(artifact.Files, f => f.Role == ReconstructionFileRoles.Image);
+        Assert.Contains(artifact.Files, f => f.Role == ReconstructionFileRoles.Mask);
+        Assert.Equal(new[] { source.Id }, artifact.ParentIds.ToArray());
+    }
+
+    [Fact]
     public async Task ProviderTransportFailure_DuringSubmit_SurfacesProviderUnavailable_NotSubmitFailed()
     {
         // Real provider over a transport whose submit POST throws a raw HttpRequestException (the fault
@@ -412,6 +552,7 @@ public sealed class ReconstructionJobManagerTests : IDisposable
             ledger,
             new FalReconstructionProvider(transport),
             new ReconstructionPackageMaterializer(store, new FakeDownloader()),
+            new ReconstructionPreprocessMaterializer(store, new FakeDownloader()),
             new FakeSourceImagePublisher(),
             TimeSpan.FromMilliseconds(2));
         _managers.Add(manager);
@@ -448,6 +589,7 @@ public sealed class ReconstructionJobManagerTests : IDisposable
             ledger,
             new FalReconstructionProvider(transport),
             new ReconstructionPackageMaterializer(store, new FakeDownloader()),
+            new ReconstructionPreprocessMaterializer(store, new FakeDownloader()),
             new FakeSourceImagePublisher(),
             TimeSpan.FromMilliseconds(2));
         _managers.Add(manager);
@@ -479,6 +621,7 @@ public sealed class ReconstructionJobManagerTests : IDisposable
             ledger,
             new FakeReconstructionProvider(),
             new ReconstructionPackageMaterializer(store, new FakeDownloader()),
+            new ReconstructionPreprocessMaterializer(store, new FakeDownloader()),
             new FalReconstructionSourceImagePublisher(new FalApiClient(), new NullSecretStore()));
         _managers.Add(manager);
         var source = store.Create(
@@ -531,6 +674,7 @@ public sealed class ReconstructionJobManagerTests : IDisposable
             ledger,
             new FalReconstructionProvider(new FalApiTransport(new FalApiClient(), () => null)),
             new ReconstructionPackageMaterializer(store, new FakeDownloader()),
+            new ReconstructionPreprocessMaterializer(store, new FakeDownloader()),
             new FakeSourceImagePublisher());
         _managers.Add(manager);
 
@@ -567,6 +711,7 @@ public sealed class ReconstructionJobManagerTests : IDisposable
             ledger,
             new FalReconstructionProvider(new FalApiTransport(new FalApiClient(), () => null)),
             new ReconstructionPackageMaterializer(store, new FakeDownloader()),
+            new ReconstructionPreprocessMaterializer(store, new FakeDownloader()),
             new FakeSourceImagePublisher());
         _managers.Add(manager);
 
@@ -903,12 +1048,14 @@ public sealed class ReconstructionJobManagerTests : IDisposable
         var downloader = new FakeDownloader();
         var publisher = new FakeSourceImagePublisher();
         var materializer = new ReconstructionPackageMaterializer(store, downloader);
+        var preprocessMaterializer = new ReconstructionPreprocessMaterializer(store, downloader);
         var manager = new ReconstructionJobManager(
             store,
             ReconstructionModelCatalog.FromJson(CatalogJson),
             ledger,
             provider,
             materializer,
+            preprocessMaterializer,
             publisher,
             pollInterval);
         _managers.Add(manager);
@@ -1124,19 +1271,20 @@ public sealed class ReconstructionJobManagerTests : IDisposable
           "docs_url": "https://fal.ai/models/fal-ai/meshy/v6/image-to-3d/api"
         },
         {
-          "model_id": "fal-ai/birefnet",
+          "model_id": "fal-ai/birefnet/v2",
           "provider": "fal",
-          "task": "background_removal",
+          "task": "remove_background",
           "status": "experimental",
           "enabled": true,
-          "pipeline_roles": ["preprocessing"],
+          "pipeline_roles": ["preprocess_remove_background"],
           "input_types": ["image_url"],
-          "output_roles": ["preprocessed_image"],
-          "preferred_asset_role": "preprocessed_image",
-          "fallback_order": ["preprocessed_image"],
+          "output_roles": ["image", "mask"],
+          "preferred_asset_role": "image",
+          "fallback_order": ["image"],
           "supports_pbr": false,
+          "input": {"mode": "single_image", "source_field": "image_url"},
           "preprocessing": {"recommended": false, "required": false},
-          "docs_url": "https://fal.ai/models/fal-ai/birefnet/api"
+          "docs_url": "https://fal.ai/models/fal-ai/birefnet/v2/api"
         },
         {
           "model_id": "fal-ai/hunyuan-3d/v3.1/rapid/image-to-3d",
