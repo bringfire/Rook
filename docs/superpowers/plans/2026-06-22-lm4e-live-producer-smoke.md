@@ -183,26 +183,41 @@ Expected: exit 0, no output.
 
 Run (from repo root, with Rhino NOT running / unreachable):
 `mcp_server/.venv/Scripts/python.exe -m pytest -p no:cacheprovider mcp_server/tests/test_base_agent_live_producer_live.py -v`
-Expected: collection succeeds and both tests report **SKIPPED** (the `fresh_document` fixture pings Rhino, fails to reach it, and calls `pytest.skip`). Expected summary: `2 skipped`. It must NOT error on collection and must NOT hard-fail. (If Rhino happens to be up in this environment, the tests run live instead — Step 5 — which is also acceptable; the requirement is "no error/no hard-fail.")
+Expected: collection succeeds and both tests report **SKIPPED** (the `fresh_document` fixture pings Rhino, fails to reach it, and calls `pytest.skip`). Expected summary: `2 skipped`.
+
+The skip path is only PROVEN when Rhino is actually unreachable and the result is exactly `2 skipped`. If Rhino is up in this environment, this run executes the tests live instead — in that case Step 3 is **NOT verified**; record skip-path verification as **deferred** (to be observed with Rhino unreachable) rather than claiming it passed. Step 4 still independently proves CI deselection regardless of Rhino state.
 
 - [ ] **Step 4: Prove deselection — normal-CI selector excludes the module**
 
 Run: `mcp_server/.venv/Scripts/python.exe -m pytest -p no:cacheprovider mcp_server/tests/test_base_agent_live_producer_live.py -m "not requires_rhino" -v`
 Expected: `2 deselected`, 0 run. Confirms normal CI (which deselects `requires_rhino`) never executes this module.
 
-- [ ] **Step 5: Live acceptance — run WITH Rhino up (operator step)**
+- [ ] **Step 5: Live acceptance — run WITH Rhino up (REQUIRED before merge)**
 
-This step requires a throwaway Rhino session with Rook loaded. If Rhino is not available in the execution environment, mark this step as deferred-to-operator and record that Steps 3–4 proved CI-safety; the live green is confirmed by the operator before merge.
+This step requires a throwaway Rhino session with Rook loaded. **It is required before merge** — LM4E's whole point is the live proof. If Rhino is not reachable in the execution environment, open the PR with **"live acceptance pending"** stated explicitly in the PR body, and do NOT claim LM4E complete: merge waits until the operator observes `2 passed` with Rhino up (unless that operator explicitly waives it). Steps 1–4 and 6–8 (the CI-safe portion) may land in-session; Step 5 is the gating live green.
 
 Run (from repo root, Rhino open):
 `mcp_server/.venv/Scripts/python.exe -m pytest -p no:cacheprovider -m requires_rhino mcp_server/tests/test_base_agent_live_producer_live.py -v`
 Expected: `2 passed`. Both the clean-`usable`→`succeeded` path and the broken-`created_with_errors`→`succeeded`/`verified False` seam land as specified. (Inherent live dependency: RhinoCode must flag `B = new Box();`; that flagging is the behavior the seam test confirms.)
 
-- [ ] **Step 6: Confirm the focused PlanGraph gate is unchanged**
+- [ ] **Step 6: Confirm the full focused PlanGraph gate is unchanged (236 passed)**
 
-The live module is not matched by the PlanGraph glob, and there is no `src/` change, so the gate is trivially unaffected. Confirm it still passes from repo root:
-`mcp_server/.venv/Scripts/python.exe -m pytest -p no:cacheprovider mcp_server/tests/test_plan_graph_live.py mcp_server/tests/test_plan_graph_live_dispatch.py mcp_server/tests/test_base_agent_live_producer.py`
-Expected: all pass (same count as on `origin/main`; the LM4D unit file `test_base_agent_live_producer.py` = 4 passed).
+The live module is not matched by the PlanGraph glob, and there is no `src/` change, so the gate is trivially unaffected. Run the actual full focused gate from repo root (PowerShell-expanded glob — PowerShell does not expand `test_plan_graph*.py` itself):
+
+```powershell
+$files = Get-ChildItem mcp_server/tests -Filter 'test_plan_graph*.py' | ForEach-Object { $_.FullName }
+mcp_server/.venv/Scripts/python.exe -m pytest -p no:cacheprovider @files -q
+```
+
+Expected: `236 passed`.
+
+Optionally also run the LM4D unit file separately:
+
+```powershell
+mcp_server/.venv/Scripts/python.exe -m pytest -p no:cacheprovider mcp_server/tests/test_base_agent_live_producer.py -q
+```
+
+Expected: `4 passed`.
 
 - [ ] **Step 7: Test-only guard — no production diff**
 
