@@ -19,7 +19,7 @@ from rook.learning.plan_graph import (
 )
 from rook.learning.plan_graph_bridge import apply_tool_result
 from rook.learning.plan_graph_projection import OUTCOME_PROJECTION_ROLE_KEY
-from rook.learning.plan_graph_runner import apply_producer_step, apply_verifier_step
+from rook.learning.plan_graph_runner import apply_producer_step, apply_producer_result, apply_verifier_step
 from rook.learning.plan_graph_templates import select_and_bind
 
 
@@ -176,6 +176,7 @@ def test_runner_imports_only_plan_graph_layer():
         "rook.learning.plan_graph",
         "rook.learning.plan_graph_verifiers",
         "rook.learning.plan_graph_projection",
+        "rook.learning.plan_graph_outcomes",
     }
     assert "rook.agent.tool_dispatcher" not in imports
     assert "rook.learning.plan_graph_walker" not in imports
@@ -424,3 +425,86 @@ def test_create_verify_repair_verify_chain_end_to_end_non_live():
 
     # 6. terminal done succeeded -> graph complete
     assert graph_status(graph) == "complete"
+
+
+class _ExplodingRaw(dict):
+    def get(self, *args, **kwargs):
+        raise AssertionError("raw result was interpreted")
+
+
+def _error_script_result(component_guid="g1"):
+    # real-contract: an errored script result is top-level success: False
+    return {"success": False, "data": {"script_receipt": _created_with_errors_receipt(component_guid)}}
+
+
+def test_producer_result_error_payload_succeeds_seam():
+    g = _producer_verifier_graph(evidence=None)
+    r = apply_producer_result(g, "create", _error_script_result())
+    assert r.applied and r.outcome_status == "succeeded"
+    node = r.graph.nodes["create"]
+    assert node.status == "succeeded"
+    assert node.evidence.tool_status == "failed"   # raw said failed
+    assert node.evidence.verified is False         # producer role: artifact exists, not clean
+    assert r.graph.nodes["verify"].status == "ready"
+
+
+def test_producer_result_usable_payload_verified_true():
+    g = _producer_verifier_graph(evidence=None)
+    r = apply_producer_result(g, "create", _usable_raw_result())
+    assert r.applied and r.outcome_status == "succeeded"
+    node = r.graph.nodes["create"]
+    assert node.evidence.tool_status == "success"
+    assert node.evidence.verified is True
+    assert r.graph.nodes["verify"].status == "ready"
+
+
+def test_producer_result_never_emits_evidence_missing():
+    # A runnable producer node with node.evidence is None: apply_producer_step would
+    # return "evidence_missing" here. apply_producer_result captures from the raw
+    # instead -- it has no evidence_missing path.
+    g = _producer_verifier_graph(evidence=None)
+    assert g.nodes["create"].evidence is None
+    r = apply_producer_result(g, "create", _usable_raw_result())
+    assert r.reason != "evidence_missing"
+    assert r.applied and r.outcome_status == "succeeded"
+
+
+def test_producer_result_malformed_raw_applies_blocked():
+    g = _producer_verifier_graph(evidence=None)
+    r = apply_producer_result(g, "create", {"success": False, "error": "boom"})
+    assert r.applied is True
+    assert r.reason is None
+    assert r.outcome_status == "blocked"
+    assert r.graph is not g
+    assert r.graph.nodes["create"].status == "blocked"
+    assert r.graph.nodes["verify"].status == "pending"
+
+
+def test_producer_result_unknown_node_no_capture():
+    g = _producer_verifier_graph(evidence=None)
+    r = apply_producer_result(g, "nope", _ExplodingRaw())
+    assert not r.applied and r.reason == "unknown_node" and r.graph is g
+
+
+def test_producer_result_not_runnable_no_capture():
+    g = _producer_verifier_graph(create_status="pending", evidence=None)
+    r = apply_producer_result(g, "create", _ExplodingRaw())
+    assert not r.applied and r.reason == "node_not_runnable" and r.graph is g
+
+
+def test_producer_result_role_missing_no_capture():
+    g = _producer_verifier_graph(role=_ROLE_ABSENT, evidence=None)
+    r = apply_producer_result(g, "create", _ExplodingRaw())
+    assert not r.applied and r.reason == "role_missing" and r.graph is g
+
+
+def test_producer_result_role_invalid_no_capture():
+    g = _producer_verifier_graph(role="banana", evidence=None)
+    r = apply_producer_result(g, "create", _ExplodingRaw())
+    assert not r.applied and r.reason == "role_invalid" and r.graph is g
+
+
+def test_producer_result_role_not_producer_no_capture():
+    g = _producer_verifier_graph(role="artifact_verifier", evidence=None)
+    r = apply_producer_result(g, "create", _ExplodingRaw())
+    assert not r.applied and r.reason == "role_not_producer" and r.graph is g
