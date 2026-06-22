@@ -58,12 +58,24 @@ A new **non-pure live adapter** at
 pure PlanGraph primitive. It **consumes** the pure seams and **does not alter or
 grow** them.
 
-> The live adapter owns pre-dispatch side-effect safety. It reuses public pure
-> primitives (`runnable_nodes`, `projection_role_for_node`) but does **not**
-> import private runner helpers (`_producer_*`) or require new pure APIs.
-> Post-dispatch application stays delegated to the pure runner
-> (`apply_producer_result`), which remains the authoritative
-> producer-application path.
+> The live adapter owns pre-dispatch side-effect safety. It reuses the public
+> pure symbol `projection_role_for_node` and reads `node.status` directly for the
+> readiness gate (see the design correction below — the readiness check must not
+> deep-copy node payloads), but does **not** import private runner helpers
+> (`_producer_*`) or require new pure APIs. Post-dispatch application stays
+> delegated to the pure runner (`apply_producer_result`), which remains the
+> authoritative producer-application path.
+
+> **Design correction (discovered during TDD).** `runnable_nodes` deep-copies
+> every ready node, which can raise on a non-deepcopyable `execution_params`
+> value *before* the adapter reaches `_resolve_params` — making the graceful
+> `params_copy_failed` path unreachable (in production as well as tests). The
+> live side-effect readiness preflight therefore uses a direct
+> `node.status == "ready"` check instead. This is behavior-equivalent to today's
+> readiness filter (`runnable_nodes` returns exactly the `status == "ready"`
+> nodes) and preserves graceful `params_copy_failed`. In pure scheduling/replay
+> code, `runnable_nodes`' deep copy is correct; in a live side-effect preflight,
+> readiness must be a cheap gate that cannot trip over payload copyability.
 
 Dependency arrow stays **agent → learning(pure)**:
 
@@ -133,7 +145,8 @@ async def apply_live_producer_node(
 
 **Imports are public-only:**
 
-- from `rook.learning.plan_graph`: `PlanGraph`, `OutcomeStatus`, `runnable_nodes`
+- from `rook.learning.plan_graph`: `PlanGraph`, `OutcomeStatus`, `PlanGraphNode`
+  (readiness is read via `node.status`; see the design correction above)
 - from `rook.learning.plan_graph_projection`: `OUTCOME_PROJECTION_ROLE_KEY`,
   `projection_role_for_node`
 - from `rook.learning.plan_graph_runner`: `apply_producer_result`
@@ -190,9 +203,11 @@ before capture" extended to "admissibility before live side effects."
 def _check_admissibility(graph, node_id) -> LiveProducerReason | None:
     if node_id not in graph.nodes:
         return "unknown_node"
-    if node_id not in {n.id for n in runnable_nodes(graph)}:
-        return "node_not_runnable"
     node = graph.nodes[node_id]
+    # Direct readiness gate -- NOT runnable_nodes (which deep-copies and could
+    # raise on non-copyable execution_params before _resolve_params runs).
+    if node.status != "ready":
+        return "node_not_runnable"
     if OUTCOME_PROJECTION_ROLE_KEY not in node.metadata:
         return "role_missing"
     role = projection_role_for_node(node)

@@ -4,7 +4,7 @@
 
 **Goal:** Add a single non-pure `agent/`-layer adapter that resolves one PlanGraph `artifact_producer` node to a dispatch call, fires it through an injected async dispatch callable, and delegates application to the pure runner.
 
-**Architecture:** A new module `mcp_server/src/rook/agent/plan_graph_live.py` consumes the public pure PlanGraph seams (`runnable_nodes`, `projection_role_for_node`, `apply_producer_result`) but never alters or grows them. It performs side-effect-free admissibility + resolution + param-copy *before* the only live side effect (dispatch), then delegates post-dispatch application to `apply_producer_result`. Zero `learning/` changes.
+**Architecture:** A new module `mcp_server/src/rook/agent/plan_graph_live.py` consumes the public pure PlanGraph seams (`projection_role_for_node`, `apply_producer_result`, and a direct `node.status` read for the readiness gate) but never alters or grows them. It performs side-effect-free admissibility + resolution + param-copy *before* the only live side effect (dispatch), then delegates post-dispatch application to `apply_producer_result`. Zero `learning/` changes.
 
 **Tech Stack:** Python 3.12, dataclasses, `re`, `collections.abc`, pytest (async driven via `asyncio.run`, no plugin-mode dependency), `ast` for the import-boundary test.
 
@@ -43,7 +43,7 @@ All four tasks build these two files incrementally.
 - Create: `mcp_server/tests/test_plan_graph_live.py`
 
 **Interfaces:**
-- Consumes (public pure symbols): `from rook.learning.plan_graph import OutcomeStatus, PlanGraph, PlanGraphNode, runnable_nodes`; `from rook.learning.plan_graph_projection import OUTCOME_PROJECTION_ROLE_KEY, projection_role_for_node`; `from rook.learning.plan_graph_runner import apply_producer_result`.
+- Consumes (public pure symbols): `from rook.learning.plan_graph import OutcomeStatus, PlanGraph, PlanGraphNode`; `from rook.learning.plan_graph_projection import OUTCOME_PROJECTION_ROLE_KEY, projection_role_for_node`; `from rook.learning.plan_graph_runner import apply_producer_result`. (Readiness is read via `node.status`, not `runnable_nodes` — see Task 2.)
 - Produces: `EXECUTION_PARAMS_KEY: str`; `LiveProducerReason` (Literal); `LiveProducerResult` (frozen dataclass: `graph, applied, node_id, tool_name, outcome_status, reason`); `_not_applied(graph, node_id, tool_name, reason) -> LiveProducerResult`; `_resolve_tool_name(execution_ref) -> tuple[str | None, LiveProducerReason | None]`.
 
 - [ ] **Step 1: Write the failing tests** (`mcp_server/tests/test_plan_graph_live.py`)
@@ -140,7 +140,14 @@ def _producer_graph(
         metadata=metadata,
     )
     graph = PlanGraph(nodes={"create_script": node})
-    return initialize_graph(graph) if ready else graph
+    if not ready:
+        return graph
+    # Set status directly rather than initialize_graph(), which deep-copies the
+    # graph -- a non-deepcopyable execution_params value (e.g. _ExplodingValue in
+    # the params_copy_failed test) must survive fixture construction and reach
+    # _resolve_params. This mirrors the live readiness gate (node.status == "ready").
+    node.status = "ready"
+    return graph
 
 
 # ----- fake dispatch spy -----
@@ -210,8 +217,10 @@ application to the pure runner (``apply_producer_result``). It CONSUMES the pure
 PlanGraph seams and never alters or grows them.
 
 Boundary invariants:
-- Imports only PUBLIC pure symbols (``runnable_nodes``, ``projection_role_for_node``,
-  ``apply_producer_result``, types). No private ``_producer_*`` helpers.
+- Imports only PUBLIC pure symbols (``projection_role_for_node``,
+  ``apply_producer_result``, types) and reads ``node.status`` directly for the
+  live side-effect readiness preflight (a cheap gate that must not deep-copy node
+  payloads). No private ``_producer_*`` helpers.
 - Does NOT import the dispatcher / server / ChatRunner -- the dispatcher arrives
   only as the injected ``dispatch`` callable.
 - Admissibility + tool-name resolution + param copy are ALL side-effect-free and
@@ -232,7 +241,6 @@ from rook.learning.plan_graph import (
     OutcomeStatus,
     PlanGraph,
     PlanGraphNode,
-    runnable_nodes,
 )
 from rook.learning.plan_graph_projection import (
     OUTCOME_PROJECTION_ROLE_KEY,
@@ -337,7 +345,7 @@ git commit -m "feat(lm4a): module foundation + execution_ref tool-name resolutio
 - Test: `mcp_server/tests/test_plan_graph_live.py` (add admissibility tests)
 
 **Interfaces:**
-- Consumes: `runnable_nodes`, `OUTCOME_PROJECTION_ROLE_KEY`, `projection_role_for_node` (already imported in Task 1); the `_producer_graph` / `_ABSENT` fixtures from Task 1.
+- Consumes: `node.status` (direct read), `OUTCOME_PROJECTION_ROLE_KEY`, `projection_role_for_node` (already imported in Task 1); the `_producer_graph` / `_ABSENT` fixtures from Task 1.
 - Produces: `_check_admissibility(graph: PlanGraph, node_id: str) -> LiveProducerReason | None`.
 
 - [ ] **Step 1: Write the failing tests** (append to `mcp_server/tests/test_plan_graph_live.py`)
@@ -372,9 +380,12 @@ Expected: FAIL — `ImportError: cannot import name '_check_admissibility'`.
 def _check_admissibility(graph: PlanGraph, node_id: str) -> LiveProducerReason | None:
     if node_id not in graph.nodes:
         return "unknown_node"
-    if node_id not in {node.id for node in runnable_nodes(graph)}:
-        return "node_not_runnable"
     node = graph.nodes[node_id]
+    # Direct readiness gate -- NOT runnable_nodes (which deep-copies and could
+    # raise on non-copyable execution_params before _resolve_params runs).
+    # Behavior-equivalent: runnable_nodes returns exactly the status=="ready" nodes.
+    if node.status != "ready":
+        return "node_not_runnable"
     if OUTCOME_PROJECTION_ROLE_KEY not in node.metadata:
         return "role_missing"
     role = projection_role_for_node(node)
