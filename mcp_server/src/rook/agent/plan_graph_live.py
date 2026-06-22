@@ -6,8 +6,10 @@ application to the pure runner (``apply_producer_result``). It CONSUMES the pure
 PlanGraph seams and never alters or grows them.
 
 Boundary invariants:
-- Imports only PUBLIC pure symbols (``runnable_nodes``, ``projection_role_for_node``,
-  ``apply_producer_result``, types). No private ``_producer_*`` helpers.
+- Imports only PUBLIC pure symbols (``projection_role_for_node``,
+  ``apply_producer_result``, types) and reads ``node.status`` directly for the live
+  side-effect readiness preflight (a cheap gate that must not deep-copy node
+  payloads). No private ``_producer_*`` helpers.
 - Does NOT import the dispatcher / server / ChatRunner -- the dispatcher arrives
   only as the injected ``dispatch`` callable.
 - Admissibility + tool-name resolution + param copy are ALL side-effect-free and
@@ -28,7 +30,6 @@ from rook.learning.plan_graph import (
     OutcomeStatus,
     PlanGraph,
     PlanGraphNode,
-    runnable_nodes,
 )
 from rook.learning.plan_graph_projection import (
     OUTCOME_PROJECTION_ROLE_KEY,
