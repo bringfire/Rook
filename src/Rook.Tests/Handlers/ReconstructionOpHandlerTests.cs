@@ -792,6 +792,22 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
         Assert.Null(fixture.ImportClient.LastPackageId);   // client must NOT be invoked off-UI
     }
 
+    [Fact]
+    public void RemoveBackground_OffUi_IsRejected()
+    {
+        // remove_background is an async op; the off-UI dispatcher must reject it (400 invalid_request),
+        // mirroring import_package — it must never run off the UI dispatch path.
+        var fixture = CreateFixture();
+        var body = $"{{\"op\":\"remove_background\",\"source_artifact_id\":\"{Guid.NewGuid():D}\"}}";
+
+        var resp = fixture.Handler.DispatchOffUi(body);
+
+        Assert.False(resp.Success);
+        Assert.Equal(400, resp.HttpStatus);
+        var data = Assert.IsType<Dictionary<string, object?>>(resp.Data);
+        Assert.Equal("invalid_request", data["code"]);
+    }
+
     private Fixture CreateFixture()
     {
         var root = NewTempRoot();

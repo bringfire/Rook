@@ -253,6 +253,31 @@ public sealed class NativeReconstructionDispatchSourceTests
             "OpImportPackage must sit in the async dispatch branch (after OpSubmit, before the async DispatchAsync lambda).");
     }
 
+    [Fact]
+    public void NativeBridge_RoutesRemoveBackgroundThroughAsyncDispatch()
+    {
+        // The deadlock invariant must hold for remove_background too: OpRemoveBackground belongs in the
+        // ASYNC group, before the off-UI callback (which would otherwise run it on the wrong path).
+        var managed = File.ReadAllText(Path.Combine(
+            RepoRoot, "src", "Rook", "InternalBridge", "NativeGhBridgeRegistrar.cs"));
+        var fn = ExtractFunction(managed, "int HandleReconstructionDispatch(");
+
+        var asyncBranch = fn.Substring(
+            0, fn.IndexOf("ExecuteOffUiApiResponseCallback", System.StringComparison.Ordinal));
+        Assert.Contains("OpRemoveBackground", asyncBranch);
+    }
+
+    [Fact]
+    public void NativeRoute_BackgroundRemovals_DispatchesRemoveBackground()
+    {
+        var cpp = File.ReadAllText(Path.Combine(
+            RepoRoot, "src", "RookNative", "Handlers", "GrasshopperProxyHandler.cpp"));
+        Assert.Contains("DispatchReconstructionOp(req, res, \"remove_background\")", cpp);
+
+        var server = File.ReadAllText(Path.Combine(RepoRoot, "src", "RookNative", "RookServer.cpp"));
+        Assert.Contains("/reconstruction/2d-to-3d/background-removals", server);
+    }
+
     private static string ExtractFunction(string source, string signature)
     {
         var start = source.IndexOf(signature, System.StringComparison.Ordinal);

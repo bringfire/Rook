@@ -122,6 +122,37 @@ public sealed class ReconstructionJobManager : IDisposable
                 "options");
         }
 
+        return await SubmitCoreAsync(request, model!, "single_image_to_3d", ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Dedicated entry for the explicit background-removal op. Resolves a remove_background catalog
+    /// model (request's model_id when it is a remove_background entry, otherwise the first enabled
+    /// remove_background entry), then drives the shared submit body with task=remove_background. No
+    /// pbr/geometry guard — those options are irrelevant to background removal.
+    /// </summary>
+    public async Task<ReconstructionSubmitResult> SubmitRemoveBackgroundAsync(
+        ReconstructionSubmitRequest request,
+        CancellationToken ct)
+    {
+        var model = ResolveRemoveBackgroundModel(request.ModelId);
+        if (model is null)
+            return SubmitFail("invalid_request", "No background-removal model is available.", "model_id");
+
+        return await SubmitCoreAsync(request with { ModelId = model.ModelId }, model, "remove_background", ct)
+            .ConfigureAwait(false);
+    }
+
+    // Shared submit body for every reconstruction task: source validate → read bytes → publish to fal
+    // CDN → provider submit → ledger append of the queued/submitting/polling records. The persisted
+    // task discriminates downstream behavior (materialization, result envelope) in later tasks. Caller
+    // is responsible for resolving + gating the model.
+    private async Task<ReconstructionSubmitResult> SubmitCoreAsync(
+        ReconstructionSubmitRequest request,
+        ReconstructionModelEntry model,
+        string task,
+        CancellationToken ct)
+    {
         var source = _store.Get(request.SourceArtifactId);
         if (source is null)
             return SubmitFail("invalid_request", "source_artifact_id was not found.", "source_artifact_id");
@@ -136,7 +167,8 @@ public sealed class ReconstructionJobManager : IDisposable
             request.ModelId,
             request.SourceArtifactId,
             request.SourceRole,
-            DeriveTextureExpected(request.Options, model!));
+            DeriveTextureExpected(request.Options, model),
+            task);
         _ledger.Append(queued);
 
         var submitting = WithState(
@@ -589,6 +621,31 @@ public sealed class ReconstructionJobManager : IDisposable
             && string.Equals(model.Status, "stable", StringComparison.OrdinalIgnoreCase)
             && string.Equals(model.Task, "single_image_to_3d", StringComparison.Ordinal)
             && model.PipelineRoles.Contains("single_image_to_3d", StringComparer.Ordinal);
+
+    // A model is submittable for background removal when it is enabled and its catalog task is
+    // remove_background. Unlike the 3D gate this does NOT require status=="stable" — bg-removal models
+    // ship experimental in v1 (and bg-removal is never surfaced by the 3D-only `models` op anyway).
+    private static bool IsSubmittableRemoveBackgroundModel(ReconstructionModelEntry? model)
+        => model is not null
+            && model.Enabled
+            && string.Equals(model.Task, "remove_background", StringComparison.Ordinal);
+
+    // Resolves the model that will service a background-removal submit. When an explicit model_id is
+    // supplied it must itself be a remove_background entry (we never silently substitute an explicitly
+    // requested model). When omitted, falls back to the first enabled remove_background entry in the
+    // catalog. Returns null when no usable background-removal model is available.
+    private ReconstructionModelEntry? ResolveRemoveBackgroundModel(string? requestedModelId)
+    {
+        if (!string.IsNullOrWhiteSpace(requestedModelId))
+        {
+            var requested = _catalog.Find(requestedModelId!);
+            return IsSubmittableRemoveBackgroundModel(requested) ? requested : null;
+        }
+
+        return _catalog
+            .List(includeExperimental: true, includeHidden: true)
+            .FirstOrDefault(IsSubmittableRemoveBackgroundModel);
+    }
 
     private static bool? ReadStrictBool(JsonObject options, string key)
     {

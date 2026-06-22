@@ -19,6 +19,7 @@ namespace Rook.Tests.Services.Reconstruction;
 public sealed class ReconstructionJobManagerTests : IDisposable
 {
     private const string HunyuanModelId = "fal-ai/hunyuan-3d/v3.1/rapid/image-to-3d";
+    private const string BirefnetModelId = "fal-ai/birefnet";
 
     private readonly List<string> _roots = new();
     private readonly List<ReconstructionJobManager> _managers = new();
@@ -352,6 +353,84 @@ public sealed class ReconstructionJobManagerTests : IDisposable
         Assert.False(birefnet.Success);
         Assert.Equal("model_id", birefnet.Failure!.Field);
         Assert.Empty(fixture.Provider.SubmitRequests);
+    }
+
+    [Fact]
+    public async Task SubmitAsync_RejectsRemoveBackgroundModel()
+    {
+        // Public submit_job stays 3D-only: a remove_background model must be rejected, never spending a
+        // provider job, regardless of the dedicated bg-removal entry existing.
+        var fixture = CreateFixture();
+        var source = fixture.Store.Create(
+            "generated_image",
+            new[] { new BlobInput("image", new byte[] { 1, 2, 3 }, "png") });
+
+        var result = await fixture.Manager.SubmitAsync(
+            Request(source.Id) with { ModelId = BirefnetModelId },
+            CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Equal("invalid_request", result.Failure!.Code);
+        Assert.Equal("model_id", result.Failure.Field);
+        Assert.Empty(fixture.Provider.SubmitRequests);
+    }
+
+    [Fact]
+    public async Task SubmitRemoveBackgroundAsync_RejectsSingleImageModel()
+    {
+        // The dedicated entry is remove_background-only: asking it to run a 3D model_id resolves no
+        // remove_background model and fails, never spending a provider job.
+        var fixture = CreateFixture();
+        var source = fixture.Store.Create(
+            "generated_image",
+            new[] { new BlobInput("image", new byte[] { 1, 2, 3 }, "png") });
+
+        var result = await fixture.Manager.SubmitRemoveBackgroundAsync(
+            Request(source.Id) with { ModelId = HunyuanModelId },
+            CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Equal("invalid_request", result.Failure!.Code);
+        Assert.Equal("model_id", result.Failure.Field);
+        Assert.Empty(fixture.Provider.SubmitRequests);
+    }
+
+    [Fact]
+    public async Task SubmitRemoveBackgroundAsync_AcceptsBirefnet_PersistsTask()
+    {
+        var fixture = CreateFixture();
+        var source = fixture.Store.Create(
+            "generated_image",
+            new[] { new BlobInput("image", new byte[] { 1, 2, 3 }, "png") });
+
+        var result = await fixture.Manager.SubmitRemoveBackgroundAsync(
+            Request(source.Id) with { ModelId = BirefnetModelId },
+            CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Single(fixture.Provider.SubmitRequests);
+        var queued = fixture.Manager.Status(result.Job!.JobId).Job!;
+        Assert.Equal("remove_background", queued.Task);
+        Assert.Equal(BirefnetModelId, queued.ModelId);
+    }
+
+    [Fact]
+    public async Task SubmitRemoveBackgroundAsync_DefaultsToCatalogRemoveBackgroundModel_WhenModelIdOmitted()
+    {
+        // No model_id supplied → resolves the first enabled remove_background catalog entry.
+        var fixture = CreateFixture();
+        var source = fixture.Store.Create(
+            "generated_image",
+            new[] { new BlobInput("image", new byte[] { 1, 2, 3 }, "png") });
+
+        var result = await fixture.Manager.SubmitRemoveBackgroundAsync(
+            Request(source.Id) with { ModelId = string.Empty },
+            CancellationToken.None);
+
+        Assert.True(result.Success);
+        var queued = fixture.Manager.Status(result.Job!.JobId).Job!;
+        Assert.Equal("remove_background", queued.Task);
+        Assert.Equal(BirefnetModelId, queued.ModelId);
     }
 
     [Fact]
@@ -1126,12 +1205,12 @@ public sealed class ReconstructionJobManagerTests : IDisposable
         {
           "model_id": "fal-ai/birefnet",
           "provider": "fal",
-          "task": "background_removal",
+          "task": "remove_background",
           "status": "experimental",
           "enabled": true,
-          "pipeline_roles": ["preprocessing"],
+          "pipeline_roles": ["preprocess_remove_background"],
           "input_types": ["image_url"],
-          "output_roles": ["preprocessed_image"],
+          "output_roles": ["preprocessed_image", "mask"],
           "preferred_asset_role": "preprocessed_image",
           "fallback_order": ["preprocessed_image"],
           "supports_pbr": false,

@@ -26,6 +26,7 @@ namespace Rook.Handlers
         public const string OpRecordImport = "record_import";
         public const string OpCleanupPreparedImport = "cleanup_prepared_import";
         public const string OpImportPackage = "import_package";
+        public const string OpRemoveBackground = "remove_background";
 
         public const int DefaultListJobsLimit = 50;
 
@@ -70,6 +71,7 @@ namespace Rook.Handlers
                 return op switch
                 {
                     OpSubmit => await SubmitAsync(body, cancellationToken).ConfigureAwait(false),
+                    OpRemoveBackground => await RemoveBackgroundAsync(body, cancellationToken).ConfigureAwait(false),
                     OpStatus => await StatusAsync(args, cancellationToken).ConfigureAwait(false),
                     OpCancel => await CancelAsync(args, cancellationToken).ConfigureAwait(false),
                     OpImportPackage => await ImportAsync(args, cancellationToken).ConfigureAwait(false),
@@ -115,7 +117,7 @@ namespace Rook.Handlers
                     OpPrepareImport => PrepareImport(args),
                     OpRecordImport => RecordImport(args),
                     OpCleanupPreparedImport => CleanupPreparedImport(args),
-                    OpSubmit or OpStatus or OpCancel or OpImportPackage => Fail(
+                    OpSubmit or OpStatus or OpCancel or OpImportPackage or OpRemoveBackground => Fail(
                         Failure("invalid_request", $"op '{op}' must be routed through the async dispatcher, not the off-UI dispatcher.", "op"),
                         400),
                     _ => Fail(Failure("invalid_request", $"Unknown reconstruction op '{op}'.", "op"), 400),
@@ -155,6 +157,41 @@ namespace Rook.Handlers
 
             var result = await _manager.SubmitAsync(parsed.Request!, ct)
                 .ConfigureAwait(false);
+            if (!result.Success)
+                return Fail(result.Failure!, StatusFor(result.Failure!));
+
+            return Ok(JobToObj(result.Job!));
+        }
+
+        // Explicit background-removal op. Parses the minimal bg-removal request
+        // ({source_artifact_id (required), source_role? (default "image"), model_id?}) into a submit
+        // request with empty options + empty preprocessing chain, then drives the manager's dedicated
+        // remove_background entry. Returns the same job envelope as SubmitAsync on success.
+        private async Task<ApiResponse> RemoveBackgroundAsync(string? body, CancellationToken ct)
+        {
+            Dictionary<string, JsonElement> args;
+            try { args = ParseObjectBody(body); }
+            catch (ArgumentException ex)
+            {
+                return Fail(Failure("invalid_request", ex.Message, "body"), 400);
+            }
+
+            if (!TryParseGuid(args, "source_artifact_id", out var sourceArtifactId, out var failure))
+                return Fail(failure!, 400);
+
+            var sourceRole = GetStringArg(args, "source_role");
+            sourceRole = string.IsNullOrWhiteSpace(sourceRole) ? "image" : sourceRole;
+            var modelId = GetStringArg(args, "model_id") ?? string.Empty;
+
+            var request = new ReconstructionSubmitRequest(
+                sourceArtifactId,
+                sourceRole!,
+                modelId,
+                Array.Empty<ReconstructionPreprocessingStageRequest>(),
+                new JsonObject(),
+                EstimateRequested: false);
+
+            var result = await _manager.SubmitRemoveBackgroundAsync(request, ct).ConfigureAwait(false);
             if (!result.Success)
                 return Fail(result.Failure!, StatusFor(result.Failure!));
 

@@ -15,6 +15,7 @@ from rook.agent import tool_dispatcher, tool_groups
 RECONSTRUCTION_TOOL_NAMES = [
     "rhino_2d_to_3d_models",
     "rhino_2d_to_3d_submit",
+    "rhino_2d_to_3d_remove_background",
     "rhino_2d_to_3d_jobs",
     "rhino_2d_to_3d_status",
     "rhino_2d_to_3d_cancel",
@@ -111,6 +112,38 @@ async def test_reconstruction_submit_dispatches_post_with_artifact_body():
         await server.call_tool("rhino_2d_to_3d_submit", args_in)
     args, _ = mock.call_args
     assert args == ("/reconstruction/2d-to-3d/jobs", "POST", args_in)
+
+
+@pytest.mark.asyncio
+async def test_reconstruction_remove_background_registered_and_requires_source_artifact_id():
+    tools = await server.list_tools()
+    by_name = {t.name: t for t in tools}
+    assert "rhino_2d_to_3d_remove_background" in by_name
+
+    tool = by_name["rhino_2d_to_3d_remove_background"]
+    assert set(tool.inputSchema.get("required", [])) == {"source_artifact_id"}
+    assert "source_artifact_id" in tool.inputSchema["properties"]
+    assert "path" not in tool.inputSchema["properties"]
+
+
+@pytest.mark.asyncio
+async def test_reconstruction_remove_background_dispatches_owned_route():
+    args_in = {
+        "source_artifact_id": "12345678-1234-1234-1234-123456789abc",
+        "source_role": "image",
+    }
+    with patch.object(server, "call_rhino", new_callable=AsyncMock) as mock:
+        mock.return_value = {"success": True, "data": {"job_id": "X", "state": "queued"}}
+        await server.call_tool("rhino_2d_to_3d_remove_background", args_in)
+    args, _ = mock.call_args
+    assert args == ("/reconstruction/2d-to-3d/background-removals", "POST", args_in)
+
+
+def test_reconstruction_remove_background_bridge_route():
+    assert tool_dispatcher.BRIDGE_ROUTES["rhino_2d_to_3d_remove_background"] == (
+        "/reconstruction/2d-to-3d/background-removals",
+        "POST",
+    )
 
 
 @pytest.mark.asyncio
