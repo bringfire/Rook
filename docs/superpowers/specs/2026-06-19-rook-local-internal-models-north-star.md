@@ -504,6 +504,20 @@ Today, the small-model typed path can produce one operation. The north-star path
 
 The first implementation should be a tiny adapter over existing planning/execution concepts, not a competing planner. Rook already has Planner/TaskSpec concepts, postconditions, and the single-operation `ExecutionPlan`; LM4 should initially wrap those with just enough graph structure to preserve node order, rolling memory, target IDs, verifier gates, and repair policy.
 
+**Implementation note (2026-06-22): roadmap labels evolved during delivery.**
+The original LM4 described here was "PlanGraph skeleton for local tasks." That
+work was intentionally decomposed and largely landed earlier, across LM1E-G and
+LM3A-H, before any live execution bridge was added. In the implemented campaign:
+
+- LM1E-G established the pure reducer, tool-result outcome adapter, and bridge.
+- LM3A-H established template selection, binding, walking, verifier/projection
+  primitives, role adoption, and the non-live
+  `create -> verify -> repair -> reverify -> done` proof.
+- LM3I is now the next bridge slice: role-aware live evidence capture.
+- What remains of "LM4" should be read as live PlanGraph execution: a production
+  runner/evidence bridge/evaluation layer that consumes the proven graph
+  semantics instead of inventing them.
+
 The first version does not need to solve every design workflow. It needs to make a simple multi-step local task mechanically reliable:
 
 ```text
@@ -782,16 +796,29 @@ Later families:
 
 **Goal:** Give multi-step local-model execution a home above single-operation `ExecutionPlan`.
 
+**Status / translation (2026-06-22):** this original LM4 scope has been split.
+The skeleton and non-live semantics are now complete through LM3H; the remaining
+work is live execution. Future work should not restart "LM4" by rebuilding the
+graph model. It should treat the existing PlanGraph semantics as the substrate
+and focus on the live boundary:
+
+- role-aware live evidence capture (LM3I);
+- a production runner that executes ready nodes one at a time without asking the
+  model to remember the workflow;
+- knowledge push / rolling-memory persistence at node boundaries;
+- bounded repair/escalation policy;
+- eval harnesses that measure whether the graph improves local-model reliability.
+
 Deliverables:
 
-- minimal `PlanGraph` adapter data model;
-- node contract and typed edge model for the first fixed workflow;
-- scheduler that executes one node at a time;
-- scheduled knowledge push per node;
-- rolling memory object;
-- verifier gate support;
-- escalation policy hooks;
-- non-live graph test for a hardcoded create -> verify -> repair -> verify -> report workflow.
+- minimal `PlanGraph` adapter data model; **landed by LM1E/LM3**
+- node contract and typed edge model for the first fixed workflow; **landed by LM1E/LM3**
+- scheduler that executes one node at a time; **remaining live-execution work**
+- scheduled knowledge push per node; **remaining live-execution work**
+- rolling memory object; **landed as pure graph memory; live persistence remains**
+- verifier gate support; **landed in pure semantics; live evidence capture remains**
+- escalation policy hooks; **partly scaffolded; bounded live policy remains**
+- non-live graph test for a hardcoded create -> verify -> repair -> verify -> report workflow; **landed as LM3H's `create -> verify -> repair -> reverify -> done` proof**
 
 Exit criteria:
 
