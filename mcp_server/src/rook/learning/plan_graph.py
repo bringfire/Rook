@@ -148,6 +148,12 @@ def graph_status(graph: PlanGraph) -> GraphStatus:
         return "failed"
     if any(node.status in ("blocked", "pending", "needs_repair") for node in nodes):
         return "blocked"
+    # Catch-all fallback (load-bearing, not redundant with the check above):
+    # reached by residual states none of the named branches cover -- an empty
+    # graph, or a graph whose nodes are all succeeded/skipped but none is declared
+    # terminal (so "complete" cannot fire and nothing is blocked/pending/
+    # needs_repair). Without this line graph_status would fall through and return
+    # None, which is not a valid GraphStatus.
     return "blocked"
 
 
