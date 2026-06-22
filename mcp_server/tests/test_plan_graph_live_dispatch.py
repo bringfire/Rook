@@ -94,12 +94,22 @@ class _Probe:
         return self._raw
 
 
-async def _fail_call_rhino(*args, **kwargs):
-    raise AssertionError("LM4B contract test must not call Rhino")
+def _install_no_rhino_sentinel(monkeypatch):
+    # Record every invocation so a swallowed exception cannot pass silently:
+    # ToolDispatcher.dispatch catches Exception around its post-dispatch
+    # call_rhino path, so a raise alone is not proof the sentinel never fired.
+    calls = []
+
+    async def _fail_call_rhino(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("LM4B contract test must not call Rhino")
+
+    monkeypatch.setattr("rook.agent.tool_dispatcher.call_rhino", _fail_call_rhino)
+    return calls
 
 
 def _run_with_real_dispatcher(raw: dict, monkeypatch):
-    monkeypatch.setattr("rook.agent.tool_dispatcher.call_rhino", _fail_call_rhino)
+    rhino_calls = _install_no_rhino_sentinel(monkeypatch)
 
     declared_params = {
         "language": "csharp",
@@ -114,11 +124,13 @@ def _run_with_real_dispatcher(raw: dict, monkeypatch):
     result = asyncio.run(
         run_live_producer_node(graph, "create_script", dispatcher.dispatch)
     )
-    return result, probe, declared_params
+    return result, probe, declared_params, rhino_calls
 
 
 def test_real_tool_dispatcher_dispatch_happy_path(monkeypatch):
-    result, probe, declared_params = _run_with_real_dispatcher(_usable_raw(), monkeypatch)
+    result, probe, declared_params, rhino_calls = _run_with_real_dispatcher(
+        _usable_raw(), monkeypatch
+    )
 
     assert result.applied is True
     assert result.reason is None
@@ -127,10 +139,13 @@ def test_real_tool_dispatcher_dispatch_happy_path(monkeypatch):
     assert result.graph.nodes["create_script"].status == "succeeded"
     assert probe.calls == [declared_params]
     assert "port" not in probe.calls[0]
+    assert rhino_calls == []
 
 
 def test_real_tool_dispatcher_dispatch_returned_failure_is_producer_success(monkeypatch):
-    result, probe, declared_params = _run_with_real_dispatcher(_error_raw(), monkeypatch)
+    result, probe, declared_params, rhino_calls = _run_with_real_dispatcher(
+        _error_raw(), monkeypatch
+    )
 
     assert result.applied is True
     assert result.reason is None
@@ -147,6 +162,7 @@ def test_real_tool_dispatcher_dispatch_returned_failure_is_producer_success(monk
     assert node.evidence.repair_anchor["component_guid"] == COMPONENT_GUID
     assert probe.calls == [declared_params]
     assert "port" not in probe.calls[0]
+    assert rhino_calls == []
 
 
 def test_live_dispatch_module_import_boundary():
