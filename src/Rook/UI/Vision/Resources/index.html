@@ -662,7 +662,20 @@
                     <p class="view-subtitle">Turn an image into a 3D package</p>
                 </div>
                 <div class="reconstruct-body">
-                    <!-- Populated in Tasks 3–6 -->
+                    <div class="reconstruct-form">
+                        <div class="reconstruct-field">
+                            <label class="reconstruct-label">Source image</label>
+                            <div class="reconstruct-source">
+                                <img id="reconstruct-source-thumb" class="reconstruct-source-thumb hidden" alt="source" />
+                                <span id="reconstruct-source-label" class="reconstruct-source-label">No image selected</span>
+                                <button id="reconstruct-choose-source" class="btn btn-secondary">Choose in Gallery…</button>
+                            </div>
+                        </div>
+                        <div class="reconstruct-field">
+                            <label class="reconstruct-label" for="reconstruct-model-select">Model</label>
+                            <select id="reconstruct-model-select" class="select"></select>
+                        </div>
+                    </div>
                 </div>
             </section>
 

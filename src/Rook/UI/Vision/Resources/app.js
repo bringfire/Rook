@@ -3399,15 +3399,61 @@ const Reconstruct = (() => {
     const re = {};                // DOM cache
 
     function cacheEls() {
-        // Filled in Tasks 3–6.
+        re.sourceThumb = $("reconstruct-source-thumb");
+        re.sourceLabel = $("reconstruct-source-label");
+        re.chooseSourceBtn = $("reconstruct-choose-source");
+        re.modelSelect = $("reconstruct-model-select");
     }
 
     function wireEvents() {
-        // Filled in Tasks 3–6.
+        re.chooseSourceBtn.addEventListener("click", chooseSource);
     }
 
     async function onEnter() {
-        // Filled in Tasks 3 & 6 (load models + job history).
+        await loadModels();
+        renderSource();
+    }
+
+    function selectedModelId() {
+        return re.modelSelect && re.modelSelect.value ? re.modelSelect.value : null;
+    }
+
+    function buildModelOption(model) {
+        const pbr = model.supports_pbr ? "" : " · no PBR";
+        return `<option value="${escapeAttr(model.model_id)}">${escapeHtml(model.model_id)}${escapeHtml(pbr)}</option>`;
+    }
+
+    async function loadModels() {
+        if (modelsLoaded) return;
+        try {
+            const data = await reconstructionBridgeCall("models", {});
+            models = Array.isArray(data.models) ? data.models : [];
+        } catch (e) {
+            models = [];
+        }
+        // Leading placeholder forces an explicit pick (model_id is required).
+        const placeholder = `<option value="" disabled selected>Select a model…</option>`;
+        re.modelSelect.innerHTML = placeholder + models.map(buildModelOption).join("");
+        modelsLoaded = true;
+    }
+
+    function renderSource() {
+        if (source && source.previewSrc) {
+            re.sourceThumb.src = source.previewSrc;
+            re.sourceThumb.classList.remove("hidden");
+        } else {
+            re.sourceThumb.removeAttribute("src");
+            re.sourceThumb.classList.add("hidden");
+        }
+        re.sourceLabel.textContent = source ? (source.label || source.artifact_id) : "No image selected";
+    }
+
+    async function chooseSource() {
+        // Single source-selection path: open the Gallery and let the user
+        // pick via the modal "Send to 3D" shortcut, which calls presetSource
+        // and navigates back here. No duplicate picker.
+        switchView("gallery");
+        showStatus("Pick an image in the Gallery, then use “Send to 3D”.", "info");
     }
 
     // presetSource is fully implemented in Task 7 (Send-to-3D shortcut).
