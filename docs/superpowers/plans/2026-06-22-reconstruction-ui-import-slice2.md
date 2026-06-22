@@ -121,14 +121,20 @@ public async Task ImportPackage_Async_RoutesToClient_AndReturnsData()
 }
 
 [Fact]
-public void ImportPackage_OffUi_IsRejected()
+public void ImportPackage_OffUi_IsRejected_WithoutInvokingClient()
 {
-    var handler = NewHandler(importClient: new FakeImportClient());
+    var fake = new FakeImportClient();
+    var handler = NewHandler(importClient: fake);
     var body = $"{{\"op\":\"import_package\",\"package_id\":\"{Guid.NewGuid():D}\"}}";
 
     var resp = handler.DispatchOffUi(body);
 
-    Assert.False(resp.Success);   // must route through async dispatcher, not off-UI
+    Assert.False(resp.Success);
+    Assert.Equal(400, resp.HttpStatus);
+    // Structured invalid-op failure (must route through async dispatcher) — NOT an accidental client run:
+    var data = Assert.IsType<Dictionary<string, object?>>(resp.Data);
+    Assert.Equal("invalid_request", data["code"]);
+    Assert.Null(fake.LastPackageId);   // client must NOT be invoked off-UI
 }
 ```
 
@@ -356,6 +362,14 @@ namespace Rook.Tests.Services.Reconstruction
         {
             Assert.Null(NativeEndpointResolver.SelectNativePort(new JsonObject[0], currentProcessId: 4242));
         }
+
+        [Fact]
+        public void Ambiguous_Same_Process_Native_Entries_Return_Null()
+        {
+            // Two native entries for THIS pid (stale/duplicate) — fail closed, don't guess.
+            var docs = new[] { Doc("native", 4242, 51000), Doc("native", 4242, 52000) };
+            Assert.Null(NativeEndpointResolver.SelectNativePort(docs, currentProcessId: 4242));
+        }
     }
 }
 ```
@@ -423,14 +437,18 @@ namespace Rook.Services.Reconstruction
         /// </summary>
         public static int? SelectNativePort(IEnumerable<JsonObject> docs, int currentProcessId)
         {
+            var ports = new List<int>();
             foreach (var doc in docs)
             {
                 if (!string.Equals(ReadString(doc, "pluginType"), "native", StringComparison.Ordinal)) continue;
                 if (ReadInt(doc, "processId") != currentProcessId) continue;
                 var port = ReadInt(doc, "port");
-                if (port is > 0) return port;
+                if (port is > 0) ports.Add(port.Value);
             }
-            return null;
+            // Exactly one native endpoint per process is expected. 0 matches, or an
+            // ambiguous >1 (stale/duplicate discovery files for this PID), fails closed
+            // → caller maps to native_unavailable rather than guessing.
+            return ports.Count == 1 ? ports[0] : (int?)null;
         }
 
         private static string? ReadString(JsonObject obj, string key)
@@ -523,6 +541,9 @@ public class NativeReconstructionImportClientTests
         Assert.Contains(pkg.ToString("D"), cap.RequestBody);
         Assert.Equal("model_obj", (string?)outcome.Data!["asset_role"]);
         Assert.Equal(2, outcome.Data!["imported_ids"]!.AsArray().Count);
+        // Exactly one unwrap — the native envelope keys must NOT leak into the UI data.
+        Assert.False(outcome.Data!.ContainsKey("success"), "'success' leaked into UI data (double-wrap)");
+        Assert.False(outcome.Data!.ContainsKey("data"), "'data' leaked into UI data (double-wrap)");
     }
 
     [Fact]
