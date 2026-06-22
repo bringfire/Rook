@@ -178,3 +178,6 @@ drafts/
 
 # Runtime DSPy cache written by dev-mode MCP server (ROOK_DATA_DIR=knowledge/)
 knowledge/dspy-cache/
+
+# Subagent-driven-development scratch (briefs, reports, ledger, review diffs)
+.superpowers/
