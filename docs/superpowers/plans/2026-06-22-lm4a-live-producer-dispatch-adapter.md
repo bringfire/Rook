@@ -165,6 +165,7 @@ class _Spy:
     [
         (None, None, "execution_ref_missing"),
         ("", None, "execution_ref_missing"),
+        (123, None, "execution_ref_invalid"),
         ("gh_create_csharp_script", "gh_create_csharp_script", None),
         ("gh_update_script:v1", "gh_update_script", None),
         ("tool:v123", "tool", None),
@@ -295,7 +296,9 @@ def _resolve_tool_name(
     if execution_ref is None or execution_ref == "":
         return None, "execution_ref_missing"
     if not isinstance(execution_ref, str):
-        return None, "execution_ref_missing"
+        # execution_ref is typed str | None; a non-string is malformed graph
+        # data (not absence) -> invalid, not missing.
+        return None, "execution_ref_invalid"
     match = _EXECUTION_REF_RE.fullmatch(execution_ref)
     if match is None:
         return None, "execution_ref_invalid"
@@ -698,6 +701,17 @@ def test_adapter_imports_only_public_pure_symbols():
         elif isinstance(node, ast.Import):
             for alias in node.names:
                 imported_modules.append(alias.name)
+        # Catch private-helper access via attribute or bare name, e.g.
+        # `runner._producer_runnable_check(...)` or a re-bound `_producer_*`,
+        # which a from-import scan alone would miss.
+        elif isinstance(node, ast.Attribute):
+            assert not node.attr.startswith("_producer"), (
+                f"adapter must not reach a private runner helper: .{node.attr}"
+            )
+        elif isinstance(node, ast.Name):
+            assert not node.id.startswith("_producer"), (
+                f"adapter must not reference a private runner helper: {node.id}"
+            )
 
     joined = " ".join(imported_modules)
     for forbidden in _FORBIDDEN_SUBSTRINGS:
@@ -730,7 +744,7 @@ def test_pure_modules_do_not_import_live_adapter():
 
 - [ ] **Step 2: Run the tests to verify they pass immediately (they assert an already-true invariant)**
 
-Run (from `mcp_server/`): `.venv/Scripts/python.exe -m pytest -p no:cacheprovider tests/test_plan_graph_live.py -k boundary_or_import -v`
+Run (from `mcp_server/`): `.venv/Scripts/python.exe -m pytest -p no:cacheprovider tests/test_plan_graph_live.py -k "imports or pure_modules" -v`
 Then run the two by name: `.venv/Scripts/python.exe -m pytest -p no:cacheprovider tests/test_plan_graph_live.py::test_adapter_imports_only_public_pure_symbols tests/test_plan_graph_live.py::test_pure_modules_do_not_import_live_adapter -v`
 Expected: PASS — the adapter (from Task 3) already satisfies both directions. (These are guard tests: they pass now and fail loudly if a future edit imports the dispatcher or a pure module imports the adapter.) If either fails, the Task 3 import block violated the boundary — fix the import, not the test.
 
@@ -760,7 +774,7 @@ git commit -m "test(lm4a): bidirectional import-boundary guard (adapter <-> pure
 - Public API (constant, `LiveProducerReason`, `LiveProducerResult`, async signature) → Task 1 + Task 3. ✓
 - Dispatch-callable type + `deepcopy(dict(...))` normalization → Task 3 `_resolve_params`, proven by `test_dispatched_params_is_plain_dict_not_mapping_subclass`. ✓
 - Control-flow strict order → Task 3 `apply_live_producer_node`; precedence pinned by `test_admissibility_precedes_resolution` + the parametrized pre-dispatch table. ✓
-- `execution_ref` grammar table → Task 1 `test_resolve_tool_name_grammar` (all 9 rows). ✓
+- `execution_ref` grammar table → Task 1 `test_resolve_tool_name_grammar` (all 10 rows, incl. non-string → invalid). ✓
 - 11 reasons, input-graph-unchanged, `tool_name` semantics → Task 3 parametrized + dispatch/seam tests. ✓
 - `dispatch_failed` vs returned failure → `test_dispatch_exception_is_dispatch_failed` + `test_returned_failure_is_real_result_not_dispatch_failed`. ✓
 - The live seam (success:False → succeeded, evidence failed) → `test_returned_failure_is_real_result_not_dispatch_failed`. ✓
