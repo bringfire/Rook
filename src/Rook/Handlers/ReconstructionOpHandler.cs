@@ -25,21 +25,25 @@ namespace Rook.Handlers
         public const string OpPrepareImport = "prepare_import";
         public const string OpRecordImport = "record_import";
         public const string OpCleanupPreparedImport = "cleanup_prepared_import";
+        public const string OpImportPackage = "import_package";
 
         public const int DefaultListJobsLimit = 50;
 
         private readonly ReconstructionModelCatalog _catalog;
         private readonly ReconstructionJobManager _manager;
         private readonly ArtifactStore _store;
+        private readonly IReconstructionImportClient? _importClient;
 
         public ReconstructionOpHandler(
             ReconstructionModelCatalog catalog,
             ReconstructionJobManager manager,
-            ArtifactStore store)
+            ArtifactStore store,
+            IReconstructionImportClient? importClient = null)
         {
             _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
             _manager = manager ?? throw new ArgumentNullException(nameof(manager));
             _store = store ?? throw new ArgumentNullException(nameof(store));
+            _importClient = importClient;
         }
 
         // Exposed only so RookSubsystemRoot can dispose the background-execution manager during
@@ -68,6 +72,7 @@ namespace Rook.Handlers
                     OpSubmit => await SubmitAsync(body, cancellationToken).ConfigureAwait(false),
                     OpStatus => await StatusAsync(args, cancellationToken).ConfigureAwait(false),
                     OpCancel => await CancelAsync(args, cancellationToken).ConfigureAwait(false),
+                    OpImportPackage => await ImportAsync(args, cancellationToken).ConfigureAwait(false),
                     OpModels or OpListJobs or OpResult or OpPrepareImport or OpRecordImport or OpCleanupPreparedImport =>
                         DispatchOffUi(body),
                     _ => Fail(Failure("invalid_request", $"Unknown reconstruction op '{op}'.", "op"), 400),
@@ -110,7 +115,7 @@ namespace Rook.Handlers
                     OpPrepareImport => PrepareImport(args),
                     OpRecordImport => RecordImport(args),
                     OpCleanupPreparedImport => CleanupPreparedImport(args),
-                    OpSubmit or OpStatus or OpCancel => Fail(
+                    OpSubmit or OpStatus or OpCancel or OpImportPackage => Fail(
                         Failure("invalid_request", $"op '{op}' must be routed through the async dispatcher, not the off-UI dispatcher.", "op"),
                         400),
                     _ => Fail(Failure("invalid_request", $"Unknown reconstruction op '{op}'.", "op"), 400),
@@ -154,6 +159,23 @@ namespace Rook.Handlers
                 return Fail(result.Failure!, StatusFor(result.Failure!));
 
             return Ok(JobToObj(result.Job!));
+        }
+
+        // Thin adapter to the native importer (loopback client). The native route stays
+        // authoritative; this op only forwards {package_id} and relays the unwrapped result.
+        private async Task<ApiResponse> ImportAsync(
+            Dictionary<string, JsonElement> args,
+            CancellationToken ct)
+        {
+            if (!TryParseGuid(args, "package_id", out var packageId, out var failure))
+                return Fail(failure!, 400);
+            if (_importClient is null)
+                return Fail(Failure("native_unavailable", "Reconstruction import client is not configured.", null, retryable: true), 503);
+
+            var outcome = await _importClient.ImportAsync(packageId, ct).ConfigureAwait(false);
+            if (!outcome.Success)
+                return Fail(outcome.Failure!, StatusFor(outcome.Failure!));
+            return Ok(outcome.Data!);
         }
 
         private ApiResponse ListJobs(Dictionary<string, JsonElement> args)
@@ -905,7 +927,7 @@ namespace Rook.Handlers
                 // remediation text.
                 "missing_credential" => 400,
                 "quota_exceeded" => 429,
-                "provider_unavailable" => 503,
+                "provider_unavailable" or "native_unavailable" => 503,
                 "content_policy" => 422,
                 _ => 500,
             };

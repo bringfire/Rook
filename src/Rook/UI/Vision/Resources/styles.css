@@ -2743,8 +2743,10 @@ body {
     font-size: 12px;
     margin-top: var(--space-1);
 }
-.reconstruct-handoff { font-size: 13px; color: var(--ink-soft); }
-.reconstruct-handoff code { font-family: var(--type-mono); }
+.reconstruct-import { display: flex; align-items: center; gap: var(--space-3); }
+.reconstruct-import-status { font-size: 13px; color: var(--ink-soft); }
+.reconstruct-import-status.success { color: var(--accent-green); }
+.reconstruct-import-status.error { color: var(--accent-red); }
 .reconstruct-history { display: flex; flex-direction: column; gap: var(--space-2); }
 .reconstruct-history-head { display: flex; align-items: center; justify-content: space-between; }
 .reconstruct-history-title { font-size: 15px; margin: 0; }

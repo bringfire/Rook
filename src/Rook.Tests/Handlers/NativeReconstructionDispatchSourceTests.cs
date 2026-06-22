@@ -232,6 +232,27 @@ public sealed class NativeReconstructionDispatchSourceTests
         Assert.True(cleanupIndex < returnIndex, message);
     }
 
+    [Fact]
+    public void NativeBridge_RoutesImportPackageThroughAsyncDispatch()
+    {
+        // The deadlock invariant must hold on the native dispatch surface too:
+        // OpImportPackage belongs in the ASYNC group (with submit/status/cancel),
+        // not the off-UI group.
+        var managed = File.ReadAllText(Path.Combine(
+            RepoRoot, "src", "Rook", "InternalBridge", "NativeGhBridgeRegistrar.cs"));
+        var fn = ExtractFunction(managed, "int HandleReconstructionDispatch(");
+
+        var submitIdx = fn.IndexOf("case ReconstructionOpHandler.OpSubmit:", System.StringComparison.Ordinal);
+        var asyncCallIdx = fn.IndexOf(
+            "(reqJson, ct) => RookSubsystemRoot.Instance.Reconstruction.DispatchAsync",
+            System.StringComparison.Ordinal);
+        var importIdx = fn.IndexOf("case ReconstructionOpHandler.OpImportPackage:", System.StringComparison.Ordinal);
+
+        Assert.True(importIdx >= 0, "OpImportPackage case not found in HandleReconstructionDispatch.");
+        Assert.True(importIdx > submitIdx && importIdx < asyncCallIdx,
+            "OpImportPackage must sit in the async dispatch branch (after OpSubmit, before the async DispatchAsync lambda).");
+    }
+
     private static string ExtractFunction(string source, string signature)
     {
         var start = source.IndexOf(signature, System.StringComparison.Ordinal);
