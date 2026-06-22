@@ -361,10 +361,10 @@ Run from `C:\UDEV\Rook`:
 
 ```powershell
 Select-String -Path "mcp_server/src/rook/agent/plan_graph_live_dispatch.py" `
-  -Pattern "ToolDispatcher|tool_dispatcher|rook\.server|rook\.agent\.chat|ChatRunner|_producer"
+  -Pattern "ToolDispatcher|tool_dispatcher|rook\.server|rook\.agent\.chat|ChatRunner"
 ```
 
-Expected: no output. This command intentionally uses regex alternation; do not add `-SimpleMatch`.
+Expected: no output. This command intentionally uses regex alternation; do not add `-SimpleMatch`. The pattern deliberately omits `_producer` as a raw substring: the public seam name `run_live_producer_node` (and the forwarder target `apply_live_producer_node`) legitimately contain `_producer`, so a substring grep would false-positive. The private-helper ban (`_producer_*`) is enforced precisely by the AST guard `test_live_dispatch_module_import_boundary`, which matches identifiers with `startswith("_producer")` rather than a substring — that test is the authoritative boundary check.
 
 - [ ] **Step 8: Confirm branch state and that planning docs are already committed**
 
@@ -436,10 +436,11 @@ Expected:
 # git status --short has no output
 # git log includes, newest first:
 feat(lm4b): prove live producer dispatch binding
+docs(lm4b): correct Step 7 boundary grep (avoid _producer false-positive)
 docs(lm4b): approve spec and add implementation plan
 docs(lm4b): mark spec status as draft pending user review
 docs(lm4b): live producer dispatch-binding design (real ToolDispatcher contract proof)
 231 passed
 ```
 
-The `docs(lm4b): approve spec and add implementation plan` commit is the pre-implementation docs commit from Step 8 (spec `Draft → Approved` plus this plan). Do not push. Stop at the review/PR gate.
+The `docs(lm4b): approve spec and add implementation plan` commit is the pre-implementation docs commit from Step 8 (spec `Draft → Approved` plus this plan). The `docs(lm4b): correct Step 7 boundary grep` commit is a follow-up doc fix made during inline execution (the original Step 7 grep listed `_producer`, which false-positives on the public seam name). Do not push. Stop at the review/PR gate.
