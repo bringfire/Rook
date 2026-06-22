@@ -11,7 +11,6 @@ import pytest
 from rook.learning.plan_graph import (
     PlanGraph,
     PlanGraphNode,
-    initialize_graph,
 )
 from rook.learning.plan_graph_projection import OUTCOME_PROJECTION_ROLE_KEY
 from rook.agent.plan_graph_live import (
