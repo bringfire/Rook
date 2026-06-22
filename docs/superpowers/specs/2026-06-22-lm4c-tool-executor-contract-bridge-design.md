@@ -109,7 +109,8 @@ shows the imports the new function adds — `inspect` plus the existing ones.)
   pin that behavior, not the specific stdlib helper.
 - **No result validation here.** A malformed/non-dict `result` flows straight
   into LM4A's existing raw-result handling. This wrapper never inspects result
-  shape.
+  shape. (Test 5 pins this: a non-dict result becomes an *applied blocked*
+  outcome via the pure runner, not `dispatch_failed`.)
 - **No try/except here; one error taxonomy.** A sync executor that raises does so
   during `await dispatch(...)`; an async executor that raises does so on
   `await result`. Either way LM4A's `try: raw = await dispatch(...) except
@@ -142,7 +143,7 @@ future `collections.abc`-based implementation for the wrong reason.
 ## Tests (extend `mcp_server/tests/test_plan_graph_live_dispatch.py`)
 
 Reuse LM4B's fixtures (`_usable_raw`, `_error_raw`, `_producer_graph`,
-`PROBE_TOOL_NAME`, `EXECUTION_PARAMS_KEY`/`OUTCOME_PROJECTION_ROLE_KEY`). All four
+`PROBE_TOOL_NAME`, `EXECUTION_PARAMS_KEY`/`OUTCOME_PROJECTION_ROLE_KEY`). All five
 tests drive through `run_live_producer_node_with_executor`:
 
 1. **Sync executor returns a dict — non-vacuous live-seam proof.** A plain
@@ -164,6 +165,16 @@ tests drive through `run_live_producer_node_with_executor`:
 4. **Async executor returns an awaitable that raises when awaited.** An
    `async def executor(...)` that raises. Same `dispatch_failed` mapping and input
    graph preserved.
+
+5. **Sync executor returns a non-dict — pins "no result validation."** A
+   `def executor(...)` returning a non-dict sentinel (e.g. `"not a dict"`). The
+   wrapper passes it through unchanged (a string isn't awaitable), and LM4A's pure
+   raw-result handling owns it. Assert it is **applied through the pure runner, not
+   converted to `dispatch_failed`**: `applied is True`, `reason is None`,
+   `outcome_status == "blocked"`, node `status == "blocked"`. This mirrors the
+   LM3I-established `apply_producer_result` malformed-raw behavior (no receipt → no
+   artifact evidence → producer projection yields `blocked`) and proves the wrapper
+   does not own result shape.
 
 Tests use plain callables (no `ToolDispatcher`); driven with `asyncio.run`, no
 Rhino/HTTP.
