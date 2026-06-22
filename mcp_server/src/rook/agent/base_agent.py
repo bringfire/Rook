@@ -32,6 +32,8 @@ from typing import Any, Callable, Dict, List, Optional, Set, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .tool_registry import ToolRegistry
+    from .plan_graph_live import LiveProducerResult
+    from ..learning.plan_graph import PlanGraph
 
 import litellm
 
@@ -48,6 +50,7 @@ from .events import (
     ERROR,
 )
 from .tool_groups import TOOL_TRANSITIONS, TOOL_GROUP_TRIGGERS
+from .plan_graph_live_dispatch import run_live_producer_node_with_executor
 from .substrate_analytics import (
     extract_substrate_observation,
     persist_substrate_observation,
@@ -1185,6 +1188,21 @@ class RookAgent:
             return {"connected": False, "message": f"Unexpected response: {result}"}
         except Exception as e:
             return {"connected": False, "message": str(e)}
+
+    async def run_live_producer_node(
+        self, graph: "PlanGraph", node_id: str
+    ) -> "LiveProducerResult":
+        """Drive one live producer node against this agent's tool executor.
+
+        Opt-in, one-node, non-LLM: delegates to the LM4C contract bridge using the
+        agent's own ``_tool_executor``. Does not touch the LLM run loop; no
+        scheduler, no graph selection. A raising executor maps to LM4A
+        ``dispatch_failed``; a malformed result flows into LM4A's raw-result
+        handling -- this method owns neither result shape nor error taxonomy.
+        """
+        return await run_live_producer_node_with_executor(
+            graph, node_id, self._tool_executor
+        )
 
     def _load_env(self) -> None:
         """Load .env file for API keys."""
