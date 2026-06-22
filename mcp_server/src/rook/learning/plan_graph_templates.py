@@ -1,17 +1,19 @@
-"""LM3B PlanGraph birth seam — deterministic template selector.
+"""LM3B/LM3C PlanGraph birth seam — template selection + parameter binding.
 
-A pure router that maps a small *structured* intent descriptor to a registered,
-hand-authored ``PlanGraph`` template and returns a fresh copy of that template
-plus an auditable selection record.
+``select_template`` maps a structured intent descriptor to a registered,
+hand-authored ``PlanGraph`` template (deterministic exact-match selection) and
+returns a fresh copy plus an auditable selection record. ``bind_parameters``
+injects declared descriptor values into a selected graph's node metadata and
+graph memory facts (never structure / refs / ids / edges / status);
+``select_and_bind`` composes the two. Binding deep-copies each value and emits
+findings only on error.
 
-It proves graph birth, not graph binding: it never builds a bespoke plan, infers
-from free text, scores/ranks, falls back, calls a model or live tool, or couples
-to ``planner.py``. A template matches iff EVERY declared criterion equals the
-descriptor's value for that field. Parameter binding is deferred to LM3C.
+It never builds a bespoke plan, infers from free text, scores/ranks, falls back,
+interprets values, calls a model or live tool, or couples to ``planner.py``.
 
-Production code here depends only on ``rook.learning.plan_graph`` (to build the
-template). Drive-side modules (``plan_graph_walker`` / ``plan_graph_bridge``) are
-NOT imported — birth is independent of drive.
+Production code here depends only on ``rook.learning.plan_graph``. Drive-side
+modules (``plan_graph_walker`` / ``plan_graph_bridge``) are NOT imported — birth
+is independent of drive.
 """
 
 import copy
@@ -32,12 +34,28 @@ _SEVERITY_BY_CODE: dict[str, Literal["error", "info"]] = {
     "ambiguous_template": "error",
 }
 
+_BINDING_SEVERITY_BY_CODE: dict[str, Literal["info", "warning", "error"]] = {
+    "missing_required_binding": "error",
+    "unknown_binding_target": "error",
+    "binding_value_copy_failed": "error",
+}
+
+
+@dataclass(frozen=True)
+class BindingSpec:
+    descriptor_field: str
+    target: Literal["memory_fact", "node_metadata"]
+    key: str
+    node_id: str | None = None
+    required: bool = False
+
 
 @dataclass(frozen=True)
 class TemplateEntry:
     template_id: str
     criteria: tuple[tuple[str, str], ...]
     build_graph: Callable[[], PlanGraph]
+    bindings: tuple[BindingSpec, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -71,15 +89,37 @@ class TemplateSelection:
     findings: tuple[TemplateFinding, ...]
 
 
+@dataclass(frozen=True)
+class BindingFinding:
+    code: str
+    severity: Literal["info", "warning", "error"]
+    field: str
+    message: str
+
+
+@dataclass(frozen=True)
+class BindingResult:
+    graph: PlanGraph | None
+    findings: tuple[BindingFinding, ...]
+
+
+@dataclass(frozen=True)
+class SelectAndBindResult:
+    selection: TemplateSelection
+    binding: BindingResult | None
+
+
 def _make_entry(
     template_id: str,
     criteria: Mapping[str, str],
     build_graph: Callable[[], PlanGraph],
+    bindings: tuple[BindingSpec, ...] = (),
 ) -> TemplateEntry:
     return TemplateEntry(
         template_id=template_id,
         criteria=tuple(sorted(criteria.items())),
         build_graph=build_graph,
+        bindings=bindings,
     )
 
 
@@ -91,6 +131,15 @@ def _finding(
         severity=_SEVERITY_BY_CODE[code],
         message=message,
         template_ids=template_ids,
+    )
+
+
+def _binding_finding(code: str, field: str, message: str) -> BindingFinding:
+    return BindingFinding(
+        code=code,
+        severity=_BINDING_SEVERITY_BY_CODE[code],
+        field=field,
+        message=message,
     )
 
 
@@ -167,6 +216,15 @@ DEFAULT_REGISTRY: tuple[TemplateEntry, ...] = (
             "language": "csharp",
         },
         _build_gh_csharp_create_repair,
+        bindings=(
+            BindingSpec("goal", "memory_fact", "goal"),
+            BindingSpec(
+                "component_name",
+                "node_metadata",
+                "component_name",
+                node_id="create_script",
+            ),
+        ),
     ),
 )
 
@@ -229,3 +287,83 @@ def select_template(
             ),
         ),
     )
+
+
+def bind_parameters(
+    graph: PlanGraph,
+    bindings: tuple[BindingSpec, ...],
+    descriptor: Mapping[str, object],
+) -> BindingResult:
+    """Apply declared bindings to a fresh copy of ``graph``.
+
+    Writes only node metadata and graph memory facts. Each bound value is
+    deep-copied. Findings are emitted only on error; any error nulls the returned
+    graph (no partially-bound graph leaks). Never mutates the input graph.
+    """
+    working = copy.deepcopy(graph)
+    findings: list[BindingFinding] = []
+
+    for spec in bindings:
+        if spec.descriptor_field not in descriptor:
+            if spec.required:
+                findings.append(
+                    _binding_finding(
+                        "missing_required_binding",
+                        spec.descriptor_field,
+                        f"Required binding field '{spec.descriptor_field}' is "
+                        "absent from the descriptor.",
+                    )
+                )
+            continue
+
+        try:
+            value = copy.deepcopy(descriptor[spec.descriptor_field])
+        except Exception:
+            findings.append(
+                _binding_finding(
+                    "binding_value_copy_failed",
+                    spec.descriptor_field,
+                    f"Could not copy the value for binding field "
+                    f"'{spec.descriptor_field}'.",
+                )
+            )
+            continue
+
+        if spec.target == "memory_fact":
+            working.memory.facts[spec.key] = value
+        else:  # "node_metadata"
+            if spec.node_id is None or spec.node_id not in working.nodes:
+                findings.append(
+                    _binding_finding(
+                        "unknown_binding_target",
+                        spec.descriptor_field,
+                        f"Binding target node '{spec.node_id}' is not present "
+                        "in the graph.",
+                    )
+                )
+                continue
+            working.nodes[spec.node_id].metadata[spec.key] = value
+
+    if any(f.severity == "error" for f in findings):
+        return BindingResult(graph=None, findings=tuple(findings))
+    return BindingResult(graph=working, findings=tuple(findings))
+
+
+def select_and_bind(
+    descriptor: Mapping[str, str],
+    registry: tuple[TemplateEntry, ...] = DEFAULT_REGISTRY,
+) -> SelectAndBindResult:
+    """Select a template, then bind its declared parameters from the descriptor.
+
+    Selection and binding stay separate: ``selection.graph`` is the unbound
+    selected copy; the bound graph is ``binding.graph``. ``binding`` is None when
+    nothing was selected.
+    """
+    selection = select_template(descriptor, registry)
+    if selection.graph is None:
+        return SelectAndBindResult(selection=selection, binding=None)
+    entry = next(
+        e for e in registry if e.template_id == selection.selected_template_id
+    )
+    binding = bind_parameters(selection.graph, entry.bindings, descriptor)
+    return SelectAndBindResult(selection=selection, binding=binding)
