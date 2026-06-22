@@ -208,8 +208,21 @@ result → `succeeded`; `repair_same_component` is terminal → graph `complete`
    `rook.learning.plan_graph_bridge`, `rook.learning.plan_graph_walker`,
    `rook.agent.planner`, `rook.agent.tool_dispatcher`, `dspy`, or `litellm`.
 
+## Governing invariant
+
+**Every registered template must be drivable to `complete` by the LM3A walker
+through the LM1G bridge (`walk_plan_graph` + `apply_tool_result`) using canned
+tool results — not via hand-built `NodeOutcome`s.** A template that requires
+hand-chosen verifier-node statuses is not admissible until a verifier-outcome
+adapter exists.
+
 ## Out of scope (LM3B)
 
+- **The 5-node verifier-mediated create-repair template** (`create → verify_receipt
+  → repair → verify_clean → done`) is **deferred** until a verifier-outcome adapter
+  exists — one that produces explicit `NodeOutcome` statuses for verifier nodes
+  (the raw LM1G bridge cannot, since it collapses `created_with_errors` to
+  `needs_repair` at the create node). Not faked here.
 - **Parameter binding** (injecting descriptor values into the template) → LM3C.
 - Any `Plan`→`PlanGraph` adapter / `planner.py` integration.
 - Any free-text intent inference, scoring, ranking, or fallback selection.
