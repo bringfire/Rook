@@ -1,7 +1,7 @@
 # LM4B — Real Dispatcher Binding for One Live Producer Node (contract proof, NOT live Rhino dispatch)
 
 **Date:** 2026-06-22
-**Status:** Approved (design)
+**Status:** Draft — pending user review
 **Category:** LM campaign — Stage 5 (live PlanGraph execution), second slice (LM4B)
 **Branch:** `codex/lm4b-live-producer-dispatch-binding`
 **North-star:** `docs/superpowers/specs/2026-06-19-rook-local-internal-models-north-star.md`
