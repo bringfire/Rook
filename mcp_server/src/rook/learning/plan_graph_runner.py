@@ -1,18 +1,24 @@
-"""LM3E verifier-step runner -- first composition layer over the PlanGraph primitives.
+"""Composition-layer runner primitives over the PlanGraph reducer.
 
-A single cross-node primitive that drives one verifier node by reading a source
-node's already-captured evidence, projecting it through the LM3D verifier adapter
-(``script_receipt_verifier_outcome``), and applying the result through the LM1E
-reducer (``apply_outcome``).
+Two single-node, non-scheduling primitives:
 
-It is not a scheduler and not a sequencer: it applies exactly one verifier step.
+- ``apply_verifier_step`` (LM3E) drives one verifier node by reading a *source*
+  node's already-captured evidence, projecting it through the LM3D verifier
+  adapter (``script_receipt_verifier_outcome``), and applying the result via the
+  LM1E reducer.
+- ``apply_producer_step`` (LM3G) drives one *producer* node from its OWN captured
+  evidence, projecting it through the LM3F role-aware projection
+  (``project_receipt_outcome`` with the node's declared ``artifact_producer``
+  role) and applying the result via the reducer.
+
+Neither is a scheduler or sequencer: each applies exactly one step.
 ``runnable_nodes`` is the sole readiness authority -- the runner never inspects
-edges or requires ``source.status == "succeeded"``; the source node only needs to
-exist and carry evidence. The walker and LM1F are untouched; receipt
-interpretation stays in LM3D.
+edges or requires ``source.status == "succeeded"``. The walker and LM1F are
+untouched; receipt interpretation stays in LM3D/LM3F.
 
-Imports only ``rook.learning.plan_graph`` (types + reducer) and
-``rook.learning.plan_graph_verifiers`` (the verifier adapter).
+Imports only ``rook.learning.plan_graph`` (types + reducer),
+``rook.learning.plan_graph_verifiers`` (the verifier adapter), and
+``rook.learning.plan_graph_projection`` (role accessor + producer projection).
 """
 
 from dataclasses import dataclass
