@@ -201,3 +201,108 @@ def test_live_dispatch_module_import_boundary():
             assert module in _ALLOWED_ROOK_IMPORTS, (
                 f"unexpected rook import in live dispatch seam: {module!r}"
             )
+
+
+# ===== LM4C: ToolExecutor contract bridge =====
+
+from rook.agent.plan_graph_live_dispatch import run_live_producer_node_with_executor
+
+
+_DECLARED_PARAMS = {"language": "csharp", "code": "// noop", "component_name": "C"}
+
+
+def _run_with_executor(executor):
+    graph = _producer_graph(_DECLARED_PARAMS)
+    result = asyncio.run(
+        run_live_producer_node_with_executor(graph, "create_script", executor)
+    )
+    return result, graph
+
+
+def test_executor_sync_dict_drives_live_seam():
+    """A plain sync executor returning a dict must drive LM4A's live seam --
+    not merely be awaited. Assert producer outcome + evidence, not just return."""
+    seen: list[dict] = []
+
+    def executor(name, params):
+        seen.append({"name": name, "params": params})
+        return _usable_raw()
+
+    result, graph = _run_with_executor(executor)
+
+    assert result.applied is True
+    assert result.reason is None
+    assert result.outcome_status == "succeeded"
+    assert result.tool_name == PROBE_TOOL_NAME
+    node = result.graph.nodes["create_script"]
+    assert node.status == "succeeded"
+    assert node.evidence is not None
+    assert node.evidence.tool_status == "success"
+    # Applied path returns a fresh reducer graph (NOT identity).
+    assert result.graph is not graph
+    # Executor received the declared params, no injected port.
+    assert seen == [{"name": PROBE_TOOL_NAME, "params": _DECLARED_PARAMS}]
+
+
+def test_executor_async_dict_drives_live_seam():
+    """An async executor returning a dict drives the same successful outcome."""
+
+    async def executor(name, params):
+        return _usable_raw()
+
+    result, _graph = _run_with_executor(executor)
+
+    assert result.applied is True
+    assert result.reason is None
+    assert result.outcome_status == "succeeded"
+    assert result.tool_name == PROBE_TOOL_NAME
+    assert result.graph.nodes["create_script"].status == "succeeded"
+
+
+def test_executor_sync_raise_is_dispatch_failed():
+    """A sync executor raising maps to LM4A dispatch_failed; input graph preserved."""
+
+    def executor(name, params):
+        raise RuntimeError("sync transport down")
+
+    result, graph = _run_with_executor(executor)
+
+    assert result.applied is False
+    assert result.reason == "dispatch_failed"
+    assert result.outcome_status is None
+    assert result.tool_name == PROBE_TOOL_NAME
+    assert result.graph is graph  # not-applied -> input graph unchanged
+
+
+def test_executor_async_raise_is_dispatch_failed():
+    """An async executor raising on await maps to dispatch_failed; graph preserved."""
+
+    async def executor(name, params):
+        raise RuntimeError("async transport down")
+
+    result, graph = _run_with_executor(executor)
+
+    assert result.applied is False
+    assert result.reason == "dispatch_failed"
+    assert result.outcome_status is None
+    assert result.tool_name == PROBE_TOOL_NAME
+    assert result.graph is graph  # not-applied -> input graph unchanged
+
+
+def test_executor_non_dict_flows_to_applied_blocked():
+    """A non-dict result is NOT validated by the wrapper: it flows into LM4A's
+    raw-result handling and becomes an APPLIED blocked outcome (a fresh graph
+    with the node blocked), never dispatch_failed."""
+
+    def executor(name, params):
+        return "not a dict"
+
+    result, graph = _run_with_executor(executor)
+
+    assert result.applied is True
+    assert result.reason is None
+    assert result.outcome_status == "blocked"
+    node = result.graph.nodes["create_script"]
+    assert node.status == "blocked"
+    # Applied path returns a fresh reducer graph (NOT identity).
+    assert result.graph is not graph
