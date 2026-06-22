@@ -305,3 +305,58 @@ def test_producer_guard_precedence_runnable_before_role():
     )
     r = apply_producer_step(g, "create")
     assert r.reason == "node_not_runnable"
+
+
+from rook.learning.plan_graph import graph_status, initialize_graph
+from rook.learning.plan_graph_bridge import apply_tool_result
+from rook.learning.plan_graph_templates import select_and_bind
+
+
+def _usable_raw_result(component_guid="g1"):
+    return {
+        "success": True,
+        "data": {
+            "script_receipt": {
+                "artifact_status": "usable",
+                "mutation": {"status": "updated", "component_guid": component_guid},
+            }
+        },
+    }
+
+
+def test_create_verify_repair_end_to_end_non_live():
+    descriptor = {
+        "domain": "grasshopper",
+        "operation": "create_verify_repair",
+        "language": "csharp",
+    }
+    bound = select_and_bind(descriptor)
+    graph = bound.binding.graph
+    assert graph is not None
+
+    # initialize_graph EXACTLY ONCE, before any step, never after mutation
+    graph = initialize_graph(graph)
+    assert graph.nodes["create_script"].status == "ready"
+
+    # inject the producer node's created_with_errors evidence (with mutation evidence)
+    graph.nodes["create_script"].evidence = _evidence(_created_with_errors_receipt())
+
+    # 1. producer step: created_with_errors -> succeeded, unlocks the verifier
+    pr = apply_producer_step(graph, "create_script")
+    assert pr.applied and pr.outcome_status == "succeeded"
+    graph = pr.graph
+    assert graph.nodes["create_script"].evidence.verified is False
+    assert graph.nodes["verify_create"].status == "ready"
+
+    # 2. verifier step: same evidence -> needs_repair, unlocks repair via on_repair
+    vr = apply_verifier_step(graph, "verify_create", "create_script")
+    assert vr.applied and vr.outcome_status == "needs_repair"
+    graph = vr.graph
+    assert graph.nodes["repair_same_component"].status == "ready"
+
+    # 3. repair via the LM1G bridge ONLY (not the walker)
+    graph = apply_tool_result(graph, "repair_same_component", _usable_raw_result())
+    assert graph.nodes["repair_same_component"].status == "succeeded"
+
+    # 4. terminal repair succeeded -> graph complete
+    assert graph_status(graph) == "complete"
