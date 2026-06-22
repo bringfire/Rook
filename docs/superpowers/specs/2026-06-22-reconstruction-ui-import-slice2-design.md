@@ -57,6 +57,10 @@ response { package_id, asset_role (RESOLVED), path, imported_ids[], associated }
 - `ReconstructionOpHandler.DispatchAsync` gains an `import_package` case that delegates to an **injected `NativeReconstructionImportClient`**. The handler *does* gain an `import_package` op, but **no importer** — it is a thin adapter to the native route; native remains authoritative.
 - `package_id` parsing: missing/invalid → structured `invalid_request` failure (no loopback). Reuse the handler's existing GUID/arg validation.
 - The client is injected into `ReconstructionOpHandler` via the shared `RookSubsystemRoot` wiring, consistent with the catalog/manager/store dependencies.
+- **Dual-surface async classification (the deadlock invariant must hold on BOTH reconstruction dispatch surfaces).** `import_package` is classified async in *both*:
+  - `VisionWebSurface.ReconstructionAsyncOps` (the WebView bridge) — routed through `DispatchWithTimeoutAsync` → `DispatchAsync`.
+  - `NativeGhBridgeRegistrar.HandleReconstructionDispatch` — added to the **async** branch alongside `OpSubmit/OpStatus/OpCancel` (it routes to `Reconstruction.DispatchAsync`), **not** the off-UI branch.
+  And inside the handler: `ReconstructionOpHandler` gains `OpImportPackage = "import_package"` with an `ImportAsync` case in `DispatchAsync`, **rejected** by `DispatchOffUi` (like submit/status/cancel). Even though only the WebView calls it initially, classifying it sync/off-UI on the native surface would let a future native/MCP caller deadlock — so both surfaces stay consistent.
 
 ### 4.3 Reconstruct view UI (`app.js`, `index.html`, `styles.css`)
 - **Import button** in the result panel (`#reconstruct-result-panel`), shown when a completed package is loaded (fresh job completion *or* a job-history click that loaded `job_result`).
@@ -82,7 +86,11 @@ response { package_id, asset_role (RESOLVED), path, imported_ids[], associated }
 - **Off-UI invariant** is a *correctness* guard, not a runtime check — enforced by the routing classification + its test.
 
 ## 7. Testing strategy
-- **Routing invariant (C# source assertion, like slice-1 Task 1):** assert `import_package` is async/off-UI — `HandleReconstructionBridgeCallAsync` routes it through `DispatchWithTimeoutAsync` into `Reconstruction.DispatchAsync` (the async lane), and it is **not** in any UI/off-UI-sync branch. A future edit that makes it UI-thread fails this test. This is the deadlock gate.
+- **Routing invariant — BOTH dispatch surfaces (C# source assertions, like slice-1 Task 1). The deadlock gate:**
+  - `VisionWebSurface`: `import_package` ∈ `ReconstructionAsyncOps`, routed through `DispatchWithTimeoutAsync` → `Reconstruction.DispatchAsync`; **not** in any UI/off-UI-sync branch.
+  - `NativeGhBridgeRegistrar.HandleReconstructionDispatch`: `OpImportPackage` is in the **async** branch (with `OpSubmit/OpStatus/OpCancel`), **not** the off-UI branch.
+  - `ReconstructionOpHandler`: `OpImportPackage` is handled by `DispatchAsync` and **rejected** by `DispatchOffUi`.
+  A future edit that moves it to a sync/off-UI/UI path on either surface fails these tests.
 - **Native-import client request/response mapping (C# unit, fake `HttpClient`/transport):**
   - POSTs only to the fixed `/reconstruction/2d-to-3d/import` path with body `{package_id}` (assert no other route, no arbitrary URL).
   - native `{success:true, data:{asset_role, imported_ids,…}}` → **unwraps** and returns `data` (assert no double-wrap; `asset_role` at the top level of the result).
