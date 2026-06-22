@@ -27,7 +27,7 @@
 
 | File | Responsibility | Change |
 |---|---|---|
-| `src/Rook/UI/Vision/VisionWebSurface.cs` | Reconstruction bridge channel | Route async ops through `DispatchWithTimeoutAsync`; add `ReconstructionAsyncOps` set (Task 1) |
+| `src/Rook/UI/Vision/VisionWebSurface.cs` | Reconstruction bridge channel | Add `domainLabel` param to `DispatchWithTimeoutAsync`; route async ops through it with `domainLabel:"Reconstruction"`; add `ReconstructionAsyncOps` set (Task 1) |
 | `src/Rook.Tests/UI/Vision/VisionWebSurfaceTests.cs` | Bridge unit tests | Pin `ReconstructionAsyncOps` (Task 1) |
 | `src/Rook/UI/Vision/Resources/index.html` | Reconstruct view markup + nav | New nav button + `#reconstruct-view` section; modal button stays (Tasks 2–6); modal status strip removed (Task 7) |
 | `src/Rook/UI/Vision/Resources/app.js` | Reconstruct module + switch wiring + shortcut | New `Reconstruct` IIFE module; `switchView` dispatch; init wiring; modal-button rewire + delete v0 modal submit (Tasks 2–7) |
@@ -42,16 +42,20 @@
 - Test: `src/Rook.Tests/UI/Vision/VisionWebSurfaceTests.cs`
 
 **Interfaces:**
-- Consumes: existing `internal static Task<ApiResponse> DispatchWithTimeoutAsync(string op, TimeSpan timeout, Func<CancellationToken, Task<ApiResponse>> dispatch)`; existing `internal static readonly TimeSpan AsyncOpTimeout`.
-- Produces: `internal static readonly HashSet<string> ReconstructionAsyncOps` = {`submit_job`,`job_status`,`cancel_job`}.
+- Consumes: existing `internal static readonly TimeSpan AsyncOpTimeout`.
+- Modifies: `DispatchWithTimeoutAsync` gains an optional `string domainLabel = "Vision"` param so the timeout message reads `"{domainLabel} op '{op}' timed out…"` ([P2] — reconstruction must not say "Vision op").
+- Produces: `internal static readonly HashSet<string> ReconstructionAsyncOps` = {`submit_job`,`job_status`,`cancel_job`}; `HandleReconstructionBridgeCallAsync` routes async ops through `DispatchWithTimeoutAsync(... domainLabel: "Reconstruction")`.
 
-**Why this test shape:** the pure timeout/rewrite behavior of `DispatchWithTimeoutAsync` is already covered by `DispatchWithTimeout_*` tests, and the existing `Video` router (`DispatchVideoAsyncWithTimeoutAsync`) is a one-liner verified by inspection, not a unit test. So the new coverage pins the **routing classification** (which ops get wrapped) and reuses the already-covered helper — no duplication of timeout behavior.
+**Why this test shape ([P1]):** the pure timeout/rewrite behavior of `DispatchWithTimeoutAsync` is already covered by the `DispatchWithTimeout_*` tests — we don't duplicate it. But a set-membership pin alone would pass even if the handler never used the set, so we add (a) a **source assertion** that `HandleReconstructionBridgeCallAsync` actually consults `ReconstructionAsyncOps.Contains(op)` and calls `DispatchWithTimeoutAsync(` with `domainLabel: "Reconstruction"` (mirroring the `RepoRoot` source-guard convention in `NativeReconstructionDispatchSourceTests`), and (b) a **behavioral** test of the new `domainLabel` path. Together these prove routing + correct labeling without re-testing timeout mechanics.
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the failing tests**
 
-In `src/Rook.Tests/UI/Vision/VisionWebSurfaceTests.cs`, add next to the `OpRoutes_*` tests:
+In `src/Rook.Tests/UI/Vision/VisionWebSurfaceTests.cs`, add `using System.Linq;` to the usings if absent, then add a `RepoRoot` helper to the class (mirrors `NativeReconstructionDispatchSourceTests`) and four tests:
 
 ```csharp
+private static string RepoRoot
+    => Path.GetFullPath(Path.Combine(System.AppContext.BaseDirectory, "..", "..", "..", "..", ".."));
+
 [Fact]
 public void ReconstructionAsyncOps_AreExactlySubmitStatusCancel()
 {
@@ -67,18 +71,92 @@ public void ReconstructionAsyncOps_ExcludeOffUiOps()
     Assert.DoesNotContain("list_jobs", VisionWebSurface.ReconstructionAsyncOps);
     Assert.DoesNotContain("job_result", VisionWebSurface.ReconstructionAsyncOps);
 }
+
+[Fact]
+public void HandleReconstructionBridge_RoutesAsyncOpsThroughTimeoutWrapper()
+{
+    // The set must actually drive the timeout wrapper — pin the wiring in
+    // source so a future edit that bypasses ReconstructionAsyncOps or
+    // DispatchWithTimeoutAsync fails here, not silently in production.
+    var source = File.ReadAllText(Path.Combine(
+        RepoRoot, "src", "Rook", "UI", "Vision", "VisionWebSurface.cs"));
+    var start = source.IndexOf(
+        "HandleReconstructionBridgeCallAsync", StringComparison.Ordinal);
+    Assert.True(start >= 0, "HandleReconstructionBridgeCallAsync not found.");
+    // Bound to the method: from its declaration to the next 'private ' member.
+    var bodyStart = source.IndexOf('{', start);
+    var next = source.IndexOf("\n        private ", bodyStart, StringComparison.Ordinal);
+    var method = next > bodyStart ? source.Substring(bodyStart, next - bodyStart) : source.Substring(bodyStart);
+
+    Assert.Contains("ReconstructionAsyncOps.Contains(op)", method);
+    Assert.Contains("DispatchWithTimeoutAsync(", method);
+    Assert.Contains("domainLabel: \"Reconstruction\"", method);
+}
+
+[Fact]
+public async Task DispatchWithTimeout_ReconstructionLabel_EmitsReconstructionTimeoutMessage()
+{
+    var response = await VisionWebSurface.DispatchWithTimeoutAsync(
+        "submit_job",
+        TimeSpan.FromMilliseconds(30),
+        async token =>
+        {
+            await Task.Delay(TimeSpan.FromSeconds(2), token).ConfigureAwait(false);
+            return new ApiResponse { Success = true };
+        },
+        domainLabel: "Reconstruction");
+
+    Assert.False(response.Success);
+    var message = Assert.IsType<string>(response.Data);
+    Assert.Contains("Reconstruction op 'submit_job' timed out", message, StringComparison.Ordinal);
+    Assert.DoesNotContain("Vision op", message);
+}
 ```
 
-If `System.Linq` is not already imported in this test file, add `using System.Linq;` to the usings block.
+- [ ] **Step 2: Run the tests to verify they fail**
 
-- [ ] **Step 2: Run the test to verify it fails**
+Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj -c Debug --filter "FullyQualifiedName~VisionWebSurfaceTests.ReconstructionAsyncOps|FullyQualifiedName~VisionWebSurfaceTests.HandleReconstructionBridge_Routes|FullyQualifiedName~VisionWebSurfaceTests.DispatchWithTimeout_ReconstructionLabel"`
+Expected: FAIL — `ReconstructionAsyncOps` undefined; `DispatchWithTimeoutAsync` has no `domainLabel` param; source lacks the routing tokens.
 
-Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj -c Debug --filter "FullyQualifiedName~VisionWebSurfaceTests.ReconstructionAsyncOps"`
-Expected: FAIL — `VisionWebSurface` does not contain a definition for `ReconstructionAsyncOps`.
+- [ ] **Step 3a: Add the `domainLabel` param to the shared timeout helper**
 
-- [ ] **Step 3: Add the op set and route async ops through the timeout helper**
+In `src/Rook/UI/Vision/VisionWebSurface.cs`, change the `DispatchWithTimeoutAsync` signature and its two message strings:
 
-In `src/Rook/UI/Vision/VisionWebSurface.cs`, add the set near the other op-routing fields (just after the `MediaImportOps` set, ~line 254):
+```csharp
+        internal static async Task<ApiResponse> DispatchWithTimeoutAsync(
+            string op,
+            TimeSpan timeout,
+            Func<CancellationToken, Task<ApiResponse>> dispatch,
+            string domainLabel = "Vision")
+        {
+            using var cts = new CancellationTokenSource(timeout);
+            ApiResponse response;
+            try
+            {
+                response = await dispatch(cts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cts.IsCancellationRequested)
+            {
+                return new ApiResponse
+                {
+                    Success = false,
+                    Data = $"{domainLabel} op '{op}' timed out after {timeout.TotalSeconds:F0}s.",
+                };
+            }
+
+            if (!response.Success && cts.IsCancellationRequested)
+            {
+                response.Data = $"{domainLabel} op '{op}' timed out after {timeout.TotalSeconds:F0}s.";
+            }
+            return response;
+        }
+```
+
+The existing Vision/Video callers omit the new arg and keep `"Vision"` — their tests (`DispatchWithTimeout_*`) don't assert the prefix, so they stay green.
+
+- [ ] **Step 3b: Add the op set and route async ops through the timeout helper**
+
+In the same file, add the set near the other op-routing fields (just after the `MediaImportOps` set, ~line 254):
 
 ```csharp
         /// <summary>
@@ -108,7 +186,8 @@ Then replace the `op switch` body inside `HandleReconstructionBridgeCallAsync` (
                     response = await DispatchWithTimeoutAsync(
                         op,
                         AsyncOpTimeout,
-                        token => RookSubsystemRoot.Instance.Reconstruction.DispatchAsync(body, token))
+                        token => RookSubsystemRoot.Instance.Reconstruction.DispatchAsync(body, token),
+                        domainLabel: "Reconstruction")
                         .ConfigureAwait(false);
                 }
                 else if (op is "models" or "list_jobs" or "job_result")
@@ -134,21 +213,21 @@ Then replace the `op switch` body inside `HandleReconstructionBridgeCallAsync` (
             }
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [ ] **Step 4: Run the new tests to verify they pass**
 
-Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj -c Debug --filter "FullyQualifiedName~VisionWebSurfaceTests.ReconstructionAsyncOps"`
-Expected: PASS (2 tests).
+Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj -c Debug --filter "FullyQualifiedName~VisionWebSurfaceTests.ReconstructionAsyncOps|FullyQualifiedName~VisionWebSurfaceTests.HandleReconstructionBridge_Routes|FullyQualifiedName~VisionWebSurfaceTests.DispatchWithTimeout_ReconstructionLabel"`
+Expected: PASS (4 tests).
 
 - [ ] **Step 5: Run the surface test class to confirm no regression**
 
 Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj -c Debug --filter "FullyQualifiedName~VisionWebSurfaceTests"`
-Expected: all green (no "Deployed Rook.rhp" line — Debug skips deploy).
+Expected: all green, including the pre-existing `DispatchWithTimeout_*` tests (default `"Vision"` label unchanged). No "Deployed Rook.rhp" line — Debug skips deploy.
 
 - [ ] **Step 6: Commit**
 
 ```bash
 git add src/Rook/UI/Vision/VisionWebSurface.cs src/Rook.Tests/UI/Vision/VisionWebSurfaceTests.cs
-git commit -m "feat(reconstruction-ui): route async bridge ops under AsyncOpTimeout"
+git commit -m "feat(reconstruction-ui): route async bridge ops under AsyncOpTimeout with Reconstruction label"
 ```
 
 ---
@@ -293,7 +372,7 @@ In `index.html`, replace the `<!-- Populated in Tasks 3–6 -->` comment inside 
                             <div class="reconstruct-source">
                                 <img id="reconstruct-source-thumb" class="reconstruct-source-thumb hidden" alt="source" />
                                 <span id="reconstruct-source-label" class="reconstruct-source-label">No image selected</span>
-                                <button id="reconstruct-choose-source" class="btn btn-secondary">Choose image…</button>
+                                <button id="reconstruct-choose-source" class="btn btn-secondary">Choose in Gallery…</button>
                             </div>
                         </div>
                         <div class="reconstruct-field">
@@ -403,7 +482,7 @@ In `styles.css`, append:
 
 - [ ] **Step 6: Manual verification**
 
-Confirm (or record for the manual pass): entering the Reconstruct view loads the model dropdown with a disabled "Select a model…" placeholder selected (no implicit pick), and the model ids appear; "Choose image…" navigates to Gallery with the hint.
+Confirm (or record for the manual pass): entering the Reconstruct view loads the model dropdown with a disabled "Select a model…" placeholder selected (no implicit pick), and the model ids appear; "Choose in Gallery…" navigates to Gallery with the hint.
 
 - [ ] **Step 7: Commit**
 
@@ -700,7 +779,8 @@ Append to `styles.css`:
 - [ ] **Step 5: Manual verification (warnings are the key check)**
 
 - A normal textured completion shows the package id, asset roles, preferred role, thumbnail, no warnings.
-- **`result_missing_texture` render:** use a bare-package fixture/test path or select a completed job whose `job_result.warnings[]` already includes `result_missing_texture`; if a live bare-package result is impractical, inject a synthetic `job_result` (temporarily call `renderResult({ result_artifact_id:"x", result_available:true, package:{asset_roles:["model_obj"]}, warnings:[{code:"result_missing_texture", message:"…"}] })` from the console) and confirm the warning renders with its headline.
+- **`result_missing_texture` render (primary path):** select, in the Task-6 job history, a completed job whose `job_result.warnings[]` already includes `result_missing_texture`, and confirm the warning renders with its headline. (`renderResult` lives inside the `Reconstruct` IIFE and is **not** console-callable — do not attempt a console injection of it.)
+- **`result_missing_texture` render (fallback if no such job exists):** temporarily add `__debugRenderResult: renderResult` to the module's `return { … }` object, reload, call `Reconstruct.__debugRenderResult({ result_artifact_id:"00000000-0000-0000-0000-000000000000", result_available:true, package:{asset_roles:["model_obj"]}, warnings:[{code:"result_missing_texture", message:"no material or texture assets"}] })` from the console, confirm rendering, then **remove the `__debugRenderResult` line before committing**. Gate: `grep -n "__debugRenderResult" src/Rook/UI/Vision/Resources/app.js` must return nothing at commit time.
 - **Geometry-only produces no texture warning** — submit geometry-only and confirm `warnings[]` is empty (it sets `TextureExpected=false`).
 - Unknown future code falls back to its `message`.
 
