@@ -40,9 +40,6 @@ _ROLE_PREFIX = {
     "artifact_producer": "producer",
     "artifact_verifier": "verifier",
 }
-_PROMOTED_STATUSES = frozenset(
-    ("created_with_errors", "written_with_errors", "verification_pending")
-)
 _MUTATION_DONE = frozenset(("created", "written", "updated"))
 
 

@@ -1,12 +1,11 @@
 import ast
-import copy
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
-from rook.learning.plan_graph import NodeEvidence, NodeOutcome
+from rook.learning.plan_graph import NodeEvidence
 from rook.learning.plan_graph_outcomes import ARTIFACT_STATUS_TO_OUTCOME
 from rook.learning.plan_graph_projection import (
     OutcomeProjectionRole,
