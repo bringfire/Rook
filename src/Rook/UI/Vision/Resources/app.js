@@ -3329,6 +3329,8 @@ const Reconstruct = (() => {
     let modelsLoaded = false;
     let source = null;            // { artifact_id, role, previewSrc, label }
     let outputMode = "textured";  // "textured" | "geometry"
+    let currentPackageId = null;
+    let currentResultAvailable = false;
 
     const re = {};                // DOM cache
 
@@ -3345,7 +3347,8 @@ const Reconstruct = (() => {
         re.resultThumb = $("reconstruct-result-thumb");
         re.resultMeta = $("reconstruct-result-meta");
         re.resultWarnings = $("reconstruct-result-warnings");
-        re.resultHandoff = $("reconstruct-result-handoff");
+        re.importBtn = $("reconstruct-import-btn");
+        re.importStatus = $("reconstruct-import-status");
         re.jobsList = $("reconstruct-jobs-list");
         re.refreshJobsBtn = $("reconstruct-refresh-jobs");
     }
@@ -3355,6 +3358,7 @@ const Reconstruct = (() => {
         re.modeTextured.addEventListener("click", () => setOutputMode("textured"));
         re.modeGeometry.addEventListener("click", () => setOutputMode("geometry"));
         re.submitBtn.addEventListener("click", submit);
+        re.importBtn.addEventListener("click", importPackage);
         re.refreshJobsBtn.addEventListener("click", loadJobs);
         re.jobsList.addEventListener("click", (e) => {
             if (!(e.target instanceof Element)) return;
@@ -3544,17 +3548,45 @@ const Reconstruct = (() => {
                 ? `<div class="reconstruct-result-roles">Assets: ${escapeHtml(roles.join(", "))}</div>`
                 : "",
             preferred
-                ? `<div class="reconstruct-result-preferred">Preferred: ${escapeHtml(preferred)}</div>`
+                ? `<div class="reconstruct-result-preferred">Catalog preferred: ${escapeHtml(preferred)}</div>`
                 : "",
         ].join("");
 
         renderWarnings(result.warnings);
 
-        re.resultHandoff.innerHTML = packageId
-            ? `Import this package into Rhino with the agent tool <code>rhino_2d_to_3d_import</code> (package id above).`
-            : "";
+        currentPackageId = packageId || null;
+        currentResultAvailable = !!(packageId && result.result_available);
+        re.importBtn.disabled = !currentResultAvailable;
+        re.importBtn.textContent = "Import to Rhino";
+        setImportStatus("", "");
 
         re.resultPanel.classList.remove("hidden");
+    }
+
+    function setImportStatus(message, type) {
+        if (!re.importStatus) return;
+        re.importStatus.textContent = message || "";
+        re.importStatus.className = `reconstruct-import-status ${type || ""}`;
+    }
+
+    async function importPackage() {
+        if (!currentPackageId) return;
+        try {
+            re.importBtn.disabled = true;
+            re.importBtn.textContent = "Importing…";
+            setImportStatus("", "");
+            const data = await reconstructionBridgeCall("import_package", { package_id: currentPackageId });
+            const ids = Array.isArray(data && data.imported_ids) ? data.imported_ids : [];
+            const role = (data && data.asset_role) || "model";
+            const n = ids.length;
+            setImportStatus(`Imported ${n} object${n === 1 ? "" : "s"} as ${role}`, "success");
+        } catch (e) {
+            // Route through the existing structured-error path (field: message) — no new formatter.
+            setImportStatus(errorToText(e), "error");
+        } finally {
+            re.importBtn.textContent = "Import to Rhino";
+            re.importBtn.disabled = !currentResultAvailable;
+        }
     }
 
     async function loadJobs() {
