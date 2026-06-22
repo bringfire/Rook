@@ -661,49 +661,81 @@
                     <h1 class="view-title">Reconstruct</h1>
                     <p class="view-subtitle">Turn an image into a 3D package</p>
                 </div>
-                <div class="reconstruct-body">
-                    <div class="reconstruct-form">
-                        <div class="reconstruct-field">
-                            <label class="reconstruct-label">Source image</label>
-                            <div class="reconstruct-source">
-                                <img id="reconstruct-source-thumb" class="reconstruct-source-thumb hidden" alt="source" />
-                                <span id="reconstruct-source-label" class="reconstruct-source-label">No image selected</span>
-                                <button id="reconstruct-choose-source" class="btn btn-secondary">Choose in Gallery…</button>
+                <div class="reconstruct-layout">
+                    <div class="reconstruct-main">
+                        <div class="panel reconstruct-form-panel">
+                            <div class="panel-header">
+                                <span class="panel-number">01</span>
+                                <h2 class="panel-title">Generate</h2>
+                            </div>
+                            <div class="reconstruct-form">
+                                <div class="reconstruct-field">
+                                    <label class="reconstruct-label">Source image</label>
+                                    <div class="reconstruct-source">
+                                        <img id="reconstruct-source-thumb" class="reconstruct-source-thumb hidden" alt="source" />
+                                        <span id="reconstruct-source-label" class="reconstruct-source-label">No image selected</span>
+                                        <button id="reconstruct-choose-source" class="btn btn-secondary">Choose in Gallery…</button>
+                                    </div>
+                                </div>
+                                <div class="reconstruct-field">
+                                    <label class="reconstruct-label" for="reconstruct-model-select">Model</label>
+                                    <div class="select-wrapper">
+                                        <select id="reconstruct-model-select"></select>
+                                        <svg class="select-arrow" viewBox="0 0 24 24" fill="none">
+                                            <path d="M6 9L12 15L18 9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                        </svg>
+                                    </div>
+                                    <span id="reconstruct-model-hint" class="option-hint"></span>
+                                </div>
+                                <div class="reconstruct-field">
+                                    <label class="reconstruct-label">Output</label>
+                                    <div class="reconstruct-segmented" role="radiogroup" aria-label="Output type">
+                                        <button type="button" id="reconstruct-mode-textured" class="seg-btn active" data-mode="textured" role="radio" aria-checked="true">Textured</button>
+                                        <button type="button" id="reconstruct-mode-geometry" class="seg-btn" data-mode="geometry" role="radio" aria-checked="false">Geometry only</button>
+                                    </div>
+                                </div>
+                                <div class="reconstruct-actions">
+                                    <button id="reconstruct-submit-btn" class="btn btn-primary">Reconstruct</button>
+                                </div>
+                                <div id="reconstruct-status-message" class="status-message hidden"></div>
                             </div>
                         </div>
-                        <div class="reconstruct-field">
-                            <label class="reconstruct-label" for="reconstruct-model-select">Model</label>
-                            <select id="reconstruct-model-select" class="select"></select>
-                        </div>
-                        <div class="reconstruct-field">
-                            <label class="reconstruct-label">Output</label>
-                            <div class="reconstruct-segmented" role="radiogroup" aria-label="Output type">
-                                <button type="button" id="reconstruct-mode-textured" class="seg-btn active" data-mode="textured" role="radio" aria-checked="true">Textured</button>
-                                <button type="button" id="reconstruct-mode-geometry" class="seg-btn" data-mode="geometry" role="radio" aria-checked="false">Geometry only</button>
+                        <div id="reconstruct-result-panel" class="panel reconstruct-result-panel hidden">
+                            <div class="panel-header">
+                                <span class="panel-number">02</span>
+                                <h2 class="panel-title">Result</h2>
+                            </div>
+                            <div class="reconstruct-result">
+                                <div class="reconstruct-result-head">
+                                    <img id="reconstruct-result-thumb" class="reconstruct-result-thumb hidden" alt="result" />
+                                    <div id="reconstruct-result-meta" class="reconstruct-result-meta"></div>
+                                </div>
+                                <ul id="reconstruct-result-warnings" class="reconstruct-warnings hidden"></ul>
+                                <div class="reconstruct-import">
+                                    <button id="reconstruct-import-btn" class="btn btn-primary" disabled>Import to Rhino</button>
+                                    <span id="reconstruct-import-status" class="reconstruct-import-status"></span>
+                                </div>
                             </div>
                         </div>
-                        <div class="reconstruct-actions">
-                            <button id="reconstruct-submit-btn" class="btn btn-primary">Reconstruct</button>
-                        </div>
-                        <div id="reconstruct-status-message" class="status-message hidden"></div>
                     </div>
-                    <div id="reconstruct-result-panel" class="reconstruct-result hidden">
-                        <div class="reconstruct-result-head">
-                            <img id="reconstruct-result-thumb" class="reconstruct-result-thumb hidden" alt="result" />
-                            <div id="reconstruct-result-meta" class="reconstruct-result-meta"></div>
+                    <div class="panel reconstruct-queue-panel">
+                        <div class="panel-header">
+                            <span class="panel-number">03</span>
+                            <h2 class="panel-title">Queue</h2>
+                            <button id="reconstruct-refresh-jobs" class="btn btn-icon" title="Refresh queue" aria-label="Refresh queue">
+                                <svg viewBox="0 0 24 24" fill="none">
+                                    <path d="M4 4V9H9M20 20V15H15M20.49 9A9 9 0 005.64 5.64L4 9M3.51 15A9 9 0 0018.36 18.36L20 15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                            </button>
                         </div>
-                        <ul id="reconstruct-result-warnings" class="reconstruct-warnings hidden"></ul>
-                        <div class="reconstruct-import">
-                            <button id="reconstruct-import-btn" class="btn btn-primary" disabled>Import to Rhino</button>
-                            <span id="reconstruct-import-status" class="reconstruct-import-status"></span>
+                        <div id="reconstruct-queue-filters" class="reconstruct-queue-filters" role="group" aria-label="Filter reconstruction queue">
+                            <button type="button" class="reconstruct-queue-filter active" data-queue-filter="active" aria-pressed="true">Active <span class="reconstruct-queue-filter-count">0</span></button>
+                            <button type="button" class="reconstruct-queue-filter" data-queue-filter="complete" aria-pressed="false">Complete <span class="reconstruct-queue-filter-count">0</span></button>
+                            <button type="button" class="reconstruct-queue-filter" data-queue-filter="failed" aria-pressed="false">Failed <span class="reconstruct-queue-filter-count">0</span></button>
+                            <button type="button" class="reconstruct-queue-filter" data-queue-filter="all" aria-pressed="false">All <span class="reconstruct-queue-filter-count">0</span></button>
                         </div>
-                    </div>
-                    <div class="reconstruct-history">
-                        <div class="reconstruct-history-head">
-                            <h2 class="reconstruct-history-title">Recent jobs</h2>
-                            <button id="reconstruct-refresh-jobs" class="btn btn-secondary">Refresh</button>
-                        </div>
-                        <ul id="reconstruct-jobs-list" class="reconstruct-jobs"></ul>
+                        <div id="reconstruct-queue-filter-summary" class="reconstruct-queue-filter-summary hidden" aria-live="polite"></div>
+                        <div id="reconstruct-jobs-list" class="reconstruct-queue-list"></div>
                     </div>
                 </div>
             </section>

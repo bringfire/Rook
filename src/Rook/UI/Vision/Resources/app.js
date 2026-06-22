@@ -3323,7 +3323,11 @@ function loadReconstructView() { Reconstruct.onEnter(); }
 const Reconstruct = (() => {
     const POLL_INTERVAL_MS = 1500;
     const POLL_MAX_ATTEMPTS = 180;
-    const TERMINAL_FAIL = new Set(["error", "cancelled", "interrupted"]);
+    // cancelled is terminal-but-not-failed (All-only bucket); handled separately, NOT a failure.
+    const TERMINAL_FAIL = new Set(["error", "interrupted"]);
+    const ACTIVE_STATES = new Set(["queued", "running", "cancellation_requested"]);
+    const FAILED_STATES = new Set(["error", "interrupted"]);
+    const QUEUE_FILTERS = ["active", "complete", "failed", "all"];
 
     let models = [];
     let modelsLoaded = false;
@@ -3331,6 +3335,8 @@ const Reconstruct = (() => {
     let outputMode = "textured";  // "textured" | "geometry"
     let currentPackageId = null;
     let currentResultAvailable = false;
+    let currentJobs = [];         // last-loaded job list (queue source of truth)
+    let queueFilter = "active";   // active | complete | failed | all
 
     const re = {};                // DOM cache
 
@@ -3339,6 +3345,7 @@ const Reconstruct = (() => {
         re.sourceLabel = $("reconstruct-source-label");
         re.chooseSourceBtn = $("reconstruct-choose-source");
         re.modelSelect = $("reconstruct-model-select");
+        re.modelHint = $("reconstruct-model-hint");
         re.modeTextured = $("reconstruct-mode-textured");
         re.modeGeometry = $("reconstruct-mode-geometry");
         re.submitBtn = $("reconstruct-submit-btn");
@@ -3351,6 +3358,8 @@ const Reconstruct = (() => {
         re.importStatus = $("reconstruct-import-status");
         re.jobsList = $("reconstruct-jobs-list");
         re.refreshJobsBtn = $("reconstruct-refresh-jobs");
+        re.queueFilters = $("reconstruct-queue-filters");
+        re.queueFilterSummary = $("reconstruct-queue-filter-summary");
     }
 
     function wireEvents() {
@@ -3358,18 +3367,33 @@ const Reconstruct = (() => {
         re.modeTextured.addEventListener("click", () => setOutputMode("textured"));
         re.modeGeometry.addEventListener("click", () => setOutputMode("geometry"));
         re.submitBtn.addEventListener("click", submit);
+        re.modelSelect.addEventListener("change", updateModelHint);
         re.importBtn.addEventListener("click", importPackage);
         re.refreshJobsBtn.addEventListener("click", loadJobs);
         re.jobsList.addEventListener("click", (e) => {
             if (!(e.target instanceof Element)) return;
-            const li = e.target.closest("li.reconstruct-job");
-            if (li && li.dataset.openable === "1") openJobResult(li.dataset.jobId);
+            const cancelBtn = e.target.closest(".reconstruct-queue-cancel");
+            if (cancelBtn) {
+                // Disable immediately so the in-flight button cannot be double-clicked.
+                cancelBtn.disabled = true;
+                cancelBtn.textContent = "Canceling…";
+                cancelQueueJob(cancelBtn.dataset.id, cancelBtn);
+                return;
+            }
+            const openBtn = e.target.closest(".reconstruct-queue-open");
+            if (openBtn) { openJobResult(openBtn.dataset.id); return; }
+        });
+        re.queueFilters.addEventListener("click", (e) => {
+            if (!(e.target instanceof Element)) return;
+            const btn = e.target.closest(".reconstruct-queue-filter");
+            if (btn && btn.dataset.queueFilter) setQueueFilter(btn.dataset.queueFilter);
         });
     }
 
     async function onEnter() {
         await loadModels();
         renderSource();
+        setQueueFilter("active");   // default view-enter filter
         await loadJobs();
     }
 
@@ -3420,6 +3444,8 @@ const Reconstruct = (() => {
             if (!job || !job.job_id) {
                 throw new Error("Reconstruction submit did not return a job id.");
             }
+            setQueueFilter("active");   // surface the just-submitted job in the rail
+            await loadJobs();
             await poll(job.job_id);
         } catch (e) {
             showReconstructStatus(errorToText(e), "error");
@@ -3437,11 +3463,18 @@ const Reconstruct = (() => {
                 const result = await reconstructionBridgeCall("job_result", { job_id: jobId });
                 renderResult(result);
                 showReconstructStatus("Reconstruction complete.", "success");
-                loadJobs();   // refresh history
+                loadJobs();   // refresh queue
+                return;
+            }
+            if (job.state === "cancelled") {
+                // Terminal-but-not-failed: calm, neutral copy (not error styling).
+                showReconstructStatus("Reconstruction cancelled.", "info");
+                loadJobs();
                 return;
             }
             if (TERMINAL_FAIL.has(job.state)) {
                 showReconstructStatus(`Reconstruction ${job.state}.`, "error");
+                loadJobs();
                 return;
             }
             await delay(POLL_INTERVAL_MS);
@@ -3455,7 +3488,16 @@ const Reconstruct = (() => {
 
     function buildModelOption(model) {
         const pbr = model.supports_pbr ? "" : " · no PBR";
-        return `<option value="${escapeAttr(model.model_id)}">${escapeHtml(model.model_id)}${escapeHtml(pbr)}</option>`;
+        return `<option value="${escapeAttr(model.model_id)}">${escapeHtml(shortModelLabel(model.model_id))}${escapeHtml(pbr)}</option>`;
+    }
+
+    function updateModelHint() {
+        if (!re.modelHint) return;
+        const id = selectedModelId();
+        const m = models.find(x => x.model_id === id) || null;
+        re.modelHint.textContent = m
+            ? `${m.provider} · ${String(m.task || "").replace(/_/g, " ")}${m.supports_pbr ? " · PBR" : ""}`
+            : "";
     }
 
     async function loadModels() {
@@ -3466,9 +3508,14 @@ const Reconstruct = (() => {
         } catch (e) {
             models = [];
         }
-        // Leading placeholder forces an explicit pick (model_id is required).
-        const placeholder = `<option value="" disabled selected>Select a model…</option>`;
-        re.modelSelect.innerHTML = placeholder + models.map(buildModelOption).join("");
+        if (models.length === 0) {
+            re.modelSelect.innerHTML = `<option value="" disabled selected>No models available</option>`;
+        } else {
+            // Default to the first model (like the Video tab); model_id stays explicit + required.
+            re.modelSelect.innerHTML = models.map(buildModelOption).join("");
+            re.modelSelect.value = models[0].model_id;
+        }
+        updateModelHint();
         modelsLoaded = true;
     }
 
@@ -3615,27 +3662,126 @@ const Reconstruct = (() => {
     async function loadJobs() {
         try {
             const data = await reconstructionBridgeCall("list_jobs", {});
-            renderJobs(Array.isArray(data.jobs) ? data.jobs : []);
+            currentJobs = Array.isArray(data.jobs) ? data.jobs : [];
         } catch (e) {
-            re.jobsList.innerHTML = `<li class="reconstruct-job empty">${escapeHtml(errorToText(e))}</li>`;
+            currentJobs = [];
+            re.jobsList.innerHTML =
+                `<div class="reconstruct-queue-empty"><p>${escapeHtml(errorToText(e))}</p></div>`;
+            updateFilterCounts([]);
+            // Don't leave a stale "Showing N …" line above an error list.
+            if (re.queueFilterSummary) {
+                re.queueFilterSummary.textContent = "";
+                re.queueFilterSummary.classList.add("hidden");
+            }
+            return;
+        }
+        renderQueue();
+    }
+
+    function setQueueFilter(filter) {
+        if (!QUEUE_FILTERS.includes(filter)) return;
+        queueFilter = filter;
+        if (re.queueFilters) {
+            re.queueFilters.querySelectorAll(".reconstruct-queue-filter").forEach(btn => {
+                const on = btn.dataset.queueFilter === filter;
+                btn.classList.toggle("active", on);
+                btn.setAttribute("aria-pressed", String(on));
+            });
+        }
+        renderQueue();
+    }
+
+    function inBucket(job, filter) {
+        switch (filter) {
+            case "active": return ACTIVE_STATES.has(job.state);
+            case "complete": return job.state === "complete";
+            case "failed": return FAILED_STATES.has(job.state);
+            default: return true;   // "all"
         }
     }
 
-    function renderJobs(jobs) {
-        if (jobs.length === 0) {
-            re.jobsList.innerHTML = `<li class="reconstruct-job empty">No reconstruction jobs yet.</li>`;
+    function updateFilterCounts(jobs) {
+        if (!re.queueFilters) return;
+        re.queueFilters.querySelectorAll(".reconstruct-queue-filter").forEach(btn => {
+            const f = btn.dataset.queueFilter;
+            const countEl = btn.querySelector(".reconstruct-queue-filter-count");
+            if (countEl) countEl.textContent = String(jobs.filter(j => inBucket(j, f)).length);
+        });
+    }
+
+    function renderQueueFilterSummary(visibleCount) {
+        if (!re.queueFilterSummary) return;
+        const noun = queueFilter === "all" ? "job" : queueFilter;
+        re.queueFilterSummary.textContent =
+            `Showing ${visibleCount} ${noun}${queueFilter === "all" && visibleCount !== 1 ? "s" : ""}`;
+        re.queueFilterSummary.classList.remove("hidden");
+    }
+
+    function shortModelLabel(modelId) {
+        if (!modelId) return "";
+        // Pinned data source: j.model_id. Drop the provider prefix for a readable label.
+        const parts = String(modelId).split("/");
+        return parts.length > 1 ? parts.slice(1).join("/") : modelId;
+    }
+
+    function renderQueue() {
+        updateFilterCounts(currentJobs);
+        const visible = currentJobs.filter(j => inBucket(j, queueFilter));
+        renderQueueFilterSummary(visible.length);
+        if (visible.length === 0) {
+            re.jobsList.innerHTML =
+                `<div class="reconstruct-queue-empty"><span>No jobs</span><p>Nothing ${queueFilter === "all" ? "in the queue" : queueFilter} yet.</p></div>`;
             return;
         }
-        re.jobsList.innerHTML = jobs.map(j => {
-            const ts = j.updated_at ? formatTimestamp(j.updated_at) : "";
+        re.jobsList.innerHTML = visible.map(j => {
+            const cancelable = j.state === "queued" || j.state === "running";
+            const canceling = j.state === "cancellation_requested";
             const openable = j.state === "complete" && j.result_available;
-            const cls = openable ? "reconstruct-job openable" : "reconstruct-job";
-            return `<li class="${cls}" data-job-id="${escapeAttr(j.job_id)}" data-openable="${openable ? "1" : "0"}">
-                <span class="reconstruct-job-state">${escapeHtml(j.state || "")}${j.stage ? " · " + escapeHtml(j.stage) : ""}</span>
-                <span class="reconstruct-job-id">${escapeHtml(j.job_id)}</span>
-                <span class="reconstruct-job-ts">${escapeHtml(ts)}</span>
-            </li>`;
+            const subtitle = [shortModelLabel(j.model_id), j.stage].filter(Boolean).join(" · ");
+            const errMsg = j.error && j.error.message ? j.error.message : "";
+            const actions = [];
+            if (cancelable) {
+                actions.push(`<button class="btn btn-secondary reconstruct-queue-cancel" data-id="${escapeAttr(j.job_id)}">Cancel</button>`);
+            } else if (canceling) {
+                actions.push(`<span class="reconstruct-queue-canceling">Canceling…</span>`);
+            }
+            if (openable) {
+                actions.push(`<button class="btn btn-primary reconstruct-queue-open" data-id="${escapeAttr(j.job_id)}">Open</button>`);
+            }
+            return `
+                <div class="reconstruct-queue-row state-${escapeAttr(j.state)}">
+                    <div class="reconstruct-queue-row-main">
+                        <div class="reconstruct-queue-row-state">${escapeHtml(j.state || "")}</div>
+                        <span class="reconstruct-queue-row-id" title="${escapeAttr(j.job_id)}">${escapeHtml((j.job_id || "").slice(0, 8))}</span>
+                        <div class="reconstruct-queue-row-summary">${escapeHtml(subtitle)}</div>
+                        ${errMsg ? `<div class="reconstruct-queue-row-error" title="${escapeAttr(errMsg)}">${escapeHtml(errMsg)}</div>` : ""}
+                    </div>
+                    <div class="reconstruct-queue-row-actions">${actions.join("")}</div>
+                </div>`;
         }).join("");
+    }
+
+    function restoreCancelButton(button) {
+        if (!button) return;
+        button.disabled = false;
+        button.textContent = "Cancel";
+    }
+
+    async function cancelQueueJob(jobId, button) {
+        if (!jobId) { restoreCancelButton(button); return; }
+        if (!window.confirm("Cancel this job?")) {   // parity with Video tab
+            restoreCancelButton(button);             // declined — re-enable the button
+            return;
+        }
+        try {
+            await reconstructionBridgeCall("cancel_job", { job_id: jobId });
+            // No optimistic removal — the authoritative state surfaces on refresh,
+            // which re-renders the row set (replacing this button).
+            await loadJobs();
+        } catch (e) {
+            restoreCancelButton(button);             // failed — re-enable so the user can retry
+            showReconstructStatus(`Cancel failed: ${errorToText(e)}`, "error");
+        }
     }
 
     async function openJobResult(jobId) {
