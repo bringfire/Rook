@@ -104,9 +104,9 @@ def _resolve_tool_name(
 def _check_admissibility(graph: PlanGraph, node_id: str) -> LiveProducerReason | None:
     if node_id not in graph.nodes:
         return "unknown_node"
-    if node_id not in {node.id for node in runnable_nodes(graph)}:
-        return "node_not_runnable"
     node = graph.nodes[node_id]
+    if node.status != "ready":
+        return "node_not_runnable"
     if OUTCOME_PROJECTION_ROLE_KEY not in node.metadata:
         return "role_missing"
     role = projection_role_for_node(node)
@@ -117,10 +117,60 @@ def _check_admissibility(graph: PlanGraph, node_id: str) -> LiveProducerReason |
     return None
 
 
-# Stub so the test module imports cleanly; fully implemented in Task 3.
+def _resolve_params(
+    node: PlanGraphNode,
+) -> tuple[dict[str, Any] | None, LiveProducerReason | None]:
+    if EXECUTION_PARAMS_KEY not in node.metadata:
+        return None, "execution_params_missing"
+    params_source = node.metadata[EXECUTION_PARAMS_KEY]
+    if not isinstance(params_source, Mapping):
+        return None, "execution_params_invalid"
+    try:
+        params = deepcopy(dict(params_source))
+    except Exception:
+        return None, "params_copy_failed"
+    return params, None
+
+
 async def apply_live_producer_node(
     graph: PlanGraph,
     node_id: str,
     dispatch: Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]],
 ) -> LiveProducerResult:
-    raise NotImplementedError  # implemented in Task 3
+    """Drive one live producer step: resolve -> dispatch -> delegate-apply.
+
+    Side-effect-free admissibility + tool-name resolution + param copy precede the
+    only live side effect (``dispatch``). A returned ``{"success": False}`` is a real
+    raw result (flows into ``apply_producer_result``); only the callable *raising*
+    is ``dispatch_failed``. Post-dispatch application is delegated to the pure
+    runner, which stays authoritative. Every not-applied path returns the input
+    graph unchanged.
+    """
+    reason = _check_admissibility(graph, node_id)
+    if reason is not None:
+        return _not_applied(graph, node_id, None, reason)
+
+    node = graph.nodes[node_id]
+
+    tool_name, reason = _resolve_tool_name(node.execution_ref)
+    if reason is not None:
+        return _not_applied(graph, node_id, None, reason)
+
+    params, reason = _resolve_params(node)
+    if reason is not None:
+        return _not_applied(graph, node_id, tool_name, reason)
+
+    try:
+        raw = await dispatch(tool_name, params)
+    except Exception:
+        return _not_applied(graph, node_id, tool_name, "dispatch_failed")
+
+    inner = apply_producer_result(graph, node_id, raw)
+    return LiveProducerResult(
+        graph=inner.graph,
+        applied=inner.applied,
+        node_id=node_id,
+        tool_name=tool_name,
+        outcome_status=inner.outcome_status,
+        reason=inner.reason,
+    )

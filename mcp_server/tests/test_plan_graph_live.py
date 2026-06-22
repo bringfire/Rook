@@ -90,7 +90,12 @@ def _producer_graph(
         metadata=metadata,
     )
     graph = PlanGraph(nodes={"create_script": node})
-    return initialize_graph(graph) if ready else graph
+    if not ready:
+        return graph
+    # For ready=True, manually initialize to avoid deepcopy issues with non-deepcopyable
+    # objects in metadata (e.g., _ExplodingValue in tests).
+    node.status = "ready"
+    return graph
 
 
 # ----- fake dispatch spy -----
@@ -160,3 +165,172 @@ def test_live_producer_result_is_frozen():
 )
 def test_check_admissibility(graph_factory, node_id, expected):
     assert _check_admissibility(graph_factory(), node_id) == expected
+
+
+# ===== Task 3 tests: params resolution + dispatch + delegation =====
+
+# ----- helpers for params-copy and Mapping-subclass cases -----
+
+
+class _ExplodingValue:
+    def __deepcopy__(self, memo):
+        raise RuntimeError("deepcopy of value failed")
+
+
+class _WeirdMap(Mapping):
+    """A Mapping that is NOT a dict (proves params is normalized to plain dict)."""
+
+    def __init__(self, data: dict):
+        self._data = dict(data)
+
+    def __getitem__(self, key):
+        return self._data[key]
+
+    def __iter__(self):
+        return iter(self._data)
+
+    def __len__(self):
+        return len(self._data)
+
+
+class _BadConversionMap(Mapping):
+    """A Mapping whose dict(...) conversion fails (second params_copy_failed mode)."""
+
+    def __getitem__(self, key):
+        raise KeyError(key)
+
+    def __iter__(self):
+        raise RuntimeError("iteration boom")
+
+    def __len__(self):
+        return 1
+
+
+def test_happy_path_applies_succeeded():
+    graph = _producer_graph()
+    spy = _Spy(raw=_usable_raw())
+
+    result = asyncio.run(apply_live_producer_node(graph, "create_script", spy))
+
+    assert result.applied is True
+    assert result.reason is None
+    assert result.outcome_status == "succeeded"
+    assert result.tool_name == "gh_create_csharp_script"
+    assert len(spy.calls) == 1
+    assert spy.calls[0][0] == "gh_create_csharp_script"
+    assert result.graph.nodes["create_script"].status == "succeeded"
+
+
+def test_returned_failure_is_real_result_not_dispatch_failed():
+    # success: False + created_with_errors is a REAL raw result, NOT dispatch_failed.
+    graph = _producer_graph()
+    spy = _Spy(raw=_error_raw())
+
+    result = asyncio.run(apply_live_producer_node(graph, "create_script", spy))
+
+    assert result.reason is None
+    assert result.reason != "dispatch_failed"
+    assert result.applied is True
+    # producer role: artifact existence -> succeeded, decoupled from tool failure
+    assert result.outcome_status == "succeeded"
+    node = result.graph.nodes["create_script"]
+    assert node.status == "succeeded"
+    assert node.evidence.tool_status == "failed"
+    assert node.evidence.verified is False
+
+
+@pytest.mark.parametrize(
+    "graph_factory, node_id, expected_reason, expected_tool",
+    [
+        (lambda: _producer_graph(), "missing", "unknown_node", None),
+        (lambda: _producer_graph(ready=False), "create_script", "node_not_runnable", None),
+        (lambda: _producer_graph(role=_ABSENT), "create_script", "role_missing", None),
+        (lambda: _producer_graph(role="banana"), "create_script", "role_invalid", None),
+        (lambda: _producer_graph(role="artifact_verifier"), "create_script", "role_not_producer", None),
+        (lambda: _producer_graph(execution_ref=None), "create_script", "execution_ref_missing", None),
+        (lambda: _producer_graph(execution_ref=":v1"), "create_script", "execution_ref_invalid", None),
+        (lambda: _producer_graph(with_params=False), "create_script", "execution_params_missing", "gh_create_csharp_script"),
+        (lambda: _producer_graph(execution_params=["not", "a", "map"]), "create_script", "execution_params_invalid", "gh_create_csharp_script"),
+        (lambda: _producer_graph(execution_params={"x": _ExplodingValue()}), "create_script", "params_copy_failed", "gh_create_csharp_script"),
+    ],
+)
+def test_pre_dispatch_faults_never_dispatch(graph_factory, node_id, expected_reason, expected_tool):
+    graph = graph_factory()
+    spy = _Spy(raw=_usable_raw())
+
+    result = asyncio.run(apply_live_producer_node(graph, node_id, spy))
+
+    assert result.applied is False
+    assert result.reason == expected_reason
+    assert result.tool_name == expected_tool
+    assert result.outcome_status is None
+    assert result.graph is graph          # input graph returned unchanged
+    assert spy.calls == []                # NO side effect before admissibility/resolution
+
+
+def test_params_copy_failed_on_dict_conversion():
+    # Second params_copy_failed mode: a Mapping whose dict(...) conversion raises.
+    graph = _producer_graph(execution_params=_BadConversionMap())
+    spy = _Spy(raw=_usable_raw())
+
+    result = asyncio.run(apply_live_producer_node(graph, "create_script", spy))
+
+    assert result.applied is False
+    assert result.reason == "params_copy_failed"
+    assert result.tool_name == "gh_create_csharp_script"
+    assert spy.calls == []
+
+
+def test_dispatched_params_is_plain_dict_not_mapping_subclass():
+    source = {"language": "csharp", "code": "// x"}
+    graph = _producer_graph(execution_params=_WeirdMap(source))
+    spy = _Spy(raw=_usable_raw())
+
+    asyncio.run(apply_live_producer_node(graph, "create_script", spy))
+
+    dispatched = spy.calls[0][1]
+    assert type(dispatched) is dict       # plain dict, NOT a Mapping subclass
+    assert dispatched == source
+
+
+def test_dispatched_params_detached_from_node_metadata():
+    params = {"code": "// original", "nested": {"k": 1}}
+    graph = _producer_graph(execution_params=params)
+    spy = _Spy(raw=_usable_raw())
+
+    asyncio.run(apply_live_producer_node(graph, "create_script", spy))
+    dispatched = spy.calls[0][1]
+
+    # Mutate node metadata after the call; the dispatched dict must be unaffected.
+    meta_params = graph.nodes["create_script"].metadata[EXECUTION_PARAMS_KEY]
+    meta_params["code"] = "// mutated"
+    meta_params["nested"]["k"] = 999
+
+    assert dispatched is not meta_params
+    assert dispatched["code"] == "// original"
+    assert dispatched["nested"]["k"] == 1
+
+
+def test_dispatch_exception_is_dispatch_failed():
+    graph = _producer_graph()
+    spy = _Spy(raises=RuntimeError("transport down"))
+
+    result = asyncio.run(apply_live_producer_node(graph, "create_script", spy))
+
+    assert result.applied is False
+    assert result.reason == "dispatch_failed"
+    assert result.tool_name == "gh_create_csharp_script"
+    assert result.outcome_status is None
+    assert result.graph is graph          # input preserved, no synthesized raw result
+    assert len(spy.calls) == 1            # dispatch WAS attempted exactly once
+
+
+def test_admissibility_precedes_resolution():
+    # Two coexisting faults: non-runnable AND missing execution_ref.
+    graph = _producer_graph(ready=False, execution_ref=None)
+    spy = _Spy(raw=_usable_raw())
+
+    result = asyncio.run(apply_live_producer_node(graph, "create_script", spy))
+
+    assert result.reason == "node_not_runnable"   # admissibility wins
+    assert spy.calls == []
