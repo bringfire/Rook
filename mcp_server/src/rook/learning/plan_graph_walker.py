@@ -115,6 +115,20 @@ def _report(
     )
 
 
+def _is_halt_status(gstatus: GraphStatus, has_remaining_steps: bool) -> bool:
+    """Whether the walk should halt after reaching ``gstatus``.
+
+    Any terminal status halts EXCEPT ``complete`` reached with no steps left:
+    a fully-consumed walk ending in ``complete`` is a successful exit, not a
+    halt. ``complete`` with steps still queued halts early (and surfaces the
+    unprocessed tail). ``failed`` / ``blocked`` / ``needs_escalation`` always
+    halt.
+    """
+    if gstatus == "complete":
+        return has_remaining_steps
+    return gstatus not in _NON_TERMINAL_STATUSES
+
+
 def walk_plan_graph(graph: PlanGraph, steps: list[tuple[str, Any]]) -> WalkReport:
     """Replay ``steps`` against ``graph`` and return a diagnostic ``WalkReport``.
 
@@ -172,7 +186,7 @@ def walk_plan_graph(graph: PlanGraph, steps: list[tuple[str, Any]]) -> WalkRepor
                 reason=None,
             )
         )
-        if (gstatus == "complete" and index + 1 < len(steps)) or (gstatus not in _NON_TERMINAL_STATUSES and gstatus != "complete"):
+        if _is_halt_status(gstatus, index + 1 < len(steps)):
             return _report(
                 graph,
                 recorded,
