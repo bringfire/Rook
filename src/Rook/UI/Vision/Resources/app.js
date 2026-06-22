@@ -3357,6 +3357,7 @@ const Reconstruct = (() => {
         re.submitBtn.addEventListener("click", submit);
         re.refreshJobsBtn.addEventListener("click", loadJobs);
         re.jobsList.addEventListener("click", (e) => {
+            if (!(e.target instanceof Element)) return;
             const li = e.target.closest("li.reconstruct-job");
             if (li && li.dataset.openable === "1") openJobResult(li.dataset.jobId);
         });
@@ -3376,8 +3377,11 @@ const Reconstruct = (() => {
 
     function setOutputMode(mode) {
         outputMode = mode === "geometry" ? "geometry" : "textured";
-        re.modeTextured.classList.toggle("active", outputMode === "textured");
-        re.modeGeometry.classList.toggle("active", outputMode === "geometry");
+        const textured = outputMode === "textured";
+        re.modeTextured.classList.toggle("active", textured);
+        re.modeGeometry.classList.toggle("active", !textured);
+        re.modeTextured.setAttribute("aria-checked", String(textured));
+        re.modeGeometry.setAttribute("aria-checked", String(!textured));
     }
 
     function optionsForMode() {
