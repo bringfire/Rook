@@ -3591,7 +3591,9 @@ const Reconstruct = (() => {
     }
 
     async function importPackage() {
-        if (!currentPackageId) return;
+        // Match the UI state invariant: never import an unavailable/unimportable result, even if the
+        // call somehow fires while the button is disabled.
+        if (!currentPackageId || !currentResultAvailable) return;
         try {
             re.importBtn.disabled = true;
             re.importBtn.textContent = "Importing…";
