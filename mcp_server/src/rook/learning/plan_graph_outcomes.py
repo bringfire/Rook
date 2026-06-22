@@ -106,11 +106,19 @@ def _memory_updates(
     }
 
 
-def node_outcome_from_tool_result(result: Any) -> NodeOutcome:
+def node_evidence_from_tool_result(result: Any) -> NodeEvidence:
+    """Role-agnostic capture: a raw tool result -> ``NodeEvidence``.
+
+    Extracts ``tool_status`` / ``verified`` / ``script_receipt`` / ``repair_anchor``
+    / message / error. Holds NO status or role semantics -- the conservative status
+    mapping (``node_outcome_from_tool_result``) and the role-aware projection
+    (``plan_graph_projection.project_receipt_outcome``) layer on top of this
+    evidence. The single owner of "raw tool result -> evidence."
+    """
     view = normalize_tool_result(result)
     receipt = _extract_script_receipt(result)
     repair_anchor = _repair_anchor(receipt)
-    evidence = NodeEvidence(
+    return NodeEvidence(
         tool_status=view.status,
         verified=view.verified,
         receipt=deepcopy(receipt) if receipt is not None else None,
@@ -118,9 +126,15 @@ def node_outcome_from_tool_result(result: Any) -> NodeOutcome:
         message=view.message or view.verification_note,
         error=view.error,
     )
+
+
+def node_outcome_from_tool_result(result: Any) -> NodeOutcome:
+    view = normalize_tool_result(result)
+    receipt = _extract_script_receipt(result)
+    repair_anchor = _repair_anchor(receipt)
     return NodeOutcome(
         status=_outcome_status(view, receipt),
-        evidence=evidence,
+        evidence=node_evidence_from_tool_result(result),
         memory_updates=_memory_updates(view, receipt, repair_anchor),
         message=view.message,
         error=view.error,

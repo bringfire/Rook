@@ -30,6 +30,7 @@ from rook.learning.plan_graph import (
     apply_outcome,
     runnable_nodes,
 )
+from rook.learning.plan_graph_outcomes import node_evidence_from_tool_result
 from rook.learning.plan_graph_projection import (
     OUTCOME_PROJECTION_ROLE_KEY,
     project_receipt_outcome,
@@ -147,39 +148,31 @@ def _producer_not_applied(
     )
 
 
-def apply_producer_step(graph: PlanGraph, node_id: str) -> ProducerStepResult:
-    """Apply one producer node's outcome, projected from its OWN captured evidence.
-
-    Producer-restricted: the node must declare
-    ``metadata[OUTCOME_PROJECTION_ROLE_KEY] == "artifact_producer"``. Reads the
-    node's own ``NodeEvidence``, projects it through the LM3F producer projection,
-    and applies the result via the reducer. ``runnable_nodes`` is the sole
-    readiness authority; the guard order is fixed (existence -> runnable ->
-    evidence -> role) so readiness precedes data diagnostics. Never mutates the
-    input graph: not-applied returns the input unchanged; applied returns the
-    reducer's fresh graph.
-    """
+def _producer_runnable_check(graph: PlanGraph, node_id: str) -> ProducerStepReason | None:
     if node_id not in graph.nodes:
-        return _producer_not_applied(graph, node_id, "unknown_node")
+        return "unknown_node"
+    if node_id not in {node.id for node in runnable_nodes(graph)}:
+        return "node_not_runnable"
+    return None
 
-    runnable_ids = {node.id for node in runnable_nodes(graph)}
-    if node_id not in runnable_ids:
-        return _producer_not_applied(graph, node_id, "node_not_runnable")
 
-    node = graph.nodes[node_id]
-    if node.evidence is None:
-        return _producer_not_applied(graph, node_id, "evidence_missing")
-
+def _producer_role_check(node) -> ProducerStepReason | None:
     present = OUTCOME_PROJECTION_ROLE_KEY in node.metadata
     role = projection_role_for_node(node)
     if not present:
-        return _producer_not_applied(graph, node_id, "role_missing")
+        return "role_missing"
     if role is None:
-        return _producer_not_applied(graph, node_id, "role_invalid")
+        return "role_invalid"
     if role != "artifact_producer":
-        return _producer_not_applied(graph, node_id, "role_not_producer")
+        return "role_not_producer"
+    return None
 
-    outcome = project_receipt_outcome(node.evidence, "artifact_producer")
+
+def _apply_admissible_producer(
+    graph: PlanGraph, node_id: str, evidence
+) -> ProducerStepResult:
+    """Project an ADMISSIBLE producer node's evidence and apply it."""
+    outcome = project_receipt_outcome(evidence, "artifact_producer")
     new_graph = apply_outcome(graph, node_id, outcome)
     return ProducerStepResult(
         graph=new_graph,
@@ -188,3 +181,42 @@ def apply_producer_step(graph: PlanGraph, node_id: str) -> ProducerStepResult:
         outcome_status=outcome.status,
         reason=None,
     )
+
+
+def apply_producer_step(graph: PlanGraph, node_id: str) -> ProducerStepResult:
+    """Apply one producer node's outcome from its OWN captured evidence.
+
+    Order: exists -> runnable -> evidence_missing -> role -> apply (unchanged).
+    """
+    reason = _producer_runnable_check(graph, node_id)
+    if reason is not None:
+        return _producer_not_applied(graph, node_id, reason)
+    node = graph.nodes[node_id]
+    if node.evidence is None:
+        return _producer_not_applied(graph, node_id, "evidence_missing")
+    reason = _producer_role_check(node)
+    if reason is not None:
+        return _producer_not_applied(graph, node_id, reason)
+    return _apply_admissible_producer(graph, node_id, node.evidence)
+
+
+def apply_producer_result(
+    graph: PlanGraph, node_id: str, raw_result
+) -> ProducerStepResult:
+    """Apply one producer node's outcome from a raw tool-result dict.
+
+    Live-SHAPED, not live: ``raw_result`` is a tool-result dict, not a live call.
+    Order: exists -> runnable -> role -> CAPTURE -> apply. Admissibility precedes
+    capture: an inadmissible node returns not-applied without interpreting the raw.
+    No ``evidence_missing`` reason -- a malformed/receipt-less raw becomes an
+    applied ``blocked`` outcome from the projection. Never calls
+    ``apply_tool_result``.
+    """
+    reason = _producer_runnable_check(graph, node_id)
+    if reason is not None:
+        return _producer_not_applied(graph, node_id, reason)
+    reason = _producer_role_check(graph.nodes[node_id])
+    if reason is not None:
+        return _producer_not_applied(graph, node_id, reason)
+    evidence = node_evidence_from_tool_result(raw_result)
+    return _apply_admissible_producer(graph, node_id, evidence)
