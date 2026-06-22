@@ -2715,6 +2715,8 @@ body {
     gap: var(--space-1);
 }
 .reconstruct-result-id { font-family: var(--type-mono); }
+.reconstruct-result-resolved { font-weight: 600; }
+.reconstruct-result-resolved.unavailable { color: var(--accent-red); font-weight: 400; }
 .reconstruct-warnings {
     list-style: none;
     margin: 0;
