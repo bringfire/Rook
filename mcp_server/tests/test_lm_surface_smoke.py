@@ -106,3 +106,60 @@ def test_main_fails_fast_on_nonempty_pythonpath(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "PYTHONPATH" in out
     assert "FAIL" in out
+
+
+from rook.agent.external_mcp import ExternalMcpFinding, ExternalMcpResolution
+
+
+def _ext_res(*codes):
+    findings = tuple(
+        ExternalMcpFinding(code=c, tool="t", severity="error", message="m")
+        for c in codes
+    )
+    return ExternalMcpResolution(
+        advertised_names=("t",), wire_dispatch_names=("t",), findings=findings
+    )
+
+
+def test_external_parser_accepts_external():
+    args = SMOKE.build_parser().parse_args(["external"])
+    assert args.command == "external"
+
+
+def test_external_exit_decision_fails_on_advertised_not_dispatchable():
+    code, warn, fail = SMOKE.external_exit_decision(
+        _ext_res("advertised_not_dispatchable").findings
+    )
+    assert code == 1
+    assert fail == ("advertised_not_dispatchable",)
+
+
+def test_external_exit_decision_fails_on_structural_errors():
+    for c in ("empty_catalog", "dispatch_function_missing", "wire_source_unresolved"):
+        code, _warn, fail = SMOKE.external_exit_decision(_ext_res(c).findings)
+        assert code == 1 and fail == (c,)
+
+
+def test_external_exit_decision_warns_not_fails_on_anomalies():
+    code, warn, fail = SMOKE.external_exit_decision(
+        _ext_res("multiple_dispatch_matches", "unextractable_case").findings
+    )
+    assert code == 0
+    assert warn == ("multiple_dispatch_matches", "unextractable_case")
+    assert fail == ()
+
+
+def test_external_exit_decision_info_only_passes():
+    code, warn, fail = SMOKE.external_exit_decision(
+        _ext_res("handler_not_advertised").findings
+    )
+    assert code == 0 and warn == () and fail == ()
+
+
+def test_run_external_refuses_when_origin_guard_fails(monkeypatch, capsys):
+    # Guard honored => returns 1 WITHOUT importing the runtime.
+    monkeypatch.setattr(SMOKE, "_check_origins", lambda: 1)
+    rc = SMOKE.run_external()
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert "origin guard failed" in out
