@@ -52,7 +52,6 @@ policy that *decides* the branch is future work.
   repair's target guid is **hand-wired** in the test from the create node's evidence
   (`repair_anchor.component_guid`). Automatic carry-forward through rolling memory is
   scheduler work, deliberately deferred.
-- **Does NOT prove `gh_create_csharp_script` live** (inherited LM4H non-goal).
 
 ## Why This Slice
 
