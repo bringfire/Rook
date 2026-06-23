@@ -185,6 +185,14 @@ Flow:
 
 Flow:
 
+0. **Establish the live precondition explicitly.** A local `_ensure_gh_document()`
+   helper calls `gh_document_new` via `_mcp_tool_executor` and `pytest.skip`s (via
+   the shared `_is_error` convention) if GH cannot provide a document. `gh_create_script`
+   needs an *active GH document*; the `_Grasshopper` window being open is not
+   sufficient, and `fresh_document` resets only the Rhino document. Without this,
+   the first live create after a doc reset returns no receipt and projects to
+   `blocked`. The guard is test-local (not a `fresh_document` change) so it does not
+   widen blast radius across other live tests.
 1. Select via the registry path (fresh deepcopy — a cloned instance; the registry
    is never mutated), then guard the declared ref **before** overriding:
    ```python
@@ -266,8 +274,12 @@ select_template ─► clone ─►┬─ live: override ref + inject params + r
   First plan step verifies this against the reducer.
 - **`operations_knowledge.json`** mutates on live runs → `git restore`, never
   commit (hard gate; diff guard below).
-- **GH-open** is a manual live precondition; `fresh_document` skips cleanly when
-  Rhino is unreachable, so the live test never hard-fails CI.
+- **Active GH document** is the live precondition; the live test self-establishes
+  it via `_ensure_gh_document()` (`gh_document_new`) and `pytest.skip`s when GH is
+  unavailable. `fresh_document` skips cleanly when Rhino is unreachable, so the live
+  test never hard-fails CI. (Established during live acceptance: a first run with no
+  active GH document projected `blocked`/receipt-less; the guard makes the proof
+  deterministic on first attempt.)
 
 ## Testing Strategy
 

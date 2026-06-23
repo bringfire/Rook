@@ -216,6 +216,8 @@ from rook.learning.plan_graph_runner import apply_verifier_step
 from rook.learning.plan_graph_templates import select_template
 from rook.server import _mcp_tool_executor
 
+from .conftest import _is_error
+
 
 pytestmark = [pytest.mark.requires_rhino, pytest.mark.asyncio]
 
@@ -226,7 +228,27 @@ _DESCRIPTOR = {
 }
 
 
+async def _ensure_gh_document() -> None:
+    """Establish an ACTIVE Grasshopper document for the live producer dispatch.
+
+    gh_create_script needs a GH document to place the component in; the
+    `_Grasshopper` window being open is NOT sufficient, and `fresh_document`
+    resets only the *Rhino* document. Without this, the first live create after
+    a doc reset returns no receipt and the producer projects to `blocked` rather
+    than the created_with_errors -> succeeded two-successes seam. Skip (do not
+    hard-fail, and never silently ignore) when GH cannot provide a document —
+    the same environment-unavailable graceful-skip contract as `fresh_document`.
+    """
+    res = await _mcp_tool_executor("gh_document_new", {})
+    if _is_error(res) or not isinstance(res, dict):
+        pytest.skip(f"Grasshopper document setup unavailable: {res!r}")
+
+
 async def test_live_producer_evidence_drives_verifier_handoff(fresh_document):
+    # Establish the live precondition explicitly (active GH document), so the
+    # proof does not depend on canvas history.
+    await _ensure_gh_document()
+
     # Registry path + template contract pinned before the deliberate override.
     selection = select_template(_DESCRIPTOR)
     assert selection.selected_template_id == "gh_csharp_create_verify_repair"
