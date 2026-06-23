@@ -123,6 +123,18 @@ namespace Rook.Tests.UI.Vision
             Assert.Contains("No models available for this mode yet", js);
         }
 
+        // ─── Pro options (Slice 2) assertions ─────────────────────────
+
+        [Fact]
+        public void IndexHtml_ReconstructOptions_ExposeGenerateTypePbrFaceCount()
+        {
+            var html = ReadVisionResource("index.html");
+            Assert.Contains("id=\"reconstruct-options\"", html);
+            Assert.Contains("id=\"reconstruct-opt-generate-type\"", html);
+            Assert.Contains("id=\"reconstruct-opt-enable-pbr\"", html);
+            Assert.Contains("id=\"reconstruct-opt-face-count\"", html);
+        }
+
         // ─── helpers ──────────────────────────────────────────────────
 
         private static string ReadVisionResource(string fileName)
