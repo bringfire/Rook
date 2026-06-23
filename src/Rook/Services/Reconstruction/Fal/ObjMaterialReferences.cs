@@ -51,6 +51,37 @@ public static class ObjMaterialReferences
         return result;
     }
 
+    /// <summary>
+    /// Returns the filename for a single map keyword (e.g. <c>"map_Kd"</c>) from
+    /// <paramref name="mtlText"/>, or <see langword="null"/> if the keyword is absent.
+    /// Applies the same last-token / options-stripping rule as
+    /// <see cref="ReferencedMapFileNames"/>.
+    /// </summary>
+    public static string? MapFileName(string mtlText, string keyword)
+    {
+        if (string.IsNullOrEmpty(mtlText) || string.IsNullOrEmpty(keyword))
+            return null;
+
+        foreach (var rawLine in mtlText.Split('\n'))
+        {
+            var line = rawLine.Trim();
+            if (line.Length == 0 || line[0] == '#')
+                continue;
+
+            var tokens = line.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+            if (tokens.Length < 2)
+                continue;
+
+            if (!string.Equals(tokens[0], keyword, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var fileName = tokens[tokens.Length - 1].Trim();
+            return fileName.Length == 0 ? null : fileName;
+        }
+
+        return null;
+    }
+
     private static bool IsMapKeyword(string keyword)
     {
         // Case-insensitive: map_* covers all map variants; bump and norm are standalone keywords.

@@ -450,7 +450,8 @@ public sealed class ReconstructionJobManager : IDisposable
         }
         else if (available)
         {
-            assetRoles = _store.Get(job.ResultArtifactId!.Value)!.Files
+            var package = _store.Get(job.ResultArtifactId!.Value)!;
+            assetRoles = package.Files
                 .Select(f => f.Role)
                 .ToArray();
             // Texture-degradation warnings are a 3D-package concern; skip them for non-3D results.
@@ -460,6 +461,8 @@ public sealed class ReconstructionJobManager : IDisposable
                     job.TextureExpected,
                     _catalog.Find(job.ModelId),
                     assetRoles));
+                var mm = BuildMaterialMapsMissingWarning(package);
+                if (mm is not null) warnings.Add(mm);
             }
         }
 
@@ -751,6 +754,59 @@ public sealed class ReconstructionJobManager : IDisposable
                     ["delivered_roles"] = deliveredRoles.ToArray(),
                 }),
         };
+    }
+
+    // Compares the texture filenames referenced by the package's MTL blob against the delivered
+    // texture filenames resolved from provider_result_json. Returns a material_maps_missing warning
+    // when at least one referenced filename is absent from the delivered set, or null otherwise.
+    // Only runs when the package has both model_obj and material_mtl; guarded try/catch on all I/O
+    // and JSON so a bad blob never blocks the result envelope.
+    private ReconstructionWarning? BuildMaterialMapsMissingWarning(Artifact package)
+    {
+        bool Has(string role) => package.Files.Any(f => string.Equals(f.Role, role, StringComparison.Ordinal));
+        if (!Has(ReconstructionFileRoles.ModelObj) || !Has(ReconstructionFileRoles.MaterialMtl)) return null;
+
+        string mtl;
+        JsonObject? providerJson;
+        try
+        {
+            mtl = File.ReadAllText(_store.GetBlobAbsolutePath(package.Id, ReconstructionFileRoles.MaterialMtl));
+            providerJson = JsonNode.Parse(File.ReadAllText(
+                _store.GetBlobAbsolutePath(package.Id, ReconstructionFileRoles.ProviderResultJson))) as JsonObject;
+        }
+        catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException or InvalidOperationException or KeyNotFoundException)
+        {
+            return null;
+        }
+        if (providerJson is null) return null;
+
+        // Texture integrity: compare against delivered TEXTURE filenames only (role starts with "texture"),
+        // not model/material/thumbnail names.
+        var resolved = ReconstructionProviderFileNames.ProviderFileNamesByRole(providerJson, package);
+        var delivered = new HashSet<string>(
+            resolved.Where(kv => kv.Key.StartsWith("texture", StringComparison.Ordinal)).Select(kv => kv.Value),
+            StringComparer.OrdinalIgnoreCase);
+        var referenced = ObjMaterialReferences.ReferencedMapFileNames(mtl);
+        var missing = referenced.Where(r => !delivered.Contains(r)).ToList();
+        if (missing.Count == 0) return null;
+
+        // map_Kd is the base-color map; its absence causes the white/untextured appearance.
+        var baseColorRef = ObjMaterialReferences.MapFileName(mtl, "map_Kd");
+        var missingBaseColor = baseColorRef is not null && missing.Contains(baseColorRef);
+
+        return new ReconstructionWarning(
+            "material_maps_missing",
+            "The OBJ material references texture maps not present in the package; the model will import "
+            + (missingBaseColor
+                ? "without its base-color texture (it will appear untextured)."
+                : "with some maps missing."),
+            new Dictionary<string, object?>
+            {
+                ["missing_maps"]      = missing,
+                ["missing_base_color"] = missingBaseColor,
+                ["material_role"]     = ReconstructionFileRoles.MaterialMtl,
+                ["asset_role"]        = ReconstructionFileRoles.ModelObj,
+            });
     }
 
     private static bool IsJsonTrue(JsonObject options, string key)

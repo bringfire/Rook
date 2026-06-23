@@ -1031,6 +1031,122 @@ public sealed class ReconstructionJobManagerTests : IDisposable
         Assert.DoesNotContain(result.Warnings, w => w.Code == "pbr_unsupported_by_model");
     }
 
+    // MTL content with 4 map references: map_Kd (base color), map_Ks (metallic),
+    // map_Ns (roughness), map_Bump (normal) — as produced by Hunyuan rapid.
+    private const string FourMapMtl = """
+        newmtl material0
+        map_Kd texture_pbr_v128.png
+        map_Ks texture_pbr_v128_metallic.png
+        map_Ns texture_pbr_v128_roughness.png
+        map_Bump texture_pbr_v128_normal.png
+        """;
+
+    // Provider result JSON that matches the post-fix layout: metallic is the only delivered texture.
+    private const string MetallicOnlyProviderResultJson = """
+        {
+          "model_obj": {"url": "https://example.test/model.obj", "file_name": "model.obj"},
+          "material_mtl": {"url": "https://example.test/material.mtl", "file_name": "material.mtl"},
+          "texture": {"url": "https://example.test/texture_pbr_v128_metallic.png", "file_name": "texture_pbr_v128_metallic.png"}
+        }
+        """;
+
+    // Creates a reconstruction_package artifact with the post-fix layout:
+    // model_obj + material_mtl (4-map MTL) + texture_metallic (only one delivered) + provider_result_json.
+    private Artifact CreateMissingMapsPackage(ArtifactStore store)
+    {
+        var mtlBytes = System.Text.Encoding.UTF8.GetBytes(FourMapMtl);
+        var objBytes = new byte[] { 1, 2, 3 };
+        var metallicBytes = new byte[] { 10, 11, 12 };
+        var providerJsonBytes = System.Text.Encoding.UTF8.GetBytes(MetallicOnlyProviderResultJson);
+        return store.Create(
+            ReconstructionArtifactKinds.Package,
+            new[]
+            {
+                new BlobInput(ReconstructionFileRoles.ModelObj,         objBytes,           "obj"),
+                new BlobInput(ReconstructionFileRoles.MaterialMtl,      mtlBytes,           "mtl"),
+                new BlobInput("texture_metallic",                       metallicBytes,      "png"),
+                new BlobInput(ReconstructionFileRoles.ProviderResultJson, providerJsonBytes, "json"),
+            });
+    }
+
+    [Fact]
+    public void Result_ObjPackageWithMissingMtlMaps_EmitsMaterialMapsMissingWarning()
+    {
+        // Post-fix layout: model_obj + material_mtl (4-map) + texture_metallic (only one delivered)
+        // + provider_result_json. Metallic is delivered, so base-color/roughness/normal are missing.
+        var fixture = CreateFixture();
+        var package = CreateMissingMapsPackage(fixture.Store);
+        var jobId = Guid.NewGuid();
+        fixture.Ledger.Append(ReconstructionJobLedgerRecord.Complete(jobId, package.Id) with
+        {
+            TextureExpected = true,
+            ModelId = HunyuanModelId,
+        });
+
+        var result = fixture.Manager.Result(jobId);
+
+        Assert.True(result.ResultAvailable);
+        Assert.NotNull(result.ResultArtifactId);
+
+        var w = result.Warnings.Single(x => x.Code == "material_maps_missing");
+        Assert.Equal(true, w.Details!["missing_base_color"]);
+        Assert.Equal(
+            new[] { "texture_pbr_v128.png", "texture_pbr_v128_roughness.png", "texture_pbr_v128_normal.png" },
+            ((System.Collections.Generic.IEnumerable<object?>)w.Details["missing_maps"]!).Cast<string>().ToArray());
+        Assert.Equal("material_mtl", w.Details["material_role"]);
+        Assert.Equal("model_obj", w.Details["asset_role"]);
+    }
+
+    [Fact]
+    public void Result_ObjPackageWithAllMtlMapsDelivered_NoMaterialMapsMissingWarning()
+    {
+        // No-false-positive: all four maps referenced in the MTL are present in the package.
+        // texture_pbr_v128.png classifies to the generic "texture" role (no base/color/albedo/
+        // metallic/roughness/normal keyword in the name); the other three classify to their
+        // respective detailed roles. The package carries the matching blob role for each so
+        // ProviderFileNamesByRole resolves all four filenames → missing set is empty → no warning.
+        var fixture = CreateFixture();
+        var mtlBytes = System.Text.Encoding.UTF8.GetBytes(FourMapMtl);
+        // ClassifyTextureRole: "texture_pbr_v128.png" has no keyword → "texture" (generic).
+        // The other three carry keyword suffixes → texture_metallic / texture_roughness / texture_normal.
+        var providerJson = """
+            {
+              "model_obj": {"url": "https://example.test/model.obj", "file_name": "model.obj"},
+              "material_mtl": {"url": "https://example.test/material.mtl", "file_name": "material.mtl"},
+              "texture":         {"url": "https://example.test/texture_pbr_v128.png",           "file_name": "texture_pbr_v128.png"},
+              "texture_urls": {
+                "metallic":    {"url": "https://example.test/texture_pbr_v128_metallic.png",  "file_name": "texture_pbr_v128_metallic.png"},
+                "roughness":   {"url": "https://example.test/texture_pbr_v128_roughness.png", "file_name": "texture_pbr_v128_roughness.png"},
+                "normal":      {"url": "https://example.test/texture_pbr_v128_normal.png",    "file_name": "texture_pbr_v128_normal.png"}
+              }
+            }
+            """;
+        var package = fixture.Store.Create(
+            ReconstructionArtifactKinds.Package,
+            new[]
+            {
+                new BlobInput(ReconstructionFileRoles.ModelObj,           new byte[] { 1, 2, 3 }, "obj"),
+                new BlobInput(ReconstructionFileRoles.MaterialMtl,        mtlBytes,               "mtl"),
+                // blob roles must match what ClassifyTextureRole assigns for each filename:
+                new BlobInput(ReconstructionFileRoles.Texture,            new byte[] { 1 },       "png"),  // generic role
+                new BlobInput("texture_metallic",                         new byte[] { 2 },       "png"),
+                new BlobInput("texture_roughness",                        new byte[] { 3 },       "png"),
+                new BlobInput("texture_normal",                           new byte[] { 4 },       "png"),
+                new BlobInput(ReconstructionFileRoles.ProviderResultJson, System.Text.Encoding.UTF8.GetBytes(providerJson), "json"),
+            });
+        var jobId = Guid.NewGuid();
+        fixture.Ledger.Append(ReconstructionJobLedgerRecord.Complete(jobId, package.Id) with
+        {
+            TextureExpected = true,
+            ModelId = HunyuanModelId,
+        });
+
+        var result = fixture.Manager.Result(jobId);
+
+        Assert.True(result.ResultAvailable);
+        Assert.DoesNotContain(result.Warnings, w => w.Code == "material_maps_missing");
+    }
+
     private static readonly JsonNode GlbResultJson = JsonNode.Parse("""
     {
       "model_urls": {
