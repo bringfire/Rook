@@ -25,7 +25,9 @@ LM4A–D made the executor stack reachable from a real agent; LM4E proved the li
 one-node path end-to-end (both two-successes seams); LM4F fixed the MCP-unwrapped
 receipt capture. LM4G adds no new execution capability — it is a **downstream
 reader** that turns one `LiveProducerResult` (+ its returned graph) into a
-structured, serial­izable record with a self-explaining pass/fail verdict. The
+structured, dataclass-shaped record with a self-explaining pass/fail verdict.
+(JSON serialization is out of scope for LM4G -- `declared_params` may hold
+non-JSON values; a durable file format is a later slice if needed.) The
 graph node's evidence is the canonical execution record (north star); LM4G never
 opens a raw side channel.
 
@@ -56,7 +58,8 @@ because it consumes the agent-layer `LiveProducerResult`.
 
 - Runtime imports limited to: `from rook.agent.plan_graph_live import
   LiveProducerResult, EXECUTION_PARAMS_KEY` + stdlib (`dataclasses`, `copy`,
-  `typing`). Learning-layer types (`PlanGraph`) are `TYPE_CHECKING`-only / quoted.
+  `typing`, `collections.abc.Mapping`). Learning-layer types (`PlanGraph`) are
+  `TYPE_CHECKING`-only / quoted.
 - **No** `base_agent`, **no** dispatcher / `tool_dispatcher`, **no** `rook.server`,
   **no** `rook.agent.chat`, **no** Rhino / HTTP. The module never executes a tool.
 - No edit to any merged LM4 module (`plan_graph_live.py`,
@@ -136,17 +139,26 @@ made LM4A bail gracefully. Blindly deep-copying them here would crash *after* th
 kernel correctly didn't.
 
 ```python
+from collections.abc import Mapping
+
 def _safe_declared_params(node) -> dict | None:
     """Best-effort declared-params capture. Returns a deep copy when possible,
     else None. NEVER raises -- a non-deepcopyable execution_params (the exact
-    shape that makes LM4A return params_copy_failed) must not crash the record."""
+    shape that makes LM4A return params_copy_failed) must not crash the record.
+
+    Mirrors LM4A's validity rule: a non-Mapping execution_params is
+    execution_params_invalid, NOT declared params -- do not dict()-coerce a list
+    of pairs or other dict-convertible object into "declared params"."""
     if node is None:
         return None
     meta = getattr(node, "metadata", None)
     if not isinstance(meta, dict) or EXECUTION_PARAMS_KEY not in meta:
         return None
+    params_source = meta[EXECUTION_PARAMS_KEY]
+    if not isinstance(params_source, Mapping):
+        return None
     try:
-        return deepcopy(dict(meta[EXECUTION_PARAMS_KEY]))
+        return deepcopy(dict(params_source))
     except Exception:
         return None
 ```
@@ -188,6 +200,9 @@ Fabricate `LiveProducerResult`s over real `PlanGraph`/`PlanGraphNode` objects:
 5. **Not-applied `params_copy_failed` with non-deepcopyable `execution_params`:**
    record builds (no crash), `reason=="params_copy_failed"`,
    `declared_params is None`. (Pins the LM4A-alarm guard.)
+5b. **Non-`Mapping` `execution_params` (`execution_params_invalid` shape):** e.g.
+   `execution_params` is a list of pairs — record builds, `declared_params is None`
+   (mirrors LM4A's validity rule; no dict()-coercion of a non-Mapping).
 6. **Eval — no expectation:** `evaluated is False`, `passed is None`,
    `mismatches == ()`.
 7. **Eval — all-`None` expectation:** `evaluated is True`, `passed is True`,
