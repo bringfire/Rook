@@ -137,6 +137,218 @@ public sealed class ReconstructionJobManagerTests : IDisposable
     }
 
     [Fact]
+    public async Task Submit_MultiViewLabeledModel_IsSubmittable_ViaCapabilityGate()
+    {
+        // Pro's task is "multi_view_to_3d" in the test catalog — the old task-based gate would reject
+        // it. The capability gate accepts it (stable + model_glb/obj output + view_slots input).
+        var fixture = CreateFixture();
+        var source = fixture.Store.Create(
+            "generated_image", new[] { new BlobInput("image", new byte[] { 1, 2, 3 }, "png") });
+
+        var result = await fixture.Manager.SubmitAsync(
+            Request(source.Id) with
+            {
+                ModelId = "fal-ai/hunyuan-3d/v3.1/pro/image-to-3d",
+                Options = new JsonObject(),
+            },
+            CancellationToken.None);
+
+        Assert.True(result.Success);
+    }
+
+    private const string ProModelId = "fal-ai/hunyuan-3d/v3.1/pro/image-to-3d";
+
+    [Fact]
+    public async Task Submit_MultiView_PublishesAllSlots_FrontFirst()
+    {
+        var fixture = CreateFixture();
+        var front = fixture.Store.Create("generated_image", new[] { new BlobInput("image", new byte[] { 1 }, "png") });
+        var left = fixture.Store.Create("generated_image", new[] { new BlobInput("image", new byte[] { 2 }, "png") });
+
+        var req = Request(front.Id) with
+        {
+            ModelId = ProModelId,
+            Options = new JsonObject(),
+            Views = new[]
+            {
+                new ReconstructionViewRequest("front", front.Id, "image"),
+                new ReconstructionViewRequest("left", left.Id, "image"),
+            },
+        };
+
+        var result = await fixture.Manager.SubmitAsync(req, CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Equal(2, fixture.Publisher.Published.Count);                 // both slots published
+        var submitted = Assert.Single(fixture.Provider.SubmitRequests);
+        Assert.Equal("input_image_url", submitted.ViewUrls[0].Field);       // front first
+        Assert.Equal("left_image_url", submitted.ViewUrls[1].Field);
+    }
+
+    [Fact]
+    public async Task Submit_FrontView_DifferentArtifact_ConflictingFront()
+    {
+        var fixture = CreateFixture();
+        var front = fixture.Store.Create("generated_image", new[] { new BlobInput("image", new byte[] { 1 }, "png") });
+        var other = fixture.Store.Create("generated_image", new[] { new BlobInput("image", new byte[] { 9 }, "png") });
+
+        var req = Request(front.Id) with
+        {
+            ModelId = ProModelId,
+            Options = new JsonObject(),
+            Views = new[] { new ReconstructionViewRequest("front", other.Id, "image") },
+        };
+
+        var result = await fixture.Manager.SubmitAsync(req, CancellationToken.None);
+        Assert.False(result.Success);
+        Assert.Equal("conflicting_front", result.Failure!.Details["reason"]);
+    }
+
+    [Fact]
+    public async Task Submit_FrontView_DifferentRole_ConflictingFront()
+    {
+        var fixture = CreateFixture();
+        var front = fixture.Store.Create("generated_image", new[] { new BlobInput("image", new byte[] { 1 }, "png") });
+
+        // source_role defaults to "image"; an explicit differing role on the front view conflicts.
+        var req = Request(front.Id) with
+        {
+            ModelId = ProModelId,
+            Options = new JsonObject(),
+            Views = new[] { new ReconstructionViewRequest("front", front.Id, "depth") },
+        };
+
+        var result = await fixture.Manager.SubmitAsync(req, CancellationToken.None);
+        Assert.False(result.Success);
+        Assert.Equal("conflicting_front", result.Failure!.Details["reason"]);
+    }
+
+    [Fact]
+    public async Task Submit_UnsupportedSlot_Rejected()
+    {
+        var fixture = CreateFixture();
+        var front = fixture.Store.Create("generated_image", new[] { new BlobInput("image", new byte[] { 1 }, "png") });
+        var extra = fixture.Store.Create("generated_image", new[] { new BlobInput("image", new byte[] { 2 }, "png") });
+
+        var req = Request(front.Id) with
+        {
+            ModelId = ProModelId,
+            Options = new JsonObject(),
+            Views = new[] { new ReconstructionViewRequest("three_quarter", extra.Id, "image") },  // no Pro mapping
+        };
+
+        var result = await fixture.Manager.SubmitAsync(req, CancellationToken.None);
+        Assert.False(result.Success);
+        Assert.Equal("unsupported_slot", result.Failure!.Details["reason"]);
+        Assert.Equal("views", result.Failure.Field);
+    }
+
+    [Fact]
+    public async Task Submit_DuplicateNonFrontSlot_Rejected()
+    {
+        var fixture = CreateFixture();
+        var front = fixture.Store.Create("generated_image", new[] { new BlobInput("image", new byte[] { 1 }, "png") });
+        var a = fixture.Store.Create("generated_image", new[] { new BlobInput("image", new byte[] { 2 }, "png") });
+        var b = fixture.Store.Create("generated_image", new[] { new BlobInput("image", new byte[] { 3 }, "png") });
+
+        var req = Request(front.Id) with
+        {
+            ModelId = ProModelId,
+            Options = new JsonObject(),
+            Views = new[]
+            {
+                new ReconstructionViewRequest("left", a.Id, "image"),
+                new ReconstructionViewRequest("left", b.Id, "image"),
+            },
+        };
+
+        var result = await fixture.Manager.SubmitAsync(req, CancellationToken.None);
+        Assert.False(result.Success);
+        Assert.Equal("duplicate_slot", result.Failure!.Details["reason"]);
+    }
+
+    [Fact]
+    public async Task Submit_ProUnknownOption_Rejected()
+    {
+        var fixture = CreateFixture();
+        var src = fixture.Store.Create("generated_image", new[] { new BlobInput("image", new byte[] { 1 }, "png") });
+        var req = Request(src.Id) with
+        {
+            ModelId = ProModelId,
+            Options = new JsonObject { ["bogus"] = 1 },
+        };
+        var result = await fixture.Manager.SubmitAsync(req, CancellationToken.None);
+        Assert.False(result.Success);
+        Assert.Equal("unknown_option", result.Failure!.Details["reason"]);
+    }
+
+    [Fact]
+    public async Task Submit_ProDefaults_ForwardedToProvider()
+    {
+        var fixture = CreateFixture();
+        var src = fixture.Store.Create("generated_image", new[] { new BlobInput("image", new byte[] { 1 }, "png") });
+        var req = Request(src.Id) with
+        {
+            ModelId = ProModelId,
+            Options = new JsonObject(),   // empty → defaults filled
+        };
+        var result = await fixture.Manager.SubmitAsync(req, CancellationToken.None);
+        Assert.True(result.Success);
+        var submitted = Assert.Single(fixture.Provider.SubmitRequests);
+        Assert.Equal("Normal", submitted.Options["generate_type"]!.GetValue<string>());
+        Assert.Equal(500000L, submitted.Options["face_count"]!.GetValue<long>());
+    }
+
+    [Fact]
+    public async Task Submit_ProGeometry_OmitsEnablePbr_InProviderPayload()
+    {
+        var fixture = CreateFixture();
+        var src = fixture.Store.Create("generated_image", new[] { new BlobInput("image", new byte[] { 1 }, "png") });
+        var req = Request(src.Id) with
+        {
+            ModelId = ProModelId,
+            Options = new JsonObject { ["generate_type"] = "Geometry", ["enable_pbr"] = true },
+        };
+        var result = await fixture.Manager.SubmitAsync(req, CancellationToken.None);
+        Assert.True(result.Success);
+        var submitted = Assert.Single(fixture.Provider.SubmitRequests);
+        Assert.False(submitted.Options.ContainsKey("enable_pbr"));
+    }
+
+    [Fact]
+    public async Task PollActiveJob_MultiView_MaterializesPackageWithAllParentIds()
+    {
+        var fixture = CreateFixture();
+        fixture.Provider.StatusComplete.Enqueue(true);
+        fixture.Provider.ResultJson = GlbResultJson;
+        fixture.Downloader.Files["https://example.test/model.glb"] = new byte[] { 9, 8, 7 };
+        var front = fixture.Store.Create("generated_image", new[] { new BlobInput("image", new byte[] { 1 }, "png") });
+        var left = fixture.Store.Create("generated_image", new[] { new BlobInput("image", new byte[] { 2 }, "png") });
+
+        var req = Request(front.Id) with
+        {
+            ModelId = ProModelId,
+            Options = new JsonObject(),
+            Views = new[]
+            {
+                new ReconstructionViewRequest("front", front.Id, "image"),
+                new ReconstructionViewRequest("left", left.Id, "image"),
+            },
+        };
+        var submit = await fixture.Manager.SubmitAsync(req, CancellationToken.None);
+        Assert.True(submit.Success);
+
+        await fixture.Manager.PollActiveJobAsync(submit.Job!.JobId, CancellationToken.None);
+
+        var status = fixture.Manager.Status(submit.Job.JobId);
+        Assert.Equal(ReconstructionJobState.Complete, status.Job!.State);
+        var package = fixture.Store.Get(status.Job.ResultArtifactId!.Value);
+        Assert.NotNull(package);
+        Assert.Contains(front.Id, package!.ParentIds);
+        Assert.Contains(left.Id, package.ParentIds);
+    }
+
+    [Fact]
     public async Task PollActiveJob_StatusComplete_FetchesResultAndMaterializesPackage()
     {
         var fixture = CreateFixture();
@@ -1223,6 +1435,34 @@ public sealed class ReconstructionJobManagerTests : IDisposable
         return root;
     }
 
+    private static ReconstructionModelEntry ProStableModelEntry()
+        => ReconstructionModelCatalog.FromJson(CatalogJson).Find(ProModelId)!;
+
+    private static ReconstructionModelEntry RapidStableModelEntry()
+        => ReconstructionModelCatalog.FromJson(CatalogJson).Find(HunyuanModelId)!;
+
+    [Theory]
+    [InlineData("Normal", true, true)]
+    [InlineData("Normal", false, true)]   // Normal expects texture even without PBR — the Pro fix
+    [InlineData("Geometry", true, false)]
+    [InlineData("Geometry", false, false)]
+    public void DeriveTextureExpected_GenerateTypeDriven(string generateType, bool enablePbr, bool expected)
+    {
+        var model = ProStableModelEntry();
+        var options = new JsonObject { ["generate_type"] = generateType, ["enable_pbr"] = enablePbr };
+        Assert.Equal(expected, ReconstructionJobManager.DeriveTextureExpected(options, model));
+    }
+
+    [Fact]
+    public void DeriveTextureExpected_LegacyModel_UsesEnableFlags()
+    {
+        var model = RapidStableModelEntry();
+        Assert.False(ReconstructionJobManager.DeriveTextureExpected(
+            new JsonObject { ["enable_geometry"] = true }, model));
+        Assert.True(ReconstructionJobManager.DeriveTextureExpected(
+            new JsonObject { ["enable_pbr"] = true }, model));
+    }
+
     private static ReconstructionSubmitRequest Request(Guid sourceId)
         => new(
             SourceArtifactId: sourceId,
@@ -1441,6 +1681,7 @@ public sealed class ReconstructionJobManagerTests : IDisposable
           "fallback_order": ["model_obj"],
           "supports_pbr": false,
           "default_texture_expected": true,
+          "input": {"mode": "single_image", "source_field": "input_image_url"},
           "preprocessing": {"recommended": false, "required": false},
           "docs_url": "https://fal.ai/models/fal-ai/non-pbr/image-to-3d/api"
         },
@@ -1457,8 +1698,47 @@ public sealed class ReconstructionJobManagerTests : IDisposable
           "fallback_order": ["model_glb", "model_obj"],
           "supports_pbr": true,
           "default_texture_expected": true,
+          "input": {"mode": "single_image", "source_field": "input_image_url"},
           "preprocessing": {"recommended": false, "required": false},
           "docs_url": "https://fal.ai/models/fal-ai/hunyuan-3d/v3.1/rapid/image-to-3d/api"
+        },
+        {
+          "model_id": "fal-ai/hunyuan-3d/v3.1/pro/image-to-3d",
+          "provider": "fal",
+          "task": "multi_view_to_3d",
+          "status": "stable",
+          "enabled": true,
+          "pipeline_roles": ["single_image_to_3d"],
+          "input_types": ["image_url"],
+          "output_roles": ["model_glb", "model_obj", "material_mtl", "model_fbx", "model_usdz", "texture", "thumbnail"],
+          "preferred_asset_role": "model_glb",
+          "fallback_order": ["model_glb", "model_obj"],
+          "supports_pbr": true,
+          "default_texture_expected": true,
+          "input": {
+            "mode": "multi_view_labeled",
+            "source_field": "input_image_url",
+            "view_slots": [
+              { "role": "front",       "field": "input_image_url",       "required": true  },
+              { "role": "back",        "field": "back_image_url",        "required": false },
+              { "role": "left",        "field": "left_image_url",        "required": false },
+              { "role": "right",       "field": "right_image_url",       "required": false },
+              { "role": "top",         "field": "top_image_url",         "required": false },
+              { "role": "bottom",      "field": "bottom_image_url",      "required": false },
+              { "role": "left_front",  "field": "left_front_image_url",  "required": false },
+              { "role": "right_front", "field": "right_front_image_url", "required": false }
+            ]
+          },
+          "options": [
+            { "key": "generate_type", "label": "Generate Type", "kind": "enum",
+              "default": "Normal", "allowed_values": ["Normal", "Geometry"] },
+            { "key": "enable_pbr", "label": "Enable PBR", "kind": "boolean",
+              "default": false, "ignored_when": { "key": "generate_type", "equals": "Geometry" } },
+            { "key": "face_count", "label": "Face Count", "kind": "integer",
+              "default": 500000, "min": 40000, "max": 1500000, "step": 10000 }
+          ],
+          "preprocessing": {"recommended": false, "required": false},
+          "docs_url": "https://fal.ai/models/fal-ai/hunyuan-3d/v3.1/pro/image-to-3d/api"
         }
       ]
     }

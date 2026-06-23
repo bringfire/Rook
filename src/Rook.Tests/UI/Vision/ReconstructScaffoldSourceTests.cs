@@ -89,9 +89,11 @@ namespace Rook.Tests.UI.Vision
         {
             var html = ReadVisionResource("index.html");
             Assert.Contains("id=\"reconstruct-mv-slots\"", html);
-            foreach (var s in new[] { "left","right","back","top","three_quarter" })
+            // Fal Pro vocabulary: bottom/left_front/right_front replace three_quarter.
+            foreach (var s in new[] { "left","right","back","top","bottom","left_front","right_front" })
                 Assert.Contains($"data-slot=\"{s}\"", html);
-            Assert.Contains("reconstruct-slot-optional", html); // top/¾ marked optional
+            Assert.DoesNotContain("data-slot=\"three_quarter\"", html);
+            Assert.Contains("reconstruct-slot-optional", html); // top + secondary slots marked optional
         }
 
         [Fact]
@@ -117,10 +119,78 @@ namespace Rook.Tests.UI.Vision
         {
             var js = ReadVisionResource("app.js");
             Assert.Contains("function updateReconstructActionForMode", js);
-            Assert.Contains("Assemble view set", js);
             Assert.Contains("Text-to-3D arrives when a provider lands.", js);
-            Assert.Contains("Slot assembly wires next.", js);
-            Assert.Contains("No models available for this mode yet", js);
+            Assert.Contains("No models available for this mode yet", js);   // t3d / empty mv3d picker
+        }
+
+        [Fact]
+        public void AppJs_Mv3dSubmits_ViewsArray_AndDropsThreeQuarterState()
+        {
+            var js = ReadVisionResource("app.js");
+            // slot-state object uses the Fal vocabulary
+            Assert.Contains("left_front", js);
+            Assert.Contains("right_front", js);
+            Assert.DoesNotContain("three_quarter", js);
+            // submit carries a views[] array
+            Assert.Contains("views:", js);
+            // MV3D action is no longer the disabled "Assemble view set" stub
+            Assert.DoesNotContain("Slot assembly wires next.", js);
+            Assert.DoesNotContain("Assemble view set", js);
+            // MV3D picker filters to multi-view-capable models
+            Assert.Contains("supports_multi_view", js);
+        }
+
+        // ─── Pro options (Slice 2) assertions ─────────────────────────
+
+        [Fact]
+        public void IndexHtml_ReconstructOptions_ExposeGenerateTypePbrFaceCount()
+        {
+            var html = ReadVisionResource("index.html");
+            Assert.Contains("id=\"reconstruct-options\"", html);
+            Assert.Contains("id=\"reconstruct-opt-generate-type\"", html);
+            Assert.Contains("id=\"reconstruct-opt-enable-pbr\"", html);
+            Assert.Contains("id=\"reconstruct-opt-face-count\"", html);
+        }
+
+        [Fact]
+        public void AppJs_SubmitViewsBuilder_IsModeAware()
+        {
+            // Secondary slots must only leave the submit builder in MV3D with a multi-view-capable
+            // model — otherwise stale MV3D slots leak into a later I3D/single-image submit.
+            var js = ReadVisionResource("app.js");
+            var s = js.IndexOf("async function submit(", System.StringComparison.Ordinal);
+            Assert.True(s >= 0, "submit() not found");
+            var e = js.IndexOf("async function poll(", s, System.StringComparison.Ordinal);
+            Assert.True(e > s, "poll() boundary not found after submit()");
+            var body = js.Substring(s, e - s);
+            Assert.Contains("reconstructMode === \"mv3d\"", body);
+            Assert.Contains("supports_multi_view", body);
+            Assert.Contains("views:", body);
+        }
+
+        [Fact]
+        public void OutputControl_HiddenForCatalogOptionModels()
+        {
+            // For catalog-option models (Pro), Generate Type is the real Fal control; the legacy
+            // textured/geometry Output segmented control must be hidden so it can't silently disagree.
+            var html = ReadVisionResource("index.html");
+            Assert.Contains("id=\"reconstruct-output-field\"", html);
+            var js = ReadVisionResource("app.js");
+            Assert.Contains("re.outputField = $(\"reconstruct-output-field\");", js);
+            Assert.Contains("re.outputField.classList", js);   // toggled in renderModelOptions
+        }
+
+        [Fact]
+        public void AppJs_RendersCatalogOptions_AndGatesPbrUnderGeometry()
+        {
+            var js = ReadVisionResource("app.js");
+            Assert.Contains("reconstruct-opt-generate-type", js);
+            Assert.Contains("reconstruct-opt-enable-pbr", js);
+            Assert.Contains("reconstruct-opt-face-count", js);
+            Assert.Contains("renderModelOptions", js);
+            Assert.Contains("Geometry", js);
+            Assert.Contains("generate_type", js);
+            Assert.Contains("face_count", js);
         }
 
         // ─── helpers ──────────────────────────────────────────────────

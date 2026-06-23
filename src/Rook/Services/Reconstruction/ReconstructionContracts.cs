@@ -36,6 +36,11 @@ public static class ReconstructionFileRoles
     public const string ViewBack = "view_back";
     public const string ViewTop = "view_top";
     public const string ViewThreeQuarter = "view_three_quarter";
+    public const string ModelFbx = "model_fbx";
+    public const string ModelUsdz = "model_usdz";
+    public const string ViewBottom = "view_bottom";
+    public const string ViewLeftFront = "view_left_front";
+    public const string ViewRightFront = "view_right_front";
 }
 
 public static class ReconstructionViewSlots
@@ -49,6 +54,7 @@ public static class ReconstructionViewSlots
     public static readonly HashSet<string> Allowed = new HashSet<string>(StringComparer.Ordinal)
     {
         "front", "left", "right", "back", "top", "three_quarter",
+        "bottom", "left_front", "right_front",
     };
 
     /// <summary>Maps a validated slot name to its blob role (e.g. "front" => "view_front").</summary>

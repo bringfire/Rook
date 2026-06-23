@@ -3332,7 +3332,7 @@ const Reconstruct = (() => {
     let models = [];
     let modelsLoaded = false;
     // Uniform slot state — each filled entry: { artifact_id, role, previewSrc, label, kind }
-    const slots = { front: null, left: null, right: null, back: null, top: null, three_quarter: null };
+    const slots = { front: null, left: null, right: null, back: null, top: null, bottom: null, left_front: null, right_front: null };
     let pickerTargetSlot = null;
     let pickerArtifactsById = {};
     let outputMode = "textured";  // "textured" | "geometry"
@@ -3354,11 +3354,16 @@ const Reconstruct = (() => {
         re.pickerClose = $("reconstruct-picker-close");
         re.modelSelect = $("reconstruct-model-select");
         re.modelHint = $("reconstruct-model-hint");
+        re.options = $("reconstruct-options");
+        re.optGenerateType = $("reconstruct-opt-generate-type");
+        re.optEnablePbr = $("reconstruct-opt-enable-pbr");
+        re.optFaceCount = $("reconstruct-opt-face-count");
         re.modeSwitch = $("reconstruct-mode-radios");
         re.mvSlots = $("reconstruct-mv-slots");
         re.prompt = $("reconstruct-prompt");
         re.promptHint = $("reconstruct-prompt-hint");
         re.formPanel = document.querySelector(".reconstruct-form-panel");
+        re.outputField = $("reconstruct-output-field");
         re.modeTextured = $("reconstruct-mode-textured");
         re.modeGeometry = $("reconstruct-mode-geometry");
         re.submitBtn = $("reconstruct-submit-btn");
@@ -3404,7 +3409,8 @@ const Reconstruct = (() => {
         re.modeTextured.addEventListener("click", () => setOutputMode("textured"));
         re.modeGeometry.addEventListener("click", () => setOutputMode("geometry"));
         re.submitBtn.addEventListener("click", submit);
-        re.modelSelect.addEventListener("change", updateModelHint);
+        re.modelSelect.addEventListener("change", () => { updateModelHint(); renderModelOptions(); });
+        re.optGenerateType.addEventListener("change", applyGenerateTypeGating);
         re.importBtn.addEventListener("click", importPackage);
         re.refreshJobsBtn.addEventListener("click", loadJobs);
         re.jobsList.addEventListener("click", (e) => {
@@ -3460,15 +3466,25 @@ const Reconstruct = (() => {
             re.submitBtn.disabled = true;
             re.actionNote.textContent = "Text-to-3D arrives when a provider lands.";
         } else { // mv3d
-            re.submitBtn.textContent = "Assemble view set";
-            re.submitBtn.disabled = true;
-            re.actionNote.textContent = "Slot assembly wires next.";
+            re.submitBtn.textContent = "Reconstruct";
+            re.submitBtn.disabled = false;
+            re.actionNote.textContent = "";
         }
     }
 
     function updateReconstructModelForMode(mode) {
-        if (mode === "t3d" || mode === "mv3d") {
+        if (mode === "t3d") {
             re.modelSelect.innerHTML = "<option value=\"\" disabled selected>No models available for this mode yet</option>";
+        } else if (mode === "mv3d") {
+            // Filter the picker to multi-view-capable models (Pro). Empty until Pro flips to stable.
+            const mv = models.filter(m => m.supports_multi_view);
+            if (mv.length === 0) {
+                re.modelSelect.innerHTML = "<option value=\"\" disabled selected>No models available for this mode yet</option>";
+            } else {
+                re.modelSelect.innerHTML = mv.map(buildModelOption).join("");
+                re.modelSelect.value = mv[0].model_id;
+            }
+            updateModelHint();
         } else {
             // i3d: restore the loaded model list (or placeholder if none loaded yet)
             if (models.length === 0) {
@@ -3497,12 +3513,62 @@ const Reconstruct = (() => {
         re.promptHint.textContent = RECONSTRUCT_PROMPT_HINT[mode] || "";
         updateReconstructActionForMode(mode);
         updateReconstructModelForMode(mode);
+        renderModelOptions();
+    }
+
+    // Renders the catalog-driven option controls for the selected model (Pro). Models without an
+    // options block hide the container and keep the legacy textured/geometry path.
+    function renderModelOptions() {
+        if (!re.options) return;
+        const model = selectedModel();
+        const opts = (model && Array.isArray(model.options)) ? model.options : null;
+        if (!opts || opts.length === 0) {
+            re.options.classList.add("hidden");
+            // Legacy model: the textured/geometry Output control is the real control — show it.
+            if (re.outputField) re.outputField.classList.remove("hidden");
+            return;
+        }
+        re.options.classList.remove("hidden");
+        // Catalog model (Pro): Generate Type is authoritative — hide the legacy Output control so it
+        // can't silently disagree with generate_type.
+        if (re.outputField) re.outputField.classList.add("hidden");
+        for (const d of opts) {
+            if (d.key === "generate_type") {
+                re.optGenerateType.innerHTML = (d.allowed_values || [])
+                    .map(v => `<option value="${escapeAttr(v)}">${escapeHtml(v)}</option>`).join("");
+                if (d.default != null) re.optGenerateType.value = String(d.default);
+            } else if (d.key === "enable_pbr") {
+                re.optEnablePbr.checked = d.default === true;
+            } else if (d.key === "face_count") {
+                if (d.min != null) re.optFaceCount.min = d.min;
+                if (d.max != null) re.optFaceCount.max = d.max;
+                if (d.step != null) re.optFaceCount.step = d.step;
+                if (d.default != null) re.optFaceCount.value = d.default;
+            }
+        }
+        applyGenerateTypeGating();
+    }
+
+    function applyGenerateTypeGating() {
+        if (!re.optGenerateType) return;
+        const geometry = re.optGenerateType.value === "Geometry";
+        re.optEnablePbr.disabled = geometry;
+        if (geometry) re.optEnablePbr.checked = false;
     }
 
     function optionsForMode() {
-        // Mutually exclusive — never emit both (backend D1 guard rejects it).
-        if (outputMode === "geometry") return { enable_geometry: true };
         const model = selectedModel();
+        if (model && Array.isArray(model.options) && model.options.length > 0) {
+            // Catalog-driven (Pro): build options from the rendered controls.
+            const o = {};
+            if (re.optGenerateType.value) o.generate_type = re.optGenerateType.value;
+            if (o.generate_type !== "Geometry" && re.optEnablePbr.checked) o.enable_pbr = true;
+            const fc = parseInt(re.optFaceCount.value, 10);
+            if (!Number.isNaN(fc)) o.face_count = fc;
+            return o;
+        }
+        // Legacy models — mutually exclusive; never emit both (backend D1 guard rejects it).
+        if (outputMode === "geometry") return { enable_geometry: true };
         return model && model.supports_pbr ? { enable_pbr: true } : {};
     }
 
@@ -3519,6 +3585,16 @@ const Reconstruct = (() => {
             return;
         }
         resetResultForNewRun();   // hide stale result/import state while the new job runs
+        // Labeled secondary views from filled slots (front stays the canonical source). Mode-aware:
+        // secondary slots only leave the builder in MV3D with a multi-view-capable model, so stale
+        // MV3D slots never leak into an I3D / single-image submit. I3D therefore sends only front,
+        // which the backend accepts as a redundant restatement of source_artifact_id.
+        const mvModel = selectedModel();
+        const allowSecondary = reconstructMode === "mv3d" && mvModel && mvModel.supports_multi_view;
+        const views = Object.keys(slots)
+            .filter(s => slots[s] && slots[s].artifact_id)
+            .filter(s => s === "front" || allowSecondary)
+            .map(s => ({ slot: s, artifact_id: slots[s].artifact_id, role: slots[s].role || "image" }));
         try {
             re.submitBtn.disabled = true;
             showReconstructStatus("Submitting reconstruction…", "info");
@@ -3528,6 +3604,7 @@ const Reconstruct = (() => {
                 model_id: modelId,
                 preprocessing_chain: [],
                 options: optionsForMode(),
+                views: views,
                 estimate_requested: false,
             });
             if (!job || !job.job_id) {
@@ -3609,6 +3686,7 @@ const Reconstruct = (() => {
             re.modelSelect.value = models[0].model_id;
         }
         updateModelHint();
+        renderModelOptions();
         modelsLoaded = true;
     }
 
