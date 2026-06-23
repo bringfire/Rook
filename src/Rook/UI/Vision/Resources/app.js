@@ -3414,9 +3414,9 @@ const Reconstruct = (() => {
 
     function optionsForMode() {
         // Mutually exclusive — never emit both (backend D1 guard rejects it).
-        return outputMode === "geometry"
-            ? { enable_geometry: true }
-            : { enable_pbr: true };
+        if (outputMode === "geometry") return { enable_geometry: true };
+        const model = selectedModel();
+        return model && model.supports_pbr ? { enable_pbr: true } : {};
     }
 
     async function submit() {
@@ -3486,6 +3486,11 @@ const Reconstruct = (() => {
         return re.modelSelect && re.modelSelect.value ? re.modelSelect.value : null;
     }
 
+    function selectedModel() {
+        const id = selectedModelId();
+        return id ? models.find(x => x.model_id === id) || null : null;
+    }
+
     function buildModelOption(model) {
         const pbr = model.supports_pbr ? "" : " · no PBR";
         return `<option value="${escapeAttr(model.model_id)}">${escapeHtml(shortModelLabel(model.model_id))}${escapeHtml(pbr)}</option>`;
@@ -3493,8 +3498,7 @@ const Reconstruct = (() => {
 
     function updateModelHint() {
         if (!re.modelHint) return;
-        const id = selectedModelId();
-        const m = models.find(x => x.model_id === id) || null;
+        const m = selectedModel();
         re.modelHint.textContent = m
             ? `${m.provider} · ${String(m.task || "").replace(/_/g, " ")}${m.supports_pbr ? " · PBR" : ""}`
             : "";

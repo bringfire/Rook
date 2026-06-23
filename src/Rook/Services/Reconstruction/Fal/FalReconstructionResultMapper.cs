@@ -62,8 +62,18 @@ public static class FalReconstructionResultMapper
             ReadFile(root["model_obj"]) ?? ReadFile(Prop(root["model_urls"], "obj")));
         AddModel(byRole, order, ReconstructionFileRoles.MaterialMtl,
             ReadFile(root["material_mtl"]) ?? ReadFile(Prop(root["model_urls"], "mtl")));
-        Add(byRole, order, ReconstructionFileRoles.Texture,
-            ReadFile(root["texture"]) ?? ReadFile(Prop(root["texture_urls"], "texture")));
+
+        // Classify the top-level `texture` field (not a generic role — run it through
+        // ClassifyTextureRole so the mapper and the resolver agree on the stored role).
+        var topTexture = ReadFile(root["texture"]);
+        if (topTexture is not null)
+            Add(byRole, order, ClassifyTextureRole(topTexture.FileName, topTexture.Url), topTexture);
+
+        // model_urls.texture — classify for the same reason; first-writer-wins coalesces duplicates.
+        var modelUrlsTexture = ReadFile(Prop(root["model_urls"], "texture"));
+        if (modelUrlsTexture is not null)
+            Add(byRole, order, ClassifyTextureRole(modelUrlsTexture.FileName, modelUrlsTexture.Url), modelUrlsTexture);
+
         Add(byRole, order, ReconstructionFileRoles.Thumbnail, ReadFile(root["thumbnail"]));
 
         // BiRefNet (background-removal) output. The verified fal-ai/birefnet/v2 shape is
@@ -79,6 +89,7 @@ public static class FalReconstructionResultMapper
             if (role is not null) Add(byRole, order, role, file);
         }
 
+        // texture_urls.* loop handles every key including texture_urls.texture, so no separate ?? fallback is needed.
         foreach (var file in EnumerateFiles(root["texture_urls"]))
             Add(byRole, order, RoleForTextureFile(file), file);
 

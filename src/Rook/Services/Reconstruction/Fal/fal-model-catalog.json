@@ -12,7 +12,7 @@
       "output_roles": ["model_glb", "model_obj", "material_mtl", "texture", "thumbnail"],
       "preferred_asset_role": "model_glb",
       "fallback_order": ["model_glb", "model_obj"],
-      "supports_pbr": true,
+      "supports_pbr": false,
       "default_texture_expected": true,
       "input": {
         "mode": "single_image",
