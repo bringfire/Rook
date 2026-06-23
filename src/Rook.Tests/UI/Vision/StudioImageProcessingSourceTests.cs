@@ -143,6 +143,35 @@ namespace Rook.Tests.UI.Vision
             Assert.Contains("preprocessed_image", body);
         }
 
+        // ─── Task 6: Panel-dark id-integrity guard ────────────────────
+
+        // Every id this slice caches in app.js MUST have a matching element in
+        // index.html. A missing id nulls the cache entry and can blank the whole
+        // Vision panel at init. This is the panel-dark regression guard.
+        [Theory]
+        [InlineData("studio-pick-gallery-btn")]
+        [InlineData("studio-picker-modal")]
+        [InlineData("studio-picker-grid")]
+        [InlineData("studio-picker-close")]
+        [InlineData("studio-result-title")]
+        [InlineData("studio-result-gen-actions")]
+        [InlineData("studio-result-op-actions")]
+        [InlineData("studio-use-as-source-btn")]
+        [InlineData("studio-open-in-gallery-btn")]
+        [InlineData("studio-send-to-reconstruct-btn")]
+        [InlineData("studio-operations")]
+        [InlineData("studio-remove-bg-btn")]
+        [InlineData("studio-operation-status")]
+        public void EveryCachedStudioId_ExistsInIndexHtml(string id)
+        {
+            var js = ReadVisionResource("app.js");
+            var html = ReadVisionResource("index.html");
+            // The id is cached in app.js …
+            Assert.Contains($"$(\"{id}\")", js);
+            // … and a matching element exists in index.html.
+            Assert.Contains($"id=\"{id}\"", html);
+        }
+
         // ─── helper ───────────────────────────────────────────────────
 
         private static string ReadVisionResource(string fileName)
