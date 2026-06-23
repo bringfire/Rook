@@ -89,6 +89,7 @@ public static class FalReconstructionResultMapper
             if (role is not null) Add(byRole, order, role, file);
         }
 
+        // texture_urls.* loop handles every key including texture_urls.texture, so no separate ?? fallback is needed.
         foreach (var file in EnumerateFiles(root["texture_urls"]))
             Add(byRole, order, RoleForTextureFile(file), file);
 

@@ -773,86 +773,6 @@ namespace Rook.Handlers
             }
         }
 
-        private static void AddProviderFileName(
-            Dictionary<string, string> names,
-            Artifact package,
-            string? fallbackRole,
-            JsonNode? node,
-            bool normalizeModelRole)
-        {
-            if (string.IsNullOrWhiteSpace(fallbackRole)) return;
-            var file = ReadProviderFile(node);
-            if (file is null) return;
-
-            var role = normalizeModelRole
-                ? RoleForProviderModelFile(file) ?? fallbackRole
-                : fallbackRole;
-            if (!HasRole(package, role) || names.ContainsKey(role)) return;
-
-            var fileName = SafeProviderFileName(file.FileName)
-                ?? SafeProviderUrlFileName(file.Url);
-            if (!string.IsNullOrWhiteSpace(fileName))
-                names[role] = fileName!;
-        }
-
-        private static ProviderFile? ReadProviderFile(JsonNode? node)
-        {
-            if (node is JsonValue value && value.TryGetValue<string>(out var url))
-                return new ProviderFile(url, null, null);
-            if (node is JsonObject obj
-                && obj.TryGetPropertyValue("url", out var urlNode)
-                && urlNode is JsonValue urlValue
-                && urlValue.TryGetValue<string>(out var nestedUrl))
-            {
-                return new ProviderFile(
-                    nestedUrl,
-                    ReadString(obj, "file_name"),
-                    ReadString(obj, "content_type"));
-            }
-
-            return null;
-        }
-
-        private static string? FallbackRoleForModelUrlKey(string key)
-            => key switch
-            {
-                "glb" => ReconstructionFileRoles.ModelGlb,
-                "obj" => ReconstructionFileRoles.ModelObj,
-                "mtl" => ReconstructionFileRoles.MaterialMtl,
-                "texture" => ReconstructionFileRoles.Texture,
-                "fbx" => "model_fbx",
-                "usdz" => "model_usdz",
-                "stl" => "model_stl",
-                _ => null,
-            };
-
-        private static string? RoleForProviderModelFile(ProviderFile file)
-            => RoleForModelExtension(Path.GetExtension(file.FileName ?? string.Empty))
-                ?? RoleForModelContentType(file.ContentType)
-                ?? RoleForModelExtension(Path.GetExtension(new Uri(file.Url).AbsolutePath));
-
-        private static string? RoleForModelExtension(string? extension)
-            => extension?.ToLowerInvariant() switch
-            {
-                ".glb" => ReconstructionFileRoles.ModelGlb,
-                ".obj" => ReconstructionFileRoles.ModelObj,
-                ".mtl" => ReconstructionFileRoles.MaterialMtl,
-                ".fbx" => "model_fbx",
-                ".usdz" => "model_usdz",
-                ".stl" => "model_stl",
-                _ => null,
-            };
-
-        private static string? RoleForModelContentType(string? contentType)
-            => contentType?.ToLowerInvariant() switch
-            {
-                "model/gltf-binary" => ReconstructionFileRoles.ModelGlb,
-                "model/obj" => ReconstructionFileRoles.ModelObj,
-                "application/wavefront-obj" => ReconstructionFileRoles.ModelObj,
-                "model/vnd.usdz+zip" => "model_usdz",
-                _ => null,
-            };
-
         private static string FileNameForRole(
             IReadOnlyDictionary<string, string> providerFileNames,
             string role,
@@ -868,17 +788,6 @@ namespace Rook.Handlers
             return string.IsNullOrWhiteSpace(safe) || safe == "." || safe == ".."
                 ? null
                 : safe;
-        }
-
-        private static string? SafeProviderUrlFileName(string? url)
-        {
-            if (string.IsNullOrWhiteSpace(url)
-                || !Uri.TryCreate(url, UriKind.Absolute, out var uri))
-            {
-                return null;
-            }
-
-            return SafeProviderFileName(Uri.UnescapeDataString(Path.GetFileName(uri.AbsolutePath)));
         }
 
         private Dictionary<string, object?>? PackageSummary(Guid packageId)
@@ -1164,8 +1073,6 @@ namespace Rook.Handlers
                 && value.TryGetValue<string>(out var text)
                     ? text
                     : null;
-
-        private sealed record ProviderFile(string Url, string? FileName, string? ContentType);
 
         private static string? ReadString(
             IReadOnlyDictionary<string, JsonNode?> values,
