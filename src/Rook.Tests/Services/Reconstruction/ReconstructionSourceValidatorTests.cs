@@ -39,6 +39,21 @@ public sealed class ReconstructionSourceValidatorTests : IDisposable
     }
 
     [Fact]
+    public void Validate_AllowsPreprocessedImageWithImageRole()
+    {
+        var artifact = _store.Create(
+            "preprocessed_image",
+            new[] { new BlobInput("image", new byte[] { 1, 2, 3 }, "png") });
+
+        var result = ReconstructionSourceValidator.Validate(_store, artifact, "image");
+
+        Assert.True(result.Success);
+        Assert.NotNull(result.AbsolutePath);
+        Assert.Single(result.Warnings);
+        Assert.Equal("source_dimensions_unreadable", result.Warnings[0].Code);
+    }
+
+    [Fact]
     public void Validate_RejectsReconstructionPackage()
     {
         var artifact = _store.Create(

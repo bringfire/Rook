@@ -267,6 +267,7 @@ p { margin: 8px 0; line-height: 1.4; }
                 "job_status",
                 "cancel_job",
                 "import_package",
+                "remove_background",
             };
 
         // ─── Timeouts ─────────────────────────────────────────────────

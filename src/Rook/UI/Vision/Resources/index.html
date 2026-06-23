@@ -283,8 +283,28 @@
                                 </svg>
                                 <span>Clear</span>
                             </button>
+                            <button id="studio-pick-gallery-btn" class="btn btn-capture" title="Pick a source image from the Gallery">
+                                <svg viewBox="0 0 24 24" fill="none">
+                                    <rect x="3" y="3" width="18" height="18" rx="2" stroke="currentColor" stroke-width="2"/>
+                                    <circle cx="8.5" cy="8.5" r="1.5" fill="currentColor"/>
+                                    <path d="M21 15L16 10L5 21" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                                <span>Pick from Gallery</span>
+                            </button>
                         </div>
                         <div id="studio-source-label" class="studio-source-label hidden"></div>
+
+                        <div id="studio-operations" class="studio-operations">
+                            <span class="section-label">Operations</span>
+                            <button id="studio-remove-bg-btn" class="btn btn-capture" disabled title="Load or pick a source image first">
+                                <svg viewBox="0 0 24 24" fill="none">
+                                    <path d="M3 3L21 21M21 3L3 21" stroke="currentColor" stroke-width="1" stroke-opacity="0.4"/>
+                                    <rect x="3" y="3" width="18" height="18" rx="2" stroke="currentColor" stroke-width="2"/>
+                                </svg>
+                                <span>Remove Background</span>
+                            </button>
+                            <div id="studio-operation-status" class="status-message hidden"></div>
+                        </div>
                     </div>
 
                     <!-- Studio Prompt Panel -->
@@ -395,8 +415,8 @@
                 <!-- Studio Result Panel -->
                 <div id="studio-result-panel" class="result-panel hidden">
                     <div class="result-header">
-                        <h3 class="result-title">Generated</h3>
-                        <div class="result-actions">
+                        <h3 class="result-title" id="studio-result-title">Generated</h3>
+                        <div class="result-actions" id="studio-result-gen-actions">
                             <button id="studio-approve-btn" class="btn btn-secondary" title="Mark this image as approved so Rook can use it as the selected concept for downstream workflows." aria-label="Mark this image as approved so Rook can use it as the selected concept for downstream workflows.">
                                 <svg viewBox="0 0 24 24" fill="none">
                                     <path d="M5 13L9 17L19 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -405,10 +425,27 @@
                             </button>
                             <button id="studio-new-btn" class="btn btn-primary">New Generation</button>
                         </div>
+                        <div class="result-actions hidden" id="studio-result-op-actions">
+                            <button id="studio-use-as-source-btn" class="btn btn-secondary">Use as source</button>
+                            <button id="studio-open-in-gallery-btn" class="btn btn-secondary">Open in Gallery</button>
+                            <button id="studio-send-to-reconstruct-btn" class="btn btn-primary">Send to Reconstruct</button>
+                        </div>
                     </div>
                     <div class="result-image-container">
                         <img id="studio-result-image" src="" alt="Generated image">
                     </div>
+                </div>
+
+                <!-- Studio source picker modal (Studio-local; mirrors the Reconstruct picker pattern) -->
+                <div id="studio-picker-modal" class="modal hidden">
+                  <div class="modal-backdrop"></div>
+                  <div class="modal-content modal-content-picker">
+                    <div class="modal-header">
+                      <span id="studio-picker-title">Pick a Gallery image</span>
+                      <button id="studio-picker-close" class="btn-icon" aria-label="Close">×</button>
+                    </div>
+                    <div id="studio-picker-grid" class="reconstruct-picker-grid"></div>
+                  </div>
                 </div>
             </section>
 

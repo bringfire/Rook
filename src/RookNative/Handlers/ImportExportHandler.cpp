@@ -221,6 +221,89 @@ static void CleanupPreparedReconstructionImport(const nlohmann::json& plan)
         error);
 }
 
+static bool ApplyReconstructionMaterialRepair(
+    CRhinoDoc* pDoc,
+    const std::vector<ON_UUID>& objectIds,
+    const nlohmann::json& materialRepair,
+    std::string& error)
+{
+    if (!materialRepair.is_object() || materialRepair.empty())
+        return false;
+
+    const std::string texturePath = JsonStringOr(materialRepair, "base_color_path");
+    const std::string materialName = JsonStringOr(
+        materialRepair,
+        "material_name",
+        "Rook Reconstruction Material");
+    if (texturePath.empty())
+    {
+        error = "Prepared material repair was missing base_color_path.";
+        return false;
+    }
+
+    const std::string pathErr = Rook::ValidateFilePath(texturePath);
+    if (!pathErr.empty())
+    {
+        error = pathErr;
+        return false;
+    }
+    if (!fs::exists(texturePath))
+    {
+        error = "Prepared material repair texture was not found: " + texturePath;
+        return false;
+    }
+
+    ON_Material mat;
+    mat.SetName(Utf8ToWide(materialName));
+    mat.SetDiffuse(ON_Color::White);
+    mat.SetSpecular(ON_Color::Black);
+    mat.SetShine(0.0);
+    mat.ToPhysicallyBased();
+
+    ON_wString texturePathW = Utf8ToWide(texturePath);
+    auto pbr = mat.PhysicallyBased();
+    if (pbr)
+    {
+        pbr->SetBaseColor(ON_4fColor(1.0f, 1.0f, 1.0f, 1.0f));
+        pbr->SetRoughness(0.5);
+        pbr->AddTexture(
+            static_cast<const wchar_t*>(texturePathW),
+            ON_Texture::TYPE::pbr_base_color_texture);
+        pbr->SynchronizeLegacyMaterial();
+    }
+    mat.AddTexture(
+        static_cast<const wchar_t*>(texturePathW),
+        ON_Texture::TYPE::bitmap_texture);
+
+    const int matIdx = pDoc->m_material_table.AddMaterial(mat);
+    if (matIdx < 0)
+    {
+        error = "Failed to create reconstruction import material.";
+        return false;
+    }
+
+    int assignedCount = 0;
+    for (const auto& uuid : objectIds)
+    {
+        const CRhinoObject* obj = pDoc->LookupObject(uuid);
+        if (!obj) continue;
+
+        ON_3dmObjectAttributes attrs = obj->Attributes();
+        attrs.SetMaterialSource(ON::material_from_object);
+        attrs.m_material_index = matIdx;
+        if (pDoc->ModifyObjectAttributes(CRhinoObjRef(obj), attrs))
+            ++assignedCount;
+    }
+
+    if (assignedCount == 0)
+    {
+        error = "Prepared material repair found no imported objects to assign.";
+        return false;
+    }
+
+    return true;
+}
+
 // ─── POST /import ───────────────────────────────────────────────────
 
 void HandleImport(const httplib::Request& req, httplib::Response& res)
@@ -392,6 +475,9 @@ void HandleReconstructionImport(const httplib::Request& req, httplib::Response& 
     const std::string path = JsonStringOr(plan, "path");
     const std::string sourcePath = JsonStringOr(plan, "source_path");
     const std::string targetLayer = JsonStringOr(body, "targetLayer");
+    const nlohmann::json materialRepair = plan.value(
+        "material_repair",
+        nlohmann::json::object());
 
     if (path.empty() || assetRole.empty())
     {
@@ -423,7 +509,7 @@ void HandleReconstructionImport(const httplib::Request& req, httplib::Response& 
         : GetExtension(path).substr(1);
 
     auto future = CMainThreadDispatcher::Instance().Dispatch(
-        [docSn, path, sourcePath, targetLayer, packageId, jobId, importId, assetRole, format]() -> WriteResult
+        [docSn, path, sourcePath, targetLayer, packageId, jobId, importId, assetRole, format, materialRepair]() -> WriteResult
     {
         CRhinoDoc* pDoc = ResolveDoc(docSn);
         UndoScope undo(pDoc, L"Reconstruction Import");
@@ -482,6 +568,15 @@ void HandleReconstructionImport(const httplib::Request& req, httplib::Response& 
             }
         }
 
+        bool materialRepairApplied = false;
+        std::string materialRepairError;
+        if (materialRepair.is_object() && !materialRepair.empty())
+            materialRepairApplied = ApplyReconstructionMaterialRepair(
+                pDoc,
+                newIds,
+                materialRepair,
+                materialRepairError);
+
         bool associated = true;
         std::string associationError;
         for (const auto& uuid : newIds)
@@ -525,6 +620,12 @@ void HandleReconstructionImport(const httplib::Request& req, httplib::Response& 
         wr.data["format"] = format;
         wr.data["imported_ids"] = importedIds;
         wr.data["associated"] = associated;
+        if (materialRepair.is_object() && !materialRepair.empty())
+        {
+            wr.data["material_repair_applied"] = materialRepairApplied;
+            if (!materialRepairError.empty())
+                wr.data["material_repair_error"] = materialRepairError;
+        }
         if (!associationError.empty())
             wr.data["association_error"] = associationError;
         return wr;

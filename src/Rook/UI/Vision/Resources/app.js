@@ -1047,6 +1047,7 @@ function applyStudioSource(src) {
             el.studioSourceLabel.classList.add("hidden");
         }
     }
+    updateStudioOperationsEnabled();
 }
 
 function clearStudioSource() {
@@ -1061,12 +1062,170 @@ function clearStudioSource() {
         el.studioSourceLabel.textContent = "";
         el.studioSourceLabel.classList.add("hidden");
     }
+    updateStudioOperationsEnabled();
 }
 
 function basename(path) {
     if (!path) return "";
     const parts = String(path).split(/[\\/]/);
     return parts[parts.length - 1] || path;
+}
+
+// ─── Studio: Pick from Gallery ────────────────────────────────────
+
+const STUDIO_SOURCE_KINDS = ["generated_image", "imported_image", "captured_viewport", "preprocessed_image"];
+let studioPickerArtifactsById = {};
+
+async function openStudioPicker() {
+    if (!el.studioPickerModal || !el.studioPickerGrid) return;
+    studioPickerArtifactsById = {};
+    el.studioPickerGrid.innerHTML = '<div class="gallery-empty"><span>Loading…</span></div>';
+    el.studioPickerModal.classList.remove("hidden");
+    try {
+        // list_artifacts filters by a SINGLE kind; fan out one call per kind and merge.
+        const results = await Promise.all(STUDIO_SOURCE_KINDS.map(
+            k => bridgeCall("list_artifacts", { kind: k, limit: 100 }).catch(() => ({ artifacts: [] }))));
+        const artifacts = results.flatMap(r => (r && r.artifacts) || []);
+        artifacts.forEach(a => { studioPickerArtifactsById[a.artifact_id] = a; });
+        el.studioPickerGrid.innerHTML = artifacts.length
+            ? artifacts.map(a =>
+                `<button class="reconstruct-picker-cell" data-artifact-id="${escapeAttr(a.artifact_id)}"><img src="/blob/${encodeURIComponent(a.artifact_id)}/image" alt="${escapeAttr(a.kind)}"/></button>`).join("")
+            : '<div class="gallery-empty"><span>No images yet</span></div>';
+    } catch (e) {
+        el.studioPickerGrid.innerHTML = '<div class="gallery-empty"><span>Failed to load images</span></div>';
+    }
+}
+
+function closeStudioPicker() {
+    if (el.studioPickerModal) el.studioPickerModal.classList.add("hidden");
+}
+
+function selectStudioPickerArtifact(artifactId) {
+    const a = studioPickerArtifactsById[artifactId];
+    if (!a) return;
+    applyStudioSource({
+        source: "artifact",
+        artifact_id: a.artifact_id,
+        role: "image",
+        previewSrc: `/blob/${encodeURIComponent(a.artifact_id)}/image?ts=${Date.now()}`,
+        label: a.kind,
+    });
+    closeStudioPicker();
+}
+
+// ─── Studio: operation-aware result panel ─────────────────────────
+
+// Switch the shared Studio result panel between generation and operation
+// presentation. For an operation result (e.g. background removal) the title
+// reflects the operation and the generation-specific actions ("New Generation")
+// are hidden in favor of the result-reuse actions — no stale "Generated" copy.
+function setStudioResultMode(mode) {
+    const isOp = mode === "background_removed";
+    if (el.studioResultTitle) el.studioResultTitle.textContent = isOp ? "Background removed" : "Generated";
+    if (el.studioResultGenActions) el.studioResultGenActions.classList.toggle("hidden", isOp);
+    if (el.studioResultOpActions) el.studioResultOpActions.classList.toggle("hidden", !isOp);
+}
+
+function studioUseResultAsSource() {
+    if (!latestStudioArtifactId) return;
+    applyStudioSource({
+        source: "artifact",
+        artifact_id: latestStudioArtifactId,
+        role: "image",
+        previewSrc: `/blob/${encodeURIComponent(latestStudioArtifactId)}/image?ts=${Date.now()}`,
+        label: "background removed",
+    });
+}
+
+async function studioOpenResultInGallery() {
+    if (!latestStudioArtifactId) return;
+    const id = latestStudioArtifactId;
+    switchView("gallery");
+    await loadGallery();
+    await openArtifactModal(id);
+}
+
+async function studioSendResultToReconstruct() {
+    if (!latestStudioArtifactId) return;
+    try {
+        const artifact = await bridgeCall("get_artifact", { artifact_id: latestStudioArtifactId });
+        if (artifact && artifact.artifact_id) Reconstruct.presetSource(artifact);
+    } catch (e) {
+        showStudioStatus(e.message, "error");
+    }
+}
+
+// ─── Studio: Remove Background operation ──────────────────────────
+
+function showStudioOperationStatus(text, kind) {
+    if (!el.studioOperationStatus) return;
+    el.studioOperationStatus.textContent = text;
+    el.studioOperationStatus.className = "status-message " + (kind || "info");
+}
+
+// Remove Background is enabled only for an artifact-backed source. Path-only /
+// transient sources are not-ready (the backend op is artifact-only; we do not
+// auto-materialize). Recompute on every source change.
+function updateStudioOperationsEnabled() {
+    const ready = !!(studioSource && studioSource.artifact_id);
+    if (el.studioRemoveBgBtn) {
+        el.studioRemoveBgBtn.disabled = !ready;
+        el.studioRemoveBgBtn.title = ready
+            ? "Remove the background from the source image"
+            : "Load or pick a source image first";
+    }
+}
+
+async function studioRemoveBackground() {
+    if (!(studioSource && studioSource.artifact_id)) {
+        showStudioOperationStatus("Load or pick a source image first.", "error");
+        return;
+    }
+    el.studioRemoveBgBtn.disabled = true;
+    showStudioOperationStatus("Removing background…", "info");
+    try {
+        const job = await reconstructionBridgeCall("remove_background", {
+            source_artifact_id: studioSource.artifact_id,
+            source_role: studioSource.role || "image",
+        });
+        const jobId = job && job.job_id;
+        if (!jobId) {
+            showStudioOperationStatus("Background removal did not start.", "error");
+            return;
+        }
+        const resultArtifactId = await awaitStudioRemoveBackground(jobId);
+        if (!resultArtifactId) {
+            showStudioOperationStatus("Background removal returned no artifact.", "error");
+            return;
+        }
+        latestStudioArtifactId = resultArtifactId;
+        el.studioResultImage.src = `/blob/${encodeURIComponent(resultArtifactId)}/image?ts=${Date.now()}`;
+        setStudioResultMode("background_removed");
+        el.studioResultPanel.classList.remove("hidden");
+        showStudioOperationStatus("Background removed.", "success");
+    } catch (e) {
+        showStudioOperationStatus(errorToText(e), "error");
+    } finally {
+        updateStudioOperationsEnabled();
+    }
+}
+
+// Poll the reconstruction job to terminal; return result_artifact_id on success.
+async function awaitStudioRemoveBackground(jobId) {
+    for (let attempt = 0; attempt < 600; attempt++) {
+        const status = await reconstructionBridgeCall("job_status", { job_id: jobId });
+        const job = status.job || status;
+        const state = job && job.state;
+        if (state === "queued") showStudioOperationStatus("Background removal queued…", "info");
+        else if (state === "submitting") showStudioOperationStatus("Submitting…", "info");
+        else if (state === "materializing") showStudioOperationStatus("Saving result…", "info");
+        else if (state === "polling" || !state) showStudioOperationStatus("Removing background…", "info");
+        if (state === "complete") return (job && job.result_artifact_id) || null;
+        if (state === "cancelled") throw new Error("Background removal cancelled.");
+        if (state === "error") throw new Error("Background removal failed.");
+        await delay(1000);
+    }
+    throw new Error("Background removal timed out.");
 }
 
 async function studioEnhancePrompt() {
@@ -1133,6 +1292,7 @@ async function studioGenerate() {
         latestStudioArtifactId = artifact.artifact_id;
         if (artifact.artifact_id) {
             el.studioResultImage.src = `/blob/${encodeURIComponent(artifact.artifact_id)}/image?ts=${Date.now()}`;
+            setStudioResultMode("generate");
             el.studioResultPanel.classList.remove("hidden");
             showStudioStatus("Image generated.", "success");
         } else {
@@ -1167,6 +1327,7 @@ async function studioGenerateImageJob(args, model) {
     latestStudioArtifactId = result.result_artifact_id;
     if (result.result_artifact_id) {
         el.studioResultImage.src = `/blob/${encodeURIComponent(result.result_artifact_id)}/image?ts=${Date.now()}`;
+        setStudioResultMode("generate");
         el.studioResultPanel.classList.remove("hidden");
         showStudioStatus("Image generated.", "success");
     } else {
@@ -1229,17 +1390,19 @@ async function loadGallery() {
         // desc with artifact_id desc as the deterministic tie-breaker
         // (Codex sign-off note — equal-timestamp items must not jitter
         // between reloads).
-        const [imgData, vidData, importedImageData, importedVideoData] = await Promise.all([
+        const [imgData, vidData, importedImageData, importedVideoData, preprocessedImageData] = await Promise.all([
             bridgeCall("list_artifacts", { kind: "generated_image", limit: 100 }),
             bridgeCall("list_artifacts", { kind: "generated_video", limit: 100 }),
             bridgeCall("list_artifacts", { kind: "imported_image", limit: 100 }),
             bridgeCall("list_artifacts", { kind: "imported_video", limit: 100 }),
+            bridgeCall("list_artifacts", { kind: "preprocessed_image", limit: 100 }),
         ]);
         galleryItems = [
             ...(imgData.artifacts || []),
             ...(vidData.artifacts || []),
             ...(importedImageData.artifacts || []),
             ...(importedVideoData.artifacts || []),
+            ...(preprocessedImageData.artifacts || []),
         ].sort((a, b) => {
             const tA = a.created_at || "";
             const tB = b.created_at || "";
@@ -1595,7 +1758,8 @@ function canReconstructArtifact(artifact) {
     return !!artifact
         && (artifact.kind === "generated_image"
             || artifact.kind === "imported_image"
-            || artifact.kind === "captured_viewport")
+            || artifact.kind === "captured_viewport"
+            || artifact.kind === "preprocessed_image")
         && Array.isArray(artifact.files)
         && artifact.files.some(f => f.role === "image");
 }
@@ -2055,6 +2219,19 @@ function init() {
     el.studioResultImage = $("studio-result-image");
     el.studioApproveBtn = $("studio-approve-btn");
     el.studioNewBtn = $("studio-new-btn");
+    el.studioPickGalleryBtn = $("studio-pick-gallery-btn");
+    el.studioPickerModal = $("studio-picker-modal");
+    el.studioPickerGrid = $("studio-picker-grid");
+    el.studioPickerClose = $("studio-picker-close");
+    el.studioResultTitle = $("studio-result-title");
+    el.studioResultGenActions = $("studio-result-gen-actions");
+    el.studioResultOpActions = $("studio-result-op-actions");
+    el.studioUseAsSourceBtn = $("studio-use-as-source-btn");
+    el.studioOpenInGalleryBtn = $("studio-open-in-gallery-btn");
+    el.studioSendToReconstructBtn = $("studio-send-to-reconstruct-btn");
+    el.studioOperations = $("studio-operations");
+    el.studioRemoveBgBtn = $("studio-remove-bg-btn");
+    el.studioOperationStatus = $("studio-operation-status");
 
     // Gallery
     el.galleryGrid = $("gallery-grid");
@@ -2176,6 +2353,26 @@ function init() {
         studioReferences = [];
         renderReferencePreview(studioReferences, el.studioReferencePreview);
     });
+
+    el.studioPickGalleryBtn?.addEventListener("click", openStudioPicker);
+    el.studioPickerClose?.addEventListener("click", closeStudioPicker);
+    el.studioPickerModal?.querySelector(".modal-backdrop")?.addEventListener("click", closeStudioPicker);
+    el.studioPickerGrid?.addEventListener("click", (e) => {
+        if (!(e.target instanceof Element)) return;
+        const cell = e.target.closest(".reconstruct-picker-cell");
+        if (cell) selectStudioPickerArtifact(cell.dataset.artifactId);
+    });
+    document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && el.studioPickerModal && !el.studioPickerModal.classList.contains("hidden")) {
+            closeStudioPicker();
+        }
+    });
+
+    el.studioUseAsSourceBtn?.addEventListener("click", studioUseResultAsSource);
+    el.studioOpenInGalleryBtn?.addEventListener("click", studioOpenResultInGallery);
+    el.studioSendToReconstructBtn?.addEventListener("click", studioSendResultToReconstruct);
+    el.studioRemoveBgBtn?.addEventListener("click", studioRemoveBackground);
+    updateStudioOperationsEnabled();   // initial disabled state (no source yet)
 
     if (el.refreshGalleryBtn) el.refreshGalleryBtn.addEventListener("click", loadGallery);
     if (el.addMediaGalleryBtn) el.addMediaGalleryBtn.addEventListener("click", startMediaImport);

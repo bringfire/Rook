@@ -1373,6 +1373,18 @@ body {
     color: var(--accent-brass-bright);
 }
 
+/* Studio operation result actions (3 buttons) wrap instead of overflowing
+   the non-wrapping result-header row. */
+#studio-result-op-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    justify-content: flex-end;
+}
+#studio-result-op-actions .btn {
+    white-space: nowrap;
+}
+
 .result-actions {
     display: flex;
     gap: var(--space-1);
@@ -2743,6 +2755,22 @@ body {
     height: 90px;
     object-fit: cover;
     display: block;
+}
+.studio-operations {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
+}
+.studio-operations .section-label {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--ink-soft);
+}
+.studio-operations .btn[disabled] {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 .reconstruct-segmented {
     display: inline-flex;
