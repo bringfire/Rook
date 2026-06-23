@@ -669,13 +669,16 @@
                                 <h2 class="panel-title">Generate</h2>
                             </div>
                             <div class="reconstruct-form">
-                                <div class="reconstruct-field">
-                                    <label class="reconstruct-label">Source image</label>
-                                    <div class="reconstruct-source">
-                                        <img id="reconstruct-source-thumb" class="reconstruct-source-thumb hidden" alt="source" />
-                                        <span id="reconstruct-source-label" class="reconstruct-source-label">No image selected</span>
-                                        <button id="reconstruct-choose-source" class="btn btn-secondary">Choose in Gallery…</button>
+                                <div class="reconstruct-field" id="reconstruct-source-field">
+                                  <label class="reconstruct-label" id="reconstruct-source-heading">Source image</label>
+                                  <div class="reconstruct-source-pane">
+                                    <img id="reconstruct-source-thumb" class="reconstruct-source-thumb hidden" alt="source" />
+                                    <span id="reconstruct-source-label" class="reconstruct-source-label">No image selected</span>
+                                    <div class="reconstruct-source-actions">
+                                      <button id="reconstruct-choose-source" class="btn btn-secondary">Pick</button>
+                                      <button id="reconstruct-source-clear" class="btn-text">Clear</button>
                                     </div>
+                                  </div>
                                 </div>
                                 <div class="reconstruct-field">
                                     <label class="reconstruct-label" for="reconstruct-model-select">Model</label>
@@ -750,6 +753,18 @@
                         <div id="reconstruct-queue-filter-summary" class="reconstruct-queue-filter-summary hidden" aria-live="polite"></div>
                         <div id="reconstruct-jobs-list" class="reconstruct-queue-list"></div>
                     </div>
+                </div>
+
+                <!-- Reconstruct picker modal: used by front pane (Task 2) and secondary slots (Task 3) -->
+                <div id="reconstruct-picker-modal" class="modal hidden">
+                  <div class="modal-backdrop"></div>
+                  <div class="modal-content modal-content-picker">
+                    <div class="modal-header">
+                      <span id="reconstruct-picker-title">Pick a Gallery image</span>
+                      <button id="reconstruct-picker-close" class="btn-icon" aria-label="Close">×</button>
+                    </div>
+                    <div id="reconstruct-picker-grid" class="reconstruct-picker-grid"></div>
+                  </div>
                 </div>
             </section>
 

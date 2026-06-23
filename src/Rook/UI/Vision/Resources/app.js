@@ -3331,7 +3331,10 @@ const Reconstruct = (() => {
 
     let models = [];
     let modelsLoaded = false;
-    let source = null;            // { artifact_id, role, previewSrc, label }
+    // Uniform slot state — each filled entry: { artifact_id, role, previewSrc, label, kind }
+    const slots = { front: null, left: null, right: null, back: null, top: null, three_quarter: null };
+    let pickerTargetSlot = null;
+    let pickerArtifactsById = {};
     let outputMode = "textured";  // "textured" | "geometry"
     let reconstructMode = "i3d";  // "t3d" | "i3d" | "mv3d"
     let currentPackageId = null;
@@ -3345,6 +3348,10 @@ const Reconstruct = (() => {
         re.sourceThumb = $("reconstruct-source-thumb");
         re.sourceLabel = $("reconstruct-source-label");
         re.chooseSourceBtn = $("reconstruct-choose-source");
+        re.sourceClear = $("reconstruct-source-clear");
+        re.pickerModal = $("reconstruct-picker-modal");
+        re.pickerGrid = $("reconstruct-picker-grid");
+        re.pickerClose = $("reconstruct-picker-close");
         re.modelSelect = $("reconstruct-model-select");
         re.modelHint = $("reconstruct-model-hint");
         re.modeSwitch = $("reconstruct-mode-radios");
@@ -3369,7 +3376,22 @@ const Reconstruct = (() => {
 
     function wireEvents() {
         re.modeSwitch.querySelectorAll(".seg-btn").forEach(b => b.addEventListener("click", () => setReconstructMode(b.dataset.mode)));
-        re.chooseSourceBtn.addEventListener("click", chooseSource);
+        re.chooseSourceBtn.addEventListener("click", () => openReconstructPicker("front"));
+        re.sourceClear.addEventListener("click", () => clearSlot("front"));
+        re.pickerClose.addEventListener("click", closeReconstructPicker);
+        re.pickerModal.querySelector(".modal-backdrop").addEventListener("click", closeReconstructPicker);
+        re.pickerGrid.addEventListener("click", (e) => {
+            if (!(e.target instanceof Element)) return;
+            const cell = e.target.closest(".reconstruct-picker-cell");
+            if (!cell) return;
+            const a = pickerArtifactsById[cell.dataset.artifactId];
+            if (a) { fillSlot(pickerTargetSlot, a); closeReconstructPicker(); }
+        });
+        document.addEventListener("keydown", (e) => {
+            if (e.key === "Escape" && re.pickerModal && !re.pickerModal.classList.contains("hidden")) {
+                closeReconstructPicker();
+            }
+        });
         re.modeTextured.addEventListener("click", () => setOutputMode("textured"));
         re.modeGeometry.addEventListener("click", () => setOutputMode("geometry"));
         re.submitBtn.addEventListener("click", submit);
@@ -3399,7 +3421,7 @@ const Reconstruct = (() => {
     async function onEnter() {
         await loadModels();
         setReconstructMode(reconstructMode);
-        renderSource();
+        renderSlot("front");
         setQueueFilter("active");   // default view-enter filter
         await loadJobs();
     }
@@ -3444,7 +3466,8 @@ const Reconstruct = (() => {
     }
 
     async function submit() {
-        if (!source || !source.artifact_id) {
+        const frontSlot = slots.front;
+        if (!frontSlot || !frontSlot.artifact_id) {
             showReconstructStatus("Choose a source image first.", "error");
             return;
         }
@@ -3458,8 +3481,8 @@ const Reconstruct = (() => {
             re.submitBtn.disabled = true;
             showReconstructStatus("Submitting reconstruction…", "info");
             const job = await reconstructionBridgeCall("submit_job", {
-                source_artifact_id: source.artifact_id,
-                source_role: source.role || "image",
+                source_artifact_id: frontSlot.artifact_id,
+                source_role: frontSlot.role || "image",
                 model_id: modelId,
                 preprocessing_chain: [],
                 options: optionsForMode(),
@@ -3547,24 +3570,47 @@ const Reconstruct = (() => {
         modelsLoaded = true;
     }
 
-    function renderSource() {
-        if (source && source.previewSrc) {
-            re.sourceThumb.src = source.previewSrc;
-            re.sourceThumb.classList.remove("hidden");
-        } else {
-            re.sourceThumb.removeAttribute("src");
-            re.sourceThumb.classList.add("hidden");
-        }
-        re.sourceLabel.textContent = source ? (source.label || source.artifact_id) : "No image selected";
+    function fillSlot(slot, artifact) {
+        slots[slot] = {
+            artifact_id: artifact.artifact_id,
+            role: "image",
+            previewSrc: `/blob/${encodeURIComponent(artifact.artifact_id)}/image?ts=${Date.now()}`,
+            label: (artifact.metadata && artifact.metadata.prompt) || artifact.kind || artifact.artifact_id,
+            kind: artifact.kind,
+        };
+        renderSlot(slot);
     }
 
-    async function chooseSource() {
-        // Single source-selection path: open the Gallery and let the user
-        // pick via the modal "Send to 3D" shortcut, which calls presetSource
-        // and navigates back here. No duplicate picker.
-        switchView("gallery");
-        showStatus("Pick an image in the Gallery, then use “Send to 3D”.", "info");
+    function clearSlot(slot) { slots[slot] = null; renderSlot(slot); }
+
+    function renderSlot(slot) {
+        if (slot === "front") {  // the hero pane reuses the existing source thumb/label
+            const v = slots.front;
+            if (v) { re.sourceThumb.src = v.previewSrc; re.sourceThumb.classList.remove("hidden"); }
+            else { re.sourceThumb.removeAttribute("src"); re.sourceThumb.classList.add("hidden"); }
+            re.sourceLabel.textContent = v ? v.label : "No image selected";
+            return;
+        }
+        // secondary slots rendered in Task 3 (query by [data-slot])
     }
+
+    const RECONSTRUCT_SOURCE_KINDS = ["generated_image", "imported_image", "captured_viewport", "preprocessed_image"];
+
+    async function openReconstructPicker(slot) {
+        pickerTargetSlot = slot;
+        // The shared Gallery helper is `bridgeCall`; list_artifacts filters by a
+        // SINGLE `kind`, so fan out one call per allowed kind and merge.
+        const results = await Promise.all(RECONSTRUCT_SOURCE_KINDS.map(
+            k => bridgeCall("list_artifacts", { kind: k, limit: 100 }).catch(() => ({ artifacts: [] }))));
+        const artifacts = results.flatMap(r => (r && r.artifacts) || []);
+        pickerArtifactsById = {};
+        artifacts.forEach(a => { pickerArtifactsById[a.artifact_id] = a; });
+        re.pickerGrid.innerHTML = artifacts.map(a =>
+            `<button class="reconstruct-picker-cell" data-artifact-id="${escapeAttr(a.artifact_id)}"><img src="/blob/${encodeURIComponent(a.artifact_id)}/image" alt="${escapeAttr(a.kind)}"/></button>`).join("");
+        re.pickerModal.classList.remove("hidden");
+    }
+
+    function closeReconstructPicker() { re.pickerModal.classList.add("hidden"); pickerTargetSlot = null; }
 
     // Friendly headline per known warning code. Unknown codes fall back to
     // the backend message verbatim (forward-compatible). Read by CODE, never
@@ -3827,14 +3873,9 @@ const Reconstruct = (() => {
     // chosen image artifact and navigate to this view. Single source path.
     function presetSource(artifact) {
         if (!artifact) return;
-        source = {
-            artifact_id: artifact.artifact_id,
-            role: "image",
-            previewSrc: `/blob/${encodeURIComponent(artifact.artifact_id)}/image?ts=${Date.now()}`,
-            label: (artifact.metadata && artifact.metadata.prompt) || artifact.kind || artifact.artifact_id,
-        };
+        if (reconstructMode === "t3d") setReconstructMode("i3d"); // no-mode/T3D → I3D; MV3D stays
+        fillSlot("front", artifact);   // ALWAYS lands in the large pane
         switchView("reconstruct");
-        renderSource();
     }
 
     return { cacheEls, wireEvents, onEnter, presetSource };

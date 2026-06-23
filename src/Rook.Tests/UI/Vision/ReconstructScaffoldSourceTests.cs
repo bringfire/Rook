@@ -47,6 +47,41 @@ namespace Rook.Tests.UI.Vision
             Assert.Contains("let reconstructMode = \"i3d\";", js);
         }
 
+        // ─── Task 2 assertions ────────────────────────────────────────
+
+        [Fact]
+        public void IndexHtml_FrontPane_HasSingleClearAndReusesChooseSourceAsPick()
+        {
+            var html = ReadVisionResource("index.html");
+            Assert.Contains("id=\"reconstruct-choose-source\"", html);   // repurposed to Pick
+            Assert.Contains("id=\"reconstruct-source-clear\"", html);     // new
+            Assert.DoesNotContain("id=\"reconstruct-source-pick\"", html); // no competing control
+        }
+
+        [Fact]
+        public void IndexHtml_ReconstructPickerModal_Present()
+        {
+            var html = ReadVisionResource("index.html");
+            Assert.Contains("id=\"reconstruct-picker-modal\"", html);
+            Assert.Contains("id=\"reconstruct-picker-grid\"", html);
+            Assert.Contains("id=\"reconstruct-picker-close\"", html);
+        }
+
+        [Fact]
+        public void AppJs_SlotStateCarriesRenderFields_AndSendTo3dLandsInFront()
+        {
+            var js = ReadVisionResource("app.js");
+            Assert.Contains("function fillSlot(", js);
+            Assert.Contains("function clearSlot(", js);
+            Assert.Contains("previewSrc:", js);
+            // Send-to-3D invariant: presetSource populates slots.front and large pane
+            var s = js.IndexOf("function presetSource(", System.StringComparison.Ordinal);
+            var e = js.IndexOf("return {", s, System.StringComparison.Ordinal);
+            var body = js.Substring(s, e - s);
+            Assert.Contains("fillSlot(\"front\"", body);
+            Assert.Contains("if (reconstructMode === \"t3d\") setReconstructMode(\"i3d\");", body);
+        }
+
         // ─── helpers ──────────────────────────────────────────────────
 
         private static string ReadVisionResource(string fileName)
