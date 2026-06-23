@@ -282,13 +282,13 @@ async def test_live_producer_evidence_drives_verifier_handoff(fresh_document):
     assert verifier_step.graph.nodes["repair_same_component"].status == "ready"
 ```
 
-- [ ] **Step 2: Confirm the live test collects and skips cleanly without Rhino**
+- [ ] **Step 2: Collection / skip-safety check**
 
-Run (from repo root, Rhino NOT required):
+Run (from repo root):
 ```
 mcp_server\.venv\Scripts\python.exe -m pytest mcp_server/tests/test_live_producer_verifier_handoff_live.py -v
 ```
-Expected: `1 skipped` (the `fresh_document` fixture skips when Rhino is unreachable) — NOT `error` and NOT `failed`. A collection error means an import or marker problem; fix it before committing.
+Expected: either `1 skipped` (when Rhino is down — the `fresh_document` fixture skips) OR `1 passed` (when Rhino + Grasshopper happen to be open and the live path runs). Both outcomes are acceptable here; what must NOT happen is a collection `error` or a `failed` — those mean an import or marker problem, fix it before committing. The authoritative live proof remains Step 5 with `-m requires_rhino`.
 
 - [ ] **Step 3: Confirm the diff guard**
 
@@ -324,9 +324,10 @@ Expected after restore: clean (or only intended files). If the live run failed, 
 
 ## Final verification (whole-branch)
 
-- [ ] **Focused gate green (Rhino-independent):** from repo root, run the focused PlanGraph gate including the new pure guard. PowerShell does not expand `test_plan_graph*.py`; use git-bash or enumerate. Via the Bash tool (git-bash glob expands):
+- [ ] **Focused gate green (Rhino-independent):** from repo root, run the focused PlanGraph gate including the new pure guard. PowerShell does not expand `test_plan_graph*.py`, so enumerate the files explicitly (proven command):
 ```
-mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_plan_graph*.py -q
+$files = Get-ChildItem mcp_server/tests -Filter 'test_plan_graph*.py' | ForEach-Object { $_.FullName }
+mcp_server/.venv/Scripts/python.exe -m pytest -p no:cacheprovider @files -q
 ```
 Expected: all pass, including `test_plan_graph_live_handoff.py` (gate count rises from the LM4G baseline of 255).
 
