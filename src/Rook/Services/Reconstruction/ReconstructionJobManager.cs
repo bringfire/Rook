@@ -809,13 +809,29 @@ public sealed class ReconstructionJobManager : IDisposable
         return value.TryGetValue<bool>(out var parsed) ? parsed : (bool?)null;
     }
 
+    private static string? ReadString(JsonObject options, string key)
+        => options is not null
+            && options.TryGetPropertyValue(key, out var node)
+            && node is JsonValue value
+            && value.TryGetValue<string>(out var text)
+                ? text
+                : null;
+
     internal static bool DeriveTextureExpected(JsonObject options, ReconstructionModelEntry model)
     {
-        if (ReadStrictBool(options, "enable_geometry") == true) return false;   // rule 1
+        // Catalog-described (Pro) path: generate_type drives texture expectation. Normal expects a
+        // texture even when enable_pbr=false; Geometry never does.
+        if (ReadString(options, "generate_type") is { } generateType)
+        {
+            if (string.Equals(generateType, "Geometry", StringComparison.Ordinal)) return false;
+            if (string.Equals(generateType, "Normal", StringComparison.Ordinal)) return true;
+        }
+
+        if (ReadStrictBool(options, "enable_geometry") == true) return false;   // legacy rule 1
         var pbr = ReadStrictBool(options, "enable_pbr");
-        if (pbr == true) return true;                                          // rule 2
-        if (pbr == false) return false;                                        // rule 3
-        return model.DefaultTextureExpected;                                   // rule 4
+        if (pbr == true) return true;                                          // legacy rule 2
+        if (pbr == false) return false;                                        // legacy rule 3
+        return model.DefaultTextureExpected;                                   // legacy rule 4
     }
 
     // Pure: classifies a delivered reconstruction result against the request's texture expectation and

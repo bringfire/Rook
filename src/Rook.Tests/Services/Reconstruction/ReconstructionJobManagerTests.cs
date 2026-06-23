@@ -1402,6 +1402,34 @@ public sealed class ReconstructionJobManagerTests : IDisposable
         return root;
     }
 
+    private static ReconstructionModelEntry ProStableModelEntry()
+        => ReconstructionModelCatalog.FromJson(CatalogJson).Find(ProModelId)!;
+
+    private static ReconstructionModelEntry RapidStableModelEntry()
+        => ReconstructionModelCatalog.FromJson(CatalogJson).Find(HunyuanModelId)!;
+
+    [Theory]
+    [InlineData("Normal", true, true)]
+    [InlineData("Normal", false, true)]   // Normal expects texture even without PBR — the Pro fix
+    [InlineData("Geometry", true, false)]
+    [InlineData("Geometry", false, false)]
+    public void DeriveTextureExpected_GenerateTypeDriven(string generateType, bool enablePbr, bool expected)
+    {
+        var model = ProStableModelEntry();
+        var options = new JsonObject { ["generate_type"] = generateType, ["enable_pbr"] = enablePbr };
+        Assert.Equal(expected, ReconstructionJobManager.DeriveTextureExpected(options, model));
+    }
+
+    [Fact]
+    public void DeriveTextureExpected_LegacyModel_UsesEnableFlags()
+    {
+        var model = RapidStableModelEntry();
+        Assert.False(ReconstructionJobManager.DeriveTextureExpected(
+            new JsonObject { ["enable_geometry"] = true }, model));
+        Assert.True(ReconstructionJobManager.DeriveTextureExpected(
+            new JsonObject { ["enable_pbr"] = true }, model));
+    }
+
     private static ReconstructionSubmitRequest Request(Guid sourceId)
         => new(
             SourceArtifactId: sourceId,
