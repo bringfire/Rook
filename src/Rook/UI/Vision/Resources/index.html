@@ -283,6 +283,14 @@
                                 </svg>
                                 <span>Clear</span>
                             </button>
+                            <button id="studio-pick-gallery-btn" class="btn btn-capture" title="Pick a source image from the Gallery">
+                                <svg viewBox="0 0 24 24" fill="none">
+                                    <rect x="3" y="3" width="18" height="18" rx="2" stroke="currentColor" stroke-width="2"/>
+                                    <circle cx="8.5" cy="8.5" r="1.5" fill="currentColor"/>
+                                    <path d="M21 15L16 10L5 21" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                                <span>Pick from Gallery</span>
+                            </button>
                         </div>
                         <div id="studio-source-label" class="studio-source-label hidden"></div>
                     </div>
@@ -409,6 +417,18 @@
                     <div class="result-image-container">
                         <img id="studio-result-image" src="" alt="Generated image">
                     </div>
+                </div>
+
+                <!-- Studio source picker modal (Studio-local; mirrors the Reconstruct picker pattern) -->
+                <div id="studio-picker-modal" class="modal hidden">
+                  <div class="modal-backdrop"></div>
+                  <div class="modal-content modal-content-picker">
+                    <div class="modal-header">
+                      <span id="studio-picker-title">Pick a Gallery image</span>
+                      <button id="studio-picker-close" class="btn-icon" aria-label="Close">×</button>
+                    </div>
+                    <div id="studio-picker-grid" class="reconstruct-picker-grid"></div>
+                  </div>
                 </div>
             </section>
 

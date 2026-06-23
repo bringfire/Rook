@@ -1069,6 +1069,48 @@ function basename(path) {
     return parts[parts.length - 1] || path;
 }
 
+// ─── Studio: Pick from Gallery ────────────────────────────────────
+
+const STUDIO_SOURCE_KINDS = ["generated_image", "imported_image", "captured_viewport", "preprocessed_image"];
+let studioPickerArtifactsById = {};
+
+async function openStudioPicker() {
+    if (!el.studioPickerModal || !el.studioPickerGrid) return;
+    studioPickerArtifactsById = {};
+    el.studioPickerGrid.innerHTML = '<div class="gallery-empty"><span>Loading…</span></div>';
+    el.studioPickerModal.classList.remove("hidden");
+    try {
+        // list_artifacts filters by a SINGLE kind; fan out one call per kind and merge.
+        const results = await Promise.all(STUDIO_SOURCE_KINDS.map(
+            k => bridgeCall("list_artifacts", { kind: k, limit: 100 }).catch(() => ({ artifacts: [] }))));
+        const artifacts = results.flatMap(r => (r && r.artifacts) || []);
+        artifacts.forEach(a => { studioPickerArtifactsById[a.artifact_id] = a; });
+        el.studioPickerGrid.innerHTML = artifacts.length
+            ? artifacts.map(a =>
+                `<button class="reconstruct-picker-cell" data-artifact-id="${escapeAttr(a.artifact_id)}"><img src="/blob/${encodeURIComponent(a.artifact_id)}/image" alt="${escapeAttr(a.kind)}"/></button>`).join("")
+            : '<div class="gallery-empty"><span>No images yet</span></div>';
+    } catch (e) {
+        el.studioPickerGrid.innerHTML = '<div class="gallery-empty"><span>Failed to load images</span></div>';
+    }
+}
+
+function closeStudioPicker() {
+    if (el.studioPickerModal) el.studioPickerModal.classList.add("hidden");
+}
+
+function selectStudioPickerArtifact(artifactId) {
+    const a = studioPickerArtifactsById[artifactId];
+    if (!a) return;
+    applyStudioSource({
+        source: "artifact",
+        artifact_id: a.artifact_id,
+        role: "image",
+        previewSrc: `/blob/${encodeURIComponent(a.artifact_id)}/image?ts=${Date.now()}`,
+        label: a.kind,
+    });
+    closeStudioPicker();
+}
+
 async function studioEnhancePrompt() {
     const prompt = el.studioPrompt.value.trim();
     if (!prompt) { showStudioStatus("Please enter a prompt.", "error"); return; }
@@ -2055,6 +2097,10 @@ function init() {
     el.studioResultImage = $("studio-result-image");
     el.studioApproveBtn = $("studio-approve-btn");
     el.studioNewBtn = $("studio-new-btn");
+    el.studioPickGalleryBtn = $("studio-pick-gallery-btn");
+    el.studioPickerModal = $("studio-picker-modal");
+    el.studioPickerGrid = $("studio-picker-grid");
+    el.studioPickerClose = $("studio-picker-close");
 
     // Gallery
     el.galleryGrid = $("gallery-grid");
@@ -2175,6 +2221,20 @@ function init() {
     el.studioClearReferencesBtn.addEventListener("click", () => {
         studioReferences = [];
         renderReferencePreview(studioReferences, el.studioReferencePreview);
+    });
+
+    el.studioPickGalleryBtn?.addEventListener("click", openStudioPicker);
+    el.studioPickerClose?.addEventListener("click", closeStudioPicker);
+    el.studioPickerModal?.querySelector(".modal-backdrop")?.addEventListener("click", closeStudioPicker);
+    el.studioPickerGrid?.addEventListener("click", (e) => {
+        if (!(e.target instanceof Element)) return;
+        const cell = e.target.closest(".reconstruct-picker-cell");
+        if (cell) selectStudioPickerArtifact(cell.dataset.artifactId);
+    });
+    document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && el.studioPickerModal && !el.studioPickerModal.classList.contains("hidden")) {
+            closeStudioPicker();
+        }
     });
 
     if (el.refreshGalleryBtn) el.refreshGalleryBtn.addEventListener("click", loadGallery);
