@@ -56,34 +56,49 @@ depend on it — so the fix belongs at the PlanGraph consumer boundary, never in
 ## The change (single function, strictly additive)
 
 `_extract_script_receipt` in `mcp_server/src/rook/learning/plan_graph_outcomes.py`,
-**nested-first, top-level fallback**:
+**nested-first, narrowed top-level fallback**:
 
 ```python
 def _extract_script_receipt(result: Any) -> dict[str, Any] | None:
     if not isinstance(result, dict):
         return None
-    # Nested dispatcher / MCP-failure shape FIRST (unchanged):
+    # Nested dispatcher / MCP-failure envelope FIRST (unchanged):
     #   result["data"]["script_receipt"].
     data = result.get("data")
     if isinstance(data, dict):
         receipt = data.get("script_receipt")
         if isinstance(receipt, dict):
             return deepcopy(receipt)
-    # Fallback: MCP success-unwrapped shape -- receipt at the top level.
+    # Top-level fallback ONLY for the MCP success-unwrapped payload shape: the
+    # result IS the tool ``data`` itself, so it carries no internal-envelope
+    # marker. If the dict still looks like an internal result envelope, do not
+    # reinterpret a stray top-level ``script_receipt`` -- preserve the old
+    # guardrail (e.g. ``{"success": True, "script_receipt": ...}`` is ignored).
+    if "data" in result or "success" in result or "ok" in result or "error" in result:
+        return None
     receipt = result.get("script_receipt")
     if isinstance(receipt, dict):
         return deepcopy(receipt)
     return None
 ```
 
-**Precedence (locked: A — nested-first, top-level fallback).** The nested branch
-runs first and returns exactly as today whenever a nested receipt is present, so:
+**Precedence (locked: A — nested-first) + re-gate (narrowed fallback).** The nested
+branch runs first and returns exactly as today whenever a nested receipt is
+present, so:
 
 - Every existing wrapped/nested path is byte-stable (same branch, same deep-copy).
 - **Both-present → nested wins** with no extra branching (nested returns first).
-- The only relaxation: when `data` is non-dict (the unwrapped shape has no `data`
-  key), the function no longer early-returns `None` — it checks the top level.
-- A non-dict top-level `script_receipt` falls through to `None`.
+- **Re-gate:** the top-level fallback is accepted **only** for the documented MCP
+  success-unwrapped payload — i.e. a dict carrying **none** of the
+  internal-envelope markers `data` / `success` / `ok` / `error`. This is NOT "any
+  top-level `script_receipt`"; a dict that still looks like an internal result
+  envelope (e.g. `{"success": True, "script_receipt": ...}`) keeps the original
+  guardrail and its top-level receipt is ignored. The narrowing exists because
+  `_extract_script_receipt` is shared by the conservative
+  `node_outcome_from_tool_result` path too — we do not broaden trust beyond the
+  one live boundary LM4E actually observed.
+- A non-dict top-level `script_receipt` (on a marker-free dict) falls through to
+  `None`.
 
 `_repair_anchor(receipt)` derives from the returned receipt, so the repair anchor
 follows automatically once the receipt is found at either location. No other
@@ -121,6 +136,12 @@ raw top-level MCP success payload (script_receipt at top level)
    both `data.script_receipt` and top level returns the nested one.
 4. **Non-dict top-level receipt ignored.** `{"script_receipt": "not a dict"}` →
    `None` (falls through), and the non-dict `data` early-relaxation does not raise.
+4b. **Envelope-marker guardrail preserved (re-gate).** The existing guard test
+   (renamed `test_top_level_receipt_ignored_when_envelope_markers_present`) keeps
+   its assertions: `{"success": True, "script_receipt": {...created_with_errors...}}`
+   → top-level receipt **ignored** → conservative path stays `succeeded` /
+   `receipt None`. Proves the narrowing did not broaden conservative semantics for
+   internal-envelope-looking dicts.
 5. **`node_evidence_from_tool_result` on a top-level `usable` payload.** Returns a
    `NodeEvidence` whose `receipt` is the usable receipt and whose
    `repair_anchor.component_guid` is present; `tool_status is None` and

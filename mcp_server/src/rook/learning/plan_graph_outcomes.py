@@ -35,11 +35,24 @@ _TOOL_STATUS_TO_SUMMARY = {
 def _extract_script_receipt(result: Any) -> dict[str, Any] | None:
     if not isinstance(result, dict):
         return None
+    # Nested dispatcher / MCP-failure envelope FIRST (unchanged):
+    #   result["data"]["script_receipt"].
     data = result.get("data")
-    if not isinstance(data, dict):
+    if isinstance(data, dict):
+        receipt = data.get("script_receipt")
+        if isinstance(receipt, dict):
+            return deepcopy(receipt)
+    # Top-level fallback ONLY for the MCP success-unwrapped payload shape: the
+    # result IS the tool ``data`` itself, so it carries no internal-envelope
+    # marker. If the dict still looks like an internal result envelope, do not
+    # reinterpret a stray top-level ``script_receipt`` -- preserve the old
+    # guardrail (e.g. ``{"success": True, "script_receipt": ...}`` is ignored).
+    if "data" in result or "success" in result or "ok" in result or "error" in result:
         return None
-    receipt = data.get("script_receipt")
-    return deepcopy(receipt) if isinstance(receipt, dict) else None
+    receipt = result.get("script_receipt")
+    if isinstance(receipt, dict):
+        return deepcopy(receipt)
+    return None
 
 
 def _artifact_status(receipt: dict[str, Any] | None) -> str | None:

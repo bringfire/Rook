@@ -12,7 +12,7 @@
 
 - **Production diff confined to ONE function:** `_extract_script_receipt` in `mcp_server/src/rook/learning/plan_graph_outcomes.py`. No other production file changes.
 - **Do NOT change** `_mcp_tool_executor` / `_format_tool_result` (documented, load-bearing) or `normalize_tool_result`. No invented `tool_status == "success"` inference.
-- **Precedence:** nested-first, top-level fallback; both-present → nested wins (defensive ordering, not a new semantic branch).
+- **Precedence + re-gate:** nested-first; both-present → nested wins. The top-level fallback is accepted ONLY for the MCP success-unwrapped shape — a dict with **none** of the envelope markers `data` / `success` / `ok` / `error`. NOT "any top-level receipt"; internal-envelope-looking dicts keep the original guardrail.
 - **Diff guard (final):** `git diff --name-only main` must list ONLY:
   - `mcp_server/src/rook/learning/plan_graph_outcomes.py`
   - `mcp_server/tests/test_plan_graph_outcomes.py`
@@ -189,19 +189,35 @@ Replace `_extract_script_receipt` in `mcp_server/src/rook/learning/plan_graph_ou
 def _extract_script_receipt(result: Any) -> dict[str, Any] | None:
     if not isinstance(result, dict):
         return None
-    # Nested dispatcher / MCP-failure shape FIRST (unchanged):
+    # Nested dispatcher / MCP-failure envelope FIRST (unchanged):
     #   result["data"]["script_receipt"].
     data = result.get("data")
     if isinstance(data, dict):
         receipt = data.get("script_receipt")
         if isinstance(receipt, dict):
             return deepcopy(receipt)
-    # Fallback: MCP success-unwrapped shape -- receipt at the top level.
+    # Top-level fallback ONLY for the MCP success-unwrapped payload shape: the
+    # result IS the tool ``data`` itself, so it carries no internal-envelope
+    # marker. If the dict still looks like an internal result envelope, do not
+    # reinterpret a stray top-level ``script_receipt`` -- preserve the old
+    # guardrail (e.g. ``{"success": True, "script_receipt": ...}`` is ignored).
+    if "data" in result or "success" in result or "ok" in result or "error" in result:
+        return None
     receipt = result.get("script_receipt")
     if isinstance(receipt, dict):
         return deepcopy(receipt)
     return None
 ```
+
+**Re-gate note (narrowed fallback):** the top-level read is accepted ONLY when the
+dict carries none of the envelope markers `data` / `success` / `ok` / `error`.
+This preserves the original guardrail because `_extract_script_receipt` is shared
+by the conservative `node_outcome_from_tool_result` path. A pre-existing test that
+locked the old "ignore top-level" behavior is **renamed** (not deleted) to document
+the refined rule with the same assertions —
+`test_top_level_receipt_ignored_when_envelope_markers_present` (its scenario,
+`{"success": True, "script_receipt": ...}`, still has a `success` marker so the
+top-level receipt stays ignored: `succeeded` / `receipt None`).
 
 - [ ] **Step 4: Run the LM4F tests; confirm all pass**
 

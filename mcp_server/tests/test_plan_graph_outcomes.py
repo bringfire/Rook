@@ -8,8 +8,14 @@ import sys
 
 import pytest
 
-from rook.learning.plan_graph import NodeEvidence, NodeOutcome
-from rook.learning.plan_graph_outcomes import node_evidence_from_tool_result, node_outcome_from_tool_result
+from rook.learning.plan_graph import NodeEvidence, NodeOutcome, PlanGraph, PlanGraphNode
+from rook.learning.plan_graph_outcomes import (
+    node_evidence_from_tool_result,
+    node_outcome_from_tool_result,
+    _extract_script_receipt,
+)
+from rook.learning.plan_graph_projection import OUTCOME_PROJECTION_ROLE_KEY
+from rook.learning.plan_graph_runner import apply_producer_result
 
 
 def _receipt_result(
@@ -238,7 +244,13 @@ def test_adapter_deep_copies_receipt_repair_anchor_and_memory_facts():
     assert outcome.evidence.repair_anchor["pins_out"][0]["name"] == "EvidenceOnly"
 
 
-def test_receipt_extraction_only_uses_internal_data_script_receipt_location():
+def test_top_level_receipt_ignored_when_envelope_markers_present():
+    """LM4F refined rule: a top-level script_receipt is honored ONLY for the
+    MCP success-unwrapped payload shape (no internal-envelope markers). When the
+    dict still looks like an internal result envelope (here a ``success`` key),
+    the stray top-level receipt is NOT reinterpreted -- preserving the original
+    guardrail. The MCP success-unwrapped case (no markers) is covered separately
+    by test_extract_receipt_top_level_shape_extracted_and_deepcopied."""
     result = {
         "success": True,
         "script_receipt": {
@@ -421,3 +433,118 @@ def test_node_outcome_full_shape_parity():
         error="boom",
     )
     assert node_outcome_from_tool_result(raw_c) == expected_c
+
+
+# --- LM4F: MCP success-unwrapped top-level script_receipt -------------------
+
+def _nested_usable_result(component_guid="comp-nested"):
+    """Wrapped dispatcher / MCP-failure shape: receipt under data."""
+    return {
+        "success": True,
+        "data": {
+            "marker": "nested",
+            "script_receipt": {
+                "version": 1,
+                "operation": "create",
+                "language": "csharp",
+                "artifact_status": "usable",
+                "mutation": {"status": "created", "component_guid": component_guid},
+                "repair_anchor": {"component_guid": component_guid},
+            },
+        },
+    }
+
+
+def _top_level_usable_result(component_guid="comp-top"):
+    """MCP success-unwrapped shape: receipt at the top level, no success/data key."""
+    return {
+        "component_guid": component_guid,
+        "name": "TopLevelUsable",
+        "code_length": 120,
+        "script_receipt": {
+            "version": 1,
+            "operation": "create",
+            "language": "csharp",
+            "artifact_status": "usable",
+            "mutation": {"status": "created", "component_guid": component_guid},
+            "repair_anchor": {"component_guid": component_guid},
+        },
+    }
+
+
+def _ready_producer_graph():
+    node = PlanGraphNode(
+        id="create",
+        intent="create",
+        metadata={OUTCOME_PROJECTION_ROLE_KEY: "artifact_producer"},
+        status="ready",
+    )
+    return PlanGraph(nodes={"create": node})
+
+
+def test_extract_receipt_nested_shape_unchanged_and_deepcopied():
+    """Regression: the wrapped data.script_receipt path still extracts and
+    returns a deep copy (mutating the result must not touch the input)."""
+    result = _nested_usable_result()
+    receipt = _extract_script_receipt(result)
+    assert isinstance(receipt, dict)
+    assert receipt["artifact_status"] == "usable"
+    receipt["artifact_status"] = "MUTATED"
+    assert result["data"]["script_receipt"]["artifact_status"] == "usable"
+
+
+def test_extract_receipt_top_level_shape_extracted_and_deepcopied():
+    """The fix: a top-level script_receipt (no data key) is extracted and
+    deep-copied."""
+    result = _top_level_usable_result()
+    receipt = _extract_script_receipt(result)
+    assert isinstance(receipt, dict)
+    assert receipt["artifact_status"] == "usable"
+    receipt["artifact_status"] = "MUTATED"
+    assert result["script_receipt"]["artifact_status"] == "usable"
+
+
+def test_extract_receipt_both_present_nested_wins():
+    """Precedence: when both locations carry a receipt, nested wins."""
+    result = _nested_usable_result(component_guid="nested-guid")
+    result["script_receipt"] = {
+        "artifact_status": "usable",
+        "mutation": {"status": "created", "component_guid": "top-guid"},
+    }
+    receipt = _extract_script_receipt(result)
+    assert receipt["mutation"]["component_guid"] == "nested-guid"
+
+
+def test_extract_receipt_non_dict_top_level_falls_through_to_none():
+    """A non-dict top-level script_receipt is ignored; no data key -> None."""
+    assert _extract_script_receipt({"script_receipt": "not a dict"}) is None
+    assert _extract_script_receipt({"data": "err-string"}) is None
+
+
+def test_node_evidence_from_top_level_usable_payload():
+    """node_evidence_from_tool_result on the unwrapped usable shape captures the
+    receipt + repair_anchor; tool_status/verified are None (the payload carries
+    neither -- grounded, not over-asserted)."""
+    evidence = node_evidence_from_tool_result(_top_level_usable_result())
+    assert evidence.receipt is not None
+    assert evidence.receipt["artifact_status"] == "usable"
+    assert evidence.repair_anchor is not None
+    assert evidence.repair_anchor["component_guid"] == "comp-top"
+    assert evidence.tool_status is None
+    assert evidence.verified is None
+
+
+def test_apply_producer_result_top_level_usable_succeeds_end_to_end():
+    """Payoff through the REAL consumer path LM4E uses:
+    raw top-level MCP success payload -> node_evidence_from_tool_result ->
+    producer projection -> reducer."""
+    graph = _ready_producer_graph()
+    result = apply_producer_result(graph, "create", _top_level_usable_result())
+
+    assert result.applied is True
+    assert result.outcome_status == "succeeded"
+    node = result.graph.nodes["create"]
+    assert node.status == "succeeded"
+    assert node.evidence.verified is True
+    # The top-level receipt survived capture -> projection -> reducer onto the node.
+    assert node.evidence.receipt["artifact_status"] == "usable"
