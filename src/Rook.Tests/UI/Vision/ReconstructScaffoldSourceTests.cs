@@ -89,9 +89,11 @@ namespace Rook.Tests.UI.Vision
         {
             var html = ReadVisionResource("index.html");
             Assert.Contains("id=\"reconstruct-mv-slots\"", html);
-            foreach (var s in new[] { "left","right","back","top","three_quarter" })
+            // Fal Pro vocabulary: bottom/left_front/right_front replace three_quarter.
+            foreach (var s in new[] { "left","right","back","top","bottom","left_front","right_front" })
                 Assert.Contains($"data-slot=\"{s}\"", html);
-            Assert.Contains("reconstruct-slot-optional", html); // top/¾ marked optional
+            Assert.DoesNotContain("data-slot=\"three_quarter\"", html);
+            Assert.Contains("reconstruct-slot-optional", html); // top + secondary slots marked optional
         }
 
         [Fact]
