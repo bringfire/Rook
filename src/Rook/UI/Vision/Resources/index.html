@@ -283,8 +283,28 @@
                                 </svg>
                                 <span>Clear</span>
                             </button>
+                            <button id="studio-pick-gallery-btn" class="btn btn-capture" title="Pick a source image from the Gallery">
+                                <svg viewBox="0 0 24 24" fill="none">
+                                    <rect x="3" y="3" width="18" height="18" rx="2" stroke="currentColor" stroke-width="2"/>
+                                    <circle cx="8.5" cy="8.5" r="1.5" fill="currentColor"/>
+                                    <path d="M21 15L16 10L5 21" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                                <span>Pick from Gallery</span>
+                            </button>
                         </div>
                         <div id="studio-source-label" class="studio-source-label hidden"></div>
+
+                        <div id="studio-operations" class="studio-operations">
+                            <span class="section-label">Operations</span>
+                            <button id="studio-remove-bg-btn" class="btn btn-capture" disabled title="Load or pick a source image first">
+                                <svg viewBox="0 0 24 24" fill="none">
+                                    <path d="M3 3L21 21M21 3L3 21" stroke="currentColor" stroke-width="1" stroke-opacity="0.4"/>
+                                    <rect x="3" y="3" width="18" height="18" rx="2" stroke="currentColor" stroke-width="2"/>
+                                </svg>
+                                <span>Remove Background</span>
+                            </button>
+                            <div id="studio-operation-status" class="status-message hidden"></div>
+                        </div>
                     </div>
 
                     <!-- Studio Prompt Panel -->
@@ -395,8 +415,8 @@
                 <!-- Studio Result Panel -->
                 <div id="studio-result-panel" class="result-panel hidden">
                     <div class="result-header">
-                        <h3 class="result-title">Generated</h3>
-                        <div class="result-actions">
+                        <h3 class="result-title" id="studio-result-title">Generated</h3>
+                        <div class="result-actions" id="studio-result-gen-actions">
                             <button id="studio-approve-btn" class="btn btn-secondary" title="Mark this image as approved so Rook can use it as the selected concept for downstream workflows." aria-label="Mark this image as approved so Rook can use it as the selected concept for downstream workflows.">
                                 <svg viewBox="0 0 24 24" fill="none">
                                     <path d="M5 13L9 17L19 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -405,10 +425,27 @@
                             </button>
                             <button id="studio-new-btn" class="btn btn-primary">New Generation</button>
                         </div>
+                        <div class="result-actions hidden" id="studio-result-op-actions">
+                            <button id="studio-use-as-source-btn" class="btn btn-secondary">Use as source</button>
+                            <button id="studio-open-in-gallery-btn" class="btn btn-secondary">Open in Gallery</button>
+                            <button id="studio-send-to-reconstruct-btn" class="btn btn-primary">Send to Reconstruct</button>
+                        </div>
                     </div>
                     <div class="result-image-container">
                         <img id="studio-result-image" src="" alt="Generated image">
                     </div>
+                </div>
+
+                <!-- Studio source picker modal (Studio-local; mirrors the Reconstruct picker pattern) -->
+                <div id="studio-picker-modal" class="modal hidden">
+                  <div class="modal-backdrop"></div>
+                  <div class="modal-content modal-content-picker">
+                    <div class="modal-header">
+                      <span id="studio-picker-title">Pick a Gallery image</span>
+                      <button id="studio-picker-close" class="btn-icon" aria-label="Close">×</button>
+                    </div>
+                    <div id="studio-picker-grid" class="reconstruct-picker-grid"></div>
+                  </div>
                 </div>
             </section>
 
@@ -663,19 +700,83 @@
                 </div>
                 <div class="reconstruct-layout">
                     <div class="reconstruct-main">
-                        <div class="panel reconstruct-form-panel">
+                        <div class="panel reconstruct-form-panel" data-mode="i3d">
                             <div class="panel-header">
                                 <span class="panel-number">01</span>
                                 <h2 class="panel-title">Generate</h2>
                             </div>
                             <div class="reconstruct-form">
-                                <div class="reconstruct-field">
-                                    <label class="reconstruct-label">Source image</label>
-                                    <div class="reconstruct-source">
-                                        <img id="reconstruct-source-thumb" class="reconstruct-source-thumb hidden" alt="source" />
-                                        <span id="reconstruct-source-label" class="reconstruct-source-label">No image selected</span>
-                                        <button id="reconstruct-choose-source" class="btn btn-secondary">Choose in Gallery…</button>
+                                <div class="reconstruct-field" id="reconstruct-source-field">
+                                  <label class="reconstruct-label" id="reconstruct-source-heading">Source image</label>
+                                  <div class="reconstruct-source-pane">
+                                    <img id="reconstruct-source-thumb" class="reconstruct-source-thumb hidden" alt="source" />
+                                    <span id="reconstruct-source-label" class="reconstruct-source-label">No image selected</span>
+                                    <div class="reconstruct-source-actions">
+                                      <button id="reconstruct-choose-source" class="btn btn-secondary">Pick</button>
+                                      <button id="reconstruct-source-clear" class="btn-text">Clear</button>
                                     </div>
+                                  </div>
+                                </div>
+                                <div class="reconstruct-field" id="reconstruct-mv-slots-field">
+                                  <label class="reconstruct-label">Additional views</label>
+                                  <div id="reconstruct-mv-slots" class="reconstruct-mv-slots">
+                                    <div class="reconstruct-slot" data-slot="left">
+                                      <span class="reconstruct-slot-label">left</span>
+                                      <div class="reconstruct-slot-thumb"></div>
+                                      <div class="reconstruct-slot-actions">
+                                        <button class="btn-text btn-slot-pick" data-slot="left">Pick</button>
+                                        <button class="btn-text btn-slot-clear" data-slot="left">Clear</button>
+                                      </div>
+                                    </div>
+                                    <div class="reconstruct-slot" data-slot="right">
+                                      <span class="reconstruct-slot-label">right</span>
+                                      <div class="reconstruct-slot-thumb"></div>
+                                      <div class="reconstruct-slot-actions">
+                                        <button class="btn-text btn-slot-pick" data-slot="right">Pick</button>
+                                        <button class="btn-text btn-slot-clear" data-slot="right">Clear</button>
+                                      </div>
+                                    </div>
+                                    <div class="reconstruct-slot" data-slot="back">
+                                      <span class="reconstruct-slot-label">back</span>
+                                      <div class="reconstruct-slot-thumb"></div>
+                                      <div class="reconstruct-slot-actions">
+                                        <button class="btn-text btn-slot-pick" data-slot="back">Pick</button>
+                                        <button class="btn-text btn-slot-clear" data-slot="back">Clear</button>
+                                      </div>
+                                    </div>
+                                    <div class="reconstruct-slot reconstruct-slot-optional" data-slot="top">
+                                      <span class="reconstruct-slot-label">top &middot; optional</span>
+                                      <div class="reconstruct-slot-thumb"></div>
+                                      <div class="reconstruct-slot-actions">
+                                        <button class="btn-text btn-slot-pick" data-slot="top">Pick</button>
+                                        <button class="btn-text btn-slot-clear" data-slot="top">Clear</button>
+                                      </div>
+                                    </div>
+                                    <div class="reconstruct-slot reconstruct-slot-optional" data-slot="bottom">
+                                      <span class="reconstruct-slot-label">bottom &middot; optional</span>
+                                      <div class="reconstruct-slot-thumb"></div>
+                                      <div class="reconstruct-slot-actions">
+                                        <button class="btn-text btn-slot-pick" data-slot="bottom">Pick</button>
+                                        <button class="btn-text btn-slot-clear" data-slot="bottom">Clear</button>
+                                      </div>
+                                    </div>
+                                    <div class="reconstruct-slot reconstruct-slot-optional" data-slot="left_front">
+                                      <span class="reconstruct-slot-label">left front &middot; optional</span>
+                                      <div class="reconstruct-slot-thumb"></div>
+                                      <div class="reconstruct-slot-actions">
+                                        <button class="btn-text btn-slot-pick" data-slot="left_front">Pick</button>
+                                        <button class="btn-text btn-slot-clear" data-slot="left_front">Clear</button>
+                                      </div>
+                                    </div>
+                                    <div class="reconstruct-slot reconstruct-slot-optional" data-slot="right_front">
+                                      <span class="reconstruct-slot-label">right front &middot; optional</span>
+                                      <div class="reconstruct-slot-thumb"></div>
+                                      <div class="reconstruct-slot-actions">
+                                        <button class="btn-text btn-slot-pick" data-slot="right_front">Pick</button>
+                                        <button class="btn-text btn-slot-clear" data-slot="right_front">Clear</button>
+                                      </div>
+                                    </div>
+                                  </div>
                                 </div>
                                 <div class="reconstruct-field">
                                     <label class="reconstruct-label" for="reconstruct-model-select">Model</label>
@@ -687,7 +788,40 @@
                                     </div>
                                     <span id="reconstruct-model-hint" class="option-hint"></span>
                                 </div>
+                                <div class="reconstruct-field hidden" id="reconstruct-options">
+                                  <label class="reconstruct-label">Options</label>
+                                  <div class="reconstruct-option-row" id="reconstruct-opt-generate-type-row">
+                                    <label class="reconstruct-option-label" for="reconstruct-opt-generate-type">Generate Type</label>
+                                    <div class="select-wrapper">
+                                      <select id="reconstruct-opt-generate-type"></select>
+                                      <svg class="select-arrow" viewBox="0 0 24 24" fill="none">
+                                        <path d="M6 9L12 15L18 9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                      </svg>
+                                    </div>
+                                  </div>
+                                  <div class="reconstruct-option-row" id="reconstruct-opt-enable-pbr-row">
+                                    <label class="reconstruct-option-label" for="reconstruct-opt-enable-pbr">Enable PBR</label>
+                                    <input type="checkbox" id="reconstruct-opt-enable-pbr" />
+                                  </div>
+                                  <div class="reconstruct-option-row" id="reconstruct-opt-face-count-row">
+                                    <label class="reconstruct-option-label" for="reconstruct-opt-face-count">Face Count</label>
+                                    <input type="number" id="reconstruct-opt-face-count" />
+                                  </div>
+                                </div>
                                 <div class="reconstruct-field">
+                                  <label class="reconstruct-label">Mode</label>
+                                  <div id="reconstruct-mode-radios" class="reconstruct-segmented" role="radiogroup" aria-label="Reconstruction mode">
+                                    <button type="button" class="seg-btn" data-mode="t3d" role="radio" aria-checked="false" title="Text to 3D: generate a model from a text prompt.">T3D</button>
+                                    <button type="button" class="seg-btn active" data-mode="i3d" role="radio" aria-checked="true" title="Image to 3D: reconstruct from one source image.">I3D</button>
+                                    <button type="button" class="seg-btn" data-mode="mv3d" role="radio" aria-checked="false" title="Multi-view 3D: reconstruct from labeled front/side/back images.">MV3D</button>
+                                  </div>
+                                </div>
+                                <div class="reconstruct-field">
+                                  <label class="reconstruct-label" for="reconstruct-prompt">Prompt</label>
+                                  <textarea id="reconstruct-prompt" class="reconstruct-prompt" rows="2" placeholder="Describe the object…"></textarea>
+                                  <span id="reconstruct-prompt-hint" class="option-hint">Optional for image modes.</span>
+                                </div>
+                                <div class="reconstruct-field" id="reconstruct-output-field">
                                     <label class="reconstruct-label">Output</label>
                                     <div class="reconstruct-segmented" role="radiogroup" aria-label="Output type">
                                         <button type="button" id="reconstruct-mode-textured" class="seg-btn active" data-mode="textured" role="radio" aria-checked="true">Textured</button>
@@ -696,6 +830,7 @@
                                 </div>
                                 <div class="reconstruct-actions">
                                     <button id="reconstruct-submit-btn" class="btn btn-primary">Reconstruct</button>
+                                    <span id="reconstruct-action-note" class="option-hint"></span>
                                 </div>
                                 <div id="reconstruct-status-message" class="status-message hidden"></div>
                             </div>
@@ -737,6 +872,18 @@
                         <div id="reconstruct-queue-filter-summary" class="reconstruct-queue-filter-summary hidden" aria-live="polite"></div>
                         <div id="reconstruct-jobs-list" class="reconstruct-queue-list"></div>
                     </div>
+                </div>
+
+                <!-- Reconstruct picker modal: used by front pane (Task 2) and secondary slots (Task 3) -->
+                <div id="reconstruct-picker-modal" class="modal hidden">
+                  <div class="modal-backdrop"></div>
+                  <div class="modal-content modal-content-picker">
+                    <div class="modal-header">
+                      <span id="reconstruct-picker-title">Pick a Gallery image</span>
+                      <button id="reconstruct-picker-close" class="btn-icon" aria-label="Close">×</button>
+                    </div>
+                    <div id="reconstruct-picker-grid" class="reconstruct-picker-grid"></div>
+                  </div>
                 </div>
             </section>
 

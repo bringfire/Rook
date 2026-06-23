@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 
 namespace Rook.Services.Reconstruction;
@@ -22,7 +23,8 @@ public sealed record ReconstructionModelEntry(
     [property: JsonPropertyName("docs_url")] string DocsUrl,
     [property: JsonPropertyName("default_texture_expected")] bool DefaultTextureExpected,
     [property: JsonPropertyName("input")] ReconstructionInputMetadata? Input = null,
-    [property: JsonPropertyName("prompt")] ReconstructionPromptMetadata? Prompt = null);
+    [property: JsonPropertyName("prompt")] ReconstructionPromptMetadata? Prompt = null,
+    [property: JsonPropertyName("options")] ReconstructionOptionDescriptor[]? Options = null);
 
 public sealed record ReconstructionPreprocessingMetadata(
     [property: JsonPropertyName("recommended")] bool Recommended,
@@ -64,6 +66,33 @@ public sealed record ReconstructionPromptMetadata(
     [property: JsonPropertyName("supported")] bool Supported,
     [property: JsonPropertyName("required")] bool Required,
     [property: JsonPropertyName("kind")] string? Kind);
+
+/// <summary>
+/// Bounded, structured descriptor for a single model option (e.g. generate_type / enable_pbr /
+/// face_count). Consumed by the shared <see cref="ReconstructionOptionsValidator"/> and surfaced to
+/// the UI via the models endpoint. <see cref="Kind"/> ∈ { "enum", "boolean", "integer" }. Additive /
+/// nullable on the entry so catalog JSON without an <c>options</c> block still deserializes.
+/// </summary>
+public sealed record ReconstructionOptionDescriptor(
+    [property: JsonPropertyName("key")] string Key,
+    [property: JsonPropertyName("label")] string Label,
+    [property: JsonPropertyName("kind")] string Kind,
+    [property: JsonPropertyName("default")] JsonNode? Default = null,
+    [property: JsonPropertyName("allowed_values")] string[]? AllowedValues = null,
+    [property: JsonPropertyName("min")] long? Min = null,
+    [property: JsonPropertyName("max")] long? Max = null,
+    [property: JsonPropertyName("step")] long? Step = null,
+    [property: JsonPropertyName("ignored_when")] ReconstructionOptionIgnoredWhen? IgnoredWhen = null);
+
+/// <summary>
+/// Conditional-omit rule for an option: when the sibling option <see cref="Key"/> equals
+/// <see cref="EqualsValue"/>, this option is ignored (omitted from the submit payload). The C#
+/// property is <c>EqualsValue</c> (not <c>Equals</c>, which would collide with the record's
+/// synthesized equality members); the JSON key remains <c>equals</c>.
+/// </summary>
+public sealed record ReconstructionOptionIgnoredWhen(
+    [property: JsonPropertyName("key")] string Key,
+    [property: JsonPropertyName("equals")] string EqualsValue);
 
 public sealed class ReconstructionModelCatalog
 {

@@ -80,6 +80,34 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
     }
 
     [Fact]
+    public async Task Models_ExposesOptionsAndCapabilityFlags_ForPro()
+    {
+        var fixture = CreateFixture();
+        var response = await fixture.Handler.DispatchAsync(
+            @"{""op"":""models"",""include_experimental"":true}", CancellationToken.None);
+
+        Assert.True(response.Success);
+        var json = JsonSerializer.Serialize(response.Data);
+        Assert.Contains("fal-ai/hunyuan-3d/v3.1/pro/image-to-3d", json);
+        Assert.Contains("\"supports_multi_view\":true", json);
+        Assert.Contains("\"supports_single_image\":true", json);
+        Assert.Contains("\"generate_type\"", json);
+        Assert.Contains("\"allowed_values\"", json);
+        Assert.Contains("\"face_count\"", json);
+    }
+
+    [Fact]
+    public async Task Models_BirefnetExcluded_ByCapabilityFilter()
+    {
+        var fixture = CreateFixture();
+        var response = await fixture.Handler.DispatchAsync(
+            @"{""op"":""models"",""include_experimental"":true,""include_hidden"":true}", CancellationToken.None);
+
+        var json = JsonSerializer.Serialize(response.Data);
+        Assert.DoesNotContain("fal-ai/birefnet/v2", json);   // no model_glb/model_obj role
+    }
+
+    [Fact]
     public async Task DispatchAsync_SubmitMissingSource_ReturnsStructuredFailure()
     {
         var fixture = CreateFixture();
@@ -119,6 +147,38 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
         var data = Assert.IsType<Dictionary<string, object?>>(response.Data);
         Assert.Equal("model_glb", data["asset_role"]);
         Assert.EndsWith("model_glb.glb", Assert.IsType<string>(data["path"]));
+    }
+
+    [Fact]
+    public async Task DispatchOffUi_PrepareImport_GlbWithTextureCarriesMaterialRepair()
+    {
+        var fixture = CreateFixture();
+        fixture.Downloader.Files["https://example.test/model.glb"] = new byte[] { 1, 2, 3 };
+        fixture.Downloader.Files["https://example.test/texture.png"] = new byte[] { 7, 8, 9 };
+        var package = await BuildPackageAsync(fixture, JsonNode.Parse("""
+        {
+          "model_urls": {
+            "glb": {"url": "https://example.test/model.glb"}
+          },
+          "texture": {"url": "https://example.test/texture.png", "file_name": "texture_20250901.png"}
+        }
+        """)!);
+
+        var response = fixture.Handler.DispatchOffUi(
+            "{" +
+            "\"op\":\"prepare_import\"," +
+            $"\"package_id\":\"{package.Id}\"," +
+            "\"import_id\":\"cccccccc-cccc-cccc-cccc-cccccccccccc\"" +
+            "}");
+
+        Assert.True(response.Success, JsonSerializer.Serialize(response.Data));
+        var data = Assert.IsType<Dictionary<string, object?>>(response.Data);
+        Assert.Equal("model_glb", data["asset_role"]);
+        var repair = Assert.IsType<Dictionary<string, object?>>(data["material_repair"]);
+        Assert.Equal("Rook Reconstruction cccccccc", repair["material_name"]);
+        Assert.Equal("texture", repair["base_color_role"]);
+        Assert.Equal("texture_20250901.png", repair["base_color_file_name"]);
+        Assert.EndsWith("texture.png", Assert.IsType<string>(repair["base_color_path"]));
     }
 
     [Fact]
@@ -1218,8 +1278,47 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
           "preferred_asset_role": "model_glb",
           "fallback_order": ["model_glb", "model_obj"],
           "supports_pbr": true,
+          "input": {"mode": "single_image", "source_field": "input_image_url"},
           "preprocessing": {"recommended": false, "required": false},
           "docs_url": "https://fal.ai/models/fal-ai/hunyuan-3d/v3.1/rapid/image-to-3d/api"
+        },
+        {
+          "model_id": "fal-ai/hunyuan-3d/v3.1/pro/image-to-3d",
+          "provider": "fal",
+          "task": "single_image_to_3d",
+          "status": "experimental",
+          "enabled": true,
+          "pipeline_roles": ["single_image_to_3d"],
+          "input_types": ["image_url"],
+          "output_roles": ["model_glb", "model_obj", "material_mtl", "model_fbx", "model_usdz", "texture", "thumbnail"],
+          "preferred_asset_role": "model_glb",
+          "fallback_order": ["model_glb", "model_obj"],
+          "supports_pbr": true,
+          "default_texture_expected": true,
+          "input": {
+            "mode": "multi_view_labeled",
+            "source_field": "input_image_url",
+            "view_slots": [
+              { "role": "front",       "field": "input_image_url",       "required": true  },
+              { "role": "back",        "field": "back_image_url",        "required": false },
+              { "role": "left",        "field": "left_image_url",        "required": false },
+              { "role": "right",       "field": "right_image_url",       "required": false },
+              { "role": "top",         "field": "top_image_url",         "required": false },
+              { "role": "bottom",      "field": "bottom_image_url",      "required": false },
+              { "role": "left_front",  "field": "left_front_image_url",  "required": false },
+              { "role": "right_front", "field": "right_front_image_url", "required": false }
+            ]
+          },
+          "options": [
+            { "key": "generate_type", "label": "Generate Type", "kind": "enum",
+              "default": "Normal", "allowed_values": ["Normal", "Geometry"] },
+            { "key": "enable_pbr", "label": "Enable PBR", "kind": "boolean",
+              "default": false, "ignored_when": { "key": "generate_type", "equals": "Geometry" } },
+            { "key": "face_count", "label": "Face Count", "kind": "integer",
+              "default": 500000, "min": 40000, "max": 1500000, "step": 10000 }
+          ],
+          "preprocessing": {"recommended": false, "required": false},
+          "docs_url": "https://fal.ai/models/fal-ai/hunyuan-3d/v3.1/pro/image-to-3d/api"
         },
         {
           "model_id": "fal-ai/meshy/v6/image-to-3d",

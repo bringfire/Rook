@@ -1047,6 +1047,7 @@ function applyStudioSource(src) {
             el.studioSourceLabel.classList.add("hidden");
         }
     }
+    updateStudioOperationsEnabled();
 }
 
 function clearStudioSource() {
@@ -1061,12 +1062,170 @@ function clearStudioSource() {
         el.studioSourceLabel.textContent = "";
         el.studioSourceLabel.classList.add("hidden");
     }
+    updateStudioOperationsEnabled();
 }
 
 function basename(path) {
     if (!path) return "";
     const parts = String(path).split(/[\\/]/);
     return parts[parts.length - 1] || path;
+}
+
+// ─── Studio: Pick from Gallery ────────────────────────────────────
+
+const STUDIO_SOURCE_KINDS = ["generated_image", "imported_image", "captured_viewport", "preprocessed_image"];
+let studioPickerArtifactsById = {};
+
+async function openStudioPicker() {
+    if (!el.studioPickerModal || !el.studioPickerGrid) return;
+    studioPickerArtifactsById = {};
+    el.studioPickerGrid.innerHTML = '<div class="gallery-empty"><span>Loading…</span></div>';
+    el.studioPickerModal.classList.remove("hidden");
+    try {
+        // list_artifacts filters by a SINGLE kind; fan out one call per kind and merge.
+        const results = await Promise.all(STUDIO_SOURCE_KINDS.map(
+            k => bridgeCall("list_artifacts", { kind: k, limit: 100 }).catch(() => ({ artifacts: [] }))));
+        const artifacts = results.flatMap(r => (r && r.artifacts) || []);
+        artifacts.forEach(a => { studioPickerArtifactsById[a.artifact_id] = a; });
+        el.studioPickerGrid.innerHTML = artifacts.length
+            ? artifacts.map(a =>
+                `<button class="reconstruct-picker-cell" data-artifact-id="${escapeAttr(a.artifact_id)}"><img src="/blob/${encodeURIComponent(a.artifact_id)}/image" alt="${escapeAttr(a.kind)}"/></button>`).join("")
+            : '<div class="gallery-empty"><span>No images yet</span></div>';
+    } catch (e) {
+        el.studioPickerGrid.innerHTML = '<div class="gallery-empty"><span>Failed to load images</span></div>';
+    }
+}
+
+function closeStudioPicker() {
+    if (el.studioPickerModal) el.studioPickerModal.classList.add("hidden");
+}
+
+function selectStudioPickerArtifact(artifactId) {
+    const a = studioPickerArtifactsById[artifactId];
+    if (!a) return;
+    applyStudioSource({
+        source: "artifact",
+        artifact_id: a.artifact_id,
+        role: "image",
+        previewSrc: `/blob/${encodeURIComponent(a.artifact_id)}/image?ts=${Date.now()}`,
+        label: a.kind,
+    });
+    closeStudioPicker();
+}
+
+// ─── Studio: operation-aware result panel ─────────────────────────
+
+// Switch the shared Studio result panel between generation and operation
+// presentation. For an operation result (e.g. background removal) the title
+// reflects the operation and the generation-specific actions ("New Generation")
+// are hidden in favor of the result-reuse actions — no stale "Generated" copy.
+function setStudioResultMode(mode) {
+    const isOp = mode === "background_removed";
+    if (el.studioResultTitle) el.studioResultTitle.textContent = isOp ? "Background removed" : "Generated";
+    if (el.studioResultGenActions) el.studioResultGenActions.classList.toggle("hidden", isOp);
+    if (el.studioResultOpActions) el.studioResultOpActions.classList.toggle("hidden", !isOp);
+}
+
+function studioUseResultAsSource() {
+    if (!latestStudioArtifactId) return;
+    applyStudioSource({
+        source: "artifact",
+        artifact_id: latestStudioArtifactId,
+        role: "image",
+        previewSrc: `/blob/${encodeURIComponent(latestStudioArtifactId)}/image?ts=${Date.now()}`,
+        label: "background removed",
+    });
+}
+
+async function studioOpenResultInGallery() {
+    if (!latestStudioArtifactId) return;
+    const id = latestStudioArtifactId;
+    switchView("gallery");
+    await loadGallery();
+    await openArtifactModal(id);
+}
+
+async function studioSendResultToReconstruct() {
+    if (!latestStudioArtifactId) return;
+    try {
+        const artifact = await bridgeCall("get_artifact", { artifact_id: latestStudioArtifactId });
+        if (artifact && artifact.artifact_id) Reconstruct.presetSource(artifact);
+    } catch (e) {
+        showStudioStatus(e.message, "error");
+    }
+}
+
+// ─── Studio: Remove Background operation ──────────────────────────
+
+function showStudioOperationStatus(text, kind) {
+    if (!el.studioOperationStatus) return;
+    el.studioOperationStatus.textContent = text;
+    el.studioOperationStatus.className = "status-message " + (kind || "info");
+}
+
+// Remove Background is enabled only for an artifact-backed source. Path-only /
+// transient sources are not-ready (the backend op is artifact-only; we do not
+// auto-materialize). Recompute on every source change.
+function updateStudioOperationsEnabled() {
+    const ready = !!(studioSource && studioSource.artifact_id);
+    if (el.studioRemoveBgBtn) {
+        el.studioRemoveBgBtn.disabled = !ready;
+        el.studioRemoveBgBtn.title = ready
+            ? "Remove the background from the source image"
+            : "Load or pick a source image first";
+    }
+}
+
+async function studioRemoveBackground() {
+    if (!(studioSource && studioSource.artifact_id)) {
+        showStudioOperationStatus("Load or pick a source image first.", "error");
+        return;
+    }
+    el.studioRemoveBgBtn.disabled = true;
+    showStudioOperationStatus("Removing background…", "info");
+    try {
+        const job = await reconstructionBridgeCall("remove_background", {
+            source_artifact_id: studioSource.artifact_id,
+            source_role: studioSource.role || "image",
+        });
+        const jobId = job && job.job_id;
+        if (!jobId) {
+            showStudioOperationStatus("Background removal did not start.", "error");
+            return;
+        }
+        const resultArtifactId = await awaitStudioRemoveBackground(jobId);
+        if (!resultArtifactId) {
+            showStudioOperationStatus("Background removal returned no artifact.", "error");
+            return;
+        }
+        latestStudioArtifactId = resultArtifactId;
+        el.studioResultImage.src = `/blob/${encodeURIComponent(resultArtifactId)}/image?ts=${Date.now()}`;
+        setStudioResultMode("background_removed");
+        el.studioResultPanel.classList.remove("hidden");
+        showStudioOperationStatus("Background removed.", "success");
+    } catch (e) {
+        showStudioOperationStatus(errorToText(e), "error");
+    } finally {
+        updateStudioOperationsEnabled();
+    }
+}
+
+// Poll the reconstruction job to terminal; return result_artifact_id on success.
+async function awaitStudioRemoveBackground(jobId) {
+    for (let attempt = 0; attempt < 600; attempt++) {
+        const status = await reconstructionBridgeCall("job_status", { job_id: jobId });
+        const job = status.job || status;
+        const state = job && job.state;
+        if (state === "queued") showStudioOperationStatus("Background removal queued…", "info");
+        else if (state === "submitting") showStudioOperationStatus("Submitting…", "info");
+        else if (state === "materializing") showStudioOperationStatus("Saving result…", "info");
+        else if (state === "polling" || !state) showStudioOperationStatus("Removing background…", "info");
+        if (state === "complete") return (job && job.result_artifact_id) || null;
+        if (state === "cancelled") throw new Error("Background removal cancelled.");
+        if (state === "error") throw new Error("Background removal failed.");
+        await delay(1000);
+    }
+    throw new Error("Background removal timed out.");
 }
 
 async function studioEnhancePrompt() {
@@ -1133,6 +1292,7 @@ async function studioGenerate() {
         latestStudioArtifactId = artifact.artifact_id;
         if (artifact.artifact_id) {
             el.studioResultImage.src = `/blob/${encodeURIComponent(artifact.artifact_id)}/image?ts=${Date.now()}`;
+            setStudioResultMode("generate");
             el.studioResultPanel.classList.remove("hidden");
             showStudioStatus("Image generated.", "success");
         } else {
@@ -1167,6 +1327,7 @@ async function studioGenerateImageJob(args, model) {
     latestStudioArtifactId = result.result_artifact_id;
     if (result.result_artifact_id) {
         el.studioResultImage.src = `/blob/${encodeURIComponent(result.result_artifact_id)}/image?ts=${Date.now()}`;
+        setStudioResultMode("generate");
         el.studioResultPanel.classList.remove("hidden");
         showStudioStatus("Image generated.", "success");
     } else {
@@ -1229,17 +1390,19 @@ async function loadGallery() {
         // desc with artifact_id desc as the deterministic tie-breaker
         // (Codex sign-off note — equal-timestamp items must not jitter
         // between reloads).
-        const [imgData, vidData, importedImageData, importedVideoData] = await Promise.all([
+        const [imgData, vidData, importedImageData, importedVideoData, preprocessedImageData] = await Promise.all([
             bridgeCall("list_artifacts", { kind: "generated_image", limit: 100 }),
             bridgeCall("list_artifacts", { kind: "generated_video", limit: 100 }),
             bridgeCall("list_artifacts", { kind: "imported_image", limit: 100 }),
             bridgeCall("list_artifacts", { kind: "imported_video", limit: 100 }),
+            bridgeCall("list_artifacts", { kind: "preprocessed_image", limit: 100 }),
         ]);
         galleryItems = [
             ...(imgData.artifacts || []),
             ...(vidData.artifacts || []),
             ...(importedImageData.artifacts || []),
             ...(importedVideoData.artifacts || []),
+            ...(preprocessedImageData.artifacts || []),
         ].sort((a, b) => {
             const tA = a.created_at || "";
             const tB = b.created_at || "";
@@ -1595,7 +1758,8 @@ function canReconstructArtifact(artifact) {
     return !!artifact
         && (artifact.kind === "generated_image"
             || artifact.kind === "imported_image"
-            || artifact.kind === "captured_viewport")
+            || artifact.kind === "captured_viewport"
+            || artifact.kind === "preprocessed_image")
         && Array.isArray(artifact.files)
         && artifact.files.some(f => f.role === "image");
 }
@@ -2055,6 +2219,19 @@ function init() {
     el.studioResultImage = $("studio-result-image");
     el.studioApproveBtn = $("studio-approve-btn");
     el.studioNewBtn = $("studio-new-btn");
+    el.studioPickGalleryBtn = $("studio-pick-gallery-btn");
+    el.studioPickerModal = $("studio-picker-modal");
+    el.studioPickerGrid = $("studio-picker-grid");
+    el.studioPickerClose = $("studio-picker-close");
+    el.studioResultTitle = $("studio-result-title");
+    el.studioResultGenActions = $("studio-result-gen-actions");
+    el.studioResultOpActions = $("studio-result-op-actions");
+    el.studioUseAsSourceBtn = $("studio-use-as-source-btn");
+    el.studioOpenInGalleryBtn = $("studio-open-in-gallery-btn");
+    el.studioSendToReconstructBtn = $("studio-send-to-reconstruct-btn");
+    el.studioOperations = $("studio-operations");
+    el.studioRemoveBgBtn = $("studio-remove-bg-btn");
+    el.studioOperationStatus = $("studio-operation-status");
 
     // Gallery
     el.galleryGrid = $("gallery-grid");
@@ -2176,6 +2353,26 @@ function init() {
         studioReferences = [];
         renderReferencePreview(studioReferences, el.studioReferencePreview);
     });
+
+    el.studioPickGalleryBtn?.addEventListener("click", openStudioPicker);
+    el.studioPickerClose?.addEventListener("click", closeStudioPicker);
+    el.studioPickerModal?.querySelector(".modal-backdrop")?.addEventListener("click", closeStudioPicker);
+    el.studioPickerGrid?.addEventListener("click", (e) => {
+        if (!(e.target instanceof Element)) return;
+        const cell = e.target.closest(".reconstruct-picker-cell");
+        if (cell) selectStudioPickerArtifact(cell.dataset.artifactId);
+    });
+    document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && el.studioPickerModal && !el.studioPickerModal.classList.contains("hidden")) {
+            closeStudioPicker();
+        }
+    });
+
+    el.studioUseAsSourceBtn?.addEventListener("click", studioUseResultAsSource);
+    el.studioOpenInGalleryBtn?.addEventListener("click", studioOpenResultInGallery);
+    el.studioSendToReconstructBtn?.addEventListener("click", studioSendResultToReconstruct);
+    el.studioRemoveBgBtn?.addEventListener("click", studioRemoveBackground);
+    updateStudioOperationsEnabled();   // initial disabled state (no source yet)
 
     if (el.refreshGalleryBtn) el.refreshGalleryBtn.addEventListener("click", loadGallery);
     if (el.addMediaGalleryBtn) el.addMediaGalleryBtn.addEventListener("click", startMediaImport);
@@ -3331,8 +3528,12 @@ const Reconstruct = (() => {
 
     let models = [];
     let modelsLoaded = false;
-    let source = null;            // { artifact_id, role, previewSrc, label }
+    // Uniform slot state — each filled entry: { artifact_id, role, previewSrc, label, kind }
+    const slots = { front: null, left: null, right: null, back: null, top: null, bottom: null, left_front: null, right_front: null };
+    let pickerTargetSlot = null;
+    let pickerArtifactsById = {};
     let outputMode = "textured";  // "textured" | "geometry"
+    let reconstructMode = "i3d";  // "t3d" | "i3d" | "mv3d"
     let currentPackageId = null;
     let currentResultAvailable = false;
     let currentJobs = [];         // last-loaded job list (queue source of truth)
@@ -3344,11 +3545,26 @@ const Reconstruct = (() => {
         re.sourceThumb = $("reconstruct-source-thumb");
         re.sourceLabel = $("reconstruct-source-label");
         re.chooseSourceBtn = $("reconstruct-choose-source");
+        re.sourceClear = $("reconstruct-source-clear");
+        re.pickerModal = $("reconstruct-picker-modal");
+        re.pickerGrid = $("reconstruct-picker-grid");
+        re.pickerClose = $("reconstruct-picker-close");
         re.modelSelect = $("reconstruct-model-select");
         re.modelHint = $("reconstruct-model-hint");
+        re.options = $("reconstruct-options");
+        re.optGenerateType = $("reconstruct-opt-generate-type");
+        re.optEnablePbr = $("reconstruct-opt-enable-pbr");
+        re.optFaceCount = $("reconstruct-opt-face-count");
+        re.modeSwitch = $("reconstruct-mode-radios");
+        re.mvSlots = $("reconstruct-mv-slots");
+        re.prompt = $("reconstruct-prompt");
+        re.promptHint = $("reconstruct-prompt-hint");
+        re.formPanel = document.querySelector(".reconstruct-form-panel");
+        re.outputField = $("reconstruct-output-field");
         re.modeTextured = $("reconstruct-mode-textured");
         re.modeGeometry = $("reconstruct-mode-geometry");
         re.submitBtn = $("reconstruct-submit-btn");
+        re.actionNote = $("reconstruct-action-note");
         re.statusMessage = $("reconstruct-status-message");
         re.resultPanel = $("reconstruct-result-panel");
         re.resultThumb = $("reconstruct-result-thumb");
@@ -3363,11 +3579,35 @@ const Reconstruct = (() => {
     }
 
     function wireEvents() {
-        re.chooseSourceBtn.addEventListener("click", chooseSource);
+        re.modeSwitch.querySelectorAll(".seg-btn").forEach(b => b.addEventListener("click", () => setReconstructMode(b.dataset.mode)));
+        re.chooseSourceBtn.addEventListener("click", () => openReconstructPicker("front"));
+        re.sourceClear.addEventListener("click", () => clearSlot("front"));
+        re.mvSlots.querySelectorAll("[data-slot]").forEach(slotDiv => {
+            var s = slotDiv.dataset.slot;
+            var pick = slotDiv.querySelector(".btn-slot-pick");
+            var clear = slotDiv.querySelector(".btn-slot-clear");
+            if (pick) pick.addEventListener("click", () => openReconstructPicker(s));
+            if (clear) clear.addEventListener("click", () => clearSlot(s));
+        });
+        re.pickerClose.addEventListener("click", closeReconstructPicker);
+        re.pickerModal.querySelector(".modal-backdrop").addEventListener("click", closeReconstructPicker);
+        re.pickerGrid.addEventListener("click", (e) => {
+            if (!(e.target instanceof Element)) return;
+            const cell = e.target.closest(".reconstruct-picker-cell");
+            if (!cell) return;
+            const a = pickerArtifactsById[cell.dataset.artifactId];
+            if (a) { fillSlot(pickerTargetSlot, a); closeReconstructPicker(); }
+        });
+        document.addEventListener("keydown", (e) => {
+            if (e.key === "Escape" && re.pickerModal && !re.pickerModal.classList.contains("hidden")) {
+                closeReconstructPicker();
+            }
+        });
         re.modeTextured.addEventListener("click", () => setOutputMode("textured"));
         re.modeGeometry.addEventListener("click", () => setOutputMode("geometry"));
         re.submitBtn.addEventListener("click", submit);
-        re.modelSelect.addEventListener("change", updateModelHint);
+        re.modelSelect.addEventListener("change", () => { updateModelHint(); renderModelOptions(); });
+        re.optGenerateType.addEventListener("change", applyGenerateTypeGating);
         re.importBtn.addEventListener("click", importPackage);
         re.refreshJobsBtn.addEventListener("click", loadJobs);
         re.jobsList.addEventListener("click", (e) => {
@@ -3392,7 +3632,8 @@ const Reconstruct = (() => {
 
     async function onEnter() {
         await loadModels();
-        renderSource();
+        setReconstructMode(reconstructMode);
+        renderSlot("front");
         setQueueFilter("active");   // default view-enter filter
         await loadJobs();
     }
@@ -3412,15 +3653,126 @@ const Reconstruct = (() => {
         re.modeGeometry.setAttribute("aria-checked", String(!textured));
     }
 
-    function optionsForMode() {
-        // Mutually exclusive — never emit both (backend D1 guard rejects it).
-        if (outputMode === "geometry") return { enable_geometry: true };
+    function updateReconstructActionForMode(mode) {
+        if (mode === "i3d") {
+            re.submitBtn.textContent = "Reconstruct";
+            re.submitBtn.disabled = false;
+            re.actionNote.textContent = "";
+        } else if (mode === "t3d") {
+            re.submitBtn.textContent = "Reconstruct";
+            re.submitBtn.disabled = true;
+            re.actionNote.textContent = "Text-to-3D arrives when a provider lands.";
+        } else { // mv3d
+            re.submitBtn.textContent = "Reconstruct";
+            re.submitBtn.disabled = false;
+            re.actionNote.textContent = "";
+        }
+    }
+
+    function updateReconstructModelForMode(mode) {
+        if (mode === "t3d") {
+            re.modelSelect.innerHTML = "<option value=\"\" disabled selected>No models available for this mode yet</option>";
+        } else if (mode === "mv3d") {
+            // Filter the picker to multi-view-capable models (Pro). Empty until Pro flips to stable.
+            const mv = models.filter(m => m.supports_multi_view);
+            if (mv.length === 0) {
+                re.modelSelect.innerHTML = "<option value=\"\" disabled selected>No models available for this mode yet</option>";
+            } else {
+                re.modelSelect.innerHTML = mv.map(buildModelOption).join("");
+                re.modelSelect.value = mv[0].model_id;
+            }
+            updateModelHint();
+        } else {
+            // i3d: restore the loaded model list (or placeholder if none loaded yet)
+            if (models.length === 0) {
+                re.modelSelect.innerHTML = "<option value=\"\" disabled selected>No models available</option>";
+            } else {
+                re.modelSelect.innerHTML = models.map(buildModelOption).join("");
+                re.modelSelect.value = models[0].model_id;
+            }
+            updateModelHint();
+        }
+    }
+
+    const RECONSTRUCT_PROMPT_HINT = {
+        t3d: "Required for text-to-3D.",
+        i3d: "Optional for image modes.",
+        mv3d: "Optional for image modes.",
+    };
+    function setReconstructMode(mode) {
+        reconstructMode = mode;
+        re.formPanel.setAttribute("data-mode", mode);
+        re.modeSwitch.querySelectorAll(".seg-btn").forEach(b => {
+            const on = b.dataset.mode === mode;
+            b.classList.toggle("active", on);
+            b.setAttribute("aria-checked", on ? "true" : "false");
+        });
+        re.promptHint.textContent = RECONSTRUCT_PROMPT_HINT[mode] || "";
+        updateReconstructActionForMode(mode);
+        updateReconstructModelForMode(mode);
+        renderModelOptions();
+    }
+
+    // Renders the catalog-driven option controls for the selected model (Pro). Models without an
+    // options block hide the container and keep the legacy textured/geometry path.
+    function renderModelOptions() {
+        if (!re.options) return;
         const model = selectedModel();
+        const opts = (model && Array.isArray(model.options)) ? model.options : null;
+        if (!opts || opts.length === 0) {
+            re.options.classList.add("hidden");
+            // Legacy model: the textured/geometry Output control is the real control — show it.
+            if (re.outputField) re.outputField.classList.remove("hidden");
+            return;
+        }
+        re.options.classList.remove("hidden");
+        // Catalog model (Pro): Generate Type is authoritative — hide the legacy Output control so it
+        // can't silently disagree with generate_type.
+        if (re.outputField) re.outputField.classList.add("hidden");
+        for (const d of opts) {
+            if (d.key === "generate_type") {
+                re.optGenerateType.innerHTML = (d.allowed_values || [])
+                    .map(v => `<option value="${escapeAttr(v)}">${escapeHtml(v)}</option>`).join("");
+                if (d.default != null) re.optGenerateType.value = String(d.default);
+            } else if (d.key === "enable_pbr") {
+                re.optEnablePbr.checked = d.default === true;
+            } else if (d.key === "face_count") {
+                if (d.min != null) re.optFaceCount.min = d.min;
+                if (d.max != null) re.optFaceCount.max = d.max;
+                if (d.step != null) re.optFaceCount.step = d.step;
+                if (d.default != null) re.optFaceCount.value = d.default;
+            }
+        }
+        applyGenerateTypeGating();
+    }
+
+    function applyGenerateTypeGating() {
+        if (!re.optGenerateType) return;
+        const geometry = re.optGenerateType.value === "Geometry";
+        re.optEnablePbr.disabled = geometry;
+        if (geometry) re.optEnablePbr.checked = false;
+    }
+
+    function optionsForMode() {
+        const model = selectedModel();
+        if (model && Array.isArray(model.options) && model.options.length > 0) {
+            // Catalog-driven (Pro): build options from the rendered controls.
+            const o = {};
+            if (re.optGenerateType.value) o.generate_type = re.optGenerateType.value;
+            if (o.generate_type !== "Geometry" && re.optEnablePbr.checked) o.enable_pbr = true;
+            const fc = parseInt(re.optFaceCount.value, 10);
+            if (!Number.isNaN(fc)) o.face_count = fc;
+            return o;
+        }
+        // Legacy models — mutually exclusive; never emit both (backend D1 guard rejects it).
+        if (outputMode === "geometry") return { enable_geometry: true };
         return model && model.supports_pbr ? { enable_pbr: true } : {};
     }
 
     async function submit() {
-        if (!source || !source.artifact_id) {
+        if (re.submitBtn && re.submitBtn.disabled) return;
+        const frontSlot = slots.front;
+        if (!frontSlot || !frontSlot.artifact_id) {
             showReconstructStatus("Choose a source image first.", "error");
             return;
         }
@@ -3430,15 +3782,26 @@ const Reconstruct = (() => {
             return;
         }
         resetResultForNewRun();   // hide stale result/import state while the new job runs
+        // Labeled secondary views from filled slots (front stays the canonical source). Mode-aware:
+        // secondary slots only leave the builder in MV3D with a multi-view-capable model, so stale
+        // MV3D slots never leak into an I3D / single-image submit. I3D therefore sends only front,
+        // which the backend accepts as a redundant restatement of source_artifact_id.
+        const mvModel = selectedModel();
+        const allowSecondary = reconstructMode === "mv3d" && mvModel && mvModel.supports_multi_view;
+        const views = Object.keys(slots)
+            .filter(s => slots[s] && slots[s].artifact_id)
+            .filter(s => s === "front" || allowSecondary)
+            .map(s => ({ slot: s, artifact_id: slots[s].artifact_id, role: slots[s].role || "image" }));
         try {
             re.submitBtn.disabled = true;
             showReconstructStatus("Submitting reconstruction…", "info");
             const job = await reconstructionBridgeCall("submit_job", {
-                source_artifact_id: source.artifact_id,
-                source_role: source.role || "image",
+                source_artifact_id: frontSlot.artifact_id,
+                source_role: frontSlot.role || "image",
                 model_id: modelId,
                 preprocessing_chain: [],
                 options: optionsForMode(),
+                views: views,
                 estimate_requested: false,
             });
             if (!job || !job.job_id) {
@@ -3520,27 +3883,58 @@ const Reconstruct = (() => {
             re.modelSelect.value = models[0].model_id;
         }
         updateModelHint();
+        renderModelOptions();
         modelsLoaded = true;
     }
 
-    function renderSource() {
-        if (source && source.previewSrc) {
-            re.sourceThumb.src = source.previewSrc;
-            re.sourceThumb.classList.remove("hidden");
-        } else {
-            re.sourceThumb.removeAttribute("src");
-            re.sourceThumb.classList.add("hidden");
-        }
-        re.sourceLabel.textContent = source ? (source.label || source.artifact_id) : "No image selected";
+    function fillSlot(slot, artifact) {
+        slots[slot] = {
+            artifact_id: artifact.artifact_id,
+            role: "image",
+            previewSrc: `/blob/${encodeURIComponent(artifact.artifact_id)}/image?ts=${Date.now()}`,
+            label: (artifact.metadata && artifact.metadata.prompt) || artifact.kind || artifact.artifact_id,
+            kind: artifact.kind,
+        };
+        renderSlot(slot);
     }
 
-    async function chooseSource() {
-        // Single source-selection path: open the Gallery and let the user
-        // pick via the modal "Send to 3D" shortcut, which calls presetSource
-        // and navigates back here. No duplicate picker.
-        switchView("gallery");
-        showStatus("Pick an image in the Gallery, then use “Send to 3D”.", "info");
+    function clearSlot(slot) { slots[slot] = null; renderSlot(slot); }
+
+    function renderSlot(slot) {
+        if (slot === "front") {  // the hero pane reuses the existing source thumb/label
+            const v = slots.front;
+            if (v) { re.sourceThumb.src = v.previewSrc; re.sourceThumb.classList.remove("hidden"); }
+            else { re.sourceThumb.removeAttribute("src"); re.sourceThumb.classList.add("hidden"); }
+            re.sourceLabel.textContent = v ? v.label : "No image selected";
+            return;
+        }
+        // secondary slots: query container by [data-slot], set thumb background
+        if (!re.mvSlots) return;
+        var slotEl = re.mvSlots.querySelector('[data-slot="' + slot + '"]');
+        if (!slotEl) return;
+        var thumb = slotEl.querySelector(".reconstruct-slot-thumb");
+        if (!thumb) return;
+        var v = slots[slot];
+        thumb.style.backgroundImage = v ? 'url("' + v.previewSrc + '")' : "";
     }
+
+    const RECONSTRUCT_SOURCE_KINDS = ["generated_image", "imported_image", "captured_viewport", "preprocessed_image"];
+
+    async function openReconstructPicker(slot) {
+        pickerTargetSlot = slot;
+        // The shared Gallery helper is `bridgeCall`; list_artifacts filters by a
+        // SINGLE `kind`, so fan out one call per allowed kind and merge.
+        const results = await Promise.all(RECONSTRUCT_SOURCE_KINDS.map(
+            k => bridgeCall("list_artifacts", { kind: k, limit: 100 }).catch(() => ({ artifacts: [] }))));
+        const artifacts = results.flatMap(r => (r && r.artifacts) || []);
+        pickerArtifactsById = {};
+        artifacts.forEach(a => { pickerArtifactsById[a.artifact_id] = a; });
+        re.pickerGrid.innerHTML = artifacts.map(a =>
+            `<button class="reconstruct-picker-cell" data-artifact-id="${escapeAttr(a.artifact_id)}"><img src="/blob/${encodeURIComponent(a.artifact_id)}/image" alt="${escapeAttr(a.kind)}"/></button>`).join("");
+        re.pickerModal.classList.remove("hidden");
+    }
+
+    function closeReconstructPicker() { re.pickerModal.classList.add("hidden"); pickerTargetSlot = null; }
 
     // Friendly headline per known warning code. Unknown codes fall back to
     // the backend message verbatim (forward-compatible). Read by CODE, never
@@ -3803,14 +4197,9 @@ const Reconstruct = (() => {
     // chosen image artifact and navigate to this view. Single source path.
     function presetSource(artifact) {
         if (!artifact) return;
-        source = {
-            artifact_id: artifact.artifact_id,
-            role: "image",
-            previewSrc: `/blob/${encodeURIComponent(artifact.artifact_id)}/image?ts=${Date.now()}`,
-            label: (artifact.metadata && artifact.metadata.prompt) || artifact.kind || artifact.artifact_id,
-        };
+        if (reconstructMode === "t3d") setReconstructMode("i3d"); // no-mode/T3D → I3D; MV3D stays
+        fillSlot("front", artifact);   // ALWAYS lands in the large pane
         switchView("reconstruct");
-        renderSource();
     }
 
     return { cacheEls, wireEvents, onEnter, presetSource };
