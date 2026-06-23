@@ -120,6 +120,9 @@ maps the same evidence to `needs_repair`, routing to `repair_same_component` via
 
 Claim: *the registered 3-node template topology + LM4G record builder + LM3E
 verifier step still compose as LM4H expects.* It is **not** a live-capture proof.
+The guard **constructs producer-applied state through `apply_outcome`** with
+synthetic evidence — it does not replay admission or capture, and must not be read
+as a substitute for the live proof.
 
 Flow:
 
