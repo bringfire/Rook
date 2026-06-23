@@ -153,6 +153,18 @@ namespace Rook.Tests.UI.Vision
         }
 
         [Fact]
+        public void OutputControl_HiddenForCatalogOptionModels()
+        {
+            // For catalog-option models (Pro), Generate Type is the real Fal control; the legacy
+            // textured/geometry Output segmented control must be hidden so it can't silently disagree.
+            var html = ReadVisionResource("index.html");
+            Assert.Contains("id=\"reconstruct-output-field\"", html);
+            var js = ReadVisionResource("app.js");
+            Assert.Contains("re.outputField = $(\"reconstruct-output-field\");", js);
+            Assert.Contains("re.outputField.classList", js);   // toggled in renderModelOptions
+        }
+
+        [Fact]
         public void AppJs_RendersCatalogOptions_AndGatesPbrUnderGeometry()
         {
             var js = ReadVisionResource("app.js");

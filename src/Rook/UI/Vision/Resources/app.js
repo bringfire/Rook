@@ -3363,6 +3363,7 @@ const Reconstruct = (() => {
         re.prompt = $("reconstruct-prompt");
         re.promptHint = $("reconstruct-prompt-hint");
         re.formPanel = document.querySelector(".reconstruct-form-panel");
+        re.outputField = $("reconstruct-output-field");
         re.modeTextured = $("reconstruct-mode-textured");
         re.modeGeometry = $("reconstruct-mode-geometry");
         re.submitBtn = $("reconstruct-submit-btn");
@@ -3523,9 +3524,14 @@ const Reconstruct = (() => {
         const opts = (model && Array.isArray(model.options)) ? model.options : null;
         if (!opts || opts.length === 0) {
             re.options.classList.add("hidden");
+            // Legacy model: the textured/geometry Output control is the real control — show it.
+            if (re.outputField) re.outputField.classList.remove("hidden");
             return;
         }
         re.options.classList.remove("hidden");
+        // Catalog model (Pro): Generate Type is authoritative — hide the legacy Output control so it
+        // can't silently disagree with generate_type.
+        if (re.outputField) re.outputField.classList.add("hidden");
         for (const d of opts) {
             if (d.key === "generate_type") {
                 re.optGenerateType.innerHTML = (d.allowed_values || [])
