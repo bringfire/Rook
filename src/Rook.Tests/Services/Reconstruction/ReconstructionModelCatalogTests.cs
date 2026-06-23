@@ -77,12 +77,19 @@ public sealed class ReconstructionModelCatalogTests
     }
 
     [Fact]
+    public void ProductionCatalog_HunyuanPro_IsStable()
+    {
+        var pro = ProductionCatalog().Find("fal-ai/hunyuan-3d/v3.1/pro/image-to-3d");
+        Assert.Equal("stable", pro!.Status);
+    }
+
+    [Fact]
     public void ProductionCatalog_IncludesHunyuanPro_WithEightSlotsAndThreeOptions()
     {
         var pro = ProductionCatalog().Find("fal-ai/hunyuan-3d/v3.1/pro/image-to-3d");
 
         Assert.NotNull(pro);
-        Assert.Equal("experimental", pro!.Status);          // flips to stable in Slice 4
+        Assert.Equal("stable", pro!.Status);
         Assert.True(pro.SupportsPbr);
         Assert.True(pro.DefaultTextureExpected);
         Assert.Equal("multi_view_labeled", pro.Input!.Mode);

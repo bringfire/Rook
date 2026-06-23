@@ -33,7 +33,7 @@
       "model_id": "fal-ai/hunyuan-3d/v3.1/pro/image-to-3d",
       "provider": "fal",
       "task": "single_image_to_3d",
-      "status": "experimental",
+      "status": "stable",
       "enabled": true,
       "pipeline_roles": ["single_image_to_3d"],
       "input_types": ["image_url"],
