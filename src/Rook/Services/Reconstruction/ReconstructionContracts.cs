@@ -14,6 +14,7 @@ public static class ReconstructionArtifactKinds
         "generated_image",
         "imported_image",
         "captured_viewport",
+        PreprocessedImage,
     };
 }
 
