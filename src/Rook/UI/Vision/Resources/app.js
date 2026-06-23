@@ -1111,6 +1111,48 @@ function selectStudioPickerArtifact(artifactId) {
     closeStudioPicker();
 }
 
+// ─── Studio: operation-aware result panel ─────────────────────────
+
+// Switch the shared Studio result panel between generation and operation
+// presentation. For an operation result (e.g. background removal) the title
+// reflects the operation and the generation-specific actions ("New Generation")
+// are hidden in favor of the result-reuse actions — no stale "Generated" copy.
+function setStudioResultMode(mode) {
+    const isOp = mode === "background_removed";
+    if (el.studioResultTitle) el.studioResultTitle.textContent = isOp ? "Background removed" : "Generated";
+    if (el.studioResultGenActions) el.studioResultGenActions.classList.toggle("hidden", isOp);
+    if (el.studioResultOpActions) el.studioResultOpActions.classList.toggle("hidden", !isOp);
+}
+
+function studioUseResultAsSource() {
+    if (!latestStudioArtifactId) return;
+    applyStudioSource({
+        source: "artifact",
+        artifact_id: latestStudioArtifactId,
+        role: "image",
+        previewSrc: `/blob/${encodeURIComponent(latestStudioArtifactId)}/image?ts=${Date.now()}`,
+        label: "background removed",
+    });
+}
+
+async function studioOpenResultInGallery() {
+    if (!latestStudioArtifactId) return;
+    const id = latestStudioArtifactId;
+    switchView("gallery");
+    await loadGallery();
+    await openArtifactModal(id);
+}
+
+async function studioSendResultToReconstruct() {
+    if (!latestStudioArtifactId) return;
+    try {
+        const artifact = await bridgeCall("get_artifact", { artifact_id: latestStudioArtifactId });
+        if (artifact && artifact.artifact_id) Reconstruct.presetSource(artifact);
+    } catch (e) {
+        showStudioStatus(e.message, "error");
+    }
+}
+
 async function studioEnhancePrompt() {
     const prompt = el.studioPrompt.value.trim();
     if (!prompt) { showStudioStatus("Please enter a prompt.", "error"); return; }
@@ -1175,6 +1217,7 @@ async function studioGenerate() {
         latestStudioArtifactId = artifact.artifact_id;
         if (artifact.artifact_id) {
             el.studioResultImage.src = `/blob/${encodeURIComponent(artifact.artifact_id)}/image?ts=${Date.now()}`;
+            setStudioResultMode("generate");
             el.studioResultPanel.classList.remove("hidden");
             showStudioStatus("Image generated.", "success");
         } else {
@@ -1209,6 +1252,7 @@ async function studioGenerateImageJob(args, model) {
     latestStudioArtifactId = result.result_artifact_id;
     if (result.result_artifact_id) {
         el.studioResultImage.src = `/blob/${encodeURIComponent(result.result_artifact_id)}/image?ts=${Date.now()}`;
+        setStudioResultMode("generate");
         el.studioResultPanel.classList.remove("hidden");
         showStudioStatus("Image generated.", "success");
     } else {
@@ -2101,6 +2145,12 @@ function init() {
     el.studioPickerModal = $("studio-picker-modal");
     el.studioPickerGrid = $("studio-picker-grid");
     el.studioPickerClose = $("studio-picker-close");
+    el.studioResultTitle = $("studio-result-title");
+    el.studioResultGenActions = $("studio-result-gen-actions");
+    el.studioResultOpActions = $("studio-result-op-actions");
+    el.studioUseAsSourceBtn = $("studio-use-as-source-btn");
+    el.studioOpenInGalleryBtn = $("studio-open-in-gallery-btn");
+    el.studioSendToReconstructBtn = $("studio-send-to-reconstruct-btn");
 
     // Gallery
     el.galleryGrid = $("gallery-grid");
@@ -2236,6 +2286,10 @@ function init() {
             closeStudioPicker();
         }
     });
+
+    el.studioUseAsSourceBtn?.addEventListener("click", studioUseResultAsSource);
+    el.studioOpenInGalleryBtn?.addEventListener("click", studioOpenResultInGallery);
+    el.studioSendToReconstructBtn?.addEventListener("click", studioSendResultToReconstruct);
 
     if (el.refreshGalleryBtn) el.refreshGalleryBtn.addEventListener("click", loadGallery);
     if (el.addMediaGalleryBtn) el.addMediaGalleryBtn.addEventListener("click", startMediaImport);

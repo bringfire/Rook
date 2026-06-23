@@ -41,6 +41,49 @@ namespace Rook.Tests.UI.Vision
             Assert.Contains("applyStudioSource({", js);
         }
 
+        // ─── Task 3: Operation-aware result panel ─────────────────────
+
+        [Fact]
+        public void IndexHtml_ResultPanel_HasTitleIdAndSplitActionGroups()
+        {
+            var html = ReadVisionResource("index.html");
+            Assert.Contains("id=\"studio-result-title\"", html);
+            Assert.Contains("id=\"studio-result-gen-actions\"", html);
+            Assert.Contains("id=\"studio-result-op-actions\"", html);
+            Assert.Contains("id=\"studio-use-as-source-btn\"", html);
+            Assert.Contains("id=\"studio-open-in-gallery-btn\"", html);
+            Assert.Contains("id=\"studio-send-to-reconstruct-btn\"", html);
+        }
+
+        [Fact]
+        public void AppJs_ResultPanel_IsOperationAware()
+        {
+            var js = ReadVisionResource("app.js");
+            Assert.Contains("el.studioResultTitle = $(\"studio-result-title\");", js);
+            Assert.Contains("el.studioResultGenActions = $(\"studio-result-gen-actions\");", js);
+            Assert.Contains("el.studioResultOpActions = $(\"studio-result-op-actions\");", js);
+            Assert.Contains("function setStudioResultMode(", js);
+            // operation-aware copy: background-removed result is titled, not "Generated"
+            Assert.Contains("\"Background removed\"", js);
+            // generation path explicitly restores generate-mode header/actions
+            Assert.Contains("setStudioResultMode(\"generate\")", js);
+            // reuse actions exist and route correctly
+            Assert.Contains("function studioUseResultAsSource(", js);
+            Assert.Contains("function studioOpenResultInGallery(", js);
+            Assert.Contains("function studioSendResultToReconstruct(", js);
+            Assert.Contains("Reconstruct.presetSource(", js);
+            Assert.Contains("openArtifactModal(", js);
+        }
+
+        [Fact]
+        public void Styles_OpActions_WrapToAvoidOverflow()
+        {
+            // P2: three reuse buttons must not overflow the non-wrapping result header row.
+            var css = ReadVisionResource("styles.css");
+            Assert.Contains("#studio-result-op-actions", css);
+            Assert.Contains("flex-wrap: wrap", css);
+        }
+
         // ─── helper ───────────────────────────────────────────────────
 
         private static string ReadVisionResource(string fileName)
