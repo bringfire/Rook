@@ -761,46 +761,16 @@ namespace Rook.Handlers
 
         private Dictionary<string, string> ProviderFileNamesByRole(Guid packageId, Artifact package)
         {
-            var names = new Dictionary<string, string>(StringComparer.Ordinal);
             try
             {
-                var providerJson = JsonNode.Parse(File.ReadAllText(
+                var json = JsonNode.Parse(File.ReadAllText(
                     _store.GetBlobAbsolutePath(packageId, ReconstructionFileRoles.ProviderResultJson))) as JsonObject;
-                if (providerJson is null) return names;
-
-                AddProviderFileName(names, package, ReconstructionFileRoles.ModelGlb, providerJson["model_glb"], normalizeModelRole: true);
-                AddProviderFileName(names, package, ReconstructionFileRoles.ModelObj, providerJson["model_obj"], normalizeModelRole: true);
-                AddProviderFileName(names, package, ReconstructionFileRoles.MaterialMtl, providerJson["material_mtl"], normalizeModelRole: true);
-                AddProviderFileName(names, package, ReconstructionFileRoles.Texture, providerJson["texture"], normalizeModelRole: false);
-                AddProviderFileName(names, package, ReconstructionFileRoles.Thumbnail, providerJson["thumbnail"], normalizeModelRole: false);
-
-                if (providerJson["model_urls"] is JsonObject modelUrls)
-                {
-                    foreach (var kvp in modelUrls)
-                        AddProviderFileName(names, package, FallbackRoleForModelUrlKey(kvp.Key), kvp.Value, normalizeModelRole: true);
-                }
-                if (providerJson["texture_urls"] is JsonObject textureUrls)
-                {
-                    foreach (var kvp in textureUrls)
-                    {
-                        // Detailed texture maps are stored by the result mapper under detailed roles via
-                        // FalReconstructionResultMapper.ClassifyTextureRole. Key the provider filename under
-                        // that SAME role so FileNameForRole resolves the real .mtl-referenced name (e.g.
-                        // albedo.png) instead of falling back to the blob role name (texture_base_color.png).
-                        var textureFile = ReadProviderFile(kvp.Value);
-                        if (textureFile is null) continue;
-                        var textureRole = FalReconstructionResultMapper.ClassifyTextureRole(
-                            textureFile.FileName, textureFile.Url);
-                        AddProviderFileName(names, package, textureRole, kvp.Value, normalizeModelRole: false);
-                    }
-                }
+                return json is null ? new() : ReconstructionProviderFileNames.ProviderFileNamesByRole(json, package);
             }
             catch (Exception ex) when (ex is IOException or JsonException or InvalidOperationException)
             {
-                return names;
+                return new();
             }
-
-            return names;
         }
 
         private static void AddProviderFileName(
