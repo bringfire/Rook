@@ -16,7 +16,7 @@
 - **Two independent one-node smokes.** No scheduler, no chain advancement, no chat-loop integration, no helper/CLI extraction.
 - **Executor:** inject `_mcp_tool_executor` into a real `RookAgent` — `RookAgent(tool_executor=_mcp_tool_executor)`. NOT a bare `RookAgent()` / auto-built `ToolDispatcher`.
 - **Evidence** is read off `result.graph.nodes[NODE_ID].evidence`.
-- **Broken-C# body** is exactly `B = new Box();` with `pins_out=["B:Brep"]` (grounded post-create compile error, `test_server_contract_hardening.py:559`). NOT a syntax-error body.
+- **Broken-C# body** is exactly `A = DefinitelyMissingSymbol;` with `pins_out=["A:double"]` (live-confirmed post-create compile error on RhinoCode 8.33). `B = new Box();` was the original design-time choice (mock test `test_server_contract_hardening.py:559`) but does NOT error on this build — rejected. NOT a bare-syntax-error body.
 - **Skip-safety:** the module uses `fresh_document` so it skips cleanly when Rhino is unreachable, and is deselected from normal CI via `-m "not requires_rhino"`.
 - **Producer hinge (must not regress):** broken C# under `artifact_producer` projects to `succeeded` / `verified=False`, NOT `needs_repair`.
 - Live-test runner (from repo root, Rhino up): `mcp_server/.venv/Scripts/python.exe -m pytest -p no:cacheprovider -m requires_rhino mcp_server/tests/test_base_agent_live_producer_live.py`.
@@ -53,7 +53,7 @@ the receipt travels the production executor seam and projects correctly by role.
 
 Two independent ONE-NODE smokes:
   1. clean component  -> artifact_status "usable"          -> producer succeeded
-  2. B = new Box()    -> success:False + "created_with_errors" (created but bad)
+  2. A = DefinitelyMissingSymbol;  -> success:False + "created_with_errors"
                       -> producer STILL succeeded / verified False  (the live
                          "two successes" seam; `needs_repair` here would mean the
                          producer projection was bypassed for conservative/
@@ -141,11 +141,15 @@ async def test_clean_component_live_producer_succeeds(fresh_document):
 
 
 async def test_broken_csharp_live_producer_two_successes_seam(fresh_document):
-    """Live two-successes seam: `B = new Box();` is created but fails to compile
-    (type-conversion error). The raw envelope is success:False, yet because the
-    node is an artifact_producer the graph node still succeeds with verified
-    False. A `needs_repair` landing here would mean the producer projection was
-    bypassed for conservative/direct-task semantics."""
+    """Live two-successes seam: `A = DefinitelyMissingSymbol;` is created but
+    fails to compile (undefined-symbol error). The raw envelope is success:False,
+    yet because the node is an artifact_producer the graph node still succeeds
+    with verified False. A `needs_repair` landing here would mean the producer
+    projection was bypassed for conservative/direct-task semantics.
+
+    Body note: empirically confirmed on RhinoCode 8.33 to yield
+    artifact_status == "created_with_errors"; `B = new Box();` does NOT error on
+    this build, so it cannot serve as the seam body."""
     declared_params = {
         "language": "csharp",
         "code": "A = DefinitelyMissingSymbol;",   # live re-gate (see top note)
@@ -200,7 +204,7 @@ This step requires a throwaway Rhino session with Rook loaded. **It is required 
 
 Run (from repo root, Rhino open):
 `mcp_server/.venv/Scripts/python.exe -m pytest -p no:cacheprovider -m requires_rhino mcp_server/tests/test_base_agent_live_producer_live.py -v`
-Expected: `2 passed`. Both the clean-`usable`→`succeeded` path and the broken-`created_with_errors`→`succeeded`/`verified False` seam land as specified. (Inherent live dependency: RhinoCode must flag `B = new Box();`; that flagging is the behavior the seam test confirms.)
+Expected: `2 passed`. Both the clean-`usable`→`succeeded` path and the broken-`created_with_errors`→`succeeded`/`verified False` seam land as specified. (Inherent live dependency: RhinoCode must flag `A = DefinitelyMissingSymbol;`; that flagging is the behavior the seam test confirms.)
 
 - [ ] **Step 6: Confirm the full focused PlanGraph gate is unchanged (236 passed)**
 
@@ -239,7 +243,7 @@ git add mcp_server/tests/test_base_agent_live_producer_live.py
 git commit -m "test(lm4e): live producer smoke over agent live-producer method"
 ```
 
-(Commit message body should note: two opt-in one-node requires_rhino smokes; clean→usable→succeeded; B = new Box()→success:False+created_with_errors→producer succeeded/verified False; test-only, no src diff. End with the `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>` trailer.)
+(Commit message body should note: two opt-in one-node requires_rhino smokes; clean→usable→succeeded; A = DefinitelyMissingSymbol;→success:False+created_with_errors→producer succeeded/verified False; test-only, no src diff. End with the `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>` trailer.)
 
 ## Self-Review
 

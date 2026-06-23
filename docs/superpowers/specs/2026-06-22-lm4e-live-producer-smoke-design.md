@@ -79,10 +79,10 @@ live, it does not discover it:
   `artifact_producer`, `_producer_outcome` returns `_producer_success(..., True)`
   → `status="succeeded"`, `verified=True`
   (`plan_graph_projection.py:190-193`).
-- **Post-create compile error (`B = new Box();`):** the component IS created, so
-  `mutation_status="created"` is hardcoded (`server.py:2628`); compilation fails
-  → `data["compilation_errors"]` set → top-level envelope is
-  `{"success": False, ...}` (`server.py:2448-2454`) AND
+- **Post-create compile error (the broken body `A = DefinitelyMissingSymbol;`):**
+  the component IS created, so `mutation_status="created"` is hardcoded
+  (`server.py:2628`); compilation fails → `data["compilation_errors"]` set →
+  top-level envelope is `{"success": False, ...}` (`server.py:2448-2454`) AND
   `artifact_status="created_with_errors"`. For role `artifact_producer`,
   `_has_mutation_evidence` is True (via `mutation.status=="created"`), so
   `_producer_outcome` promotes to `_producer_success(..., False)` →
@@ -90,15 +90,18 @@ live, it does not discover it:
   (`plan_graph_projection.py:199-205`). The conservative `needs_repair` mapping
   (`_conservative_outcome`, `plan_graph_projection.py:120-122`) is the
   `direct_task`/`artifact_verifier` path and must NOT be reached here.
-- **Broken body is grounded:** `test_server_contract_hardening.py:559` uses
-  `"B = new Box();"` with `pins_out=["B:Brep"]` and asserts
-  `receipt["artifact_status"] == "created_with_errors"`,
-  `repair_anchor.component_guid == component_guid`, and
-  `target_errors == ["Cannot convert Box to Brep"]`. This is a created-but-bad
-  artifact (type-conversion failure at solve), NOT an early validation rejection —
-  exactly the seam the smoke needs. `A = ;` is rejected: it risks being caught by
-  a future create-time preflight before the component exists, which would prove
-  early-validation failure instead of the producer seam.
+- **Body history (design-time vs live):** the design originally chose
+  `"B = new Box();"` because the mock-level `test_server_contract_hardening.py:559`
+  asserts it yields `created_with_errors`/`target_errors=["Cannot convert Box to
+  Brep"]`. The **live** run (RhinoCode 8.33) proved that body does NOT error there
+  (it previews a `Box`), so the seam body is now `A = DefinitelyMissingSymbol;`
+  (`pins_out=["A:double"]`), empirically `created_with_errors` live. The mechanism
+  above is body-agnostic; only the chosen body changed. This is a created-but-bad
+  artifact (compile failure at solve — undefined symbol), NOT an early validation
+  rejection — exactly the seam the smoke needs. A bare-syntax body like `A = ;` is
+  avoided: it risks being caught by a future create-time preflight before the
+  component exists, which would prove early-validation failure instead of the
+  producer seam.
 - **Evidence location:** the reducer stores `NodeEvidence` at
   `graph.nodes[node_id].evidence` (`plan_graph_runner.py:96`, `:171-183`), and
   `node.status` carries the outcome status. The tests read the hinge off the
@@ -268,8 +271,9 @@ confirm.
   helper extraction.
 - Executor is `_mcp_tool_executor` injected into a real `RookAgent`.
 - Evidence is read off `result.graph.nodes[NODE_ID].evidence`.
-- Broken-C# body is `B = new Box();` / `pins_out=["B:Brep"]` (grounded
-  post-create compile error), NOT a syntax-error body.
+- Broken-C# body is `A = DefinitelyMissingSymbol;` / `pins_out=["A:double"]`
+  (live-confirmed post-create compile error on RhinoCode 8.33). `B = new Box();`
+  was the original design-time choice but does not error on this build — rejected.
 - `requires_rhino` keeps the module out of normal CI by deselection; skip-safe
   when Rhino is down.
 - Live-test runner (from repo root, Rhino up):

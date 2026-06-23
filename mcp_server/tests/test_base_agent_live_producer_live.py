@@ -6,7 +6,7 @@ the receipt travels the production executor seam and projects correctly by role.
 
 Two independent ONE-NODE smokes:
   1. clean component  -> artifact_status "usable"          -> producer succeeded
-  2. B = new Box()    -> success:False + "created_with_errors" (created but bad)
+  2. A = DefinitelyMissingSymbol;  -> success:False + "created_with_errors"
                       -> producer STILL succeeded / verified False  (the live
                          "two successes" seam; `needs_repair` here would mean the
                          producer projection was bypassed for conservative/
