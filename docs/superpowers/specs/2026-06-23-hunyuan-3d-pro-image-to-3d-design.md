@@ -78,10 +78,11 @@ back-compat but has **no Pro mapping**, so it cannot be submitted to Pro.
 
 1. **View carrier:** inline labeled `views[]` in the submit request. `assemble_view_set` stays an
    optional preview/provenance/save helper — **not** required for submit.
-2. **Front source:** `source_artifact_id` is the **only canonical front**. `views[]` carries optional
-   *secondary* labeled views. A `front` entry in `views[]` is accepted **only if its `artifact_id`
-   matches `source_artifact_id`**, otherwise rejected as a front conflict. `views.front` never
-   overrides `source_artifact_id`.
+2. **Front source:** `source_artifact_id` **and** `source_role` are the **only canonical front**.
+   `views[]` carries optional *secondary* labeled views. A `front` entry in `views[]` is accepted
+   **only if its `artifact_id` matches `source_artifact_id` AND its `role` is absent or equals
+   `source_role`**, otherwise rejected as a front conflict. `views.front` never overrides
+   `source_artifact_id` or `source_role`.
 3. **Capability via metadata, not task:** one Pro catalog entry; multi-view capability expressed by
    `input.view_slots`. Pro appears in **both** I3D (front-only) and MV3D (labeled views). Catalog
    metadata (not `task`) is the authority for mode availability and gating.
@@ -110,10 +111,11 @@ public sealed record ReconstructionViewRequest(string Slot, Guid ArtifactId, str
   guarantees structural validity.
 
 ### Effective slot→artifact resolution (manager)
-1. Seed `{ front: (source_artifact_id, source_role) }`.
+1. Seed `{ front: (source_artifact_id, source_role) }` — the canonical front, immutable.
 2. Apply `views[]`:
-   - `slot == "front"`: allowed **iff** `artifact_id == source_artifact_id` (role may differ; the
-     explicit role wins for front). Mismatch → `invalid_request` / `conflicting_front`.
+   - `slot == "front"`: accepted **only if** `artifact_id == source_artifact_id` **AND** `role` is
+     absent or `== source_role`. It never overrides the canonical front (it can only redundantly
+     restate it). Any mismatch on artifact **or** role → `invalid_request` / `conflicting_front`.
    - duplicate non-front slot within `views[]` → `invalid_request` / `duplicate_slot`.
 3. Result = the labeled set to validate, publish, and submit.
 
@@ -336,7 +338,7 @@ surface it. Concretely:
 | Case | Result |
 |---|---|
 | Missing `source_artifact_id` | `invalid_request` (parser; field `source_artifact_id`) |
-| `views.front` artifact ≠ `source_artifact_id` | `invalid_request` / `conflicting_front` |
+| `views.front` artifact ≠ `source_artifact_id` **or** role present and ≠ `source_role` | `invalid_request` / `conflicting_front` |
 | Slot not in model's `view_slots` | `invalid_request` / `unsupported_slot` (field `views`) |
 | Duplicate non-front slot in `views[]` | `invalid_request` / `duplicate_slot` |
 | Invalid `generate_type` (not Normal/Geometry) | `invalid_request` (field `options.generate_type`) |
@@ -355,7 +357,8 @@ Per-layer unit tests (all in `src/Rook.Tests/Services/Reconstruction/...` and
   `view_slots`; old JSON without `options` still deserializes.
 - **Parser:** `views[]` shapes + structural rejects; absent `views` → empty.
 - **Options validator:** enum / range / unknown / `ignored_when` / default-fill.
-- **Manager:** effective-map resolution, front overlay + `conflicting_front`, `unsupported_slot`,
+- **Manager:** effective-map resolution, canonical-front restatement accepted + `conflicting_front`
+  on artifact mismatch **and** on role mismatch (role present ≠ `source_role`), `unsupported_slot`,
   per-slot source validation, texture/PBR matrix (esp. `Normal + enable_pbr=false ⇒ textured`,
   `Geometry ⇒ geometry-only`), capability gating.
 - **Provider:** `BuildSubmitPayload` writes all slot fields (front first) + omits ignored option +
