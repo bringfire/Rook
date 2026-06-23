@@ -68,6 +68,12 @@ public sealed class ReconstructionJobManager : IDisposable
     private readonly TimeSpan _pollInterval;
     private readonly CancellationTokenSource _shutdownCts = new();
     private readonly ConcurrentDictionary<Guid, RunningJob> _runningJobs = new();
+
+    // Job-keyed multi-view provenance: front + filled-slot source ids in resolved order. Read at the
+    // 3D materialize site (PollActiveJobAsync), which is shared by the background loop and on-demand
+    // StatusAsync, so it must be lookup-by-jobId. In-memory only — the ledger keeps the single front id.
+    private readonly ConcurrentDictionary<Guid, IReadOnlyList<Guid>> _jobSourceArtifactIds = new();
+
     private readonly SemaphoreSlim _concurrency = new(DefaultMaxConcurrentJobs, DefaultMaxConcurrentJobs);
     private bool _disposed;
 
@@ -315,6 +321,9 @@ public sealed class ReconstructionJobManager : IDisposable
                     UpdatedAt = DateTimeOffset.UtcNow,
                 };
                 _ledger.Append(polling);
+                // Stash full multi-view provenance for the materialize step (queued only — failed
+                // submits never start a loop, so this avoids a stale entry). Read in PollActiveJobAsync.
+                _jobSourceArtifactIds[jobId] = sourceArtifactIds.ToArray();
                 StartBackgroundLoop(polling);
                 return new ReconstructionSubmitResult(true, queued, null);
 
@@ -605,7 +614,9 @@ public sealed class ReconstructionJobManager : IDisposable
                             ct).ConfigureAwait(false)
                         : await _materializer.MaterializeAsync(
                             materializing.JobId,
-                            new[] { materializing.SourceArtifactId },
+                            _jobSourceArtifactIds.TryGetValue(materializing.JobId, out var allSourceIds)
+                                ? allSourceIds
+                                : new[] { materializing.SourceArtifactId },
                             materializing.Provider,
                             materializing.ModelId,
                             success.Envelope,
@@ -1049,6 +1060,7 @@ public sealed class ReconstructionJobManager : IDisposable
         finally
         {
             _runningJobs.TryRemove(jobId, out _);
+            _jobSourceArtifactIds.TryRemove(jobId, out _);   // best-effort housekeeping; fallback covers absence
             if (acquired) _concurrency.Release();
             running.Cts.Dispose();
         }

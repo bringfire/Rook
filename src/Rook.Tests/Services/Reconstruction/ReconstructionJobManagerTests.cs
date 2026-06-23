@@ -316,6 +316,39 @@ public sealed class ReconstructionJobManagerTests : IDisposable
     }
 
     [Fact]
+    public async Task PollActiveJob_MultiView_MaterializesPackageWithAllParentIds()
+    {
+        var fixture = CreateFixture();
+        fixture.Provider.StatusComplete.Enqueue(true);
+        fixture.Provider.ResultJson = GlbResultJson;
+        fixture.Downloader.Files["https://example.test/model.glb"] = new byte[] { 9, 8, 7 };
+        var front = fixture.Store.Create("generated_image", new[] { new BlobInput("image", new byte[] { 1 }, "png") });
+        var left = fixture.Store.Create("generated_image", new[] { new BlobInput("image", new byte[] { 2 }, "png") });
+
+        var req = Request(front.Id) with
+        {
+            ModelId = ProModelId,
+            Options = new JsonObject(),
+            Views = new[]
+            {
+                new ReconstructionViewRequest("front", front.Id, "image"),
+                new ReconstructionViewRequest("left", left.Id, "image"),
+            },
+        };
+        var submit = await fixture.Manager.SubmitAsync(req, CancellationToken.None);
+        Assert.True(submit.Success);
+
+        await fixture.Manager.PollActiveJobAsync(submit.Job!.JobId, CancellationToken.None);
+
+        var status = fixture.Manager.Status(submit.Job.JobId);
+        Assert.Equal(ReconstructionJobState.Complete, status.Job!.State);
+        var package = fixture.Store.Get(status.Job.ResultArtifactId!.Value);
+        Assert.NotNull(package);
+        Assert.Contains(front.Id, package!.ParentIds);
+        Assert.Contains(left.Id, package.ParentIds);
+    }
+
+    [Fact]
     public async Task PollActiveJob_StatusComplete_FetchesResultAndMaterializesPackage()
     {
         var fixture = CreateFixture();
