@@ -22,17 +22,29 @@
 
 ## Panel-dark gate (run from `src/Rook/UI/Vision/Resources/`)
 
+**Shell note:** the Bash version below uses process substitution (`<(…)`) — run it in **Git Bash** (the harness `Bash` tool *is* Git Bash). Do **not** paste it into PowerShell; use the PowerShell equivalent there. All checks must produce **empty/clean** output before each task's commit. (Check 2 lists cached ids with no HTML home — the panel-dark cause.)
+
+**Git Bash:**
 ```bash
-# 1. JS syntax
-node --check app.js
-# 2. Every cached $("id") in app.js exists as id="id" in index.html (output MUST be empty)
+node --check app.js   # 1. JS syntax
+# 2. cached $("id") with no matching id="…" in index.html (MUST be empty)
 comm -23 \
   <(grep -oE '\$\("reconstruct-[a-z0-9-]+"\)' app.js | sed -E 's/.*\$\("([^"]+)"\).*/\1/' | sort -u) \
   <(grep -oE 'id="reconstruct-[a-z0-9-]+"' index.html | sed -E 's/.*id="([^"]+)".*/\1/' | sort -u)
-# 3. No duplicate ids in index.html (output MUST be empty)
+# 3. duplicate ids in index.html (MUST be empty)
 grep -oE 'id="[a-z0-9-]+"' index.html | sort | uniq -d
 ```
-All three must pass before each task's commit. (Line 2 lists cached ids with no HTML home — the panel-dark cause.)
+
+**PowerShell equivalent:**
+```powershell
+node --check app.js   # 1. JS syntax
+# 2. cached ids missing an HTML home (MUST output nothing)
+$cached = (Select-String -Path app.js -Pattern '\$\("(reconstruct-[a-z0-9-]+)"\)' -AllMatches).Matches | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
+$html   = (Select-String -Path index.html -Pattern 'id="(reconstruct-[a-z0-9-]+)"' -AllMatches).Matches | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
+$cached | Where-Object { $_ -notin $html }
+# 3. duplicate ids in index.html (MUST output nothing)
+(Select-String -Path index.html -Pattern 'id="([a-z0-9-]+)"' -AllMatches).Matches | ForEach-Object { $_.Groups[1].Value } | Group-Object | Where-Object { $_.Count -gt 1 } | ForEach-Object { $_.Name }
+```
 
 ---
 
@@ -165,7 +177,7 @@ git add -A && git commit -m "feat(vision): Reconstruct mode switcher + prompt + 
 
 ## Task 2: Enlarged front/source pane + in-place pick/clear + Send-to-3D invariant
 
-Enlarge the source pane to Video frame-pane language, make the existing `reconstruct-choose-source` the in-place `Pick` (opens a picker scoped to `front`), add `reconstruct-source-clear`, move source into the `slots.front` state, and pin the Send-to-3D invariant. (The picker *modal* itself lands in Task 3 with the slots; for Task 2, `Pick` may route through the existing Gallery handoff as an interim — but the spec's end state is the modal. **Decision for this plan:** introduce the Reconstruct picker modal here in Task 2, since the front pane needs it; Task 3 reuses it for the secondary slots.)
+Enlarge the source pane to Video frame-pane language, make the existing `reconstruct-choose-source` the in-place `Pick` (opens a picker scoped to `front`), add `reconstruct-source-clear`, move source into the `slots.front` state, and pin the Send-to-3D invariant. **The Reconstruct picker modal is introduced here in Task 2** (the front pane needs it); Task 3 reuses the same modal for the secondary slots.
 
 **Files:** `index.html`, `app.js`, `styles.css`, `ReconstructScaffoldSourceTests.cs`
 
@@ -425,8 +437,9 @@ Add mode-driven model filtering: the existing `loadModels` filters by `m.task` �
 
 - [ ] **Step 9: Deploy + live smoke (merge gate)**
 
-Vision assets are embedded → **managed Release deploy** surfaces them; no native/MCP reload. Close Rhino, then:
-`dotnet build src/Rook/Rook.csproj -c Release` (→ DeployToRhino), copy `src/Rook/bin/Release/net8.0/Rook.rhp` over `%APPDATA%\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net8.0\Rook.rhp`, relaunch Rhino.
+Vision assets are **embedded resources** compiled into `Rook.rhp`, so a managed Release build refreshes them; no native or MCP reload. **Do not hardcode a TFM path or hand-copy** — `Rook.csproj` is multi-targeted (`net8.0;net7.0;net48`) and its `DeployToRhino` target (`Rook.csproj:92`, `AfterTargets="Build"`, Release-only) **auto-copies each TFM's `Rook.rhp`** to `%APPDATA%\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\<TFM>\`.
+
+Steps: **close Rhino** (else the `.rhp` files are locked and the copy fails), then `dotnet build src/Rook/Rook.csproj -c Release`. Confirm the build prints `Deployed Rook.rhp to …\RookNative\<TFM>` for the target frameworks (the target only fires when `%APPDATA%\…\RookNative` already exists — it does on an installed machine; if it does NOT print the deploy message, locate the actual built `Rook.rhp` under `src/Rook/bin/Release/<TFM>/` and copy it to the matching `RookNative\<TFM>\` folder, verifying which TFM Rhino loads). Relaunch Rhino.
 **Smoke:** open Vision → Reconstruct; confirm the tab loads (not dark); switch T3D/I3D/MV3D and verify body, action label/enablement, prompt hint, and model placeholder change correctly; I3D submit still works and "Send to 3D" lands in the large pane; MV3D: fill `front` + a couple secondary slots from the picker, clear one, confirm previews/persistence and the disabled "Assemble view set" + note.
 
 - [ ] **Step 10: Finish the branch**
