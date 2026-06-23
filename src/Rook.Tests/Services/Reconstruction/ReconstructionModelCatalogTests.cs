@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Text.Json.Nodes;
 using Rook.Services.Reconstruction;
 using Xunit;
 
@@ -20,6 +21,81 @@ public sealed class ReconstructionModelCatalogTests
                 $"Embedded reconstruction model catalog '{resourceName}' was not found.");
         using var reader = new StreamReader(stream);
         return ReconstructionModelCatalog.FromJson(reader.ReadToEnd());
+    }
+
+    [Fact]
+    public void FromJson_ParsesOptionsBlock_EnumBooleanInteger_WithIgnoredWhenAndDefaults()
+    {
+        const string json = """
+        {
+          "schema_version": 1,
+          "models": [{
+            "model_id": "test/pro", "provider": "fal", "task": "single_image_to_3d",
+            "status": "experimental", "enabled": true,
+            "pipeline_roles": ["single_image_to_3d"], "input_types": ["image_url"],
+            "output_roles": ["model_glb"], "preferred_asset_role": "model_glb",
+            "fallback_order": ["model_glb"], "supports_pbr": true,
+            "default_texture_expected": true,
+            "preprocessing": {"recommended": false, "required": false},
+            "docs_url": "https://example.test",
+            "options": [
+              { "key": "generate_type", "label": "Generate Type", "kind": "enum",
+                "default": "Normal", "allowed_values": ["Normal", "Geometry"] },
+              { "key": "enable_pbr", "label": "Enable PBR", "kind": "boolean",
+                "default": false, "ignored_when": { "key": "generate_type", "equals": "Geometry" } },
+              { "key": "face_count", "label": "Face Count", "kind": "integer",
+                "default": 500000, "min": 40000, "max": 1500000, "step": 10000 }
+            ]
+          }]
+        }
+        """;
+
+        var catalog = ReconstructionModelCatalog.FromJson(json);
+        var model = catalog.Find("test/pro");
+
+        Assert.NotNull(model!.Options);
+        Assert.Equal(3, model.Options!.Length);
+
+        var gen = model.Options[0];
+        Assert.Equal("generate_type", gen.Key);
+        Assert.Equal("enum", gen.Kind);
+        Assert.Equal("Normal", gen.Default!.GetValue<string>());
+        Assert.Equal(new[] { "Normal", "Geometry" }, gen.AllowedValues);
+
+        var pbr = model.Options[1];
+        Assert.Equal("boolean", pbr.Kind);
+        Assert.False(pbr.Default!.GetValue<bool>());
+        Assert.Equal("generate_type", pbr.IgnoredWhen!.Key);
+        Assert.Equal("Geometry", pbr.IgnoredWhen.EqualsValue);
+
+        var fc = model.Options[2];
+        Assert.Equal("integer", fc.Kind);
+        Assert.Equal(500000L, fc.Default!.GetValue<long>());
+        Assert.Equal(40000L, fc.Min);
+        Assert.Equal(1500000L, fc.Max);
+        Assert.Equal(10000L, fc.Step);
+    }
+
+    [Fact]
+    public void FromJson_ModelWithoutOptions_DeserializesWithNullOptions()
+    {
+        const string json = """
+        {
+          "schema_version": 1,
+          "models": [{
+            "model_id": "test/legacy", "provider": "fal", "task": "single_image_to_3d",
+            "status": "stable", "enabled": true,
+            "pipeline_roles": ["single_image_to_3d"], "input_types": ["image_url"],
+            "output_roles": ["model_glb"], "preferred_asset_role": "model_glb",
+            "fallback_order": ["model_glb"], "supports_pbr": false,
+            "default_texture_expected": true,
+            "preprocessing": {"recommended": false, "required": false},
+            "docs_url": "https://example.test"
+          }]
+        }
+        """;
+        var model = ReconstructionModelCatalog.FromJson(json).Find("test/legacy");
+        Assert.Null(model!.Options);
     }
 
     [Fact]
