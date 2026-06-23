@@ -10,35 +10,6 @@ using System.Text.RegularExpressions;
 
 namespace Rook.Artifacts
 {
-    public enum ReplaceJsonBlobResultCode
-    {
-        Succeeded,
-        InvalidRole,
-        ArtifactNotFound,
-        ManifestReadFailed,
-        RoleNotFound,
-        RoleIsNotJson,
-        StagedWriteFailed,
-        FinalizeBlobFailed,
-        ManifestReplaceFailed,
-    }
-
-    public sealed record ReplaceJsonBlobResult(
-        ReplaceJsonBlobResultCode Code,
-        Artifact? Artifact = null,
-        string? Message = null)
-    {
-        public bool Success => Code == ReplaceJsonBlobResultCode.Succeeded;
-
-        public static ReplaceJsonBlobResult Succeeded(Artifact artifact) =>
-            new(ReplaceJsonBlobResultCode.Succeeded, artifact);
-
-        public static ReplaceJsonBlobResult Fail(
-            ReplaceJsonBlobResultCode code,
-            string message) =>
-            new(code, null, message);
-    }
-
     /// <summary>
     /// Persistent, addressable artifact store backed by a directory tree at
     /// <see cref="RookPaths.ArtifactsRoot"/> (overridable for tests).
