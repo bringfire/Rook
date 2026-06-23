@@ -19,9 +19,14 @@ with a corrected body), runs the two pure verifier steps between/after, and appl
 the explicit terminal `done` marker — proving failed live producer evidence
 **branches to repair and re-verification confirms the repaired artifact clean**.
 
-This closes the open LM4 exit criterion: *"failed nodes branch to repair or
-escalation by policy"* and *"a two-to-four-node task can run without relying on the
-model to remember the plan."*
+This **advances** the open LM4 exit criteria by proving — via live hand-composed
+execution — that *"a two-to-four-node task can run without relying on the model to
+remember the plan"* and that failed live producer evidence **branches to repair**
+to a reverified-clean terminal state. It does **not** close *"failed nodes branch to
+repair or escalation **by policy**"*: bounded repair/escalation **policy** (a
+scheduler choosing branch targets and attempt budgets) is explicitly deferred (see
+Non-Goals). LM4I proves the branch is *traversable and correct live*, hand-driven;
+policy that *decides* the branch is future work.
 
 ## Non-Goals (explicit, load-bearing)
 
@@ -31,12 +36,18 @@ model to remember the plan."*
   selection, no retry loop, no model loop. (Reviewer guardrail.)
 - **No new production module and no production code change.** Two new test files only
   — the exact shape LM4H landed.
-- **Does NOT prove the `:v1` versioned execution refs live.** Both producer nodes
-  declare versioned refs (`gh_create_csharp_script:v1`, `gh_update_script:v1`); the
-  live test deliberately **overrides** them to the LM4E/smoke-proven unversioned
-  tools (`gh_create_script`, `gh_update_script`) and asserts the declared ref
-  **before** each override so template drift is caught. Proving the versioned-ref
-  dispatch compatibility is a separate future slice.
+- **Does NOT prove `gh_create_csharp_script` live (the create-side producer tool).**
+  `_resolve_tool_name` (plan_graph_live.py:90-102) already strips the `:vN` suffix, so
+  the version refs themselves are **not** a live gap. The create node's declared ref
+  `gh_create_csharp_script:v1` resolves to the actual tool `gh_create_csharp_script`,
+  which is **not yet proven to dispatch correctly live**; the live test therefore
+  **overrides only the create ref** to the LM4E/smoke-proven `gh_create_script`
+  (asserting the declared ref before the override so template drift is caught). The
+  repair node's declared ref `gh_update_script:v1` resolves to `gh_update_script`,
+  which **is** proven live (`test_gh_update_script_live.py`), so the repair node uses
+  its **real declared ref** unchanged — no tool override — and only its
+  `execution_params` are set. Proving `gh_create_csharp_script` live is a separate
+  future slice.
 - **Does NOT prove automatic rolling-memory propagation of the repair target.** The
   repair's target guid is **hand-wired** in the test from the create node's evidence
   (`repair_anchor.component_guid`). Automatic carry-forward through rolling memory is
@@ -99,18 +110,27 @@ The live test asserts `selected_template_id` and both declared producer refs
 1. **5-node template, not 3-node.** The 3-node `gh_csharp_create_verify_repair`
    makes repair terminal and has no reverify; only the 5-node template proves
    re-verification-clean to a terminal state.
-2. **Assert declared refs before overriding.** `create_script ==
-   gh_create_csharp_script:v1`, `repair_same_component == gh_update_script:v1`,
-   asserted before the override to the proven unversioned tools. Drift in the
-   registered template fails the test loudly.
+2. **Assert declared refs before any mutation (drift guard); override only create.**
+   Assert `create_script == gh_create_csharp_script:v1` and `repair_same_component ==
+   gh_update_script:v1` before mutating either — drift in the registered template
+   fails the test loudly. Then **override only the create ref** to the proven
+   `gh_create_script` (its declared tool `gh_create_csharp_script` is not proven
+   live). The **repair ref is left unchanged**: `_resolve_tool_name` strips `:v1` →
+   `gh_update_script`, the proven tool, so the repair node dispatches its real
+   declared ref. (This also exercises live `:vN` resolution for free.)
 3. **Hand-wire the repair guid from create evidence.**
    `repair_guid = create_node.evidence.repair_anchor["component_guid"]` (assert
    non-empty str), then set `guid: repair_guid` in the repair node's
    `execution_params` alongside the **corrected** C# body.
-4. **Broken create body, corrected repair body.** Create dispatches the LM4E/LM4H
-   canonical seam body `A = DefinitelyMissingSymbol;` / `pins_out: ["A:double"]`
-   (compiles to `created_with_errors`). Repair dispatches a clean body
-   (e.g. `A = 42.0;`) → `usable` receipt → producer projects `succeeded`.
+4. **Broken create body, corrected repair body; repair params match the
+   `gh_update_script` contract.** Create dispatches (via `gh_create_script`) the
+   LM4E/LM4H canonical seam body `A = DefinitelyMissingSymbol;` / `pins_out:
+   ["A:double"]` (compiles to `created_with_errors`). Repair's `execution_params` are
+   exactly `{"guid": repair_guid, "code": "A = 42.0;", "mode": "body", "language":
+   "csharp"}` — `gh_update_script` reads the component's current pins and requires only
+   `guid` + `code` (+ `mode`/`language`); it does **not** take `pins_*`
+   (cf. `test_gh_update_script_live.py:91-98`). The clean body → `usable` receipt →
+   producer projects `succeeded`.
 5. **`done` is a terminal marker only.** Do NOT dispatch or verify it. After
    `verify_repair` unlocks `done` to `ready`, apply `NodeOutcome(status="succeeded")`
    to `done`, then assert `graph_status(final_graph) == "complete"`. `complete` is a
@@ -166,9 +186,10 @@ full 5-node chain composes to `complete` without any live capture:
 7. **Guid handoff:** `repair_guid =
    create_result.graph.nodes["create_script"].evidence.repair_anchor["component_guid"]`
    (assert non-empty str).
-8. Assert `repair_same_component` declared ref `== gh_update_script:v1`; override →
-   `gh_update_script`; set repair `execution_params` (`guid: repair_guid`, corrected
-   body, matching pins).
+8. Assert `repair_same_component` declared ref `== gh_update_script:v1` (drift guard).
+   **Leave the ref unchanged** (`_resolve_tool_name` strips `:v1` → the proven
+   `gh_update_script`). Set repair `execution_params` exactly to
+   `{"guid": repair_guid, "code": "A = 42.0;", "mode": "body", "language": "csharp"}`.
 9. `repair_result = await agent.run_live_producer_node(<verifier-step graph>,
    "repair_same_component")`.
 10. `build_live_producer_record(repair_result, <clean seam expectation>)` → assert
@@ -194,10 +215,11 @@ repair dispatch (corrected body, guid=^)  <--hand-wire--+   repair_same_componen
 
 - **No active GH doc** → `_ensure_gh_document` skips (LM4H lesson; not a settle race).
 - **Repair targets wrong/absent component** → guarded by assert-non-empty
-  `repair_guid` + assert-before-override on the repair ref; a bad guid surfaces as a
-  failed/blocked repair producer record, not a silent pass.
-- **Template drift** (refs/roles/edges change) → assert-before-override + the pure
-  guard's topology assertions fail loudly.
+  `repair_guid` before it is placed in the repair `execution_params`; a bad guid
+  surfaces as a failed/blocked repair producer record, not a silent pass.
+- **Template drift** (refs/roles/edges change) → assert-declared-refs-before-mutation
+  (both producers) + the create-ref override is gated on that assert + the pure
+  guard's topology assertions; all fail loudly on drift.
 - **`gh_update_script` GH1-legacy refusal** (`server.py:1643`) → the created component
   is a RhinoCode (GH2) C# script via `gh_create_script`, the supported update path;
   pinned by the corrected-body dispatch returning `usable`.
