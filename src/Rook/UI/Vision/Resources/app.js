@@ -3332,7 +3332,7 @@ const Reconstruct = (() => {
     let models = [];
     let modelsLoaded = false;
     // Uniform slot state — each filled entry: { artifact_id, role, previewSrc, label, kind }
-    const slots = { front: null, left: null, right: null, back: null, top: null, three_quarter: null };
+    const slots = { front: null, left: null, right: null, back: null, top: null, bottom: null, left_front: null, right_front: null };
     let pickerTargetSlot = null;
     let pickerArtifactsById = {};
     let outputMode = "textured";  // "textured" | "geometry"
@@ -3465,15 +3465,25 @@ const Reconstruct = (() => {
             re.submitBtn.disabled = true;
             re.actionNote.textContent = "Text-to-3D arrives when a provider lands.";
         } else { // mv3d
-            re.submitBtn.textContent = "Assemble view set";
-            re.submitBtn.disabled = true;
-            re.actionNote.textContent = "Slot assembly wires next.";
+            re.submitBtn.textContent = "Reconstruct";
+            re.submitBtn.disabled = false;
+            re.actionNote.textContent = "";
         }
     }
 
     function updateReconstructModelForMode(mode) {
-        if (mode === "t3d" || mode === "mv3d") {
+        if (mode === "t3d") {
             re.modelSelect.innerHTML = "<option value=\"\" disabled selected>No models available for this mode yet</option>";
+        } else if (mode === "mv3d") {
+            // Filter the picker to multi-view-capable models (Pro). Empty until Pro flips to stable.
+            const mv = models.filter(m => m.supports_multi_view);
+            if (mv.length === 0) {
+                re.modelSelect.innerHTML = "<option value=\"\" disabled selected>No models available for this mode yet</option>";
+            } else {
+                re.modelSelect.innerHTML = mv.map(buildModelOption).join("");
+                re.modelSelect.value = mv[0].model_id;
+            }
+            updateModelHint();
         } else {
             // i3d: restore the loaded model list (or placeholder if none loaded yet)
             if (models.length === 0) {
@@ -3569,6 +3579,11 @@ const Reconstruct = (() => {
             return;
         }
         resetResultForNewRun();   // hide stale result/import state while the new job runs
+        // Labeled secondary views from filled slots (front stays the canonical source). For I3D this is
+        // just the front entry, which the backend accepts as a redundant restatement.
+        const views = Object.keys(slots)
+            .filter(s => slots[s] && slots[s].artifact_id)
+            .map(s => ({ slot: s, artifact_id: slots[s].artifact_id, role: slots[s].role || "image" }));
         try {
             re.submitBtn.disabled = true;
             showReconstructStatus("Submitting reconstruction…", "info");
@@ -3578,6 +3593,7 @@ const Reconstruct = (() => {
                 model_id: modelId,
                 preprocessing_chain: [],
                 options: optionsForMode(),
+                views: views,
                 estimate_requested: false,
             });
             if (!job || !job.job_id) {

@@ -119,10 +119,25 @@ namespace Rook.Tests.UI.Vision
         {
             var js = ReadVisionResource("app.js");
             Assert.Contains("function updateReconstructActionForMode", js);
-            Assert.Contains("Assemble view set", js);
             Assert.Contains("Text-to-3D arrives when a provider lands.", js);
-            Assert.Contains("Slot assembly wires next.", js);
-            Assert.Contains("No models available for this mode yet", js);
+            Assert.Contains("No models available for this mode yet", js);   // t3d / empty mv3d picker
+        }
+
+        [Fact]
+        public void AppJs_Mv3dSubmits_ViewsArray_AndDropsThreeQuarterState()
+        {
+            var js = ReadVisionResource("app.js");
+            // slot-state object uses the Fal vocabulary
+            Assert.Contains("left_front", js);
+            Assert.Contains("right_front", js);
+            Assert.DoesNotContain("three_quarter", js);
+            // submit carries a views[] array
+            Assert.Contains("views:", js);
+            // MV3D action is no longer the disabled "Assemble view set" stub
+            Assert.DoesNotContain("Slot assembly wires next.", js);
+            Assert.DoesNotContain("Assemble view set", js);
+            // MV3D picker filters to multi-view-capable models
+            Assert.Contains("supports_multi_view", js);
         }
 
         // ─── Pro options (Slice 2) assertions ─────────────────────────
