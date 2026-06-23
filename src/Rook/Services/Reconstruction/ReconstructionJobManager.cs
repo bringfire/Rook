@@ -109,7 +109,7 @@ public sealed class ReconstructionJobManager : IDisposable
         CancellationToken ct)
     {
         var model = _catalog.Find(request.ModelId);
-        if (!IsSubmittableV1Model(model))
+        if (!IsSubmittable3DModel(model))
             return SubmitFail("invalid_request", "Requested reconstruction model is not available.", "model_id");
 
         if (request.PreprocessingChain.Count != 0)
@@ -667,12 +667,16 @@ public sealed class ReconstructionJobManager : IDisposable
             or ReconstructionJobState.Cancelled
             or ReconstructionJobState.Interrupted;
 
-    private static bool IsSubmittableV1Model(ReconstructionModelEntry? model)
+    // Capability-based 3D submit gate (no task dependency): enabled + stable + has an importable 3D
+    // output role (model_glb/model_obj) + accepts input (a source_field, or declared view_slots).
+    private static bool IsSubmittable3DModel(ReconstructionModelEntry? model)
         => model is not null
             && model.Enabled
             && string.Equals(model.Status, "stable", StringComparison.OrdinalIgnoreCase)
-            && string.Equals(model.Task, "single_image_to_3d", StringComparison.Ordinal)
-            && model.PipelineRoles.Contains("single_image_to_3d", StringComparer.Ordinal);
+            && (model.OutputRoles.Contains("model_glb", StringComparer.Ordinal)
+                || model.OutputRoles.Contains("model_obj", StringComparer.Ordinal))
+            && (!string.IsNullOrWhiteSpace(model.Input?.SourceField)
+                || (model.Input?.ViewSlots is { Length: > 0 }));
 
     // A model is submittable for background removal when it is enabled and its catalog task is
     // remove_background. Unlike the 3D gate this does NOT require status=="stable" — bg-removal models

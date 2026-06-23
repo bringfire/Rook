@@ -137,6 +137,26 @@ public sealed class ReconstructionJobManagerTests : IDisposable
     }
 
     [Fact]
+    public async Task Submit_MultiViewLabeledModel_IsSubmittable_ViaCapabilityGate()
+    {
+        // Pro's task is "multi_view_to_3d" in the test catalog — the old task-based gate would reject
+        // it. The capability gate accepts it (stable + model_glb/obj output + view_slots input).
+        var fixture = CreateFixture();
+        var source = fixture.Store.Create(
+            "generated_image", new[] { new BlobInput("image", new byte[] { 1, 2, 3 }, "png") });
+
+        var result = await fixture.Manager.SubmitAsync(
+            Request(source.Id) with
+            {
+                ModelId = "fal-ai/hunyuan-3d/v3.1/pro/image-to-3d",
+                Options = new JsonObject(),
+            },
+            CancellationToken.None);
+
+        Assert.True(result.Success);
+    }
+
+    [Fact]
     public async Task PollActiveJob_StatusComplete_FetchesResultAndMaterializesPackage()
     {
         var fixture = CreateFixture();
@@ -1441,6 +1461,7 @@ public sealed class ReconstructionJobManagerTests : IDisposable
           "fallback_order": ["model_obj"],
           "supports_pbr": false,
           "default_texture_expected": true,
+          "input": {"mode": "single_image", "source_field": "input_image_url"},
           "preprocessing": {"recommended": false, "required": false},
           "docs_url": "https://fal.ai/models/fal-ai/non-pbr/image-to-3d/api"
         },
@@ -1457,8 +1478,47 @@ public sealed class ReconstructionJobManagerTests : IDisposable
           "fallback_order": ["model_glb", "model_obj"],
           "supports_pbr": true,
           "default_texture_expected": true,
+          "input": {"mode": "single_image", "source_field": "input_image_url"},
           "preprocessing": {"recommended": false, "required": false},
           "docs_url": "https://fal.ai/models/fal-ai/hunyuan-3d/v3.1/rapid/image-to-3d/api"
+        },
+        {
+          "model_id": "fal-ai/hunyuan-3d/v3.1/pro/image-to-3d",
+          "provider": "fal",
+          "task": "multi_view_to_3d",
+          "status": "stable",
+          "enabled": true,
+          "pipeline_roles": ["single_image_to_3d"],
+          "input_types": ["image_url"],
+          "output_roles": ["model_glb", "model_obj", "material_mtl", "model_fbx", "model_usdz", "texture", "thumbnail"],
+          "preferred_asset_role": "model_glb",
+          "fallback_order": ["model_glb", "model_obj"],
+          "supports_pbr": true,
+          "default_texture_expected": true,
+          "input": {
+            "mode": "multi_view_labeled",
+            "source_field": "input_image_url",
+            "view_slots": [
+              { "role": "front",       "field": "input_image_url",       "required": true  },
+              { "role": "back",        "field": "back_image_url",        "required": false },
+              { "role": "left",        "field": "left_image_url",        "required": false },
+              { "role": "right",       "field": "right_image_url",       "required": false },
+              { "role": "top",         "field": "top_image_url",         "required": false },
+              { "role": "bottom",      "field": "bottom_image_url",      "required": false },
+              { "role": "left_front",  "field": "left_front_image_url",  "required": false },
+              { "role": "right_front", "field": "right_front_image_url", "required": false }
+            ]
+          },
+          "options": [
+            { "key": "generate_type", "label": "Generate Type", "kind": "enum",
+              "default": "Normal", "allowed_values": ["Normal", "Geometry"] },
+            { "key": "enable_pbr", "label": "Enable PBR", "kind": "boolean",
+              "default": false, "ignored_when": { "key": "generate_type", "equals": "Geometry" } },
+            { "key": "face_count", "label": "Face Count", "kind": "integer",
+              "default": 500000, "min": 40000, "max": 1500000, "step": 10000 }
+          ],
+          "preprocessing": {"recommended": false, "required": false},
+          "docs_url": "https://fal.ai/models/fal-ai/hunyuan-3d/v3.1/pro/image-to-3d/api"
         }
       ]
     }
