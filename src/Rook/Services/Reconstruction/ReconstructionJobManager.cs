@@ -120,26 +120,40 @@ public sealed class ReconstructionJobManager : IDisposable
                 "preprocessing_chain");
         }
 
-        if (IsJsonTrue(request.Options, "enable_pbr") && IsJsonTrue(request.Options, "enable_geometry"))
+        if (model!.Options is not null)
         {
-            return SubmitFail(
-                "invalid_request",
-                "enable_geometry=true requests geometry-only output and cannot be combined with "
-                + "enable_pbr=true. Remove enable_geometry to request textured output, or remove "
-                + "enable_pbr to request geometry-only output.",
-                "options");
+            // Catalog-described model: validate + default-fill + omit-ignored via the shared validator.
+            // The legacy enable_pbr/enable_geometry guards are subsumed (and would reject the structured
+            // options as unknown keys), so they only run for verbatim-options models below.
+            var optionsResult = ReconstructionOptionsValidator.Validate(request.Options, model);
+            if (!optionsResult.Success)
+                return new ReconstructionSubmitResult(false, null, optionsResult.Failure);
+            request = request with { Options = optionsResult.Options };
+        }
+        else
+        {
+            // Legacy verbatim-options models (e.g. Rapid): keep the existing pbr/geometry guards.
+            if (IsJsonTrue(request.Options, "enable_pbr") && IsJsonTrue(request.Options, "enable_geometry"))
+            {
+                return SubmitFail(
+                    "invalid_request",
+                    "enable_geometry=true requests geometry-only output and cannot be combined with "
+                    + "enable_pbr=true. Remove enable_geometry to request textured output, or remove "
+                    + "enable_pbr to request geometry-only output.",
+                    "options");
+            }
+
+            if (IsJsonTrue(request.Options, "enable_pbr") && !model.SupportsPbr)
+            {
+                return SubmitFail(
+                    "invalid_request",
+                    $"Model '{model.ModelId}' does not support reliable PBR output. Submit without "
+                    + "enable_pbr for the model's default output, or choose a PBR-capable model.",
+                    "options");
+            }
         }
 
-        if (IsJsonTrue(request.Options, "enable_pbr") && !model!.SupportsPbr)
-        {
-            return SubmitFail(
-                "invalid_request",
-                $"Model '{model.ModelId}' does not support reliable PBR output. Submit without "
-                + "enable_pbr for the model's default output, or choose a PBR-capable model.",
-                "options");
-        }
-
-        return await SubmitCoreAsync(request, model!, "single_image_to_3d", ct).ConfigureAwait(false);
+        return await SubmitCoreAsync(request, model, "single_image_to_3d", ct).ConfigureAwait(false);
     }
 
     /// <summary>

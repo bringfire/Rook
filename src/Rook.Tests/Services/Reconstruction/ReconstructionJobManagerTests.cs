@@ -268,6 +268,54 @@ public sealed class ReconstructionJobManagerTests : IDisposable
     }
 
     [Fact]
+    public async Task Submit_ProUnknownOption_Rejected()
+    {
+        var fixture = CreateFixture();
+        var src = fixture.Store.Create("generated_image", new[] { new BlobInput("image", new byte[] { 1 }, "png") });
+        var req = Request(src.Id) with
+        {
+            ModelId = ProModelId,
+            Options = new JsonObject { ["bogus"] = 1 },
+        };
+        var result = await fixture.Manager.SubmitAsync(req, CancellationToken.None);
+        Assert.False(result.Success);
+        Assert.Equal("unknown_option", result.Failure!.Details["reason"]);
+    }
+
+    [Fact]
+    public async Task Submit_ProDefaults_ForwardedToProvider()
+    {
+        var fixture = CreateFixture();
+        var src = fixture.Store.Create("generated_image", new[] { new BlobInput("image", new byte[] { 1 }, "png") });
+        var req = Request(src.Id) with
+        {
+            ModelId = ProModelId,
+            Options = new JsonObject(),   // empty → defaults filled
+        };
+        var result = await fixture.Manager.SubmitAsync(req, CancellationToken.None);
+        Assert.True(result.Success);
+        var submitted = Assert.Single(fixture.Provider.SubmitRequests);
+        Assert.Equal("Normal", submitted.Options["generate_type"]!.GetValue<string>());
+        Assert.Equal(500000L, submitted.Options["face_count"]!.GetValue<long>());
+    }
+
+    [Fact]
+    public async Task Submit_ProGeometry_OmitsEnablePbr_InProviderPayload()
+    {
+        var fixture = CreateFixture();
+        var src = fixture.Store.Create("generated_image", new[] { new BlobInput("image", new byte[] { 1 }, "png") });
+        var req = Request(src.Id) with
+        {
+            ModelId = ProModelId,
+            Options = new JsonObject { ["generate_type"] = "Geometry", ["enable_pbr"] = true },
+        };
+        var result = await fixture.Manager.SubmitAsync(req, CancellationToken.None);
+        Assert.True(result.Success);
+        var submitted = Assert.Single(fixture.Provider.SubmitRequests);
+        Assert.False(submitted.Options.ContainsKey("enable_pbr"));
+    }
+
+    [Fact]
     public async Task PollActiveJob_StatusComplete_FetchesResultAndMaterializesPackage()
     {
         var fixture = CreateFixture();
