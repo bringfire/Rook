@@ -40,7 +40,9 @@ Create `mcp_server/tests/test_plan_graph_live_runner.py`:
 ```python
 from __future__ import annotations
 
+import ast
 import asyncio
+from pathlib import Path
 
 from rook.agent.plan_graph_live import EXECUTION_PARAMS_KEY, LiveProducerResult
 from rook.agent.plan_graph_live_runner import (
@@ -231,6 +233,33 @@ def test_run_and_record_wrapper_uses_runner_result():
     assert rec.evaluated is True and rec.passed is True and rec.mismatches == ()
     assert rec.artifact_status == "usable"
     assert isinstance(rec, LiveProducerRecord)
+
+
+def _direct_import_modules(path: str) -> set[str]:
+    tree = ast.parse(Path(path).read_text(encoding="utf-8"))
+    modules: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            modules.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            prefix = "." * node.level
+            modules.add(f"{prefix}{node.module or ''}")
+    return modules
+
+
+def test_runner_module_import_boundary():
+    # Repo-root-relative path -> run from repo root (the focused gate does).
+    imports = _direct_import_modules(
+        "mcp_server/src/rook/agent/plan_graph_live_runner.py"
+    )
+    # Consumes the live kernel for the type + key, nothing heavier.
+    assert "rook.agent.plan_graph_live" in imports
+    # Must NOT couple back into the agent runtime / dispatcher / server / chat.
+    assert "rook.agent.base_agent" not in imports
+    assert "rook.agent.tool_dispatcher" not in imports
+    assert "rook.server" not in imports
+    assert "rook.agent.chat.chat_runner" not in imports
+    assert "rook.agent.plan_graph_live_dispatch" not in imports
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
@@ -441,7 +470,7 @@ async def run_and_record_live_producer_node(
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `mcp_server/.venv/Scripts/python.exe -m pytest -p no:cacheprovider mcp_server/tests/test_plan_graph_live_runner.py -q`
-Expected: `12 passed`.
+Expected: `13 passed` (12 functional + the AST import-boundary test). Run from the **repo root** so the AST test's repo-root-relative path resolves.
 
 - [ ] **Step 5: Run the full focused PlanGraph gate**
 
@@ -451,16 +480,20 @@ $files = Get-ChildItem mcp_server/tests -Filter 'test_plan_graph*.py' | ForEach-
 mcp_server/.venv/Scripts/python.exe -m pytest -p no:cacheprovider @files -q
 ```
 (bash equivalent: `files=$(ls mcp_server/tests/test_plan_graph*.py); mcp_server/.venv/Scripts/python.exe -m pytest -p no:cacheprovider $files -q`)
-Expected: `254 passed` (the prior 242 + the 12 new pure tests; `test_plan_graph_live_runner.py` matches the glob).
+Expected: `255 passed` (the prior 242 + the 13 new pure tests; `test_plan_graph_live_runner.py` matches the glob).
 
 - [ ] **Step 6: `py_compile` + import-boundary check**
 
 Run: `mcp_server/.venv/Scripts/python.exe -m py_compile mcp_server/src/rook/agent/plan_graph_live_runner.py mcp_server/tests/test_plan_graph_live_runner.py`
 Expected: exit 0.
 
-Then confirm the module imports nothing forbidden:
-`grep -nE 'base_agent|tool_dispatcher|rook\.server|rook\.agent\.chat|bridge|httpx|call_rhino' mcp_server/src/rook/agent/plan_graph_live_runner.py`
-Expected: no matches.
+Then confirm the module imports nothing forbidden (the AST test in Step 1 already
+pins this; this is a quick manual cross-check). PowerShell:
+```powershell
+Select-String -Path mcp_server/src/rook/agent/plan_graph_live_runner.py `
+  -Pattern 'base_agent|tool_dispatcher|rook\.server|rook\.agent\.chat|bridge|httpx|call_rhino'
+```
+Expected: no output.
 
 - [ ] **Step 7: Commit**
 
@@ -597,7 +630,21 @@ Expected EXACTLY these five paths and no others:
 - `docs/superpowers/specs/2026-06-22-lm4g-live-producer-runner-eval-harness-design.md`
 - `docs/superpowers/plans/2026-06-22-lm4g-live-producer-runner-eval-harness.md`
 
-Confirm **no `knowledge/`** path and **no edits to merged LM4 modules** (`plan_graph_live.py`, `plan_graph_live_dispatch.py`, `base_agent.py`, `plan_graph_outcomes.py`). PowerShell check: `git diff --cached --name-only main | Select-String 'knowledge/|plan_graph_live\.py|plan_graph_live_dispatch|base_agent|plan_graph_outcomes'` must return nothing. If `knowledge/gh/operations_knowledge.json` appears (runtime mutation), `git restore` it before committing.
+Confirm **no `knowledge/`** path and **no edits to merged LM4 modules**. Use an
+**exact-path** guard (substring matching would false-positive on the new
+`plan_graph_live_runner.py`). PowerShell:
+```powershell
+$changed = git diff --cached --name-only main
+$forbidden = $changed | Where-Object {
+  $_ -like 'knowledge/*' -or
+  $_ -eq 'mcp_server/src/rook/agent/plan_graph_live.py' -or
+  $_ -eq 'mcp_server/src/rook/agent/plan_graph_live_dispatch.py' -or
+  $_ -eq 'mcp_server/src/rook/agent/base_agent.py' -or
+  $_ -eq 'mcp_server/src/rook/learning/plan_graph_outcomes.py'
+}
+if ($forbidden) { $forbidden; exit 1 } else { 'OK: no forbidden paths' }
+```
+Expected: `OK: no forbidden paths`. If `knowledge/gh/operations_knowledge.json` appears (runtime mutation), `git restore` it before committing.
 
 - [ ] **Step 5: Commit**
 
@@ -608,6 +655,6 @@ git commit -m "test(lm4g): clean-path live proof of the runner/eval harness"
 
 ## Self-Review
 
-- **Spec coverage:** module + dataclasses + Protocol + pure builder + thin wrapper (Task 1 Step 3); `_safe_declared_params` Mapping-only + non-throwing (Step 3, tests 5/5b/6 → mapped to `test_not_applied_params_copy_failed...` and `test_non_mapping_execution_params...`); capture from `result.graph` with not-applied guards (tests 3/4); eval matrix incl. `evaluated` flag (tests 7–10); declared-params deep-copy isolation (test 10); wrapper over structural Protocol with fake runner (test 11); one clean live test (Task 2). Verification gates: focused gate 254, py_compile, import-boundary, deselection/skip, diff guard. All present.
+- **Spec coverage:** module + dataclasses + Protocol + pure builder + thin wrapper (Task 1 Step 3); `_safe_declared_params` Mapping-only + non-throwing (Step 3, tests 5/5b/6 → mapped to `test_not_applied_params_copy_failed...` and `test_non_mapping_execution_params...`); capture from `result.graph` with not-applied guards (tests 3/4); eval matrix incl. `evaluated` flag (tests 7–10); declared-params deep-copy isolation (test 10); wrapper over structural Protocol with fake runner (test 11); AST import-boundary test pinning no base_agent/dispatcher/server/chat coupling (test 13); one clean live test (Task 2). Verification gates: focused gate 255, py_compile, exact-path diff guard, deselection/skip. All present.
 - **Placeholder scan:** none — every code/command step is concrete.
 - **Type consistency:** `LiveProducerResult(graph, applied, node_id, tool_name, outcome_status, reason)`; `NodeEvidence(tool_status, verified, receipt, repair_anchor, ...)`; `PlanGraphNode(id, intent, metadata, status, evidence)`; record/expectation/mismatch field names match between module and tests; `build_live_producer_record` / `run_and_record_live_producer_node` / `LiveProducerExpectation` / `Mismatch` used identically in module, unit tests, and live test.
