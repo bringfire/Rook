@@ -65,6 +65,7 @@ def test_clean_applied_record():
     assert rec.applied is True
     assert rec.outcome_status == "succeeded"
     assert rec.node_status == "succeeded"
+    assert rec.tool_status == "success"
     assert rec.verified is True
     assert rec.artifact_status == "usable"
     assert rec.repair_anchor_guid == "g1"
@@ -82,6 +83,9 @@ def test_broken_applied_record():
     assert rec.artifact_status == "created_with_errors"
     assert rec.outcome_status == "succeeded"
     assert rec.node_status == "succeeded"
+    # The two-successes seam, recorded: tool failed functionally while the
+    # producer node succeeded.
+    assert rec.tool_status == "failed"
 
 
 def test_not_applied_unknown_node_record():
@@ -92,6 +96,7 @@ def test_not_applied_unknown_node_record():
     assert rec.applied is False
     assert rec.reason == "unknown_node"
     assert rec.node_status is None
+    assert rec.tool_status is None
     assert rec.verified is None
     assert rec.artifact_status is None
     assert rec.repair_anchor_guid is None
@@ -106,6 +111,7 @@ def test_not_applied_node_present_evidence_none():
                 nodes={"create": node})
     )
     assert rec.node_status == "pending"  # graph-native read
+    assert rec.tool_status is None
     assert rec.verified is None
     assert rec.artifact_status is None
     assert rec.repair_anchor_guid is None
@@ -163,13 +169,16 @@ def test_eval_single_mismatch():
 
 
 def test_eval_multiple_mismatches():
+    # _evidence() default tool_status is "success"; expect "failed" -> mismatch.
     node = _node(status="succeeded", evidence=_evidence(verified=True, artifact_status="usable"))
     rec = build_live_producer_record(
         _result(True, outcome_status="succeeded", nodes={"create": node}),
-        LiveProducerExpectation(verified=False, artifact_status="created_with_errors"),
+        LiveProducerExpectation(
+            verified=False, artifact_status="created_with_errors", tool_status="failed"
+        ),
     )
     assert rec.passed is False
-    assert {m.field for m in rec.mismatches} == {"verified", "artifact_status"}
+    assert {m.field for m in rec.mismatches} == {"verified", "artifact_status", "tool_status"}
 
 
 def test_declared_params_deepcopy_isolation():

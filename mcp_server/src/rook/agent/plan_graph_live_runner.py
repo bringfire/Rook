@@ -31,6 +31,7 @@ class LiveProducerExpectation:
     applied: bool | None = None
     outcome_status: str | None = None
     node_status: str | None = None
+    tool_status: str | None = None
     verified: bool | None = None
     artifact_status: str | None = None
     reason: str | None = None
@@ -51,6 +52,7 @@ class LiveProducerRecord:
     reason: str | None
     outcome_status: str | None
     node_status: str | None
+    tool_status: str | None
     verified: bool | None
     artifact_status: str | None
     repair_anchor_guid: str | None
@@ -71,6 +73,7 @@ _EXPECTATION_FIELDS = (
     "applied",
     "outcome_status",
     "node_status",
+    "tool_status",
     "verified",
     "artifact_status",
     "reason",
@@ -142,12 +145,14 @@ def build_live_producer_record(
     node = result.graph.nodes.get(result.node_id)
     if node is None:
         node_status: str | None = None
+        tool_status: str | None = None
         verified: bool | None = None
         artifact_status: str | None = None
         repair_anchor_guid: str | None = None
     else:
         node_status = node.status
         evidence = getattr(node, "evidence", None)
+        tool_status = getattr(evidence, "tool_status", None) if evidence is not None else None
         verified = getattr(evidence, "verified", None) if evidence is not None else None
         artifact_status = _artifact_status(evidence)
         repair_anchor_guid = _repair_anchor_guid(evidence)
@@ -156,6 +161,7 @@ def build_live_producer_record(
         "applied": result.applied,
         "outcome_status": result.outcome_status,
         "node_status": node_status,
+        "tool_status": tool_status,
         "verified": verified,
         "artifact_status": artifact_status,
         "reason": result.reason,
@@ -169,6 +175,7 @@ def build_live_producer_record(
         reason=result.reason,
         outcome_status=result.outcome_status,
         node_status=node_status,
+        tool_status=tool_status,
         verified=verified,
         artifact_status=artifact_status,
         repair_anchor_guid=repair_anchor_guid,

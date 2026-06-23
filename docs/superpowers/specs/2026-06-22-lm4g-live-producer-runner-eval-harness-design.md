@@ -3,7 +3,15 @@
 **Date:** 2026-06-22
 **Campaign:** Local/Internal-Models (LM) reliability — Stage 5 (live PlanGraph execution)
 **Slice:** LM4G — durable execution-record / eval layer around the one-node live path
-**Status:** Design approved (brainstorming), ready for implementation plan
+**Status:** Design approved; implemented; live `1 passed`.
+
+> **POST-REVIEW AMENDMENT (2026-06-22).** `tool_status` was added to
+> `LiveProducerRecord` and (optional) `LiveProducerExpectation` — captured from
+> `node.evidence.tool_status`. The first cut dropped it, which would have lost the
+> field that makes the two-successes seam legible (`tool_status="failed"` while a
+> producer node `succeeded`, the LM4E live finding). It is now a first-class
+> recorded + evaluable field. The dataclasses, capture semantics, and eval-fields
+> list below reflect the amendment.
 
 ---
 
@@ -73,6 +81,7 @@ class LiveProducerExpectation:
     applied: bool | None = None
     outcome_status: str | None = None
     node_status: str | None = None
+    tool_status: str | None = None
     verified: bool | None = None
     artifact_status: str | None = None
     reason: str | None = None
@@ -92,6 +101,7 @@ class LiveProducerRecord:
     reason: str | None
     outcome_status: str | None
     node_status: str | None
+    tool_status: str | None
     verified: bool | None
     artifact_status: str | None
     repair_anchor_guid: str | None
@@ -118,6 +128,9 @@ node = result.graph.nodes.get(node_id)
   read straight from the returned graph node (graph-native — the node's status is
   the durable DAG state). Evidence fields come from `node.evidence` when present,
   else `None`:
+  - `tool_status = node.evidence.tool_status` (the field that makes the
+    two-successes seam legible: `tool_status="failed"` while a producer node
+    `succeeded`)
   - `verified = node.evidence.verified`
   - `artifact_status = node.evidence.receipt["artifact_status"]` (guarded: receipt
     may be `None` or lack the key → `None`)
@@ -175,7 +188,8 @@ The deep copy also isolates the record from the graph (mutating the record's
 - All-`None` expectation → no comparisons → `mismatches=()`, `passed=True`
   ("intentionally evaluated nothing" — distinct from no expectation supplied).
 - The compared observed values are the record's own captured fields (`applied`,
-  `outcome_status`, `node_status`, `verified`, `artifact_status`, `reason`).
+  `outcome_status`, `node_status`, `tool_status`, `verified`, `artifact_status`,
+  `reason`).
 - `expectation` is echoed into the record for durability.
 
 ## Tests

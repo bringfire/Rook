@@ -8,6 +8,15 @@
 
 **Tech Stack:** Python 3.12, pytest (pure tests synchronous + `asyncio.run` for the wrapper test; live test uses pytest-asyncio via `pytestmark`), the existing `fresh_document` fixture, `rook.server._mcp_tool_executor`.
 
+> **POST-REVIEW AMENDMENT (2026-06-22):** `tool_status` was added as a captured +
+> evaluable field (`LiveProducerRecord.tool_status`, optional
+> `LiveProducerExpectation.tool_status`, in `_EXPECTATION_FIELDS`, captured from
+> `node.evidence.tool_status`). The broken-applied unit test asserts
+> `tool_status == "failed"` and the multi-mismatch test exercises it; the clean
+> unit test asserts `"success"`; not-applied tests assert `None`. The embedded code
+> blocks below predate this one-field amendment — the merged module/tests are the
+> source of truth. Counts unchanged (13 pure tests, focused gate 255).
+
 ## Global Constraints
 
 - **One node only** — no selection, no successor advancement, no scheduler, no chat loop.
