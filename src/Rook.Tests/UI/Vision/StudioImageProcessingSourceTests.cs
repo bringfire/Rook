@@ -84,6 +84,40 @@ namespace Rook.Tests.UI.Vision
             Assert.Contains("flex-wrap: wrap", css);
         }
 
+        // ─── Task 4: Operations group + Remove Background ──────────────
+
+        [Fact]
+        public void IndexHtml_OperationsGroup_HasRemoveBackground()
+        {
+            var html = ReadVisionResource("index.html");
+            Assert.Contains("id=\"studio-operations\"", html);
+            Assert.Contains("id=\"studio-remove-bg-btn\"", html);
+            Assert.Contains("id=\"studio-operation-status\"", html);
+            // Ships disabled until an artifact-backed source exists.
+            Assert.Contains("id=\"studio-remove-bg-btn\" class=\"btn btn-capture\" disabled", html);
+        }
+
+        [Fact]
+        public void AppJs_RemoveBackground_RoutesAndGatesOnArtifactSource()
+        {
+            var js = ReadVisionResource("app.js");
+            Assert.Contains("el.studioRemoveBgBtn = $(\"studio-remove-bg-btn\");", js);
+            Assert.Contains("el.studioOperationStatus = $(\"studio-operation-status\");", js);
+            Assert.Contains("function studioRemoveBackground(", js);
+            Assert.Contains("function awaitStudioRemoveBackground(", js);
+            Assert.Contains("function updateStudioOperationsEnabled(", js);
+            // routes through the reconstruction bridge op (correct call shape)
+            Assert.Contains("reconstructionBridgeCall(\"remove_background\", {", js);
+            Assert.Contains("reconstructionBridgeCall(\"job_status\", { job_id:", js);
+            // artifact-backed gating + exact disabled hint copy
+            Assert.Contains("studioSource && studioSource.artifact_id", js);
+            Assert.Contains("Load or pick a source image first", js);
+            // success drives the operation-aware result panel
+            Assert.Contains("setStudioResultMode(\"background_removed\")", js);
+            // enablement is recomputed when the source changes
+            Assert.Contains("updateStudioOperationsEnabled();", js);
+        }
+
         // ─── helper ───────────────────────────────────────────────────
 
         private static string ReadVisionResource(string fileName)

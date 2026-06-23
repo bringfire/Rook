@@ -1047,6 +1047,7 @@ function applyStudioSource(src) {
             el.studioSourceLabel.classList.add("hidden");
         }
     }
+    updateStudioOperationsEnabled();
 }
 
 function clearStudioSource() {
@@ -1061,6 +1062,7 @@ function clearStudioSource() {
         el.studioSourceLabel.textContent = "";
         el.studioSourceLabel.classList.add("hidden");
     }
+    updateStudioOperationsEnabled();
 }
 
 function basename(path) {
@@ -1151,6 +1153,79 @@ async function studioSendResultToReconstruct() {
     } catch (e) {
         showStudioStatus(e.message, "error");
     }
+}
+
+// ─── Studio: Remove Background operation ──────────────────────────
+
+function showStudioOperationStatus(text, kind) {
+    if (!el.studioOperationStatus) return;
+    el.studioOperationStatus.textContent = text;
+    el.studioOperationStatus.className = "status-message " + (kind || "info");
+}
+
+// Remove Background is enabled only for an artifact-backed source. Path-only /
+// transient sources are not-ready (the backend op is artifact-only; we do not
+// auto-materialize). Recompute on every source change.
+function updateStudioOperationsEnabled() {
+    const ready = !!(studioSource && studioSource.artifact_id);
+    if (el.studioRemoveBgBtn) {
+        el.studioRemoveBgBtn.disabled = !ready;
+        el.studioRemoveBgBtn.title = ready
+            ? "Remove the background from the source image"
+            : "Load or pick a source image first";
+    }
+}
+
+async function studioRemoveBackground() {
+    if (!(studioSource && studioSource.artifact_id)) {
+        showStudioOperationStatus("Load or pick a source image first.", "error");
+        return;
+    }
+    el.studioRemoveBgBtn.disabled = true;
+    showStudioOperationStatus("Removing background…", "info");
+    try {
+        const job = await reconstructionBridgeCall("remove_background", {
+            source_artifact_id: studioSource.artifact_id,
+            source_role: studioSource.role || "image",
+        });
+        const jobId = job && job.job_id;
+        if (!jobId) {
+            showStudioOperationStatus("Background removal did not start.", "error");
+            return;
+        }
+        const resultArtifactId = await awaitStudioRemoveBackground(jobId);
+        if (!resultArtifactId) {
+            showStudioOperationStatus("Background removal returned no artifact.", "error");
+            return;
+        }
+        latestStudioArtifactId = resultArtifactId;
+        el.studioResultImage.src = `/blob/${encodeURIComponent(resultArtifactId)}/image?ts=${Date.now()}`;
+        setStudioResultMode("background_removed");
+        el.studioResultPanel.classList.remove("hidden");
+        showStudioOperationStatus("Background removed.", "success");
+    } catch (e) {
+        showStudioOperationStatus(errorToText(e), "error");
+    } finally {
+        updateStudioOperationsEnabled();
+    }
+}
+
+// Poll the reconstruction job to terminal; return result_artifact_id on success.
+async function awaitStudioRemoveBackground(jobId) {
+    for (let attempt = 0; attempt < 600; attempt++) {
+        const status = await reconstructionBridgeCall("job_status", { job_id: jobId });
+        const job = status.job || status;
+        const state = job && job.state;
+        if (state === "queued") showStudioOperationStatus("Background removal queued…", "info");
+        else if (state === "submitting") showStudioOperationStatus("Submitting…", "info");
+        else if (state === "materializing") showStudioOperationStatus("Saving result…", "info");
+        else if (state === "polling" || !state) showStudioOperationStatus("Removing background…", "info");
+        if (state === "complete") return (job && job.result_artifact_id) || null;
+        if (state === "cancelled") throw new Error("Background removal cancelled.");
+        if (state === "error") throw new Error("Background removal failed.");
+        await delay(1000);
+    }
+    throw new Error("Background removal timed out.");
 }
 
 async function studioEnhancePrompt() {
@@ -2151,6 +2226,9 @@ function init() {
     el.studioUseAsSourceBtn = $("studio-use-as-source-btn");
     el.studioOpenInGalleryBtn = $("studio-open-in-gallery-btn");
     el.studioSendToReconstructBtn = $("studio-send-to-reconstruct-btn");
+    el.studioOperations = $("studio-operations");
+    el.studioRemoveBgBtn = $("studio-remove-bg-btn");
+    el.studioOperationStatus = $("studio-operation-status");
 
     // Gallery
     el.galleryGrid = $("gallery-grid");
@@ -2290,6 +2368,8 @@ function init() {
     el.studioUseAsSourceBtn?.addEventListener("click", studioUseResultAsSource);
     el.studioOpenInGalleryBtn?.addEventListener("click", studioOpenResultInGallery);
     el.studioSendToReconstructBtn?.addEventListener("click", studioSendResultToReconstruct);
+    el.studioRemoveBgBtn?.addEventListener("click", studioRemoveBackground);
+    updateStudioOperationsEnabled();   // initial disabled state (no source yet)
 
     if (el.refreshGalleryBtn) el.refreshGalleryBtn.addEventListener("click", loadGallery);
     if (el.addMediaGalleryBtn) el.addMediaGalleryBtn.addEventListener("click", startMediaImport);
