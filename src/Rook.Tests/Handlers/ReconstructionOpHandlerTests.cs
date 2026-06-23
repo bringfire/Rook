@@ -150,6 +150,38 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
     }
 
     [Fact]
+    public async Task DispatchOffUi_PrepareImport_GlbWithTextureCarriesMaterialRepair()
+    {
+        var fixture = CreateFixture();
+        fixture.Downloader.Files["https://example.test/model.glb"] = new byte[] { 1, 2, 3 };
+        fixture.Downloader.Files["https://example.test/texture.png"] = new byte[] { 7, 8, 9 };
+        var package = await BuildPackageAsync(fixture, JsonNode.Parse("""
+        {
+          "model_urls": {
+            "glb": {"url": "https://example.test/model.glb"}
+          },
+          "texture": {"url": "https://example.test/texture.png", "file_name": "texture_20250901.png"}
+        }
+        """)!);
+
+        var response = fixture.Handler.DispatchOffUi(
+            "{" +
+            "\"op\":\"prepare_import\"," +
+            $"\"package_id\":\"{package.Id}\"," +
+            "\"import_id\":\"cccccccc-cccc-cccc-cccc-cccccccccccc\"" +
+            "}");
+
+        Assert.True(response.Success, JsonSerializer.Serialize(response.Data));
+        var data = Assert.IsType<Dictionary<string, object?>>(response.Data);
+        Assert.Equal("model_glb", data["asset_role"]);
+        var repair = Assert.IsType<Dictionary<string, object?>>(data["material_repair"]);
+        Assert.Equal("Rook Reconstruction cccccccc", repair["material_name"]);
+        Assert.Equal("texture", repair["base_color_role"]);
+        Assert.Equal("texture_20250901.png", repair["base_color_file_name"]);
+        Assert.EndsWith("texture.png", Assert.IsType<string>(repair["base_color_path"]));
+    }
+
+    [Fact]
     public async Task DispatchOffUi_PrepareImport_DefaultFallsBackToObjWithCompanions()
     {
         var fixture = CreateFixture();

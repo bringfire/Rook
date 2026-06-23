@@ -173,6 +173,30 @@ public sealed class NativeReconstructionDispatchSourceTests
     }
 
     [Fact]
+    public void ReconstructionImport_AppliesPreparedMaterialRepairToImportedObjects()
+    {
+        var text = File.ReadAllText(Path.Combine(
+            RepoRoot,
+            "src",
+            "RookNative",
+            "Handlers",
+            "ImportExportHandler.cpp"));
+        var handler = ExtractFunction(text, "void HandleReconstructionImport");
+
+        Assert.Contains("static bool ApplyReconstructionMaterialRepair", text);
+        Assert.Contains("const nlohmann::json materialRepair = plan.value(", handler);
+        Assert.Contains("\"material_repair\"", handler);
+        Assert.Contains("ApplyReconstructionMaterialRepair(", handler);
+        Assert.Contains("newIds", handler);
+        Assert.Contains("materialRepair", handler);
+        Assert.Contains("ON_Texture::TYPE::pbr_base_color_texture", text);
+        Assert.Contains("mat.ToPhysicallyBased();", text);
+        Assert.Contains("attrs.SetMaterialSource(ON::material_from_object);", text);
+        Assert.Contains("attrs.m_material_index = matIdx;", text);
+        Assert.Contains("wr.data[\"material_repair_applied\"]", handler);
+    }
+
+    [Fact]
     public void ReconstructionImport_CleansPreparedBundleBeforePreRecordFailureReturns()
     {
         var text = File.ReadAllText(Path.Combine(
