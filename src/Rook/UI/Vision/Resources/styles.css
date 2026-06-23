@@ -2711,6 +2711,7 @@ body {
 }
 .seg-btn + .seg-btn { border-left: 1px solid var(--rule); }
 .seg-btn.active { background: var(--ink); color: var(--paper); }
+.reconstruct-prompt { width: 100%; }
 .reconstruct-actions { display: flex; gap: var(--space-3); }
 .reconstruct-result {
     border: 1px solid var(--rule);

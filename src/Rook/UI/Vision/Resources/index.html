@@ -663,7 +663,7 @@
                 </div>
                 <div class="reconstruct-layout">
                     <div class="reconstruct-main">
-                        <div class="panel reconstruct-form-panel">
+                        <div class="panel reconstruct-form-panel" data-mode="i3d">
                             <div class="panel-header">
                                 <span class="panel-number">01</span>
                                 <h2 class="panel-title">Generate</h2>
@@ -686,6 +686,19 @@
                                         </svg>
                                     </div>
                                     <span id="reconstruct-model-hint" class="option-hint"></span>
+                                </div>
+                                <div class="reconstruct-field">
+                                  <label class="reconstruct-label">Mode</label>
+                                  <div id="reconstruct-mode-radios" class="reconstruct-segmented" role="radiogroup" aria-label="Reconstruction mode">
+                                    <button type="button" class="seg-btn" data-mode="t3d" role="radio" aria-checked="false" title="Text to 3D: generate a model from a text prompt.">T3D</button>
+                                    <button type="button" class="seg-btn active" data-mode="i3d" role="radio" aria-checked="true" title="Image to 3D: reconstruct from one source image.">I3D</button>
+                                    <button type="button" class="seg-btn" data-mode="mv3d" role="radio" aria-checked="false" title="Multi-view 3D: reconstruct from labeled front/side/back images.">MV3D</button>
+                                  </div>
+                                </div>
+                                <div class="reconstruct-field">
+                                  <label class="reconstruct-label" for="reconstruct-prompt">Prompt</label>
+                                  <textarea id="reconstruct-prompt" class="reconstruct-prompt" rows="2" placeholder="Describe the object…"></textarea>
+                                  <span id="reconstruct-prompt-hint" class="option-hint">Optional for image modes.</span>
                                 </div>
                                 <div class="reconstruct-field">
                                     <label class="reconstruct-label">Output</label>

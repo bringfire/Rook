@@ -3333,6 +3333,7 @@ const Reconstruct = (() => {
     let modelsLoaded = false;
     let source = null;            // { artifact_id, role, previewSrc, label }
     let outputMode = "textured";  // "textured" | "geometry"
+    let reconstructMode = "i3d";  // "t3d" | "i3d" | "mv3d"
     let currentPackageId = null;
     let currentResultAvailable = false;
     let currentJobs = [];         // last-loaded job list (queue source of truth)
@@ -3346,6 +3347,10 @@ const Reconstruct = (() => {
         re.chooseSourceBtn = $("reconstruct-choose-source");
         re.modelSelect = $("reconstruct-model-select");
         re.modelHint = $("reconstruct-model-hint");
+        re.modeSwitch = $("reconstruct-mode-radios");
+        re.prompt = $("reconstruct-prompt");
+        re.promptHint = $("reconstruct-prompt-hint");
+        re.formPanel = document.querySelector(".reconstruct-form-panel");
         re.modeTextured = $("reconstruct-mode-textured");
         re.modeGeometry = $("reconstruct-mode-geometry");
         re.submitBtn = $("reconstruct-submit-btn");
@@ -3363,6 +3368,7 @@ const Reconstruct = (() => {
     }
 
     function wireEvents() {
+        re.modeSwitch.querySelectorAll(".seg-btn").forEach(b => b.addEventListener("click", () => setReconstructMode(b.dataset.mode)));
         re.chooseSourceBtn.addEventListener("click", chooseSource);
         re.modeTextured.addEventListener("click", () => setOutputMode("textured"));
         re.modeGeometry.addEventListener("click", () => setOutputMode("geometry"));
@@ -3392,6 +3398,7 @@ const Reconstruct = (() => {
 
     async function onEnter() {
         await loadModels();
+        setReconstructMode(reconstructMode);
         renderSource();
         setQueueFilter("active");   // default view-enter filter
         await loadJobs();
@@ -3410,6 +3417,23 @@ const Reconstruct = (() => {
         re.modeGeometry.classList.toggle("active", !textured);
         re.modeTextured.setAttribute("aria-checked", String(textured));
         re.modeGeometry.setAttribute("aria-checked", String(!textured));
+    }
+
+    const RECONSTRUCT_PROMPT_HINT = {
+        t3d: "Required for text-to-3D.",
+        i3d: "Optional for image modes.",
+        mv3d: "Optional for image modes.",
+    };
+    function setReconstructMode(mode) {
+        reconstructMode = mode;
+        re.formPanel.setAttribute("data-mode", mode);
+        re.modeSwitch.querySelectorAll(".seg-btn").forEach(b => {
+            const on = b.dataset.mode === mode;
+            b.classList.toggle("active", on);
+            b.setAttribute("aria-checked", on ? "true" : "false");
+        });
+        re.promptHint.textContent = RECONSTRUCT_PROMPT_HINT[mode] || "";
+        // later tasks extend: gate source/slots, model placeholder, action label/enablement
     }
 
     function optionsForMode() {
