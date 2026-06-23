@@ -94,16 +94,20 @@ async def test_clean_component_live_producer_succeeds(fresh_document):
 
 
 async def test_broken_csharp_live_producer_two_successes_seam(fresh_document):
-    """Live two-successes seam: `B = new Box();` is created but fails to compile
-    (type-conversion error). The raw envelope is success:False, yet because the
-    node is an artifact_producer the graph node still succeeds with verified
-    False. A `needs_repair` landing here would mean the producer projection was
-    bypassed for conservative/direct-task semantics."""
+    """Live two-successes seam: `A = DefinitelyMissingSymbol;` is created but
+    fails to compile (undefined-symbol error). The raw envelope is success:False,
+    yet because the node is an artifact_producer the graph node still succeeds
+    with verified False. A `needs_repair` landing here would mean the producer
+    projection was bypassed for conservative/direct-task semantics.
+
+    Body note: empirically confirmed on this RhinoCode build (8.33) to yield
+    artifact_status == "created_with_errors". `B = new Box();` does NOT error on
+    this build (it previews a Box), so it cannot serve as the seam body."""
     declared_params = {
         "language": "csharp",
-        "code": "B = new Box();",
+        "code": "A = DefinitelyMissingSymbol;",
         "pins_in": [],
-        "pins_out": ["B:Brep"],
+        "pins_out": ["A:double"],
         "name": "LM4EBrokenLive",
         "x": 350,
         "y": 760,

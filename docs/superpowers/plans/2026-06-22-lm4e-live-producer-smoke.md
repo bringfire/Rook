@@ -8,6 +8,8 @@
 
 **Tech Stack:** Python 3.12, pytest + pytest-asyncio (live-test convention: `pytestmark = [requires_rhino, asyncio]`), the existing `fresh_document` graceful-skip fixture, `rook.server._mcp_tool_executor`.
 
+> **LIVE RE-GATE (2026-06-22):** the broken-seam body is **`A = DefinitelyMissingSymbol;` / `pins_out=["A:double"]`** (empirically `created_with_errors` on RhinoCode 8.33), NOT `B = new Box();` (which does not error on this build). The clean path required **LM4F** (top-level MCP-success receipt tolerance, merged `7a1f8b1`). Live acceptance: **2 passed** after rebasing onto the LM4F main. `B = new Box();` mentions below are superseded design-time text.
+
 ## Global Constraints
 
 - **Test-only slice.** No change under `mcp_server/src/**`. `base_agent.py`, `plan_graph_live*.py`, `server.py`, and the pure `learning/plan_graph_*` layer stay unchanged.
@@ -146,9 +148,9 @@ async def test_broken_csharp_live_producer_two_successes_seam(fresh_document):
     bypassed for conservative/direct-task semantics."""
     declared_params = {
         "language": "csharp",
-        "code": "B = new Box();",
+        "code": "A = DefinitelyMissingSymbol;",   # live re-gate (see top note)
         "pins_in": [],
-        "pins_out": ["B:Brep"],
+        "pins_out": ["A:double"],
         "name": "LM4EBrokenLive",
         "x": 350,
         "y": 760,

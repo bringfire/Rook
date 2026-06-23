@@ -3,7 +3,19 @@
 **Date:** 2026-06-22
 **Campaign:** Local/Internal-Models (LM) reliability — Stage 5 (live PlanGraph execution)
 **Slice:** LM4E — first live smoke over the agent live-producer method
-**Status:** Design approved (brainstorming), ready for implementation plan
+**Status:** Design approved; executed; **live acceptance PASSED 2026-06-22 (2 passed)** after LM4F landed.
+
+> **LIVE RE-GATE (2026-06-22).** The first live run surfaced two things this design
+> could not know until executed: (1) the MCP success-unwrapped envelope gap, fixed
+> in **LM4F** (merged `7a1f8b1`) — without it the clean `usable` receipt never
+> reached the consumer; and (2) **`B = new Box();` does NOT compile-error on this
+> RhinoCode build (8.33)** — it previews a `Box`, so it cannot serve as the
+> `created_with_errors` seam body. The broken-seam body is therefore
+> **`A = DefinitelyMissingSymbol;` with `pins_out=["A:double"]`** (empirically
+> confirmed → `created_with_errors`). The `B = new Box();` references below are the
+> original design-time grounding (from the mock-level
+> `test_server_contract_hardening.py:559`), superseded by this re-gate for the live
+> body. Everything else in the design held.
 
 ---
 
@@ -195,9 +207,9 @@ Assertions:
 ```python
 {
     "language": "csharp",
-    "code": "B = new Box();",
+    "code": "A = DefinitelyMissingSymbol;",   # live re-gate: B = new Box() does not error on this build
     "pins_in": [],
-    "pins_out": ["B:Brep"],
+    "pins_out": ["A:double"],
     "name": "LM4EBrokenLive",
     "x": 350, "y": 760,
 }
