@@ -29,7 +29,10 @@ The two-column + queue-rail parity shipped in #321: `reconstruct-view` already h
 ### Constant Generate chrome (always visible, Video grammar)
 Inside the existing `reconstruct-form-panel` (`01 Generate`), in order:
 1. **Model** select + hint (existing `reconstruct-model-select`/`-model-hint`).
-2. **Mode** switcher — compact segmented `T3D ｜ I3D ｜ MV3D`, reusing the existing `seg-btn` style (as the current Output control does). Each segment carries a `title` tooltip (new paradigm). Buttons carry `data-mode="t3d|i3d|mv3d"`.
+2. **Mode** switcher — compact segmented `T3D ｜ I3D ｜ MV3D`, reusing the existing `seg-btn` style (as the current Output control does). Buttons carry `data-mode="t3d|i3d|mv3d"`. Each segment carries an exact `title` tooltip (this is a new paradigm — copy is part of the contract):
+   - **T3D:** "Text to 3D: generate a model from a text prompt."
+   - **I3D:** "Image to 3D: reconstruct from one source image."
+   - **MV3D:** "Multi-view 3D: reconstruct from labeled front/side/back images."
 3. **Prompt** — always present (text-to-3D will use it). A `<textarea>` + a hint whose text is mode-driven.
 4. **Output** — the existing Textured/Geometry-only segmented control, retained.
 
@@ -86,7 +89,7 @@ Per-slot DOM is **queried by `[data-slot]`**, not individually `$("id")`-cached 
 New cached ids (final list confirmed against the gate at implementation):
 - `reconstruct-mode-radios` (the mode switcher container; segments queried by `[data-mode]`)
 - `reconstruct-prompt`, `reconstruct-prompt-hint`
-- front pane in-place controls: `reconstruct-source-pick`, `reconstruct-source-clear` (the existing `reconstruct-source-thumb`/`-label` are reused; the existing `reconstruct-choose-source` is repurposed to open the in-place picker)
+- front pane controls — **single source of truth, no competing buttons:** the existing `reconstruct-choose-source` button **becomes** the front-pane in-place `Pick` (relabeled "Pick"; it now opens the Reconstruct picker scoped to `front` instead of routing to the Gallery view). The only *new* front-pane id is `reconstruct-source-clear`. The existing `reconstruct-source-thumb`/`-label` are reused as the large pane's preview + caption. (There is no separate `reconstruct-source-pick` id.)
 - `reconstruct-mv-slots` (the MV3D secondary-slot section container)
 - `reconstruct-action-note` (the mode-driven why/when note beside the action button)
 - reconstruct picker modal: `reconstruct-picker-modal`, `reconstruct-picker-close`, `reconstruct-picker-grid` (+ `reconstruct-picker-title`)
@@ -123,7 +126,9 @@ Two complementary, established patterns — **pattern reuse, isolated state** (a
 
 All under `src/Rook/UI/Vision/Resources/` (embedded resources):
 - **`index.html`** — extend the `reconstruct-view` Generate panel with: the mode switcher, prompt + hint, enlarged source/front pane with in-place `Pick`/`Clear`, the `reconstruct-mv-slots` secondary-slot section, the action note, and the reconstruct picker modal markup. Every new cached id present here.
-- **`app.js`** — the Reconstruct module gains: mode state + `data-mode` gating, the `slots` map (§3) with render fields, in-place pick/clear handlers (`[data-slot]`), a Reconstruct-owned picker modal (`openPicker`/`closePicker` parallel to Video's), mode-driven model-select filtering + action label/enablement, prompt hint per mode, and the updated `presetSource`/Send-to-3D behavior (§4). No backend calls beyond the existing `models` query.
+- **`app.js`** — the Reconstruct module gains: mode state + `data-mode` gating, the `slots` map (§3) with render fields, in-place pick/clear handlers (`[data-slot]`), a Reconstruct-owned picker modal (`openPicker`/`closePicker` parallel to Video's), mode-driven model-select filtering + action label/enablement, prompt hint per mode, and the updated `presetSource`/Send-to-3D behavior (§4).
+
+**Backend boundary:** this slice adds **no new backend/native/MCP routes**. It *does* reuse **existing** bridge/artifact mechanisms — Gallery/artifact listing and blob preview (`/blob/{id}/image`) for picker population and slot previews, and the existing `models` query — exactly as Video's picker does. The "no backend" boundary means no new endpoints and no `assemble_view_set`/provider-submit calls, **not** an avoidance of the existing artifact bridge the picker depends on.
 - **`styles.css`** — styles for the mode switcher (reuse `seg-btn`), the enlarged source/front pane (Video frame-pane language), the secondary slot strip + optional-slot affordance, and the reconstruct picker modal (reuse Video modal styling).
 
 No C#, native, or Python changes.
