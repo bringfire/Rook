@@ -153,6 +153,22 @@ namespace Rook.Tests.UI.Vision
         }
 
         [Fact]
+        public void AppJs_SubmitViewsBuilder_IsModeAware()
+        {
+            // Secondary slots must only leave the submit builder in MV3D with a multi-view-capable
+            // model — otherwise stale MV3D slots leak into a later I3D/single-image submit.
+            var js = ReadVisionResource("app.js");
+            var s = js.IndexOf("async function submit(", System.StringComparison.Ordinal);
+            Assert.True(s >= 0, "submit() not found");
+            var e = js.IndexOf("async function poll(", s, System.StringComparison.Ordinal);
+            Assert.True(e > s, "poll() boundary not found after submit()");
+            var body = js.Substring(s, e - s);
+            Assert.Contains("reconstructMode === \"mv3d\"", body);
+            Assert.Contains("supports_multi_view", body);
+            Assert.Contains("views:", body);
+        }
+
+        [Fact]
         public void OutputControl_HiddenForCatalogOptionModels()
         {
             // For catalog-option models (Pro), Generate Type is the real Fal control; the legacy

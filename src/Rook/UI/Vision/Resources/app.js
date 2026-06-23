@@ -3585,10 +3585,15 @@ const Reconstruct = (() => {
             return;
         }
         resetResultForNewRun();   // hide stale result/import state while the new job runs
-        // Labeled secondary views from filled slots (front stays the canonical source). For I3D this is
-        // just the front entry, which the backend accepts as a redundant restatement.
+        // Labeled secondary views from filled slots (front stays the canonical source). Mode-aware:
+        // secondary slots only leave the builder in MV3D with a multi-view-capable model, so stale
+        // MV3D slots never leak into an I3D / single-image submit. I3D therefore sends only front,
+        // which the backend accepts as a redundant restatement of source_artifact_id.
+        const mvModel = selectedModel();
+        const allowSecondary = reconstructMode === "mv3d" && mvModel && mvModel.supports_multi_view;
         const views = Object.keys(slots)
             .filter(s => slots[s] && slots[s].artifact_id)
+            .filter(s => s === "front" || allowSecondary)
             .map(s => ({ slot: s, artifact_id: slots[s].artifact_id, role: slots[s].role || "image" }));
         try {
             re.submitBtn.disabled = true;
