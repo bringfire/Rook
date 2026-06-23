@@ -10,6 +10,35 @@ using System.Text.RegularExpressions;
 
 namespace Rook.Artifacts
 {
+    public enum ReplaceJsonBlobResultCode
+    {
+        Succeeded,
+        InvalidRole,
+        ArtifactNotFound,
+        ManifestReadFailed,
+        RoleNotFound,
+        RoleIsNotJson,
+        StagedWriteFailed,
+        FinalizeBlobFailed,
+        ManifestReplaceFailed,
+    }
+
+    public sealed record ReplaceJsonBlobResult(
+        ReplaceJsonBlobResultCode Code,
+        Artifact? Artifact = null,
+        string? Message = null)
+    {
+        public bool Success => Code == ReplaceJsonBlobResultCode.Succeeded;
+
+        public static ReplaceJsonBlobResult Succeeded(Artifact artifact) =>
+            new(ReplaceJsonBlobResultCode.Succeeded, artifact);
+
+        public static ReplaceJsonBlobResult Fail(
+            ReplaceJsonBlobResultCode code,
+            string message) =>
+            new(code, null, message);
+    }
+
     /// <summary>
     /// Persistent, addressable artifact store backed by a directory tree at
     /// <see cref="RookPaths.ArtifactsRoot"/> (overridable for tests).
@@ -132,6 +161,7 @@ namespace Rook.Artifacts
         }
 
         internal Action<string, string>? AppendBlobManifestReplaceOverrideForTests { get; set; }
+        internal Action<string, string>? ReplaceJsonBlobFileReplaceOverrideForTests { get; set; }
 
         // ─── public API ─────────────────────────────────────────────
 
@@ -713,7 +743,10 @@ namespace Rook.Artifacts
             return AppendBlobResult.Succeeded(updated);
         }
 
-        public ReplaceJsonBlobResult ReplaceJsonBlob(Guid id, string role, JsonNode content)
+        public ReplaceJsonBlobResult ReplaceJsonBlob(
+            Guid id,
+            string role,
+            JsonNode content)
         {
             try
             {
@@ -791,10 +824,17 @@ namespace Rook.Artifacts
 
             try
             {
-                File.Replace(
-                    sourceFileName: tmpPath,
-                    destinationFileName: finalPath,
-                    destinationBackupFileName: null);
+                if (ReplaceJsonBlobFileReplaceOverrideForTests is not null)
+                {
+                    ReplaceJsonBlobFileReplaceOverrideForTests(tmpPath, finalPath);
+                }
+                else
+                {
+                    File.Replace(
+                        sourceFileName: tmpPath,
+                        destinationFileName: finalPath,
+                        destinationBackupFileName: null);
+                }
             }
             catch (Exception ex)
             {

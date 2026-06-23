@@ -1015,12 +1015,14 @@ namespace Rook.Tests.Artifacts
 
             Assert.True(updated.Success);
             Assert.Equal(ReplaceJsonBlobResultCode.Succeeded, updated.Code);
+            Assert.NotNull(updated.Artifact);
             var loaded = _store.Get(artifact.Id);
             Assert.NotNull(loaded);
             Assert.Equal(2, loaded!.Files.Count);
             Assert.Contains(
                 loaded.Files,
                 f => f.Role == "import_manifest" && f.Path == "import_manifest.json");
+            Assert.Equal("glb", File.ReadAllText(BlobPath(artifact.Id, "model_glb.glb")));
             var json = JsonNode.Parse(File.ReadAllText(BlobPath(artifact.Id, "import_manifest.json")))!;
             Assert.Equal("i1", json["imports"]![0]!["import_id"]!.GetValue<string>());
         }
@@ -1040,8 +1042,15 @@ namespace Rook.Tests.Artifacts
 
             Assert.False(result.Success);
             Assert.Equal(ReplaceJsonBlobResultCode.RoleNotFound, result.Code);
+            Assert.Null(result.Artifact);
             Assert.Equal(before, ManifestText(artifact.Id));
             Assert.DoesNotContain(_store.Get(artifact.Id)!.Files, f => f.Role == "import_manifest");
+            Assert.Equal(
+                new[] { "manifest.json", "model_glb.glb" },
+                Directory.EnumerateFiles(ArtifactDir(artifact.Id))
+                    .Select(Path.GetFileName)
+                    .OrderBy(name => name, StringComparer.Ordinal)
+                    .ToArray());
         }
 
         [Fact]
@@ -1049,16 +1058,73 @@ namespace Rook.Tests.Artifacts
         {
             var artifact = _store.Create(
                 "reconstruction_package",
-                OneBlob("model_glb", "glb", "glb"));
+                new[]
+                {
+                    new BlobInput("model_glb", Bytes("glb"), "glb"),
+                    new BlobInput("thumbnail", Bytes("jpg"), "jpg"),
+                });
+            var before = ManifestText(artifact.Id);
 
             var result = _store.ReplaceJsonBlob(
                 artifact.Id,
-                "model_glb",
+                "thumbnail",
                 JsonNode.Parse(@"{""schema_version"":1}")!);
 
             Assert.False(result.Success);
             Assert.Equal(ReplaceJsonBlobResultCode.RoleIsNotJson, result.Code);
-            Assert.Equal("glb", File.ReadAllText(BlobPath(artifact.Id, "model_glb.glb")));
+            Assert.Null(result.Artifact);
+            Assert.Equal(before, ManifestText(artifact.Id));
+            Assert.Equal("jpg", File.ReadAllText(BlobPath(artifact.Id, "thumbnail.jpg")));
+        }
+
+        [Fact]
+        public void ReplaceJsonBlob_CorruptManifest_ReturnsManifestReadFailed_AndWritesNothing()
+        {
+            var id = Guid.NewGuid();
+            var dir = CreateRawArtifactDir("2026-04-22", id);
+            File.WriteAllBytes(Path.Combine(dir, "import_manifest.json"), Bytes(@"{""schema_version"":1}"));
+            WriteRawManifest(dir, "{ not valid json");
+
+            var result = _store.ReplaceJsonBlob(
+                id,
+                "import_manifest",
+                JsonNode.Parse(@"{""schema_version"":2}")!);
+
+            Assert.False(result.Success);
+            Assert.Equal(ReplaceJsonBlobResultCode.ManifestReadFailed, result.Code);
+            Assert.Null(result.Artifact);
+            Assert.Equal("{ not valid json", File.ReadAllText(Path.Combine(dir, "manifest.json")));
+            Assert.Equal(@"{""schema_version"":1}", File.ReadAllText(Path.Combine(dir, "import_manifest.json")));
+        }
+
+        [Fact]
+        public void ReplaceJsonBlob_FinalizeFailure_ReturnsFinalizeBlobFailed_WithOriginalBlob()
+        {
+            var artifact = _store.Create(
+                "reconstruction_package",
+                new[]
+                {
+                    new BlobInput("model_glb", Bytes("glb"), "glb"),
+                    new BlobInput("import_manifest", Bytes(@"{""schema_version"":1}"), "json"),
+                });
+            _store.ReplaceJsonBlobFileReplaceOverrideForTests = (_, _) =>
+                throw new IOException("simulated replace failure");
+
+            var result = _store.ReplaceJsonBlob(
+                artifact.Id,
+                "import_manifest",
+                JsonNode.Parse(@"{""schema_version"":2}")!);
+
+            Assert.False(result.Success);
+            Assert.Equal(ReplaceJsonBlobResultCode.FinalizeBlobFailed, result.Code);
+            Assert.Null(result.Artifact);
+            Assert.Equal(@"{""schema_version"":1}", File.ReadAllText(BlobPath(artifact.Id, "import_manifest.json")));
+            Assert.Equal(
+                new[] { "import_manifest.json", "manifest.json", "model_glb.glb" },
+                Directory.EnumerateFiles(ArtifactDir(artifact.Id))
+                    .Select(Path.GetFileName)
+                    .OrderBy(name => name, StringComparer.Ordinal)
+                    .ToArray());
         }
 
         // ─── AppendBlob: atomic blob append ─────────────────────────
