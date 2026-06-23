@@ -3355,6 +3355,7 @@ const Reconstruct = (() => {
         re.modelSelect = $("reconstruct-model-select");
         re.modelHint = $("reconstruct-model-hint");
         re.modeSwitch = $("reconstruct-mode-radios");
+        re.mvSlots = $("reconstruct-mv-slots");
         re.prompt = $("reconstruct-prompt");
         re.promptHint = $("reconstruct-prompt-hint");
         re.formPanel = document.querySelector(".reconstruct-form-panel");
@@ -3378,6 +3379,13 @@ const Reconstruct = (() => {
         re.modeSwitch.querySelectorAll(".seg-btn").forEach(b => b.addEventListener("click", () => setReconstructMode(b.dataset.mode)));
         re.chooseSourceBtn.addEventListener("click", () => openReconstructPicker("front"));
         re.sourceClear.addEventListener("click", () => clearSlot("front"));
+        re.mvSlots.querySelectorAll("[data-slot]").forEach(slotDiv => {
+            var s = slotDiv.dataset.slot;
+            var pick = slotDiv.querySelector(".btn-slot-pick");
+            var clear = slotDiv.querySelector(".btn-slot-clear");
+            if (pick) pick.addEventListener("click", () => openReconstructPicker(s));
+            if (clear) clear.addEventListener("click", () => clearSlot(s));
+        });
         re.pickerClose.addEventListener("click", closeReconstructPicker);
         re.pickerModal.querySelector(".modal-backdrop").addEventListener("click", closeReconstructPicker);
         re.pickerGrid.addEventListener("click", (e) => {
@@ -3591,7 +3599,14 @@ const Reconstruct = (() => {
             re.sourceLabel.textContent = v ? v.label : "No image selected";
             return;
         }
-        // secondary slots rendered in Task 3 (query by [data-slot])
+        // secondary slots: query container by [data-slot], set thumb background
+        if (!re.mvSlots) return;
+        var slotEl = re.mvSlots.querySelector('[data-slot="' + slot + '"]');
+        if (!slotEl) return;
+        var thumb = slotEl.querySelector(".reconstruct-slot-thumb");
+        if (!thumb) return;
+        var v = slots[slot];
+        thumb.style.backgroundImage = v ? 'url("' + v.previewSrc + '")' : "";
     }
 
     const RECONSTRUCT_SOURCE_KINDS = ["generated_image", "imported_image", "captured_viewport", "preprocessed_image"];

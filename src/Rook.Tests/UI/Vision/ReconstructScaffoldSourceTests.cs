@@ -82,6 +82,27 @@ namespace Rook.Tests.UI.Vision
             Assert.Contains("if (reconstructMode === \"t3d\") setReconstructMode(\"i3d\");", body);
         }
 
+        // ─── Task 3 assertions ────────────────────────────────────────
+
+        [Fact]
+        public void IndexHtml_Mv3dSlots_PresentWithDataSlots()
+        {
+            var html = ReadVisionResource("index.html");
+            Assert.Contains("id=\"reconstruct-mv-slots\"", html);
+            foreach (var s in new[] { "left","right","back","top","three_quarter" })
+                Assert.Contains($"data-slot=\"{s}\"", html);
+            Assert.Contains("reconstruct-slot-optional", html); // top/¾ marked optional
+        }
+
+        [Fact]
+        public void AppJs_Mv3dSlots_WiredByDataSlot()
+        {
+            var js = ReadVisionResource("app.js");
+            Assert.Contains("re.mvSlots = $(\"reconstruct-mv-slots\");", js);
+            Assert.Contains("re.mvSlots.querySelectorAll(\"[data-slot]\")", js);
+            Assert.Contains("openReconstructPicker(", js);
+        }
+
         // ─── helpers ──────────────────────────────────────────────────
 
         private static string ReadVisionResource(string fileName)
