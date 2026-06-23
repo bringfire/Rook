@@ -14,6 +14,7 @@
 
 - **KISS.** This is a bug fix, not a subsystem. One classifier, one resolver, one parser; everything else stays local. No new abstractions, no API field, no native/MCP/UI change.
 - **Classifier-agreement invariant:** the mapper and the filename resolver MUST assign the same role to the same provider texture file (top-level `texture`, `model_urls.texture`, `texture_urls.*`), all via `FalReconstructionResultMapper.ClassifyTextureRole`.
+- **Legacy back-compat (critical, execution-blocking):** already-stored packages carry the **generic `texture`** role (the mapper change is forward-only). The resolver and the import staging MUST still resolve those legacy packages — keying the provider filename under whichever texture role the package actually has (detailed `texture_*` for new, generic `texture` for old). The live smoke runs on a legacy package; T1 and T3 both carry explicit legacy-layout tests.
 - **"Degraded" is the warning**, not a field: `ReconstructionJobResultEnvelope` is unchanged; degraded ⇔ `warnings[]` contains `material_maps_missing`.
 - **Warn-and-proceed:** never block import.
 - Managed-only. Full C# suite stays green.
@@ -22,8 +23,9 @@
 
 ## File Structure
 
-- `src/Rook/Services/Reconstruction/Fal/FalReconstructionResultMapper.cs` — classify top-level `texture` + `model_urls.texture` via `ClassifyTextureRole`. *(T1)*
-- `src/Rook/Handlers/ReconstructionOpHandler.cs` — extract `ProviderFileNamesByRole`'s body into a shared static and fix it to classify top-level `texture` + `model_urls.texture` the same way. *(T1)*
+- `src/Rook/Services/Reconstruction/Fal/FalReconstructionResultMapper.cs` — classify top-level `texture` + `model_urls.texture` via `ClassifyTextureRole`. *(T1, forward-only — affects newly materialized packages.)*
+- `src/Rook/Services/Reconstruction/ReconstructionProviderFileNames.cs` *(new)* — the **one** shared filename resolver: `ProviderFileNamesByRole(JsonObject providerResultJson, Artifact package)` plus the helper closure moved out of the handler. Legacy-aware (see T1). *(T1)*
+- `src/Rook/Handlers/ReconstructionOpHandler.cs` — `ProviderFileNamesByRole(Guid, Artifact)` becomes a thin wrapper that reads the blob then calls the shared static. *(T1)*
 - `src/Rook/Services/Reconstruction/Fal/ObjMaterialReferences.cs` *(new)* — pure MTL `map_*` filename parser. *(T2)*
 - `src/Rook/Services/Reconstruction/ReconstructionJobManager.cs` — in `Result()`, append `material_maps_missing` using the shared resolver + parser; new warning-code constant. *(T3)*
 - `src/Rook/Services/Reconstruction/ReconstructionPackageMaterializer.cs` — *optional* static `companion_roles` cleanup. *(T4 — skip unless trivial.)*
@@ -37,11 +39,13 @@ Make both texture-keying sites classify top-level `texture` and `model_urls.text
 
 **Files:**
 - Modify: `src/Rook/Services/Reconstruction/Fal/FalReconstructionResultMapper.cs`
+- Create: `src/Rook/Services/Reconstruction/ReconstructionProviderFileNames.cs`
 - Modify: `src/Rook/Handlers/ReconstructionOpHandler.cs`
 - Test: the existing mapper test file + handler/resolver test file (locate via the current `MapArtifacts`/`ProviderFileNamesByRole` tests).
 
 **Interfaces (produced, used by T3):**
-- A shared static, e.g. `public static IReadOnlyDictionary<string,string> ProviderFileNamesByRole(JsonObject providerResultJson, Artifact package)` — role → original provider filename, classifying texture sources via `ClassifyTextureRole`. (Move the existing handler body here; the handler keeps a thin wrapper that reads the blob then calls it.)
+- `public static class ReconstructionProviderFileNames` with `public static Dictionary<string,string> ProviderFileNamesByRole(JsonObject providerResultJson, Artifact package)` — role → original provider filename.
+- **Legacy-aware texture keying (the critical requirement):** for each provider texture source (top-level `texture`, `model_urls.texture`, `texture_urls.*`), compute `classified = ClassifyTextureRole(fileName, url)`; key the provider filename under `classified` **if `package` has that role, else under the generic `texture` role if the package has *that*** (the existing `AddProviderFileName` already guards with `HasRole(package, role)` — we add the generic fallback). So a **newly** materialized package (role `texture_metallic`) keys under `texture_metallic`, and an **already-stored legacy** package (role `texture`) still keys the same provider filename under `texture`. No provider file is dropped for either layout. Non-texture roles (`model_glb`/`model_obj`/`material_mtl`/`thumbnail`) are unchanged.
 
 - [ ] **Step 1: Failing tests**
 
@@ -59,18 +63,29 @@ public void MapArtifacts_TopLevelTexture_ClassifiedByFilename_NotGeneric()
     Assert.DoesNotContain(artifacts, a => a.Role == ReconstructionFileRoles.ModelGlb);
 }
 ```
-In the resolver tests, add the agreement test:
+In the resolver tests, add BOTH the new-layout agreement test AND the legacy-layout regression test (the live smoke runs on the legacy package):
 ```csharp
 [Fact]
-public void ProviderFileNamesByRole_TopLevelTexture_KeyedUnderClassifiedRole()
+public void ProviderFileNamesByRole_NewPackage_KeysMetallicUnderClassifiedRole()
 {
     var json = (JsonObject)JsonNode.Parse(LiteralHunyuanRapidResultJson)!;
-    var package = PackageWithRoles("model_obj","material_mtl","texture_metallic","thumbnail"); // helper builds an Artifact with these file roles
-    var names = FalReconstructionResultMapper.ProviderFileNamesByRole(json, package); // shared static
+    var package = PackageWithRoles("model_obj","material_mtl","texture_metallic","thumbnail");
+    var names = ReconstructionProviderFileNames.ProviderFileNamesByRole(json, package);
     Assert.Equal("texture_pbr_v128_metallic.png", names["texture_metallic"]);
     Assert.False(names.ContainsKey(ReconstructionFileRoles.Texture));
 }
+
+[Fact]
+public void ProviderFileNamesByRole_LegacyPackage_StillResolvesGenericTexture()  // CRITICAL back-compat
+{
+    var json = (JsonObject)JsonNode.Parse(LiteralHunyuanRapidResultJson)!;
+    var package = PackageWithRoles("model_obj","material_mtl","texture","thumbnail"); // already-stored layout
+    var names = ReconstructionProviderFileNames.ProviderFileNamesByRole(json, package);
+    Assert.Equal("texture_pbr_v128_metallic.png", names[ReconstructionFileRoles.Texture]);
+    Assert.False(names.ContainsKey("texture_metallic"));
+}
 ```
+And a staging regression test on the handler's companion path (legacy package): importing a package with roles `model_obj/material_mtl/texture` resolves `FileNameForRole(..., "texture", ...)` to `texture_pbr_v128_metallic.png` (not `texture.png`), so the present metallic still stages under its MTL-referenced name. (Mirror the existing companion/staging test; assert the staged filename.)
 
 - [ ] **Step 2: Run → red**
 
@@ -91,20 +106,23 @@ if (modelUrlsTexture is not null)
 ```
 (`Add` is first-writer-wins, so the top-level classified texture and any model_urls duplicate coalesce.)
 
-- [ ] **Step 4: Resolver — extract to shared static + classify consistently**
+- [ ] **Step 4: Extract the resolver into one shared static (legacy-aware)**
 
-In `FalReconstructionResultMapper.cs`, add the shared static `ProviderFileNamesByRole(JsonObject providerResultJson, Artifact package)` containing the body currently in `ReconstructionOpHandler.ProviderFileNamesByRole` (the `AddProviderFileName` loop), BUT: for the top-level `texture` and `model_urls.texture`, key under `ClassifyTextureRole(file.FileName, file.Url)` instead of the generic `ReconstructionFileRoles.Texture` (the `texture_urls.*` loop already does this — keep it). Then in `ReconstructionOpHandler.cs`, replace the private method body with a thin wrapper:
+**One path, no hedge:** create `ReconstructionProviderFileNames.cs` and **move** `ProviderFileNamesByRole` together with the private helpers it transitively uses — `AddProviderFileName`, `ReadProviderFile`, `FallbackRoleForModelUrlKey`, `RoleForProviderModelFile`, `RoleForModelExtension`, `RoleForModelContentType`, `SafeProviderFileName`, `SafeProviderUrlFileName` — into that static class. For the two trivial pure utilities the closure needs (`HasRole(Artifact,string)` → `package.Files.Any(f => f.Role == role)`; `ReadString(JsonNode?,string)`): if they're still referenced elsewhere in `ReconstructionOpHandler`, **keep the handler copies and add private copies in the new class** (a one-line predicate duplicated is not "two resolvers"); do **not** re-point unrelated handler call sites. `FileNameForRole` stays in the handler (staging-only; the manager doesn't need it).
+
+Apply the **legacy-aware texture keying** inside the moved resolver: replace the single top-level `texture` add and the `model_urls.texture` handling so each texture source is keyed under `ClassifyTextureRole(...)` **if the package has that role, else under the generic `texture` role if the package has it** (the `texture_urls.*` loop keeps its existing classified keying, but route it through the same legacy-aware helper). **Do not change behavior for `model_glb`/`model_obj`/`material_mtl`/`thumbnail`.**
+
+Then in `ReconstructionOpHandler.cs`, replace the private method body with a thin wrapper:
 ```csharp
 private Dictionary<string,string> ProviderFileNamesByRole(Guid packageId, Artifact package)
 {
     try {
         var json = JsonNode.Parse(File.ReadAllText(
             _store.GetBlobAbsolutePath(packageId, ReconstructionFileRoles.ProviderResultJson))) as JsonObject;
-        return json is null ? new() : new(FalReconstructionResultMapper.ProviderFileNamesByRole(json, package));
+        return json is null ? new() : ReconstructionProviderFileNames.ProviderFileNamesByRole(json, package);
     } catch (Exception ex) when (ex is IOException or JsonException or InvalidOperationException) { return new(); }
 }
 ```
-Move `AddProviderFileName`/`ReadProviderFile`/`FallbackRoleForModelUrlKey` (or the minimal subset) alongside the shared static, or keep them where they are and have the static reference them — whichever is the smaller diff. **Do not change behavior for `model_glb`/`model_obj`/`material_mtl`/`thumbnail`/`texture_urls.*`.**
 
 - [ ] **Step 5: Run → green**
 
@@ -173,11 +191,11 @@ Use the T1 resolver + T2 parser to compare MTL references against delivered file
 - Test: the existing manager `Result()`/`BuildTextureWarnings` test file.
 
 **Interfaces:**
-- Consumes: `FalReconstructionResultMapper.ProviderFileNamesByRole(json, package)` (T1), `ObjMaterialReferences.ReferencedMapFileNames(mtl)` (T2).
+- Consumes: `ReconstructionProviderFileNames.ProviderFileNamesByRole(json, package)` (T1), `ObjMaterialReferences.ReferencedMapFileNames(mtl)` (T2).
 
 - [ ] **Step 1: Failing test**
 
-Build a `reconstruction_package` artifact (mirror existing manager-result test fixtures) with roles `model_obj` + `material_mtl` (the literal 4-map MTL) + `texture_metallic` + `provider_result_json` (the literal payload), and only `texture_pbr_v128_metallic.png` delivered. Drive `Result(jobId)` and assert:
+Build a `reconstruction_package` artifact (mirror existing manager-result fixtures) matching the **already-stored live layout** — roles `model_obj` + `material_mtl` (the literal 4-map MTL) + **`texture`** (generic, since the live package `96a7179f…` predates reclassification) + `provider_result_json` (the literal payload), with only `texture_pbr_v128_metallic.png` delivered. (This is the package the live smoke will Open.) Drive `Result(jobId)` and assert:
 ```csharp
 var w = result.Warnings.Single(x => x.Code == "material_maps_missing");
 Assert.Equal(true, w.Details["missing_base_color"]);
@@ -213,8 +231,12 @@ private ReconstructionWarning? BuildMaterialMapsMissingWarning(Artifact package)
     } catch (Exception ex) when (ex is IOException or JsonException or InvalidOperationException) { return null; }
     if (providerJson is null) return null;
 
+    // Texture integrity: compare against delivered TEXTURE filenames only (role starts with "texture"),
+    // not model/material/thumbnail names. Legacy 'texture' and detailed 'texture_*' both qualify.
+    var resolved = ReconstructionProviderFileNames.ProviderFileNamesByRole(providerJson, package);
     var delivered = new HashSet<string>(
-        FalReconstructionResultMapper.ProviderFileNamesByRole(providerJson, package).Values, StringComparer.Ordinal);
+        resolved.Where(kv => kv.Key.StartsWith("texture", StringComparison.Ordinal)).Select(kv => kv.Value),
+        StringComparer.Ordinal);
     var referenced = ObjMaterialReferences.ReferencedMapFileNames(mtl);
     var missing = referenced.Where(r => !delivered.Contains(r)).ToList();
     if (missing.Count == 0) return null;
@@ -262,7 +284,8 @@ Then **REQUIRED SUB-SKILL:** superpowers:finishing-a-development-branch (verify 
 
 ## Self-Review Notes
 
-- **One classifier / one resolver / one parser:** `ClassifyTextureRole` (existing, now used in both keying sites), `ProviderFileNamesByRole` (extracted to one shared static), `ObjMaterialReferences` (new, pure). No other new types.
+- **One classifier / one resolver / one parser:** `ClassifyTextureRole` (existing, now used in both keying sites), `ReconstructionProviderFileNames.ProviderFileNamesByRole` (extracted to one shared static, legacy-aware), `ObjMaterialReferences` (new, pure). One new static class + one new parser file; nothing else.
+- **Back-compat is tested, not assumed:** T1 has new-layout + legacy-layout resolver tests and a legacy staging test; T3's integrity test uses the legacy `texture` layout (matching the live package), proving the present metallic is *not* falsely reported missing.
 - **No API change:** `material_maps_missing` is just another `ReconstructionWarning` in the existing `warnings[]`; envelope shape untouched.
 - **Spec coverage:** §2 Part 1 → T1; the MTL parser → T2; §2 Part 3/4 integrity warning → T3; §2 Part 2 optional → T4; §5 verification → T5.
 - **Dependency order respected:** T3 consumes T1's shared resolver + T2's parser.
