@@ -763,7 +763,7 @@ git commit -m "feat(reconstruction): shared options validator (range/enum/unknow
 
 - [ ] **Step 1: Write the failing test**
 
-In `FalReconstructionProviderTests.cs`, replace the two existing payload tests' request construction and add a multi-field test. Add:
+In `FalReconstructionProviderTests.cs`, add the multi-field test below and update **all** existing request constructions (eight — see the table after the snippet). Add:
 
 ```csharp
 [Fact]
@@ -1442,18 +1442,18 @@ git commit -m "feat(reconstruction): generate_type-driven texture expectation (N
 
 - [ ] **Step 1: Write the failing test**
 
-Add to `ReconstructionJobManagerTests.cs` (drive a multi-view job to completion using the fixture's fake provider result, then assert the materialized package parent ids include all sources). Reuse the existing completion-driving helper in the test file (search for a test that polls a job to `Succeeded` and inspects the package). Mirror its setup and assert:
+Add to `ReconstructionJobManagerTests.cs`, mirroring the existing concrete completion test `PollActiveJob_StatusComplete_FetchesResultAndMaterializesPackage` (`ReconstructionJobManagerTests.cs:140`) — it drives completion with `StatusComplete.Enqueue(true)` + `ResultJson = GlbResultJson` + a `Downloader.Files[...]` entry, calls `PollActiveJobAsync`, then retrieves the package via `Store.Get(status.Job.ResultArtifactId!.Value)`. The retrieved `Artifact` exposes `ParentIds` (`Artifact.cs:17`):
 
 ```csharp
 [Fact]
-public async Task Submit_MultiView_MaterializesPackageWithAllParentIds()
+public async Task PollActiveJob_MultiView_MaterializesPackageWithAllParentIds()
 {
     var fixture = CreateFixture();
+    fixture.Provider.StatusComplete.Enqueue(true);
+    fixture.Provider.ResultJson = GlbResultJson;                                  // file-level const, reused
+    fixture.Downloader.Files["https://example.test/model.glb"] = new byte[] { 9, 8, 7 };
     var front = fixture.Store.Create("generated_image", new[] { new BlobInput("image", new byte[] { 1 }, "png") });
     var left = fixture.Store.Create("generated_image", new[] { new BlobInput("image", new byte[] { 2 }, "png") });
-
-    // Configure the fake provider to report completion with a model url (mirror existing completion test).
-    fixture.Provider.FixedStatusComplete = true;
 
     var req = Request(front.Id) with
     {
@@ -1467,19 +1467,22 @@ public async Task Submit_MultiView_MaterializesPackageWithAllParentIds()
     var submit = await fixture.Manager.SubmitAsync(req, CancellationToken.None);
     Assert.True(submit.Success);
 
-    // Drive to completion using the file's existing wait/poll helper, then fetch the package and
-    // assert both source ids appear in parent_ids.
-    var package = await DriveJobToPackageAsync(fixture, submit.Job!.JobId);   // existing helper
-    Assert.Contains(front.Id, package.ParentIds);
+    await fixture.Manager.PollActiveJobAsync(submit.Job!.JobId, CancellationToken.None);
+
+    var status = fixture.Manager.Status(submit.Job.JobId);
+    Assert.Equal(ReconstructionJobState.Complete, status.Job!.State);
+    var package = fixture.Store.Get(status.Job.ResultArtifactId!.Value);
+    Assert.NotNull(package);
+    Assert.Contains(front.Id, package!.ParentIds);
     Assert.Contains(left.Id, package.ParentIds);
 }
 ```
 
-> If no `DriveJobToPackageAsync`-style helper exists, follow the exact pattern of the existing "job completes and materializes" manager test (there is one — it asserts on the package/result). Match its mechanism for waiting on the background loop and retrieving the package; assert `ParentIds` contains both ids. Use the real `ParentIds` accessor name from the package type (inspect `ReconstructionMaterializeResult`/package).
+(`GlbResultJson` is the same file-level constant the line-140 test uses; reuse it verbatim. The direct `PollActiveJobAsync` call is deterministic — it shares the per-job single-flight gate with the background loop that `SubmitAsync` already started.)
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "FullyQualifiedName~ReconstructionJobManagerTests.Submit_MultiView_MaterializesPackage"`
+Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "FullyQualifiedName~ReconstructionJobManagerTests.PollActiveJob_MultiView_MaterializesPackage"`
 Expected: FAIL — only the front id is passed to `MaterializeAsync` (left missing from `parent_ids`).
 
 - [ ] **Step 3: Thread the full id list to materialization via a job-keyed carrier**
@@ -2157,7 +2160,7 @@ Record the live-gate outcome (job ids, package id, model id, timings, textured-v
 
 No uncovered spec requirement.
 
-**2. Placeholder scan:** No "TBD"/"add error handling"/"similar to Task N" — each step shows concrete code or a concrete command. Task 1.10's carrier is now fully specified (field + populate + read + cleanup with verbatim code at named line numbers). The remaining "follow the existing pattern" notes (Task 1.10's completion-driving test helper; handler-test `CatalogJson` edits) are concrete file-local lookups against a single named test file, not hand-waves; the surrounding code is fully specified.
+**2. Placeholder scan:** No "TBD"/"add error handling"/"similar to Task N" — each step shows concrete code or a concrete command. Task 1.10's carrier (field + populate + read + cleanup) and its provenance test now use verbatim code at named line numbers, modeled on the real `PollActiveJob_StatusComplete_FetchesResultAndMaterializesPackage` test (`:140`) — no pseudo-helper. The only remaining "mirror the existing entry" note (handler/manager-test `CatalogJson` constant edits) is a concrete file-local edit to a single named constant, not a hand-wave; surrounding code is fully specified.
 
 **3. Contract placement (reviewer fix #1):** `ReconstructionSubmitRequest` / `ReconstructionParseResult` / `ReconstructionPreprocessingStageRequest` are declared in `ReconstructionSubmitRequestParser.cs` (line 8+), **not** `ReconstructionContracts.cs` (which holds only `Reconstruction*` constants). Task 1.3 adds `ReconstructionViewRequest` + `Views` there; Task 1.2 adds constants to `ReconstructionContracts.cs`. No duplicate contract placement. ✓
 
