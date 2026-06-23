@@ -135,6 +135,19 @@ namespace Rook.Tests.UI.Vision
             Assert.Contains("id=\"reconstruct-opt-face-count\"", html);
         }
 
+        [Fact]
+        public void AppJs_RendersCatalogOptions_AndGatesPbrUnderGeometry()
+        {
+            var js = ReadVisionResource("app.js");
+            Assert.Contains("reconstruct-opt-generate-type", js);
+            Assert.Contains("reconstruct-opt-enable-pbr", js);
+            Assert.Contains("reconstruct-opt-face-count", js);
+            Assert.Contains("renderModelOptions", js);
+            Assert.Contains("Geometry", js);
+            Assert.Contains("generate_type", js);
+            Assert.Contains("face_count", js);
+        }
+
         // ─── helpers ──────────────────────────────────────────────────
 
         private static string ReadVisionResource(string fileName)
