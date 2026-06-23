@@ -77,6 +77,34 @@ public sealed class ReconstructionModelCatalogTests
     }
 
     [Fact]
+    public void ProductionCatalog_IncludesHunyuanPro_WithEightSlotsAndThreeOptions()
+    {
+        var pro = ProductionCatalog().Find("fal-ai/hunyuan-3d/v3.1/pro/image-to-3d");
+
+        Assert.NotNull(pro);
+        Assert.Equal("experimental", pro!.Status);          // flips to stable in Slice 4
+        Assert.True(pro.SupportsPbr);
+        Assert.True(pro.DefaultTextureExpected);
+        Assert.Equal("multi_view_labeled", pro.Input!.Mode);
+        Assert.Equal("input_image_url", pro.Input.SourceField);
+
+        var slots = pro.Input.ViewSlots!;
+        Assert.Equal(8, slots.Length);
+        Assert.Equal(
+            new[] { "front", "back", "left", "right", "top", "bottom", "left_front", "right_front" },
+            slots.Select(s => s.Role).ToArray());
+        Assert.Equal("input_image_url", slots[0].Field);
+        Assert.Equal("back_image_url", slots[1].Field);
+        Assert.Equal("right_front_image_url", slots[7].Field);
+        Assert.True(slots[0].Required);
+        Assert.False(slots[1].Required);
+
+        Assert.Equal(3, pro.Options!.Length);
+        Assert.Equal(new[] { "generate_type", "enable_pbr", "face_count" },
+            pro.Options.Select(o => o.Key).ToArray());
+    }
+
+    [Fact]
     public void FromJson_ModelWithoutOptions_DeserializesWithNullOptions()
     {
         const string json = """
