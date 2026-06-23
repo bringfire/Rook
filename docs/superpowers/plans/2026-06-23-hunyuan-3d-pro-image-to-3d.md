@@ -810,9 +810,9 @@ Then replace each existing construction (the new multi-field test above construc
 | 84 | (plain hunyuan submit) | `Req(HunyuanModelId, "https://rook.local/source.png", new JsonObject())` |
 | 100, 114, 126, 142, 161 | (failure/transport/cancel cases) | `Req(HunyuanModelId, "https://rook.local/s.png", new JsonObject())` |
 
-After editing, grep the file to confirm no `new ReconstructionProviderSubmitRequest(` with a `Uri` second argument remains:
+After editing, grep the file to confirm no old-signature artifacts remain (the `Req` helper and the inline multi-field test legitimately use `new Uri`, so don't grep for that):
 
-Run: `rg "new Uri\(.*\)\)?,\s*$|InputImageUrl|SourceField =" src/Rook.Tests/Services/Reconstruction/Fal/FalReconstructionProviderTests.cs` — expect no `InputImageUrl`/`SourceField =` hits (the `Req` helper is the only `new Uri` site for these requests, plus the inline multi-field test).
+Run: `rg "InputImageUrl|SourceField =" src/Rook.Tests/Services/Reconstruction/Fal/FalReconstructionProviderTests.cs` — expect **no hits**.
 
 (Ensure `using System.Text.Json.Nodes;` present for `JsonObject`/`JsonNode`.)
 
