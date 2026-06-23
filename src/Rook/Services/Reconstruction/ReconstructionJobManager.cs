@@ -212,10 +212,10 @@ public sealed class ReconstructionJobManager : IDisposable
                 sourceFileName,
                 ct).ConfigureAwait(false);
             submitOutcome = await _provider.SubmitAsync(
-                new ReconstructionProviderSubmitRequest(request.ModelId, sourceUrl, request.Options)
-                {
-                    SourceField = model.Input?.SourceField,
-                },
+                new ReconstructionProviderSubmitRequest(
+                    request.ModelId,
+                    new[] { new ReconstructionProviderViewUrl(model.Input?.SourceField ?? "input_image_url", sourceUrl) },
+                    request.Options),
                 ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)

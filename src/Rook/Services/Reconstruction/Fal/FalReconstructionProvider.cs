@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Net.Http;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -26,16 +27,15 @@ internal sealed class ReconstructionCredentialMissingException : Exception
 
 public sealed record ReconstructionProviderSubmitRequest(
     string ModelId,
-    Uri InputImageUrl,
-    JsonObject Options)
-{
-    /// <summary>
-    /// The provider input field that carries the source image URL. Resolved from the model catalog's
-    /// <c>input.source_field</c> (e.g. <c>image_url</c> for fal-ai/birefnet/v2). When null,
-    /// <see cref="FalReconstructionProvider"/> defaults to <c>input_image_url</c> (the 3D path).
-    /// </summary>
-    public string? SourceField { get; init; }
-}
+    IReadOnlyList<ReconstructionProviderViewUrl> ViewUrls,
+    JsonObject Options);
+
+/// <summary>
+/// One published source-image URL keyed to its named provider input field (front first). The manager
+/// resolves each view's <see cref="Field"/> from the catalog (<c>input.view_slots[].field</c> /
+/// <c>input.source_field</c>); single-image submits carry a one-entry list.
+/// </summary>
+public sealed record ReconstructionProviderViewUrl(string Field, Uri Url);
 
 /// <summary>
 /// Narrow transport seam over <see cref="FalApiClient"/> that binds the fal API key at the edge so
@@ -346,10 +346,9 @@ public sealed class FalReconstructionProvider : IReconstructionProvider
 
     private static JsonObject BuildSubmitPayload(ReconstructionProviderSubmitRequest request)
     {
-        var payload = new JsonObject
-        {
-            [request.SourceField ?? "input_image_url"] = request.InputImageUrl.ToString(),
-        };
+        var payload = new JsonObject();
+        foreach (var view in request.ViewUrls)
+            payload[view.Field] = view.Url.ToString();
         foreach (var kvp in request.Options)
             payload[kvp.Key] = kvp.Value?.DeepClone();
         return payload;

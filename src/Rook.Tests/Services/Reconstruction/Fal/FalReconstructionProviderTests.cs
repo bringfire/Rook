@@ -17,6 +17,37 @@ public sealed class FalReconstructionProviderTests
 {
     private const string HunyuanModelId = "fal-ai/hunyuan-3d/v3.1/rapid/image-to-3d";
 
+    // Single-entry ViewUrls request helper — every legacy single-source construction routes through here.
+    private static ReconstructionProviderSubmitRequest Req(
+        string modelId, string url, JsonObject options, string field = "input_image_url")
+        => new(modelId, new[] { new ReconstructionProviderViewUrl(field, new Uri(url)) }, options);
+
+    [Fact]
+    public async Task BuildSubmitPayload_WritesAllViewFields_FrontFirst()
+    {
+        var transport = new FakeTransport();
+        transport.Posts.Enqueue(Resp(200, @"{""request_id"":""req-1"",""status_url"":""https://queue.fal.run/status/req-1""}"));
+
+        await new FalReconstructionProvider(transport).SubmitAsync(
+            new ReconstructionProviderSubmitRequest(
+                HunyuanModelId,
+                new[]
+                {
+                    new ReconstructionProviderViewUrl("input_image_url", new Uri("https://rook.local/front.png")),
+                    new ReconstructionProviderViewUrl("back_image_url", new Uri("https://rook.local/back.png")),
+                    new ReconstructionProviderViewUrl("left_image_url", new Uri("https://rook.local/left.png")),
+                },
+                new JsonObject { ["generate_type"] = "Normal" }),
+            CancellationToken.None);
+
+        Assert.Contains(@"""input_image_url"":""https://rook.local/front.png""", transport.LastPostBody);
+        Assert.Contains(@"""back_image_url"":""https://rook.local/back.png""", transport.LastPostBody);
+        Assert.Contains(@"""left_image_url"":""https://rook.local/left.png""", transport.LastPostBody);
+        Assert.Contains(@"""generate_type"":""Normal""", transport.LastPostBody);
+        // front first
+        Assert.True(transport.LastPostBody!.IndexOf("input_image_url") < transport.LastPostBody.IndexOf("back_image_url"));
+    }
+
     [Fact]
     public async Task Submit_Queued_ReturnsHandleWithRequestIdAndUrls()
     {
@@ -28,9 +59,7 @@ public sealed class FalReconstructionProviderTests
             ""cancel_url"":""https://queue.fal.run/cancel/req-123""}"));
 
         var outcome = await new FalReconstructionProvider(transport).SubmitAsync(
-            new ReconstructionProviderSubmitRequest(
-                HunyuanModelId,
-                new Uri("https://rook.local/source.png"),
+            Req(HunyuanModelId, "https://rook.local/source.png",
                 JsonNode.Parse(@"{""enable_pbr"":true,""enable_geometry"":false}")!.AsObject()),
             CancellationToken.None);
 
@@ -48,23 +77,17 @@ public sealed class FalReconstructionProviderTests
     }
 
     [Fact]
-    public async Task BuildSubmitPayload_UsesSourceField_WhenProvided()
+    public async Task BuildSubmitPayload_UsesNamedField_WhenProvided()
     {
         // BuildSubmitPayload is private; exercise it through the public submit path and capture the
-        // posted body. A resolved SourceField ("image_url", e.g. BiRefNet v2) must key the source url.
+        // posted body. A view field ("image_url", e.g. BiRefNet v2) must key the source url.
         var transport = new FakeTransport();
         transport.Posts.Enqueue(Resp(200, @"{
             ""request_id"":""req-1"",
             ""status_url"":""https://queue.fal.run/status/req-1""}"));
 
         await new FalReconstructionProvider(transport).SubmitAsync(
-            new ReconstructionProviderSubmitRequest(
-                "fal-ai/birefnet/v2",
-                new Uri("https://rook.local/source.png"),
-                new JsonObject())
-            {
-                SourceField = "image_url",
-            },
+            Req("fal-ai/birefnet/v2", "https://rook.local/source.png", new JsonObject(), field: "image_url"),
             CancellationToken.None);
 
         Assert.Contains(@"""image_url"":""https://rook.local/source.png""", transport.LastPostBody);
@@ -72,19 +95,16 @@ public sealed class FalReconstructionProviderTests
     }
 
     [Fact]
-    public async Task BuildSubmitPayload_DefaultsToInputImageUrl_WhenNull()
+    public async Task BuildSubmitPayload_UsesInputImageUrl_ForDefaultField()
     {
-        // A null SourceField preserves the Hunyuan/3D path: source url keyed as input_image_url.
+        // The 3D path keys the source url as input_image_url (the helper's default field).
         var transport = new FakeTransport();
         transport.Posts.Enqueue(Resp(200, @"{
             ""request_id"":""req-1"",
             ""status_url"":""https://queue.fal.run/status/req-1""}"));
 
         await new FalReconstructionProvider(transport).SubmitAsync(
-            new ReconstructionProviderSubmitRequest(
-                HunyuanModelId,
-                new Uri("https://rook.local/source.png"),
-                new JsonObject()),
+            Req(HunyuanModelId, "https://rook.local/source.png", new JsonObject()),
             CancellationToken.None);
 
         Assert.Contains(@"""input_image_url"":""https://rook.local/source.png""", transport.LastPostBody);
@@ -97,7 +117,7 @@ public sealed class FalReconstructionProviderTests
         transport.Posts.Enqueue(Resp(401, @"{""detail"":""bad key""}"));
 
         var outcome = await new FalReconstructionProvider(transport).SubmitAsync(
-            new ReconstructionProviderSubmitRequest(HunyuanModelId, new Uri("https://rook.local/s.png"), new JsonObject()),
+            Req(HunyuanModelId, "https://rook.local/s.png", new JsonObject()),
             CancellationToken.None);
 
         var failed = Assert.IsType<FailedSubmitOutcome>(outcome);
@@ -111,7 +131,7 @@ public sealed class FalReconstructionProviderTests
         transport.Posts.Enqueue(Resp(200, @"{""status_url"":""https://queue.fal.run/s""}"));
 
         var outcome = await new FalReconstructionProvider(transport).SubmitAsync(
-            new ReconstructionProviderSubmitRequest(HunyuanModelId, new Uri("https://rook.local/s.png"), new JsonObject()),
+            Req(HunyuanModelId, "https://rook.local/s.png", new JsonObject()),
             CancellationToken.None);
 
         Assert.IsType<FailedSubmitOutcome>(outcome);
@@ -123,7 +143,7 @@ public sealed class FalReconstructionProviderTests
         var transport = new FakeTransport { PostException = new HttpRequestException("connection reset") };
 
         var outcome = await new FalReconstructionProvider(transport).SubmitAsync(
-            new ReconstructionProviderSubmitRequest(HunyuanModelId, new Uri("https://rook.local/s.png"), new JsonObject()),
+            Req(HunyuanModelId, "https://rook.local/s.png", new JsonObject()),
             CancellationToken.None);
 
         var failed = Assert.IsType<FailedSubmitOutcome>(outcome);
@@ -139,7 +159,7 @@ public sealed class FalReconstructionProviderTests
         var transport = new FakeTransport { PostException = new TaskCanceledException("timed out") };
 
         var outcome = await new FalReconstructionProvider(transport).SubmitAsync(
-            new ReconstructionProviderSubmitRequest(HunyuanModelId, new Uri("https://rook.local/s.png"), new JsonObject()),
+            Req(HunyuanModelId, "https://rook.local/s.png", new JsonObject()),
             CancellationToken.None);
 
         var failed = Assert.IsType<FailedSubmitOutcome>(outcome);
@@ -158,7 +178,7 @@ public sealed class FalReconstructionProviderTests
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
             new FalReconstructionProvider(transport).SubmitAsync(
-                new ReconstructionProviderSubmitRequest(HunyuanModelId, new Uri("https://rook.local/s.png"), new JsonObject()),
+                Req(HunyuanModelId, "https://rook.local/s.png", new JsonObject()),
                 cts.Token));
     }
 
