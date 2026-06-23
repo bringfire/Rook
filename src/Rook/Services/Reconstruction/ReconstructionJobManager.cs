@@ -130,6 +130,15 @@ public sealed class ReconstructionJobManager : IDisposable
                 "options");
         }
 
+        if (IsJsonTrue(request.Options, "enable_pbr") && !model!.SupportsPbr)
+        {
+            return SubmitFail(
+                "invalid_request",
+                $"Model '{model.ModelId}' does not support reliable PBR output. Submit without "
+                + "enable_pbr for the model's default output, or choose a PBR-capable model.",
+                "options");
+        }
+
         return await SubmitCoreAsync(request, model!, "single_image_to_3d", ct).ConfigureAwait(false);
     }
 
@@ -720,22 +729,6 @@ public sealed class ReconstructionJobManager : IDisposable
         if (!textureExpected || model is null)
             return Array.Empty<ReconstructionWarning>();
 
-        if (!model.SupportsPbr)
-        {
-            return new[]
-            {
-                new ReconstructionWarning(
-                    "pbr_unsupported_by_model",
-                    $"Texture output was expected for this request, but model '{model.ModelId}' is not "
-                    + "catalogued as supporting textured/PBR output. The result may lack materials or textures.",
-                    new Dictionary<string, object?>
-                    {
-                        ["model_id"] = model.ModelId,
-                        ["supports_pbr"] = false,
-                    }),
-            };
-        }
-
         var hasMaterial = deliveredRoles.Any(r =>
             string.Equals(r, ReconstructionFileRoles.MaterialMtl, StringComparison.Ordinal));
         var hasTexture = deliveredRoles.Any(r => r.StartsWith("texture", StringComparison.Ordinal));
@@ -746,8 +739,7 @@ public sealed class ReconstructionJobManager : IDisposable
         {
             new ReconstructionWarning(
                 "result_missing_texture",
-                "Texture output was expected and this model supports it, but the delivered package "
-                + "contains no material or texture assets.",
+                "Texture output was expected, but the delivered package contains no material or texture assets.",
                 new Dictionary<string, object?>
                 {
                     ["model_id"] = model.ModelId,

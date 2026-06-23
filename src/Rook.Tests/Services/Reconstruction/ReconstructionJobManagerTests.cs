@@ -20,6 +20,7 @@ public sealed class ReconstructionJobManagerTests : IDisposable
 {
     private const string HunyuanModelId = "fal-ai/hunyuan-3d/v3.1/rapid/image-to-3d";
     private const string BirefnetModelId = "fal-ai/birefnet/v2";
+    private const string NonPbrModelId = "fal-ai/non-pbr/image-to-3d";
 
     private readonly List<string> _roots = new();
     private readonly List<ReconstructionJobManager> _managers = new();
@@ -833,6 +834,27 @@ public sealed class ReconstructionJobManagerTests : IDisposable
     }
 
     [Fact]
+    public async Task Submit_EnablePbrTrueForNonPbrModel_RejectedBeforeSourceLookup_ProviderAndPublisherNotInvoked()
+    {
+        var fixture = CreateFixture();
+        var request = Request(Guid.NewGuid()) with
+        {
+            ModelId = NonPbrModelId,
+            Options = JsonNode.Parse(@"{""enable_pbr"":true}")!.AsObject(),
+        };
+
+        var result = await fixture.Manager.SubmitAsync(request, CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Equal("invalid_request", result.Failure!.Code);
+        Assert.Equal("options", result.Failure.Field);
+        Assert.Contains("does not support reliable PBR output", result.Failure.Message);
+        Assert.Empty(fixture.Provider.SubmitRequests);
+        Assert.Empty(fixture.Publisher.Published);
+        Assert.Empty(fixture.Manager.List(10).Jobs);
+    }
+
+    [Fact]
     public async Task Submit_EnableGeometryTrueOnly_PassesGuard_ReachesProvider()
     {
         var fixture = CreateFixture();
@@ -976,10 +998,14 @@ public sealed class ReconstructionJobManagerTests : IDisposable
         => Assert.Empty(ReconstructionJobManager.BuildTextureWarnings(true, null, new[] { "model_glb" }));
 
     [Fact]
-    public void BuildTextureWarnings_Expected_NoPbrSupport_EmitsPbrUnsupported()
+    public void BuildTextureWarnings_Expected_NoPbrSupport_TexturePresent_NoWarning()
+        => Assert.Empty(ReconstructionJobManager.BuildTextureWarnings(true, ModelEntry(true, supportsPbr: false), new[] { "model_glb", "texture" }));
+
+    [Fact]
+    public void BuildTextureWarnings_Expected_NoPbrSupport_BareRoles_EmitsMissingTexture()
     {
         var ws = ReconstructionJobManager.BuildTextureWarnings(true, ModelEntry(true, supportsPbr: false), new[] { "model_glb" });
-        Assert.Equal(new[] { "pbr_unsupported_by_model" }, WarningCodes(ws));
+        Assert.Equal(new[] { "result_missing_texture" }, WarningCodes(ws));
     }
 
     [Fact]
@@ -1401,6 +1427,22 @@ public sealed class ReconstructionJobManagerTests : IDisposable
           "input": {"mode": "single_image", "source_field": "image_url"},
           "preprocessing": {"recommended": false, "required": false},
           "docs_url": "https://fal.ai/models/fal-ai/birefnet/v2/api"
+        },
+        {
+          "model_id": "fal-ai/non-pbr/image-to-3d",
+          "provider": "fal",
+          "task": "single_image_to_3d",
+          "status": "stable",
+          "enabled": true,
+          "pipeline_roles": ["single_image_to_3d"],
+          "input_types": ["image_url"],
+          "output_roles": ["model_obj", "material_mtl", "texture"],
+          "preferred_asset_role": "model_obj",
+          "fallback_order": ["model_obj"],
+          "supports_pbr": false,
+          "default_texture_expected": true,
+          "preprocessing": {"recommended": false, "required": false},
+          "docs_url": "https://fal.ai/models/fal-ai/non-pbr/image-to-3d/api"
         },
         {
           "model_id": "fal-ai/hunyuan-3d/v3.1/rapid/image-to-3d",

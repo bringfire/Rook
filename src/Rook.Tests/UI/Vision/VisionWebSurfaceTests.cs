@@ -5,6 +5,7 @@ using System.Linq;
 using System.Reflection;
 using System.Text;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Rook;
@@ -1018,6 +1019,17 @@ namespace Rook.Tests.UI.Vision
             Assert.Contains("capturedViewport && capturedViewport.file_path", js);
             Assert.Contains("if (!sourcePath) {", js);
             Assert.Contains("input_image_path: sourcePath", js);
+        }
+
+        [Fact]
+        public void AppJs_ReconstructTexturedOptionsRequireSelectedModelPbrSupport()
+        {
+            var js = ReadVisionResource("app.js");
+            var compact = Regex.Replace(js, @"\s+", " ");
+
+            Assert.Contains("function selectedModel()", js);
+            Assert.Contains("const model = selectedModel();", js);
+            Assert.Contains("return model && model.supports_pbr ? { enable_pbr: true } : {};", compact);
         }
 
         [Fact]

@@ -150,6 +150,18 @@ public sealed class ReconstructionModelCatalogTests
     }
 
     [Fact]
+    public void ProductionCatalog_HunyuanRapid_DoesNotAdvertisePbrButStillExpectsDefaultTexture()
+    {
+        var catalog = ProductionCatalog();
+
+        var hunyuan = catalog.Find("fal-ai/hunyuan-3d/v3.1/rapid/image-to-3d");
+
+        Assert.NotNull(hunyuan);
+        Assert.False(hunyuan!.SupportsPbr);
+        Assert.True(hunyuan.DefaultTextureExpected);
+    }
+
+    [Fact]
     public void Catalog_InputMode_Deserializes()
     {
         // Every production entry is single-image input today.
