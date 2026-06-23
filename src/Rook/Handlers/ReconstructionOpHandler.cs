@@ -141,8 +141,12 @@ namespace Rook.Handlers
         // Tasks whose models actually produce 3D output and therefore belong in the reconstruct picker.
         // remove_background (birefnet) is a preprocessing op, not a 3D producer, so it is excluded here.
         // multi_image_to_3d / text_to_3d can be added when those land.
-        private static readonly HashSet<string> ThreeDProducingTasks =
-            new(StringComparer.Ordinal) { "single_image_to_3d" };
+        // A model is a 3D producer for the picker iff it advertises an importable model output role —
+        // capability, not task. Keeps birefnet (image/mask only) out while admitting hunyuan/pro/meshy.
+        private static readonly string[] ImportableModelRoles = { "model_glb", "model_obj" };
+
+        private static bool ProducesImportable3D(ReconstructionModelEntry m)
+            => m.OutputRoles.Any(r => Array.IndexOf(ImportableModelRoles, r) >= 0);
 
         private ApiResponse Models(Dictionary<string, JsonElement> args)
         {
@@ -152,7 +156,7 @@ namespace Rook.Handlers
             {
                 ["models"] = _catalog
                     .List(includeExperimental, includeHidden)
-                    .Where(m => ThreeDProducingTasks.Contains(m.Task))
+                    .Where(ProducesImportable3D)
                     .Select(ModelToObj)
                     .ToArray(),
                 ["include_experimental"] = includeExperimental,
@@ -842,7 +846,30 @@ namespace Rook.Handlers
                 },
                 ["input"] = InputToObj(model.Input),
                 ["prompt"] = PromptToObj(model.Prompt),
+                ["options"] = model.Options is null ? null : model.Options.Select(OptionToObj).ToArray(),
+                ["supports_single_image"] = !string.IsNullOrWhiteSpace(model.Input?.SourceField),
+                ["supports_multi_view"] = (model.Input?.ViewSlots?.Length ?? 0) > 1,
                 ["docs_url"] = model.DocsUrl,
+            };
+
+        private static Dictionary<string, object?> OptionToObj(ReconstructionOptionDescriptor option)
+            => new()
+            {
+                ["key"] = option.Key,
+                ["label"] = option.Label,
+                ["kind"] = option.Kind,
+                ["default"] = option.Default,
+                ["allowed_values"] = option.AllowedValues,
+                ["min"] = option.Min,
+                ["max"] = option.Max,
+                ["step"] = option.Step,
+                ["ignored_when"] = option.IgnoredWhen is null
+                    ? null
+                    : new Dictionary<string, object?>
+                    {
+                        ["key"] = option.IgnoredWhen.Key,
+                        ["equals"] = option.IgnoredWhen.EqualsValue,
+                    },
             };
 
         private static Dictionary<string, object?>? InputToObj(ReconstructionInputMetadata? input)
