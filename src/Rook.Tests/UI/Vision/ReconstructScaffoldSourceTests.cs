@@ -103,6 +103,26 @@ namespace Rook.Tests.UI.Vision
             Assert.Contains("openReconstructPicker(", js);
         }
 
+        // ─── Task 4 assertions ────────────────────────────────────────
+
+        [Fact]
+        public void IndexHtml_ActionNote_Present()
+        {
+            var html = ReadVisionResource("index.html");
+            Assert.Contains("id=\"reconstruct-action-note\"", html);
+        }
+
+        [Fact]
+        public void AppJs_ModeDrivenActionAndModelPlaceholder()
+        {
+            var js = ReadVisionResource("app.js");
+            Assert.Contains("function updateReconstructActionForMode", js);
+            Assert.Contains("Assemble view set", js);
+            Assert.Contains("Text-to-3D arrives when a provider lands.", js);
+            Assert.Contains("Slot assembly wires next.", js);
+            Assert.Contains("No models available for this mode yet", js);
+        }
+
         // ─── helpers ──────────────────────────────────────────────────
 
         private static string ReadVisionResource(string fileName)

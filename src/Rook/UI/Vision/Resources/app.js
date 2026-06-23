@@ -3362,6 +3362,7 @@ const Reconstruct = (() => {
         re.modeTextured = $("reconstruct-mode-textured");
         re.modeGeometry = $("reconstruct-mode-geometry");
         re.submitBtn = $("reconstruct-submit-btn");
+        re.actionNote = $("reconstruct-action-note");
         re.statusMessage = $("reconstruct-status-message");
         re.resultPanel = $("reconstruct-result-panel");
         re.resultThumb = $("reconstruct-result-thumb");
@@ -3449,6 +3450,37 @@ const Reconstruct = (() => {
         re.modeGeometry.setAttribute("aria-checked", String(!textured));
     }
 
+    function updateReconstructActionForMode(mode) {
+        if (mode === "i3d") {
+            re.submitBtn.textContent = "Reconstruct";
+            re.submitBtn.disabled = false;
+            re.actionNote.textContent = "";
+        } else if (mode === "t3d") {
+            re.submitBtn.textContent = "Reconstruct";
+            re.submitBtn.disabled = true;
+            re.actionNote.textContent = "Text-to-3D arrives when a provider lands.";
+        } else { // mv3d
+            re.submitBtn.textContent = "Assemble view set";
+            re.submitBtn.disabled = true;
+            re.actionNote.textContent = "Slot assembly wires next.";
+        }
+    }
+
+    function updateReconstructModelForMode(mode) {
+        if (mode === "t3d" || mode === "mv3d") {
+            re.modelSelect.innerHTML = "<option value=\"\" disabled selected>No models available for this mode yet</option>";
+        } else {
+            // i3d: restore the loaded model list (or placeholder if none loaded yet)
+            if (models.length === 0) {
+                re.modelSelect.innerHTML = "<option value=\"\" disabled selected>No models available</option>";
+            } else {
+                re.modelSelect.innerHTML = models.map(buildModelOption).join("");
+                re.modelSelect.value = models[0].model_id;
+            }
+            updateModelHint();
+        }
+    }
+
     const RECONSTRUCT_PROMPT_HINT = {
         t3d: "Required for text-to-3D.",
         i3d: "Optional for image modes.",
@@ -3463,7 +3495,8 @@ const Reconstruct = (() => {
             b.setAttribute("aria-checked", on ? "true" : "false");
         });
         re.promptHint.textContent = RECONSTRUCT_PROMPT_HINT[mode] || "";
-        // later tasks extend: gate source/slots, model placeholder, action label/enablement
+        updateReconstructActionForMode(mode);
+        updateReconstructModelForMode(mode);
     }
 
     function optionsForMode() {
@@ -3474,6 +3507,7 @@ const Reconstruct = (() => {
     }
 
     async function submit() {
+        if (re.submitBtn && re.submitBtn.disabled) return;
         const frontSlot = slots.front;
         if (!frontSlot || !frontSlot.artifact_id) {
             showReconstructStatus("Choose a source image first.", "error");
