@@ -11,7 +11,19 @@ public sealed record ReconstructionSubmitRequest(
     string ModelId,
     IReadOnlyList<ReconstructionPreprocessingStageRequest> PreprocessingChain,
     JsonObject Options,
-    bool EstimateRequested);
+    bool EstimateRequested)
+{
+    /// <summary>
+    /// Optional inline labeled secondary views (multi-view submit). Default empty (single-image path).
+    /// A <c>front</c> entry is only a redundant restatement of the canonical front
+    /// (<see cref="SourceArtifactId"/> + <see cref="SourceRole"/>); it never overrides it.
+    /// </summary>
+    public IReadOnlyList<ReconstructionViewRequest> Views { get; init; }
+        = Array.Empty<ReconstructionViewRequest>();
+}
+
+/// <summary>One labeled view in a multi-view submit: a slot name, its source artifact, and role.</summary>
+public sealed record ReconstructionViewRequest(string Slot, Guid ArtifactId, string Role);
 
 public sealed record ReconstructionPreprocessingStageRequest(
     string Role,
@@ -70,6 +82,10 @@ public static class ReconstructionSubmitRequestParser
             : new JsonObject();
         var estimateRequested = ReadBool(root, "estimate_requested") ?? false;
 
+        var views = ParseViews(root["views"], out var viewsFailure);
+        if (viewsFailure is not null)
+            return new ReconstructionParseResult(false, null, viewsFailure);
+
         return new ReconstructionParseResult(
             true,
             new ReconstructionSubmitRequest(
@@ -78,8 +94,55 @@ public static class ReconstructionSubmitRequestParser
                 modelId!,
                 preprocessing,
                 options,
-                estimateRequested),
+                estimateRequested)
+            {
+                Views = views,
+            },
             null);
+    }
+
+    private static IReadOnlyList<ReconstructionViewRequest> ParseViews(
+        JsonNode? node, out ReconstructionFailure? failure)
+    {
+        failure = null;
+        if (node is null)
+            return Array.Empty<ReconstructionViewRequest>();
+
+        if (node is not JsonArray array)
+        {
+            failure = Failure("invalid_request", "views must be an array.", "views");
+            return Array.Empty<ReconstructionViewRequest>();
+        }
+
+        var result = new List<ReconstructionViewRequest>();
+        foreach (var item in array)
+        {
+            if (item is not JsonObject obj)
+            {
+                failure = Failure("invalid_request", "Each view must be a JSON object.", "views");
+                return Array.Empty<ReconstructionViewRequest>();
+            }
+
+            var slot = ReadString(obj, "slot");
+            if (string.IsNullOrWhiteSpace(slot))
+            {
+                failure = Failure("invalid_request", "Each view requires a 'slot'.", "views");
+                return Array.Empty<ReconstructionViewRequest>();
+            }
+
+            if (!TryReadGuid(obj, "artifact_id", out var artifactId))
+            {
+                failure = Failure("invalid_request", "Each view requires a valid 'artifact_id'.", "views");
+                return Array.Empty<ReconstructionViewRequest>();
+            }
+
+            var role = ReadString(obj, "role");
+            role = string.IsNullOrWhiteSpace(role) ? "image" : role;
+
+            result.Add(new ReconstructionViewRequest(slot!, artifactId, role!));
+        }
+
+        return result;
     }
 
     private static IReadOnlyList<ReconstructionPreprocessingStageRequest> ParsePreprocessing(
