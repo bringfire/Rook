@@ -1390,17 +1390,19 @@ async function loadGallery() {
         // desc with artifact_id desc as the deterministic tie-breaker
         // (Codex sign-off note — equal-timestamp items must not jitter
         // between reloads).
-        const [imgData, vidData, importedImageData, importedVideoData] = await Promise.all([
+        const [imgData, vidData, importedImageData, importedVideoData, preprocessedImageData] = await Promise.all([
             bridgeCall("list_artifacts", { kind: "generated_image", limit: 100 }),
             bridgeCall("list_artifacts", { kind: "generated_video", limit: 100 }),
             bridgeCall("list_artifacts", { kind: "imported_image", limit: 100 }),
             bridgeCall("list_artifacts", { kind: "imported_video", limit: 100 }),
+            bridgeCall("list_artifacts", { kind: "preprocessed_image", limit: 100 }),
         ]);
         galleryItems = [
             ...(imgData.artifacts || []),
             ...(vidData.artifacts || []),
             ...(importedImageData.artifacts || []),
             ...(importedVideoData.artifacts || []),
+            ...(preprocessedImageData.artifacts || []),
         ].sort((a, b) => {
             const tA = a.created_at || "";
             const tB = b.created_at || "";
@@ -1756,7 +1758,8 @@ function canReconstructArtifact(artifact) {
     return !!artifact
         && (artifact.kind === "generated_image"
             || artifact.kind === "imported_image"
-            || artifact.kind === "captured_viewport")
+            || artifact.kind === "captured_viewport"
+            || artifact.kind === "preprocessed_image")
         && Array.isArray(artifact.files)
         && artifact.files.some(f => f.role === "image");
 }

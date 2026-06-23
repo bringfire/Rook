@@ -118,6 +118,31 @@ namespace Rook.Tests.UI.Vision
             Assert.Contains("updateStudioOperationsEnabled();", js);
         }
 
+        // ─── Task 5: Gallery listing + reconstruct eligibility ────────
+
+        [Fact]
+        public void AppJs_LoadGallery_IncludesPreprocessedImage()
+        {
+            var js = ReadVisionResource("app.js");
+            // loadGallery() fans out a parallel list_artifacts call per kind; it must include preprocessed_image.
+            var s = js.IndexOf("async function loadGallery(", System.StringComparison.Ordinal);
+            Assert.True(s >= 0, "loadGallery() not found");
+            var e = js.IndexOf("async function ", s + 1, System.StringComparison.Ordinal);
+            var body = js.Substring(s, (e > s ? e : js.Length) - s);
+            Assert.Contains("kind: \"preprocessed_image\"", body);
+        }
+
+        [Fact]
+        public void AppJs_CanReconstructArtifact_AcceptsPreprocessedImage()
+        {
+            var js = ReadVisionResource("app.js");
+            var s = js.IndexOf("function canReconstructArtifact(", System.StringComparison.Ordinal);
+            Assert.True(s >= 0, "canReconstructArtifact() not found");
+            var e = js.IndexOf("\n}", s, System.StringComparison.Ordinal);
+            var body = js.Substring(s, e - s);
+            Assert.Contains("preprocessed_image", body);
+        }
+
         // ─── helper ───────────────────────────────────────────────────
 
         private static string ReadVisionResource(string fileName)
