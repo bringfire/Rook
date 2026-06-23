@@ -1218,6 +1218,7 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
           "preferred_asset_role": "model_glb",
           "fallback_order": ["model_glb", "model_obj"],
           "supports_pbr": true,
+          "input": {"mode": "single_image", "source_field": "input_image_url"},
           "preprocessing": {"recommended": false, "required": false},
           "docs_url": "https://fal.ai/models/fal-ai/hunyuan-3d/v3.1/rapid/image-to-3d/api"
         },

@@ -172,13 +172,36 @@ public sealed class ReconstructionJobManager : IDisposable
         string task,
         CancellationToken ct)
     {
-        var source = _store.Get(request.SourceArtifactId);
-        if (source is null)
-            return SubmitFail("invalid_request", "source_artifact_id was not found.", "source_artifact_id");
+        // ── Pass A: resolve the effective slot→artifact map and validate every slot (pre-ledger) so a
+        // rejected submit creates no phantom ledger job and typed failures aren't swallowed by the
+        // publish try below. The front slot preserves the original single-source error semantics. ──
+        var resolution = ResolveViews(request, model);
+        if (!resolution.Success)
+            return new ReconstructionSubmitResult(false, null, resolution.Failure);
 
-        var sourceValidation = ReconstructionSourceValidator.Validate(_store, source, request.SourceRole);
-        if (!sourceValidation.Success)
-            return new ReconstructionSubmitResult(false, null, sourceValidation.Failure);
+        var validatedViews = new List<(ResolvedView View, string AbsolutePath)>();
+        foreach (var rv in resolution.Views)
+        {
+            var isFront = string.Equals(rv.Slot, "front", StringComparison.Ordinal);
+            var artifact = _store.Get(rv.ArtifactId);
+            if (artifact is null)
+                return isFront
+                    ? SubmitFail("invalid_request", "source_artifact_id was not found.", "source_artifact_id")
+                    : SubmitFail("invalid_request", $"artifact for slot '{rv.Slot}' was not found.", "views");
+
+            var validation = ReconstructionSourceValidator.Validate(_store, artifact, rv.Role);
+            if (!validation.Success)
+            {
+                if (isFront)
+                    return new ReconstructionSubmitResult(false, null, validation.Failure);
+                var f = validation.Failure!;
+                var details = f.Details.ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal);
+                details["slot"] = rv.Slot;
+                return new ReconstructionSubmitResult(false, null, new ReconstructionFailure(
+                    f.Code, f.Message, f.Retryable, f.Field ?? "views", details));
+            }
+            validatedViews.Add((rv, validation.AbsolutePath!));
+        }
 
         var jobId = Guid.NewGuid();
         var queued = ReconstructionJobLedgerRecord.Queued(
@@ -196,26 +219,28 @@ public sealed class ReconstructionJobManager : IDisposable
             ReconstructionJobStage.Submitting);
         _ledger.Append(submitting);
 
+        // sourceArtifactIds (front + filled slots, resolved order) is read in the post-try switch by
+        // Task 1.10's carrier population, so declare it above the try. providerViews stays inside.
+        var sourceArtifactIds = new List<Guid>();
         ProviderSubmitOutcome submitOutcome;
         try
         {
-            // The validator already resolved + length-cap-validated AbsolutePath (it is the resolver).
-            // Read bytes here (manager owns the store) and pass only bytes/mime/fileName onward, so the
-            // provider/publisher stay storage-agnostic.
-            var sourcePath = sourceValidation.AbsolutePath!;
-            var sourceBytes = await ReadFileBytesAsync(sourcePath, ct).ConfigureAwait(false);
-            var sourceMime = MimeForExtension(sourcePath);
-            var sourceFileName = $"rook-reconstruction-{source.Id:D}-{request.SourceRole}{Path.GetExtension(sourcePath)}";
-            var sourceUrl = await _sourcePublisher.PublishAsync(
-                sourceBytes,
-                sourceMime,
-                sourceFileName,
-                ct).ConfigureAwait(false);
+            // The validator already resolved + length-cap-validated each AbsolutePath. Read bytes here
+            // (manager owns the store) and publish each slot's image; pass only bytes/mime/fileName so
+            // the provider/publisher stay storage-agnostic. Order is front-first (ResolveViews order).
+            var providerViews = new List<ReconstructionProviderViewUrl>();
+            foreach (var (rv, absolutePath) in validatedViews)
+            {
+                var bytes = await ReadFileBytesAsync(absolutePath, ct).ConfigureAwait(false);
+                var mime = MimeForExtension(absolutePath);
+                var fileName = $"rook-reconstruction-{rv.ArtifactId:D}-{rv.Slot}{Path.GetExtension(absolutePath)}";
+                var url = await _sourcePublisher.PublishAsync(bytes, mime, fileName, ct).ConfigureAwait(false);
+                providerViews.Add(new ReconstructionProviderViewUrl(rv.Field, url));
+                sourceArtifactIds.Add(rv.ArtifactId);
+            }
+
             submitOutcome = await _provider.SubmitAsync(
-                new ReconstructionProviderSubmitRequest(
-                    request.ModelId,
-                    new[] { new ReconstructionProviderViewUrl(model.Input?.SourceField ?? "input_image_url", sourceUrl) },
-                    request.Options),
+                new ReconstructionProviderSubmitRequest(request.ModelId, providerViews, request.Options),
                 ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -677,6 +702,64 @@ public sealed class ReconstructionJobManager : IDisposable
                 || model.OutputRoles.Contains("model_obj", StringComparer.Ordinal))
             && (!string.IsNullOrWhiteSpace(model.Input?.SourceField)
                 || (model.Input?.ViewSlots is { Length: > 0 }));
+
+    private sealed record ResolvedView(string Slot, Guid ArtifactId, string Role, string Field);
+    private sealed record ViewResolution(bool Success, IReadOnlyList<ResolvedView> Views, ReconstructionFailure? Failure);
+
+    // Resolves the effective slot→artifact map for a submit. The canonical front (source_artifact_id +
+    // source_role) is immutable: a views[] "front" entry is accepted only as a redundant restatement
+    // (same artifact AND role), never an override. Non-front views must map to a declared model slot
+    // and be unique. Output is ordered front-first, then declared view_slots order.
+    private static ViewResolution ResolveViews(ReconstructionSubmitRequest request, ReconstructionModelEntry model)
+    {
+        var slots = model.Input?.ViewSlots ?? Array.Empty<ReconstructionViewSlot>();
+        var byRole = slots.ToDictionary(s => s.Role, StringComparer.Ordinal);
+
+        var frontField = byRole.TryGetValue("front", out var frontSlot)
+            ? frontSlot.Field
+            : (model.Input?.SourceField ?? "input_image_url");
+
+        var ordered = new Dictionary<string, ResolvedView>(StringComparer.Ordinal)
+        {
+            ["front"] = new ResolvedView("front", request.SourceArtifactId, request.SourceRole, frontField),
+        };
+
+        foreach (var v in request.Views)
+        {
+            if (string.Equals(v.Slot, "front", StringComparison.Ordinal))
+            {
+                // Canonical-front restatement only: must match artifact AND role.
+                if (v.ArtifactId != request.SourceArtifactId
+                    || !string.Equals(v.Role, request.SourceRole, StringComparison.Ordinal))
+                {
+                    return Conflict("views", "views.front must match source_artifact_id and source_role.", "conflicting_front");
+                }
+                continue;   // redundant restatement; canonical front already seeded
+            }
+
+            if (!byRole.ContainsKey(v.Slot))
+                return Conflict("views", $"slot '{v.Slot}' is not supported by this model.", "unsupported_slot");
+
+            if (ordered.ContainsKey(v.Slot))
+                return Conflict("views", $"slot '{v.Slot}' appears more than once.", "duplicate_slot");
+
+            ordered[v.Slot] = new ResolvedView(v.Slot, v.ArtifactId, v.Role, byRole[v.Slot].Field);
+        }
+
+        var result = new List<ResolvedView> { ordered["front"] };
+        foreach (var slot in slots)
+        {
+            if (string.Equals(slot.Role, "front", StringComparison.Ordinal)) continue;
+            if (ordered.TryGetValue(slot.Role, out var rv)) result.Add(rv);
+        }
+
+        return new ViewResolution(true, result, null);
+    }
+
+    private static ViewResolution Conflict(string field, string message, string reason)
+        => new(false, Array.Empty<ResolvedView>(),
+            new ReconstructionFailure("invalid_request", message, false, field,
+                new Dictionary<string, object?> { ["reason"] = reason }));
 
     // A model is submittable for background removal when it is enabled and its catalog task is
     // remove_background. Unlike the 3D gate this does NOT require status=="stable" — bg-removal models

@@ -156,6 +156,117 @@ public sealed class ReconstructionJobManagerTests : IDisposable
         Assert.True(result.Success);
     }
 
+    private const string ProModelId = "fal-ai/hunyuan-3d/v3.1/pro/image-to-3d";
+
+    [Fact]
+    public async Task Submit_MultiView_PublishesAllSlots_FrontFirst()
+    {
+        var fixture = CreateFixture();
+        var front = fixture.Store.Create("generated_image", new[] { new BlobInput("image", new byte[] { 1 }, "png") });
+        var left = fixture.Store.Create("generated_image", new[] { new BlobInput("image", new byte[] { 2 }, "png") });
+
+        var req = Request(front.Id) with
+        {
+            ModelId = ProModelId,
+            Options = new JsonObject(),
+            Views = new[]
+            {
+                new ReconstructionViewRequest("front", front.Id, "image"),
+                new ReconstructionViewRequest("left", left.Id, "image"),
+            },
+        };
+
+        var result = await fixture.Manager.SubmitAsync(req, CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Equal(2, fixture.Publisher.Published.Count);                 // both slots published
+        var submitted = Assert.Single(fixture.Provider.SubmitRequests);
+        Assert.Equal("input_image_url", submitted.ViewUrls[0].Field);       // front first
+        Assert.Equal("left_image_url", submitted.ViewUrls[1].Field);
+    }
+
+    [Fact]
+    public async Task Submit_FrontView_DifferentArtifact_ConflictingFront()
+    {
+        var fixture = CreateFixture();
+        var front = fixture.Store.Create("generated_image", new[] { new BlobInput("image", new byte[] { 1 }, "png") });
+        var other = fixture.Store.Create("generated_image", new[] { new BlobInput("image", new byte[] { 9 }, "png") });
+
+        var req = Request(front.Id) with
+        {
+            ModelId = ProModelId,
+            Options = new JsonObject(),
+            Views = new[] { new ReconstructionViewRequest("front", other.Id, "image") },
+        };
+
+        var result = await fixture.Manager.SubmitAsync(req, CancellationToken.None);
+        Assert.False(result.Success);
+        Assert.Equal("conflicting_front", result.Failure!.Details["reason"]);
+    }
+
+    [Fact]
+    public async Task Submit_FrontView_DifferentRole_ConflictingFront()
+    {
+        var fixture = CreateFixture();
+        var front = fixture.Store.Create("generated_image", new[] { new BlobInput("image", new byte[] { 1 }, "png") });
+
+        // source_role defaults to "image"; an explicit differing role on the front view conflicts.
+        var req = Request(front.Id) with
+        {
+            ModelId = ProModelId,
+            Options = new JsonObject(),
+            Views = new[] { new ReconstructionViewRequest("front", front.Id, "depth") },
+        };
+
+        var result = await fixture.Manager.SubmitAsync(req, CancellationToken.None);
+        Assert.False(result.Success);
+        Assert.Equal("conflicting_front", result.Failure!.Details["reason"]);
+    }
+
+    [Fact]
+    public async Task Submit_UnsupportedSlot_Rejected()
+    {
+        var fixture = CreateFixture();
+        var front = fixture.Store.Create("generated_image", new[] { new BlobInput("image", new byte[] { 1 }, "png") });
+        var extra = fixture.Store.Create("generated_image", new[] { new BlobInput("image", new byte[] { 2 }, "png") });
+
+        var req = Request(front.Id) with
+        {
+            ModelId = ProModelId,
+            Options = new JsonObject(),
+            Views = new[] { new ReconstructionViewRequest("three_quarter", extra.Id, "image") },  // no Pro mapping
+        };
+
+        var result = await fixture.Manager.SubmitAsync(req, CancellationToken.None);
+        Assert.False(result.Success);
+        Assert.Equal("unsupported_slot", result.Failure!.Details["reason"]);
+        Assert.Equal("views", result.Failure.Field);
+    }
+
+    [Fact]
+    public async Task Submit_DuplicateNonFrontSlot_Rejected()
+    {
+        var fixture = CreateFixture();
+        var front = fixture.Store.Create("generated_image", new[] { new BlobInput("image", new byte[] { 1 }, "png") });
+        var a = fixture.Store.Create("generated_image", new[] { new BlobInput("image", new byte[] { 2 }, "png") });
+        var b = fixture.Store.Create("generated_image", new[] { new BlobInput("image", new byte[] { 3 }, "png") });
+
+        var req = Request(front.Id) with
+        {
+            ModelId = ProModelId,
+            Options = new JsonObject(),
+            Views = new[]
+            {
+                new ReconstructionViewRequest("left", a.Id, "image"),
+                new ReconstructionViewRequest("left", b.Id, "image"),
+            },
+        };
+
+        var result = await fixture.Manager.SubmitAsync(req, CancellationToken.None);
+        Assert.False(result.Success);
+        Assert.Equal("duplicate_slot", result.Failure!.Details["reason"]);
+    }
+
     [Fact]
     public async Task PollActiveJob_StatusComplete_FetchesResultAndMaterializesPackage()
     {
