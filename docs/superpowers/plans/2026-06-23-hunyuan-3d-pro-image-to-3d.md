@@ -759,7 +759,7 @@ git commit -m "feat(reconstruction): shared options validator (range/enum/unknow
   - `ReconstructionProviderSubmitRequest` replaces `Uri InputImageUrl` + `string? SourceField` with `IReadOnlyList<ReconstructionProviderViewUrl> ViewUrls` (ordered, front first).
 - Consumes (Task 1.7): the manager builds `ViewUrls`.
 
-> This is a breaking change to the provider request shape. The manager is the **only** construction site (`SubmitCoreAsync`); update it in the same task so the build stays green. The remove-background path also flows through `SubmitCoreAsync`, so its single-source build must produce a one-entry `ViewUrls` list — covered in Task 1.7. For *this* task, update the construction site to a one-entry list so the build compiles and existing manager tests stay green.
+> This is a breaking change to the provider request shape. In **production** the manager's `SubmitCoreAsync` is the only construction site; update it in the same task so the build stays green. The remove-background path also flows through `SubmitCoreAsync`, so its single-source build must produce a one-entry `ViewUrls` list — covered in Task 1.7. For *this* task, update that production site to a one-entry list. **In tests, the provider test file constructs the request eight times** (see Step 1's table) — all must be updated here too, or the provider suite won't compile.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -793,11 +793,28 @@ public async Task BuildSubmitPayload_WritesAllViewFields_FrontFirst()
 }
 ```
 
-Update the **existing** `Submit_Queued_ReturnsHandleWithRequestIdAndUrls` and `BuildSubmitPayload_UsesSourceField_WhenProvided` tests to the new request shape:
-- The first: replace `new Uri("https://rook.local/source.png")` arg with `new[] { new ReconstructionProviderViewUrl("input_image_url", new Uri("https://rook.local/source.png")) }`.
-- The second (BiRefNet `image_url`): replace the `InputImageUrl` + `SourceField = "image_url"` init with `new[] { new ReconstructionProviderViewUrl("image_url", new Uri("https://rook.local/source.png")) }` and drop the `SourceField` initializer.
+**Update ALL existing constructions of `ReconstructionProviderSubmitRequest` in this file — there are eight, not two.** The old 3-arg signature `(string, Uri, JsonObject)` (plus a `{ SourceField = ... }` initializer on one) no longer compiles. Add a small helper to the test class and route every site through it:
 
-(Ensure `using System.Text.Json.Nodes;` present for `JsonObject`.)
+```csharp
+private static ReconstructionProviderSubmitRequest Req(
+    string modelId, string url, JsonObject options, string field = "input_image_url")
+    => new(modelId, new[] { new ReconstructionProviderViewUrl(field, new Uri(url)) }, options);
+```
+
+Then replace each existing construction (the new multi-field test above constructs its 3-entry list inline and does **not** use the helper):
+
+| Line (approx) | Test | Replace with |
+|---|---|---|
+| 31 | `Submit_Queued_ReturnsHandleWithRequestIdAndUrls` | `Req(HunyuanModelId, "https://rook.local/source.png", JsonNode.Parse(@"{""enable_pbr"":true,""enable_geometry"":false}")!.AsObject())` |
+| 61 | `BuildSubmitPayload_UsesSourceField_WhenProvided` (BiRefNet) | `Req("fal-ai/birefnet/v2", "https://rook.local/source.png", new JsonObject(), field: "image_url")` — drop the `{ SourceField = "image_url" }` initializer |
+| 84 | (plain hunyuan submit) | `Req(HunyuanModelId, "https://rook.local/source.png", new JsonObject())` |
+| 100, 114, 126, 142, 161 | (failure/transport/cancel cases) | `Req(HunyuanModelId, "https://rook.local/s.png", new JsonObject())` |
+
+After editing, grep the file to confirm no `new ReconstructionProviderSubmitRequest(` with a `Uri` second argument remains:
+
+Run: `rg "new Uri\(.*\)\)?,\s*$|InputImageUrl|SourceField =" src/Rook.Tests/Services/Reconstruction/Fal/FalReconstructionProviderTests.cs` — expect no `InputImageUrl`/`SourceField =` hits (the `Req` helper is the only `new Uri` site for these requests, plus the inline multi-field test).
+
+(Ensure `using System.Text.Json.Nodes;` present for `JsonObject`/`JsonNode`.)
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -1091,31 +1108,35 @@ Replace the single-source body of `SubmitCoreAsync` with resolution over the eff
 
 Then the existing `jobId`/`Queued`/`Submitting` ledger appends run unchanged (still recording the single front `request.SourceArtifactId`).
 
-**Pass B — read + publish (inside the existing `try`, replaces the original single-source publish):**
+**Pass B — read + publish.** Declare `sourceArtifactIds` **above** the existing `try` (next to `ProviderSubmitOutcome submitOutcome;`), because Task 1.10 reads it in the post-`try` `switch` (the `QueuedSubmitOutcome` branch). `providerViews` stays inside the `try`:
 
 ```csharp
-        var providerViews = new List<ReconstructionProviderViewUrl>();
-        var sourceArtifactIds = new List<Guid>();
-        foreach (var (rv, absolutePath) in validatedViews)
+        var sourceArtifactIds = new List<Guid>();   // declared before the try — read in the switch below
+        ProviderSubmitOutcome submitOutcome;
+        try
         {
-            var bytes = await ReadFileBytesAsync(absolutePath, ct).ConfigureAwait(false);
-            var mime = MimeForExtension(absolutePath);
-            var fileName = $"rook-reconstruction-{rv.ArtifactId:D}-{rv.Slot}{Path.GetExtension(absolutePath)}";
-            var url = await _sourcePublisher.PublishAsync(bytes, mime, fileName, ct).ConfigureAwait(false);
-            providerViews.Add(new ReconstructionProviderViewUrl(rv.Field, url));
-            sourceArtifactIds.Add(rv.ArtifactId);
+            var providerViews = new List<ReconstructionProviderViewUrl>();
+            foreach (var (rv, absolutePath) in validatedViews)
+            {
+                var bytes = await ReadFileBytesAsync(absolutePath, ct).ConfigureAwait(false);
+                var mime = MimeForExtension(absolutePath);
+                var fileName = $"rook-reconstruction-{rv.ArtifactId:D}-{rv.Slot}{Path.GetExtension(absolutePath)}";
+                var url = await _sourcePublisher.PublishAsync(bytes, mime, fileName, ct).ConfigureAwait(false);
+                providerViews.Add(new ReconstructionProviderViewUrl(rv.Field, url));
+                sourceArtifactIds.Add(rv.ArtifactId);
+            }
+
+            submitOutcome = await _provider.SubmitAsync(
+                new ReconstructionProviderSubmitRequest(request.ModelId, providerViews, request.Options),
+                ct).ConfigureAwait(false);
+        }
+        catch (/* existing credential / FalApiException / generic catches unchanged */)
+        {
+            // ... existing catch bodies unchanged ...
         }
 ```
 
-Then the provider submit uses the resolved set:
-
-```csharp
-        submitOutcome = await _provider.SubmitAsync(
-            new ReconstructionProviderSubmitRequest(request.ModelId, providerViews, request.Options),
-            ct).ConfigureAwait(false);
-```
-
-Keep the existing `try/catch` envelope (credential / FalApiException / generic) around the publish+submit block, and the existing ledger append flow. The `Queued` ledger record still records the single front `SourceArtifactId` (no schema change) and `DeriveTextureExpected(request.Options, model)` stays as-is. The local `sourceArtifactIds` list (front + filled slots, in resolved order) is **carried for Task 1.10** — `jobId` is already in scope (created with the `Queued` record above the try), so Task 1.10 stashes `sourceArtifactIds` into a job-keyed carrier here for the polling/materialization path to read.
+Keep the existing `try/catch` envelope (credential / FalApiException / generic) and the existing `switch (submitOutcome)` flow. The `Queued` ledger record still records the single front `SourceArtifactId` (no schema change) and `DeriveTextureExpected(request.Options, model)` stays as-is. The `sourceArtifactIds` list (front + filled slots, in resolved order) is **carried for Task 1.10**, which stashes it into a job-keyed carrier **inside the `QueuedSubmitOutcome` branch only** (not here) so failed submits leave no stale entry.
 
 > **Validation-before-ledger ordering:** `ResolveViews` and the per-slot `ReconstructionSourceValidator.Validate` calls return `invalid_request`-class failures (`conflicting_front`/`unsupported_slot`/`duplicate_slot`/invalid source) and must run **before** the `Queued`/`Submitting` ledger records are appended — exactly as the original single-source `sourceValidation` ran before `jobId` creation — so a rejected submit never creates a phantom ledger job. Only the **read-bytes + publish** portion of the loop belongs inside the `try` (it can throw `FalApiException`). Split the loop accordingly: resolve + validate every slot first (pre-ledger), then read+publish each (in-try). A source-validation failure must surface as its typed `invalid_request` failure, not be swallowed by the generic `catch` → `submit_failed`.
 
@@ -1474,11 +1495,19 @@ Expected: FAIL — only the front id is passed to `MaterializeAsync` (left missi
 
 (`System.Collections.Concurrent` is already imported — `_runningJobs`/`_pollLocks` use it.)
 
-**(b) Populate it in `SubmitCoreAsync`** immediately after Pass B builds `sourceArtifactIds` (Task 1.7), where `jobId` is in scope:
+**(b) Populate it in `SubmitCoreAsync` inside the `QueuedSubmitOutcome` branch only** — *not* right after building `sourceArtifactIds`. The post-`try` `switch` has `FailedSubmitOutcome` (`ReconstructionJobManager.cs:282`) and `default` (`:293`) branches that return without starting a background loop; only the queued branch (`:266`) calls `StartBackgroundLoop`, which is the sole place `RunJobAsync`'s cleanup `finally` runs. Populating before the switch would leak a stale entry for every failed/unexpected submit. Add the stash next to the existing `_ledger.Append(polling)` / `StartBackgroundLoop(polling)` lines:
 
 ```csharp
-        _jobSourceArtifactIds[jobId] = sourceArtifactIds;
+            case QueuedSubmitOutcome queuedOutcome:
+                var handle = queuedOutcome.Handle;
+                var polling = submitting with { /* ...existing handle fields unchanged... */ };
+                _ledger.Append(polling);
+                _jobSourceArtifactIds[jobId] = sourceArtifactIds.ToArray();   // queued only — no stale entry on failure
+                StartBackgroundLoop(polling);
+                return new ReconstructionSubmitResult(true, queued, null);
 ```
+
+(`.ToArray()` snapshots the list as an immutable `IReadOnlyList<Guid>`. `jobId` and `sourceArtifactIds` are both in scope — `jobId` from the `Queued` record, `sourceArtifactIds` declared above the `try` in Task 1.7's Pass B.)
 
 **(c) Read it at the 3D materialize call** in `PollActiveJobAsync` (`:567`). Replace the 3D branch's source-ids argument `new[] { materializing.SourceArtifactId }` (only the `_materializer.MaterializeAsync(...)` branch, **not** the `_preprocessMaterializer` remove_background branch) with the carried list, falling back to the front id:
 
@@ -1501,7 +1530,7 @@ Expected: FAIL — only the front id is passed to `MaterializeAsync` (left missi
             _jobSourceArtifactIds.TryRemove(jobId, out _);
 ```
 
-(Cleanup is best-effort housekeeping; correctness does not depend on it — the fallback covers a missing entry. Every submitted job starts a background loop via `StartBackgroundLoop`, so this `finally` runs for every job after it reaches a terminal state, by which point materialization is already done.)
+(Cleanup is best-effort housekeeping; correctness does not depend on it — the fallback covers a missing entry. The carrier is populated **only** in the queued branch (step b), and exactly those jobs run `RunJobAsync`, so this `finally` runs for every populated entry after the job reaches a terminal state — by which point materialization is already done. Failed/unexpected submits never populate the carrier, so they need no cleanup.)
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -2132,9 +2161,11 @@ No uncovered spec requirement.
 
 **3. Contract placement (reviewer fix #1):** `ReconstructionSubmitRequest` / `ReconstructionParseResult` / `ReconstructionPreprocessingStageRequest` are declared in `ReconstructionSubmitRequestParser.cs` (line 8+), **not** `ReconstructionContracts.cs` (which holds only `Reconstruction*` constants). Task 1.3 adds `ReconstructionViewRequest` + `Views` there; Task 1.2 adds constants to `ReconstructionContracts.cs`. No duplicate contract placement. ✓
 
-**4. Provenance carrier (reviewer fix #2):** `_jobSourceArtifactIds` is a `ConcurrentDictionary<Guid, IReadOnlyList<Guid>>` keyed by jobId — populated in `SubmitCoreAsync`, read at the 3D materialize site in `PollActiveJobAsync` (shared by `StatusAsync` + the loop), fallback to `[SourceArtifactId]` when absent, cleaned in `RunJobAsync`'s `finally`. No ledger schema change. ✓
+**4. Provenance carrier (reviewer fix #2 + round-3 P2):** `_jobSourceArtifactIds` is a `ConcurrentDictionary<Guid, IReadOnlyList<Guid>>` keyed by jobId — populated **only inside the `QueuedSubmitOutcome` branch** of `SubmitCoreAsync` (so `FailedSubmitOutcome`/`default` submits leave no stale entry), read at the 3D materialize site in `PollActiveJobAsync` (shared by `StatusAsync` + the loop), fallback to `[SourceArtifactId]` when absent, cleaned in `RunJobAsync`'s `finally`. `sourceArtifactIds` is declared above the `try` (Task 1.7 Pass B) so it is in scope at the switch. No ledger schema change. ✓
 
-**5. Type consistency:**
+**5. Provider request construction sites (round-3 P1):** the production manager has one construction site, but `FalReconstructionProviderTests.cs` constructs `ReconstructionProviderSubmitRequest` **eight** times (lines 31/61/84/100/114/126/142/161). Task 1.5 Step 1 adds a `Req(...)` helper and updates all eight (table provided) + a verifying `rg` sweep, so the provider suite compiles. ✓
+
+**6. Type consistency:**
 - `ReconstructionViewRequest(Slot, ArtifactId, Role)` — produced Task 1.3 (in `ReconstructionSubmitRequestParser.cs`), consumed Tasks 1.7/3.2. ✓
 - `ReconstructionProviderViewUrl(Field, Url)` + `ViewUrls` — produced Task 1.5, consumed Tasks 1.5/1.7. ✓
 - `ReconstructionOptionDescriptor` / `ReconstructionOptionIgnoredWhen.EqualsValue` (not `Equals`) — produced Task 1.1, consumed Tasks 1.4/1.11/2.2. ✓
