@@ -24,17 +24,20 @@
 - **Whole replay loop under ONE `DispatchDrainSuspension`** (the spike's S2 pattern) — prevents between-frame interleave.
 - **Restore contract:** objects restored between **non-final** frames (apply that frame's `inverseDelta`); **terminal restore** is the single point honoring `restore_on_finish` (completed+`false` leaves final pose+camera; otherwise restore objects+camera); **cancel/error always restore** (incl. a late cancel during the *final* frame's dwell). Camera is set absolutely each frame; only the terminal/cancel/error restore touches the pre-replay camera snapshot.
 - **`status`** discriminates success (`completed`/`cancelled`); **`code`** discriminates errors. Error-code ownership: Python-only `invalid_track_input`/`track_not_found`/`track_read_failed`; everything else native.
-- **Native builds via the PowerShell tool** (`cmd /c "scripts\build-native.bat"`) — Git Bash `cmd /c` may emit only a banner; confirm `Build succeeded: …RookNative.rhp`. **Do not change `.vcxproj`** unless a new file requires it (RookNative globs sources — verify, see Task 1).
+- **Native builds via the PowerShell tool** (`cmd /c "scripts\build-native.bat"`) — Git Bash `cmd /c` may emit only a banner; confirm `Build succeeded: …RookNative.rhp`.
+- **`RookNative.vcxproj` lists sources EXPLICITLY (not globbed)** — e.g. `<ClCompile Include="Handlers\DirectorHandler.cpp" />` (vcxproj L134) with a parallel `RookNative.vcxproj.filters` entry. The two new `.cpp` + their `.h` (`DirectorFrame`, `DirectorReplayHandler`) **must** be added to BOTH `RookNative.vcxproj` and `RookNative.vcxproj.filters`, or the build silently omits the translation units / fails to link. **AGENTS.md:21 forbids editing `.vcxproj`/`.vcxproj.filters` without explicit approval — that approval is granted by this plan's review for exactly these four entries; do not make other project-file edits.** Stage these files in the relevant task commits.
+- **Two existing RAII guards are reused, not reinvented:** `DirectorObjectPoseGuard` (object pose; partial-apply tracking, reverse-order restore, post-restore bbox validation, `HasDirtyPartialState`) and `DirectorViewportGuard` (camera snapshot/restore). Both are moved to `DirectorFrame` and gain a `Disarm()` (suppress destructor restore) for the `restore_on_finish:false` leave-final-state case. `Disarm()` is behavior-neutral for frame-capture (which always `Restore()`s).
 - Running `dotnet test`/native-source pytest needs no Rhino; **live tests need Rhino + `fresh_document`**.
 
 ## File Structure
 
 | File | Responsibility | New? |
 |---|---|---|
-| `src/RookNative/Handlers/DirectorFrame.h` / `.cpp` | Shared per-frame primitives: `FrameObjectTransform`/`FrameCamera`/`FrameInstruction` structs, `ParseFrameInstruction`, `ApplyFrameObjects` (delta), `RestoreFrameObjects` (inverseDelta), `SetCameraFromFrame`, `ValidateFrameObjects`, `CaptureViewportCamera`/`ApplyViewportCamera` (for snapshots) — moved/extracted from `DirectorHandler.cpp` | new |
-| `src/RookNative/Handlers/DirectorHandler.cpp` | `frame-capture` refactored to call `DirectorFrame` helpers — behavior-preserving | modify |
+| `src/RookNative/Handlers/DirectorFrame.h` / `.cpp` | **Pure** shared per-frame primitives moved from `DirectorHandler.cpp`: structs `FrameObjectTransform`/`FrameCamera`; `DirectorFrameValidationError`; `ParseTransformMatrix`, `ParsePointArray3`, `ParseCamera`, `ParseFrameObjectTransforms` (camera + `object_transforms` only — **no** capture fields); `ValidateFrameObjects`; `TransformObjectInPlace`, `BboxAlmostEqual`; `SetCameraFromFrame` (extracted from `ExecuteFrameTransaction` ~L1700–1750); guards `DirectorObjectPoseGuard` + `DirectorViewportGuard` (each gains `Disarm()`) | new |
+| `src/RookNative/Handlers/DirectorHandler.cpp` | `frame-capture` refactored to call `DirectorFrame` helpers (behavior-preserving). **`ParseFrameInstruction` STAYS here** — it is capture-specific (`run_root`, `output_path`, `frame_id`, `director_version`, capture-bounded `resolution`, `ValidateOutputPolicy`) and now calls the shared `ParseCamera`/`ParseFrameObjectTransforms` | modify |
 | `src/RookNative/Handlers/DirectorReplayHandler.h` / `.cpp` | `HandleDirectorReplay`, `HandleDirectorReplayCancel`, single active-slot registry | new |
 | `src/RookNative/RookServer.cpp` | register `/director/replay` + `/director/replay/cancel` | modify |
+| `src/RookNative/RookNative.vcxproj` + `…vcxproj.filters` | add `ClCompile`/`ClInclude` for `DirectorFrame.{cpp,h}` + `DirectorReplayHandler.{cpp,h}` (explicit-list project — see Global Constraints) | modify |
 | `mcp_server/src/rook/director.py` | `run_replay`, `cancel_replay`, track-resolution + session-id helpers | modify |
 | `mcp_server/src/rook/server.py` | `rhino_director_replay` + `rhino_director_replay_cancel` `Tool` + `case` | modify |
 | `mcp_server/tests/test_director_replay_native_source.py` | native source-analysis tests | new |
@@ -42,7 +45,11 @@
 | `mcp_server/tests/test_director_mcp_tools.py` | MCP contract tests for the two new tools | modify |
 | `mcp_server/tests/test_director_replay_live.py` | live Rhino tests | new |
 
-**Mechanism note (read before Task 1).** Frame-capture's object apply is **relative** via `TransformObjectInPlace(pDoc, frameObject, xform)` where each `FrameObjectTransform` carries a precomputed `delta` (apply: source→pose) and `inverseDelta` (restore: pose→source) — see `ParseFrameInstruction` (~L1170) and the `FrameRestoreGuard` (~L1450–1521) in `DirectorHandler.cpp`. Replay reuses these: per frame apply `delta`; "restore to source" = apply that frame's `inverseDelta`. The **camera** has no such inverse — replay snapshots the pre-replay viewport camera and re-applies it on terminal/cancel/error restore.
+**Mechanism note (read before Task 1 — verified against the real code).**
+- **Object pose** is applied/restored by **`DirectorObjectPoseGuard`** (`DirectorHandler.cpp` ~L1446): `.Apply()` applies each object's precomputed `delta` (source→pose, via `TransformObjectInPlace` + `Redraw`, tracking `m_applied[i]`, throwing `DirectorFrameValidationError("native_frame_failed")` on a mid-apply failure); `.Restore(evidence)` restores **in reverse order**, validates each object still exists and its bbox matches `sourceBbox`, writes per-object evidence + `HasDirtyPartialState()`; the **destructor best-effort restores** unless already attempted. `inverseDelta` = inverse of `delta` (computed in `ParseFrameObjectTransforms`, rejecting non-invertible transforms). **Replay reuses this guard per frame — do NOT replace it with naive helpers**, or partial-apply / dirty-state semantics are lost.
+- **Camera** is snapshot/restored by **`DirectorViewportGuard`** (~L1596), used alongside the pose guard in `ExecuteFrameTransaction`. Replay constructs **one** `DirectorViewportGuard` for the whole replay (snapshots the pre-replay camera once) and restores it on terminal/cancel/error. Camera is *applied* per frame by the extracted `SetCameraFromFrame` (the `targetViewport.SetProjection/SetCameraLocation/…` block ~L1700–1750).
+- **Leave-final-state (`restore_on_finish:false`)** requires suppressing each guard's destructor restore → add a `Disarm()` method (sets the guard's `m_restoreAttempted=true` without restoring) to both guards.
+- **Parser split (hard):** `ParseFrameInstruction` requires `run_root`/`output_path`/`frame_id`/`director_version`/capture-bounded `resolution` — **capture-only**. Replay must call ONLY the pure shared `ParseCamera({"camera": …})` + `ParseFrameObjectTransforms({"object_transforms": …})`, never `ParseFrameInstruction`.
 
 ---
 
@@ -50,34 +57,34 @@
 
 **Files:**
 - Create: `src/RookNative/Handlers/DirectorFrame.h`, `src/RookNative/Handlers/DirectorFrame.cpp`
-- Modify: `src/RookNative/Handlers/DirectorHandler.cpp` (move structs + helpers out; call them)
+- Modify: `src/RookNative/Handlers/DirectorHandler.cpp` (move pure pieces out; keep capture-only `ParseFrameInstruction`; call shared helpers), `src/RookNative/RookNative.vcxproj`, `src/RookNative/RookNative.vcxproj.filters`
 - Test: `mcp_server/tests/test_director_replay_native_source.py` (new — parity assertions)
 
-**Interfaces — Produces (used by Tasks 2–3):**
-- `struct FrameObjectTransform { std::string objectId; ON_UUID uuid; ON_Xform delta; ON_Xform inverseDelta; /* + existing fields */ };`
-- `struct FrameCamera { /* existing fields: projection, location, target, up, lens_length, … */ };`
-- `struct FrameInstruction { /* existing: frameIndex, camera (FrameCamera), objects (vector<FrameObjectTransform>), resolution, display, … */ };`
-- `FrameInstruction ParseFrameInstruction(const nlohmann::json& body);` (moved verbatim)
-- `void ValidateFrameObjects(CRhinoDoc* pDoc, const std::vector<FrameObjectTransform>& objects);` (moved verbatim; throws `DirectorFrameValidationError`)
-- `bool ApplyFrameObjects(CRhinoDoc* pDoc, const std::vector<FrameObjectTransform>& objects);` (applies each `delta` via `TransformObjectInPlace`)
-- `bool RestoreFrameObjects(CRhinoDoc* pDoc, const std::vector<FrameObjectTransform>& objects);` (applies each `inverseDelta`)
-- `void SetCameraFromFrame(CRhinoView* pView, const FrameCamera& camera);` (extracted camera-set)
-- `bool CaptureViewportCamera(CRhinoView* pView, ON_3dmView& outView);` and `bool ApplyViewportCamera(CRhinoView* pView, const ON_3dmView& view);` (pre-replay camera snapshot/restore — extracted/new)
-- `DirectorFrameValidationError` (move its definition here so both handlers throw the same type).
+**Interfaces — Produces (used by Tasks 2–3), in `DirectorFrame.h`:**
+- `class DirectorFrameValidationError` (move definition here so both handlers throw the same type).
+- `struct FrameObjectTransform { std::string objectId; ON_UUID uuid; ON_Xform delta; ON_Xform inverseDelta; std::string validationStrength; ON_BoundingBox sourceBbox; };` (move verbatim — match the real fields).
+- `struct FrameCamera { /* the real fields: location/target/up + hasLensLength/lensLength, hasFovDegrees/fovDegrees, hasAspect/aspect, hasNearFar/nearClip/farClip */ };` (move verbatim).
+- `ON_Xform ParseTransformMatrix(const nlohmann::json& transform, const std::string& objectId);`
+- `ON_3dPoint ParsePointArray3(const nlohmann::json&, const char* name);`
+- `FrameCamera ParseCamera(const nlohmann::json& body);` (reads `body["camera"]` — **pure**, no capture fields).
+- `std::vector<FrameObjectTransform> ParseFrameObjectTransforms(const nlohmann::json& body);` (reads `body["object_transforms"]`; computes `delta`/`inverseDelta`, validating invertibility + bbox — **pure**, no capture fields).
+- `void ValidateFrameObjects(CRhinoDoc* pDoc, const std::vector<FrameObjectTransform>& objects);` (existence + bbox match; throws).
+- `bool TransformObjectInPlace(CRhinoDoc*, const FrameObjectTransform&, const ON_Xform&);` and `bool BboxAlmostEqual(...)`.
+- `void SetCameraFromFrame(CRhinoView* pView, const FrameCamera& camera);` (extracted from `ExecuteFrameTransaction` ~L1700–1750: `targetViewport.SetProjection/SetCameraLocation/SetCameraDirection/SetCameraUp/lens/…` + `pView->Redraw()`).
+- `class DirectorObjectPoseGuard` (move verbatim) **+ a new `void Disarm() { m_restoreAttempted = true; }`** so the destructor leaves the applied pose in place.
+- `class DirectorViewportGuard` (move verbatim) **+ the same `void Disarm()`**.
 
-- [ ] **Step 1: Read the current frame-capture internals.** Open `src/RookNative/Handlers/DirectorHandler.cpp` and locate: the `FrameObjectTransform`/`FrameCamera`/`FrameInstruction` structs (~L76–140), `ParseFrameInstruction`, `ParseTransformMatrix`, `TransformObjectInPlace` (~L1341), `ValidateFrameObjects` (~L1295), the camera-set code inside `ExecuteFrameTransaction`, and the `FrameRestoreGuard` (~L1450). Note exactly which functions/structs you will move vs. extract. No edit yet.
+**NOT in `DirectorFrame`:** `ParseFrameInstruction` and `struct FrameInstruction` stay in `DirectorHandler.cpp` — they are capture-specific (`run_root`, `output_path`, `frame_id`, `director_version=="slice1"`, capture-bounded `resolution`, `ValidateOutputPolicy`). `ParseFrameInstruction` now calls the shared `ParseCamera` + `ParseFrameObjectTransforms`. Replay (Task 3) must **never** call `ParseFrameInstruction`.
 
-- [ ] **Step 2: Write the failing parity source-analysis test.**
+- [ ] **Step 1: Read the real internals (no edit).** In `DirectorHandler.cpp`: `FrameObjectTransform`/`FrameCamera` structs (~L76–140); `ParseCamera` (~L590, reads `body["camera"]`); `ParseFrameObjectTransforms` (~L1169, computes `delta`/`inverseDelta`); `ParseFrameInstruction` (~L1223 — note the capture-only `run_root`/`output_path`/`frame_id`/`resolution` requirements); `ValidateFrameObjects` (~L1295); `TransformObjectInPlace` (~L1341); `DirectorObjectPoseGuard` (~L1446, with `Apply`/`Restore(evidence)`/`HasDirtyPartialState`/dtor `BestEffortRestore`); `DirectorViewportGuard` (~L1596); the camera-apply block + `ExecuteFrameTransaction` (~L1700–1990). Confirm exactly which symbols move (the pure list above) vs. stay (`FrameInstruction`/`ParseFrameInstruction`).
 
-Create `mcp_server/tests/test_director_replay_native_source.py`:
+- [ ] **Step 2: Write the failing parity source-analysis test.** Create `mcp_server/tests/test_director_replay_native_source.py`:
 
 ```python
-import re
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FRAME_H = REPO_ROOT / "src" / "RookNative" / "Handlers" / "DirectorFrame.h"
-FRAME_CPP = REPO_ROOT / "src" / "RookNative" / "Handlers" / "DirectorFrame.cpp"
 DIRECTOR_CPP = REPO_ROOT / "src" / "RookNative" / "Handlers" / "DirectorHandler.cpp"
 
 
@@ -85,60 +92,52 @@ def _read(p: Path) -> str:
     return p.read_text(encoding="utf-8")
 
 
-def test_directorframe_unit_exposes_shared_primitives():
+def test_directorframe_exposes_pure_shared_primitives():
     header = _read(FRAME_H)
     for sym in [
-        "struct FrameInstruction",
-        "struct FrameObjectTransform",
-        "struct FrameCamera",
-        "ParseFrameInstruction",
-        "ValidateFrameObjects",
-        "ApplyFrameObjects",
-        "RestoreFrameObjects",
-        "SetCameraFromFrame",
+        "struct FrameObjectTransform", "struct FrameCamera",
+        "ParseCamera", "ParseFrameObjectTransforms", "ValidateFrameObjects",
+        "SetCameraFromFrame", "class DirectorObjectPoseGuard",
+        "class DirectorViewportGuard", "void Disarm",
     ]:
         assert sym in header, f"DirectorFrame.h missing {sym}"
+    # Capture-only parser must NOT leak into the shared unit.
+    assert "ParseFrameInstruction" not in header
+    assert "run_root" not in header and "output_path" not in header
 
 
-def test_frame_capture_calls_shared_apply_and_restore():
+def test_frame_capture_uses_shared_unit_and_keeps_capture_parser():
     src = _read(DIRECTOR_CPP)
-    # Frame-capture must route through the shared helpers, not private copies.
-    assert "ApplyFrameObjects(" in src
-    assert "RestoreFrameObjects(" in src
-    assert "SetCameraFromFrame(" in src
-    # And it must include the shared unit.
     assert '#include "Handlers/DirectorFrame.h"' in src or '#include "DirectorFrame.h"' in src
+    assert "DirectorObjectPoseGuard" in src      # still used by ExecuteFrameTransaction
+    assert "DirectorViewportGuard" in src
+    assert "SetCameraFromFrame(" in src
+    assert "FrameInstruction ParseFrameInstruction(" in src  # capture parser stays here
 ```
 
-- [ ] **Step 3: Run the test — verify it fails.**
+- [ ] **Step 3: Run — verify fail.** `mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_director_replay_native_source.py -q` → FAIL (`DirectorFrame.h` absent).
 
-Run: `mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_director_replay_native_source.py -q`
-Expected: FAIL — `DirectorFrame.h` does not exist / symbols absent.
+- [ ] **Step 4: Create `DirectorFrame.{h,cpp}` by moving the pure pieces** (declarations in `.h`, definitions in `.cpp`, `namespace Rook { namespace Handlers {`, `#include` the RhinoCommon headers `DirectorHandler.cpp` uses for these): `DirectorFrameValidationError`, `FrameObjectTransform`, `FrameCamera`, `ParseTransformMatrix`, `ParsePointArray3`, `ParseCamera`, `ParseFrameObjectTransforms`, `BboxAlmostEqual`, `TransformObjectInPlace`, `ValidateFrameObjects`, `DirectorObjectPoseGuard`, `DirectorViewportGuard`. Add `void Disarm() { m_restoreAttempted = true; }` (public) to **both** guards. Extract the camera-apply block (~L1700–1750) into `void SetCameraFromFrame(CRhinoView* pView, const FrameCamera& camera)`. **Do not move** `FrameInstruction`/`ParseFrameInstruction`.
 
-- [ ] **Step 4: Create `DirectorFrame.h`/`.cpp` by moving the structs + helpers.** Move `FrameObjectTransform`, `FrameCamera`, `FrameInstruction`, `DirectorFrameValidationError`, `ParseFrameInstruction`, `ParseTransformMatrix`, `ParsePointArray3` (if only used here), `TransformObjectInPlace`, `ValidateFrameObjects` from `DirectorHandler.cpp` into `DirectorFrame.{h,cpp}` (declarations in `.h`, definitions in `.cpp`, under `namespace Rook { namespace Handlers {`). Add new `ApplyFrameObjects`/`RestoreFrameObjects` that loop over objects calling `TransformObjectInPlace(pDoc, obj, obj.delta)` and `…obj.inverseDelta)` respectively, and `SetCameraFromFrame` extracted from `ExecuteFrameTransaction`'s camera block, plus `CaptureViewportCamera`/`ApplyViewportCamera` (wrap `pView->Viewport()` get/set of the `ON_3dmView`/camera — use the same view API the camera-set uses). Keep signatures exactly as in the Interfaces block.
+- [ ] **Step 5: Refactor `DirectorHandler.cpp`.** `#include "Handlers/DirectorFrame.h"`; delete the moved definitions; keep `FrameInstruction`/`ParseFrameInstruction` but make `ParseFrameInstruction` call the now-shared `ParseCamera` + `ParseFrameObjectTransforms`; make `ExecuteFrameTransaction`'s camera-apply call `SetCameraFromFrame(...)`. The pose/viewport guards are already used there — they now resolve to the moved classes. **Behavior-preserving:** same order, same error types/codes, same evidence shape.
 
-- [ ] **Step 5: Refactor `DirectorHandler.cpp` to call the shared helpers.** `#include "Handlers/DirectorFrame.h"`. In `ExecuteFrameTransaction`, replace the inline apply/camera/restore with `ApplyFrameObjects(...)`, `SetCameraFromFrame(...)`, and `RestoreFrameObjects(...)` (the `FrameRestoreGuard` should call `RestoreFrameObjects` or be reduced to wrap it). **Do not change behavior** — same order (apply → camera → capture → restore), same error types, same outputs.
+- [ ] **Step 6: Add the new unit to the project files (APPROVED `.vcxproj` edit — see Global Constraints).** In `src/RookNative/RookNative.vcxproj`, beside `Handlers\DirectorHandler.cpp` (L134) / `Handlers\DirectorHandler.h` (L271): add `<ClCompile Include="Handlers\DirectorFrame.cpp" />` and `<ClInclude Include="Handlers\DirectorFrame.h" />`. In `src/RookNative/RookNative.vcxproj.filters`, mirror the `DirectorHandler` entries (same `<Filter>` group) for `DirectorFrame.cpp`/`.h`. (DirectorReplayHandler entries are added in Task 2.)
 
-- [ ] **Step 6: Confirm the new `.cpp` is in the build.** Check whether `src/RookNative/RookNative.vcxproj` globs `Handlers/*.cpp` or lists files explicitly: `rg -n "DirectorHandler.cpp|ClCompile Include=.*Handlers" src/RookNative/RookNative.vcxproj | head`. If globbed, nothing to do. If explicit, add `DirectorFrame.cpp` and `DirectorReplayHandler.cpp` (Task 2) entries mirroring `DirectorHandler.cpp` (this is the one allowed `.vcxproj` change).
+- [ ] **Step 7: Run the parity test — verify pass.** `…pytest mcp_server/tests/test_director_replay_native_source.py -q` → PASS.
 
-- [ ] **Step 7: Run the parity test — verify it passes.**
+- [ ] **Step 8: Native build + existing native-source regression.** PowerShell: `cmd /c "scripts\build-native.bat"` → `Build succeeded: …RookNative.rhp`; then `mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_director_native_source.py -q` → PASS (existing frame-capture source asserts unbroken).
 
-Run: `mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_director_replay_native_source.py -q`
-Expected: PASS (both tests).
-
-- [ ] **Step 8: Native build — confirm behavior-preserving compile.**
-
-Run (PowerShell tool): `cmd /c "scripts\build-native.bat"`
-Expected: `Build succeeded: …RookNative.rhp`. (The existing `test_director_native_source.py` frame-capture asserts must also still pass: `mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_director_native_source.py -q` → PASS.)
-
-- [ ] **Step 9: Commit.**
+- [ ] **Step 9: Commit (stage the project files).**
 
 ```bash
-git add src/RookNative/Handlers/DirectorFrame.h src/RookNative/Handlers/DirectorFrame.cpp src/RookNative/Handlers/DirectorHandler.cpp mcp_server/tests/test_director_replay_native_source.py
-git commit -m "refactor(director): extract shared DirectorFrame per-frame primitives (behavior-preserving)"
+git add src/RookNative/Handlers/DirectorFrame.h src/RookNative/Handlers/DirectorFrame.cpp \
+        src/RookNative/Handlers/DirectorHandler.cpp \
+        src/RookNative/RookNative.vcxproj src/RookNative/RookNative.vcxproj.filters \
+        mcp_server/tests/test_director_replay_native_source.py
+git commit -m "refactor(director): extract shared DirectorFrame primitives + guards (behavior-preserving)"
 ```
 
-> **Behavioral regression proof** (the live frame-capture tests in `test_director_routes_live.py`) runs at Task 6 against live Rhino. If Task 6 surfaces a frame-capture behavior change, STOP and fix Task 1 before adding replay behavior.
+> **Behavioral regression proof** = the live frame-capture tests (`test_director_routes_live.py`) at Task 6. If Task 6 shows any frame-capture behavior change, STOP and fix Task 1 before trusting replay.
 
 ---
 
@@ -286,12 +285,17 @@ m_server->Post("/director/replay/cancel", [this](const httplib::Request& req, ht
 
 - [ ] **Step 6: Run source-analysis — verify pass.** `…pytest test_director_replay_native_source.py -q` → PASS (note `test_replay_routes_registered` passes via the stub registration).
 
-- [ ] **Step 7: Native build.** PowerShell: `cmd /c "scripts\build-native.bat"` → `Build succeeded`.
+- [ ] **Step 7: Add `DirectorReplayHandler` to the project files (APPROVED `.vcxproj` edit).** In `RookNative.vcxproj` add `<ClCompile Include="Handlers\DirectorReplayHandler.cpp" />` + `<ClInclude Include="Handlers\DirectorReplayHandler.h" />`; mirror in `RookNative.vcxproj.filters` (same `Handlers` filter group as `DirectorHandler`).
 
-- [ ] **Step 8: Commit.**
+- [ ] **Step 8: Native build.** PowerShell: `cmd /c "scripts\build-native.bat"` → `Build succeeded`.
+
+- [ ] **Step 9: Commit (stage the project files).**
 
 ```bash
-git add src/RookNative/Handlers/DirectorReplayHandler.h src/RookNative/Handlers/DirectorReplayHandler.cpp src/RookNative/RookServer.cpp mcp_server/tests/test_director_replay_native_source.py
+git add src/RookNative/Handlers/DirectorReplayHandler.h src/RookNative/Handlers/DirectorReplayHandler.cpp \
+        src/RookNative/RookServer.cpp \
+        src/RookNative/RookNative.vcxproj src/RookNative/RookNative.vcxproj.filters \
+        mcp_server/tests/test_director_replay_native_source.py
 git commit -m "feat(director): replay single active-slot registry + worker-thread cancel route"
 ```
 
@@ -309,35 +313,56 @@ git commit -m "feat(director): replay single active-slot registry + worker-threa
 - **Worker-phase validation** (before any Dispatch): parse body; `IsValidReplaySessionId`; raw-body-size ≤ 8 MiB (check `req.body.size()` before parse where practical → `payload_too_large`); `track` is an object; `track.transform_semantics == "absolute_from_source"` (else `unsupported_transform_semantics`); `track.frame_count ≥ 1` and `camera_frames`/`object_frames` lengths == `frame_count` with `frame_index` 1..N in order (else `track_invalid`); `frame_count ≤ 3000` (`frame_count_exceeds_cap`); unique object-id count ≤ 256 (`object_count_exceeds_cap`); `loop` absent/false (true → `unsupported_replay_option {option:"loop"}`); compute `effective_fps = request.fps ?? track.fps ?? 24`, require finite+positive (`invalid_fps`); `dwell_ms = 1000/effective_fps`; `dwell_ms ≤ 250` (else `frame_dwell_exceeds_cap {dwell_ms,cap_ms:250}`); `frame_count*dwell_ms ≤ 60000` (else `replay_duration_exceeds_cap {planned_duration_ms,cap_ms:60000}`).
 - **Reserve slot** → if false, `replay_already_active`. Bind a `ReplaySlotReservation reservation; reservation.held = true;` immediately so every later return releases it.
 - **Dispatch the loop lambda**; block on `future.get()` on the worker thread.
-- **Loop lambda (UI thread):** resolve doc; **UI-phase** `ValidateFrameObjects` (→ `object_not_found`); `CaptureViewportCamera(pView, preCam)`; construct **one** `DispatchDrainSuspension guard;`. For `i` in `0..frame_count-1`: `ParseFrameInstruction` for frame `i` (build the per-frame instruction from `camera_frames[i]` + `object_frames[i]`); `ApplyFrameObjects(delta)`; `SetCameraFromFrame`; redraw the view; **sliced dwell**: loop pumping ~16ms slices with `PeekMessage/TranslateMessage/DispatchMessage` until `dwell_ms` elapsed, checking `Slot().cancel.load(acquire)` each slice; if cancel seen → `RestoreFrameObjects(inverseDelta of frame i)` + `ApplyViewportCamera(preCam)` → return `{status:"cancelled", frames_played:i (frame i counts since applied), …}`; if `i < frame_count-1` → `RestoreFrameObjects(inverseDelta of frame i)` (restore objects to source; camera left, next frame overwrites); check cancel before next frame (same restore+return if set). After the loop (completed): if `restore_on_finish` → `RestoreFrameObjects(inverseDelta of final frame)` + `ApplyViewportCamera(preCam)`; else leave final pose+camera. Return `{status:"completed", frames_played:frame_count, effective_fps, dwell_ms, planned_duration_ms, restored, …}`.
-- **`frames_played`:** count frames whose pose was applied (cancel before frame 0 → 0; cancel during/after applying frame K → K+1 counted as "K... " — use the convention: frames fully entered the apply step. Cancel during frame K's dwell → `frames_played = K+1` since K was applied). *(Spec wording: cancel during frame K's dwell after applying it → that frame counts.)*
-- **Late-cancel-on-final-frame:** the per-slice cancel check inside the final frame's dwell must take the **cancel path** (restore + `cancelled`), so `restore_on_finish:false` cannot win after a late cancel. (The cancel check is inside the dwell loop, evaluated before the completed-branch terminal restore — so it naturally wins.)
-- Wrap the lambda body in try/catch: on `DirectorFrameValidationError` → return that validation error; on `std::exception` → `RestoreFrameObjects` + `ApplyViewportCamera` + return `{code:"frame_apply_failed", frame_index, object_id?}`.
+- **Loop lambda (UI thread):**
+  - Resolve doc + active `CRhinoView* pView`.
+  - **UI-phase validation:** parse frame 0's objects via `ParseFrameObjectTransforms({"object_transforms": track["object_frames"][0]["object_transforms"]})` and `ValidateFrameObjects(pDoc, objs0)` → `object_not_found` if any id is missing (all frames share `animated_object_ids`, so one existence check covers them).
+  - Construct **one** `DirectorViewportGuard viewportGuard(pDoc);` (snapshots the pre-replay camera once) and **one** `DispatchDrainSuspension guard;` for the whole loop.
+  - `int framesPlayed = 0; nlohmann::json evidence;`
+  - For `i` in `0..frame_count-1`:
+    - `auto objs = ParseFrameObjectTransforms({"object_transforms": track["object_frames"][i]["object_transforms"]});`
+    - `auto cam = ParseCamera({"camera": track["camera_frames"][i]["camera"]});`
+    - `DirectorObjectPoseGuard poseGuard(pDoc, objs); poseGuard.Apply();` (applies `delta`, redraws, tracks partial; throws on apply failure) → `framesPlayed = i + 1;`
+    - `SetCameraFromFrame(pView, cam);`
+    - **sliced dwell:** loop pumping ~16ms slices (`PeekMessage/TranslateMessage/DispatchMessage`) until `dwell_ms` elapsed, checking `Slot().cancel.load(std::memory_order_acquire)` each slice. **If cancel seen:** `poseGuard.Restore(evidence); viewportGuard.Restore(evidence);` and return `{status:"cancelled", cancelled:true, frames_played:framesPlayed, frame_count, restored:true, replay_session_id}`.
+    - **Between frames** (`i < frame_count-1`): `poseGuard.Restore(evidence);` (objects → source for the next frame; camera left, overwritten next). Also re-check `Slot().cancel` before the next iteration; if set, `viewportGuard.Restore(evidence)` (objects already restored) and return cancelled.
+    - **Final frame** (`i == frame_count-1`): do **not** restore inside the loop — the terminal-restore block below decides.
+  - **Terminal restore (completed):** the final frame's `poseGuard` is still in scope here (its iteration is the last). If `restore_on_finish` → `poseGuard.Restore(evidence); viewportGuard.Restore(evidence);` else → `poseGuard.Disarm(); viewportGuard.Disarm();` (leave final pose + camera; suppress destructor restore). Return `{status:"completed", frames_played:frame_count, frame_count, effective_fps, dwell_ms, planned_duration_ms, restored:(bool)restore_on_finish, replay_session_id}`.
+    - *(Implementation note: to keep the final `poseGuard` alive for the terminal block, structure the loop so the final iteration's guard outlives the loop body — e.g. hoist a `std::optional<DirectorObjectPoseGuard>` updated each iteration, or special-case `i == frame_count-1` to skip the in-loop restore and fall through. Either way the dtor must not double-restore.)*
+- **`frames_played` (single rule):** the count of frames whose pose was applied — incremented to `i + 1` immediately after `poseGuard.Apply()` succeeds for frame `i`. So: cancel before frame 0 applies → `0`; cancel during frame `K`'s dwell (after `K` was applied) → `K + 1`. (No other convention appears anywhere in this plan.)
+- **Late-cancel-on-final-frame:** the per-slice cancel check lives **inside** the final frame's dwell and returns the cancel result (restore + `cancelled`) before control reaches the terminal-restore block — so a late cancel during the final dwell always restores and **cannot** fall into the `restore_on_finish:false` leave-final branch.
+- Wrap the lambda body in try/catch: `DirectorFrameValidationError` → return that validation error (`object_not_found` etc.); other `std::exception` → the in-scope `poseGuard`/`viewportGuard` destructors best-effort-restore (do not `Disarm`) → return `{code:"frame_apply_failed", message, frame_index:i, object_id?}` (include `HasDirtyPartialState()` in the message if true).
 - Envelope: success outcomes (`completed`/`cancelled`) → `SendSuccess`; error codes → `SendErrorData`.
 
 - [ ] **Step 1: Write failing source-analysis tests for the replay loop invariants.** Add:
 
 ```python
-def test_replay_loop_uses_single_guard_and_shared_helpers():
-    src = _read(REPO_ROOT / "src" / "RookNative" / "Handlers" / "DirectorReplayHandler.cpp")
-    replay = _extract_function(src, "HandleDirectorReplay")
-    assert "DispatchDrainSuspension" in replay          # the guard
-    assert replay.count("DispatchDrainSuspension ") == 1  # ONE guard, not per-frame
-    assert "ApplyFrameObjects(" in replay
-    assert "RestoreFrameObjects(" in replay
+REPLAY_CPP = REPO_ROOT / "src" / "RookNative" / "Handlers" / "DirectorReplayHandler.cpp"
+
+
+def test_replay_loop_uses_single_guard_and_shared_primitives():
+    replay = _extract_function(_read(REPLAY_CPP), "HandleDirectorReplay")
+    assert "DispatchDrainSuspension" in replay
+    assert replay.count("DispatchDrainSuspension ") == 1   # ONE guard for the whole loop
+    assert "DirectorObjectPoseGuard" in replay             # real pose guard, per frame
+    assert "DirectorViewportGuard" in replay               # real camera guard
+    assert replay.count("DirectorViewportGuard ") == 1     # one camera snapshot for the whole replay
+    assert "ParseFrameObjectTransforms(" in replay         # pure shared parsers only
+    assert "ParseCamera(" in replay
     assert "SetCameraFromFrame(" in replay
-    assert "CaptureViewportCamera(" in replay and "ApplyViewportCamera(" in replay
+    assert ".Apply()" in replay and ".Restore(" in replay and ".Disarm()" in replay
 
 
-def test_replay_has_no_capture_or_output_io():
-    src = _read(REPO_ROOT / "src" / "RookNative" / "Handlers" / "DirectorReplayHandler.cpp")
-    replay = _extract_function(src, "HandleDirectorReplay")
+def test_replay_does_not_use_capture_parser_or_io():
+    replay = _extract_function(_read(REPLAY_CPP), "HandleDirectorReplay")
+    # Replay must NOT reach into capture-only parsing or file I/O.
+    assert "ParseFrameInstruction" not in replay
     assert "CaptureViewportToFile" not in replay
-    assert "output_path" not in replay
+    for token in ["output_path", "run_root", "output_root"]:
+        assert token not in replay
 
 
-def test_replay_validation_and_caps_present():
-    src = _read(REPO_ROOT / "src" / "RookNative" / "Handlers" / "DirectorReplayHandler.cpp")
+def test_replay_validation_caps_and_cancel_present():
+    src = _read(REPLAY_CPP)
     for token in [
         "absolute_from_source", "unsupported_transform_semantics",
         "unsupported_replay_option", "invalid_fps",
@@ -348,12 +373,12 @@ def test_replay_validation_and_caps_present():
     ]:
         assert token in src, f"replay handler missing {token}"
     replay = _extract_function(src, "HandleDirectorReplay")
-    assert "Slot().cancel.load" in replay  # cancel checked in the loop
+    assert "Slot().cancel.load" in replay
 ```
 
 - [ ] **Step 2: Run — verify fail.** FAIL (stub has none of these).
 
-- [ ] **Step 3: Implement `HandleDirectorReplay`** in `DirectorReplayHandler.cpp` per the behavioral contract above, replacing the stub. Reuse `DirectorFrame` helpers for all geometry/camera; the only replay-specific UI work is the sliced-dwell pump + the camera snapshot + the cancel checks. The pump slice mirrors the validated spike: `MSG msg; while (PeekMessage(&msg,nullptr,0,0,PM_REMOVE)) { TranslateMessage(&msg); DispatchMessage(&msg); }` then a short `Sleep`/wait to fill the ~16ms slice, all inside the single `DispatchDrainSuspension`.
+- [ ] **Step 3: Implement `HandleDirectorReplay`** in `DirectorReplayHandler.cpp` per the behavioral contract above, replacing the Task-2 stub. All geometry/camera goes through the shared `DirectorFrame` primitives — object pose via `DirectorObjectPoseGuard` (per frame), camera snapshot/restore via one `DirectorViewportGuard`, camera-apply via `SetCameraFromFrame`, parsing via `ParseFrameObjectTransforms`/`ParseCamera`. The only genuinely replay-specific UI work is the sliced-dwell pump + the cancel checks. The pump slice mirrors the validated spike: `MSG msg; while (PeekMessage(&msg,nullptr,0,0,PM_REMOVE)) { TranslateMessage(&msg); DispatchMessage(&msg); }` then a short wait to fill the ~16ms slice — all inside the single whole-loop `DispatchDrainSuspension`. Worker-phase validation (semantics/caps/fps/session-id/loop/payload) runs before `Dispatch`; bind the `ReplaySlotReservation` right after a successful `ReserveReplaySlot` so every return releases it.
 
 - [ ] **Step 4: Run source-analysis — verify pass.** `…pytest test_director_replay_native_source.py -q` → PASS.
 
@@ -411,6 +436,15 @@ async def test_run_replay_passthrough_session_id():
     native = FakeNative({"success": True, "data": {"status": "completed"}})
     await director.run_replay({"track": VALID_TRACK, "replay_session_id": "my-id_1"}, call_native=native)
     assert native.calls[0][2]["replay_session_id"] == "my-id_1"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad", ["", 123, {"x": 1}])
+async def test_run_replay_rejects_explicit_invalid_session_id(bad):
+    native = FakeNative({"success": True, "data": {}})
+    with pytest.raises(director.DirectorError, match="invalid_session_id"):
+        await director.run_replay({"track": VALID_TRACK, "replay_session_id": bad}, call_native=native)
+    assert native.calls == []  # rejected before any native call
 
 
 @pytest.mark.asyncio
@@ -483,8 +517,11 @@ def _resolve_track(arguments: dict) -> dict:
         raise DirectorInputError(f"track_read_failed: {exc}") from exc
 
 def _resolve_session_id(arguments: dict) -> str:
-    sid = arguments.get("replay_session_id") or uuid.uuid4().hex
-    if not _SESSION_RE.match(sid):
+    # Absent (key missing or None) -> generate. Present -> must be a valid string.
+    if arguments.get("replay_session_id") is None:
+        return uuid.uuid4().hex
+    sid = arguments["replay_session_id"]
+    if not isinstance(sid, str) or not _SESSION_RE.match(sid):
         raise DirectorInputError("invalid_session_id: must be a 1..128 char [A-Za-z0-9._-] token")
     return sid
 
@@ -504,7 +541,7 @@ async def run_replay(arguments: dict, *, call_native=call_rhino, port=None) -> d
 
 async def cancel_replay(arguments: dict, *, call_native=call_rhino, port=None) -> dict:
     sid = arguments.get("replay_session_id")
-    if not sid or not _SESSION_RE.match(str(sid)):
+    if not isinstance(sid, str) or not _SESSION_RE.match(sid):
         raise DirectorInputError("invalid_session_id: must be a 1..128 char [A-Za-z0-9._-] token")
     result = await call_native("/director/replay/cancel", "POST", {"replay_session_id": sid}, port=port)
     if not result.get("success", False):
@@ -663,7 +700,10 @@ git commit -m "test(director): live replay completion/restore/cancel/busy/valida
 ## Self-Review
 
 **Spec coverage:**
-- Display-only / no-capture → Task 1 (shared apply only) + Task 3 (`test_replay_has_no_capture_or_output_io`) + Task 5 (no capture fields). ✅
+- Display-only / no-capture → Task 1 (pure parser split: `ParseFrameInstruction` stays capture-only) + Task 3 (`test_replay_does_not_use_capture_parser_or_io`) + Task 5 (no capture fields). ✅
+- Parser boundary (replay never calls the capture parser) → Task 1 Interfaces + Task 3 `test_replay_does_not_use_capture_parser_or_io`. ✅
+- Project-file edits for the two new units (explicit `.vcxproj`/`.filters`, AGENTS-approved) → Task 1 Step 6 + Task 2 Step 7, staged in both commits. ✅
+- Real restore semantics preserved (`DirectorObjectPoseGuard` partial-apply/reverse-restore/bbox/dirty-state, `DirectorViewportGuard` camera; `Disarm()` for leave-final) → Task 1 (move verbatim + `Disarm`) + Task 3 (reused per frame / once). ✅
 - Full inline track, native validate/zip/caps, ignore resolution/provenance → Task 3 worker-phase validation. ✅
 - FPS-driven dwell, reject-not-clamp → Task 3 (`frame_dwell_exceeds_cap`/`replay_duration_exceeds_cap`). ✅
 - Lifecycle/restore (non-final restore, terminal restore, cancel/error always restore, late-final-cancel) → Task 3 loop contract + the explicit late-cancel note. ✅
@@ -671,7 +711,7 @@ git commit -m "test(director): live replay completion/restore/cancel/busy/valida
 - Worker-thread idempotent cancel, no leak → Task 2 (`test_cancel_handler_is_worker_thread_only`). ✅
 - One guard for whole loop → Task 3 (`DispatchDrainSuspension count == 1`). ✅
 - status/code split, distinct codes, ownership → Task 3 (native codes) + Task 4 (Python codes) + tests. ✅
-- Shared `DirectorFrame` extraction, behavior-preserving → Task 1 + Task 6 Step 4 regression. ✅
+- Shared `DirectorFrame` extraction (pure parsers + both real guards), behavior-preserving → Task 1 + Task 6 Step 4 regression. ✅
 - Two-phase validation (worker + UI `object_not_found`) → Task 3 contract. ✅
 - Python thin resolver (track path|inline, session id) → Task 4. ✅
 - MCP tools, clean schema → Task 5. ✅
@@ -679,6 +719,6 @@ git commit -m "test(director): live replay completion/restore/cancel/busy/valida
 - `replay_session_id` shape, object-count rule → Task 2 (`IsValidReplaySessionId`) + Task 3 (`object_count_exceeds_cap`). ✅
 - Caps constants → Task 3 (`250/60000/3000/256`) + raw-body 8 MiB. ✅
 
-**Placeholder scan:** native handler bodies are specified behaviorally with the load-bearing snippets (registry, cancel, guard, restore ordering) shown in full and exact reuse targets named; Python/test code is complete. The one judgment area — extracting `ExecuteFrameTransaction`'s inline camera/apply into helpers — is bounded by Step 1's read + the exact Interfaces signatures, not a vague "refactor."
+**Placeholder scan:** native handler bodies are specified behaviorally with the load-bearing snippets (registry, cancel, guard usage, restore ordering, the single `frames_played` rule) shown in full and exact reuse targets named with real line numbers; Python/test code is complete. The one judgment area — extracting `ExecuteFrameTransaction`'s inline camera-apply into `SetCameraFromFrame` and adding `Disarm()` to the two existing guards — is bounded by Step 1's read + the exact Interfaces signatures, not a vague "refactor."
 
-**Type consistency:** `FrameInstruction`/`FrameObjectTransform`/`FrameCamera`, `ApplyFrameObjects`/`RestoreFrameObjects`/`SetCameraFromFrame`/`ValidateFrameObjects`/`CaptureViewportCamera`/`ApplyViewportCamera`, `ReserveReplaySlot`/`ReleaseReplaySlot`/`ReplaySlotReservation`/`Slot()`/`IsValidReplaySessionId`, `run_replay`/`cancel_replay`/`_resolve_track`/`_resolve_session_id`, tools `rhino_director_replay`/`rhino_director_replay_cancel` — used identically across tasks.
+**Type consistency:** `FrameObjectTransform`/`FrameCamera` (capture-only `FrameInstruction`/`ParseFrameInstruction` stay in `DirectorHandler.cpp`), shared `ParseCamera`/`ParseFrameObjectTransforms`/`SetCameraFromFrame`/`ValidateFrameObjects`/`TransformObjectInPlace`/`BboxAlmostEqual`, guards `DirectorObjectPoseGuard`/`DirectorViewportGuard` (+ `Disarm()`), `ReserveReplaySlot`/`ReleaseReplaySlot`/`ReplaySlotReservation`/`Slot()`/`IsValidReplaySessionId`, `run_replay`/`cancel_replay`/`_resolve_track`/`_resolve_session_id`, tools `rhino_director_replay`/`rhino_director_replay_cancel` — used identically across tasks. (The earlier `ApplyFrameObjects`/`RestoreFrameObjects`/`CaptureViewportCamera` free-function names are gone — superseded by the real guards.)
