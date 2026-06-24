@@ -198,3 +198,31 @@ Header/API verification read from the installed SDK (`opennurbs_texture.h`,
   `mat.AddTexture(path, bitmap_texture)` mirror so non-PBR display modes are unaffected.
 - The convenience `AddTexture(filename, type)` builds a default `ON_Texture`
   (`m_bTreatAsLinear = false`), which is wrong for a normal map — hence the explicit build.
+
+## Live smoke result (2026-06-24) — PASSED
+
+Deployed the stacked build (managed + fresh native `RookNative.rhp`; deployed `.rhp` verified
+to contain the new Task 2 error-string literals). Submitted `fal-ai/meshy/v6/image-to-3d`
+(`allow_experimental_model: true`, `options: { should_texture: true, enable_pbr: true }`)
+against the falling-cat Vision artifact `866573ea-…`.
+
+- **Job** `10f2ac46-…` → package `d61c3f06-…`, `result_kind: reconstruction_package`.
+- **Package asset_roles** included `texture_base_color`, `texture_normal`, `texture_roughness`,
+  `texture_metallic` (Meshy honored `enable_pbr`).
+- **Import** (`model_glb`) → `material_repair_applied: true`, **no `material_repair_error`**.
+- **Authoritative material dump** (RhinoCommon `Material.GetTextures()` on
+  `Rook Reconstruction 08589e50`, assigned to the imported object):
+
+  | `TextureType` | file | `TreatAsLinear` | on |
+  |---|---|---|---|
+  | `Bitmap` (PBR base color) | `texture_base_color.png` | `False` (sRGB) | `True` |
+  | `Bump` (PBR normal) | `texture_normal.png` | **`True`** | `True` |
+
+  `PhysicallyBased present: True`. The normal map is bound to the bump/PBR-normal slot — the
+  slot that was empty pre-fix — with the correct linear treatment. Base color intact.
+
+- **v1 scope honored:** the package carried roughness + metallic, but only `base_color` and
+  `normal` were emitted/bound (the two map entries); roughness/metallic were not bound.
+
+Pass criterion met: normal slot populated, base color still bound, no regression. Roughness/
+metallic remain a future PR (managed emission **+** their own live smoke).
