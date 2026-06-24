@@ -295,6 +295,37 @@ Both are deployed to the same directory. RookNative loads first and loads the co
 
 ---
 
+### Native handler behaves wrong / corrupt — but only on some builds
+
+**Symptoms:**
+- One native route misbehaves (reads a garbage request body, returns nonsense, hangs, or hard-crashes Rhino) while sibling routes in the *same* handler file work fine.
+- The symptom **changes across rebuilds** of the same source — e.g. a size reads as `0` one build, `SIZE_MAX` the next, a crash the next.
+
+**Likely cause when this pattern appears:** MSVC **incremental LTCG (Link-Time Code Generation)
+nondeterminism**. (This was the *observed* cause in the 2026-06-24 incident below — treat it as the
+first hypothesis to rule out, not a certainty for every corrupt native route.) The build keeps an
+incremental codegen cache (`.iobj`/`.ipdb`) in `src/RookNative/bin/<Config>/x64/`. Wiping only the
+front-end `obj/` does **not** clear it, so a stale or miscompiled function (most often a
+large/complex one) gets carried forward. This presents exactly like an ABI / ODR / request-boundary
+corruption bug and will waste hours if chased as one.
+
+**Rule — do this BEFORE diagnosing ABI/ODR/request-corruption:** force a *fully* clean rebuild and
+redeploy. Do **not** trust incremental-build behavior for this class of issue.
+
+```powershell
+# Wipe BOTH the front-end objs AND the LTCG cache (.iobj/.ipdb live in bin/)
+Remove-Item -Recurse -Force "src\RookNative\obj\RookNative\Release" -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force "src\RookNative\bin\Release" -ErrorAction SilentlyContinue
+.\build_native.ps1 -Configuration Release    # then deploy (Rhino must be closed)
+```
+
+A correct clean build logs `Previous IPDB not found, fall back to full compilation` /
+`All NNNNN functions were compiled`. If the symptom vanishes after that, it was build
+nondeterminism. (Reference incident: RookVisionDirector `/director/replay`, 2026-06-24 — full
+write-up in `docs/superpowers/2026-06-24-replay-live-gate-postmortem.md`.)
+
+---
+
 ## MCP Server Issues
 
 ### Server module fails to import
