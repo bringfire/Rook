@@ -17435,36 +17435,6 @@
         "errors": [],
         "success": true
       }
-    },
-    {
-      "date": "2026-06-19",
-      "timestamp": "2026-06-19T09:09:05.305277",
-      "session": "adhoc",
-      "component": "gh_execute_intent",
-      "observation": "Intent 'create a sphere': created 1 components, wired 0 (fallback)",
-      "impact": "info",
-      "resolution": null,
-      "tags": [
-        "execute_intent"
-      ],
-      "context": {
-        "type": "execute_intent",
-        "intent": "create a sphere",
-        "components_requested": [
-          "Sphere"
-        ],
-        "components_created": [
-          "Sphere"
-        ],
-        "wiring_attempted": 0,
-        "wiring_details": [],
-        "wiring_plan": null,
-        "dspy_confidence": null,
-        "dspy_rationale": null,
-        "patterns_applied": null,
-        "errors": [],
-        "success": true
-      }
     }
   ]
 }
