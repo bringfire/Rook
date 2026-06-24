@@ -161,6 +161,24 @@ it binds and proves the channel even though it won't look dramatic. No fresh pai
 needed; the package is staged on disk at
 `%AppData%\Rook\artifacts\2026-06-24\d61c3f06-…\`.
 
+## Live smoke result (2026-06-24) — PASSED
+
+Precondition met: all four `texture_*.png` still staged in `d61c3f06` (no paid run). Deployed
+the stacked build (native + managed, both "Build succeeded / 0 Errors", `RookNative.rhp`
+registered). Re-imported package `d61c3f06` (`import_id ff32101f`, `material_repair_applied:
+true`, no `material_repair_error`). Authoritative `Material.GetTextures()` on
+`Rook Reconstruction ff32101f` (4 textures, `PhysicallyBased: True`):
+
+| `TextureType` | file | `TreatAsLinear` |
+|---|---|---|
+| `Bitmap` (PBR base color) | `texture_base_color.png` | `False` (sRGB) |
+| `Bump` (PBR normal) | `texture_normal.png` | `True` |
+| `PBR_Roughness` | `texture_roughness.png` | `True` |
+| `PBR_Metallic` | `texture_metallic.png` | `True` |
+
+All four channels bound to their PBR slots with the correct color space; base color bound and
+the legacy bitmap mirror keeps non-PBR display intact; no regression. Pass criteria met.
+
 ## Risks
 
 - **Native build not verifiable here.** Native correctness = source assertions + the live
