@@ -505,6 +505,32 @@ void HandleDirectorReplay(const httplib::Request& req, httplib::Response& res)
             return r;
         };
 
+        // Perform the end-of-replay restore (objects, if a pose guard is engaged, plus the
+        // viewport) and CHECK both results. DirectorObjectPoseGuard::Restore /
+        // DirectorViewportGuard::Restore return false when restoration is incomplete; replay
+        // must surface that as a restore_failed outcome (restored:false / dirty_partial_state)
+        // rather than continue from dirty state or report completed/cancelled with restored:true.
+        auto restoreOrError = [&](int frameIndexForError) -> std::optional<nlohmann::json>
+        {
+            bool objectsOk = true;
+            if (poseGuard)
+                objectsOk = poseGuard->Restore(evidence);
+            const bool viewportOk = viewportGuard.Restore(evidence);
+            if (objectsOk && viewportOk)
+                return std::nullopt;
+
+            nlohmann::json err;
+            err["code"] = "restore_failed";
+            err["message"] = "Replay could not restore the document to its pre-replay state";
+            err["restored"] = false;
+            err["objects_restored"] = objectsOk;
+            err["viewport_restored"] = viewportOk;
+            err["dirty_partial_state"] = (poseGuard && poseGuard->HasDirtyPartialState());
+            if (frameIndexForError > 0)
+                err["frame_index"] = frameIndexForError;
+            return err;
+        };
+
         for (int i = 0; i < frameCount; ++i)
         {
             // Cancel BEFORE applying frame i. Objects are at source here (never applied for
@@ -512,7 +538,7 @@ void HandleDirectorReplay(const httplib::Request& req, httplib::Response& res)
             // restoring. framesPlayed == i, so a cancel before frame 0 reports frames_played=0.
             if (Slot().cancel.load(std::memory_order_acquire))
             {
-                viewportGuard.Restore(evidence);
+                if (auto err = restoreOrError(0)) return *err;
                 return makeCancelled(framesPlayed);
             }
 
@@ -528,16 +554,18 @@ void HandleDirectorReplay(const httplib::Request& req, httplib::Response& res)
             }
             catch (const DirectorFrameValidationError& ex)
             {
+                bool objectsOk = true;
                 if (poseGuard)
-                    poseGuard->Restore(evidence);
-                viewportGuard.Restore(evidence);
+                    objectsOk = poseGuard->Restore(evidence);
+                const bool viewportOk = viewportGuard.Restore(evidence);
                 nlohmann::json err;
                 err["code"] = "frame_apply_failed";
                 err["message"] = ex.what();
                 err["frame_index"] = i + 1;
                 if (!ex.affectedObjectIds.empty())
                     err["object_id"] = ex.affectedObjectIds[0];
-                if (poseGuard && poseGuard->HasDirtyPartialState())
+                err["restored"] = objectsOk && viewportOk;
+                if ((poseGuard && poseGuard->HasDirtyPartialState()) || !objectsOk || !viewportOk)
                     err["dirty_partial_state"] = true;
                 return err;
             }
@@ -550,8 +578,7 @@ void HandleDirectorReplay(const httplib::Request& req, httplib::Response& res)
             {
                 if (Slot().cancel.load(std::memory_order_acquire))
                 {
-                    poseGuard->Restore(evidence);
-                    viewportGuard.Restore(evidence);
+                    if (auto err = restoreOrError(i + 1)) return *err;
                     return makeCancelled(framesPlayed);
                 }
 
@@ -576,18 +603,29 @@ void HandleDirectorReplay(const httplib::Request& req, httplib::Response& res)
             // Post-dwell cancel check (catches cancel that arrived during the last slice)
             if (Slot().cancel.load(std::memory_order_acquire))
             {
-                poseGuard->Restore(evidence);
-                viewportGuard.Restore(evidence);
+                if (auto err = restoreOrError(i + 1)) return *err;
                 return makeCancelled(framesPlayed);
             }
 
             // Between non-final frames: restore objects to source for the next frame
             if (i < frameCount - 1)
             {
-                poseGuard->Restore(evidence);
+                if (!poseGuard->Restore(evidence))
+                {
+                    // Objects failed to restore to source — must NOT continue to the next
+                    // frame from dirty state. Best-effort restore the camera, then fail.
+                    viewportGuard.Restore(evidence);
+                    nlohmann::json err;
+                    err["code"] = "restore_failed";
+                    err["message"] = "Failed to restore objects to source between frames";
+                    err["restored"] = false;
+                    err["dirty_partial_state"] = true;
+                    err["frame_index"] = i + 1;
+                    return err;
+                }
                 if (Slot().cancel.load(std::memory_order_acquire))
                 {
-                    viewportGuard.Restore(evidence);
+                    if (auto err = restoreOrError(i + 1)) return *err;
                     return makeCancelled(framesPlayed);
                 }
             }
@@ -599,8 +637,7 @@ void HandleDirectorReplay(const httplib::Request& req, httplib::Response& res)
         // -----------------------------------------------------------------------
         if (restoreOnFinish)
         {
-            poseGuard->Restore(evidence);
-            viewportGuard.Restore(evidence);
+            if (auto err = restoreOrError(0)) return *err;
         }
         else
         {

@@ -162,3 +162,24 @@ def test_replay_remaps_shared_helper_errors_to_replay_codes():
     assert "track_invalid" in handler          # worker-phase parse failures
     assert "object_not_found" in handler       # UI-phase ValidateFrameObjects failures
     assert "affectedObjectIds" in handler      # object_id carried from the helper
+
+
+def test_replay_surfaces_restore_failures_instead_of_reporting_success():
+    """PR2 safety contract: DirectorObjectPoseGuard::Restore and
+    DirectorViewportGuard::Restore return false when restoration is incomplete.
+    Replay must CHECK every restore result — a failed restore must not (a) continue
+    to the next frame from dirty object state, nor (b) be reported as
+    status:completed / status:cancelled with restored:true. On restore failure the
+    handler must return a restore-failure outcome (restored:false, dirty_partial_state).
+    """
+    handler = _extract_function(_read(REPLAY_CPP), "HandleDirectorReplay")
+    # A dedicated restore-failure outcome exists.
+    assert "restore_failed" in handler, "no restore-failure outcome — restore results are ignored"
+    # Restore results are consumed in a boolean/branch context, not discarded as bare
+    # statements (the pre-fix bug was `poseGuard->Restore(evidence);` with the bool dropped).
+    assert ("restoreOrError" in handler) or ("!poseGuard->Restore(" in handler) \
+        or ("= poseGuard->Restore(" in handler), "restore result is not checked"
+    # dirty_partial_state must now be signalled on restore-failure paths too, not only on
+    # the single apply-failure catch it was originally limited to.
+    assert handler.count("dirty_partial_state") >= 2, \
+        "restore-failure paths must signal dirty_partial_state, not just frame_apply_failed"
