@@ -263,3 +263,15 @@ def test_replay_named_worker_phase_helpers_exist():
     src = _read(REPLAY_CPP)
     for fn in ["ParseReplayRequestBody", "ParseReplaySessionId", "BuildReplayInstructionFromBody"]:
         assert f"{fn}(" in src, f"missing helper {fn}"
+
+
+def test_replay_track_parser_owns_envelope():
+    src = _read(REPLAY_CPP)
+    track = _extract_function(src, "ParseReplayTrack")
+    for tok in ["transform_semantics", "unsupported_transform_semantics",
+                "unsupported_replay_option", "animated_object_ids",
+                "object_count_exceeds_cap", "frame_count", "frame_count_exceeds_cap",
+                "camera_frames", "object_frames", "track_invalid"]:
+        assert tok in track, f"ParseReplayTrack missing {tok}"
+    build = _extract_function(src, "BuildReplayInstructionFromBody")
+    assert "ParseReplayTrack(" in build

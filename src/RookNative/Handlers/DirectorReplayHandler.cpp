@@ -133,13 +133,14 @@ struct ReplayInstruction
     ReplayInstruction& operator=(const ReplayInstruction&) = delete;
 };
 
-// Worker-phase builder: U4 (track envelope) + U5 (fps/dwell/duration caps) + U6 (per-frame
-// pre-parse). Moved verbatim out of HandleDirectorReplay; every SendCode/SendErrorData error
-// converted to a throw (SendCode(...) -> ThrowReplayError(code,msg); SendErrorData(d) ->
-// throw ReplayRequestError(std::move(d))) with message strings and field names copied EXACTLY
-// and internal check order unchanged. Parses every frame BEFORE Dispatch — if any frame is
-// malformed we fail before touching the document.
-static ReplayInstruction BuildReplayInstructionFromBody(const nlohmann::json& body, std::string sessionId)
+struct ReplayTrackInfo {
+    int frameCount = 0;
+    std::set<std::string> animatedObjectIds;
+};
+
+// U4 — track envelope: validates the "track" object and extracts frameCount +
+// animatedObjectIds. Internal check order is preserved verbatim.
+static ReplayTrackInfo ParseReplayTrack(const nlohmann::json& body)
 {
     // -----------------------------------------------------------------------
     // 4. Extract + validate top-level track structure
@@ -256,6 +257,23 @@ static ReplayInstruction BuildReplayInstructionFromBody(const nlohmann::json& bo
         }
     }
 
+    ReplayTrackInfo info;
+    info.frameCount        = frameCount;
+    info.animatedObjectIds = std::move(animatedObjectIds);
+    return info;
+}
+
+// Worker-phase builder: delegates U4 to ParseReplayTrack, then applies U5 (fps/dwell/duration
+// caps) + U6 (per-frame pre-parse). Moved verbatim out of HandleDirectorReplay; every
+// SendCode/SendErrorData error converted to a throw (SendCode(...) -> ThrowReplayError(code,msg);
+// SendErrorData(d) -> throw ReplayRequestError(std::move(d))) with message strings and field
+// names copied EXACTLY and internal check order unchanged. Parses every frame BEFORE Dispatch —
+// if any frame is malformed we fail before touching the document.
+static ReplayInstruction BuildReplayInstructionFromBody(const nlohmann::json& body, std::string sessionId)
+{
+    ReplayTrackInfo track = ParseReplayTrack(body);
+    const nlohmann::json& trackJson = body["track"];
+
     // -----------------------------------------------------------------------
     // 5. Compute effective_fps + dwell_ms, apply caps
     // -----------------------------------------------------------------------
@@ -268,13 +286,13 @@ static ReplayInstruction BuildReplayInstructionFromBody(const nlohmann::json& bo
         }
         effectiveFps = body["fps"].get<double>();
     }
-    else if (track.contains("fps") && !track["fps"].is_null())
+    else if (trackJson.contains("fps") && !trackJson["fps"].is_null())
     {
-        if (!track["fps"].is_number())
+        if (!trackJson["fps"].is_number())
         {
             ThrowReplayError("invalid_fps", "fps must be a positive finite number");
         }
-        effectiveFps = track["fps"].get<double>();
+        effectiveFps = trackJson["fps"].get<double>();
     }
     if (!std::isfinite(effectiveFps) || effectiveFps <= 0.0)
     {
@@ -286,7 +304,7 @@ static ReplayInstruction BuildReplayInstructionFromBody(const nlohmann::json& bo
         ThrowReplayError("frame_dwell_exceeds_cap",
                  "Computed dwell_ms exceeds 250ms cap (fps too low)");
     }
-    double plannedDurationMs = static_cast<double>(frameCount) * dwellMs;
+    double plannedDurationMs = static_cast<double>(track.frameCount) * dwellMs;
     if (plannedDurationMs > 60000.0)
     {
         ThrowReplayError("replay_duration_exceeds_cap",
@@ -304,16 +322,19 @@ static ReplayInstruction BuildReplayInstructionFromBody(const nlohmann::json& bo
     //    before touching the document.
     // -----------------------------------------------------------------------
     std::vector<FrameCamera> perFrameCameras;
-    perFrameCameras.reserve(static_cast<size_t>(frameCount));
+    perFrameCameras.reserve(static_cast<size_t>(track.frameCount));
     std::vector<std::vector<FrameObjectTransform>> perFrameObjects;
-    perFrameObjects.reserve(static_cast<size_t>(frameCount));
+    perFrameObjects.reserve(static_cast<size_t>(track.frameCount));
 
     // We'll also capture sourceBbox from frame 0 to verify consistency.
     // Key: objectId -> sourceBbox (from first frame). Used to cross-check frames 1..N.
     std::map<std::string, ON_BoundingBox> sourceBoxRef;
     static constexpr double kBboxTolerance = 1.0e-4;
 
-    for (int i = 0; i < frameCount; ++i)
+    const auto& cameraFramesJson = trackJson["camera_frames"];
+    const auto& objectFramesJson = trackJson["object_frames"];
+
+    for (int i = 0; i < track.frameCount; ++i)
     {
         // --- Camera parse ---
         try
@@ -370,7 +391,7 @@ static ReplayInstruction BuildReplayInstructionFromBody(const nlohmann::json& bo
         std::set<std::string> frameIds;
         for (const auto& ft : frameObjects)
             frameIds.insert(ft.objectId);
-        if (frameIds != animatedObjectIds)
+        if (frameIds != track.animatedObjectIds)
         {
             nlohmann::json d;
             d["code"] = "track_invalid";
@@ -421,7 +442,7 @@ static ReplayInstruction BuildReplayInstructionFromBody(const nlohmann::json& bo
     ReplayInstruction instruction;
     instruction.perFrameObjects   = std::move(perFrameObjects);
     instruction.perFrameCameras   = std::move(perFrameCameras);
-    instruction.frameCount        = frameCount;
+    instruction.frameCount        = track.frameCount;
     instruction.dwellMs           = dwellMs;
     instruction.effectiveFps      = effectiveFps;
     instruction.plannedDurationMs = plannedDurationMs;
