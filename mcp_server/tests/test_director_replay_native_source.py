@@ -219,3 +219,25 @@ def test_replay_disengages_pose_guard_after_between_frame_restore():
         "reset must follow the between-frame restore"
     assert block.index("poseGuard.reset()") < block.index("Slot().cancel.load"), \
         "reset must precede the between-frame cancel check"
+
+
+def test_replay_uses_replay_request_error_with_single_handler_catch():
+    src = _read(REPLAY_CPP)
+    assert "class ReplayRequestError" in src
+    handler = _extract_function(src, "HandleDirectorReplay")
+    assert handler.count("catch (const ReplayRequestError&") == 1
+
+
+def test_replay_request_body_parser_preserves_strict_envelope():
+    src = _read(REPLAY_CPP)
+    body_parser = _extract_function(src, "ParseReplayRequestBody")
+    assert "kMaxPayloadBytes" in body_parser and "payload_too_large" in body_parser
+    assert "nlohmann::json::parse(" in body_parser          # strict throwing parse
+    assert "ParseBodyAndDocSn" not in src                   # replay keeps its stricter envelope
+
+
+def test_replay_session_id_parser_exists():
+    src = _read(REPLAY_CPP)
+    assert "ParseReplaySessionId(" in src
+    parser = _extract_function(src, "ParseReplaySessionId")
+    assert "IsValidReplaySessionId" in parser and "invalid_session_id" in parser

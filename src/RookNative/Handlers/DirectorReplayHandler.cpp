@@ -71,6 +71,57 @@ static void SendCode(httplib::Response& res, const std::string& code, const std:
     CRookServer::SendErrorData(res, d);
 }
 
+// Worker-phase validation failure carrying the EXACT error payload (code, message, and any
+// extra fields like option/frame_index/object_id). Private to this .cpp; caught once in
+// HandleDirectorReplay. Callers use data(); what() is a constant on purpose.
+class ReplayRequestError : public std::exception
+{
+public:
+    explicit ReplayRequestError(nlohmann::json data) : m_data(std::move(data)) {}
+    const nlohmann::json& data() const noexcept { return m_data; }
+    const char* what() const noexcept override { return "ReplayRequestError"; }
+private:
+    nlohmann::json m_data;
+};
+
+[[noreturn]] static void ThrowReplayError(nlohmann::json data)
+{
+    throw ReplayRequestError(std::move(data));
+}
+
+[[noreturn]] static void ThrowReplayError(const std::string& code, const std::string& message)
+{
+    nlohmann::json d;
+    d["code"] = code;
+    d["message"] = message;
+    throw ReplayRequestError(std::move(d));
+}
+
+// U1 — request envelope. Replay enforces an 8 MiB payload cap and a strict (throwing) JSON
+// parse, and ignores documentSerialNumber. Does not delegate to the shared body helper.
+static nlohmann::json ParseReplayRequestBody(const httplib::Request& req)
+{
+    static constexpr size_t kMaxPayloadBytes = 8u * 1024u * 1024u;  // 8 MiB
+    if (req.body.size() > kMaxPayloadBytes)
+        ThrowReplayError("payload_too_large", "Request body exceeds 8 MiB limit");
+
+    try { return nlohmann::json::parse(req.body); }
+    catch (...) { ThrowReplayError("invalid_input", "Request body is not valid JSON"); }
+}
+
+// U2 — session id: presence + is_string + content validation.
+static std::string ParseReplaySessionId(const nlohmann::json& body)
+{
+    if (!body.contains("replay_session_id") || !body["replay_session_id"].is_string())
+        ThrowReplayError("invalid_session_id",
+                         "replay_session_id must be a 1..128 char [A-Za-z0-9._-] string");
+    std::string sessionId = body["replay_session_id"].get<std::string>();
+    if (!IsValidReplaySessionId(sessionId))
+        ThrowReplayError("invalid_session_id",
+                         "replay_session_id must be a 1..128 char [A-Za-z0-9._-] string");
+    return sessionId;
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -78,43 +129,10 @@ static void SendCode(httplib::Response& res, const std::string& code, const std:
 // ---------------------------------------------------------------------------
 void HandleDirectorReplay(const httplib::Request& req, httplib::Response& res)
 {
-    // -----------------------------------------------------------------------
-    // 0. Payload size cap (before parse where practical)
-    // -----------------------------------------------------------------------
-    static constexpr size_t kMaxPayloadBytes = 8u * 1024u * 1024u;  // 8 MiB
-    if (req.body.size() > kMaxPayloadBytes)
+    try
     {
-        SendCode(res, "payload_too_large", "Request body exceeds 8 MiB limit");
-        return;
-    }
-
-    // -----------------------------------------------------------------------
-    // 1. Parse JSON
-    // -----------------------------------------------------------------------
-    nlohmann::json body;
-    try { body = nlohmann::json::parse(req.body); }
-    catch (...)
-    {
-        SendCode(res, "invalid_input", "Request body is not valid JSON");
-        return;
-    }
-
-    // -----------------------------------------------------------------------
-    // 2. Session id — type-safe: presence + is_string + content validation
-    // -----------------------------------------------------------------------
-    if (!body.contains("replay_session_id") || !body["replay_session_id"].is_string())
-    {
-        SendCode(res, "invalid_session_id",
-                 "replay_session_id must be a 1..128 char [A-Za-z0-9._-] string");
-        return;
-    }
-    std::string sessionId = body["replay_session_id"].get<std::string>();
-    if (!IsValidReplaySessionId(sessionId))
-    {
-        SendCode(res, "invalid_session_id",
-                 "replay_session_id must be a 1..128 char [A-Za-z0-9._-] string");
-        return;
-    }
+    const nlohmann::json body      = ParseReplayRequestBody(req);   // U1
+    std::string          sessionId = ParseReplaySessionId(body);    // U2
 
     // -----------------------------------------------------------------------
     // 3. Reserve replay slot before any further work
@@ -701,6 +719,12 @@ void HandleDirectorReplay(const httplib::Request& req, httplib::Response& res)
     }
 
     CRookServer::SendSuccess(res, result);
+    } // end outer try
+    catch (const ReplayRequestError& ex)
+    {
+        CRookServer::SendErrorData(res, ex.data());
+        return;
+    }
 }
 
 // ---------------------------------------------------------------------------
