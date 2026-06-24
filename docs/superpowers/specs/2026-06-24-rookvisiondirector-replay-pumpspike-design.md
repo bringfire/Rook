@@ -117,18 +117,27 @@ in; S2 must validate **this**, not a throwaway stand-in.
   primitive is a general dispatch-drain suspension. The save guard remains its own
   concern; both simply contribute to `IsAllDispatchBlocked()`.
 
-### Durable tests (real, not scaffolding)
+### Test coverage — structural (source-analysis) + empirical (live S2)
 
-- depth nesting composes (two live guards ⇒ still blocked after the inner exits);
-- destruction restores depth (blocked while alive, unblocked after scope, including
-  on exception unwind);
-- enqueue-still-allowed (a `Dispatch()` during an active guard returns a valid,
-  pending future and the task is present in the queue);
-- post-guard liveness (a task queued during an active guard drains on the next drain
-  pass after the guard exits);
-- wake-on-release (the outermost guard's release posts `WM_ROOK_DISPATCH` when
-  suspend depth reaches zero, and a *nested* guard's release does **not**) — verified
-  via the same window/post seam the dispatcher already exposes for `EndSaveGuard`.
+The guard's *structure* is pinned by **source-analysis tests** — the codebase idiom
+(read the C++ source, assert against extracted function/struct bodies), the same way
+`EndSaveGuard` is already covered. These assert: `m_suspendDepth` exists and is
+distinct from `m_saveDepth`; `IsAllDispatchBlocked()` ORs both depths; the RAII
+guard's four `= delete` special members (non-copyable **and** non-movable);
+`BeginSuspendGuard`'s `fetch_add`; `EndSuspendGuard`'s CAS-decrement with
+wake-only-on-outermost-release (`current == 1` → `PostMessage` to `m_subclassedHwnd`);
+and a *negative* assertion that `Dispatch()` never consults suspend state (enqueue
+stays unconditional).
+
+The guard's *runtime behavior* — nest composition, depth restored on unwind,
+enqueue-still-allowed while suspended, post-guard drain liveness, and the
+wake-on-release actually delivering queued work — is **not** directly unit-tested
+(source-analysis cannot assert runtime behavior); it is validated **empirically by the
+live S2 run** (see Findings). S2 exercised the real guard end-to-end and showed
+`tasks_executed_during_pump=0` with `drain_attempt_count=1` (a door entered
+`DrainQueue` during the pump and bailed at the guard) and `executed_after_return=true`
+(the wake-on-release drained the sentinel once the held lambda returned). The live S2
+run is the runtime guarantee.
 
 ## Throwaway scaffolding — removed before the PR is reviewable
 
