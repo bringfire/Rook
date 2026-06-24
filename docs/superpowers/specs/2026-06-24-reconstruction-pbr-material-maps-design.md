@@ -141,10 +141,12 @@ From `C:\Program Files\Rhino 8 SDK\openNURBS\opennurbs_texture.h` and
     (`wr.success = associated`), not on `materialRepairApplied` — a strict repair failure
     must not fail `import_package`.
 
-### 6. Audit task (Task 1, gates the native edit)
+### 6. SDK audit note (gates the native edit)
 
-Before writing the native binding, produce a short, concrete note (appended to this spec or
-the plan) that records, from a live Rhino 8 material check:
+Before writing the native binding, produce a short, concrete note (appended to this spec)
+that records, **from the installed Rhino 8 SDK headers** (`opennurbs_texture.h`,
+`opennurbs_material.h`, `opennurbs_file_utilities.h`) — header/API verification, not a live
+material render check:
 - the **exact `ON_Texture` fields/methods** used to bind the normal map (e.g. construct
   `ON_Texture`, set `m_filename`, `m_type = pbr_bump_texture`, `m_bTreatAsLinear = true`,
   any `m_bump_scale` / mapping-channel settings), and whether the convenience

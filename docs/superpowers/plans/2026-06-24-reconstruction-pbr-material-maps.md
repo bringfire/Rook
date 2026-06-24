@@ -131,7 +131,7 @@ Add to `ReconstructionOpHandlerTests.cs` (mirror the structure of the GLB test; 
 - [ ] **Step 4: Run the new/updated tests to verify they fail**
 
 Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "FullyQualifiedName~ReconstructionOpHandlerTests" -v minimal`
-Expected: FAIL — `GlbWithTexture...` fails on `repair["maps"]` (key missing), `AppendsNormalMap...` fails, `NoBaseColor...` fails (today a GLB-only package still gets a `material_repair`? it gets none only if no base color; confirm it fails on the asserted absence or the maps shape).
+Expected: `GlbWithTexture...` FAILs on `repair["maps"]` (key missing), `AppendsNormalMap...` FAILs (no `maps` key). `NoBaseColor...` will likely already **PASS** against current behavior — today a package with no base-color role already gets no `material_repair`. That is fine: it is a regression guard, not a red-first test. The two `maps`-shape tests are the ones that must be red here.
 
 - [ ] **Step 5: Rewrite `MaterialRepair` to emit `maps[]`**
 
@@ -197,7 +197,7 @@ git commit -m "feat(reconstruction): emit material_repair.maps[] with base_color
 ### Task 2: Native — bind `maps[]` (base_color + normal), strict + non-fatal
 
 **Files:**
-- Modify: `docs/superpowers/specs/2026-06-24-reconstruction-pbr-material-maps-design.md` (append the verified audit note)
+- Modify: `docs/superpowers/specs/2026-06-24-reconstruction-pbr-material-maps-design.md` (append the SDK audit note)
 - Modify: `src/RookNative/Handlers/ImportExportHandler.cpp:224-305` (`ApplyReconstructionMaterialRepair`)
 - Test: `src/Rook.Tests/Handlers/NativeReconstructionDispatchSourceTests.cs:175-197`
 
@@ -205,12 +205,13 @@ git commit -m "feat(reconstruction): emit material_repair.maps[] with base_color
 - Consumes: `materialRepair["maps"]` (array of `{ channel, role, path, file_name }`) from Task 1; native helpers `JsonStringOr`, `Rook::ValidateFilePath`, `Utf8ToWide`, `fs::exists`.
 - Produces: `ApplyReconstructionMaterialRepair` binds base_color (`pbr_base_color_texture` + legacy `bitmap_texture`) and normal (`pbr_bump_texture`, `m_bTreatAsLinear = true`); returns `false` with `error` set on unknown channel / missing file (non-fatal to import).
 
-- [ ] **Step 1: Append the verified audit note to the spec**
+- [ ] **Step 1: Append the SDK audit note to the spec**
 
-Append this section to the spec file, then commit it on its own:
+This is **header/API verification** (read from the installed SDK), not a live Rhino material
+check. Append this section to the spec file, then commit it on its own:
 
 ```markdown
-## Audit (verified 2026-06-24, Rhino 8 SDK headers)
+## SDK audit note (verified 2026-06-24, Rhino 8 SDK headers)
 
 - **Slot:** the PBR normal map binds to `ON_Texture::TYPE::pbr_bump_texture` (value 2,
   aliasing legacy `bump_texture`). Rhino 8 has **no** `pbr_normal_texture`; the bump slot is
@@ -262,6 +263,7 @@ In `NativeReconstructionDispatchSourceTests.cs`, replace the body of
 
         // Strict contract
         Assert.Contains("Unknown material repair channel", text);
+        Assert.Contains("Material repair map entry was not an object", text);
 
         // Assignment + result flags
         Assert.Contains("attrs.SetMaterialSource(ON::material_from_object);", text);
@@ -321,6 +323,12 @@ static bool ApplyReconstructionMaterialRepair(
 
     for (const auto& entry : materialRepair["maps"])
     {
+        if (!entry.is_object())
+        {
+            error = "Material repair map entry was not an object.";
+            return false;
+        }
+
         const std::string channel = JsonStringOr(entry, "channel");
         const std::string texturePath = JsonStringOr(entry, "path");
 
