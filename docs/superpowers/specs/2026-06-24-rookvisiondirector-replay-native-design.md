@@ -65,6 +65,10 @@ Native owns validation and replay normalization:
 
 There is exactly **one** input contract: the full track. No normalized `frames[]` shape.
 
+**`replay_session_id` shape (pinned so native and Python tests agree):** a non-empty string, **≤128 chars**, composed only of safe printable token characters `[A-Za-z0-9._-]`. Anything else → `invalid_session_id`. The Python default remains `uuid4().hex` (which satisfies this rule). Both `/director/replay` and `/director/replay/cancel` apply the same rule.
+
+**Object-count cap counting rule:** `object_count_exceeds_cap` (256) is measured as the count of **unique `object_id`s across the whole track** (i.e. `len(animated_object_ids)`). Because PR1's completeness rule makes every frame carry exactly that set, this also bounds any single frame; native may additionally reject any frame whose `object_transforms[]` length exceeds the cap, which follows naturally.
+
 ## Frame timing
 
 FPS-driven dwell — faithful to the baked rate, no new timing model:
@@ -178,10 +182,16 @@ This split keeps MCP tests asserting Python-layer codes and native tests asserti
 **Replay handler flow (worker thread):** parse → worker-phase validation (caps, track consistency, fps→dwell, `loop`, session id) → reserve slot (or `replay_already_active`) → `Dispatch` the replay lambda → block on its future → RAII-release slot → return outcome.
 
 **Replay lambda (UI thread, the held loop):**
-1. `SnapshotPreReplayState` (objects + camera) — after slot reserved, before first frame. The snapshot is **the source reference**: each frame's absolute transform is applied from it, restore-between returns to it, and the final restore (`restore_on_finish:true`) returns to it.
+1. `SnapshotPreReplayState` (objects + camera) — after slot reserved, before first frame. The snapshot is **the source reference**: each frame's absolute transform is applied from it, the between-non-final-frames object restore returns to it, and the final restore (`restore_on_finish:true`, or any cancel/error) returns to it.
 2. UI-phase pre-apply validation (`ValidateFrameObjects` → `object_not_found`).
-3. Construct **one** `DispatchDrainSuspension` for the whole loop (not per frame). For each frame: `ApplyObjectTransforms` from the snapshot → `SetCameraFromFrame` → redraw → **sliced dwell** (pump ~16ms slices until `dwell_ms` elapses, checking `cancel` each slice) → restore-between as the `absolute_from_source` model requires; check `cancel` before the next frame.
-4. On loop exit by any path the guard releases (its wake-on-release drains deferred HTTP→UI work). On completion: restore per `restore_on_finish`. On cancel/error: always `RestoreToSnapshot`.
+3. Construct **one** `DispatchDrainSuspension` for the whole loop (not per frame). For each frame `i` (objects are at the snapshot/source before applying): `ApplyObjectTransforms` (absolute, from the snapshot) → `SetCameraFromFrame` (absolute) → redraw → **sliced dwell** (pump ~16ms slices until `dwell_ms` elapses, checking `cancel` each slice). Then:
+   - **non-final frame** (`i < frame_count-1`): restore **objects** to the snapshot so frame `i+1` applies cleanly from source. (Camera is set absolutely every frame, so there is no camera restore-between.)
+   - check `cancel` before advancing to the next frame.
+4. **Terminal restore** (the single point that resolves `restore_on_finish`):
+   - **completed + `restore_on_finish:true`** → restore **objects and camera** to the snapshot.
+   - **completed + `restore_on_finish:false`** → leave objects at the final frame's pose and the camera at the final frame; **no final restore**.
+   - **cancel / runtime error** (at any frame) → **always** `RestoreToSnapshot` (objects and camera), regardless of `restore_on_finish`.
+   On loop exit by any path the guard releases (its wake-on-release drains deferred HTTP→UI work).
 
 **Parity is the reason for the extraction:** both `HandleDirectorFrameCapture` and `HandleDirectorReplay` apply transforms, set the camera, and restore through the **same** `DirectorFrame` primitives, so the live preview matches what capture will later produce — guaranteed by construction, not by inspection.
 
