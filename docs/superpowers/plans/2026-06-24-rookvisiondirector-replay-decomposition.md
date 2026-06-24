@@ -638,26 +638,23 @@ This task proves behavior preservation on a deterministic build. Requires Rhino 
 
 **Files:** none (verification only).
 
-- [ ] **Step 1: Fully clean rebuild** (wipe `obj/` AND `bin/`/LTCG, per the troubleshooting rule)
-```
-Remove-Item -Recurse -Force "src\RookNative\obj\RookNative\Release" -ErrorAction SilentlyContinue
-Remove-Item -Recurse -Force "src\RookNative\bin\Release" -ErrorAction SilentlyContinue
-& ".\build_native.ps1" -Configuration Release
-```
-Expected: `Previous IPDB not found, fall back to full compilation` / `All NNNNN functions were compiled` / `Build succeeded:`.
-
-- [ ] **Step 2: Run the Python unit + MCP dispatch tests** (no Rhino)
+- [ ] **Step 1: Run the Python unit + MCP dispatch + source tests** (no Rhino — gate before the expensive build)
 ```
 & "C:\Users\aryan\source\repos\Rook\mcp_server\.venv\Scripts\python.exe" -m pytest mcp_server\tests\test_director_replay.py mcp_server\tests\test_director_replay_native_source.py -q
 ```
 Expected: all PASS.
 
-- [ ] **Step 3: Deploy (Rhino must be closed)** — ask the user to close Rhino, then:
+- [ ] **Step 2: Fully clean rebuild + deploy via the established script** (Rhino must be CLOSED — the `.rhp` is file-locked while Rhino runs)
+
+Ask the user to close Rhino. Then wipe `obj/` AND `bin/` (LTCG) to force a clean codegen per the troubleshooting rule, and use the repo's deploy script (it builds, then copies `RookNative.rhp`/`.pdb` to the correct Rhino plugin directory and guards against Rhino being open). **Run `cmd /c` via the PowerShell tool** — Git Bash `cmd /c` emits only a banner; confirm the success lines yourself:
 ```
-Copy-Item -Force "src\RookNative\bin\Release\x64\RookNative.rhp" "$env:APPDATA\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\RookNative.rhp"
-Copy-Item -Force "src\RookNative\bin\Release\x64\RookNative.pdb" "$env:APPDATA\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\RookNative.pdb"
+Remove-Item -Recurse -Force "src\RookNative\obj\RookNative\Release" -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force "src\RookNative\bin\Release" -ErrorAction SilentlyContinue
+cmd /c "scripts\deploy-native.bat Release"
 ```
-Then ask the user to launch Rhino with a throwaway document and confirm `rhino_ping` → `pong`.
+Expected: `Previous IPDB not found, fall back to full compilation` / `All NNNNN functions were compiled` / `Build succeeded:` / `Deploy succeeded.` (If it prints `DEPLOY FAILED — is Rhino running?`, Rhino is still open — close it and re-run.) Do **not** hand-copy the `.rhp`; the script owns the destination path.
+
+- [ ] **Step 3: Launch Rhino + verify** — ask the user to launch Rhino with a throwaway document, then confirm `rhino_ping` → `pong`.
 
 - [ ] **Step 4: Run the live replay gate**
 ```
