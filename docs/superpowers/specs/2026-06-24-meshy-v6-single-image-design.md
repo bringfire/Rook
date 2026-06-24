@@ -219,9 +219,12 @@ shape, not new mapper logic — **unless** a concrete shape gap surfaces.
 `model_urls` as a structured object (glb/obj/fbx/usdz) and `texture_urls` as an array
 of texture-file objects. The deterministic tests in §5 assert the mapper walks this
 documented shape — that is where shape compatibility is **established**. If those tests
-reveal the current extraction does not walk it, mapper work is added in Step 1. The
-live smoke does not discover the shape; it only confirms fal's real response matches
-the documented shape the tests already cover.
+reveal the current extraction does not walk it, mapper work is added in Step 1.
+
+> **Update (resolved by the live smoke):** this prediction was wrong. fal's *real*
+> `texture_urls` is an array of PBR-slot objects, not flat file entries, and the
+> deterministic test had asserted a fictional flat shape. The live smoke discovered
+> the gap; the fix is commit `5d760c79`. See **Live smoke result** below.
 
 ---
 
@@ -288,3 +291,45 @@ This checklist, with recorded results, is the artifact that gates the eventual
   min/max; use a sanity floor and leave the ceiling unbounded rather than guessing.
 - **Live smoke is paid:** one job; the deterministic suite must carry all
   matrix/branch coverage so the paid call only proves the integrated happy path.
+
+---
+
+## Live smoke result (2026-06-24) — PASSED (gate for experimental → stable)
+
+Driven on the deployed Release build (worktree branch
+`feature/reconstruction-meshy-v6-single-image-impl`, rebased onto `origin/main`
+1f0ce948). Source: vision `imported_image` `866573ea` (an orange tabby). Model
+`fal-ai/meshy/v6/image-to-3d`, `allow_experimental_model: true`,
+`options: {should_texture: true}`.
+
+**Run 1 — job `cacbc3c4` → package `8dbd05a6`: exposed a real defect.**
+- Gate, `image_url`, submit, materialize, model classification
+  (glb/obj/fbx/usdz/stl), `resolved_import_role==model_glb` (parity), and import
+  (0→2, valid bbox) all passed live.
+- BUT `result_missing_texture` fired and no texture role materialized — even though
+  the imported GLB rendered fully textured. Root cause (from the saved
+  `provider_result_json`): fal Meshy v6 delivers `texture_urls` as an **array of
+  PBR-slot objects** `{ base_color, metallic, normal, roughness }`, not flat file
+  entries. The mapper's `ReadFile`-per-array-item dropped them. The deterministic
+  Task 6 test had used a **fictional flat shape**, so it was green against a payload
+  fal never sends. This is exactly the failure the live-smoke gate exists to catch.
+
+**Fix — commit `5d760c79`:** `FalReconstructionResultMapper` now maps each present
+`texture_urls` slot to its detailed role (`base_color→texture_base_color`,
+`metallic→texture_metallic`, `normal→texture_normal`, `roughness→texture_roughness`;
+slot key authoritative, since fal names the base-color file `texture_0.png`). Task 6
+test corrected to the **real captured shape**. 297 reconstruction tests green; 3079 full.
+
+**Run 2 (post-fix) — job `3af43079` → package `fc52b057`: full PASS.**
+
+| §6 item | Result |
+|---|---|
+| Job completes | ✅ ~3 min |
+| Package materializes; textures classified | ✅ roles include `texture_base_color`, `texture_normal` |
+| `resolved_import_role` == import role | ✅ `model_glb` == `model_glb` |
+| Rhino import: count 0→N, bbox | ✅ 0→1, 1.85×1.41×1.91 m |
+| Texture present, no false warnings | ✅ visibly textured (orange tabby), `warnings: []`; `material_repair_applied: true` |
+
+**Lesson recorded:** a green unit test is only as trustworthy as its fixture's
+fidelity to the provider's real payload. Capture real provider responses for
+classification fixtures, and keep the live smoke as the promotion gate.
