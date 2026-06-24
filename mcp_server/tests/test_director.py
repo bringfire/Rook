@@ -890,14 +890,15 @@ def test_run_writes_animation_track_in_parity_with_manifest(tmp_path):
         )
 
 
-def test_animation_track_error_surfaces_as_director_error(tmp_path, monkeypatch):
+def test_animation_track_error_surfaces_as_director_input_error(tmp_path, monkeypatch):
     def boom(**kwargs):
         raise director.animation_track.AnimationTrackError("bad track")
 
     monkeypatch.setattr(director.animation_track, "build_animation_track", boom)
     request = _run_request(tmp_path)
     request["run_id"] = "track-error-contract"
-    with pytest.raises(director.DirectorError):
+    # DirectorInputError (not the broad base) with the wrapped message preserved.
+    with pytest.raises(director.DirectorInputError, match="bad track"):
         asyncio.run(
             director.run_director(
                 request, call_native=FakeNative([]), runtime=_runtime(tmp_path)
