@@ -43,6 +43,12 @@ def main():
             sys.exit(1)
 
         data = envelope.get("data", {})
+        # A run where the sentinel never queued during the pump does NOT exercise
+        # the scenario — it must not be read as "safe". Mark it inconclusive.
+        if not data.get("queued_during_pump", False):
+            print(f"  WARNING: {strategy} INCONCLUSIVE — sentinel did not queue "
+                  "during the pump; this run does not exercise the scenario.")
+            data["_inconclusive"] = True
         results[strategy] = data
         print(strategy, json.dumps(data, indent=2))
 

@@ -200,8 +200,19 @@ S0, by contrast, is expected to show `executed_during_pump: true` and
 - `tasks_executed_during_pump` — tasks that actually *ran* before the lambda
   returned. **Must be `0` for safe.** This, not `drain_attempt_count`, is the
   failure signal.
-- `idle_fired_during_pump` — whether the idle door actually had a chance to fire.
+- `idle_fired_during_pump` — a **tripwire**, not a coverage metric. During a
+  synchronous hold the UI thread is busy in the holding lambda, so Rhino is never
+  idle and `CRhinoIsIdle::Notify` structurally **cannot** fire — `false` is the
+  expected, correct result and means *the idle door was not a factor for the held
+  pump*. This is the key realization: the idle door drains only when the app is
+  genuinely idle, which never happens while a replay holds the thread, so the
+  **WndProc door is the only reentrancy path during a hold** (which S1 filters and
+  S2's guard blocks). A `true` here would be surprising and must be investigated;
+  it does not, on its own, make S1's idle behavior "tested-safe."
 - `messages_processed` — pump activity, recorded if practical.
+- `_inconclusive` (added by the runner) — set when `queued_during_pump` is false:
+  the sentinel never queued during the pump, so the run did **not** exercise the
+  scenario and must not be scored "safe."
 
 ## Decision table → PR2 replay model
 

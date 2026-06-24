@@ -2357,7 +2357,9 @@ void HandleDirectorPumpSpike(const httplib::Request& req, httplib::Response& res
 
     std::string strategy = body.value("strategy", "S0_control");
     int pumpMs = body.value("pump_ms", 500);
-    if (pumpMs < 1 || pumpMs > 10000)
+    // Cap the UI-thread hold for a diagnostic — this freezes Rhino for its
+    // duration. 2s is ample to let the sentinel queue and the doors fire.
+    if (pumpMs < 1 || pumpMs > 2000)
         pumpMs = 500;
 
     const bool isS1 = (strategy == "S1_filtered");
@@ -2385,33 +2387,55 @@ void HandleDirectorPumpSpike(const httplib::Request& req, httplib::Response& res
     auto sentinelFutureReady = sentinelFuturePromise.get_future();
 
     std::thread sentinelThread([&sentinelFuturePromise]() {
-        while (!g_pumpActive.load(std::memory_order_acquire)
-               && !g_pumpAbort.load(std::memory_order_acquire))
+        // Never let an exception escape this thread (std::terminate would kill
+        // Rhino) and never leave the promise unset (broken_promise in the
+        // handler). All paths below either set the promise or are caught.
+        try
         {
-            std::this_thread::yield();
-        }
+            while (!g_pumpActive.load(std::memory_order_acquire)
+                   && !g_pumpAbort.load(std::memory_order_acquire))
+            {
+                std::this_thread::yield();
+            }
 
-        if (g_pumpAbort.load(std::memory_order_acquire))
+            if (g_pumpAbort.load(std::memory_order_acquire))
+            {
+                // Holding lambda never went live — hand back a ready no-op future
+                // so any reader never blocks, and exit (nothing queued).
+                std::promise<void> p;
+                p.set_value();
+                sentinelFuturePromise.set_value(p.get_future());
+                return;
+            }
+
+            auto f = CMainThreadDispatcher::Instance().Dispatch([]() {
+                // Runs on the UI thread (serialized with the holding lambda).
+                // Capture g_holdingLambdaReturned ONCE so the during/after
+                // classification is mutually exclusive and internally consistent.
+                const bool afterReturn =
+                    g_holdingLambdaReturned.load(std::memory_order_acquire);
+                if (afterReturn)
+                    g_sentinelExecutedAfterReturn.store(true, std::memory_order_release);
+                else
+                    g_tasksExecutedDuringPump.fetch_add(1, std::memory_order_relaxed);
+                g_sentinelExecuted.store(true, std::memory_order_release);
+            });
+            // The task is now enqueued (Dispatch returns after pushing the queue).
+            g_sentinelQueued.store(true, std::memory_order_release);
+            sentinelFuturePromise.set_value(std::move(f));
+        }
+        catch (...)
         {
-            // Holding lambda never went live — hand back a ready no-op future so
-            // any reader never blocks, and exit (no Dispatch, nothing queued).
-            std::promise<void> p;
-            p.set_value();
-            sentinelFuturePromise.set_value(p.get_future());
-            return;
+            // Guarantee the promise is satisfied so the handler's
+            // sentinelFutureReady.get() can never throw broken_promise.
+            try
+            {
+                std::promise<void> p;
+                p.set_value();
+                sentinelFuturePromise.set_value(p.get_future());
+            }
+            catch (...) { /* promise already satisfied — fine */ }
         }
-
-        auto f = CMainThreadDispatcher::Instance().Dispatch([]() {
-            // Runs on the UI thread (serialized with the holding lambda).
-            if (!g_holdingLambdaReturned.load(std::memory_order_acquire))
-                g_tasksExecutedDuringPump.fetch_add(1, std::memory_order_relaxed);
-            g_sentinelExecuted.store(true, std::memory_order_release);
-            if (g_holdingLambdaReturned.load(std::memory_order_acquire))
-                g_sentinelExecutedAfterReturn.store(true, std::memory_order_release);
-        });
-        // The task is now enqueued (Dispatch returns after pushing to the queue).
-        g_sentinelQueued.store(true, std::memory_order_release);
-        sentinelFuturePromise.set_value(std::move(f));
     });
 
     // --- Holding lambda dispatched to UI thread ---
@@ -2472,6 +2496,9 @@ void HandleDirectorPumpSpike(const httplib::Request& req, httplib::Response& res
         bool queuedDuringPump = g_sentinelQueued.load(std::memory_order_acquire);
         bool executedDuringPump = g_sentinelExecuted.load(std::memory_order_acquire);
         g_holdingLambdaReturned.store(true, std::memory_order_release);
+        // Self-close the active window on a single flag so no stale-true
+        // g_pumpActive can leak into a later read between/after runs.
+        g_pumpActive.store(false, std::memory_order_release);
 
         nlohmann::json result;
         result["messages_processed"] = messagesProcessed;
