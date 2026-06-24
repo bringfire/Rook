@@ -311,14 +311,15 @@ git commit -m "feat(reconstruction): bind all four PBR maps via file-local nativ
 
 - [ ] **Step 1: Verify the captured package still exists (precondition)**
 
-Run:
+Run (PowerShell):
 
-```bash
-ls "$APPDATA/Rook/artifacts/2026-06-24/d61c3f06-0c85-4e01-a84c-56bd5439a966" 2>/dev/null \
-  | grep -E "texture_(base_color|normal|roughness|metallic)\.png" || echo "MISSING"
+```powershell
+Get-ChildItem "$env:APPDATA\Rook\artifacts\2026-06-24\d61c3f06-0c85-4e01-a84c-56bd5439a966" |
+  Where-Object { $_.Name -match '^texture_(base_color|normal|roughness|metallic)\.png$' } |
+  Select-Object -ExpandProperty Name
 ```
 
-Expected: all four `texture_*.png` present. **If `MISSING` (package gone): STOP and decide with the user whether to rerun a paid Meshy job** (`fal-ai/meshy/v6/image-to-3d`, `options: { should_texture: true, enable_pbr: true }`, source `866573ea`). Do NOT substitute a different package or smoke fewer than four channels.
+Expected: all four names (`texture_base_color.png`, `texture_normal.png`, `texture_roughness.png`, `texture_metallic.png`) present. **If any are missing (package gone): STOP and decide with the user whether to rerun a paid Meshy job** (`fal-ai/meshy/v6/image-to-3d`, `options: { should_texture: true, enable_pbr: true }`, source `866573ea`). Do NOT substitute a different package or smoke fewer than four channels.
 
 - [ ] **Step 2: Deploy the build locally (Rhino closed, rook python stopped)**
 
@@ -328,13 +329,10 @@ Hand the user / run:
 pwsh -File scripts/deploy-local-testing.ps1
 ```
 
-Verify the fresh native `.rhp` carries the new code (grep the deployed binary for a new literal):
-
-```bash
-grep -a -c "pbr_roughness_texture" "$APPDATA/McNeel/Rhinoceros/8.0/Plug-ins/RookNative/RookNative.rhp" 2>/dev/null || true
-```
-
-(Compiled enum names are not string literals; instead confirm freshness via the managed/native deploy log "Build succeeded" + the deployed-vs-source check. The authoritative proof is Step 4's `GetTextures()` dump.)
+Confirm freshness via the deploy log's native + managed "Build succeeded" (0 errors) and the
+"Registering native plugin" line. The PBR enum names are compiled (not string literals), so a
+binary grep is unreliable — the authoritative proof of the new binding is Step 4's
+`GetTextures()` dump showing all four slots.
 
 - [ ] **Step 3: Re-import the staged package (user launches Rhino first)**
 
