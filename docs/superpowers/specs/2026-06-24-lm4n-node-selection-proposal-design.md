@@ -145,9 +145,18 @@ Failing tests first, then the module:
   `ready_count == 2`.
 - **candidate sorting determinism:** ready nodes inserted out of lexical order still yield
   a sorted `candidate_node_ids`.
-- **observe-not-bypass:** a graph mixing a `ready` node with `needs_repair` / `pending` /
-  `running` nodes → only the `ready` node is a candidate (the selector defers to
-  `runnable_nodes`, never to its own status check).
+- **observe-not-bypass (outcome):** a graph mixing a `ready` node with `needs_repair` /
+  `pending` / `running` nodes → only the `ready` node is a candidate (the selector defers
+  to `runnable_nodes`, never to its own status check).
+- **uses-runnable_nodes (seam, the load-bearing pin):** monkeypatch
+  `plan_graph_selector.runnable_nodes` to return sentinel node-like objects whose `id`s
+  are in deliberately unsorted order; assert `propose_next_node(graph)` derives
+  `candidate_node_ids` from that patched return value (sorted), and assert the patched
+  function received the **exact** graph object passed in (identity). This pins the selector
+  as an *observer of the canonical readiness seam*, not a reimplementation of readiness —
+  an implementation that manually filtered `node.status == "ready"` would fail this test.
+  (Requires the module to call the module-level name `runnable_nodes` so it is patchable —
+  i.e. `from rook.learning.plan_graph import runnable_nodes`, not a deep-qualified call.)
 - **frozen-snapshot:** after a call, the input graph object is unchanged (node statuses
   equal; same object identity; calling twice yields equal proposals).
 - **selector_id stamped on every decision** (SELECT and both HALTs).
