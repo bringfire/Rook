@@ -88,6 +88,7 @@ partially merged dict).
 |------|------|
 | `base_params_invalid` | `base_params` is not a `Mapping` |
 | `base_params_copy_failed` | deep-copy of `base_params` raises |
+| `param_key_invalid` | a binding's `param_key` is not a non-empty string (the merged dict becomes tool params, so keys must be valid) |
 | `memory_path_invalid` | a binding `path` is empty, or contains a non-string element |
 | `memory_fact_missing` | a path key is absent at its traversal step |
 | `memory_fact_invalid` | a non-final path element resolves to a non-`Mapping` (cannot descend) |
@@ -123,6 +124,8 @@ In the focused `test_plan_graph*` gate. Covers the helper in isolation:
 - **`memory_path_invalid` → `params is None`** (empty path; non-string element).
 - **`memory_fact_invalid` → `params is None`** (descend into a non-Mapping intermediate).
 - **`base_params_invalid` → `params is None`** (non-Mapping base).
+- **`param_key_invalid` → `params is None`** (a binding with a non-string / empty
+  `param_key`, e.g. `{None: (...)}` or `{"": (...)}`).
 - **Immutability:** input `graph` (and `graph.memory.facts`) and the `base_params`
   mapping are unchanged after the call; mutating the returned `params` does not affect
   memory (deep-copy independence).
@@ -137,8 +140,14 @@ In the focused gate (raw-dict driven, like LM4J's pure guard). After
 ("repair_anchor", "component_guid")})`, assert `params["guid"]` matches the
 memory/component guid, assign it into `repair_same_component.metadata[
 EXECUTION_PARAMS_KEY]`, and drive the chain (`apply_producer_result` repair →
-`apply_verifier_step` → `apply_outcome(done)`) to `graph_status == "complete"`. Proves
-the memory→param→repair flow deterministically, end to end, in CI.
+`apply_verifier_step` → `apply_outcome(done)`) to `graph_status == "complete"`.
+
+**Scope of this guard (honest):** `apply_producer_result` consumes a raw tool-result
+dict, **not** the node's `execution_params` — so the pure guard proves *deterministic
+memory→params binding* (the helper sources the guid from memory) *plus continued graph
+composition to `complete`*. It does **not** prove the bound guid drives a real repair
+dispatch — only the live proof (c) does that, where `run_live_producer_node` actually
+reads `execution_params` and dispatches `gh_update_script` with the memory-sourced guid.
 
 (This may be a new test or an added case alongside `test_plan_graph_live_repair_memory.py`;
 the plan will choose — a separate file keeps the LM4J guard untouched.)
