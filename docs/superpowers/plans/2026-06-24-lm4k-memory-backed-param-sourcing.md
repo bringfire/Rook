@@ -159,6 +159,22 @@ def test_no_partial_success_collects_and_returns_none():
     assert [f.code for f in r.findings] == ["memory_fact_missing"]
 
 
+def test_collects_base_and_binding_findings_together():
+    # Base copy fails AND bindings are bad -> ALL findings collected, params None
+    # (the contract is to process all bindings, not short-circuit on base failure).
+    g = _graph_with_facts({"component_guid": "GOOD"})
+    base = {"bad": _NoDeepcopy()}
+    r = bind_params_from_memory(
+        base, g, {"guid": ("absent_key",), "x": ()}  # missing fact + invalid path
+    )
+    assert r.params is None
+    assert sorted(f.code for f in r.findings) == [
+        "base_params_copy_failed",
+        "memory_fact_missing",
+        "memory_path_invalid",
+    ]
+
+
 def test_immutability_of_inputs():
     facts = {"repair_anchor": {"component_guid": "GUID-1"}}
     g = _graph_with_facts(facts)
@@ -277,30 +293,33 @@ def bind_params_from_memory(
 
     Returns merged params on full success. Processes ALL bindings and collects ALL
     findings; if ANY error finding exists, returns ``params=None`` (no partial bind).
+    A base-params failure (invalid / copy-failed) is recorded ALONGSIDE the binding
+    findings, not before them -- it does not short-circuit binding validation.
     Pure: never mutates ``graph`` or ``base_params``; deep-copies base and every bound
     value.
     """
-    if not isinstance(base_params, Mapping):
-        return ParamBindingResult(
-            params=None,
-            findings=(
-                _finding("base_params_invalid", None, "base_params is not a Mapping."),
-            ),
-        )
+    findings: list[ParamBindingFinding] = []
+    merged: dict | None = None
 
-    try:
-        merged: dict = deepcopy(dict(base_params))
-    except Exception:
-        return ParamBindingResult(
-            params=None,
-            findings=(
+    # Base-params validity is RECORDED but does NOT short-circuit binding validation:
+    # the contract is to process ALL bindings and collect ALL findings. When the base
+    # is unusable, ``merged`` stays None and bound values are validated (and their copy
+    # failures detected) without being assigned.
+    if not isinstance(base_params, Mapping):
+        findings.append(
+            _finding("base_params_invalid", None, "base_params is not a Mapping.")
+        )
+    else:
+        try:
+            merged = deepcopy(dict(base_params))
+        except Exception:
+            findings.append(
                 _finding(
                     "base_params_copy_failed", None, "Could not deep-copy base_params."
-                ),
-            ),
-        )
+                )
+            )
+            merged = None
 
-    findings: list[ParamBindingFinding] = []
     facts = graph.memory.facts
 
     for param_key, path in bindings.items():
@@ -354,8 +373,10 @@ def bind_params_from_memory(
 
         if resolved is _MISSING:
             continue
+        # Detect a value-copy failure even when the base failed (full finding
+        # collection); only assign into ``merged`` when there is a valid base.
         try:
-            merged[param_key] = deepcopy(resolved)
+            copied = deepcopy(resolved)
         except Exception:
             findings.append(
                 _finding(
@@ -364,6 +385,9 @@ def bind_params_from_memory(
                     f"Could not deep-copy the memory value for {param_key!r}.",
                 )
             )
+            continue
+        if merged is not None:
+            merged[param_key] = copied
 
     if findings:
         return ParamBindingResult(params=None, findings=tuple(findings))
@@ -376,7 +400,7 @@ Run:
 ```
 mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_plan_graph_param_binding.py -v
 ```
-Expected: all (13) tests PASS.
+Expected: all (14) tests PASS.
 
 - [ ] **Step 5: Confirm the production change is exactly one module, then commit**
 
@@ -395,7 +419,7 @@ git commit -m "feat(lm4k): pure bind_params_from_memory + unit tests
 Learning-layer primitive sourcing producer params from graph.memory.facts along
 explicit paths; returns merged params (no node write, no agent import, no graph
 mutation, deep-copies, no partial success). Distinct ParamBindingResult/
-ParamBindingFinding types. 13 unit tests incl. all finding codes + immutability +
+ParamBindingFinding types. 14 unit tests incl. all finding codes + immutability +
 AST import-boundary guard.
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
@@ -778,7 +802,7 @@ Expected after restore: clean (or only intended files).
 $files = Get-ChildItem mcp_server/tests -Filter 'test_plan_graph*.py' | ForEach-Object { $_.FullName }
 mcp_server/.venv/Scripts/python.exe -m pytest -p no:cacheprovider @files -q
 ```
-Expected: all pass, including `test_plan_graph_param_binding.py` (13) and `test_plan_graph_param_binding_chain.py` (1) — gate rises from the LM4J baseline of 258 by 14 to 272.
+Expected: all pass, including `test_plan_graph_param_binding.py` (14) and `test_plan_graph_param_binding_chain.py` (1) — gate rises from the LM4J baseline of 258 by 15 to 273.
 
 - [ ] **Production change is exactly one module:**
 ```

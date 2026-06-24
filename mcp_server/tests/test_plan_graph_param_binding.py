@@ -109,6 +109,22 @@ def test_no_partial_success_collects_and_returns_none():
     assert [f.code for f in r.findings] == ["memory_fact_missing"]
 
 
+def test_collects_base_and_binding_findings_together():
+    # Base copy fails AND bindings are bad -> ALL findings collected, params None
+    # (the contract is to process all bindings, not short-circuit on base failure).
+    g = _graph_with_facts({"component_guid": "GOOD"})
+    base = {"bad": _NoDeepcopy()}
+    r = bind_params_from_memory(
+        base, g, {"guid": ("absent_key",), "x": ()}  # missing fact + invalid path
+    )
+    assert r.params is None
+    assert sorted(f.code for f in r.findings) == [
+        "base_params_copy_failed",
+        "memory_fact_missing",
+        "memory_path_invalid",
+    ]
+
+
 def test_immutability_of_inputs():
     facts = {"repair_anchor": {"component_guid": "GUID-1"}}
     g = _graph_with_facts(facts)

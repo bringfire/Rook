@@ -57,30 +57,33 @@ def bind_params_from_memory(
 
     Returns merged params on full success. Processes ALL bindings and collects ALL
     findings; if ANY error finding exists, returns ``params=None`` (no partial bind).
+    A base-params failure (invalid / copy-failed) is recorded ALONGSIDE the binding
+    findings, not before them -- it does not short-circuit binding validation.
     Pure: never mutates ``graph`` or ``base_params``; deep-copies base and every bound
     value.
     """
-    if not isinstance(base_params, Mapping):
-        return ParamBindingResult(
-            params=None,
-            findings=(
-                _finding("base_params_invalid", None, "base_params is not a Mapping."),
-            ),
-        )
+    findings: list[ParamBindingFinding] = []
+    merged: dict | None = None
 
-    try:
-        merged: dict = deepcopy(dict(base_params))
-    except Exception:
-        return ParamBindingResult(
-            params=None,
-            findings=(
+    # Base-params validity is RECORDED but does NOT short-circuit binding validation:
+    # the contract is to process ALL bindings and collect ALL findings. When the base
+    # is unusable, ``merged`` stays None and bound values are validated (and their copy
+    # failures detected) without being assigned.
+    if not isinstance(base_params, Mapping):
+        findings.append(
+            _finding("base_params_invalid", None, "base_params is not a Mapping.")
+        )
+    else:
+        try:
+            merged = deepcopy(dict(base_params))
+        except Exception:
+            findings.append(
                 _finding(
                     "base_params_copy_failed", None, "Could not deep-copy base_params."
-                ),
-            ),
-        )
+                )
+            )
+            merged = None
 
-    findings: list[ParamBindingFinding] = []
     facts = graph.memory.facts
 
     for param_key, path in bindings.items():
@@ -134,8 +137,10 @@ def bind_params_from_memory(
 
         if resolved is _MISSING:
             continue
+        # Detect a value-copy failure even when the base failed (full finding
+        # collection); only assign into ``merged`` when there is a valid base.
         try:
-            merged[param_key] = deepcopy(resolved)
+            copied = deepcopy(resolved)
         except Exception:
             findings.append(
                 _finding(
@@ -144,6 +149,9 @@ def bind_params_from_memory(
                     f"Could not deep-copy the memory value for {param_key!r}.",
                 )
             )
+            continue
+        if merged is not None:
+            merged[param_key] = copied
 
     if findings:
         return ParamBindingResult(params=None, findings=tuple(findings))
