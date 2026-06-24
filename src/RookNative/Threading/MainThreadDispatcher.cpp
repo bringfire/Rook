@@ -386,9 +386,10 @@ void CMainThreadDispatcher::CIdleWatcher::Notify(
         extern std::atomic<bool> g_pumpActive;
         extern std::atomic<bool> g_holdingLambdaReturned;
         extern std::atomic<bool> g_idleFiredDuringPump;
-        // Only count idle that fires DURING the pump window — g_pumpActive is
-        // never reset, so without the returned check a post-pump idle (e.g. during
-        // the 2s sentinel wait) would falsely claim the idle door was exercised.
+        // Only count idle that fires DURING the pump window. Both flags close it:
+        // the holding lambda sets g_holdingLambdaReturned then clears g_pumpActive
+        // at its end, so a post-pump idle (e.g. during the 2s sentinel wait) is
+        // excluded and cannot falsely claim the idle door was exercised.
         if (g_pumpActive.load(std::memory_order_acquire)
             && !g_holdingLambdaReturned.load(std::memory_order_acquire))
             g_idleFiredDuringPump.store(true, std::memory_order_release);
