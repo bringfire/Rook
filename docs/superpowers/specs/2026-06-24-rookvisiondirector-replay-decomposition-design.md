@@ -1,7 +1,7 @@
 # RookVisionDirector Replay Handler Decomposition (PR3) — Design
 
 Date: 2026-06-24
-Status: proposed (design approved; pending spec review → implementation plan)
+Status: approved for implementation planning
 Base: `origin/main` @ `1f0ce948` (PR #346 merge)
 Branch: `feature/rookvisiondirector-replay-decomposition`
 
@@ -186,7 +186,7 @@ void HandleDirectorReplay(const httplib::Request& req, httplib::Response& res)
 {
     try {
         const nlohmann::json body      = ParseReplayRequestBody(req);   // U1 cap + strict JSON
-        const std::string    sessionId = ParseReplaySessionId(body);    // U2 (before reserve)
+        std::string          sessionId = ParseReplaySessionId(body);    // U2 (before reserve)
 
         // U3 — reserve BEFORE building/validating the track. Deliberate, and may look out of
         // order to a future reviewer: it preserves today's precedence where a second
@@ -195,7 +195,8 @@ void HandleDirectorReplay(const httplib::Request& req, httplib::Response& res)
             ThrowReplayError("replay_already_active", "A replay is already in progress");
         ReplaySlotReservation reservation;  reservation.held = true;    // releases on EVERY path
 
-        ReplayInstruction instruction = BuildReplayInstructionFromBody(body, sessionId);  // U4+U5+U6
+        // sessionId is moved here (its last use; ReserveReplaySlot above took it by const ref).
+        ReplayInstruction instruction = BuildReplayInstructionFromBody(body, std::move(sessionId));  // U4+U5+U6
 
         auto future = CMainThreadDispatcher::Instance().Dispatch(
             [instruction = std::move(instruction)]() -> nlohmann::json {
