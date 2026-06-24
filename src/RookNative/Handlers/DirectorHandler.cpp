@@ -10,15 +10,19 @@
 #include "RookServer.h"
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cwctype>
 #include <cstring>
 #include <filesystem>
+#include <future>
 #include <iomanip>
 #include <limits>
 #include <stdexcept>
 #include <sstream>
+#include <thread>
 #include <vector>
 #include <wincodec.h>
 #include <mfapi.h>
@@ -2251,6 +2255,226 @@ void HandleDirectorFrameCapture(const httplib::Request& req, httplib::Response& 
         CRookServer::SendErrorData(res, MakeFrameErrorData(body, "native_frame_failed", ex.what()));
     }
 }
+
+} // namespace Handlers
+} // namespace Rook
+
+// ============================================================================
+// THROWAWAY pump-spike probe — REVERTED in Task 5.
+// All code below is gated by the ROOK_DIRECTOR_PUMPSPIKE env flag.
+// NO production replay logic. No frame application, no object transforms,
+// no camera state, no animation-track consumption. Probe only.
+//
+// Probe atomics are defined at file scope (outside all namespaces) so that
+// g_pumpSpikeDrainAttempts can be extern-declared in MainThreadDispatcher.cpp
+// without namespace qualification.
+// ============================================================================
+
+// All probe atomics have external linkage (no static) so that
+// MainThreadDispatcher.cpp can extern-declare the ones it reads/increments.
+std::atomic<int>  g_pumpSpikeDrainAttempts{0};
+std::atomic<bool> g_pumpActive{false};
+std::atomic<bool> g_sentinelExecuted{false};
+std::atomic<bool> g_sentinelExecutedAfterReturn{false};
+std::atomic<int>  g_tasksExecutedDuringPump{0};
+std::atomic<bool> g_idleFiredDuringPump{false};
+std::atomic<bool> g_holdingLambdaReturned{false};
+
+// One ~16ms slice. Returns messages processed this slice.
+// filterRookDispatch=true: S1 — close the WndProc dispatch door by re-posting
+// WM_ROOK_DISPATCH so it is delivered AFTER the holding lambda returns.
+static int PumpSliceDrainAll(bool filterRookDispatch)
+{
+    int processed = 0;
+    MSG msg;
+    while (::PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE))
+    {
+        if (filterRookDispatch && msg.message == WM_ROOK_DISPATCH)
+        {
+            // Leave the dispatch door shut: re-post so it is delivered AFTER
+            // the held lambda returns, and do not dispatch it now.
+            ::PostMessage(msg.hwnd, WM_ROOK_DISPATCH, msg.wParam, msg.lParam);
+            continue;
+        }
+        ::TranslateMessage(&msg);
+        ::DispatchMessage(&msg);
+        ++processed;
+    }
+    return processed;
+}
+
+namespace Rook {
+namespace Handlers {
+
+void HandleDirectorPumpSpike(const httplib::Request& req, httplib::Response& res)
+{
+    // Only active when the spike flag is set.
+    if (std::getenv("ROOK_DIRECTOR_PUMPSPIKE") == nullptr)
+    {
+        nlohmann::json data;
+        data["error"] = "pumpspike_disabled";
+        CRookServer::SendErrorData(res, data);
+        return;
+    }
+
+    // --- Parse request ---
+    nlohmann::json body;
+    try
+    {
+        body = nlohmann::json::parse(req.body);
+    }
+    catch (...)
+    {
+        nlohmann::json data;
+        data["error"] = "invalid_json";
+        CRookServer::SendErrorData(res, data);
+        return;
+    }
+
+    std::string strategy = body.value("strategy", "S0_control");
+    int pumpMs = body.value("pump_ms", 500);
+    if (pumpMs < 1 || pumpMs > 10000)
+        pumpMs = 500;
+
+    const bool isS1 = (strategy == "S1_filtered");
+    const bool isS2 = (strategy == "S2_guarded");
+
+    // --- Reset module-static atomics ---
+    g_pumpSpikeDrainAttempts.store(0, std::memory_order_relaxed);
+    g_pumpActive.store(false, std::memory_order_relaxed);
+    g_sentinelExecuted.store(false, std::memory_order_relaxed);
+    g_sentinelExecutedAfterReturn.store(false, std::memory_order_relaxed);
+    g_tasksExecutedDuringPump.store(0, std::memory_order_relaxed);
+    g_idleFiredDuringPump.store(false, std::memory_order_relaxed);
+    g_holdingLambdaReturned.store(false, std::memory_order_relaxed);
+
+    // --- Sentinel thread ---
+    // Waits until g_pumpActive is set (holding lambda is on the UI thread
+    // and the pump has started), then dispatches a sentinel task and holds
+    // its future. The handler (worker thread) blocks on the sentinel future
+    // AFTER the holding lambda's future has returned. Never calls future.get()
+    // on the UI thread — the INVARIANT from MainThreadDispatcher.h.
+    std::future<void> sentinelFuture;
+    std::promise<std::future<void>> sentinelFuturePromise;
+    auto sentinelFutureReady = sentinelFuturePromise.get_future();
+
+    std::thread sentinelThread([&sentinelFuturePromise]() {
+        // Spin-wait for g_pumpActive — no sleep races.
+        while (!g_pumpActive.load(std::memory_order_acquire))
+        {
+            std::this_thread::yield();
+        }
+
+        // Dispatch the sentinel task. The future we get back is the one we
+        // hand off to the handler thread via the promise.
+        auto f = CMainThreadDispatcher::Instance().Dispatch([]() {
+            // Record whether we ran before the holding lambda returned.
+            if (!g_holdingLambdaReturned.load(std::memory_order_acquire))
+                g_tasksExecutedDuringPump.fetch_add(1, std::memory_order_relaxed);
+            g_sentinelExecuted.store(true, std::memory_order_release);
+            if (g_holdingLambdaReturned.load(std::memory_order_acquire))
+                g_sentinelExecutedAfterReturn.store(true, std::memory_order_release);
+        });
+
+        sentinelFuturePromise.set_value(std::move(f));
+    });
+
+    // Retrieve the sentinel future on this (worker) thread once the sentinel
+    // thread has dispatched — never inside the holding lambda.
+    // We'll block on it only after the holding lambda has completed.
+
+    // --- Holding lambda dispatched to UI thread ---
+    auto holdingFuture = CMainThreadDispatcher::Instance().Dispatch(
+        [pumpMs, isS1, isS2]() -> nlohmann::json
+    {
+        // Signal the sentinel thread that we are live on the UI thread.
+        g_pumpActive.store(true, std::memory_order_release);
+
+        int messagesProcessed = 0;
+        const auto startTime = std::chrono::steady_clock::now();
+        const auto endTime = startTime + std::chrono::milliseconds(pumpMs);
+
+        if (isS2)
+        {
+            // S2: drain all messages but hold DispatchDrainSuspension for the
+            // entire pump loop so DrainQueue's suspend check blocks re-entry.
+            DispatchDrainSuspension guard;
+            while (std::chrono::steady_clock::now() < endTime)
+            {
+                messagesProcessed += PumpSliceDrainAll(false);
+                // Pace to ~16ms slices with a short sleep.
+                // Use parenthesized std::min to avoid the Windows min() macro.
+                auto remaining = endTime - std::chrono::steady_clock::now();
+                auto sleepMs = (std::min)(std::chrono::milliseconds(16), std::chrono::duration_cast<std::chrono::milliseconds>(remaining));
+                if (sleepMs.count() > 0)
+                    std::this_thread::sleep_for(sleepMs);
+            }
+            // guard destructor runs here (scope end) — EndSuspendGuard posts WM_ROOK_DISPATCH.
+        }
+        else
+        {
+            // S0 (no filter, no guard) or S1 (filter WM_ROOK_DISPATCH, no guard).
+            while (std::chrono::steady_clock::now() < endTime)
+            {
+                messagesProcessed += PumpSliceDrainAll(isS1);
+                auto remaining = endTime - std::chrono::steady_clock::now();
+                auto sleepMs = (std::min)(std::chrono::milliseconds(16), std::chrono::duration_cast<std::chrono::milliseconds>(remaining));
+                if (sleepMs.count() > 0)
+                    std::this_thread::sleep_for(sleepMs);
+            }
+        }
+
+        // End-of-lambda assertion: record whether the sentinel executed during
+        // the pump (or at all before this point). This is the key measurement.
+        // Set g_holdingLambdaReturned AFTER capturing the sentinel state.
+        bool executedDuringPump = g_sentinelExecuted.load(std::memory_order_acquire);
+        g_holdingLambdaReturned.store(true, std::memory_order_release);
+
+        nlohmann::json result;
+        result["messages_processed"] = messagesProcessed;
+        result["executed_during_pump"] = executedDuringPump;
+        return result;
+    });
+
+    // Block on the holding lambda on this worker thread.
+    nlohmann::json holdingResult;
+    try
+    {
+        holdingResult = holdingFuture.get();
+    }
+    catch (const std::exception& ex)
+    {
+        // Holding lambda threw — clean up and report.
+        sentinelThread.join();
+        nlohmann::json data;
+        data["error"] = std::string("holding_lambda_failed: ") + ex.what();
+        CRookServer::SendErrorData(res, data);
+        return;
+    }
+
+    // Retrieve the sentinel future (handed off from sentinel thread via promise).
+    sentinelFuture = sentinelFutureReady.get();
+
+    // Wait up to 2s for the sentinel task to execute (after the holding lambda
+    // returned, the dispatcher should drain promptly).
+    sentinelFuture.wait_for(std::chrono::seconds(2));
+    sentinelThread.join();
+
+    // Assemble JSON result.
+    nlohmann::json data;
+    data["pump_strategy"] = strategy;
+    data["queued_during_pump"] = true; // sentinel was always queued while pump ran
+    data["executed_during_pump"] = holdingResult.value("executed_during_pump", false);
+    data["executed_after_return"] = g_sentinelExecutedAfterReturn.load(std::memory_order_acquire);
+    data["drain_attempt_count"] = g_pumpSpikeDrainAttempts.load(std::memory_order_relaxed);
+    data["tasks_executed_during_pump"] = g_tasksExecutedDuringPump.load(std::memory_order_relaxed);
+    data["idle_fired_during_pump"] = g_idleFiredDuringPump.load(std::memory_order_relaxed);
+    data["messages_processed"] = holdingResult.value("messages_processed", 0);
+
+    CRookServer::SendSuccess(res, data);
+}
+
+// End of THROWAWAY pump-spike probe section.
 
 } // namespace Handlers
 } // namespace Rook
