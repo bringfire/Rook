@@ -132,7 +132,6 @@ namespace Rook.Artifacts
         }
 
         internal Action<string, string>? AppendBlobManifestReplaceOverrideForTests { get; set; }
-        internal Action<string, string>? ReplaceJsonBlobFileReplaceOverrideForTests { get; set; }
 
         // ─── public API ─────────────────────────────────────────────
 
@@ -714,10 +713,7 @@ namespace Rook.Artifacts
             return AppendBlobResult.Succeeded(updated);
         }
 
-        public ReplaceJsonBlobResult ReplaceJsonBlob(
-            Guid id,
-            string role,
-            JsonNode content)
+        public ReplaceJsonBlobResult ReplaceJsonBlob(Guid id, string role, JsonNode content)
         {
             try
             {
@@ -795,17 +791,10 @@ namespace Rook.Artifacts
 
             try
             {
-                if (ReplaceJsonBlobFileReplaceOverrideForTests is not null)
-                {
-                    ReplaceJsonBlobFileReplaceOverrideForTests(tmpPath, finalPath);
-                }
-                else
-                {
-                    File.Replace(
-                        sourceFileName: tmpPath,
-                        destinationFileName: finalPath,
-                        destinationBackupFileName: null);
-                }
+                File.Replace(
+                    sourceFileName: tmpPath,
+                    destinationFileName: finalPath,
+                    destinationBackupFileName: null);
             }
             catch (Exception ex)
             {
