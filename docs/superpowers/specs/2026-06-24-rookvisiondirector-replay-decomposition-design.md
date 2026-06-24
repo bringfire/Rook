@@ -266,16 +266,34 @@ verbatim *before* moving code — do not rewrite them opportunistically.
 
 ## Test & verification plan
 
-### Existing — must stay green, unmodified
-- `mcp_server/tests/test_director_replay_native_source.py` — all current tests, including the
-  PR2 review guards: `surfaces_restore_failures_*`, `dirty_partial_state_includes_viewport`,
-  `disengages_pose_guard_after_between_frame_restore`, plus loop/guard/cancel-worker-only/
-  no-capture assertions.
+**Existing behavior, MCP, and live tests stay green and unmodified. Source-structure tests
+that currently assert worker-phase parsing lives inside `HandleDirectorReplay` will be updated
+to assert the same intent at the new helper boundaries.**
+
+### Behavior / MCP / live — green and unmodified
 - `mcp_server/tests/test_director_replay.py` (unit + MCP dispatch).
 - `mcp_server/tests/test_director_replay_live.py` (**6/6**).
+- The PR2 review guards in `test_director_replay_native_source.py` — `surfaces_restore_failures_*`,
+  `dirty_partial_state_includes_viewport`, `disengages_pose_guard_after_between_frame_restore`,
+  plus `DispatchDrainSuspension` / cancel-worker-only / no-capture — stay green and unmodified
+  (that content remains in U7/U8 inside the handler).
 - Frame-capture source tests unaffected; the only failing test remains the pre-existing,
   unrelated `test_director_publish_video_native_route_is_thin_vision_proxy` (fails on `main`;
   replay branch does not touch `VisionHandler`).
+
+### Source-structure tests re-pointed to the new boundaries (intent preserved)
+Three tests in `test_director_replay_native_source.py` currently assert worker-phase content
+lives inside `HandleDirectorReplay`; the decomposition moves it into the new parsers, so these
+follow the architecture to its new boundary:
+- `test_replay_loop_uses_single_guard_and_shared_primitives` — the `ParseCamera` /
+  `ParseFrameObjectTransforms` usage assertion moves to `ParseReplayFramePayloads`. (The
+  single-guard / `DispatchDrainSuspension` / loop-method assertions stay on the handler.)
+- `test_replay_preparses_and_validates_every_frame_before_dispatch` — re-pointed to assert
+  `BuildReplayInstructionFromBody` appears before `Dispatch(` in the handler, and that
+  `BuildReplayInstructionFromBody` calls `ParseReplayTrack` → `ParseReplayOptions` →
+  `ParseReplayFramePayloads` in order.
+- `test_replay_remaps_shared_helper_errors_to_replay_codes` — the `DirectorFrameValidationError`
+  catch + `track_invalid` remap assertion moves into `ParseReplayFramePayloads`.
 
 ### New source-structure tests (added to `test_director_replay_native_source.py`)
 Structure, not implementation trivia; avoid asserting exact formatting:
