@@ -423,7 +423,8 @@ void SetCameraFromFrame(CRhinoView* pView, const FrameCamera& camera)
         throw DirectorFrameValidationError("invalid_input", "Failed to apply camera near/far clipping");
 
     rhinoViewport.SetVP(targetViewport, true, false);
-    pView->Redraw();
+    // Caller owns the redraw (frame-capture's ApplyViewportForFrame redraws once after
+    // display-mode; replay redraws after this call). Keeps a single redraw per frame.
 }
 
 // ---------------------------------------------------------------------------

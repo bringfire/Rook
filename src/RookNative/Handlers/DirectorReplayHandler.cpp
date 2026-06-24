@@ -71,17 +71,6 @@ static void SendCode(httplib::Response& res, const std::string& code, const std:
     CRookServer::SendErrorData(res, d);
 }
 
-// Helper: SendErrorData with a code + message + frame_index.
-static void SendCodeFrame(httplib::Response& res, const std::string& code,
-                          const std::string& message, int frameIndex)
-{
-    nlohmann::json d;
-    d["code"] = code;
-    d["message"] = message;
-    d["frame_index"] = frameIndex;
-    CRookServer::SendErrorData(res, d);
-}
-
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -504,15 +493,54 @@ void HandleDirectorReplay(const httplib::Request& req, httplib::Response& res)
         nlohmann::json evidence;
         std::optional<DirectorObjectPoseGuard> poseGuard;
 
+        // Cancelled result builder — objects are at source on every cancel path; camera restored.
+        auto makeCancelled = [&](int played) {
+            nlohmann::json r;
+            r["status"] = "cancelled";
+            r["cancelled"] = true;
+            r["frames_played"] = played;
+            r["frame_count"] = frameCount;
+            r["restored"] = true;
+            r["replay_session_id"] = sessionId;
+            return r;
+        };
+
         for (int i = 0; i < frameCount; ++i)
         {
-            // Emplace a new per-frame guard in-place (non-movable; emplace destroys prior if any).
-            // Use (*poseGuard).Apply() — std::optional dereference — to call the non-copyable guard.
-            poseGuard.emplace(pDoc, perFrameObjects[i]);
-            (*poseGuard).Apply();
-            framesPlayed = i + 1;
+            // Cancel BEFORE applying frame i. Objects are at source here (never applied for
+            // i==0; restored after the previous frame for i>0), so only the camera needs
+            // restoring. framesPlayed == i, so a cancel before frame 0 reports frames_played=0.
+            if (Slot().cancel.load(std::memory_order_acquire))
+            {
+                viewportGuard.Restore(evidence);
+                return makeCancelled(framesPlayed);
+            }
 
-            SetCameraFromFrame(pView, perFrameCameras[i]);
+            // Apply pose + camera. A post-validation failure HERE is a runtime apply failure,
+            // normalized to frame_apply_failed with frame_index (restore first).
+            try
+            {
+                poseGuard.emplace(pDoc, perFrameObjects[i]);
+                poseGuard->Apply();
+                framesPlayed = i + 1;
+                SetCameraFromFrame(pView, perFrameCameras[i]);
+                pView->Redraw();  // caller owns the redraw (SetCameraFromFrame no longer redraws)
+            }
+            catch (const DirectorFrameValidationError& ex)
+            {
+                if (poseGuard)
+                    poseGuard->Restore(evidence);
+                viewportGuard.Restore(evidence);
+                nlohmann::json err;
+                err["code"] = "frame_apply_failed";
+                err["message"] = ex.what();
+                err["frame_index"] = i + 1;
+                if (!ex.affectedObjectIds.empty())
+                    err["object_id"] = ex.affectedObjectIds[0];
+                if (poseGuard && poseGuard->HasDirtyPartialState())
+                    err["dirty_partial_state"] = true;
+                return err;
+            }
 
             // Sliced dwell — pump ~16ms slices checking cancel each slice
             using clock = std::chrono::steady_clock;
@@ -520,22 +548,13 @@ void HandleDirectorReplay(const httplib::Request& req, httplib::Response& res)
             double dwellRemaining = dwellMs;
             while (dwellRemaining > 0.0)
             {
-                // Check cancel first
                 if (Slot().cancel.load(std::memory_order_acquire))
                 {
                     poseGuard->Restore(evidence);
                     viewportGuard.Restore(evidence);
-                    nlohmann::json result;
-                    result["status"] = "cancelled";
-                    result["cancelled"] = true;
-                    result["frames_played"] = framesPlayed;
-                    result["frame_count"] = frameCount;
-                    result["restored"] = true;
-                    result["replay_session_id"] = sessionId;
-                    return result;
+                    return makeCancelled(framesPlayed);
                 }
 
-                // Pump Windows messages for ~16ms
                 constexpr double kSliceMs = 16.0;
                 double sliceMs = (std::min)(kSliceMs, dwellRemaining);
                 auto sliceStart = clock::now();
@@ -545,13 +564,11 @@ void HandleDirectorReplay(const httplib::Request& req, httplib::Response& res)
                     TranslateMessage(&msg);
                     DispatchMessage(&msg);
                 }
-                // Sleep the remainder of this slice
                 auto elapsed = std::chrono::duration<double, std::milli>(clock::now() - sliceStart).count();
                 double sleepMs = sliceMs - elapsed;
                 if (sleepMs > 0.0)
                     ::Sleep(static_cast<DWORD>(sleepMs));
 
-                // Update remaining
                 auto totalElapsed = std::chrono::duration<double, std::milli>(clock::now() - dwellStart).count();
                 dwellRemaining = dwellMs - totalElapsed;
             }
@@ -561,32 +578,17 @@ void HandleDirectorReplay(const httplib::Request& req, httplib::Response& res)
             {
                 poseGuard->Restore(evidence);
                 viewportGuard.Restore(evidence);
-                nlohmann::json result;
-                result["status"] = "cancelled";
-                result["cancelled"] = true;
-                result["frames_played"] = framesPlayed;
-                result["frame_count"] = frameCount;
-                result["restored"] = true;
-                result["replay_session_id"] = sessionId;
-                return result;
+                return makeCancelled(framesPlayed);
             }
 
-            // Between non-final frames: restore objects to source pose for next frame
+            // Between non-final frames: restore objects to source for the next frame
             if (i < frameCount - 1)
             {
                 poseGuard->Restore(evidence);
-                // Re-check cancel after restore
                 if (Slot().cancel.load(std::memory_order_acquire))
                 {
                     viewportGuard.Restore(evidence);
-                    nlohmann::json result;
-                    result["status"] = "cancelled";
-                    result["cancelled"] = true;
-                    result["frames_played"] = framesPlayed;
-                    result["frame_count"] = frameCount;
-                    result["restored"] = true;
-                    result["replay_session_id"] = sessionId;
-                    return result;
+                    return makeCancelled(framesPlayed);
                 }
             }
             // Final frame: fall through to terminal block with poseGuard still engaged

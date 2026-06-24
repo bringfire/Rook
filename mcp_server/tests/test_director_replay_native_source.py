@@ -103,7 +103,19 @@ def test_replay_loop_uses_single_guard_and_shared_primitives():
     assert "ParseFrameObjectTransforms(" in replay         # pure shared parsers only
     assert "ParseCamera(" in replay
     assert "SetCameraFromFrame(" in replay
-    assert ".Apply()" in replay and ".Restore(" in replay and ".Disarm()" in replay
+    # Guard methods are called (idiomatic poseGuard->Apply() / viewportGuard.Restore() / Disarm()).
+    assert "Apply()" in replay and "Restore(" in replay and "Disarm()" in replay
+
+
+def test_replay_checks_cancel_before_applying_each_frame():
+    # The per-frame cancel check must precede the apply (poseGuard.emplace), so a cancel
+    # before frame 0 reports frames_played=0 and never applies a frame.
+    replay = _extract_function(_read(REPLAY_CPP), "HandleDirectorReplay")
+    loop = replay[replay.index("for (int i"):]
+    assert "Slot().cancel.load" in loop
+    assert "poseGuard.emplace" in loop
+    assert loop.index("Slot().cancel.load") < loop.index("poseGuard.emplace"), \
+        "cancel must be checked before the first poseGuard.emplace/Apply"
 
 
 def test_replay_does_not_use_capture_parser_or_io():
