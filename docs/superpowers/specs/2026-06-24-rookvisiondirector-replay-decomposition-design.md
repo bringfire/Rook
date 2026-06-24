@@ -173,6 +173,12 @@ The `loop` / `unsupported_replay_option` check stays at its **exact current posi
 with `loop:true` **and** a malformed track would then yield a track error instead of
 `unsupported_replay_option`. Pinned to preserve current precedence over malformed later fields.
 
+More generally, **each parser preserves the original *internal* check order**, not just the
+inter-parser order — e.g. within `ParseReplayTrack`: array-nonempty → `object_count_exceeds_cap`
+(>256) → per-element string check → uniqueness; within `ParseReplayOptions`: `invalid_fps` →
+`frame_dwell_exceeds_cap` → `replay_duration_exceeds_cap`. Only the behavior-neutral grouping of
+checks into functions changes, never their evaluation order (precedence is part of the contract).
+
 ## Orchestrator skeleton
 
 ```cpp
