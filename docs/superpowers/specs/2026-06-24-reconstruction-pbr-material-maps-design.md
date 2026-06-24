@@ -3,7 +3,7 @@
 - **Issue:** [#348](https://github.com/bringfire/Rook/issues/348)
 - **Date:** 2026-06-24
 - **Status:** Design approved; ready for implementation plan
-- **Base:** `origin/main` @ `1f0ce948`
+- **Base:** stacked on PR #347 branch `feature/reconstruction-meshy-v6-single-image-impl` @ `a81f0acb` (dependent PR — #348 needs #347's array-slot `texture_urls` mapper, `allow_experimental_model` gate, and corrected Meshy catalog). Rebase onto the updated `main` after #347 merges; PR base = `feature/reconstruction-meshy-v6-single-image-impl` until then.
 - **Scope:** managed (`src/Rook`) + native (`src/RookNative`). No Python/MCP changes.
 - **Follow-on to:** PR #347 (Meshy v6 single-image). This is the deferred limitation captured there.
 
