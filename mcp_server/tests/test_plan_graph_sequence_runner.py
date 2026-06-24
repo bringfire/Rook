@@ -26,8 +26,6 @@ from rook.learning.plan_graph_runner import apply_producer_result
 from rook.learning.plan_graph_templates import select_template
 
 
-pytestmark = pytest.mark.asyncio
-
 _DESCRIPTOR = {
     "domain": "grasshopper",
     "operation": "create_verify_repair_verify",
@@ -45,13 +43,6 @@ _CREATE_EXPECT = LiveProducerExpectation(
     verified=False,
     artifact_status="created_with_errors",
 )
-_REPAIR_EXPECT = LiveProducerExpectation(
-    applied=True,
-    outcome_status="succeeded",
-    node_status="succeeded",
-    verified=True,
-    artifact_status="usable",
-)
 
 
 def _wrapped_failure_create_raw() -> dict:
@@ -68,20 +59,6 @@ def _wrapped_failure_create_raw() -> dict:
                 "repair_anchor": {"component_guid": _GUID, "language": "csharp"},
             }
         },
-    }
-
-
-def _unwrapped_success_repair_raw() -> dict:
-    return {
-        "script_receipt": {
-            "version": 1,
-            "operation": "update",
-            "language": "csharp",
-            "artifact_status": "usable",
-            "mutation": {"status": "written", "component_guid": _GUID},
-            "verification": {"status": "passed", "target_error_count": 0},
-            "repair_anchor": {"component_guid": _GUID, "language": "csharp"},
-        }
     }
 
 
@@ -114,6 +91,7 @@ def _ready_template_graph():
     return graph
 
 
+@pytest.mark.asyncio
 async def test_happy_three_step_sequence():
     graph = _ready_template_graph()
     runner = _FakeRunner({"create_script": _wrapped_failure_create_raw()})
@@ -141,6 +119,7 @@ async def test_happy_three_step_sequence():
     )
 
 
+@pytest.mark.asyncio
 async def test_stop_at_verifier_mismatch():
     graph = _ready_template_graph()
     runner = _FakeRunner({"create_script": _wrapped_failure_create_raw()})
@@ -161,6 +140,7 @@ async def test_stop_at_verifier_mismatch():
     assert EXECUTION_PARAMS_KEY not in result.graph.nodes["repair_same_component"].metadata
 
 
+@pytest.mark.asyncio
 async def test_stop_at_bind_missing_fact():
     graph = _ready_template_graph()
     runner = _FakeRunner({"create_script": _wrapped_failure_create_raw()})
@@ -179,6 +159,7 @@ async def test_stop_at_bind_missing_fact():
     assert EXECUTION_PARAMS_KEY not in result.graph.nodes["repair_same_component"].metadata
 
 
+@pytest.mark.asyncio
 async def test_stop_at_producer_applied_but_expectation_fails():
     graph = _ready_template_graph()
     before = graph.nodes["create_script"].status
@@ -199,6 +180,7 @@ async def test_stop_at_producer_applied_but_expectation_fails():
     assert result.graph.nodes["create_script"].status == "succeeded"
 
 
+@pytest.mark.asyncio
 async def test_producer_not_applied_graph_unchanged():
     # create_script is PENDING (no initialize_graph) -> apply_producer_result not-applied.
     selection = select_template(_DESCRIPTOR)
@@ -213,6 +195,7 @@ async def test_producer_not_applied_graph_unchanged():
     assert result.graph.nodes["create_script"].status == "pending"  # unchanged
 
 
+@pytest.mark.asyncio
 async def test_order_preserved_no_reorder():
     # A verifier placed BEFORE its source is ready not-applies and halts: the runner runs
     # the list in author order and never reorders to satisfy dependencies.
@@ -233,6 +216,7 @@ async def test_order_preserved_no_reorder():
     assert result.graph.nodes["create_script"].status == "ready"
 
 
+@pytest.mark.asyncio
 async def test_completed_is_not_graph_complete():
     graph = _ready_template_graph()
     runner = _FakeRunner({"create_script": _wrapped_failure_create_raw()})
@@ -246,6 +230,7 @@ async def test_completed_is_not_graph_complete():
     assert result.graph.nodes["repair_same_component"].status == "ready"
 
 
+@pytest.mark.asyncio
 async def test_empty_sequence():
     graph = _ready_template_graph()
     runner = _FakeRunner({})
