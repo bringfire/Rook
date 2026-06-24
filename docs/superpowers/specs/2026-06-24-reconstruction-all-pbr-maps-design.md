@@ -139,6 +139,13 @@ succeeds (`wr.success = associated`). The v1 two-channel guarantees simply exten
 
 ## Live smoke (gate — no paid run)
 
+**Precondition (check first):** the package `d61c3f06-0c85-4e01-a84c-56bd5439a966` must still
+exist in the local artifact store (its blob dir + all four `texture_*.png` present at
+`%AppData%\Rook\artifacts\2026-06-24\d61c3f06-…\`). **If it is missing, STOP and decide
+whether to rerun a paid Meshy job** (`fal-ai/meshy/v6/image-to-3d`,
+`options: { should_texture: true, enable_pbr: true }`, against source `866573ea`) — do NOT
+silently substitute a different package or downgrade the smoke to fewer than four channels.
+
 Re-import the **already-staged** package `d61c3f06-0c85-4e01-a84c-56bd5439a966`
 (`rhino_2d_to_3d_import package_id=d61c3f06…`) on the deployed build. Authoritative
 `Material.GetTextures()` dump of the `Rook Reconstruction …` material must show:
