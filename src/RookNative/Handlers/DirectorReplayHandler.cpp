@@ -525,7 +525,8 @@ void HandleDirectorReplay(const httplib::Request& req, httplib::Response& res)
             err["restored"] = false;
             err["objects_restored"] = objectsOk;
             err["viewport_restored"] = viewportOk;
-            err["dirty_partial_state"] = (poseGuard && poseGuard->HasDirtyPartialState());
+            err["dirty_partial_state"] =
+                (poseGuard && poseGuard->HasDirtyPartialState()) || !objectsOk || !viewportOk;
             if (frameIndexForError > 0)
                 err["frame_index"] = frameIndexForError;
             return err;

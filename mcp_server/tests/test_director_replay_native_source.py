@@ -183,3 +183,18 @@ def test_replay_surfaces_restore_failures_instead_of_reporting_success():
     # the single apply-failure catch it was originally limited to.
     assert handler.count("dirty_partial_state") >= 2, \
         "restore-failure paths must signal dirty_partial_state, not just frame_apply_failed"
+
+
+def test_replay_restore_failure_dirty_partial_state_includes_viewport():
+    """A viewport-only restore failure (objects restored, camera not) is still dirty
+    partial state. The restoreOrError helper must derive dirty_partial_state from BOTH
+    the object AND viewport restore results, not only poseGuard->HasDirtyPartialState()
+    — otherwise a failed camera restore reports restored:false but dirty_partial_state:false.
+    """
+    src = _read(REPLAY_CPP)
+    start = src.index("auto restoreOrError")
+    end = src.index("for (int i", start)
+    helper = src[start:end]
+    dps_idx = helper.index("dirty_partial_state")
+    dps_stmt = helper[dps_idx:helper.index(";", dps_idx)]
+    assert "!viewportOk" in dps_stmt and "!objectsOk" in dps_stmt, dps_stmt
