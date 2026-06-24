@@ -100,6 +100,41 @@ public sealed class ReconstructionOptionsValidatorTests
         Assert.True(result.Options["enable_pbr"]!.GetValue<bool>());
     }
 
+    // Loads the shipped embedded production catalog's Meshy entry (mirrors ReconstructionModelCatalogTests).
+    private static ReconstructionModelEntry MeshyEntry()
+    {
+        var assembly = typeof(ReconstructionModelEntry).Assembly;
+        using var stream = assembly.GetManifestResourceStream(
+            "Rook.Services.Reconstruction.Fal.fal-model-catalog.json")!;
+        using var reader = new System.IO.StreamReader(stream);
+        return ReconstructionModelCatalog.FromJson(reader.ReadToEnd())
+            .Find("fal-ai/meshy/v6/image-to-3d")!;
+    }
+
+    [Fact]
+    public void MeshyOptions_DefaultsFillTopologyAndShouldTexture()
+    {
+        var result = ReconstructionOptionsValidator.Validate(new JsonObject(), MeshyEntry());
+        Assert.True(result.Success);
+        Assert.Equal("triangle", result.Options["topology"]!.GetValue<string>());
+        Assert.True(result.Options["should_texture"]!.GetValue<bool>());
+    }
+
+    [Fact]
+    public void MeshyOptions_OmitEnablePbrAndTexturePrompt_WhenShouldTextureFalse()
+    {
+        var submitted = new JsonObject
+        {
+            ["should_texture"] = false,
+            ["enable_pbr"] = true,
+            ["texture_prompt"] = "ignored",
+        };
+        var result = ReconstructionOptionsValidator.Validate(submitted, MeshyEntry());
+        Assert.True(result.Success);
+        Assert.False(result.Options.ContainsKey("enable_pbr"));
+        Assert.False(result.Options.ContainsKey("texture_prompt"));
+    }
+
     [Fact]
     public void Validate_FillsDefaults_WhenAbsent()
     {
