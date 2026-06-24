@@ -87,8 +87,12 @@ public static class ReconstructionOptionsValidator
                 if (d.Min is not null && i < d.Min) return $"'{d.Key}' must be >= {d.Min}.";
                 if (d.Max is not null && i > d.Max) return $"'{d.Key}' must be <= {d.Max}.";
                 return null;
-            default:
+            case "string":
+                if (node is not JsonValue sv || !sv.TryGetValue<string>(out _))
+                    return $"'{d.Key}' must be a string.";
                 return null;
+            default:
+                return $"'{d.Key}' has an unsupported option kind '{d.Kind}'.";
         }
     }
 

@@ -31,6 +31,48 @@ public sealed class ReconstructionOptionsValidatorTests
         }
         """).Find("test/pro")!;
 
+    // Positional ctor (ReconstructionModelCatalog.cs:10-46); Options is the last positional arg.
+    private static ReconstructionModelEntry ModelWithOptions(params ReconstructionOptionDescriptor[] options)
+        => new(
+            "test/model", "fal", "single_image_to_3d", "experimental", true,
+            new[] { "single_image_to_3d" }, new[] { "image_url" }, new[] { "model_glb" },
+            "model_glb", new[] { "model_glb" }, false,
+            new ReconstructionPreprocessingMetadata(false, false), "https://example/docs",
+            true, new ReconstructionInputMetadata("single_image", "image_url"), null, options);
+
+    private static ReconstructionModelEntry StringOptModel()
+        => ModelWithOptions(new ReconstructionOptionDescriptor(
+            "texture_prompt", "Texture Prompt", "string"));
+
+    private static ReconstructionModelEntry UnknownKindModel()
+        => ModelWithOptions(new ReconstructionOptionDescriptor(
+            "weird", "Weird", "color"));
+
+    [Fact]
+    public void Validate_AcceptsStringOption()
+    {
+        var result = ReconstructionOptionsValidator.Validate(
+            new JsonObject { ["texture_prompt"] = "a red ceramic mug" }, StringOptModel());
+        Assert.True(result.Success);
+        Assert.Equal("a red ceramic mug", result.Options["texture_prompt"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public void Validate_RejectsNonStringForStringOption()
+    {
+        var result = ReconstructionOptionsValidator.Validate(
+            new JsonObject { ["texture_prompt"] = 7 }, StringOptModel());
+        Assert.False(result.Success);
+    }
+
+    [Fact]
+    public void Validate_RejectsUnknownOptionKind()
+    {
+        var result = ReconstructionOptionsValidator.Validate(
+            new JsonObject { ["weird"] = "x" }, UnknownKindModel());
+        Assert.False(result.Success);
+    }
+
     [Fact]
     public void Validate_FillsDefaults_WhenAbsent()
     {
