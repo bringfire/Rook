@@ -78,10 +78,11 @@ live") and exercises `:vN` resolution on **both** producer nodes.
 Same seam set as LM4I (`run_live_producer_node`, `apply_live_producer_node`,
 `apply_verifier_step`, `build_live_producer_record` / `LiveProducerExpectation`,
 `apply_outcome` / `graph_status` / `NodeOutcome`, `select_template`,
-`_mcp_tool_executor`, `fresh_document` / `_is_error`), plus — for the pure guard — the
-LM3I dict→projection entry `apply_producer_result(graph, node_id, raw_result)` from
-`rook.learning.plan_graph_runner`, which routes a raw tool-result dict through the
-producer projection and populates `graph.memory.facts`.
+`_mcp_tool_executor`, `fresh_document` / `_is_error`), plus — for the pure guard — `initialize_graph`
+(promotes root `pending → ready`) and the LM3I dict→projection entry
+`apply_producer_result(graph, node_id, raw_result)`, both from
+`rook.learning.plan_graph_runner` / `rook.learning.plan_graph`, which route a raw
+tool-result dict through the producer projection and populate `graph.memory.facts`.
 
 ## Deliverables — Two Tests, No Production Code
 
@@ -92,23 +93,41 @@ projection path). Proves both the memory-facts substrate and that the dict-proje
 path composes to `complete`:
 
 1. `select_template` → assert template id + both declared producer refs.
-2. `apply_producer_result(graph, "create_script", <raw created_with_errors dict with
-   mutation.component_guid + repair_anchor.component_guid>)` → assert
-   `outcome_status == "succeeded"`, `create_script.status == "succeeded"`, and
+2. **`graph = initialize_graph(graph)`** (root `create_script` is `pending` after
+   selection; `apply_producer_result` requires a `ready` node via `runnable_nodes` and
+   would otherwise return `node_not_runnable`). Assert `create_script.status == "ready"`.
+3. `apply_producer_result(graph, "create_script", <WRAPPED-FAILURE raw>)` → assert
+   `outcome_status == "succeeded"`, `create_script.status == "succeeded"`,
+   `evidence.tool_status == "failed"`, and
    **`graph.memory.facts["component_guid"] == GUID`** +
    **`graph.memory.facts["repair_anchor"]["component_guid"] == GUID`**.
-3. `apply_verifier_step(graph, "verify_create", "create_script")` → `needs_repair`,
+4. `apply_verifier_step(graph, "verify_create", "create_script")` → `needs_repair`,
    unlock `repair_same_component`.
-4. `apply_producer_result(graph, "repair_same_component", <raw usable dict>)` →
-   `succeeded`; assert `graph.memory.facts["component_guid"] == GUID` still holds;
-   unlock `verify_repair`.
-5. `apply_verifier_step(graph, "verify_repair", "repair_same_component")` → `succeeded`,
+5. `apply_producer_result(graph, "repair_same_component", <UNWRAPPED-SUCCESS raw>)` →
+   `succeeded`; assert `graph.memory.facts["component_guid"] == GUID` still holds, and
+   **`repair_same_component.evidence.tool_status is None`** (fidelity to the LM4I live
+   finding); unlock `verify_repair`.
+6. `apply_verifier_step(graph, "verify_repair", "repair_same_component")` → `succeeded`,
    unlock `done`.
-6. `apply_outcome(graph, "done", NodeOutcome(status="succeeded"))` → assert
+7. `apply_outcome(graph, "done", NodeOutcome(status="succeeded"))` → assert
    `graph_status(graph) == "complete"`.
 
-(The raw dicts mirror the live `script_receipt` shape — `_create_result` /
-`_update_result` style from `test_plan_graph_templates.py`.)
+**Raw-dict shapes (load-bearing — they must mirror the live envelopes, not the older
+`success: True` `_update_result` style):**
+- **Create = WRAPPED FAILURE** (live create returns `success: False`):
+  `{"success": False, "data": {"script_receipt": {"version": 1, "operation": "create",
+  "language": "csharp", "artifact_status": "created_with_errors", "mutation":
+  {"status": "created", "component_guid": GUID}, "verification": {"status": "failed",
+  "target_error_count": 1}, "repair_anchor": {"component_guid": GUID, "language":
+  "csharp"}}}}` → `_extract_script_receipt` reads `data.script_receipt`;
+  `normalize_tool_result` sees `success: False` → `tool_status="failed"`.
+- **Repair = MCP-UNWRAPPED SUCCESS** (live success is unwrapped, no envelope marker):
+  `{"script_receipt": {"version": 1, "operation": "update", "language": "csharp",
+  "artifact_status": "usable", "mutation": {"status": "written", "component_guid":
+  GUID}, "verification": {"status": "passed", "target_error_count": 0},
+  "repair_anchor": {"component_guid": GUID, "language": "csharp"}}}` (NO
+  `data`/`success`/`ok`/`error` keys) → `_extract_script_receipt` reads the top-level
+  `script_receipt`; `normalize_tool_result` finds no marker → `tool_status=None`.
 
 ### (b) Declared-ref live proof — `mcp_server/tests/test_live_repair_chain_declared_refs_live.py`
 
