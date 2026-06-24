@@ -288,6 +288,27 @@ void CMainThreadDispatcher::EndSaveGuard()
     }
 }
 
+void CMainThreadDispatcher::EndSuspendGuard()
+{
+    bool shouldPostDispatch = false;
+    int current = m_suspendDepth.load(std::memory_order_acquire);
+    while (current > 0)
+    {
+        if (m_suspendDepth.compare_exchange_weak(current, current - 1,
+                                                 std::memory_order_acq_rel,
+                                                 std::memory_order_acquire))
+        {
+            shouldPostDispatch = (current == 1);
+            break;
+        }
+    }
+
+    if (shouldPostDispatch && m_subclassedHwnd != nullptr)
+    {
+        ::PostMessage(m_subclassedHwnd, WM_ROOK_DISPATCH, 0, 0);
+    }
+}
+
 void CMainThreadDispatcher::BeginCommandGuard()
 {
     std::lock_guard<std::mutex> lock(m_commandMutex);
