@@ -840,12 +840,27 @@ public sealed class ReconstructionJobManager : IDisposable
             if (string.Equals(generateType, "Normal", StringComparison.Ordinal)) return true;
         }
 
+        // Meshy family: once the model declares should_texture, that option OWNS texture expectation
+        // and the legacy enable_pbr/enable_geometry rules do NOT apply (enable_pbr only selects which
+        // maps, not whether texturing happens).
+        if (ModelDeclaresOption(model, "should_texture"))
+        {
+            var shouldTexture = ReadStrictBool(options, "should_texture");
+            if (shouldTexture == true) return true;
+            if (shouldTexture == false) return false;
+            return model.DefaultTextureExpected;
+        }
+
         if (ReadStrictBool(options, "enable_geometry") == true) return false;   // legacy rule 1
         var pbr = ReadStrictBool(options, "enable_pbr");
         if (pbr == true) return true;                                          // legacy rule 2
         if (pbr == false) return false;                                        // legacy rule 3
         return model.DefaultTextureExpected;                                   // legacy rule 4
     }
+
+    private static bool ModelDeclaresOption(ReconstructionModelEntry model, string key)
+        => model.Options is { } opts
+            && Array.Exists(opts, o => string.Equals(o.Key, key, StringComparison.Ordinal));
 
     // Pure: classifies a delivered reconstruction result against the request's texture expectation and
     // the model's catalog capability. No store/state access — callers pass the delivered role names.

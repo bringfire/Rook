@@ -1233,6 +1233,42 @@ public sealed class ReconstructionJobManagerTests : IDisposable
     public void DeriveTextureExpected_NonBool_TreatedAsOmitted_UsesCatalogDefault()
         => Assert.True(ReconstructionJobManager.DeriveTextureExpected(Opts(@"{""enable_pbr"":""true""}"), ModelEntry(true)));
 
+    // Meshy family: declares should_texture, so that option owns texture expectation (enable_pbr ignored).
+    private static ReconstructionModelEntry ShouldTextureModel(bool defaultTextureExpected)
+        => GateEntry("experimental", "model_glb") with
+        {
+            DefaultTextureExpected = defaultTextureExpected,
+            Options = new[]
+            {
+                new ReconstructionOptionDescriptor("should_texture", "Should Texture", "boolean",
+                    Default: JsonValue.Create(true)),
+                new ReconstructionOptionDescriptor("enable_pbr", "Enable PBR", "boolean",
+                    Default: JsonValue.Create(false)),
+            },
+        };
+
+    [Fact]
+    public void DeriveTextureExpected_ShouldTextureFalse_IsFalse_EvenIfPbrTrue()
+        => Assert.False(ReconstructionJobManager.DeriveTextureExpected(
+            Opts(@"{""should_texture"":false,""enable_pbr"":true}"), ShouldTextureModel(true)));
+
+    [Fact]
+    public void DeriveTextureExpected_ShouldTextureTrue_IsTrue()
+        => Assert.True(ReconstructionJobManager.DeriveTextureExpected(
+            Opts(@"{""should_texture"":true}"), ShouldTextureModel(false)));
+
+    [Fact]
+    public void DeriveTextureExpected_ShouldTextureAbsent_UsesCatalogDefault()
+    {
+        Assert.True(ReconstructionJobManager.DeriveTextureExpected(Opts("{}"), ShouldTextureModel(true)));
+        Assert.False(ReconstructionJobManager.DeriveTextureExpected(Opts("{}"), ShouldTextureModel(false)));
+    }
+
+    [Fact]
+    public void DeriveTextureExpected_ShouldTextureModel_IgnoresEnablePbrFalse()
+        => Assert.True(ReconstructionJobManager.DeriveTextureExpected(
+            Opts(@"{""should_texture"":true,""enable_pbr"":false}"), ShouldTextureModel(true)));
+
     [Fact]
     public async Task Submit_OmittedOptions_PersistsTextureExpectedFromCatalogDefault()
     {
