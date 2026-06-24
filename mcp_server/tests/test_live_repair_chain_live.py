@@ -139,13 +139,19 @@ async def test_live_repair_chain_drives_to_complete(fresh_document):
             applied=True,
             outcome_status="succeeded",
             node_status="succeeded",
-            tool_status="success",
             verified=True,
             artifact_status="usable",
         ),
     )
     assert repair_record.evaluated is True
     assert repair_record.passed is True, f"mismatches={repair_record.mismatches!r}"
+    # LM4I live finding: a SUCCESSFUL gh_update_script result is MCP-unwrapped
+    # (wire text == data, no top-level success/ok marker), so normalize_tool_result
+    # truthfully reports tool_status=None. Repair success is carried by
+    # verified / artifact_status / node_status -- the transport-envelope tool_status
+    # is None on the unwrapped success path (cf. LM4F). The failed CREATE path is
+    # re-wrapped with success:False, which is why its tool_status is "failed".
+    assert repair_record.tool_status is None
     graph = repair_result.graph
     assert graph.nodes["repair_same_component"].status == "succeeded"
     assert graph.nodes["verify_repair"].status == "ready"

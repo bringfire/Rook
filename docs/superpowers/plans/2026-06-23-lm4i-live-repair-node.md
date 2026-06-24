@@ -105,9 +105,14 @@ def _created_with_errors_evidence() -> NodeEvidence:
 
 
 def _usable_evidence() -> NodeEvidence:
-    """Synthetic evidence mirroring a live usable repair-producer capture."""
+    """Synthetic evidence mirroring a live usable repair-producer capture.
+
+    tool_status is None (not "success"): a successful gh_update_script result is
+    MCP-unwrapped with no top-level success/ok marker, so the live capture reports
+    tool_status=None. This synthetic shape mirrors that live truth (LM4I finding).
+    """
     return NodeEvidence(
-        tool_status="success",
+        tool_status=None,
         verified=True,
         receipt={"artifact_status": "usable"},
         repair_anchor={"component_guid": _GUID},
@@ -181,13 +186,14 @@ def test_live_repair_chain_composition_contract():
         LiveProducerExpectation(
             outcome_status="succeeded",
             node_status="succeeded",
-            tool_status="success",
             verified=True,
             artifact_status="usable",
         ),
     )
     assert repair_record.evaluated is True
     assert repair_record.passed is True, f"mismatches={repair_record.mismatches!r}"
+    # Mirrors the live truth: unwrapped success carries no envelope marker.
+    assert repair_record.tool_status is None
 
     # 4) verify_repair confirms clean -> done unlocks.
     step = apply_verifier_step(graph, "verify_repair", "repair_same_component")
@@ -389,13 +395,17 @@ async def test_live_repair_chain_drives_to_complete(fresh_document):
             applied=True,
             outcome_status="succeeded",
             node_status="succeeded",
-            tool_status="success",
             verified=True,
             artifact_status="usable",
         ),
     )
     assert repair_record.evaluated is True
     assert repair_record.passed is True, f"mismatches={repair_record.mismatches!r}"
+    # LM4I live finding: a SUCCESSFUL gh_update_script result is MCP-unwrapped
+    # (no top-level success/ok marker), so normalize_tool_result reports
+    # tool_status=None. Repair success is carried by verified/artifact_status/
+    # node_status -- not the transport-envelope tool_status (cf. LM4F).
+    assert repair_record.tool_status is None
     graph = repair_result.graph
     assert graph.nodes["repair_same_component"].status == "succeeded"
     assert graph.nodes["verify_repair"].status == "ready"

@@ -239,3 +239,29 @@ repair dispatch (corrected body, guid=^)  <--hand-wire--+   repair_same_componen
   `mcp_server/tests/test_live_repair_chain_live.py`, plus this spec + the plan.
 - **Zero** edits to `agent/`, `learning/`, `server.py`. `git numstat` over
   production paths must show 0 changes (verified in the plan's gate step).
+
+## Live Findings (2026-06-23, acceptance pass — PASSED)
+
+Live acceptance passed (`1 passed`): a `LM4IRepairChainLive` C# component was created
+broken, the verifier routed to repair, the real created-component guid
+(`cb03d47c-…`) flowed from create's evidence into the repair params, the live
+`gh_update_script` repaired it to `usable`, and the chain drove to
+`graph_status == "complete"` — two live producer dispatches, no model loop.
+
+**Finding — producer success carries `tool_status=None` on the MCP-unwrapped success
+path.** The repair record came back `node_status='succeeded'`,
+`outcome_status='succeeded'`, `verified=True`, `artifact_status='usable'`, but
+`tool_status=None` (not `'success'`). Root cause: a SUCCESSFUL `gh_update_script`
+result is MCP-unwrapped (wire text == data, the `script_receipt` inline), so it
+carries no top-level `success`/`ok` marker for `normalize_tool_result` to read; it
+truthfully reports `None`. The FAILED create path is re-wrapped with `success:False`,
+so its `tool_status` is `'failed'`. This is correct behavior, consistent with LM4F's
+documented unwrapping — `tool_status` describes the transport envelope, **not**
+artifact/verifier truth. **Producer success must be judged by
+`verified`/`artifact_status`/`node_status`, never by `tool_status`.**
+
+Consequence (the only change vs the pre-acceptance test draft): the repair
+`LiveProducerExpectation` does **not** assert `tool_status="success"`; instead the
+live test pins the finding with `assert repair_record.tool_status is None`, and the
+pure guard's synthetic `usable` evidence uses `tool_status=None` to mirror the live
+truth. The create node's `tool_status='failed'` expectation is unchanged (correct).
