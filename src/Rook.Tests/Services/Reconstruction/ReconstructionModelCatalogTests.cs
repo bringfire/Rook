@@ -66,7 +66,7 @@ public sealed class ReconstructionModelCatalogTests
         Assert.Equal("boolean", pbr.Kind);
         Assert.False(pbr.Default!.GetValue<bool>());
         Assert.Equal("generate_type", pbr.IgnoredWhen!.Key);
-        Assert.Equal("Geometry", pbr.IgnoredWhen.EqualsValue);
+        Assert.Equal("Geometry", pbr.IgnoredWhen.EqualsValue!.GetValue<string>());
 
         var fc = model.Options[2];
         Assert.Equal("integer", fc.Kind);

@@ -51,14 +51,14 @@ public static class ReconstructionOptionsValidator
                 effective[d.Key] = value;
         }
 
-        // Omit ignored options.
+        // Omit ignored options (type-aware gate: string e.g. generate_type=="Geometry", or bool e.g.
+        // should_texture==false).
         foreach (var d in descriptors)
         {
             if (d.IgnoredWhen is null) continue;
             if (effective.TryGetPropertyValue(d.IgnoredWhen.Key, out var gate)
                 && gate is JsonValue gv
-                && gv.TryGetValue<string>(out var gateText)
-                && string.Equals(gateText, d.IgnoredWhen.EqualsValue, StringComparison.Ordinal))
+                && JsonValueEquals(gv, d.IgnoredWhen.EqualsValue))
             {
                 effective.Remove(d.Key);
             }
@@ -103,6 +103,18 @@ public static class ReconstructionOptionsValidator
         if (value.TryGetValue<long>(out result)) return true;
         if (value.TryGetValue<int>(out var i)) { result = i; return true; }
         result = 0;
+        return false;
+    }
+
+    // Type-aware equality for an ignored_when gate: matches a string gate (generate_type=="Geometry")
+    // or a boolean gate (should_texture==false). Any other JSON kind never matches.
+    private static bool JsonValueEquals(JsonValue gate, JsonNode? expected)
+    {
+        if (expected is not JsonValue ev) return false;
+        if (gate.TryGetValue<string>(out var gs) && ev.TryGetValue<string>(out var es))
+            return string.Equals(gs, es, StringComparison.Ordinal);
+        if (gate.TryGetValue<bool>(out var gb) && ev.TryGetValue<bool>(out var eb))
+            return gb == eb;
         return false;
     }
 

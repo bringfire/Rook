@@ -73,6 +73,33 @@ public sealed class ReconstructionOptionsValidatorTests
         Assert.False(result.Success);
     }
 
+    // Model with should_texture (bool) + enable_pbr (bool, omitted when should_texture==false).
+    private static ReconstructionModelEntry BoolGateModel()
+        => ModelWithOptions(
+            new ReconstructionOptionDescriptor("should_texture", "Should Texture", "boolean",
+                Default: JsonValue.Create(true)),
+            new ReconstructionOptionDescriptor("enable_pbr", "Enable PBR", "boolean",
+                Default: JsonValue.Create(false),
+                IgnoredWhen: new ReconstructionOptionIgnoredWhen("should_texture", JsonValue.Create(false))));
+
+    [Fact]
+    public void Validate_OmitsEnablePbr_WhenShouldTextureFalse()
+    {
+        var result = ReconstructionOptionsValidator.Validate(
+            new JsonObject { ["should_texture"] = false, ["enable_pbr"] = true }, BoolGateModel());
+        Assert.True(result.Success);
+        Assert.False(result.Options.ContainsKey("enable_pbr")); // bool gate matched → omitted
+    }
+
+    [Fact]
+    public void Validate_KeepsEnablePbr_WhenShouldTextureTrue()
+    {
+        var result = ReconstructionOptionsValidator.Validate(
+            new JsonObject { ["should_texture"] = true, ["enable_pbr"] = true }, BoolGateModel());
+        Assert.True(result.Success);
+        Assert.True(result.Options["enable_pbr"]!.GetValue<bool>());
+    }
+
     [Fact]
     public void Validate_FillsDefaults_WhenAbsent()
     {

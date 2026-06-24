@@ -92,7 +92,7 @@ public sealed record ReconstructionOptionDescriptor(
 /// </summary>
 public sealed record ReconstructionOptionIgnoredWhen(
     [property: JsonPropertyName("key")] string Key,
-    [property: JsonPropertyName("equals")] string EqualsValue);
+    [property: JsonPropertyName("equals")] JsonNode? EqualsValue);
 
 public sealed class ReconstructionModelCatalog
 {
