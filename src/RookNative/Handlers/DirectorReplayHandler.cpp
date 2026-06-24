@@ -327,38 +327,33 @@ static ReplayOptions ParseReplayOptions(const nlohmann::json& body, int frameCou
     return opts;
 }
 
-// Worker-phase builder: delegates U4 to ParseReplayTrack, U5 to ParseReplayOptions, then
-// applies U6 (per-frame pre-parse). Moved verbatim out of HandleDirectorReplay; every
-// SendCode/SendErrorData error converted to a throw (SendCode(...) -> ThrowReplayError(code,msg);
-// SendErrorData(d) -> throw ReplayRequestError(std::move(d))) with message strings and field
-// names copied EXACTLY and internal check order unchanged. Parses every frame BEFORE Dispatch —
-// if any frame is malformed we fail before touching the document.
-static ReplayInstruction BuildReplayInstructionFromBody(const nlohmann::json& body, std::string sessionId)
-{
-    ReplayTrackInfo track = ParseReplayTrack(body);
-    const nlohmann::json& trackJson = body["track"];
-
-    ReplayOptions opts = ParseReplayOptions(body, track.frameCount);
-
-    // -----------------------------------------------------------------------
-    // 6. Worker-phase per-frame pre-parse (no-mutation guarantee)
-    //    Parse every frame BEFORE Dispatch — if any frame is malformed we fail
-    //    before touching the document.
-    // -----------------------------------------------------------------------
-    std::vector<FrameCamera> perFrameCameras;
-    perFrameCameras.reserve(static_cast<size_t>(track.frameCount));
+struct ParsedReplayFrames {
     std::vector<std::vector<FrameObjectTransform>> perFrameObjects;
-    perFrameObjects.reserve(static_cast<size_t>(track.frameCount));
+    std::vector<FrameCamera>                       perFrameCameras;
+};
+
+// U6 — per-frame pre-parse (no-mutation guarantee). Parses every frame BEFORE Dispatch —
+// if any frame is malformed we fail before touching the document.
+// Requires body["track"] to already be validated (by ParseReplayTrack).
+static ParsedReplayFrames ParseReplayFramePayloads(const nlohmann::json& body, const ReplayTrackInfo& info)
+{
+    const nlohmann::json& track = body["track"];
+    const auto& cameraFramesJson = track["camera_frames"];   // validated by ParseReplayTrack
+    const auto& objectFramesJson = track["object_frames"];
+    const int frameCount = info.frameCount;
+    const std::set<std::string>& animatedObjectIds = info.animatedObjectIds;
+
+    std::vector<FrameCamera> perFrameCameras;
+    perFrameCameras.reserve(static_cast<size_t>(frameCount));
+    std::vector<std::vector<FrameObjectTransform>> perFrameObjects;
+    perFrameObjects.reserve(static_cast<size_t>(frameCount));
 
     // We'll also capture sourceBbox from frame 0 to verify consistency.
     // Key: objectId -> sourceBbox (from first frame). Used to cross-check frames 1..N.
     std::map<std::string, ON_BoundingBox> sourceBoxRef;
     static constexpr double kBboxTolerance = 1.0e-4;
 
-    const auto& cameraFramesJson = trackJson["camera_frames"];
-    const auto& objectFramesJson = trackJson["object_frames"];
-
-    for (int i = 0; i < track.frameCount; ++i)
+    for (int i = 0; i < frameCount; ++i)
     {
         // --- Camera parse ---
         try
@@ -415,7 +410,7 @@ static ReplayInstruction BuildReplayInstructionFromBody(const nlohmann::json& bo
         std::set<std::string> frameIds;
         for (const auto& ft : frameObjects)
             frameIds.insert(ft.objectId);
-        if (frameIds != track.animatedObjectIds)
+        if (frameIds != animatedObjectIds)
         {
             nlohmann::json d;
             d["code"] = "track_invalid";
@@ -463,9 +458,25 @@ static ReplayInstruction BuildReplayInstructionFromBody(const nlohmann::json& bo
         perFrameObjects.push_back(std::move(frameObjects));
     }
 
+    ParsedReplayFrames out;
+    out.perFrameObjects = std::move(perFrameObjects);
+    out.perFrameCameras = std::move(perFrameCameras);
+    return out;
+}
+
+// Worker-phase builder: delegates U4 to ParseReplayTrack, U5 to ParseReplayOptions,
+// U6 to ParseReplayFramePayloads, then assembles the move-only ReplayInstruction.
+// Parses every frame BEFORE Dispatch — if any frame is malformed we fail before
+// touching the document.
+static ReplayInstruction BuildReplayInstructionFromBody(const nlohmann::json& body, std::string sessionId)
+{
+    ReplayTrackInfo track = ParseReplayTrack(body);
+    ReplayOptions   opts  = ParseReplayOptions(body, track.frameCount);
+    ParsedReplayFrames frames = ParseReplayFramePayloads(body, track);
+
     ReplayInstruction instruction;
-    instruction.perFrameObjects   = std::move(perFrameObjects);
-    instruction.perFrameCameras   = std::move(perFrameCameras);
+    instruction.perFrameObjects   = std::move(frames.perFrameObjects);
+    instruction.perFrameCameras   = std::move(frames.perFrameCameras);
     instruction.frameCount        = track.frameCount;
     instruction.dwellMs           = opts.dwellMs;
     instruction.effectiveFps      = opts.effectiveFps;

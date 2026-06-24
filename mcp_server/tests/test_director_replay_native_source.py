@@ -103,10 +103,10 @@ def test_replay_loop_uses_single_guard_and_shared_primitives():
     assert replay.count("DirectorViewportGuard ") == 1
     assert "SetCameraFromFrame(" in replay
     assert "Apply()" in replay and "Restore(" in replay and "Disarm()" in replay
-    # Shared pure parsers now live in the worker-phase builder, not inline in the handler.
-    build = _extract_function(src, "BuildReplayInstructionFromBody")
-    assert "ParseFrameObjectTransforms(" in build
-    assert "ParseCamera(" in build
+    # Shared pure parsers now live in the frame-payload parser, not inline in the handler.
+    frames = _extract_function(src, "ParseReplayFramePayloads")
+    assert "ParseFrameObjectTransforms(" in frames
+    assert "ParseCamera(" in frames
 
 
 def test_replay_checks_cancel_before_applying_each_frame():
@@ -151,19 +151,18 @@ def test_replay_preparses_and_validates_every_frame_before_dispatch():
     assert "BuildReplayInstructionFromBody" in handler
     assert handler.index("BuildReplayInstructionFromBody") < handler.index("Dispatch(")
     build = _extract_function(src, "BuildReplayInstructionFromBody")
-    assert "animated_object_ids" in build      # exact-set check lives in the builder
-    assert "perFrameObjects" in build and "perFrameCameras" in build
+    assert build.index("ParseReplayTrack") < build.index("ParseReplayOptions") < build.index("ParseReplayFramePayloads")
 
 
 def test_replay_remaps_shared_helper_errors_to_replay_codes():
     src = _read(REPLAY_CPP)
-    build = _extract_function(src, "BuildReplayInstructionFromBody")
-    assert "catch (const DirectorFrameValidationError" in build or \
-           "catch (DirectorFrameValidationError" in build
-    assert "track_invalid" in build            # worker-phase parse failures
-    assert "affectedObjectIds" in build        # object_id carried from the helper
+    frames = _extract_function(src, "ParseReplayFramePayloads")
+    assert "catch (const DirectorFrameValidationError" in frames or \
+           "catch (DirectorFrameValidationError" in frames
+    assert "track_invalid" in frames
+    assert "affectedObjectIds" in frames
     handler = _extract_function(src, "HandleDirectorReplay")
-    assert "object_not_found" in handler       # UI-phase doc validation stays in the handler
+    assert "object_not_found" in handler
 
 
 def test_replay_surfaces_restore_failures_instead_of_reporting_success():
@@ -286,3 +285,10 @@ def test_replay_options_parser_owns_caps():
     assert opts.index("invalid_fps") < opts.index("frame_dwell_exceeds_cap") < opts.index("replay_duration_exceeds_cap")
     build = _extract_function(src, "BuildReplayInstructionFromBody")
     assert "ParseReplayOptions(" in build
+
+
+def test_replay_frame_parser_owns_per_frame_content():
+    frames = _extract_function(_read(REPLAY_CPP), "ParseReplayFramePayloads")
+    assert "ParseCamera(" in frames and "ParseFrameObjectTransforms(" in frames
+    assert "track_invalid" in frames
+    assert "animated_object_ids" in frames or "frameIds" in frames   # exact-set equality check
