@@ -108,9 +108,12 @@ a rebuilt or substituted one.
    `selected_not_ready`, etc.)
 3. **Lookup.** `accepted = result.accepted_node_id`. `accepted not in step_map` →
    `failure="no_step_for_node"`, `accepted_node_id=accepted`, `step=None`. (Refuse to invent.)
-4. **Validate the map value.** `step = step_map[accepted]`. If `step` is not an instance of
-   `(ProducerStep, VerifierStep, BindStep)` → `failure="step_map_invalid"`, `step=None`.
-   (Reject malformed runtime input cleanly *before* touching its fields.)
+4. **Validate the map value.** `step = step_map[accepted]`. The check is spelled as the
+   explicit tuple form `isinstance(step, (ProducerStep, VerifierStep, BindStep))` — **not**
+   `isinstance(step, Step)` and not relying on the `Step` union alias at runtime (boring and
+   precise is the point for a containment seam). If it is not one of those three →
+   `failure="step_map_invalid"`, `step=None`. (Reject malformed runtime input cleanly
+   *before* touching its fields.)
 5. **Target-node check.** Compute the mapped Step's target — `ProducerStep`/`BindStep` →
    `.node_id`; `VerifierStep` → `.verifier_node_id`. If target `!= accepted` →
    `failure="step_node_mismatch"`, `step=None` (the mismatched step is **not** returned — the
