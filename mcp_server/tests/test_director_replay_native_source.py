@@ -87,3 +87,66 @@ def test_replay_session_id_validation_present():
     src = _read(REPLAY_CPP)
     assert "IsValidReplaySessionId" in src
     assert "invalid_session_id" in src
+
+
+# ---------------------------------------------------------------------------
+# Task-3 source-analysis tests — added for the guarded replay loop
+# ---------------------------------------------------------------------------
+
+def test_replay_loop_uses_single_guard_and_shared_primitives():
+    replay = _extract_function(_read(REPLAY_CPP), "HandleDirectorReplay")
+    assert "DispatchDrainSuspension" in replay
+    assert replay.count("DispatchDrainSuspension ") == 1   # ONE guard for the whole loop
+    assert "DirectorObjectPoseGuard" in replay             # real pose guard, per frame
+    assert "DirectorViewportGuard" in replay               # real camera guard
+    assert replay.count("DirectorViewportGuard ") == 1     # one camera snapshot for the whole replay
+    assert "ParseFrameObjectTransforms(" in replay         # pure shared parsers only
+    assert "ParseCamera(" in replay
+    assert "SetCameraFromFrame(" in replay
+    assert ".Apply()" in replay and ".Restore(" in replay and ".Disarm()" in replay
+
+
+def test_replay_does_not_use_capture_parser_or_io():
+    replay = _extract_function(_read(REPLAY_CPP), "HandleDirectorReplay")
+    # Replay must NOT reach into capture-only parsing or file I/O.
+    assert "ParseFrameInstruction" not in replay
+    assert "CaptureViewportToFile" not in replay
+    for token in ["output_path", "run_root", "output_root"]:
+        assert token not in replay
+
+
+def test_replay_validation_caps_and_cancel_present():
+    src = _read(REPLAY_CPP)
+    for token in [
+        "absolute_from_source", "unsupported_transform_semantics",
+        "unsupported_replay_option", "invalid_fps",
+        "frame_dwell_exceeds_cap", "replay_duration_exceeds_cap",
+        "frame_count_exceeds_cap", "object_count_exceeds_cap",
+        "replay_already_active", "object_not_found", "object_state_mismatch",
+        "unsupported_view", "frame_apply_failed",
+        "250", "60000", "3000", "256",
+    ]:
+        assert token in src, f"replay handler missing {token}"
+    replay = _extract_function(src, "HandleDirectorReplay")
+    assert "Slot().cancel.load" in replay
+
+
+def test_replay_preparses_and_validates_every_frame_before_dispatch():
+    handler = _extract_function(_read(REPLAY_CPP), "HandleDirectorReplay")
+    # Every frame's object set is checked against the declared ids, pre-parsed up front.
+    assert "animated_object_ids" in handler           # exact-set-equality check
+    assert "perFrameObjects" in handler               # pre-parsed per-frame vector
+    assert "perFrameCameras" in handler
+    # The pre-parse + the Dispatch must be ordered: parsing precedes the UI dispatch.
+    assert handler.index("perFrameObjects") < handler.index("Dispatch(")
+
+
+def test_replay_remaps_shared_helper_errors_to_replay_codes():
+    handler = _extract_function(_read(REPLAY_CPP), "HandleDirectorReplay")
+    # Replay catches the shared helper's exception and remaps — it does not emit
+    # the helper's generic invalid_input, and does not change the helper.
+    assert "catch (const DirectorFrameValidationError" in handler or \
+           "catch (DirectorFrameValidationError" in handler
+    assert "track_invalid" in handler          # worker-phase parse failures
+    assert "object_not_found" in handler       # UI-phase ValidateFrameObjects failures
+    assert "affectedObjectIds" in handler      # object_id carried from the helper

@@ -2,10 +2,15 @@
 #include "Handlers/DirectorReplayHandler.h"
 #include "Handlers/DirectorFrame.h"
 #include "Threading/MainThreadDispatcher.h"
+#include "Infrastructure/JsonHelpers.h"
+#include "Models/DocumentHelpers.h"
 #include "RookServer.h"
 #include <atomic>
+#include <chrono>
 #include <mutex>
-#include <regex>
+#include <optional>
+#include <set>
+#include <vector>
 
 namespace Rook { namespace Handlers {
 
@@ -57,17 +62,603 @@ struct ReplaySlotReservation {  // RAII release on every path — non-copyable/n
     ReplaySlotReservation& operator=(ReplaySlotReservation&&) = delete;
 };
 
-} // namespace
-
-// Stub — implemented in Task 3.
-void HandleDirectorReplay(const httplib::Request& /*req*/, httplib::Response& res) {
+// Helper: SendErrorData with a code + message.
+static void SendCode(httplib::Response& res, const std::string& code, const std::string& message)
+{
     nlohmann::json d;
-    d["code"] = "not_implemented";
-    d["message"] = "replay not implemented";
+    d["code"] = code;
+    d["message"] = message;
     CRookServer::SendErrorData(res, d);
 }
 
-// Pure worker-thread cancel: touches only the registry + atomic. No Dispatch, no doc API.
+// Helper: SendErrorData with a code + message + frame_index.
+static void SendCodeFrame(httplib::Response& res, const std::string& code,
+                          const std::string& message, int frameIndex)
+{
+    nlohmann::json d;
+    d["code"] = code;
+    d["message"] = message;
+    d["frame_index"] = frameIndex;
+    CRookServer::SendErrorData(res, d);
+}
+
+} // namespace
+
+// ---------------------------------------------------------------------------
+// HandleDirectorReplay — worker-phase validation + guarded synchronous replay
+// ---------------------------------------------------------------------------
+void HandleDirectorReplay(const httplib::Request& req, httplib::Response& res)
+{
+    // -----------------------------------------------------------------------
+    // 0. Payload size cap (before parse where practical)
+    // -----------------------------------------------------------------------
+    static constexpr size_t kMaxPayloadBytes = 8u * 1024u * 1024u;  // 8 MiB
+    if (req.body.size() > kMaxPayloadBytes)
+    {
+        SendCode(res, "payload_too_large", "Request body exceeds 8 MiB limit");
+        return;
+    }
+
+    // -----------------------------------------------------------------------
+    // 1. Parse JSON
+    // -----------------------------------------------------------------------
+    nlohmann::json body;
+    try { body = nlohmann::json::parse(req.body); }
+    catch (...)
+    {
+        SendCode(res, "invalid_input", "Request body is not valid JSON");
+        return;
+    }
+
+    // -----------------------------------------------------------------------
+    // 2. Session id — type-safe: presence + is_string + content validation
+    // -----------------------------------------------------------------------
+    if (!body.contains("replay_session_id") || !body["replay_session_id"].is_string())
+    {
+        SendCode(res, "invalid_session_id",
+                 "replay_session_id must be a 1..128 char [A-Za-z0-9._-] string");
+        return;
+    }
+    std::string sessionId = body["replay_session_id"].get<std::string>();
+    if (!IsValidReplaySessionId(sessionId))
+    {
+        SendCode(res, "invalid_session_id",
+                 "replay_session_id must be a 1..128 char [A-Za-z0-9._-] string");
+        return;
+    }
+
+    // -----------------------------------------------------------------------
+    // 3. Reserve replay slot before any further work
+    // -----------------------------------------------------------------------
+    if (!ReserveReplaySlot(sessionId))
+    {
+        SendCode(res, "replay_already_active", "A replay is already in progress");
+        return;
+    }
+    ReplaySlotReservation reservation;
+    reservation.held = true;
+
+    // -----------------------------------------------------------------------
+    // 4. Extract + validate top-level track structure
+    // -----------------------------------------------------------------------
+    if (!body.contains("track") || !body["track"].is_object())
+    {
+        SendCode(res, "invalid_input", "track must be an object");
+        return;
+    }
+    const auto& track = body["track"];
+
+    // transform_semantics
+    if (!track.contains("transform_semantics") || !track["transform_semantics"].is_string() ||
+        track["transform_semantics"].get<std::string>() != "absolute_from_source")
+    {
+        SendCode(res, "unsupported_transform_semantics",
+                 "Only transform_semantics==\"absolute_from_source\" is supported");
+        return;
+    }
+
+    // loop option
+    if (body.contains("loop") && body["loop"].is_boolean() && body["loop"].get<bool>())
+    {
+        nlohmann::json d;
+        d["code"] = "unsupported_replay_option";
+        d["option"] = "loop";
+        d["message"] = "loop replay is not supported";
+        CRookServer::SendErrorData(res, d);
+        return;
+    }
+
+    // animated_object_ids — non-empty array of unique strings, count <= 256
+    if (!track.contains("animated_object_ids") || !track["animated_object_ids"].is_array() ||
+        track["animated_object_ids"].empty())
+    {
+        SendCode(res, "invalid_input", "animated_object_ids must be a non-empty array");
+        return;
+    }
+    const auto& animatedIdsJson = track["animated_object_ids"];
+    if (animatedIdsJson.size() > 256)
+    {
+        SendCode(res, "object_count_exceeds_cap",
+                 "animated_object_ids exceeds 256 unique object limit");
+        return;
+    }
+    std::set<std::string> animatedObjectIds;
+    for (const auto& idVal : animatedIdsJson)
+    {
+        if (!idVal.is_string())
+        {
+            SendCode(res, "invalid_input", "animated_object_ids must be strings");
+            return;
+        }
+        animatedObjectIds.insert(idVal.get<std::string>());
+    }
+    if (animatedObjectIds.size() != animatedIdsJson.size())
+    {
+        SendCode(res, "invalid_input", "animated_object_ids must be unique");
+        return;
+    }
+
+    // frame_count
+    if (!track.contains("frame_count") || !track["frame_count"].is_number_integer())
+    {
+        SendCode(res, "invalid_input", "frame_count must be an integer");
+        return;
+    }
+    int frameCount = track["frame_count"].get<int>();
+    if (frameCount < 1)
+    {
+        SendCode(res, "invalid_input", "frame_count must be >= 1");
+        return;
+    }
+    if (frameCount > 3000)
+    {
+        SendCode(res, "frame_count_exceeds_cap", "frame_count exceeds 3000 limit");
+        return;
+    }
+
+    // camera_frames / object_frames arrays
+    if (!track.contains("camera_frames") || !track["camera_frames"].is_array())
+    {
+        SendCode(res, "track_invalid", "camera_frames must be an array");
+        return;
+    }
+    if (!track.contains("object_frames") || !track["object_frames"].is_array())
+    {
+        SendCode(res, "track_invalid", "object_frames must be an array");
+        return;
+    }
+    const auto& cameraFramesJson = track["camera_frames"];
+    const auto& objectFramesJson = track["object_frames"];
+    if (static_cast<int>(cameraFramesJson.size()) != frameCount)
+    {
+        SendCode(res, "track_invalid",
+                 "camera_frames length does not match frame_count");
+        return;
+    }
+    if (static_cast<int>(objectFramesJson.size()) != frameCount)
+    {
+        SendCode(res, "track_invalid",
+                 "object_frames length does not match frame_count");
+        return;
+    }
+
+    // Validate frame_index sequence for both arrays (1..N in order)
+    for (int i = 0; i < frameCount; ++i)
+    {
+        const auto& cf = cameraFramesJson[i];
+        if (!cf.is_object() || !cf.contains("frame_index") || !cf["frame_index"].is_number_integer() ||
+            cf["frame_index"].get<int>() != i + 1)
+        {
+            nlohmann::json d;
+            d["code"] = "track_invalid";
+            d["message"] = "camera_frames[" + std::to_string(i) + "].frame_index out of order";
+            d["frame_index"] = i + 1;
+            CRookServer::SendErrorData(res, d);
+            return;
+        }
+        const auto& of = objectFramesJson[i];
+        if (!of.is_object() || !of.contains("frame_index") || !of["frame_index"].is_number_integer() ||
+            of["frame_index"].get<int>() != i + 1)
+        {
+            nlohmann::json d;
+            d["code"] = "track_invalid";
+            d["message"] = "object_frames[" + std::to_string(i) + "].frame_index out of order";
+            d["frame_index"] = i + 1;
+            CRookServer::SendErrorData(res, d);
+            return;
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // 5. Compute effective_fps + dwell_ms, apply caps
+    // -----------------------------------------------------------------------
+    double effectiveFps = 24.0;
+    if (body.contains("fps") && !body["fps"].is_null())
+    {
+        if (!body["fps"].is_number())
+        {
+            SendCode(res, "invalid_fps", "fps must be a positive finite number");
+            return;
+        }
+        effectiveFps = body["fps"].get<double>();
+    }
+    else if (track.contains("fps") && !track["fps"].is_null())
+    {
+        if (!track["fps"].is_number())
+        {
+            SendCode(res, "invalid_fps", "fps must be a positive finite number");
+            return;
+        }
+        effectiveFps = track["fps"].get<double>();
+    }
+    if (!std::isfinite(effectiveFps) || effectiveFps <= 0.0)
+    {
+        SendCode(res, "invalid_fps", "fps must be a positive finite number");
+        return;
+    }
+    double dwellMs = 1000.0 / effectiveFps;
+    if (dwellMs > 250.0)
+    {
+        SendCode(res, "frame_dwell_exceeds_cap",
+                 "Computed dwell_ms exceeds 250ms cap (fps too low)");
+        return;
+    }
+    double plannedDurationMs = static_cast<double>(frameCount) * dwellMs;
+    if (plannedDurationMs > 60000.0)
+    {
+        SendCode(res, "replay_duration_exceeds_cap",
+                 "frame_count * dwell_ms exceeds 60000ms limit");
+        return;
+    }
+
+    // restore_on_finish (default true)
+    bool restoreOnFinish = true;
+    if (body.contains("restore_on_finish") && body["restore_on_finish"].is_boolean())
+        restoreOnFinish = body["restore_on_finish"].get<bool>();
+
+    // -----------------------------------------------------------------------
+    // 6. Worker-phase per-frame pre-parse (no-mutation guarantee)
+    //    Parse every frame BEFORE Dispatch — if any frame is malformed we fail
+    //    before touching the document.
+    // -----------------------------------------------------------------------
+    std::vector<FrameCamera> perFrameCameras;
+    perFrameCameras.reserve(static_cast<size_t>(frameCount));
+    std::vector<std::vector<FrameObjectTransform>> perFrameObjects;
+    perFrameObjects.reserve(static_cast<size_t>(frameCount));
+
+    // We'll also capture sourceBbox from frame 0 to verify consistency.
+    // Key: objectId -> sourceBbox (from first frame). Used to cross-check frames 1..N.
+    std::map<std::string, ON_BoundingBox> sourceBoxRef;
+    static constexpr double kBboxTolerance = 1.0e-4;
+
+    for (int i = 0; i < frameCount; ++i)
+    {
+        // --- Camera parse ---
+        try
+        {
+            nlohmann::json cameraBody;
+            cameraBody["camera"] = cameraFramesJson[i]["camera"];
+            perFrameCameras.push_back(ParseCamera(cameraBody));
+        }
+        catch (const DirectorFrameValidationError& ex)
+        {
+            nlohmann::json d;
+            d["code"] = "track_invalid";
+            d["message"] = std::string("camera_frames[") + std::to_string(i) + "]: " + ex.what();
+            d["frame_index"] = i + 1;
+            CRookServer::SendErrorData(res, d);
+            return;
+        }
+        catch (const std::exception& ex)
+        {
+            nlohmann::json d;
+            d["code"] = "track_invalid";
+            d["message"] = std::string("camera_frames[") + std::to_string(i) + "]: " + ex.what();
+            d["frame_index"] = i + 1;
+            CRookServer::SendErrorData(res, d);
+            return;
+        }
+
+        // --- Object-transforms parse ---
+        std::vector<FrameObjectTransform> frameObjects;
+        try
+        {
+            nlohmann::json objBody;
+            objBody["object_transforms"] = objectFramesJson[i]["object_transforms"];
+            frameObjects = ParseFrameObjectTransforms(objBody);
+        }
+        catch (const DirectorFrameValidationError& ex)
+        {
+            nlohmann::json d;
+            d["code"] = "track_invalid";
+            d["message"] = std::string("object_frames[") + std::to_string(i) + "]: " + ex.what();
+            d["frame_index"] = i + 1;
+            if (!ex.affectedObjectIds.empty())
+                d["object_id"] = ex.affectedObjectIds[0];
+            CRookServer::SendErrorData(res, d);
+            return;
+        }
+        catch (const std::exception& ex)
+        {
+            nlohmann::json d;
+            d["code"] = "track_invalid";
+            d["message"] = std::string("object_frames[") + std::to_string(i) + "]: " + ex.what();
+            d["frame_index"] = i + 1;
+            CRookServer::SendErrorData(res, d);
+            return;
+        }
+
+        // --- Exact object-id set equality check ---
+        std::set<std::string> frameIds;
+        for (const auto& ft : frameObjects)
+            frameIds.insert(ft.objectId);
+        if (frameIds != animatedObjectIds)
+        {
+            nlohmann::json d;
+            d["code"] = "track_invalid";
+            d["message"] = "object_frames[" + std::to_string(i) +
+                           "] object_id set does not exactly match animated_object_ids";
+            d["frame_index"] = i + 1;
+            CRookServer::SendErrorData(res, d);
+            return;
+        }
+        // Also check no duplicates within the frame
+        if (frameObjects.size() != frameIds.size())
+        {
+            nlohmann::json d;
+            d["code"] = "track_invalid";
+            d["message"] = "object_frames[" + std::to_string(i) +
+                           "] contains duplicate object_id entries";
+            d["frame_index"] = i + 1;
+            CRookServer::SendErrorData(res, d);
+            return;
+        }
+
+        // --- source_state (sourceBbox) consistency across frames ---
+        if (i == 0)
+        {
+            for (const auto& ft : frameObjects)
+                sourceBoxRef[ft.objectId] = ft.sourceBbox;
+        }
+        else
+        {
+            for (const auto& ft : frameObjects)
+            {
+                const auto it = sourceBoxRef.find(ft.objectId);
+                if (it != sourceBoxRef.end() &&
+                    !BboxAlmostEqual(ft.sourceBbox, it->second, kBboxTolerance))
+                {
+                    nlohmann::json d;
+                    d["code"] = "track_invalid";
+                    d["message"] = "source_state bbox for object " + ft.objectId +
+                                   " differs across frames";
+                    d["frame_index"] = i + 1;
+                    d["object_id"] = ft.objectId;
+                    CRookServer::SendErrorData(res, d);
+                    return;
+                }
+            }
+        }
+
+        perFrameObjects.push_back(std::move(frameObjects));
+    }
+
+    // -----------------------------------------------------------------------
+    // 7. Dispatch the loop lambda to the UI thread
+    //    perFrameObjects, perFrameCameras, etc. are captured by move/value.
+    //    The lambda does NO parsing or track access — only uses the pre-parsed vectors.
+    // -----------------------------------------------------------------------
+    auto future = CMainThreadDispatcher::Instance().Dispatch(
+        [perFrameObjects = std::move(perFrameObjects),
+         perFrameCameras = std::move(perFrameCameras),
+         frameCount,
+         dwellMs,
+         effectiveFps,
+         plannedDurationMs,
+         restoreOnFinish,
+         sessionId]() -> nlohmann::json
+    {
+        // Resolve document + view
+        CRhinoDoc* pDoc = GetDocument();
+        if (!pDoc)
+            throw std::runtime_error("No active document");
+
+        // --- One viewport guard for the whole replay ---
+        // Ctor calls ValidateSlice1ModelRhinoView; throws DirectorFrameValidationError("unsupported_view")
+        DirectorViewportGuard viewportGuard(pDoc);
+        CRhinoView* pView = viewportGuard.View();
+
+        // One drain suspension for the whole loop
+        DispatchDrainSuspension drainGuard;
+
+        // --- UI-phase doc-dependent validation (frame 0 covers all, set-equality proven worker-phase) ---
+        for (const auto& ft : perFrameObjects[0])
+        {
+            const CRhinoObject* obj = pDoc->LookupObject(ft.uuid);
+            if (!obj || obj->IsDeleted())
+            {
+                nlohmann::json err;
+                err["code"] = "object_not_found";
+                err["object_id"] = ft.objectId;
+                err["message"] = "Object not found in document: " + ft.objectId;
+                return err;
+            }
+        }
+        // source-state drift check — ValidateFrameObjects now fails only on bbox mismatch
+        try
+        {
+            ValidateFrameObjects(pDoc, perFrameObjects[0]);
+        }
+        catch (const DirectorFrameValidationError& ex)
+        {
+            nlohmann::json err;
+            err["code"] = "object_state_mismatch";
+            err["message"] = ex.what();
+            if (!ex.affectedObjectIds.empty())
+                err["object_id"] = ex.affectedObjectIds[0];
+            return err;
+        }
+
+        // --- Per-frame replay loop ---
+        int framesPlayed = 0;
+        nlohmann::json evidence;
+        std::optional<DirectorObjectPoseGuard> poseGuard;
+
+        for (int i = 0; i < frameCount; ++i)
+        {
+            // Emplace a new per-frame guard in-place (non-movable; emplace destroys prior if any).
+            // Use (*poseGuard).Apply() — std::optional dereference — to call the non-copyable guard.
+            poseGuard.emplace(pDoc, perFrameObjects[i]);
+            (*poseGuard).Apply();
+            framesPlayed = i + 1;
+
+            SetCameraFromFrame(pView, perFrameCameras[i]);
+
+            // Sliced dwell — pump ~16ms slices checking cancel each slice
+            using clock = std::chrono::steady_clock;
+            auto dwellStart = clock::now();
+            double dwellRemaining = dwellMs;
+            while (dwellRemaining > 0.0)
+            {
+                // Check cancel first
+                if (Slot().cancel.load(std::memory_order_acquire))
+                {
+                    poseGuard->Restore(evidence);
+                    viewportGuard.Restore(evidence);
+                    nlohmann::json result;
+                    result["status"] = "cancelled";
+                    result["cancelled"] = true;
+                    result["frames_played"] = framesPlayed;
+                    result["frame_count"] = frameCount;
+                    result["restored"] = true;
+                    result["replay_session_id"] = sessionId;
+                    return result;
+                }
+
+                // Pump Windows messages for ~16ms
+                constexpr double kSliceMs = 16.0;
+                double sliceMs = (std::min)(kSliceMs, dwellRemaining);
+                auto sliceStart = clock::now();
+                MSG msg;
+                while (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE))
+                {
+                    TranslateMessage(&msg);
+                    DispatchMessage(&msg);
+                }
+                // Sleep the remainder of this slice
+                auto elapsed = std::chrono::duration<double, std::milli>(clock::now() - sliceStart).count();
+                double sleepMs = sliceMs - elapsed;
+                if (sleepMs > 0.0)
+                    ::Sleep(static_cast<DWORD>(sleepMs));
+
+                // Update remaining
+                auto totalElapsed = std::chrono::duration<double, std::milli>(clock::now() - dwellStart).count();
+                dwellRemaining = dwellMs - totalElapsed;
+            }
+
+            // Post-dwell cancel check (catches cancel that arrived during the last slice)
+            if (Slot().cancel.load(std::memory_order_acquire))
+            {
+                poseGuard->Restore(evidence);
+                viewportGuard.Restore(evidence);
+                nlohmann::json result;
+                result["status"] = "cancelled";
+                result["cancelled"] = true;
+                result["frames_played"] = framesPlayed;
+                result["frame_count"] = frameCount;
+                result["restored"] = true;
+                result["replay_session_id"] = sessionId;
+                return result;
+            }
+
+            // Between non-final frames: restore objects to source pose for next frame
+            if (i < frameCount - 1)
+            {
+                poseGuard->Restore(evidence);
+                // Re-check cancel after restore
+                if (Slot().cancel.load(std::memory_order_acquire))
+                {
+                    viewportGuard.Restore(evidence);
+                    nlohmann::json result;
+                    result["status"] = "cancelled";
+                    result["cancelled"] = true;
+                    result["frames_played"] = framesPlayed;
+                    result["frame_count"] = frameCount;
+                    result["restored"] = true;
+                    result["replay_session_id"] = sessionId;
+                    return result;
+                }
+            }
+            // Final frame: fall through to terminal block with poseGuard still engaged
+        }
+
+        // -----------------------------------------------------------------------
+        // Terminal restore (completed path) — poseGuard holds the final frame guard
+        // -----------------------------------------------------------------------
+        if (restoreOnFinish)
+        {
+            poseGuard->Restore(evidence);
+            viewportGuard.Restore(evidence);
+        }
+        else
+        {
+            poseGuard->Disarm();
+            viewportGuard.Disarm();
+        }
+
+        nlohmann::json result;
+        result["status"] = "completed";
+        result["frames_played"] = frameCount;
+        result["frame_count"] = frameCount;
+        result["effective_fps"] = effectiveFps;
+        result["dwell_ms"] = dwellMs;
+        result["planned_duration_ms"] = plannedDurationMs;
+        result["restored"] = restoreOnFinish;
+        result["replay_session_id"] = sessionId;
+        return result;
+    });
+
+    // -----------------------------------------------------------------------
+    // 8. Block on the future (worker thread) and send response
+    // -----------------------------------------------------------------------
+    nlohmann::json result;
+    try
+    {
+        result = future.get();
+    }
+    catch (const DirectorFrameValidationError& ex)
+    {
+        nlohmann::json d;
+        d["code"] = ex.code;
+        d["message"] = ex.what();
+        if (!ex.affectedObjectIds.empty())
+            d["object_id"] = ex.affectedObjectIds[0];
+        CRookServer::SendErrorData(res, d);
+        return;
+    }
+    catch (const std::exception& ex)
+    {
+        nlohmann::json d;
+        d["code"] = "frame_apply_failed";
+        d["message"] = ex.what();
+        CRookServer::SendErrorData(res, d);
+        return;
+    }
+
+    // The lambda may return an error object (object_not_found, object_state_mismatch, etc.)
+    // or a success object (status=completed|cancelled).
+    if (result.contains("code"))
+    {
+        CRookServer::SendErrorData(res, result);
+        return;
+    }
+
+    CRookServer::SendSuccess(res, result);
+}
+
+// ---------------------------------------------------------------------------
+// HandleDirectorReplayCancel — pure worker-thread: touches only registry + atomic
+// ---------------------------------------------------------------------------
 void HandleDirectorReplayCancel(const httplib::Request& req, httplib::Response& res) {
     nlohmann::json body;
     try { body = nlohmann::json::parse(req.body); }
