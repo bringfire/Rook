@@ -52,16 +52,18 @@
 Add to `ReconstructionJobManagerTests.cs` (place near the existing `DeriveTextureExpected` tests). This adds a local helper that builds full catalog entries:
 
 ```csharp
-    private static ReconstructionInputMetadata SingleImageInput()
-        => new() { Mode = "single_image", SourceField = "image_url" };
-
+    // ReconstructionModelEntry/InputMetadata/PreprocessingMetadata are all POSITIONAL records
+    // (verified against ReconstructionModelCatalog.cs). Ctor order:
+    // (ModelId, Provider, Task, Status, Enabled, PipelineRoles, InputTypes, OutputRoles,
+    //  PreferredAssetRole, FallbackOrder, SupportsPbr, Preprocessing, DocsUrl, DefaultTextureExpected,
+    //  Input=null, Prompt=null, Options=null).
     private static ReconstructionModelEntry GateEntry(string status, params string[] outputRoles)
         => new(
             "fal-ai/test/model", "fal", "single_image_to_3d", status, true,
             new[] { "single_image_to_3d" }, new[] { "image_url" }, outputRoles,
             "model_glb", new[] { "model_glb" }, false,
             new ReconstructionPreprocessingMetadata(false, false), "https://example/docs",
-            true, SingleImageInput());
+            true, new ReconstructionInputMetadata("single_image", "image_url"));
 
     [Fact]
     public void IsSubmittable3DModel_Experimental_RejectedByDefault()
@@ -83,7 +85,7 @@ Add to `ReconstructionJobManagerTests.cs` (place near the existing `DeriveTextur
         => Assert.False(ReconstructionJobManager.IsSubmittable3DModel(GateEntry("experimental", "thumbnail"), allowExperimental: true));
 ```
 
-> If `ReconstructionInputMetadata`/`ReconstructionPreprocessingMetadata` constructor shapes differ from the above (check `ReconstructionModelCatalog.cs`), adjust the helper to match — the test intent (status × flag × output-role matrix) is what matters.
+The ctor shapes above are verified against `ReconstructionModelCatalog.cs:10-46`.
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
@@ -127,9 +129,9 @@ with:
 Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "FullyQualifiedName~IsSubmittable3DModel"`
 Expected: PASS (4 tests).
 
-- [ ] **Step 5: Thread the flag through the request + parser (failing test first)**
+- [ ] **Step 5: Thread the flag through the request + parser (failing tests first)**
 
-Add to `ReconstructionJobManagerTests.cs` (or a parser test file if one exists — otherwise here):
+Add to `ReconstructionJobManagerTests.cs` (or a parser test file if one exists — otherwise here). Note the strictness test: an existing-but-non-bool value must be REJECTED, not silently treated as absent (the parser's `ReadBool` returns null for a non-bool, which would otherwise pass as default false):
 
 ```csharp
     [Fact]
@@ -145,14 +147,23 @@ Add to `ReconstructionJobManagerTests.cs` (or a parser test file if one exists �
         Assert.True(without.Success);
         Assert.False(without.Request!.AllowExperimentalModel);
     }
+
+    [Fact]
+    public void Parse_RejectsNonBoolAllowExperimentalModel()
+    {
+        var result = ReconstructionSubmitRequestParser.Parse(
+            @"{""source_artifact_id"":""" + Guid.NewGuid() + @""",""model_id"":""m"",""allow_experimental_model"":""true""}");
+        Assert.False(result.Success);
+        Assert.Equal("allow_experimental_model", result.Failure!.Field);
+    }
 ```
 
 - [ ] **Step 6: Run to verify failure**
 
-Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "FullyQualifiedName~Parse_ReadsAllowExperimentalModel"`
+Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "FullyQualifiedName~AllowExperimentalModel"`
 Expected: FAIL — `ReconstructionSubmitRequest` has no `AllowExperimentalModel` member (compile error).
 
-- [ ] **Step 7: Add the request field + parse it**
+- [ ] **Step 7: Add the request field + strict parse**
 
 In `ReconstructionSubmitRequestParser.cs`, add the init property to the request record (alongside `Views`, lines 14-22):
 
@@ -164,10 +175,17 @@ In `ReconstructionSubmitRequestParser.cs`, add the init property to the request 
     public bool AllowExperimentalModel { get; init; }
 ```
 
-In the `Parse` method, before the `return` that constructs the request, add:
+In the `Parse` method, before the `return` that constructs the request, add a STRICT read (reject a present-but-non-bool value rather than silently defaulting — `ReadBool` is too lenient for this):
 
 ```csharp
-        var allowExperimental = ReadBool(root, "allow_experimental_model") ?? false;
+        var allowExperimental = false;
+        if (root.TryGetPropertyValue("allow_experimental_model", out var allowNode) && allowNode is not null)
+        {
+            if (allowNode is JsonValue allowValue && allowValue.TryGetValue<bool>(out var allowFlag))
+                allowExperimental = allowFlag;
+            else
+                return Fail("invalid_request", "allow_experimental_model must be a boolean.", "allow_experimental_model");
+        }
 ```
 
 and extend the object initializer (currently `{ Views = views, }`) to:
@@ -213,10 +231,7 @@ Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "FullyQualifiedName~
 Expected: PASS (no regressions).
 
 ```bash
-git add src/Rook/Services/Reconstruction/ReconstructionSubmitRequestParser.cs \
-        src/Rook/Services/Reconstruction/ReconstructionJobManager.cs \
-        mcp_server/src/rook/server.py \
-        src/Rook.Tests/Services/Reconstruction/ReconstructionJobManagerTests.cs
+git add src/Rook/Services/Reconstruction/ReconstructionSubmitRequestParser.cs src/Rook/Services/Reconstruction/ReconstructionJobManager.cs mcp_server/src/rook/server.py src/Rook.Tests/Services/Reconstruction/ReconstructionJobManagerTests.cs
 git commit -m "feat(reconstruction): submit-time allow_experimental_model override for the 3D gate"
 ```
 
@@ -237,6 +252,15 @@ git commit -m "feat(reconstruction): submit-time allow_experimental_model overri
 Add to `ReconstructionOptionsValidatorTests.cs`. These use a small local model with a string option and an unknown-kind option:
 
 ```csharp
+    // Positional ctor (verified ReconstructionModelCatalog.cs:10-46); Options is the last positional arg.
+    private static ReconstructionModelEntry ModelWithOptions(params ReconstructionOptionDescriptor[] options)
+        => new(
+            "test/model", "fal", "single_image_to_3d", "experimental", true,
+            new[] { "single_image_to_3d" }, new[] { "image_url" }, new[] { "model_glb" },
+            "model_glb", new[] { "model_glb" }, false,
+            new ReconstructionPreprocessingMetadata(false, false), "https://example/docs",
+            true, new ReconstructionInputMetadata("single_image", "image_url"), null, options);
+
     private static ReconstructionModelEntry StringOptModel()
         => ModelWithOptions(new ReconstructionOptionDescriptor(
             "texture_prompt", "Texture Prompt", "string"));
@@ -271,7 +295,7 @@ Add to `ReconstructionOptionsValidatorTests.cs`. These use a small local model w
     }
 ```
 
-> `ModelWithOptions(params ReconstructionOptionDescriptor[])` is a helper the test file should already have for building an entry with an options array; if it doesn't, add a minimal one mirroring the existing `ProModel()` factory but taking the descriptors as a parameter.
+`ModelWithOptions` is defined inline above; `ReconstructionOptionDescriptor` is positional (`Key, Label, Kind, Default=null, ...`).
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -299,8 +323,7 @@ Expected: PASS (all, including the three new tests and the existing enum/boolean
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/Rook/Services/Reconstruction/ReconstructionOptionsValidator.cs \
-        src/Rook.Tests/Services/Reconstruction/ReconstructionOptionsValidatorTests.cs
+git add src/Rook/Services/Reconstruction/ReconstructionOptionsValidator.cs src/Rook.Tests/Services/Reconstruction/ReconstructionOptionsValidatorTests.cs
 git commit -m "feat(reconstruction): validated string option kind; reject unknown option kinds"
 ```
 
@@ -312,7 +335,7 @@ git commit -m "feat(reconstruction): validated string option kind; reject unknow
 - Modify: `src/Rook/Services/Reconstruction/ReconstructionModelCatalog.cs` (`ReconstructionOptionIgnoredWhen.EqualsValue` → `JsonNode?`)
 - Modify: `src/Rook/Services/Reconstruction/ReconstructionOptionsValidator.cs:55-65` (gate comparison)
 - Modify: `src/Rook/Handlers/ReconstructionOpHandler.cs:903-909` (`OptionToObj` — only if a test breaks; verify)
-- Test: `src/Rook.Tests/Services/Reconstruction/ReconstructionOptionsValidatorTests.cs`
+- Test: `src/Rook.Tests/Services/Reconstruction/ReconstructionOptionsValidatorTests.cs` (new bool-gate tests), `src/Rook.Tests/Services/Reconstruction/ReconstructionModelCatalogTests.cs:69` (existing assertion fix)
 
 **Interfaces:**
 - Produces: `ReconstructionOptionIgnoredWhen(string Key, JsonNode? EqualsValue)`; the validator omits an option when its sibling gate's JSON value (string OR bool) equals `EqualsValue`.
@@ -369,6 +392,14 @@ public sealed record ReconstructionOptionIgnoredWhen(
 
 (The file already imports `System.Text.Json.Nodes` for `ReconstructionOptionDescriptor.Default`.)
 
+- [ ] **Step 3b: Update the existing catalog test that reads `EqualsValue` as a string**
+
+`ReconstructionModelCatalogTests.cs:69` currently asserts `Assert.Equal("Geometry", pbr.IgnoredWhen.EqualsValue);` — this no longer compiles once `EqualsValue` is `JsonNode?` (and the whole test assembly fails to build until fixed). Change it to read the node's value:
+
+```csharp
+        Assert.Equal("Geometry", pbr.IgnoredWhen!.EqualsValue!.GetValue<string>());
+```
+
 - [ ] **Step 4: Make the gate comparison type-aware**
 
 In `ReconstructionOptionsValidator.cs`, replace the `ignored_when` omission block (lines ~55-65):
@@ -418,9 +449,7 @@ Expected: PASS. If a test casts `equals` to `string`, update it to read the `Jso
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/Rook/Services/Reconstruction/ReconstructionModelCatalog.cs \
-        src/Rook/Services/Reconstruction/ReconstructionOptionsValidator.cs \
-        src/Rook.Tests/Services/Reconstruction/ReconstructionOptionsValidatorTests.cs
+git add src/Rook/Services/Reconstruction/ReconstructionModelCatalog.cs src/Rook/Services/Reconstruction/ReconstructionOptionsValidator.cs src/Rook.Tests/Services/Reconstruction/ReconstructionOptionsValidatorTests.cs src/Rook.Tests/Services/Reconstruction/ReconstructionModelCatalogTests.cs
 git commit -m "feat(reconstruction): boolean-gate ignored_when (omit dependent options on bool sibling)"
 ```
 
@@ -430,27 +459,58 @@ git commit -m "feat(reconstruction): boolean-gate ignored_when (omit dependent o
 
 **Files:**
 - Modify: `src/Rook/Services/Reconstruction/Fal/fal-model-catalog.json:71-97` (Meshy entry)
-- Test: `src/Rook.Tests/Services/Reconstruction/ReconstructionOptionsValidatorTests.cs`
+- Test: `src/Rook.Tests/Services/Reconstruction/ReconstructionModelCatalogTests.cs` (production-shape), `src/Rook.Tests/Services/Reconstruction/ReconstructionOptionsValidatorTests.cs` (options behavior)
 
 **Interfaces:**
 - Consumes: validated `string` kind (Task 2) and boolean-gate `ignored_when` (Task 3).
 - Produces: a Meshy entry whose `source_field` is `image_url`, whose `output_roles` advertise glb/obj/fbx/usdz/texture/thumbnail, and whose options validate/default/omit correctly.
 
-- [ ] **Step 1: Write the failing catalog-driven test**
+**Note:** `ReconstructionModelCatalog`'s only entry point is `FromJson(string)` (private ctor) — `new ReconstructionModelCatalog()` does NOT compile. Tests load the shipped catalog from the embedded resource, exactly as `ReconstructionModelCatalogTests.ProductionCatalog()` already does.
 
-Add to `ReconstructionOptionsValidatorTests.cs`. This loads the real Meshy entry from the embedded catalog and validates option behavior end-to-end:
+- [ ] **Step 1: Write the failing tests (split by concern)**
+
+**(A) Catalog-shape tests** — add to `ReconstructionModelCatalogTests.cs`, reusing its existing `ProductionCatalog()` helper (`ReconstructionModelCatalogTests.cs:15-24`):
+
+```csharp
+    [Fact]
+    public void ProductionCatalog_Meshy_SourceFieldIsImageUrl()
+        => Assert.Equal("image_url", ProductionCatalog().Find("fal-ai/meshy/v6/image-to-3d")!.Input!.SourceField);
+
+    [Fact]
+    public void ProductionCatalog_Meshy_AdvertisesObjFbxUsdzOutputs()
+    {
+        var roles = ProductionCatalog().Find("fal-ai/meshy/v6/image-to-3d")!.OutputRoles;
+        Assert.Contains("model_obj", roles);
+        Assert.Contains("model_fbx", roles);
+        Assert.Contains("model_usdz", roles);
+    }
+
+    [Fact]
+    public void ProductionCatalog_Meshy_StaysExperimental_WithOptionKeys()
+    {
+        var meshy = ProductionCatalog().Find("fal-ai/meshy/v6/image-to-3d")!;
+        Assert.Equal("experimental", meshy.Status);
+        Assert.Equal(
+            new[] { "topology", "target_polycount", "symmetry_mode", "should_remesh", "should_texture", "enable_pbr", "texture_prompt" },
+            meshy.Options!.Select(o => o.Key).ToArray());
+    }
+```
+
+**(B) Options-behavior tests** — add to `ReconstructionOptionsValidatorTests.cs`, with a local production-catalog loader mirroring `ReconstructionModelCatalogTests.ProductionCatalog()`:
 
 ```csharp
     private static ReconstructionModelEntry MeshyEntry()
-        => new ReconstructionModelCatalog().Find("fal-ai/meshy/v6/image-to-3d")
-           ?? throw new Xunit.Sdk.XunitException("Meshy v6 entry missing from catalog");
+    {
+        var assembly = typeof(ReconstructionModelEntry).Assembly;
+        using var stream = assembly.GetManifestResourceStream(
+            "Rook.Services.Reconstruction.Fal.fal-model-catalog.json")!;
+        using var reader = new System.IO.StreamReader(stream);
+        return ReconstructionModelCatalog.FromJson(reader.ReadToEnd())
+            .Find("fal-ai/meshy/v6/image-to-3d")!;
+    }
 
     [Fact]
-    public void MeshyCatalog_SourceFieldIsImageUrl()
-        => Assert.Equal("image_url", MeshyEntry().Input!.SourceField);
-
-    [Fact]
-    public void MeshyCatalog_DefaultsFillTopologyAndShouldTexture()
+    public void MeshyOptions_DefaultsFillTopologyAndShouldTexture()
     {
         var result = ReconstructionOptionsValidator.Validate(new JsonObject(), MeshyEntry());
         Assert.True(result.Success);
@@ -459,7 +519,7 @@ Add to `ReconstructionOptionsValidatorTests.cs`. This loads the real Meshy entry
     }
 
     [Fact]
-    public void MeshyCatalog_OmitsEnablePbrAndTexturePrompt_WhenShouldTextureFalse()
+    public void MeshyOptions_OmitEnablePbrAndTexturePrompt_WhenShouldTextureFalse()
     {
         var submitted = new JsonObject
         {
@@ -474,12 +534,10 @@ Add to `ReconstructionOptionsValidatorTests.cs`. This loads the real Meshy entry
     }
 ```
 
-> Confirm the catalog accessor: the test uses `new ReconstructionModelCatalog().Find(...)`. If the catalog's public construction/lookup differs (check `ReconstructionModelCatalog.cs:97-131`), use the actual loader (e.g. a static `Default()`/`Load()` factory). The assertions are the contract.
-
 - [ ] **Step 2: Run to verify failure**
 
-Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "FullyQualifiedName~MeshyCatalog"`
-Expected: FAIL — `MeshyCatalog_SourceFieldIsImageUrl` fails (`source_field` is still `input_image_url`); the option tests fail (options block absent).
+Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "FullyQualifiedName~Meshy"`
+Expected: FAIL — `ProductionCatalog_Meshy_SourceFieldIsImageUrl` fails (`source_field` is still `input_image_url`); the option/output tests fail (options block + obj/fbx/usdz absent).
 
 - [ ] **Step 3: Replace the Meshy catalog entry**
 
@@ -525,14 +583,13 @@ In `fal-model-catalog.json`, replace the Meshy object (lines 71-97) with:
 
 - [ ] **Step 4: Run to verify pass**
 
-Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "FullyQualifiedName~MeshyCatalog"`
-Expected: PASS (3 tests).
+Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "FullyQualifiedName~Meshy"`
+Expected: PASS (5 new tests). Also run the full catalog suite to confirm no production-shape regression: `dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "FullyQualifiedName~ReconstructionModelCatalog"`.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/Rook/Services/Reconstruction/Fal/fal-model-catalog.json \
-        src/Rook.Tests/Services/Reconstruction/ReconstructionOptionsValidatorTests.cs
+git add src/Rook/Services/Reconstruction/Fal/fal-model-catalog.json src/Rook.Tests/Services/Reconstruction/ReconstructionModelCatalogTests.cs src/Rook.Tests/Services/Reconstruction/ReconstructionOptionsValidatorTests.cs
 git commit -m "feat(reconstruction): Meshy v6 catalog -- image_url, expanded outputs, structured options"
 ```
 
@@ -644,8 +701,7 @@ Expected: PASS — all four new tests AND the existing Hunyuan tests.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/Rook/Services/Reconstruction/ReconstructionJobManager.cs \
-        src/Rook.Tests/Services/Reconstruction/ReconstructionJobManagerTests.cs
+git add src/Rook/Services/Reconstruction/ReconstructionJobManager.cs src/Rook.Tests/Services/Reconstruction/ReconstructionJobManagerTests.cs
 git commit -m "feat(reconstruction): family-aware DeriveTextureExpected (should_texture owns Meshy expectation)"
 ```
 
@@ -771,6 +827,6 @@ git commit -m "docs(reconstruction): Meshy v6 single-image live smoke result"
 - §5 verification split → deterministic tests across Tasks 1–6; one live smoke in Task 7. ✓
 - §6 acceptance checklist → Task 7 Step 3. ✓
 
-**Placeholder scan:** no TBD/TODO; every code step shows real code. Two guarded uncertainties (catalog accessor API in Tasks 4; `ReconstructionInputMetadata` ctor shape in Task 1) are flagged with the exact contract to preserve and how to adapt — not blank placeholders.
+**Placeholder scan:** no TBD/TODO; every code step shows real code. Previously-guarded uncertainties are now resolved against source: positional ctors (`ReconstructionModelCatalog.cs:10-46`), catalog load via `FromJson` + embedded-resource `ProductionCatalog()` (`ReconstructionModelCatalogTests.cs:15-24`), strict non-bool rejection for `allow_experimental_model`, and the `EqualsValue`→`JsonNode?` ripple into `ReconstructionModelCatalogTests.cs:69`.
 
 **Type consistency:** `AllowExperimentalModel` (bool, init) used consistently in Task 1; `IsSubmittable3DModel(model, allowExperimental)` signature matches its call site; `ReconstructionOptionIgnoredWhen.EqualsValue` is `JsonNode?` everywhere after Task 3 (record, validator helper `JsonValueEquals`, serializer); `DeriveTextureExpected(JsonObject, ReconstructionModelEntry)` signature unchanged, internal helper `ModelDeclaresOption` added; `ClassifyTextureRole` role names (`texture_base_color`, `texture_normal`) match Task 6 assertions and `FalReconstructionResultMapper.cs:231-236`.
