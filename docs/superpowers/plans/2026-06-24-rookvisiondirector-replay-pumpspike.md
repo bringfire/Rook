@@ -444,7 +444,7 @@ Expected: prints three JSON blocks and writes `pumpspike-evidence.json`.
 
 Confirm against `docs/.../2026-06-24-...-design.md`:
 - **S0 control:** `executed_during_pump: true`, `tasks_executed_during_pump >= 1` (harness validated). If S0 is *clean*, STOP — the harness/pump is unrepresentative; fix before trusting anything.
-- **S1 filtered:** record both result and `idle_fired_during_pump`. A "safe" S1 with `idle_fired_during_pump: false` is inconclusive for the idle door.
+- **S1 filtered:** informative only (no guard — not the production choice). `idle_fired_during_pump: false` is the *structurally expected* value: the idle door cannot fire during a held UI-thread pump, so it is a tripwire, not a coverage gate, and does not make S1 inconclusive.
 - **S2 guarded:** must be `queued_during_pump: true`, `tasks_executed_during_pump: 0`, `executed_after_return: true`. `drain_attempt_count` nonzero is expected and good.
 
 - [ ] **Step 4: Write the Findings section into the spec**
@@ -515,7 +515,7 @@ git commit -m "spike: remove pump-spike scaffolding; ship only the dispatch-drai
 - Durable `DispatchDrainSuspension` (m_suspendDepth, IsAllDispatchBlocked OR, nest-safe, restore-on-destruct, no enqueue block, wake-on-release) → Tasks 1–2. ✅
 - Durable tests (depth, restore, enqueue-allowed, wake outermost-only) → Tasks 1–2 source-analysis cases; runtime behaviors validated by Task 4 live S2. ✅
 - Throwaway scaffolding gated + removed before reviewable → Task 3 (flag-gated) + Task 5 (strip + `rg` gate + durable-only diff). ✅
-- Both drain doors (idle + WndProc) → Task 3 (S1 filter targets WndProc; `idle_fired_during_pump` covers idle). ✅
+- Both drain doors (idle + WndProc) → Task 3 (S1 filter targets the WndProc door; `idle_fired_during_pump` is the idle-door tripwire — idle cannot structurally fire during a held pump). ✅
 - Metric split (`drain_attempt_count` vs `tasks_executed_during_pump`) → Task 3 Step 3 + probe shape. ✅
 - Decision table → Task 4 Step 3–4. ✅
 - Native-only durable surface, build via scripts → Global Constraints + every build step. ✅
