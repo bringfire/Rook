@@ -69,6 +69,13 @@ def _graph_with_facts(facts: dict) -> PlanGraph:
     return PlanGraph(memory=GraphMemory(facts=facts))
 
 
+class _NoDeepcopy:
+    """A value whose deepcopy raises -- exercises the copy-failure findings."""
+
+    def __deepcopy__(self, memo):
+        raise RuntimeError("no copy")
+
+
 def test_nested_path_success():
     g = _graph_with_facts({"repair_anchor": {"component_guid": "GUID-1"}})
     r = bind_params_from_memory(_BASE, g, {"guid": ("repair_anchor", "component_guid")})
@@ -127,6 +134,31 @@ def test_param_key_invalid_none_and_empty():
     assert [f.code for f in empty_key.findings] == ["param_key_invalid"]
 
 
+def test_base_params_copy_failed():
+    g = _graph_with_facts({"component_guid": "GUID-1"})
+    base = {"bad": _NoDeepcopy()}  # a Mapping, but deepcopy of its value raises
+    r = bind_params_from_memory(base, g, {"guid": ("component_guid",)})
+    assert r.params is None
+    assert [f.code for f in r.findings] == ["base_params_copy_failed"]
+
+
+def test_memory_value_copy_failed():
+    g = _graph_with_facts({"weird": _NoDeepcopy()})  # present, but deepcopy raises
+    r = bind_params_from_memory(_BASE, g, {"guid": ("weird",)})
+    assert r.params is None
+    assert [f.code for f in r.findings] == ["memory_value_copy_failed"]
+
+
+def test_no_partial_success_collects_and_returns_none():
+    # "guid" would resolve, but the missing binding nulls the whole result.
+    g = _graph_with_facts({"component_guid": "GOOD"})
+    r = bind_params_from_memory(
+        _BASE, g, {"guid": ("component_guid",), "missing": ("absent_key",)}
+    )
+    assert r.params is None
+    assert [f.code for f in r.findings] == ["memory_fact_missing"]
+
+
 def test_immutability_of_inputs():
     facts = {"repair_anchor": {"component_guid": "GUID-1"}}
     g = _graph_with_facts(facts)
@@ -148,19 +180,29 @@ def test_bound_dict_value_is_deepcopied_from_memory():
     assert g.memory.facts["repair_anchor"]["component_guid"] == "GUID-1"
 
 
-def test_module_imports_no_agent_layer_and_no_execution_params_key():
+def test_module_uses_no_agent_layer_and_no_execution_params_key():
+    # AST-based (not text-based): a docstring/comment mention of the token is fine;
+    # what matters is that the module neither imports the agent layer nor references
+    # EXECUTION_PARAMS_KEY as an identifier.
     import rook.learning.plan_graph_param_binding as mod
 
     src = pathlib.Path(mod.__file__).read_text(encoding="utf-8")
-    assert "EXECUTION_PARAMS_KEY" not in src
     tree = ast.parse(src)
-    imported: set[str] = set()
+    imported_modules: set[str] = set()
+    referenced: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
-            imported.update(a.name for a in node.names)
+            imported_modules.update(a.name for a in node.names)
+            referenced.update((a.asname or a.name) for a in node.names)
         elif isinstance(node, ast.ImportFrom):
-            imported.add(node.module or "")
-    assert not any(m.startswith("rook.agent") for m in imported), imported
+            imported_modules.add(node.module or "")
+            referenced.update((a.asname or a.name) for a in node.names)
+        elif isinstance(node, ast.Name):
+            referenced.add(node.id)
+        elif isinstance(node, ast.Attribute):
+            referenced.add(node.attr)
+    assert not any(m.startswith("rook.agent") for m in imported_modules), imported_modules
+    assert "EXECUTION_PARAMS_KEY" not in referenced
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail (module missing)**
@@ -334,7 +376,7 @@ Run:
 ```
 mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_plan_graph_param_binding.py -v
 ```
-Expected: all (10) tests PASS.
+Expected: all (13) tests PASS.
 
 - [ ] **Step 5: Confirm the production change is exactly one module, then commit**
 
@@ -353,7 +395,7 @@ git commit -m "feat(lm4k): pure bind_params_from_memory + unit tests
 Learning-layer primitive sourcing producer params from graph.memory.facts along
 explicit paths; returns merged params (no node write, no agent import, no graph
 mutation, deep-copies, no partial success). Distinct ParamBindingResult/
-ParamBindingFinding types. 10 unit tests incl. all finding codes + immutability +
+ParamBindingFinding types. 13 unit tests incl. all finding codes + immutability +
 AST import-boundary guard.
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
@@ -736,7 +778,7 @@ Expected after restore: clean (or only intended files).
 $files = Get-ChildItem mcp_server/tests -Filter 'test_plan_graph*.py' | ForEach-Object { $_.FullName }
 mcp_server/.venv/Scripts/python.exe -m pytest -p no:cacheprovider @files -q
 ```
-Expected: all pass, including `test_plan_graph_param_binding.py` (10) and `test_plan_graph_param_binding_chain.py` (1) — gate rises from the LM4J baseline of 258 by 11 to 269.
+Expected: all pass, including `test_plan_graph_param_binding.py` (13) and `test_plan_graph_param_binding_chain.py` (1) — gate rises from the LM4J baseline of 258 by 14 to 272.
 
 - [ ] **Production change is exactly one module:**
 ```
@@ -750,14 +792,14 @@ Expected: a single line for `mcp_server/src/rook/learning/plan_graph_param_bindi
 
 **Spec coverage:**
 - Helper contract (signature, deep-copy, no node write, no agent import, no partial success) → Task 1 module + unit tests.
-- All seven finding codes → Task 1 unit tests (`base_params_invalid`, `base_params_copy_failed` covered by code path; `param_key_invalid`, `memory_path_invalid`, `memory_fact_missing`, `memory_fact_invalid` directly tested; `memory_value_copy_failed` is the deep-copy guard on resolved values).
+- All seven finding codes → Task 1 unit tests, each directly: `base_params_invalid`, `base_params_copy_failed` (via `_NoDeepcopy` base value), `param_key_invalid`, `memory_path_invalid`, `memory_fact_missing`, `memory_fact_invalid`, `memory_value_copy_failed` (via `_NoDeepcopy` memory value). Plus `test_no_partial_success_collects_and_returns_none` pins the no-partial contract.
 - Distinct types `ParamBindingResult`/`ParamBindingFinding` → Task 1 module.
 - Nested path live source + flat equivalence → Task 1 (`test_flat_path_equals_nested`), Tasks 2/3 (nested).
 - Pure chain guard honest scope → Task 2 (docstring + comment).
 - Live proof memory-sourced guid drives dispatch, evidence as control → Task 3.
 - One-module production diff, restore `operations_knowledge.json`, no overrides, omit `language` → Global Constraints + Final verification + Task 3.
 
-*Note:* `base_params_copy_failed` and `memory_value_copy_failed` are exercised by their code paths but are hard to trigger deterministically without a non-deepcopyable object; they are defensive contract guards (not separately unit-tested to avoid brittle sentinel fixtures). All other codes are directly tested.
+*Note:* `base_params_copy_failed` and `memory_value_copy_failed` are deterministically triggered by the local `_NoDeepcopy` fixture (a value whose `__deepcopy__` raises), used once as a base-params value and once as a memory value. All seven finding codes are directly unit-tested.
 
 **Placeholder scan:** No TBD/TODO; every code step shows complete file content; every run step gives an exact command + expected output.
 
