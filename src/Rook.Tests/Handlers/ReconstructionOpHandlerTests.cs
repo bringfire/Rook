@@ -176,9 +176,81 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
         Assert.Equal("model_glb", data["asset_role"]);
         var repair = Assert.IsType<Dictionary<string, object?>>(data["material_repair"]);
         Assert.Equal("Rook Reconstruction cccccccc", repair["material_name"]);
-        Assert.Equal("texture", repair["base_color_role"]);
-        Assert.Equal("texture_20250901.png", repair["base_color_file_name"]);
-        Assert.EndsWith("texture.png", Assert.IsType<string>(repair["base_color_path"]));
+        var maps = Assert.IsAssignableFrom<IReadOnlyList<object?>>(repair["maps"]);
+        var baseMap = Assert.IsType<Dictionary<string, object?>>(Assert.Single(maps));
+        Assert.Equal("base_color", baseMap["channel"]);
+        Assert.Equal("texture", baseMap["role"]);
+        Assert.Equal("texture_20250901.png", baseMap["file_name"]);
+        Assert.EndsWith("texture.png", Assert.IsType<string>(baseMap["path"]));
+    }
+
+    [Fact]
+    public async Task DispatchOffUi_PrepareImport_AppendsNormalMapWhenPresent()
+    {
+        var fixture = CreateFixture();
+        fixture.Downloader.Files["https://example.test/m.glb"] = new byte[] { 1, 2, 3 };
+        fixture.Downloader.Files["https://example.test/base.png"] = new byte[] { 4, 5, 6 };
+        fixture.Downloader.Files["https://example.test/normal.png"] = new byte[] { 7, 8, 9 };
+        var package = await BuildPackageAsync(fixture, JsonNode.Parse("""
+        {
+          "model_glb": {"url": "https://example.test/m.glb"},
+          "texture_urls": [
+            {
+              "base_color": {"url": "https://example.test/base.png", "file_name": "texture_0.png"},
+              "normal":     {"url": "https://example.test/normal.png", "file_name": "texture_0_normal.png"},
+              "metallic":   null,
+              "roughness":  null
+            }
+          ]
+        }
+        """)!);
+
+        var response = fixture.Handler.DispatchOffUi(
+            "{" +
+            "\"op\":\"prepare_import\"," +
+            $"\"package_id\":\"{package.Id}\"," +
+            "\"import_id\":\"cccccccc-cccc-cccc-cccc-cccccccccccc\"" +
+            "}");
+
+        Assert.True(response.Success, JsonSerializer.Serialize(response.Data));
+        var data = Assert.IsType<Dictionary<string, object?>>(response.Data);
+        var repair = Assert.IsType<Dictionary<string, object?>>(data["material_repair"]);
+        var maps = Assert.IsAssignableFrom<IReadOnlyList<object?>>(repair["maps"]);
+        Assert.Equal(2, maps.Count);
+
+        var baseMap = Assert.IsType<Dictionary<string, object?>>(maps[0]);
+        Assert.Equal("base_color", baseMap["channel"]);
+        Assert.Equal("texture_base_color", baseMap["role"]);
+
+        var normalMap = Assert.IsType<Dictionary<string, object?>>(maps[1]);
+        Assert.Equal("normal", normalMap["channel"]);
+        Assert.Equal("texture_normal", normalMap["role"]);
+        // file_name falls back to the role-named blob: ProviderFileNamesByRole does not surface
+        // the slot-normal's original provider name, and FileNameForRole derives it from the path.
+        // The field is informational; native material binding uses `path`, not `file_name`.
+        Assert.Equal("texture_normal.png", normalMap["file_name"]);
+        Assert.EndsWith("texture_normal.png", Assert.IsType<string>(normalMap["path"]));
+    }
+
+    [Fact]
+    public async Task DispatchOffUi_PrepareImport_NoBaseColorYieldsNoMaterialRepair()
+    {
+        var fixture = CreateFixture();
+        fixture.Downloader.Files["https://example.test/m.glb"] = new byte[] { 1, 2, 3 };
+        var package = await BuildPackageAsync(fixture, JsonNode.Parse("""
+        { "model_glb": {"url": "https://example.test/m.glb"} }
+        """)!);
+
+        var response = fixture.Handler.DispatchOffUi(
+            "{" +
+            "\"op\":\"prepare_import\"," +
+            $"\"package_id\":\"{package.Id}\"," +
+            "\"import_id\":\"cccccccc-cccc-cccc-cccc-cccccccccccc\"" +
+            "}");
+
+        Assert.True(response.Success, JsonSerializer.Serialize(response.Data));
+        var data = Assert.IsType<Dictionary<string, object?>>(response.Data);
+        Assert.False(data.ContainsKey("material_repair"));
     }
 
     [Fact]
