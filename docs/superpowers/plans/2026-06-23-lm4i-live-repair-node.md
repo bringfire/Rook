@@ -337,9 +337,12 @@ async def test_live_repair_chain_drives_to_complete(fresh_document):
 
     # --- Live dispatch 1: create (broken) -> created_with_errors / succeeded. ---
     create_result = await agent.run_live_producer_node(graph, "create_script")
+    # Direct claim: the create override resolved to the proven tool.
+    assert create_result.tool_name == "gh_create_script"
     create_record = build_live_producer_record(
         create_result,
         LiveProducerExpectation(
+            applied=True,
             outcome_status="succeeded",
             node_status="succeeded",
             tool_status="failed",
@@ -377,9 +380,13 @@ async def test_live_repair_chain_drives_to_complete(fresh_document):
 
     # --- Live dispatch 2: repair (corrected) -> usable / succeeded. ---
     repair_result = await agent.run_live_producer_node(graph, "repair_same_component")
+    # Direct claim: the unchanged repair ref gh_update_script:v1 resolved (:v1
+    # stripped) to the proven gh_update_script -- no override needed.
+    assert repair_result.tool_name == "gh_update_script"
     repair_record = build_live_producer_record(
         repair_result,
         LiveProducerExpectation(
+            applied=True,
             outcome_status="succeeded",
             node_status="succeeded",
             tool_status="success",
@@ -478,7 +485,7 @@ Expected: empty output (zero lines).
 - Goal (live 5-node to `complete`) → Tasks 1 (pure) + 2 (live), both assert `graph_status == "complete"`.
 - 5-node template + descriptor → both tasks pin `selected_template_id == "gh_csharp_create_verify_repair_verify"`.
 - Assert both declared refs before mutation → both tasks assert `gh_create_csharp_script:v1` + `gh_update_script:v1` first.
-- Override only create; repair keeps declared ref → Task 2 overrides `create_script.execution_ref` only; repair node only gets `execution_params`.
+- Override only create; repair keeps declared ref → Task 2 overrides `create_script.execution_ref` only; repair node only gets `execution_params`. The resolution is asserted **directly**: `create_result.tool_name == "gh_create_script"` and `repair_result.tool_name == "gh_update_script"` (the unchanged `:v1` ref resolved by `_resolve_tool_name`), with `applied=True` in both live expectations.
 - Hand-wire repair guid from create evidence → Task 2 reads `graph.nodes["create_script"].evidence.repair_anchor["component_guid"]`.
 - Repair params exact `{guid, code:"A = 42.0;", mode:"body", language:"csharp"}` → Task 2 Step 1 verbatim.
 - `done` terminal marker via `apply_outcome` + `graph_status == "complete"` → both tasks, final steps.
