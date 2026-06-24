@@ -75,7 +75,7 @@ public void IsAllDispatchBlocked_ChecksSaveOrSuspendDepth()
 }
 ```
 
-Note: `IsAllDispatchBlocked()` is currently a one-line inline body in the header. The test uses `ExtractFunction` against the qualified name, so Step 3 must give it a named, brace-delimited definition `bool CMainThreadDispatcher::IsAllDispatchBlocked() const { ... }` (either still in the header as an out-of-line inline, or moved to `.cpp`). Keep it in the header as an inline definition to match where it lives today.
+Note: `IsAllDispatchBlocked()` is currently a one-line **in-class** inline body. `ExtractFunction` searches for the **qualified** name `CMainThreadDispatcher::IsAllDispatchBlocked(`, which an in-class definition (`bool IsAllDispatchBlocked() const { ... }`) never contains. Step 3 therefore converts it to a header-resident **out-of-class inline definition** so the qualified name appears in the source. The function stays in the header (no `.cpp` move, no behavior change).
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
@@ -93,23 +93,29 @@ Add the member beside `m_saveDepth` (in the private members block near the botto
     std::atomic<int>  m_suspendDepth{0};
 ```
 
-Replace the existing inline one-liner:
+Replace the existing in-class inline one-liner:
 
 ```cpp
     bool IsAllDispatchBlocked() const { return m_saveDepth.load(std::memory_order_acquire) > 0; }
 ```
 
-with a named, brace-delimited inline definition:
+with an in-class **declaration** only:
 
 ```cpp
-    bool IsAllDispatchBlocked() const
-    {
-        return m_saveDepth.load(std::memory_order_acquire) > 0
-            || m_suspendDepth.load(std::memory_order_acquire) > 0;
-    }
+    bool IsAllDispatchBlocked() const;
 ```
 
-(If the build complains the qualified name isn't matched by `ExtractFunction`, define it out-of-line in `.cpp` as `bool CMainThreadDispatcher::IsAllDispatchBlocked() const { ... }` and leave a declaration in the header. Prefer keeping it in the header.)
+Then add the **out-of-class inline definition** after the class's closing `};`, before the template implementation block at the bottom of the header (this is where the qualified name `CMainThreadDispatcher::IsAllDispatchBlocked` appears, so the source-analysis test matches it):
+
+```cpp
+inline bool CMainThreadDispatcher::IsAllDispatchBlocked() const
+{
+    return m_saveDepth.load(std::memory_order_acquire) > 0
+        || m_suspendDepth.load(std::memory_order_acquire) > 0;
+}
+```
+
+The function stays header-resident and behavior is unchanged; only its definition location moves so the qualified name exists in the file.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
@@ -404,7 +410,7 @@ if __name__ == "__main__":
     main()
 ```
 
-(Adjust the `discover_native_port` import to the actual helper name in `bridge.py` — verify with a quick grep before running; the runner is throwaway so exact ergonomics don't matter.)
+(Adjust the `discover_native_port` import to the actual helper name in `bridge.py` — verify with a quick `rg` before running; the runner is throwaway so exact ergonomics don't matter.)
 
 - [ ] **Step 6: Commit (throwaway, clearly marked)**
 
@@ -474,7 +480,7 @@ Remove `HandleDirectorPumpSpike` (declaration + definition), the sentinel rig, t
 
 - [ ] **Step 2: Verify nothing throwaway remains**
 
-Run: `grep -rn "_pumpspike\|PumpSpike\|ROOK_DIRECTOR_PUMPSPIKE\|g_pumpSpikeDrainAttempts\|PumpSliceDrainAll" src scripts`
+Run: `rg -n "_pumpspike|PumpSpike|ROOK_DIRECTOR_PUMPSPIKE|g_pumpSpikeDrainAttempts|PumpSliceDrainAll" src scripts`
 Expected: **no matches.** (If any remain, remove them.)
 
 - [ ] **Step 3: Confirm the durable source tests still pass**
@@ -508,12 +514,12 @@ git commit -m "spike: remove pump-spike scaffolding; ship only the dispatch-drai
 - "after" semantics (lambda return, not guard exit) → Task 3 Step 2 end-of-lambda assertion + `g_holdingLambdaReturned`. ✅
 - Durable `DispatchDrainSuspension` (m_suspendDepth, IsAllDispatchBlocked OR, nest-safe, restore-on-destruct, no enqueue block, wake-on-release) → Tasks 1–2. ✅
 - Durable tests (depth, restore, enqueue-allowed, wake outermost-only) → Tasks 1–2 source-analysis cases; runtime behaviors validated by Task 4 live S2. ✅
-- Throwaway scaffolding gated + removed before reviewable → Task 3 (flag-gated) + Task 5 (strip + grep gate + durable-only diff). ✅
+- Throwaway scaffolding gated + removed before reviewable → Task 3 (flag-gated) + Task 5 (strip + `rg` gate + durable-only diff). ✅
 - Both drain doors (idle + WndProc) → Task 3 (S1 filter targets WndProc; `idle_fired_during_pump` covers idle). ✅
 - Metric split (`drain_attempt_count` vs `tasks_executed_during_pump`) → Task 3 Step 3 + probe shape. ✅
 - Decision table → Task 4 Step 3–4. ✅
 - Native-only durable surface, build via scripts → Global Constraints + every build step. ✅
 
-**Placeholder scan:** No "TBD"/"add error handling"/"similar to". The one acknowledged uncertainty (`discover_native_port` helper name) is in throwaway code with an explicit "verify with grep" instruction, not a durable-artifact gap.
+**Placeholder scan:** No "TBD"/"add error handling"/"similar to". The one acknowledged uncertainty (`discover_native_port` helper name) is in throwaway code with an explicit "verify with `rg`" instruction, not a durable-artifact gap.
 
 **Type consistency:** `BeginSuspendGuard`/`EndSuspendGuard`/`IsDispatchSuspended`/`m_suspendDepth`/`DispatchDrainSuspension` used identically across Tasks 1–3. `g_holdingLambdaReturned`, `g_tasksExecutedDuringPump`, `g_pumpSpikeDrainAttempts` consistent within Task 3 and removed together in Task 5. JSON field names match the spec's Output section exactly.
