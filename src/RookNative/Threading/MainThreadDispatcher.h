@@ -162,6 +162,8 @@ public:
     ~DispatchDrainSuspension() { CMainThreadDispatcher::Instance().EndSuspendGuard(); }
     DispatchDrainSuspension(const DispatchDrainSuspension&) = delete;
     DispatchDrainSuspension& operator=(const DispatchDrainSuspension&) = delete;
+    DispatchDrainSuspension(DispatchDrainSuspension&&) = delete;
+    DispatchDrainSuspension& operator=(DispatchDrainSuspension&&) = delete;
 };
 
 // --- Template implementation (must be in header) ---

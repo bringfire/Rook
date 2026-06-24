@@ -253,6 +253,8 @@ namespace Rook.Tests.Threading
             Assert.Contains("EndSuspendGuard()", raii);
             Assert.Contains("DispatchDrainSuspension(const DispatchDrainSuspension&) = delete;", raii);
             Assert.Contains("DispatchDrainSuspension& operator=(const DispatchDrainSuspension&) = delete;", raii);
+            Assert.Contains("DispatchDrainSuspension(DispatchDrainSuspension&&) = delete;", raii);
+            Assert.Contains("DispatchDrainSuspension& operator=(DispatchDrainSuspension&&) = delete;", raii);
         }
 
         [Fact]
