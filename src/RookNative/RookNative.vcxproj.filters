@@ -78,6 +78,9 @@
     <ClCompile Include="Handlers\ArrayHandler.cpp">
       <Filter>Handlers</Filter>
     </ClCompile>
+    <ClCompile Include="Handlers\DirectorFrame.cpp">
+      <Filter>Handlers</Filter>
+    </ClCompile>
     <ClCompile Include="Handlers\DirectorHandler.cpp">
       <Filter>Handlers</Filter>
     </ClCompile>
@@ -159,6 +162,9 @@
       <Filter>Handlers</Filter>
     </ClInclude>
     <ClInclude Include="Handlers\ArrayHandler.h">
+      <Filter>Handlers</Filter>
+    </ClInclude>
+    <ClInclude Include="Handlers\DirectorFrame.h">
       <Filter>Handlers</Filter>
     </ClInclude>
     <ClInclude Include="Handlers\DirectorHandler.h">

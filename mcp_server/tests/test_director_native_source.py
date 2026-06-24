@@ -44,8 +44,9 @@ def test_display_readback_mismatch_copies_diagnostics_before_failure():
 
 
 def test_display_readback_uses_viewport_setting_not_pipeline_attributes():
-    source = DIRECTOR_HANDLER.read_text(encoding="utf-8")
-    readback_body = _extract_function(source, "ON_UUID CurrentDisplayModeId")
+    # CurrentDisplayModeId was moved to DirectorFrame.cpp (shared with replay).
+    frame_source = (REPO_ROOT / "src" / "RookNative" / "Handlers" / "DirectorFrame.cpp").read_text(encoding="utf-8")
+    readback_body = _extract_function(frame_source, "ON_UUID CurrentDisplayModeId")
 
     assert "ActiveViewport().m_v.m_display_mode_id" in readback_body
     assert "DisplayAttributes()" not in readback_body

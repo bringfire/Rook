@@ -131,6 +131,7 @@
     <ClCompile Include="Handlers\ViewportHandler.cpp" />
     <ClCompile Include="Handlers\VisionHandler.cpp" />
     <ClCompile Include="Handlers\DisplayModeHandler.cpp" />
+    <ClCompile Include="Handlers\DirectorFrame.cpp" />
     <ClCompile Include="Handlers\DirectorHandler.cpp" />
     <ClCompile Include="Handlers\MeasureHandler.cpp" />
     <ClCompile Include="Handlers\GroupsHandler.cpp" />
@@ -268,6 +269,7 @@
     <ClInclude Include="Handlers\ViewportHandler.h" />
     <ClInclude Include="Handlers\VisionHandler.h" />
     <ClInclude Include="Handlers\DisplayModeHandler.h" />
+    <ClInclude Include="Handlers\DirectorFrame.h" />
     <ClInclude Include="Handlers\DirectorHandler.h" />
     <ClInclude Include="Handlers\MeasureHandler.h" />
     <ClInclude Include="Infrastructure\LayerHelpers.h" />
