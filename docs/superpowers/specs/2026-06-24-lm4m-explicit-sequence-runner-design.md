@@ -204,8 +204,14 @@ projection. Cases:
   steps NOT executed (assert their nodes unchanged).
 - **stop-at-bind:** a `BindStep` whose binding references a missing memory fact →
   `bind_result.reason == "binding_failed"`, stop.
-- **stop-at-producer:** `_FakeRunner` returns a result that fails the supplied
-  expectation (or not-applied) → `ok=False`, stop.
+- **stop-at-producer:** `_FakeRunner` returns a result that **applies** (the raw result
+  advances the graph) but **fails the supplied `LiveProducerExpectation`** →
+  `ok=False`, stop. Assert that `SequenceResult.graph` is the producer's **returned
+  (advanced) graph**, not the pre-step graph: a failed expectation can still mean the
+  graph mutated/advanced (e.g. the node moved to `succeeded` with `created_with_errors`
+  evidence while the expectation wanted `usable`). Concretely, assert the producer node's
+  status changed from its pre-step value (it advanced) even though `ok is False`. A second
+  variant covers the not-applied producer (graph unchanged).
 - **order-preserved / no-reorder:** a `VerifierStep` placed **before** its source node is
   ready not-applies and halts — proving the runner runs the list in author order and does
   not reorder to satisfy dependencies (the "no selection" behavioral proof).
