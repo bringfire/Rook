@@ -143,22 +143,6 @@ void CMainThreadDispatcher::CancelQueuedTasks(std::queue<QueuedTask>& tasks)
 
 void CMainThreadDispatcher::DrainQueue()
 {
-    // THROWAWAY spike hook — REVERTED in Task 5.
-    // Counts every DrainQueue entry while the spike flag is on.
-    // In S2 this is expected to be nonzero — proof the drain doors fired and
-    // the DispatchDrainSuspension guard held. Trivially removable.
-    {
-        extern std::atomic<int> g_pumpSpikeDrainAttempts;
-        extern std::atomic<bool> g_pumpActive;
-        extern std::atomic<bool> g_holdingLambdaReturned;
-        // Count only entries DURING the pump window, so the metric reflects doors
-        // firing against the guard — not unrelated post-return drains.
-        if (std::getenv("ROOK_DIRECTOR_PUMPSPIKE") != nullptr
-            && g_pumpActive.load(std::memory_order_acquire)
-            && !g_holdingLambdaReturned.load(std::memory_order_acquire))
-            g_pumpSpikeDrainAttempts.fetch_add(1, std::memory_order_relaxed);
-    }
-
     // Save-guard: while a file-save command (_Save, _SaveSmall, _SaveAs)
     // is in progress, do NOT drain the queue.  HTTP handlers access
     // doc.Objects / Geometry which can interfere with Rhino's file-save
@@ -378,23 +362,6 @@ CMainThreadDispatcher::CIdleWatcher::CIdleWatcher(
 void CMainThreadDispatcher::CIdleWatcher::Notify(
     const CRhinoIsIdle::CParameters& /*params*/)
 {
-    // THROWAWAY spike hook — REVERTED in Task 5.
-    // Set g_idleFiredDuringPump if we fire while the pump is active.
-    // Gated by spike flag to have zero cost when the flag is off.
-    if (std::getenv("ROOK_DIRECTOR_PUMPSPIKE") != nullptr)
-    {
-        extern std::atomic<bool> g_pumpActive;
-        extern std::atomic<bool> g_holdingLambdaReturned;
-        extern std::atomic<bool> g_idleFiredDuringPump;
-        // Only count idle that fires DURING the pump window. Both flags close it:
-        // the holding lambda sets g_holdingLambdaReturned then clears g_pumpActive
-        // at its end, so a post-pump idle (e.g. during the 2s sentinel wait) is
-        // excluded and cannot falsely claim the idle door was exercised.
-        if (g_pumpActive.load(std::memory_order_acquire)
-            && !g_holdingLambdaReturned.load(std::memory_order_acquire))
-            g_idleFiredDuringPump.store(true, std::memory_order_release);
-    }
-
     m_owner.DrainQueue();
 }
 

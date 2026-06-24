@@ -988,15 +988,6 @@ void CRookServer::RegisterRoutes()
         HandleDirectorFrameCapture(req, res);
     });
 
-    // THROWAWAY pump-spike probe — REVERTED in Task 5.
-    // Route registered ONLY when ROOK_DIRECTOR_PUMPSPIKE env flag is set.
-    if (std::getenv("ROOK_DIRECTOR_PUMPSPIKE") != nullptr)
-    {
-        m_server->Post("/director/_pumpspike", [](const httplib::Request& req, httplib::Response& res) {
-            Rook::Handlers::HandleDirectorPumpSpike(req, res);
-        });
-    }
-
     // Vision (PR-5a/5b): all routes proxy through a single managed
     // bridge callback (vision_dispatch, ABI v14). Native injects the op
     // discriminator; VisionHandler.cs owns validation and routing.
