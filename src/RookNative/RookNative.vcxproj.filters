@@ -84,6 +84,9 @@
     <ClCompile Include="Handlers\DirectorHandler.cpp">
       <Filter>Handlers</Filter>
     </ClCompile>
+    <ClCompile Include="Handlers\DirectorReplayHandler.cpp">
+      <Filter>Handlers</Filter>
+    </ClCompile>
     <ClCompile Include="Infrastructure\ManagedCreateDispatch.cpp">
       <Filter>Infrastructure</Filter>
     </ClCompile>
@@ -168,6 +171,9 @@
       <Filter>Handlers</Filter>
     </ClInclude>
     <ClInclude Include="Handlers\DirectorHandler.h">
+      <Filter>Handlers</Filter>
+    </ClInclude>
+    <ClInclude Include="Handlers\DirectorReplayHandler.h">
       <Filter>Handlers</Filter>
     </ClInclude>
     <ClInclude Include="Interactive\GumballContext.h">

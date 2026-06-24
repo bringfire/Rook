@@ -15,6 +15,7 @@
 #include "Handlers/VisionHandler.h"
 #include "Handlers/DisplayModeHandler.h"
 #include "Handlers/DirectorHandler.h"
+#include "Handlers/DirectorReplayHandler.h"
 #include "Handlers/MeasureHandler.h"
 #include "Handlers/GroupsHandler.h"
 #include "Handlers/DocumentOpsHandler.h"
@@ -986,6 +987,12 @@ void CRookServer::RegisterRoutes()
     });
     m_server->Post("/director/frame-capture", [this](const httplib::Request& req, httplib::Response& res) {
         HandleDirectorFrameCapture(req, res);
+    });
+    m_server->Post("/director/replay", [this](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleDirectorReplay(req, res);
+    });
+    m_server->Post("/director/replay/cancel", [this](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleDirectorReplayCancel(req, res);
     });
 
     // Vision (PR-5a/5b): all routes proxy through a single managed
