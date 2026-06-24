@@ -1,6 +1,6 @@
 # RookVisionDirector Replay — Dispatch-Drain Pump Spike
 
-- **Status:** Design approved, ready for plan
+- **Status:** Approved — ready for plan
 - **Date:** 2026-06-24
 - **Feature:** RookVisionDirector arbitrary-motion replay (PR2, first slice)
 - **Predecessor spec:** `docs/superpowers/specs/2026-06-19-rookvisiondirector-arbitrary-motion-replay-design.md`
@@ -106,6 +106,13 @@ in; S2 must validate **this**, not a throwaway stand-in.
   - **Restores depth on destruction**, including on exception unwind.
   - **Does not block worker-thread enqueue.** `Dispatch()` still accepts and queues
     tasks while the guard is alive; only UI-thread *draining* is deferred.
+  - **Wakes the pump on release.** When suspend depth drops to **zero**, the
+    outermost guard's destructor must `PostMessage(m_subclassedHwnd,
+    WM_ROOK_DISPATCH, 0, 0)` if the dispatcher has a subclassed window — exactly
+    mirroring `EndSaveGuard()`. This makes liveness a property *of the guard itself*:
+    queued work drains promptly once the held lambda returns, rather than waiting on
+    an incidental later idle event or posted message. (Only the outermost release
+    posts, so nested guards don't spam the queue.)
 - **Naming:** not "save guard." Replay is not semantically tied to file-save; the
   primitive is a general dispatch-drain suspension. The save guard remains its own
   concern; both simply contribute to `IsAllDispatchBlocked()`.
@@ -118,7 +125,10 @@ in; S2 must validate **this**, not a throwaway stand-in.
 - enqueue-still-allowed (a `Dispatch()` during an active guard returns a valid,
   pending future and the task is present in the queue);
 - post-guard liveness (a task queued during an active guard drains on the next drain
-  pass after the guard exits).
+  pass after the guard exits);
+- wake-on-release (the outermost guard's release posts `WM_ROOK_DISPATCH` when
+  suspend depth reaches zero, and a *nested* guard's release does **not**) — verified
+  via the same window/post seam the dispatcher already exposes for `EndSaveGuard`.
 
 ## Throwaway scaffolding — removed before the PR is reviewable
 
@@ -135,9 +145,17 @@ in; S2 must validate **this**, not a throwaway stand-in.
   `pump_active` at pump start; a worker thread waits on it, then `Dispatch`es the
   sentinel — so the sentinel deterministically lands mid-pump. The sentinel records
   whether it ran before the holding lambda's end-of-lambda marker.
-- **Instrumentation:**
-  - `reentrant_drain_count` — atomic incremented at `DrainQueue` entry, snapshotted
-    around the pump.
+- **Instrumentation** (two distinct metrics — do not conflate "entered" with
+  "executed"):
+  - `drain_attempt_count` — atomic incremented at `DrainQueue` *entry*, snapshotted
+    around the pump. **May be nonzero in S2** and that is *positive* evidence: with a
+    working guard, idle/WndProc still *enter* `DrainQueue` and bail at
+    `IsAllDispatchBlocked()`, which proves both doors were actually exercised against
+    the guard. A nonzero `drain_attempt_count` with zero task execution is the
+    ideal S2 result.
+  - `tasks_executed_during_pump` — count of queued tasks (the sentinel) that
+    *actually ran* before the holding lambda returned. **Must be `0` for safe.** This
+    is the real failure signal, separate from mere `DrainQueue` entry.
   - `idle_fired_during_pump` — did `CRhinoIsIdle::Notify` actually fire during the
     pump? Prevents a "safe" S1 from *falsely* reassuring us the idle door is closed
     when idle simply never got a chance to fire.
@@ -153,8 +171,10 @@ in; S2 must validate **this**, not a throwaway stand-in.
 
 ## Output — decision-grade JSON (per run)
 
-Example shows a **safe (S2)** run; S0 is expected to show
-`executed_during_pump: true` and a nonzero `reentrant_drain_count`.
+Example shows a **safe (S2)** run. Note `drain_attempt_count` is **nonzero** here —
+that is expected and good (both doors entered `DrainQueue` and bailed at the guard).
+S0, by contrast, is expected to show `executed_during_pump: true` and
+`tasks_executed_during_pump >= 1`.
 
 ```json
 {
@@ -162,7 +182,8 @@ Example shows a **safe (S2)** run; S0 is expected to show
   "queued_during_pump": true,
   "executed_during_pump": false,
   "executed_after_return": true,
-  "reentrant_drain_count": 0,
+  "drain_attempt_count": 3,
+  "tasks_executed_during_pump": 0,
   "idle_fired_during_pump": true,
   "messages_processed": 1234
 }
@@ -174,7 +195,11 @@ Example shows a **safe (S2)** run; S0 is expected to show
   returned (per "after" semantics above). **Must be `false` for safe.**
 - `executed_after_return` — sentinel ran after the holding lambda returned and the
   thread was released. **Must be `true` for safe** (liveness).
-- `reentrant_drain_count` — reentrant `DrainQueue` entries observed during the pump.
+- `drain_attempt_count` — `DrainQueue` *entries* during the pump. Nonzero is fine
+  (and desirable) in S2 — it shows the doors were exercised and the guard held.
+- `tasks_executed_during_pump` — tasks that actually *ran* before the lambda
+  returned. **Must be `0` for safe.** This, not `drain_attempt_count`, is the
+  failure signal.
 - `idle_fired_during_pump` — whether the idle door actually had a chance to fire.
 - `messages_processed` — pump activity, recorded if practical.
 
