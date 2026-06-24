@@ -247,6 +247,7 @@ async def test_stop_at_producer_applied_but_expectation_fails():
     # graph is the producer's ADVANCED graph, not the pre-step graph: a failed
     # expectation can still mean the graph mutated/advanced.
     assert before == "ready"
+    assert result.graph is not graph  # a NEW graph (the dispatch advanced it)
     assert result.graph.nodes["create_script"].status == "succeeded"
 
 
