@@ -94,6 +94,12 @@ In `MaterialRepair`:
     and fail. (Inert recognized-but-unbound channels are deliberately excluded so "unknown
     channel is an error" stays meaningful.)
   - Absent `maps`/empty plan → no repair (unchanged "nothing to do").
+- **"Fail the repair" means skip material assignment and report — it does NOT fail
+  `import_package`.** This preserves today's behavior:
+  `ApplyReconstructionMaterialRepair` returning `false` sets `material_repair_applied = false`
+  and `material_repair_error`, but the import still succeeds and returns its imported objects.
+  Import success is governed by object association (`wr.success = associated`), independent of
+  material repair. A strict repair failure must remain non-fatal to the import.
 - Object→material assignment is unchanged (`SetMaterialSource(material_from_object)`,
   `m_material_index`).
 
@@ -131,6 +137,9 @@ From `C:\Program Files\Rhino 8 SDK\openNURBS\opennurbs_texture.h` and
   path for missing-file and unknown-channel, and that `pbr_base_color_texture` +
   `ToPhysicallyBased()` + the assignment lines are retained. (Update the existing
   base_color-scalar assertions to the new `maps` shape.)
+  - **Non-fatal guarantee:** assert import success stays gated on association
+    (`wr.success = associated`), not on `materialRepairApplied` — a strict repair failure
+    must not fail `import_package`.
 
 ### 6. Audit task (Task 1, gates the native edit)
 
