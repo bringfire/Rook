@@ -189,11 +189,29 @@ public sealed class NativeReconstructionDispatchSourceTests
         Assert.Contains("ApplyReconstructionMaterialRepair(", handler);
         Assert.Contains("newIds", handler);
         Assert.Contains("materialRepair", handler);
+
+        // Generalized maps[] binding (base_color + normal)
+        Assert.Contains("materialRepair[\"maps\"]", text);
         Assert.Contains("ON_Texture::TYPE::pbr_base_color_texture", text);
+        Assert.Contains("ON_Texture::TYPE::pbr_bump_texture", text);
+        // normal channel binds linearly: the branch sets treatAsLinear = true and the
+        // ON_Texture field is assigned from it.
+        Assert.Contains("treatAsLinear = true", text);
+        Assert.Contains("m_bTreatAsLinear = treatAsLinear", text);
+        Assert.Contains("ON_FileReference::CreateFromFullPath", text);
         Assert.Contains("mat.ToPhysicallyBased();", text);
+
+        // Strict contract: unknown channel + non-object entry are reported, not skipped
+        Assert.Contains("Unknown material repair channel", text);
+        Assert.Contains("Material repair map entry was not an object", text);
+
+        // Assignment + result flags
         Assert.Contains("attrs.SetMaterialSource(ON::material_from_object);", text);
         Assert.Contains("attrs.m_material_index = matIdx;", text);
         Assert.Contains("wr.data[\"material_repair_applied\"]", handler);
+
+        // Non-fatal guarantee: import success is gated on association, not material repair
+        Assert.Contains("wr.success = associated;", handler);
     }
 
     [Fact]
