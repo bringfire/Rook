@@ -599,6 +599,7 @@ def test_accept_fresh_then_reject_stale_after_transition():
     assert stale.reject_reason == "selected_not_ready"
     assert stale.accepted_node_id is None
     assert stale.fresh_proposal.selected_node_id == "repair_same_component"
+    assert stale.fresh_proposal != proposal  # fresh is a DIFFERENT proposal, not substituted
 
 
 def test_fork_graph_rejects_no_longer_unique():
