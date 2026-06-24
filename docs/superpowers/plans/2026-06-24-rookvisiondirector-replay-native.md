@@ -71,8 +71,8 @@
 - `void ValidateFrameObjects(CRhinoDoc* pDoc, const std::vector<FrameObjectTransform>& objects);` (existence + bbox match; throws).
 - `bool TransformObjectInPlace(CRhinoDoc*, const FrameObjectTransform&, const ON_Xform&);` and `bool BboxAlmostEqual(...)`.
 - `void SetCameraFromFrame(CRhinoView* pView, const FrameCamera& camera);` (extracted from `ExecuteFrameTransaction` ~L1700–1750: `targetViewport.SetProjection/SetCameraLocation/SetCameraDirection/SetCameraUp/lens/…` + `pView->Redraw()`).
-- `class DirectorObjectPoseGuard` (move verbatim) **+ a new `void Disarm() { m_restoreAttempted = true; }`** so the destructor leaves the applied pose in place.
-- `class DirectorViewportGuard` (move verbatim) **+ the same `void Disarm()`**.
+- `class DirectorObjectPoseGuard` (move verbatim) **+ `void Disarm() { m_restoreAttempted = true; }`** (leave the applied pose; suppress dtor restore) **+ deleted copy/move** — `DirectorObjectPoseGuard(const DirectorObjectPoseGuard&) = delete;` and `operator=` copy, plus `DirectorObjectPoseGuard(DirectorObjectPoseGuard&&) = delete;` and `operator=` move. (The class has a user-declared dtor, so the copy ctor is otherwise *implicitly present* — a header-exposed copy would double-restore. Move stays deleted; see the Task 3 `std::optional::emplace` note.)
+- `class DirectorViewportGuard` (move verbatim) **+ the same `Disarm()` and the same four deleted copy/move special members**.
 
 **NOT in `DirectorFrame`:** `ParseFrameInstruction` and `struct FrameInstruction` stay in `DirectorHandler.cpp` — they are capture-specific (`run_root`, `output_path`, `frame_id`, `director_version=="slice1"`, capture-bounded `resolution`, `ValidateOutputPolicy`). `ParseFrameInstruction` now calls the shared `ParseCamera` + `ParseFrameObjectTransforms`. Replay (Task 3) must **never** call `ParseFrameInstruction`.
 
@@ -104,6 +104,10 @@ def test_directorframe_exposes_pure_shared_primitives():
     # Capture-only parser must NOT leak into the shared unit.
     assert "ParseFrameInstruction" not in header
     assert "run_root" not in header and "output_path" not in header
+    # Header-exposed RAII guards must be non-copyable AND non-movable (double-restore hazard).
+    for guard in ["DirectorObjectPoseGuard", "DirectorViewportGuard"]:
+        assert f"{guard}(const {guard}&) = delete;" in header
+        assert f"{guard}({guard}&&) = delete;" in header
 
 
 def test_frame_capture_uses_shared_unit_and_keeps_capture_parser():
@@ -117,7 +121,7 @@ def test_frame_capture_uses_shared_unit_and_keeps_capture_parser():
 
 - [ ] **Step 3: Run — verify fail.** `mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_director_replay_native_source.py -q` → FAIL (`DirectorFrame.h` absent).
 
-- [ ] **Step 4: Create `DirectorFrame.{h,cpp}` by moving the pure pieces** (declarations in `.h`, definitions in `.cpp`, `namespace Rook { namespace Handlers {`, `#include` the RhinoCommon headers `DirectorHandler.cpp` uses for these): `DirectorFrameValidationError`, `FrameObjectTransform`, `FrameCamera`, `ParseTransformMatrix`, `ParsePointArray3`, `ParseCamera`, `ParseFrameObjectTransforms`, `BboxAlmostEqual`, `TransformObjectInPlace`, `ValidateFrameObjects`, `DirectorObjectPoseGuard`, `DirectorViewportGuard`. Add `void Disarm() { m_restoreAttempted = true; }` (public) to **both** guards. Extract the camera-apply block (~L1700–1750) into `void SetCameraFromFrame(CRhinoView* pView, const FrameCamera& camera)`. **Do not move** `FrameInstruction`/`ParseFrameInstruction`.
+- [ ] **Step 4: Create `DirectorFrame.{h,cpp}` by moving the pure pieces.** `DirectorFrame.cpp`'s **first include must be `#include "stdafx.h"`** (the project defaults `PrecompiledHeader=Use`; a `.cpp` without the PCH first include fails to compile). Then `#include "Handlers/DirectorFrame.h"` and the RhinoCommon headers these symbols need. Declarations in `.h`, definitions in `.cpp`, under `namespace Rook { namespace Handlers {`. Move: `DirectorFrameValidationError`, `FrameObjectTransform`, `FrameCamera`, `ParseTransformMatrix`, `ParsePointArray3`, `ParseCamera`, `ParseFrameObjectTransforms`, `BboxAlmostEqual`, `TransformObjectInPlace`, `ValidateFrameObjects`, `DirectorObjectPoseGuard`, `DirectorViewportGuard`. To **both** guards add `public: void Disarm() { m_restoreAttempted = true; }` and the **four deleted copy/move special members** (see Interfaces). Extract the camera-apply block (~L1700–1750) into `void SetCameraFromFrame(CRhinoView* pView, const FrameCamera& camera)`. **Do not move** `FrameInstruction`/`ParseFrameInstruction`.
 
 - [ ] **Step 5: Refactor `DirectorHandler.cpp`.** `#include "Handlers/DirectorFrame.h"`; delete the moved definitions; keep `FrameInstruction`/`ParseFrameInstruction` but make `ParseFrameInstruction` call the now-shared `ParseCamera` + `ParseFrameObjectTransforms`; make `ExecuteFrameTransaction`'s camera-apply call `SetCameraFromFrame(...)`. The pose/viewport guards are already used there — they now resolve to the moved classes. **Behavior-preserving:** same order, same error types/codes, same evidence shape.
 
@@ -250,9 +254,14 @@ void HandleDirectorReplayCancel(const httplib::Request& req, httplib::Response& 
     catch (...) { nlohmann::json d; d["code"]="invalid_input"; d["message"]="invalid JSON";
                   CRookServer::SendErrorData(res, d); return; }
 
-    std::string id = body.value("replay_session_id", std::string());
+    // Type-safe: a non-string value would make json::value()/get<> throw outside the parse catch.
+    if (!body.contains("replay_session_id") || !body["replay_session_id"].is_string()) {
+        nlohmann::json d; d["code"]="invalid_session_id"; d["message"]="replay_session_id must be a 1..128 char [A-Za-z0-9._-] string";
+        CRookServer::SendErrorData(res, d); return;
+    }
+    std::string id = body["replay_session_id"].get<std::string>();
     if (!IsValidReplaySessionId(id)) {
-        nlohmann::json d; d["code"]="invalid_session_id"; d["message"]="replay_session_id must be a 1..128 char [A-Za-z0-9._-] token";
+        nlohmann::json d; d["code"]="invalid_session_id"; d["message"]="replay_session_id must be a 1..128 char [A-Za-z0-9._-] string";
         CRookServer::SendErrorData(res, d); return;
     }
 
@@ -310,24 +319,24 @@ git commit -m "feat(director): replay single active-slot registry + worker-threa
 **Interfaces — Consumes:** `DirectorFrame` helpers (Task 1); `ReserveReplaySlot`/`ReleaseReplaySlot`/`ReplaySlotReservation`/`Slot()` (Task 2); `DispatchDrainSuspension`, `CMainThreadDispatcher` (main).
 
 **Behavioral contract (from spec — implement exactly):**
-- **Worker-phase validation** (before any Dispatch): parse body; `IsValidReplaySessionId`; raw-body-size ≤ 8 MiB (check `req.body.size()` before parse where practical → `payload_too_large`); `track` is an object; `track.transform_semantics == "absolute_from_source"` (else `unsupported_transform_semantics`); `track.frame_count ≥ 1` and `camera_frames`/`object_frames` lengths == `frame_count` with `frame_index` 1..N in order (else `track_invalid`); `frame_count ≤ 3000` (`frame_count_exceeds_cap`); unique object-id count ≤ 256 (`object_count_exceeds_cap`); `loop` absent/false (true → `unsupported_replay_option {option:"loop"}`); compute `effective_fps = request.fps ?? track.fps ?? 24`, require finite+positive (`invalid_fps`); `dwell_ms = 1000/effective_fps`; `dwell_ms ≤ 250` (else `frame_dwell_exceeds_cap {dwell_ms,cap_ms:250}`); `frame_count*dwell_ms ≤ 60000` (else `replay_duration_exceeds_cap {planned_duration_ms,cap_ms:60000}`).
+- **Worker-phase validation — FULLY validate every frame before any Dispatch (pure, no doc access):** `req.body.size() ≤ 8 MiB` *before* parse where practical (`payload_too_large`); parse body; **session id type-safe** — `body.contains("replay_session_id") && is_string()` then `IsValidReplaySessionId` (else `invalid_session_id`); `track` is an object; `transform_semantics == "absolute_from_source"` (`unsupported_transform_semantics`); `loop` absent/false (true → `unsupported_replay_option {option:"loop"}`); `animated_object_ids` is a non-empty array of **unique** id strings, count ≤ 256 (`object_count_exceeds_cap`); `frame_count ≥ 1` and `≤ 3000` (`frame_count_exceeds_cap`); `camera_frames`/`object_frames` lengths == `frame_count` with `frame_index` 1..N in order (`track_invalid`); compute `effective_fps = request.fps ?? track.fps ?? 24` finite+positive (`invalid_fps`), `dwell_ms = 1000/effective_fps`, `dwell_ms ≤ 250` (`frame_dwell_exceeds_cap`), `frame_count*dwell_ms ≤ 60000` (`replay_duration_exceeds_cap`).
+  - **Per-frame pre-parse (this is the no-mutation guarantee):** for **every** `i`, `ParseCamera({"camera": camera_frames[i]["camera"]})` and `ParseFrameObjectTransforms({"object_transforms": object_frames[i]["object_transforms"]})` (this validates each transform is a finite, **invertible** 4×4 and the bbox/source_state shape). Then assert the per-frame object-id set **exactly equals** `animated_object_ids` — same count, no duplicates within the frame, no missing, no extra (`track_invalid`, naming the offending `frame_index`). Pin **`source_state` consistency**: each object's `sourceBbox` must be identical (within `kBboxTolerance`) across all frames (`track_invalid`). Collect the results into `std::vector<std::vector<FrameObjectTransform>> perFrameObjects` + `std::vector<FrameCamera> perFrameCameras`, sized `frame_count`.
+  - Because all parsing/validation happens here, **the UI-thread loop cannot encounter a parse/validation failure mid-replay** — it only applies pre-validated data, so a malformed later frame can never fail after earlier frames mutated the doc.
 - **Reserve slot** → if false, `replay_already_active`. Bind a `ReplaySlotReservation reservation; reservation.held = true;` immediately so every later return releases it.
-- **Dispatch the loop lambda**; block on `future.get()` on the worker thread.
+- **Dispatch the loop lambda**, capturing the pre-validated `perFrameObjects` + `perFrameCameras` + `dwell_ms` + `restore_on_finish` + `sessionId` (by move/value); block on `future.get()` on the worker thread. **The lambda does no parsing or track access** — only `perFrameObjects[i]` / `perFrameCameras[i]`.
 - **Loop lambda (UI thread):**
   - Resolve doc + active `CRhinoView* pView`.
-  - **UI-phase validation:** parse frame 0's objects via `ParseFrameObjectTransforms({"object_transforms": track["object_frames"][0]["object_transforms"]})` and `ValidateFrameObjects(pDoc, objs0)` → `object_not_found` if any id is missing (all frames share `animated_object_ids`, so one existence check covers them).
+  - **UI-phase validation (doc-dependent, existence only):** `ValidateFrameObjects(pDoc, perFrameObjects[0])` → `object_not_found` if any id is missing. (Object-set equality + `source_state` consistency were already proven worker-phase, so frame 0's existence check covers all frames.)
   - Construct **one** `DirectorViewportGuard viewportGuard(pDoc);` (snapshots the pre-replay camera once) and **one** `DispatchDrainSuspension guard;` for the whole loop.
-  - `int framesPlayed = 0; nlohmann::json evidence;`
+  - `int framesPlayed = 0; nlohmann::json evidence; std::optional<DirectorObjectPoseGuard> poseGuard;`
   - For `i` in `0..frame_count-1`:
-    - `auto objs = ParseFrameObjectTransforms({"object_transforms": track["object_frames"][i]["object_transforms"]});`
-    - `auto cam = ParseCamera({"camera": track["camera_frames"][i]["camera"]});`
-    - `DirectorObjectPoseGuard poseGuard(pDoc, objs); poseGuard.Apply();` (applies `delta`, redraws, tracks partial; throws on apply failure) → `framesPlayed = i + 1;`
-    - `SetCameraFromFrame(pView, cam);`
-    - **sliced dwell:** loop pumping ~16ms slices (`PeekMessage/TranslateMessage/DispatchMessage`) until `dwell_ms` elapsed, checking `Slot().cancel.load(std::memory_order_acquire)` each slice. **If cancel seen:** `poseGuard.Restore(evidence); viewportGuard.Restore(evidence);` and return `{status:"cancelled", cancelled:true, frames_played:framesPlayed, frame_count, restored:true, replay_session_id}`.
-    - **Between frames** (`i < frame_count-1`): `poseGuard.Restore(evidence);` (objects → source for the next frame; camera left, overwritten next). Also re-check `Slot().cancel` before the next iteration; if set, `viewportGuard.Restore(evidence)` (objects already restored) and return cancelled.
-    - **Final frame** (`i == frame_count-1`): do **not** restore inside the loop — the terminal-restore block below decides.
-  - **Terminal restore (completed):** the final frame's `poseGuard` is still in scope here (its iteration is the last). If `restore_on_finish` → `poseGuard.Restore(evidence); viewportGuard.Restore(evidence);` else → `poseGuard.Disarm(); viewportGuard.Disarm();` (leave final pose + camera; suppress destructor restore). Return `{status:"completed", frames_played:frame_count, frame_count, effective_fps, dwell_ms, planned_duration_ms, restored:(bool)restore_on_finish, replay_session_id}`.
-    - *(Implementation note: to keep the final `poseGuard` alive for the terminal block, structure the loop so the final iteration's guard outlives the loop body — e.g. hoist a `std::optional<DirectorObjectPoseGuard>` updated each iteration, or special-case `i == frame_count-1` to skip the in-loop restore and fall through. Either way the dtor must not double-restore.)*
+    - `poseGuard.emplace(pDoc, perFrameObjects[i]);` (in-place — the guard is non-movable, so `emplace`, never assignment; `emplace` first destroys any prior guard, whose `Restore`/`Disarm` was already called → its dtor is a no-op) `; poseGuard->Apply();` (applies `delta`, redraws, tracks partial; throws → caught below) `; framesPlayed = i + 1;`
+    - `SetCameraFromFrame(pView, perFrameCameras[i]);`
+    - **sliced dwell:** loop pumping ~16ms slices (`PeekMessage/TranslateMessage/DispatchMessage`) until `dwell_ms` elapsed, checking `Slot().cancel.load(std::memory_order_acquire)` each slice. **If cancel seen:** `poseGuard->Restore(evidence); viewportGuard.Restore(evidence);` return `{status:"cancelled", cancelled:true, frames_played:framesPlayed, frame_count, restored:true, replay_session_id}`.
+    - **Between frames** (`i < frame_count-1`): `poseGuard->Restore(evidence);` (objects → source for the next frame; camera left, overwritten next). Re-check `Slot().cancel` before the next iteration; if set, `viewportGuard.Restore(evidence)` (objects already restored) and return cancelled.
+    - **Final frame** (`i == frame_count-1`): do **not** restore inside the loop — fall through to the terminal block with `poseGuard` (the final guard) still engaged.
+  - **Terminal restore (completed):** `poseGuard` now holds the final frame's guard. If `restore_on_finish` → `poseGuard->Restore(evidence); viewportGuard.Restore(evidence);` else → `poseGuard->Disarm(); viewportGuard.Disarm();` (leave final pose + camera; suppress dtor restore). Return `{status:"completed", frames_played:frame_count, frame_count, effective_fps, dwell_ms, planned_duration_ms, restored:(bool)restore_on_finish, replay_session_id}`.
+    - *(The non-movable guard + `std::optional::emplace` is deliberate: copy/move are `= delete`, so the only way to (re)seat a guard is in-place construction — accidental assignment/move won't compile, removing the double-restore hazard.)*
 - **`frames_played` (single rule):** the count of frames whose pose was applied — incremented to `i + 1` immediately after `poseGuard.Apply()` succeeds for frame `i`. So: cancel before frame 0 applies → `0`; cancel during frame `K`'s dwell (after `K` was applied) → `K + 1`. (No other convention appears anywhere in this plan.)
 - **Late-cancel-on-final-frame:** the per-slice cancel check lives **inside** the final frame's dwell and returns the cancel result (restore + `cancelled`) before control reaches the terminal-restore block — so a late cancel during the final dwell always restores and **cannot** fall into the `restore_on_finish:false` leave-final branch.
 - Wrap the lambda body in try/catch: `DirectorFrameValidationError` → return that validation error (`object_not_found` etc.); other `std::exception` → the in-scope `poseGuard`/`viewportGuard` destructors best-effort-restore (do not `Disarm`) → return `{code:"frame_apply_failed", message, frame_index:i, object_id?}` (include `HasDirtyPartialState()` in the message if true).
@@ -374,6 +383,16 @@ def test_replay_validation_caps_and_cancel_present():
         assert token in src, f"replay handler missing {token}"
     replay = _extract_function(src, "HandleDirectorReplay")
     assert "Slot().cancel.load" in replay
+
+
+def test_replay_preparses_and_validates_every_frame_before_dispatch():
+    handler = _extract_function(_read(REPLAY_CPP), "HandleDirectorReplay")
+    # Every frame's object set is checked against the declared ids, pre-parsed up front.
+    assert "animated_object_ids" in handler           # exact-set-equality check
+    assert "perFrameObjects" in handler               # pre-parsed per-frame vector
+    assert "perFrameCameras" in handler
+    # The pre-parse + the Dispatch must be ordered: parsing precedes the UI dispatch.
+    assert handler.index("perFrameObjects") < handler.index("Dispatch(")
 ```
 
 - [ ] **Step 2: Run — verify fail.** FAIL (stub has none of these).
@@ -683,6 +702,7 @@ git commit -m "feat(mcp): rhino_director_replay + rhino_director_replay_cancel t
   - `test_replay_cancel_mid_replay` **(load-bearing):** a track long enough to dwell (e.g. 20 frames at low fps within caps); `asyncio.gather(run_replay(session_id="s1", ...), _cancel_after(0.2, "s1"))` where `_cancel_after` sleeps then calls `cancel_replay`; assert the replay result `status=="cancelled"`, `0 < frames_played < frame_count`, `restored is True`, and the doc is back at source.
   - `test_replay_already_active`: `asyncio.gather` two `run_replay` calls (distinct ids) → exactly one raises/returns `replay_already_active`.
   - `test_replay_validation_errors_live`: `loop=True` → `unsupported_replay_option`; a track with `transform_semantics="delta"` → `unsupported_transform_semantics`; a track referencing a non-existent object id → `object_not_found`.
+  - `test_replay_malformed_later_frame_rejected_without_mutation` (finding-1 contract): a 3-frame track where **frame 2**'s `object_transforms` set ≠ `animated_object_ids` (e.g. missing an id) → `run_replay` raises `track_invalid`, **and** the objects' xforms are unchanged from pre-call (proves the malformed later frame was caught pre-flight, before any frame was applied).
 
 - [ ] **Step 2: Deploy the build.** PowerShell `cmd /c "scripts\deploy-native.bat"` (Rhino closed). Then the user launches Rhino (per `[[feedback_user_controls_rhino_launch]]` — hand them the command; do not auto-launch). Verify `rhino_ping` → `pong`.
 
@@ -704,6 +724,10 @@ git commit -m "test(director): live replay completion/restore/cancel/busy/valida
 - Parser boundary (replay never calls the capture parser) → Task 1 Interfaces + Task 3 `test_replay_does_not_use_capture_parser_or_io`. ✅
 - Project-file edits for the two new units (explicit `.vcxproj`/`.filters`, AGENTS-approved) → Task 1 Step 6 + Task 2 Step 7, staged in both commits. ✅
 - Real restore semantics preserved (`DirectorObjectPoseGuard` partial-apply/reverse-restore/bbox/dirty-state, `DirectorViewportGuard` camera; `Disarm()` for leave-final) → Task 1 (move verbatim + `Disarm`) + Task 3 (reused per frame / once). ✅
+- **Pre-flight/no-mutation under malformed later frames** → Task 3 worker-phase pre-parses + validates **every** frame (object-set == `animated_object_ids`, no dup/missing/extra, invertibility, `source_state` consistency) before Dispatch; the UI loop only applies pre-validated data (`test_replay_preparses_and_validates_every_frame_before_dispatch` + live `test_replay_malformed_later_frame_rejected_without_mutation`). ✅
+- **Guards non-copyable/non-movable** (double-restore hazard once header-exposed) → Task 1 deleted copy/move + source assertion; Task 3 uses `std::optional::emplace` (no assignment/move). ✅
+- **PCH correctness** → Task 1 Step 4 (`DirectorFrame.cpp` starts with `#include "stdafx.h"`). ✅
+- **Type-safe native session-id extraction** → Task 2 cancel (`contains`+`is_string`) + Task 3 worker-phase. ✅
 - Full inline track, native validate/zip/caps, ignore resolution/provenance → Task 3 worker-phase validation. ✅
 - FPS-driven dwell, reject-not-clamp → Task 3 (`frame_dwell_exceeds_cap`/`replay_duration_exceeds_cap`). ✅
 - Lifecycle/restore (non-final restore, terminal restore, cancel/error always restore, late-final-cancel) → Task 3 loop contract + the explicit late-cancel note. ✅
