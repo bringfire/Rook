@@ -242,6 +242,27 @@ namespace Rook.Tests.Threading
             Assert.DoesNotContain("CMainThreadDispatcher::Instance().Dispatch", notSafeBranch);
         }
 
+        [Fact]
+        public void Dispatcher_DeclaresSuspendDepthDistinctFromSaveDepth()
+        {
+            var source = ReadSourceFile("src", "RookNative", "Threading", "MainThreadDispatcher.h");
+
+            Assert.Contains("std::atomic<int>  m_suspendDepth{0};", source);
+            // Save depth still exists and is a separate field.
+            Assert.Contains("std::atomic<int>  m_saveDepth{0};", source);
+        }
+
+        [Fact]
+        public void IsAllDispatchBlocked_ChecksSaveOrSuspendDepth()
+        {
+            var source = ReadSourceFile("src", "RookNative", "Threading", "MainThreadDispatcher.h");
+            var fn = ExtractFunction(source, "CMainThreadDispatcher::IsAllDispatchBlocked");
+
+            Assert.Contains("m_saveDepth.load(std::memory_order_acquire) > 0", fn);
+            Assert.Contains("m_suspendDepth.load(std::memory_order_acquire) > 0", fn);
+            Assert.Contains("||", fn);
+        }
+
         private static string ExtractSwitchCase(string source, string caseStart, string nextCaseStart)
         {
             var start = source.IndexOf(caseStart, StringComparison.Ordinal);

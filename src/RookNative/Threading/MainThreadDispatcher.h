@@ -113,7 +113,7 @@ private:
     // Called by CIdleWatcher::Notify AND SubclassProc on the main thread.
     void DrainQueue();
     static void CancelQueuedTasks(std::queue<QueuedTask>& tasks);
-    bool IsAllDispatchBlocked() const { return m_saveDepth.load(std::memory_order_acquire) > 0; }
+    bool IsAllDispatchBlocked() const;
     bool IsNormalDispatchBlocked() const;
 
     // WndProc subclass — intercepts WM_ROOK_DISPATCH even during modal loops.
@@ -133,9 +133,16 @@ private:
     HWND m_subclassedHwnd = nullptr;
     std::atomic<bool> m_running{false};
     std::atomic<int>  m_saveDepth{0};
+    std::atomic<int>  m_suspendDepth{0};
     mutable std::mutex m_commandMutex;
     int m_commandDepth = 0;
 };
+
+inline bool CMainThreadDispatcher::IsAllDispatchBlocked() const
+{
+    return m_saveDepth.load(std::memory_order_acquire) > 0
+        || m_suspendDepth.load(std::memory_order_acquire) > 0;
+}
 
 // --- Template implementation (must be in header) ---
 
