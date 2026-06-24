@@ -76,23 +76,31 @@
       "enabled": true,
       "pipeline_roles": ["single_image_to_3d"],
       "input_types": ["image_url"],
-      "output_roles": ["model_glb", "thumbnail"],
+      "output_roles": ["model_glb", "model_obj", "model_fbx", "model_usdz", "texture", "thumbnail"],
       "preferred_asset_role": "model_glb",
-      "fallback_order": ["model_glb"],
+      "fallback_order": ["model_glb", "model_obj"],
       "supports_pbr": true,
+      "default_texture_expected": true,
       "input": {
         "mode": "single_image",
-        "source_field": "input_image_url"
+        "source_field": "image_url"
       },
-      "prompt": {
-        "supported": true,
-        "required": false,
-        "kind": "texture"
-      },
-      "preprocessing": {
-        "recommended": false,
-        "required": false
-      },
+      "prompt": { "supported": true, "required": false, "kind": "texture" },
+      "preprocessing": { "recommended": false, "required": false },
+      "options": [
+        { "key": "topology", "label": "Topology", "kind": "enum",
+          "default": "triangle", "allowed_values": ["quad", "triangle"] },
+        { "key": "target_polycount", "label": "Target Polycount", "kind": "integer",
+          "default": 30000, "min": 100 },
+        { "key": "symmetry_mode", "label": "Symmetry Mode", "kind": "enum",
+          "default": "auto", "allowed_values": ["off", "auto", "on"] },
+        { "key": "should_remesh", "label": "Should Remesh", "kind": "boolean", "default": true },
+        { "key": "should_texture", "label": "Should Texture", "kind": "boolean", "default": true },
+        { "key": "enable_pbr", "label": "Enable PBR", "kind": "boolean", "default": false,
+          "ignored_when": { "key": "should_texture", "equals": false } },
+        { "key": "texture_prompt", "label": "Texture Prompt", "kind": "string",
+          "ignored_when": { "key": "should_texture", "equals": false } }
+      ],
       "docs_url": "https://fal.ai/models/fal-ai/meshy/v6/image-to-3d/api"
     },
     {

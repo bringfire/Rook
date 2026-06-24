@@ -66,7 +66,7 @@ public sealed class ReconstructionModelCatalogTests
         Assert.Equal("boolean", pbr.Kind);
         Assert.False(pbr.Default!.GetValue<bool>());
         Assert.Equal("generate_type", pbr.IgnoredWhen!.Key);
-        Assert.Equal("Geometry", pbr.IgnoredWhen.EqualsValue);
+        Assert.Equal("Geometry", pbr.IgnoredWhen.EqualsValue!.GetValue<string>());
 
         var fc = model.Options[2];
         Assert.Equal("integer", fc.Kind);
@@ -81,6 +81,29 @@ public sealed class ReconstructionModelCatalogTests
     {
         var pro = ProductionCatalog().Find("fal-ai/hunyuan-3d/v3.1/pro/image-to-3d");
         Assert.Equal("stable", pro!.Status);
+    }
+
+    [Fact]
+    public void ProductionCatalog_Meshy_SourceFieldIsImageUrl()
+        => Assert.Equal("image_url", ProductionCatalog().Find("fal-ai/meshy/v6/image-to-3d")!.Input!.SourceField);
+
+    [Fact]
+    public void ProductionCatalog_Meshy_AdvertisesObjFbxUsdzOutputs()
+    {
+        var roles = ProductionCatalog().Find("fal-ai/meshy/v6/image-to-3d")!.OutputRoles;
+        Assert.Contains("model_obj", roles);
+        Assert.Contains("model_fbx", roles);
+        Assert.Contains("model_usdz", roles);
+    }
+
+    [Fact]
+    public void ProductionCatalog_Meshy_StaysExperimental_WithOptionKeys()
+    {
+        var meshy = ProductionCatalog().Find("fal-ai/meshy/v6/image-to-3d")!;
+        Assert.Equal("experimental", meshy.Status);
+        Assert.Equal(
+            new[] { "topology", "target_polycount", "symmetry_mode", "should_remesh", "should_texture", "enable_pbr", "texture_prompt" },
+            meshy.Options!.Select(o => o.Key).ToArray());
     }
 
     [Fact]

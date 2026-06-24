@@ -1155,6 +1155,60 @@ public sealed class ReconstructionJobManagerTests : IDisposable
 
     private static JsonObject Opts(string json) => JsonNode.Parse(json)!.AsObject();
 
+    // ReconstructionModelEntry/InputMetadata/PreprocessingMetadata are POSITIONAL records
+    // (ReconstructionModelCatalog.cs:10-46). Ctor order: (ModelId, Provider, Task, Status, Enabled,
+    // PipelineRoles, InputTypes, OutputRoles, PreferredAssetRole, FallbackOrder, SupportsPbr,
+    // Preprocessing, DocsUrl, DefaultTextureExpected, Input=null, Prompt=null, Options=null).
+    private static ReconstructionModelEntry GateEntry(string status, params string[] outputRoles)
+        => new(
+            "fal-ai/test/model", "fal", "single_image_to_3d", status, true,
+            new[] { "single_image_to_3d" }, new[] { "image_url" }, outputRoles,
+            "model_glb", new[] { "model_glb" }, false,
+            new ReconstructionPreprocessingMetadata(false, false), "https://example/docs",
+            true, new ReconstructionInputMetadata("single_image", "image_url"));
+
+    [Fact]
+    public void IsSubmittable3DModel_Experimental_RejectedByDefault()
+        => Assert.False(ReconstructionJobManager.IsSubmittable3DModel(GateEntry("experimental", "model_glb")));
+
+    [Fact]
+    public void IsSubmittable3DModel_Experimental_AllowedWithFlag()
+        => Assert.True(ReconstructionJobManager.IsSubmittable3DModel(GateEntry("experimental", "model_glb"), allowExperimental: true));
+
+    [Fact]
+    public void IsSubmittable3DModel_Stable_AllowedRegardlessOfFlag()
+    {
+        Assert.True(ReconstructionJobManager.IsSubmittable3DModel(GateEntry("stable", "model_glb")));
+        Assert.True(ReconstructionJobManager.IsSubmittable3DModel(GateEntry("stable", "model_glb"), allowExperimental: true));
+    }
+
+    [Fact]
+    public void IsSubmittable3DModel_Experimental_WithFlag_StillNeedsImportableRole()
+        => Assert.False(ReconstructionJobManager.IsSubmittable3DModel(GateEntry("experimental", "thumbnail"), allowExperimental: true));
+
+    [Fact]
+    public void Parse_ReadsAllowExperimentalModel_DefaultsFalse()
+    {
+        var withFlag = ReconstructionSubmitRequestParser.Parse(
+            @"{""source_artifact_id"":""" + Guid.NewGuid() + @""",""model_id"":""m"",""allow_experimental_model"":true}");
+        Assert.True(withFlag.Success);
+        Assert.True(withFlag.Request!.AllowExperimentalModel);
+
+        var without = ReconstructionSubmitRequestParser.Parse(
+            @"{""source_artifact_id"":""" + Guid.NewGuid() + @""",""model_id"":""m""}");
+        Assert.True(without.Success);
+        Assert.False(without.Request!.AllowExperimentalModel);
+    }
+
+    [Fact]
+    public void Parse_RejectsNonBoolAllowExperimentalModel()
+    {
+        var result = ReconstructionSubmitRequestParser.Parse(
+            @"{""source_artifact_id"":""" + Guid.NewGuid() + @""",""model_id"":""m"",""allow_experimental_model"":""true""}");
+        Assert.False(result.Success);
+        Assert.Equal("allow_experimental_model", result.Failure!.Field);
+    }
+
     [Fact]
     public void DeriveTextureExpected_GeometryTrue_IsFalse()
         => Assert.False(ReconstructionJobManager.DeriveTextureExpected(Opts(@"{""enable_geometry"":true}"), ModelEntry(true)));
@@ -1178,6 +1232,42 @@ public sealed class ReconstructionJobManagerTests : IDisposable
     [Fact]
     public void DeriveTextureExpected_NonBool_TreatedAsOmitted_UsesCatalogDefault()
         => Assert.True(ReconstructionJobManager.DeriveTextureExpected(Opts(@"{""enable_pbr"":""true""}"), ModelEntry(true)));
+
+    // Meshy family: declares should_texture, so that option owns texture expectation (enable_pbr ignored).
+    private static ReconstructionModelEntry ShouldTextureModel(bool defaultTextureExpected)
+        => GateEntry("experimental", "model_glb") with
+        {
+            DefaultTextureExpected = defaultTextureExpected,
+            Options = new[]
+            {
+                new ReconstructionOptionDescriptor("should_texture", "Should Texture", "boolean",
+                    Default: JsonValue.Create(true)),
+                new ReconstructionOptionDescriptor("enable_pbr", "Enable PBR", "boolean",
+                    Default: JsonValue.Create(false)),
+            },
+        };
+
+    [Fact]
+    public void DeriveTextureExpected_ShouldTextureFalse_IsFalse_EvenIfPbrTrue()
+        => Assert.False(ReconstructionJobManager.DeriveTextureExpected(
+            Opts(@"{""should_texture"":false,""enable_pbr"":true}"), ShouldTextureModel(true)));
+
+    [Fact]
+    public void DeriveTextureExpected_ShouldTextureTrue_IsTrue()
+        => Assert.True(ReconstructionJobManager.DeriveTextureExpected(
+            Opts(@"{""should_texture"":true}"), ShouldTextureModel(false)));
+
+    [Fact]
+    public void DeriveTextureExpected_ShouldTextureAbsent_UsesCatalogDefault()
+    {
+        Assert.True(ReconstructionJobManager.DeriveTextureExpected(Opts("{}"), ShouldTextureModel(true)));
+        Assert.False(ReconstructionJobManager.DeriveTextureExpected(Opts("{}"), ShouldTextureModel(false)));
+    }
+
+    [Fact]
+    public void DeriveTextureExpected_ShouldTextureModel_IgnoresEnablePbrFalse()
+        => Assert.True(ReconstructionJobManager.DeriveTextureExpected(
+            Opts(@"{""should_texture"":true,""enable_pbr"":false}"), ShouldTextureModel(true)));
 
     [Fact]
     public async Task Submit_OmittedOptions_PersistsTextureExpectedFromCatalogDefault()

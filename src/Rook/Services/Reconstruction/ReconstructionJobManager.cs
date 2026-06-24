@@ -115,7 +115,7 @@ public sealed class ReconstructionJobManager : IDisposable
         CancellationToken ct)
     {
         var model = _catalog.Find(request.ModelId);
-        if (!IsSubmittable3DModel(model))
+        if (!IsSubmittable3DModel(model, request.AllowExperimentalModel))
             return SubmitFail("invalid_request", "Requested reconstruction model is not available.", "model_id");
 
         if (request.PreprocessingChain.Count != 0)
@@ -717,12 +717,14 @@ public sealed class ReconstructionJobManager : IDisposable
             or ReconstructionJobState.Cancelled
             or ReconstructionJobState.Interrupted;
 
-    // Capability-based 3D submit gate (no task dependency): enabled + stable + has an importable 3D
-    // output role (model_glb/model_obj) + accepts input (a source_field, or declared view_slots).
-    private static bool IsSubmittable3DModel(ReconstructionModelEntry? model)
+    // Capability-based 3D submit gate: enabled + (stable OR explicit experimental override) + has an
+    // importable 3D output role (model_glb/model_obj) + accepts input (a source_field, or view_slots).
+    // allowExperimental is a submit-time dev/test override; it relaxes ONLY the stable clause and is
+    // honored only for an explicitly named model_id (see SubmitAsync). It never affects model resolution.
+    internal static bool IsSubmittable3DModel(ReconstructionModelEntry? model, bool allowExperimental = false)
         => model is not null
             && model.Enabled
-            && string.Equals(model.Status, "stable", StringComparison.OrdinalIgnoreCase)
+            && (allowExperimental || string.Equals(model.Status, "stable", StringComparison.OrdinalIgnoreCase))
             && (model.OutputRoles.Contains("model_glb", StringComparer.Ordinal)
                 || model.OutputRoles.Contains("model_obj", StringComparer.Ordinal))
             && (!string.IsNullOrWhiteSpace(model.Input?.SourceField)
@@ -838,12 +840,27 @@ public sealed class ReconstructionJobManager : IDisposable
             if (string.Equals(generateType, "Normal", StringComparison.Ordinal)) return true;
         }
 
+        // Meshy family: once the model declares should_texture, that option OWNS texture expectation
+        // and the legacy enable_pbr/enable_geometry rules do NOT apply (enable_pbr only selects which
+        // maps, not whether texturing happens).
+        if (ModelDeclaresOption(model, "should_texture"))
+        {
+            var shouldTexture = ReadStrictBool(options, "should_texture");
+            if (shouldTexture == true) return true;
+            if (shouldTexture == false) return false;
+            return model.DefaultTextureExpected;
+        }
+
         if (ReadStrictBool(options, "enable_geometry") == true) return false;   // legacy rule 1
         var pbr = ReadStrictBool(options, "enable_pbr");
         if (pbr == true) return true;                                          // legacy rule 2
         if (pbr == false) return false;                                        // legacy rule 3
         return model.DefaultTextureExpected;                                   // legacy rule 4
     }
+
+    private static bool ModelDeclaresOption(ReconstructionModelEntry model, string key)
+        => model.Options is { } opts
+            && Array.Exists(opts, o => string.Equals(o.Key, key, StringComparison.Ordinal));
 
     // Pure: classifies a delivered reconstruction result against the request's texture expectation and
     // the model's catalog capability. No store/state access — callers pass the delivered role names.

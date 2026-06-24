@@ -110,4 +110,53 @@ public sealed class FalReconstructionResultMapperTests
         Assert.DoesNotContain(artifacts, a => a.Role == ReconstructionFileRoles.Image);
         Assert.DoesNotContain(artifacts, a => a.Role == ReconstructionFileRoles.Mask);
     }
+
+    [Fact]
+    public void MapArtifacts_MeshyShape_ClassifiesModelsAndTextures()
+    {
+        // REAL fal Meshy v6 shape (captured from live job cacbc3c4 / provider_result_json): top-level
+        // model_glb + model_urls{glb,obj,fbx,usdz,stl} + texture_urls as an array of PBR-slot objects.
+        // The base_color file is named "texture_0.png" (NOT self-describing), so the slot key — not the
+        // filename — must drive the role. The earlier flat-shape fixture was a fiction the live smoke
+        // exposed: the mapper dropped Meshy's textures and result_missing_texture fired falsely.
+        var body = JsonNode.Parse("""
+        {
+          "model_glb": { "url": "https://cdn.fal/m.glb", "file_name": "model.glb" },
+          "model_urls": {
+            "glb":  { "url": "https://cdn.fal/m.glb" },
+            "obj":  { "url": "https://cdn.fal/m.obj",  "file_name": "model.obj" },
+            "fbx":  { "url": "https://cdn.fal/m.fbx",  "file_name": "model.fbx" },
+            "usdz": { "url": "https://cdn.fal/m.usdz", "file_name": "model.usdz" },
+            "stl":  { "url": "https://cdn.fal/m.stl",  "file_name": "model.stl" }
+          },
+          "texture_urls": [
+            { "base_color": { "url": "https://cdn.fal/texture_0.png", "file_name": "texture_0.png" },
+              "metallic": null,
+              "normal": { "url": "https://cdn.fal/texture_0_normal.png", "file_name": "texture_0_normal.png" },
+              "roughness": null }
+          ]
+        }
+        """)!;
+
+        var roles = FalReconstructionResultMapper.MapArtifacts(body).Select(a => a.Role).ToList();
+
+        Assert.Contains(ReconstructionFileRoles.ModelGlb, roles);
+        Assert.Contains(ReconstructionFileRoles.ModelObj, roles);
+        Assert.Contains("model_fbx", roles);
+        Assert.Contains("model_usdz", roles);
+        Assert.Contains("model_stl", roles);
+        Assert.Contains("texture_base_color", roles);  // from the base_color SLOT KEY, not the filename
+        Assert.Contains("texture_normal", roles);
+    }
+
+    [Fact]
+    public void MapArtifacts_MeshyGeometryOnly_HasModelNoTexture()
+    {
+        var body = JsonNode.Parse("""{ "model_glb": { "url": "https://cdn.fal/m.glb", "file_name": "m.glb" } }""")!;
+
+        var artifacts = FalReconstructionResultMapper.MapArtifacts(body);
+
+        Assert.Contains(artifacts, a => a.Role == ReconstructionFileRoles.ModelGlb);
+        Assert.DoesNotContain(artifacts, a => a.Role.StartsWith("texture", System.StringComparison.Ordinal));
+    }
 }

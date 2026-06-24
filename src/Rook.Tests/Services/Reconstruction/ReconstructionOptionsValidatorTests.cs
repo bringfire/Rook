@@ -31,6 +31,110 @@ public sealed class ReconstructionOptionsValidatorTests
         }
         """).Find("test/pro")!;
 
+    // Positional ctor (ReconstructionModelCatalog.cs:10-46); Options is the last positional arg.
+    private static ReconstructionModelEntry ModelWithOptions(params ReconstructionOptionDescriptor[] options)
+        => new(
+            "test/model", "fal", "single_image_to_3d", "experimental", true,
+            new[] { "single_image_to_3d" }, new[] { "image_url" }, new[] { "model_glb" },
+            "model_glb", new[] { "model_glb" }, false,
+            new ReconstructionPreprocessingMetadata(false, false), "https://example/docs",
+            true, new ReconstructionInputMetadata("single_image", "image_url"), null, options);
+
+    private static ReconstructionModelEntry StringOptModel()
+        => ModelWithOptions(new ReconstructionOptionDescriptor(
+            "texture_prompt", "Texture Prompt", "string"));
+
+    private static ReconstructionModelEntry UnknownKindModel()
+        => ModelWithOptions(new ReconstructionOptionDescriptor(
+            "weird", "Weird", "color"));
+
+    [Fact]
+    public void Validate_AcceptsStringOption()
+    {
+        var result = ReconstructionOptionsValidator.Validate(
+            new JsonObject { ["texture_prompt"] = "a red ceramic mug" }, StringOptModel());
+        Assert.True(result.Success);
+        Assert.Equal("a red ceramic mug", result.Options["texture_prompt"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public void Validate_RejectsNonStringForStringOption()
+    {
+        var result = ReconstructionOptionsValidator.Validate(
+            new JsonObject { ["texture_prompt"] = 7 }, StringOptModel());
+        Assert.False(result.Success);
+    }
+
+    [Fact]
+    public void Validate_RejectsUnknownOptionKind()
+    {
+        var result = ReconstructionOptionsValidator.Validate(
+            new JsonObject { ["weird"] = "x" }, UnknownKindModel());
+        Assert.False(result.Success);
+    }
+
+    // Model with should_texture (bool) + enable_pbr (bool, omitted when should_texture==false).
+    private static ReconstructionModelEntry BoolGateModel()
+        => ModelWithOptions(
+            new ReconstructionOptionDescriptor("should_texture", "Should Texture", "boolean",
+                Default: JsonValue.Create(true)),
+            new ReconstructionOptionDescriptor("enable_pbr", "Enable PBR", "boolean",
+                Default: JsonValue.Create(false),
+                IgnoredWhen: new ReconstructionOptionIgnoredWhen("should_texture", JsonValue.Create(false))));
+
+    [Fact]
+    public void Validate_OmitsEnablePbr_WhenShouldTextureFalse()
+    {
+        var result = ReconstructionOptionsValidator.Validate(
+            new JsonObject { ["should_texture"] = false, ["enable_pbr"] = true }, BoolGateModel());
+        Assert.True(result.Success);
+        Assert.False(result.Options.ContainsKey("enable_pbr")); // bool gate matched → omitted
+    }
+
+    [Fact]
+    public void Validate_KeepsEnablePbr_WhenShouldTextureTrue()
+    {
+        var result = ReconstructionOptionsValidator.Validate(
+            new JsonObject { ["should_texture"] = true, ["enable_pbr"] = true }, BoolGateModel());
+        Assert.True(result.Success);
+        Assert.True(result.Options["enable_pbr"]!.GetValue<bool>());
+    }
+
+    // Loads the shipped embedded production catalog's Meshy entry (mirrors ReconstructionModelCatalogTests).
+    private static ReconstructionModelEntry MeshyEntry()
+    {
+        var assembly = typeof(ReconstructionModelEntry).Assembly;
+        using var stream = assembly.GetManifestResourceStream(
+            "Rook.Services.Reconstruction.Fal.fal-model-catalog.json")!;
+        using var reader = new System.IO.StreamReader(stream);
+        return ReconstructionModelCatalog.FromJson(reader.ReadToEnd())
+            .Find("fal-ai/meshy/v6/image-to-3d")!;
+    }
+
+    [Fact]
+    public void MeshyOptions_DefaultsFillTopologyAndShouldTexture()
+    {
+        var result = ReconstructionOptionsValidator.Validate(new JsonObject(), MeshyEntry());
+        Assert.True(result.Success);
+        Assert.Equal("triangle", result.Options["topology"]!.GetValue<string>());
+        Assert.True(result.Options["should_texture"]!.GetValue<bool>());
+    }
+
+    [Fact]
+    public void MeshyOptions_OmitEnablePbrAndTexturePrompt_WhenShouldTextureFalse()
+    {
+        var submitted = new JsonObject
+        {
+            ["should_texture"] = false,
+            ["enable_pbr"] = true,
+            ["texture_prompt"] = "ignored",
+        };
+        var result = ReconstructionOptionsValidator.Validate(submitted, MeshyEntry());
+        Assert.True(result.Success);
+        Assert.False(result.Options.ContainsKey("enable_pbr"));
+        Assert.False(result.Options.ContainsKey("texture_prompt"));
+    }
+
     [Fact]
     public void Validate_FillsDefaults_WhenAbsent()
     {

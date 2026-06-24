@@ -89,12 +89,34 @@ public static class FalReconstructionResultMapper
             if (role is not null) Add(byRole, order, role, file);
         }
 
-        // texture_urls.* loop handles every key including texture_urls.texture, so no separate ?? fallback is needed.
+        // texture_urls flat shapes (array of {url}, or object of {key:{url}}) handled by EnumerateFiles.
         foreach (var file in EnumerateFiles(root["texture_urls"]))
             Add(byRole, order, RoleForTextureFile(file), file);
 
+        // Meshy v6 delivers texture_urls as an array of PBR-slot objects — each entry is
+        // { base_color, metallic, normal, roughness } holding a file (or null). The slot key is
+        // authoritative: Meshy names the base-color file "texture_0.png", which the filename
+        // classifier would otherwise miss, so map each present slot to its detailed texture role.
+        foreach (var entry in AsArray(root["texture_urls"]))
+            foreach (var (slotKey, role) in TextureSlotRoles)
+            {
+                var slotFile = ReadFile(Prop(entry, slotKey));
+                if (slotFile is not null) Add(byRole, order, role, slotFile);
+            }
+
         return order.Select(role => byRole[role]).ToList();
     }
+
+    private static readonly (string SlotKey, string Role)[] TextureSlotRoles =
+    {
+        ("base_color", "texture_base_color"),
+        ("metallic",   "texture_metallic"),
+        ("normal",     "texture_normal"),
+        ("roughness",  "texture_roughness"),
+    };
+
+    private static IEnumerable<JsonNode?> AsArray(JsonNode? node)
+        => node is JsonArray arr ? arr : Array.Empty<JsonNode?>();
 
     private static void AddModel(
         Dictionary<string, ResultArtifact> byRole,
