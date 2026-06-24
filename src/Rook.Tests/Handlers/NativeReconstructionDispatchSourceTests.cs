@@ -212,6 +212,17 @@ public sealed class NativeReconstructionDispatchSourceTests
 
         // Non-fatal guarantee: import success is gated on association, not material repair
         Assert.Contains("wr.success = associated;", handler);
+
+        // Legacy bitmap mirror is added AFTER SynchronizeLegacyMaterial() so synchronize cannot
+        // clobber it — preserves non-PBR display, no regression.
+        var repairFn = ExtractFunction(text, "static bool ApplyReconstructionMaterialRepair");
+        var syncIdx = repairFn.IndexOf("SynchronizeLegacyMaterial", System.StringComparison.Ordinal);
+        var legacyBitmapIdx = repairFn.IndexOf(
+            "ON_Texture::TYPE::bitmap_texture", System.StringComparison.Ordinal);
+        Assert.True(syncIdx >= 0 && legacyBitmapIdx >= 0, "Both synchronize and legacy bitmap must be present.");
+        Assert.True(
+            syncIdx < legacyBitmapIdx,
+            "SynchronizeLegacyMaterial() must run before the legacy bitmap_texture mirror is added.");
     }
 
     [Fact]

@@ -259,6 +259,11 @@ static bool ApplyReconstructionMaterialRepair(
     pbr->SetBaseColor(ON_4fColor(1.0f, 1.0f, 1.0f, 1.0f));
     pbr->SetRoughness(0.5);
 
+    // The legacy bitmap_texture mirror (for non-PBR display modes) is added AFTER
+    // SynchronizeLegacyMaterial(), matching the original ordering — synchronize may rewrite
+    // legacy material state and would otherwise clobber a bitmap added inside the loop.
+    std::string baseColorLegacyPath;
+
     for (const auto& entry : materialRepair["maps"])
     {
         if (!entry.is_object())
@@ -272,18 +277,18 @@ static bool ApplyReconstructionMaterialRepair(
 
         ON_Texture::TYPE pbrType = ON_Texture::TYPE::no_texture_type;
         bool treatAsLinear = false;
-        bool addLegacyBitmap = false;
+        bool mirrorAsLegacyBitmap = false;
         if (channel == "base_color")
         {
             pbrType = ON_Texture::TYPE::pbr_base_color_texture;
-            treatAsLinear = false;   // sRGB color
-            addLegacyBitmap = true;  // show in non-PBR display modes
+            treatAsLinear = false;        // sRGB color
+            mirrorAsLegacyBitmap = true;  // show in non-PBR display modes
         }
         else if (channel == "normal")
         {
             pbrType = ON_Texture::TYPE::pbr_bump_texture;
-            treatAsLinear = true;    // normal vectors sample linearly
-            addLegacyBitmap = false;
+            treatAsLinear = true;         // normal vectors sample linearly
+            mirrorAsLegacyBitmap = false;
         }
         else
         {
@@ -318,13 +323,16 @@ static bool ApplyReconstructionMaterialRepair(
         tex.m_bOn = true;
         pbr->AddTexture(tex);
 
-        if (addLegacyBitmap)
-            mat.AddTexture(
-                static_cast<const wchar_t*>(texturePathW),
-                ON_Texture::TYPE::bitmap_texture);
+        if (mirrorAsLegacyBitmap)
+            baseColorLegacyPath = texturePath;
     }
 
     pbr->SynchronizeLegacyMaterial();
+
+    if (!baseColorLegacyPath.empty())
+        mat.AddTexture(
+            static_cast<const wchar_t*>(Utf8ToWide(baseColorLegacyPath)),
+            ON_Texture::TYPE::bitmap_texture);
 
     const int matIdx = pDoc->m_material_table.AddMaterial(mat);
     if (matIdx < 0)
