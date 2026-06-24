@@ -156,9 +156,10 @@ in; S2 must validate **this**, not a throwaway stand-in.
   - `tasks_executed_during_pump` — count of queued tasks (the sentinel) that
     *actually ran* before the holding lambda returned. **Must be `0` for safe.** This
     is the real failure signal, separate from mere `DrainQueue` entry.
-  - `idle_fired_during_pump` — did `CRhinoIsIdle::Notify` actually fire during the
-    pump? Prevents a "safe" S1 from *falsely* reassuring us the idle door is closed
-    when idle simply never got a chance to fire.
+  - `idle_fired_during_pump` — a **tripwire**: did `CRhinoIsIdle::Notify` fire during
+    the pump? It structurally cannot while the lambda holds the UI thread (Rhino is
+    never idle), so `false` is the expected, correct value. A `true` would be
+    surprising and must be investigated — but `false` does not weaken any verdict.
 - **Pump bodies** for S0/S1/S2.
 
 ## Strategy matrix (one run each, shared sentinel + instrumentation)
@@ -166,7 +167,7 @@ in; S2 must validate **this**, not a throwaway stand-in.
 | Run | Pump | Expected | Meaning |
 |-----|------|----------|---------|
 | **S0 Control** | `PeekMessage` pumping *everything*, no guard | **Unsafe** — sentinel runs before lambda returns | Validates the harness. A *clean* S0 ⇒ suspect instrumentation or an unrepresentative pump — halt and fix before trusting any verdict. |
-| **S1 Filtered** | `PeekMessage` excluding the `WM_ROOK_DISPATCH` range, no guard | Informative only | Unsafe ⇒ proves the idle door matters (WndProc filtering alone is insufficient). Safe ⇒ **not trusted** unless `idle_fired_during_pump` shows idle had a real chance and still did not drain. |
+| **S1 Filtered** | `PeekMessage` excluding the `WM_ROOK_DISPATCH` range, no guard | Informative only | Isolates the WndProc door. Unsafe ⇒ that door alone is the reentrancy path and filtering it is fragile. Safe ⇒ filtering the WndProc door sufficed *for this run* — but S1 is **not** the production choice (it has no guard). Note: the idle door cannot structurally fire during a held pump (Rhino never goes idle while the lambda holds the thread), so `idle_fired_during_pump` is a tripwire, not a coverage gate — `false` is expected and does **not** make S1 untrustworthy. S2 is door-agnostic and is the real candidate. |
 | **S2 Guarded** | pump wrapped in `DispatchDrainSuspension` | **Safe** (the goal) | The sole acceptable synchronous-pump path: queued-during, not-executed-during, executed-after-return. |
 
 ## Output — decision-grade JSON (per run)
@@ -184,7 +185,7 @@ S0, by contrast, is expected to show `executed_during_pump: true` and
   "executed_after_return": true,
   "drain_attempt_count": 3,
   "tasks_executed_during_pump": 0,
-  "idle_fired_during_pump": true,
+  "idle_fired_during_pump": false,
   "messages_processed": 1234
 }
 ```
@@ -225,8 +226,12 @@ S0, by contrast, is expected to show `executed_during_pump: true` and
   the fallback the roadmap already names.
 - **S0 unexpectedly safe:** **halt.** The harness or pump is not representative; fix
   it before trusting any S1/S2 result.
-- **S1 safe but `idle_fired_during_pump == false`:** treat as inconclusive for the
-  idle door; do not promote filtering as a standalone mitigation.
+- **S1 result is informative only — never the production choice.** It has no guard,
+  and `idle_fired_during_pump == false` is the *structurally expected* value (idle
+  cannot fire during a held pump), so it is not a reason to distrust S1. Regardless
+  of S1, the production decision rests on S2 (the guarded, door-agnostic path).
+- **Any run with `_inconclusive` (sentinel never queued):** discard — it did not
+  exercise the scenario; re-run rather than scoring it.
 
 ## Practicalities
 
