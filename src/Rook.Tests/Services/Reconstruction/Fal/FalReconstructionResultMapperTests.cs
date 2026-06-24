@@ -110,4 +110,45 @@ public sealed class FalReconstructionResultMapperTests
         Assert.DoesNotContain(artifacts, a => a.Role == ReconstructionFileRoles.Image);
         Assert.DoesNotContain(artifacts, a => a.Role == ReconstructionFileRoles.Mask);
     }
+
+    [Fact]
+    public void MapArtifacts_MeshyShape_ClassifiesModelsAndTextures()
+    {
+        // fal Meshy v6: top-level model_glb + model_urls{glb,obj,fbx,usdz} + texture_urls[] (array).
+        var body = JsonNode.Parse("""
+        {
+          "model_glb": { "url": "https://cdn.fal/m.glb", "file_name": "m.glb" },
+          "model_urls": {
+            "glb":  { "url": "https://cdn.fal/m.glb" },
+            "obj":  { "url": "https://cdn.fal/m.obj",  "file_name": "m.obj" },
+            "fbx":  { "url": "https://cdn.fal/m.fbx",  "file_name": "m.fbx" },
+            "usdz": { "url": "https://cdn.fal/m.usdz", "file_name": "m.usdz" }
+          },
+          "texture_urls": [
+            { "url": "https://cdn.fal/base_color.png", "file_name": "base_color.png" },
+            { "url": "https://cdn.fal/normal.png",     "file_name": "normal.png" }
+          ]
+        }
+        """)!;
+
+        var roles = FalReconstructionResultMapper.MapArtifacts(body).Select(a => a.Role).ToList();
+
+        Assert.Contains(ReconstructionFileRoles.ModelGlb, roles);
+        Assert.Contains(ReconstructionFileRoles.ModelObj, roles);
+        Assert.Contains("model_fbx", roles);
+        Assert.Contains("model_usdz", roles);
+        Assert.Contains("texture_base_color", roles);
+        Assert.Contains("texture_normal", roles);
+    }
+
+    [Fact]
+    public void MapArtifacts_MeshyGeometryOnly_HasModelNoTexture()
+    {
+        var body = JsonNode.Parse("""{ "model_glb": { "url": "https://cdn.fal/m.glb", "file_name": "m.glb" } }""")!;
+
+        var artifacts = FalReconstructionResultMapper.MapArtifacts(body);
+
+        Assert.Contains(artifacts, a => a.Role == ReconstructionFileRoles.ModelGlb);
+        Assert.DoesNotContain(artifacts, a => a.Role.StartsWith("texture", System.StringComparison.Ordinal));
+    }
 }
