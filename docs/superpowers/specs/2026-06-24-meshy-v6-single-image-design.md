@@ -330,6 +330,19 @@ test corrected to the **real captured shape**. 297 reconstruction tests green; 3
 | Rhino import: count 0→N, bbox | ✅ 0→1, 1.85×1.41×1.91 m |
 | Texture present, no false warnings | ✅ visibly textured (orange tabby), `warnings: []`; `material_repair_applied: true` |
 
+**Known limitation (out of Step 1 scope — managed-only Meshy):** fal delivered two
+texture passes — **base_color** + **normal** (metallic/roughness null, since
+`enable_pbr` was false). Both materialized into the package
+(`texture_base_color`, `texture_normal`), but the native material-repair binds only
+**base_color** into the Rhino material's Color channel; the **normal map is staged to
+disk but left unbound** (Bump/Normal channel empty). This is a *general* gap (any
+normal-bearing package, Hunyuan included), in the import/material-repair path
+(managed `MaterialRepair` plan at `ReconstructionOpHandler.cs:673` builds only
+`base_color_path`; native `ImportExportHandler.cpp:233` reads only `base_color_path`).
+It is **not** a Step 1 correctness failure — the mesh is correctly coloured and no
+false warning fires — and is tracked as a separate follow-up workstream:
+*"Wire reconstruction PBR texture maps into repaired Rhino materials."*
+
 **Lesson recorded:** a green unit test is only as trustworthy as its fixture's
 fidelity to the provider's real payload. Capture real provider responses for
 classification fixtures, and keep the live smoke as the promotion gate.
