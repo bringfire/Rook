@@ -114,19 +114,26 @@ public sealed class FalReconstructionResultMapperTests
     [Fact]
     public void MapArtifacts_MeshyShape_ClassifiesModelsAndTextures()
     {
-        // fal Meshy v6: top-level model_glb + model_urls{glb,obj,fbx,usdz} + texture_urls[] (array).
+        // REAL fal Meshy v6 shape (captured from live job cacbc3c4 / provider_result_json): top-level
+        // model_glb + model_urls{glb,obj,fbx,usdz,stl} + texture_urls as an array of PBR-slot objects.
+        // The base_color file is named "texture_0.png" (NOT self-describing), so the slot key — not the
+        // filename — must drive the role. The earlier flat-shape fixture was a fiction the live smoke
+        // exposed: the mapper dropped Meshy's textures and result_missing_texture fired falsely.
         var body = JsonNode.Parse("""
         {
-          "model_glb": { "url": "https://cdn.fal/m.glb", "file_name": "m.glb" },
+          "model_glb": { "url": "https://cdn.fal/m.glb", "file_name": "model.glb" },
           "model_urls": {
             "glb":  { "url": "https://cdn.fal/m.glb" },
-            "obj":  { "url": "https://cdn.fal/m.obj",  "file_name": "m.obj" },
-            "fbx":  { "url": "https://cdn.fal/m.fbx",  "file_name": "m.fbx" },
-            "usdz": { "url": "https://cdn.fal/m.usdz", "file_name": "m.usdz" }
+            "obj":  { "url": "https://cdn.fal/m.obj",  "file_name": "model.obj" },
+            "fbx":  { "url": "https://cdn.fal/m.fbx",  "file_name": "model.fbx" },
+            "usdz": { "url": "https://cdn.fal/m.usdz", "file_name": "model.usdz" },
+            "stl":  { "url": "https://cdn.fal/m.stl",  "file_name": "model.stl" }
           },
           "texture_urls": [
-            { "url": "https://cdn.fal/base_color.png", "file_name": "base_color.png" },
-            { "url": "https://cdn.fal/normal.png",     "file_name": "normal.png" }
+            { "base_color": { "url": "https://cdn.fal/texture_0.png", "file_name": "texture_0.png" },
+              "metallic": null,
+              "normal": { "url": "https://cdn.fal/texture_0_normal.png", "file_name": "texture_0_normal.png" },
+              "roughness": null }
           ]
         }
         """)!;
@@ -137,7 +144,8 @@ public sealed class FalReconstructionResultMapperTests
         Assert.Contains(ReconstructionFileRoles.ModelObj, roles);
         Assert.Contains("model_fbx", roles);
         Assert.Contains("model_usdz", roles);
-        Assert.Contains("texture_base_color", roles);
+        Assert.Contains("model_stl", roles);
+        Assert.Contains("texture_base_color", roles);  // from the base_color SLOT KEY, not the filename
         Assert.Contains("texture_normal", roles);
     }
 
