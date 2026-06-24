@@ -150,7 +150,7 @@ Supporting value types (small, also file-local):
   `animated_object_ids` (shape, `<=256`, uniqueness), `frame_count` (shape, `>=1`, `<=3000`),
   `camera_frames`/`object_frames` existence + array + length-match + frame_index sequence.
   Returns `{frameCount, animatedObjectIds}`.
-- `ReplayOptions ParseReplayOptions(const nlohmann::json& body, const nlohmann::json& track, int frameCount)` —
+- `ReplayOptions ParseReplayOptions(const nlohmann::json& body, int frameCount)` (re-derives `track = body["track"]` internally for the fps fallback — already validated by `ParseReplayTrack`) —
   U5: fps resolution (`body.fps` → `track.fps` → default `24`), `invalid_fps`, dwell cap
   (`frame_dwell_exceeds_cap`, >250ms), duration cap (`replay_duration_exceeds_cap`, >60000ms),
   `restore_on_finish` (default true). Kept separate so `ReplayInstruction` is not a parser
