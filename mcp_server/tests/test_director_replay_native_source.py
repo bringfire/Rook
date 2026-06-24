@@ -275,3 +275,14 @@ def test_replay_track_parser_owns_envelope():
         assert tok in track, f"ParseReplayTrack missing {tok}"
     build = _extract_function(src, "BuildReplayInstructionFromBody")
     assert "ParseReplayTrack(" in build
+
+
+def test_replay_options_parser_owns_caps():
+    src = _read(REPLAY_CPP)
+    opts = _extract_function(src, "ParseReplayOptions")
+    for tok in ["invalid_fps", "frame_dwell_exceeds_cap", "replay_duration_exceeds_cap",
+                "restore_on_finish"]:
+        assert tok in opts, f"ParseReplayOptions missing {tok}"
+    assert opts.index("invalid_fps") < opts.index("frame_dwell_exceeds_cap") < opts.index("replay_duration_exceeds_cap")
+    build = _extract_function(src, "BuildReplayInstructionFromBody")
+    assert "ParseReplayOptions(" in build

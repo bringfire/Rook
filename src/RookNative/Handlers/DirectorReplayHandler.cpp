@@ -263,16 +263,19 @@ static ReplayTrackInfo ParseReplayTrack(const nlohmann::json& body)
     return info;
 }
 
-// Worker-phase builder: delegates U4 to ParseReplayTrack, then applies U5 (fps/dwell/duration
-// caps) + U6 (per-frame pre-parse). Moved verbatim out of HandleDirectorReplay; every
-// SendCode/SendErrorData error converted to a throw (SendCode(...) -> ThrowReplayError(code,msg);
-// SendErrorData(d) -> throw ReplayRequestError(std::move(d))) with message strings and field
-// names copied EXACTLY and internal check order unchanged. Parses every frame BEFORE Dispatch —
-// if any frame is malformed we fail before touching the document.
-static ReplayInstruction BuildReplayInstructionFromBody(const nlohmann::json& body, std::string sessionId)
+struct ReplayOptions {
+    double effectiveFps      = 0.0;
+    double dwellMs           = 0.0;
+    double plannedDurationMs = 0.0;
+    bool   restoreOnFinish   = true;
+};
+
+// U5 — fps resolution, dwell cap, duration cap, restore_on_finish.
+// Requires body["track"] to already be validated (by ParseReplayTrack).
+// Internal check order: invalid_fps -> frame_dwell_exceeds_cap -> replay_duration_exceeds_cap.
+static ReplayOptions ParseReplayOptions(const nlohmann::json& body, int frameCount)
 {
-    ReplayTrackInfo track = ParseReplayTrack(body);
-    const nlohmann::json& trackJson = body["track"];
+    const nlohmann::json& track = body["track"];   // already validated by ParseReplayTrack
 
     // -----------------------------------------------------------------------
     // 5. Compute effective_fps + dwell_ms, apply caps
@@ -286,13 +289,13 @@ static ReplayInstruction BuildReplayInstructionFromBody(const nlohmann::json& bo
         }
         effectiveFps = body["fps"].get<double>();
     }
-    else if (trackJson.contains("fps") && !trackJson["fps"].is_null())
+    else if (track.contains("fps") && !track["fps"].is_null())
     {
-        if (!trackJson["fps"].is_number())
+        if (!track["fps"].is_number())
         {
             ThrowReplayError("invalid_fps", "fps must be a positive finite number");
         }
-        effectiveFps = trackJson["fps"].get<double>();
+        effectiveFps = track["fps"].get<double>();
     }
     if (!std::isfinite(effectiveFps) || effectiveFps <= 0.0)
     {
@@ -304,7 +307,7 @@ static ReplayInstruction BuildReplayInstructionFromBody(const nlohmann::json& bo
         ThrowReplayError("frame_dwell_exceeds_cap",
                  "Computed dwell_ms exceeds 250ms cap (fps too low)");
     }
-    double plannedDurationMs = static_cast<double>(track.frameCount) * dwellMs;
+    double plannedDurationMs = static_cast<double>(frameCount) * dwellMs;
     if (plannedDurationMs > 60000.0)
     {
         ThrowReplayError("replay_duration_exceeds_cap",
@@ -315,6 +318,27 @@ static ReplayInstruction BuildReplayInstructionFromBody(const nlohmann::json& bo
     bool restoreOnFinish = true;
     if (body.contains("restore_on_finish") && body["restore_on_finish"].is_boolean())
         restoreOnFinish = body["restore_on_finish"].get<bool>();
+
+    ReplayOptions opts;
+    opts.effectiveFps      = effectiveFps;
+    opts.dwellMs           = dwellMs;
+    opts.plannedDurationMs = plannedDurationMs;
+    opts.restoreOnFinish   = restoreOnFinish;
+    return opts;
+}
+
+// Worker-phase builder: delegates U4 to ParseReplayTrack, U5 to ParseReplayOptions, then
+// applies U6 (per-frame pre-parse). Moved verbatim out of HandleDirectorReplay; every
+// SendCode/SendErrorData error converted to a throw (SendCode(...) -> ThrowReplayError(code,msg);
+// SendErrorData(d) -> throw ReplayRequestError(std::move(d))) with message strings and field
+// names copied EXACTLY and internal check order unchanged. Parses every frame BEFORE Dispatch —
+// if any frame is malformed we fail before touching the document.
+static ReplayInstruction BuildReplayInstructionFromBody(const nlohmann::json& body, std::string sessionId)
+{
+    ReplayTrackInfo track = ParseReplayTrack(body);
+    const nlohmann::json& trackJson = body["track"];
+
+    ReplayOptions opts = ParseReplayOptions(body, track.frameCount);
 
     // -----------------------------------------------------------------------
     // 6. Worker-phase per-frame pre-parse (no-mutation guarantee)
@@ -443,10 +467,10 @@ static ReplayInstruction BuildReplayInstructionFromBody(const nlohmann::json& bo
     instruction.perFrameObjects   = std::move(perFrameObjects);
     instruction.perFrameCameras   = std::move(perFrameCameras);
     instruction.frameCount        = track.frameCount;
-    instruction.dwellMs           = dwellMs;
-    instruction.effectiveFps      = effectiveFps;
-    instruction.plannedDurationMs = plannedDurationMs;
-    instruction.restoreOnFinish   = restoreOnFinish;
+    instruction.dwellMs           = opts.dwellMs;
+    instruction.effectiveFps      = opts.effectiveFps;
+    instruction.plannedDurationMs = opts.plannedDurationMs;
+    instruction.restoreOnFinish   = opts.restoreOnFinish;
     instruction.sessionId         = std::move(sessionId);
     return instruction;
 }
