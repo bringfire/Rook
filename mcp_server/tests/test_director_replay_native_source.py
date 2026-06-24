@@ -94,17 +94,19 @@ def test_replay_session_id_validation_present():
 # ---------------------------------------------------------------------------
 
 def test_replay_loop_uses_single_guard_and_shared_primitives():
-    replay = _extract_function(_read(REPLAY_CPP), "HandleDirectorReplay")
+    src = _read(REPLAY_CPP)
+    replay = _extract_function(src, "HandleDirectorReplay")
     assert "DispatchDrainSuspension" in replay
-    assert replay.count("DispatchDrainSuspension ") == 1   # ONE guard for the whole loop
-    assert "DirectorObjectPoseGuard" in replay             # real pose guard, per frame
-    assert "DirectorViewportGuard" in replay               # real camera guard
-    assert replay.count("DirectorViewportGuard ") == 1     # one camera snapshot for the whole replay
-    assert "ParseFrameObjectTransforms(" in replay         # pure shared parsers only
-    assert "ParseCamera(" in replay
+    assert replay.count("DispatchDrainSuspension ") == 1     # ONE guard for the whole loop
+    assert "DirectorObjectPoseGuard" in replay
+    assert "DirectorViewportGuard" in replay
+    assert replay.count("DirectorViewportGuard ") == 1
     assert "SetCameraFromFrame(" in replay
-    # Guard methods are called (idiomatic poseGuard->Apply() / viewportGuard.Restore() / Disarm()).
     assert "Apply()" in replay and "Restore(" in replay and "Disarm()" in replay
+    # Shared pure parsers now live in the worker-phase builder, not inline in the handler.
+    build = _extract_function(src, "BuildReplayInstructionFromBody")
+    assert "ParseFrameObjectTransforms(" in build
+    assert "ParseCamera(" in build
 
 
 def test_replay_checks_cancel_before_applying_each_frame():
@@ -144,24 +146,24 @@ def test_replay_validation_caps_and_cancel_present():
 
 
 def test_replay_preparses_and_validates_every_frame_before_dispatch():
-    handler = _extract_function(_read(REPLAY_CPP), "HandleDirectorReplay")
-    # Every frame's object set is checked against the declared ids, pre-parsed up front.
-    assert "animated_object_ids" in handler           # exact-set-equality check
-    assert "perFrameObjects" in handler               # pre-parsed per-frame vector
-    assert "perFrameCameras" in handler
-    # The pre-parse + the Dispatch must be ordered: parsing precedes the UI dispatch.
-    assert handler.index("perFrameObjects") < handler.index("Dispatch(")
+    src = _read(REPLAY_CPP)
+    handler = _extract_function(src, "HandleDirectorReplay")
+    assert "BuildReplayInstructionFromBody" in handler
+    assert handler.index("BuildReplayInstructionFromBody") < handler.index("Dispatch(")
+    build = _extract_function(src, "BuildReplayInstructionFromBody")
+    assert "animated_object_ids" in build      # exact-set check lives in the builder
+    assert "perFrameObjects" in build and "perFrameCameras" in build
 
 
 def test_replay_remaps_shared_helper_errors_to_replay_codes():
-    handler = _extract_function(_read(REPLAY_CPP), "HandleDirectorReplay")
-    # Replay catches the shared helper's exception and remaps — it does not emit
-    # the helper's generic invalid_input, and does not change the helper.
-    assert "catch (const DirectorFrameValidationError" in handler or \
-           "catch (DirectorFrameValidationError" in handler
-    assert "track_invalid" in handler          # worker-phase parse failures
-    assert "object_not_found" in handler       # UI-phase ValidateFrameObjects failures
-    assert "affectedObjectIds" in handler      # object_id carried from the helper
+    src = _read(REPLAY_CPP)
+    build = _extract_function(src, "BuildReplayInstructionFromBody")
+    assert "catch (const DirectorFrameValidationError" in build or \
+           "catch (DirectorFrameValidationError" in build
+    assert "track_invalid" in build            # worker-phase parse failures
+    assert "affectedObjectIds" in build        # object_id carried from the helper
+    handler = _extract_function(src, "HandleDirectorReplay")
+    assert "object_not_found" in handler       # UI-phase doc validation stays in the handler
 
 
 def test_replay_surfaces_restore_failures_instead_of_reporting_success():
@@ -241,3 +243,23 @@ def test_replay_session_id_parser_exists():
     assert "ParseReplaySessionId(" in src
     parser = _extract_function(src, "ParseReplaySessionId")
     assert "IsValidReplaySessionId" in parser and "invalid_session_id" in parser
+
+
+def test_replay_instruction_is_move_only_and_dispatched_by_move():
+    src = _read(REPLAY_CPP)
+    assert "struct ReplayInstruction" in src
+    assert "ReplayInstruction(const ReplayInstruction&) = delete" in src
+    handler = _extract_function(src, "HandleDirectorReplay")
+    assert "ReplayInstruction instruction = BuildReplayInstructionFromBody(" in handler
+    assert "instruction = std::move(instruction)" in handler   # captured by move into the lambda
+
+
+def test_replay_reserves_slot_before_building_instruction():
+    handler = _extract_function(_read(REPLAY_CPP), "HandleDirectorReplay")
+    assert handler.index("ReserveReplaySlot(") < handler.index("BuildReplayInstructionFromBody(")
+
+
+def test_replay_named_worker_phase_helpers_exist():
+    src = _read(REPLAY_CPP)
+    for fn in ["ParseReplayRequestBody", "ParseReplaySessionId", "BuildReplayInstructionFromBody"]:
+        assert f"{fn}(" in src, f"missing helper {fn}"
