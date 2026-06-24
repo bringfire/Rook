@@ -207,15 +207,23 @@ is known, and a `propose_next_node`-derived (or hand-built but equal-to-fresh) p
 
 ### Task 2 — chain revalidation guard
 `mcp_server/tests/test_plan_graph_revalidation_chain.py` (focused gate). Drive the real
-5-node `gh_csharp_create_verify_repair_verify` template through the reducer; at a mid-chain
-state, `proposal = propose_next_node(graph)` (→ `SELECT_NODE("X")`):
+5-node `gh_csharp_create_verify_repair_verify` template through the reducer to the point
+where `verify_create` is the uniquely-ready node (after `initialize_graph` +
+`apply_producer_result(create_script, …)`), and capture
+`proposal = propose_next_node(graph)` (→ `SELECT_NODE("verify_create")`):
 
 - **fresh-against-same-graph → ACCEPT:** `revalidate_proposal(proposal, graph)` → ACCEPT,
-  `accepted_node_id == "X"`.
-- **stale-across-a-real-transition → REJECT:** advance the graph one reducer step (so `X` is
-  consumed and the next node becomes ready), then `revalidate_proposal(proposal,
-  advanced_graph)` → REJECT (`none_ready` or `selected_not_ready` depending on the
-  transition) — the snapshot went stale across a genuine transition. **No fallback.**
+  `accepted_node_id == "verify_create"`.
+- **stale-across-a-real-transition → REJECT `selected_not_ready` (deterministic, no
+  fallback):** advance the graph via `apply_verifier_step(graph, "verify_create",
+  "create_script")` (outcome `needs_repair`), so `verify_create` is now `needs_repair` and
+  `repair_same_component` becomes the uniquely-ready node. Re-derivation on the advanced
+  graph yields `SELECT_NODE("repair_same_component")`. Revalidating the **old**
+  `verify_create` proposal against the advanced graph → **REJECT `selected_not_ready`**
+  (`accepted_node_id is None`; `fresh_proposal` is the `repair_same_component` selection but
+  is **not** substituted). This pins that, when a *different* valid node is now uniquely
+  ready, the gate refuses rather than re-selecting. (`none_ready` has its own Task-1 unit
+  coverage.)
 - **fork → REJECT `no_longer_unique`:** revalidate a `SELECT` proposal against a hand-built
   2-ready fork graph → REJECT `no_longer_unique`.
 
