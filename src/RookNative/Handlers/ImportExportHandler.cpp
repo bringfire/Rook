@@ -230,28 +230,18 @@ static bool ApplyReconstructionMaterialRepair(
     if (!materialRepair.is_object() || materialRepair.empty())
         return false;
 
-    const std::string texturePath = JsonStringOr(materialRepair, "base_color_path");
+    if (!materialRepair.contains("maps")
+        || !materialRepair["maps"].is_array()
+        || materialRepair["maps"].empty())
+    {
+        error = "Prepared material repair was missing maps.";
+        return false;
+    }
+
     const std::string materialName = JsonStringOr(
         materialRepair,
         "material_name",
         "Rook Reconstruction Material");
-    if (texturePath.empty())
-    {
-        error = "Prepared material repair was missing base_color_path.";
-        return false;
-    }
-
-    const std::string pathErr = Rook::ValidateFilePath(texturePath);
-    if (!pathErr.empty())
-    {
-        error = pathErr;
-        return false;
-    }
-    if (!fs::exists(texturePath))
-    {
-        error = "Prepared material repair texture was not found: " + texturePath;
-        return false;
-    }
 
     ON_Material mat;
     mat.SetName(Utf8ToWide(materialName));
@@ -260,20 +250,89 @@ static bool ApplyReconstructionMaterialRepair(
     mat.SetShine(0.0);
     mat.ToPhysicallyBased();
 
-    ON_wString texturePathW = Utf8ToWide(texturePath);
     auto pbr = mat.PhysicallyBased();
-    if (pbr)
+    if (!pbr)
     {
-        pbr->SetBaseColor(ON_4fColor(1.0f, 1.0f, 1.0f, 1.0f));
-        pbr->SetRoughness(0.5);
-        pbr->AddTexture(
-            static_cast<const wchar_t*>(texturePathW),
-            ON_Texture::TYPE::pbr_base_color_texture);
-        pbr->SynchronizeLegacyMaterial();
+        error = "Failed to initialize physically based material for repair.";
+        return false;
     }
-    mat.AddTexture(
-        static_cast<const wchar_t*>(texturePathW),
-        ON_Texture::TYPE::bitmap_texture);
+    pbr->SetBaseColor(ON_4fColor(1.0f, 1.0f, 1.0f, 1.0f));
+    pbr->SetRoughness(0.5);
+
+    // The legacy bitmap_texture mirror (for non-PBR display modes) is added AFTER
+    // SynchronizeLegacyMaterial(), matching the original ordering — synchronize may rewrite
+    // legacy material state and would otherwise clobber a bitmap added inside the loop.
+    std::string baseColorLegacyPath;
+
+    for (const auto& entry : materialRepair["maps"])
+    {
+        if (!entry.is_object())
+        {
+            error = "Material repair map entry was not an object.";
+            return false;
+        }
+
+        const std::string channel = JsonStringOr(entry, "channel");
+        const std::string texturePath = JsonStringOr(entry, "path");
+
+        ON_Texture::TYPE pbrType = ON_Texture::TYPE::no_texture_type;
+        bool treatAsLinear = false;
+        bool mirrorAsLegacyBitmap = false;
+        if (channel == "base_color")
+        {
+            pbrType = ON_Texture::TYPE::pbr_base_color_texture;
+            treatAsLinear = false;        // sRGB color
+            mirrorAsLegacyBitmap = true;  // show in non-PBR display modes
+        }
+        else if (channel == "normal")
+        {
+            pbrType = ON_Texture::TYPE::pbr_bump_texture;
+            treatAsLinear = true;         // normal vectors sample linearly
+            mirrorAsLegacyBitmap = false;
+        }
+        else
+        {
+            error = "Unknown material repair channel: " + channel;
+            return false;
+        }
+
+        if (texturePath.empty())
+        {
+            error = "Material repair map for channel '" + channel + "' was missing path.";
+            return false;
+        }
+        const std::string pathErr = Rook::ValidateFilePath(texturePath);
+        if (!pathErr.empty())
+        {
+            error = pathErr;
+            return false;
+        }
+        if (!fs::exists(texturePath))
+        {
+            error = "Material repair texture was not found: " + texturePath;
+            return false;
+        }
+
+        const ON_wString texturePathW = Utf8ToWide(texturePath);
+
+        ON_Texture tex;
+        tex.m_image_file_reference = ON_FileReference::CreateFromFullPath(
+            static_cast<const wchar_t*>(texturePathW), false, true);
+        tex.m_type = pbrType;
+        tex.m_bTreatAsLinear = treatAsLinear;
+        tex.m_bOn = true;
+        pbr->AddTexture(tex);
+
+        if (mirrorAsLegacyBitmap)
+            baseColorLegacyPath = texturePath;
+    }
+
+    pbr->SynchronizeLegacyMaterial();
+
+    if (!baseColorLegacyPath.empty())
+        mat.AddTexture(
+            static_cast<const wchar_t*>(Utf8ToWide(baseColorLegacyPath)),
+            ON_Texture::TYPE::bitmap_texture);
 
     const int matIdx = pDoc->m_material_table.AddMaterial(mat);
     if (matIdx < 0)

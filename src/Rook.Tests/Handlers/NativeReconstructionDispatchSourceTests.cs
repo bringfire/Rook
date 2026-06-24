@@ -189,11 +189,40 @@ public sealed class NativeReconstructionDispatchSourceTests
         Assert.Contains("ApplyReconstructionMaterialRepair(", handler);
         Assert.Contains("newIds", handler);
         Assert.Contains("materialRepair", handler);
+
+        // Generalized maps[] binding (base_color + normal)
+        Assert.Contains("materialRepair[\"maps\"]", text);
         Assert.Contains("ON_Texture::TYPE::pbr_base_color_texture", text);
+        Assert.Contains("ON_Texture::TYPE::pbr_bump_texture", text);
+        // normal channel binds linearly: the branch sets treatAsLinear = true and the
+        // ON_Texture field is assigned from it.
+        Assert.Contains("treatAsLinear = true", text);
+        Assert.Contains("m_bTreatAsLinear = treatAsLinear", text);
+        Assert.Contains("ON_FileReference::CreateFromFullPath", text);
         Assert.Contains("mat.ToPhysicallyBased();", text);
+
+        // Strict contract: unknown channel + non-object entry are reported, not skipped
+        Assert.Contains("Unknown material repair channel", text);
+        Assert.Contains("Material repair map entry was not an object", text);
+
+        // Assignment + result flags
         Assert.Contains("attrs.SetMaterialSource(ON::material_from_object);", text);
         Assert.Contains("attrs.m_material_index = matIdx;", text);
         Assert.Contains("wr.data[\"material_repair_applied\"]", handler);
+
+        // Non-fatal guarantee: import success is gated on association, not material repair
+        Assert.Contains("wr.success = associated;", handler);
+
+        // Legacy bitmap mirror is added AFTER SynchronizeLegacyMaterial() so synchronize cannot
+        // clobber it — preserves non-PBR display, no regression.
+        var repairFn = ExtractFunction(text, "static bool ApplyReconstructionMaterialRepair");
+        var syncIdx = repairFn.IndexOf("SynchronizeLegacyMaterial", System.StringComparison.Ordinal);
+        var legacyBitmapIdx = repairFn.IndexOf(
+            "ON_Texture::TYPE::bitmap_texture", System.StringComparison.Ordinal);
+        Assert.True(syncIdx >= 0 && legacyBitmapIdx >= 0, "Both synchronize and legacy bitmap must be present.");
+        Assert.True(
+            syncIdx < legacyBitmapIdx,
+            "SynchronizeLegacyMaterial() must run before the legacy bitmap_texture mirror is added.");
     }
 
     [Fact]

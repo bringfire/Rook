@@ -665,16 +665,37 @@ namespace Rook.Handlers
             Guid importId,
             IReadOnlyDictionary<string, string> providerFileNames)
         {
-            var role = BaseColorTextureRole(package);
-            if (role is null) return null;
+            var baseColorRole = BaseColorTextureRole(package);
+            if (baseColorRole is null) return null;
 
-            var path = _store.GetBlobAbsolutePath(package.Id, role);
+            var maps = new List<object?>
+            {
+                MaterialMapEntry(package, "base_color", baseColorRole, providerFileNames),
+            };
+
+            if (HasRole(package, "texture_normal"))
+                maps.Add(MaterialMapEntry(package, "normal", "texture_normal", providerFileNames));
+
             return new Dictionary<string, object?>
             {
                 ["material_name"] = "Rook Reconstruction " + importId.ToString("N").Substring(0, 8),
-                ["base_color_role"] = role,
-                ["base_color_path"] = path,
-                ["base_color_file_name"] = FileNameForRole(providerFileNames, role, path),
+                ["maps"] = maps,
+            };
+        }
+
+        private Dictionary<string, object?> MaterialMapEntry(
+            Artifact package,
+            string channel,
+            string role,
+            IReadOnlyDictionary<string, string> providerFileNames)
+        {
+            var path = _store.GetBlobAbsolutePath(package.Id, role);
+            return new Dictionary<string, object?>
+            {
+                ["channel"] = channel,
+                ["role"] = role,
+                ["path"] = path,
+                ["file_name"] = FileNameForRole(providerFileNames, role, path),
             };
         }
 
