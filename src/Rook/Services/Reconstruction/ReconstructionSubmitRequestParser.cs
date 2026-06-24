@@ -20,6 +20,12 @@ public sealed record ReconstructionSubmitRequest(
     /// </summary>
     public IReadOnlyList<ReconstructionViewRequest> Views { get; init; }
         = Array.Empty<ReconstructionViewRequest>();
+
+    /// <summary>
+    /// Submit-time dev/test override: when true AND an explicit model_id is supplied, an experimental
+    /// catalog model passes the 3D submit gate. Default false. Never affects model resolution.
+    /// </summary>
+    public bool AllowExperimentalModel { get; init; }
 }
 
 /// <summary>One labeled view in a multi-view submit: a slot name, its source artifact, and role.</summary>
@@ -86,6 +92,16 @@ public static class ReconstructionSubmitRequestParser
         if (viewsFailure is not null)
             return new ReconstructionParseResult(false, null, viewsFailure);
 
+        // Strict: a present-but-non-bool value is rejected, not silently defaulted (ReadBool is lenient).
+        var allowExperimental = false;
+        if (root.TryGetPropertyValue("allow_experimental_model", out var allowNode) && allowNode is not null)
+        {
+            if (allowNode is JsonValue allowValue && allowValue.TryGetValue<bool>(out var allowFlag))
+                allowExperimental = allowFlag;
+            else
+                return Fail("invalid_request", "allow_experimental_model must be a boolean.", "allow_experimental_model");
+        }
+
         return new ReconstructionParseResult(
             true,
             new ReconstructionSubmitRequest(
@@ -97,6 +113,7 @@ public static class ReconstructionSubmitRequestParser
                 estimateRequested)
             {
                 Views = views,
+                AllowExperimentalModel = allowExperimental,
             },
             null);
     }

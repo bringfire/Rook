@@ -115,7 +115,7 @@ public sealed class ReconstructionJobManager : IDisposable
         CancellationToken ct)
     {
         var model = _catalog.Find(request.ModelId);
-        if (!IsSubmittable3DModel(model))
+        if (!IsSubmittable3DModel(model, request.AllowExperimentalModel))
             return SubmitFail("invalid_request", "Requested reconstruction model is not available.", "model_id");
 
         if (request.PreprocessingChain.Count != 0)
@@ -717,12 +717,14 @@ public sealed class ReconstructionJobManager : IDisposable
             or ReconstructionJobState.Cancelled
             or ReconstructionJobState.Interrupted;
 
-    // Capability-based 3D submit gate (no task dependency): enabled + stable + has an importable 3D
-    // output role (model_glb/model_obj) + accepts input (a source_field, or declared view_slots).
-    private static bool IsSubmittable3DModel(ReconstructionModelEntry? model)
+    // Capability-based 3D submit gate: enabled + (stable OR explicit experimental override) + has an
+    // importable 3D output role (model_glb/model_obj) + accepts input (a source_field, or view_slots).
+    // allowExperimental is a submit-time dev/test override; it relaxes ONLY the stable clause and is
+    // honored only for an explicitly named model_id (see SubmitAsync). It never affects model resolution.
+    internal static bool IsSubmittable3DModel(ReconstructionModelEntry? model, bool allowExperimental = false)
         => model is not null
             && model.Enabled
-            && string.Equals(model.Status, "stable", StringComparison.OrdinalIgnoreCase)
+            && (allowExperimental || string.Equals(model.Status, "stable", StringComparison.OrdinalIgnoreCase))
             && (model.OutputRoles.Contains("model_glb", StringComparer.Ordinal)
                 || model.OutputRoles.Contains("model_obj", StringComparer.Ordinal))
             && (!string.IsNullOrWhiteSpace(model.Input?.SourceField)
