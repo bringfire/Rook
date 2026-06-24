@@ -87,6 +87,7 @@ def test_zero_ready_halts_none():
     assert p.candidate_node_ids == ()
     assert p.ready_count == 0
     assert p.selector_id == "unique_ready_node:v1"
+    assert p.reason == "no admissible ready node"
 
 
 def test_multiple_ready_halts_ambiguous():
