@@ -71,6 +71,13 @@ public:
     void EndSaveGuard();
     bool IsSaving() const { return m_saveDepth.load(std::memory_order_acquire) > 0; }
 
+    // Dispatch-drain suspension (general; NOT tied to file-save semantics).
+    // While suspend depth > 0, DrainQueue defers via IsAllDispatchBlocked().
+    // Worker-thread Dispatch() is unaffected — only UI-thread draining pauses.
+    void BeginSuspendGuard() { m_suspendDepth.fetch_add(1, std::memory_order_release); }
+    void EndSuspendGuard();
+    bool IsDispatchSuspended() const { return m_suspendDepth.load(std::memory_order_acquire) > 0; }
+
     void BeginCommandGuard();
     void EndCommandGuard();
     bool IsCommandActive() const;
@@ -143,6 +150,19 @@ inline bool CMainThreadDispatcher::IsAllDispatchBlocked() const
     return m_saveDepth.load(std::memory_order_acquire) > 0
         || m_suspendDepth.load(std::memory_order_acquire) > 0;
 }
+
+// RAII: suspends dispatcher draining for the lifetime of the guard on the UI
+// thread. The outermost release wakes the pump (see EndSuspendGuard), so queued
+// work drains promptly once the holding UI-thread lambda returns. Replay (PR2)
+// wraps its per-frame pump in one of these.
+class DispatchDrainSuspension
+{
+public:
+    DispatchDrainSuspension() { CMainThreadDispatcher::Instance().BeginSuspendGuard(); }
+    ~DispatchDrainSuspension() { CMainThreadDispatcher::Instance().EndSuspendGuard(); }
+    DispatchDrainSuspension(const DispatchDrainSuspension&) = delete;
+    DispatchDrainSuspension& operator=(const DispatchDrainSuspension&) = delete;
+};
 
 // --- Template implementation (must be in header) ---
 

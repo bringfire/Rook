@@ -243,6 +243,49 @@ namespace Rook.Tests.Threading
         }
 
         [Fact]
+        public void SuspendGuard_RaiiClassIsNonCopyableAndTogglesDepth()
+        {
+            var header = ReadSourceFile("src", "RookNative", "Threading", "MainThreadDispatcher.h");
+            var raii = ExtractStruct(header.Replace("class DispatchDrainSuspension", "struct DispatchDrainSuspension"),
+                                     "DispatchDrainSuspension");
+
+            Assert.Contains("BeginSuspendGuard()", raii);
+            Assert.Contains("EndSuspendGuard()", raii);
+            Assert.Contains("DispatchDrainSuspension(const DispatchDrainSuspension&) = delete;", raii);
+            Assert.Contains("DispatchDrainSuspension& operator=(const DispatchDrainSuspension&) = delete;", raii);
+        }
+
+        [Fact]
+        public void BeginSuspendGuard_IncrementsDepth()
+        {
+            var header = ReadSourceFile("src", "RookNative", "Threading", "MainThreadDispatcher.h");
+            Assert.Contains("void BeginSuspendGuard() { m_suspendDepth.fetch_add(1, std::memory_order_release); }", header);
+        }
+
+        [Fact]
+        public void EndSuspendGuard_PostsOnlyWhenSuspendDepthReleasesToZero()
+        {
+            var source = ReadSourceFile("src", "RookNative", "Threading", "MainThreadDispatcher.cpp");
+            var fn = ExtractFunction(source, "CMainThreadDispatcher::EndSuspendGuard");
+
+            Assert.Contains("shouldPostDispatch = (current == 1);", fn);
+            Assert.Contains("PostMessage(m_subclassedHwnd, WM_ROOK_DISPATCH", fn);
+            Assert.Contains("compare_exchange_weak", fn);
+        }
+
+        [Fact]
+        public void Dispatch_DoesNotConsultSuspendStateWhenEnqueueing()
+        {
+            // Enqueue must stay allowed while suspended: only draining is deferred.
+            var header = ReadSourceFile("src", "RookNative", "Threading", "MainThreadDispatcher.h");
+            var dispatch = ExtractFunction(header, "CMainThreadDispatcher::Dispatch");
+
+            Assert.DoesNotContain("IsAllDispatchBlocked", dispatch);
+            Assert.DoesNotContain("IsDispatchSuspended", dispatch);
+            Assert.DoesNotContain("m_suspendDepth", dispatch);
+        }
+
+        [Fact]
         public void Dispatcher_DeclaresSuspendDepthDistinctFromSaveDepth()
         {
             var source = ReadSourceFile("src", "RookNative", "Threading", "MainThreadDispatcher.h");
