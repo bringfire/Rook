@@ -143,7 +143,7 @@ Standard Rook envelope `{success, data}` (`SendSuccess`→`success:true`/200; `S
 
 ### Two-phase validation
 - **Worker-thread phase:** JSON shape, `replay_session_id`, `fps`, `loop`, caps, payload size, track-envelope consistency (`transform_semantics`, frame counts/sequence). Runs before any Dispatch.
-- **UI-thread pre-apply phase:** document-dependent checks (`object_not_found`) — Rhino document access must stay on the UI thread. UI-phase failures still return validation-style errors; the slot is released by RAII and no frame mutation persists.
+- **UI-thread pre-apply phase:** document-dependent checks (`object_not_found`, `object_state_mismatch`, `unsupported_view`) — Rhino document access must stay on the UI thread. UI-phase failures still return validation-style errors; the slot is released by RAII and no frame mutation persists.
 
 ### Error codes & ownership
 
@@ -166,7 +166,9 @@ Standard Rook envelope `{success, data}` (`SendSuccess`→`success:true`/200; `S
 | `frame_dwell_exceeds_cap` | `dwell_ms > 250` (`{dwell_ms, cap_ms}`) |
 | `replay_duration_exceeds_cap` | `frame_count*dwell > 60000` (`{planned_duration_ms, cap_ms}`) |
 | `frame_count_exceeds_cap` / `object_count_exceeds_cap` / `payload_too_large` | the 3000 / 256 / 8 MiB caps |
-| `object_not_found` | a track object id absent from the doc (`{object_id}`) — UI-phase |
+| `object_not_found` | a track object id absent/deleted in the doc (`{object_id}`) — UI-phase |
+| `object_state_mismatch` | a track object exists but is not in its baked source pose (current bbox ≠ `source_state`) (`{object_id}`) — UI-phase |
+| `unsupported_view` | the active view is not a model view (page/other) — UI-phase, from the viewport guard |
 | `frame_apply_failed` | post-validation unexpected per-frame failure (`{frame_index, object_id?}`) |
 
 This split keeps MCP tests asserting Python-layer codes and native tests asserting native-layer codes.
@@ -175,7 +177,9 @@ This split keeps MCP tests asserting Python-layer codes and native tests asserti
 
 **Files:**
 - `src/RookNative/Handlers/DirectorReplayHandler.{cpp,h}` — `HandleDirectorReplay`, `HandleDirectorReplayCancel`, and the file-scope single active-slot registry.
-- `src/RookNative/Handlers/DirectorFrame.{h,cpp}` — shared per-frame primitives: `ValidateFrameObjects` (**moved** here from `DirectorHandler.cpp`, not duplicated), `ApplyObjectTransforms`, `SetCameraFromFrame`, `SnapshotPreReplayState`, `RestoreToSnapshot`.
+- `src/RookNative/Handlers/DirectorFrame.{h,cpp}` — shared per-frame primitives (**moved**, not duplicated): the parsers `ParseCamera`/`ParseFrameObjectTransforms`, `ValidateFrameObjects`, `SetCameraFromFrame`, and the RAII guards `DirectorObjectPoseGuard` (object pose) + `DirectorViewportGuard` (camera) reused from frame-capture.
+
+> **Authority note:** the implementation plan (`docs/superpowers/plans/2026-06-24-rookvisiondirector-replay-native.md`) is authoritative for native internals. The "snapshot / `ApplyObjectTransforms` / `RestoreToSnapshot`" phrasing below is a *conceptual* description of the lifecycle; the real implementation reuses `DirectorObjectPoseGuard` (object `delta`/`inverseDelta` apply/restore, partial-apply + dirty-state tracking) and `DirectorViewportGuard` (camera snapshot/restore), each with `Disarm()` for the `restore_on_finish:false` leave-final case. "Restore to the snapshot/source" = the guard's `Restore()`.
 - `src/RookNative/Handlers/DirectorHandler.cpp` — `HandleDirectorFrameCapture` refactored to call the shared helpers, **behavior-preserving**.
 - `src/RookNative/RookServer.cpp` — two `m_server->Post(...)` registrations beside the existing `/director/*` routes.
 
