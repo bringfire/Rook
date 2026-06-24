@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import math
+import re
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -425,3 +426,64 @@ async def run_director(
     }
     _atomic_write_json(run_root / "status.json", summary)
     return summary
+
+
+# ---------------------------------------------------------------------------
+# Replay (Task 4) — thin resolver over native /director/replay routes
+# ---------------------------------------------------------------------------
+
+_SESSION_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
+
+
+def _resolve_track(arguments: dict) -> dict:
+    inline = arguments.get("track")
+    path = arguments.get("track_path")
+    if (inline is None) == (path is None):  # both or neither
+        raise DirectorInputError("invalid_track_input: provide exactly one of track or track_path")
+    if inline is not None:
+        if not isinstance(inline, dict):
+            raise DirectorInputError("invalid_track_input: track must be an object")
+        return inline
+    p = Path(path)
+    if not p.is_file():
+        raise DirectorInputError(f"track_not_found: {path}")
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise DirectorInputError(f"track_read_failed: {exc}") from exc
+
+
+def _resolve_session_id(arguments: dict) -> str:
+    # Absent (key missing or None) -> generate. Present -> must be a valid string.
+    if arguments.get("replay_session_id") is None:
+        return uuid.uuid4().hex
+    sid = arguments["replay_session_id"]
+    if not isinstance(sid, str) or not _SESSION_RE.match(sid):
+        raise DirectorInputError("invalid_session_id: must be a 1..128 char [A-Za-z0-9._-] token")
+    return sid
+
+
+async def run_replay(arguments: dict, *, call_native=call_rhino, port=None) -> dict:
+    track = _resolve_track(arguments)
+    sid = _resolve_session_id(arguments)
+    req = {"replay_session_id": sid, "track": track,
+           "restore_on_finish": arguments.get("restore_on_finish", True),
+           "loop": arguments.get("loop", False)}
+    if arguments.get("fps") is not None:
+        req["fps"] = arguments["fps"]
+    result = await call_native("/director/replay", "POST", req, port=port)
+    if not result.get("success", False):
+        data = result.get("data", {})
+        raise DirectorError(f"{data.get('code', 'director_error')}: {data.get('message', '')}")
+    return result["data"]
+
+
+async def cancel_replay(arguments: dict, *, call_native=call_rhino, port=None) -> dict:
+    sid = arguments.get("replay_session_id")
+    if not isinstance(sid, str) or not _SESSION_RE.match(sid):
+        raise DirectorInputError("invalid_session_id: must be a 1..128 char [A-Za-z0-9._-] token")
+    result = await call_native("/director/replay/cancel", "POST", {"replay_session_id": sid}, port=port)
+    if not result.get("success", False):
+        data = result.get("data", {})
+        raise DirectorError(f"{data.get('code', 'director_error')}: {data.get('message', '')}")
+    return result["data"]

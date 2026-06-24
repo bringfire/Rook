@@ -385,3 +385,35 @@ def test_director_curve_samples_search_loads_readonly_bridge_tool():
     assert result["success"] is True
     assert "rhino_director_curve_samples" in result["loaded"]
     assert "rhino_director_run" not in result["loaded"]
+
+
+@pytest.mark.asyncio
+async def test_replay_tools_registered_with_clean_schema():
+    tools = {t.name: t for t in await server.list_tools()}
+    assert "rhino_director_replay" in tools
+    assert "rhino_director_replay_cancel" in tools
+    schema = tools["rhino_director_replay"].inputSchema
+    blob = json.dumps(schema)
+    for forbidden in ["oneOf", "anyOf", "allOf"]:
+        assert forbidden not in blob
+    # display-only: no capture/output surface
+    for banned in ["capture", "output_path", "output_dir", "output_root"]:
+        assert banned not in blob
+    props = schema["properties"]
+    assert {"track", "track_path", "replay_session_id", "fps", "restore_on_finish", "loop"} <= set(props)
+    cancel_props = tools["rhino_director_replay_cancel"].inputSchema["properties"]
+    assert "replay_session_id" in cancel_props
+
+
+@pytest.mark.asyncio
+async def test_replay_dispatch_routes_to_director(monkeypatch):
+    import rook.server as srv
+    called = {}
+    async def fake_run(args, port=None): called["run"] = args; return {"status": "completed"}
+    async def fake_cancel(args, port=None): called["cancel"] = args; return {"cancel_requested": True}
+    monkeypatch.setattr(srv.director, "run_replay", fake_run)
+    monkeypatch.setattr(srv.director, "cancel_replay", fake_cancel)
+    await srv.call_tool("rhino_director_replay", {"track": {"x": 1}})
+    await srv.call_tool("rhino_director_replay_cancel", {"replay_session_id": "abc"})
+    assert called["run"] == {"track": {"x": 1}}
+    assert called["cancel"] == {"replay_session_id": "abc"}

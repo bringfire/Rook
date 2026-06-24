@@ -3950,6 +3950,35 @@ Prefer rhino_workbench_launch for new automation that needs an owned disposable 
             },
         ),
         Tool(
+            name="rhino_director_replay",
+            description=("RookVisionDirector: live, display-only replay of a baked animation track in the "
+                         "Rhino viewport. Synchronous and guarded; blocks until the replay completes or is "
+                         "cancelled out-of-band. Does NOT capture/export — capture is a separate step."),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "track": {"type": "object", "description": "Full baked animation track (inline). Provide exactly one of track or track_path."},
+                    "track_path": {"type": "string", "description": "Path to a baked animation_track.json. Provide exactly one of track or track_path."},
+                    "replay_session_id": {"type": "string", "description": "Optional caller id (<=128 chars, [A-Za-z0-9._-]); generated if omitted. Use it to cancel."},
+                    "fps": {"type": "number", "description": "Optional playback fps override; defaults to the track fps or 24."},
+                    "restore_on_finish": {"type": "boolean", "description": "Default true: restore objects+camera to pre-replay state on clean completion. False leaves the final frame."},
+                    "loop": {"type": "boolean", "description": "Must be false in v1; true is rejected."},
+                },
+            },
+        ),
+        Tool(
+            name="rhino_director_replay_cancel",
+            description=("RookVisionDirector: request cancellation of an in-progress replay by replay_session_id "
+                         "(out-of-band; the replay call itself returns the terminal outcome)."),
+            inputSchema={
+                "type": "object",
+                "required": ["replay_session_id"],
+                "properties": {
+                    "replay_session_id": {"type": "string", "description": "The id of the replay to cancel (<=128 chars, [A-Za-z0-9._-])."},
+                },
+            },
+        ),
+        Tool(
             name="rhino_views",
             description="List all named views saved in the document. Returns name and index for each view. "
                         "Use rhino_views_restore to activate a named view, then rhino_viewport to capture it.",
@@ -20152,6 +20181,18 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                         "message": str(exc),
                     },
                 }
+
+        case "rhino_director_replay":
+            try:
+                result = {"success": True, "data": await director.run_replay(arguments, port=port)}
+            except director.DirectorError as exc:
+                result = {"success": False, "data": {"code": "director_error", "message": str(exc)}}
+
+        case "rhino_director_replay_cancel":
+            try:
+                result = {"success": True, "data": await director.cancel_replay(arguments, port=port)}
+            except director.DirectorError as exc:
+                result = {"success": False, "data": {"code": "director_error", "message": str(exc)}}
 
         case "rhino_render_view":
             result = await call_rhino("/vision/generate", "POST", arguments, port=port)
