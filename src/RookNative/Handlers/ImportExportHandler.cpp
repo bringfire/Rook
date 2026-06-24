@@ -221,6 +221,25 @@ static void CleanupPreparedReconstructionImport(const nlohmann::json& plan)
         error);
 }
 
+// File-local PBR channel binding table for reconstruction material repair. Each row maps a
+// material_repair.maps[] channel to its Rhino PBR texture slot, color-space treatment
+// (base color = sRGB; normal/roughness/metallic = linear data maps), and whether it also gets
+// a legacy bitmap_texture mirror for non-PBR display modes (base color only).
+struct PbrChannelBinding
+{
+    const char* channel;
+    ON_Texture::TYPE type;
+    bool treatAsLinear;
+    bool legacyMirror;
+};
+
+static const PbrChannelBinding kPbrChannelBindings[] = {
+    { "base_color", ON_Texture::TYPE::pbr_base_color_texture, false, true  },
+    { "normal",     ON_Texture::TYPE::pbr_bump_texture,       true,  false },
+    { "roughness",  ON_Texture::TYPE::pbr_roughness_texture,  true,  false },
+    { "metallic",   ON_Texture::TYPE::pbr_metallic_texture,   true,  false },
+};
+
 static bool ApplyReconstructionMaterialRepair(
     CRhinoDoc* pDoc,
     const std::vector<ON_UUID>& objectIds,
@@ -275,22 +294,16 @@ static bool ApplyReconstructionMaterialRepair(
         const std::string channel = JsonStringOr(entry, "channel");
         const std::string texturePath = JsonStringOr(entry, "path");
 
-        ON_Texture::TYPE pbrType = ON_Texture::TYPE::no_texture_type;
-        bool treatAsLinear = false;
-        bool mirrorAsLegacyBitmap = false;
-        if (channel == "base_color")
+        const PbrChannelBinding* binding = nullptr;
+        for (const auto& candidate : kPbrChannelBindings)
         {
-            pbrType = ON_Texture::TYPE::pbr_base_color_texture;
-            treatAsLinear = false;        // sRGB color
-            mirrorAsLegacyBitmap = true;  // show in non-PBR display modes
+            if (channel == candidate.channel)
+            {
+                binding = &candidate;
+                break;
+            }
         }
-        else if (channel == "normal")
-        {
-            pbrType = ON_Texture::TYPE::pbr_bump_texture;
-            treatAsLinear = true;         // normal vectors sample linearly
-            mirrorAsLegacyBitmap = false;
-        }
-        else
+        if (binding == nullptr)
         {
             error = "Unknown material repair channel: " + channel;
             return false;
@@ -318,12 +331,12 @@ static bool ApplyReconstructionMaterialRepair(
         ON_Texture tex;
         tex.m_image_file_reference = ON_FileReference::CreateFromFullPath(
             static_cast<const wchar_t*>(texturePathW), false, true);
-        tex.m_type = pbrType;
-        tex.m_bTreatAsLinear = treatAsLinear;
+        tex.m_type = binding->type;
+        tex.m_bTreatAsLinear = binding->treatAsLinear;
         tex.m_bOn = true;
         pbr->AddTexture(tex);
 
-        if (mirrorAsLegacyBitmap)
+        if (binding->legacyMirror)
             baseColorLegacyPath = texturePath;
     }
 

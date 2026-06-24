@@ -194,10 +194,17 @@ public sealed class NativeReconstructionDispatchSourceTests
         Assert.Contains("materialRepair[\"maps\"]", text);
         Assert.Contains("ON_Texture::TYPE::pbr_base_color_texture", text);
         Assert.Contains("ON_Texture::TYPE::pbr_bump_texture", text);
-        // normal channel binds linearly: the branch sets treatAsLinear = true and the
-        // ON_Texture field is assigned from it.
-        Assert.Contains("treatAsLinear = true", text);
-        Assert.Contains("m_bTreatAsLinear = treatAsLinear", text);
+        // The file-local channel table encodes the exact per-channel tuples
+        // {channel, ON_Texture::TYPE, treatAsLinear, legacyMirror}. Compare whitespace-stripped
+        // so source formatting is irrelevant.
+        var compact = System.Text.RegularExpressions.Regex.Replace(text, @"\s+", "");
+        Assert.Contains("{\"base_color\",ON_Texture::TYPE::pbr_base_color_texture,false,true}", compact);
+        Assert.Contains("{\"normal\",ON_Texture::TYPE::pbr_bump_texture,true,false}", compact);
+        Assert.Contains("{\"roughness\",ON_Texture::TYPE::pbr_roughness_texture,true,false}", compact);
+        Assert.Contains("{\"metallic\",ON_Texture::TYPE::pbr_metallic_texture,true,false}", compact);
+        Assert.Contains("ON_Texture::TYPE::pbr_roughness_texture", text);
+        Assert.Contains("ON_Texture::TYPE::pbr_metallic_texture", text);
+        Assert.Contains("m_bTreatAsLinear = binding->treatAsLinear", text);
         Assert.Contains("ON_FileReference::CreateFromFullPath", text);
         Assert.Contains("mat.ToPhysicallyBased();", text);
 

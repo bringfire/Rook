@@ -675,6 +675,10 @@ namespace Rook.Handlers
 
             if (HasRole(package, "texture_normal"))
                 maps.Add(MaterialMapEntry(package, "normal", "texture_normal", providerFileNames));
+            if (HasRole(package, "texture_roughness"))
+                maps.Add(MaterialMapEntry(package, "roughness", "texture_roughness", providerFileNames));
+            if (HasRole(package, "texture_metallic"))
+                maps.Add(MaterialMapEntry(package, "metallic", "texture_metallic", providerFileNames));
 
             return new Dictionary<string, object?>
             {

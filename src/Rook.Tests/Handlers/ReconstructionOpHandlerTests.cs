@@ -233,6 +233,57 @@ public sealed class ReconstructionOpHandlerTests : IDisposable
     }
 
     [Fact]
+    public async Task DispatchOffUi_PrepareImport_AppendsAllPbrMapsWhenPresent()
+    {
+        var fixture = CreateFixture();
+        fixture.Downloader.Files["https://example.test/m.glb"] = new byte[] { 1, 2, 3 };
+        fixture.Downloader.Files["https://example.test/base.png"] = new byte[] { 4, 5, 6 };
+        fixture.Downloader.Files["https://example.test/normal.png"] = new byte[] { 7, 8, 9 };
+        fixture.Downloader.Files["https://example.test/rough.png"] = new byte[] { 10, 11, 12 };
+        fixture.Downloader.Files["https://example.test/metal.png"] = new byte[] { 13, 14, 15 };
+        var package = await BuildPackageAsync(fixture, JsonNode.Parse("""
+        {
+          "model_glb": {"url": "https://example.test/m.glb"},
+          "texture_urls": [
+            {
+              "base_color": {"url": "https://example.test/base.png",   "file_name": "texture_0.png"},
+              "normal":     {"url": "https://example.test/normal.png", "file_name": "texture_0_normal.png"},
+              "roughness":  {"url": "https://example.test/rough.png",  "file_name": "texture_0_roughness.png"},
+              "metallic":   {"url": "https://example.test/metal.png",  "file_name": "texture_0_metallic.png"}
+            }
+          ]
+        }
+        """)!);
+
+        var response = fixture.Handler.DispatchOffUi(
+            "{" +
+            "\"op\":\"prepare_import\"," +
+            $"\"package_id\":\"{package.Id}\"," +
+            "\"import_id\":\"cccccccc-cccc-cccc-cccc-cccccccccccc\"" +
+            "}");
+
+        Assert.True(response.Success, JsonSerializer.Serialize(response.Data));
+        var data = Assert.IsType<Dictionary<string, object?>>(response.Data);
+        var repair = Assert.IsType<Dictionary<string, object?>>(data["material_repair"]);
+        var maps = Assert.IsAssignableFrom<IReadOnlyList<object?>>(repair["maps"]);
+        Assert.Equal(4, maps.Count);
+
+        var expected = new[]
+        {
+            ("base_color", "texture_base_color"),
+            ("normal",     "texture_normal"),
+            ("roughness",  "texture_roughness"),
+            ("metallic",   "texture_metallic"),
+        };
+        for (var i = 0; i < expected.Length; i++)
+        {
+            var entry = Assert.IsType<Dictionary<string, object?>>(maps[i]);
+            Assert.Equal(expected[i].Item1, entry["channel"]);
+            Assert.Equal(expected[i].Item2, entry["role"]);
+        }
+    }
+
+    [Fact]
     public async Task DispatchOffUi_PrepareImport_NoBaseColorYieldsNoMaterialRepair()
     {
         var fixture = CreateFixture();
