@@ -226,3 +226,23 @@ against the falling-cat Vision artifact `866573ea-…`.
 
 Pass criterion met: normal slot populated, base color still bound, no regression. Roughness/
 metallic remain a future PR (managed emission **+** their own live smoke).
+
+### Captured PBR package (evidence for the roughness/metallic follow-up)
+
+This `enable_pbr` run produced a full 4-map PBR package. **Reuse it to smoke the
+roughness/metallic follow-up without another paid call** — it is staged locally at
+`%AppData%\Rook\artifacts\2026-06-24\d61c3f06-0c85-4e01-a84c-56bd5439a966\`:
+
+| role | file | size |
+|---|---|---|
+| `texture_base_color` | `texture_base_color.png` | 5.0 MB |
+| `texture_metallic` | `texture_metallic.png` | 7 KB |
+| `texture_normal` | `texture_normal.png` | 5.7 MB |
+| `texture_roughness` | `texture_roughness.png` | 657 KB |
+
+Package id `d61c3f06-0c85-4e01-a84c-56bd5439a966`; job `10f2ac46-…`; source artifact
+`866573ea-…` (falling cat); model `fal-ai/meshy/v6/image-to-3d` with
+`options: { should_texture: true, enable_pbr: true }`. The metallic map is near-uniform
+low-value (a non-metallic subject), but non-null — sufficient to exercise binding. The
+follow-up extends managed emission to `roughness`/`metallic` (→ `pbr_roughness_texture`,
+`pbr_metallic_texture`, both sampled linearly) and adds matching source assertions.
