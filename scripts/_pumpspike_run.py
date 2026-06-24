@@ -25,8 +25,26 @@ def main():
             json={"strategy": strategy, "pump_ms": 500},
             timeout=30,
         )
-        results[strategy] = r.json()
-        print(strategy, json.dumps(results[strategy], indent=2))
+        # Fail loudly rather than writing misleading evidence. A 400/404 means the
+        # route is disabled/missing (flag not set, plugin not rebuilt); a false
+        # envelope means the probe itself rejected the request.
+        try:
+            r.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            print(f"ERROR: {strategy}: HTTP {r.status_code} — {r.text[:300]}")
+            print("  (route disabled/missing? set ROOK_DIRECTOR_PUMPSPIKE=1 before "
+                  "launching Rhino and redeploy the native build.)")
+            sys.exit(1)
+
+        envelope = r.json()
+        if not envelope.get("success", False):
+            print(f"ERROR: {strategy}: probe returned failure envelope: "
+                  f"{json.dumps(envelope)[:300]}")
+            sys.exit(1)
+
+        data = envelope.get("data", {})
+        results[strategy] = data
+        print(strategy, json.dumps(data, indent=2))
 
     Path("pumpspike-evidence.json").write_text(json.dumps(results, indent=2))
     print("\nWritten: pumpspike-evidence.json")

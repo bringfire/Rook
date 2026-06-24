@@ -2274,16 +2274,23 @@ void HandleDirectorFrameCapture(const httplib::Request& req, httplib::Response& 
 // MainThreadDispatcher.cpp can extern-declare the ones it reads/increments.
 std::atomic<int>  g_pumpSpikeDrainAttempts{0};
 std::atomic<bool> g_pumpActive{false};
+std::atomic<bool> g_sentinelQueued{false};
 std::atomic<bool> g_sentinelExecuted{false};
 std::atomic<bool> g_sentinelExecutedAfterReturn{false};
 std::atomic<int>  g_tasksExecutedDuringPump{0};
 std::atomic<bool> g_idleFiredDuringPump{false};
 std::atomic<bool> g_holdingLambdaReturned{false};
+std::atomic<bool> g_pumpAbort{false};
+std::atomic<bool> g_pumpSpikeRunning{false};
 
 // One ~16ms slice. Returns messages processed this slice.
-// filterRookDispatch=true: S1 — close the WndProc dispatch door by re-posting
-// WM_ROOK_DISPATCH so it is delivered AFTER the holding lambda returns.
-static int PumpSliceDrainAll(bool filterRookDispatch)
+// filterRookDispatch=true (S1): WM_ROOK_DISPATCH messages are removed from the
+// queue but NOT dispatched and NOT re-posted inside this loop — re-posting here
+// would be immediately re-peeked and spin the slice forever (livelock). They are
+// counted in deferredDispatch (deferredHwnd captured); the holding lambda
+// re-posts them AFTER the pump loop, so the dispatch door is shut during the pump
+// and the messages are delivered once the lambda has returned.
+static int PumpSliceDrainAll(bool filterRookDispatch, int& deferredDispatch, HWND& deferredHwnd)
 {
     int processed = 0;
     MSG msg;
@@ -2291,9 +2298,8 @@ static int PumpSliceDrainAll(bool filterRookDispatch)
     {
         if (filterRookDispatch && msg.message == WM_ROOK_DISPATCH)
         {
-            // Leave the dispatch door shut: re-post so it is delivered AFTER
-            // the held lambda returns, and do not dispatch it now.
-            ::PostMessage(msg.hwnd, WM_ROOK_DISPATCH, msg.wParam, msg.lParam);
+            ++deferredDispatch;
+            deferredHwnd = msg.hwnd;
             continue;
         }
         ::TranslateMessage(&msg);
@@ -2316,6 +2322,24 @@ void HandleDirectorPumpSpike(const httplib::Request& req, httplib::Response& res
         CRookServer::SendErrorData(res, data);
         return;
     }
+
+    // Reject concurrent probe runs — the probe uses file-scope globals and is
+    // not reentrant; a second run would corrupt the first's measurement.
+    {
+        bool expected = false;
+        if (!g_pumpSpikeRunning.compare_exchange_strong(expected, true,
+                                                        std::memory_order_acq_rel))
+        {
+            nlohmann::json data;
+            data["error"] = "pumpspike_busy";
+            CRookServer::SendErrorData(res, data);
+            return;
+        }
+    }
+    // Clear the running flag on every exit path.
+    struct RunningFlagGuard { ~RunningFlagGuard() {
+        g_pumpSpikeRunning.store(false, std::memory_order_release);
+    } } runningGuard;
 
     // --- Parse request ---
     nlohmann::json body;
@@ -2342,46 +2366,53 @@ void HandleDirectorPumpSpike(const httplib::Request& req, httplib::Response& res
     // --- Reset module-static atomics ---
     g_pumpSpikeDrainAttempts.store(0, std::memory_order_relaxed);
     g_pumpActive.store(false, std::memory_order_relaxed);
+    g_sentinelQueued.store(false, std::memory_order_relaxed);
     g_sentinelExecuted.store(false, std::memory_order_relaxed);
     g_sentinelExecutedAfterReturn.store(false, std::memory_order_relaxed);
     g_tasksExecutedDuringPump.store(0, std::memory_order_relaxed);
     g_idleFiredDuringPump.store(false, std::memory_order_relaxed);
     g_holdingLambdaReturned.store(false, std::memory_order_relaxed);
+    g_pumpAbort.store(false, std::memory_order_relaxed);
 
     // --- Sentinel thread ---
-    // Waits until g_pumpActive is set (holding lambda is on the UI thread
-    // and the pump has started), then dispatches a sentinel task and holds
-    // its future. The handler (worker thread) blocks on the sentinel future
-    // AFTER the holding lambda's future has returned. Never calls future.get()
-    // on the UI thread — the INVARIANT from MainThreadDispatcher.h.
-    std::future<void> sentinelFuture;
+    // Waits until g_pumpActive (holding lambda live on the UI thread, pump
+    // started) OR g_pumpAbort (holding dispatch failed, so the lambda never ran
+    // and g_pumpActive will never be set). On the active path it dispatches the
+    // sentinel task, records that the task was enqueued (g_sentinelQueued), and
+    // hands its future to the handler thread. It NEVER calls future.get() on the
+    // UI thread — the INVARIANT from MainThreadDispatcher.h.
     std::promise<std::future<void>> sentinelFuturePromise;
     auto sentinelFutureReady = sentinelFuturePromise.get_future();
 
     std::thread sentinelThread([&sentinelFuturePromise]() {
-        // Spin-wait for g_pumpActive — no sleep races.
-        while (!g_pumpActive.load(std::memory_order_acquire))
+        while (!g_pumpActive.load(std::memory_order_acquire)
+               && !g_pumpAbort.load(std::memory_order_acquire))
         {
             std::this_thread::yield();
         }
 
-        // Dispatch the sentinel task. The future we get back is the one we
-        // hand off to the handler thread via the promise.
+        if (g_pumpAbort.load(std::memory_order_acquire))
+        {
+            // Holding lambda never went live — hand back a ready no-op future so
+            // any reader never blocks, and exit (no Dispatch, nothing queued).
+            std::promise<void> p;
+            p.set_value();
+            sentinelFuturePromise.set_value(p.get_future());
+            return;
+        }
+
         auto f = CMainThreadDispatcher::Instance().Dispatch([]() {
-            // Record whether we ran before the holding lambda returned.
+            // Runs on the UI thread (serialized with the holding lambda).
             if (!g_holdingLambdaReturned.load(std::memory_order_acquire))
                 g_tasksExecutedDuringPump.fetch_add(1, std::memory_order_relaxed);
             g_sentinelExecuted.store(true, std::memory_order_release);
             if (g_holdingLambdaReturned.load(std::memory_order_acquire))
                 g_sentinelExecutedAfterReturn.store(true, std::memory_order_release);
         });
-
+        // The task is now enqueued (Dispatch returns after pushing to the queue).
+        g_sentinelQueued.store(true, std::memory_order_release);
         sentinelFuturePromise.set_value(std::move(f));
     });
-
-    // Retrieve the sentinel future on this (worker) thread once the sentinel
-    // thread has dispatched — never inside the holding lambda.
-    // We'll block on it only after the holding lambda has completed.
 
     // --- Holding lambda dispatched to UI thread ---
     auto holdingFuture = CMainThreadDispatcher::Instance().Dispatch(
@@ -2391,47 +2422,60 @@ void HandleDirectorPumpSpike(const httplib::Request& req, httplib::Response& res
         g_pumpActive.store(true, std::memory_order_release);
 
         int messagesProcessed = 0;
-        const auto startTime = std::chrono::steady_clock::now();
-        const auto endTime = startTime + std::chrono::milliseconds(pumpMs);
+        int deferredDispatch = 0;
+        HWND deferredHwnd = nullptr;
+        const auto endTime = std::chrono::steady_clock::now()
+            + std::chrono::milliseconds(pumpMs);
+
+        // Pace to ~16ms slices. Parenthesized std::min avoids the Windows macro.
+        auto pace = [&]() {
+            auto remaining = endTime - std::chrono::steady_clock::now();
+            auto sleepMs = (std::min)(std::chrono::milliseconds(16),
+                std::chrono::duration_cast<std::chrono::milliseconds>(remaining));
+            if (sleepMs.count() > 0)
+                std::this_thread::sleep_for(sleepMs);
+        };
 
         if (isS2)
         {
-            // S2: drain all messages but hold DispatchDrainSuspension for the
-            // entire pump loop so DrainQueue's suspend check blocks re-entry.
+            // S2: hold DispatchDrainSuspension for the entire pump so DrainQueue's
+            // suspend check blocks re-entry through either door.
             DispatchDrainSuspension guard;
             while (std::chrono::steady_clock::now() < endTime)
             {
-                messagesProcessed += PumpSliceDrainAll(false);
-                // Pace to ~16ms slices with a short sleep.
-                // Use parenthesized std::min to avoid the Windows min() macro.
-                auto remaining = endTime - std::chrono::steady_clock::now();
-                auto sleepMs = (std::min)(std::chrono::milliseconds(16), std::chrono::duration_cast<std::chrono::milliseconds>(remaining));
-                if (sleepMs.count() > 0)
-                    std::this_thread::sleep_for(sleepMs);
+                messagesProcessed += PumpSliceDrainAll(false, deferredDispatch, deferredHwnd);
+                pace();
             }
-            // guard destructor runs here (scope end) — EndSuspendGuard posts WM_ROOK_DISPATCH.
+            // guard destructor (scope end) posts WM_ROOK_DISPATCH on outermost release.
         }
         else
         {
-            // S0 (no filter, no guard) or S1 (filter WM_ROOK_DISPATCH, no guard).
+            // S0 (no filter, no guard) or S1 (filter+defer WM_ROOK_DISPATCH, no guard).
             while (std::chrono::steady_clock::now() < endTime)
             {
-                messagesProcessed += PumpSliceDrainAll(isS1);
-                auto remaining = endTime - std::chrono::steady_clock::now();
-                auto sleepMs = (std::min)(std::chrono::milliseconds(16), std::chrono::duration_cast<std::chrono::milliseconds>(remaining));
-                if (sleepMs.count() > 0)
-                    std::this_thread::sleep_for(sleepMs);
+                messagesProcessed += PumpSliceDrainAll(isS1, deferredDispatch, deferredHwnd);
+                pace();
             }
         }
 
-        // End-of-lambda assertion: record whether the sentinel executed during
-        // the pump (or at all before this point). This is the key measurement.
-        // Set g_holdingLambdaReturned AFTER capturing the sentinel state.
+        // S1: redeliver the deferred dispatch messages so the dispatcher drains
+        // the sentinel AFTER this lambda returns. PostMessage only queues — nothing
+        // runs until the lambda returns and control goes back to Rhino's pump.
+        if (deferredHwnd != nullptr)
+        {
+            for (int i = 0; i < deferredDispatch; ++i)
+                ::PostMessage(deferredHwnd, WM_ROOK_DISPATCH, 0, 0);
+        }
+
+        // End-of-lambda assertion: capture sentinel queue/exec state BEFORE marking
+        // returned, so "during pump" means strictly before this lambda returns.
+        bool queuedDuringPump = g_sentinelQueued.load(std::memory_order_acquire);
         bool executedDuringPump = g_sentinelExecuted.load(std::memory_order_acquire);
         g_holdingLambdaReturned.store(true, std::memory_order_release);
 
         nlohmann::json result;
         result["messages_processed"] = messagesProcessed;
+        result["queued_during_pump"] = queuedDuringPump;
         result["executed_during_pump"] = executedDuringPump;
         return result;
     });
@@ -2444,7 +2488,9 @@ void HandleDirectorPumpSpike(const httplib::Request& req, httplib::Response& res
     }
     catch (const std::exception& ex)
     {
-        // Holding lambda threw — clean up and report.
+        // Holding lambda never ran (e.g. dispatcher not running). Abort the
+        // sentinel's spin-wait so its thread can exit, then report.
+        g_pumpAbort.store(true, std::memory_order_release);
         sentinelThread.join();
         nlohmann::json data;
         data["error"] = std::string("holding_lambda_failed: ") + ex.what();
@@ -2452,18 +2498,20 @@ void HandleDirectorPumpSpike(const httplib::Request& req, httplib::Response& res
         return;
     }
 
-    // Retrieve the sentinel future (handed off from sentinel thread via promise).
-    sentinelFuture = sentinelFutureReady.get();
+    // Retrieve the sentinel future (handed off from the sentinel thread).
+    std::future<void> sentinelFuture = sentinelFutureReady.get();
 
-    // Wait up to 2s for the sentinel task to execute (after the holding lambda
-    // returned, the dispatcher should drain promptly).
-    sentinelFuture.wait_for(std::chrono::seconds(2));
+    // Wait up to 2s for the sentinel task to execute after the holding lambda
+    // returned (the dispatcher should drain promptly). A timeout here surfaces as
+    // executed_after_return=false — a real liveness signal, not an error.
+    if (sentinelFuture.valid())
+        sentinelFuture.wait_for(std::chrono::seconds(2));
     sentinelThread.join();
 
     // Assemble JSON result.
     nlohmann::json data;
     data["pump_strategy"] = strategy;
-    data["queued_during_pump"] = true; // sentinel was always queued while pump ran
+    data["queued_during_pump"] = holdingResult.value("queued_during_pump", false);
     data["executed_during_pump"] = holdingResult.value("executed_during_pump", false);
     data["executed_after_return"] = g_sentinelExecutedAfterReturn.load(std::memory_order_acquire);
     data["drain_attempt_count"] = g_pumpSpikeDrainAttempts.load(std::memory_order_relaxed);

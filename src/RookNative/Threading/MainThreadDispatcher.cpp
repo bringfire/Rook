@@ -149,7 +149,13 @@ void CMainThreadDispatcher::DrainQueue()
     // the DispatchDrainSuspension guard held. Trivially removable.
     {
         extern std::atomic<int> g_pumpSpikeDrainAttempts;
-        if (std::getenv("ROOK_DIRECTOR_PUMPSPIKE") != nullptr)
+        extern std::atomic<bool> g_pumpActive;
+        extern std::atomic<bool> g_holdingLambdaReturned;
+        // Count only entries DURING the pump window, so the metric reflects doors
+        // firing against the guard — not unrelated post-return drains.
+        if (std::getenv("ROOK_DIRECTOR_PUMPSPIKE") != nullptr
+            && g_pumpActive.load(std::memory_order_acquire)
+            && !g_holdingLambdaReturned.load(std::memory_order_acquire))
             g_pumpSpikeDrainAttempts.fetch_add(1, std::memory_order_relaxed);
     }
 
@@ -378,8 +384,13 @@ void CMainThreadDispatcher::CIdleWatcher::Notify(
     if (std::getenv("ROOK_DIRECTOR_PUMPSPIKE") != nullptr)
     {
         extern std::atomic<bool> g_pumpActive;
+        extern std::atomic<bool> g_holdingLambdaReturned;
         extern std::atomic<bool> g_idleFiredDuringPump;
-        if (g_pumpActive.load(std::memory_order_acquire))
+        // Only count idle that fires DURING the pump window — g_pumpActive is
+        // never reset, so without the returned check a post-pump idle (e.g. during
+        // the 2s sentinel wait) would falsely claim the idle door was exercised.
+        if (g_pumpActive.load(std::memory_order_acquire)
+            && !g_holdingLambdaReturned.load(std::memory_order_acquire))
             g_idleFiredDuringPump.store(true, std::memory_order_release);
     }
 
