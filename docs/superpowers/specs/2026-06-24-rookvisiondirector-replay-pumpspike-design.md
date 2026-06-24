@@ -1,6 +1,6 @@
 # RookVisionDirector Replay — Dispatch-Drain Pump Spike
 
-- **Status:** Approved — ready for plan
+- **Status:** Spike executed (2026-06-24) — S2 safe; PR2 = synchronous replay. See Findings.
 - **Date:** 2026-06-24
 - **Feature:** RookVisionDirector arbitrary-motion replay (PR2, first slice)
 - **Predecessor spec:** `docs/superpowers/specs/2026-06-19-rookvisiondirector-arbitrary-motion-replay-design.md`
@@ -246,3 +246,47 @@ S0, by contrast, is expected to show `executed_during_pump: true` and
 - **Evidence is a deliverable.** The recorded per-run JSON (and the chosen PR2 model)
   is written up as the durable, human-readable output of the spike, since the route
   and instrumentation that produced it will have been removed.
+
+## Findings (live run 2026-06-24)
+
+- **Build:** branch `feature/rookvisiondirector-replay-pumpspike`, native `RookNative.rhp`
+  built with MSVC `14.44.35207` (Release x64), deployed to the Rhino 8 plugins folder.
+- **Run:** live Rhino 8, native bridge port 62522, `ROOK_DIRECTOR_PUMPSPIKE=1`,
+  `pump_ms=500`, driven by `scripts/_pumpspike_run.py` (S0→S1→S2, one run each).
+
+| field | S0 control | S1 filtered | S2 guarded |
+|-------|-----------|-------------|------------|
+| `queued_during_pump`        | true  | true  | true  |
+| `tasks_executed_during_pump`| **1** | 0     | **0** |
+| `executed_during_pump`      | true  | false | false |
+| `executed_after_return`     | false | true  | **true** |
+| `drain_attempt_count`       | 1     | 0     | **1** |
+| `idle_fired_during_pump`    | false | false | false |
+| `messages_processed`        | 30    | 25    | 26    |
+
+**Interpretation:**
+
+- **S0 (control) is UNSAFE — harness validated.** With no filter and no guard, the
+  pump dispatched the sentinel's `WM_ROOK_DISPATCH` → WndProc → reentrant `DrainQueue`
+  ran the sentinel task *during* the pump (`tasks_executed_during_pump=1`,
+  `executed_during_pump=true`). A clean S0 would have meant "halt — instrumentation
+  suspect"; this confirms the probe can actually detect a reentrant drain.
+- **S2 (guarded) is SAFE** — all three required conditions hold:
+  `queued_during_pump=true`, `tasks_executed_during_pump=0`, `executed_after_return=true`.
+  `drain_attempt_count=1` is the ideal signal: a door **entered** `DrainQueue` during the
+  pump but bailed at `IsAllDispatchBlocked` (the guard held), so nothing executed; the
+  guard's wake-on-release then delivered the sentinel after the lambda returned (liveness).
+- **S1 (filtered)** filtered the WndProc door for this run (nothing executed during,
+  delivered after), but it has no guard and is not the production choice.
+- `idle_fired_during_pump=false` everywhere, as structurally expected — the idle door
+  cannot fire during a held pump. The **WndProc door was the only reentrancy path**, and
+  S2's guard is door-agnostic regardless.
+- During/after classification is internally coherent in every run and no run was
+  `_inconclusive`.
+
+**Decision → PR2 replay model: SYNCHRONOUS bounded-pump replay is viable.** PR2 builds
+a synchronous `/director/replay` that wraps its per-frame pump in `DispatchDrainSuspension`
+(the durable guard validated here). The async start/status/cancel fallback is **not**
+needed. The bounded-pump assumption the spike existed to test is confirmed: a guarded
+synchronous pump does not reentrantly drain the dispatcher, and queued work drains
+promptly once the held lambda returns.
