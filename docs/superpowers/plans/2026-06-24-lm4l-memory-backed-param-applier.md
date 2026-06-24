@@ -93,6 +93,7 @@ def test_success_copy_on_write():
     result = apply_memory_bound_params(graph, "repair_same_component", _BASE, _NESTED)
     assert result.applied is True
     assert result.reason is None
+    assert result.node_id == "repair_same_component"
     assert result.binding is not None and result.binding.findings == ()
     assert result.binding.params["guid"] == "GUID-1"
     # copy-on-write: new graph object; original node untouched, returned node staged.
@@ -112,6 +113,7 @@ def test_unknown_node():
     assert result.applied is False
     assert result.binding is None
     assert result.reason == "unknown_node"
+    assert result.node_id == "absent"
     assert result.graph is graph  # no copy on failure
 
 
