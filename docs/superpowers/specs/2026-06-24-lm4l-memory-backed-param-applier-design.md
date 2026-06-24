@@ -1,6 +1,6 @@
 # LM4L — Memory-Backed Execution-Param Applier (one named node)
 
-**Date:** 2026-06-23
+**Date:** 2026-06-24
 **Status:** Design approved (pending spec review)
 **Campaign:** LM north-star internal DAG agent coordination push — Stage 5 (live execution)
 **Predecessors:** LM4I (PR #339, `5d21f27b`) full live repair chain · LM4J (PR #340, `487aa3ef`) declared-ref chain · LM4K (PR #341, `162b5a78`) `bind_params_from_memory` (first memory→params primitive)
