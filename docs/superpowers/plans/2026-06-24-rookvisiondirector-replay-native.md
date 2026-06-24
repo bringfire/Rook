@@ -33,7 +33,7 @@
 
 | File | Responsibility | New? |
 |---|---|---|
-| `src/RookNative/Handlers/DirectorFrame.h` / `.cpp` | **Pure** shared per-frame primitives moved from `DirectorHandler.cpp`: structs `FrameObjectTransform`/`FrameCamera`; `DirectorFrameValidationError`; `ParseTransformMatrix`, `ParsePointArray3`, `ParseCamera`, `ParseFrameObjectTransforms` (camera + `object_transforms` only — **no** capture fields); `ValidateFrameObjects`; `TransformObjectInPlace`, `BboxAlmostEqual`; `SetCameraFromFrame` (extracted from `ExecuteFrameTransaction` ~L1700–1750); guards `DirectorObjectPoseGuard` + `DirectorViewportGuard` (each gains `Disarm()`) | new |
+| `src/RookNative/Handlers/DirectorFrame.h` / `.cpp` | **Pure** shared per-frame primitives moved from `DirectorHandler.cpp`: structs `FrameObjectTransform`/`FrameCamera`; `DirectorFrameValidationError`; `ParseTransformMatrix`, `ParsePointArray3`, `ParseCamera`, `ParseFrameObjectTransforms` (camera + `object_transforms` only — **no** capture fields); `ValidateFrameObjects`; `TransformObjectInPlace`, `BboxAlmostEqual`; `SetCameraFromFrame` (pure camera-set extracted from `ApplyViewportForFrame` ~L1716–1750); guards `DirectorObjectPoseGuard` + `DirectorViewportGuard` (each gains `Disarm()` + deleted copy/move); **+ the viewport guard's helper closure** (`NearlyEqual`/`PointAlmostEqual`/`VectorAlmostEqual`/`ViewportAlmostEqual`/`CurrentDisplayModeId`/`DisplayModeToJson`/`ValidateSlice1ModelRhinoView`) | new |
 | `src/RookNative/Handlers/DirectorHandler.cpp` | `frame-capture` refactored to call `DirectorFrame` helpers (behavior-preserving). **`ParseFrameInstruction` STAYS here** — it is capture-specific (`run_root`, `output_path`, `frame_id`, `director_version`, capture-bounded `resolution`, `ValidateOutputPolicy`) and now calls the shared `ParseCamera`/`ParseFrameObjectTransforms` | modify |
 | `src/RookNative/Handlers/DirectorReplayHandler.h` / `.cpp` | `HandleDirectorReplay`, `HandleDirectorReplayCancel`, single active-slot registry | new |
 | `src/RookNative/RookServer.cpp` | register `/director/replay` + `/director/replay/cancel` | modify |
@@ -70,11 +70,13 @@
 - `std::vector<FrameObjectTransform> ParseFrameObjectTransforms(const nlohmann::json& body);` (reads `body["object_transforms"]`; computes `delta`/`inverseDelta`, validating invertibility + bbox — **pure**, no capture fields).
 - `void ValidateFrameObjects(CRhinoDoc* pDoc, const std::vector<FrameObjectTransform>& objects);` (existence + bbox match; throws).
 - `bool TransformObjectInPlace(CRhinoDoc*, const FrameObjectTransform&, const ON_Xform&);` and `bool BboxAlmostEqual(...)`.
-- `void SetCameraFromFrame(CRhinoView* pView, const FrameCamera& camera);` (extracted from `ExecuteFrameTransaction` ~L1700–1750: `targetViewport.SetProjection/SetCameraLocation/SetCameraDirection/SetCameraUp/lens/…` + `pView->Redraw()`).
+- `void SetCameraFromFrame(CRhinoView* pView, const FrameCamera& camera);` — the **pure camera-set** extracted from `ApplyViewportForFrame` (~L1704–1750): `targetViewport.SetProjection/SetCameraLocation/SetCameraDirection/SetCameraUp/lens/…` + `pView->Redraw()`. It does **not** touch display mode and returns nothing (no capture evidence) — replay never changes the display mode.
 - `class DirectorObjectPoseGuard` (move verbatim) **+ `void Disarm() { m_restoreAttempted = true; }`** (leave the applied pose; suppress dtor restore) **+ deleted copy/move** — `DirectorObjectPoseGuard(const DirectorObjectPoseGuard&) = delete;` and `operator=` copy, plus `DirectorObjectPoseGuard(DirectorObjectPoseGuard&&) = delete;` and `operator=` move. (The class has a user-declared dtor, so the copy ctor is otherwise *implicitly present* — a header-exposed copy would double-restore. Move stays deleted; see the Task 3 `std::optional::emplace` note.)
-- `class DirectorViewportGuard` (move verbatim) **+ the same `Disarm()` and the same four deleted copy/move special members**.
+- `class DirectorViewportGuard` (move verbatim) **+ the same `Disarm()` and the same four deleted copy/move special members**. (Its display-mode snapshot/restore is a no-op for replay, which never changes the mode — harmless to keep.)
 
-**NOT in `DirectorFrame`:** `ParseFrameInstruction` and `struct FrameInstruction` stay in `DirectorHandler.cpp` — they are capture-specific (`run_root`, `output_path`, `frame_id`, `director_version=="slice1"`, capture-bounded `resolution`, `ValidateOutputPolicy`). `ParseFrameInstruction` now calls the shared `ParseCamera` + `ParseFrameObjectTransforms`. Replay (Task 3) must **never** call `ParseFrameInstruction`.
+**Dependency closure that must move with the above (or it won't compile).** `DirectorViewportGuard`/`ApplyViewportForFrame` pull in a web of helpers; move each helper's **definition to `DirectorFrame.cpp`** and **declare it in `DirectorFrame.h`** (so the capture code in `DirectorHandler.cpp` keeps calling them): `NearlyEqual`, `PointAlmostEqual`, `VectorAlmostEqual`, `ViewportAlmostEqual`, `CurrentDisplayModeId`, `DisplayModeToJson`, `ValidateSlice1ModelRhinoView` (and `ValidateSlice1NamedView` if it transitively needs it). **Mechanical check:** after the move, build — every unresolved symbol is one more helper that must move to `.cpp` + be declared in `.h`. (`DisplayModeToJson`/`CurrentDisplayModeId` are also used by capture's display-readback, so they are *shared* — definition in `.cpp`, declaration in `.h`, both handlers call them.)
+
+**NOT in `DirectorFrame` (capture-local, stay in `DirectorHandler.cpp`):** `struct FrameInstruction`, `ParseFrameInstruction`, `ApplyViewportForFrame` (it takes a `FrameInstruction` + sets display mode + builds capture evidence; refactor it to call the shared `SetCameraFromFrame` for the camera-set part), `ExecuteFrameTransaction`, and the output/capture helpers (`ValidateOutputPolicy`, `CaptureViewportToFile`, `NormalizePolicyPath`, the `kMaxDirectorCapture*` constants). `ParseFrameInstruction` now calls the shared `ParseCamera`/`ParseFrameObjectTransforms`. Replay (Task 3) must **never** call `ParseFrameInstruction` or `ApplyViewportForFrame` — only `SetCameraFromFrame`.
 
 - [ ] **Step 1: Read the real internals (no edit).** In `DirectorHandler.cpp`: `FrameObjectTransform`/`FrameCamera` structs (~L76–140); `ParseCamera` (~L590, reads `body["camera"]`); `ParseFrameObjectTransforms` (~L1169, computes `delta`/`inverseDelta`); `ParseFrameInstruction` (~L1223 — note the capture-only `run_root`/`output_path`/`frame_id`/`resolution` requirements); `ValidateFrameObjects` (~L1295); `TransformObjectInPlace` (~L1341); `DirectorObjectPoseGuard` (~L1446, with `Apply`/`Restore(evidence)`/`HasDirtyPartialState`/dtor `BestEffortRestore`); `DirectorViewportGuard` (~L1596); the camera-apply block + `ExecuteFrameTransaction` (~L1700–1990). Confirm exactly which symbols move (the pure list above) vs. stay (`FrameInstruction`/`ParseFrameInstruction`).
 
@@ -99,6 +101,9 @@ def test_directorframe_exposes_pure_shared_primitives():
         "ParseCamera", "ParseFrameObjectTransforms", "ValidateFrameObjects",
         "SetCameraFromFrame", "class DirectorObjectPoseGuard",
         "class DirectorViewportGuard", "void Disarm",
+        # dependency closure of the viewport guard must be declared here too:
+        "ViewportAlmostEqual", "CurrentDisplayModeId", "DisplayModeToJson",
+        "ValidateSlice1ModelRhinoView",
     ]:
         assert sym in header, f"DirectorFrame.h missing {sym}"
     # Capture-only parser must NOT leak into the shared unit.
@@ -121,9 +126,9 @@ def test_frame_capture_uses_shared_unit_and_keeps_capture_parser():
 
 - [ ] **Step 3: Run — verify fail.** `mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_director_replay_native_source.py -q` → FAIL (`DirectorFrame.h` absent).
 
-- [ ] **Step 4: Create `DirectorFrame.{h,cpp}` by moving the pure pieces.** `DirectorFrame.cpp`'s **first include must be `#include "stdafx.h"`** (the project defaults `PrecompiledHeader=Use`; a `.cpp` without the PCH first include fails to compile). Then `#include "Handlers/DirectorFrame.h"` and the RhinoCommon headers these symbols need. Declarations in `.h`, definitions in `.cpp`, under `namespace Rook { namespace Handlers {`. Move: `DirectorFrameValidationError`, `FrameObjectTransform`, `FrameCamera`, `ParseTransformMatrix`, `ParsePointArray3`, `ParseCamera`, `ParseFrameObjectTransforms`, `BboxAlmostEqual`, `TransformObjectInPlace`, `ValidateFrameObjects`, `DirectorObjectPoseGuard`, `DirectorViewportGuard`. To **both** guards add `public: void Disarm() { m_restoreAttempted = true; }` and the **four deleted copy/move special members** (see Interfaces). Extract the camera-apply block (~L1700–1750) into `void SetCameraFromFrame(CRhinoView* pView, const FrameCamera& camera)`. **Do not move** `FrameInstruction`/`ParseFrameInstruction`.
+- [ ] **Step 4: Create `DirectorFrame.{h,cpp}` by moving the pure pieces.** `DirectorFrame.cpp`'s **first include must be `#include "stdafx.h"`** (the project defaults `PrecompiledHeader=Use`; a `.cpp` without the PCH first include fails to compile). Then `#include "Handlers/DirectorFrame.h"` and the RhinoCommon headers these symbols need. Declarations in `.h`, definitions in `.cpp`, under `namespace Rook { namespace Handlers {`. Move: `DirectorFrameValidationError`, `FrameObjectTransform`, `FrameCamera`, `ParseTransformMatrix`, `ParsePointArray3`, `ParseCamera`, `ParseFrameObjectTransforms`, `BboxAlmostEqual`, `TransformObjectInPlace`, `ValidateFrameObjects`, `DirectorObjectPoseGuard`, `DirectorViewportGuard`, **plus the dependency closure** (`NearlyEqual`, `PointAlmostEqual`, `VectorAlmostEqual`, `ViewportAlmostEqual`, `CurrentDisplayModeId`, `DisplayModeToJson`, `ValidateSlice1ModelRhinoView`). To **both** guards add `public: void Disarm() { m_restoreAttempted = true; }` and the **four deleted copy/move special members** (see Interfaces). Extract just the camera-set body of `ApplyViewportForFrame` (~L1716–1750) into `void SetCameraFromFrame(CRhinoView* pView, const FrameCamera& camera)`. **Do not move** `FrameInstruction`/`ParseFrameInstruction`/`ApplyViewportForFrame`/`ExecuteFrameTransaction`/the output helpers.
 
-- [ ] **Step 5: Refactor `DirectorHandler.cpp`.** `#include "Handlers/DirectorFrame.h"`; delete the moved definitions; keep `FrameInstruction`/`ParseFrameInstruction` but make `ParseFrameInstruction` call the now-shared `ParseCamera` + `ParseFrameObjectTransforms`; make `ExecuteFrameTransaction`'s camera-apply call `SetCameraFromFrame(...)`. The pose/viewport guards are already used there — they now resolve to the moved classes. **Behavior-preserving:** same order, same error types/codes, same evidence shape.
+- [ ] **Step 5: Refactor `DirectorHandler.cpp`.** `#include "Handlers/DirectorFrame.h"`; delete the moved definitions; keep `FrameInstruction`/`ParseFrameInstruction`/`ApplyViewportForFrame`/`ExecuteFrameTransaction`. Make `ParseFrameInstruction` call the shared `ParseCamera` + `ParseFrameObjectTransforms`; make `ApplyViewportForFrame` call the shared `SetCameraFromFrame(...)` for the camera-set (keeping its display-mode + evidence around it). The pose/viewport guards + moved helpers now resolve to `DirectorFrame.h`. **Behavior-preserving:** same order, same error types/codes (`invalid_input` etc.), same evidence shape. Build (Step 8) is the cross-check that the closure is complete.
 
 - [ ] **Step 6: Add the new unit to the project files (APPROVED `.vcxproj` edit — see Global Constraints).** In `src/RookNative/RookNative.vcxproj`, beside `Handlers\DirectorHandler.cpp` (L134) / `Handlers\DirectorHandler.h` (L271): add `<ClCompile Include="Handlers\DirectorFrame.cpp" />` and `<ClInclude Include="Handlers\DirectorFrame.h" />`. In `src/RookNative/RookNative.vcxproj.filters`, mirror the `DirectorHandler` entries (same `<Filter>` group) for `DirectorFrame.cpp`/`.h`. (DirectorReplayHandler entries are added in Task 2.)
 
@@ -241,9 +246,14 @@ void ReleaseReplaySlot() {
     s.sessionId.clear();
     s.cancel.store(false, std::memory_order_release);
 }
-struct ReplaySlotReservation {  // RAII release on every path
+struct ReplaySlotReservation {  // RAII release on every path — non-copyable/non-movable
     bool held = false;
+    ReplaySlotReservation() = default;
     ~ReplaySlotReservation() { if (held) ReleaseReplaySlot(); }
+    ReplaySlotReservation(const ReplaySlotReservation&) = delete;
+    ReplaySlotReservation& operator=(const ReplaySlotReservation&) = delete;
+    ReplaySlotReservation(ReplaySlotReservation&&) = delete;
+    ReplaySlotReservation& operator=(ReplaySlotReservation&&) = delete;
 };
 } // namespace
 
@@ -322,6 +332,10 @@ git commit -m "feat(director): replay single active-slot registry + worker-threa
 - **Worker-phase validation — FULLY validate every frame before any Dispatch (pure, no doc access):** `req.body.size() ≤ 8 MiB` *before* parse where practical (`payload_too_large`); parse body; **session id type-safe** — `body.contains("replay_session_id") && is_string()` then `IsValidReplaySessionId` (else `invalid_session_id`); `track` is an object; `transform_semantics == "absolute_from_source"` (`unsupported_transform_semantics`); `loop` absent/false (true → `unsupported_replay_option {option:"loop"}`); `animated_object_ids` is a non-empty array of **unique** id strings, count ≤ 256 (`object_count_exceeds_cap`); `frame_count ≥ 1` and `≤ 3000` (`frame_count_exceeds_cap`); `camera_frames`/`object_frames` lengths == `frame_count` with `frame_index` 1..N in order (`track_invalid`); compute `effective_fps = request.fps ?? track.fps ?? 24` finite+positive (`invalid_fps`), `dwell_ms = 1000/effective_fps`, `dwell_ms ≤ 250` (`frame_dwell_exceeds_cap`), `frame_count*dwell_ms ≤ 60000` (`replay_duration_exceeds_cap`).
   - **Per-frame pre-parse (this is the no-mutation guarantee):** for **every** `i`, `ParseCamera({"camera": camera_frames[i]["camera"]})` and `ParseFrameObjectTransforms({"object_transforms": object_frames[i]["object_transforms"]})` (this validates each transform is a finite, **invertible** 4×4 and the bbox/source_state shape). Then assert the per-frame object-id set **exactly equals** `animated_object_ids` — same count, no duplicates within the frame, no missing, no extra (`track_invalid`, naming the offending `frame_index`). Pin **`source_state` consistency**: each object's `sourceBbox` must be identical (within `kBboxTolerance`) across all frames (`track_invalid`). Collect the results into `std::vector<std::vector<FrameObjectTransform>> perFrameObjects` + `std::vector<FrameCamera> perFrameCameras`, sized `frame_count`.
   - Because all parsing/validation happens here, **the UI-thread loop cannot encounter a parse/validation failure mid-replay** — it only applies pre-validated data, so a malformed later frame can never fail after earlier frames mutated the doc.
+- **Error remapping (do NOT change shared-helper codes — that would drift frame-capture).** The shared `ParseCamera`/`ParseFrameObjectTransforms`/`ValidateFrameObjects` throw `DirectorFrameValidationError` with generic codes (`invalid_input`, `unsupported_projection`, …). Replay **wraps** them at its own boundary and remaps:
+  - worker-phase pre-parse (`ParseCamera`/`ParseFrameObjectTransforms` + the set-equality/`source_state`/frame-sequence checks) → catch `DirectorFrameValidationError` → emit `track_invalid` carrying the offending `frame_index` (and the helper's message). The set-equality/source/caps/semantics checks that replay writes itself already emit their specific codes (`object_count_exceeds_cap`, `unsupported_transform_semantics`, …) directly.
+  - UI-phase `ValidateFrameObjects(pDoc, perFrameObjects[0])` → catch `DirectorFrameValidationError` → emit `object_not_found` carrying `ex.affectedObjectIds[0]` as `object_id` (the helper's "Object not found" / bbox-mismatch message is preserved in `message`; a finer `object_state_mismatch` split is a deferred refinement).
+  - Frame-capture keeps catching the same exceptions and emitting `invalid_input` exactly as today — **the helpers are unchanged.**
 - **Reserve slot** → if false, `replay_already_active`. Bind a `ReplaySlotReservation reservation; reservation.held = true;` immediately so every later return releases it.
 - **Dispatch the loop lambda**, capturing the pre-validated `perFrameObjects` + `perFrameCameras` + `dwell_ms` + `restore_on_finish` + `sessionId` (by move/value); block on `future.get()` on the worker thread. **The lambda does no parsing or track access** — only `perFrameObjects[i]` / `perFrameCameras[i]`.
 - **Loop lambda (UI thread):**
@@ -393,6 +407,17 @@ def test_replay_preparses_and_validates_every_frame_before_dispatch():
     assert "perFrameCameras" in handler
     # The pre-parse + the Dispatch must be ordered: parsing precedes the UI dispatch.
     assert handler.index("perFrameObjects") < handler.index("Dispatch(")
+
+
+def test_replay_remaps_shared_helper_errors_to_replay_codes():
+    handler = _extract_function(_read(REPLAY_CPP), "HandleDirectorReplay")
+    # Replay catches the shared helper's exception and remaps — it does not emit
+    # the helper's generic invalid_input, and does not change the helper.
+    assert "catch (const DirectorFrameValidationError" in handler or \
+           "catch (DirectorFrameValidationError" in handler
+    assert "track_invalid" in handler          # worker-phase parse failures
+    assert "object_not_found" in handler       # UI-phase ValidateFrameObjects failures
+    assert "affectedObjectIds" in handler      # object_id carried from the helper
 ```
 
 - [ ] **Step 2: Run — verify fail.** FAIL (stub has none of these).
@@ -728,6 +753,11 @@ git commit -m "test(director): live replay completion/restore/cancel/busy/valida
 - **Guards non-copyable/non-movable** (double-restore hazard once header-exposed) → Task 1 deleted copy/move + source assertion; Task 3 uses `std::optional::emplace` (no assignment/move). ✅
 - **PCH correctness** → Task 1 Step 4 (`DirectorFrame.cpp` starts with `#include "stdafx.h"`). ✅
 - **Type-safe native session-id extraction** → Task 2 cancel (`contains`+`is_string`) + Task 3 worker-phase. ✅
+- **Extraction is dependency-complete** (viewport guard's helper closure: `ViewportAlmostEqual`/`CurrentDisplayModeId`/`DisplayModeToJson`/`ValidateSlice1ModelRhinoView`/`Nearly|Point|VectorAlmostEqual` move to `.cpp`, declared in `.h`; `ApplyViewportForFrame`/`ExecuteFrameTransaction` stay capture-local and call shared `SetCameraFromFrame`) → Task 1 closure + source test + build cross-check. ✅
+- **Error-code preservation** (shared helpers keep `invalid_input`; replay *remaps* at its boundary to `track_invalid`/`object_not_found`; frame-capture unchanged) → Task 3 remapping bullet + `test_replay_remaps_shared_helper_errors_to_replay_codes`. ✅
+- **`ReplaySlotReservation` non-copyable/non-movable** (early/double slot release) → Task 2 snippet. ✅
+
+**Connective tissue (the extraction-boundary discipline that ties these together):** moving code into `DirectorFrame` is safe only if it is (1) *dependency-complete* — the whole transitive helper closure moves, with shared helpers declared in `.h` for the capture side; (2) *code-preserving* — shared helpers keep their error codes, and each consumer remaps at its own boundary rather than mutating shared behavior; (3) *RAII-safe* — every moved/new guard (`DirectorObjectPoseGuard`, `DirectorViewportGuard`, `ReplaySlotReservation`) is non-copyable/non-movable so it cannot double-restore or double-release. The build (Task 1 Step 8) and the existing frame-capture tests (Task 6) are the cross-checks that all three held.
 - Full inline track, native validate/zip/caps, ignore resolution/provenance → Task 3 worker-phase validation. ✅
 - FPS-driven dwell, reject-not-clamp → Task 3 (`frame_dwell_exceeds_cap`/`replay_duration_exceeds_cap`). ✅
 - Lifecycle/restore (non-final restore, terminal restore, cancel/error always restore, late-final-cancel) → Task 3 loop contract + the explicit late-cancel note. ✅
