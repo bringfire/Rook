@@ -624,6 +624,13 @@ void HandleDirectorReplay(const httplib::Request& req, httplib::Response& res)
                     err["frame_index"] = i + 1;
                     return err;
                 }
+                // Objects are now at source and this frame's guard is spent. Disengage it so a
+                // cancel observed here (or at the top of the next frame, before the next
+                // emplace) restores ONLY the viewport via restoreOrError — never re-running
+                // DirectorObjectPoseGuard::Restore, which re-applies the inverse delta (it is
+                // not idempotent for an applied object) and would corrupt the pose. The
+                // destructor will not double-restore: Restore() set m_restoreAttempted.
+                poseGuard.reset();
                 if (Slot().cancel.load(std::memory_order_acquire))
                 {
                     if (auto err = restoreOrError(i + 1)) return *err;

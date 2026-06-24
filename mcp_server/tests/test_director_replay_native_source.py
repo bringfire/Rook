@@ -198,3 +198,24 @@ def test_replay_restore_failure_dirty_partial_state_includes_viewport():
     dps_idx = helper.index("dirty_partial_state")
     dps_stmt = helper[dps_idx:helper.index(";", dps_idx)]
     assert "!viewportOk" in dps_stmt and "!objectsOk" in dps_stmt, dps_stmt
+
+
+def test_replay_disengages_pose_guard_after_between_frame_restore():
+    """DirectorObjectPoseGuard::Restore re-applies the inverse delta on every call for an
+    applied object (NOT idempotent — no m_restored guard before TransformObjectInPlace). The
+    between-frame restore returns objects to source but leaves the guard engaged; a cancel
+    observed immediately after (between-frame inner cancel) or at the top of the next frame
+    routes through restoreOrError(), which would call Restore() a SECOND time → double inverse
+    → corrupted position + false restore_failed. So after a successful between-frame restore the
+    guard must be disengaged (poseGuard.reset()) before the cancel check.
+    """
+    handler = _extract_function(_read(REPLAY_CPP), "HandleDirectorReplay")
+    idx = handler.index("Between non-final frames")
+    block = handler[idx:handler.index("Final frame:", idx)]   # exactly the between-frames block
+    assert "poseGuard.reset()" in block, "pose guard not reset after between-frame restore"
+    # reset must come AFTER the between-frame Restore and BEFORE the cancel check that calls
+    # restoreOrError (otherwise the cancel path re-restores already-restored objects).
+    assert block.index("poseGuard->Restore(evidence)") < block.index("poseGuard.reset()"), \
+        "reset must follow the between-frame restore"
+    assert block.index("poseGuard.reset()") < block.index("Slot().cancel.load"), \
+        "reset must precede the between-frame cancel check"
