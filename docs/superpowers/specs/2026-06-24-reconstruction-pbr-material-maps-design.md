@@ -179,3 +179,22 @@ That is the single pass criterion for v1. Roughness/metallic are a **separate fu
 - Roughness, metallic, AO, emission, and any other PBR channel.
 - Any change to staging (`CompanionFiles` already stages all `texture*` roles).
 - MCP tool surface, Python provider mapping, package manifest schema.
+
+## SDK audit note (verified 2026-06-24, Rhino 8 SDK headers)
+
+Header/API verification read from the installed SDK (`opennurbs_texture.h`,
+`opennurbs_material.h`, `opennurbs_file_utilities.h`) — not a live material render check.
+
+- **Slot:** the PBR normal map binds to `ON_Texture::TYPE::pbr_bump_texture` (value 2,
+  aliasing legacy `bump_texture`). Rhino 8 has **no** `pbr_normal_texture`; the bump slot is
+  the normal-map slot.
+- **Construction (explicit `ON_Texture`, not the filename convenience):**
+  - `tex.m_image_file_reference = ON_FileReference::CreateFromFullPath(pathW, /*bSetContentHash*/ false, /*bSetFullPathStatus*/ true);`
+  - `tex.m_type = ON_Texture::TYPE::pbr_bump_texture;`
+  - `tex.m_bTreatAsLinear = true;`  // normal vectors must sample linearly, not sRGB
+  - `tex.m_bOn = true;`
+  - `pbr->AddTexture(tex);`
+- **base_color** keeps `m_bTreatAsLinear = false` (sRGB color) plus the legacy
+  `mat.AddTexture(path, bitmap_texture)` mirror so non-PBR display modes are unaffected.
+- The convenience `AddTexture(filename, type)` builds a default `ON_Texture`
+  (`m_bTreatAsLinear = false`), which is wrong for a normal map — hence the explicit build.
