@@ -334,26 +334,39 @@ function Test-InstallerVerifiesRhinoPluginRegistrationAfterInstall {
 function Test-UninstallRemovesGeneratedRuntimeArtifacts {
     $installerContent = Get-Content -Path $InstallerScript -Raw
     $postInstallContent = Get-Content -Path $PostInstallScript -Raw
+    $uninstallDeleteMatch = [regex]::Match($installerContent, '(?ms)^\[UninstallDelete\]\s*(?<block>.*?)(?=^\[)')
+    Assert-True -Condition $uninstallDeleteMatch.Success -Message 'Installer must define an [UninstallDelete] block.'
+    $uninstallDeleteBlock = $uninstallDeleteMatch.Groups['block'].Value
+    $uninstallCleanupMatch = [regex]::Match($postInstallContent, '(?ms)^def uninstall_cleanup\(\) -> None:.*?^def main\(\) -> int:')
+    Assert-True -Condition $uninstallCleanupMatch.Success -Message 'post_install.py must define uninstall_cleanup before main.'
+    $uninstallCleanup = $uninstallCleanupMatch.Value
 
     foreach ($path in @(
         '{localappdata}\Rook\app',
         '{localappdata}\Rook\python',
         '{localappdata}\Rook\venv',
-        '{localappdata}\Rook\data',
         '{localappdata}\Rook\logs',
         '{localappdata}\Rook\discovery',
-        '{userappdata}\Rook',
         '{localappdata}\Temp\rook'
     )) {
-        Assert-Contains -Text $installerContent -Expected "Type: filesandordirs; Name: `"$path`"" -Message "Uninstall must remove generated Rook artifact path: $path"
+        Assert-Contains -Text $uninstallDeleteBlock -Expected "Type: filesandordirs; Name: `"$path`"" -Message "Uninstall must remove generated disposable Rook path: $path"
     }
 
-    Assert-Contains -Text $postInstallContent -Expected 'Path(tempfile.gettempdir()) / "rook"' -Message 'Uninstall cleanup must remove the actual user temp Rook diagnostics directory.'
-    Assert-Contains -Text $postInstallContent -Expected 'runtime_root / "python"' -Message 'Uninstall cleanup must remove the private Python runtime installed by the public installer.'
-    Assert-Contains -Text $postInstallContent -Expected 'runtime_root / "venv"' -Message 'Uninstall cleanup must remove the managed Python venv created by post_install.py.'
-    Assert-Contains -Text $postInstallContent -Expected 'runtime_root / "data"' -Message 'Uninstall cleanup must remove runtime data for a fresh reinstall surface.'
-    Assert-Contains -Text $postInstallContent -Expected 'runtime_root / "discovery"' -Message 'Uninstall cleanup must remove shared Rook discovery metadata for a fresh reinstall surface.'
-    Assert-Contains -Text $postInstallContent -Expected 'roaming_root' -Message 'Uninstall cleanup must remove user-level Rook roaming state.'
+    foreach ($path in @(
+        '{localappdata}\Rook\data',
+        '{userappdata}\Rook',
+        '{userappdata}\Rook\artifacts'
+    )) {
+        Assert-NotContains -Text $uninstallDeleteBlock -Unexpected "Type: filesandordirs; Name: `"$path`"" -Message "Default uninstall must preserve durable user data: $path"
+    }
+
+    Assert-Contains -Text $uninstallCleanup -Expected 'Path(tempfile.gettempdir()) / "rook"' -Message 'Uninstall cleanup must remove the actual user temp Rook diagnostics directory.'
+    Assert-Contains -Text $uninstallCleanup -Expected 'runtime_root / "python"' -Message 'Uninstall cleanup must remove the private Python runtime installed by the public installer.'
+    Assert-Contains -Text $uninstallCleanup -Expected 'runtime_root / "venv"' -Message 'Uninstall cleanup must remove the managed Python venv created by post_install.py.'
+    Assert-Contains -Text $uninstallCleanup -Expected 'runtime_root / "discovery"' -Message 'Uninstall cleanup must remove shared Rook discovery metadata for a fresh reinstall surface.'
+    Assert-NotContains -Text $uninstallCleanup -Unexpected 'runtime_root / "data"' -Message 'Default uninstall must preserve local durable Rook data.'
+    Assert-NotContains -Text $uninstallCleanup -Unexpected 'roaming_root' -Message 'Default uninstall must preserve user-level Rook roaming state, including artifacts and sessions.'
+    Assert-NotContains -Text $uninstallCleanup -Unexpected 'Path(os.environ.get("APPDATA", "")) / "Rook"' -Message 'Default uninstall must not compute the durable roaming Rook root for deletion.'
 }
 
 function Test-PostInstallValidationUsesMultiRuntimeCompanionLayout {

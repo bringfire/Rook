@@ -1166,18 +1166,15 @@ def uninstall_cleanup() -> None:
             print(f"Warning: could not clean {codex_config}: {e}")
 
     runtime_root = get_runtime_root()
-    roaming_root = Path(os.environ.get("APPDATA", "")) / "Rook"
     temp_root = Path(tempfile.gettempdir()) / "rook"
 
     for path, label in [
         (runtime_root / "app", "runtime app payload"),
         (runtime_root / "python", "private Python runtime"),
         (runtime_root / "venv", "managed Python venv"),
-        (runtime_root / "data", "runtime data"),
         (runtime_root / "logs", "runtime logs"),
         (runtime_root / "discovery", "runtime discovery metadata"),
         (runtime_root / "docs", "runtime docs"),
-        (roaming_root, "roaming Rook data"),
         (temp_root, "temporary diagnostics"),
     ]:
         _remove_tree(path, label)
