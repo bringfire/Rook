@@ -117,7 +117,8 @@ new camera shape is introduced.
 Field semantics established during design:
 
 - **Addressing** (`target`): a declared group name or a bare object UUID. Groups
-  expand to explicit object ids at compile time and never reach the runtime.
+  expand to explicit object ids at compile time and never reach the runtime. The
+  group-vs-UUID ambiguity is resolved by a hard rule, not precedence — see §4.1.
 - **Timing** (`t`): normalized in `[0,1]`. `t=0` is source; `t=1` is final.
 - **Easing**: per-segment override lives on the **destination** keyframe
   (`ease_from_previous`); the implicit `t=0 identity → first keyframe` segment
@@ -127,6 +128,27 @@ Field semantics established during design:
   components are no-ops (`translate [0,0,0]`, no rotation, `scale 1`).
 - **`t=0`**: an explicit `t=0` keyframe is allowed but **must be identity**
   (preserving "frame 1 = source"); a non-identity `t=0` is rejected (§7).
+
+### 4.1 Target resolution (no group/UUID collision)
+
+`motion[].target` is a single string that can mean a group name or an object id.
+To prevent ambiguous authoring, resolution follows a hard rule rather than
+precedence:
+
+- `groups` keys are local symbolic names and **must not parse as Rhino UUIDs**.
+  A UUID-shaped group name is rejected up front as `invalid_input` (we do not
+  rely on resolution order to disambiguate).
+- Group **member** entries must each be valid object UUID strings.
+- `target` resolves as:
+  1. if it matches a declared group name, resolve that group's members;
+  2. otherwise it must be a valid object UUID string (resolved as a single
+     object);
+  3. anything else → `unknown_group` if it looks intended as a group reference,
+     or `invalid_input` otherwise, with a message naming the offending `target`.
+
+Because group names are forbidden from being UUID-shaped, a UUID-valued `target`
+can only ever mean an object id, and a non-UUID `target` can only ever mean a
+group name — the two namespaces cannot collide.
 
 ## 5. Timeline adapter (deliberate, source-verified)
 
@@ -216,9 +238,9 @@ limit surfaces.
 
 | Error code | Trigger |
 |---|---|
-| `invalid_input` | malformed top-level spec shapes (e.g. `motion` not a list, `target` missing) |
+| `invalid_input` | malformed top-level spec shapes (e.g. `motion` not a list, `target` missing); a **UUID-shaped group name**; a group member that is not a valid UUID string; a `target` that is neither a declared group nor a valid UUID (§4.1) |
 | `invalid_timeline` | bad/zero fps, missing duration & frame_count, frame_count ≠ derived, or the fps-None path |
-| `unknown_group` | a `target` names a group not in `groups` |
+| `unknown_group` | a non-UUID `target` (group-shaped) that names a group not declared in `groups` (§4.1) |
 | `empty_group` | a referenced group resolves to no objects |
 | `duplicate_object_target` | an object is claimed by **two motion tracks** anywhere in `motion[]` (see below) |
 | `invalid_keyframe` | bad/duplicate/out-of-range `t`; non-identity `t=0`; unknown easing name; `scale ≤ 0`; non-finite/degenerate axis; `\|angle_degrees\| > 180` |
