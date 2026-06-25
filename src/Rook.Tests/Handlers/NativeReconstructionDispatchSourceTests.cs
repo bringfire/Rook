@@ -328,6 +328,18 @@ public sealed class NativeReconstructionDispatchSourceTests
     }
 
     [Fact]
+    public void NativeBridge_RoutesSubmitMeshThroughAsyncDispatch()
+    {
+        var managed = File.ReadAllText(Path.Combine(
+            RepoRoot, "src", "Rook", "InternalBridge", "NativeGhBridgeRegistrar.cs"));
+        var fn = ExtractFunction(managed, "int HandleReconstructionDispatch(");
+
+        var asyncBranch = fn.Substring(
+            0, fn.IndexOf("ExecuteOffUiApiResponseCallback", System.StringComparison.Ordinal));
+        Assert.Contains("OpSubmitMesh", asyncBranch);
+    }
+
+    [Fact]
     public void NativeRoute_BackgroundRemovals_DispatchesRemoveBackground()
     {
         var cpp = File.ReadAllText(Path.Combine(

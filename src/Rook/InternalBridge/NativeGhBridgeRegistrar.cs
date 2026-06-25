@@ -1838,6 +1838,7 @@ namespace Rook.InternalBridge
             switch (op)
             {
                 case ReconstructionOpHandler.OpSubmit:
+                case ReconstructionOpHandler.OpSubmitMesh:
                 case ReconstructionOpHandler.OpRemoveBackground:
                 case ReconstructionOpHandler.OpStatus:
                 case ReconstructionOpHandler.OpCancel:
