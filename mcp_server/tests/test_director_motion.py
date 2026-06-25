@@ -68,16 +68,23 @@ def test_hold_after_last_keyframe():
 
 
 def test_scale_about_object_center_keeps_center_fixed():
-    # scale 2x about object_center=(5,0,0): the center maps to itself
+    # scale 2x about a fully non-zero object_center: the center maps to itself
+    # in all three axes (guards every row of the pivot composition, not just x).
+    center = [5, 3, 2]
     frames = dm.compile_object_track(
         [_kf(1.0, scale=2.0)],
-        frame_count=2, source_center=[5, 0, 0], default_easing="linear",
+        frame_count=2, source_center=center, default_easing="linear",
     )
     m = frames[1]
-    # apply M to the center point (5,0,0,1) -> should stay (5,0,0)
-    x = m[0][0] * 5 + m[0][3]
-    assert x == pytest.approx(5.0)
+    # apply the 4x4 to the homogeneous center point (cx,cy,cz,1)
+    for row in range(3):
+        mapped = (m[row][0] * center[0] + m[row][1] * center[1]
+                  + m[row][2] * center[2] + m[row][3])
+        assert mapped == pytest.approx(center[row])
+    # diagonal scale factor is 2 on every axis
     assert m[0][0] == pytest.approx(2.0)
+    assert m[1][1] == pytest.approx(2.0)
+    assert m[2][2] == pytest.approx(2.0)
 
 
 def test_rotation_slerp_halfway_is_half_angle():
@@ -146,3 +153,11 @@ def test_reject_unknown_easing():
         dm.compile_object_track([_kf(1.0, translate=[1, 0, 0], ease_from_previous="boing")],
                                 frame_count=2, source_center=[0, 0, 0], default_easing="linear")
     assert ei.value.code == "invalid_keyframe"
+
+
+def test_single_frame_count_returns_identity():
+    frames = dm.compile_object_track(
+        [_kf(1.0, translate=[5, 0, 0])],
+        frame_count=1, source_center=[0, 0, 0], default_easing="linear",
+    )
+    assert frames == [dm.IDENTITY_4X4]
