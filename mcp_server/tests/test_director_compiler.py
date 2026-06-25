@@ -1,6 +1,7 @@
 # mcp_server/tests/test_director_compiler.py
 from __future__ import annotations
 
+import asyncio
 import os
 import sys
 
@@ -117,9 +118,6 @@ def test_caps_duration():
     assert ei.value.code == "replay_duration_exceeds_cap"
 
 
-import asyncio
-
-
 def _objstate(oid, bbox_min, bbox_max):
     return {"object_id": oid, "bbox_min": bbox_min, "bbox_max": bbox_max,
             "validation_strength": "bbox_only", "state_hash": None}
@@ -151,6 +149,7 @@ def test_resolve_source_states_missing_object_fails():
     with pytest.raises(dc.DirectorCompileError) as ei:
         asyncio.run(dc.resolve_source_states(fake, [U1, U2], None))
     assert ei.value.code == "source_resolution_failed"
+    assert ei.value.extra.get("object_id") == U2
 
 
 def test_resolve_source_states_native_failure():
@@ -173,6 +172,7 @@ def test_build_object_frames_every_object_every_frame():
             assert ot["source_state"]["bbox_min"] == [0, 0, 0]
     # frame 1 is identity for both
     assert frames[0]["object_transforms"][0]["transform"][0][3] == pytest.approx(0.0)
+    assert [f["frame_index"] for f in frames] == [1, 2, 3]
 
 
 def test_build_object_frames_propagates_motion_error_code():
