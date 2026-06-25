@@ -238,9 +238,18 @@ namespace Rook.Tests.UI.Vision
             Assert.Contains("function collectOptionValues({ includeIgnored })", js);
             Assert.Contains("control.checked", js);
             Assert.Contains("values[d.key] = control.checked;", js);
-            Assert.Contains("Number.isNaN", js);
+            Assert.Contains("Number.isFinite", js);
             Assert.Contains("collectOptionValues({ includeIgnored: false })", js);
             Assert.DoesNotContain("if (re.optEnablePbr.checked) o.enable_pbr = true;", js);
+        }
+
+        [Fact]
+        public void AppJs_IntegerDescriptorSerialization_DoesNotTruncateDecimalInput()
+        {
+            var js = ReadVisionResource("app.js");
+            Assert.Contains("const parsed = Number(control.value);", js);
+            Assert.Contains("Number.isInteger(parsed)", js);
+            Assert.DoesNotContain("parseInt(control.value, 10)", js);
         }
 
         [Fact]

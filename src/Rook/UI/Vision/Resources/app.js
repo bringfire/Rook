@@ -3874,8 +3874,8 @@ const Reconstruct = (() => {
                 continue;
             } else if (d.kind === "integer") {
                 if (control.value === "") continue;
-                const parsed = parseInt(control.value, 10);
-                if (Number.isNaN(parsed)) continue;
+                const parsed = Number(control.value);
+                if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) continue;
                 value = parsed;
             } else if (d.kind === "string") {
                 const text = control.value.trim();
