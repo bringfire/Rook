@@ -23,14 +23,34 @@ class DirectorCompileError(Exception):
         return {"code": self.code, "message": self.message, **self.extra}
 
 
-def _is_uuid(value: Any) -> bool:
+def _canonical_uuid(value: Any) -> str | None:
     if not isinstance(value, str):
-        return False
+        return None
     try:
-        _uuid.UUID(value.strip())
-        return True
+        return str(_uuid.UUID(value.strip()))
     except (ValueError, AttributeError):
-        return False
+        return None
+
+
+def _is_uuid(value: Any) -> bool:
+    return _canonical_uuid(value) is not None
+
+
+def _require_uuid(value: Any, message: str) -> str:
+    canonical = _canonical_uuid(value)
+    if canonical is None:
+        raise DirectorCompileError("invalid_input", message)
+    return canonical
+
+
+def _canonicalize_object_ids(object_ids) -> list[str]:
+    out = []
+    for oid in object_ids:
+        canonical = _canonical_uuid(oid)
+        if canonical is None:
+            raise DirectorCompileError("source_resolution_failed", f"object id is not a valid UUID: {oid!r}")
+        out.append(canonical)
+    return out
 
 
 def resolve_compiler_timeline(spec: dict) -> dict:
@@ -66,14 +86,12 @@ def _resolve_group(name: str, groups: dict) -> list[str]:
     if not isinstance(members, list) or not members:
         raise DirectorCompileError("empty_group", f"group '{name}' resolves to no objects")
     # Duplicate ids WITHIN one group collapse to a set (spec) — preserve stable order.
-    # Store the canonical (stripped) form so group members and bare-id targets key
+    # Store the canonical UUID form so group members and bare-id targets key
     # identically, keeping cross-track duplicate_object_target detection consistent.
     seen: set[str] = set()
     out: list[str] = []
     for m in members:
-        if not _is_uuid(m):
-            raise DirectorCompileError("invalid_input", f"group '{name}' member is not a valid object UUID: {m!r}")
-        canonical = m.strip()
+        canonical = _require_uuid(m, f"group '{name}' member is not a valid object UUID: {m!r}")
         if canonical in seen:
             continue
         seen.add(canonical)
@@ -104,7 +122,7 @@ def expand_targets(spec: dict) -> dict:
         if isinstance(target, str) and target in groups:
             object_ids = _resolve_group(target, groups)
         elif _is_uuid(target):
-            object_ids = [target.strip()]
+            object_ids = [_require_uuid(target, f"target is not a valid object UUID: {target!r}")]
         elif isinstance(target, str):
             raise DirectorCompileError("unknown_group", f"target is not a declared group or valid UUID: {target!r}")
         else:
@@ -131,12 +149,17 @@ def validate_caps(object_count: int, frame_count: int, fps: int) -> None:
 
 
 async def resolve_source_states(call_native, object_ids, port):
+    object_ids = _canonicalize_object_ids(object_ids)
     result = await call_native("/director/object-states", "POST", {"object_ids": list(object_ids)}, port=port)
     if not result.get("success"):
         raise DirectorCompileError(
             "source_resolution_failed", f"object state resolution failed: {result.get('data')}")
     objects = (result.get("data") or {}).get("objects") or []
-    by_id = {obj.get("object_id"): obj for obj in objects}
+    by_id = {}
+    for obj in objects:
+        canonical = _canonical_uuid(obj.get("object_id"))
+        if canonical is not None:
+            by_id[canonical] = obj
     states = {}
     for oid in object_ids:
         obj = by_id.get(oid)

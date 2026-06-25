@@ -13,6 +13,7 @@ from rook import director_compiler as dc
 
 U1 = "11111111-1111-1111-1111-111111111111"
 U2 = "22222222-2222-2222-2222-222222222222"
+U3 = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 
 
 def test_timeline_duration_shape():
@@ -40,6 +41,17 @@ def test_timeline_rejects_fractional_fps():
 
 def test_expand_explicit_id():
     spec = {"motion": [{"target": U1, "keyframes": [{"t": 1.0, "translate": [1, 0, 0]}]}]}
+    expanded = dc.expand_targets(spec)
+    assert set(expanded) == {U1}
+
+
+def test_expand_canonicalizes_uuid_spellings():
+    upper = U1.upper()
+    braced = "{" + U1 + "}"
+    spec = {
+        "groups": {"g": [upper, braced]},
+        "motion": [{"target": "g", "keyframes": [{"t": 1.0, "translate": [1, 0, 0]}]}],
+    }
     expanded = dc.expand_targets(spec)
     assert set(expanded) == {U1}
 
@@ -142,6 +154,13 @@ def test_resolve_source_states_indexes_by_id():
     fake = FakeNative([_objstate(U1, [0, 0, 0], [2, 2, 2])])
     states = asyncio.run(dc.resolve_source_states(fake, [U1], None))
     assert states[U1]["bbox_min"] == [0, 0, 0]
+
+
+def test_resolve_source_states_matches_canonical_native_ids():
+    fake = FakeNative([_objstate(U3, [0, 0, 0], [2, 2, 2])])
+    requested = U3.upper()
+    states = asyncio.run(dc.resolve_source_states(fake, [requested], None))
+    assert states[U3]["bbox_min"] == [0, 0, 0]
 
 
 def test_resolve_source_states_missing_object_fails():
