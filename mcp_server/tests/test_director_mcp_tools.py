@@ -417,3 +417,51 @@ async def test_replay_dispatch_routes_to_director(monkeypatch):
     await srv.call_tool("rhino_director_replay_cancel", {"replay_session_id": "abc"})
     assert called["run"] == {"track": {"x": 1}}
     assert called["cancel"] == {"replay_session_id": "abc"}
+
+
+@pytest.mark.asyncio
+async def test_compile_motion_tool_registered():
+    tools = await server.list_tools()
+    by_name = {tool.name: tool for tool in tools}
+    assert "rhino_director_compile_motion" in by_name
+    schema = by_name["rhino_director_compile_motion"].inputSchema
+    assert schema["type"] == "object"
+    assert _find_rejected_schema_keywords(schema) == []
+    assert "motion" in schema["properties"]
+    assert "timeline" in schema["properties"]
+
+
+@pytest.mark.asyncio
+async def test_compile_motion_tool_dispatch_success():
+    spec = {
+        "timeline": {"fps": 24, "frame_count": 2},
+        "motion": [{"target": "11111111-1111-1111-1111-111111111111",
+                    "keyframes": [{"t": 1.0, "translate": [4, 0, 0]}]}],
+    }
+
+    async def fake_compile(arguments, *, port=None):
+        assert arguments["timeline"]["fps"] == 24
+        return {"track": {"frame_count": 2}, "provenance": {"frame_count": 2}}
+
+    with patch("rook.server.director_compiler.compile_motion", new=fake_compile):
+        out = await server.call_tool("rhino_director_compile_motion", spec)
+    # IMPORTANT (see server._format_tool_result): success text IS the data, NOT a
+    # {success, data} envelope. Parse the text directly as data.
+    data = json.loads(out[0].text)
+    assert data["track"]["frame_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_compile_motion_tool_dispatch_error_surfaces_code():
+    async def boom(arguments, *, port=None):
+        from rook import director_compiler
+        raise director_compiler.DirectorCompileError("unknown_group", "nope", object_id="x")
+
+    with patch("rook.server.director_compiler.compile_motion", new=boom):
+        out = await server.call_tool("rhino_director_compile_motion", {"motion": []})
+    # Failure text is "Error: " + json.dumps(data); strip the prefix then parse.
+    text = out[0].text
+    assert text.startswith("Error: ")
+    payload = json.loads(text[len("Error: "):])
+    assert payload["code"] == "unknown_group"
+    assert payload["object_id"] == "x"
