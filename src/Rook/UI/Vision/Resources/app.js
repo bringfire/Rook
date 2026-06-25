@@ -3810,11 +3810,52 @@ const Reconstruct = (() => {
         applyOptionDependencies();
     }
 
+    function optionValuesEqual(actual, expected) {
+        return actual === expected;
+    }
+
     function isOptionIgnored(descriptor, values) {
-        return false;
+        if (!descriptor || !descriptor.ignored_when) return false;
+        const gate = descriptor.ignored_when;
+        if (!gate || !gate.key) return false;
+        if (!Object.prototype.hasOwnProperty.call(values, gate.key)) return false;
+        return optionValuesEqual(values[gate.key], gate.equals);
+    }
+
+    function dependencyHintForIgnored(ignoredDescriptors) {
+        if (ignoredDescriptors.some(d => d.ignored_when && d.ignored_when.key === "should_texture")) {
+            return "Texture-specific options are hidden while texturing is off.";
+        }
+        if (ignoredDescriptors.some(d => d.ignored_when && d.ignored_when.key === "generate_type")) {
+            return "PBR is hidden for geometry-only output.";
+        }
+        return "Some options are hidden because they are not used by the current selection.";
     }
 
     function applyOptionDependencies() {
+        const model = selectedModel();
+        const opts = (model && Array.isArray(model.options)) ? model.options : [];
+        const values = collectOptionValues({ includeIgnored: true });
+        const ignoredDescriptors = [];
+
+        for (const d of opts) {
+            const entry = re.optionControls.get(d.key);
+            if (!entry || !entry.row || !entry.control) continue;
+            const ignored = isOptionIgnored(d, values);
+            entry.row.classList.toggle("hidden", ignored);
+            entry.control.disabled = ignored;
+            if (ignored) ignoredDescriptors.push(d);
+        }
+
+        if (re.optionsHint) {
+            if (ignoredDescriptors.length > 0) {
+                re.optionsHint.textContent = dependencyHintForIgnored(ignoredDescriptors);
+                re.optionsHint.classList.remove("hidden");
+            } else {
+                re.optionsHint.textContent = "";
+                re.optionsHint.classList.add("hidden");
+            }
+        }
     }
 
     function collectOptionValues({ includeIgnored }) {

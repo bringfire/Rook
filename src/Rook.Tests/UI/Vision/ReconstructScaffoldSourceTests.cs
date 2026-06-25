@@ -243,6 +243,21 @@ namespace Rook.Tests.UI.Vision
             Assert.DoesNotContain("if (re.optEnablePbr.checked) o.enable_pbr = true;", js);
         }
 
+        [Fact]
+        public void AppJs_AppliesIgnoredWhenDependencies_WithoutClearingHiddenValues()
+        {
+            var js = ReadVisionResource("app.js");
+            Assert.Contains("function isOptionIgnored(descriptor, values)", js);
+            Assert.Contains("descriptor.ignored_when", js);
+            Assert.Contains("function applyOptionDependencies()", js);
+            Assert.Contains("entry.row.classList.toggle(\"hidden\", ignored);", js);
+            Assert.Contains("entry.control.disabled = ignored;", js);
+            Assert.Contains("Texture-specific options are hidden while texturing is off.", js);
+            Assert.Contains("PBR is hidden for geometry-only output.", js);
+            Assert.DoesNotContain("entry.control.value = \"\";", js);
+            Assert.DoesNotContain("entry.control.checked = false;", js);
+        }
+
         [Theory]
         [InlineData("reconstruct-include-experimental")]
         [InlineData("reconstruct-options")]
