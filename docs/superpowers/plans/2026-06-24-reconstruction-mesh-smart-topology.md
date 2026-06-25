@@ -219,9 +219,10 @@ git commit -m "feat(reconstruction): strict mesh submit request parser (source_p
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `src/Rook.Tests/Services/Reconstruction/ReconstructionSubmitGateTests.cs`:
+Create `src/Rook.Tests/Services/Reconstruction/ReconstructionSubmitGateTests.cs`. **Do not call the `ReconstructionModelEntry` positional constructor** — its parameter order is long and easy to get wrong (on main it is `…, supports_pbr, preprocessing, docs_url, default_texture_expected, input, prompt, options`). Build entries through the **real deserializer** `ReconstructionModelCatalog.FromJson(...)` with inline JSON, which is robust to ctor changes and exercises the actual schema:
 
 ```csharp
+using System.Linq;
 using Rook.Services.Reconstruction;
 using Xunit;
 
@@ -229,42 +230,47 @@ namespace Rook.Tests.Services.Reconstruction;
 
 public sealed class ReconstructionSubmitGateTests
 {
-    private static ReconstructionModelEntry Image(string status = "stable") => new(
-        "img", "fal", "single_image_to_3d", status, true,
-        new[] { "single_image_to_3d" }, new[] { "image_url" },
-        new[] { "model_glb" }, "model_glb", new[] { "model_glb" }, false, false,
-        new ReconstructionInputMetadata("single_image", "input_image_url"), null, null, null);
+    private static ReconstructionModelEntry Entry(string json)
+        => ReconstructionModelCatalog.FromJson("{\"models\":[" + json + "]}").List(true, true).Single();
 
-    private static ReconstructionModelEntry Mesh(string status = "experimental") => new(
-        "mesh", "fal", "mesh_to_mesh_topology", status, true,
-        new[] { "mesh_to_mesh", "smart_topology" }, new[] { "model_url" },
-        new[] { "model_glb" }, "model_glb", new[] { "model_glb" }, false, false,
-        new ReconstructionInputMetadata("single_model", "input_file_url"), null, null, null);
+    private const string ImageJson = """
+        { "model_id": "img", "provider": "fal", "task": "single_image_to_3d", "status": "stable",
+          "enabled": true, "pipeline_roles": ["single_image_to_3d"], "input_types": ["image_url"],
+          "output_roles": ["model_glb"], "preferred_asset_role": "model_glb", "fallback_order": ["model_glb"],
+          "input": { "mode": "single_image", "source_field": "input_image_url" } }
+        """;
+
+    private const string MeshJson = """
+        { "model_id": "mesh", "provider": "fal", "task": "mesh_to_mesh_topology", "status": "experimental",
+          "enabled": true, "pipeline_roles": ["mesh_to_mesh", "smart_topology"], "input_types": ["model_url"],
+          "output_roles": ["model_glb"], "preferred_asset_role": "model_glb", "fallback_order": ["model_glb"],
+          "input": { "mode": "single_model", "source_field": "input_file_url" } }
+        """;
 
     [Fact]
     public void ImageGate_AcceptsImage_RejectsMesh()
     {
-        Assert.True(ReconstructionJobManager.IsSubmittableImageModel(Image(), false));
-        Assert.False(ReconstructionJobManager.IsSubmittableImageModel(Mesh(), true));
+        Assert.True(ReconstructionJobManager.IsSubmittableImageModel(Entry(ImageJson), false));
+        Assert.False(ReconstructionJobManager.IsSubmittableImageModel(Entry(MeshJson), true));
     }
 
     [Fact]
     public void MeshGate_AcceptsMesh_RejectsImage()
     {
-        Assert.True(ReconstructionJobManager.IsSubmittableMeshModel(Mesh(), true));
-        Assert.False(ReconstructionJobManager.IsSubmittableMeshModel(Image(), true));
+        Assert.True(ReconstructionJobManager.IsSubmittableMeshModel(Entry(MeshJson), true));
+        Assert.False(ReconstructionJobManager.IsSubmittableMeshModel(Entry(ImageJson), true));
     }
 
     [Fact]
     public void MeshGate_ExperimentalRejectedWithoutOverride()
     {
-        Assert.False(ReconstructionJobManager.IsSubmittableMeshModel(Mesh(), false));
-        Assert.True(ReconstructionJobManager.IsSubmittableMeshModel(Mesh(), true));
+        Assert.False(ReconstructionJobManager.IsSubmittableMeshModel(Entry(MeshJson), false));
+        Assert.True(ReconstructionJobManager.IsSubmittableMeshModel(Entry(MeshJson), true));
     }
 }
 ```
 
-Note: confirm the exact `ReconstructionModelEntry` positional ctor arity/order against `ReconstructionModelCatalog.cs` when implementing; adjust the two factory helpers above to match (the fields are: model_id, provider, task, status, enabled, pipeline_roles, input_types, output_roles, preferred_asset_role, fallback_order, supports_pbr, default_texture_expected, input, prompt, preprocessing, options — fill `null` for prompt/preprocessing/options).
+(Confirm `ReconstructionModelCatalog.FromJson(string)` and `.List(bool includeExperimental, bool includeHidden)` signatures — the Explore pass confirmed both exist. If `List` filters experimental, pass `true, true` so the mesh entry is returned.)
 
 - [ ] **Step 2: Run tests to verify they fail**
 
@@ -428,7 +434,7 @@ git commit -m "feat(reconstruction): deterministic mesh source validator (packag
 - Test: existing `src/Rook.Tests` reconstruction submit tests are the regression pin (no new test needed; they must stay green)
 
 **Interfaces:**
-- Produces: `private async Task<ReconstructionSubmitResult> SubmitResolvedAsync(Guid jobId, ReconstructionJobLedgerRecord queued, ReconstructionModelEntry model, JsonObject validatedOptions, IReadOnlyList<ReconstructionProviderViewUrl> providerInputs, IReadOnlyList<Guid> sourceArtifactIds, CancellationToken ct)`. Note: takes the `queued` ledger record as anchor (derives Polling/Error records and returns it on success) — the one internal param beyond the approved source-agnostic shape.
+- Produces: `private async Task<ReconstructionSubmitResult> SubmitResolvedAsync(Guid jobId, ReconstructionJobLedgerRecord queued, ReconstructionJobLedgerRecord submitting, ReconstructionModelEntry model, JsonObject validatedOptions, IReadOnlyList<ReconstructionProviderViewUrl> providerInputs, IReadOnlyList<Guid> sourceArtifactIds, CancellationToken ct)`. Note: takes **both** ledger records (the two internal params beyond the approved source-agnostic shape) — returns `queued` on success, but derives `Polling` and every `RecordSubmitFailure(...)` from `submitting`, byte-for-byte matching the current image behavior (no ledger drift).
 
 - [ ] **Step 1: Add `SubmitResolvedAsync` (tail = provider submit + outcome switch)**
 
@@ -442,6 +448,7 @@ In `ReconstructionJobManager.cs`, add this method (the body is lifted verbatim f
     private async Task<ReconstructionSubmitResult> SubmitResolvedAsync(
         Guid jobId,
         ReconstructionJobLedgerRecord queued,
+        ReconstructionJobLedgerRecord submitting,
         ReconstructionModelEntry model,
         JsonObject validatedOptions,
         IReadOnlyList<ReconstructionProviderViewUrl> providerInputs,
@@ -461,11 +468,11 @@ In `ReconstructionJobManager.cs`, add this method (the body is lifted verbatim f
         }
         catch (ReconstructionCredentialMissingException)
         {
-            return RecordSubmitFailure(queued, ReconstructionErrorMapping.MissingCredentialFailure());
+            return RecordSubmitFailure(submitting, ReconstructionErrorMapping.MissingCredentialFailure());
         }
         catch (Exception ex)
         {
-            return RecordSubmitFailure(queued, Failure(
+            return RecordSubmitFailure(submitting, Failure(
                 "submit_failed",
                 "Reconstruction submit failed.",
                 null,
@@ -477,9 +484,8 @@ In `ReconstructionJobManager.cs`, add this method (the body is lifted verbatim f
         {
             case QueuedSubmitOutcome queuedOutcome:
                 var handle = queuedOutcome.Handle;
-                var polling = queued with
+                var polling = submitting with
                 {
-                    State = ReconstructionJobState.Running,
                     Stage = ReconstructionJobStage.Polling,
                     ProviderJobId = handle.ProviderJobId,
                     ProviderStatusUrl = handle.StatusUrl?.ToString(),
@@ -494,10 +500,10 @@ In `ReconstructionJobManager.cs`, add this method (the body is lifted verbatim f
                 return new ReconstructionSubmitResult(true, queued, null);
 
             case FailedSubmitOutcome failedOutcome:
-                return RecordSubmitFailure(queued, ReconstructionErrorMapping.ToFailure(failedOutcome.Error));
+                return RecordSubmitFailure(submitting, ReconstructionErrorMapping.ToFailure(failedOutcome.Error));
 
             default:
-                return RecordSubmitFailure(queued, Failure(
+                return RecordSubmitFailure(submitting, Failure(
                     "submit_failed",
                     "Reconstruction provider returned an unexpected synchronous result.",
                     null));
@@ -505,7 +511,7 @@ In `ReconstructionJobManager.cs`, add this method (the body is lifted verbatim f
     }
 ```
 
-(`RecordSubmitFailure(record, failure)` appends `record with { State=Error, Stage=Error, Error=failure }` — passing `queued` yields the same terminal error record the old `submitting`-anchored code produced, since only State/Stage differ and both are overwritten.)
+Polling and every `RecordSubmitFailure(...)` derive from `submitting` (byte-for-byte identical to today's code); `queued` is returned only on success (the submit response record). No ledger drift.
 
 - [ ] **Step 2: Rewrite the image `SubmitCoreAsync` to call the tail**
 
@@ -554,7 +560,7 @@ In `SubmitCoreAsync`, replace the block from `ProviderSubmitOutcome submitOutcom
         }
 
         return await SubmitResolvedAsync(
-            jobId, queued, model, request.Options, providerViews, sourceArtifactIds, ct)
+            jobId, queued, submitting, model, request.Options, providerViews, sourceArtifactIds, ct)
             .ConfigureAwait(false);
 ```
 
@@ -701,7 +707,7 @@ In `ReconstructionJobManager.cs` add (mirrors `SubmitCoreAsync`'s structure: val
         };
 
         return await SubmitResolvedAsync(
-            jobId, queued, model!, options,
+            jobId, queued, submitting, model!, options,
             providerInputs, new[] { request.SourcePackageId }, ct).ConfigureAwait(false);
     }
 ```
@@ -808,10 +814,14 @@ git commit -m "feat(reconstruction): Hunyuan Smart Topology catalog entry (exper
 **Files:**
 - Modify: `src/RookNative/RookServer.cpp` (route registration ~line 2145-2155; new handler) + the handler decl/site in `src/RookNative/Handlers/GrasshopperProxyHandler.cpp` (mirror `HandleReconstructionSubmit` ~line 1365)
 - Modify: `mcp_server/src/rook/server.py` (new `rhino_3d_to_3d_submit` tool + dispatch case)
-- Test: native source-text assertion in `src/Rook.Tests/Handlers/NativeReconstructionDispatchSourceTests.cs`; MCP tool test if the repo has one (else manual)
+- Modify: `mcp_server/src/rook/agent/tool_groups.py` (add to the **mutating** `reconstruction` group at line 270 — **NOT** `reconstruction_readonly` at line 283)
+- Modify: `mcp_server/src/rook/agent/tool_dispatcher.py` (static POST route map ~line 477)
+- Test: native source-text assertion in `src/Rook.Tests/Handlers/NativeReconstructionDispatchSourceTests.cs`; Python `mcp_server/tests/test_reconstruction_mcp_tools.py`
 
 **Interfaces:**
-- Produces: `POST /reconstruction/3d-to-3d/jobs` → `DispatchReconstructionOp(req, res, "submit_mesh_job")`; MCP tool `rhino_3d_to_3d_submit`.
+- Produces: `POST /reconstruction/3d-to-3d/jobs` → `DispatchReconstructionOp(req, res, "submit_mesh_job")`; MCP tool `rhino_3d_to_3d_submit` (registered, mutating, dispatched).
+
+**Reuse rule:** before editing, run `grep -rn "rhino_2d_to_3d_submit" mcp_server/` and mirror **every** registration site for `rhino_3d_to_3d_submit` (the four files below are the known ones; the grep catches any other).
 
 - [ ] **Step 1: Native source-text assertion (TDD for the C++ route)**
 
@@ -879,16 +889,35 @@ case "rhino_3d_to_3d_submit":
 
 Status/result/import reuse the existing `rhino_2d_to_3d_status` / `_result` / `_import` (job/package-id based).
 
-- [ ] **Step 4: Run the managed suite (native source test + no regressions)**
+- [ ] **Step 4: Wire the tool group + dispatcher route**
+
+In `mcp_server/src/rook/agent/tool_groups.py`, add `"rhino_3d_to_3d_submit"` to the **mutating** `TOOL_GROUPS["reconstruction"]` list (line ~270, next to `"rhino_2d_to_3d_submit"`). **Do not** add it to `reconstruction_readonly` (line ~283) — it mutates (creates a job/package).
+
+In `mcp_server/src/rook/agent/tool_dispatcher.py`, add to the static POST route map (next to line 477):
+
+```python
+    "rhino_3d_to_3d_submit": ("/reconstruction/3d-to-3d/jobs", "POST"),
+```
+
+- [ ] **Step 5: Update the Python MCP tests**
+
+In `mcp_server/tests/test_reconstruction_mcp_tools.py`:
+- Add `"rhino_3d_to_3d_submit"` to the `RECONSTRUCTION_TOOL_NAMES` set (line ~17) so `test_all_reconstruction_tools_registered` and `test_reconstruction_tool_groups` (which assert the group set equals that names set) pass.
+- Add a dispatch test mirroring `test_reconstruction_submit_dispatches_post_with_artifact_body` (line ~103) that calls `rhino_3d_to_3d_submit` with `{source_package_id, model_id}` and asserts it POSTs to `/reconstruction/3d-to-3d/jobs` with the body forwarded.
+- Add a required-fields test mirroring `test_reconstruction_submit_requires_source_artifact_id_and_model_id` (line ~51) asserting the tool's `inputSchema.required == ["source_package_id", "model_id"]`.
+
+Run: `cd mcp_server && python -m pytest tests/test_reconstruction_mcp_tools.py -q` → PASS. (Use the repo's configured Python; if a venv is needed, mirror how the repo runs `mcp_server` pytest.)
+
+- [ ] **Step 6: Run the managed suite (native source test + no regressions)**
 
 Run: `dotnet test src/Rook.Tests/Rook.Tests.csproj -v minimal`
 Expected: PASS (Rhino closed).
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add src/RookNative mcp_server/src/rook/server.py src/Rook.Tests/Handlers/NativeReconstructionDispatchSourceTests.cs
-git commit -m "feat(reconstruction): native /reconstruction/3d-to-3d/jobs route + rhino_3d_to_3d_submit MCP tool"
+git add src/RookNative mcp_server/src/rook/server.py mcp_server/src/rook/agent/tool_groups.py mcp_server/src/rook/agent/tool_dispatcher.py mcp_server/tests/test_reconstruction_mcp_tools.py src/Rook.Tests/Handlers/NativeReconstructionDispatchSourceTests.cs
+git commit -m "feat(reconstruction): native /reconstruction/3d-to-3d/jobs route + rhino_3d_to_3d_submit MCP tool (group+dispatch+tests)"
 ```
 
 ---
@@ -951,4 +980,4 @@ git commit -m "feat(reconstruction): promote Smart Topology to stable after pass
 
 **Placeholder scan:** No TBD/TODO. Tasks 3, 5, 6 reference "the existing fixture/catalog test" rather than inlining the full fixture — acceptable because they reuse a documented existing harness (`CreateFixture`/`BuildPackageAsync`, the existing catalog test); the assertions to add are spelled out explicitly. Task 2's `ReconstructionModelEntry` ctor arity carries an explicit "confirm against catalog" note because the positional ctor is long.
 
-**Type consistency:** `ReconstructionMeshSubmitRequest`/`ReconstructionMeshParseResult` (Task 1) consumed in Task 5 + Task 7 handler. `IsSubmittableMeshModel`/`IsSubmittableImageModel` (Task 2) used in Task 5/Task 6. `ReconstructionMeshSourceValidator.Validate(store, id)` → `.ModelGlbAbsolutePath`/`.Success`/`.Failure` (Task 3) consumed in Task 5. `SubmitResolvedAsync(Guid, ReconstructionJobLedgerRecord queued, model, JsonObject, IReadOnlyList<ReconstructionProviderViewUrl>, IReadOnlyList<Guid>, ct)` (Task 4) called by both `SubmitCoreAsync` and `SubmitMeshAsync` with matching argument types. Op constant `OpSubmitMesh = "submit_mesh_job"` (Task 5) matches the native op string and MCP endpoint (Task 7). Catalog `input_types: ["model_url"]` + `input.mode: "single_model"` (Task 6) satisfy `IsSubmittableMeshModel` (Task 2) and keep it out of `ProducesImportable3D` (Task 2).
+**Type consistency:** `ReconstructionMeshSubmitRequest`/`ReconstructionMeshParseResult` (Task 1) consumed in Task 5 + Task 7 handler. `IsSubmittableMeshModel`/`IsSubmittableImageModel` (Task 2) used in Task 5/Task 6. `ReconstructionMeshSourceValidator.Validate(store, id)` → `.ModelGlbAbsolutePath`/`.Success`/`.Failure` (Task 3) consumed in Task 5. `SubmitResolvedAsync(Guid, ReconstructionJobLedgerRecord queued, ReconstructionJobLedgerRecord submitting, model, JsonObject, IReadOnlyList<ReconstructionProviderViewUrl>, IReadOnlyList<Guid>, ct)` (Task 4) — both call sites (image `SubmitCoreAsync`, mesh `SubmitMeshAsync`) pass `queued, submitting` in that order; the tail returns `queued` on success and derives Polling/Error from `submitting`. Op constant `OpSubmitMesh = "submit_mesh_job"` (Task 5) matches the native op string and MCP endpoint (Task 7). Catalog `input_types: ["model_url"]` + `input.mode: "single_model"` (Task 6) satisfy `IsSubmittableMeshModel` (Task 2) and keep it out of `ProducesImportable3D` (Task 2).
