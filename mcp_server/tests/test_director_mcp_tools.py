@@ -326,6 +326,10 @@ def test_director_tool_groups_include_curve_samples_readonly():
     assert "director" in tool_groups.TOOL_GROUPS
     assert "rhino_director_run" in tool_groups.TOOL_GROUPS["director"]
     assert "rhino_director_curve_samples" in tool_groups.TOOL_GROUPS["director"]
+    assert "rhino_director_replay" in tool_groups.TOOL_GROUPS["director"]
+    assert "rhino_director_replay_cancel" in tool_groups.TOOL_GROUPS["director"]
+    assert "rhino_director_compile_motion" in tool_groups.TOOL_GROUPS["director"]
+    assert "rhino_director_preview_motion" in tool_groups.TOOL_GROUPS["director"]
     assert "director_readonly" in tool_groups.TOOL_GROUPS
     assert "rhino_director_curve_samples" in tool_groups.TOOL_GROUPS["director_readonly"]
     assert "director" in tool_groups.MCP_ONLY_GROUPS
