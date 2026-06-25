@@ -143,6 +143,36 @@ namespace Rook.Tests.UI.Vision
         // ─── Pro options (Slice 2) assertions ─────────────────────────
 
         [Fact]
+        public void IndexHtml_ReconstructExperimentalToggle_Present()
+        {
+            var html = ReadVisionResource("index.html");
+            Assert.Contains("id=\"reconstruct-include-experimental\"", html);
+            Assert.Contains("Experimental models", html);
+        }
+
+        [Fact]
+        public void AppJs_ReconstructExperimentalToggle_LoadsModelsWithIncludeExperimental()
+        {
+            var js = ReadVisionResource("app.js");
+            Assert.Contains("re.includeExperimental = $(\"reconstruct-include-experimental\");", js);
+            Assert.Contains("let includeExperimentalModels = false;", js);
+            Assert.Contains("include_experimental: true", js);
+            Assert.Contains("loadModels(true)", js);
+            Assert.Contains("re.includeExperimental.checked", js);
+            Assert.DoesNotContain("await loadModels(true);\r\n    updateReconstructModelForMode(reconstructMode);", js);
+            Assert.DoesNotContain("await loadModels(true);\n    updateReconstructModelForMode(reconstructMode);", js);
+        }
+
+        [Fact]
+        public void AppJs_ModelHint_IncludesNonStableStatus()
+        {
+            var js = ReadVisionResource("app.js");
+            Assert.Contains("function modelStatusLabel(", js);
+            Assert.Contains("model.status !== \"stable\"", js);
+            Assert.Contains("statusLabel", js);
+        }
+
+        [Fact]
         public void IndexHtml_ReconstructOptions_ExposeGenerateTypePbrFaceCount()
         {
             var html = ReadVisionResource("index.html");

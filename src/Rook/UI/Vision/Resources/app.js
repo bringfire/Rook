@@ -3534,6 +3534,7 @@ const Reconstruct = (() => {
     let pickerArtifactsById = {};
     let outputMode = "textured";  // "textured" | "geometry"
     let reconstructMode = "i3d";  // "t3d" | "i3d" | "mv3d"
+    let includeExperimentalModels = false;
     let currentPackageId = null;
     let currentResultAvailable = false;
     let currentJobs = [];         // last-loaded job list (queue source of truth)
@@ -3551,6 +3552,7 @@ const Reconstruct = (() => {
         re.pickerClose = $("reconstruct-picker-close");
         re.modelSelect = $("reconstruct-model-select");
         re.modelHint = $("reconstruct-model-hint");
+        re.includeExperimental = $("reconstruct-include-experimental");
         re.options = $("reconstruct-options");
         re.optGenerateType = $("reconstruct-opt-generate-type");
         re.optEnablePbr = $("reconstruct-opt-enable-pbr");
@@ -3607,6 +3609,11 @@ const Reconstruct = (() => {
         re.modeGeometry.addEventListener("click", () => setOutputMode("geometry"));
         re.submitBtn.addEventListener("click", submit);
         re.modelSelect.addEventListener("change", () => { updateModelHint(); renderModelOptions(); });
+        re.includeExperimental.addEventListener("change", async () => {
+            includeExperimentalModels = !!re.includeExperimental.checked;
+            modelsLoaded = false;
+            await loadModels(true);
+        });
         re.optGenerateType.addEventListener("change", applyGenerateTypeGating);
         re.importBtn.addEventListener("click", importPackage);
         re.refreshJobsBtn.addEventListener("click", loadJobs);
@@ -3669,7 +3676,7 @@ const Reconstruct = (() => {
         }
     }
 
-    function updateReconstructModelForMode(mode) {
+    function updateReconstructModelForMode(mode, preferredModelId) {
         if (mode === "t3d") {
             re.modelSelect.innerHTML = "<option value=\"\" disabled selected>No models available for this mode yet</option>";
         } else if (mode === "mv3d") {
@@ -3679,7 +3686,7 @@ const Reconstruct = (() => {
                 re.modelSelect.innerHTML = "<option value=\"\" disabled selected>No models available for this mode yet</option>";
             } else {
                 re.modelSelect.innerHTML = mv.map(buildModelOption).join("");
-                re.modelSelect.value = mv[0].model_id;
+                re.modelSelect.value = mv.some(m => m.model_id === preferredModelId) ? preferredModelId : mv[0].model_id;
             }
             updateModelHint();
         } else {
@@ -3688,7 +3695,7 @@ const Reconstruct = (() => {
                 re.modelSelect.innerHTML = "<option value=\"\" disabled selected>No models available</option>";
             } else {
                 re.modelSelect.innerHTML = models.map(buildModelOption).join("");
-                re.modelSelect.value = models[0].model_id;
+                re.modelSelect.value = models.some(m => m.model_id === preferredModelId) ? preferredModelId : models[0].model_id;
             }
             updateModelHint();
         }
@@ -3859,30 +3866,30 @@ const Reconstruct = (() => {
         return `<option value="${escapeAttr(model.model_id)}">${escapeHtml(shortModelLabel(model.model_id))}${escapeHtml(pbr)}</option>`;
     }
 
+    function modelStatusLabel(model) {
+        return model && model.status && model.status !== "stable" ? ` · ${model.status}` : "";
+    }
+
     function updateModelHint() {
         if (!re.modelHint) return;
         const m = selectedModel();
+        const statusLabel = modelStatusLabel(m);
         re.modelHint.textContent = m
-            ? `${m.provider} · ${String(m.task || "").replace(/_/g, " ")}${m.supports_pbr ? " · PBR" : ""}`
+            ? `${m.provider} · ${String(m.task || "").replace(/_/g, " ")}${statusLabel}${m.supports_pbr ? " · PBR" : ""}`
             : "";
     }
 
-    async function loadModels() {
-        if (modelsLoaded) return;
+    async function loadModels(force) {
+        if (modelsLoaded && !force) return;
+        const previousModelId = selectedModelId();
         try {
-            const data = await reconstructionBridgeCall("models", {});
+            const args = includeExperimentalModels ? { include_experimental: true } : {};
+            const data = await reconstructionBridgeCall("models", args);
             models = Array.isArray(data.models) ? data.models : [];
         } catch (e) {
             models = [];
         }
-        if (models.length === 0) {
-            re.modelSelect.innerHTML = `<option value="" disabled selected>No models available</option>`;
-        } else {
-            // Default to the first model (like the Video tab); model_id stays explicit + required.
-            re.modelSelect.innerHTML = models.map(buildModelOption).join("");
-            re.modelSelect.value = models[0].model_id;
-        }
-        updateModelHint();
+        updateReconstructModelForMode(reconstructMode, previousModelId);
         renderModelOptions();
         modelsLoaded = true;
     }
