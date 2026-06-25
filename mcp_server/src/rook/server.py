@@ -55,7 +55,7 @@ if logger.isEnabledFor(logging.DEBUG):
     )
 
 from .bridge import call_rhino, get_rhino_host, discover_instances, TIMEOUT, DISCOVERY_FOLDER, rhino_request_context, list_sessions_result, get_session_capabilities
-from . import artifacts, director, director_compiler, director_publish, director_video, merge_execution, script_library, targeting, workbench, work_units
+from . import artifacts, director, director_compiler, director_preview, director_publish, director_video, merge_execution, script_library, targeting, workbench, work_units
 targeting.initialize_from_environment()
 from .knowledge import query_knowledge, query_knowledge_tiered, record_knowledge, invalidate_condensed_command_cache
 from .learning.command_observer import (
@@ -3996,6 +3996,39 @@ Prefer rhino_workbench_launch for new automation that needs an owned disposable 
                     "camera": {"type": "object", "description": "Optional camera_planner spec (keyframes|curve_follow_target). Omitted = hold active view."},
                     "resolution": {"type": "object", "description": "Optional {width,height}; defaults 1920x1080 (camera aspect only)."},
                     "default_easing": {"type": "string", "description": "Track-level default easing: linear|ease_in|ease_out|ease_in_out (default linear)."},
+                },
+                "required": ["timeline", "motion"],
+            },
+        ),
+        Tool(
+            name="rhino_director_preview_motion",
+            description=(
+                "RookVisionDirector: compile a high-level object-motion authoring spec "
+                "and synchronously preview it through live replay. Returns compact "
+                "compile provenance, track summary, replay outcome, and deterministic "
+                "next-edit hooks by default; preview.include_track=true includes the "
+                "full baked track. Does not capture, persist, or create async jobs."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "timeline": {"type": "object", "description": "fps (positive int) plus exactly one of duration_seconds or frame_count."},
+                    "motion": {"type": "array", "items": {"type": "object"}, "description": "Per-target keyframe tracks; each {target, keyframes[]}."},
+                    "groups": {"type": "object", "description": "Optional map of local group name -> [object UUIDs]. Names must not be UUID-shaped."},
+                    "camera": {"type": "object", "description": "Optional camera_planner spec (keyframes|curve_follow_target). Omitted = hold active view."},
+                    "resolution": {"type": "object", "description": "Optional {width,height}; defaults 1920x1080 (camera aspect only)."},
+                    "default_easing": {"type": "string", "description": "Track-level default easing: linear|ease_in|ease_out|ease_in_out (default linear)."},
+                    "preview": {
+                        "type": "object",
+                        "description": "Optional preview controls: replay_session_id, restore_on_finish, fps, loop=false, include_track.",
+                        "properties": {
+                            "replay_session_id": {"type": "string", "description": "Optional caller id passed through to replay; replay validates exact id rules."},
+                            "restore_on_finish": {"type": "boolean", "description": "Default true: restore objects+camera after completed replay."},
+                            "fps": {"type": "number", "description": "Optional positive replay fps override; omitted uses track.fps."},
+                            "loop": {"type": "boolean", "description": "Must be false in PR5; true is rejected before compile/replay."},
+                            "include_track": {"type": "boolean", "description": "Default false; true includes the full compiled replay track."},
+                        },
+                    },
                 },
                 "required": ["timeline", "motion"],
             },
@@ -20222,6 +20255,9 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                 result = {"success": True, "data": await director_compiler.compile_motion(arguments, port=port)}
             except director_compiler.DirectorCompileError as exc:
                 result = {"success": False, "data": exc.to_data()}
+
+        case "rhino_director_preview_motion":
+            result = {"success": True, "data": await director_preview.preview_motion(arguments, port=port)}
 
         case "rhino_render_view":
             result = await call_rhino("/vision/generate", "POST", arguments, port=port)

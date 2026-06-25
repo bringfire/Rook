@@ -217,6 +217,10 @@ TOOL_GROUPS: Dict[str, List[str]] = {
     "director": [
         "rhino_director_run",
         "rhino_director_curve_samples",
+        "rhino_director_replay",
+        "rhino_director_replay_cancel",
+        "rhino_director_compile_motion",
+        "rhino_director_preview_motion",
         "rhino_director_assemble_video",
         "rhino_director_publish_video",
     ],

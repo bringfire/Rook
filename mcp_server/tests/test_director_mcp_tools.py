@@ -326,6 +326,10 @@ def test_director_tool_groups_include_curve_samples_readonly():
     assert "director" in tool_groups.TOOL_GROUPS
     assert "rhino_director_run" in tool_groups.TOOL_GROUPS["director"]
     assert "rhino_director_curve_samples" in tool_groups.TOOL_GROUPS["director"]
+    assert "rhino_director_replay" in tool_groups.TOOL_GROUPS["director"]
+    assert "rhino_director_replay_cancel" in tool_groups.TOOL_GROUPS["director"]
+    assert "rhino_director_compile_motion" in tool_groups.TOOL_GROUPS["director"]
+    assert "rhino_director_preview_motion" in tool_groups.TOOL_GROUPS["director"]
     assert "director_readonly" in tool_groups.TOOL_GROUPS
     assert "rhino_director_curve_samples" in tool_groups.TOOL_GROUPS["director_readonly"]
     assert "director" in tool_groups.MCP_ONLY_GROUPS
@@ -465,3 +469,50 @@ async def test_compile_motion_tool_dispatch_error_surfaces_code():
     payload = json.loads(text[len("Error: "):])
     assert payload["code"] == "unknown_group"
     assert payload["object_id"] == "x"
+
+
+@pytest.mark.asyncio
+async def test_preview_motion_tool_registered_with_clean_schema():
+    tools = await server.list_tools()
+    by_name = {tool.name: tool for tool in tools}
+
+    assert "rhino_director_preview_motion" in by_name
+    schema = by_name["rhino_director_preview_motion"].inputSchema
+    assert schema["type"] == "object"
+    assert schema["required"] == ["timeline", "motion"]
+    assert _find_rejected_schema_keywords(schema) == []
+    assert "timeline" in schema["properties"]
+    assert "motion" in schema["properties"]
+    assert "preview" in schema["properties"]
+
+    props = schema["properties"]
+    preview_props = props.get("preview", {}).get("properties", {})
+    for banned in ["capture", "output_path", "output_dir", "output_root", "artifact", "persist"]:
+        assert banned not in props
+        assert banned not in preview_props
+
+
+@pytest.mark.asyncio
+async def test_preview_motion_tool_dispatch_success():
+    request = {
+        "timeline": {"fps": 24, "frame_count": 2},
+        "motion": [
+            {
+                "target": "11111111-1111-1111-1111-111111111111",
+                "keyframes": [{"t": 1.0, "translate": [1, 0, 0]}],
+            }
+        ],
+        "preview": {"restore_on_finish": True},
+    }
+
+    async def fake_preview(arguments, *, port=None):
+        assert arguments == request
+        assert port is None
+        return {"state": "completed", "compile": {"track_summary": {"frame_count": 2}}, "replay": {"status": "completed"}}
+
+    with patch("rook.server.director_preview.preview_motion", new=fake_preview):
+        out = await server.call_tool("rhino_director_preview_motion", request)
+
+    data = json.loads(out[0].text)
+    assert data["state"] == "completed"
+    assert data["replay"]["status"] == "completed"
