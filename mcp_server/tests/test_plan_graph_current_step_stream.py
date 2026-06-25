@@ -138,6 +138,15 @@ class _Undeepcopyable:
         raise RuntimeError("cannot deepcopy supply metadata")
 
 
+class _ExplodingSupplyResult:
+    def __init__(self):
+        self.accessed: list[str] = []
+
+    def __getattr__(self, name: str):
+        self.accessed.append(name)
+        raise AssertionError(f"unexpected supply result attribute read: {name}")
+
+
 @pytest.mark.asyncio
 async def test_max_steps_invalid_returns_before_provider_call():
     graph = _graph(("a", "ready"))
@@ -193,6 +202,7 @@ async def test_provider_halt_records_supply_without_execution():
     [
         (None, "supply_result_invalid"),
         (object(), "supply_result_invalid"),
+        (_ExplodingSupplyResult(), "supply_result_invalid"),
         (EnvelopeSupplyResult("SUPPLY", None, None), "supply_missing_envelope"),
         (EnvelopeSupplyResult("HALT", _envelope(), "bad halt"), "halt_with_envelope"),
         (EnvelopeSupplyResult("HALT", None, None), "halt_missing_reason"),
@@ -217,6 +227,8 @@ async def test_provider_invalid_taxonomy_records_shape_failure(
     assert len(result.supply_records) == 1
     assert result.supply_records[0].invalid_reason == invalid_reason
     if invalid_reason == "supply_result_invalid":
+        if isinstance(provider_result, _ExplodingSupplyResult):
+            assert provider_result.accessed == []
         assert result.supply_records[0].decision is None
         assert result.supply_records[0].envelope is None
         assert result.supply_records[0].reason is None
