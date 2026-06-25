@@ -135,7 +135,7 @@ isOptionIgnored(descriptor, values)
 - collect all values with ignored controls included
 - hide rows whose descriptors are currently ignored
 - disable controls for hidden rows as defense in depth
-- clear unchecked/empty ignored child values only when doing so avoids stale UI confusion
+- preserve current hidden-control values while the same model remains selected
 - update a short hint only when controls disappear because of a dependency
 
 Recommended hint copy:
@@ -144,6 +144,8 @@ Recommended hint copy:
 - Hunyuan geometry gate: `PBR is hidden for geometry-only output.`
 
 The hint should be hidden when no descriptor is currently ignored. The hint is not a modal and should not add a global list of unavailable options.
+
+Ignored controls are hidden and disabled, but their current UI values are preserved while the same model remains selected. Serialization omits ignored keys. Values reset only when the model/options descriptor set is rebuilt, such as on model change or catalog reload.
 
 ## Submit Option Serialization
 
@@ -179,6 +181,21 @@ If the experimental toggle changes the loaded model set, the current mode's exis
 
 Meshy is single-image only, so it should appear in I3D when experimental models are enabled and should not appear in MV3D.
 
+## Vision Panel Safeguards
+
+This change must respect the existing Vision dark-panel mitigations.
+
+The implementation should preserve the current resource-loading and panel-stability patterns:
+
+- every id cached with `$("...")` in `app.js` must have a matching element in `index.html`
+- new dynamic controls should be created under an existing cached container, not by adding many hard-coded cached ids
+- use the existing `.hidden` class for section and row hiding because it is the established `display: none !important` primitive in this WebView
+- do not introduce overlay effects, grain layers, blend modes, or dark backgrounds that affect preview, result, gallery, modal, or Reconstruct media inspection
+- do not restructure the top-level Vision panel, WebView host, or presentation reconciler behavior
+- keep Reconstruct layout bounded with existing `minmax(0, ...)`, `min-width: 0`, and panel background conventions
+
+Tests should keep or extend id-integrity coverage for newly cached Reconstruct ids. The goal is to prevent the class of regressions where a missing HTML id nulls a cached element and blanks the Vision panel during initialization.
+
 ## Tests
 
 Add or update source-level UI tests in `src/Rook.Tests/UI/Vision/ReconstructScaffoldSourceTests.cs`.
@@ -194,8 +211,10 @@ Required tests:
 - JS has a shared `collectOptionValues` path.
 - JS has a shared `isOptionIgnored` path.
 - JS preserves explicit `false` booleans during option serialization.
-- JS references Meshy option keys specifically: `topology`, `target_polycount`, `symmetry_mode`, `should_remesh`, `should_texture`, `texture_prompt`.
+- Catalog/backend tests continue to assert Meshy option keys; UI tests assert descriptor-driven rendering by kind and dependency metadata rather than hard-coding Meshy keys in `app.js`.
+- UI source tests may assert `texture_prompt` only as the deliberate textarea special case.
 - JS dependency handling references `ignored_when`.
+- Newly cached Reconstruct ids exist in `index.html`.
 
 Backend tests are already mostly in place:
 
