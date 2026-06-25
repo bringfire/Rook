@@ -21,6 +21,7 @@ from rook.agent.plan_graph_current_step_runner import (
 )
 from rook.agent.plan_graph_live import LiveProducerResult
 from rook.agent.plan_graph_sequence_runner import BindStep, ProducerStep, VerifierStep
+from rook.agent.plan_graph_step_executor import StepExecutionResult
 from rook.agent.plan_graph_step_mapping import (
     StepMappingResult,
     map_accepted_proposal_to_step,
@@ -168,6 +169,43 @@ class _Undeepcopyable:
 
 
 @pytest.mark.asyncio
+async def test_delegates_exactly_once_to_lm4q_with_exact_objects(monkeypatch):
+    graph = _graph(("a", "ready"))
+    sentinel_graph = _graph(("sentinel", "succeeded"))
+    mapping = _hand_mapping(None, None, mapped=False)
+    envelope = CurrentStepEnvelope(mapping, {"trace_id": "delegation"})
+    runner = object()
+    sentinel_execution = StepExecutionResult(
+        ran=False,
+        kind=None,
+        graph=sentinel_graph,
+        failure="not_mapped",
+        reason="sentinel refusal",
+        mapping=mapping,
+    )
+    calls = []
+
+    async def fake_execute_mapped_step(received_mapping, received_graph, received_runner):
+        calls.append((received_mapping, received_graph, received_runner))
+        return sentinel_execution
+
+    monkeypatch.setattr(
+        current_step, "execute_mapped_step", fake_execute_mapped_step
+    )
+
+    result = await run_current_mapped_step(envelope, graph, runner)
+
+    assert calls == [(envelope.mapping, graph, runner)]
+    assert result.graph is sentinel_execution.graph
+    assert result.record.execution is sentinel_execution
+    assert result.record.mapping is envelope.mapping
+    assert result.record.revalidation is envelope.mapping.revalidation
+    assert not hasattr(result.record, "ok")
+    assert not hasattr(result.record, "passed")
+    assert not hasattr(result.record, "completed")
+
+
+@pytest.mark.asyncio
 async def test_happy_producer_record_preserves_canonical_objects_and_flattens():
     graph = _graph(("a", "ready"))
     proposal = propose_next_node(graph)
@@ -304,6 +342,44 @@ async def test_refused_mapping_still_records_lm4q_not_mapped():
 
 
 @pytest.mark.asyncio
+async def test_refused_mapping_with_no_fresh_proposal_records_nullable_fresh_node():
+    graph = _graph(("a", "ready"))
+    proposal = NodeSelectionProposal(
+        decision="SELECT_NODE",
+        selected_node_id="a",
+        candidate_node_ids=("a",),
+        ready_count=1,
+        reason="untrusted sentinel proposal",
+        selector_id="untrusted_selector:v1",
+    )
+    revalidation = RevalidationResult(
+        decision="REJECT",
+        accepted_node_id=None,
+        reject_reason="untrusted_selector",
+        reason="selector id is not trusted",
+        proposal=proposal,
+        fresh_proposal=None,
+        expected_selector_ids=("unique_ready_node:v1",),
+    )
+    mapping = StepMappingResult(
+        mapped=False,
+        step=None,
+        accepted_node_id=None,
+        failure="revalidation_rejected",
+        reason="hand-built untrusted selector refusal",
+        revalidation=revalidation,
+    )
+
+    result = await run_current_mapped_step(CurrentStepEnvelope(mapping), graph)
+
+    assert result.record.supplied_selected_node_id == "a"
+    assert result.record.fresh_selected_node_id is None
+    assert result.record.ran is False
+    assert result.record.execution_failure == "not_mapped"
+    assert result.record.execution.graph is graph
+
+
+@pytest.mark.asyncio
 async def test_forged_malformed_mapping_records_mapping_invalid_without_field_read_crash():
     graph = _graph(("a", "ready"))
     mapping = _hand_mapping(object(), "a", mapped=True)
@@ -427,9 +503,15 @@ def test_import_boundary_and_no_step_construction_or_sequence_fold():
             referenced.add(node.id)
         elif isinstance(node, ast.Attribute):
             referenced.add(node.attr)
-        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
-            if node.func.id in {"ProducerStep", "VerifierStep", "BindStep"}:
-                constructor_calls.append(node.func.id)
+        elif isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name):
+                callee_name = node.func.id
+            elif isinstance(node.func, ast.Attribute):
+                callee_name = node.func.attr
+            else:
+                callee_name = None
+            if callee_name in {"ProducerStep", "VerifierStep", "BindStep"}:
+                constructor_calls.append(callee_name)
 
     assert constructor_calls == []
     assert [node for node in ast.walk(tree) if isinstance(node, (ast.For, ast.While))] == []
