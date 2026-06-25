@@ -7,19 +7,41 @@ mutates, falls back, constructs Steps, or applies terminal nodes.
 
 from __future__ import annotations
 
+import ast
+import pathlib
+
 import pytest
 
+import rook.agent.plan_graph_current_step_provider as provider_module
 from rook.agent.plan_graph_current_step_provider import (
     CatalogCurrentStepProvider,
     NodeStepRule,
 )
 from rook.agent.plan_graph_current_step_runner import CurrentStepRecord
-from rook.agent.plan_graph_current_step_stream import EnvelopeSupplyResult
+from rook.agent.plan_graph_current_step_stream import (
+    EnvelopeSupplyResult,
+    run_current_step_stream,
+)
+from rook.agent.plan_graph_live import LiveProducerResult
+from rook.agent.plan_graph_live_runner import SupportsLiveProducerNode
 from rook.agent.plan_graph_sequence_runner import BindStep, ProducerStep, VerifierStep
 from rook.agent.plan_graph_step_mapping import StepMappingResult
-from rook.learning.plan_graph import PlanGraph, PlanGraphNode
+from rook.learning.plan_graph import PlanGraph, PlanGraphNode, initialize_graph
+from rook.learning.plan_graph_projection import OUTCOME_PROJECTION_ROLE_KEY
 from rook.learning.plan_graph_revalidation import RevalidationResult
+from rook.learning.plan_graph_runner import apply_producer_result
 from rook.learning.plan_graph_selector import NodeSelectionProposal
+from rook.learning.plan_graph_templates import select_template
+
+
+_DESCRIPTOR = {
+    "domain": "grasshopper",
+    "operation": "create_verify_repair_verify",
+    "language": "csharp",
+}
+
+_GUID = "lm4u-current-step-provider-guid"
+_BASE_REPAIR_PARAMS = {"code": "A = 42.0;", "mode": "body", "language": "csharp"}
 
 
 def _node(node_id: str, status: str) -> PlanGraphNode:
@@ -119,6 +141,59 @@ def _record_for(
 def _metadata(result: EnvelopeSupplyResult) -> dict:
     assert result.metadata is not None
     return dict(result.metadata)
+
+
+def _wrapped_failure_create_raw() -> dict:
+    return {
+        "success": False,
+        "data": {
+            "script_receipt": {
+                "version": 1,
+                "operation": "create",
+                "language": "csharp",
+                "artifact_status": "created_with_errors",
+                "mutation": {"status": "created", "component_guid": _GUID},
+                "verification": {"status": "failed", "target_error_count": 1},
+                "repair_anchor": {"component_guid": _GUID, "language": "csharp"},
+            }
+        },
+    }
+
+
+def _unwrapped_success_repair_raw() -> dict:
+    return {
+        "script_receipt": {
+            "version": 1,
+            "operation": "update",
+            "language": "csharp",
+            "artifact_status": "usable",
+            "mutation": {"status": "written", "component_guid": _GUID},
+            "verification": {"status": "passed", "target_error_count": 0},
+            "repair_anchor": {"component_guid": _GUID, "language": "csharp"},
+        }
+    }
+
+
+class _OfflineProducerRunner:
+    def __init__(self, raws: dict[str, dict]) -> None:
+        self._raws = raws
+        self.calls: list[str] = []
+
+    async def run_live_producer_node(self, graph, node_id):
+        self.calls.append(node_id)
+        inner = apply_producer_result(graph, node_id, self._raws[node_id])
+        tool_name = {
+            "create_script": "gh_create_csharp_script",
+            "repair_same_component": "gh_update_script",
+        }[node_id]
+        return LiveProducerResult(
+            graph=inner.graph,
+            applied=inner.applied,
+            node_id=node_id,
+            tool_name=tool_name,
+            outcome_status=inner.outcome_status,
+            reason=inner.reason,
+        )
 
 
 @pytest.mark.parametrize(
@@ -429,3 +504,285 @@ def test_repeat_rule_uses_prior_accepted_record_count_as_index():
     assert second_result.envelope.mapping.step is second
     assert _metadata(second_result)["seen_count"] == 1
     assert _metadata(second_result)["step_kind"] == "producer"
+
+
+@pytest.mark.asyncio
+async def test_catalog_provider_runs_full_offline_repair_chain_to_terminal_halt():
+    selection = select_template(_DESCRIPTOR)
+    assert selection.selected_template_id == "gh_csharp_create_verify_repair_verify"
+    assert selection.graph is not None
+    graph = initialize_graph(selection.graph)
+    graph.nodes["create_script"].metadata[OUTCOME_PROJECTION_ROLE_KEY] = (
+        "artifact_producer"
+    )
+    graph.nodes["repair_same_component"].metadata[OUTCOME_PROJECTION_ROLE_KEY] = (
+        "artifact_producer"
+    )
+
+    provider = CatalogCurrentStepProvider(
+        (
+            NodeStepRule("create_script", (ProducerStep("create_script"),)),
+            NodeStepRule(
+                "verify_create",
+                (
+                    VerifierStep(
+                        "verify_create",
+                        "create_script",
+                        expected_outcome="needs_repair",
+                    ),
+                ),
+            ),
+            NodeStepRule(
+                "repair_same_component",
+                (
+                    BindStep(
+                        "repair_same_component",
+                        _BASE_REPAIR_PARAMS,
+                        {"guid": ("repair_anchor", "component_guid")},
+                    ),
+                    ProducerStep("repair_same_component"),
+                ),
+            ),
+            NodeStepRule(
+                "verify_repair",
+                (
+                    VerifierStep(
+                        "verify_repair",
+                        "repair_same_component",
+                        expected_outcome="succeeded",
+                    ),
+                ),
+            ),
+        ),
+        frozenset({"done"}),
+    )
+    fake_runner = _OfflineProducerRunner(
+        {
+            "create_script": _wrapped_failure_create_raw(),
+            "repair_same_component": _unwrapped_success_repair_raw(),
+        }
+    )
+    runner: SupportsLiveProducerNode = fake_runner
+
+    result = await run_current_step_stream(
+        graph,
+        provider,
+        max_steps=6,
+        runner=runner,
+    )
+
+    assert result.stop_reason == "provider_halt"
+    assert result.steps_attempted == 5
+    assert len(result.records) == 5
+    assert len(result.supply_records) == 6
+    assert fake_runner.calls == ["create_script", "repair_same_component"]
+
+    expected_nodes = [
+        "create_script",
+        "verify_create",
+        "repair_same_component",
+        "repair_same_component",
+        "verify_repair",
+    ]
+    expected_kinds = ["producer", "verifier", "bind", "producer", "verifier"]
+    assert [record.accepted_node_id for record in result.records] == expected_nodes
+    assert [record.execution_kind for record in result.records] == expected_kinds
+
+    for index, record in enumerate(result.records):
+        supply = result.supply_records[index]
+        assert supply.decision == "SUPPLY"
+        assert supply.envelope is not None
+        assert supply.envelope.mapping is record.mapping
+        assert supply.metadata is not None
+        assert supply.metadata["selected_node_id"] == record.accepted_node_id
+        assert record.supplied_selected_node_id == record.accepted_node_id
+        assert record.fresh_selected_node_id == record.accepted_node_id
+        assert record.mapped_step_target == record.accepted_node_id
+        assert record.ran is True
+        assert record.execution_failure is None
+        assert record.mapping_mapped is True
+        assert record.revalidation.decision == "ACCEPT"
+        assert record.mapping.revalidation is record.revalidation
+
+    final_supply = result.supply_records[5]
+    assert final_supply.decision == "HALT"
+    assert final_supply.envelope is None
+    assert final_supply.reason == "terminal_node_selected:done"
+    assert final_supply.metadata is not None
+    assert final_supply.metadata["proposal_decision"] == "SELECT_NODE"
+    assert final_supply.metadata["selected_node_id"] == "done"
+
+    create_record = result.records[0]
+    assert create_record.producer_node_id == "create_script"
+    assert create_record.producer_tool_name == "gh_create_csharp_script"
+    assert create_record.producer_applied is True
+    assert create_record.producer_outcome_status == "succeeded"
+
+    verify_create_record = result.records[1]
+    assert verify_create_record.verifier_node_id == "verify_create"
+    assert verify_create_record.verifier_source_node_id == "create_script"
+    assert verify_create_record.verifier_applied is True
+    assert verify_create_record.verifier_outcome_status == "needs_repair"
+    assert verify_create_record.verifier_reason is None
+    assert verify_create_record.execution.verifier_result is not None
+    assert (
+        verify_create_record.verifier_applied
+        is verify_create_record.execution.verifier_result.applied
+    )
+    assert (
+        verify_create_record.verifier_outcome_status
+        == verify_create_record.execution.verifier_result.outcome_status
+    )
+
+    bind_record = result.records[2]
+    assert bind_record.bind_node_id == "repair_same_component"
+    assert bind_record.bind_applied is True
+    assert bind_record.bind_reason is None
+    assert bind_record.execution.bind_result is not None
+    assert bind_record.bind_applied is bind_record.execution.bind_result.applied
+    assert bind_record.bind_reason == bind_record.execution.bind_result.reason
+    assert bind_record.execution.bind_result.binding is not None
+    assert bind_record.execution.bind_result.binding.params["guid"] == _GUID
+
+    repair_record = result.records[3]
+    assert repair_record.producer_node_id == "repair_same_component"
+    assert repair_record.producer_tool_name == "gh_update_script"
+    assert repair_record.producer_applied is True
+    assert repair_record.producer_outcome_status == "succeeded"
+
+    verify_repair_record = result.records[4]
+    assert verify_repair_record.verifier_node_id == "verify_repair"
+    assert verify_repair_record.verifier_source_node_id == "repair_same_component"
+    assert verify_repair_record.verifier_applied is True
+    assert verify_repair_record.verifier_outcome_status == "succeeded"
+    assert verify_repair_record.verifier_reason is None
+    assert verify_repair_record.execution.verifier_result is not None
+    assert (
+        verify_repair_record.verifier_applied
+        is verify_repair_record.execution.verifier_result.applied
+    )
+    assert (
+        verify_repair_record.verifier_outcome_status
+        == verify_repair_record.execution.verifier_result.outcome_status
+    )
+
+    assert result.final_graph.nodes["done"].status == "ready"
+    assert result.final_graph.nodes["done"].is_terminal is True
+
+
+def test_catalog_provider_production_module_stays_at_mapping_boundary():
+    source = pathlib.Path(provider_module.__file__).read_text()
+    tree = ast.parse(source)
+
+    stdlib_modules = {
+        "__future__",
+        "collections.abc",
+        "copy",
+        "dataclasses",
+        "types",
+        "typing",
+    }
+    allowed_imports = {
+        "rook.agent.plan_graph_current_step_runner": {
+            "CurrentStepEnvelope",
+            "CurrentStepRecord",
+        },
+        "rook.agent.plan_graph_current_step_stream": {
+            "EnvelopeSupplyRecord",
+            "EnvelopeSupplyResult",
+        },
+        "rook.agent.plan_graph_sequence_runner": {
+            "BindStep",
+            "ProducerStep",
+            "Step",
+            "VerifierStep",
+        },
+        "rook.agent.plan_graph_step_mapping": {"map_accepted_proposal_to_step"},
+        "rook.learning.plan_graph_selector": {
+            "NodeSelectionProposal",
+            "propose_next_node",
+        },
+        "rook.learning.plan_graph": {"PlanGraph"},
+    }
+    banned_symbols = {
+        "revalidate_proposal",
+        "execute_mapped_step",
+        "run_current_mapped_step",
+        "run_current_step_stream",
+        "run_explicit_sequence",
+        "run_live_producer_node",
+        "build_live_producer_record",
+        "apply_verifier_step",
+        "apply_memory_bound_params",
+        "apply_outcome",
+        "runnable_nodes",
+        "select_template",
+        "RookAgent",
+        "dispatcher",
+        "base_agent",
+        "LiteLLM",
+        "model",
+        "ok",
+        "passed",
+        "completed",
+        "should_continue",
+    }
+
+    imported_names: set[str] = set()
+    imported_modules: set[str] = set()
+    violations: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                imported_modules.add(alias.name)
+                imported_names.add(alias.asname or alias.name.split(".")[-1])
+                if alias.name not in stdlib_modules:
+                    violations.append(f"unexpected import {alias.name}")
+        elif isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            imported_modules.add(module)
+            for alias in node.names:
+                imported_names.add(alias.asname or alias.name)
+            if module in stdlib_modules:
+                continue
+            allowed_names = allowed_imports.get(module)
+            if allowed_names is None:
+                violations.append(f"unexpected import from {module}")
+                continue
+            extras = {
+                alias.name
+                for alias in node.names
+                if alias.name not in allowed_names
+            }
+            if extras:
+                violations.append(
+                    f"unexpected import from {module}: {sorted(extras)}"
+                )
+
+    assert violations == []
+    assert imported_names.isdisjoint(banned_symbols)
+    assert imported_modules.isdisjoint(banned_symbols)
+
+    referenced_names = {
+        node.id for node in ast.walk(tree) if isinstance(node, ast.Name)
+    }
+    referenced_attrs = {
+        node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)
+    }
+    assert referenced_names.isdisjoint(banned_symbols)
+    assert referenced_attrs.isdisjoint(banned_symbols)
+
+    step_constructor_calls = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if isinstance(node.func, ast.Name):
+            called = node.func.id
+        elif isinstance(node.func, ast.Attribute):
+            called = node.func.attr
+        else:
+            continue
+        if called in {"ProducerStep", "VerifierStep", "BindStep"}:
+            step_constructor_calls.append(called)
+
+    assert step_constructor_calls == []
