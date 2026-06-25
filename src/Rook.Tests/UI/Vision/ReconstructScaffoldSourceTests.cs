@@ -173,13 +173,15 @@ namespace Rook.Tests.UI.Vision
         }
 
         [Fact]
-        public void IndexHtml_ReconstructOptions_ExposeGenerateTypePbrFaceCount()
+        public void IndexHtml_ReconstructOptions_UsesDynamicOptionsBody()
         {
             var html = ReadVisionResource("index.html");
             Assert.Contains("id=\"reconstruct-options\"", html);
-            Assert.Contains("id=\"reconstruct-opt-generate-type\"", html);
-            Assert.Contains("id=\"reconstruct-opt-enable-pbr\"", html);
-            Assert.Contains("id=\"reconstruct-opt-face-count\"", html);
+            Assert.Contains("id=\"reconstruct-options-body\"", html);
+            Assert.Contains("id=\"reconstruct-options-hint\"", html);
+            Assert.DoesNotContain("id=\"reconstruct-opt-generate-type\"", html);
+            Assert.DoesNotContain("id=\"reconstruct-opt-enable-pbr\"", html);
+            Assert.DoesNotContain("id=\"reconstruct-opt-face-count\"", html);
         }
 
         [Fact]
@@ -211,16 +213,35 @@ namespace Rook.Tests.UI.Vision
         }
 
         [Fact]
-        public void AppJs_RendersCatalogOptions_AndGatesPbrUnderGeometry()
+        public void AppJs_RendersCatalogOptions_FromDescriptorMap()
         {
             var js = ReadVisionResource("app.js");
-            Assert.Contains("reconstruct-opt-generate-type", js);
-            Assert.Contains("reconstruct-opt-enable-pbr", js);
-            Assert.Contains("reconstruct-opt-face-count", js);
-            Assert.Contains("renderModelOptions", js);
-            Assert.Contains("Geometry", js);
-            Assert.Contains("generate_type", js);
-            Assert.Contains("face_count", js);
+            Assert.Contains("re.optionsBody = $(\"reconstruct-options-body\");", js);
+            Assert.Contains("re.optionsHint = $(\"reconstruct-options-hint\");", js);
+            Assert.Contains("re.optionControls = new Map();", js);
+            Assert.Contains("function renderOptionControl(", js);
+            Assert.Contains("re.optionControls.set(d.key", js);
+            Assert.Contains("case \"enum\":", js);
+            Assert.Contains("case \"boolean\":", js);
+            Assert.Contains("case \"integer\":", js);
+            Assert.Contains("case \"string\":", js);
+            Assert.Contains("texture_prompt", js);
+            Assert.DoesNotContain("re.optGenerateType", js);
+            Assert.DoesNotContain("re.optEnablePbr", js);
+            Assert.DoesNotContain("re.optFaceCount", js);
+        }
+
+        [Theory]
+        [InlineData("reconstruct-include-experimental")]
+        [InlineData("reconstruct-options")]
+        [InlineData("reconstruct-options-body")]
+        [InlineData("reconstruct-options-hint")]
+        public void EveryCachedReconstructOptionsId_ExistsInIndexHtml(string id)
+        {
+            var js = ReadVisionResource("app.js");
+            var html = ReadVisionResource("index.html");
+            Assert.Contains($"$(\"{id}\")", js);
+            Assert.Contains($"id=\"{id}\"", html);
         }
 
         // ─── helpers ──────────────────────────────────────────────────

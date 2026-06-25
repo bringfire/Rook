@@ -2692,8 +2692,36 @@ body {
     min-width: 0;
 }
 .reconstruct-field { display: flex; flex-direction: column; gap: var(--space-2); }
+.reconstruct-options-body,
+#reconstruct-options-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    min-width: 0;
+}
 .reconstruct-option-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-top: var(--space-2); }
 .reconstruct-option-label { font-size: 13px; color: var(--ink-soft); }
+.reconstruct-option-row input[type="text"],
+.reconstruct-option-row input[type="number"],
+.reconstruct-option-row textarea {
+    width: min(100%, 260px);
+    padding: 8px 10px;
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    color: var(--ink);
+    font-family: var(--type-mono);
+    font-size: 13px;
+}
+.reconstruct-option-row textarea {
+    resize: vertical;
+    min-height: 52px;
+}
+.reconstruct-option-row.hidden {
+    display: none !important;
+}
+.reconstruct-experimental-toggle {
+    justify-content: flex-start;
+}
 .reconstruct-label {
     font-family: var(--type-mono);
     font-size: 11px;
