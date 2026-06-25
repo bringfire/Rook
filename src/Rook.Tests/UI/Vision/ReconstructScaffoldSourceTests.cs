@@ -231,6 +231,18 @@ namespace Rook.Tests.UI.Vision
             Assert.DoesNotContain("re.optFaceCount", js);
         }
 
+        [Fact]
+        public void AppJs_SerializesDescriptorOptions_AndPreservesExplicitFalseBooleans()
+        {
+            var js = ReadVisionResource("app.js");
+            Assert.Contains("function collectOptionValues({ includeIgnored })", js);
+            Assert.Contains("control.checked", js);
+            Assert.Contains("values[d.key] = control.checked;", js);
+            Assert.Contains("Number.isNaN", js);
+            Assert.Contains("collectOptionValues({ includeIgnored: false })", js);
+            Assert.DoesNotContain("if (re.optEnablePbr.checked) o.enable_pbr = true;", js);
+        }
+
         [Theory]
         [InlineData("reconstruct-include-experimental")]
         [InlineData("reconstruct-options")]

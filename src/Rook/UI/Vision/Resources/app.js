@@ -3817,10 +3817,51 @@ const Reconstruct = (() => {
     function applyOptionDependencies() {
     }
 
+    function collectOptionValues({ includeIgnored }) {
+        const model = selectedModel();
+        const opts = (model && Array.isArray(model.options)) ? model.options : [];
+        const values = {};
+        const serialized = {};
+
+        for (const d of opts) {
+            const entry = re.optionControls.get(d.key);
+            if (!entry || !entry.control) continue;
+            const control = entry.control;
+            let value;
+            if (d.kind === "boolean") {
+                values[d.key] = control.checked;
+                continue;
+            } else if (d.kind === "integer") {
+                if (control.value === "") continue;
+                const parsed = parseInt(control.value, 10);
+                if (Number.isNaN(parsed)) continue;
+                value = parsed;
+            } else if (d.kind === "string") {
+                const text = control.value.trim();
+                if (!text) continue;
+                value = text;
+            } else if (d.kind === "enum") {
+                if (!control.value) continue;
+                value = control.value;
+            } else {
+                continue;
+            }
+            values[d.key] = value;
+        }
+
+        for (const d of opts) {
+            if (!Object.prototype.hasOwnProperty.call(values, d.key)) continue;
+            if (!includeIgnored && isOptionIgnored(d, values)) continue;
+            serialized[d.key] = values[d.key];
+        }
+
+        return serialized;
+    }
+
     function optionsForMode() {
         const model = selectedModel();
         if (model && Array.isArray(model.options) && model.options.length > 0) {
-            return {};
+            return collectOptionValues({ includeIgnored: false });
         }
         // Legacy models — mutually exclusive; never emit both (backend D1 guard rejects it).
         if (outputMode === "geometry") return { enable_geometry: true };
