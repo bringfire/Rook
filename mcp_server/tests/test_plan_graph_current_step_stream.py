@@ -209,6 +209,16 @@ async def test_provider_halt_records_supply_without_execution():
         (EnvelopeSupplyResult("HALT", None, ""), "halt_missing_reason"),
         (EnvelopeSupplyResult("UNKNOWN", None, None), "unknown_supply_decision"),
     ],
+    ids=[
+        "none",
+        "object",
+        "exploding-object",
+        "supply-missing-envelope",
+        "halt-with-envelope",
+        "halt-missing-reason-none",
+        "halt-missing-reason-empty",
+        "unknown-decision",
+    ],
 )
 async def test_provider_invalid_taxonomy_records_shape_failure(
     provider_result, invalid_reason
