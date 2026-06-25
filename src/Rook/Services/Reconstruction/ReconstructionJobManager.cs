@@ -115,7 +115,7 @@ public sealed class ReconstructionJobManager : IDisposable
         CancellationToken ct)
     {
         var model = _catalog.Find(request.ModelId);
-        if (!IsSubmittable3DModel(model, request.AllowExperimentalModel))
+        if (!IsSubmittableImageModel(model, request.AllowExperimentalModel))
             return SubmitFail("invalid_request", "Requested reconstruction model is not available.", "model_id");
 
         if (request.PreprocessingChain.Count != 0)
@@ -729,6 +729,17 @@ public sealed class ReconstructionJobManager : IDisposable
                 || model.OutputRoles.Contains("model_obj", StringComparer.Ordinal))
             && (!string.IsNullOrWhiteSpace(model.Input?.SourceField)
                 || (model.Input?.ViewSlots is { Length: > 0 }));
+
+    // Image submit must reject mesh models (which also output model_glb); requires an image input.
+    internal static bool IsSubmittableImageModel(ReconstructionModelEntry? model, bool allowExperimental = false)
+        => IsSubmittable3DModel(model, allowExperimental)
+            && model!.InputTypes.Contains("image_url", StringComparer.Ordinal);
+
+    // Mesh submit must reject image models; requires a mesh input (model_url or single_model mode).
+    internal static bool IsSubmittableMeshModel(ReconstructionModelEntry? model, bool allowExperimental = false)
+        => IsSubmittable3DModel(model, allowExperimental)
+            && (model!.InputTypes.Contains("model_url", StringComparer.Ordinal)
+                || string.Equals(model.Input?.Mode, "single_model", StringComparison.Ordinal));
 
     private sealed record ResolvedView(string Slot, Guid ArtifactId, string Role, string Field);
     private sealed record ViewResolution(bool Success, IReadOnlyList<ResolvedView> Views, ReconstructionFailure? Failure);

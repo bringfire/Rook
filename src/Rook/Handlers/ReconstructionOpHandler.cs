@@ -146,7 +146,8 @@ namespace Rook.Handlers
         private static readonly string[] ImportableModelRoles = { "model_glb", "model_obj" };
 
         private static bool ProducesImportable3D(ReconstructionModelEntry m)
-            => m.OutputRoles.Any(r => Array.IndexOf(ImportableModelRoles, r) >= 0);
+            => m.OutputRoles.Any(r => Array.IndexOf(ImportableModelRoles, r) >= 0)
+                && m.InputTypes.Contains("image_url", StringComparer.Ordinal);
 
         private ApiResponse Models(Dictionary<string, JsonElement> args)
         {
