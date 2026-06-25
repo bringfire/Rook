@@ -210,6 +210,11 @@ class FailingReplay:
         raise director.DirectorError("replay_already_active: busy")
 
 
+class RuntimeFailingReplay:
+    async def __call__(self, arguments: dict, *, port=None) -> dict:
+        raise RuntimeError("transport dropped")
+
+
 @pytest.mark.asyncio
 async def test_preview_motion_compile_failure_skips_replay():
     compiler = FailingCompiler()
@@ -249,6 +254,48 @@ async def test_preview_motion_replay_exception_keeps_compile_context():
     assert result["compile"]["track_summary"]["frame_count"] == 2
     assert result["replay"]["error"]["code"] == "director_error"
     assert "replay_already_active" in result["replay"]["error"]["message"]
+
+
+@pytest.mark.asyncio
+async def test_preview_motion_generic_replay_exception_returns_structured_failure_with_context():
+    compiler = FakeCompiler(
+        {
+            "track": _track(frame_count=2, fps=24),
+            "provenance": {"frame_count": 2, "fps": 24, "duration_ms": 83.3333333333},
+        }
+    )
+
+    result = await director_preview.preview_motion(
+        _spec(),
+        compile_motion=compiler,
+        run_replay=RuntimeFailingReplay(),
+    )
+
+    assert result["state"] == "replay_failed"
+    assert result["compile"] == {
+        "provenance": {"frame_count": 2, "fps": 24, "duration_ms": 83.3333333333},
+        "track_summary": {
+            "frame_count": 2,
+            "fps": 24,
+            "duration_ms": 83.3333333333,
+            "animated_object_ids": [U1],
+            "camera_frame_count": 2,
+            "object_frame_count": 2,
+        },
+    }
+    assert result["replay"] == {
+        "error": {
+            "code": "replay_exception",
+            "message": "transport dropped",
+            "exception_type": "RuntimeError",
+        }
+    }
+    assert result["next_edit_hooks"] == {
+        "motion_targets": ["parts"],
+        "animated_object_ids": [U1],
+        "timeline": {"fps": 24, "frame_count": 2, "duration_ms": 83.3333333333},
+        "preview_controls": ["restore_on_finish", "fps", "replay_session_id"],
+    }
 
 
 @pytest.mark.asyncio

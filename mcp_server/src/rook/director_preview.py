@@ -164,6 +164,19 @@ async def preview_motion(
             "replay": {"error": _error("director_error", str(exc))},
             "next_edit_hooks": _next_edit_hooks(arguments, summary),
         }
+    except Exception as exc:
+        return {
+            "state": "replay_failed",
+            "compile": compile_block,
+            "replay": {
+                "error": _error(
+                    "replay_exception",
+                    str(exc),
+                    exception_type=type(exc).__name__,
+                )
+            },
+            "next_edit_hooks": _next_edit_hooks(arguments, summary),
+        }
 
     state = _state_from_replay_payload(replay_payload if isinstance(replay_payload, dict) else {})
     if state == "replay_failed":
