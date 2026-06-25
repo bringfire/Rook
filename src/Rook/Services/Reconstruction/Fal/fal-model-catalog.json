@@ -129,6 +129,21 @@
         "required": false
       },
       "docs_url": "https://fal.ai/models/fal-ai/birefnet/v2/api"
+    },
+    {
+      "model_id": "fal-ai/hunyuan-3d/v3.1/smart-topology",
+      "provider": "fal", "task": "mesh_to_mesh_topology", "status": "experimental", "enabled": true,
+      "pipeline_roles": ["mesh_to_mesh", "smart_topology"], "input_types": ["model_url"],
+      "output_roles": ["model_glb"], "preferred_asset_role": "model_glb", "fallback_order": ["model_glb"],
+      "supports_pbr": false, "default_texture_expected": false,
+      "input": { "mode": "single_model", "source_field": "input_file_url" },
+      "prompt": { "supported": false, "required": false, "kind": null },
+      "preprocessing": { "recommended": false, "required": false },
+      "options": [
+        { "key": "polygon_type", "label": "Polygon Type", "kind": "enum", "default": "triangle", "allowed_values": ["triangle", "quadrilateral"] },
+        { "key": "face_level",   "label": "Face Level",   "kind": "enum", "default": "medium",   "allowed_values": ["high", "medium", "low"] }
+      ],
+      "docs_url": "https://fal.ai/models/fal-ai/hunyuan-3d/v3.1/smart-topology/api"
     }
   ]
 }

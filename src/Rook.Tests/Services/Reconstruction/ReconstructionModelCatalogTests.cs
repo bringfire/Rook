@@ -434,6 +434,26 @@ public sealed class ReconstructionModelCatalogTests
         Assert.Equal(new[] { "image" }, entry.FallbackOrder);
     }
 
+    // ── Task 6: Hunyuan Smart Topology catalog entry ───────────────────────────────────────────────
+
+    [Fact]
+    public void ProductionCatalog_HunyuanSmartTopology_IsExperimentalMeshEntry()
+    {
+        var entry = ProductionCatalog().Find("fal-ai/hunyuan-3d/v3.1/smart-topology");
+
+        Assert.NotNull(entry);
+        Assert.Equal("experimental", entry!.Status);
+        Assert.Contains("model_url", entry.InputTypes);
+        Assert.Contains("model_glb", entry.OutputRoles);
+        Assert.Equal("single_model", entry.Input!.Mode);
+        Assert.Equal("input_file_url", entry.Input.SourceField);
+        Assert.NotNull(entry.Options);
+        Assert.Equal(new[] { "polygon_type", "face_level" }, entry.Options!.Select(o => o.Key).ToArray());
+        Assert.All(entry.Options, o => Assert.Equal("enum", o.Kind));
+        Assert.True(ReconstructionJobManager.IsSubmittableMeshModel(entry, allowExperimental: true));
+        Assert.False(ReconstructionJobManager.IsSubmittableImageModel(entry, allowExperimental: true));
+    }
+
     private const string TestCatalogJson = """
     {
       "schema_version": 1,
