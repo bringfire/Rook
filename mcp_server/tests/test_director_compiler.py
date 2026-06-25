@@ -275,3 +275,23 @@ def test_compile_motion_source_failure_distinct_from_camera():
     with pytest.raises(dc.DirectorCompileError) as ei:
         asyncio.run(dc.compile_motion(spec, call_native=fake, port=None))
     assert ei.value.code == "source_resolution_failed"
+
+
+def test_compile_motion_rejects_bogus_default_easing():
+    fake = FullFakeNative([_objstate(U1, [0, 0, 0], [2, 2, 2])])
+    spec = _spec(default_easing="boing",
+                 motion=[{"target": U1, "keyframes": [
+                     {"t": 1.0, "translate": [4, 0, 0], "ease_from_previous": "linear"}]}])
+    with pytest.raises(dc.DirectorCompileError) as ei:
+        asyncio.run(dc.compile_motion(spec, call_native=fake, port=None))
+    assert ei.value.code == "invalid_keyframe"
+
+
+def test_compile_motion_provenance_segment_mapping_shape():
+    fake = FullFakeNative([_objstate(U1, [0, 0, 0], [2, 2, 2])])
+    spec = _spec(motion=[{"target": U1, "keyframes": [
+        {"t": 1.0, "translate": [4, 0, 0], "ease_from_previous": "ease_in_out"}]}])
+    prov = asyncio.run(dc.compile_motion(spec, call_native=fake, port=None))["provenance"]
+    assert U1 in prov["segment_mapping"]
+    seg = prov["segment_mapping"][U1]
+    assert seg == [{"t": 1.0, "ease_from_previous": "ease_in_out"}]

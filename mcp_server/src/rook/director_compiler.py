@@ -215,6 +215,9 @@ async def compile_motion(arguments: dict, *, call_native=call_rhino, port: int |
     if not isinstance(arguments, dict):
         raise DirectorCompileError("invalid_input", "compile request must be an object")
     default_easing = arguments.get("default_easing", "linear")
+    if default_easing not in director_motion.EASING_NAMES:
+        raise DirectorCompileError(
+            "invalid_keyframe", f"unknown default_easing: {default_easing!r}")
 
     tl = resolve_compiler_timeline(arguments)
     fps, frame_count, duration_seconds = tl["fps"], tl["frame_count"], tl["duration_seconds"]
