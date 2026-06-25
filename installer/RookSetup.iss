@@ -238,9 +238,9 @@ Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: string; ValueName: "UpdateURL"; ValueData: "https://github.com/bringfire/rook-release/releases"; Components: plugins
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: string; ValueName: "Fax"; ValueData: ""; Components: plugins
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: string; ValueName: "Description"; ValueData: "Rook for Rhino 3D - HTTP server enabling AI-powered CAD operations"; Components: plugins
-Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: string; ValueName: "RuiFile"; ValueData: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net7.0\Rook.rui"; Components: plugins
+Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: string; ValueName: "RuiFile"; ValueData: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net8.0\Rook.rui"; Components: plugins
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: string; ValueName: "RegPath"; ValueData: "\\HKEY_CURRENT_USER\Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; Components: plugins
-Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B\PlugIn"; ValueType: string; ValueName: "FileName"; ValueData: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net7.0\Rook.rhp"; Components: plugins
+Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B\PlugIn"; ValueType: string; ValueName: "FileName"; ValueData: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net8.0\Rook.rhp"; Components: plugins
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: dword; ValueName: "Type"; ValueData: "16"; Components: plugins
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: dword; ValueName: "IsDotNETPlugIn"; ValueData: "1"; Components: plugins
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: dword; ValueName: "LoadMode"; ValueData: "2"; Components: plugins
@@ -690,7 +690,7 @@ begin
   begin
     PluginName := 'Rook';
     Description := 'Rook for Rhino 3D - HTTP server enabling AI-powered CAD operations';
-    RuiFile := ExpandConstant('{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net7.0\Rook.rui');
+    RuiFile := ExpandConstant('{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net8.0\Rook.rui');
     SetArrayLength(RequiredCommandValues, 5);
     RequiredCommandValues[0] := 'RestartRookChatService';
     RequiredCommandValues[1] := 'ShowRookChat';
@@ -764,7 +764,7 @@ begin
     Exit;
 
   NativePath := ExpandConstant('{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\RookNative.rhp');
-  CompanionPath := ExpandConstant('{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net7.0\Rook.rhp');
+  CompanionPath := ExpandConstant('{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net8.0\Rook.rhp');
   CompanionNet8Path := ExpandConstant('{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net8.0\Rook.rhp');
   CompanionNet48Path := ExpandConstant('{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net48\Rook.rhp');
 
@@ -773,7 +773,7 @@ begin
     Log('Rhino plugin verification failed: net8.0 companion file missing: ' + CompanionNet8Path);
     MsgBox(
       'Rook copied the plug-in files, but the .NET 8 companion payload is missing.' + #13#10 + #13#10 +
-      'Rhino.Inside.Revit on .NET 8 hosts will not be able to load the runtime-specific Rook payload. Rebuild the installer from all companion target frameworks and reinstall.',
+      'Standalone Rhino and Rhino.Inside/Revit .NET 8 hosts will not be able to load the runtime-specific Rook payload. Rebuild the installer from all companion target frameworks and reinstall.',
       mbError, MB_OK);
     Exit;
   end;

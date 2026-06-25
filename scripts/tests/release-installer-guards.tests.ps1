@@ -85,8 +85,11 @@ function Test-InstallerPackagesMultiRuntimeCompanionPayloads {
 
     foreach ($runtime in @('net8.0', 'net7.0', 'net48')) {
         Assert-Contains -Text $content -Expected "DestDir: `"{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\$runtime`"" -Message "Installer must deploy the companion into the $runtime runtime subfolder."
-        Assert-Contains -Text $content -Expected "RookNative\$runtime\Rook.rhp" -Message "Installer must reference the $runtime Rook.rhp payload."
     }
+
+    Assert-Contains -Text $content -Expected 'Source: "{#CompanionNet8Dir}\Rook.rhp"' -Message 'Installer must package the net8.0 Rook.rhp payload.'
+    Assert-Contains -Text $content -Expected 'Source: "{#CompanionNet7Dir}\Rook.rhp"' -Message 'Installer must package the net7.0 fallback Rook.rhp payload.'
+    Assert-Contains -Text $content -Expected 'Source: "{#CompanionNet48Dir}\Rook.rhp"' -Message 'Installer must package the net48 Rook.rhp payload.'
 
     Assert-Contains -Text $content -Expected '{#CompanionNet8Dir}\Rook.deps.json' -Message 'Installer must package Rook.deps.json for the net8.0 companion.'
     Assert-Contains -Text $content -Expected '{#CompanionNet8Dir}\Rook.runtimeconfig.json' -Message 'Installer must package Rook.runtimeconfig.json for the net8.0 companion.'
@@ -119,7 +122,7 @@ function Assert-RuntimeConfigDeclaresTfm {
 
 function Test-BuiltCompanionPayloadsExist {
     Assert-True -Condition (Test-Path $CompanionNet8Rhp) -Message "Built net8.0 companion payload is missing: $CompanionNet8Rhp"
-    Assert-True -Condition (Test-Path $CompanionNet7Rhp) -Message "Built net7.0 registered-anchor companion payload is missing: $CompanionNet7Rhp"
+    Assert-True -Condition (Test-Path $CompanionNet7Rhp) -Message "Built net7.0 fallback companion payload is missing: $CompanionNet7Rhp"
     Assert-True -Condition (Test-Path $CompanionNet48Rhp) -Message "Built net48 companion payload is missing: $CompanionNet48Rhp"
     Assert-True -Condition (Test-Path $CompanionNet48RookBimDll) -Message "Built RookBIM net48 module is missing: $CompanionNet48RookBimDll"
     Assert-True -Condition (Test-Path $CompanionNet48WebView2Core) -Message "Built net48 WebView2 wrapper is missing: $CompanionNet48WebView2Core"
@@ -293,7 +296,8 @@ function Test-InstallerWritesRhinoPluginEnumerationMetadata {
         Assert-Contains -Text $content -Expected "Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B\CommandList`"; ValueType: string; ValueName: `"$command`"; ValueData: `"2;$command`"" -Message "Installer must pre-populate companion command list entry $command."
     }
 
-    Assert-Contains -Text $content -Expected 'ValueName: "RuiFile"; ValueData: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net7.0\Rook.rui"' -Message 'Installer must pre-populate the companion RuiFile metadata for Rhino plugin enumeration.'
+    Assert-Contains -Text $content -Expected 'ValueName: "RuiFile"; ValueData: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net8.0\Rook.rui"' -Message 'Installer must pre-populate the companion RuiFile metadata for Rhino plugin enumeration.'
+    Assert-NotContains -Text $content -Unexpected 'ValueName: "RuiFile"; ValueData: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net7.0\Rook.rui"' -Message 'Installer must not register the net7.0 companion RUI as the standalone Rhino metadata anchor.'
     Assert-Contains -Text $content -Expected 'RequiredStringValues: TArrayOfString;' -Message 'Installer post-install verification must check required plugin metadata, not only sparse load fields.'
     Assert-Contains -Text $content -Expected 'RequiredCommandValues: TArrayOfString;' -Message 'Installer post-install verification must check required command-list entries.'
 }
@@ -326,7 +330,9 @@ function Test-InstallerVerifiesRhinoPluginRegistrationAfterInstall {
     Assert-Contains -Text $content -Expected 'procedure VerifyRhinoPluginInstall();' -Message 'Installer must run post-install Rhino plugin verification.'
     Assert-Contains -Text $content -Expected 'VerifyPluginRegistration(''A38E0E8F-E06E-40D2-A6BD-7EDBC2CB1906''' -Message 'Installer must verify native Rhino registry registration.'
     Assert-Contains -Text $content -Expected 'VerifyPluginRegistration(''B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B''' -Message 'Installer must verify companion Rhino registry registration.'
-    Assert-Contains -Text $content -Expected 'RookNative\net7.0\Rook.rhp' -Message 'Installer must register the current direct-registry runtime child RHP anchor.'
+    Assert-Contains -Text $content -Expected 'CompanionPath := ExpandConstant(''{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net8.0\Rook.rhp'');' -Message 'Installer verification must use the net8.0 companion runtime child as the direct-registry anchor.'
+    Assert-Contains -Text $content -Expected 'ValueName: "FileName"; ValueData: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net8.0\Rook.rhp"' -Message 'Installer must register the net8.0 companion runtime child RHP anchor.'
+    Assert-NotContains -Text $content -Unexpected 'ValueName: "FileName"; ValueData: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net7.0\Rook.rhp"' -Message 'Installer must not register the net7.0 companion runtime child as the standalone Rhino anchor.'
     Assert-Contains -Text $content -Expected 'Rook copied the plug-in files, but Rhino registration verification failed.' -Message 'Installer must surface a clear post-install registration failure.'
     Assert-Contains -Text $content -Expected 'Restart Rhino after installation.' -Message 'Installer must remind users to restart Rhino after installer-time registry writes.'
 }
