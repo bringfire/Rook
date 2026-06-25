@@ -41,7 +41,7 @@ Reuse the proven pipeline; add a package-mesh front that funnels into a shared, 
 tail. The image submit path is preserved except for extracting that tail.
 
 ```
-MCP mesh-submit tool
+MCP rhino_3d_to_3d_submit
   → op "submit_mesh_job" (async dispatcher)
      → ReconstructionMeshSubmitRequestParser            (new, strict)
      → mesh submit gate  (model must accept mesh input)  (new predicate)
@@ -185,7 +185,7 @@ Add to `src/Rook/Services/Reconstruction/Fal/fal-model-catalog.json`:
 {
   "model_id": "fal-ai/hunyuan-3d/v3.1/smart-topology",
   "provider": "fal", "task": "mesh_to_mesh_topology", "status": "experimental", "enabled": true,
-  "pipeline_roles": ["mesh_to_mesh"], "input_types": ["model_url"],
+  "pipeline_roles": ["mesh_to_mesh", "smart_topology"], "input_types": ["model_url"],
   "output_roles": ["model_glb"], "preferred_asset_role": "model_glb", "fallback_order": ["model_glb"],
   "supports_pbr": false, "default_texture_expected": false,
   "input": { "mode": "single_model", "source_field": "input_file_url" },
@@ -213,9 +213,11 @@ Add to `src/Rook/Services/Reconstruction/Fal/fal-model-catalog.json`:
 - **Materializer** — requires `model_glb`/`model_obj`; Smart Topology emits `model_glb`. Sets
   `ParentIds`. No change.
 - **Import** — `import_package` is package-id-based and provider-agnostic. No change.
-- **MCP** — new **submit** tool only (sends `op: "submit_mesh_job"`). Reuse the existing
-  `rhino_2d_to_3d_status` / `_result` / `_import` (job/package-id based, source-agnostic). Verify the
-  native reconstruction dispatch forwards the new op (add to its op allowlist if one exists — small).
+- **MCP** — new **submit** tool only, named for the new capability family: **`rhino_3d_to_3d_submit`**
+  (sends `op: "submit_mesh_job"`; generic — `model_id` selects Smart Topology now, Remesh/Retexture
+  later, so NOT `smart_topology_submit`). Reuse the existing `rhino_2d_to_3d_status` / `_result` /
+  `_import` (job/package-id based, source-agnostic; keep their names for now). Verify the native
+  reconstruction dispatch forwards the new op (add to its op allowlist if one exists — small).
 
 ## Lineage
 
