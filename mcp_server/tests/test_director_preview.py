@@ -171,17 +171,19 @@ class ShouldNotCall:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "preview, field, code",
+    "preview, expected_key, expected_value, code",
     [
-        ({"loop": True}, "loop", "unsupported_preview_option"),
-        ({"include_track": "yes"}, "include_track", "invalid_preview"),
-        ({"restore_on_finish": "yes"}, "restore_on_finish", "invalid_preview"),
-        ({"fps": 0}, "fps", "invalid_preview"),
-        ({"fps": True}, "fps", "invalid_preview"),
-        ({"replay_session_id": 123}, "replay_session_id", "invalid_preview"),
+        ({"loop": True}, "option", "loop", "unsupported_preview_option"),
+        ({"include_track": "yes"}, "field", "include_track", "invalid_preview"),
+        ({"restore_on_finish": "yes"}, "field", "restore_on_finish", "invalid_preview"),
+        ({"fps": 0}, "field", "fps", "invalid_preview"),
+        ({"fps": True}, "field", "fps", "invalid_preview"),
+        ({"replay_session_id": 123}, "field", "replay_session_id", "invalid_preview"),
     ],
 )
-async def test_preview_motion_rejects_invalid_preview_controls_before_compile_or_replay(preview, field, code):
+async def test_preview_motion_rejects_invalid_preview_controls_before_compile_or_replay(
+    preview, expected_key, expected_value, code
+):
     result = await director_preview.preview_motion(
         _spec(preview=preview),
         compile_motion=ShouldNotCall(),
@@ -190,7 +192,7 @@ async def test_preview_motion_rejects_invalid_preview_controls_before_compile_or
 
     assert result["state"] == "compile_failed"
     assert result["compile"]["error"]["code"] == code
-    assert result["compile"]["error"].get("field") == field or result["compile"]["error"].get("option") == field
+    assert result["compile"]["error"].get(expected_key) == expected_value
     assert result["replay"] is None
 
 
