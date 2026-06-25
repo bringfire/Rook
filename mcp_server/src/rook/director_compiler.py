@@ -8,7 +8,7 @@ from __future__ import annotations
 import uuid as _uuid
 from typing import Any
 
-from . import camera_planner, timeline
+from . import camera_planner, director_motion, timeline
 from .bridge import call_rhino
 
 
@@ -120,3 +120,60 @@ def validate_caps(object_count: int, frame_count: int, fps: int) -> None:
         raise DirectorCompileError("frame_dwell_exceeds_cap", "1000/fps exceeds 250ms (fps too low)")
     if frame_count * dwell_ms > 60000.0:
         raise DirectorCompileError("replay_duration_exceeds_cap", "frame_count*dwell exceeds 60000ms")
+
+
+async def resolve_source_states(call_native, object_ids, port):
+    result = await call_native("/director/object-states", "POST", {"object_ids": list(object_ids)}, port=port)
+    if not result.get("success"):
+        raise DirectorCompileError(
+            "source_resolution_failed", f"object state resolution failed: {result.get('data')}")
+    objects = (result.get("data") or {}).get("objects") or []
+    by_id = {obj.get("object_id"): obj for obj in objects}
+    states = {}
+    for oid in object_ids:
+        obj = by_id.get(oid)
+        if obj is None:
+            raise DirectorCompileError(
+                "source_resolution_failed", f"object not resolved: {oid}", object_id=oid)
+        states[oid] = {
+            "bbox_min": obj["bbox_min"],
+            "bbox_max": obj["bbox_max"],
+            "state_hash": obj.get("state_hash"),
+        }
+    return states
+
+
+def _bbox_center(bbox_min, bbox_max):
+    return [(float(bbox_min[i]) + float(bbox_max[i])) / 2.0 for i in range(3)]
+
+
+def build_object_frames(expanded, source_states, frame_count, default_easing):
+    object_ids = sorted(expanded)
+    # per-object per-frame matrices
+    per_object = {}
+    for oid in object_ids:
+        st = source_states[oid]
+        center = _bbox_center(st["bbox_min"], st["bbox_max"])
+        try:
+            per_object[oid] = director_motion.compile_object_track(
+                expanded[oid], frame_count=frame_count, source_center=center, default_easing=default_easing)
+        except director_motion.MotionError as exc:
+            raise DirectorCompileError(exc.code, str(exc), object_id=oid) from exc
+
+    frames = []
+    for i in range(frame_count):
+        transforms = []
+        for oid in object_ids:
+            st = source_states[oid]
+            transforms.append({
+                "object_id": oid,
+                "source_state": {
+                    "bbox_min": st["bbox_min"],
+                    "bbox_max": st["bbox_max"],
+                    "validation_strength": "bbox_only",
+                    "state_hash": st["state_hash"],
+                },
+                "transform": per_object[oid][i],
+            })
+        frames.append({"frame_index": i + 1, "object_transforms": transforms})
+    return frames

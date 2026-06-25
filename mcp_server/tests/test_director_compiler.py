@@ -115,3 +115,69 @@ def test_caps_duration():
     with pytest.raises(dc.DirectorCompileError) as ei:
         dc.validate_caps(object_count=1, frame_count=2000, fps=24)  # 2000*41.6ms > 60000
     assert ei.value.code == "replay_duration_exceeds_cap"
+
+
+import asyncio
+
+
+def _objstate(oid, bbox_min, bbox_max):
+    return {"object_id": oid, "bbox_min": bbox_min, "bbox_max": bbox_max,
+            "validation_strength": "bbox_only", "state_hash": None}
+
+
+class FakeNative:
+    def __init__(self, objects, *, object_states_ok=True):
+        self.objects = objects
+        self.object_states_ok = object_states_ok
+        self.calls = []
+
+    async def __call__(self, endpoint, method="POST", data=None, port=None):
+        self.calls.append((endpoint, data))
+        if endpoint == "/director/object-states":
+            if not self.object_states_ok:
+                return {"success": False, "data": {"code": "x", "message": "boom"}}
+            return {"success": True, "data": {"objects": self.objects, "units": "Inches"}}
+        raise AssertionError(f"unexpected endpoint {endpoint}")
+
+
+def test_resolve_source_states_indexes_by_id():
+    fake = FakeNative([_objstate(U1, [0, 0, 0], [2, 2, 2])])
+    states = asyncio.run(dc.resolve_source_states(fake, [U1], None))
+    assert states[U1]["bbox_min"] == [0, 0, 0]
+
+
+def test_resolve_source_states_missing_object_fails():
+    fake = FakeNative([_objstate(U1, [0, 0, 0], [2, 2, 2])])
+    with pytest.raises(dc.DirectorCompileError) as ei:
+        asyncio.run(dc.resolve_source_states(fake, [U1, U2], None))
+    assert ei.value.code == "source_resolution_failed"
+
+
+def test_resolve_source_states_native_failure():
+    fake = FakeNative([], object_states_ok=False)
+    with pytest.raises(dc.DirectorCompileError) as ei:
+        asyncio.run(dc.resolve_source_states(fake, [U1], None))
+    assert ei.value.code == "source_resolution_failed"
+
+
+def test_build_object_frames_every_object_every_frame():
+    expanded = {U1: [{"t": 1.0, "translate": [4, 0, 0]}], U2: [{"t": 1.0, "translate": [0, 4, 0]}]}
+    states = {U1: _objstate(U1, [0, 0, 0], [2, 2, 2]), U2: _objstate(U2, [0, 0, 0], [2, 2, 2])}
+    frames = dc.build_object_frames(expanded, states, frame_count=3, default_easing="linear")
+    assert len(frames) == 3
+    for f in frames:
+        ids = {ot["object_id"] for ot in f["object_transforms"]}
+        assert ids == {U1, U2}
+        for ot in f["object_transforms"]:
+            assert ot["source_state"]["validation_strength"] == "bbox_only"
+            assert ot["source_state"]["bbox_min"] == [0, 0, 0]
+    # frame 1 is identity for both
+    assert frames[0]["object_transforms"][0]["transform"][0][3] == pytest.approx(0.0)
+
+
+def test_build_object_frames_propagates_motion_error_code():
+    expanded = {U1: [{"t": 1.0, "scale": 0.0}]}
+    states = {U1: _objstate(U1, [0, 0, 0], [2, 2, 2])}
+    with pytest.raises(dc.DirectorCompileError) as ei:
+        dc.build_object_frames(expanded, states, frame_count=2, default_easing="linear")
+    assert ei.value.code == "invalid_keyframe"
