@@ -494,6 +494,7 @@ def test_python_smoke_evidence_seeds_release_env_from_installed_venv(
 ):
     local_appdata = tmp_path / "AppData" / "Local"
     rook_root = local_appdata / "Rook"
+    (rook_root / "app" / "mcp_server").mkdir(parents=True)
     venv_python = rook_root / "venv" / "Scripts" / "python.exe"
     venv_python.parent.mkdir(parents=True)
     monkeypatch.setattr(proof.sys, "executable", str(venv_python))
@@ -521,6 +522,40 @@ def test_python_smoke_evidence_seeds_release_env_from_installed_venv(
     assert os.environ["CHIRP_HOME"] == str(rook_root / "app" / "chirp")
     assert os.environ["DSPY_CACHEDIR"] == str(rook_root / "data" / "dspy-cache")
     assert os.environ["ROOK_DSPY_RESTRICT_PICKLE"] == "1"
+    assert os.environ["PYTHONPATH"] == ""
+    assert os.environ["PYTHONHOME"] == ""
+
+
+def test_python_smoke_evidence_seeds_legacy_release_root_from_installed_venv(
+    monkeypatch, tmp_path: Path
+):
+    local_appdata = tmp_path / "AppData" / "Local"
+    rook_root = local_appdata / "Rook"
+    (rook_root / "mcp_server").mkdir(parents=True)
+    (rook_root / "app" / "chirp" / "src" / "chirp").mkdir(parents=True)
+    venv_python = rook_root / "venv" / "Scripts" / "python.exe"
+    venv_python.parent.mkdir(parents=True)
+    monkeypatch.setattr(proof.sys, "executable", str(venv_python))
+    monkeypatch.setenv("LOCALAPPDATA", str(local_appdata))
+    for key in (
+        "ROOK_INSTALL_ROOT",
+        "ROOK_DATA_DIR",
+        "ROOK_MODE",
+        "CHIRP_HOME",
+        "DSPY_CACHEDIR",
+        "ROOK_DSPY_RESTRICT_PICKLE",
+        "PYTHONPATH",
+        "PYTHONHOME",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+    seeded = proof.seed_release_env_from_installed_venv()
+
+    assert seeded is True
+    assert os.environ["ROOK_INSTALL_ROOT"] == str(rook_root)
+    assert os.environ["ROOK_DATA_DIR"] == str(rook_root / "data")
+    assert os.environ["CHIRP_HOME"] == str(rook_root / "chirp")
+    assert os.environ["DSPY_CACHEDIR"] == str(rook_root / "data" / "dspy-cache")
     assert os.environ["PYTHONPATH"] == ""
     assert os.environ["PYTHONHOME"] == ""
 

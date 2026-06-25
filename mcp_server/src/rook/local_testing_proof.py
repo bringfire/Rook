@@ -633,6 +633,13 @@ def verify_command_knowledge_runtime() -> dict[str, Any]:
     return details
 
 
+def _installed_smoke_install_root(runtime_root: Path) -> Path:
+    for candidate in (runtime_root / "app", runtime_root):
+        if (candidate / "mcp_server").exists():
+            return candidate
+    return runtime_root / "app"
+
+
 def seed_release_env_from_installed_venv() -> bool:
     """Seed release env when invoked from %LOCALAPPDATA%/Rook/venv.
 
@@ -660,7 +667,7 @@ def seed_release_env_from_installed_venv() -> bool:
     if _norm(runtime_root) != _norm(expected_runtime_root):
         return False
 
-    install_root = runtime_root / "app"
+    install_root = _installed_smoke_install_root(runtime_root)
     data_root = runtime_root / "data"
 
     os.environ.setdefault("ROOK_INSTALL_ROOT", str(install_root))
