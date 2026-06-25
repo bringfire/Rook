@@ -182,6 +182,86 @@ public sealed class ReconstructionJobManager : IDisposable
             .ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Dedicated entry for the mesh smart-topology op. Accepts a <see cref="ReconstructionMeshSubmitRequest"/>
+    /// (source_package_id + mesh model_id) and drives the shared submit tail after:
+    /// <list type="bullet">
+    ///   <item>gating the model as a submittable mesh model (rejects image models),</item>
+    ///   <item>validating catalog-described options (rejects user-supplied input_file_type), and</item>
+    ///   <item>validating that the source package carries a non-empty model_glb blob.</item>
+    /// </list>
+    /// The GLB is uploaded to the source publisher, then <c>input_file_type=glb</c> is injected into
+    /// the options (after validation, so user cannot pre-supply it), and the job is submitted through
+    /// the shared <see cref="SubmitResolvedAsync"/> tail. Pre-ledger failures create no phantom job.
+    /// </summary>
+    public async Task<ReconstructionSubmitResult> SubmitMeshAsync(
+        ReconstructionMeshSubmitRequest request,
+        CancellationToken ct)
+    {
+        var model = _catalog.Find(request.ModelId);
+        if (!IsSubmittableMeshModel(model, request.AllowExperimentalModel))
+            return SubmitFail("invalid_request", "Requested mesh-processing model is not available.", "model_id");
+
+        // Catalog-described options validation (rejects unknown keys incl. a user-supplied input_file_type).
+        var optionsResult = ReconstructionOptionsValidator.Validate(request.Options, model!);
+        if (!optionsResult.Success)
+            return new ReconstructionSubmitResult(false, null, optionsResult.Failure);
+        var options = optionsResult.Options;
+
+        // Deterministic source preconditions (pre-ledger; fail-closed, no phantom job).
+        var source = ReconstructionMeshSourceValidator.Validate(_store, request.SourcePackageId);
+        if (!source.Success)
+            return new ReconstructionSubmitResult(false, null, source.Failure);
+
+        var jobId = Guid.NewGuid();
+        var queued = ReconstructionJobLedgerRecord.Queued(
+            jobId,
+            request.ModelId,
+            request.SourcePackageId,
+            ReconstructionFileRoles.ModelGlb,
+            textureExpected: false,
+            task: "mesh_to_mesh_topology");
+        _ledger.Append(queued);
+
+        var submitting = queued with
+        {
+            State = ReconstructionJobState.Running,
+            Stage = ReconstructionJobStage.Submitting,
+            UpdatedAt = DateTimeOffset.UtcNow,
+        };
+        _ledger.Append(submitting);
+
+        Uri inputFileUrl;
+        try
+        {
+            var bytes = await ReadFileBytesAsync(source.ModelGlbAbsolutePath!, ct).ConfigureAwait(false);
+            var fileName = $"rook-reconstruction-{request.SourcePackageId:D}-model.glb";
+            inputFileUrl = await _sourcePublisher
+                .PublishAsync(bytes, "model/gltf-binary", fileName, ct)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return RecordPublishFailure(submitting, ex);
+        }
+
+        // input_file_type is fixed to glb (not a user option); inject after validation.
+        options["input_file_type"] = "glb";
+
+        var providerInputs = new List<ReconstructionProviderViewUrl>
+        {
+            new(model!.Input!.SourceField!, inputFileUrl),
+        };
+
+        return await SubmitResolvedAsync(
+            jobId, queued, submitting, model, options,
+            providerInputs, new[] { request.SourcePackageId }, ct).ConfigureAwait(false);
+    }
+
     // Shared submit body for every reconstruction task: source validate → read bytes → publish to fal
     // CDN → provider submit → ledger append of the queued/submitting/polling records. The persisted
     // task discriminates downstream behavior (materialization, result envelope) in later tasks. Caller

@@ -28,6 +28,7 @@ namespace Rook.Handlers
         public const string OpImportPackage = "import_package";
         public const string OpRemoveBackground = "remove_background";
         public const string OpAssembleViewSet = "assemble_view_set";
+        public const string OpSubmitMesh = "submit_mesh_job";
 
         public const int DefaultListJobsLimit = 50;
 
@@ -75,6 +76,7 @@ namespace Rook.Handlers
                 return op switch
                 {
                     OpSubmit => await SubmitAsync(body, cancellationToken).ConfigureAwait(false),
+                    OpSubmitMesh => await SubmitMeshAsync(body, cancellationToken).ConfigureAwait(false),
                     OpRemoveBackground => await RemoveBackgroundAsync(body, cancellationToken).ConfigureAwait(false),
                     OpStatus => await StatusAsync(args, cancellationToken).ConfigureAwait(false),
                     OpCancel => await CancelAsync(args, cancellationToken).ConfigureAwait(false),
@@ -122,7 +124,7 @@ namespace Rook.Handlers
                     OpRecordImport => RecordImport(args),
                     OpCleanupPreparedImport => CleanupPreparedImport(args),
                     OpAssembleViewSet => AssembleViewSet(args, body),
-                    OpSubmit or OpStatus or OpCancel or OpImportPackage or OpRemoveBackground => Fail(
+                    OpSubmit or OpSubmitMesh or OpStatus or OpCancel or OpImportPackage or OpRemoveBackground => Fail(
                         Failure("invalid_request", $"op '{op}' must be routed through the async dispatcher, not the off-UI dispatcher.", "op"),
                         400),
                     _ => Fail(Failure("invalid_request", $"Unknown reconstruction op '{op}'.", "op"), 400),
@@ -209,6 +211,19 @@ namespace Rook.Handlers
                 EstimateRequested: false);
 
             var result = await _manager.SubmitRemoveBackgroundAsync(request, ct).ConfigureAwait(false);
+            if (!result.Success)
+                return Fail(result.Failure!, StatusFor(result.Failure!));
+
+            return Ok(JobToObj(result.Job!));
+        }
+
+        private async Task<ApiResponse> SubmitMeshAsync(string? body, CancellationToken ct)
+        {
+            var parsed = ReconstructionMeshSubmitRequestParser.Parse(body);
+            if (!parsed.Success)
+                return Fail(parsed.Failure!, StatusFor(parsed.Failure!));
+
+            var result = await _manager.SubmitMeshAsync(parsed.Request!, ct).ConfigureAwait(false);
             if (!result.Success)
                 return Fail(result.Failure!, StatusFor(result.Failure!));
 
