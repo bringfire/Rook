@@ -258,6 +258,16 @@ namespace Rook.Tests.UI.Vision
             Assert.DoesNotContain("entry.control.checked = false;", js);
         }
 
+        [Fact]
+        public void AppJs_Submit_AllowsExperimentalOnlyWhenToggleExposesNonStableModel()
+        {
+            var js = ReadVisionResource("app.js");
+            Assert.Contains("function shouldAllowExperimentalModel(model)", js);
+            Assert.Contains("includeExperimentalModels && model && model.status !== \"stable\"", js);
+            Assert.Contains("allow_experimental_model", js);
+            Assert.Contains("if (shouldAllowExperimentalModel(mvModel)) submitArgs.allow_experimental_model = true;", js);
+        }
+
         [Theory]
         [InlineData("reconstruct-include-experimental")]
         [InlineData("reconstruct-options")]

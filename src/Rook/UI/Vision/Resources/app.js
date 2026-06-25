@@ -3935,7 +3935,7 @@ const Reconstruct = (() => {
         try {
             re.submitBtn.disabled = true;
             showReconstructStatus("Submitting reconstruction…", "info");
-            const job = await reconstructionBridgeCall("submit_job", {
+            const submitArgs = {
                 source_artifact_id: frontSlot.artifact_id,
                 source_role: frontSlot.role || "image",
                 model_id: modelId,
@@ -3943,7 +3943,9 @@ const Reconstruct = (() => {
                 options: optionsForMode(),
                 views: views,
                 estimate_requested: false,
-            });
+            };
+            if (shouldAllowExperimentalModel(mvModel)) submitArgs.allow_experimental_model = true;
+            const job = await reconstructionBridgeCall("submit_job", submitArgs);
             if (!job || !job.job_id) {
                 throw new Error("Reconstruction submit did not return a job id.");
             }
@@ -3992,6 +3994,10 @@ const Reconstruct = (() => {
     function selectedModel() {
         const id = selectedModelId();
         return id ? models.find(x => x.model_id === id) || null : null;
+    }
+
+    function shouldAllowExperimentalModel(model) {
+        return includeExperimentalModels && model && model.status !== "stable";
     }
 
     function buildModelOption(model) {
