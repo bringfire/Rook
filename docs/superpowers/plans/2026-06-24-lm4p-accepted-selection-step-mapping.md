@@ -17,7 +17,9 @@ From the spec (`docs/superpowers/specs/2026-06-24-lm4p-accepted-selection-step-m
 - **No fallback.** A rejected proposal yields no step even when the map holds a valid entry for the now-correct node.
 - **Distrust the caller map.** Four distinct failures: `revalidation_rejected`, `no_step_for_node`, `step_map_invalid` (non-`Step` runtime value), `step_node_mismatch` (mapped Step targets a different node). Never crash, never coerce.
 - **`step_map_invalid` uses the explicit tuple form** `isinstance(step, (ProducerStep, VerifierStep, BindStep))` — never `isinstance(step, Step)` / never the union alias at runtime — checked *before* the target-node read.
-- **Imports:** `revalidate_proposal` + `RevalidationResult` (learning `plan_graph_revalidation`, module-level); `NodeSelectionProposal` (learning `plan_graph_selector`); `Step` + `ProducerStep` + `VerifierStep` + `BindStep` (agent `plan_graph_sequence_runner`); `PlanGraph` `TYPE_CHECKING`-quoted; stdlib `dataclass`/`typing`/`collections.abc`. **No `rook.agent.base_agent`, no dispatcher/server, no `run_live_producer_node`/`SupportsLiveProducerNode`, no `apply_outcome`/`apply_verifier_step`/`apply_producer_result`, no LiteLLM/model.**
+- **Imports:** `revalidate_proposal` + `RevalidationResult` (learning `plan_graph_revalidation`, module-level); `NodeSelectionProposal` (learning `plan_graph_selector`); `Step` + `ProducerStep` + `VerifierStep` + `BindStep` (agent `plan_graph_sequence_runner`); `PlanGraph` `TYPE_CHECKING`-quoted; stdlib `dataclass`/`typing`/`collections.abc`.
+  - **Allowed:** importing `rook.agent.plan_graph_sequence_runner` **for the `Step` / `ProducerStep` / `VerifierStep` / `BindStep` types only** (required — LM4P maps into these). The module itself is NOT banned.
+  - **Banned (by name, not by module):** live runner / dispatch authority — `run_explicit_sequence`, `run_live_producer_node`, `SupportsLiveProducerNode`; `propose_next_node` (delegate re-derivation to LM4O); `apply_outcome` / `apply_verifier_step` / `apply_producer_result`; `rook.agent.base_agent`, dispatcher/server, LiteLLM/model. The AST guard bans these **names** in `referenced` (and `base_agent`/server/dispatch/litellm as imported modules), never the whole `plan_graph_sequence_runner` module.
 - **Pure-of-execution:** never mutates `proposal`, `graph`, or `step_map`; `step` is non-None only on `mapped=True` and is the same object as `step_map[accepted]`; `revalidation` is always populated.
 - **Production change is EXACTLY one new module:** `mcp_server/src/rook/agent/plan_graph_step_mapping.py`. No edits to any existing `src/` file; `base_agent.py` byte-stable; LM4M/LM4N/LM4O modules + `plan_graph_walker.py` untouched. `git diff --numstat main...HEAD -- mcp_server/src` lists only that file.
 - **No live test.** Pure-of-execution; whole-branch diff = spec + plan + 1 module + 2 test files (5 paths).
@@ -268,13 +270,18 @@ def test_import_boundary():
             referenced.add(node.id)
         elif isinstance(node, ast.Attribute):
             referenced.add(node.attr)
+    # Importing plan_graph_sequence_runner for the Step types is REQUIRED and allowed; the
+    # guard bans forbidden runner/dispatch NAMES, never that whole module.
+    assert "rook.agent.plan_graph_sequence_runner" in imported, imported
     assert "rook.agent.base_agent" not in imported, imported
     assert not any(m.startswith("rook.server") for m in imported), imported
     assert not any("dispatch" in m for m in imported), imported
     assert not any("litellm" in m for m in imported), imported
     for banned in (
         "propose_next_node",
+        "run_explicit_sequence",
         "run_live_producer_node",
+        "SupportsLiveProducerNode",
         "apply_outcome",
         "apply_verifier_step",
         "apply_producer_result",
