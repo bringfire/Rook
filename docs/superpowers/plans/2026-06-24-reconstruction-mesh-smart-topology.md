@@ -513,6 +513,42 @@ In `ReconstructionJobManager.cs`, add this method (the body is lifted verbatim f
 
 Polling and every `RecordSubmitFailure(...)` derive from `submitting` (byte-for-byte identical to today's code); `queued` is returned only on success (the submit response record). No ledger drift.
 
+Also add this shared publish-failure mapper (both fronts delegate their `catch` body to it, so the exception→failure mapping isn't duplicated):
+
+```csharp
+    // Maps a source publish/upload exception to a recorded failed job. Shared by both submit fronts.
+    // The caller's explicit `catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }`
+    // runs first, so a real cancellation never reaches here (never becomes submit_failed). A
+    // non-cancellation OperationCanceledException falls to `default` → submit_failed, exactly as the
+    // pre-refactor code did.
+    private ReconstructionSubmitResult RecordPublishFailure(
+        ReconstructionJobLedgerRecord submitting,
+        Exception ex)
+    {
+        switch (ex)
+        {
+            case ReconstructionCredentialMissingException:
+                return RecordSubmitFailure(submitting, ReconstructionErrorMapping.MissingCredentialFailure());
+            case FalApiException:
+                return RecordSubmitFailure(submitting, Failure(
+                    "provider_unavailable",
+                    "Reconstruction source asset upload to the provider failed.",
+                    null,
+                    retryable: true,
+                    new Dictionary<string, object?> { ["exception_type"] = ex.GetType().Name }));
+            default:
+                return RecordSubmitFailure(submitting, Failure(
+                    "submit_failed",
+                    "Reconstruction submit failed.",
+                    null,
+                    retryable: true,
+                    new Dictionary<string, object?> { ["exception_type"] = ex.GetType().Name }));
+        }
+    }
+```
+
+Note: the generic `catch (Exception ex)` deliberately has **no** `when (ex is not OperationCanceledException)` guard — the explicit cancellation rethrow already prevents converting a real cancellation, and omitting the guard preserves the original behavior where a *non-cancellation* `OperationCanceledException` maps to `submit_failed`.
+
 - [ ] **Step 2: Rewrite the image `SubmitCoreAsync` to call the tail**
 
 In `SubmitCoreAsync`, replace the block from `ProviderSubmitOutcome submitOutcome;` (line 245) through the end of the outcome `switch` (line 355) with the publish-only try plus a tail call. The publish loop and its catches stay (FalApi text made source-neutral):
@@ -536,27 +572,9 @@ In `SubmitCoreAsync`, replace the block from `ProviderSubmitOutcome submitOutcom
         {
             throw;
         }
-        catch (ReconstructionCredentialMissingException)
-        {
-            return RecordSubmitFailure(submitting, ReconstructionErrorMapping.MissingCredentialFailure());
-        }
-        catch (FalApiException ex)
-        {
-            return RecordSubmitFailure(submitting, Failure(
-                "provider_unavailable",
-                "Reconstruction source asset upload to the provider failed.",
-                null,
-                retryable: true,
-                new Dictionary<string, object?> { ["exception_type"] = ex.GetType().Name }));
-        }
         catch (Exception ex)
         {
-            return RecordSubmitFailure(submitting, Failure(
-                "submit_failed",
-                "Reconstruction submit failed.",
-                null,
-                retryable: true,
-                new Dictionary<string, object?> { ["exception_type"] = ex.GetType().Name }));
+            return RecordPublishFailure(submitting, ex);
         }
 
         return await SubmitResolvedAsync(
@@ -564,7 +582,7 @@ In `SubmitCoreAsync`, replace the block from `ProviderSubmitOutcome submitOutcom
             .ConfigureAwait(false);
 ```
 
-(The upload-failure message changes from "source image upload" to "source asset upload" — source-neutral, shared by both fronts. `RecordSubmitFailure(submitting, …)` here is unchanged behavior for the image path's publish-phase failures.)
+(The upload-failure mapping now lives in the shared `RecordPublishFailure`; the image path's publish-phase failures map identically, with the source-neutral "source asset upload" text.)
 
 - [ ] **Step 3: Run the full reconstruction suite (regression — image path must be unchanged)**
 
@@ -675,27 +693,9 @@ In `ReconstructionJobManager.cs` add (mirrors `SubmitCoreAsync`'s structure: val
         {
             throw;
         }
-        catch (ReconstructionCredentialMissingException)
-        {
-            return RecordSubmitFailure(submitting, ReconstructionErrorMapping.MissingCredentialFailure());
-        }
-        catch (FalApiException ex)
-        {
-            return RecordSubmitFailure(submitting, Failure(
-                "provider_unavailable",
-                "Reconstruction source asset upload to the provider failed.",
-                null,
-                retryable: true,
-                new Dictionary<string, object?> { ["exception_type"] = ex.GetType().Name }));
-        }
         catch (Exception ex)
         {
-            return RecordSubmitFailure(submitting, Failure(
-                "submit_failed",
-                "Reconstruction submit failed.",
-                null,
-                retryable: true,
-                new Dictionary<string, object?> { ["exception_type"] = ex.GetType().Name }));
+            return RecordPublishFailure(submitting, ex);
         }
 
         // input_file_type is fixed to glb (not a user option); inject after validation.
