@@ -350,6 +350,20 @@ public sealed class NativeReconstructionDispatchSourceTests
     }
 
     [Fact]
+    public void NativeRoute_MeshJobs_DispatchesSubmitMeshJob()
+    {
+        var cpp = File.ReadAllText(Path.Combine(
+            RepoRoot, "src", "RookNative", "Handlers", "GrasshopperProxyHandler.cpp"));
+        Assert.Contains("DispatchReconstructionOp(req, res, \"submit_mesh_job\")", cpp);
+        Assert.Contains("HandleReconstructionSubmitMesh", cpp);
+
+        var server = File.ReadAllText(Path.Combine(RepoRoot, "src", "RookNative", "RookServer.cpp"));
+        Assert.Contains("/reconstruction/3d-to-3d/jobs", server);
+        Assert.Contains("\"submit_mesh_job\"", server);
+        Assert.Contains("HandleReconstructionSubmitMesh", server);
+    }
+
+    [Fact]
     public void NativeBridge_RoutesAssembleViewSetThroughOffUiDispatch_NotAsync()
     {
         // Verify that OpAssembleViewSet sits in the off-UI case group (grouped with

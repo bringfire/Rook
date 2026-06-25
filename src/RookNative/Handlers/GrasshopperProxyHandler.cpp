@@ -1367,6 +1367,11 @@ void HandleReconstructionSubmit(const httplib::Request& req, httplib::Response& 
     DispatchReconstructionOp(req, res, "submit_job");
 }
 
+void HandleReconstructionSubmitMesh(const httplib::Request& req, httplib::Response& res)
+{
+    DispatchReconstructionOp(req, res, "submit_mesh_job");
+}
+
 void HandleReconstructionRemoveBackground(const httplib::Request& req, httplib::Response& res)
 {
     DispatchReconstructionOp(req, res, "remove_background");

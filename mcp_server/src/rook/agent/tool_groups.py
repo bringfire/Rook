@@ -270,6 +270,7 @@ TOOL_GROUPS: Dict[str, List[str]] = {
     "reconstruction": [
         "rhino_2d_to_3d_models",
         "rhino_2d_to_3d_submit",
+        "rhino_3d_to_3d_submit",
         "rhino_2d_to_3d_remove_background",
         "rhino_2d_to_3d_assemble_view_set",
         "rhino_2d_to_3d_jobs",

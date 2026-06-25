@@ -12726,6 +12726,24 @@ Returns the full profile JSON including features, surfaces, and elements.""",
             },
         ),
         Tool(
+            name="rhino_3d_to_3d_submit",
+            description=(
+                "Submit a 3D->3D mesh-processing job (e.g. Hunyuan Smart Topology) "
+                "against an existing reconstruction_package. model_id selects the mesh operation."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "source_package_id": {"type": "string", "description": "Existing reconstruction_package id (must contain a model_glb)."},
+                    "model_id": {"type": "string", "description": "Full fal model id (e.g. fal-ai/hunyuan-3d/v3.1/smart-topology). Required; no implicit default."},
+                    "options": {"type": "object", "description": "Mesh-operation options (e.g. polygon_type, face_level)."},
+                    "allow_experimental_model": {"type": "boolean", "description": "Dev/test override: allow an experimental catalog model. Honored only with an explicit model_id."},
+                    "port": {"type": "integer", "description": "Specific Rhino port to target."},
+                },
+                "required": ["source_package_id", "model_id"],
+            },
+        ),
+        Tool(
             name="rhino_2d_to_3d_remove_background",
             description=(
                 "Submit an explicit Rook Reconstruction background-removal job "
@@ -20295,6 +20313,11 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
         case "rhino_2d_to_3d_submit":
             result = await call_rhino(
                 "/reconstruction/2d-to-3d/jobs", "POST", arguments, port=port
+            )
+
+        case "rhino_3d_to_3d_submit":
+            result = await call_rhino(
+                "/reconstruction/3d-to-3d/jobs", "POST", arguments, port=port
             )
 
         case "rhino_2d_to_3d_remove_background":

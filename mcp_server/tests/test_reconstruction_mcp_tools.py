@@ -22,6 +22,7 @@ RECONSTRUCTION_TOOL_NAMES = [
     "rhino_2d_to_3d_cancel",
     "rhino_2d_to_3d_result",
     "rhino_2d_to_3d_import",
+    "rhino_3d_to_3d_submit",
 ]
 
 RECONSTRUCTION_READONLY_TOOL_NAMES = [
@@ -275,3 +276,38 @@ def test_reconstruction_assemble_view_set_bridge_route():
 def test_reconstruction_assemble_view_set_is_mutating_group_only():
     assert "rhino_2d_to_3d_assemble_view_set" in tool_groups.TOOL_GROUPS["reconstruction"]
     assert "rhino_2d_to_3d_assemble_view_set" not in tool_groups.TOOL_GROUPS["reconstruction_readonly"]
+
+
+@pytest.mark.asyncio
+async def test_reconstruction_3d_to_3d_submit_requires_source_package_id_and_model_id():
+    tools = await server.list_tools()
+    submit = {t.name: t for t in tools}["rhino_3d_to_3d_submit"]
+
+    assert set(submit.inputSchema.get("required", [])) == {"source_package_id", "model_id"}
+    assert "source_package_id" in submit.inputSchema["properties"]
+    assert "model_id" in submit.inputSchema["properties"]
+
+
+@pytest.mark.asyncio
+async def test_reconstruction_3d_to_3d_submit_dispatches_post():
+    args_in = {
+        "source_package_id": "12345678-1234-1234-1234-123456789abc",
+        "model_id": "fal-ai/hunyuan-3d/v3.1/smart-topology",
+    }
+    with patch.object(server, "call_rhino", new_callable=AsyncMock) as mock:
+        mock.return_value = {"success": True, "data": {"job_id": "Y", "state": "queued"}}
+        await server.call_tool("rhino_3d_to_3d_submit", args_in)
+    args, _ = mock.call_args
+    assert args == ("/reconstruction/3d-to-3d/jobs", "POST", args_in)
+
+
+def test_reconstruction_3d_to_3d_submit_bridge_route():
+    assert tool_dispatcher.BRIDGE_ROUTES["rhino_3d_to_3d_submit"] == (
+        "/reconstruction/3d-to-3d/jobs",
+        "POST",
+    )
+
+
+def test_reconstruction_3d_to_3d_submit_is_mutating_group_only():
+    assert "rhino_3d_to_3d_submit" in tool_groups.TOOL_GROUPS["reconstruction"]
+    assert "rhino_3d_to_3d_submit" not in tool_groups.TOOL_GROUPS["reconstruction_readonly"]

@@ -475,6 +475,7 @@ BRIDGE_ROUTES: Dict[str, Tuple[str, str]] = {
     # lifecycle tools live in TRANSFORM_FUNCTIONS for explicit query/path
     # construction and parity with server.call_tool.
     "rhino_2d_to_3d_submit": ("/reconstruction/2d-to-3d/jobs", "POST"),
+    "rhino_3d_to_3d_submit": ("/reconstruction/3d-to-3d/jobs", "POST"),
     "rhino_2d_to_3d_remove_background": ("/reconstruction/2d-to-3d/background-removals", "POST"),
     "rhino_2d_to_3d_assemble_view_set": ("/reconstruction/2d-to-3d/view-sets", "POST"),
     "rhino_2d_to_3d_import": ("/reconstruction/2d-to-3d/import", "POST"),

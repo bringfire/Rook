@@ -1089,6 +1089,7 @@ void CRookServer::RegisterRoutes()
     // object user text in the same main-thread operation.
     m_server->Get("/reconstruction/2d-to-3d/models", Rook::Handlers::HandleReconstructionModels);
     m_server->Post("/reconstruction/2d-to-3d/jobs", Rook::Handlers::HandleReconstructionSubmit);
+    m_server->Post("/reconstruction/3d-to-3d/jobs", Rook::Handlers::HandleReconstructionSubmitMesh);
     m_server->Post("/reconstruction/2d-to-3d/background-removals", Rook::Handlers::HandleReconstructionRemoveBackground);
     m_server->Post("/reconstruction/2d-to-3d/view-sets", Rook::Handlers::HandleReconstructionAssembleViewSet);
     m_server->Get("/reconstruction/2d-to-3d/jobs", Rook::Handlers::HandleReconstructionJobsList);
@@ -2145,6 +2146,7 @@ nlohmann::json BuildRookCapabilitiesDocument(
         StringArray({
             "GET /reconstruction/2d-to-3d/models",
             "POST /reconstruction/2d-to-3d/jobs",
+            "POST /reconstruction/3d-to-3d/jobs",
             "POST /reconstruction/2d-to-3d/background-removals",
             "POST /reconstruction/2d-to-3d/view-sets",
             "GET /reconstruction/2d-to-3d/jobs",
@@ -2152,7 +2154,7 @@ nlohmann::json BuildRookCapabilitiesDocument(
             "POST /reconstruction/2d-to-3d/jobs/{job_id}/cancel",
             "GET /reconstruction/2d-to-3d/jobs/{job_id}/result",
             "POST /reconstruction/2d-to-3d/import" }),
-        StringArray({ "model_catalog", "submit_job", "remove_background", "list_jobs", "job_status", "cancel_job", "job_result", "import_package" }),
+        StringArray({ "model_catalog", "submit_job", "submit_mesh_job", "remove_background", "list_jobs", "job_status", "cancel_job", "job_result", "import_package" }),
         StringArray({ "companion runtime status" }),
         nlohmann::json::array({ Evidence("callback", "reconstructionDispatch", reconstructionReady) }),
         CompanionEvidenceFor(companionStatus, "reconstruction.2d_to_3d")));
