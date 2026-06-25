@@ -448,6 +448,7 @@ def verify_chat_manifest(
     plugin_dir: Path,
     venv_python: Path,
     install_root: Path,
+    data_root: Path,
 ) -> dict[str, Any]:
     manifest_path = plugin_dir / "RookChatService.json"
     if not manifest_path.exists():
@@ -464,7 +465,6 @@ def verify_chat_manifest(
         ) from exc
 
     expected_working_dir = install_root / "mcp_server"
-    data_root = install_root.parent / "data"
     chirp_home = install_root / "chirp"
     if not _path_equal(manifest.get("pythonPath"), venv_python):
         raise ProofFailure(
@@ -596,6 +596,7 @@ def verify_effective_configs(
             plugin_dir=plugin_dir,
             venv_python=venv_python,
             install_root=paths.install_root,
+            data_root=paths.data_root,
         ),
     }
 

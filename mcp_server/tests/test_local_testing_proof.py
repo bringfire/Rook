@@ -375,6 +375,7 @@ def test_verify_chat_manifest_rejects_stale_python(tmp_path: Path):
             plugin_dir=plugin_dir,
             venv_python=tmp_path / "Rook" / "venv" / "Scripts" / "python.exe",
             install_root=tmp_path / "Rook" / "app",
+            data_root=tmp_path / "Rook" / "data",
         )
 
     assert exc.value.failure_label == "chat_manifest_stale"
@@ -409,6 +410,44 @@ def test_verify_chat_manifest_accepts_release_contract(tmp_path: Path):
         plugin_dir=plugin_dir,
         venv_python=venv_python,
         install_root=install_root,
+        data_root=data_root,
+    )
+
+    assert details["release_pythonpath_entries"] is False
+    assert details["python_path"] == str(venv_python)
+    assert details["chirp_home"] == str(install_root / "chirp")
+
+
+def test_verify_chat_manifest_accepts_legacy_release_contract(tmp_path: Path):
+    rook_root = tmp_path / "Rook"
+    install_root = rook_root
+    data_root = rook_root / "data"
+    plugin_dir = tmp_path / "RookNative"
+    plugin_dir.mkdir()
+    venv_python = rook_root / "venv" / "Scripts" / "python.exe"
+    manifest = {
+        "pythonPath": str(venv_python),
+        "workingDirectory": str(install_root / "mcp_server"),
+        "module": "rook.agent.chat.service_main",
+        "pythonPathEntries": [],
+        "environment": {
+            "ROOK_INSTALL_ROOT": str(install_root),
+            "ROOK_DATA_DIR": str(data_root),
+            "ROOK_MODE": "release",
+            "PYTHONHOME": "",
+            "PYTHONPATH": "",
+            "DSPY_CACHEDIR": str(data_root / "dspy-cache"),
+            "ROOK_DSPY_RESTRICT_PICKLE": "1",
+            "CHIRP_HOME": str(install_root / "chirp"),
+        },
+    }
+    (plugin_dir / "RookChatService.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    details = proof.verify_chat_manifest(
+        plugin_dir=plugin_dir,
+        venv_python=venv_python,
+        install_root=install_root,
+        data_root=data_root,
     )
 
     assert details["release_pythonpath_entries"] is False
