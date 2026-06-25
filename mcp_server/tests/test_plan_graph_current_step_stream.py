@@ -362,10 +362,11 @@ async def test_one_supplied_step_then_halt_aligns_supply_and_current_records(mon
 @pytest.mark.asyncio
 async def test_execution_refused_appends_record_before_stop(monkeypatch):
     graph = _graph(("a", "ready"))
+    sentinel_graph = _graph(("sentinel", "ready"))
     envelope = _envelope("a", mapped=False)
     record = _record(graph, envelope.mapping, ran=False)
     await _install_fake_lm4r(
-        monkeypatch, [CurrentStepResult(graph=graph, record=record)]
+        monkeypatch, [CurrentStepResult(graph=sentinel_graph, record=record)]
     )
 
     def provider(current_graph, records, supply_records):
@@ -373,7 +374,7 @@ async def test_execution_refused_appends_record_before_stop(monkeypatch):
 
     result = await run_current_step_stream(graph, provider, max_steps=2)
 
-    assert result.final_graph is graph
+    assert result.final_graph is sentinel_graph
     assert result.records == (record,)
     assert len(result.supply_records) == 1
     assert result.stop_reason == "execution_refused"

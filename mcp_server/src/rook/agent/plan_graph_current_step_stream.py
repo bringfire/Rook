@@ -212,7 +212,7 @@ async def run_current_step_stream(
 
         if not step_result.record.ran:
             return CurrentStepStreamResult(
-                final_graph=graph,
+                final_graph=step_result.graph,
                 records=tuple(records),
                 supply_records=tuple(supply_records),
                 stop_reason="execution_refused",
