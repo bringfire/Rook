@@ -173,8 +173,11 @@ function Test-PublicInstallerDoesNotRequireUserPython {
 
 function Test-InstallerFailsWhenPostInstallFails {
     $content = Get-Content -Path $InstallerScript -Raw
+    $runSectionMatch = [regex]::Match($content, '(?ms)^\[Run\]\s*(?<body>.*?)(?=^\[|$)')
+    $runSection = if ($runSectionMatch.Success) { $runSectionMatch.Groups['body'].Value } else { '' }
 
     Assert-NotContains -Text $content -Unexpected 'Filename: "{localappdata}\Rook\python\cpython-3.11.9\python.exe"; Parameters: """{app}\post_install.py""' -Message 'Post-install must not run through [Run], which cannot gate child exit codes.'
+    Assert-True -Condition (-not [regex]::IsMatch($runSection, '(?i)(post_install\.py|cpython-3\.11\.9\\python\.exe)')) -Message 'Post-install must not run through [Run], which cannot gate child exit codes.'
     Assert-Contains -Text $content -Expected 'function RunPostInstallSetup(): Boolean;' -Message 'Installer must run post_install.py from Pascal script where ResultCode can be checked.'
     Assert-Contains -Text $content -Expected 'Exec(PythonExe, Args, '''', SW_HIDE, ewWaitUntilTerminated, ResultCode)' -Message 'Installer post-install runner must capture the child process exit code.'
     Assert-Contains -Text $content -Expected 'ResultCode <> 0' -Message 'Installer must explicitly reject a nonzero post_install.py exit code.'
@@ -188,6 +191,17 @@ function Test-InstallerExplainsOfflineWheelhouseProgress {
 
     Assert-Contains -Text $content -Expected 'installing bundled wheels offline (no internet download required)' -Message 'Installer progress must explain the long Python finalization is offline wheelhouse work, not dependency download.'
     Assert-Contains -Text $content -Expected 'WizardForm.StatusLabel.Update' -Message 'Installer must repaint the progress label before long post-install work starts.'
+    Assert-Contains -Text $content -Expected 'FinalizingRookPage: TOutputMarqueeProgressWizardPage;' -Message 'Installer must define an indeterminate finalization progress page.'
+    Assert-True -Condition ([regex]::IsMatch($content, '(?s)CreateOutputMarqueeProgressPage\(\s*''Finalizing Rook''')) -Message 'Installer must create a dedicated Finalizing Rook marquee page.'
+    Assert-Contains -Text $content -Expected 'First-time setup can take 10-12 minutes. The installer is still working.' -Message 'Finalization page must tell users the long wait is expected and active.'
+    Assert-Contains -Text $content -Expected 'private Python, bundled wheels, MCP entries, skills, and validation' -Message 'Finalization page must name the real work being performed.'
+    Assert-Contains -Text $content -Expected 'FinalizingRookPage.Show;' -Message 'Installer must show the finalization page before post-install work starts.'
+    Assert-Contains -Text $content -Expected 'FinalizingRookPage.Animate;' -Message 'Installer must animate the indeterminate finalization page.'
+    Assert-Contains -Text $content -Expected 'HideFinalizingRookPage();' -Message 'Installer must hide the finalization page after post-install work returns.'
+    Assert-True -Condition ([regex]::IsMatch($content, '(?s)ShowFinalizingRookPage\(\);.*?try.*?Exec\(PythonExe, Args, '''', SW_HIDE, ewWaitUntilTerminated, ResultCode\).*?finally\s+HideFinalizingRookPage\(\);')) -Message 'Installer must protect finalization page cleanup with try/finally around the blocking post-install Exec.'
+    Assert-NotContains -Text $content -Unexpected 'FinalizingRookPage.SetProgress' -Message 'Finalization UX must remain indeterminate and must not fake percentages.'
+    Assert-Contains -Text $content -Expected 'Post-install setup script (always included, launched from Pascal script)' -Message 'Installer source comment must not claim post_install.py is launched from [Run].'
+    Assert-NotContains -Text $content -Unexpected 'Post-install setup script (always included, used by [Run])' -Message 'Installer source comment must not contradict the Pascal-script post-install contract.'
 }
 
 function Test-UninstallUsesRecordedPrivatePython {

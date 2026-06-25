@@ -173,7 +173,7 @@ Source: "{#CodexCuratedSkillsDir}\*"; DestDir: "{app}\.agents\skills"; Component
 Source: "{#RepoRoot}\installer\agent-assets\ROOK_CLAUDE_POST_INSTALL.md"; DestDir: "{localappdata}\Rook"; Flags: ignoreversion
 Source: "{#RepoRoot}\installer\agent-assets\ROOK_CODEX_POST_INSTALL.md"; DestDir: "{localappdata}\Rook"; Flags: ignoreversion
 
-; --- Post-install setup script (always included, used by [Run]) ---
+; --- Post-install setup script (always included, launched from Pascal script) ---
 Source: "post_install.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "python_runtime_install.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "rook_process_preflight.ps1"; Flags: dontcopy
@@ -294,6 +294,7 @@ var
   RookPreflightLogRoot: String;
   RookPreflightResweepEnabled: Boolean;
   RookPreflightLastSweepTick: Cardinal;
+  FinalizingRookPage: TOutputMarqueeProgressWizardPage;
 
 function GetTickCount: Cardinal; external 'GetTickCount@kernel32.dll stdcall';
 
@@ -523,6 +524,30 @@ begin
   Result := True;
 end;
 
+procedure ShowFinalizingRookPage();
+begin
+  if FinalizingRookPage = nil then
+  begin
+    FinalizingRookPage :=
+      CreateOutputMarqueeProgressPage(
+        'Finalizing Rook',
+        'First-time setup can take 10-12 minutes. The installer is still working.');
+  end;
+
+  FinalizingRookPage.SetText(
+    'This step configures private Python, bundled wheels, MCP entries, skills, and validation.',
+    '');
+  FinalizingRookPage.Show;
+  FinalizingRookPage.Animate;
+  WizardForm.Update;
+end;
+
+procedure HideFinalizingRookPage();
+begin
+  if FinalizingRookPage <> nil then
+    FinalizingRookPage.Hide;
+end;
+
 function RunPostInstallSetup(): Boolean;
 var
   PythonExe: String;
@@ -560,15 +585,20 @@ begin
     'Finalizing Rook: creating private Python environments and installing bundled wheels offline (no internet download required). This can take several minutes.';
   WizardForm.StatusLabel.Update;
   Log('Post-install: running post_install.py with private Python: ' + PythonExe);
-  if not Exec(PythonExe, Args, '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
-  begin
-    Log('Post-install failed: could not launch post_install.py');
-    MsgBox(
-      'Rook could not launch its post-install Python setup.' + #13#10 + #13#10 +
-      'Close Rhino/Revit, then rerun the installer repair flow.',
-      mbCriticalError, MB_OK);
-    Result := False;
-    Exit;
+  ShowFinalizingRookPage();
+  try
+    if not Exec(PythonExe, Args, '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+    begin
+      Log('Post-install failed: could not launch post_install.py');
+      MsgBox(
+        'Rook could not launch its post-install Python setup.' + #13#10 + #13#10 +
+        'Close Rhino/Revit, then rerun the installer repair flow.',
+        mbCriticalError, MB_OK);
+      Result := False;
+      Exit;
+    end;
+  finally
+    HideFinalizingRookPage();
   end;
 
   if ResultCode <> 0 then
