@@ -8,7 +8,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from rook import director_preview
+from rook import director, director_compiler, director_preview
 
 
 U1 = "11111111-1111-1111-1111-111111111111"
@@ -162,3 +162,121 @@ async def test_preview_motion_include_track_opt_in_adds_track():
 
     assert result["state"] == "completed"
     assert result["compile"]["track"] == track
+
+
+class ShouldNotCall:
+    async def __call__(self, arguments: dict, *, port=None) -> dict:
+        raise AssertionError("this dependency should not be called")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "preview, field, code",
+    [
+        ({"loop": True}, "loop", "unsupported_preview_option"),
+        ({"include_track": "yes"}, "include_track", "invalid_preview"),
+        ({"restore_on_finish": "yes"}, "restore_on_finish", "invalid_preview"),
+        ({"fps": 0}, "fps", "invalid_preview"),
+        ({"fps": True}, "fps", "invalid_preview"),
+        ({"replay_session_id": 123}, "replay_session_id", "invalid_preview"),
+    ],
+)
+async def test_preview_motion_rejects_invalid_preview_controls_before_compile_or_replay(preview, field, code):
+    result = await director_preview.preview_motion(
+        _spec(preview=preview),
+        compile_motion=ShouldNotCall(),
+        run_replay=ShouldNotCall(),
+    )
+
+    assert result["state"] == "compile_failed"
+    assert result["compile"]["error"]["code"] == code
+    assert result["compile"]["error"].get("field") == field or result["compile"]["error"].get("option") == field
+    assert result["replay"] is None
+
+
+class FailingCompiler:
+    def __init__(self):
+        self.calls = 0
+
+    async def __call__(self, arguments: dict, *, port=None) -> dict:
+        self.calls += 1
+        raise director_compiler.DirectorCompileError("unknown_group", "missing group", target="ghost")
+
+
+class FailingReplay:
+    async def __call__(self, arguments: dict, *, port=None) -> dict:
+        raise director.DirectorError("replay_already_active: busy")
+
+
+@pytest.mark.asyncio
+async def test_preview_motion_compile_failure_skips_replay():
+    compiler = FailingCompiler()
+
+    result = await director_preview.preview_motion(
+        _spec(),
+        compile_motion=compiler,
+        run_replay=ShouldNotCall(),
+    )
+
+    assert compiler.calls == 1
+    assert result["state"] == "compile_failed"
+    assert result["compile"]["error"] == {
+        "code": "unknown_group",
+        "message": "missing group",
+        "target": "ghost",
+    }
+    assert result["replay"] is None
+
+
+@pytest.mark.asyncio
+async def test_preview_motion_replay_exception_keeps_compile_context():
+    compiler = FakeCompiler(
+        {
+            "track": _track(frame_count=2, fps=24),
+            "provenance": {"frame_count": 2, "fps": 24, "duration_ms": 83.3333333333},
+        }
+    )
+
+    result = await director_preview.preview_motion(
+        _spec(),
+        compile_motion=compiler,
+        run_replay=FailingReplay(),
+    )
+
+    assert result["state"] == "replay_failed"
+    assert result["compile"]["track_summary"]["frame_count"] == 2
+    assert result["replay"]["error"]["code"] == "director_error"
+    assert "replay_already_active" in result["replay"]["error"]["message"]
+
+
+@pytest.mark.asyncio
+async def test_preview_motion_cancelled_replay_maps_to_cancelled():
+    compiler = FakeCompiler(
+        {
+            "track": _track(frame_count=2, fps=24),
+            "provenance": {"frame_count": 2, "fps": 24, "duration_ms": 83.3333333333},
+        }
+    )
+    replay = FakeReplay({"status": "cancelled", "frames_played": 1, "restored": True})
+
+    result = await director_preview.preview_motion(_spec(), compile_motion=compiler, run_replay=replay)
+
+    assert result["state"] == "cancelled"
+    assert result["replay"]["status"] == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_preview_motion_unexpected_replay_payload_maps_to_replay_failed_with_raw_payload():
+    compiler = FakeCompiler(
+        {
+            "track": _track(frame_count=2, fps=24),
+            "provenance": {"frame_count": 2, "fps": 24, "duration_ms": 83.3333333333},
+        }
+    )
+    replay = FakeReplay({"status": "failed", "code": "track_invalid"})
+
+    result = await director_preview.preview_motion(_spec(), compile_motion=compiler, run_replay=replay)
+
+    assert result["state"] == "replay_failed"
+    assert result["replay"]["error"]["code"] == "unexpected_replay_result"
+    assert result["replay"]["raw"] == {"status": "failed", "code": "track_invalid"}
