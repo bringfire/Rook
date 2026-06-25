@@ -634,7 +634,23 @@ def verify_command_knowledge_runtime() -> dict[str, Any]:
 
 
 def _installed_smoke_install_root(runtime_root: Path) -> Path:
-    for candidate in (runtime_root / "app", runtime_root):
+    candidates = [
+        candidate
+        for candidate in (runtime_root / "app", runtime_root)
+        if (candidate / "mcp_server").exists()
+    ]
+    manifest_candidates = [
+        candidate
+        for candidate in candidates
+        if (candidate / "python-runtime-manifest.json").exists()
+    ]
+    if manifest_candidates:
+        return max(
+            manifest_candidates,
+            key=lambda candidate: (candidate / "python-runtime-manifest.json").stat().st_mtime,
+        )
+
+    for candidate in candidates:
         if (candidate / "mcp_server").exists():
             return candidate
     return runtime_root / "app"

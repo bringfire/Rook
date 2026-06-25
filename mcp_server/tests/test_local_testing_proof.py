@@ -532,7 +532,14 @@ def test_python_smoke_evidence_seeds_legacy_release_root_from_installed_venv(
     local_appdata = tmp_path / "AppData" / "Local"
     rook_root = local_appdata / "Rook"
     (rook_root / "mcp_server").mkdir(parents=True)
+    (rook_root / "app" / "mcp_server").mkdir(parents=True)
     (rook_root / "app" / "chirp" / "src" / "chirp").mkdir(parents=True)
+    legacy_manifest = rook_root / "python-runtime-manifest.json"
+    stale_app_manifest = rook_root / "app" / "python-runtime-manifest.json"
+    legacy_manifest.write_text("{}", encoding="utf-8")
+    stale_app_manifest.write_text("{}", encoding="utf-8")
+    os.utime(stale_app_manifest, (1_700_000_000, 1_700_000_000))
+    os.utime(legacy_manifest, (1_800_000_000, 1_800_000_000))
     venv_python = rook_root / "venv" / "Scripts" / "python.exe"
     venv_python.parent.mkdir(parents=True)
     monkeypatch.setattr(proof.sys, "executable", str(venv_python))
