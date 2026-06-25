@@ -3922,16 +3922,26 @@ const Reconstruct = (() => {
 
     async function openReconstructPicker(slot) {
         pickerTargetSlot = slot;
+        pickerArtifactsById = {};
+        re.pickerGrid.innerHTML = '<div class="gallery-empty"><span>Loading...</span></div>';
+        re.pickerModal.classList.remove("hidden");
         // The shared Gallery helper is `bridgeCall`; list_artifacts filters by a
         // SINGLE `kind`, so fan out one call per allowed kind and merge.
         const results = await Promise.all(RECONSTRUCT_SOURCE_KINDS.map(
-            k => bridgeCall("list_artifacts", { kind: k, limit: 100 }).catch(() => ({ artifacts: [] }))));
-        const artifacts = results.flatMap(r => (r && r.artifacts) || []);
-        pickerArtifactsById = {};
+            k => bridgeCall("list_artifacts", { kind: k, limit: 100 })
+                .then(r => ({ ok: true, artifacts: (r && r.artifacts) || [] }))
+                .catch(() => ({ ok: false, artifacts: [] }))));
+        const artifacts = results.flatMap(r => r.artifacts || []);
+        if (artifacts.length === 0) {
+            const anyLoaded = results.some(r => r.ok);
+            re.pickerGrid.innerHTML = anyLoaded
+                ? '<div class="gallery-empty"><span>No images yet</span></div>'
+                : '<div class="gallery-empty"><span>Failed to load images</span></div>';
+            return;
+        }
         artifacts.forEach(a => { pickerArtifactsById[a.artifact_id] = a; });
         re.pickerGrid.innerHTML = artifacts.map(a =>
             `<button class="reconstruct-picker-cell" data-artifact-id="${escapeAttr(a.artifact_id)}"><img src="/blob/${encodeURIComponent(a.artifact_id)}/image" alt="${escapeAttr(a.kind)}"/></button>`).join("");
-        re.pickerModal.classList.remove("hidden");
     }
 
     function closeReconstructPicker() { re.pickerModal.classList.add("hidden"); pickerTargetSlot = null; }
