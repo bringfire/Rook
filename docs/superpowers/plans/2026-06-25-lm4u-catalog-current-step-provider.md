@@ -185,6 +185,21 @@ def test_constructor_rejects_non_step_values_with_type_error():
         CatalogCurrentStepProvider((NodeStepRule("a", (object(),)),))
 ```
 
+Implementation hardening added during review:
+
+- `NodeStepRule` snapshots mutable rule inputs and `BindStep` payload data when the
+  rule is constructed.
+- `BindStep.base_params` is recursively snapshotted; payload values that cannot be
+  snapshotted raise `TypeError` instead of remaining aliased to caller-owned objects.
+- `BindStep.bindings` is snapshotted as binding-path data, with list/tuple paths
+  normalized to tuples.
+- The caller-authored `Step` object identity is preserved; LM4U does not construct
+  replacement Steps during provider calls.
+
+The final test suite includes regression coverage for mutable rule/terminal inputs,
+mutable `steps_by_seen_count`, mutable nested `BindStep.base_params`/`bindings`, and
+non-snapshotable `BindStep.base_params` payload rejection.
+
 - [ ] **Step 3: Add selector halt and terminal halt tests**
 
 Append these tests:
@@ -425,6 +440,14 @@ _PROVIDER_ID: ProviderId = "catalog_current_step_provider:v1"
 class NodeStepRule:
     node_id: str
     steps_by_seen_count: tuple[Step, ...]
+
+# Final implementation note: NodeStepRule.__post_init__ snapshots
+# steps_by_seen_count and normalizes BindStep payloads at rule construction.
+# BindStep.base_params is recursively snapshotted into immutable containers where
+# possible, and non-snapshotable base-param payloads raise TypeError. BindStep.bindings
+# is snapshotted as binding-path data, with list/tuple paths normalized to tuples.
+# This is part of the public construction contract and prevents catalog policy from
+# changing through caller-owned mutable payloads after construction.
 
 
 @dataclass(frozen=True)

@@ -218,7 +218,21 @@ Raise `ValueError` for:
 Raise `TypeError` for:
 
 - any `steps_by_seen_count` value that is not a `ProducerStep`, `VerifierStep`, or
-  `BindStep`.
+  `BindStep`;
+- any `BindStep.base_params` payload that cannot be snapshotted at rule construction.
+
+`NodeStepRule` treats caller-authored steps as the catalog policy surface. To prevent a
+quiet mutability leak, `BindStep` payload data is snapshotted when the rule is created:
+
+- `BindStep.base_params` is recursively snapshotted into immutable mapping/sequence/set
+  containers where possible;
+- non-snapshotable `base_params` payload values raise `TypeError` instead of being
+  accepted by reference;
+- `BindStep.bindings` is snapshotted as binding-path data, with list/tuple paths
+  normalized to tuples.
+
+The selected `Step` object itself remains caller-authored and identity-preserving; the
+provider does not construct replacement Steps during calls.
 
 Step target checks use the same semantics as LM4P:
 
@@ -287,6 +301,7 @@ Constructor validation:
 - empty node id raises `ValueError`;
 - empty `steps_by_seen_count` raises `ValueError`;
 - non-Step value raises `TypeError`;
+- non-snapshotable `BindStep.base_params` payload raises `TypeError`;
 - Step target mismatch raises `ValueError`;
 - terminal node also having a rule raises `ValueError`.
 
