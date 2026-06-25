@@ -100,13 +100,13 @@ Append these assertions to `Test-InstallerExplainsOfflineWheelhouseProgress`:
 
 ```powershell
 Assert-Contains -Text $content -Expected 'FinalizingRookPage: TOutputMarqueeProgressWizardPage;' -Message 'Installer must define an indeterminate finalization progress page.'
-Assert-Contains -Text $content -Expected 'CreateOutputMarqueeProgressPage(''Finalizing Rook''' -Message 'Installer must create a dedicated Finalizing Rook marquee page.'
+Assert-True -Condition ([regex]::IsMatch($content, '(?s)CreateOutputMarqueeProgressPage\(\s*''Finalizing Rook''')) -Message 'Installer must create a dedicated Finalizing Rook marquee page.'
 Assert-Contains -Text $content -Expected 'First-time setup can take 10-12 minutes. The installer is still working.' -Message 'Finalization page must tell users the long wait is expected and active.'
 Assert-Contains -Text $content -Expected 'private Python, bundled wheels, MCP entries, skills, and validation' -Message 'Finalization page must name the real work being performed.'
 Assert-Contains -Text $content -Expected 'FinalizingRookPage.Show;' -Message 'Installer must show the finalization page before post-install work starts.'
 Assert-Contains -Text $content -Expected 'FinalizingRookPage.Animate;' -Message 'Installer must animate the indeterminate finalization page.'
 Assert-Contains -Text $content -Expected 'HideFinalizingRookPage();' -Message 'Installer must hide the finalization page after post-install work returns.'
-Assert-Contains -Text $content -Expected 'finally' -Message 'Installer must protect finalization page cleanup with finally.'
+Assert-True -Condition ([regex]::IsMatch($content, '(?s)ShowFinalizingRookPage\(\);.*?try.*?Exec\(PythonExe, Args, '''', SW_HIDE, ewWaitUntilTerminated, ResultCode\).*?finally\s+HideFinalizingRookPage\(\);')) -Message 'Installer must protect finalization page cleanup with try/finally around the blocking post-install Exec.'
 Assert-NotContains -Text $content -Unexpected 'FinalizingRookPage.SetProgress' -Message 'Finalization UX must remain indeterminate and must not fake percentages.'
 Assert-Contains -Text $content -Expected 'Post-install setup script (always included, launched from Pascal script)' -Message 'Installer source comment must not claim post_install.py is launched from [Run].'
 Assert-NotContains -Text $content -Unexpected 'Post-install setup script (always included, used by [Run])' -Message 'Installer source comment must not contradict the Pascal-script post-install contract.'
