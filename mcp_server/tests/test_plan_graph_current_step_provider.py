@@ -139,6 +139,7 @@ def _metadata(result: EnvelopeSupplyResult) -> dict:
             (NodeStepRule("done", (ProducerStep("done"),)),),
             frozenset({"done"}),
         ),
+        lambda: CatalogCurrentStepProvider((), frozenset({""})),
     ],
     ids=[
         "duplicate-node-id",
@@ -146,6 +147,7 @@ def _metadata(result: EnvelopeSupplyResult) -> dict:
         "empty-steps",
         "target-mismatch",
         "terminal-rule-overlap",
+        "empty-terminal-node-id",
     ],
 )
 def test_constructor_rejects_invalid_static_config(provider_factory):
@@ -156,6 +158,105 @@ def test_constructor_rejects_invalid_static_config(provider_factory):
 def test_constructor_rejects_non_step_values_with_type_error():
     with pytest.raises(TypeError):
         CatalogCurrentStepProvider((NodeStepRule("a", (object(),)),))
+
+
+def test_constructor_snapshots_mutable_rule_and_terminal_inputs():
+    rules = [NodeStepRule("a", (ProducerStep("a"),))]
+    terminal_node_ids = set()
+    provider = CatalogCurrentStepProvider(rules, terminal_node_ids)
+
+    rules.append(NodeStepRule("b", (ProducerStep("b"),)))
+    terminal_node_ids.add("a")
+
+    supplied = provider(_graph(("a", "ready")), (), ())
+    missing_rule = provider(_graph(("b", "ready")), (), ())
+
+    assert supplied.reason == "selected_node_mapped:a:0"
+    assert missing_rule.reason == "no_step_rule_for_node:b"
+
+
+def test_node_step_rule_snapshots_mutable_steps_by_seen_count():
+    first = ProducerStep("a")
+    second = BindStep("a", {}, {})
+    steps = [first]
+    rule = NodeStepRule("a", steps)
+    provider = CatalogCurrentStepProvider((rule,))
+
+    steps.append(second)
+
+    supplied = provider(_graph(("a", "ready")), (), ())
+    exhausted = provider(_graph(("a", "ready")), (_record_for("a"),), ())
+
+    assert rule.steps_by_seen_count == (first,)
+    assert supplied.envelope is not None
+    assert supplied.envelope.mapping.step is first
+    assert _metadata(supplied)["rule_step_count"] == 1
+    assert exhausted.envelope is None
+    assert exhausted.reason == "step_rule_exhausted:a:1"
+    assert _metadata(exhausted)["rule_step_count"] == 1
+
+
+def test_node_step_rule_snapshots_mutable_bind_step_payloads():
+    base_params = {
+        "operation": "create",
+        "nested": {"radius": 2},
+        "tags": ["initial"],
+    }
+    bindings = {"source_id": ["memory", "source_id"]}
+    step = BindStep("a", base_params, bindings)
+    provider = CatalogCurrentStepProvider((NodeStepRule("a", (step,)),))
+
+    base_params["operation"] = "mutated"
+    base_params["nested"]["radius"] = 99
+    base_params["tags"].append("late")
+    bindings["source_id"].append("late")
+    bindings["new_param"] = ["memory", "new"]
+
+    supplied = provider(_graph(("a", "ready")), (), ())
+
+    assert supplied.envelope is not None
+    supplied_step = supplied.envelope.mapping.step
+    assert supplied_step is step
+    assert isinstance(supplied_step, BindStep)
+    assert supplied_step.base_params["operation"] == "create"
+    assert supplied_step.base_params["nested"]["radius"] == 2
+    assert supplied_step.base_params["tags"] == ("initial",)
+    assert supplied_step.bindings == {"source_id": ("memory", "source_id")}
+
+
+def test_node_step_rule_snapshots_nested_set_and_custom_mutable_bind_payloads():
+    class MutableValue:
+        def __init__(self, values):
+            self.values = list(values)
+
+    flags = {"initial"}
+    mutable_value = MutableValue(["before"])
+    base_params = {
+        "nested": {"flags": flags},
+        "custom": mutable_value,
+    }
+    step = BindStep("a", base_params, {})
+    provider = CatalogCurrentStepProvider((NodeStepRule("a", (step,)),))
+
+    flags.add("late")
+    mutable_value.values.append("after")
+
+    supplied = provider(_graph(("a", "ready")), (), ())
+
+    assert supplied.envelope is not None
+    supplied_step = supplied.envelope.mapping.step
+    assert supplied_step is step
+    assert isinstance(supplied_step, BindStep)
+    assert supplied_step.base_params["nested"]["flags"] == frozenset({"initial"})
+    assert supplied_step.base_params["custom"].values == ["before"]
+    assert supplied_step.base_params["custom"] is not mutable_value
+
+
+def test_rules_by_node_id_policy_cache_is_immutable():
+    provider = CatalogCurrentStepProvider((NodeStepRule("a", (ProducerStep("a"),)),))
+
+    with pytest.raises(TypeError):
+        provider._rules_by_node_id["b"] = NodeStepRule("b", (ProducerStep("b"),))
 
 
 def test_no_ready_selector_halt_is_valid_halt():
