@@ -224,6 +224,27 @@ async def test_mapping_invalid_for_non_step_value():
 
 
 @pytest.mark.asyncio
+async def test_mapping_invalid_for_attribute_raising_value():
+    # A forged step that raises on any non-dunder attribute access must still be refused cleanly
+    # by the structural isinstance check -- proving no field is read after isinstance returns
+    # False.  NOTE: CPython's isinstance() internally accesses __class__, so we allow that
+    # dunder through and block everything else; this precisely tests the "no field read after
+    # the isinstance gate" guarantee.
+    class FieldPoison:
+        def __getattribute__(self, name):
+            if name.startswith("__") and name.endswith("__"):
+                return super().__getattribute__(name)
+            raise AssertionError(f"field accessed on forged step: {name!r}")
+
+    graph = _graph(("a", "ready"))
+    mapping = _hand_mapping(FieldPoison(), "a", mapped=True)
+    result = await execute_mapped_step(mapping, graph)
+    assert result.ran is False
+    assert result.failure == "mapping_invalid"
+    assert result.graph is graph
+
+
+@pytest.mark.asyncio
 async def test_runner_required_for_producer_without_runner():
     graph = _graph(("a", "ready"))
     mapping = _hand_mapping(ProducerStep("a"), "a", mapped=True)

@@ -17,7 +17,7 @@ from rook.agent.plan_graph_sequence_runner import ProducerStep, VerifierStep
 from rook.agent.plan_graph_step_executor import execute_mapped_step
 from rook.agent.plan_graph_step_mapping import map_accepted_proposal_to_step
 from rook.learning.plan_graph import initialize_graph
-from rook.learning.plan_graph_runner import apply_producer_result, apply_verifier_step
+from rook.learning.plan_graph_runner import apply_producer_result
 from rook.learning.plan_graph_selector import propose_next_node
 from rook.learning.plan_graph_templates import select_template
 
