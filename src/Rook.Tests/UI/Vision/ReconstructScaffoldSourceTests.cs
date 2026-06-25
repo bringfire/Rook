@@ -68,6 +68,22 @@ namespace Rook.Tests.UI.Vision
         }
 
         [Fact]
+        public void AppJs_ReconstructPicker_RendersLoadingEmptyAndFailureStates()
+        {
+            var js = ReadVisionResource("app.js");
+            var s = js.IndexOf("async function openReconstructPicker(", System.StringComparison.Ordinal);
+            Assert.True(s >= 0, "openReconstructPicker() not found");
+            var e = js.IndexOf("function closeReconstructPicker(", s, System.StringComparison.Ordinal);
+            Assert.True(e > s, "closeReconstructPicker() boundary not found after openReconstructPicker()");
+            var body = js.Substring(s, e - s);
+
+            Assert.Contains("Loading", body);
+            Assert.Contains("No images yet", body);
+            Assert.Contains("Failed to load images", body);
+            Assert.Contains("re.pickerModal.classList.remove(\"hidden\");", body);
+        }
+
+        [Fact]
         public void AppJs_SlotStateCarriesRenderFields_AndSendTo3dLandsInFront()
         {
             var js = ReadVisionResource("app.js");
