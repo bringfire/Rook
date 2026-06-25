@@ -161,3 +161,39 @@ def test_single_frame_count_returns_identity():
         frame_count=1, source_center=[0, 0, 0], default_easing="linear",
     )
     assert frames == [dm.IDENTITY_4X4]
+
+
+# --- P1: malformed numeric fields must raise MotionError, not raw ValueError/IndexError ---
+
+@pytest.mark.parametrize("bad_kf", [
+    {"t": "abc", "translate": [1, 0, 0]},                                  # non-numeric t
+    {"t": True, "translate": [1, 0, 0]},                                   # bool t (was silently 1.0)
+    {"t": None, "translate": [1, 0, 0]},                                   # None t
+    {"t": 1.0, "translate": ["x", 0, 0]},                                  # non-numeric translate
+    {"t": 1.0, "translate": [True, 0, 0]},                                 # bool translate component
+    {"t": 1.0, "scale": "big"},                                            # non-numeric scalar scale
+    {"t": 1.0, "scale": [True, 1, 1]},                                     # bool scale component
+    {"t": 1.0, "scale": ["a", 1, 1]},                                      # non-numeric scale component
+    {"t": 1.0, "rotate": {"axis": [0, 0, 1], "angle_degrees": "ninety"}},  # non-numeric angle
+    {"t": 1.0, "rotate": {"axis": [0, 0, 1], "angle_degrees": True}},      # bool angle
+    {"t": 1.0, "rotate": {"axis": ["x", 0, 1], "angle_degrees": 90}},      # non-numeric axis component
+    {"t": 1.0, "rotate": {"axis": [0, 1], "angle_degrees": 90}},           # axis len 2 (was IndexError)
+    {"t": 1.0, "rotate": {"axis": [0, 0, 1, 0], "angle_degrees": 90}},     # axis len 4 (was silently OK)
+    {"t": 1.0, "rotate": {"axis": [0, 0, 1], "angle_degrees": 90,
+                          "pivot": ["x", 0, 0]}},                          # non-numeric pivot component
+])
+def test_malformed_numeric_fields_raise_motionerror(bad_kf):
+    with pytest.raises(dm.MotionError) as ei:
+        dm.compile_object_track([bad_kf], frame_count=2,
+                                source_center=[0, 0, 0], default_easing="linear")
+    assert ei.value.code == "invalid_keyframe"
+
+
+def test_valid_int_fields_still_accepted():
+    # ints (not bools) remain valid for t/translate/scale/angle/axis
+    frames = dm.compile_object_track(
+        [{"t": 1, "translate": [4, 0, 0], "scale": 2,
+          "rotate": {"axis": [0, 0, 1], "angle_degrees": 90}}],
+        frame_count=2, source_center=[0, 0, 0], default_easing="linear")
+    assert len(frames) == 2
+    assert frames[0] == dm.IDENTITY_4X4

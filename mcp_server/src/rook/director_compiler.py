@@ -65,11 +65,19 @@ def _resolve_group(name: str, groups: dict) -> list[str]:
     members = groups[name]
     if not isinstance(members, list) or not members:
         raise DirectorCompileError("empty_group", f"group '{name}' resolves to no objects")
-    out = []
+    # Duplicate ids WITHIN one group collapse to a set (spec) — preserve stable order.
+    # Store the canonical (stripped) form so group members and bare-id targets key
+    # identically, keeping cross-track duplicate_object_target detection consistent.
+    seen: set[str] = set()
+    out: list[str] = []
     for m in members:
         if not _is_uuid(m):
             raise DirectorCompileError("invalid_input", f"group '{name}' member is not a valid object UUID: {m!r}")
-        out.append(m)
+        canonical = m.strip()
+        if canonical in seen:
+            continue
+        seen.add(canonical)
+        out.append(canonical)
     return out
 
 

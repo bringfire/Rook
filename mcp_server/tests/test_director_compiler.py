@@ -295,3 +295,45 @@ def test_compile_motion_provenance_segment_mapping_shape():
     assert U1 in prov["segment_mapping"]
     seg = prov["segment_mapping"][U1]
     assert seg == [{"t": 1.0, "ease_from_previous": "ease_in_out"}]
+
+
+# --- P2: duplicate ids WITHIN one group collapse to a set (not duplicate_object_target) ---
+
+def test_expand_dedupes_ids_within_one_group():
+    spec = {"groups": {"g": [U1, U1, U2]},
+            "motion": [{"target": "g", "keyframes": [{"t": 1.0, "translate": [1, 0, 0]}]}]}
+    expanded = dc.expand_targets(spec)
+    assert set(expanded) == {U1, U2}
+
+
+def test_compile_motion_dedupes_group_member_to_single_track():
+    fake = FullFakeNative([_objstate(U1, [0, 0, 0], [2, 2, 2])])
+    spec = _spec(groups={"g": [U1, U1]},
+                 motion=[{"target": "g", "keyframes": [{"t": 1.0, "translate": [4, 0, 0]}]}])
+    track = asyncio.run(dc.compile_motion(spec, call_native=fake, port=None))["track"]
+    assert track["animated_object_ids"] == [U1]
+    for of in track["object_frames"]:
+        assert [ot["object_id"] for ot in of["object_transforms"]] == [U1]
+
+
+def test_cross_track_duplicate_still_rejected_after_group_dedupe():
+    # one object claimed by a group track AND a bare-id track is still a hard error
+    spec = {"groups": {"a": [U1]},
+            "motion": [
+                {"target": "a", "keyframes": [{"t": 1.0, "translate": [1, 0, 0]}]},
+                {"target": U1, "keyframes": [{"t": 1.0, "translate": [0, 1, 0]}]},
+            ]}
+    with pytest.raises(dc.DirectorCompileError) as ei:
+        dc.expand_targets(spec)
+    assert ei.value.code == "duplicate_object_target"
+
+
+# --- P1 integration: malformed keyframe surfaces as DirectorCompileError(invalid_keyframe) ---
+
+def test_compile_motion_malformed_keyframe_is_invalid_keyframe():
+    fake = FullFakeNative([_objstate(U1, [0, 0, 0], [2, 2, 2])])
+    spec = _spec(motion=[{"target": U1, "keyframes": [{"t": 1.0, "translate": ["x", 0, 0]}]}])
+    with pytest.raises(dc.DirectorCompileError) as ei:
+        asyncio.run(dc.compile_motion(spec, call_native=fake, port=None))
+    assert ei.value.code == "invalid_keyframe"
+    assert ei.value.extra.get("object_id") == U1

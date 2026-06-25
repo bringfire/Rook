@@ -137,18 +137,30 @@ class _ParsedKey:
         self.ease = ease
 
 
+def _strict_number(value, field):
+    """Coerce a user-supplied scalar to float. Rejects bool (bool is an int subclass)
+    and any non-(int|float) type, and rejects non-finite values, raising MotionError
+    so director_compiler maps it to DirectorCompileError('invalid_keyframe')."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise MotionError("invalid_keyframe", f"{field} must be a finite number")
+    out = float(value)
+    if not math.isfinite(out):
+        raise MotionError("invalid_keyframe", f"{field} must be a finite number")
+    return out
+
+
 def _parse_scale(value):
     if value is None:
         return [1.0, 1.0, 1.0]
     if isinstance(value, (list, tuple)):
         if len(value) != 3:
             raise MotionError("invalid_keyframe", "scale vector must have 3 components")
-        comps = [float(c) for c in value]
+        comps = [_strict_number(c, "scale component") for c in value]
     else:
-        comps = [float(value)] * 3
+        comps = [_strict_number(value, "scale")] * 3
     for c in comps:
-        if not math.isfinite(c) or c <= 0.0:
-            raise MotionError("invalid_keyframe", "scale components must be finite and > 0")
+        if c <= 0.0:
+            raise MotionError("invalid_keyframe", "scale components must be > 0")
     return comps
 
 
@@ -157,10 +169,7 @@ def _parse_translate(value):
         return [0.0, 0.0, 0.0]
     if not isinstance(value, (list, tuple)) or len(value) != 3:
         raise MotionError("invalid_keyframe", "translate must be a 3-number array")
-    comps = [float(c) for c in value]
-    if any(not math.isfinite(c) for c in comps):
-        raise MotionError("invalid_keyframe", "translate components must be finite")
-    return comps
+    return [_strict_number(c, "translate component") for c in value]
 
 
 def _resolve_pivot(rotate, source_center):
@@ -168,18 +177,15 @@ def _resolve_pivot(rotate, source_center):
     if pivot == "object_center":
         return [float(c) for c in source_center]
     if isinstance(pivot, (list, tuple)) and len(pivot) == 3:
-        comps = [float(c) for c in pivot]
-        if any(not math.isfinite(c) for c in comps):
-            raise MotionError("invalid_keyframe", "pivot components must be finite")
-        return comps
+        return [_strict_number(c, "pivot component") for c in pivot]
     raise MotionError("invalid_keyframe", "pivot must be 'object_center' or a 3-number array")
 
 
 def _parse_key(kf, source_center, default_easing):
     if not isinstance(kf, dict) or "t" not in kf:
         raise MotionError("invalid_keyframe", "keyframe must be an object with a 't'")
-    t = float(kf["t"])
-    if not math.isfinite(t) or t < 0.0 or t > 1.0:
+    t = _strict_number(kf["t"], "keyframe t")
+    if t < 0.0 or t > 1.0:
         raise MotionError("invalid_keyframe", "keyframe t must be in 0..1")
     translate = _parse_translate(kf.get("translate"))
     scale = _parse_scale(kf.get("scale"))
@@ -189,10 +195,14 @@ def _parse_key(kf, source_center, default_easing):
     if rotate is not None:
         if not isinstance(rotate, dict) or "axis" not in rotate or "angle_degrees" not in rotate:
             raise MotionError("invalid_keyframe", "rotate requires axis and angle_degrees")
-        angle = float(rotate["angle_degrees"])
-        if not math.isfinite(angle) or abs(angle) > 180.0:
-            raise MotionError("invalid_keyframe", "rotate angle_degrees must be finite and |angle| <= 180")
-        quat = _quat_from_axis_angle(rotate["axis"], angle)
+        axis = rotate["axis"]
+        if not isinstance(axis, (list, tuple)) or len(axis) != 3:
+            raise MotionError("invalid_keyframe", "rotate.axis must be a 3-number array")
+        axis = [_strict_number(c, "rotate.axis component") for c in axis]
+        angle = _strict_number(rotate["angle_degrees"], "rotate.angle_degrees")
+        if abs(angle) > 180.0:
+            raise MotionError("invalid_keyframe", "rotate angle_degrees must satisfy |angle| <= 180")
+        quat = _quat_from_axis_angle(axis, angle)
         pivot = _resolve_pivot(rotate, source_center)
     ease = kf.get("ease_from_previous", default_easing)
     if ease not in EASING_NAMES:
