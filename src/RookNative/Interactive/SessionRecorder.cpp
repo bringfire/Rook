@@ -92,13 +92,30 @@ void CSessionRecorder::Start(ON_UUID pluginId)
     // Start session for current document if one is open
     CRhinoDoc* pDoc = GetDocument();
     if (pDoc)
-        StartSession(*pDoc);
+    {
+        try
+        {
+            StartSession(*pDoc);
+        }
+        catch (...)
+        {
+            Stop();
+            throw;
+        }
+    }
 }
 
 void CSessionRecorder::Stop()
 {
-    if (!m_running.load()) return;
-    m_running.store(false);
+    const bool wasRunning = m_running.exchange(false);
+    bool hasSession = false;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        hasSession = static_cast<bool>(m_session);
+    }
+
+    const bool hasStartupState = m_watcher != nullptr || hasSession;
+    if (!wasRunning && !hasStartupState) return;
 
     if (m_watcher)
     {

@@ -5,6 +5,14 @@
 
 // --- Singleton ---
 
+std::atomic<int> CMainThreadDispatcher::s_startupBreadcrumb{
+    static_cast<int>(CMainThreadDispatcher::StartupBreadcrumb::NotStarted)
+};
+std::atomic<int> CMainThreadDispatcher::s_startupSetWindowSubclassStatus{
+    static_cast<int>(CMainThreadDispatcher::StartupSubclassStatus::NotAttempted)
+};
+std::atomic<DWORD> CMainThreadDispatcher::s_startupSetWindowSubclassError{ 0 };
+
 CMainThreadDispatcher::CMainThreadDispatcher() = default;
 
 CMainThreadDispatcher::~CMainThreadDispatcher()
@@ -19,37 +27,136 @@ CMainThreadDispatcher& CMainThreadDispatcher::Instance()
     return instance;
 }
 
+void CMainThreadDispatcher::SetStartupBreadcrumb(StartupBreadcrumb breadcrumb)
+{
+    s_startupBreadcrumb.store(static_cast<int>(breadcrumb), std::memory_order_release);
+
+    wchar_t line[160] = {};
+    swprintf_s(
+        line,
+        L"RookNative: dispatcher-start: %ls\n",
+        StartupBreadcrumbName(breadcrumb));
+    ::OutputDebugStringW(line);
+}
+
+CMainThreadDispatcher::StartupBreadcrumb CMainThreadDispatcher::GetStartupBreadcrumb()
+{
+    return static_cast<StartupBreadcrumb>(
+        s_startupBreadcrumb.load(std::memory_order_acquire));
+}
+
+const wchar_t* CMainThreadDispatcher::StartupBreadcrumbName(StartupBreadcrumb breadcrumb)
+{
+    switch (breadcrumb)
+    {
+    case StartupBreadcrumb::NotStarted: return L"not-started";
+    case StartupBreadcrumb::InstanceRequested: return L"instance-requested";
+    case StartupBreadcrumb::InstanceResolved: return L"instance-resolved";
+    case StartupBreadcrumb::StartEntered: return L"start-entered";
+    case StartupBreadcrumb::AlreadyRunning: return L"already-running";
+    case StartupBreadcrumb::ResetCommandDepth: return L"reset-command-depth";
+    case StartupBreadcrumb::ResetSaveSuspendDepth: return L"reset-save-suspend-depth";
+    case StartupBreadcrumb::IdleWatcherCreate: return L"idle-watcher-create";
+    case StartupBreadcrumb::IdleWatcherRegister: return L"idle-watcher-register";
+    case StartupBreadcrumb::IdleWatcherEnable: return L"idle-watcher-enable";
+    case StartupBreadcrumb::CommandWatcherCreate: return L"command-watcher-create";
+    case StartupBreadcrumb::CommandWatcherRegister: return L"command-watcher-register";
+    case StartupBreadcrumb::CommandWatcherEnable: return L"command-watcher-enable";
+    case StartupBreadcrumb::RhinoMainWnd: return L"rhino-main-window";
+    case StartupBreadcrumb::SetWindowSubclass: return L"set-window-subclass";
+    case StartupBreadcrumb::SetWindowSubclassFailed: return L"set-window-subclass-failed";
+    case StartupBreadcrumb::MarkRunning: return L"mark-running";
+    case StartupBreadcrumb::Succeeded: return L"succeeded";
+    default: return L"unknown";
+    }
+}
+
+DWORD CMainThreadDispatcher::GetStartupSetWindowSubclassError()
+{
+    return s_startupSetWindowSubclassError.load(std::memory_order_acquire);
+}
+
+CMainThreadDispatcher::StartupSubclassStatus CMainThreadDispatcher::GetStartupSetWindowSubclassStatus()
+{
+    return static_cast<StartupSubclassStatus>(
+        s_startupSetWindowSubclassStatus.load(std::memory_order_acquire));
+}
+
 // --- Lifecycle ---
 
 void CMainThreadDispatcher::Start(ON_UUID plugin_id)
 {
     if (m_running.load())
+    {
+        SetStartupBreadcrumb(StartupBreadcrumb::AlreadyRunning);
         return;
+    }
 
+    SetStartupBreadcrumb(StartupBreadcrumb::StartEntered);
+    s_startupSetWindowSubclassStatus.store(
+        static_cast<int>(StartupSubclassStatus::NotAttempted),
+        std::memory_order_release);
+    s_startupSetWindowSubclassError.store(0, std::memory_order_release);
+    SetStartupBreadcrumb(StartupBreadcrumb::ResetCommandDepth);
     {
         std::lock_guard<std::mutex> lock(m_commandMutex);
         m_commandDepth = 0;
     }
+    SetStartupBreadcrumb(StartupBreadcrumb::ResetSaveSuspendDepth);
+    m_saveDepth.store(0, std::memory_order_release);
+    m_suspendDepth.store(0, std::memory_order_release);
 
+    SetStartupBreadcrumb(StartupBreadcrumb::IdleWatcherCreate);
     m_watcher = std::make_unique<CIdleWatcher>(plugin_id, *this);
+    SetStartupBreadcrumb(StartupBreadcrumb::IdleWatcherRegister);
     m_watcher->Register();
+    SetStartupBreadcrumb(StartupBreadcrumb::IdleWatcherEnable);
     m_watcher->Enable(true);
 
+    SetStartupBreadcrumb(StartupBreadcrumb::CommandWatcherCreate);
     m_commandWatcher = std::make_unique<CCommandWatcher>(*this);
+    SetStartupBreadcrumb(StartupBreadcrumb::CommandWatcherRegister);
     m_commandWatcher->Register();
+    SetStartupBreadcrumb(StartupBreadcrumb::CommandWatcherEnable);
     m_commandWatcher->Enable(TRUE);
 
     // Install WndProc subclass for modal-loop drain path.
     // SetWindowSubclass is safe for multi-plugin environments — each plugin
     // gets its own subclass ID and removal doesn't break the chain.
+    SetStartupBreadcrumb(StartupBreadcrumb::RhinoMainWnd);
     m_subclassedHwnd = RhinoApp().MainWnd();
     if (m_subclassedHwnd != nullptr)
     {
-        ::SetWindowSubclass(m_subclassedHwnd, SubclassProc, SUBCLASS_ID,
-                            reinterpret_cast<DWORD_PTR>(this));
+        SetStartupBreadcrumb(StartupBreadcrumb::SetWindowSubclass);
+        if (!::SetWindowSubclass(m_subclassedHwnd, SubclassProc, SUBCLASS_ID,
+                                 reinterpret_cast<DWORD_PTR>(this)))
+        {
+            const DWORD error = ::GetLastError();
+            s_startupSetWindowSubclassStatus.store(
+                static_cast<int>(StartupSubclassStatus::Failed),
+                std::memory_order_release);
+            s_startupSetWindowSubclassError.store(error, std::memory_order_release);
+            SetStartupBreadcrumb(StartupBreadcrumb::SetWindowSubclassFailed);
+
+            wchar_t line[192] = {};
+            swprintf_s(
+                line,
+                L"RookNative: dispatcher-start: SetWindowSubclass failed GetLastError=%lu\n",
+                error);
+            ::OutputDebugStringW(line);
+            m_subclassedHwnd = nullptr;
+        }
+        else
+        {
+            s_startupSetWindowSubclassStatus.store(
+                static_cast<int>(StartupSubclassStatus::Installed),
+                std::memory_order_release);
+        }
     }
 
+    SetStartupBreadcrumb(StartupBreadcrumb::MarkRunning);
     m_running.store(true);
+    SetStartupBreadcrumb(StartupBreadcrumb::Succeeded);
 }
 
 void CMainThreadDispatcher::Stop()
@@ -60,9 +167,17 @@ void CMainThreadDispatcher::Stop()
     // queue, then Dispatch() pushes a task that will never be executed.
     {
         std::lock_guard<std::mutex> lock(m_mutex);
-        if (!m_running.load())
+        const bool wasRunning = m_running.exchange(false);
+        const bool hasStartupState =
+            m_subclassedHwnd != nullptr
+            || m_watcher != nullptr
+            || m_commandWatcher != nullptr
+            || !m_queue.empty()
+            || m_saveDepth.load(std::memory_order_acquire) > 0
+            || m_suspendDepth.load(std::memory_order_acquire) > 0;
+
+        if (!wasRunning && !hasStartupState)
             return;
-        m_running.store(false);
     }
 
     // Remove WndProc subclass before unregistering the idle watcher.
@@ -96,6 +211,8 @@ void CMainThreadDispatcher::Stop()
         std::lock_guard<std::mutex> lock(m_commandMutex);
         m_commandDepth = 0;
     }
+    m_saveDepth.store(0, std::memory_order_release);
+    m_suspendDepth.store(0, std::memory_order_release);
 
     if (m_watcher)
     {

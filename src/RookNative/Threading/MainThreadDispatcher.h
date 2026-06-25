@@ -64,6 +64,42 @@ public:
 
     static CMainThreadDispatcher& Instance();
 
+    enum class StartupBreadcrumb
+    {
+        NotStarted = 0,
+        InstanceRequested,
+        InstanceResolved,
+        StartEntered,
+        AlreadyRunning,
+        ResetCommandDepth,
+        ResetSaveSuspendDepth,
+        IdleWatcherCreate,
+        IdleWatcherRegister,
+        IdleWatcherEnable,
+        CommandWatcherCreate,
+        CommandWatcherRegister,
+        CommandWatcherEnable,
+        RhinoMainWnd,
+        SetWindowSubclass,
+        SetWindowSubclassFailed,
+        MarkRunning,
+        Succeeded
+    };
+
+    static void SetStartupBreadcrumb(StartupBreadcrumb breadcrumb);
+    static StartupBreadcrumb GetStartupBreadcrumb();
+    static const wchar_t* StartupBreadcrumbName(StartupBreadcrumb breadcrumb);
+
+    enum class StartupSubclassStatus
+    {
+        NotAttempted = 0,
+        Installed,
+        Failed
+    };
+
+    static StartupSubclassStatus GetStartupSetWindowSubclassStatus();
+    static DWORD GetStartupSetWindowSubclassError();
+
     // Save-guard: suppress dispatch while a file-save command is in progress.
     // OnBeginCommand increments when _Save/_SaveSmall/_SaveAs starts;
     // OnEndCommand decrements.  DrainQueue() defers when depth > 0.
@@ -143,6 +179,10 @@ private:
     std::atomic<int>  m_suspendDepth{0};
     mutable std::mutex m_commandMutex;
     int m_commandDepth = 0;
+
+    static std::atomic<int> s_startupBreadcrumb;
+    static std::atomic<int> s_startupSetWindowSubclassStatus;
+    static std::atomic<DWORD> s_startupSetWindowSubclassError;
 };
 
 inline bool CMainThreadDispatcher::IsAllDispatchBlocked() const

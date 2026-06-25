@@ -2531,6 +2531,7 @@ bool CRookServer::Start()
     if (!m_server->is_running())
     {
         m_server_thread.join();
+        m_port = 0;
         m_server.reset();
         RhinoApp().Print(L"RookNative: server failed to start after binding port %d\n", bound_port);
         return false;
@@ -2543,11 +2544,18 @@ bool CRookServer::Start()
 
 void CRookServer::Stop()
 {
-    if (!m_running.load())
+    const bool wasRunning = m_running.exchange(false);
+    const bool hasStartupState =
+        m_server != nullptr
+        || m_server_thread.joinable()
+        || m_port != 0
+        || !m_discovery_path.empty();
+
+    if (!wasRunning && !hasStartupState)
         return;
 
-    m_running.store(false);
-    m_server->stop();
+    if (m_server)
+        m_server->stop();
 
     if (m_server_thread.joinable())
     {
@@ -2555,6 +2563,7 @@ void CRookServer::Stop()
     }
 
     RemoveDiscoveryFile();
+    m_server.reset();
     m_port = 0;
 }
 
