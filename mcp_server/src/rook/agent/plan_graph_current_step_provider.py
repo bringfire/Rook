@@ -207,7 +207,11 @@ def _step_target_node_id(step: Step) -> str:
 
 
 def _snapshot_bind_step_payloads(step: BindStep) -> None:
-    object.__setattr__(step, "base_params", _immutable_snapshot(step.base_params))
+    try:
+        base_params = _immutable_snapshot(step.base_params)
+    except TypeError as exc:
+        raise TypeError("BindStep.base_params contains non-snapshotable payload") from exc
+    object.__setattr__(step, "base_params", base_params)
     object.__setattr__(step, "bindings", _snapshot_bindings(step.bindings))
 
 
@@ -225,8 +229,10 @@ def _immutable_snapshot(value: Any) -> Any:
         return frozenset(_immutable_snapshot(item) for item in value)
     try:
         return deepcopy(value)
-    except Exception:
-        return value
+    except Exception as exc:
+        raise TypeError(
+            f"cannot snapshot payload of type {type(value).__name__}"
+        ) from exc
 
 
 def _snapshot_bindings(bindings: Any) -> Any:

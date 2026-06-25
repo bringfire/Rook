@@ -327,6 +327,21 @@ def test_node_step_rule_snapshots_nested_set_and_custom_mutable_bind_payloads():
     assert supplied_step.base_params["custom"] is not mutable_value
 
 
+def test_node_step_rule_rejects_uncopyable_mutable_bind_payloads():
+    class UncopyableMutableValue:
+        def __init__(self):
+            self.values = ["before"]
+
+        def __deepcopy__(self, memo):
+            raise RuntimeError("copy denied")
+
+    mutable_value = UncopyableMutableValue()
+    step = BindStep("a", {"custom": mutable_value}, {})
+
+    with pytest.raises(TypeError, match="BindStep.base_params"):
+        NodeStepRule("a", (step,))
+
+
 def test_rules_by_node_id_policy_cache_is_immutable():
     provider = CatalogCurrentStepProvider((NodeStepRule("a", (ProducerStep("a"),)),))
 
