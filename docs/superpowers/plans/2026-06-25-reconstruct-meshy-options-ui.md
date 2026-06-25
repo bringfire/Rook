@@ -85,6 +85,17 @@ public void AppJs_ReconstructExperimentalToggle_LoadsModelsWithIncludeExperiment
     Assert.Contains("include_experimental: true", js);
     Assert.Contains("loadModels(true)", js);
     Assert.Contains("re.includeExperimental.checked", js);
+    Assert.DoesNotContain("await loadModels(true);\r\n    updateReconstructModelForMode(reconstructMode);", js);
+    Assert.DoesNotContain("await loadModels(true);\n    updateReconstructModelForMode(reconstructMode);", js);
+}
+
+[Fact]
+public void AppJs_ModelHint_IncludesNonStableStatus()
+{
+    var js = ReadVisionResource("app.js");
+    Assert.Contains("function modelStatusLabel(", js);
+    Assert.Contains("model.status !== \"stable\"", js);
+    Assert.Contains("statusLabel", js);
 }
 ```
 
@@ -93,7 +104,7 @@ public void AppJs_ReconstructExperimentalToggle_LoadsModelsWithIncludeExperiment
 Run:
 
 ```powershell
-dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "FullyQualifiedName~IndexHtml_ReconstructExperimentalToggle_Present|FullyQualifiedName~AppJs_ReconstructExperimentalToggle_LoadsModelsWithIncludeExperimental" -v minimal
+dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "FullyQualifiedName~IndexHtml_ReconstructExperimentalToggle_Present|FullyQualifiedName~AppJs_ReconstructExperimentalToggle_LoadsModelsWithIncludeExperimental|FullyQualifiedName~AppJs_ModelHint_IncludesNonStableStatus" -v minimal
 ```
 
 Expected: FAIL because the HTML id, cached JS field, toggle state, and `include_experimental` request are not present.
@@ -132,10 +143,10 @@ re.includeExperimental.addEventListener("change", async () => {
     includeExperimentalModels = !!re.includeExperimental.checked;
     modelsLoaded = false;
     await loadModels(true);
-    updateReconstructModelForMode(reconstructMode);
-    renderModelOptions();
 });
 ```
+
+Do not call `updateReconstructModelForMode(reconstructMode)` or `renderModelOptions()` again after `loadModels(true)`. `loadModels(true)` captures `previousModelId`, repopulates the mode-specific dropdown with that preferred id, updates the hint, and renders options. A second update without the preferred id can reset the selection to the first model.
 
 Change `loadModels()` to accept a force flag and build request args from the toggle:
 
@@ -153,6 +164,14 @@ async function loadModels(force) {
     updateReconstructModelForMode(reconstructMode, previousModelId);
     renderModelOptions();
     modelsLoaded = true;
+}
+```
+
+Add this helper near `buildModelOption()`:
+
+```js
+function modelStatusLabel(model) {
+    return model && model.status && model.status !== "stable" ? ` · ${model.status}` : "";
 }
 ```
 
@@ -185,12 +204,25 @@ function updateReconstructModelForMode(mode, preferredModelId) {
 
 Leave existing `setReconstructMode(reconstructMode)` calls intact, but allow them to call `updateReconstructModelForMode(mode)` without a preferred id.
 
+Update `updateModelHint()` so non-stable status is visible:
+
+```js
+function updateModelHint() {
+    if (!re.modelHint) return;
+    const m = selectedModel();
+    const statusLabel = modelStatusLabel(m);
+    re.modelHint.textContent = m
+        ? `${m.provider} · ${String(m.task || "").replace(/_/g, " ")}${statusLabel}${m.supports_pbr ? " · PBR" : ""}`
+        : "";
+}
+```
+
 - [ ] **Step 5: Run test to verify it passes**
 
 Run:
 
 ```powershell
-dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "FullyQualifiedName~IndexHtml_ReconstructExperimentalToggle_Present|FullyQualifiedName~AppJs_ReconstructExperimentalToggle_LoadsModelsWithIncludeExperimental" -v minimal
+dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "FullyQualifiedName~IndexHtml_ReconstructExperimentalToggle_Present|FullyQualifiedName~AppJs_ReconstructExperimentalToggle_LoadsModelsWithIncludeExperimental|FullyQualifiedName~AppJs_ModelHint_IncludesNonStableStatus" -v minimal
 ```
 
 Expected: PASS.
