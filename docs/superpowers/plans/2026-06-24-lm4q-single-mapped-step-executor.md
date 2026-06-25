@@ -184,20 +184,25 @@ async def test_mapped_producer_step_delegates_exact_graph_and_node():
 
 @pytest.mark.asyncio
 async def test_mapped_verifier_step_runs_via_apply_verifier_step():
-    # Source "a" has captured evidence -> verifier applies. Build via apply_producer_result.
+    # Source "a" must carry the producer role BEFORE apply_producer_result, or it returns
+    # role_missing (no evidence captured) and the verifier would not apply.
+    from rook.learning.plan_graph_projection import OUTCOME_PROJECTION_ROLE_KEY
     from rook.learning.plan_graph_runner import apply_producer_result
 
     graph = _graph(("a", "ready"), ("v", "ready"))
+    graph.nodes["a"].metadata[OUTCOME_PROJECTION_ROLE_KEY] = "artifact_producer"
     raw = {"success": True, "data": {"script_receipt": {"version": 1, "operation": "create",
             "language": "csharp", "artifact_status": "usable",
             "mutation": {"status": "created", "component_guid": "g"},
             "verification": {"status": "passed", "target_error_count": 0}}}}
     graph = apply_producer_result(graph, "a", raw).graph
+    assert graph.nodes["a"].evidence is not None  # role set -> evidence captured
     mapping = _hand_mapping(VerifierStep(verifier_node_id="v", source_node_id="a"), "v", mapped=True)
     result = await execute_mapped_step(mapping, graph)
     assert result.ran is True
     assert result.kind == "verifier"
     assert result.verifier_result is not None
+    assert result.verifier_result.applied is True  # genuine happy path (evidence present)
     assert result.producer_result is None and result.bind_result is None
 
 
