@@ -239,16 +239,10 @@ public sealed class ReconstructionJobManager : IDisposable
             ReconstructionJobStage.Submitting);
         _ledger.Append(submitting);
 
-        // sourceArtifactIds (front + filled slots, resolved order) is read in the post-try switch by
-        // Task 1.10's carrier population, so declare it above the try. providerViews stays inside.
         var sourceArtifactIds = new List<Guid>();
-        ProviderSubmitOutcome submitOutcome;
+        var providerViews = new List<ReconstructionProviderViewUrl>();
         try
         {
-            // The validator already resolved + length-cap-validated each AbsolutePath. Read bytes here
-            // (manager owns the store) and publish each slot's image; pass only bytes/mime/fileName so
-            // the provider/publisher stay storage-agnostic. Order is front-first (ResolveViews order).
-            var providerViews = new List<ReconstructionProviderViewUrl>();
             foreach (var (rv, absolutePath) in validatedViews)
             {
                 var bytes = await ReadFileBytesAsync(absolutePath, ct).ConfigureAwait(false);
@@ -258,9 +252,40 @@ public sealed class ReconstructionJobManager : IDisposable
                 providerViews.Add(new ReconstructionProviderViewUrl(rv.Field, url));
                 sourceArtifactIds.Add(rv.ArtifactId);
             }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return RecordPublishFailure(submitting, ex);
+        }
 
+        return await SubmitResolvedAsync(
+            jobId, queued, submitting, model, request.Options, providerViews, sourceArtifactIds, ct)
+            .ConfigureAwait(false);
+    }
+
+    // Source-agnostic submit tail: given already-published provider inputs + lineage parents and a
+    // queued ledger anchor, submit to the provider, append Polling, stash lineage, and start the poll
+    // loop. Knows nothing about whether providerInputs came from images, a package GLB, or future
+    // Rhino export. Shared by submit_job and submit_mesh_job.
+    private async Task<ReconstructionSubmitResult> SubmitResolvedAsync(
+        Guid jobId,
+        ReconstructionJobLedgerRecord queued,
+        ReconstructionJobLedgerRecord submitting,
+        ReconstructionModelEntry model,
+        JsonObject validatedOptions,
+        IReadOnlyList<ReconstructionProviderViewUrl> providerInputs,
+        IReadOnlyList<Guid> sourceArtifactIds,
+        CancellationToken ct)
+    {
+        ProviderSubmitOutcome submitOutcome;
+        try
+        {
             submitOutcome = await _provider.SubmitAsync(
-                new ReconstructionProviderSubmitRequest(request.ModelId, providerViews, request.Options),
+                new ReconstructionProviderSubmitRequest(model.ModelId, providerInputs, validatedOptions),
                 ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -269,41 +294,16 @@ public sealed class ReconstructionJobManager : IDisposable
         }
         catch (ReconstructionCredentialMissingException)
         {
-            // Missing fal key (publisher edge, or provider edge if the key vanished mid-submit). Map to
-            // the canonical typed failure rather than the generic submit_failed below. MUST stay before
-            // the FalApiException/Exception catches.
             return RecordSubmitFailure(submitting, ReconstructionErrorMapping.MissingCredentialFailure());
-        }
-        catch (FalApiException ex)
-        {
-            // The fal CDN source-image upload failed (transport fault or non-2xx). That is a provider
-            // dependency failure, not a local source-read/IO fault — surface it with the same
-            // provider_unavailable semantics the provider uses for its own transport failures, rather
-            // than collapsing it into the generic submit_failed below.
-            return RecordSubmitFailure(submitting, Failure(
-                "provider_unavailable",
-                "Reconstruction source image upload to the provider failed.",
-                null,
-                retryable: true,
-                new Dictionary<string, object?>
-                {
-                    ["exception_type"] = ex.GetType().Name,
-                }));
         }
         catch (Exception ex)
         {
-            // Reserved for local source-read/IO faults: the provider itself returns typed Failed*
-            // outcomes for HTTP/parse failures (handled below) rather than throwing, and fal upload
-            // faults are handled by the FalApiException catch above.
             return RecordSubmitFailure(submitting, Failure(
                 "submit_failed",
                 "Reconstruction submit failed.",
                 null,
                 retryable: true,
-                new Dictionary<string, object?>
-                {
-                    ["exception_type"] = ex.GetType().Name,
-                }));
+                new Dictionary<string, object?> { ["exception_type"] = ex.GetType().Name }));
         }
 
         switch (submitOutcome)
@@ -321,37 +321,48 @@ public sealed class ReconstructionJobManager : IDisposable
                     UpdatedAt = DateTimeOffset.UtcNow,
                 };
                 _ledger.Append(polling);
-                // Stash full multi-view provenance for the materialize step (queued only — failed
-                // submits never start a loop, so this avoids a stale entry). Read in PollActiveJobAsync.
                 _jobSourceArtifactIds[jobId] = sourceArtifactIds.ToArray();
                 StartBackgroundLoop(polling);
                 return new ReconstructionSubmitResult(true, queued, null);
 
             case FailedSubmitOutcome failedOutcome:
-                var submitFailure = ReconstructionErrorMapping.ToFailure(failedOutcome.Error);
-                _ledger.Append(submitting with
-                {
-                    State = ReconstructionJobState.Error,
-                    Stage = ReconstructionJobStage.Error,
-                    Error = submitFailure,
-                    UpdatedAt = DateTimeOffset.UtcNow,
-                });
-                return new ReconstructionSubmitResult(false, null, submitFailure);
+                return RecordSubmitFailure(submitting, ReconstructionErrorMapping.ToFailure(failedOutcome.Error));
 
             default:
-                // fal reconstruction is always queued; a sync result would be a contract violation.
-                var unexpected = Failure(
+                return RecordSubmitFailure(submitting, Failure(
                     "submit_failed",
                     "Reconstruction provider returned an unexpected synchronous result.",
-                    null);
-                _ledger.Append(submitting with
-                {
-                    State = ReconstructionJobState.Error,
-                    Stage = ReconstructionJobStage.Error,
-                    Error = unexpected,
-                    UpdatedAt = DateTimeOffset.UtcNow,
-                });
-                return new ReconstructionSubmitResult(false, null, unexpected);
+                    null));
+        }
+    }
+
+    // Maps a source publish/upload exception to a recorded failed job. Shared by both submit fronts.
+    // The caller's explicit `catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }`
+    // runs first, so a real cancellation never reaches here (never becomes submit_failed). A
+    // non-cancellation OperationCanceledException falls to `default` → submit_failed, exactly as the
+    // pre-refactor code did.
+    private ReconstructionSubmitResult RecordPublishFailure(
+        ReconstructionJobLedgerRecord submitting,
+        Exception ex)
+    {
+        switch (ex)
+        {
+            case ReconstructionCredentialMissingException:
+                return RecordSubmitFailure(submitting, ReconstructionErrorMapping.MissingCredentialFailure());
+            case FalApiException:
+                return RecordSubmitFailure(submitting, Failure(
+                    "provider_unavailable",
+                    "Reconstruction source asset upload to the provider failed.",
+                    null,
+                    retryable: true,
+                    new Dictionary<string, object?> { ["exception_type"] = ex.GetType().Name }));
+            default:
+                return RecordSubmitFailure(submitting, Failure(
+                    "submit_failed",
+                    "Reconstruction submit failed.",
+                    null,
+                    retryable: true,
+                    new Dictionary<string, object?> { ["exception_type"] = ex.GetType().Name }));
         }
     }
 
