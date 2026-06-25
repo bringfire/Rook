@@ -11,6 +11,7 @@ $VersionLocations = Join-Path $RepoRoot '.agents\skills\build-release\references
 $ClaudeVersionLocations = Join-Path $RepoRoot '.claude\skills\build-release\references\version-locations.md'
 $BuildingDoc = Join-Path $RepoRoot 'BUILDING.md'
 $PostInstallScript = Join-Path $RepoRoot 'installer\post_install.py'
+$RuntimeInstallHelper = Join-Path $RepoRoot 'installer\python_runtime_install.py'
 $DoctorScript = Join-Path $RepoRoot 'mcp_server\src\rook\doctor.py'
 $BuildNativeScript = Join-Path $RepoRoot 'build_native.ps1'
 $ReleaseArtifactValidator = Join-Path $RepoRoot 'scripts\validate-release-artifacts.ps1'
@@ -159,6 +160,74 @@ function Test-InstallerPackagesBundledPythonRuntime {
     Assert-Contains -Text $content -Expected 'requirements-chirp-lock.txt' -Message 'Installer must package Chirp lockfile.'
     Assert-Contains -Text $content -Expected 'python-runtime-manifest.json' -Message 'Installer must package Python runtime manifest.'
     Assert-Contains -Text $content -Expected 'python_runtime_install.py' -Message 'Installer must package runtime install helper.'
+}
+
+function Get-InstallerTestPython {
+    $bundledPython = Join-Path $RepoRoot 'installer\runtime\python\cpython-3.11.9\python.exe'
+    if (Test-Path $bundledPython) {
+        return $bundledPython
+    }
+
+    $python = Get-Command python -ErrorAction SilentlyContinue
+    if ($python) {
+        return $python.Source
+    }
+
+    throw 'No Python interpreter found for installer runtime layout probe.'
+}
+
+function Test-PostInstallRuntimeLayoutFollowsActualAppDirectory {
+    Assert-True -Condition (Test-Path $RuntimeInstallHelper) -Message "Runtime install helper is missing: $RuntimeInstallHelper"
+    $postInstallContent = Get-Content -Path $PostInstallScript -Raw
+
+    Assert-NotContains -Text $postInstallContent -Unexpected 'del mcp_server_dir' -Message 'Post-install must not delete the MCP payload directory before deriving the actual app install directory.'
+    Assert-Contains -Text $postInstallContent -Expected 'app_dir=install_dir' -Message 'Post-install venv setup must pass the actual app install directory into RuntimeLayout.'
+
+    $python = Get-InstallerTestPython
+    $probePath = Join-Path ([IO.Path]::GetTempPath()) "rook-runtime-layout-probe-$PID.py"
+    $escapedRepoRoot = $RepoRoot.Replace('\', '\\')
+
+    $probe = @"
+import importlib.util
+import sys
+from pathlib import Path
+
+repo_root = Path(r"$escapedRepoRoot")
+helper = repo_root / "installer" / "python_runtime_install.py"
+spec = importlib.util.spec_from_file_location("python_runtime_install", helper)
+module = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+
+runtime_root = Path("C:/RookRuntime")
+for app_dir in (runtime_root, runtime_root / "app"):
+    layout = module.RuntimeLayout.from_rook_root(runtime_root, "3.11.9", app_dir=app_dir)
+    assert layout.app_dir == app_dir
+    assert layout.wheelhouse == app_dir / "python-wheelhouse"
+    assert layout.bootstrap_lock == app_dir / "requirements-bootstrap-lock.txt"
+    assert layout.rook_lock == app_dir / "requirements-rook-lock.txt"
+    assert layout.chirp_lock == app_dir / "requirements-chirp-lock.txt"
+    assert layout.runtime_manifest == app_dir / "python-runtime-manifest.json"
+    assert layout.chirp_venv == app_dir / "chirp" / ".venv"
+
+manifest = module.build_chat_service_manifest(
+    mcp_server_dir=runtime_root / "mcp_server",
+    rook_venv_python=runtime_root / "venv" / "Scripts" / "python.exe",
+    release_mode=True,
+)
+assert manifest["environment"]["ROOK_INSTALL_ROOT"] == "C:/RookRuntime"
+assert manifest["environment"]["CHIRP_HOME"] == "C:/RookRuntime/chirp"
+"@
+
+    try {
+        Set-Content -Path $probePath -Value $probe -Encoding UTF8
+        & $python $probePath
+        if ($LASTEXITCODE -ne 0) {
+            throw "Installer runtime layout probe failed with exit code $LASTEXITCODE."
+        }
+    } finally {
+        Remove-Item -LiteralPath $probePath -Force -ErrorAction SilentlyContinue
+    }
 }
 
 function Test-PublicInstallerDoesNotRequireUserPython {
@@ -642,6 +711,7 @@ function Test-InstallerDeletesStaleChildChatManifests {
 }
 
 Test-InstallerPackagesBundledPythonRuntime
+Test-PostInstallRuntimeLayoutFollowsActualAppDirectory
 Test-PublicInstallerDoesNotRequireUserPython
 Test-InstallerFailsWhenPostInstallFails
 Test-InstallerExplainsOfflineWheelhouseProgress

@@ -3,7 +3,7 @@
     "version":  "8.1.1",
     "license":  "LGPL-only",
     "binary_path":  "third_party/ffmpeg/ffmpeg.exe",
-    "binary_sha256":  "A03D1928125FA0C066865D762BB2A1460EA734A88D2D54496D6263786412E963",
+    "binary_sha256":  "1E4ADA259D4FA37BF864BAF2063171691EB141CE443F4C77ACBABA2B552DB5DB",
     "source_url":  "https://ffmpeg.org/releases/ffmpeg-8.1.1.tar.xz",
     "source_archive":  "ffmpeg-8.1.1.tar.xz",
     "source_sha256":  "B6863ADDE98898F42602017462871B5F6333E65AEC803FDD7A6308639C52EDF3",
@@ -32,7 +32,7 @@
                                    "video_codec":  "vp9"
                                }
                            ],
-    "verified_at":  "2026-06-11T12:51:40.2268672+00:00",
+    "verified_at":  "2026-06-25T02:16:28.6051410+00:00",
     "verified_by":  "Rook minimal FFmpeg build recipe",
     "notes":  "Built by Rook from official FFmpeg source for video sidecar extraction via ffmpeg.exe subprocess only."
 }

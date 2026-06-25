@@ -32,8 +32,13 @@ class RuntimeLayout:
     install_state: Path
 
     @classmethod
-    def from_rook_root(cls, rook_root: Path, python_version: str) -> "RuntimeLayout":
-        app_dir = rook_root / "app"
+    def from_rook_root(
+        cls,
+        rook_root: Path,
+        python_version: str,
+        app_dir: Path | None = None,
+    ) -> "RuntimeLayout":
+        app_dir = app_dir or rook_root / "app"
         data_dir = rook_root / "data"
         return cls(
             rook_root=rook_root,
@@ -197,7 +202,7 @@ def build_chat_service_manifest(
     release_mode: bool,
 ) -> dict:
     rook_root = rook_venv_python.parent.parent.parent
-    app_dir = rook_root / "app"
+    app_dir = mcp_server_dir.parent
     data_dir = rook_root / "data"
     chirp_dir = app_dir / "chirp"
     return {

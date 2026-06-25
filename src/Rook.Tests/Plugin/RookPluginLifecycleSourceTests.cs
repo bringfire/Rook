@@ -104,16 +104,22 @@ namespace Rook.Tests.Plugin
             var source = ReadSourceFile("src", "Rook", "UI", "Chat", "ChatServiceManager.cs");
             var autoGenerate = ExtractMethod(source, "private static ChatServiceManifest? TryAutoGenerateManifest(");
             var releaseRoot = ExtractMethod(source, "private static string? GetReleaseInstallRoot()");
+            var releaseRootCandidates = ExtractMethod(source, "private static IReadOnlyList<string> GetReleaseInstallRootCandidates()");
+            var releaseContract = ExtractMethod(source, "private static bool IsReleaseManifestContract(");
             var managedPython = ExtractMethod(source, "private static string? DiscoverManagedVenvPython()");
 
             Assert.Contains("GetReleaseInstallRoot();", autoGenerate);
             Assert.Contains("Path.Combine(releaseInstallRoot, \"mcp_server\")", autoGenerate);
             Assert.Contains("candidates.Add(releaseInstallRoot);", autoGenerate);
+            Assert.Contains("BuildReleaseManifestEnvironment(releaseManifestRoot)", autoGenerate);
             Assert.Contains("pythonPath = DiscoverManagedVenvPython();", autoGenerate);
             Assert.Contains("AllowUserPythonDiscovery()", autoGenerate);
             Assert.Contains("pythonPath = DiscoverPython();", autoGenerate);
 
-            Assert.Contains("\"Rook\", \"app\"", releaseRoot);
+            Assert.Contains("GetReleaseInstallRootCandidates()", releaseRoot);
+            Assert.Contains("Path.Combine(localAppData, \"Rook\", \"app\")", releaseRootCandidates);
+            Assert.Contains("Path.Combine(localAppData, \"Rook\")", releaseRootCandidates);
+            Assert.Contains("GetReleaseInstallRootFromWorkingDirectory(manifest.WorkingDirectory)", releaseContract);
             Assert.Contains("\"Rook\", \"venv\", \"Scripts\", \"python.exe\"", managedPython);
         }
 

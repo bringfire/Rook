@@ -624,6 +624,10 @@ namespace Rook.UI.Chat
                         AddSrcPathEntry(pythonPathEntries, workingDirectory);
                 }
 
+                var releaseManifestRoot = releasePython
+                    ? GetReleaseInstallRootFromWorkingDirectory(workingDirectory) ?? releaseRoot ?? GetReleaseInstallRoot()
+                    : null;
+
                 var manifest = new ChatServiceManifest
                 {
                     PythonPath = pythonPath,
@@ -631,8 +635,8 @@ namespace Rook.UI.Chat
                     Module = "rook.agent.chat.service_main",
                     Owner = ExpectedOwner,
                     PythonPathEntries = pythonPathEntries,
-                    Environment = releasePython
-                        ? BuildReleaseManifestEnvironment()
+                    Environment = releasePython && !string.IsNullOrEmpty(releaseManifestRoot)
+                        ? BuildReleaseManifestEnvironment(releaseManifestRoot)
                         : new Dictionary<string, string>(),
                 };
 
@@ -680,10 +684,9 @@ namespace Rook.UI.Chat
             }
         }
 
-        private static Dictionary<string, string> BuildReleaseManifestEnvironment()
+        private static Dictionary<string, string> BuildReleaseManifestEnvironment(string installRoot)
         {
             var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            var installRoot = Path.Combine(localAppData, "Rook", "app");
             var dataDir = Path.Combine(localAppData, "Rook", "data");
             return new Dictionary<string, string>
             {
@@ -700,11 +703,26 @@ namespace Rook.UI.Chat
 
         private static string? GetReleaseInstallRoot()
         {
+            foreach (var candidate in GetReleaseInstallRootCandidates())
+            {
+                if (Directory.Exists(Path.Combine(candidate, "mcp_server")))
+                    return candidate;
+            }
+
+            return GetReleaseInstallRootCandidates().FirstOrDefault();
+        }
+
+        private static IReadOnlyList<string> GetReleaseInstallRootCandidates()
+        {
             var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
             if (string.IsNullOrWhiteSpace(localAppData))
-                return null;
+                return Array.Empty<string>();
 
-            return Path.Combine(localAppData, "Rook", "app");
+            return new[]
+            {
+                Path.Combine(localAppData, "Rook", "app"),
+                Path.Combine(localAppData, "Rook"),
+            };
         }
 
         private static string? DiscoverManagedVenvPython()
@@ -736,24 +754,32 @@ namespace Rook.UI.Chat
 
         private static bool IsReleaseWorkingDirectory(string workingDirectory)
         {
-            var releaseRoot = GetReleaseInstallRoot();
-            if (string.IsNullOrWhiteSpace(releaseRoot) || string.IsNullOrWhiteSpace(workingDirectory))
-                return false;
+            var releaseRoot = GetReleaseInstallRootFromWorkingDirectory(workingDirectory);
+            return !string.IsNullOrWhiteSpace(releaseRoot) && IsKnownReleaseInstallRoot(releaseRoot);
+        }
 
+        private static string? GetReleaseInstallRootFromWorkingDirectory(string workingDirectory)
+        {
+            if (string.IsNullOrWhiteSpace(workingDirectory))
+                return null;
             try
             {
-                var normalizedRoot = Path.GetFullPath(releaseRoot)
-                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-                    + Path.DirectorySeparatorChar;
                 var normalizedWorkingDirectory = Path.GetFullPath(workingDirectory)
-                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-                    + Path.DirectorySeparatorChar;
-                return normalizedWorkingDirectory.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase);
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                if (!string.Equals(Path.GetFileName(normalizedWorkingDirectory), "mcp_server", StringComparison.OrdinalIgnoreCase))
+                    return null;
+                return Directory.GetParent(normalizedWorkingDirectory)?.FullName;
             }
             catch
             {
-                return false;
+                return null;
             }
+        }
+
+        private static bool IsKnownReleaseInstallRoot(string installRoot)
+        {
+            return GetReleaseInstallRootCandidates()
+                .Any(candidate => PathsEqual(installRoot, candidate));
         }
 
         private static bool ManifestEnvironmentEquals(ChatServiceManifest manifest, string key, string expected)
@@ -785,12 +811,16 @@ namespace Rook.UI.Chat
                 return false;
             }
 
-            var releaseRoot = GetReleaseInstallRoot();
-            var expectedWorkingDirectory = string.IsNullOrWhiteSpace(releaseRoot)
-                ? ""
-                : Path.Combine(releaseRoot, "mcp_server");
-            if (string.IsNullOrWhiteSpace(expectedWorkingDirectory)
-                || !PathsEqual(manifest.WorkingDirectory, expectedWorkingDirectory))
+            var expectedInstallRoot = GetReleaseInstallRootFromWorkingDirectory(manifest.WorkingDirectory);
+            if (string.IsNullOrWhiteSpace(expectedInstallRoot)
+                || !IsKnownReleaseInstallRoot(expectedInstallRoot))
+            {
+                reason = $"release manifest workingDirectory must point to the installed mcp_server: '{manifest.WorkingDirectory}'";
+                return false;
+            }
+
+            var expectedWorkingDirectory = Path.Combine(expectedInstallRoot, "mcp_server");
+            if (!PathsEqual(manifest.WorkingDirectory, expectedWorkingDirectory))
             {
                 reason = $"release manifest workingDirectory must point to the installed mcp_server: '{manifest.WorkingDirectory}'";
                 return false;
@@ -840,11 +870,10 @@ namespace Rook.UI.Chat
                 return false;
             }
 
-            var expectedInstallRoot = Path.Combine(localAppData, "Rook", "app");
             var installRoot = ManifestEnvironmentValue(manifest, "ROOK_INSTALL_ROOT") ?? "";
             if (!PathsEqual(installRoot, expectedInstallRoot))
             {
-                reason = $"release manifest ROOK_INSTALL_ROOT must point to the installed Rook app root: '{installRoot}'";
+                reason = $"release manifest ROOK_INSTALL_ROOT must point to the installed Rook root: '{installRoot}'";
                 return false;
             }
 

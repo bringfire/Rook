@@ -514,9 +514,9 @@ def _install_from_wheelhouse(
 
 def install_mcp_server(mcp_server_dir: Path, runtime_root: Path) -> Path | None:
     """Create a managed venv and install rook-mcp from the bundled wheelhouse."""
-    del mcp_server_dir
+    install_dir = mcp_server_dir.parent
     layout = python_runtime_install.RuntimeLayout.from_rook_root(
-        runtime_root, PRIVATE_PYTHON_VERSION
+        runtime_root, PRIVATE_PYTHON_VERSION, app_dir=install_dir
     )
     _, data_dir, logs_dir = get_runtime_paths(runtime_root)
 
@@ -540,8 +540,9 @@ def install_chirp(chirp_dir: Path, runtime_root: Path) -> bool:
     {CHIRP_HOME}/.venv/Scripts/python.exe. Keeping Chirp's heavyweight
     dependencies isolated from the Rook MCP/chat venv.
     """
+    install_dir = chirp_dir.parent
     layout = python_runtime_install.RuntimeLayout.from_rook_root(
-        runtime_root, PRIVATE_PYTHON_VERSION
+        runtime_root, PRIVATE_PYTHON_VERSION, app_dir=install_dir
     )
     if layout.chirp_venv.parent != chirp_dir:
         print(f"Chirp home must be {layout.chirp_venv.parent}; got {chirp_dir}")
