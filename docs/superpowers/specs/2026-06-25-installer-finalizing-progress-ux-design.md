@@ -29,9 +29,11 @@ The first branch is strictly UX/perception-only. It does not change `post_instal
 
 ## Design
 
-Add a dedicated Inno Setup output marquee page around `RunPostInstallSetup()`.
+Add a dedicated Inno Setup output marquee page around the long-running child process inside `RunPostInstallSetup()`.
 
-The page should be shown immediately before launching `post_install.py` and hidden after the child process returns, regardless of success or failure. The existing failure handling remains inside `RunPostInstallSetup()`: launch failure and nonzero exit code still show critical error dialogs and return `False`, causing `CurStepChanged(ssPostInstall)` to `Abort`.
+The page should be created/shown only after `PostInstallSelected()` has passed and the private Python existence check has passed. Missing-runtime failures should keep using the existing direct critical error path; they should not flash or show the finalization page.
+
+Once the installer is ready to launch `post_install.py`, show the page immediately before the blocking `Exec` call and hide it in a `try..finally`-style block after the child process returns or launch handling completes. The existing failure handling remains inside `RunPostInstallSetup()`: launch failure and nonzero exit code still show critical error dialogs and return `False`, causing `CurStepChanged(ssPostInstall)` to `Abort`.
 
 User-facing copy:
 
@@ -50,15 +52,19 @@ Expected files:
 
 Avoid touching other files in Phase 1.
 
+While touching `installer/RookSetup.iss`, fix the stale source-section comment that says `post_install.py` is "used by [Run]". The accurate contract is that `post_install.py` is packaged as a payload and launched from Pascal script so the installer can gate on the child process exit code.
+
 ## Guard Tests
 
 Update release installer guards to pin the important behavior:
 
 - `RunPostInstallSetup()` remains Pascal-script gated.
-- `post_install.py` is still not run from `[Run]`.
+- `post_install.py` is still not run from `[Run]`; this should be checked by parsing or regexing the `[Run]` section rather than relying only on one exact literal line.
 - `Exec(PythonExe, Args, '', SW_HIDE, ewWaitUntilTerminated, ResultCode)` remains present.
 - Nonzero `ResultCode` still produces a critical failure path and returns `False`.
 - The installer defines and uses a `Finalizing Rook` marquee/output page around post-install finalization.
+- The finalization page is shown only after component selection and private Python existence checks pass.
+- The finalization page is hidden in a protected cleanup path after the blocking child process returns.
 - The copy includes `10-12 minutes` and `installer is still working`.
 - The copy names the real work: private Python, bundled wheels, MCP entries, skills, and validation.
 - The post-install finalization page does not use fake determinate progress via `SetProgress`.
