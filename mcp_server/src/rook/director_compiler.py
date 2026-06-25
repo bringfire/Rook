@@ -177,3 +177,83 @@ def build_object_frames(expanded, source_states, frame_count, default_easing):
             })
         frames.append({"frame_index": i + 1, "object_transforms": transforms})
     return frames
+
+
+_DEFAULT_RESOLUTION = {"width": 1920, "height": 1080}
+_DEFAULT_CAMERA = {"strategy": "keyframes",
+                   "keyframes": [{"frame_index": 1, "source": {"kind": "active_view"}}]}
+
+
+async def build_camera_frames(spec, frame_count, resolution, duration_seconds, fps, call_native, port):
+    cam_spec = spec.get("camera")
+    if not isinstance(cam_spec, dict):
+        cam_spec = _DEFAULT_CAMERA
+    request = {"timeline": {"fps": fps, "duration_seconds": duration_seconds}, "camera": cam_spec}
+    try:
+        normalized, _ = timeline.normalize_director_request(request)
+    except timeline.TimelineError as exc:
+        raise DirectorCompileError("invalid_camera", str(exc)) from exc
+    try:
+        camera_planner.validate_camera_request(normalized, frame_count=frame_count, resolution=resolution)
+    except camera_planner.CameraPlanError as exc:
+        raise DirectorCompileError("invalid_camera", str(exc)) from exc
+    try:
+        plan = await camera_planner.resolve_camera_plan(
+            normalized, frame_count=frame_count, resolution=resolution, call_native=call_native, port=port)
+    except camera_planner.CameraPlanError as exc:
+        raise DirectorCompileError("camera_resolution_failed", str(exc)) from exc
+    cam_frames = plan["frames"]
+    return [{"frame_index": i + 1, "camera": cam_frames[i]} for i in range(frame_count)]
+
+
+def _resolution(spec):
+    res = spec.get("resolution") or _DEFAULT_RESOLUTION
+    return res
+
+
+async def compile_motion(arguments: dict, *, call_native=call_rhino, port: int | None = None) -> dict:
+    if not isinstance(arguments, dict):
+        raise DirectorCompileError("invalid_input", "compile request must be an object")
+    default_easing = arguments.get("default_easing", "linear")
+
+    tl = resolve_compiler_timeline(arguments)
+    fps, frame_count, duration_seconds = tl["fps"], tl["frame_count"], tl["duration_seconds"]
+
+    expanded = expand_targets(arguments)
+    object_ids = sorted(expanded)
+    validate_caps(object_count=len(object_ids), frame_count=frame_count, fps=fps)
+
+    source_states = await resolve_source_states(call_native, object_ids, port)
+    object_frames = build_object_frames(expanded, source_states, frame_count, default_easing)
+    resolution = _resolution(arguments)
+    camera_frames = await build_camera_frames(
+        arguments, frame_count, resolution, duration_seconds, fps, call_native, port)
+
+    track = {
+        "transform_semantics": "absolute_from_source",
+        "fps": fps,
+        "frame_count": frame_count,
+        "animated_object_ids": object_ids,
+        "camera_frames": camera_frames,
+        "object_frames": object_frames,
+    }
+    groups = arguments.get("groups") or {}
+    referenced_groups = {}
+    for entry in arguments["motion"]:
+        tgt = entry.get("target")
+        if isinstance(tgt, str) and tgt in groups:
+            referenced_groups[tgt] = list(groups[tgt])
+    provenance = {
+        "frame_count": frame_count,
+        "fps": fps,
+        "duration_ms": frame_count * (1000.0 / fps),
+        "animated_object_ids": object_ids,
+        "group_expansion": referenced_groups,
+        "segment_mapping": {
+            oid: [{"t": float(kf["t"]), "ease_from_previous": kf.get("ease_from_previous", default_easing)}
+                  for kf in expanded[oid]]
+            for oid in object_ids
+        },
+        "warnings": [],
+    }
+    return {"track": track, "provenance": provenance}

@@ -181,3 +181,97 @@ def test_build_object_frames_propagates_motion_error_code():
     with pytest.raises(dc.DirectorCompileError) as ei:
         dc.build_object_frames(expanded, states, frame_count=2, default_easing="linear")
     assert ei.value.code == "invalid_keyframe"
+
+
+class FullFakeNative(FakeNative):
+    def __init__(self, objects, *, view_ok=True, **kw):
+        super().__init__(objects, **kw)
+        self.view_ok = view_ok
+
+    async def __call__(self, endpoint, method="POST", data=None, port=None):
+        self.calls.append((endpoint, data))
+        if endpoint == "/director/object-states":
+            if not self.object_states_ok:
+                return {"success": False, "data": {"code": "x", "message": "boom"}}
+            return {"success": True, "data": {"objects": self.objects, "units": "Inches"}}
+        if endpoint == "/director/view-state":
+            if not self.view_ok:
+                return {"success": False, "data": {"code": "x", "message": "no view"}}
+            return {"success": True, "data": {"camera": {
+                "projection": "perspective", "location": [4, -4, 3], "target": [0, 0, 0],
+                "up": [0, 0, 1], "lens_length": 35.0, "fov_degrees": None,
+                "parallel_scale": None, "near_clip": None, "far_clip": None, "aspect": 1.7778},
+                "provenance": {"source": "active_view"}}}
+        raise AssertionError(f"unexpected endpoint {endpoint}")
+
+
+def _spec(**over):
+    spec = {
+        "timeline": {"fps": 24, "frame_count": 3},
+        "resolution": {"width": 1920, "height": 1080},
+        "motion": [{"target": U1, "keyframes": [{"t": 1.0, "translate": [4, 0, 0]}]}],
+    }
+    spec.update(over)
+    return spec
+
+
+def test_compile_motion_default_camera_hold_produces_valid_track():
+    fake = FullFakeNative([_objstate(U1, [0, 0, 0], [2, 2, 2])])
+    out = asyncio.run(dc.compile_motion(_spec(), call_native=fake, port=None))
+    track = out["track"]
+    assert track["transform_semantics"] == "absolute_from_source"
+    assert track["fps"] == 24
+    assert track["frame_count"] == 3
+    assert track["animated_object_ids"] == [U1]
+    assert len(track["camera_frames"]) == 3
+    assert len(track["object_frames"]) == 3
+    assert track["camera_frames"][0]["frame_index"] == 1
+    # provenance
+    assert out["provenance"]["frame_count"] == 3
+    assert out["provenance"]["group_expansion"] == {}
+
+
+def test_compile_motion_track_passes_structural_native_rules():
+    fake = FullFakeNative([_objstate(U1, [0, 0, 0], [2, 2, 2]),
+                           _objstate(U2, [0, 0, 0], [2, 2, 2])])
+    spec = _spec(groups={"g": [U1, U2]},
+                 motion=[{"target": "g", "keyframes": [{"t": 1.0, "translate": [4, 0, 0]}]}])
+    track = asyncio.run(dc.compile_motion(spec, call_native=fake, port=None))["track"]
+    fc = track["frame_count"]
+    assert len(track["camera_frames"]) == fc and len(track["object_frames"]) == fc
+    aset = set(track["animated_object_ids"])
+    assert len(aset) == len(track["animated_object_ids"]) <= 256
+    for i, of in enumerate(track["object_frames"]):
+        assert of["frame_index"] == i + 1
+        ids = [ot["object_id"] for ot in of["object_transforms"]]
+        assert set(ids) == aset and len(ids) == len(aset)
+        for ot in of["object_transforms"]:
+            m = ot["transform"]
+            assert len(m) == 4 and all(len(r) == 4 for r in m)
+    for i, cf in enumerate(track["camera_frames"]):
+        assert cf["frame_index"] == i + 1
+
+
+def test_compile_motion_camera_resolution_failure():
+    fake = FullFakeNative([_objstate(U1, [0, 0, 0], [2, 2, 2])], view_ok=False)
+    with pytest.raises(dc.DirectorCompileError) as ei:
+        asyncio.run(dc.compile_motion(_spec(), call_native=fake, port=None))
+    assert ei.value.code == "camera_resolution_failed"
+
+
+def test_compile_motion_invalid_camera_spec():
+    fake = FullFakeNative([_objstate(U1, [0, 0, 0], [2, 2, 2])])
+    # a keyframes camera with an unsupported source kind -> invalid_camera
+    bad = _spec(camera={"strategy": "keyframes",
+                        "keyframes": [{"frame_index": 1, "source": {"kind": "bogus"}}]})
+    with pytest.raises(dc.DirectorCompileError) as ei:
+        asyncio.run(dc.compile_motion(bad, call_native=fake, port=None))
+    assert ei.value.code == "invalid_camera"
+
+
+def test_compile_motion_source_failure_distinct_from_camera():
+    fake = FullFakeNative([_objstate(U1, [0, 0, 0], [2, 2, 2])])
+    spec = _spec(motion=[{"target": U2, "keyframes": [{"t": 1.0, "translate": [1, 0, 0]}]}])
+    with pytest.raises(dc.DirectorCompileError) as ei:
+        asyncio.run(dc.compile_motion(spec, call_native=fake, port=None))
+    assert ei.value.code == "source_resolution_failed"
