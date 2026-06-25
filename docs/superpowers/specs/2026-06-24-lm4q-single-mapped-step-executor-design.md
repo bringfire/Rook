@@ -199,7 +199,11 @@ canned `LiveProducerResult` (no Rhino).
 - **mapped ProducerStep (fake runner):** mapping with `step=ProducerStep("X")`,
   `runner=FakeProducerRunner(...)` → `ran=True`, `kind=="producer"`,
   `result.producer_result is` the fake's returned result, `result.graph is` the fake result's
-  graph (advanced), `failure is None`, `verifier_result`/`bind_result` None.
+  graph (advanced), `failure is None`, `verifier_result`/`bind_result` None. **Delegation-arg
+  pin:** the fake runner records the `(graph, node_id)` it was called with; assert it received
+  the **original input graph object** (`is` the graph passed to `execute_mapped_step`, not some
+  graph from the mapping/revalidation audit) and the **mapped ProducerStep's `node_id`**
+  (`"X"`). This pins that LM4Q delegates *exactly this mapped Step* against the caller's graph.
 - **mapped VerifierStep:** delegates to `apply_verifier_step` → `ran=True`, `kind=="verifier"`,
   `verifier_result` is the native `VerifierStepResult`, graph advanced.
 - **mapped BindStep:** delegates to `apply_memory_bound_params` → `ran=True`, `kind=="bind"`,
@@ -278,9 +282,14 @@ uniquely ready → `propose_next_node` SELECT → `map_accepted_proposal_to_step
 `{create_script: ProducerStep("create_script")}` → `execute_mapped_step(mapping, graph,
 runner=agent)`.
 
+- **Pin the declared ref before execution params** (keeps this from becoming an override-style
+  proof): assert `graph.nodes["create_script"].execution_ref == "gh_create_csharp_script:v1"`
+  *before* setting execution params, then set the C# body params.
 - Assert the mapped Step reaches a real `RookAgent.run_live_producer_node`.
 - Assert `ran is True`, `kind == "producer"`, `producer_result is not None`, and an advanced
   graph is returned (`result.graph is producer_result.graph`).
+- **Pin the resolved tool:** assert `producer_result.tool_name == "gh_create_csharp_script"`
+  (the declared `:v1` ref resolved live, no override).
 - **Narrow:** ProducerStep only — **no** full chain, **no** verifier/bind live, **no**
   expectation evaluation.
 - `_ensure_gh_document()` guard (GH must have an active document — window ≠ doc); GH + Rhino
