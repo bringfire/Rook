@@ -31,7 +31,7 @@ All paths are relative to the repo root.
 | `src/Rook/bin/Release/net48/runtimes/` | C# .NET Framework runtime assets, including WebView2 native loader |
 
 **CRITICAL:** The installer must package sibling `net8.0`, `net7.0`, and `net48`
-companion outputs. The registry `FileName` points at the `net7.0` child RHP.
+companion outputs. The registry `FileName` points at the `net8.0` child RHP.
 For direct registry installs, sibling-runtime redirection is not release-proven
 by package-manager/Yak layout docs. The live Inno-install smoke must prove which
 physical `Rook.rhp` path Rhino loads under standalone Rhino, Rhino.Inside.Revit

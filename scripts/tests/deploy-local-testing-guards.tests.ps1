@@ -4,6 +4,7 @@ $TestRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $TestRoot)
 $DeployScript = Join-Path $RepoRoot 'scripts\deploy-local-testing.ps1'
 $RegisterSuiteScript = Join-Path $RepoRoot 'scripts\register-rooknative-suite.ps1'
+$RegisterCompanionScript = Join-Path $RepoRoot 'scripts\register-companion.ps1'
 $DeploySkill = Join-Path $RepoRoot '.agents\skills\deploy-local-testing\SKILL.md'
 
 function Assert-True {
@@ -35,6 +36,37 @@ function Assert-NotContains {
     )
 
     Assert-True -Condition (-not $Text.Contains($Unexpected)) -Message $Message
+}
+
+function Assert-Before {
+    param(
+        [string]$Text,
+        [string]$First,
+        [string]$Second,
+        [string]$Message
+    )
+
+    $firstIndex = $Text.IndexOf($First, [System.StringComparison]::Ordinal)
+    $secondIndex = $Text.IndexOf($Second, [System.StringComparison]::Ordinal)
+    Assert-True -Condition ($firstIndex -ge 0) -Message "Missing first marker for order assertion: $First"
+    Assert-True -Condition ($secondIndex -ge 0) -Message "Missing second marker for order assertion: $Second"
+    Assert-True -Condition ($firstIndex -lt $secondIndex) -Message $Message
+}
+
+function Get-TextBeforeNextMarker {
+    param(
+        [string]$Text,
+        [string]$StartMarker,
+        [string]$EndMarker
+    )
+
+    $startIndex = $Text.IndexOf($StartMarker, [System.StringComparison]::Ordinal)
+    Assert-True -Condition ($startIndex -ge 0) -Message "Missing start marker: $StartMarker"
+
+    $endIndex = $Text.IndexOf($EndMarker, $startIndex + $StartMarker.Length, [System.StringComparison]::Ordinal)
+    Assert-True -Condition ($endIndex -ge 0) -Message "Missing end marker after $StartMarker`: $EndMarker"
+
+    return $Text.Substring($startIndex, $endIndex - $startIndex)
 }
 
 function Test-DeployScriptSelectsExplicitMsvcToolset {
@@ -169,9 +201,10 @@ function Test-DeployScriptUsesMultiRuntimeCompanionLayout {
     Assert-Contains -Text $content -Expected 'function Deploy-CompanionRuntimePayload' -Message 'Local deploy must copy companion payloads per runtime child.'
     Assert-Contains -Text $content -Expected 'Copy-RequiredFile (Join-Path $sourceDir ''Rook.runtimeconfig.json'')' -Message 'Local deploy must require .NET Core runtime metadata in runtime-child payloads.'
     Assert-Contains -Text $content -Expected 'Remove-StaleRootCompanionPayload' -Message 'Local deploy must remove stale root-level companion payload files from old installs.'
-    Assert-Contains -Text $content -Expected 'Join-Path $PluginDir ''net7.0\Rook.rhp''' -Message 'Local deploy must register the net7.0 child RHP anchor.'
+    Assert-Contains -Text $content -Expected 'Join-Path $PluginDir ''net8.0\Rook.rhp''' -Message 'Local deploy must register the net8.0 child RHP anchor.'
     Assert-NotContains -Text $content -Unexpected '& dotnet build (Join-Path $RepoRoot ''src\Rook\Rook.csproj'') -f net7.0' -Message 'Local deploy must not build only the net7.0 companion target.'
     Assert-NotContains -Text $content -Unexpected '-CompanionRhpPath (Join-Path $PluginDir ''Rook.rhp'')' -Message 'Local deploy must not register a root-level companion RHP.'
+    Assert-NotContains -Text $content -Unexpected '-CompanionRhpPath (Join-Path $PluginDir ''net7.0\Rook.rhp'')' -Message 'Full local deploy must not register the net7.0 companion anchor.'
 }
 
 function Test-RegisterSuiteSupportsNativeOnlyPreserveCompanion {
@@ -183,6 +216,43 @@ function Test-RegisterSuiteSupportsNativeOnlyPreserveCompanion {
     Assert-Contains -Text $content -Expected 'Resolve-PreservedCompanionRhpPath' -Message 'Preserve-companion mode must resolve existing companion registration before writing native registration.'
     Assert-Contains -Text $content -Expected 'Native-only preserve-companion registration verified.' -Message 'Preserve-companion mode must report its distinct verification path.'
     Assert-Contains -Text $content -Expected 'changed companion registration unexpectedly' -Message 'Preserve-companion mode must verify companion registration remains unchanged.'
+}
+
+function Test-RegisterSuitePrefersNet8CompanionFallback {
+    $content = Get-Content -Path $RegisterSuiteScript -Raw
+
+    Assert-Contains -Text $content -Expected '$candidateCompanions = @(' -Message 'Suite registration must keep explicit companion fallback discovery.'
+    Assert-Contains -Text $content -Expected 'Join-Path $nativeDir ''net8.0\Rook.rhp''' -Message 'Suite registration must discover net8.0 companion payloads.'
+    Assert-Contains -Text $content -Expected 'Join-Path $nativeDir ''net7.0\Rook.rhp''' -Message 'Suite registration must preserve net7.0 fallback compatibility.'
+    Assert-Contains -Text $content -Expected 'Join-Path $nativeDir ''Rook.rhp''' -Message 'Suite registration must preserve root-level fallback compatibility.'
+
+    $candidateCompanionsBlock = Get-TextBeforeNextMarker -Text $content -StartMarker '$candidateCompanions = @(' -EndMarker "`n    foreach "
+    Assert-Before -Text $candidateCompanionsBlock -First 'Join-Path $nativeDir ''net8.0\Rook.rhp''' -Second 'Join-Path $nativeDir ''net7.0\Rook.rhp''' -Message 'Suite registration must prefer net8.0 before net7.0 within candidate companion fallback discovery.'
+    Assert-Before -Text $candidateCompanionsBlock -First 'Join-Path $nativeDir ''net7.0\Rook.rhp''' -Second 'Join-Path $nativeDir ''Rook.rhp''' -Message 'Suite registration must prefer runtime child payloads before root fallback within candidate companion fallback discovery.'
+}
+
+function Test-RegisterCompanionAcceptsNet8Runtime {
+    $content = Get-Content -Path $RegisterCompanionScript -Raw
+
+    Assert-Contains -Text $content -Expected '$UnsupportedRuntimeMetadataMessage = ''Rook companion runtime metadata must identify a net8.0 or net7.0 build for registration.''' -Message 'Companion registration must describe both supported .NET Core companion TFMs.'
+    Assert-Contains -Text $content -Expected 'Test-PathHasExactSegment -Path $Path -Segment ''net8.0''' -Message 'Companion registration must accept net8.0 runtime-child RHP paths.'
+    Assert-Contains -Text $content -Expected 'Test-PathHasExactSegment -Path $Path -Segment ''net7.0''' -Message 'Companion registration must retain net7.0 runtime-child RHP path support.'
+    Assert-Contains -Text $content -Expected '$tfm -eq ''net8.0''' -Message 'Companion registration must accept net8.0 runtime metadata.'
+    Assert-Contains -Text $content -Expected '$tfm -eq ''net7.0''' -Message 'Companion registration must retain net7.0 runtime metadata support.'
+    Assert-Contains -Text $content -Expected '$tfm -eq ''net48''' -Message 'Companion registration must keep explicit net48 runtime metadata rejection.'
+    Assert-Contains -Text $content -Expected '$UnsupportedNet48CompanionMessage = ''net48 Rook companion builds are not supported; use net8.0 Rook.rhp. net7.0 is accepted as fallback.''' -Message 'Companion registration net48 guidance must prefer net8.0 and describe net7.0 as fallback only.'
+    Assert-Contains -Text $content -Expected 'Join-Path $NativeDir ''net8.0\Rook.rhp''' -Message 'Companion registration must discover installed net8.0 payloads beside RookNative.'
+    Assert-Contains -Text $content -Expected 'Join-Path $NativeDir ''net7.0\Rook.rhp''' -Message 'Companion registration must preserve installed net7.0 fallback discovery beside RookNative.'
+    Assert-Contains -Text $content -Expected 'src\Rook\bin\Debug\net8.0\Rook.rhp' -Message 'Companion registration must discover repo Debug net8.0 build output.'
+    Assert-Contains -Text $content -Expected 'src\Rook\bin\Release\net8.0\Rook.rhp' -Message 'Companion registration must discover repo Release net8.0 build output.'
+
+    $colocatedCandidatesBlock = Get-TextBeforeNextMarker -Text $content -StartMarker '$ColocatedCandidates = @(' -EndMarker "`n        foreach "
+    Assert-Before -Text $colocatedCandidatesBlock -First 'Join-Path $NativeDir ''net8.0\Rook.rhp''' -Second 'Join-Path $NativeDir ''net7.0\Rook.rhp''' -Message 'Companion registration must prefer installed net8.0 before net7.0 beside RookNative.'
+
+    $repoCandidatesBlock = Get-TextBeforeNextMarker -Text $content -StartMarker '$Candidates = @(' -EndMarker "`n        foreach "
+    Assert-Before -Text $repoCandidatesBlock -First 'src\Rook\bin\Debug\net8.0\Rook.rhp' -Second 'src\Rook\bin\Debug\net7.0\Rook.rhp' -Message 'Companion registration must prefer repo Debug net8.0 before Debug net7.0.'
+    Assert-Before -Text $repoCandidatesBlock -First 'src\Rook\bin\Release\net8.0\Rook.rhp' -Second 'src\Rook\bin\Release\net7.0\Rook.rhp' -Message 'Companion registration must prefer repo Release net8.0 before Release net7.0.'
+    Assert-Before -Text $repoCandidatesBlock -First 'src\Rook\bin\Release\net8.0\Rook.rhp' -Second 'src\Rook\bin\Debug\net7.0\Rook.rhp' -Message 'Companion registration must check all repo net8.0 candidates before net7.0 fallbacks.'
 }
 
 function Test-DeployScriptNativeOnlySkipBuildFastPath {
@@ -220,6 +290,8 @@ Test-DeployScriptLiveSmokeIsExplicit
 Test-DeployScriptNativeOnlyIsNarrow
 Test-DeployScriptUsesMultiRuntimeCompanionLayout
 Test-RegisterSuiteSupportsNativeOnlyPreserveCompanion
+Test-RegisterSuitePrefersNet8CompanionFallback
+Test-RegisterCompanionAcceptsNet8Runtime
 Test-DeployScriptNativeOnlySkipBuildFastPath
 Test-DeploySkillPointsToAuthoritativeScriptAndChirpChecks
 
