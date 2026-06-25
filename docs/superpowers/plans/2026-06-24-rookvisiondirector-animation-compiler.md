@@ -1206,7 +1206,7 @@ git commit -m "feat(director): camera_frames + compile_motion assembly (PR4 Task
 
 **Interfaces:**
 - Consumes: `director_compiler.compile_motion`, `director_compiler.DirectorCompileError` (Task 5).
-- Produces: MCP tool `rhino_director_compile_motion` returning `{success, data}`; on `DirectorCompileError`, `data = exc.to_data()`.
+- Produces: MCP tool `rhino_director_compile_motion`. The dispatcher-internal result uses the `{success, data}` envelope (`data = exc.to_data()` on `DirectorCompileError`); the **public `call_tool` wire shape is different** — `server._format_tool_result` renders success as the `data` JSON directly and failure as `"Error: " + json.dumps(data)`. The tests below encode the public shape.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1343,9 +1343,11 @@ This task is a manual gate, not an automated pytest, because it requires live Rh
 
 Use `rhino_create` twice (two boxes a few units apart) and record the returned object UUIDs as `<ID_A>` and `<ID_B>`.
 
-- [ ] **Step 2: Compile a real motion spec**
+- [ ] **Step 2: Negative compile check — duplicate target is rejected**
 
-Call `rhino_director_compile_motion` with:
+This proves PR4 does **not** merge multiple motion tracks for the same object: a
+group track over `pair` plus a separate bare-id track over `<ID_A>` makes `<ID_A>`
+appear in two tracks. Call `rhino_director_compile_motion` with:
 
 ```json
 {
@@ -1362,18 +1364,51 @@ Call `rhino_director_compile_motion` with:
 }
 ```
 
-Expected: `success: true`; `data.track` with `frame_count == 24`, `animated_object_ids` = the two ids, `camera_frames`/`object_frames` length 24. (Note: `<ID_A>` appears in both the group and a bare-id track → this should fail `duplicate_object_target`; use it to confirm the duplicate rule, then move the rotate into the group keyframes or a separate id to get a clean compile.)
+Expected: **failure** with code `duplicate_object_target` (wire text begins
+`Error: ` and the JSON has `"code": "duplicate_object_target"`, `"object_id": "<ID_A>"`).
+Do **not** replay. (Product semantics: combined group-translate + per-object-rotate
+for one object is out of scope in PR4; layered/merged motion is a future design.
+Combined motion for an object belongs in that object's single track.)
 
-- [ ] **Step 3: Replay the compiled track**
+- [ ] **Step 3: Positive compile — clean non-overlapping spec**
 
-Call `rhino_director_replay` with `{"track": <data.track from step 2>}`.
-Expected: `success: true`, `data.status == "completed"`, `data.restored == true`; the boxes visibly lift (and rotate) in the viewport and return to source.
+Call `rhino_director_compile_motion` with a single group track (no object in two
+tracks; the translate and rotate live in the same keyframe of the same track):
 
-- [ ] **Step 4: Record the result**
+```json
+{
+  "timeline": {"fps": 24, "frame_count": 24},
+  "groups": {"pair": ["<ID_A>", "<ID_B>"]},
+  "motion": [
+    {"target": "pair", "keyframes": [
+      {
+        "t": 1.0,
+        "translate": [0, 0, 20],
+        "rotate": {"axis": [0, 0, 1], "angle_degrees": 90},
+        "ease_from_previous": "ease_in_out"
+      }
+    ]}
+  ]
+}
+```
 
-Note the outcome (pass/fail + any error code) in the PR description. If a defect surfaces that is adjacent to but outside PR4's scope, open a separate issue rather than widening this PR.
+Expected: **success**; the returned `track` has `frame_count == 24`,
+`animated_object_ids` = the two ids, and `camera_frames`/`object_frames` length 24.
+Keep `track` for the next step.
 
-- [ ] **Step 5: Commit (only if a doc note was added)**
+- [ ] **Step 4: Replay the compiled track**
+
+Call `rhino_director_replay` with `{"track": <track from step 3>}`.
+Expected: success, `status == "completed"`, `restored == true`; the boxes visibly
+lift and rotate in the viewport and return to source.
+
+- [ ] **Step 5: Record the result**
+
+Note both outcomes (negative reject + positive replay) in the PR description. If a
+defect surfaces that is adjacent to but outside PR4's scope, open a separate issue
+rather than widening this PR.
+
+- [ ] **Step 6: Commit (only if a doc note was added)**
 
 ```bash
 git add docs/superpowers/specs/2026-06-24-rookvisiondirector-animation-compiler-design.md
