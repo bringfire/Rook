@@ -264,8 +264,8 @@ async def test_live_current_step_stream_reaches_done_boundary(fresh_document):
     assert bind_record.bind_applied is True
     assert result.records[4].verifier_applied is True
     assert result.records[4].verifier_outcome_status == "succeeded"
-    assert bind_record.bind_result is not None
-    assert bind_record.bind_result.applied is True
+    assert bind_record.execution.bind_result is not None
+    assert bind_record.execution.bind_result.applied is True
 
     create_producer = result.records[0].execution.producer_result
     repair_producer = result.records[3].execution.producer_result
@@ -280,8 +280,8 @@ async def test_live_current_step_stream_reaches_done_boundary(fresh_document):
     assert create_record.evaluated is True
     assert create_record.passed is True, f"mismatches={create_record.mismatches!r}"
 
-    assert bind_record.bind_result.binding is not None
-    assert bind_record.bind_result.binding.params["guid"] == (
+    assert bind_record.execution.bind_result.binding is not None
+    assert bind_record.execution.bind_result.binding.params["guid"] == (
         create_record.repair_anchor_guid
     )
 
