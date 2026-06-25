@@ -73,7 +73,11 @@ static const GUID g_RookManagedPlugInId =
 { 0xb7e4a8c9, 0x1f62, 0x4c7e, { 0x9a, 0x2b, 0x5d, 0x4e, 0x8f, 0x1c, 0x3a, 0x7b } };
 
 static std::atomic<bool> g_stopCompanionLoad{ false };
+static std::atomic<DWORD> g_nativeStartupSehCode{ 0 };
 static std::thread g_companionLoadThread;
+static constexpr DWORD kMsvcCppExceptionCode = 0xE06D7363;
+static constexpr const wchar_t* kJackPrivateCanaryNote =
+    L"I'd fight a chicken with hands, a real chicken!";
 
 // ---------------------------------------------------------------------------
 // Companion activation — pre-registration model
@@ -170,7 +174,7 @@ static CompanionLoadAttempt ClassifyCompanionLoadException(const std::exception&
     };
 }
 
-static std::filesystem::path ResolveCompanionLoadDiagnosticPath()
+static std::filesystem::path ResolveRookDiscoveryDiagnosticRoot()
 {
     wchar_t localAppData[MAX_PATH] = {};
     const DWORD length = ::GetEnvironmentVariableW(L"LOCALAPPDATA", localAppData, MAX_PATH);
@@ -184,34 +188,341 @@ static std::filesystem::path ResolveCompanionLoadDiagnosticPath()
 
     std::error_code error;
     std::filesystem::create_directories(root, error);
-    return root / (L"companion-load-" + std::to_wstring(::GetCurrentProcessId()) + L".log");
+    return root;
 }
 
-static void WriteCompanionLoadDiagnostic(const std::wstring& message)
+static std::filesystem::path ResolveCompanionLoadDiagnosticPath()
 {
-    SYSTEMTIME now{};
-    ::GetSystemTime(&now);
+    return ResolveRookDiscoveryDiagnosticRoot()
+        / (L"companion-load-" + std::to_wstring(::GetCurrentProcessId()) + L".log");
+}
 
-    std::wstringstream line;
-    line
-        << std::setfill(L'0')
-        << now.wYear << L"-" << std::setw(2) << now.wMonth << L"-" << std::setw(2) << now.wDay
-        << L"T" << std::setw(2) << now.wHour << L":" << std::setw(2) << now.wMinute
-        << L":" << std::setw(2) << now.wSecond << L"." << std::setw(3) << now.wMilliseconds
-        << L"Z pid=" << ::GetCurrentProcessId();
-
-    const std::wstring debugLine = L"RookNative: " + message + L"\n";
-    ::OutputDebugStringW(debugLine.c_str());
-
+static void WriteDiagnosticLine(
+    const std::filesystem::path& path,
+    const wchar_t* area,
+    const std::wstring& message)
+{
     try
     {
-        std::wofstream log(ResolveCompanionLoadDiagnosticPath(), std::ios::app);
+        SYSTEMTIME now{};
+        ::GetSystemTime(&now);
+
+        std::wstringstream line;
+        line
+            << std::setfill(L'0')
+            << now.wYear << L"-" << std::setw(2) << now.wMonth << L"-" << std::setw(2) << now.wDay
+            << L"T" << std::setw(2) << now.wHour << L":" << std::setw(2) << now.wMinute
+            << L":" << std::setw(2) << now.wSecond << L"." << std::setw(3) << now.wMilliseconds
+            << L"Z pid=" << ::GetCurrentProcessId();
+
+        const std::wstring debugLine = L"RookNative: " + std::wstring(area) + L": " + message + L"\n";
+        ::OutputDebugStringW(debugLine.c_str());
+
+        std::wofstream log(path, std::ios::app);
         if (log)
-            log << line.str() << L" RookNative: " << message << std::endl;
+            log << line.str() << L" RookNative: " << area << L": " << message << std::endl;
     }
     catch (...)
     {
     }
+}
+
+static void WriteCompanionLoadDiagnostic(const std::wstring& message)
+{
+    try
+    {
+        WriteDiagnosticLine(ResolveCompanionLoadDiagnosticPath(), L"companion-load", message);
+    }
+    catch (...)
+    {
+    }
+}
+
+static void OutputNativeStartupDebugLine(const wchar_t* message)
+{
+    wchar_t debugLine[1024] = {};
+    swprintf_s(
+        debugLine,
+        L"RookNative: native-startup: %ls\n",
+        message != nullptr ? message : L"");
+    ::OutputDebugStringW(debugLine);
+}
+
+static bool AppendPathSegment(wchar_t* path, size_t pathCount, const wchar_t* segment)
+{
+    const size_t length = wcslen(path);
+    if (length > 0 && path[length - 1] != L'\\' && path[length - 1] != L'/')
+    {
+        if (wcscat_s(path, pathCount, L"\\") != 0)
+            return false;
+    }
+
+    return wcscat_s(path, pathCount, segment) == 0;
+}
+
+static bool BuildNativeStartupDiagnosticPath(wchar_t* path, size_t pathCount)
+{
+    wchar_t root[MAX_PATH] = {};
+    DWORD length = ::GetEnvironmentVariableW(L"LOCALAPPDATA", root, MAX_PATH);
+    if (length == 0 || length >= MAX_PATH)
+    {
+        length = ::GetTempPathW(MAX_PATH, root);
+        if (length == 0 || length >= MAX_PATH)
+            return false;
+    }
+
+    if (wcscpy_s(path, pathCount, root) != 0)
+        return false;
+
+    if (!AppendPathSegment(path, pathCount, L"Rook"))
+        return false;
+    ::CreateDirectoryW(path, nullptr);
+
+    if (!AppendPathSegment(path, pathCount, L"discovery"))
+        return false;
+    ::CreateDirectoryW(path, nullptr);
+
+    wchar_t fileName[80] = {};
+    swprintf_s(fileName, L"native-startup-%lu.log", ::GetCurrentProcessId());
+    return AppendPathSegment(path, pathCount, fileName);
+}
+
+static void AppendNativeStartupDiagnosticFileLine(const wchar_t* message)
+{
+    wchar_t path[MAX_PATH] = {};
+    if (!BuildNativeStartupDiagnosticPath(path, _countof(path)))
+        return;
+
+    HANDLE file = ::CreateFileW(
+        path,
+        FILE_APPEND_DATA,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        nullptr,
+        OPEN_ALWAYS,
+        FILE_ATTRIBUTE_NORMAL,
+        nullptr);
+    if (file == INVALID_HANDLE_VALUE)
+        return;
+
+    SYSTEMTIME now{};
+    ::GetSystemTime(&now);
+
+    wchar_t wideLine[2048] = {};
+    swprintf_s(
+        wideLine,
+        L"%04u-%02u-%02uT%02u:%02u:%02u.%03uZ pid=%lu RookNative: native-startup: %ls\r\n",
+        now.wYear,
+        now.wMonth,
+        now.wDay,
+        now.wHour,
+        now.wMinute,
+        now.wSecond,
+        now.wMilliseconds,
+        ::GetCurrentProcessId(),
+        message != nullptr ? message : L"");
+
+    char utf8Line[4096] = {};
+    const int bytes = ::WideCharToMultiByte(
+        CP_UTF8,
+        0,
+        wideLine,
+        -1,
+        utf8Line,
+        static_cast<int>(_countof(utf8Line)),
+        nullptr,
+        nullptr);
+    if (bytes > 1)
+    {
+        DWORD written = 0;
+        ::WriteFile(file, utf8Line, static_cast<DWORD>(bytes - 1), &written, nullptr);
+    }
+
+    ::CloseHandle(file);
+}
+
+static void TraceNativeStartupDiagnostic(const wchar_t* message)
+{
+    __try
+    {
+        OutputNativeStartupDebugLine(message);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+    }
+}
+
+static void TraceNativeStartupDiagnostic(const std::wstring& message)
+{
+    TraceNativeStartupDiagnostic(message.c_str());
+}
+
+static void CopyWideTruncated(wchar_t* destination, size_t destinationCount, const wchar_t* source)
+{
+    if (destination == nullptr || destinationCount == 0)
+        return;
+
+    size_t index = 0;
+    if (source != nullptr)
+    {
+        while (source[index] != L'\0' && index + 1 < destinationCount)
+        {
+            destination[index] = source[index];
+            ++index;
+        }
+    }
+    destination[index] = L'\0';
+}
+
+static void AppendWideTruncated(wchar_t* destination, size_t destinationCount, const wchar_t* suffix)
+{
+    if (destination == nullptr || destinationCount == 0 || suffix == nullptr)
+        return;
+
+    size_t index = 0;
+    while (index < destinationCount && destination[index] != L'\0')
+        ++index;
+    if (index >= destinationCount)
+        return;
+
+    size_t suffixIndex = 0;
+    while (suffix[suffixIndex] != L'\0' && index + 1 < destinationCount)
+    {
+        destination[index] = suffix[suffixIndex];
+        ++index;
+        ++suffixIndex;
+    }
+    destination[index] = L'\0';
+}
+
+static void WriteNativeStartupDiagnostic(const wchar_t* message)
+{
+    wchar_t durableMessage[1536] = {};
+    CopyWideTruncated(durableMessage, _countof(durableMessage), message);
+    if (wcsstr(durableMessage, kJackPrivateCanaryNote) == nullptr)
+    {
+        AppendWideTruncated(durableMessage, _countof(durableMessage), L"; jack-private-canary=\"");
+        AppendWideTruncated(durableMessage, _countof(durableMessage), kJackPrivateCanaryNote);
+        AppendWideTruncated(durableMessage, _countof(durableMessage), L"\"");
+    }
+
+    __try
+    {
+        OutputNativeStartupDebugLine(durableMessage);
+        AppendNativeStartupDiagnosticFileLine(durableMessage);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+    }
+}
+
+static void WriteNativeStartupDiagnostic(const std::wstring& message)
+{
+    WriteNativeStartupDiagnostic(message.c_str());
+}
+
+static std::wstring DispatcherStartupBreadcrumbText()
+{
+    return CMainThreadDispatcher::StartupBreadcrumbName(
+        CMainThreadDispatcher::GetStartupBreadcrumb());
+}
+
+static std::wstring DispatcherStartupBreadcrumbSuffix()
+{
+    return L"; breadcrumb=" + DispatcherStartupBreadcrumbText();
+}
+
+static std::wstring DispatcherStartupSetWindowSubclassSuffix()
+{
+    switch (CMainThreadDispatcher::GetStartupSetWindowSubclassStatus())
+    {
+    case CMainThreadDispatcher::StartupSubclassStatus::NotAttempted:
+        return L"; set-window-subclass=not-attempted";
+    case CMainThreadDispatcher::StartupSubclassStatus::Installed:
+        return L"; set-window-subclass=installed";
+    case CMainThreadDispatcher::StartupSubclassStatus::Failed:
+    {
+        const DWORD error = CMainThreadDispatcher::GetStartupSetWindowSubclassError();
+        wchar_t message[96] = {};
+        swprintf_s(message, L"; set-window-subclass=failed GetLastError=%lu", error);
+        return message;
+    }
+    default:
+        return L"; set-window-subclass=unknown";
+    }
+}
+
+static void FormatHex32Buffer(DWORD value, wchar_t* buffer, size_t bufferCount)
+{
+    swprintf_s(buffer, bufferCount, L"0x%08lX", value);
+}
+
+static void WriteDispatcherNativeStartupFailure(DWORD code)
+{
+    wchar_t codeText[16] = {};
+    FormatHex32Buffer(code, codeText, _countof(codeText));
+
+    wchar_t message[512] = {};
+    swprintf_s(
+        message,
+        L"dispatcher.start: failed with native exception %ls; breadcrumb=%ls",
+        codeText,
+        CMainThreadDispatcher::StartupBreadcrumbName(
+            CMainThreadDispatcher::GetStartupBreadcrumb()));
+    WriteNativeStartupDiagnostic(message);
+}
+
+static void WriteDispatcherCleanupNativeFailure(DWORD code)
+{
+    wchar_t codeText[16] = {};
+    FormatHex32Buffer(code, codeText, _countof(codeText));
+
+    wchar_t message[512] = {};
+    swprintf_s(
+        message,
+        L"startup cleanup dispatcher: trapped native exception %ls; breadcrumb=%ls",
+        codeText,
+        CMainThreadDispatcher::StartupBreadcrumbName(
+            CMainThreadDispatcher::GetStartupBreadcrumb()));
+    WriteNativeStartupDiagnostic(message);
+}
+
+static void WriteNativeStartupSuccess()
+{
+    WriteNativeStartupDiagnostic(
+        L"OnLoadPlugIn succeeded; dispatcher breadcrumb="
+        + DispatcherStartupBreadcrumbText()
+        + DispatcherStartupSetWindowSubclassSuffix());
+}
+
+static void WriteNativeStartupDispatcherSuccess()
+{
+    WriteNativeStartupDiagnostic(
+        L"dispatcher.start: succeeded"
+        + DispatcherStartupBreadcrumbSuffix()
+        + DispatcherStartupSetWindowSubclassSuffix());
+}
+
+static void WriteNativeStartupDispatcherCleanupSuccess()
+{
+    WriteNativeStartupDiagnostic(
+        L"startup cleanup dispatcher: done; breadcrumb="
+        + DispatcherStartupBreadcrumbText());
+}
+
+static void WriteNativeStartupDispatcherCppFailure(const wchar_t* prefix, const std::wstring& detail)
+{
+    try
+    {
+        WriteNativeStartupDiagnostic(prefix + detail + DispatcherStartupBreadcrumbSuffix());
+    }
+    catch (...)
+    {
+    }
+}
+
+static std::wstring WidenExceptionMessage(const std::exception& ex)
+{
+    return WidenAscii(ex.what() ? ex.what() : "");
 }
 
 static CompanionLoadAttempt AttemptCompanionLoadOnMainThread()
@@ -408,6 +719,174 @@ static void StopCompanionLoad()
         g_companionLoadThread.join();
 }
 
+static int CaptureNativeStartupSehException(EXCEPTION_POINTERS* exceptionInfo)
+{
+    const DWORD code = exceptionInfo && exceptionInfo->ExceptionRecord
+        ? exceptionInfo->ExceptionRecord->ExceptionCode
+        : 0;
+
+    if (code == kMsvcCppExceptionCode
+        || code == EXCEPTION_BREAKPOINT
+        || code == EXCEPTION_SINGLE_STEP)
+    {
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
+
+    g_nativeStartupSehCode.store(code, std::memory_order_release);
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+
+static BOOL StartDispatcherWithSehGuard(const ON_UUID* pluginId, CMainThreadDispatcher** dispatcherOut)
+{
+    __try
+    {
+        CMainThreadDispatcher::SetStartupBreadcrumb(
+            CMainThreadDispatcher::StartupBreadcrumb::InstanceRequested);
+        CMainThreadDispatcher* dispatcher = &CMainThreadDispatcher::Instance();
+        CMainThreadDispatcher::SetStartupBreadcrumb(
+            CMainThreadDispatcher::StartupBreadcrumb::InstanceResolved);
+        if (dispatcherOut != nullptr)
+            *dispatcherOut = dispatcher;
+        if (pluginId == nullptr)
+            return FALSE;
+        dispatcher->Start(*pluginId);
+        return TRUE;
+    }
+    __except (CaptureNativeStartupSehException(GetExceptionInformation()))
+    {
+        return FALSE;
+    }
+}
+
+static BOOL StopDispatcherWithSehGuard(CMainThreadDispatcher* dispatcher)
+{
+    __try
+    {
+        if (dispatcher != nullptr)
+            dispatcher->Stop();
+        return TRUE;
+    }
+    __except (CaptureNativeStartupSehException(GetExceptionInformation()))
+    {
+        return FALSE;
+    }
+}
+
+static void StopDispatcherAfterStartupFailure(CMainThreadDispatcher* dispatcher)
+{
+    if (dispatcher == nullptr)
+        return;
+
+    TraceNativeStartupDiagnostic(L"startup cleanup dispatcher: begin");
+    g_nativeStartupSehCode.store(0, std::memory_order_release);
+    if (StopDispatcherWithSehGuard(dispatcher))
+    {
+        WriteNativeStartupDispatcherCleanupSuccess();
+    }
+    else
+    {
+        WriteDispatcherCleanupNativeFailure(g_nativeStartupSehCode.load(std::memory_order_acquire));
+    }
+}
+
+static BOOL StartDispatcherForPluginLoad(ON_UUID pluginId)
+{
+    TraceNativeStartupDiagnostic(L"dispatcher.start: begin");
+    CMainThreadDispatcher* dispatcher = nullptr;
+    g_nativeStartupSehCode.store(0, std::memory_order_release);
+
+    try
+    {
+        if (!StartDispatcherWithSehGuard(&pluginId, &dispatcher))
+        {
+            WriteDispatcherNativeStartupFailure(g_nativeStartupSehCode.load(std::memory_order_acquire));
+            StopDispatcherAfterStartupFailure(dispatcher);
+            return FALSE;
+        }
+        TraceNativeStartupDiagnostic(
+            L"dispatcher.start: succeeded"
+            + DispatcherStartupBreadcrumbSuffix()
+            + DispatcherStartupSetWindowSubclassSuffix());
+        WriteNativeStartupDispatcherSuccess();
+    }
+    catch (const std::exception& ex)
+    {
+        WriteNativeStartupDispatcherCppFailure(
+            L"dispatcher.start: failed with std::exception: ",
+            WidenExceptionMessage(ex));
+        StopDispatcherAfterStartupFailure(dispatcher);
+        return FALSE;
+    }
+    catch (...)
+    {
+        WriteNativeStartupDispatcherCppFailure(
+            L"dispatcher.start: failed with non-standard exception",
+            L"");
+        StopDispatcherAfterStartupFailure(dispatcher);
+        return FALSE;
+    }
+
+    return TRUE;
+}
+
+static BOOL StartNativeServicesCore(CRookNativePlugin& plugin)
+{
+    const bool rhinoInside = plugin.IsRhinoInside();
+    TraceNativeStartupDiagnostic(
+        L"OnLoadPlugIn begin; version "
+        + std::wstring(static_cast<const wchar_t*>(plugin.PlugInVersion()))
+        + (rhinoInside ? L"; Rhino.Inside=true" : L"; Rhino.Inside=false"));
+
+    if (rhinoInside)
+    {
+        RhinoApp().Print(
+            L"RookNative %ls: Rhino.Inside mode detected. "
+            L"Interactive features (gumball, user prompts) may be unavailable.\n",
+            static_cast<const wchar_t*>(plugin.PlugInVersion()));
+    }
+
+    // Dispatcher startup is the canary boundary for the Rhino/SentinelOne
+    // crash report. Keep native SEH handling scoped here; later subsystems
+    // retain their normal startup/unload contracts.
+    if (!StartDispatcherForPluginLoad(plugin.PlugInID()))
+        return FALSE;
+
+    TraceNativeStartupDiagnostic(L"scene-graph.start: begin");
+    Rook::CSceneGraph::Instance().Start();
+    TraceNativeStartupDiagnostic(L"scene-graph.start: succeeded");
+
+    TraceNativeStartupDiagnostic(L"session-recorder.start: begin");
+    Rook::CSessionRecorder::Instance().Start(plugin.PlugInID());
+    TraceNativeStartupDiagnostic(L"session-recorder.start: succeeded");
+
+    TraceNativeStartupDiagnostic(L"http-server.start: begin");
+    if (CRookServer::Instance().Start())
+    {
+        TraceNativeStartupDiagnostic(L"http-server.start: succeeded");
+        RhinoApp().Print(L"RookNative %ls: HTTP server on port %d\n",
+            static_cast<const wchar_t*>(plugin.PlugInVersion()),
+            CRookServer::Instance().Port());
+    }
+    else
+    {
+        TraceNativeStartupDiagnostic(L"http-server.start: failed; continuing without HTTP listener");
+        RhinoApp().Print(L"RookNative %ls: WARNING — HTTP server failed to start\n",
+            static_cast<const wchar_t*>(plugin.PlugInVersion()));
+    }
+
+    TraceNativeStartupDiagnostic(L"companion-load.start-deferred: begin");
+    StartCompanionLoadDeferred();
+    TraceNativeStartupDiagnostic(L"companion-load.start-deferred: succeeded");
+
+    WriteNativeStartupSuccess();
+    return TRUE;
+}
+
+static BOOL StartNativeServices(CRookNativePlugin& plugin)
+{
+    return StartNativeServicesCore(plugin);
+}
+
 // --- Required Rhino SDK Declarations ---
 
 // Rhino C++ plugins require TWO static singletons per DLL:
@@ -464,59 +943,8 @@ CRhinoPlugIn::plugin_load_time CRookNativePlugin::PlugInLoadTime()
 
 BOOL CRookNativePlugin::OnLoadPlugIn()
 {
-    const bool rhinoInside = IsRhinoInside();
-
-    if (rhinoInside)
-    {
-        RhinoApp().Print(
-            L"RookNative %ls: Rhino.Inside mode detected. "
-            L"Interactive features (gumball, user prompts) may be unavailable.\n",
-            static_cast<const wchar_t*>(m_plugin_version));
-    }
-
-    // Start the main-thread dispatcher (CRhinoIsIdle watcher).
-    // IMPORTANT: Dispatcher must be accessed FIRST. Both singletons use
-    // function-local statics (Meyers singletons), which are destroyed in
-    // reverse order of first access. By accessing Dispatcher before Server,
-    // static destruction will destroy Server first, then Dispatcher — matching
-    // the shutdown dependency (server depends on dispatcher, not vice versa).
-    CMainThreadDispatcher::Instance().Start(PlugInID());
-
-    // Start the scene graph engine (background thread + event watcher).
-    // Must be after dispatcher (uses Dispatch for reconcile) and before server
-    // (HTTP handlers read the snapshot).
-    Rook::CSceneGraph::Instance().Start();
-
-    // Start session recorder (CRhinoEventWatcher for command tracking).
-    // Must be after dispatcher (commands dispatch to main thread).
-    Rook::CSessionRecorder::Instance().Start(PlugInID());
-
-    // Phase 0: History routes (/object/{id}/history, /objects/with-history)
-    // read whatever native HistoryRecord() data exists on objects.
-    // We do NOT force-enable the master switch — that's the user's choice
-    // via Rhino's "Record History" button. The routes work either way.
-
-    // Start the HTTP server on a background thread.
-    if (CRookServer::Instance().Start())
-    {
-        RhinoApp().Print(L"RookNative %ls: HTTP server on port %d\n",
-            static_cast<const wchar_t*>(m_plugin_version),
-            CRookServer::Instance().Port());
-    }
-    else
-    {
-        RhinoApp().Print(L"RookNative %ls: WARNING — HTTP server failed to start\n",
-            static_cast<const wchar_t*>(m_plugin_version));
-    }
-
-    // Defer managed companion load until after native plugin startup returns.
-    // Loading it directly inside OnLoadPlugIn() leaves the managed plug-in in
-    // a half-started state where callbacks never register. The same bridge is
-    // required in hosted Rhino.Inside sessions so /bim/* can reach managed
-    // callbacks without a manual command such as ShowRookChat.
-    StartCompanionLoadDeferred();
-
-    return TRUE;
+    AFX_MANAGE_STATE(AfxGetStaticModuleState());
+    return StartNativeServices(*this);
 }
 
 void CRookNativePlugin::OnUnloadPlugIn()
